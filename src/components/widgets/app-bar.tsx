@@ -18,12 +18,16 @@
 // and caption buttons; the frameless platforms get `AppMenu` on the left and
 // `WindowControls` on the right.
 // See docs/adr/2026-08-09-per-platform-window-chrome.md
+import { cn } from '@kubetail/ui/lib/utils';
+
+import { AccountAvatar } from '@/components/widgets/account-avatar';
+import { APP_BAR_CONTROL_CLASS } from '@/components/widgets/app-bar-button';
 import { AppMenu } from '@/components/widgets/app-menu';
 import { ContextOmnibox } from '@/components/widgets/context-omnibox';
 import { HistoryNav } from '@/components/widgets/history-nav';
 import { HomeButton } from '@/components/widgets/home-button';
+import { NotificationButton } from '@/components/widgets/notification-button';
 import { SettingsButton } from '@/components/widgets/settings-button';
-import { SignInButton } from '@/components/widgets/signin-button';
 import { WindowControls } from '@/components/widgets/window-controls';
 import { isMacOS } from '@/lib/platform';
 
@@ -54,7 +58,7 @@ export function AppBar() {
     <div
       data-testid="app-bar"
       data-tauri-drag-region="deep"
-      className="flex h-14 shrink-0 transform-gpu items-stretch bg-foreground/5 dark:bg-foreground/10"
+      className="flex h-14 shrink-0 transform-gpu items-stretch bg-topbar"
     >
       {mac ? (
         <div
@@ -86,8 +90,14 @@ export function AppBar() {
       {/* 20px from the window's right edge, or from the caption buttons where the
           platform draws them; 8px between the two, as on the left. */}
       <div data-testid="app-bar-actions" className="mr-5 flex items-center gap-2 self-center">
-        <SettingsButton />
-        <SignInButton />
+        {/* Grouped as one pill, like `HistoryNav`'s back/forward pair, since the two
+            read as a unit in the design rather than two separate controls. */}
+        <div className={cn('flex h-9 shrink-0 items-center border', APP_BAR_CONTROL_CLASS)}>
+          <NotificationButton />
+          <div className="h-4.5 w-px shrink-0 bg-sidebar-border" aria-hidden />
+          <SettingsButton />
+        </div>
+        <AccountAvatar />
       </div>
       {!mac && <WindowControls />}
     </div>

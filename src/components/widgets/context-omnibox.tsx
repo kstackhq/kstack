@@ -31,7 +31,7 @@ import {
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import { cn } from '@kubetail/ui/lib/utils';
 
-import { APP_BAR_CONTROL_CLASS } from '@/components/widgets/app-bar-button';
+import { APP_BAR_CONTROL_CLASS, APP_BAR_HOVER_CLASS } from '@/components/widgets/app-bar-button';
 
 import { useActiveCluster } from '@/lib/active-cluster';
 import { useActiveKubeContext } from '@/lib/active-kube-context';
@@ -62,11 +62,13 @@ function UnverifiedTLSBadge({ reason }: { reason: 'skip-verify' | 'plain-http' }
 function Segment({
   label,
   value,
+  icon,
   onSelect,
   children,
 }: {
   label: string;
   value: string;
+  icon?: ReactNode;
   onSelect: (next: string) => void;
   children: ReactNode;
 }) {
@@ -76,9 +78,16 @@ function Segment({
           holds its content's full width and the value spills past the omnibox
           instead of the inner `truncate` engaging. */}
       <DropdownMenuTrigger
-        render={<Button variant="ghost" size="xs" className="min-w-0 shrink rounded-full text-sm font-normal" />}
+        render={
+          <Button
+            variant="ghost"
+            size="xs"
+            className={cn('min-w-0 shrink rounded-full text-sm font-normal', APP_BAR_HOVER_CLASS)}
+          />
+        }
         aria-label={`${label}: ${value}`}
       >
+        {icon}
         <span className="truncate">{value}</span>
         <ChevronDown className="shrink-0 opacity-60" aria-hidden />
       </DropdownMenuTrigger>
@@ -91,6 +100,13 @@ function Segment({
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+// Presentational only, matching the Figma mockup's dot — there is no live
+// connection-health source wired to the omnibox yet (see `cluster-sync-panel.tsx`
+// for the real per-cluster verdict, computed from data this segment doesn't have).
+function ClusterDot() {
+  return <span aria-hidden className="size-2 shrink-0 rounded-full bg-emerald-500" />;
 }
 
 // The cluster half: the kube-contexts the kubeconfig defines. Selection is
@@ -134,7 +150,7 @@ function ClusterSegment() {
 
   return (
     <>
-      <Segment label="Cluster" value={context} onSelect={select}>
+      <Segment label="Cluster" value={context} icon={<ClusterDot />} onSelect={select}>
         {contexts.map((c) => (
           <DropdownMenuRadioItem key={c.name} value={c.name}>
             {c.name}
@@ -159,7 +175,7 @@ function MemoryButton() {
       aria-label="Memory"
       data-lit={lit}
       onClick={() => openDialog('memories')}
-      className={cn('rounded-full', lit ? 'text-primary' : 'text-muted-foreground')}
+      className={cn('size-8 rounded-full', lit ? 'text-primary' : 'text-muted-foreground', APP_BAR_HOVER_CLASS)}
     >
       <Brain aria-hidden />
     </Button>
@@ -176,9 +192,13 @@ export function ContextOmnibox() {
       // its padding should no more move the window than a browser's address bar.
       data-tauri-drag-region="false"
       className={cn(
-        'flex h-9 w-full max-w-160 items-center border bg-background px-1 dark:bg-input/30',
+        // 44px "hug": no fixed height, so the 32px buttons plus this padding size
+        // it, matching the Figma frame's own hug-contents sizing. The outline is a
+        // `ring`, not a `border`: a real border adds to an auto-sized box on top of
+        // the padding, which is what pushed this to 46px — a ring is a box-shadow,
+        // so it draws inside without touching the layout.
+        'flex w-full max-w-160 items-center bg-background px-1 py-1.5 shadow-sm ring-1 ring-inset ring-topbar-input-border dark:bg-input/30',
         APP_BAR_CONTROL_CLASS,
-        'border-primary/10',
       )}
     >
       <Button
@@ -186,7 +206,7 @@ export function ContextOmnibox() {
         size="icon-sm"
         aria-label="Clusters"
         onClick={() => openDialog('clusters')}
-        className="rounded-full text-muted-foreground"
+        className={cn('size-8 rounded-full text-muted-foreground', APP_BAR_HOVER_CLASS)}
       >
         <Boxes aria-hidden />
       </Button>

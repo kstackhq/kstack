@@ -39,10 +39,14 @@ vi.mock('@/components/widgets/home-button', () => ({
 vi.mock('@/components/widgets/history-nav', () => ({
   HistoryNav: () => <div data-testid="history-nav" />,
 }));
-// The account control reads the auth provider and the settings button the dialog
-// host; their own suites cover the real ones.
-vi.mock('@/components/widgets/signin-button', () => ({
-  SignInButton: () => <div data-testid="signin-button" />,
+// The account control reads the auth provider, the notification button opens a
+// popover, and the settings button opens the dialog host; their own suites cover
+// the real ones.
+vi.mock('@/components/widgets/account-avatar', () => ({
+  AccountAvatar: () => <div data-testid="account-avatar" />,
+}));
+vi.mock('@/components/widgets/notification-button', () => ({
+  NotificationButton: () => <div data-testid="notification-button" />,
 }));
 vi.mock('@/components/widgets/settings-button', () => ({
   SettingsButton: () => <div data-testid="settings-button" />,
@@ -156,11 +160,11 @@ describe('AppBar', () => {
     render(<AppBar />);
     const actions = screen.getByTestId('app-bar-actions');
     expect(actions).toHaveClass('mr-5', 'gap-2');
-    // Settings first, then the account control nearest the window's edge.
-    expect(Array.from(actions.children)).toEqual([
-      screen.getByTestId('settings-button'),
-      screen.getByTestId('signin-button'),
-    ]);
+    // The notification/settings pill first, then the account control nearest the
+    // window's edge.
+    const pill = screen.getByTestId('settings-button').parentElement!;
+    expect(Array.from(actions.children)).toEqual([pill, screen.getByTestId('account-avatar')]);
+    expect(Array.from(pill.children)).toContain(screen.getByTestId('notification-button'));
   });
 
   it('spaces the controls 16px from the chrome and 8px from each other', () => {

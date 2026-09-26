@@ -13,10 +13,12 @@
 // limitations under the License.
 
 // Minimize/maximize/close for the frameless Linux/Windows window — no OS caption
-// buttons there, so these are styled to read as native (Windows-style red close
-// hover). `AppBar` mounts them only off macOS, which draws its own.
+// buttons there. `AppBar` mounts them only off macOS, which draws its own. Every
+// control in the bar hovers to the same `custom/bg-input-80` wash, close included.
 import { Minus, Square, X } from 'lucide-react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+
+import { APP_BAR_HOVER_CLASS } from '@/components/widgets/app-bar-button';
 
 function minimize() {
   getCurrentWindow()
@@ -36,31 +38,21 @@ function close() {
     .catch(() => {});
 }
 
-// Shared button styling; each control adds its own hover treatment.
-const BUTTON_CLASS =
-  'flex h-full w-8 items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring';
+// Shared button styling, hover included: every control in the bar wears the same
+// `custom/bg-input-80` wash.
+const BUTTON_CLASS = `flex h-full w-8 items-center justify-center outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${APP_BAR_HOVER_CLASS}`;
 
 const CONTROLS = [
-  { label: 'Minimize', onClick: minimize, icon: <Minus className="h-4 w-4" aria-hidden />, hover: 'hover:bg-accent' },
-  {
-    label: 'Maximize',
-    onClick: toggleMaximize,
-    icon: <Square className="h-3.5 w-3.5" aria-hidden />,
-    hover: 'hover:bg-accent',
-  },
-  {
-    label: 'Close',
-    onClick: close,
-    icon: <X className="h-4 w-4" aria-hidden />,
-    hover: 'hover:bg-destructive hover:text-destructive-foreground',
-  },
+  { label: 'Minimize', onClick: minimize, icon: <Minus className="h-4 w-4" aria-hidden /> },
+  { label: 'Maximize', onClick: toggleMaximize, icon: <Square className="h-3.5 w-3.5" aria-hidden /> },
+  { label: 'Close', onClick: close, icon: <X className="h-4 w-4" aria-hidden /> },
 ] as const;
 
 export function WindowControls() {
   return (
     <div className="flex items-center">
-      {CONTROLS.map(({ label, onClick, icon, hover }) => (
-        <button key={label} type="button" aria-label={label} onClick={onClick} className={`${BUTTON_CLASS} ${hover}`}>
+      {CONTROLS.map(({ label, onClick, icon }) => (
+        <button key={label} type="button" aria-label={label} onClick={onClick} className={BUTTON_CLASS}>
           {icon}
         </button>
       ))}
