@@ -105,8 +105,9 @@ func (s *Sandbox) Command(ctx context.Context, r Run) *exec.Cmd {
 		params []string
 	}
 	done := make(chan built, 1)
+	build := buildProfile
 	go func() {
-		text, params := buildProfile(s, r, brewVar)
+		text, params := build(s, r, brewVar)
 		done <- built{text, params}
 	}()
 	var b built
