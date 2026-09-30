@@ -194,6 +194,7 @@ func TestKindNewsIsKeyedByCacheAndKind(t *testing.T) {
 
 func TestReplacingAKindDropsTheStoppedWorkersVerdict(t *testing.T) {
 	fake := newFakeKindSync()
+	fake.admit = make(chan struct{})
 	svc, pool := newTestService(t, fake.option())
 	runs := fake.runs
 	pool.lease("prod").vouch(t, "uid-1")
@@ -202,19 +203,21 @@ func TestReplacingAKindDropsTheStoppedWorkersVerdict(t *testing.T) {
 	kind := testKind("apps/v1", "Deployment", "deployments")
 	svc.TrackDiscovery(1, testParams)
 	svc.TrackKind(1, kind)
+	fake.admit <- struct{}{}
 	// The substitute answers Watching of its own as it comes up, so the run being admitted is
 	// not enough: a verdict written before that answer lands is the one it overwrites.
 	runs.Await(t, "the sync runs")
 	fake.established.Await(t, "the sync to be up")
 
 	// The plural is unchanged, so this is the same collection under a new Kind name. The
-	// worker that answered Watching is stopped, and the one replacing it may still be
-	// waiting for a connection or cold-listing.
+	// worker that answered Watching is stopped, and the one replacing it is held before it
+	// answers, as a real one is while it waits for a connection or cold-lists.
 	renamed := testKind("apps/v1", "Deploy", "deployments")
 	svc.TrackKind(1, renamed)
 	_, ok := svc.GetKindState(1, renamed)
 	assert.False(t, ok, "a replacement starts with no answer")
 
+	fake.admit <- struct{}{}
 	r := runs.Await(t, "the replacement runs")
 	fake.established.Await(t, "the replacement to be up")
 	r.Report(ReasonSyncing)

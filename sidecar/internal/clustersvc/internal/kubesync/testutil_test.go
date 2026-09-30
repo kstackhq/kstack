@@ -1013,6 +1013,10 @@ type fakeKindSync struct {
 	gateHold    chan struct{}
 	gateRefused *testutil.Probe[struct{}]
 
+	// admit, when set, holds each run past its gate until a send on it, so a test can look at
+	// a kind whose run has started and not yet answered. Nil unless a test asks for it.
+	admit chan struct{}
+
 	// Every run gets a generation, and liveGen holds the generations still able to write for
 	// each subject. Two of them live at once is the bug this detects: both write the same
 	// collection, and a rename gives them different singulars to key rows by.
@@ -1097,6 +1101,13 @@ func (f *fakeKindSync) Run(ctx context.Context, pass *supervisor.WorkerPass[Reas
 			}
 		}
 		return supervisor.Suspend(connectionReason(err, ReasonSyncFailed), err.Error())
+	}
+	if f.admit != nil {
+		select {
+		case <-f.admit:
+		case <-ctx.Done():
+			return supervisor.Skip()
+		}
 	}
 	report := func(reason string) { pass.Commit(Reason(reason)) }
 	f.runs.Fire(admittedRun{Kind: k, Report: report})
