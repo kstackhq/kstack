@@ -66,9 +66,9 @@ type Manager struct {
 	// rather than a file's: the reader watches every cache, and the file a verdict is about
 	// is the one a Clear replaces.
 	sizeLimitHub *conflate.Hub[int64, struct{}]
-	// deleteFiles is the unlink step, and closeFile the close both clears go through:
-	// seams, so a white-box test can drive a clear whose files will not go or whose
-	// database will not close.
+	// deleteFiles is the unlink step both clears go through, and closeFile the close they
+	// and the last release go through: seams, so a white-box test can drive a clear whose
+	// files will not go or whose database will not close.
 	deleteFiles func(path string) error
 	closeFile   func(f *file) error
 	// removed is the caches Remove has retired. A beehive ObjectID is never reused, so
@@ -124,7 +124,7 @@ func withDeleteFiles(f func(path string) error) option {
 	return func(m *Manager) { m.deleteFiles = f }
 }
 
-// withCloseFile substitutes the close both clears go through.
+// withCloseFile substitutes the close both clears and the last release go through.
 func withCloseFile(fn func(f *file) error) option {
 	return func(m *Manager) { m.closeFile = fn }
 }

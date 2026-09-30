@@ -154,6 +154,28 @@ func countRows(t *testing.T, s *Store, q string, args ...any) int {
 
 // A delta lands the row, its edges, and the position that would replay it — in one
 // transaction, so no restart resumes from a position the rows do not back.
+// The last release closes the file under the manager's lock, so a Clear or Remove never
+// finds the entry gone while its file is still open — Windows refuses to unlink one.
+func TestTheLastReleaseClosesTheFileUnderTheLock(t *testing.T) {
+	var m *Manager
+	underLock := make(chan bool, 1)
+	m = newManagerWithOptions(t.TempDir(), withCloseFile(func(f *file) error {
+		held := !m.mu.TryLock()
+		if !held {
+			m.mu.Unlock()
+		}
+		underLock <- held
+		return f.close()
+	}))
+	t.Cleanup(func() { require.NoError(t, m.Close()) })
+
+	store, err := m.OpenOrCreate(1)
+	require.NoError(t, err)
+	store.Release()
+
+	assert.True(t, testutil.Recv(t, underLock, "the release to close the file"))
+}
+
 func TestApplyChangeWritesTheObjectAndAdvancesTheCookie(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)

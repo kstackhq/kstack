@@ -274,11 +274,15 @@ func newFile(
 // Release gives the claim back; the last release on an entry closes its file. It counts
 // down the entry this store claimed, never whatever the id maps to now — a retired
 // entry's stragglers must not close a fresh claim's file.
+//
+// The close is under the manager's lock, as a clear's is: Windows refuses to unlink an
+// open file, so a Clear or Remove must not find the entry gone while its file is still
+// closing.
 func (s *Store) Release() {
 	s.m.mu.Lock()
+	defer s.m.mu.Unlock()
 	s.e.refs--
 	if s.e.refs > 0 {
-		s.m.mu.Unlock()
 		return
 	}
 	f := s.e.file
@@ -286,10 +290,8 @@ func (s *Store) Release() {
 	if s.m.entries[s.cacheID] == s.e {
 		delete(s.m.entries, s.cacheID)
 	}
-	s.m.mu.Unlock()
-
 	if f != nil {
-		f.close()
+		_ = s.m.closeFile(f)
 	}
 }
 
