@@ -358,7 +358,9 @@ func TestMirrorReportsATeardownWriteThatFailed(t *testing.T) {
 
 // scriptedWatches is the cluster client with its WatchList driven by the test: each
 // call takes the next answer — an error fails it, nil hands back a stream whose
-// changes are the test's to send or close. Everything else is the real client's.
+// changes are the test's to send or close — and a call with none queued fails, as
+// against a store that is down. It never blocks, since the mirror's loop waits on
+// it. Everything else is the real client's.
 type scriptedWatches struct {
 	beehive.Client[ClusterRuntimeSpec, ClusterStatus]
 	answers chan error
@@ -372,8 +374,13 @@ func scriptWatches(d *deps) *scriptedWatches {
 }
 
 func (s *scriptedWatches) WatchList(context.Context, ...beehive.WatchOption) (*beehive.ObjectListStream[ClusterRuntimeSpec, ClusterStatus], error) {
-	if err := <-s.answers; err != nil {
-		return nil, err
+	select {
+	case err := <-s.answers:
+		if err != nil {
+			return nil, err
+		}
+	default:
+		return nil, errors.New("store down")
 	}
 	ch := make(chan beehive.ObjectChange[ClusterRuntimeSpec, ClusterStatus])
 	s.opened <- ch
@@ -391,8 +398,8 @@ func TestMirrorReopensARuntimeWatchThatEnded(t *testing.T) {
 	testutil.Recv(t, passed, "the first pass")
 	first := testutil.Recv(t, watches.opened, "the first watch")
 
-	close(first)
 	watches.answers <- nil
+	close(first)
 	second := testutil.Recv(t, watches.opened, "the reopened watch")
 	testutil.Recv(t, passed, "the pass covering the gap")
 
@@ -419,8 +426,7 @@ func TestMirrorRetriesAReopenThatFailed(t *testing.T) {
 	testutil.Recv(t, m.passed, "the first pass")
 	first := testutil.Recv(t, watches.opened, "the first watch")
 
-	close(first)
-	watches.answers <- errors.New("store down")
+	close(first) // nothing queued: the reopen fails until the test answers nil
 	row := importCluster(t, d, "prod")
 	d.db.Notify(appdb.KeyClusters)
 	testutil.Recv(t, m.passed, "the pass the row signal woke while the watch is down")
