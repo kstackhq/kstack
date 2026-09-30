@@ -242,8 +242,9 @@ func TestTheKillShimsRefuseKstack(t *testing.T) {
 
 			// A job spec is the builtin's alone; zsh's command kill is /bin/kill.
 			// %% rather than %1: under zsh's eval the job is not number one.
+			// macOS's bash 3.2 reports the job's end on stderr before the status.
 			text, _ = tl.Run(t.Context(), rt, command("sleep 60 & kill %%; wait $!; echo $?"))
-			assert.Equal(t, "143\n", text, "kill %% stops the job")
+			assert.True(t, strings.HasSuffix(text, "143\n"), "kill %% stops the job: %q", text)
 
 			// With no pgrep to ask, pkill is left to fail as pkill does.
 			text, _ = tl.Run(t.Context(), rt, command("PATH=/nowhere; pkill -f x; echo $?"))
