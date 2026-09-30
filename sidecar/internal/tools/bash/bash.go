@@ -818,24 +818,32 @@ func (h hooks) waitAfterReap(ctx context.Context) {
 }
 
 // copyOutput copies r to dst on a goroutine of its own, and answers the channel
-// closed when the copy ends.
-func copyOutput(dst io.Writer, r io.Reader) <-chan struct{} {
+// closed when the copy ends. A copy awaitCopy cuts short still takes what the
+// pipe holds.
+func copyOutput(dst io.Writer, r *os.File) <-chan struct{} {
 	read := make(chan struct{})
 	go func() {
 		defer close(read)
-		_, _ = io.Copy(dst, r)
+		_, err := io.Copy(dst, r)
+		if errors.Is(err, os.ErrDeadlineExceeded) {
+			drainPipe(dst, r)
+		}
 	}()
 	return read
 }
 
-// awaitCopy waits for a copyOutput to end, or closes its pipe's read end once
-// grace is out and waits then. bash is gone by now; whatever still holds the
-// write end left its group, and the wait must end without it.
-func awaitCopy(read <-chan struct{}, r io.Closer, grace time.Duration) {
+// awaitCopy waits for a copyOutput to end, or cuts it short once grace is out
+// and waits then. bash is gone by now; whatever still holds the write end left
+// its group, and the wait must end without it. The cut is a read deadline, so
+// the copy still takes what bash wrote before it exited; a pipe that takes no
+// deadline is closed instead.
+func awaitCopy(read <-chan struct{}, r *os.File, grace time.Duration) {
 	select {
 	case <-read:
 	case <-time.After(grace):
-		_ = r.Close()
+		if r.SetReadDeadline(time.Now()) != nil {
+			_ = r.Close()
+		}
 		<-read
 	}
 }

@@ -19,6 +19,7 @@ package bash
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,6 +34,33 @@ import (
 // been killed: a descendant that left the group can still hold it, and the
 // call must end without it.
 const pipeGrace = time.Second
+
+// drainLimit bounds drainPipe, since a process outside the group can keep the
+// pipe full. What bash left in it is at most the pipe's capacity.
+const drainLimit = 1 << 20
+
+// drainPipe copies what r holds to dst without waiting for more. r's deadline
+// has passed, and a read waits on it before trying the pipe, so drainPipe
+// clears it and reads the descriptor directly.
+func drainPipe(dst io.Writer, r *os.File) {
+	rc, err := r.SyscallConn()
+	if err != nil || r.SetReadDeadline(time.Time{}) != nil {
+		return
+	}
+	buf := make([]byte, 32<<10)
+	left := drainLimit
+	_ = rc.Read(func(fd uintptr) bool {
+		for left > 0 {
+			n, err := syscall.Read(int(fd), buf[:min(len(buf), left)])
+			if n <= 0 || err != nil {
+				break // empty (EAGAIN), closed, or failed
+			}
+			_, _ = dst.Write(buf[:n])
+			left -= n
+		}
+		return true
+	})
+}
 
 // hooks order a race in a test; production runs with none.
 type hooks struct {
