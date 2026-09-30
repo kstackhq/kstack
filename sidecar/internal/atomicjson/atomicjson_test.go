@@ -102,6 +102,16 @@ func TestSaveCreatesMissingDirs(t *testing.T) {
 	}
 }
 
+func TestSaveFailsWhenTheParentIsAFile(t *testing.T) {
+	parent := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(parent, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := atomicjson.Save(filepath.Join(parent, "x.json"), doc{A: "v"}); err == nil {
+		t.Fatal("Save under a file returned no error")
+	}
+}
+
 // A read that fails for anything other than "missing" is an error, not a zero
 // value: only absence is a legitimate empty document.
 func TestLoadUnreadablePathReturnsError(t *testing.T) {

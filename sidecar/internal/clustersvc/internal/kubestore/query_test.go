@@ -414,6 +414,17 @@ func TestADeadlinePastTheFirstRowInterruptsTheQuery(t *testing.T) {
 	assert.Less(t, time.Since(start), testutil.Timeout)
 }
 
+// A query waits for one of the pool's connections only as long as its context allows.
+func TestAQueryEndsWithItsContextBeforeItHasAConnection(t *testing.T) {
+	s := newTestStore(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := s.Query(ctx, `SELECT 1`, 10, 1<<20)
+
+	require.ErrorIs(t, err, context.Canceled)
+}
+
 // queryConnOf is a query connection with no wrap in front of it, as Query takes one.
 func queryConnOf(t *testing.T, s *Store) *sql.Conn {
 	t.Helper()

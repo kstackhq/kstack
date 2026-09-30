@@ -67,6 +67,13 @@ func TestOpenWriterCreatesAnIncrementalFile(t *testing.T) {
 	require.Equal(t, incremental, mode)
 }
 
+// sql.Open is lazy, so a file that cannot be created fails at the open, not at the first
+// statement a caller runs.
+func TestOpenWriterRefusesAFileItCannotCreate(t *testing.T) {
+	_, err := OpenWriter(filepath.Join(t.TempDir(), "missing", "test.db"))
+	require.Error(t, err)
+}
+
 // The DSN sets the mode on a file this build creates; it cannot reach one that already
 // exists, because SQLite ignores the pragma once any table is in it. Deleting the repair
 // branch would strand every such file at its high-water mark, with a janitor's

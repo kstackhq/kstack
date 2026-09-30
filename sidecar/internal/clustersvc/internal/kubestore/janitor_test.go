@@ -347,6 +347,19 @@ func TestSweepFormsNoVerdictWithoutALimit(t *testing.T) {
 	assert.Equal(t, sizeUnknown, f.sizeVerdict.Load())
 }
 
+// A file gone from under a sweep is a clear or a teardown, and a verdict of "under" for it
+// would publish a release nothing released.
+func TestSweepLeavesTheVerdictOfAFileItCannotMeasure(t *testing.T) {
+	store := newTestStore(t)
+	f := openFileOf(t, store)
+	f.sizeVerdict.Store(sizeOver)
+	f.path = filepath.Join(t.TempDir(), "gone.db")
+
+	sweep(context.Background(), f, Retention{SizeLimit: gib})
+
+	assert.Equal(t, sizeOver, f.sizeVerdict.Load())
+}
+
 // A sync's writes sit in the WAL until a checkpoint moves them, so a file can cross its
 // ceiling on a log that is about to be reclaimed. Pausing a cache whose contents fit is the
 // wrong answer, so the sweep checkpoints first and judges the size that remains.

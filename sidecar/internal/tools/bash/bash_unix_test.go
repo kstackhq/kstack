@@ -562,6 +562,25 @@ func TestADrainOfAFileWithNoDeadlineTakesNothing(t *testing.T) {
 	assert.Empty(t, out.String())
 }
 
+// A copy of a file that takes no deadline is cut short by closing the file.
+func TestACutCopyClosesAFileWithNoDeadline(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "out")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+	read, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		awaitCopy(read, f, 0)
+	}()
+
+	require.Eventually(t, func() bool {
+		_, err := f.Stat()
+		return errors.Is(err, os.ErrClosed)
+	}, testutil.Timeout, time.Millisecond, "the cut to close the file")
+	close(read)
+	testutil.Wait(t, done, "the wait to end once the copy does")
+}
+
 // A stop that finds bash already collected by the OS, before the runner's own
 // reap, records and sends nothing: bash exited on its own.
 func TestAStopAfterTheOSReapSendsNothing(t *testing.T) {
