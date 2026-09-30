@@ -117,10 +117,11 @@ type file struct {
 	// which helper it came through.
 	set *sqlstmt.Set[stmtID]
 	hub *conflate.Hub[string, struct{}]
-	// stopJanitor retires this file's sweeper. A cancel and never a wait: all three exits
-	// hold m.mu across the close, and a wait there would stall Stats behind a vacuum. The
-	// sweep runs on the janitor's own context, so the cancel aborts it mid-statement.
-	stopJanitor context.CancelFunc
+	// stopJanitor retires this file's sweeper and waits for it to exit. The sweep runs on
+	// the janitor's own context, so the cancel aborts it mid-statement and the wait is
+	// short; without the wait, a statement still unwinding holds a connection the pools'
+	// Close does not wait for, and Windows refuses to delete a file one holds open.
+	stopJanitor func()
 	// now is the wall clock in millis; a seam so a test can freeze it. Reads go through
 	// stamp, never here.
 	now func() int64
@@ -236,8 +237,15 @@ func (f *file) startJanitor(ret Retention) {
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	f.stopJanitor = cancel
-	go runJanitor(ctx, f, ret)
+	done := make(chan struct{})
+	f.stopJanitor = func() {
+		cancel()
+		<-done
+	}
+	go func() {
+		defer close(done)
+		runJanitor(ctx, f, ret)
+	}()
 }
 
 // newFile wraps the open pools and their prepared set. Nothing else builds one —
