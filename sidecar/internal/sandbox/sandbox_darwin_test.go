@@ -507,6 +507,7 @@ func standIn(t *testing.T) *machineRun {
 	m.runDir = d[4]
 	snapshot := filepath.Join(d[5], "snapshot.sh")
 	require.NoError(t, os.WriteFile(snapshot, []byte("true\n"), 0o400))
+	SeedTmpDir(tmp)
 	m.Run = Run{
 		Shell:     "/bin/sh",
 		Dir:       ws,
@@ -595,8 +596,13 @@ func TestTheListedProgramsRun(t *testing.T) {
 		{"curl", `curl -sS --fail "http://127.0.0.1:$PORT/"`},
 	} {
 		t.Run(p.name, func(t *testing.T) {
-			if (p.name == "git" || p.name == "python3") && !hasTools {
-				t.Skip("no Command Line Tools: /usr/bin/" + p.name + " only offers to install them")
+			if p.name == "git" || p.name == "python3" {
+				if !hasTools {
+					t.Skip("no Command Line Tools: /usr/bin/" + p.name + " only offers to install them")
+				}
+				// A user who has run the tool has it in xcrun's cache, which
+				// the run starts with.
+				require.NoError(t, exec.Command("/bin/sh", "-c", p.script).Run())
 			}
 			m := standIn(t)
 			m.withCluster(t)

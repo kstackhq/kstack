@@ -23,6 +23,7 @@ import (
 	"strconv"
 
 	"github.com/kstackhq/kstack/sidecar/internal/rootdir"
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 )
 
 const (
@@ -52,6 +53,7 @@ type runDir struct {
 // directory that is not this user's alone (checkPrivate). It holds the
 // sidecar's lock in both before it makes anything in them (holdRunLock), so
 // a sweep never takes the run of a sidecar still running.
+// Its TMPDIR starts with what sandbox.SeedTmpDir copies.
 func newRunDir(runsDir, tmpDir string, pid int) (*runDir, error) {
 	runsDir = filepath.Clean(runsDir)
 	if err := checkSocketPath(runsDir); err != nil {
@@ -80,6 +82,7 @@ func newRunDir(runsDir, tmpDir string, pid int) (*runDir, error) {
 		_ = d.remove()
 		return nil, err
 	}
+	sandbox.SeedTmpDir(d.tmp)
 	return d, nil
 }
 

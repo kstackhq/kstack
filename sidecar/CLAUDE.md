@@ -1366,7 +1366,7 @@ data directory; one Mach service (`com.apple.system.opendirectoryd.libinfo`); an
 a socket, bind, inbound and outbound on `localhost:<port>` over TCP on IPv4 alone (`tcp4`, the
 one endpoint the forwarder holds; `ip` would take in UDP and IPv6 at that number) and outbound to
 the socket, and no other network. So the per-user temp directories and `/tmp` are unreadable, and a run with no
-cluster has no network. **`refusedServices` is what no profile names**, by name or by prefix:
+cluster has no network; xcrun's cache reaches a run as a copy in its `TMPDIR` instead. **`refusedServices` is what no profile names**, by name or by prefix:
 lookups, the Keychain, LaunchServices, Apple Events, the pasteboard, Spotlight and the services
 that fetch for their caller; `user-preference-read` and `-write` are never allowed either. A
 process spawned out of its group (`posix_spawn` with `POSIX_SPAWN_SETSID`, which Seatbelt cannot
@@ -2054,7 +2054,9 @@ under the runtime directory because a socket's path must fit (`maxSocketPath`, 1
 too long for the longest name (`maxRunDirName`, 18) before anything is made, the path taken as
 given, never resolved. **Its `TMPDIR` is `<cache>/tmp/<pid>-*`** (`Tool.tmpDir`), the one directory
 of its own the command may write: on disk, so a command fills it no further than it can fill its
-workspace. `newRunDir` makes `runs/` and `tmp/` 0700 first, and refuses a runs directory whose
+workspace. On macOS it starts with a copy of the user's xcrun lookup cache (`sandbox.SeedTmpDir`),
+since `/usr/bin`'s developer tools are xcrun shims and a miss with Xcode.app selected runs
+`xcodebuild` in the sandbox → [security record](../docs/security/2026-09-30-a-run-starts-with-xcruns-cache.md). `newRunDir` makes `runs/` and `tmp/` 0700 first, and refuses a runs directory whose
 parent is not this user's alone (`checkPrivate`: a directory, not a link, the user owns and no one
 else can write); every command refuses to start while the shell directory's parent is not either
 (`snapshotFor`), since it sources the snapshot there. Without `$XDG_RUNTIME_DIR` the runtime
