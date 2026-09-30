@@ -466,9 +466,18 @@ func (c *fakeCluster) crdWithVersions(group, plural string, versions []any) {
 	}
 }
 
+// prependList puts a LIST reactor at the front of the chain. The fake's PrependReactor
+// takes no lock while Invokes reads the chain under one, so a reactor added to a running
+// sync takes the lock here.
+func (c *fakeCluster) prependList(resource string, reaction clienttesting.ReactionFunc) {
+	c.dyn.Lock()
+	defer c.dyn.Unlock()
+	c.dyn.PrependReactor("list", resource, reaction)
+}
+
 // forbidCRDs refuses the CRD list, the read RBAC commonly denies.
 func (c *fakeCluster) forbidCRDs() {
-	c.dyn.PrependReactor("list", "customresourcedefinitions",
+	c.prependList("customresourcedefinitions",
 		func(clienttesting.Action) (bool, runtime.Object, error) {
 			return true, nil, apierrors.NewForbidden(crdGVR.GroupResource(), "", nil)
 		})
@@ -562,7 +571,7 @@ func object(apiVersion, kind, name, resourceVersion string) *unstructured.Unstru
 // hasObjects makes a collection answer a LIST with these bodies, at listRV. Every call fires
 // listed, so a test can tell a relist from a resume.
 func (c *fakeCluster) hasObjects(k kubestore.Kind, listRV string, objects ...*unstructured.Unstructured) {
-	c.dyn.PrependReactor("list", k.Resource, func(clienttesting.Action) (bool, runtime.Object, error) {
+	c.prependList(k.Resource, func(clienttesting.Action) (bool, runtime.Object, error) {
 		c.listed.Fire(k.Resource)
 		list := &unstructured.UnstructuredList{Object: map[string]any{
 			"apiVersion": k.APIVersion, "kind": k.Kind + "List",
@@ -579,7 +588,7 @@ func (c *fakeCluster) hasObjects(k kubestore.Kind, listRV string, objects ...*un
 // a transient refusal rather than a standing one.
 func (c *fakeCluster) failListOnce(k kubestore.Kind, err error) {
 	var once sync.Once
-	c.dyn.PrependReactor("list", k.Resource, func(clienttesting.Action) (bool, runtime.Object, error) {
+	c.prependList(k.Resource, func(clienttesting.Action) (bool, runtime.Object, error) {
 		refused := false
 		once.Do(func() { refused = true })
 		if refused {
@@ -592,7 +601,7 @@ func (c *fakeCluster) failListOnce(k kubestore.Kind, err error) {
 // refuseList makes a collection refuse to be listed. It fires listed too: every attempt is
 // observable whatever it answers, which is how a test sees a kind retrying a list it cannot take.
 func (c *fakeCluster) refuseList(k kubestore.Kind, err error) {
-	c.dyn.PrependReactor("list", k.Resource, func(clienttesting.Action) (bool, runtime.Object, error) {
+	c.prependList(k.Resource, func(clienttesting.Action) (bool, runtime.Object, error) {
 		c.listed.Fire(k.Resource)
 		return true, nil, err
 	})
@@ -656,7 +665,7 @@ func (s *streams) hold() func() {
 func (c *fakeCluster) holdList(k kubestore.Kind) *heldList {
 	h := &heldList{released: make(chan struct{})}
 	h.release = sync.OnceFunc(func() { close(h.released) })
-	c.dyn.PrependReactor("list", k.Resource, func(clienttesting.Action) (bool, runtime.Object, error) {
+	c.prependList(k.Resource, func(clienttesting.Action) (bool, runtime.Object, error) {
 		<-h.released
 		return false, nil, nil
 	})
