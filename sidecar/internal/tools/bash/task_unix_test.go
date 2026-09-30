@@ -40,7 +40,7 @@ func startHeld(t *testing.T, trap string, killGrace time.Duration) (*task, *hold
 	t.Helper()
 	tl := tool(t)
 	h := newHolder(t)
-	s := tl.spec(trap+"; "+h.command("& wait"), 1024)
+	s := tl.spec(trap+"; "+h.command("; wait"), 1024)
 	s.killGrace = killGrace
 	tk, err := startTask(t.Context(), s, taskOut(t))
 	require.NoError(t, err)
@@ -112,7 +112,7 @@ func TestATaskStopAfterTheReapDoesNothing(t *testing.T) {
 func TestATasksGroupDiesWithBash(t *testing.T) {
 	tl := tool(t)
 	h := newHolder(t)
-	tk, err := startTask(t.Context(), tl.spec(h.command("&"), 1024), taskOut(t))
+	tk, err := startTask(t.Context(), tl.spec(h.command(""), 1024), taskOut(t))
 	require.NoError(t, err)
 	assert.Equal(t, tools.Exit{Code: 0, OK: true}, tk.Wait())
 	h.awaitStarted(t)

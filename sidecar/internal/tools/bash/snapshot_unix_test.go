@@ -339,7 +339,7 @@ func TestRunKillsWhatACommandLeftBehindUnderZsh(t *testing.T) {
 	tl := profileTool(t, "zsh", "setopt monitor\n")
 	snapshotOf(t, tl)
 	h := newHolder(t)
-	text, isError := tl.Run(t.Context(), rt, command(h.command("&")))
+	text, isError := tl.Run(t.Context(), rt, command(h.command("")))
 	assert.False(t, isError, text)
 	h.awaitStarted(t)
 	h.awaitGone(t)
