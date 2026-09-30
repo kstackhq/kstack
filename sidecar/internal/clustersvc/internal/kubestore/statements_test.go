@@ -61,6 +61,8 @@ func TestNoSQLTextLivesOutsideTheTable(t *testing.T) {
 			"through a per-call read-only open that has no prepared set",
 		"WITH q AS MATERIALIZED": "KubeQuery's wrap holds a statement the model wrote, " +
 			"a new text on every call",
+		"SELECT 1 UNION ALL SELECT 2": "KubeQuery holds it on a query connection, " +
+			"which the prepared set does not reach",
 	}
 
 	fset := token.NewFileSet()

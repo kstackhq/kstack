@@ -170,6 +170,18 @@ func (f *file) query(ctx context.Context, sql string, maxRows, maxBytes int) (Qu
 	}
 	alone.Close()
 
+	// SQLite clears a pending interrupt when a statement starts on a connection running
+	// none, so a deadline landing between modernc's check of ctx and its first step would
+	// be lost and the statement would run whole. One left mid-step keeps it pending.
+	hold, err := conn.QueryContext(context.Background(), `SELECT 1 UNION ALL SELECT 2`)
+	if err != nil {
+		return QueryResult{}, err
+	}
+	defer hold.Close()
+	if !hold.Next() {
+		return QueryResult{}, hold.Err()
+	}
+
 	if f.onQuery != nil {
 		f.onQuery()
 	}
