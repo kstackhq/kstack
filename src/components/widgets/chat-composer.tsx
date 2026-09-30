@@ -240,8 +240,7 @@ export function ChatComposer({
   // All only once the watch they wait on has answered: a window at startup has not
   // failed to pick anything, and a catalog still in flight is not an empty one.
   let placeholder = 'Message…';
-  if (loaded && models.length === 0)
-    placeholder = 'Set an API key, then restart Kstack';
+  if (loaded && models.length === 0) placeholder = 'Set an API key, then restart Kstack';
   else if (clusterID === undefined && phase !== 'connecting') placeholder = 'Pick a cluster to start a chat';
 
   // Another model may not have the level this one is at, so the pick moves to the

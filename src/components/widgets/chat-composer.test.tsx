@@ -608,10 +608,7 @@ describe('ChatComposer', () => {
     renderComposer();
 
     const textarea = screen.getByRole('textbox');
-    expect(textarea).toHaveAttribute(
-      'placeholder',
-      'Set an API key, then restart Kstack',
-    );
+    expect(textarea).toHaveAttribute('placeholder', 'Set an API key, then restart Kstack');
     fireEvent.change(textarea, { target: { value: 'hello' } });
     expect(button('Send')).toBeDisabled();
     expect(screen.queryByRole('button', { name: /^Model:/ })).toBeNull();
