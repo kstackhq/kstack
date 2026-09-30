@@ -74,3 +74,31 @@ func TestPassReportsWhetherAValueHasLanded(t *testing.T) {
 	assert.True(t, landed.Known(), "the zero value is still a value that landed")
 	assert.Empty(t, landed.Prev())
 }
+
+// A worker pass built for a body's own tests records what the body did, since no supervisor is
+// there to receive it.
+func TestAWorkerPassRecordsItsCommitsAndReadiness(t *testing.T) {
+	p := NewWorkerPass("ctx-1", ptr("v0"), Snapshot{})
+	assert.Equal(t, "v0", p.Prev())
+	assert.True(t, p.Known())
+
+	_, ok := p.Updated()
+	assert.False(t, ok, "a worker that said nothing recorded nothing")
+	assert.False(t, p.IsReady())
+
+	p.Commit("v1")
+	p.Commit("v2")
+	p.Ready()
+
+	got, ok := p.Updated()
+	assert.True(t, ok)
+	assert.Equal(t, "v2", got)
+	assert.True(t, p.IsReady())
+}
+
+func TestAWorkerPassWithNoPriorValueIsNotKnown(t *testing.T) {
+	p := NewWorkerPass[string]("ctx-1", nil, Snapshot{})
+
+	assert.False(t, p.Known())
+	assert.Empty(t, p.Prev())
+}
