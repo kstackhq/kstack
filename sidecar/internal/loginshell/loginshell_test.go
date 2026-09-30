@@ -30,11 +30,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"golang.org/x/sys/unix"
+
+	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
 
-// testDeadline bounds an Import that should not need it. Injected, not the
-// production five seconds, so a regression fails a test run quickly.
-const testDeadline = 2 * time.Second
+// testDeadline bounds an Import that should not need it. Every test using it
+// ends on the shell's answer or exit, so it is only a backstop, and generous:
+// under the race detector on a loaded runner, the command's two dozen spawns
+// can take seconds.
+const testDeadline = testutil.Timeout
 
 func TestImportImportsThePathTheShellBuilds(t *testing.T) {
 	dir, plugin := fixturePlugin(t)
