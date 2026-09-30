@@ -431,8 +431,11 @@ func TestASweepThatFailsAtTheGateIsNotWaiting(t *testing.T) {
 	svc.TrackDiscovery(1, testParams)
 	awaitReason(t, svc, 1, ReasonDiscoveryFailed)
 
-	assert.False(t, svc.sessionOf(1).anyWaiting(),
-		"a probe pacing its own retries is not waiting on a connection")
+	// The first probe to fail publishes the reason while the other two may still be at the
+	// gate, each marked until its own refusal clears it, so the marks are waited out.
+	sess := svc.sessionOf(1)
+	require.Eventually(t, func() bool { return !sess.anyWaiting() },
+		testutil.Timeout, time.Millisecond, "a probe pacing its own retries is not waiting on a connection")
 }
 
 func TestAForgottenKindStopsWakingTheCache(t *testing.T) {
