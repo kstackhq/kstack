@@ -313,7 +313,8 @@ func TestMirrorSkipsARowTheRuntimeStoreRefuses(t *testing.T) {
 
 // A pass that failed is retried on the pass-retry delay, since no signal follows a
 // failure: a row the runtime store refuses fails the first pass, and a later pass
-// finds it gone without a notification.
+// mirrors a row added with no notification. The row goes in before the refused
+// one leaves, so every pass that could miss it still fails and retries.
 func TestMirrorRetriesAPassThatFailed(t *testing.T) {
 	d := newRunningDeps(t)
 	_, err := d.db.Write.Exec(`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES ('', 'kubeconfig', 'blank', 0, 0)`)
@@ -325,9 +326,9 @@ func TestMirrorRetriesAPassThatFailed(t *testing.T) {
 	t.Cleanup(func() { require.NoError(t, stop(context.Background())) })
 	testutil.Recv(t, m.passed, "the first pass")
 
+	row := importCluster(t, d, "prod")
 	_, err = d.db.Write.Exec(`DELETE FROM clusters WHERE id = ''`)
 	require.NoError(t, err)
-	row := importCluster(t, d, "prod")
 
 	awaitPass(t, m.passed, func() bool { return runtimeObjectOf(t, d, row.ID) != nil })
 }
