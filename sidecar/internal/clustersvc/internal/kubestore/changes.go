@@ -59,10 +59,11 @@ type Cursor struct {
 // transaction — the two ranges, the head and the mark — so the answer describes one snapshot
 // of the file rather than three.
 func (s *Store) ObjectChanges(ctx context.Context, apiVersion, resource string, since int64) (Changes[ObjectRow], error) {
-	f, err := s.file()
+	f, done, err := s.use()
 	if err != nil {
 		return Changes[ObjectRow]{}, err
 	}
+	defer done()
 	var out Changes[ObjectRow]
 	err = inReadTx(ctx, f, "read object changes", func(st stmts) error {
 		// The kind is resolved first and by itself, because the two ranges take it as a
@@ -95,10 +96,11 @@ func (s *Store) ObjectChanges(ctx context.Context, apiVersion, resource string, 
 // and one cursor over it, and its deletes are logged under the fixed ('v1', 'Event') — so
 // the answer's Kind is never in question.
 func (s *Store) EventChanges(ctx context.Context, since int64) (Changes[EventRow], error) {
-	f, err := s.file()
+	f, done, err := s.use()
 	if err != nil {
 		return Changes[EventRow]{}, err
 	}
+	defer done()
 	out := Changes[EventRow]{At: Cursor{Kind: eventsLogKind}}
 	err = inReadTx(ctx, f, "read event changes", func(st stmts) error {
 		var err error

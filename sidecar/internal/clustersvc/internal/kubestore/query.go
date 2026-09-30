@@ -110,11 +110,11 @@ func (e *QueryError) Error() string { return e.Message }
 // row would outlive its deadline. Materializing it makes all of it run in that first
 // step. The wrap also makes it a subquery, which only a query can be.
 func (s *Store) Query(ctx context.Context, sql string, maxRows, maxBytes int) (QueryResult, error) {
-	f, err := s.startQuery()
+	f, done, err := s.use()
 	if err != nil {
 		return QueryResult{}, err
 	}
-	defer f.queries.Done()
+	defer done()
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer context.AfterFunc(f.queryCtx, cancel)()
@@ -124,19 +124,6 @@ func (s *Store) Query(ctx context.Context, sql string, maxRows, maxBytes int) (Q
 		return QueryResult{}, fmt.Errorf("cache %d: %w", s.cacheID, ErrClosed)
 	}
 	return res, err
-}
-
-// startQuery resolves the file and counts a query on it in one critical section, so a
-// query either registers before a close and is waited for, or answers ErrClosed.
-func (s *Store) startQuery() (*file, error) {
-	s.m.mu.Lock()
-	defer s.m.mu.Unlock()
-	f, err := s.fileLocked()
-	if err != nil {
-		return nil, err
-	}
-	f.queries.Add(1)
-	return f, nil
 }
 
 // query is Query on its file, under a context the file's close cancels too.

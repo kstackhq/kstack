@@ -48,10 +48,11 @@ func (s *Store) Kinds(ctx context.Context) ([]KindRow, error) {
 // An unrecorded fingerprint is a table no sweep has written, and so is one that will not
 // parse. Neither is an error: it is what a fresh file, and a wiped one, look like.
 func (s *Store) KindsWithFingerprint(ctx context.Context) ([]KindRow, uint64, bool, error) {
-	f, err := s.file()
+	f, done, err := s.use()
 	if err != nil {
 		return nil, 0, false, err
 	}
+	defer done()
 	var (
 		out         []KindRow
 		fingerprint uint64
@@ -128,10 +129,11 @@ type EventRow struct {
 // caller resumes from that position, so a write landing between two reads would leave the
 // cursor claiming rows nobody was sent.
 func (s *Store) EventsWithCursor(ctx context.Context) ([]EventRow, Cursor, error) {
-	f, err := s.file()
+	f, done, err := s.use()
 	if err != nil {
 		return nil, Cursor{}, err
 	}
+	defer done()
 	var (
 		out []EventRow
 		at  = Cursor{Kind: eventsLogKind}
@@ -203,10 +205,11 @@ type ObjectRow struct {
 // this call, where the next resync's Deleted frame is the answer and a read failure would
 // be reporting a race as a breakage.
 func (s *Store) ObjectBody(ctx context.Context, uid string) ([]byte, bool, error) {
-	f, err := s.file()
+	f, done, err := s.use()
 	if err != nil {
 		return nil, false, err
 	}
+	defer done()
 	var stored []byte
 	err = f.set.Stmts().QueryRow(ctx, stmtSelectObjectBody, uid).Scan(&stored)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -237,10 +240,11 @@ func (s *Store) ObjectBody(ctx context.Context, uid string) ([]byte, bool, error
 // A plural naming no catalog row reads empty under an empty Kind, and the first changes read
 // that resolves one is then a difference — which is a full read, correctly.
 func (s *Store) ObjectsWithCursor(ctx context.Context, apiVersion, resource string) ([]ObjectRow, Cursor, error) {
-	f, err := s.file()
+	f, done, err := s.use()
 	if err != nil {
 		return nil, Cursor{}, err
 	}
+	defer done()
 	var (
 		out []ObjectRow
 		at  Cursor

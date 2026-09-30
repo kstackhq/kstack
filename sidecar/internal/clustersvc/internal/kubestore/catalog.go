@@ -65,10 +65,11 @@ const kindsFingerprintKey = "kinds/fingerprint"
 // table's contents: a partial answer upserts without pruning, so the table can hold rows
 // the fingerprint does not cover.
 func (s *Store) SyncKinds(ctx context.Context, rows []KindRow, prune bool, fingerprint uint64) error {
-	f, err := s.file()
+	f, done, err := s.use()
 	if err != nil {
 		return err
 	}
+	defer done()
 	err = f.set.InTx(ctx, func(st stmts) error {
 		for _, r := range rows {
 			// Delete then upsert, because the table has two unique keys and SQLite takes

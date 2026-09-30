@@ -107,12 +107,13 @@ type file struct {
 	// onQuery and afterQuery are seams for a test: onQuery runs as a query starts its
 	// statement, afterQuery as it is about to let go of its connection. Nil in production.
 	onQuery, afterQuery func()
-	// queryCtx ends the file's queries when it closes, and queries counts the ones
-	// running, which close waits for: a query registers under the manager's lock, the
-	// one every close but the last Release's runs under.
+	// queryCtx ends the file's queries when it closes. inUse counts the operations
+	// running on the file, queries included, which close waits for: sql.DB.Close does not
+	// wait for a connection in use, and Windows refuses to delete a file one holds open.
+	// An operation registers under the manager's lock, the one every close runs under.
 	queryCtx      context.Context
 	cancelQueries context.CancelFunc
-	queries       sync.WaitGroup
+	inUse         sync.WaitGroup
 	// set is statements prepared on both pools; a call routes by the table, never by
 	// which helper it came through.
 	set *sqlstmt.Set[stmtID]
@@ -219,11 +220,11 @@ func (f *file) notify(key string) {
 // close closes both pools and ends every subscriber, which is how a clear or a
 // shutdown reaches a live watch.
 //
-// It interrupts the file's queries and waits for their connections to close first, so
-// the file is not deleted under one: sql.DB.Close does not wait for a connection in use.
+// It interrupts the file's queries and waits for every operation on it to end first, so
+// the file is not deleted under a connection one still holds.
 func (f *file) close() error {
 	f.cancelQueries()
-	f.queries.Wait()
+	f.inUse.Wait()
 	if f.stopJanitor != nil {
 		f.stopJanitor()
 	}
@@ -296,12 +297,25 @@ func (s *Store) Release() {
 }
 
 // file resolves the open file behind this store, or ErrClosed once it is gone — a
-// Remove, or a Clear that could not reopen. Every method goes through it, so the check
-// lives here once rather than at every call site.
+// Remove, or a Clear that could not reopen. A method that reaches the database goes
+// through use instead, which adds the count a close waits on.
 func (s *Store) file() (*file, error) {
 	s.m.mu.Lock()
 	defer s.m.mu.Unlock()
 	return s.fileLocked()
+}
+
+// use resolves the file and counts an operation on it in one critical section, so the
+// operation either registers before a close and is waited for, or answers ErrClosed.
+// done ends it, once its connection is released.
+func (s *Store) use() (f *file, done func(), err error) {
+	s.m.mu.Lock()
+	defer s.m.mu.Unlock()
+	if f, err = s.fileLocked(); err != nil {
+		return nil, nil, err
+	}
+	f.inUse.Add(1)
+	return f, f.inUse.Done, nil
 }
 
 // fileLocked is file, for a caller holding the manager's lock.
@@ -351,10 +365,11 @@ func (f *file) subscribe(keys ...string) Subscription {
 // Cookie returns the watch resourceVersion recorded for one kind, and whether one is
 // recorded. Keys into cluster_meta, per the schema's bookkeeping bag.
 func (s *Store) Cookie(ctx context.Context, apiVersion, resource string) (string, bool, error) {
-	f, err := s.file()
+	f, done, err := s.use()
 	if err != nil {
 		return "", false, err
 	}
+	defer done()
 	var v string
 	err = f.set.Stmts().QueryRow(ctx, stmtSelectMeta, cookieKey(apiVersion, resource)).Scan(&v)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -368,10 +383,11 @@ func (s *Store) Cookie(ctx context.Context, apiVersion, resource string) (string
 
 // SetCookie records the watch resourceVersion for one kind.
 func (s *Store) SetCookie(ctx context.Context, apiVersion, resource, resourceVersion string) error {
-	f, err := s.file()
+	f, done, err := s.use()
 	if err != nil {
 		return err
 	}
+	defer done()
 	if err := setCookie(ctx, f.set.Stmts(), apiVersion, resource, resourceVersion); err != nil {
 		return fmt.Errorf("set cookie: %w", err)
 	}
@@ -393,10 +409,11 @@ func (s *Store) ApplyChange(ctx context.Context, k Kind, t watch.EventType, u *u
 		return fmt.Errorf("apply %s %s: empty object", k.Kind, t)
 	}
 
-	f, err := s.file()
+	f, done, err := s.use()
 	if err != nil {
 		return err
 	}
+	defer done()
 	err = f.set.InTx(ctx, func(st stmts) error {
 		stamp, err := f.writeStamp(ctx, st)
 		if err != nil {
@@ -464,10 +481,11 @@ func (f *file) writeEvent(ctx context.Context, st stmts, u *unstructured.Unstruc
 // CountKind returns one kind's cached rows, off the trigger-maintained kind_counts
 // rather than a scan of the shared objects table. A kind nothing has written reads 0.
 func (s *Store) CountKind(ctx context.Context, k Kind) (int, error) {
-	f, err := s.file()
+	f, done, err := s.use()
 	if err != nil {
 		return 0, err
 	}
+	defer done()
 	// Every cached event rolls into the schema's hardcoded ('v1','Event') tally,
 	// maintained by the events triggers.
 	var n int
@@ -483,10 +501,11 @@ func (s *Store) CountKind(ctx context.Context, k Kind) (int, error) {
 
 // Counts is the whole-cache tally: total cached objects, and how many kinds hold any.
 func (s *Store) Counts(ctx context.Context) (Counts, error) {
-	f, err := s.file()
+	f, done, err := s.use()
 	if err != nil {
 		return Counts{}, err
 	}
+	defer done()
 	return countKinds(ctx, f.db)
 }
 
@@ -515,10 +534,11 @@ func countKinds(ctx context.Context, db *sql.DB) (Counts, error) {
 // Kind, and resolving it here through kind_catalog would tie a teardown to a table the
 // sweep owns, leaving every row behind for a kind no sweep has reached yet.
 func (s *Store) ClearKind(ctx context.Context, k Kind) error {
-	f, err := s.file()
+	f, done, err := s.use()
 	if err != nil {
 		return err
 	}
+	defer done()
 	err = f.set.InTx(ctx, func(st stmts) error {
 		stamp, err := f.writeStamp(ctx, st)
 		if err != nil {
@@ -586,7 +606,7 @@ func (s *Store) BeginReplace(k Kind) (*ReplaceSession, error) {
 	}
 	// The session holds the file rather than re-resolving per page: a clear stops the
 	// cache's workers before it swaps, so no session is live across one.
-	return &ReplaceSession{f: f, kind: k, mark: f.stamp()}, nil
+	return &ReplaceSession{s: s, f: f, kind: k, mark: f.stamp()}, nil
 }
 
 // ReplaceSession streams a paginated relist into the shared tables, reconciling one
@@ -601,6 +621,7 @@ func (s *Store) BeginReplace(k Kind) (*ReplaceSession, error) {
 // Per-page commits trade whole-pass atomicity for that memory bound: a pass failing
 // mid-pagination leaves committed pages visible until the next one prunes them.
 type ReplaceSession struct {
+	s    *Store
 	f    *file
 	kind Kind
 	// mark is the sweep boundary: every stamp taken before this session is strictly
@@ -622,7 +643,12 @@ func (r *ReplaceSession) WritePage(ctx context.Context, items []*unstructured.Un
 	if len(items) == 0 && r.cookieCleared {
 		return nil
 	}
-	err := r.f.set.InTx(ctx, func(st stmts) error {
+	done, err := r.use()
+	if err != nil {
+		return err
+	}
+	defer done()
+	err = r.f.set.InTx(ctx, func(st stmts) error {
 		if !r.cookieCleared {
 			if err := deleteCookie(ctx, st, r.kind.APIVersion, r.kind.Resource); err != nil {
 				return fmt.Errorf("clear cookie: %w", err)
@@ -660,6 +686,18 @@ func (r *ReplaceSession) WritePage(ctx context.Context, items []*unstructured.Un
 	return nil
 }
 
+// use counts one call on the session's file, as Store.use does, or answers ErrClosed
+// once a clear or close has taken that file away.
+func (r *ReplaceSession) use() (func(), error) {
+	r.s.m.mu.Lock()
+	defer r.s.m.mu.Unlock()
+	if r.s.e.file != r.f {
+		return nil, fmt.Errorf("cache %d: %w", r.s.cacheID, ErrClosed)
+	}
+	r.f.inUse.Add(1)
+	return r.f.inUse.Done, nil
+}
+
 // writeObject lands one page item, skipping a body that will not project.
 func (r *ReplaceSession) writeObject(ctx context.Context, st stmts, u *unstructured.Unstructured, stamp writeStamp) error {
 	row, err := projectObject(u)
@@ -686,8 +724,13 @@ func (r *ReplaceSession) writeEvent(ctx context.Context, st stmts, u *unstructur
 // transaction — a failed persist must not leave the cookie durably advanced, which
 // would resume the next watch past the objects before it.
 func (r *ReplaceSession) Commit(ctx context.Context, resourceVersion string) (int, error) {
+	done, err := r.use()
+	if err != nil {
+		return 0, err
+	}
+	defer done()
 	var pruned int
-	err := r.f.set.InTx(ctx, func(st stmts) error {
+	err = r.f.set.InTx(ctx, func(st stmts) error {
 		stamp, err := r.f.writeStamp(ctx, st)
 		if err != nil {
 			return err
