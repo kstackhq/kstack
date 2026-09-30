@@ -530,6 +530,38 @@ func TestAPipeHeldPastTheGraceIsLetGo(t *testing.T) {
 	assert.Equal(t, "done\n", r.Output)
 }
 
+// A copy cut short by its deadline still takes what the pipe holds, though a
+// process outside the group keeps the write end open.
+func TestADrainTakesWhatThePipeHolds(t *testing.T) {
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = r.Close(); _ = w.Close() })
+	_, err = w.WriteString("left in the pipe\n")
+	require.NoError(t, err)
+	require.NoError(t, r.SetReadDeadline(time.Now()))
+
+	var out strings.Builder
+	drainPipe(&out, r)
+
+	assert.Equal(t, "left in the pipe\n", out.String())
+}
+
+// A file that takes no deadline is not drained.
+func TestADrainOfAFileWithNoDeadlineTakesNothing(t *testing.T) {
+	f, err := os.CreateTemp(t.TempDir(), "out")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = f.Close() })
+	_, err = f.WriteString("not a pipe\n")
+	require.NoError(t, err)
+	_, err = f.Seek(0, io.SeekStart)
+	require.NoError(t, err)
+
+	var out strings.Builder
+	drainPipe(&out, f)
+
+	assert.Empty(t, out.String())
+}
+
 // A stop that finds bash already collected by the OS, before the runner's own
 // reap, records and sends nothing: bash exited on its own.
 func TestAStopAfterTheOSReapSendsNothing(t *testing.T) {
