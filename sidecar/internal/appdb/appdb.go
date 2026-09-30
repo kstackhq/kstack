@@ -96,6 +96,10 @@ func (db *DB) Close() error {
 	if db.stopJanitor != nil {
 		db.stopJanitor()
 		<-db.janitorDone
+		// A sweep the cancel interrupted leaves SQLite's interrupt flag set on the
+		// writer until its next statement starts, and the checkpoint that closing it
+		// runs would fail on the flag and leave the -wal behind. Any statement clears it.
+		_, _ = db.Write.Exec(`SELECT 1`)
 	}
 	db.hub.Close()
 	return errors.Join(db.Read.Close(), db.Write.Close())
