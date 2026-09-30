@@ -28,7 +28,9 @@ import (
 // alias kill='kill -9' the definition would not parse. kill is the builtin
 // underneath, which keeps a job spec (%%) working. pkill asks pgrep first with
 // the same arguments less the ones pgrep does not take — a signal, and procps's
-// -e, -H and -q — which only widens what it matches. A pgrep that cannot answer
+// -e, -H and -q — which only widens what it matches. A signal name is matched
+// with [[:upper:]]: macOS's bash 3.2 matches a range like [A-Z] by the locale's
+// collation, which takes -ef for one. A pgrep that cannot answer
 // is a refusal, since an unreadable answer is not permission; a machine without
 // pgrep is left to pkill.
 const shims = `
@@ -61,7 +63,7 @@ pkill() {
 			__kstack_skip=0
 		else
 			case "$__kstack_first:$__kstack_a" in
-			1:-[0-9]* | 1:-[A-Z][A-Z]*) ;;
+			1:-[0-9]* | 1:-[[:upper:]][[:upper:]]*) ;;
 			*:--signal | *:-q | *:--queue) __kstack_skip=1 ;;
 			*:--signal=* | *:--queue=* | *:-e | *:--echo | *:-H | *:--require-handler) ;;
 			*) __kstack_args+=("$__kstack_a") ;;
