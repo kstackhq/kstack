@@ -276,8 +276,19 @@ func TestQueuedWritesAreBounded(t *testing.T) {
 	assert.Equal(t, "kstack: too many changes are waiting on the user. Send one at a time.", statusOf(t, reply).Message)
 	testutil.NoRecv(t, body.read.Chan(), quietWindow, "a queued write's body read")
 
+	// The queued writes race each other into the lock's line, so any that took
+	// the lock ahead of the PATCH are asked first: deny them until it holds it.
 	held.answer <- true
-	body.read.Wait(t, "the queued write's body to be read once it holds the lock")
+	for {
+		select {
+		case <-body.read.Chan():
+			return
+		case a := <-asker:
+			a.answer <- false
+		case <-time.After(testutil.Timeout):
+			t.Fatal("timed out waiting for the queued write's body to be read once it holds the lock")
+		}
+	}
 }
 
 // A write waiting on the user holds no slot: with a cap of one, a read passes
