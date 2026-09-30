@@ -85,7 +85,10 @@ const TRAFFIC_LIGHT_NATIVE_INSET: f64 = (NATIVE_TITLE_BAR_HEIGHT - TRAFFIC_LIGHT
 #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn traffic_light_position(bar_height: f64) -> (f64, f64) {
     let gap_above = (bar_height - TRAFFIC_LIGHT_DIAMETER) / 2.0;
-    (TRAFFIC_LIGHT_LEFT_INSET, gap_above + TRAFFIC_LIGHT_NATIVE_INSET)
+    (
+        TRAFFIC_LIGHT_LEFT_INSET,
+        gap_above + TRAFFIC_LIGHT_NATIVE_INSET,
+    )
 }
 
 /// `@kubetail/ui`'s `--background` token per scheme, tracked by eye — nothing

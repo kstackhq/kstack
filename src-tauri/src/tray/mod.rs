@@ -88,8 +88,9 @@ pub fn build_tray(app: &AppHandle) -> Result<()> {
                     let app = app.clone();
                     tauri::async_runtime::spawn(async move {
                         use tauri_plugin_opener::OpenerExt;
-                        if let Err(err) =
-                            app.opener().open_url(crate::cloud::account_url(), None::<&str>)
+                        if let Err(err) = app
+                            .opener()
+                            .open_url(crate::cloud::account_url(), None::<&str>)
                         {
                             tracing::error!(%err, "failed to open account settings URL");
                         }
