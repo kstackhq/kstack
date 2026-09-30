@@ -111,7 +111,8 @@ func TestMirrorWakesOnAnInsertedRow(t *testing.T) {
 }
 
 // An object with no row is a leftover — a row removed while the process was down, or
-// a crash between the two — and is torn down.
+// a crash between the two — and is torn down. The running controllers can finish the
+// teardown before the read, so an object already gone passes too.
 func TestMirrorDeletesAnOrphanObject(t *testing.T) {
 	d := newRunningDeps(t)
 	_, _, err := d.clusterClient.CreateOrUpdate(context.Background(), "no-such-row", kubeconfigRuntimeSpec("prod"))
@@ -120,9 +121,9 @@ func TestMirrorDeletesAnOrphanObject(t *testing.T) {
 	_, passed := startMirror(t, d)
 	testutil.Recv(t, passed, "the first pass")
 
-	obj, err := d.clusterClient.GetByName(context.Background(), "no-such-row")
-	require.NoError(t, err)
-	assert.NotNil(t, obj.DeletionRequestedAt)
+	if obj := runtimeObjectOf(t, d, "no-such-row"); obj != nil {
+		assert.NotNil(t, obj.DeletionRequestedAt)
+	}
 }
 
 // The mirror never touches updated_at: a reconcile is not a user edit.
