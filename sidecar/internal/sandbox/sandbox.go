@@ -45,9 +45,9 @@ type Run struct {
 	Policy Policy
 }
 
-// Verdict is whether this machine has a sandbox for commands to run through,
+// Status is whether this machine has a sandbox for commands to run through,
 // and why not. Whether that sandbox confines them is Sandbox.Confines.
-type Verdict struct {
+type Status struct {
 	Available bool
 	Reason    string
 }

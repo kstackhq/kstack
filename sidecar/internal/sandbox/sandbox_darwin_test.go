@@ -328,7 +328,7 @@ func TestWithoutSandboxExecThereIsNoSandbox(t *testing.T) {
 	s, v := probe(t.Context(), filepath.Join(t.TempDir(), "sandbox-exec"), testutil.Timeout)
 
 	assert.Nil(t, s)
-	assert.Equal(t, Verdict{Reason: "sandbox-exec not found"}, v)
+	assert.Equal(t, Status{Reason: "sandbox-exec not found"}, v)
 }
 
 // A profile the launcher refuses fails the probe with its stderr's first line.
@@ -338,7 +338,7 @@ func TestAProbeThatFailsSaysWhy(t *testing.T) {
 	s, v := probe(t.Context(), path, testutil.Timeout)
 
 	assert.Nil(t, s)
-	assert.Equal(t, Verdict{Reason: "sandbox_apply: Operation not permitted"}, v)
+	assert.Equal(t, Status{Reason: "sandbox_apply: Operation not permitted"}, v)
 }
 
 // A launcher that runs true under the profile is a sandbox that confines.
@@ -357,7 +357,7 @@ func TestAProbeThatTimesOutKeepsTheSandbox(t *testing.T) {
 	s, v := probe(t.Context(), launcher(t, "exec sleep 60\n"), 10*time.Millisecond)
 
 	require.NotNil(t, s)
-	assert.Equal(t, Verdict{Available: true, Reason: "Seatbelt, unconfirmed: the probe did not finish within 10ms"}, v)
+	assert.Equal(t, Status{Available: true, Reason: "Seatbelt, unconfirmed: the probe did not finish within 10ms"}, v)
 	assert.True(t, s.Confines())
 }
 

@@ -36,7 +36,7 @@ const probeTimeout = 2 * time.Second
 
 // Probe answers Seatbelt, available when sandbox-exec runs true under the
 // profile a run with no cluster gets.
-func Probe(ctx context.Context) (*Sandbox, Verdict) {
+func Probe(ctx context.Context) (*Sandbox, Status) {
 	return probe(ctx, "/usr/bin/sandbox-exec", probeTimeout)
 }
 
@@ -44,21 +44,21 @@ func Probe(ctx context.Context) (*Sandbox, Verdict) {
 // runs out of time keeps the sandbox: it runs once, at startup, so a slow
 // start must not leave the whole session unconfined. A run that then fails
 // under the profile fails closed.
-func probe(ctx context.Context, path string, timeout time.Duration) (*Sandbox, Verdict) {
+func probe(ctx context.Context, path string, timeout time.Duration) (*Sandbox, Status) {
 	if _, err := os.Stat(path); err != nil {
-		return nil, Verdict{Reason: "sandbox-exec not found"}
+		return nil, Status{Reason: "sandbox-exec not found"}
 	}
 	self, err := os.Executable()
 	if err != nil {
-		return nil, Verdict{Reason: "cannot find its own executable"}
+		return nil, Status{Reason: "cannot find its own executable"}
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, Verdict{Reason: "cannot find the home directory"}
+		return nil, Status{Reason: "cannot find the home directory"}
 	}
 	dir, err := os.MkdirTemp("", "kstack-probe-")
 	if err != nil {
-		return nil, Verdict{Reason: "cannot make a directory to probe in"}
+		return nil, Status{Reason: "cannot make a directory to probe in"}
 	}
 	defer os.RemoveAll(dir)
 
@@ -84,11 +84,11 @@ func probe(ctx context.Context, path string, timeout time.Duration) (*Sandbox, V
 	}
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return s, Verdict{Available: true, Reason: "Seatbelt, unconfirmed: the probe did not finish within " + timeout.String()}
+		return s, Status{Available: true, Reason: "Seatbelt, unconfirmed: the probe did not finish within " + timeout.String()}
 	case err != nil:
-		return nil, Verdict{Reason: probeFailure(stderr.String(), err)}
+		return nil, Status{Reason: probeFailure(stderr.String(), err)}
 	}
-	return s, Verdict{Available: true, Reason: "Seatbelt"}
+	return s, Status{Available: true, Reason: "Seatbelt"}
 }
 
 // probeFailure is why the probe's run failed: the first line of its stderr,

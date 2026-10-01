@@ -24,7 +24,7 @@ import (
 func TestWindowsHasNoSandbox(t *testing.T) {
 	s, v := Probe(context.Background())
 	assert.Nil(t, s)
-	assert.Equal(t, Verdict{Available: false, Reason: "no sandbox on native Windows; run Kstack in WSL2"}, v)
+	assert.Equal(t, Status{Available: false, Reason: "no sandbox on native Windows; run Kstack in WSL2"}, v)
 
 	var none *Sandbox
 	assert.False(t, none.Confines())

@@ -157,7 +157,7 @@ func TestWithoutBwrapThereIsNoSandbox(t *testing.T) {
 	s, v := probe(t.Context(), os.Args[0], nil, time.Minute)
 
 	assert.Nil(t, s)
-	assert.Equal(t, Verdict{Reason: "bwrap not found"}, v)
+	assert.Equal(t, Status{Reason: "bwrap not found"}, v)
 }
 
 // A bwrap that fails the probe is no sandbox, and the reason is the first
@@ -169,7 +169,7 @@ func TestAProbeThatFailsSaysWhy(t *testing.T) {
 	s, v := probe(t.Context(), os.Args[0], []string{bwrap}, time.Minute)
 
 	assert.Nil(t, s)
-	assert.Equal(t, Verdict{Reason: bwrap + ": bwrap: setting up uid map: Permission denied"}, v)
+	assert.Equal(t, Status{Reason: bwrap + ": bwrap: setting up uid map: Permission denied"}, v)
 }
 
 // A probe past its bound fails, saying so.
@@ -180,7 +180,7 @@ func TestAProbePastItsBoundFails(t *testing.T) {
 	s, v := probe(t.Context(), os.Args[0], []string{bwrap}, 10*time.Millisecond)
 
 	assert.Nil(t, s)
-	assert.Equal(t, Verdict{Reason: bwrap + ": no answer in 10ms"}, v)
+	assert.Equal(t, Status{Reason: bwrap + ": no answer in 10ms"}, v)
 }
 
 // When the system's bwrap fails, Kstack's own is probed in its place, and
@@ -196,7 +196,7 @@ func TestKstacksOwnBwrapStandsInForTheSystems(t *testing.T) {
 	s, v := probe(t.Context(), os.Args[0], []string{failing, own}, time.Minute)
 	require.NotNil(t, s)
 	assert.Equal(t, own, s.bwrap)
-	assert.Equal(t, Verdict{Available: true, Reason: "bwrap at " + own}, v)
+	assert.Equal(t, Status{Available: true, Reason: "bwrap at " + own}, v)
 
 	require.NoError(t, os.Remove(marker))
 	s, _ = probe(t.Context(), os.Args[0], []string{passing, own}, time.Minute)
@@ -206,7 +206,7 @@ func TestKstacksOwnBwrapStandsInForTheSystems(t *testing.T) {
 
 	s, v = probe(t.Context(), os.Args[0], []string{failing, ownFailing}, time.Minute)
 	assert.Nil(t, s)
-	assert.Equal(t, Verdict{Reason: failing + ": system failed; " + ownFailing + ": own failed"}, v)
+	assert.Equal(t, Status{Reason: failing + ": system failed; " + ownFailing + ": own failed"}, v)
 }
 
 // A probe with nowhere to make its workspace fails, saying why.
@@ -226,7 +226,7 @@ func TestAProbeThatFailsSilentlySaysHowItExited(t *testing.T) {
 
 	_, v := probe(t.Context(), os.Args[0], []string{bwrap}, time.Minute)
 
-	assert.Equal(t, Verdict{Reason: bwrap + ": exit status 3"}, v)
+	assert.Equal(t, Status{Reason: bwrap + ": exit status 3"}, v)
 }
 
 // run starts r through s and answers its exit code and its stdout. Stderr

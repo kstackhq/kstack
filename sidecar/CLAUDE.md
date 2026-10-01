@@ -1293,7 +1293,7 @@ is the block alone, for a tool that saves on its own: KubeQuery does, since its 
 failed save is a render of whole rows, where `Fit`'s would cut one.
 
 **`internal/sandbox` is the machine's sandbox**, a leaf that knows no tool and no cluster.
-`Probe(ctx)` answers a `*Sandbox`, nil for none, and a `Verdict` (`Available`, `Reason`), which
+`Probe(ctx)` answers a `*Sandbox`, nil for none, and a `Status` (`Available`, `Reason`), which
 `app` logs. `(*Sandbox).Command(ctx, Run)` is the process that runs a `Run` (`Shell`, `Args`,
 `Dir`, `Env`, the whole environment, and `Policy`) sandboxed, made by `exec.CommandContext` and
 not yet started, or an error and no command. `Confines()` is whether that confines it, and
@@ -2059,7 +2059,7 @@ chat. → [ADR: every tool is in the box](../docs/adr/2026-09-24-every-tool-is-i
 **A turn can run a command, once the user says so.** Bash is one tool in the box `chatsvc.New`
 takes, like any other, and every turn on a model that takes tools is offered the same `bash.Tool`,
 given its chat. **`app.go` offers it wherever `bash.New` finds a shell** (`newShell`, which
-probes the sandbox once and logs the verdict first; `chatTools`, the one
+probes the sandbox once and logs the status first; `chatTools`, the one
 `tools.NewBox`), then Read, Memory, Write, Edit, WebFetch, TaskStop, the provider's web search and KubeQuery; a machine with none is
 offered Read, Memory, Write, Edit, WebFetch, the search and KubeQuery, and reads bash's stored calls through `bash.Reader`. Read, Write and Edit take Kstack's three
 directories and build their own fence around them; `chatTools` runs once `makeDirs` has made them, and

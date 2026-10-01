@@ -326,8 +326,8 @@ func newCatalog(cfg Config) catalog.Catalog {
 // newShell is the bash tool over the machine's sandbox, probed once here; ok
 // false offers no bash.
 func newShell(paths bash.Paths, hostPID int, clusterSvc clustersvc.Service) (shell *bash.Tool, ok bool) {
-	sb, verdict := sandbox.Probe(context.Background())
-	slog.Info("sandbox probed", "available", verdict.Available, "reason", verdict.Reason)
+	sb, status := sandbox.Probe(context.Background())
+	slog.Info("sandbox probed", "available", status.Available, "reason", status.Reason)
 	return bash.New(paths, hostPID, sb, clusterSvc)
 }
 

@@ -25,8 +25,8 @@ var errNone = errors.New("no sandbox on Windows")
 
 // Probe answers no sandbox: native Windows has none, and WSL2 runs the Linux
 // build's.
-func Probe(context.Context) (*Sandbox, Verdict) {
-	return nil, Verdict{Reason: "no sandbox on native Windows; run Kstack in WSL2"}
+func Probe(context.Context) (*Sandbox, Status) {
+	return nil, Status{Reason: "no sandbox on native Windows; run Kstack in WSL2"}
 }
 
 // Command answers errNone and no command, so nothing runs unconfined in the

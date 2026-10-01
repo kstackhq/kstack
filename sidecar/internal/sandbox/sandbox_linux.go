@@ -41,19 +41,19 @@ var systemBwraps = []string{"/usr/bin/bwrap", "/bin/bwrap", "/usr/local/bin/bwra
 
 // Probe answers this machine's sandbox: the first bwrap that runs a command
 // through the whole chain, the system's before Kstack's own.
-func Probe(ctx context.Context) (*Sandbox, Verdict) {
+func Probe(ctx context.Context) (*Sandbox, Status) {
 	self, err := os.Executable()
 	if err != nil {
-		return nil, Verdict{Reason: "cannot find its own executable"}
+		return nil, Status{Reason: "cannot find its own executable"}
 	}
 	return probe(ctx, self, bwrapPaths(filepath.Dir(self), systemBwraps), probeBound)
 }
 
 // probe tries each of bwraps in order and answers the first that passes, or
 // every one's reason.
-func probe(ctx context.Context, self string, bwraps []string, bound time.Duration) (*Sandbox, Verdict) {
+func probe(ctx context.Context, self string, bwraps []string, bound time.Duration) (*Sandbox, Status) {
 	if len(bwraps) == 0 {
-		return nil, Verdict{Reason: "bwrap not found"}
+		return nil, Status{Reason: "bwrap not found"}
 	}
 	var reasons []string
 	for _, bwrap := range bwraps {
@@ -62,9 +62,9 @@ func probe(ctx context.Context, self string, bwraps []string, bound time.Duratio
 			reasons = append(reasons, bwrap+": "+err.Error())
 			continue
 		}
-		return s, Verdict{Available: true, Reason: "bwrap at " + bwrap}
+		return s, Status{Available: true, Reason: "bwrap at " + bwrap}
 	}
-	return nil, Verdict{Reason: strings.Join(reasons, "; ")}
+	return nil, Status{Reason: strings.Join(reasons, "; ")}
 }
 
 // try runs /bin/sh -c true through s, as a run with no cluster: bwrap, the
