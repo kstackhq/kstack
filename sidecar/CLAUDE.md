@@ -86,7 +86,7 @@ files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
   **`READY` promises a socket, not a finished startup.** `run` prints it after the bind and before `Start`; the first request is answered after `Start`, and every part completes its startup work inside `Start`. Everything that reads the environment does so after `main`'s shell import, which finishes before `run` — nothing sends before it, and `net/http` reads the proxy variables once per process on the first request.
 - `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.SecurityCfg` is the security settings store, named for what it holds since it is not a service; its one resolver is `securityRefused`.
 - `grpc/` — `AuthService`, `PokeService`, committed protoc output in `authpb/`, `pokepb/`. Regenerate with `make proto`; **never hand-edit `*.pb.go`**. `IsGRPCRequest` lives here.
-- `internal/` — `ipc`, `atomicjson`, `logging`, `safe` (an error rendered for a log line, and a command's output redacted: `Redact` line by line, `RedactJSON` a JSON text by its structure, for text that is one line with its newlines escaped; the field and flag rules read a credential's name off `credentialNames`, with or without the separator inside it, so camelCase keys match), `sqlitemigrate` (the migration runner, `Apply`), `sqlitepool` (the one home of the SQLite open contract: `OpenWriter` a store's one writer connection, `OpenReader` a reader pool, `OpenQuery` read-only connections through a caller's driver with none kept idle), `sqlstmt` (a store's statement table, prepared once on a file's writer and reader pools and routed per call: a `[]sqlstmt.Statement` indexed by the store's own id type, each entry its text and pool — `OnWriter`, `OnReader`, or `OnBoth` for a read some caller runs inside a write transaction; `Prepare[ID]` compiles it at open, since modernc caches nothing and a text handed to a pool at a call site is compiled every time; `Set.Stmts()` issues on the pools, `Set.InTx` inside one write transaction, `Set.InReadTx` inside one read-only transaction on the reader, always rolled back; inside a transaction the copy rebound, once per id, is the one prepared on that transaction's pool, and an id its pool does not hold panics; `Set.Close` finalizes the statements alone, and a closed set refuses `InTx`/`InReadTx` with `ErrClosed`, since `Tx.StmtContext` would quietly re-prepare a closed statement; imports nothing of ours; → [ADR: one statement set](../docs/adr/2026-09-16-sqlstmt-prepares-a-services-statements.md)), `appdb`, `rawjson`, `apimeta` (wire vocabulary no service owns — the delta-frame type, `ObjectID`, `ClusterID`, which `clustersvc` aliases, and `ChatID`, which `chatsvc` aliases and `memorysvc` and `tools.Runtime` name), `deltafold` (a watch's memory: `Snapshot`/`Diff`/`Upsert`/`Has` over a caller's key, equality and frame, plus `Send`; imports `apimeta` alone), `version` (`Version` is `dev` unless the linker stamped it: `scripts/build-sidecar.go` passes `-X …/internal/version.Version=$SIDECAR_VERSION` when set, `release.yml` sets it to the release version, and `main` logs it on the `sidecar starting` line; nothing reads a version from the environment or a file), `poke`, `kubeconfig`, `drain`, `lifecycle`, `loginshell`, `workqueue`, `supervisor`, `clustercard` (the cluster card a chat send will carry), `rootdir` (a directory opened and removed through an `os.Root`, under *Tools*), `sandbox` (the machine's sandbox and a run's forwarder, under *Tools*), `kubeproxy` (the cluster proxy a sandboxed run reaches its cluster through, under *Tools*), `memorysvc` (the notes a chat's cluster sees, below), `securityconfig` (the security settings, below), `catalog` (the providers and the tools each is offered, below), `testutil` (test-only, imported by no production code), plus the subsystems below.
+- `internal/` — `ipc`, `atomicjson`, `logging`, `safe` (an error rendered for a log line, and a command's output redacted: `Redact` line by line, `RedactJSON` a JSON text by its structure, for text that is one line with its newlines escaped; the field and flag rules read a credential's name off `credentialNames`, with or without the separator inside it, so camelCase keys match), `sqlitemigrate` (the migration runner, `Apply`), `sqlitepool` (the one home of the SQLite open contract: `OpenWriter` a store's one writer connection, `OpenReader` a reader pool, `OpenQuery` read-only connections through a caller's driver with none kept idle), `sqlstmt` (a store's statement table, prepared once on a file's writer and reader pools and routed per call: a `[]sqlstmt.Statement` indexed by the store's own id type, each entry its text and pool — `OnWriter`, `OnReader`, or `OnBoth` for a read some caller runs inside a write transaction; `Prepare[ID]` compiles it at open, since modernc caches nothing and a text handed to a pool at a call site is compiled every time; `Set.Stmts()` issues on the pools, `Set.InTx` inside one write transaction, `Set.InReadTx` inside one read-only transaction on the reader, always rolled back; inside a transaction the copy rebound, once per id, is the one prepared on that transaction's pool, and an id its pool does not hold panics; `Set.Close` finalizes the statements alone, and a closed set refuses `InTx`/`InReadTx` with `ErrClosed`, since `Tx.StmtContext` would quietly re-prepare a closed statement; imports nothing of ours; → [ADR: one statement set](../docs/adr/2026-09-16-sqlstmt-prepares-a-services-statements.md)), `appdb`, `rawjson`, `apimeta` (wire vocabulary no service owns — the delta-frame type, `ObjectID`, `ClusterID`, which `clustersvc` aliases, and `ChatID`, which `chatsvc` aliases and `memorysvc` and `tools.Runtime` name), `deltafold` (a watch's memory: `Snapshot`/`Diff`/`Upsert`/`Has` over a caller's key, equality and frame, plus `Send`; imports `apimeta` alone), `version` (`Version` is `dev` unless the linker stamped it: `scripts/build-sidecar.go` passes `-X …/internal/version.Version=$SIDECAR_VERSION` when set, `release.yml` sets it to the release version, and `main` logs it on the `sidecar starting` line; nothing reads a version from the environment or a file), `poke`, `kubeconfig`, `drain`, `lifecycle`, `loginshell`, `workqueue`, `supervisor`, `clustercard` (the cluster card a chat send will carry), `rootdir` (a directory opened and removed through an `os.Root`, under *Tools*), `sandbox` (the machine's sandbox and a run's forwarder, under *Tools*), `kubeproxy` (the cluster proxy a sandboxed run reaches its cluster through, under *Tools*), `memorysvc` (the notes a chat's cluster sees, below), `credentials` (credentials borrowed from the user's tools, below), `securityconfig` (the security settings, below), `catalog` (the providers and the tools each is offered, below), `testutil` (test-only, imported by no production code), plus the subsystems below.
 
 ## gRPC + GraphQL over one socket (h2c)
 
@@ -193,6 +193,84 @@ the next launch.
 
 Process-wide means process-wide: `internal/auth`'s browser opener resolves `open`/`xdg-open`
 against the imported PATH too.
+
+## Credentials (`internal/credentials`)
+
+**A credential is borrowed from the user's tool, never read from its files.** `Store` runs the
+tool's own command on the host — outside every sandbox, with the sidecar's environment, stdin the
+null device, in the user's home, bounded by `borrowTimeout` (30s), in a process group of its own
+(a kill-on-close job object on Windows) killed whole when the run is stopped and again when the
+tool exits (before it is reaped, while its pid still names the group; a job closes once it is), so
+a helper the tool started (AWS's `credential_process`) goes with it — and keeps the answer in
+memory. On Windows the tool starts suspended and is resumed only once it is in the
+job, so nothing it starts is outside it. `Close` cancels every run and returns once each has been
+reaped (`Store.run` counts them), since the sidecar exits right after. On Windows every tool starts with no console, and a batch wrapper (`gcloud.cmd`,
+`az.cmd`) runs through the system's `cmd.exe` on a line `batchLine` quotes, refusing an argument
+holding `"`, `%` or a line break, which nothing in a batch file's quoting escapes.
+Nothing is written to disk (`app`'s `TestNoCredentialIsWrittenToDisk`). A leaf: it imports `safe`,
+`gochan/watch` and `x/sync/singleflight`, and takes the kube contexts and the exclusion test as
+functions. `app` builds one (`newCredentials`: `exec.LookPath` for each tool on the sidecar's own
+`PATH`, `os.UserHomeDir()`, the kubeconfig's context names sorted) and keeps it as `App.creds`; the
+`credentials` part closes it. Nothing calls it yet; the proxies will. → [spec](../docs/specs/agent-security/1d-credentials-from-the-users-tools.md),
+[security record](../docs/security/2026-09-30-credentials-from-the-users-tools.md).
+
+- **The borrows**, one file per provider (`aws.go`, `github.go`, `google.go`, `azure.go`), each
+  with its command and its expiry table: `AWS(ctx, profile)` (`aws configure export-credentials`,
+  an `AWSCredential`), `Region` (`aws configure get region`, `""` on exit 1), `GitHub(ctx, host)`
+  (`gh auth token`, kept `githubTTL`, an hour), `Google(ctx)` (`gcloud config config-helper
+  --min-expiry=15m`) and `Azure(ctx, resource)` (`az account get-access-token`, per resource).
+  A credential is cached to the expiry the tool reports less `expiryMargin` (a minute), else
+  `defaultTTL` (15 minutes).
+- **An AWS credential carries its own account** (`AWSCredential.Account`, `callerAccount`): the
+  borrow runs `aws sts get-caller-identity` with the keys it just read as the only identity in the
+  child's environment — `awsIdentityVars` removed, the keys added, no `--profile`, the profile's
+  region as `AWS_REGION` — so the account is the one those keys reach, never the profile resolved
+  again. It is read once per credential, and a borrow that cannot read it fails. The runner seam
+  takes the child's `env`, nil for the sidecar's own.
+- **One borrow per cache key at a time** (`borrow`, `singleflight.DoChan`). A cache key names the
+  method and its argument (`aws:dev`, `region:dev`, `github:github.com`, `gcp`,
+  `azure:<resource>`); the identity it answers for is `Key{AWS, profile}` or the provider's bare
+  key. The run is bounded on the store's context, never a caller's, so a caller that gives up
+  ends its own wait alone; the flight checks the cache again first, and `settle` stores the answer
+  and the status under the lock before it returns.
+- **An empty binary is `ErrNoCLI`** and `Missing` under the provider's bare key; an empty home
+  empties every binary. `excluded(identity)` is read first on every borrow: `ErrExcluded`, nothing
+  run, no status. A borrow after `Close` is `ErrClosed`.
+- **A tool's exit** (`tool`): an expiry line on stderr (the provider's `cli.expired`, codes matched
+  as whole words) is `ErrExpired` and `Expired` with the line through `safe.String` as its detail;
+  any other is `credentials: <tool> exited N`, logged at info, never the output. **An expiry is
+  remembered for `expiredBackoff`** (30s) per cache key: a borrow within it answers `ErrExpired`,
+  running nothing and writing no status.
+- **Every secret goes to `safe.SetSecrets`** under its cache key's slot, so the registry holds
+  each identity's current credential. An AWS credential's are also registered the moment they are
+  decoded, under `read:<cache key>`, before `sts` runs, so a failure that echoes them is blanked
+  whatever the borrow comes to. The access key id, the account and the region are not secrets.
+- **Status** (`status.go`): `State(key)`, one in-memory table of `Valid`, `Expired`, `Missing` and
+  `Excluded`, served whole by `Subscribe` (a `watch` gauge; an unchanged write publishes nothing).
+  A success sets `Valid` unless another of the identity's cache keys holds a standing refusal, and
+  an AWS one removes the bare key's state. **`MarkExpired(key, arg, sent)`** refuses `sent` for
+  `arg`'s cache key and, unless that key's cache holds a newer secret (a request signed before a
+  refresh and refused after it), drops every cache entry of the identity and sets `Expired`. The
+  refusal is a SHA-256 of `sent`, the last `maxRefused` (16) distinct ones kept, a value refused again moving to the newest place,
+  and the value itself in the `refused:<cache key>` slot, which is
+  never cleared. **A refused credential stays refused**: an answer hashing to one is `ErrExpired`,
+  cached nowhere, checked under the lock so a borrow in flight cannot write it back, and it makes
+  that key's refusal standing and the identity `Expired` again, whatever answered in between; any
+  other answer clears that key's standing refusal. **`Recheck(ctx, key)`** borrows again past the cache
+  and the backoff — each standing refusal's key, else each credential borrowed since start, else
+  the identity's one credential (none for Azure) — all at once, and answers the state. The store
+  keeps every borrow it has run or refused by cache key, so a recheck runs the borrow itself.
+- **`Discover(ctx)`** (`discover.go`) asks every tool at once, each under `discoverTimeout` (15s),
+  what it holds — `gh auth status`, `aws configure list-profiles`, `gcloud config get-value`,
+  `az account show` — reading identities and never a secret, and keeps its `Found`
+  (`Found()`, `WaitFound(ctx)` once the first has ended). **It writes only what it proved**: a tool
+  absent or signed into nothing replaces the provider's states with `Missing` under the bare key;
+  `gh` exiting 0 sets GitHub `Valid` and clears the refusal and backoff of every cache key it holds,
+  unless an expiry or refusal was written after the looks began (`expireLocked` counts each in
+  `expiries`, and Discover reads the count first), which is newer than its proof; any other
+  identity found fills a gap or a `Missing`, leaving `Expired`; an identity no longer listed goes;
+  a failure that proves nothing changes nothing and keeps the last `Found`'s entry. An `Excluded`
+  state is never changed.
 
 ## Cluster subsystem (`internal/clustersvc`)
 
