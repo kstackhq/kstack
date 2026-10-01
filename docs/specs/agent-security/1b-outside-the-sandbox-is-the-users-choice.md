@@ -1,7 +1,7 @@
 ---
 title: Outside the sandbox is the user's choice
 scope: sidecar, webview
-status: Planned
+status: Done
 ---
 
 # Outside the sandbox is the user's choice
@@ -220,12 +220,12 @@ command still runs outside, and a heading that followed the switch would say oth
 
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
-| 1 | The column, the row, the mutation, the query and the status `app` builds | `appdb/migrations/0001_init.sql`, `chatsvc/` (with `testutil_test.go`'s constructors for `chatsvc.New`'s new argument), `sidecar/graph/schema.graphqls`, `sidecar/graph/resolver.go`, `sidecar/graph/schema.resolvers.go`, the graph tests' servers, `app/app.go`, `app/app_unix_test.go` (`newShell`'s new result), generated code, their tests | — | Planned |
-| 2 | `Runtime.OutsideSandbox`, read with the chat's cluster and set on a subagent | `tools/tool.go`, `chatsvc/turn.go`, `chatsvc/subagent.go`, their tests | 1 | Planned |
-| 3 | Bash: the flag goes; the runtime decides; `workdir`'s description; the message; the prompts | `tools/bash/bash.go`, `tools/bash/task.go`, `tools/bash/prompts/`, `app/app_unix_test.go` and `app/testutil_unix_test.go` (the flag's end-to-end tests), `sidecar/graph/schema.resolvers_test.go` (`TestCommandActionCarriesTheSandbox` sends the flag), every `bashInput` call in `app_unix_test.go`, their tests | 2 | Planned |
-| 4 | The context's `Sandbox` section and the system prompt's paragraph | `chatsvc/workspace.go`, `chatsvc/service.go`, `chatsvc/notices.go` (`checkChat`'s other caller), `chatsvc/prompts/system.md`, their tests | 2 | Planned |
-| 5 | `CommandAction.outsideSandbox` goes; `Chat.outsideSandbox` joins the chats watch's selection; codegen; `useSandbox`; the composer's button and dialog; the headings | `tools/tool.go`, `sidecar/graph/schema.graphqls`, generated code, `src/gql/`, `src/lib/sandbox.tsx`, `src/lib/chats.tsx`, `src/components/widgets/chat-composer.tsx`, `chat-pane.tsx`, `chat-transcript.tsx`, their tests, `chats.test.tsx` (it pins the selection) and every fixture that carries `outsideSandbox` (`chat-transcript.test.tsx`), and every test fixture that builds a `Chat` (`chat-nav.test.tsx` among them) | 1, 3 | Planned |
-| 6 | Docs, per *When it lands* | see there | 1–5 | Planned |
+| 1 | The column, the row, the mutation, the query and the status `app` builds | `appdb/migrations/0001_init.sql`, `chatsvc/` (with `testutil_test.go`'s constructors for `chatsvc.New`'s new argument), `sidecar/graph/schema.graphqls`, `sidecar/graph/resolver.go`, `sidecar/graph/schema.resolvers.go`, the graph tests' servers, `app/app.go`, `app/app_unix_test.go` (`newShell`'s new result), generated code, their tests | — | Done |
+| 2 | `Runtime.OutsideSandbox`, read with the chat's cluster and set on a subagent | `tools/tool.go`, `chatsvc/turn.go`, `chatsvc/subagent.go`, their tests | 1 | Done |
+| 3 | Bash: the flag goes; the runtime decides; `workdir`'s description; the message; the prompts | `tools/bash/bash.go`, `tools/bash/task.go`, `tools/bash/prompts/`, `app/app_unix_test.go` and `app/testutil_unix_test.go` (the flag's end-to-end tests), `sidecar/graph/schema.resolvers_test.go` (`TestCommandActionCarriesTheSandbox` sends the flag), every `bashInput` call in `app_unix_test.go`, their tests | 2 | Done |
+| 4 | The context's `Sandbox` section and the system prompt's paragraph | `chatsvc/workspace.go`, `chatsvc/service.go`, `chatsvc/notices.go` (`checkChat`'s other caller), `chatsvc/prompts/system.md`, their tests | 2 | Done |
+| 5 | `CommandAction.outsideSandbox` goes; `Chat.outsideSandbox` joins the chats watch's selection; codegen; `useSandbox`; the composer's button and dialog; the headings | `tools/tool.go`, `sidecar/graph/schema.graphqls`, generated code, `src/gql/`, `src/lib/sandbox.tsx`, `src/lib/chats.tsx`, `src/components/widgets/chat-composer.tsx`, `chat-pane.tsx`, `chat-transcript.tsx`, their tests, `chats.test.tsx` (it pins the selection) and every fixture that carries `outsideSandbox` (`chat-transcript.test.tsx`), and every test fixture that builds a `Chat` (`chat-nav.test.tsx` among them) | 1, 3 | Done |
+| 6 | Docs, per *When it lands* | see there | 1–5 | Done |
 
 **Order:** 1, then 2, then 3 and 4 at the same time, then 5, then 6.
 

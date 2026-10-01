@@ -1240,8 +1240,8 @@ have seen of the files they read: `Stamp(path)` and `SetStamp(path, s)`, keyed b
 `fileguard.Abs` spells it. A `Stamp` is the SHA-256 of the bytes read and `Whole`, set only when the
 model was shown every byte as it is — from line 1 to the end, nothing cut, redacted or stripped —
 so Write can tell a file seen whole from one seen in part. A `Runtime` is what a tool gets of the chat its call
-runs in: `ClusterID`, the chat's stored cluster, and `ChatID`, which a model names neither of, then
-`Dir`, `Tasks`, `Files`, `Agent` and `ClusterWriteAsker`, which puts a sandboxed command's cluster
+runs in: `ClusterID`, the chat's stored cluster, and `ChatID`, which a model names neither of,
+`OutsideSandbox`, the chat's switch as its turn read it, then `Dir`, `Tasks`, `Files`, `Agent` and `ClusterWriteAsker`, which puts a sandboxed command's cluster
 write (`ClusterWriteRequest`) to the user, nil where nobody can be asked. `chatsvc` sets every
 field; a test sets the ones its tool
 reads. Each tool reads the fields it uses (Read `Dir` and `Files`, Write and Edit `Dir` and `Files`,
@@ -1260,7 +1260,7 @@ reap — and `Stop(now)`, a no-op after the reap.
 **A tool that can show a call exports `ActionOf(arguments, cwd) (tools.Action, error)`** (bash's
 also takes the row's `sandboxed`), a package-level function over the same `parse` its `Run` uses, which its `Action` method calls, and
 its offered name as `Name`. A `tools.Action` is the model's `Description` and exactly one kind —
-`Command` (`Text`, `Cwd`, `Background`, `Sandboxed` off the row, `OutsideSandbox` off the arguments), `Read` (`Path`), `Write` (`Path`, `Content`),
+`Command` (`Text`, `Cwd`, `Background`, `Sandboxed` off the row), `Read` (`Path`), `Write` (`Path`, `Content`),
 `Edit` (`Path`, `OldString`, `NewString`, `ReplaceAll`), `Search` (`Query`), `Fetch` (`URL`, `Host`) or
 `Memory` (`Op`, `Name`, `Body`, `Scope`; the call's own `Description` stays empty) or `KubeQuery` (`SQL`, `Limit`) — `Kind()` naming it, and carries JSON tags, since it rides the wire inside
 `ToolCall` and gqlgen binds `ToolAction` and the kinds onto it. TaskStop's calls show none.
@@ -1769,12 +1769,13 @@ fake, a test tool and a logging recorder.
 > `agent` → `chatsvc`. What exists:
 >
 > - The record: the types, the statements and row helpers, `Get`, `List`, `Rename` (the
->   title trimmed, refused empty or over `maxTitleLen`), `Delete`, the two watches, and
->   the chat sweeper.
+>   title trimmed, refused empty or over `maxTitleLen`), `SetSandboxDisabled` (the user's
+>   switch, `ErrBadRequest` on a machine with no sandbox, `updated_at` left alone), `Delete`,
+>   the two watches, and the chat sweeper.
 > - The lifecycle: `Start` fails the stranded runs, closes their model and tool calls
 >   (`{"error":"stranded"}` on a tool call) and starts the sweeper; `stop` cancels the turns and joins them with the pumps and the sweeper.
 > - The turn: `Send` resolves the provider and model it names through the llm
->   service (`New(db, chatsDir, llmSvc, clusterCards, memories, box, lists)`: the box every turn is offered
+>   service (`New(db, chatsDir, llmSvc, clusterCards, memories, box, lists, sandbox)`: the box every turn is offered
 >   from, which reads every stored call, and `ToolLists`, the one method it calls of the
 >   catalog, `ToolsFor(target)`, taken the way it takes `ClusterCards` so its tests list their own
 >   tools), writes its rows and runs one
@@ -1886,7 +1887,7 @@ cluster. `New` makes the chats' directory 0700 and opens it as an `os.Root` (`op
 `Close`; its path is absolute, since a result names its file under the root's name and `Read` takes
 only an absolute path. `chatDir` is a chat's `tools.ChatDir`, built from its id: `Root` is
 `rootdir.Open` of the chat's entry, so a link a command swaps in reaches no other directory. The
-turn's box is `s.boxFor(t.target)`, and its runtime is `tools.Runtime{ClusterID: t.clusterID, ChatID: chatID, Dir: s.chatDir(chatID), Tasks: s.chatTasks(chatID, t.runJournal), Files: s.chatFiles(chatID), Agent: t}`, `t.clusterID` read once as the run starts (`chatCluster`); a subagent and a task take the cluster from the turn that started them.
+turn's box is `s.boxFor(t.target)`, and its runtime is `tools.Runtime{ClusterID: t.clusterID, ChatID: chatID, OutsideSandbox: t.outsideSandbox, Dir: s.chatDir(chatID), Tasks: s.chatTasks(chatID, t.runJournal), Files: s.chatFiles(chatID), Agent: t}`, `t.clusterID` read once as the run starts (`chatOf`) and `t.outsideSandbox` once in the transaction that reserves the turn, beside the context block that tells the model, so a switch flipped mid-turn changes the next turn; a subagent and a task take both from the turn that started them.
 **A chat's file stamps** (`files.go`) are one map per chat under `stampsMu`, never persisted:
 `Delete` drops them once the rows are gone, and a restart forgets them all, which fails closed.
 **`Delete` refuses an id that is not a UUID** (`ErrBadRequest`) before touching anything: the id
@@ -1905,7 +1906,8 @@ then this service's `conversations`, `messages`, `agent_runs`, `llm_calls`, `too
 `approvals` — the user's decisions on a call: its own, one per gated call, and each cluster
 write its sandboxed command sent (below) — and
 `background_tasks`, one row per command started in the background (*Background commands*, below). In Go and on the wire a conversation is a `Chat` with a `ChatID`, and a message a
-`ChatMessage` with a `MessageID`. A conversation carries a `mode` column — which of the app's two modes lists it, fixed at creation and checked by
+`ChatMessage` with a `MessageID`. A conversation carries `sandbox_disabled`, the user's switch
+(`Chat.SandboxDisabled`, 0 at creation), and a `mode` column — which of the app's two modes lists it, fixed at creation and checked by
 the column, since each mode shows only its own chats — and a `cluster_id`, the `clusters` row it
 was started under, fixed at creation too: each cluster lists only its own chats. It references
 `clusters(id)` with `ON DELETE CASCADE` as a backstop; the sweeper (below) empties a marked cluster
@@ -1946,8 +1948,9 @@ user message. A chat has no dialect of its own. The read is `messages LEFT JOIN 
 same `scanMessage`. **`FinishReason` is the run's latest non-null `llm_calls.stop_reason` by
 `seq`**, a correlated subselect, on every run status.
 
-**A send is one transaction** (`Send` → `writeTurnRows`): after the replay lookup, `checkChat` and
-`resolveChat`, it reserves the turn with a fresh `RunID`, reads `nextSeq`, and inserts the user
+**A send is one transaction** (`Send` → `writeTurnRows`): after the replay lookup, `checkChat` —
+which reads the chat's switch and refuses a send whose `sandboxDisabled` differs with
+`ErrChatSandboxChanged`, so the turn runs where its sender saw it would — and `resolveChat`, it reserves the turn with a fresh `RunID`, reads `nextSeq`, and inserts the user
 message carrying the client's `request_key`, the queued run, and the assistant message with
 `emptyContent` (`[]`) and the run's id — in that order, since each references the last. IDs are
 minted inside the transaction. **The turn is the agent's recorder** (`turn.go` implements
@@ -2059,7 +2062,9 @@ chat. → [ADR: every tool is in the box](../docs/adr/2026-09-24-every-tool-is-i
 **A turn can run a command, once the user says so.** Bash is one tool in the box `chatsvc.New`
 takes, like any other, and every turn on a model that takes tools is offered the same `bash.Tool`,
 given its chat. **`app.go` offers it wherever `bash.New` finds a shell** (`newShell`, which
-probes the sandbox once and logs the status first; `chatTools`, the one
+probes the sandbox once, logs the status first and returns it beside the tool; `sandboxStatusOf`
+builds the one `sandbox.Status` from both, available only with a shell and a sandbox, which
+`chatsvc.New` and `graph.Resolver` take; `chatTools`, the one
 `tools.NewBox`), then Read, Memory, Write, Edit, WebFetch, TaskStop, the provider's web search and KubeQuery; a machine with none is
 offered Read, Memory, Write, Edit, WebFetch, the search and KubeQuery, and reads bash's stored calls through `bash.Reader`. Read, Write and Edit take Kstack's three
 directories and build their own fence around them; `chatTools` runs once `makeDirs` has made them, and
@@ -2080,7 +2085,7 @@ where `bash.exe` may be the WSL launcher — and the user's home directory; `ok`
 tool. Tests that want bash whatever the machine's login shell clear `SHELL` (the `tool` helper
 does). **The sandbox is reached through `Tool.sandboxer`**, a `sandboxer` (`Command`, `System`, `Never`, `Confines`, `Port`) so a test can stand
 in for it, set only for a non-nil `*sandbox.Sandbox`. A call is **sandboxed** when the tool has one
-and the call does not set `dangerouslyDisableSandbox`; `sandboxerFor` is that test, and a sandboxed
+and its runtime's `OutsideSandbox` is false: the model has no say. `sandboxerFor(rt)` is that test, which `Approval`, `startDir`, `runCall` and `runTask` all ask, and a sandboxed
 call's `spec.sandboxedRun` (a `sandboxedRun`: the sandboxer, the run's directory and the `sandbox.Run`) makes
 `shellCmd` build the command through `Command` (foreground and background alike). `Approval`'s `Sandboxed` is true only for a sandboxed call on a sandbox that
 `Confines`, and so is its `Skip`: such a call runs unasked, and every other call asks.
@@ -2177,20 +2182,17 @@ token, a helm change, a change past 1 MiB and a background command's change come
 `Forbidden`; that a Secret changes with `kubectl apply --server-side`; and that a Secret reads
 `[redacted]`.
 **A `Tool` is the `tools.Gated` a turn is offered**, matched to Claude Code's `Bash`: `Definition` is a function named `Bash` whose
-schema (`prompts/schema.json`) takes `command`, `description`, `timeout` (milliseconds), `run_in_background` and `workdir` —
-`prompts/schema_sandbox.json` adds the reference's `dangerouslyDisableSandbox` where the tool has a
-sandbox — and whose description is `prompts/description.md`. The schema's `description` property is Kstack's
+schema (`prompts/schema.json`), one with a sandbox or without, takes `command`, `description`, `timeout` (milliseconds), `run_in_background` and `workdir` —
+never the reference's `dangerouslyDisableSandbox`, so leaving the sandbox is the user's switch — and whose description is `prompts/description.md`. The schema's `description` property is Kstack's
 own: the user reads the description *above the command* on the approval request, so it names
 what the command changes and where, and never calls a command safe — the model's claim is never
 the app's. `Prompt` is `prompts/bash.md`, Kstack's own lines, where the tool has no sandbox. Where it has
 one, `prompts/sandbox.md` takes the place of bash.md's first paragraph, which says every command
-waits (what the sandbox reaches, when to set the flag, and that only a command with it waits for
-the user), then on Linux `prompts/sandbox_linux.md` (a snap's program runs outside the sandbox),
+waits (what the sandbox reaches, that the user can switch the chat outside it, which the context says, and that only a command outside it waits for
+the user), then on Linux `prompts/sandbox_linux.md` (a snap's program needs the chat run outside the sandbox),
 then the rest of bash.md; then `- Platform:` (`runtime.GOOS`) and `- Shell:`, and on Windows a line on Git Bash's paths.
 `Approval`, `Run`, `CallTimeout` and `ActionOf` read the input through one `parse` that walks the
-tokens — `dangerouslyDisableSandbox` a key only where it is offered (where the tool has a sandbox,
-and always for `ActionOf`, since a stored row keeps the flag on a machine that has since lost its
-sandbox), `errInputSandboxed` naming it where it is — each key
+tokens — `dangerouslyDisableSandbox` refused like any unknown key — each key
 spelled exactly and at most once, nothing after the object, **each value's type checked off its
 token** (a typed decode takes `null` as the zero value), a command never empty (it would still
 start bash, which sources `BASH_ENV`) — since a struct decode matches a case variant and lets a
@@ -2504,7 +2506,10 @@ request key). `Agent` is ungated, so an agent a sidecar-started turn launched ri
 question instead: no chain runs past the turn an agent's end starts. That is `startNoticeTurn`, a send
 without a sender: one transaction that reads the notices, resolves the last answer's provider,
 model and effort, makes every check a send makes, reserves the turn, files a user message of
-the notices alone (no request key, no card), marks them told and touches the chat. A cancelled
+the notices alone (no request key, no card), marks them told and touches the chat. It carries a
+context block only when the chat's switch moved since the newest one: that block with its
+`## Sandbox` section replaced (`withSandboxReplaced`, `workspace.go`), so the model knows where the turn's
+commands run. A cancelled
 or failed turn kicks nothing, and nothing kicks at startup.
 
 **`internal/tools/taskstop` is `TaskStop`**: ungated, reading `rt.Tasks`, `task_id` read by a strict
@@ -2823,19 +2828,24 @@ child answers (its agent's file, `general.md`). All under `prompts/`. Per-run st
 way, so the prefix cache holds.
 
 **A question carries a cluster card when the card has changed.** `chatsvc.New(db, chatsDir,
-llmSvc, clusterCards, memories, box, lists)` takes a `ClusterCards` — `ClusterCard(ctx, clusterID)
+llmSvc, clusterCards, memories, box, lists, sandbox)` takes a `ClusterCards` — `ClusterCard(ctx, clusterID)
 string`, the one thing this package asks about a cluster — which `internal/clustercard` implements
 over `clustersvc.Service`, and a `Memories` — `Section(ctx, clusterID)`, every note the cluster
-sees — which `memorysvc` implements. The
+sees — which `memorysvc` implements. `sandbox` is whether the machine offers sandboxed Bash, which
+the switch and the `## Sandbox` section need. The
 question's `context` block is the card, then the notes as its `## Memory` section
 (`withMemory`, through `clustercard.WithSection`; a section that is not one JSON value is sent
 `{"unavailable":true}`), then the chat's workspace as its `## Workspace` section, `{"path": …}`
-(`withWorkspace`, `workspace.go`), since the file tools take absolute paths alone. That one is
+(`withWorkspace`, `workspace.go`), since the file tools take absolute paths alone, then, on a
+machine with a sandbox, where its commands run as its `## Sandbox` section,
+`{"commands":"sandboxed"}` or `{"commands":"outside"}` (`withSandbox`, beside it). Those two are
 appended inside the transaction, once `resolveChat` has answered the chat's id, under the cluster
-`checkChat` answers the chat is filed under, never the send's argument; the path is fixed
-for the chat, so it changes the block on the chat's first send alone. A nil `Memories`, which only tests pass, sends the card alone. `Send`
+`checkChat` answers the chat is filed under, never the send's argument, with the switch it read off
+the same row (false for a chat the send creates); the path is fixed
+for the chat, so it changes the block on the chat's first send alone, and a switch changes it on the
+next question. A nil `Memories`, which only tests pass, sends the card alone. `Send`
 renders both before its transaction (`service.contextText`), for the chat's stored cluster,
-which a turn's tools also reach (`Runtime.ClusterID`, from `chatCluster`, one read of the
+which a turn's tools also reach (`Runtime.ClusterID`, from `chatOf`, one read of the
 conversation), and which the subagents it spawns reach too
 (the send's `clusterID` is only what a create files under), under `clusterCardTimeout` — the
 render's alone, so the rows go in on the send's own context, and a render that outlives it is
@@ -2941,12 +2951,14 @@ transaction**; the resolver forwards the send and maps the refusal, so `ErrClust
 the client as `KSTACK_RECORD_NOT_FOUND`. A repeat is answered ahead of that check, by its key.
 `clusterDelete` marks the cluster and nothing more; the sweeper deletes its chats.
 
-**The wire surface is five mutations and two watches**: `chatSend`, `chatCancel`, `chatRename`,
-`chatDelete`, `approvalDecide` (an `ApprovalID` and the decision; true when the decision reached
-a waiting turn), `chatsWatch` and `chatMessagesWatch(chatID)`. A mutation is named for what it
+**The wire surface is six mutations, one query and two watches**: `chatSend`, `chatCancel`, `chatRename`,
+`chatSandboxDisabledSet` (the switch, spelled as `clusterEnabledSet` is), `chatDelete`,
+`approvalDecide` (an `ApprovalID` and the decision; true when the decision reached
+a waiting turn), `sandbox` (the `sandbox.Status` the app built, fixed for the sidecar's life, which
+`graph.Resolver.SandboxStatus` holds), `chatsWatch` and `chatMessagesWatch(chatID)`. A mutation is named for what it
 acts on, so the decision is the approval's, not the chat's, though chat's turns are what wait on
 one today. A cluster's deletion reaches here
-through the sweeper: the chats filed under a marked cluster go with it. No query — every window reads the list
+through the sweeper: the chats filed under a marked cluster go with it. Every window reads the list
 and a transcript off the watches, and a field exists because a call site needs it. `Chat`,
 `ChatMessage` and both frame wrappers bind 1:1 in `gqlgen.yml`; `ChatID` and `MessageID` are
 separate scalars because they are separate Go types (`codegen.ts` maps both to `string`). Both

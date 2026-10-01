@@ -107,12 +107,12 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 **The record.** `approvals` is the one table a prompt writes: a call's own (`kind: call`) and,
 from step 4B, any classified action (`kind: action`, carried to the user as a
 `tools.ActionRequest` through the runtime's `ActionAsker`), with the decision's duration.
-`tool_calls.sandboxed` stays what it is. `conversations.outside_sandbox` is step 1B's switch.
+`tool_calls.sandboxed` stays what it is. `conversations.sandbox_disabled` is step 1B's switch.
 
 **The wire.** `approvalDecide` takes the decision. Settings are read and written through
 queries and mutations named `sandbox…`, `permission…`, `credential…`, `network…`, `folder…`,
 `egress…`, `monitor…` and `proposal…`, each introduced by the step that needs it; the chat's
-switch is `chatOutsideSandboxSet`. An enum's members are spelled as the schema's are, in
+switch is `chatSandboxDisabledSet`. An enum's members are spelled as the schema's are, in
 PascalCase (`Pending`, `Bookmark`).
 
 **The webview.** The request is `ApprovalRequest` in `chat-transcript.tsx`. The Settings dialog
