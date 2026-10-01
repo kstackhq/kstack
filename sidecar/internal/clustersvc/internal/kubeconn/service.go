@@ -223,6 +223,12 @@ func (s *Service) RetryAndWait(ctx context.Context, contextName string) error {
 // this call can name. A ceiling run from the ask would report a failure for a probe nobody had
 // tried yet.
 func (s *Service) retryAndWait(ctx context.Context, contextName string, ceiling time.Duration) error {
+	// The supervisor's clock, because LastRunAt is stamped from it and it is not the wall
+	// clock: a baseline read off the wall could sit behind a stamp already issued, and a run
+	// that finished before the ask would answer it. Read before the claim, so a run that begins
+	// once the claim is visible began after the ask.
+	askedAt := s.supervisor.Now()
+
 	// A Wake on a subject nothing tracks is a no-op, so without a claim this would wait for a
 	// run that is never dispatched. Refcounted alongside whatever else holds the context.
 	lease := s.Acquire(contextName)
@@ -232,10 +238,6 @@ func (s *Service) retryAndWait(ctx context.Context, contextName string, ceiling 
 	sub := lease.WatchState()
 	defer sub.Close()
 
-	// The supervisor's clock, because LastRunAt is stamped from it and it is not the wall
-	// clock: a baseline read off the wall could sit behind a stamp already issued, and a run
-	// that finished before the ask would answer it.
-	askedAt := s.supervisor.Now()
 	s.supervisor.Wake(contextName, probeNames[:]...)
 
 	// The caller's context is the only bound until the run begins.

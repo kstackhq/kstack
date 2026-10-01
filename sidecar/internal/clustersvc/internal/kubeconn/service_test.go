@@ -842,8 +842,8 @@ func TestRetryAndWaitIsNotSatisfiedByARunAlreadyInFlight(t *testing.T) {
 
 	done := make(chan error, 1)
 	go func() { done <- s.RetryAndWait(within(t), "prod") }()
-	// The ask's own claim, which it takes just before the wake: releasing the run already out
-	// before that would leave the wake with nothing to be redelivered past.
+	// The ask's own claim, which it takes after reading its moment and before its wake: the
+	// next run begins after the ask whichever side of the wake it lands on.
 	awaitHolders(t, s, "prod", 2)
 	gate <- struct{}{}
 	// The next dial having landed proves the run already out committed and published.
