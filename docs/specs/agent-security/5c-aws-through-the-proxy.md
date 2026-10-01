@@ -209,7 +209,7 @@ profile is answered before anything is classified. This step adds **which profil
 
 `tools/bash/aws.go`'s `awsProfileFor(rec, cfg, settings)` picks it, first that applies:
 
-1. **The override**: `sandboxconfig.Settings.Credentials.Profiles[clusterID]` (step 2D §6, the
+1. **The override**: `securityconfig.Settings.Credentials.Profiles[clusterID]` (step 2D §6, the
    Settings control step 2D draws under its Credentials section), when set and still among the
    profiles the store's last `Found()` lists; one that has since gone falls back to the next rule, and step
    2D's row says so.

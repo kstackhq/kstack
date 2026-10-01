@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package sandboxconfig
+package securityconfig
 
 // checks is the read-back: one check per field, each added by the field's
 // step. A check reads the value alone, never the disk or another service; it

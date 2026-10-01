@@ -454,8 +454,8 @@ models:
         resolver: true
 
   # --- Sandbox ---
-  SandboxRefusal:
-    model: github.com/kstackhq/kstack/sidecar/internal/sandboxconfig.Refusal
+  SecurityRefusal:
+    model: github.com/kstackhq/kstack/sidecar/internal/securityconfig.Refusal
 
   # --- Auth ---
   # Bind the GraphQL auth types straight to the auth domain types so the

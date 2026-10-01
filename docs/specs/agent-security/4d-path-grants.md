@@ -7,7 +7,7 @@ status: Planned
 # Path grants
 
 **Needs:** step 2C, whose session carries the folders; step 3B, whose `permissions.Rule` a grant
-is and whose `chat_grants` and `sandboxconfig.Settings` keep it; step 1A, whose `Always` part is
+is and whose `chat_grants` and `securityconfig.Settings` keep it; step 1A, whose `Always` part is
 the floor a grant never lowers. **Unblocks:** steps 5B and 6A, which offer a grant from a
 denial and from a probe.
 
@@ -25,7 +25,7 @@ After this step, on macOS and Linux:
 - **The user grants a folder**, read or read-write, **for a chat or always**
   ([the note](../../notes/sandbox-credentials-and-permissions.md)'s *User grants*: "let the agent
   see `~/code/my-service`"). A grant is a `permissions.Rule`: a chat's is a `chat_grants` row,
-  an always one is in `sandboxconfig`.
+  an always one is in `securityconfig`.
 - **A grant is a Files rule on the run's policy**, Read or Write, and **the Always part still
   wins**: a grant of `~` reads the home and not `~/.ssh`, `~/.kube`, `~/Documents` or Kstack's
   directories. This is the note's first invariant, "the single most important invariant in the
@@ -66,7 +66,7 @@ check. A chat's grant is a `chat_grants` row, read live by `grantsFor` (step 3B 
 grants are:
 
 ```go
-// In sandboxconfig.Settings.
+// In securityconfig.Settings.
 Folders []Folder `json:"folders,omitempty"`
 
 // Folder is one folder the user granted every chat.
@@ -92,7 +92,7 @@ Folders func(context.Context) []Folder
 ```
 
 `chatsvc` sets it to `foldersFor(chatID)`: the chat's class 1 and 2 `Allow` rules of provider
-`Path` from `grantsFor`, then `sandboxconfig.Settings.Folders`, each as a `Folder`; a folder
+`Path` from `grantsFor`, then `securityconfig.Settings.Folders`, each as a `Folder`; a folder
 listed twice keeps the wider grant. A session with no chat (the monitor) gets none (§6). `Narrow`
 copies it. `sandboxedRunFor` reads it once when the run starts, so a grant written mid-run applies
 to the next command, since a sandbox is per command.
@@ -114,7 +114,7 @@ refused there too, and a run is never started with a policy other than the one c
 
 ### 3. The rules for a grant
 
-`sandboxconfig.CheckFolder(path string, write bool, listed []Folder, closed []string, read
+`securityconfig.CheckFolder(path string, write bool, listed []Folder, closed []string, read
 []string) error`, where `closed` is `sandbox.Never(home)` plus Kstack's three directories and
 `read` the Read paths of `Sandbox.System(home)` (the toolchain folders among them) and the
 adopted `PATH` entries. Run on every write (§4) and on every read (§2), on the resolved path:
@@ -172,7 +172,7 @@ extend type Query {
 }
 
 extend type Mutation {
-  "Grant a folder. CHAT writes a chat_grants rule; ALWAYS a sandboxconfig entry. Refused KSTACK_VALIDATION_ERROR with §3's reason."
+  "Grant a folder. CHAT writes a chat_grants rule; ALWAYS a securityconfig entry. Refused KSTACK_VALIDATION_ERROR with §3's reason."
   folderGrant(chatID: ChatID!, path: String!, write: Boolean!, duration: GrantDuration!): SandboxFolders!
   "Revoke a grant by id, a chat's or an always one."
   folderRevoke(id: ID!): SandboxFolders!
@@ -285,7 +285,7 @@ as they reach the workspace.
 
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
-| 1 | `Settings.Folders`, `CheckFolder`, the read-back check | `sandboxconfig/folders.go`, its test | — | Planned |
+| 1 | `Settings.Folders`, `CheckFolder`, the read-back check | `securityconfig/folders.go`, its test | — | Planned |
 | 2 | `Session.Folders`; `foldersFor`; the grant and revoke writes; the context section | `session/session.go`, `chatsvc/`, their tests | 1 | Planned |
 | 3 | The policy: grants as Files rules, re-checked per run | `tools/bash/bash.go`, its tests | 2 | Planned |
 | 4 | `Fence.Granted`; the file tools skip and go through the root | `tools/internal/fileguard/`, `tools/workspace.go`, `tools/read/`, `tools/write/`, `tools/edit/`, their tests | 2 | Planned |
@@ -298,7 +298,7 @@ as they reach the workspace.
 
 ## Tests
 
-**`sandboxconfig`**
+**`securityconfig`**
 
 - `TestCheckFolderRefusesEachRule`: one case per row of §3's table, over a fixture home with an
   Always path, a folder holding one (`~/Library` on macOS, `~/.config` on Linux) asked for
@@ -377,7 +377,7 @@ the Deny whether or not the path exists.
 
 The record, `docs/security/<date>-path-grants.md`, argues both. The TODO item *Revisit how
 little of the home a sandboxed command reads* closes with it: this is the allow-list it asks
-for, in `sandbox.json` rather than `host.json`, with the security record and the
+for, in `security.json` rather than `host.json`, with the security record and the
 `security-model.md` row it says the change needs.
 
 ## When it lands

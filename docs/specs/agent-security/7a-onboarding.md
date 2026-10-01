@@ -29,7 +29,7 @@ nothing typed and nothing signed into, as [the note](../../notes/sandbox-credent
 3. **Credentials**: what Kstack found through the tools' own logins, with Exclude.
 4. **Permissions**: the default mode, Ask, and the contexts, `prod*` read-only.
 
-Finish writes `sandboxconfig.Settings.Onboarded`, and the flow can be opened again from
+Finish writes `securityconfig.Settings.Onboarded`, and the flow can be opened again from
 Settings. **Nothing widens by default**: every grant in the flow is a click on one path or host,
 and the mode is what step 3B ships.
 
@@ -47,11 +47,11 @@ and the mode is what step 3B ships.
 
 ### 1. When
 
-`sandboxconfig.Settings` gains `Onboarded bool`, tagged `onboarded`, false on a fresh file.
+`securityconfig.Settings` gains `Onboarded bool`, tagged `onboarded`, false on a fresh file.
 The wire:
 
 ```graphql
-"The sandbox's settings that are one value, not a list."
+"The security settings that are one value, not a list."
 type SandboxSettings {
   "Whether the onboarding flow has been finished, or skipped to its end, on this machine."
   onboarded: Boolean!
@@ -162,7 +162,7 @@ keeps answering empty there, and the `PATH` mutations stay refused.
 
 ## Decisions this step asks for
 
-1. **The flag lives in `sandbox.json`, beside the settings the flow walks through.** Step 1C
+1. **The flag lives in `security.json`, beside the settings the flow walks through.** Step 1C
    opens the store on every platform for this reason, so the Windows screen can write it, and
    every *no sandbox* answer keys on `sandbox.available`, never on a missing store.
    Recommended over a second file for one flag.
@@ -177,7 +177,7 @@ keeps answering empty there, and the `PATH` mutations stay refused.
 
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
-| 1 | `Onboarded` and its read-back | `sandboxconfig/`, its tests | — | Planned |
+| 1 | `Onboarded` and its read-back | `securityconfig/`, its tests | — | Planned |
 | 2 | The wire and codegen | `sidecar/graph/schema.graphqls`, `graph/`, generated code, `src/gql/` | 1 | Planned |
 | 3 | Split each shared list out of its section where it is not its own component | `sandbox-settings.tsx`, step 6A's, step 2D's and `permission-settings.tsx`, their tests | — | Planned |
 | 4 | The dialog, the four steps, the Windows screen | `src/components/widgets/onboarding-dialog.tsx`, `src/lib/dialog.ts`, `app-dialogs.tsx`, their tests | 2, 3 | Planned |
@@ -188,7 +188,7 @@ keeps answering empty there, and the `PATH` mutations stay refused.
 
 ## Tests
 
-**`sandboxconfig`**
+**`securityconfig`**
 
 - `TestOnboardedIsFalseOnAFreshFile`, and a written true is read back.
 - Step 1C's `TestTheStoreOpensWithoutASandbox` gains a case: the flag is served on a machine

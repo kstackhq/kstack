@@ -1372,8 +1372,8 @@ type AuthState {
   identity: Identity
 }
 
-"One value the sandbox's settings file held and the sidecar left out."
-type SandboxRefusal {
+"One value the security settings file held and the sidecar left out."
+type SecurityRefusal {
   "The setting's JSON key in the file."
   field: String!
   "What the setting's section names the value by, else its JSON."
@@ -1415,8 +1415,8 @@ type Query {
   clusterCachedKinds(cacheID: ObjectID): [ClusterCachedKind!]!
 
   # --- Sandbox ---
-  "Every value the sandbox's settings file held that the sidecar left out at start, each with its reason. Fixed for the process's life, so this is a query and not a watch."
-  sandboxRefused: [SandboxRefusal!]!
+  "Every value the security settings file held that the sidecar left out at start, each with its reason. Fixed for the process's life, so this is a query and not a watch."
+  securityRefused: [SecurityRefusal!]!
 
   # --- Cloud account ---
   "Current authentication state. Signed-out when no cloud account is configured; live updates via authStateWatch."

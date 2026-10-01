@@ -66,7 +66,7 @@ the kubeconfig service for the screen alone. This step:
   `gcp`, `azure` — step 1D's one spelling, which Settings, the wire, the notice and the list
   use).
 
-**Exclusion.** `sandboxconfig.Settings` (step 1C) gains:
+**Exclusion.** `securityconfig.Settings` (step 1C) gains:
 
 ```go
 Credentials CredentialSettings `json:"credentials,omitzero"` // a struct, so omitzero (step 1C §2)
@@ -78,7 +78,7 @@ type CredentialSettings struct {
 ```
 
 `app` passes `NewStore`'s `excluded` argument (step 1D §1) as a read of that list through
-`SandboxCfg.Get`, which is safe for concurrent use, so every borrow —
+`SecurityCfg.Get`, which is safe for concurrent use, so every borrow —
 `AWS`, `GitHub`, `Google` and `Azure` — answers `ErrExcluded` for an excluded identity and runs
 nothing, one check under every proxy to come. `credentials.ExcludedLine(key)` spells what a
 proxy answers the command: *kstack: the GitHub credential is excluded in Kstack's settings*,
@@ -267,11 +267,11 @@ lands the setting is stored and shown and nothing reads it.
 
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
-| 1 | The exclusion list, the `excluded` argument wired, `excluded` status and `SetExcluded`, `ExcludedLine`, `Discover` at start and on refresh | `sandboxconfig/`, `credentials/exclude.go`, `app/app.go`, their tests | — | Planned |
+| 1 | The exclusion list, the `excluded` argument wired, `excluded` status and `SetExcluded`, `ExcludedLine`, `Discover` at start and on refresh | `securityconfig/`, `credentials/exclude.go`, `app/app.go`, their tests | — | Planned |
 | 2 | `ExpiredLine`, `Paused` | `credentials/status.go`, its tests | 1 | Planned |
 | 3 | `credential_notices`, the notifier, the notice kind, the turn | `appdb/migrations/0001_init.sql`, `chatsvc/notices.go`, `chatsvc/turn.go`, `tools/tool.go`, `llm/block.go`, their tests | 2 | Planned |
 | 4 | `Renew`: `RenewCommand`, the check borrow, the renewed rows | `credentials/renew.go`, `chatsvc/`, their tests | 2, 3 | Planned |
-| 5 | The per-cluster profile setting and its shape check | `sandboxconfig/`, its tests | 1 | Planned |
+| 5 | The per-cluster profile setting and its shape check | `securityconfig/`, its tests | 1 | Planned |
 | 6 | The wire and the resolvers | `sidecar/graph/schema.graphqls`, `graph/`, `app/app.go`, generated code | 2, 4, 5 | Planned |
 | 7 | Codegen, `useCredentials`, the section, the notice's line and button | `src/gql/`, `src/lib/credentials.tsx`, `src/lib/chats.tsx`, `src/components/widgets/credential-settings.tsx`, `chat-transcript.tsx`, `settings-dialog.tsx`, their tests | 6 | Planned |
 | 8 | Docs, per *When it lands* | see there | 1–7 | Planned |
@@ -302,7 +302,7 @@ lands the setting is stored and shown and nothing reads it.
   `<task-notification>` text naming the command.
 - `TestARenewalWritesARenewedRow` for every chat holding an `expired` one, and it starts a turn.
 
-**`sandboxconfig`**: `TestExclusionsAndProfilesPersist`, and the read-back check refuses a
+**`securityconfig`**: `TestExclusionsAndProfilesPersist`, and the read-back check refuses a
 profile or an exclusion id out of shape; it reads the value alone (step 1C §3), so it never asks
 whether `Discover` found the profile. **`graph`**: `TestCredentialMutationsAnswerTheList`, each
 refusal a `KSTACK_VALIDATION_ERROR`, a profile off the found list among them.
@@ -343,7 +343,7 @@ The record, `docs/security/<date>-credential-status-and-re-login.md`, is short, 
 - **`security-model.md`**: the two rows above, and step 1D's no-disk row gains this step's cases.
 - **`sidecar/CLAUDE.md`**: `credentials`' `excluded` status, `ExcludedLine`, `ExpiredLine`,
   `Paused`, `RenewCommand` and `Renew`; `credential_notices`, the notifier on the runtime, the
-  notice kind and its turn; `sandboxconfig`'s `Credentials`. **Root `CLAUDE.md`**, *Chat* and
+  notice kind and its turn; `securityconfig`'s `Credentials`. **Root `CLAUDE.md`**, *Chat* and
   the Settings dialog: the notice's line and button, `noticesOf`'s new kind, the Credentials
   section and `useCredentials`.
 - **The sequence's README**: this row's status.

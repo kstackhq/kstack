@@ -28,8 +28,8 @@ After this step, on macOS and Linux:
 - **It is filtered.** Empty, relative, missing, world-writable and project-local entries go, and
   so does anything under the denied-always list or Kstack's directories. The shell's order stays
   (the note's *Filtering*).
-- **It is frozen** in the settings file, `<data>/sandbox.json`, which step 1C's
-  `sandboxconfig` keeps. A run reads the list once when it starts. At each launch the fresh list is
+- **It is frozen** in the settings file, `<data>/security.json`, which step 1C's
+  `securityconfig` keeps. A run reads the list once when it starts. At each launch the fresh list is
   diffed against the stored one: an entry under an open zone is adopted, one under the home waits
   for the user, one that disappeared is dropped unless the user removed it (the note's *Freezing
   and syncing*). Each entry keeps the folder it resolved to, and one that resolves elsewhere is
@@ -98,11 +98,11 @@ on Linux), where a terminal's login shell starts from too. So a dev run from a t
 Finder launch resolve the same list, and no startup file sees the sidecar's variables.
 
 **Failure keeps the stored list.** A `Fault` — no shell, exit, bad output, output limit, timeout —
-leaves `sandbox.json` as it was and logs one line with the reason, not a startup error.
+leaves `security.json` as it was and logs one line with the reason, not a startup error.
 
 ### 2. Filtering
 
-`sandboxconfig.FilterPath(entries, closed []string) (kept []PathDir, dropped map[string]int)`
+`securityconfig.FilterPath(entries, closed []string) (kept []PathDir, dropped map[string]int)`
 takes the raw list and `closed`, `Sandbox.Never(home)` plus Kstack's three directories
 (`bash.Paths.DeniedDirs`). It drops, in this order, counting each rule's drops:
 
@@ -122,10 +122,10 @@ entry as the shell gave it, and `Target`, the path it resolved to.
 ### 3. `Settings.Path`
 
 The store is [step 1C](1c-the-settings-file.md)'s. This step adds the `Path` field to its
-`Settings`, in `sandboxconfig/path.go`:
+`Settings`, in `securityconfig/path.go`:
 
 ```go
-// In sandboxconfig.Settings.
+// In securityconfig.Settings.
 Path []PathEntry `json:"path,omitempty"` // in the shell's order
 
 // PathEntry is one folder of the user's PATH and what the sandbox does with it.
@@ -167,7 +167,7 @@ Nothing re-reads the store while the run lives, a background task included; a re
 Include changes the next run.
 
 **The sync.** `(*Service).SyncPath(ctx, resolved []string) (PathReport, error)` in
-`sandboxconfig/service.go`, where `Service` is the store plus what the sync needs: the filter's
+`securityconfig/service.go`, where `Service` is the store plus what the sync needs: the filter's
 `closed` list, `open` (the Read paths of `Sandbox.System(home)`), and `Resolve func(ctx)
 ([]string, *loginshell.Fault)` for the refresh. It filters `resolved`, then diffs against the
 stored entries:
@@ -225,7 +225,7 @@ extend type Mutation {
 ```
 
 Each mutation answers the whole list, so the section redraws from one result. `Service` embeds
-the `Store`, and `graph.Resolver`'s `SandboxCfg` (step 1C) becomes a `*sandboxconfig.Service`:
+the `Store`, and `graph.Resolver`'s `SecurityCfg` (step 1C) becomes a `*securityconfig.Service`:
 the embedding promotes every `Store` method, so resolvers steps 2D and 3B wrote against the store
 keep compiling in either order, and only `app`'s construction changes;
 on a machine with no sandbox (`sandbox.available` false, step 1B) the query answers an empty
@@ -277,8 +277,8 @@ drawn.
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
 | 1 | `Resolve`, `Path`, `AccountShell`, the shell kinds, the scrubbed environment; `main` resolves once | `loginshell/`, `sidecar/main.go`, `sidecar/main_darwin.go`, `sidecar/main_default.go`, `app/app.go` (`ShellPath`), their tests | — | Planned |
-| 2 | `Settings.Path`, its check line, and the filter | `sandboxconfig/path.go`, `sandboxconfig/check.go`, their tests | — | Planned |
-| 3 | The sync, the refresh, Include and Remove | `sandboxconfig/service.go`, its tests | 1, 2 | Planned |
+| 2 | `Settings.Path`, its check line, and the filter | `securityconfig/path.go`, `securityconfig/check.go`, their tests | — | Planned |
+| 3 | The sync, the refresh, Include and Remove | `securityconfig/service.go`, its tests | 1, 2 | Planned |
 | 4 | The run freezes the list: `PATH` and the Read rules | `tools/bash/bash.go`, `tools/bash/env.go`, their tests | 3 | Planned |
 | 5 | The wire and the resolvers | `sidecar/graph/schema.graphqls`, `graph/`, `app/app.go`, generated code | 3 | Planned |
 | 6 | Codegen, `useSandboxPath`, the Settings section | `src/gql/`, `src/lib/sandbox-path.tsx`, `src/components/widgets/sandbox-settings.tsx`, `settings-dialog.tsx`, their tests | 5 | Planned |
@@ -300,7 +300,7 @@ drawn.
   (`main_unix_test.go`): the launch spawns the shell once and hands `Config.ShellPath` its answer.
 - Every existing test, `Import`'s renamed to `Resolve`'s.
 
-**`sandboxconfig`**
+**`securityconfig`**
 
 - `TestFilterPathDropsEachRule`: one case per row of §2's table, over a fixture folder with a
   world-writable directory, a group-writable one with and without the sticky bit, a link into a
@@ -370,7 +370,7 @@ The record, `docs/security/<date>-path-from-the-login-shell.md`, argues all thre
   scrubbed environment; the sandboxed-command row says the frozen list.
 - **`sidecar/CLAUDE.md`**: *Shell environment on macOS* becomes the login shell resolution
   (`Resolve`, `Path`, `AccountShell`, the kinds, the scrubbed environment); `Settings.Path`,
-  the filter and the sync under `sandboxconfig`; the run's frozen `PATH` and Read rules in the
+  the filter and the sync under `securityconfig`; the run's frozen `PATH` and Read rules in the
   Bash tool's paragraph; `Config.ShellPath`.
 - **Root `CLAUDE.md`**: the Settings dialog's Sandbox section and `useSandboxPath`.
 - **The sequence's README**: this row's status.

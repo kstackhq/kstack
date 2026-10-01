@@ -6,7 +6,7 @@ status: Planned
 
 # Tool probing
 
-**Needs:** step 3A, whose frozen `PATH` the probe resolves names on and whose `sandboxconfig`
+**Needs:** step 3A, whose frozen `PATH` the probe resolves names on and whose `securityconfig`
 keeps the registered tools, and step 5B, whose denial finding says what a probe was refused.
 **Unblocks:** step 7A, which shows the probe's report at onboarding.
 
@@ -83,7 +83,7 @@ The curated list, in this order:
 | `kubelogin` | `kubelogin --version` |
 | `gke-gcloud-auth-plugin` | `gke-gcloud-auth-plugin --version` |
 
-Then the user's registered tools, from `sandboxconfig.Settings`, which gains:
+Then the user's registered tools, from `securityconfig.Settings`, which gains:
 
 ```go
 type Settings struct {
@@ -98,7 +98,7 @@ type Tool struct {
 }
 ```
 
-`sandboxconfig.CheckTool(name, invocation)` is the one shape check, run on register and on
+`securityconfig.CheckTool(name, invocation)` is the one shape check, run on register and on
 read-back: a name is one to 64 bytes of `[A-Za-z0-9._+-]`, not starting with `-`, with no path
 separator; an invocation is one to 8 fields, split by `strings.Fields`, each under 256 bytes with
 no control character, whose first field is the name. A curated name is refused, since it is
@@ -180,7 +180,7 @@ joins the one in flight and answers its result.
 | on demand | the Settings section's *Probe again* | `sandboxToolsProbe` |
 | at launch | `app.Start`, after `SyncPath` | on a goroutine under the app's lifecycle, only when the sync's `PathReport` changed anything |
 
-Nothing is written to `sandbox.json` by a probe. A restart starts with no report, and the launch
+Nothing is written to `security.json` by a probe. A restart starts with no report, and the launch
 probe runs only when the `PATH` moved, so nothing runs unasked on a machine whose tools did not
 change.
 
@@ -233,7 +233,7 @@ extend type Mutation {
 Register and remove write `Settings.Tools` through the store's `Update` and answer the last
 report with the new tool appended unprobed (`resolved` and `version` empty, `ok` false, `error`
 *not probed yet*), or removed, so the section redraws from one result; the user presses *Probe
-again* to run it. `graph.Resolver` reads the report off `SandboxCfg` and the Bash tool it is
+again* to run it. `graph.Resolver` reads the report off `SecurityCfg` and the Bash tool it is
 given; on a machine with no sandbox (step 1B's `SandboxStatus`) the query answers an empty list and the
 mutations are refused, as step 3A's are.
 
@@ -277,7 +277,7 @@ not drawn.
 
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
-| 1 | `Settings.Tools`, `CheckTool`, the read-back check | `sandboxconfig/tools.go`, its test | — | Planned |
+| 1 | `Settings.Tools`, `CheckTool`, the read-back check | `securityconfig/tools.go`, its test | — | Planned |
 | 2 | The list, `resolveTool`, the shim rule, `probeCommands` | `tools/bash/probe.go`, its tests | — | Planned |
 | 3 | `ProbeTools`: the run, the report, one at a time, `LastProbe` | `tools/bash/probe.go`, `tools/bash/bash.go`, their tests | 2 | Planned |
 | 4 | The launch probe after `SyncPath` | `app/app.go`, its test | 3 | Planned |
@@ -289,7 +289,7 @@ not drawn.
 
 ## Tests
 
-**`sandboxconfig`**
+**`securityconfig`**
 
 - `TestCheckToolRefusesEachBadShape`: a name with a slash, one starting with `-`, one past 64
   bytes, a curated name, an invocation of nine fields, one whose first field is not the name,
@@ -353,7 +353,7 @@ the listed invocations, in the sandbox, with no cluster and no network, pinned b
 - **`security-model.md`**: the row above.
 - **`sidecar/CLAUDE.md`**: the probe in the Bash tool's section (the list, `resolveTool`, the
   shim rule, `ProbeTools`, one at a time, `LastProbe`), `Settings.Tools` and `CheckTool` under
-  `sandboxconfig`, and the launch probe in `app`.
+  `securityconfig`, and the launch probe in `app`.
 - **Root `CLAUDE.md`**: the Sandbox section's Tools part and `useSandboxTools`.
 - **`docs/TODO.md`**: nothing; the note's probing paragraph is done.
 - **The sequence's README**: this row's status.

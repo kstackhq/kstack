@@ -26,7 +26,7 @@ After this step:
 - **Settings: Credentials offers *Connect* per provider**: GitHub, Google, Azure, AWS. Each
   runs that provider's OAuth flow in the sidecar, opens the system browser, and keeps the
   tokens in the OS keychain under `internal/auth`'s keyring, read by `credentials` alone.
-- **A connection is optional and per provider.** `Credentials.Sources` in `sandboxconfig`
+- **A connection is optional and per provider.** `Credentials.Sources` in `securityconfig`
   says, per provider, whether the injectors borrow the CLI's credential or use the connection.
   The default is `cli`, and a connection does not change it until the user picks it.
 - **The monitor session gets a read-only credential where the provider can express one**: a
@@ -103,7 +103,7 @@ the user closes the dialog, which cancels it.
 | --- | --- | --- |
 | GitHub | `oauth_github.go` | Device flow: `POST /login/device/code` with the client id, then `POST /login/oauth/access_token` with `grant_type=urn:ietf:params:oauth:grant-type:device_code` every `interval` seconds, five more on `slow_down`, until the token, `expired_token` or `access_denied`. A refresh is the same endpoint with `grant_type=refresh_token`, no client secret, since the token came from the device flow |
 | Google | `oauth_google.go` | The loopback flow `internal/auth` runs: PKCE (S256), a `state` the loopback callback checks before it consumes a code, a listener on `127.0.0.1:0` bound before the URL is built, `access_type=offline` and `prompt=consent` so a refresh token comes back. Endpoints: `accounts.google.com/o/oauth2/v2/auth`, `oauth2.googleapis.com/token`, `oauth2.googleapis.com/revoke`. Scope `cloud-platform`, or `cloud-platform.read-only` for the monitor's |
-| Azure | `oauth_azure.go` | Device code grant on `login.microsoftonline.com/<tenant>/oauth2/v2.0/devicecode` and `/token`, polling as GitHub's does (`authorization_pending`, `authorization_declined`, `expired_token`). The one sign-in asks consent for both resources step 6C injects: scope `https://management.azure.com/user_impersonation`, the registration's delegated Microsoft Graph permissions (`azureGraphScopes`), and `offline_access`. A token is for one resource, so each resource's token is its own refresh-token grant with `scope=<resource>/.default` (§3). The tenant is `organizations` unless `Credentials.AzureTenant` in `sandboxconfig` names one |
+| Azure | `oauth_azure.go` | Device code grant on `login.microsoftonline.com/<tenant>/oauth2/v2.0/devicecode` and `/token`, polling as GitHub's does (`authorization_pending`, `authorization_declined`, `expired_token`). The one sign-in asks consent for both resources step 6C injects: scope `https://management.azure.com/user_impersonation`, the registration's delegated Microsoft Graph permissions (`azureGraphScopes`), and `offline_access`. A token is for one resource, so each resource's token is its own refresh-token grant with `scope=<resource>/.default` (§3). The tenant is `organizations` unless `Credentials.AzureTenant` in `securityconfig` names one |
 | AWS | `oauth_aws.go` | IAM Identity Center's device authorization, as `aws sso login` runs it: `RegisterClient` (`clientType: public`, grant types device code and refresh token) once per start URL and region, its client id and secret kept in the keyring until `clientSecretExpiresAt`; `StartDeviceAuthorization` with the user's start URL, opening `verificationUriComplete`; `CreateToken` with the device code grant, polling on `authorization_pending` and `slow_down`. The SSO access token and its refresh token are the connection. Credentials for a profile are `GetRoleCredentials(accessToken, accountId, roleName)`, the account and role picked in Settings from `ListAccounts` and `ListAccountRoles` |
 
 `internal/auth`'s flow is not reused whole, since it verifies an ID token against Hydra and
@@ -137,14 +137,14 @@ new refresh token replaces the kept one. A grant refused for want of consent
 *Connect again to grant Microsoft Graph*. Every
 provider call goes through one `http.Client` with a 15 s timeout, as `auth/oauth` has.
 
-**Nothing writes a token anywhere but the keyring.** Not `sandbox.json`, not `app.db`, not a
+**Nothing writes a token anywhere but the keyring.** Not `security.json`, not `app.db`, not a
 log: `safe.AddSecret` registers each token as it is read. Step 1D's
 `TestNoCredentialIsWrittenToDisk` gains a case per provider that runs the flow against a fake
 and the keyring fake, then walks the data, cache and runtime directories.
 
 ### 4. Precedence: the source is a setting
 
-`sandboxconfig.Settings.Credentials` (step 2D) gains:
+`securityconfig.Settings.Credentials` (step 2D) gains:
 
 ```go
 type CredentialSettings struct {
@@ -197,9 +197,9 @@ profile, the GitHub injector the host, the Azure injector the resource of the ho
 Both sources key on it alike: the `cli` source calls step 1D's reader with it, the `connection`
 source reads the profile's picked account and role (§2) or the resource's token (§3), and the
 monitor's AWS role is `MonitorRole(req.Profile)`. `credentials` stays a leaf (step 1D): it imports neither `session`
-nor `sandboxconfig`, and reads the sources and the monitor's roles through hooks on the store,
+nor `securityconfig`, and reads the sources and the monitor's roles through hooks on the store,
 `Source func(Provider) Source` and `MonitorRole func(profile string) string`, which `app` sets to
-reads of `Settings.Credentials`, as step 2D sets `Excluded`. `sandboxconfig` importing
+reads of `Settings.Credentials`, as step 2D sets `Excluded`. `securityconfig` importing
 `credentials` for the two types is the direction that leaves no cycle.
 
 - A chat's or a subagent's session: the provider's credential by its source (§4).
@@ -292,7 +292,7 @@ CredentialConnection` (null for none) and `source: CredentialSource!`. No field 
 | 2 | `auth.NewLoopback` and `auth.OpenBrowser` exported, beside step 5D's `auth.Keyring` | `auth/login.go`, its tests | — | Planned |
 | 3 | `credentials/oauth.go`: `Flow`, the keyring accounts, refresh | `credentials/oauth.go`, `credentials/oauth_test.go` | 2 | Planned |
 | 4 | The four flows, each against a fake | `credentials/oauth_github.go`, `oauth_google.go`, `oauth_azure.go`, `oauth_aws.go`, their tests | 3 | Planned |
-| 5 | `Sources` and the AWS and Azure settings; the reader follows the source; `ForSession` | `sandboxconfig/`, `credentials/`, `awsproxy/`, `egress/`, their tests | 3 | Planned |
+| 5 | `Sources` and the AWS and Azure settings; the reader follows the source; `ForSession` | `securityconfig/`, `credentials/`, `awsproxy/`, `egress/`, their tests | 3 | Planned |
 | 6 | The wire and codegen | `sidecar/graph/schema.graphqls`, `graph/`, generated code, `src/gql/` | 4, 5 | Planned |
 | 7 | The Settings rows and the connect dialog | `src/components/widgets/credential-settings.tsx`, its test | 6 | Planned |
 | 8 | Docs, per *When it lands* | see there | 1–7 | Planned |

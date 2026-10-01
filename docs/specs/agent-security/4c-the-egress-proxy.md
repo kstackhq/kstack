@@ -7,7 +7,7 @@ status: Planned
 # The egress proxy and the host allowlist
 
 **Needs:** step 2C, whose session the handler reads through the run's token; step 3B, whose
-`permissions.Action`, `Decide`, `chat_grants` and `sandboxconfig.Settings` a new host is decided
+`permissions.Action`, `Decide`, `chat_grants` and `securityconfig.Settings` a new host is decided
 with; step 2B, whose forwarder is every run's first process. **Unblocks:** steps 5B, 5C, 5D and 6D.
 
 Go paths below are under `sidecar/internal/` unless they say otherwise.
@@ -98,7 +98,7 @@ const (
 	Kubeconfig Source = "kubeconfig" // a kube context's API server
 	Cloud      Source = "cloud"      // a cloud provider's endpoints
 	GitHub     Source = "github"     // GitHub's hosts
-	User       Source = "user"       // the user's entry, in sandboxconfig
+	User       Source = "user"       // the user's entry, in securityconfig
 	Chat       Source = "chat"       // a chat's rule, in chat_grants
 )
 
@@ -186,7 +186,7 @@ it to `hostsFor(chatID)`, built from an `egress.Sources` that `app` wires:
 | `kubeconfig` | `kubeconfig.Service.Get()`, every `Clusters[*].Server` | `ServerRule` of each, so a reload is seen by the next request |
 | `cloud` | `egress.Cloud` | empty until step 6C fills it (§2) |
 | `github` | `egress.GitHub` | as listed in §2 |
-| `user` | `sandboxconfig.Settings.Hosts []egress.HostRule` | each entry as written, Allow or Deny; and every class 3 rule of provider `net` in `Settings.Rules`, by its effect |
+| `user` | `securityconfig.Settings.Hosts []egress.HostRule` | each entry as written, Allow or Deny; and every class 3 rule of provider `net` in `Settings.Rules`, by its effect |
 | `chat` | `chat_grants` | every class 3 rule of provider `net` for the chat, by its effect |
 
 A rule's `Scope.Host` is the glob and its `Kind` the port as decimal (`""` any), so a class 3
@@ -199,7 +199,7 @@ stays in the permission rules step 3B lists. The
 policy is read per request, never cached: a grant written mid-run applies to the command's next
 connection, and a context added to the kubeconfig too. `Narrow` copies `Hosts`.
 
-`sandboxconfig` reads `Hosts` back through its shape check as it reads `Rules`: an entry whose
+`securityconfig` reads `Hosts` back through its shape check as it reads `Rules`: an entry whose
 host is not a glob over a name, or whose port is out of range, is left out, logged, and shown in
 Settings with its reason.
 
@@ -333,7 +333,7 @@ extend type Mutation {
 ```
 
 A `port` left out is 443. Each mutation answers the whole list, so the section redraws from one
-result. `graph.Resolver` reads and writes through `sandboxconfig`, which is never nil (step 1C); on a
+result. `graph.Resolver` reads and writes through `securityconfig`, which is never nil (step 1C); on a
 machine with no sandbox (step 1B's `SandboxStatus`) the query answers an empty list and the
 mutations are refused.
 
@@ -383,7 +383,7 @@ adds that GitHub calls carry the user's login.
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
 | 1 | `egress`: the policy, `Match`, `Public`, `ServerRule`, `FromRule`, the handler | `egress/policy.go`, `egress/handler.go`, `egress/sources.go`, their tests | — | Planned |
-| 2 | `Settings.Hosts` and its shape check; `Session.Hosts`; `hostsFor` and `networkHostGrant`'s store writes | `sandboxconfig/`, `session/`, `chatsvc/`, their tests | 1 | Planned |
+| 2 | `Settings.Hosts` and its shape check; `Session.Hosts`; `hostsFor` and `networkHostGrant`'s store writes | `securityconfig/`, `session/`, `chatsvc/`, their tests | 1 | Planned |
 | 3 | Every run has the relay; `route`; `hostDecider`; the environment | `tools/bash/bash.go`, `tools/bash/proxy.go`, `tools/bash/env.go`, `sandbox/policy.go`, their tests | 1, 2 | Planned |
 | 4 | macOS: `com.apple.trustd.agent` in the profile; the trust test | `sandbox/sandbox_darwin.go`, `sandbox/profile_darwin.sb`, `sandbox/sandbox_darwin_test.go`, `sandbox/testdata/chain.pem` | — | Planned |
 | 5 | The wire, the resolvers, codegen | `sidecar/graph/schema.graphqls`, `graph/`, `app/app.go`, generated code, `src/gql/` | 2 | Planned |
@@ -422,7 +422,7 @@ same time, then 8.
   `amazonaws.com`; port 0 matches any. `TestServerRuleReadsAKubeconfigServer`: host, port, a
   default port, an IP address, a URL that does not parse.
 
-**`sandboxconfig`**: `TestABadHostEntryIsLeftOutWithItsReason`; `TestHostsPersist`.
+**`securityconfig`**: `TestABadHostEntryIsLeftOutWithItsReason`; `TestHostsPersist`.
 
 **`chatsvc`**: `TestTheSessionsHostsJoinEverySource`, a kubeconfig reload seen by the next read,
 a chat's class 3 rule listed as `chat`, and a `Deny` or `AskFor` rule of the chat's or the file's

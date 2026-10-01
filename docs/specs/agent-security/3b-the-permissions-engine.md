@@ -25,10 +25,10 @@ After this step:
 - **The cluster proxy classifies every request** (class 1, 4, 5 or 6) and asks `Decide` before
   each write. `Allow` forwards it unasked and records it; `Prompt` puts it to the user as
   today; `Deny` refuses it with a `Status` that names the mode or the rule.
-- **The approval mode is per context**, kept in `sandboxconfig`, with `prod*` read-only unless
+- **The approval mode is per context**, kept in `securityconfig`, with `prod*` read-only unless
   the user says otherwise, and Ask everywhere else.
 - **Rules last for a chat or always.** A chat's are rows in `app.db` that go with the chat; the
-  always rules live in `sandboxconfig`. Step 4B lets a prompt write either; this step lets
+  always rules live in `securityconfig`. Step 4B lets a prompt write either; this step lets
   Settings write the always rules.
 - **A Settings section** shows the modes and the rules, the shipped ones read-only.
 
@@ -195,10 +195,10 @@ collection is verb `deletecollection`, so the production denial is two rules, on
 
 ### 2. The modes, per context
 
-`sandboxconfig.Settings` ([step 1C](1c-the-settings-file.md)) gains three fields:
+`securityconfig.Settings` ([step 1C](1c-the-settings-file.md)) gains three fields:
 
 ```go
-// In sandboxconfig.Settings.
+// In securityconfig.Settings.
 DefaultMode permissions.Mode   `json:"defaultMode,omitempty"` // Ask when empty
 Modes       []ContextMode      `json:"modes,omitempty"`       // first match wins
 Rules       []permissions.Rule `json:"rules,omitempty"`       // the always rules, the user's
@@ -246,7 +246,7 @@ applies to the next turn. `NoPrompts` is false for a chat and a subagent; step 6
 the monitor. `Narrow` keeps both.
 
 `session.Session` also gains `Rules func(ctx) []permissions.Rule`, set by `chatsvc` to the
-chat's grants joined with `sandboxconfig`'s rules and the shipped ones, read live. A test sets a
+chat's grants joined with `securityconfig`'s rules and the shipped ones, read live. A test sets a
 function of its own.
 
 ### 5. The Kubernetes classifier
@@ -330,7 +330,7 @@ asks: every upstream write is logged per command.
 - **Rules**: the always rules as lines in the user's terms (*Allow cluster writes in `dev-eks`
   / `team-a`*), each with Remove, then the shipped rules under *Always asks* and *Never
   allowed*, read-only. An Add form: effect, class, provider, and the scope fields the provider
-  has. A rule the file refused shows its reason, read from step 1C's `sandboxRefused` for the
+  has. A rule the file refused shows its reason, read from step 1C's `securityRefused` for the
   `rules` field.
 
 The wire: `permissionSettings: PermissionSettings!` (`defaultMode`, `modes`, `rules` with
@@ -372,7 +372,7 @@ around.
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
 | 1 | `permissions`: the types, `Decide`, the shipped rules | `permissions/permissions.go`, `permissions/shipped.go`, their tests | — | Planned |
-| 2 | The settings: modes and rules, `ModeFor`, the read-back check | `sandboxconfig/`, its tests | 1 | Planned |
+| 2 | The settings: modes and rules, `ModeFor`, the read-back check | `securityconfig/`, its tests | 1 | Planned |
 | 3 | `chat_grants` and `grantsFor`; the session's `Mode`, `NoPrompts` and `Rules` | `appdb/migrations/0001_init.sql`, `chatsvc/`, `session/`, their tests | 1, 2 | Planned |
 | 4 | The Kubernetes classifier | `kubeproxy/classify.go`, its test | 1 | Planned |
 | 5 | The proxy asks `Decide`; the record's new statuses and reason | `kubeproxy/write.go`, `tools/tool.go`, `tools/bash/proxy.go`, `chatsvc/approval.go`, their tests | 3, 4 | Planned |
@@ -403,7 +403,7 @@ time, then 9.
   naming a shipped rule.
 - `TestNoPromptsTurnsAPromptIntoADenial`, and leaves an `Allowed` alone.
 
-**`sandboxconfig`**
+**`securityconfig`**
 
 - `TestProdIsReadOnlyByDefault`, and a user's `prod*` entry replaces it.
 - `TestModesMatchInOrder`.
@@ -467,7 +467,7 @@ actions.
   `Decide`, with the tests; a row for the shipped rules; the *Consent* line of the bash tool
   record's row amended for classified actions.
 - **`sidecar/CLAUDE.md`**: `permissions`, the classifier, the write path's order, the session's
-  policy fields, `chat_grants`, `sandboxconfig`'s modes and rules.
+  policy fields, `chat_grants`, `securityconfig`'s modes and rules.
 - **Root `CLAUDE.md`**, *Chat* and the Settings dialog: the Permissions section, the new tags.
 - **The sequence's README**: this row's status.
 

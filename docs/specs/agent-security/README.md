@@ -67,7 +67,7 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 | Package | Holds | First in |
 | --- | --- | --- |
 | `sandbox` | the OS sandbox: `Policy`, the zone `Lists`, `Limits`, and reading a run's denials | landed; 1A, 2A, 2B, 5B |
-| `sandboxconfig` | the settings file `<data>/sandbox.json`: the store, and the fields later steps add — the frozen `PATH`, the permission rules and modes, the host rules, the folders granted always, the registered tools, the credential exclusions, the monitor's switch, the onboarding flag | 1C |
+| `securityconfig` | the settings file `<data>/security.json`: the store, and the fields later steps add — the frozen `PATH`, the permission rules and modes, the host rules, the folders granted always, the registered tools, the credential exclusions, the monitor's switch, the onboarding flag | 1C |
 | `credentials` | credentials borrowed from the user's tools, cached in memory to expiry; what was discovered; each provider's status | 1D |
 | `session` | a `Session`: one agent run's kind, workspace, approval mode, host allowlist, folder grants and rules; and how a subagent's is narrowed from its parent's | 2C |
 | `permissions` | the action classes, the approval modes, the rules, and `Decide` | 3B |
@@ -93,7 +93,7 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
   `Ask`, `Auto` (step 3B says why the note's *Trusted scopes* is `Ask` with rules).
   **`permissions.Rule`**: `Effect` (`Allow`, `Deny` or `AskFor`), `Class`, `Provider`, `Scope`,
   and where it lives: a chat's rules are `chat_grants` rows, the always rules are in
-  `sandboxconfig`, and the shipped rules are code. **`permissions.Decision`**: `Allowed`,
+  `securityconfig`, and the shipped rules are code. **`permissions.Decision`**: `Allowed`,
   `Prompted` or `Denied`, with a `Reason`.
 - **`permissions.Action`**: one classified action: its `Provider` (`k8s`, `aws`, `github`,
   `gcp`, `azure`, `net`, `path`), `Class`, `Scope` (context and namespace, account and region,
@@ -127,7 +127,7 @@ gains one section per step that has settings, each its own component beside
 | --- | --- | --- |
 | 1A | **The sandbox policy.** What a run may read and write becomes one `Policy`: Read, Write and Deny rules, and an `Always` part for the denied-always list and Kstack's directories, which no rule opens. Linux and macOS each compile it, and one table of cases pins that both answer alike. No behavior changes. **Landed**; `sidecar/CLAUDE.md` describes it. | Any access decision can be explained from the policy, and granting `~` cannot expose `~/.ssh`. |
 | 1B | **Outside the sandbox is the user's choice.** The model's `dangerouslyDisableSandbox` flag goes. A per-chat switch, off by default, runs that chat's commands outside the sandbox, each asking as today. **Landed**; the root and `sidecar/` `CLAUDE.md` describe it. | No chain of approvals leaves the sandbox; the user does, for one chat, on purpose. |
-| [1C](1c-the-settings-file.md) | **Landed.** **The settings file.** `sandboxconfig` and `<data>/sandbox.json`: the store every later setting lives in, with no fields yet, opened on every platform. | Every setting of the sandbox, the proxies and the permissions has one home no sandboxed command reads. |
+| [1C](1c-the-settings-file.md) | **Landed.** **The settings file.** `securityconfig` and `<data>/security.json`: the store every later setting lives in, with no fields yet, opened on every platform. | Every setting of the sandbox, the proxies and the permissions has one home no sandboxed command reads. |
 | [1D](1d-credentials-from-the-users-tools.md) | **Credentials from the user's tools.** The `credentials` package: each provider's credential borrowed through the tool's own command on the host, cached in memory to expiry, never written to disk; what was discovered; each provider's status. | Every proxy has one place to borrow a credential from, and the sandbox never sees one. |
 
 Seam: 1A and 1B both change `tools/bash`, 1A how a sandboxed run's policy is built and 1B which
@@ -149,10 +149,10 @@ Seam: 2A and 2B both change the compiled arguments and profile and their goldens
 
 | Spec | Step | After it |
 | --- | --- | --- |
-| [3A](3a-path-from-the-login-shell.md) | **`PATH` from the login shell.** The user's `PATH` is resolved from their login shell, filtered, frozen in `sandboxconfig`, diffed at each launch with a confirmation for new entries under the home, refreshed on request, and shown in Settings. Needs 2A and 1C. | The sandbox finds the tools the user's shell finds, and no startup file widens it unseen. |
-| [3B](3b-the-permissions-engine.md) | **The permissions engine.** Classes, modes, rules, the shipped deny rules, and `Decide`; the Kubernetes classifier assigns class 4 and 5; the cluster proxy asks `Decide` before each write; modes per context in `sandboxconfig`, `prod*` read-only by default; the Settings section. Needs 2C and 1C. | A cluster write runs, asks or is refused by the user's mode and rules, and class 5 is never allowed unasked. |
+| [3A](3a-path-from-the-login-shell.md) | **`PATH` from the login shell.** The user's `PATH` is resolved from their login shell, filtered, frozen in `securityconfig`, diffed at each launch with a confirmation for new entries under the home, refreshed on request, and shown in Settings. Needs 2A and 1C. | The sandbox finds the tools the user's shell finds, and no startup file widens it unseen. |
+| [3B](3b-the-permissions-engine.md) | **The permissions engine.** Classes, modes, rules, the shipped deny rules, and `Decide`; the Kubernetes classifier assigns class 4 and 5; the cluster proxy asks `Decide` before each write; modes per context in `securityconfig`, `prod*` read-only by default; the Settings section. Needs 2C and 1C. | A cluster write runs, asks or is refused by the user's mode and rules, and class 5 is never allowed unasked. |
 
-Seam: both add fields to `sandboxconfig.Settings`.
+Seam: both add fields to `securityconfig.Settings`.
 
 **Wave 4** — needs waves 1 to 3.
 
@@ -207,7 +207,7 @@ neither and says so. A risk a step accepts on purpose is a **By decision** row i
 | --- | --- | --- | --- |
 | 1A | no | no | the sandbox rows gain the new tests; a row for the denied-always list winning over a Read |
 | 1B | yes | yes | the rows naming `dangerouslyDisableSandbox` say the switch is the chat's |
-| 1C | no | no | `sandbox.json` joins the owner-only files row |
+| 1C | no | no | `security.json` joins the owner-only files row |
 | 1D | yes | no | rows for no credential under Kstack's directories, and for the borrows being the tools' own commands |
 | 2A | yes | yes | the sandbox rows, the environment row, a row for the tool cache |
 | 2B | no | yes | rows for the limits, the setuid programs and tracing |

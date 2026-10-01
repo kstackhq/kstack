@@ -18,7 +18,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/sandboxconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 )
 
 // Thinking is the resolver for the thinking field: what the message's blocks hold
@@ -354,10 +354,10 @@ func (r *queryResolver) ClusterCachedKinds(ctx context.Context, cacheID *apimeta
 	return r.ClusterSvc.CachedKinds().List(ctx)
 }
 
-// SandboxRefused is the resolver for the sandboxRefused field.
-func (r *queryResolver) SandboxRefused(ctx context.Context) ([]*sandboxconfig.Refusal, error) {
-	refused := r.SandboxCfg.Refused()
-	out := make([]*sandboxconfig.Refusal, len(refused))
+// SecurityRefused is the resolver for the securityRefused field.
+func (r *queryResolver) SecurityRefused(ctx context.Context) ([]*securityconfig.Refusal, error) {
+	refused := r.SecurityCfg.Refused()
+	out := make([]*securityconfig.Refusal, len(refused))
 	for i := range refused {
 		out[i] = &refused[i]
 	}

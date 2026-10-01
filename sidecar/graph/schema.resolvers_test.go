@@ -28,7 +28,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/sandboxconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	agenttool "github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
@@ -2036,19 +2036,19 @@ func TestTheModelsQueryListsEveryProvidersCatalog(t *testing.T) {
 		"id":"fake-no-tools","label":"Fake model (no tools)","efforts":[],"defaultEffort":""}]}}`, string(raw))
 }
 
-// sandboxRefused answers what the settings file's Open left out.
-func TestSandboxRefusedIsWhatOpenLeftOut(t *testing.T) {
-	refuse := func(*sandboxconfig.Settings) []sandboxconfig.Refusal {
-		return []sandboxconfig.Refusal{{Field: "rules", Value: "Bash(rm *)", Reason: "is not a rule"}}
+// securityRefused answers what the settings file's Open left out.
+func TestSecurityRefusedIsWhatOpenLeftOut(t *testing.T) {
+	refuse := func(*securityconfig.Settings) []securityconfig.Refusal {
+		return []securityconfig.Refusal{{Field: "rules", Value: "Bash(rm *)", Reason: "is not a rule"}}
 	}
-	cfg, err := sandboxconfig.Open(filepath.Join(t.TempDir(), "sandbox.json"), sandboxconfig.WithChecks(refuse))
+	cfg, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"), securityconfig.WithChecks(refuse))
 	require.NoError(t, err)
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{SandboxCfg: cfg}))
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{SecurityCfg: cfg}))
 	t.Cleanup(srv.Close)
 
-	raw := postGQL(t, srv.URL, `{"query":"{ sandboxRefused { field value reason } }"}`)
+	raw := postGQL(t, srv.URL, `{"query":"{ securityRefused { field value reason } }"}`)
 
-	assert.JSONEq(t, `{"data":{"sandboxRefused":[{"field":"rules","value":"Bash(rm *)","reason":"is not a rule"}]}}`, string(raw))
+	assert.JSONEq(t, `{"data":{"securityRefused":[{"field":"rules","value":"Bash(rm *)","reason":"is not a rule"}]}}`, string(raw))
 }
 
 // approvalDecide reaches the service, and a decision nothing waits on answers false

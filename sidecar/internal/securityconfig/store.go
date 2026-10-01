@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package sandboxconfig keeps the sandbox's settings in <data>/sandbox.json.
-package sandboxconfig
+// Package securityconfig keeps the security settings in <data>/security.json.
+package securityconfig
 
 import (
 	"bytes"
@@ -34,7 +34,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/atomicjson"
 )
 
-// Settings is the sandbox's settings. Each field is added by the step that
+// Settings is the security settings. Each field is added by the step that
 // needs it; see the table in the spec.
 type Settings struct{}
 
@@ -104,7 +104,7 @@ func openStore[T any](file string, checks []func(*T) []Refusal, strictest map[st
 		}
 	}
 	for _, r := range refused {
-		slog.Warn("sandbox setting refused", "file", file, "field", r.Field, "value", r.Value, "reason", r.Reason)
+		slog.Warn("security setting refused", "file", file, "field", r.Field, "value", r.Value, "reason", r.Reason)
 	}
 	hub := watch.New(clone(cur))
 	return &store[T]{
@@ -275,7 +275,7 @@ func clone[T any](v T) T {
 		err = json.Unmarshal(b, &out)
 	}
 	if err != nil {
-		panic(fmt.Sprintf("sandboxconfig: settings must be JSON-safe: %v", err))
+		panic(fmt.Sprintf("securityconfig: settings must be JSON-safe: %v", err))
 	}
 	return out
 }

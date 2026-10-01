@@ -42,7 +42,7 @@ of [the sandbox, credentials and permissions note](../../notes/sandbox-credentia
 ## What is not in this step
 
 - **No setting.** The values are constants in `tools/bash`. No step of the sequence puts them in
-  `sandboxconfig`; one may, once a user needs to.
+  `securityconfig`; one may, once a user needs to.
 - **No limit outside the sandbox.** A command the user switched out of the sandbox (step 1B) runs
   as the user, with the user's limits, as today.
 - **No limit on the login shell.** Step 4A builds its policy and may set `Limits` there the same

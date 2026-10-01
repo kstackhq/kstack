@@ -39,7 +39,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
 	"github.com/kstackhq/kstack/sidecar/internal/poke"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/sandboxconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	agenttool "github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
@@ -136,8 +136,8 @@ func New(cfg Config) (*App, error) {
 	kubeconfigSvc := kubeconfig.New(cfg.KubeconfigPath, pokeSvc)
 
 	p := pathsOf(cfg)
-	// The sandbox's settings hold no handle, so a failure leaves nothing to close.
-	sandboxCfg, err := sandboxconfig.Open(p.SandboxFile)
+	// The security settings hold no handle, so a failure leaves nothing to close.
+	securityCfg, err := securityconfig.Open(p.SecurityFile)
 	if err != nil {
 		return nil, err
 	}
@@ -211,7 +211,7 @@ func New(cfg Config) (*App, error) {
 		LLMSvc:        llmSvc,
 		SandboxStatus: sandboxStatus,
 		Auth:          authSvc,
-		SandboxCfg:    sandboxCfg,
+		SecurityCfg:   securityCfg,
 	})
 
 	grpcServer := grpcserver.NewServer(authSvc, pokeSvc)

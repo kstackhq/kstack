@@ -128,7 +128,7 @@ launch resolution runs earlier, in `main`, before the app exists. So:
   `app.Config.Sandbox`.
 - The app uses that sandbox. When the config has none, the app probes as it does today, so tests
   that build the app without `main` do not change.
-- `main`'s resolution, the refresh (`sandboxconfig.Service`'s resolver, built by `app`) and the
+- `main`'s resolution, the refresh (`securityconfig.Service`'s resolver, built by `app`) and the
   snapshot (`tools/bash/snapshot_unix.go`) each pass `loginshell.In(...)`. `main` gets Kstack's
   three directories from its config; the app and Bash already have them, and `<cache>/tmp/` is
   `bash.Paths.TmpDir`.

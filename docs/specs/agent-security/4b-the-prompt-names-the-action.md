@@ -25,7 +25,7 @@ The note's *Prompt UX* section asks for three things, and this step builds them:
   **a diff**: what the object is now against what the dry run says it will be, as YAML. The raw
   request is one fold away.
 - **Four answers**: Approve once, Allow for this chat, Always allow, Deny. "This chat" writes a
-  `chat_grants` row; "Always" writes a rule into `sandboxconfig`, which Settings shows and
+  `chat_grants` row; "Always" writes a rule into `securityconfig`, which Settings shows and
   removes. Each allow button says the scope it grants.
 - **The record keeps the duration**, and the call's disclosure says it: `approved · this chat`.
 
@@ -143,7 +143,7 @@ a call's own) and checks before it delivers:
 | a call's own (`kind: call`) with no `Action`, a raw command | `Chat`, `Always` | `KSTACK_VALIDATION_ERROR`; the request stays |
 | an action with `Grantable` false | `Chat`, `Always` | `KSTACK_VALIDATION_ERROR`; the request stays |
 | an action | `Chat` | `addGrant(ctx, chatID, rule)`: a `chat_grants` row, then deliver approved |
-| an action | `Always` | the rule into `sandboxconfig`'s `Rules`, through the write `permissionRuleAdd` uses, then deliver approved |
+| an action | `Always` | the rule into `securityconfig`'s `Rules`, through the write `permissionRuleAdd` uses, then deliver approved |
 | any | `Once` | deliver approved |
 | any | `Deny` | deliver denied |
 
@@ -265,7 +265,7 @@ once the next time; the model need not ask again for one in the same context and
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
 | 1 | The record: `kind`, `duration`, the index; `ActionRequest` and `ActionAsker`; `Grantable` | `appdb/migrations/0001_init.sql`, `tools/tool.go`, `permissions/permissions.go`, `kubeproxy/write.go`, `tools/bash/proxy.go`, `chatsvc/approval.go`, `chatsvc/store.go`, their tests | — | Planned |
-| 2 | The decision: `approvalDecide`, `service.Approve`, `addGrant`, the always rule | `chatsvc/approval.go`, `chatsvc/statements.go`, `sandboxconfig/`, `sidecar/graph/schema.graphqls`, `graph/`, their tests | 1 | Planned |
+| 2 | The decision: `approvalDecide`, `service.Approve`, `addGrant`, the always rule | `chatsvc/approval.go`, `chatsvc/statements.go`, `securityconfig/`, `sidecar/graph/schema.graphqls`, `graph/`, their tests | 1 | Planned |
 | 3 | The diff | `kubeproxy/diff.go`, `kubeproxy/write.go`, `sidecar/go.mod`, their tests | 1 | Planned |
 | 4 | The wire and codegen | `sidecar/graph/schema.graphqls`, `graph/`, generated code, `src/gql/` | 2, 3 | Planned |
 | 5 | The request, the buttons, the tags | `src/components/widgets/chat-transcript.tsx`, `diff-block.tsx`, `src/lib/permissions.ts`, `src/lib/chats.tsx`, their tests | 4 | Planned |
@@ -291,7 +291,7 @@ once the next time; the model need not ask again for one in the same context and
 - `TestAGrantKeepsTheLiteralScope`: `Chat` on an action in a context named `dev*` writes a
   rule that matches `dev*` and not `dev-eks`; on a `net` action for `example.com:443` it writes
   `Kind` `443`, and the rule matches port 443 and not 8443.
-- `TestAlwaysWritesTheRuleIntoTheSettings`: the same rule in `sandboxconfig`, and `always` on
+- `TestAlwaysWritesTheRuleIntoTheSettings`: the same rule in `securityconfig`, and `always` on
   the row.
 - `TestACallsOwnApprovalTakesOnceOrDenyAlone`: `Chat` and `Always` on a raw command's request
   are `ErrBadRequest`, the waiter still there, and `Once` then lands.

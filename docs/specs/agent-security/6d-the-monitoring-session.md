@@ -256,14 +256,14 @@ create. Neither draws it for a window with no cluster.
   one is a separate switch, and it is not built.* The note calls it a separate explicit switch,
   and no grant reaches the monitor until someone builds it on purpose.
 
-`sandboxconfig.Settings` gains `Monitor MonitorSettings` with `ShareFolders bool`, always false
+`securityconfig.Settings` gains `Monitor MonitorSettings` with `ShareFolders bool`, always false
 and never written in this step: the switch's home. The wire: `monitorStatus:
 [MonitorClusterStatus!]!` (`clusterID`, `paused: Boolean!`, `reason: String!`), the in-memory
 status `Run` sets and clears, and `monitorSettings: MonitorSettings!` (`shareFolders: Boolean!`).
 
 ## Decisions this step asks for
 
-1. **The per-cluster toggle is `clusters.monitoring_enabled`**, not a list in `sandboxconfig`.
+1. **The per-cluster toggle is `clusters.monitoring_enabled`**, not a list in `securityconfig`.
    The column, `clustersvc.SetMonitoringEnabled` and `clusterMonitoringEnabledSet` exist, it
    goes with the row, and a second home for one fact would drift. Recommended.
 2. **The monitor's box has no Memory, Agent or Fetch.** A note is a chat's, an agent needs an
@@ -284,7 +284,7 @@ status `Run` sets and clears, and `monitorSettings: MonitorSettings!` (`shareFol
 | 3 | `proposals` and `Proposals`: add, start, recover, dismiss, watch, cascade; `chatsvc.ChatForRequest` | `appdb/migrations/0001_init.sql`, `appdb/appdb.go`, `monitor/proposals.go`, `chatsvc/`, `app/app.go`, their tests | — | Planned |
 | 4 | The wire and codegen | `sidecar/graph/schema.graphqls`, `graph/`, generated code, `src/gql/` | 3 | Planned |
 | 5 | `useProposals`, the card, its two homes | `src/lib/proposals.tsx`, `src/components/widgets/proposal-card.tsx`, `dashboard-chat.tsx`, `src/layouts/app-layout.tsx`, their tests | 4 | Planned |
-| 6 | `Settings.Monitor`, `monitorStatus`, the Settings section | `sandboxconfig/`, `src/components/widgets/monitor-settings.tsx`, `settings-dialog.tsx`, their tests | 1, 4 | Planned |
+| 6 | `Settings.Monitor`, `monitorStatus`, the Settings section | `securityconfig/`, `src/components/widgets/monitor-settings.tsx`, `settings-dialog.tsx`, their tests | 1, 4 | Planned |
 | 7 | Docs, per *When it lands* | see there | 1–6 | Planned |
 
 **Order:** 1 and 3 at the same time, then 2 and 4, then 5 and 6 at the same time, then 7.
@@ -319,7 +319,7 @@ status `Run` sets and clears, and `monitorSettings: MonitorSettings!` (`shareFol
 - `TestDismissPutsItAway`, and a dismissed one cannot be started;
   `TestProposalsGoWithTheCluster`, the cascade.
 
-**`sandboxconfig`**
+**`securityconfig`**
 
 - `TestShareFoldersIsFalseAndUnwritten`.
 

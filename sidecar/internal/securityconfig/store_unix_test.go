@@ -14,7 +14,7 @@
 
 //go:build !windows
 
-package sandboxconfig
+package securityconfig
 
 import (
 	"os"
@@ -27,7 +27,7 @@ import (
 
 // On Windows the profile ACL keeps the file the user's.
 func TestTheFileIsOwnerOnly(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "sandbox.json")
+	file := filepath.Join(t.TempDir(), "security.json")
 	require.NoError(t, openTest(t, file).Update(func(v *testSettings) error {
 		v.Count = 1
 		return nil

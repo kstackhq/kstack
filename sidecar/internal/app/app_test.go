@@ -598,9 +598,9 @@ func TestAppClosesTheDatabaseWhenTheCloudServiceFails(t *testing.T) {
 
 // A sandbox file that is not a JSON object fails New naming it, before app.db
 // opens.
-func TestABadSandboxFileFailsNew(t *testing.T) {
+func TestABadSecurityFileFailsNew(t *testing.T) {
 	dir := t.TempDir()
-	file := filepath.Join(dir, "sandbox.json")
+	file := filepath.Join(dir, "security.json")
 	require.NoError(t, os.WriteFile(file, []byte("{"), 0o600))
 
 	_, err := New(withDirs(t, Config{DataDir: dir}))

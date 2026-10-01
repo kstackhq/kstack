@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package sandboxconfig
+package securityconfig
 
 import (
 	"encoding/json"
@@ -53,7 +53,7 @@ func openTest(t *testing.T, file string, checks ...func(*testSettings) []Refusal
 }
 
 func TestTheStorePersists(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "sandbox.json")
+	file := filepath.Join(t.TempDir(), "security.json")
 	s := openTest(t, file)
 	assert.Equal(t, testSettings{}, s.Get(), "a missing file opens empty")
 	assert.NoFileExists(t, file, "Open writes nothing")
@@ -65,14 +65,14 @@ func TestTheStorePersists(t *testing.T) {
 	}))
 	assert.Equal(t, testSettings{Names: []string{"a", "b"}, Count: 2}, openTest(t, file).Get())
 
-	_, err := Open(filepath.Join(t.TempDir(), "sandbox.json"))
+	_, err := Open(filepath.Join(t.TempDir(), "security.json"))
 	require.NoError(t, err, "the production store opens a missing file")
 }
 
 func TestABadFileFailsOpen(t *testing.T) {
 	for _, body := range []string{"{", "[]", "null"} {
 		t.Run(body, func(t *testing.T) {
-			file := filepath.Join(t.TempDir(), "sandbox.json")
+			file := filepath.Join(t.TempDir(), "security.json")
 			require.NoError(t, os.WriteFile(file, []byte(body), 0o600))
 
 			_, err := Open(file)
@@ -83,7 +83,7 @@ func TestABadFileFailsOpen(t *testing.T) {
 
 // A file that cannot be read fails Open too, rather than opening empty.
 func TestAnUnreadableFileFailsOpen(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "sandbox.json")
+	file := filepath.Join(t.TempDir(), "security.json")
 	require.NoError(t, os.Mkdir(file, 0o700))
 
 	_, err := Open(file)
@@ -91,7 +91,7 @@ func TestAnUnreadableFileFailsOpen(t *testing.T) {
 }
 
 func TestAFieldOfTheWrongTypeIsRefusedAlone(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "sandbox.json")
+	file := filepath.Join(t.TempDir(), "security.json")
 	body := `{"names": "a", "count": 3, "other": true, "Count": 9}`
 	require.NoError(t, os.WriteFile(file, []byte(body), 0o600))
 
@@ -105,7 +105,7 @@ func TestAFieldOfTheWrongTypeIsRefusedAlone(t *testing.T) {
 }
 
 func TestAnEqualUpdateWritesNothing(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "sandbox.json")
+	file := filepath.Join(t.TempDir(), "security.json")
 	s := openTest(t, file)
 	rx := s.Subscribe()
 	defer rx.Close()
@@ -122,7 +122,7 @@ func TestAnEqualUpdateWritesNothing(t *testing.T) {
 }
 
 func TestUpdateIsOneWrite(t *testing.T) {
-	s := openTest(t, filepath.Join(t.TempDir(), "sandbox.json"))
+	s := openTest(t, filepath.Join(t.TempDir(), "security.json"))
 	var saves atomic.Int32
 	var fail atomic.Bool
 	save := s.save
@@ -166,7 +166,7 @@ func TestUpdateIsOneWrite(t *testing.T) {
 var errBoom = errors.New("boom")
 
 func TestSubscribeSeesTheLatestWrite(t *testing.T) {
-	s := openTest(t, filepath.Join(t.TempDir(), "sandbox.json"))
+	s := openTest(t, filepath.Join(t.TempDir(), "security.json"))
 	require.NoError(t, s.Update(func(v *testSettings) error {
 		v.Names = []string{"a"}
 		return nil
@@ -193,7 +193,7 @@ func TestSubscribeSeesTheLatestWrite(t *testing.T) {
 }
 
 func TestARefusedValueIsLeftOutAndListed(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "sandbox.json")
+	file := filepath.Join(t.TempDir(), "security.json")
 	require.NoError(t, os.WriteFile(file, []byte(`{"names": ["a"], "count": 1}`), 0o600))
 	logs := testutil.CaptureLogs(t)
 
@@ -262,7 +262,7 @@ func TestDecodeReadsTheKeyASaveWrites(t *testing.T) {
 // The store keeps its own copy of what Update wrote, so data the callback
 // still holds cannot change it afterwards.
 func TestUpdateKeepsItsOwnCopy(t *testing.T) {
-	s := openTest(t, filepath.Join(t.TempDir(), "sandbox.json"))
+	s := openTest(t, filepath.Join(t.TempDir(), "security.json"))
 	mine := []string{"a"}
 	require.NoError(t, s.Update(func(v *testSettings) error {
 		v.Names = mine
@@ -274,7 +274,7 @@ func TestUpdateKeepsItsOwnCopy(t *testing.T) {
 }
 
 func TestOneBadElementIsRefusedAlone(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "sandbox.json")
+	file := filepath.Join(t.TempDir(), "security.json")
 	require.NoError(t, os.WriteFile(file, []byte(`{"names": ["a", 1, "b"]}`), 0o600))
 
 	s := openTest(t, file)
@@ -283,7 +283,7 @@ func TestOneBadElementIsRefusedAlone(t *testing.T) {
 }
 
 func TestARefusedRestrictionFailsClosed(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "sandbox.json")
+	file := filepath.Join(t.TempDir(), "security.json")
 	require.NoError(t, os.WriteFile(file, []byte(`{"denied": ["a", 1]}`), 0o600))
 	assert.Equal(t, []string{"*"}, openTest(t, file).Get().Denied, "a bad element")
 
@@ -302,7 +302,7 @@ func TestARefusedRestrictionFailsClosed(t *testing.T) {
 }
 
 func TestAnUpdateKeepsARefusedRestrictionInTheFile(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "sandbox.json")
+	file := filepath.Join(t.TempDir(), "security.json")
 	require.NoError(t, os.WriteFile(file, []byte(`{"denied": ["a", 1]}`), 0o600))
 	s := openTest(t, file)
 
@@ -327,7 +327,7 @@ func TestAnUpdateKeepsARefusedRestrictionInTheFile(t *testing.T) {
 // The fix can be the strictest state the field already answers, which changes
 // nothing in memory; naming the field is what writes it.
 func TestAnUpdateNamingARefusedRestrictionWritesItsStrictestState(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "sandbox.json")
+	file := filepath.Join(t.TempDir(), "security.json")
 	require.NoError(t, os.WriteFile(file, []byte(`{"denied": ["a", 1]}`), 0o600))
 	s := openTest(t, file)
 	rx := s.Subscribe()

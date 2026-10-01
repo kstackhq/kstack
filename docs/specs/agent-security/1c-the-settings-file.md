@@ -17,7 +17,7 @@ Today the sandbox has no settings of its own. [The note](../../notes/sandbox-cre
 gives the user a list of things to decide — the frozen `PATH`, the approval modes and rules, the
 hosts, the granted folders, the registered tools, the excluded credentials — and each needs a file.
 
-After this step, **`sandboxconfig`** is that file: `<data>/sandbox.json`, a `Store` that opens
+After this step, **`securityconfig`** is that file: `<data>/security.json`, a `Store` that opens
 it, reads it, writes it under one lock and publishes each write. `Settings` has no fields yet.
 Each later step adds its own, and this step fixes how every field is read back and checked, so
 the steps can land in parallel without meeting in the struct. Nothing the user sees changes.
@@ -27,20 +27,20 @@ the steps can land in parallel without meeting in the struct. Nothing the user s
 - **No field.** The table in §2 says which step adds which.
 - **No settings on the wire.** The `sandboxSettings` query is step 7A's; `sandboxPath` and the
   `permission…`, `network…` and `credential…` names are their steps'. This step's one query is
-  `sandboxRefused`, what the file lost (§3).
+  `securityRefused`, what the file lost (§3).
 - **No Settings section.** Each step that adds a field draws it.
 
 ## Design
 
-### 1. `sandboxconfig.Store`
+### 1. `securityconfig.Store`
 
-`sandboxconfig/store.go`. The file is `<data>/sandbox.json`, 0600, written through
+`securityconfig/store.go`. The file is `<data>/security.json`, 0600, written through
 `atomicjson`. It lives in the data directory, which no sandboxed command reads
 (`bash.Paths.DeniedDirs`), and it is not synced: it describes this machine. The `Store` is
 modelled on `cloud/prefs` without its envelope:
 
 ```go
-// Settings is the sandbox's settings. Each field is added by the step that
+// Settings is the security settings. Each field is added by the step that
 // needs it; see the table in the spec.
 type Settings struct{}
 
@@ -112,7 +112,7 @@ the zero value.
 
 ### 3. Read-back
 
-Every field follows one convention, which its step's tests pin. `sandboxconfig/check.go` holds
+Every field follows one convention, which its step's tests pin. `securityconfig/check.go` holds
 `checks`, a slice of `func(*Settings) []Refusal`, one per field, empty in this step; each field's
 step adds its line. A check removes from the `Settings` every value it refuses and answers one
 `Refusal` per value. A `Refusal` is the field, the value — what a row in that field's Settings
@@ -156,8 +156,8 @@ that step beside what `Refused()` lists.
   grants less, and the log line and this launch's Settings section are where the user learns of
   it. Equality is the file's JSON: an `Update` that leaves it as it is writes and publishes
   nothing.
-- **On the wire**, `sandboxRefused: [SandboxRefusal!]!` answers `Refused()`, with
-  `type SandboxRefusal { field: String!, value: String!, reason: String! }`, `field` being the
+- **On the wire**, `securityRefused: [SecurityRefusal!]!` answers `Refused()`, with
+  `type SecurityRefusal { field: String!, value: String!, reason: String! }`, `field` being the
   JSON key. It is a query, not a watch, since the list is fixed at `Open`. Each later step's
   Settings section reads it and draws the entries of its own field, so no step's own query
   carries refusals, and steps 2D, 3A and 3B, landing in either order, need nothing of each
@@ -167,12 +167,12 @@ that step beside what `Refused()` lists.
 
 ### 4. The app opens it
 
-`app.paths` gains `SandboxFile`, `<data>/sandbox.json`. `app.New` opens the store right before
+`app.paths` gains `SecurityFile`, `<data>/security.json`. `app.New` opens the store right before
 `app.db`, on every platform, and closes nothing for it: the store holds no handle, so a failed
 `Open` fails `New` with nothing to close.
-`graph.Resolver` gains `SandboxCfg *sandboxconfig.Store`, never nil, like every resolver field
+`graph.Resolver` gains `SecurityCfg *securityconfig.Store`, never nil, like every resolver field
 (named for what it holds, since the store is not a service);
-its one resolver in this step is `sandboxRefused`. A resolver that answers *no sandbox* keys on
+its one resolver in this step is `securityRefused`. A resolver that answers *no sandbox* keys on
 the machine's sandbox status (step 1B's `SandboxStatus`), not on the store. On native Windows the
 store opens like anywhere else, since step 7A's `Onboarded` flag needs a home there.
 
@@ -191,15 +191,15 @@ store opens like anywhere else, since step 7A's `Onboarded` flag needs a home th
 
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
-| 1 | `sandboxconfig`: `Settings`, `Store`, per-field decoding, `check`, `Refusal` | `sandboxconfig/store.go`, `sandboxconfig/check.go`, their tests | — | Done |
-| 2 | `SandboxFile`; `app.New` opens the store; `Resolver.SandboxCfg`; `sandboxRefused` | `app/paths.go`, `app/app.go`, `sidecar/graph/resolver.go`, `sidecar/graph/schema.graphqls`, generated code, their tests | 1 | Done |
+| 1 | `securityconfig`: `Settings`, `Store`, per-field decoding, `check`, `Refusal` | `securityconfig/store.go`, `securityconfig/check.go`, their tests | — | Done |
+| 2 | `SecurityFile`; `app.New` opens the store; `Resolver.SecurityCfg`; `securityRefused` | `app/paths.go`, `app/app.go`, `sidecar/graph/resolver.go`, `sidecar/graph/schema.graphqls`, generated code, their tests | 1 | Done |
 | 3 | Docs, per *When it lands* | see there | 1, 2 | Done |
 
 **Order:** 1, then 2, then 3.
 
 ## Tests
 
-**`sandboxconfig`**
+**`securityconfig`**
 
 - `TestTheStorePersists`: what `Update` writes is what a reopen reads; a missing file opens empty.
 - `TestTheFileIsOwnerOnly` (`store_unix_test.go`): the file lands 0600.
@@ -238,12 +238,12 @@ store opens like anywhere else, since step 7A's `Onboarded` flag needs a home th
 
 **`graph`**
 
-- `TestSandboxRefusedIsWhatOpenLeftOut`: over a store opened with a test's refusing check, the
+- `TestSecurityRefusedIsWhatOpenLeftOut`: over a store opened with a test's refusing check, the
   query answers each refusal's field, value and reason.
 
 **`app`**
 
-- `TestABadSandboxFileFailsNew`: `New` over a `SandboxFile` that is not a JSON object fails naming the
+- `TestABadSecurityFileFailsNew`: `New` over a `SecurityFile` that is not a JSON object fails naming the
   file, before `app.db` opens. The store opens whatever the sandbox's probe finds, since
   nothing in `app` keys on it.
 
@@ -254,23 +254,23 @@ so nothing a sandboxed command runs can read or change what the user decided. A 
 the sandbox, and every command on native Windows, runs as the user and can, as it can `app.db`;
 it asks first, and the store reads the file only at start, so a change made under it is seen at
 the next launch or overwritten by the next `Update`. `security-model.md`'s
-owner-only files row gains `sandbox.json`, pinned by `TestTheFileIsOwnerOnly`. A malformed
+owner-only files row gains `security.json`, pinned by `TestTheFileIsOwnerOnly`. A malformed
 value never loosens a restriction: a restricting field fails closed and keeps its raw JSON in the
 file (§2, §3), pinned by `TestARefusedRestrictionFailsClosed` and
 `TestAnUpdateKeepsARefusedRestrictionInTheFile`. No security record.
 
 ## When it lands
 
-- **`security-model.md`**: `sandbox.json` joins the owner-only files row.
-- **`sidecar/CLAUDE.md`**: `sandboxconfig` under `internal/` (the file, the `Store`, the
-  read-back convention, per-field decoding, `sandboxRefused`, and that each field's step names
-  it); `SandboxFile` in `app.paths`'
-  tree comment; `Resolver.SandboxCfg`.
+- **`security-model.md`**: `security.json` joins the owner-only files row.
+- **`sidecar/CLAUDE.md`**: `securityconfig` under `internal/` (the file, the `Store`, the
+  read-back convention, per-field decoding, `securityRefused`, and that each field's step names
+  it); `SecurityFile` in `app.paths`'
+  tree comment; `Resolver.SecurityCfg`.
 - **The sequence's README**: this row's status.
 
 ## Verification
 
 Run the [verification commands](../README.md#verification-commands), including the wire checks.
 
-By hand, `pnpm tauri dev` on any platform: write `{` into `<data>/sandbox.json` and relaunch,
+By hand, `pnpm tauri dev` on any platform: write `{` into `<data>/security.json` and relaunch,
 and the sidecar fails to start naming the file; remove it and relaunch clean.
