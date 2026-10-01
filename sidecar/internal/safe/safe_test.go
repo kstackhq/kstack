@@ -390,6 +390,34 @@ func TestSafeRegistersNoValueUnderSixteenBytes(t *testing.T) {
 	assert.Equal(t, "[redacted] goes", safe.String("sixteen-bytes016 goes"))
 }
 
+// A slot holds what its owner last set, so a credential that is re-borrowed replaces
+// the one before it, and neither another slot nor AddSecret's values move.
+func TestSetSecretsReplacesTheSlot(t *testing.T) {
+	t.Cleanup(safe.ResetSecrets)
+	safe.AddSecret("added-key-0123456789")
+	safe.SetSecrets("other", "other-key-0123456789")
+	safe.SetSecrets("aws:dev", "first-key-0123456789", "short")
+
+	assert.Equal(t, "[redacted]", safe.String("first-key-0123456789"))
+	assert.Equal(t, "short", safe.String("short"))
+
+	safe.SetSecrets("aws:dev", "second-key-0123456789")
+
+	assert.Equal(t, "first-key-0123456789", safe.String("first-key-0123456789"))
+	assert.Equal(t, "[redacted]", safe.String("second-key-0123456789"))
+	assert.Equal(t, "[redacted]", safe.String("other-key-0123456789"))
+	assert.Equal(t, "[redacted]", safe.String("added-key-0123456789"))
+
+	safe.SetSecrets("aws:dev")
+	assert.Equal(t, "second-key-0123456789", safe.String("second-key-0123456789"), "no values empties the slot")
+	safe.SetSecrets("aws:dev", "second-key-0123456789")
+
+	safe.ResetSecrets()
+
+	assert.Equal(t, "second-key-0123456789", safe.String("second-key-0123456789"))
+	assert.Equal(t, "added-key-0123456789", safe.String("added-key-0123456789"))
+}
+
 // Matches are found in the original text and merged, so a short key that is a
 // substring of a long one leaves no tail of the long one in the clear, whichever
 // was registered first.

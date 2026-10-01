@@ -142,9 +142,13 @@ var (
 // it, and a short value would blank its letters out of every line.
 const minSecretLen = 16
 
-// secrets is every value AddSecret registered, read on every render.
+// The registry: AddSecret's values, each slot's, and secrets, all of them flattened,
+// which every render reads. A change builds a new secrets slice and swaps it in, so a
+// render holding the old one never sees it change.
 var (
 	secretsMu sync.RWMutex
+	added     []string
+	slots     = map[string][]string{}
 	secrets   []string
 )
 
@@ -157,14 +161,45 @@ func AddSecret(value string) {
 	}
 	secretsMu.Lock()
 	defer secretsMu.Unlock()
-	secrets = append(secrets, value)
+	added = append(added, value)
+	flattenLocked()
 }
 
-// ResetSecrets forgets every registered value. For tests.
+// SetSecrets replaces what one slot holds with values, for a credential that is
+// borrowed again for as long as the process runs. A value under minSecretLen
+// registers nothing, and no values empties the slot.
+func SetSecrets(slot string, values ...string) {
+	var kept []string
+	for _, v := range values {
+		if len(v) >= minSecretLen {
+			kept = append(kept, v)
+		}
+	}
+	secretsMu.Lock()
+	defer secretsMu.Unlock()
+	if len(kept) == 0 {
+		delete(slots, slot)
+	} else {
+		slots[slot] = kept
+	}
+	flattenLocked()
+}
+
+// ResetSecrets forgets every registered value, every slot's included. For tests.
 func ResetSecrets() {
 	secretsMu.Lock()
 	defer secretsMu.Unlock()
+	added = nil
+	clear(slots)
 	secrets = nil
+}
+
+func flattenLocked() {
+	all := slices.Clone(added)
+	for _, values := range slots {
+		all = append(all, values...)
+	}
+	secrets = all
 }
 
 // blankSecrets replaces every occurrence of every registered value with one
