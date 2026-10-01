@@ -453,6 +453,10 @@ models:
       thinking:
         resolver: true
 
+  # --- Sandbox ---
+  SandboxRefusal:
+    model: github.com/kstackhq/kstack/sidecar/internal/sandboxconfig.Refusal
+
   # --- Auth ---
   # Bind the GraphQL auth types straight to the auth domain types so the
   # resolvers need no field-by-field mapper. Only schema fields are exposed —
