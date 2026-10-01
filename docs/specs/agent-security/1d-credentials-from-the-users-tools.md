@@ -1,7 +1,7 @@
 ---
 title: Credentials from the user's tools
 scope: sidecar
-status: Planned
+status: Landed
 ---
 
 # Credentials from the user's tools
@@ -24,7 +24,7 @@ After this step there is one package, **`credentials`**, that does what [the not
 the tool's own command on the host, and keeps it in memory until it expires.
 
 - **`Store`** has one borrow per provider — `AWS`, `GitHub`, `Google`, `Azure` — and, for AWS,
-  `Account` and `Region`. Each runs the tool once, caches the answer to the expiry it reports or
+  `Region`. An AWS credential carries its own account, read with its own keys. Each runs the tool once, caches the answer to the expiry it reports or
   a default TTL, and runs one borrow per key at a time.
 - **`Discover`** asks each tool what it holds, reading identities and never a secret, and the
   store keeps its last answer (`Found()`).
@@ -121,11 +121,17 @@ function in `app` over `kubeconfig.Service.Get`, answering the context names sor
 before the kubeconfig is read. An empty binary makes every borrow of that provider `ErrNoCLI`.
 
 Every tool runs on the host, outside every sandbox, with the sidecar's own environment, stdin
-the null device, `home` as its working directory, bounded by `borrowTimeout`. The
+the null device, `home` as its working directory, bounded by `borrowTimeout`, in a process
+group of its own (a kill-on-close job object on Windows) killed whole when the run is stopped and
+again once the tool is reaped. On Windows the tool starts suspended and is resumed once it is in
+the job. `Close` waits for every run it cancels to be reaped. On Windows a batch wrapper (`gcloud.cmd`, `az.cmd`) runs through
+the system's `cmd.exe`, each argument double-quoted and one holding `"`, `%` or a line break
+refused. The
 sidecar's own working directory can be one of Kstack's, and a tool that caches beside where it
 runs would write there. Every run's context descends from one the store owns, which `Close`
 cancels, so no run outlives the sidecar's shutdown. The run goes through one unexported seam,
-`run(ctx, bin, args...) (stdout, stderr []byte, exit int, err error)`, which the tests replace. A
+`run(ctx, env, bin, args...) (stdout, stderr []byte, exit int, err error)`, which the tests
+replace; `env` is nil for the sidecar's own environment, and set only for the account read (§2). A
 non-zero exit is an error naming the provider and the exit code — *gcloud exited 1* — and
 **never the output**; the log line says the same, at info. `stderr` is read for the expiry
 table (§3) and then dropped.
@@ -134,8 +140,7 @@ table (§3) and then dropped.
 
 | Method | Command | Cached |
 | --- | --- | --- |
-| `AWS(ctx, profile) (AWS, error)` | `aws configure export-credentials --profile <p> --format process` | per profile, to `Expiration` less a minute; `defaultTTL` (15 min) for one with none |
-| `Account(ctx, profile) (string, error)` | `AWS(ctx, profile)` first, then `aws sts get-caller-identity --profile <p> --output json`, its `Account` | per profile, to the expiry of the credential `AWS` answered |
+| `AWS(ctx, profile) (AWSCredential, error)` | `aws configure export-credentials --profile <p> --format process`, then `aws sts get-caller-identity --output json` with those keys, its `Account` | per profile, to `Expiration` less a minute; `defaultTTL` (15 min) for one with none |
 | `Region(ctx, profile) (string, error)` | `aws configure get region --profile <p>`; `""` on exit 1 | per profile, `defaultTTL` |
 | `GitHub(ctx, host) (string, error)` | `gh auth token --hostname <host>` | per host, `githubTTL` (1 h): a GitHub token reports no expiry, and a re-borrow is how a logout is seen |
 | `Google(ctx) (Token, error)` | `gcloud config config-helper --min-expiry=15m --format=json`, its `credential.access_token` | one, to `credential.token_expiry` less a minute: `--min-expiry` makes `gcloud` refresh a cached token with less than 15 minutes left |
@@ -144,22 +149,32 @@ table (§3) and then dropped.
 `export-credentials` is in the AWS CLI from 2.9; an older CLI refuses the subcommand, which is an
 ordinary failed borrow. Static keys print no `SessionToken` or `Expiration`.
 
-**`Account` borrows `AWS` first**, through the cache, and answers its error when it fails, so an
-excluded, expired or refused profile never reaches `sts`. Step 5C calls `Account` before `AWS`,
-and this is what gives the answer a lifetime: it is cached to the expiry of the credential that
-borrow answered. `sts` then runs the same credential chain, so an expiry line on its stderr is
-`ErrExpired` and sets `Expired` as `AWS`'s would; a success writes no status, since the `AWS`
-borrow before it already did. `Region` reads the config file alone: it has no credential and no
-expiry, and is cached for `defaultTTL`. `MarkExpired` for a profile drops both beside the
-credential (§3), so the next call reads them again.
+**The account is the identity of the keys the borrow answered**, never of the profile resolved a
+second time: a profile's config, a `credential_process` or an SSO role can answer another account
+on another run, and the account is what step 5C scopes a request's permissions by. So the AWS
+borrow reads it inside the same run, with the credential itself. `sts get-caller-identity` runs
+with the sidecar's environment less every variable that names an identity (`AWS_PROFILE`,
+`AWS_DEFAULT_PROFILE`, the key, secret, session token and expiration variables, `AWS_REGION`),
+plus the credential's `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` and `AWS_SESSION_TOKEN`, and
+with no `--profile`. The CLI reads keys in the environment first, and with no profile named
+nothing makes it skip them. The profile's `Region`, when it has one, is set as `AWS_REGION`: it
+picks the endpoint and names no identity. The account rides on the credential
+(`AWSCredential.Account`), cached with it and read again with every new credential, so a caller
+never pairs an account with keys from another borrow. An expiry line on `sts`'s stderr is
+`ErrExpired` and `Expired` as the export's would be; a failure that leaves no account fails the
+borrow, so no credential is served without one. An export that fails never reaches `sts`.
+`Region` reads the config file alone: it has no credential and no expiry, and is cached for
+`defaultTTL`. `MarkExpired` for a profile drops it beside the credential (§3).
 
 ```go
-// AWS is one borrowed credential: the process-credentials JSON's fields.
-type AWS struct {
+// AWSCredential is one borrowed credential: the process-credentials JSON's fields,
+// and the account those keys belong to.
+type AWSCredential struct {
 	AccessKeyID     string    `json:"AccessKeyId"`
 	SecretAccessKey string    `json:"SecretAccessKey"`
 	SessionToken    string    `json:"SessionToken"`
 	Expires         time.Time `json:"Expiration"`
+	Account         string    `json:"-"`
 }
 
 // Token is one bearer token and when it stops working.
@@ -176,9 +191,8 @@ does not start `aws` on every request. `Recheck` (§3) runs past it, and a `Disc
 a login works clears it (§4). **One borrow per
 key at a time**: a second caller for the same key waits on the first's answer rather than running
 the tool twice (`singleflight.Group.DoChan`, keyed by the cache key). **A cache key names the
-method and its argument** — `aws:dev`, `account:dev`, `region:dev`, `github:github.com`,
-`gcp`, `azure:<resource>` — so `AWS`, `Account` and `Region` for one profile never share a
-run or an answer. The shared run is bounded by `borrowTimeout` on a
+method and its argument** — `aws:dev`, `region:dev`, `github:github.com`, `gcp`,
+`azure:<resource>` — so `AWS` and `Region` for one profile never share a run or an answer. The shared run is bounded by `borrowTimeout` on a
 context of its own, descending from the store's and never the first caller's, so a caller that
 gives up ends its own wait and leaves the run to the others; each waiter returns on its own
 `ctx`. The shared function stores its answer in the cache, and writes the status, before it
@@ -190,13 +204,16 @@ sidecar runs, and `safe.AddSecret` only appends, so `safe` gains `SetSecrets(slo
 holds each identity's current credential and no more. A replaced value has expired or been
 dropped. A refused one is different: the tool may still hold it and hand it to something else,
 so `MarkExpired` moves it into a slot of its own, `refused:<cache key>`, which keeps the last 16
-refused values beside the hashes (§3) and is never cleared while the sidecar runs.
+distinct refused values beside the hashes (§3) and is never cleared while the sidecar runs.
 `safe`'s registry is one slice today, so `SetSecrets` keys it by slot, with `AddSecret`'s values
 in a slot of their own; a value under sixteen bytes registers nothing, as with `AddSecret`.
 `ResetSecrets`, which exists for tests, clears every slot, the refused ones included.
 `blankSecrets` reads the flattened slice outside the lock, so `SetSecrets` builds a new slice and
 swaps it in, never changing one a reader may hold.
-The access key id, `Region` and `Account` are not secrets and are not registered.
+An AWS borrow registers the secret key and session token under `read:<cache key>` as soon as it
+decodes them, before `sts` runs with them, so a failure that echoes them is blanked whatever the
+borrow comes to; a slot of its own leaves the cached credential's registered.
+The access key id, the region and the account are not secrets and are not registered.
 
 **The identity** a borrow writes status for (§3) is `Key{AWS, profile}`, `Key{GitHub, ""}`,
 `Key{Google, ""}` or `Key{Azure, ""}`: GitHub's host and Azure's resource are the cache's key,
@@ -204,7 +221,7 @@ not the identity's, since there is one GitHub login and one Azure login across i
 Step 6B borrows for `github.com` alone (GitHub Enterprise Server is out of its scope), so the one
 GitHub status is `github.com`'s.
 
-Every borrow — `AWS`, `Account`, `Region`, `GitHub`, `Google`, `Azure` — consults
+Every borrow — `AWS`, `Region`, `GitHub`, `Google`, `Azure` — consults
 `excluded(identity)` first, with the identity above, never the cache key, and answers
 `ErrExcluded` for a true, running nothing and writing no status: which status an excluded
 identity shows is step 2D's.
@@ -264,7 +281,7 @@ error code is `ExpiredToken` or `ExpiredTokenException` (step 5C) — STS and IA
 and the JSON-protocol services `400`. `arg` is what the proxy borrowed with: the AWS profile, the
 GitHub host, the Azure resource, or `""` for Google. `sent` is the secret the proxy used: the
 bearer token, or the AWS secret access key. It drops every cache entry the identity holds —
-every host or resource entry, and a profile's `Account` and `Region` beside its credential — and
+every host or resource entry, and a profile's `Region` beside its credential — and
 sets `Expired` with `Detail` *the provider refused the credential*, so the next borrow runs the
 tool and the status is on screen meanwhile.
 
@@ -276,13 +293,15 @@ memory, and marks that refusal **standing**. It hashes what the proxy sent, neve
 holds: by the time a `401` lands the cache may hold a newer credential, which was not refused.
 
 - A borrow whose answer hashes to a member of its cache key's set is `ErrExpired`: nothing is
-  cached, the refusal stays standing, and the status stays `Expired`.
+  cached, the refusal is standing, and the status is `Expired` — again, when a credential that
+  worked came in between.
 - Any other answer clears that cache key's standing refusal and is cached. The identity is set
   `Valid` only when none of its cache keys has a standing refusal. So a fresh Graph token never
   reads as a renewed Azure login while the ARM token the provider refused is still what `az`
   hands back, and the status does not flip between the two.
-- The set keeps the last 16 hashes per cache key, since a refreshed credential never hashes the
-  same.
+- The set keeps the last 16 distinct hashes per cache key, since a refreshed credential never
+  hashes the same; a value refused again moves to the newest place, so repeated reports of one
+  refusal cannot push another out.
 
 The check runs under the lock when the answer is stored, so a borrow already in flight when
 `MarkExpired` lands, returning the refused credential, is refused too, and cannot write it
@@ -361,7 +380,7 @@ one answer rather than running the tools again.
 | The look | The status table |
 | --- | --- |
 | The tool is not installed, or is signed into nothing | every state of the provider but an `Excluded` one is replaced by one `Missing` under its bare key (`Key{AWS, ""}` for AWS) |
-| `gh auth status` exits 0 | `Key{GitHub, ""}` is set `Valid`, over `Expired` too, and `github.com`'s refused set, standing refusal and backoff are cleared: GitHub has just accepted the token `gh` holds |
+| `gh auth status` exits 0 | `Key{GitHub, ""}` is set `Valid`, over `Expired` too, and `github.com`'s refused set, standing refusal and backoff are cleared: GitHub has just accepted the token `gh` holds. An expiry or refusal written after the looks began is newer than that proof and is left as it is |
 | Any other identity found | set `Valid` when it has no status or is `Missing`; an `Expired` stays, since a listed profile or a configured account does not prove its session works |
 | An identity the table holds that the tool no longer lists (a removed AWS profile) | its state is removed |
 | AWS with profiles found | `Key{AWS, ""}`'s state, if any, is removed (for the other three the identity is the bare key) |
@@ -399,17 +418,21 @@ runs it in this step.
    said; a listed profile or a configured account proves nothing about its session, so it only
    fills a gap. So *Refresh* shows a login or a logout made in the terminal, and never hides an
    expiry a borrow saw. Recommended.
+7. **The account is read with the borrowed keys, and rides on the credential.** Reading it
+   through the profile again could name another account than the one the keys reach, and step 5C
+   scopes permissions by it. One value holding both means no caller pairs an account with keys
+   from another borrow. It costs one `sts` run per credential. Recommended.
 
 ## Tasks
 
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
-| 1 | The store: `Key`, `Binaries`, `NewStore` and its options, `Close`, the cache, one borrow per key, the expiry backoff; the runner and its exec half | `credentials/credentials.go`, `credentials/run.go`, their tests | — | Planned |
-| 2 | The four borrows, `Account`, `Region`, each expiry table; `safe.SetSecrets` | `credentials/aws.go`, `github.go`, `google.go`, `azure.go`, `safe/safe.go`, their tests | 1 | Planned |
-| 3 | Status: the table, `MarkExpired`, the refused hashes and standing refusals, `Recheck`, `Subscribe` | `credentials/status.go`, its test | 1 | Planned |
-| 4 | `Discover`, `Found`, `Found()` and `WaitFound` | `credentials/discover.go`, its test | 2, 3 | Planned |
-| 5 | `app` builds the store, keeps it as `App.creds` and closes it; `GH_CONFIG_DIR` joins the login shell's import; the no-disk test | `app/app.go`, `app/app_unix_test.go`, `loginshell/loginshell.go`, their tests | 2, 3 | Planned |
-| 6 | Docs, per *When it lands* | see there | 1–5 | Planned |
+| 1 | The store: `Key`, `Binaries`, `NewStore` and its options, `Close`, the cache, one borrow per key, the expiry backoff; the runner and its exec half | `credentials/credentials.go`, `credentials/run.go`, their tests | — | Done |
+| 2 | The four borrows, the AWS credential's account, `Region`, each expiry table; `safe.SetSecrets` | `credentials/aws.go`, `github.go`, `google.go`, `azure.go`, `safe/safe.go`, their tests | 1 | Done |
+| 3 | Status: the table, `MarkExpired`, the refused hashes and standing refusals, `Recheck`, `Subscribe` | `credentials/status.go`, its test | 1 | Done |
+| 4 | `Discover`, `Found`, `Found()` and `WaitFound` | `credentials/discover.go`, its test | 2, 3 | Done |
+| 5 | `app` builds the store, keeps it as `App.creds` and closes it; `GH_CONFIG_DIR` joins the login shell's import; the no-disk test | `app/app.go`, `app/app_unix_test.go`, `loginshell/loginshell.go`, their tests | 2, 3 | Done |
+| 6 | Docs, per *When it lands* | see there | 1–5 | Done |
 
 **Order:** 1, then 2 and 3 at the same time, then 4 and 5 at the same time, then 6.
 
@@ -434,8 +457,8 @@ holds the token it prints, so it never sits under a folder a test scans for secr
 - `TestAnExpiryIsRememberedForTheBackoff`: after an `ErrExpired`, a borrow of that key within
   `expiredBackoff` answers it, runs nothing and writes no status; a borrow of another key runs;
   one past the backoff runs the tool.
-- `TestAnExcludedIdentityIsNeverBorrowed`: with `excluded` answering true for `aws:dev`, `AWS`,
-  `Account` and `Region` for `dev` are `ErrExcluded`, run nothing and write no status;
+- `TestAnExcludedIdentityIsNeverBorrowed`: with `excluded` answering true for `aws:dev`, `AWS`
+  and `Region` for `dev` are `ErrExcluded`, run nothing and write no status;
   `excluded` is called with the identity (`github`, `azure`), never the host or resource;
   `aws:prod` borrows.
 - `TestNoCLIIsMissing`: an empty binary is `ErrNoCLI` and `Missing` under the bare key, the key
@@ -457,19 +480,22 @@ holds the token it prints, so it never sits under a folder a test scans for secr
 **`aws.go`, `github.go`, `google.go`, `azure.go`** (`aws_test.go`, `github_test.go`,
 `google_test.go`, `azure_test.go`)
 
-- `TestTheAWSBorrowRunsExportCredentials`: the argv, and the process JSON's fields and
-  `Expires`.
+- `TestTheAWSBorrowRunsExportCredentials`: the argv, the process JSON's fields, `Expires` and
+  the account; the export runs in the sidecar's environment.
 - `TestGitHubBorrowsFromGh`, `TestGoogleBorrowsFromGcloud`, `TestAzureBorrowsPerResource`: each
   argv, the token as printed; Google's cached to `token_expiry` less a minute; two Azure
   resources are two runs, each cached to its own `expires_on` less a minute, and an Azure answer
   with only `expiresOn` cached for `defaultTTL`.
-- `TestAccountBorrowsFirst` (`aws_test.go`): `Account` before any `AWS` runs
-  `export-credentials` then `sts`, and is cached to that credential's expiry; a second call runs
-  nothing; an `AWS` that fails is `Account`'s error and `sts` never runs; an `sts` success
-  writes no status. `Region` is `""` for a profile with no region and cached for `defaultTTL`.
-  `AWS`, `Account` and `Region` for one profile called at once each get their own answer.
-- `TestAnAccountExpiryLineIsErrExpired`: `sts get-caller-identity` failing with an SSO line sets
-  the profile `Expired`.
+- `TestTheAccountIsTheBorrowedCredentialsOwn` (`aws_test.go`): with `AWS_PROFILE`, a static key
+  and a profile-based `sts` all answering another account, the account is the one the borrowed
+  keys' `sts` answers; `sts` runs with no `--profile`, and its `AWS_` variables are the
+  credential's keys and the profile's region alone, and no session token for static keys.
+- `TestANewBorrowRederivesTheAccount`: a credential that rotates to another account carries that
+  account; `sts` runs once per credential.
+- `TestAnAccountThatCannotBeReadFailsTheBorrow`: an expiry line on `sts` is `ErrExpired` and
+  `Expired`; an answer with no account fails the borrow and writes no status; an export that
+  fails never reaches `sts`.
+- `TestRegion`: `""` for a profile with no region, cached for `defaultTTL`.
 - `TestEachExpiryLineIsErrExpired`, in each provider's file: one case per line of §3's table; a
   line off the table is an ordinary error and the status stays; `AADSTS70008` does not match
   `AADSTS700084`.
@@ -477,7 +503,8 @@ holds the token it prints, so it never sits under a folder a test scans for secr
 **`status.go`** (`status_test.go`)
 
 - `TestMarkExpiredDropsTheCacheAndSetsTheStatus`: the next borrow runs the tool, every cache
-  entry of the identity is gone (both Azure resources; a profile's `Account` and `Region`), and
+  entry of the identity is gone (both Azure resources; a profile's `Region`, and its account read
+  again with the new credential), and
   the gauge delivered the change.
 - `TestARefusedCredentialStaysRefused`: after `MarkExpired` with token A, a borrow whose tool
   prints A is `ErrExpired`, caches nothing and leaves `Expired`; one that prints B is `Valid`. A
@@ -561,6 +588,8 @@ the proxies that will (steps 5C, 6B, 6C) hand a command a placeholder and never 
 - A GitHub token is re-borrowed hourly. `gh auth logout` does not revoke the token and `gh auth
   switch` changes the account, so Kstack can use the old token, or the old account, for up to an
   hour after either. `Discover` shows the logout at once; the cache catches up at the hour.
+- The account read hands the borrowed keys to one `aws sts` child in its environment. That
+  child runs on the host as the user, who can already read the tool's own store.
 - The tools inherit the sidecar's owner-only umask, so a file one writes into its own store is
   created `0600` or `0700`. That is narrower than the tool's default and harms nothing.
 

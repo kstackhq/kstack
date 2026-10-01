@@ -8,7 +8,7 @@ status: Planned
 
 **Needs:** step 3B, whose `Decide` every AWS write goes through; step 4C, whose server on the
 run's socket routes the request and whose `HTTP_PROXY` variables carry the run's token; step
-1D, whose `credentials.AWS`, `Account` and `Region` borrow what the proxy re-signs with; and
+1D, whose `credentials.AWS` (a `credentials.AWSCredential` carrying its own account) and `Region` borrow what the proxy re-signs with; and
 step 4B, whose request the prompt is drawn through. It reads step 2D's per-cluster profile
 setting, which landed in wave 2. **Unblocks:** nothing directly; step 7B's AWS connection
 replaces the borrow behind the same proxy.
@@ -42,7 +42,7 @@ Commands outside the sandbox are unchanged: `aws` runs there as the user, with t
 
 ## What is not in this step
 
-- **No borrow.** `credentials.AWS`, `Account` and `Region`, their cache and their expiry lines
+- **No borrow.** `credentials.AWS` and `Region`, the credential's account, their cache and their expiry lines
   are step 1D's; this step calls them.
 - **No TLS interception.** `gh`, `gcloud` and `az` are steps 6B and 6C. AWS needs none: the CLI
   has its own endpoint override.
@@ -87,8 +87,7 @@ func New(p Placeholder, s session.Session, profile string, creds Source, ask Ask
 
 // Source borrows the profile's credentials; credentials.Store (step 1D) is the one.
 type Source interface {
-	AWS(ctx context.Context, profile string) (credentials.AWS, error)
-	Account(ctx context.Context, profile string) (string, error)
+	AWS(ctx context.Context, profile string) (credentials.AWSCredential, error)
 	MarkExpired(key credentials.Key, arg, sent string)
 }
 
@@ -119,16 +118,18 @@ The handler, in order:
    signing name that does not match, is a 403 (§5): a service the table does not name is never
    sent to a guessed host. The table grows a row as a service is met. Only `amazonaws.com` is
    produced: the China and GovCloud partitions and any custom endpoint are out of this step.
-3. **Classify** (§3) and **decide**: `permissions.Decide(policy, s.Rules(ctx), act)`, the
+3. **Borrow** `creds.AWS(ctx, profile)` (§4), then **classify** (§3), scoped by the credential's
+   account, and **decide**: `permissions.Decide(policy, s.Rules(ctx), act)`, the
    policy the session's as the cluster proxy builds it. `Allowed` forwards and records;
    `Prompted` asks through `Asker` as step 4B's prompt; `Denied` is a 403 naming the mode or the
    rule, as step 3B words it.
-4. **Borrow** `creds.AWS(ctx, profile)` and **re-sign**, after any wait on the user and
-   immediately before the forward: the canonical request rebuilt with `Host` the endpoint, the
-   real key, `X-Amz-Security-Token` added to the signed headers when the credential has one,
-   `X-Amz-Date` and the scope's date set to the time of the re-sign, and `x-amz-content-sha256`
-   kept as sent, so a body signed `UNSIGNED-PAYLOAD` or by a precomputed hash streams through
-   unread. AWS refuses a signature more than 15 minutes old, and an approval can take longer.
+4. **Re-sign** with the credential the handler borrowed before it classified (§4), never a
+   second borrow, after any wait on the user and immediately before the forward: the canonical
+   request rebuilt with `Host` the endpoint, the real key, `X-Amz-Security-Token` added to the
+   signed headers when the credential has one, `X-Amz-Date` and the scope's date set to the time
+   of the re-sign, and `x-amz-content-sha256` kept as sent, so a body signed `UNSIGNED-PAYLOAD`
+   or by a precomputed hash streams through unread. AWS refuses a signature more than 15 minutes
+   old, and an approval can take longer.
 5. **Forward** with `Host` the endpoint, over HTTPS, through `Forward`: the sidecar's own dial,
    which checks the endpoint's address as step 4C's handler checks a host's (§5 there) and
    honours the user's `Deny` entries. No AWS host is on the run's allowlist, so a raw `CONNECT`
@@ -185,7 +186,8 @@ it.
 5. **Class 4**: everything else, a read the table does not name included. It asks, or runs or
    is refused by the user's rules, as a write does.
 
-`Scope` is `{Account: account, Region: scope.region}`, the account from `creds.Account`.
+`Scope` is `{Account: cred.Account, Region: scope.region}`, the account of the credential the
+request is re-signed with.
 `Verb` is the operation, `Kind` the service, `Name` the resource when the parameters name one.
 `Summary` is *Run `eks:UpdateNodegroupConfig` in `123456789012` / `us-east-1`*.
 
@@ -201,11 +203,12 @@ action's provider for its `aria-label`, *AWS action awaiting approval*.
 ### 4. The profile
 
 The borrow is step 1D's: `credentials.AWS(ctx, profile)` runs `aws configure
-export-credentials` on the host and caches to the expiry; `Account` borrows that credential
-first, then runs `sts:GetCallerIdentity` once per credential; `Region` is `aws configure get
-region`, cached for step 1D's `defaultTTL`. The handler calls `Account` at classification (§2,
-step 3), before its own `AWS` at the re-sign (step 4), so an excluded, expired or refused
-profile is answered before anything is classified. This step adds **which profile**.
+export-credentials` on the host, reads the account with those keys (`sts:GetCallerIdentity`, once
+per credential) and caches both to the expiry; `Region` is `aws configure get region`, cached for
+step 1D's `defaultTTL`. The handler borrows once, before it classifies (§2, step 3), and both
+scopes the request by that credential's account and re-signs with that credential (step 4), so
+the account a rule matched is the account the request reaches, and an excluded, expired or
+refused profile is answered before anything is classified. This step adds **which profile**.
 
 `tools/bash/aws.go`'s `awsProfileFor(rec, cfg, settings)` picks it, first that applies:
 
