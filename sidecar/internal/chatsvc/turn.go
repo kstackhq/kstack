@@ -330,13 +330,14 @@ func (j *runJournal) LLMCallFirstChunk() {
 // notifies nothing, since the overlay is what readers see. One that fails is
 // skipped: memory is the truth until the settle.
 func (t *turn) Progress(blocks []llm.Block) {
+	// The chunk's moment is read before a watcher can see it.
+	now := t.s.now()
 	content, citations := marshalBlocks(llm.WithoutPayloads(blocks)), marshalCitations(llm.Citations(t.msg.dialect, blocks))
 	t.s.turnsMu.Lock()
 	t.msg.Content, t.msg.Citations = content, citations
 	t.s.turnsMu.Unlock()
 	t.s.notify(messagesKey(t.chatID))
 
-	now := t.s.now()
 	if now.Sub(t.checkpointed) < t.s.checkpointEvery {
 		return
 	}
