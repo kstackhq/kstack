@@ -18,6 +18,7 @@ package sandbox
 
 import (
 	"errors"
+	"io"
 	"net"
 	"os"
 	"os/exec"
@@ -129,4 +130,31 @@ func codeOf(ws syscall.WaitStatus) int {
 		return 128 + int(ws.Signal())
 	}
 	return ws.ExitStatus()
+}
+
+// relay carries conn to the run's socket and back, byte for byte, passing
+// each side's end of input to the other, and closes both once both are done.
+func relay(conn net.Conn, socket string) {
+	defer conn.Close()
+	up, err := net.Dial("unix", socket)
+	if err != nil {
+		return
+	}
+	defer up.Close()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = io.Copy(up, conn)
+		closeWrite(up)
+	}()
+	_, _ = io.Copy(conn, up)
+	closeWrite(conn)
+	<-done
+}
+
+// closeWrite half-closes c, where its kind can.
+func closeWrite(c net.Conn) {
+	if hc, ok := c.(interface{ CloseWrite() error }); ok {
+		_ = hc.CloseWrite()
+	}
 }

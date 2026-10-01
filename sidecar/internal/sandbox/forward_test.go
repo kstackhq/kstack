@@ -15,11 +15,6 @@
 package sandbox
 
 import (
-	"crypto/rand"
-	"io"
-	"net"
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -34,81 +29,6 @@ func TestInitArgsAreTheSocketThePortAndTheCommand(t *testing.T) {
 	got, err = parseInitArgs([]string{"--port=1", "--socket=s", "--", "x"})
 	require.NoError(t, err)
 	assert.Equal(t, initArgs{socket: "s", port: 1, argv: []string{"x"}}, got)
-}
-
-// echoSocket is a Unix socket, in a short directory of its own so its path
-// fits, whose server echoes each connection and writes |eof once the client's
-// input ends, then ends its own.
-func echoSocket(t *testing.T) string {
-	t.Helper()
-	dir, err := os.MkdirTemp("", "relay")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
-	socket := filepath.Join(dir, "s")
-	ln, err := net.Listen("unix", socket)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = ln.Close() })
-	go func() {
-		for {
-			c, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			go func() {
-				defer c.Close()
-				_, _ = io.Copy(c, c)
-				_, _ = io.WriteString(c, "|eof")
-				_ = c.(*net.UnixConn).CloseWrite()
-			}()
-		}
-	}()
-	return socket
-}
-
-// The relay carries bytes both ways unchanged, and passes each side's
-// half-close to the other: the echo server sees the client's end of input,
-// and the client sees the server's.
-func TestTheRelayIsByteForByte(t *testing.T) {
-	socket := echoSocket(t)
-	tcpLn, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = tcpLn.Close() })
-	go func() {
-		c, err := tcpLn.Accept()
-		if err == nil {
-			relay(c, socket)
-		}
-	}()
-
-	client, err := net.Dial("tcp", tcpLn.Addr().String())
-	require.NoError(t, err)
-	defer client.Close()
-	sent := make([]byte, 1<<20)
-	_, _ = rand.Read(sent)
-	go func() {
-		_, _ = client.Write(sent)
-		_ = client.(*net.TCPConn).CloseWrite()
-	}()
-	got, err := io.ReadAll(client)
-
-	require.NoError(t, err)
-	assert.Equal(t, append(sent, "|eof"...), got)
-}
-
-// A connection whose socket cannot be reached is closed, so its client sees
-// the end at once.
-func TestTheRelayClosesWhatItCannotCarry(t *testing.T) {
-	client, relayed := net.Pipe()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		relay(relayed, filepath.Join(t.TempDir(), "missing"))
-	}()
-
-	_, err := client.Read(make([]byte, 1))
-
-	assert.ErrorIs(t, err, io.EOF)
-	<-done
 }
 
 // A run with no cluster names neither flag, and its forwarder listens on

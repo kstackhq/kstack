@@ -15,8 +15,9 @@
 // The forwarder, kstack-sidecar sandbox-init: a sandboxed run's first process.
 // It listens on loopback where the run's kubeconfig points, relays each
 // connection to the run's socket, and runs the shell as its child. It reads
-// nothing it relays and checks nothing: every check is the proxy's. Running
-// the child is forward_unix.go and forward_windows.go.
+// nothing it relays and checks nothing: every check is the proxy's. Relaying
+// and running the child are forward_unix.go; Windows has no sandbox and
+// refuses in forward_windows.go.
 package sandbox
 
 import (
@@ -24,7 +25,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net"
 	"strconv"
 )
 
@@ -78,33 +78,6 @@ func parseInitArgs(args []string) (initArgs, error) {
 		return initArgs{}, errors.New("no command")
 	}
 	return a, nil
-}
-
-// relay carries conn to the run's socket and back, byte for byte, passing
-// each side's end of input to the other, and closes both once both are done.
-func relay(conn net.Conn, socket string) {
-	defer conn.Close()
-	up, err := net.Dial("unix", socket)
-	if err != nil {
-		return
-	}
-	defer up.Close()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_, _ = io.Copy(up, conn)
-		closeWrite(up)
-	}()
-	_, _ = io.Copy(conn, up)
-	closeWrite(conn)
-	<-done
-}
-
-// closeWrite half-closes c, where its kind can.
-func closeWrite(c net.Conn) {
-	if hc, ok := c.(interface{ CloseWrite() error }); ok {
-		_ = hc.CloseWrite()
-	}
 }
 
 // fail writes the subcommand's one line on stderr, which is the run's output,
