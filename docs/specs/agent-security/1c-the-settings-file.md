@@ -1,7 +1,7 @@
 ---
 title: The settings file
 scope: sidecar
-status: Planned
+status: Landed
 ---
 
 # The settings file
@@ -63,8 +63,8 @@ func (s *Store) Get() Settings
 // Update applies fn to a copy under the lock and saves it before returning;
 // an error from fn saves nothing, and a result equal to the current value
 // writes and publishes nothing. fn must not call the store: it runs under
-// the lock.
-func (s *Store) Update(fn func(*Settings) error) error
+// the lock. fields names, by JSON key, each field fn sets (§3).
+func (s *Store) Update(fn func(*Settings) error, fields ...string) error
 
 // Subscribe is a current-on-subscribe receiver, as prefs has; close it when done.
 func (s *Store) Subscribe() *watch.Receiver[Settings]
@@ -82,20 +82,28 @@ changes something, not by `Open`. The receiver is `gochan/watch`'s, which holds 
 a slow receiver sees the newest `Settings` and may skip one between.
 
 `atomicjson.Load` answers a parse error without the path, so `Open` wraps it with the file's
-name. `Option`'s one constructor is unexported: it is the test seam §3 uses.
+name. `Option`'s one constructor, `WithChecks`, is the test seam §3 uses. It is exported because
+`graph`'s test sits in another package; production passes none.
 
 ### 2. The fields, by step
 
-| Field | Step |
-| --- | --- |
-| `Path` | 3A |
-| `DefaultMode`, `Modes`, `Rules` | 3B |
-| `Credentials` | 2D |
-| `Hosts` | 4C |
-| `Folders` | 4D |
-| `Tools` | 6A |
-| `Monitor` | 6D |
-| `Onboarded` | 7A |
+| Field | Step | On a refused value |
+| --- | --- | --- |
+| `Path` | 3A | fails open |
+| `DefaultMode`, `Modes`, `Rules` | 3B | fails closed |
+| `Credentials` | 2D | fails closed |
+| `Hosts` | 4C | fails closed |
+| `Folders` | 4D | fails open |
+| `Tools` | 6A | fails open |
+| `Monitor` | 6D | fails open |
+| `Onboarded` | 7A | fails open |
+
+**A hand edit may cost a permission, never a restriction.** A field that only grants **fails
+open**: a refused value is dropped, which grants less. A field that restricts **fails closed**: a
+refused value makes the field answer its most restrictive state until the user fixes the file,
+never its zero value — for example every credential excluded, the most restrictive mode, and no
+host allowed but the built-ins. The step that adds a restricting field names that state and adds
+one line to `strictest` (§3); a field not listed there fails open.
 
 Every field is left out of the file when empty, so the file holds only what the user set: a
 slice, a map or a string is `omitempty`; a struct, which `omitempty` never leaves out, is
@@ -118,20 +126,36 @@ needs either — step 4D's folder that must exist, step 2D's profile that must b
 found — is its step's, run where the step says (the mutation, or a run's start), and shown by
 that step beside what `Refused()` lists.
 
-- **Decoding is per field.** `Open` reads the file as a `map[string]json.RawMessage` and decodes
-  each key into the `Settings` field whose JSON name, the tag less its options, is that key
-  exactly. A key whose value does not decode into its field's type — a string where a list
-  belongs — is refused whole, as one `Refusal` naming the field with the raw JSON as its value,
-  and the other fields load. A struct field is one key, so one bad member refuses the whole
-  struct. An unknown key is ignored, and the next write drops it. Only a file that is not a JSON
-  object fails `Open`, `null` included. So a hand edit can cost a field, never the app.
-- **On `Open`**, a value the check refuses is left out of the loaded `Settings`, logged as one
-  line per value, and kept on the store: `Refused()` lists them for the store's life, so a
-  Settings section can show the value and its reason. A file refused in part still opens. The
-  next `Update` that writes, of any field, writes what `Settings` holds and so drops the refused
-  values from the file; `Refused()` still lists them until the sidecar restarts. That loss is
-  deliberate: the same check would refuse the value at every launch, and the log line and this
-  launch's Settings section are where the user learns of it.
+- **Decoding is per field, and a list per element.** `Open` reads the file as a
+  `map[string]json.RawMessage` and decodes each key into the `Settings` field whose key is the one
+  `encoding/json` writes it under: its JSON name, else its Go name, never for a field tagged `-`
+  or unexported. A list decodes element by element, so one bad element is refused alone, as one
+  `Refusal` with the element's raw JSON as its value, and its siblings load. Any other value that
+  does not decode into its field's type — a string where a list belongs — is refused whole, with
+  the field's raw JSON as its value; a struct field is one key, so one bad member refuses the
+  whole struct. The other fields load either way. An unknown key is ignored, and the next write
+  drops it. Only a file that is not a JSON object fails `Open`, `null` included. So a hand edit
+  can cost a value, never the app.
+- **A refused value of a restricting field fails closed.** `check.go` holds `strictest`, a map
+  from a restricting field's JSON key to a `func(*Settings)` that sets it to its most restrictive
+  state, empty in this step. After decoding and the checks, every field with a refusal and a line
+  in `strictest` is set to that state, whatever else it loaded, and the store keeps the field's
+  raw JSON from the file. A field with no line keeps what loaded, less what was refused.
+- **On `Open`**, every refused value is logged as one line and kept on the store: `Refused()`
+  lists them for the store's life, so a Settings section can show the value and its reason. A
+  file refused in part still opens.
+- **The next write keeps a refused restriction and drops the rest.** An `Update` writes each
+  field's JSON, except that a restricting field whose raw JSON the store keeps is written as that
+  raw JSON, so the restriction stays in the file until the user fixes it. An `Update` whose result
+  changes that field, or that names it in `fields` — the user's fix through its Settings section —
+  writes the new value, and the store stops keeping the raw one. The fix can be the strictest state
+  the field already answers, which changes nothing in memory, so a Settings section's mutation
+  names the field it writes. A refused value of a field that fails open is dropped by the
+  next `Update` that writes, of any field; `Refused()` still lists it until the sidecar restarts.
+  That loss is deliberate: the same check would refuse the value at every launch, dropping it
+  grants less, and the log line and this launch's Settings section are where the user learns of
+  it. Equality is the file's JSON: an `Update` that leaves it as it is writes and publishes
+  nothing.
 - **On the wire**, `sandboxRefused: [SandboxRefusal!]!` answers `Refused()`, with
   `type SandboxRefusal { field: String!, value: String!, reason: String! }`, `field` being the
   JSON key. It is a query, not a watch, since the list is fixed at `Open`. Each later step's
@@ -143,22 +167,33 @@ that step beside what `Refused()` lists.
 
 ### 4. The app opens it
 
-`app.paths` gains `SandboxFile`, `<data>/sandbox.json`. `app.New` opens the store right after
-`app.db`, on every platform, and closes nothing for it: the store holds no handle. A failed
-`Open` fails `New` through its `fail` path, so `app.db` is closed.
+`app.paths` gains `SandboxFile`, `<data>/sandbox.json`. `app.New` opens the store right before
+`app.db`, on every platform, and closes nothing for it: the store holds no handle, so a failed
+`Open` fails `New` with nothing to close.
 `graph.Resolver` gains `SandboxCfg *sandboxconfig.Store`, never nil, like every resolver field
 (named for what it holds, since the store is not a service);
 its one resolver in this step is `sandboxRefused`. A resolver that answers *no sandbox* keys on
 the machine's sandbox status (step 1B's `SandboxStatus`), not on the store. On native Windows the
 store opens like anywhere else, since step 7A's `Onboarded` flag needs a home there.
 
+## Decisions this step asks for
+
+1. **A restricting field fails closed.** One bad value in a field that restricts — a rule, an
+   exclusion, a mode, a host entry — could otherwise leave the whole field at its zero value, and
+   the next unrelated write would delete the restriction from the file for good. So each field is
+   marked in §2: one that only grants drops a refused value; one that restricts answers its most
+   restrictive state while the file holds a refused value, and the store never rewrites that
+   field's raw JSON until a write of the field itself replaces it. A list decodes per element, so
+   one bad element of a field that grants costs that element alone. Recommended; the rule lets
+   steps 2D, 3B and 4C say "fails closed" and add one `strictest` line each.
+
 ## Tasks
 
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
-| 1 | `sandboxconfig`: `Settings`, `Store`, per-field decoding, `check`, `Refusal` | `sandboxconfig/store.go`, `sandboxconfig/check.go`, their tests | — | Planned |
-| 2 | `SandboxFile`; `app.New` opens the store; `Resolver.SandboxCfg`; `sandboxRefused` | `app/paths.go`, `app/app.go`, `sidecar/graph/resolver.go`, `sidecar/graph/schema.graphqls`, generated code, their tests | 1 | Planned |
-| 3 | Docs, per *When it lands* | see there | 1, 2 | Planned |
+| 1 | `sandboxconfig`: `Settings`, `Store`, per-field decoding, `check`, `Refusal` | `sandboxconfig/store.go`, `sandboxconfig/check.go`, their tests | — | Done |
+| 2 | `SandboxFile`; `app.New` opens the store; `Resolver.SandboxCfg`; `sandboxRefused` | `app/paths.go`, `app/app.go`, `sidecar/graph/resolver.go`, `sidecar/graph/schema.graphqls`, generated code, their tests | 1 | Done |
+| 3 | Docs, per *When it lands* | see there | 1, 2 | Done |
 
 **Order:** 1, then 2, then 3.
 
@@ -181,10 +216,25 @@ store opens like anywhere else, since step 7A's `Onboarded` flag needs a home th
 - `TestSubscribeSeesTheLatestWrite`: a receiver gets the current value on subscribe, then the
   value after an `Update`, a copy the test can change without changing the store's.
 - `TestARefusedValueIsLeftOutAndListed`: over a test's check that refuses the first time it runs,
-  `Open` logs the refusal and lists it in `Refused()`; an `Update` over a check that refuses is
-  an error that writes nothing; the next `Update` that writes drops the value from the file, and
-  `Refused()` still lists it. Each field's
+  on a field that fails open, `Open` logs the refusal and lists it in `Refused()`; an `Update`
+  over a check that refuses is an error that writes nothing; the next `Update` that writes drops
+  the value from the file, and `Refused()` still lists it. Each field's
   step adds its own case over its real check (step 3B's `TestABadRuleIsLeftOutWithItsReason`).
+- `TestOneBadElementIsRefusedAlone`: a list with one element of the wrong type loads its other
+  elements, and the one `Refusal` carries the bad element.
+- `TestARefusedRestrictionFailsClosed`: over a test field in `strictest`, a bad element, a value
+  of the wrong type and a value a check refuses each load the field as its most restrictive
+  state.
+- `TestAnUpdateKeepsARefusedRestrictionInTheFile`: an unrelated `Update` leaves the field's raw
+  JSON on disk and the field at its strictest state; an `Update` of the field itself writes the
+  new value.
+- `TestAnUpdateNamingARefusedRestrictionWritesItsStrictestState`: an `Update` that sets the field
+  to the strictest state it already answers keeps the raw JSON unless it names the field, and
+  naming it writes and publishes that state.
+- `TestDecodeReadsTheKeyASaveWrites`: a field with no JSON name decodes from its Go name, and a
+  field tagged `-` or unexported decodes from nothing.
+- `TestUpdateKeepsItsOwnCopy`: a slice the `Update` callback still holds cannot change the stored
+  value afterwards.
 
 **`graph`**
 
@@ -194,7 +244,7 @@ store opens like anywhere else, since step 7A's `Onboarded` flag needs a home th
 **`app`**
 
 - `TestABadSandboxFileFailsNew`: `New` over a `SandboxFile` that is not a JSON object fails naming the
-  file, and closes what it had built. The store opens whatever the sandbox's probe finds, since
+  file, before `app.db` opens. The store opens whatever the sandbox's probe finds, since
   nothing in `app` keys on it.
 
 ## Security
@@ -204,7 +254,10 @@ so nothing a sandboxed command runs can read or change what the user decided. A 
 the sandbox, and every command on native Windows, runs as the user and can, as it can `app.db`;
 it asks first, and the store reads the file only at start, so a change made under it is seen at
 the next launch or overwritten by the next `Update`. `security-model.md`'s
-owner-only files row gains `sandbox.json`, pinned by `TestTheFileIsOwnerOnly`. No security record.
+owner-only files row gains `sandbox.json`, pinned by `TestTheFileIsOwnerOnly`. A malformed
+value never loosens a restriction: a restricting field fails closed and keeps its raw JSON in the
+file (§2, §3), pinned by `TestARefusedRestrictionFailsClosed` and
+`TestAnUpdateKeepsARefusedRestrictionInTheFile`. No security record.
 
 ## When it lands
 
