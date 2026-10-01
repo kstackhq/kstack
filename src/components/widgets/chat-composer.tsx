@@ -35,6 +35,7 @@ import {
 
 import { graphql } from '@/gql';
 import type { AppMode } from '@/lib/app-mode';
+import { useAskAgainWhenLive } from '@/lib/ask-again-when-live';
 import type { Created } from '@/lib/chat-outbox';
 import { useChatOutbox } from '@/lib/chat-outbox';
 import { inFlight } from '@/lib/chats';
@@ -154,24 +155,8 @@ export function ChatComposer({
   onCreated,
 }: ChatComposerProps) {
   const { models, loaded, failed, retry: askAgainForModels } = useModels();
-  // The catalog is a query: nothing re-runs it when a sidecar that was unreachable
-  // comes back, and without a catalog there is no pick and nothing can be sent. So a
-  // failure is asked again for once per live watch — bounded, because asking clears
-  // the failure and the answer sets it, which unbounded is a request loop. Each time
-  // the watch goes live the chance comes back, that being the evidence the sidecar is
-  // answering again.
-  const live = phase === 'live';
-  const asked = useRef(false);
-  useEffect(() => {
-    if (!live) {
-      asked.current = false;
-      return;
-    }
-    if (failed && !asked.current) {
-      asked.current = true;
-      askAgainForModels();
-    }
-  }, [failed, live, askAgainForModels]);
+  // Without a catalog there is no pick and nothing can be sent.
+  useAskAgainWhenLive(failed, phase === 'live', askAgainForModels);
   // Seeded only once both things it depends on have answered: before the messages
   // watch's Bookmark the last answer is whichever row arrived first, and before the
   // catalog there is nothing to check a pick against.
