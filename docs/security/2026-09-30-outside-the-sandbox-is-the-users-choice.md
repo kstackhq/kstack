@@ -2,7 +2,7 @@
 
 **Subject:** the model can no longer ask for a command outside the sandbox. The user switches a
 chat to run its commands outside it, and each such command still asks. This is step 1B of
-[the agent security sequence](../specs/agent-security/1b-outside-the-sandbox-is-the-users-choice.md).
+the build order for [the sandbox, credentials and permissions note](../notes/sandbox-credentials-and-permissions.md).
 The living model is [security-model.md](../security-model.md); the decision is
 [leaving the sandbox is the user's switch for a chat](../adr/2026-09-30-leaving-the-sandbox-is-the-users-switch-for-a-chat.md).
 
