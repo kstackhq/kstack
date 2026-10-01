@@ -953,6 +953,19 @@ func TestAnOrphanIsReaped(t *testing.T) {
 	assert.Equal(t, "reaped\n", string(out))
 }
 
+// bwrap's arguments over the fixture are the golden's, with a cluster and
+// without.
+func TestTheCompiledArgumentsMatchTheGolden(t *testing.T) {
+	f := newFixture(t)
+	s := &Sandbox{self: f.self, bwrap: "/usr/bin/bwrap"}
+	for name, cluster := range map[string]bool{"cluster": true, "no-cluster": false} {
+		t.Run(name, func(t *testing.T) {
+			cmd := command(t, s, context.Background(), f.run(s, cluster))
+			f.golden(t, "args_linux_"+name+".golden", cmd.Args[1:])
+		})
+	}
+}
+
 // System is the lists' System folders, the PATH trees, the shell's folder
 // among them, and this executable at its resolved path.
 func TestSystemIsTheListsAndTheTrees(t *testing.T) {

@@ -1128,6 +1128,31 @@ func TestATerminalIsUnreachable(t *testing.T) {
 	assert.NotContains(t, string(out), "opened")
 }
 
+// inlined is a profile's text with each parameter's value in place of its
+// name, one line per rule, less the ancestor rules above the fixture.
+func (f fixture) inlined(t *testing.T, text string, args []string) []string {
+	t.Helper()
+	for name, value := range paramsOf(t, args) {
+		text = strings.ReplaceAll(text, `(param "`+name+`")`, strconv.Quote(value))
+	}
+	return slices.DeleteFunc(strings.Split(strings.TrimSuffix(text, "\n"), "\n"), f.aboveFixture)
+}
+
+// The profile over the fixture is the golden's, with a cluster and without.
+func TestTheCompiledProfileMatchesTheGolden(t *testing.T) {
+	f := newFixture(t)
+	old := brewVar
+	brewVar = f.brewVar
+	t.Cleanup(func() { brewVar = old })
+	s := &Sandbox{self: f.self}
+	for name, cluster := range map[string]bool{"cluster": true, "no-cluster": false} {
+		t.Run(name, func(t *testing.T) {
+			text, args := s.profile(f.run(s, cluster))
+			f.golden(t, "profile_darwin_"+name+".golden", f.inlined(t, text, args))
+		})
+	}
+}
+
 // System is the lists' System folders, the PATH trees and this executable at
 // its resolved path, with Homebrew's var as a Deny. The shell's folder adds
 // nothing, and an entry under a shared home folder names only itself.
