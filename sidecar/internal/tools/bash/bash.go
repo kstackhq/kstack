@@ -71,16 +71,10 @@ var sandboxLinuxPrompt string
 var description string
 
 // inputSchema is the reference's, less dangerouslyDisableSandbox, plus workdir:
-// the offer on a machine with no sandbox.
+// whether a command leaves the sandbox is the user's switch, never the model's.
 //
 //go:embed prompts/schema.json
 var inputSchema []byte
-
-// sandboxSchema is inputSchema with the reference's dangerouslyDisableSandbox:
-// the offer where there is a sandbox.
-//
-//go:embed prompts/schema_sandbox.json
-var sandboxSchema []byte
 
 const (
 	// DefaultTimeout is a call's bound when it names none, and MaxTimeout the
@@ -118,7 +112,7 @@ type sandboxer interface {
 type Tool struct {
 	Reader
 	// sandboxer runs a call in the machine's sandbox, nil where it has none. A
-	// call runs through it unless the call sets dangerouslyDisableSandbox.
+	// call runs through it unless the user switched its chat outside it.
 	sandboxer sandboxer
 	shell     string
 	// kind is zsh or bash: which shell the wrapper and the prompt are written for.
@@ -267,12 +261,8 @@ func parseVersion(out string) string {
 	return ""
 }
 
-// errInput is an input parse refuses, and errInputSandboxed the same where the
-// tool offers dangerouslyDisableSandbox, whose text names the key.
-var (
-	errInput          = errors.New(`bash input is not {"command": <non-empty string>, "description"?: <string>, "timeout"?: <positive number>, "workdir"?: <directory>, "run_in_background"?: <boolean>}`)
-	errInputSandboxed = errors.New(`bash input is not {"command": <non-empty string>, "description"?: <string>, "timeout"?: <positive number>, "workdir"?: <directory>, "run_in_background"?: <boolean>, "dangerouslyDisableSandbox"?: <boolean>}`)
-)
+// errInput is an input parse refuses.
+var errInput = errors.New(`bash input is not {"command": <non-empty string>, "description"?: <string>, "timeout"?: <positive number>, "workdir"?: <directory>, "run_in_background"?: <boolean>}`)
 
 // errOutsideWorkspace is a sandboxed call whose workdir resolves outside the
 // chat's workspace.
@@ -288,44 +278,36 @@ type input struct {
 	Timeout     time.Duration // DefaultTimeout when the call names none
 	Workdir     string        // "" when the call names none
 	Background  bool          // the call's run_in_background
-	// OutsideSandbox is the call's dangerouslyDisableSandbox: run it as though
-	// the machine had no sandbox.
-	OutsideSandbox bool
 }
 
-// parse reads an object whose keys are command, description, timeout, workdir,
-// run_in_background and, when offered, dangerouslyDisableSandbox, each spelled
-// exactly and at most once, with nothing after it, and a
+// parse reads an object whose keys are command, description, timeout, workdir
+// and run_in_background, each spelled exactly and at most once, with nothing after it, and a
 // command that is not empty. It walks the tokens itself because a struct decode
 // matches a key without regard to case and lets a duplicate win, and the command
 // that runs must be the one approved. Each value's type is checked off its token, since a typed
 // decode takes null as the zero value. An empty command is refused because it
 // would still start bash, which sources BASH_ENV first.
-func parse(raw json.RawMessage, offered bool) (input, error) {
-	bad := errInput
-	if offered {
-		bad = errInputSandboxed
-	}
+func parse(raw json.RawMessage) (input, error) {
 	in := input{Timeout: DefaultTimeout}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.UseNumber()
 	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
-		return input{}, bad
+		return input{}, errInput
 	}
 	seen := map[string]bool{}
 	for dec.More() {
 		key, err := dec.Token()
 		if err != nil {
-			return input{}, bad
+			return input{}, errInput
 		}
 		name, _ := key.(string)
 		if seen[name] {
-			return input{}, bad
+			return input{}, errInput
 		}
 		seen[name] = true
 		val, err := dec.Token()
 		if err != nil {
-			return input{}, bad
+			return input{}, errInput
 		}
 		var ok bool
 		switch name {
@@ -342,23 +324,19 @@ func parse(raw json.RawMessage, offered bool) (input, error) {
 			ok = ok && validWorkdir(in.Workdir)
 		case "run_in_background":
 			in.Background, ok = val.(bool)
-		case "dangerouslyDisableSandbox":
-			if offered {
-				in.OutsideSandbox, ok = val.(bool)
-			}
 		}
 		if !ok {
-			return input{}, bad
+			return input{}, errInput
 		}
 	}
 	if tok, err := dec.Token(); err != nil || tok != json.Delim('}') {
-		return input{}, bad
+		return input{}, errInput
 	}
 	if err := dec.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return input{}, bad
+		return input{}, errInput
 	}
 	if in.Command == "" {
-		return input{}, bad
+		return input{}, errInput
 	}
 	return in, nil
 }
@@ -388,21 +366,16 @@ func readTimeout(n json.Number) (time.Duration, bool) {
 // CallTimeout is the loop's bound on one call: the command's own, its grace, a
 // margin, and the longest it can wait on the snapshot.
 func (t *Tool) CallTimeout(raw json.RawMessage) time.Duration {
-	in, _ := parse(raw, t.sandboxer != nil)
+	in, _ := parse(raw)
 	return in.Timeout + killGrace + callMargin + t.snapTimeout
 }
 
-// Definition is the offer: a function named Bash, run by the sidecar, which
-// takes dangerouslyDisableSandbox where the tool has a sandbox.
+// Definition is the offer: a function named Bash, run by the sidecar.
 func (t *Tool) Definition() llm.ToolDefinition {
-	schema := inputSchema
-	if t.sandboxer != nil {
-		schema = sandboxSchema
-	}
 	return llm.ToolDefinition{
 		Name:        Name,
 		Description: description,
-		InputSchema: json.RawMessage(schema),
+		InputSchema: json.RawMessage(inputSchema),
 	}
 }
 
@@ -460,18 +433,18 @@ func (t *Tool) Prompt() string {
 // workspace is refused in words the model reads. A call a sandbox confines runs
 // unasked; every other call asks.
 func (t *Tool) Approval(_ context.Context, rt tools.Runtime, raw json.RawMessage) (tools.Approval, error) {
-	in, err := parse(raw, t.sandboxer != nil)
+	in, err := parse(raw)
 	if err != nil {
 		return tools.Approval{}, err
 	}
-	cwd, err := t.startDir(in, rt.Dir)
+	cwd, err := t.startDir(in, rt)
 	if errors.Is(err, errOutsideWorkspace) {
 		return tools.Approval{}, &tools.Refusal{Result: outsideWorkspace(tools.WorkspacePath(rt.Dir))}
 	}
 	if err != nil {
 		return tools.Approval{}, err
 	}
-	boxer := t.sandboxerFor(in)
+	boxer := t.sandboxerFor(rt)
 	sandboxed := boxer != nil && boxer.Confines()
 	return tools.Approval{Cwd: cwd, Sandboxed: sandboxed, Skip: sandboxed}, nil
 }
@@ -479,14 +452,14 @@ func (t *Tool) Approval(_ context.Context, rt tools.Runtime, raw json.RawMessage
 // startDir is the directory a call starts in. A call is sandboxed when it runs
 // through the tool's sandbox, whether or not that confines it: that is what the
 // model was told.
-func (t *Tool) startDir(in input, dir tools.ChatDir) (string, error) {
-	return resolveWorkdir(t.home, tools.WorkspacePath(dir), in.Workdir, t.sandboxerFor(in) != nil)
+func (t *Tool) startDir(in input, rt tools.Runtime) (string, error) {
+	return resolveWorkdir(t.home, tools.WorkspacePath(rt.Dir), in.Workdir, t.sandboxerFor(rt) != nil)
 }
 
 // outsideWorkspace is the refusal of a sandboxed call whose workdir leaves the
 // workspace ws.
 func outsideWorkspace(ws string) string {
-	return "A sandboxed command starts in its workspace, " + ws + ", or a directory under it. Name one there, or set dangerouslyDisableSandbox to run it outside the sandbox."
+	return "A sandboxed command starts in its workspace, " + ws + ", or a directory under it. Name one there, or ask the user to run this chat outside the sandbox."
 }
 
 // makeWorkspace makes the chat's workspace, so a call has somewhere to start.
@@ -498,10 +471,10 @@ func makeWorkspace(dir tools.ChatDir) error {
 	return root.Close()
 }
 
-// sandboxerFor is the sandboxer a call runs through: the tool's, unless the call
-// asked to run outside it; nil for none.
-func (t *Tool) sandboxerFor(in input) sandboxer {
-	if in.OutsideSandbox {
+// sandboxerFor is the sandboxer a call of rt's chat runs through: the tool's,
+// unless the user switched the chat outside it; nil for none.
+func (t *Tool) sandboxerFor(rt tools.Runtime) sandboxer {
+	if rt.OutsideSandbox {
 		return nil
 	}
 	return t.sandboxer
@@ -521,11 +494,9 @@ func (Reader) Action(raw json.RawMessage, cwd string, sandboxed bool) (tools.Act
 
 // ActionOf is the command a call runs, checked as Run checks its input, so
 // every input Run refuses as bad input, ActionOf refuses, and what is shown is
-// what runs — but for dangerouslyDisableSandbox, which it always reads: a stored
-// row keeps the flag on a machine that has since lost its sandbox. cwd and
-// sandboxed are the row's, never resolved again.
+// what runs. cwd and sandboxed are the row's, never resolved again.
 func ActionOf(raw json.RawMessage, cwd string, sandboxed bool) (tools.Action, error) {
-	in, err := parse(raw, true)
+	in, err := parse(raw)
 	if err != nil {
 		return tools.Action{}, err
 	}
@@ -536,7 +507,7 @@ func ActionOf(raw json.RawMessage, cwd string, sandboxed bool) (tools.Action, er
 		Description: in.Description,
 		Command: &tools.CommandAction{
 			Text: in.Command, Cwd: cwd, Background: in.Background,
-			Sandboxed: sandboxed, OutsideSandbox: in.OutsideSandbox,
+			Sandboxed: sandboxed,
 		},
 	}, nil
 }
@@ -545,7 +516,7 @@ func ActionOf(raw json.RawMessage, cwd string, sandboxed bool) (tools.Action, er
 // chat's results. A background command is started as the chat's task
 // instead, and the call answers at once.
 func (t *Tool) Run(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (string, bool) {
-	in, err := parse(raw, t.sandboxer != nil)
+	in, err := parse(raw)
 	if err != nil {
 		return badInput, true
 	}
@@ -563,7 +534,7 @@ const badInput = `{"error":"bad-input"}`
 // saving it in results when it is too large to come back whole.
 func (t *Tool) runCall(ctx context.Context, in input, rt tools.Runtime) (string, bool) {
 	dir := rt.Dir
-	cwd, err := t.startDir(in, dir)
+	cwd, err := t.startDir(in, rt)
 	if err != nil {
 		return badInput, true
 	}
@@ -575,7 +546,7 @@ func (t *Tool) runCall(ctx context.Context, in input, rt tools.Runtime) (string,
 	if err := t.checkDir(ctx, cwd); err != nil {
 		return resultText(result{Error: err.Error()}, in.Timeout, nil, false), true
 	}
-	boxer := t.sandboxerFor(in)
+	boxer := t.sandboxerFor(rt)
 	snapshot, err := t.snapshotFor(ctx)
 	if err != nil {
 		return resultText(result{Error: err.Error()}, in.Timeout, nil, false), true

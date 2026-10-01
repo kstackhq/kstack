@@ -1652,7 +1652,7 @@ func mutate(t *testing.T, srv *httptest.Server, query string) map[string]any {
 func TestChatSendReturnsTheAnswerRow(t *testing.T) {
 	srv := newChatServer(t)
 
-	data := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	data := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "how many pods?") {
 		seq role status model effort thinking provider { id label } content
 	} }`)
@@ -1678,7 +1678,7 @@ func TestChatSendAcceptsAModelOnAnotherDialect(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	data := mutate(t, srv, `mutation { chatSend(chatID: "c", mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	data := mutate(t, srv, `mutation { chatSend(chatID: "c", mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "and now?") { chatID provider { id } } }`)
 
 	assert.Equal(t, map[string]any{"chatID": "c", "provider": map[string]any{"id": "fake"}}, data["chatSend"])
@@ -1696,7 +1696,7 @@ func chatFrames(t *testing.T, srv *httptest.Server, query string) (*http.Respons
 // mutation answers true whether or not there was anything to stop.
 func TestChatCancelOfAnIdleChatAnswersTrue(t *testing.T) {
 	srv := newChatServer(t)
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 
@@ -1709,7 +1709,7 @@ func TestChatCancelOfAnIdleChatAnswersTrue(t *testing.T) {
 // true too, since the row the caller asked to be rid of is gone either way.
 func TestChatDeleteTakesTheChatOffTheList(t *testing.T) {
 	srv := newChatServer(t)
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 
@@ -1725,7 +1725,7 @@ func TestChatDeleteTakesTheChatOffTheList(t *testing.T) {
 // title and moves updatedAt.
 func TestChatRenameServesTheCommittedChat(t *testing.T) {
 	srv := newChatServer(t)
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 
@@ -1745,7 +1745,7 @@ func TestChatRenameServesTheCommittedChat(t *testing.T) {
 // other sends all say Chat, so this is the one that carries Dashboard through.
 func TestChatSendWithNoChatCreatesOne(t *testing.T) {
 	srv := newChatServer(t)
-	sent := mutate(t, srv, `mutation { chatSend(mode: Dashboard, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Dashboard, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 
@@ -1761,7 +1761,7 @@ func TestChatSendWithNoChatCreatesOne(t *testing.T) {
 // webview detects it by type and drops a change with no entity.
 func TestChatsWatchClosesItsSnapshotWithABookmark(t *testing.T) {
 	srv := newChatServer(t)
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "how many pods?") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 
@@ -1780,7 +1780,7 @@ func TestChatsWatchClosesItsSnapshotWithABookmark(t *testing.T) {
 // while the answer is still streaming and a time once its run has finished.
 func TestChatMessagesWatchCarriesTheAnswerToCompletion(t *testing.T) {
 	srv := newChatServer(t)
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID finishedAt } }`)
 	answer := sent["chatSend"].(map[string]any)
 	assert.Nil(t, answer["finishedAt"], "a streaming answer has not finished")
@@ -1800,14 +1800,14 @@ func TestChatMessagesWatchCarriesTheAnswerToCompletion(t *testing.T) {
 // the answer as far as it has streamed, and the Bookmark; then the answer's changes.
 func TestChatMessagesWatchIsScopedAndStreamsChanges(t *testing.T) {
 	srv, _, fake := newChatServerOver(t)
-	mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "first") { chatID } }`)
 	// A route, so the first chat's turn cannot take the staged reply.
 	second := fake.Route("second")
 	second.SetReply(llm.Chunk{Kind: llm.ChunkThinking, Text: "so far"}, llm.Chunk{Text: "done"})
 	gate := make(chan struct{})
 	second.SetGate(gate)
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "second") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 	query := `subscription { chatMessagesWatch(chatID: "` + chatID + `") { type message { chatID seq role status thinking } } }`
@@ -1846,7 +1846,7 @@ func TestChatMessagesWatchIsScopedAndStreamsChanges(t *testing.T) {
 // null rather than a row labelled by an empty id, and the effort is empty.
 func TestAQuestionNamesNoProvider(t *testing.T) {
 	srv := newChatServer(t)
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 
 	resp, events := chatFrames(t, srv,
@@ -1865,7 +1865,7 @@ func TestAQuestionNamesNoProvider(t *testing.T) {
 // unavailable one: still a card, still first.
 func TestAQuestionCarriesTheClusterCardFirst(t *testing.T) {
 	srv := newChatServer(t)
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 
 	resp, events := chatFrames(t, srv,
@@ -1887,7 +1887,7 @@ func TestAQuestionCarriesTheClusterCardFirst(t *testing.T) {
 // id, with no dialect: what was run on is known, what it spoke is not.
 func TestAMessageOutlivesItsProvidersRow(t *testing.T) {
 	srv, db, _ := newChatServerOver(t)
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	_, err := db.Write.Exec(`UPDATE agent_runs SET provider = 'gone'`)
 	require.NoError(t, err)
@@ -1910,7 +1910,7 @@ func TestAMessageOutlivesItsProvidersRow(t *testing.T) {
 func TestARefusedSendCarriesItsCode(t *testing.T) {
 	srv := newChatServer(t)
 
-	raw := postGQL(t, srv.URL, `{"query":"mutation { chatSend(chatID: \"`+appdb.NewID()+`\", mode: Chat, clusterID: \"1\", providerID: \"fake\", modelID: \"fake\", effort: \"high\", requestID: \"`+appdb.NewID()+`\", content: \"hi\") { id } }"}`)
+	raw := postGQL(t, srv.URL, `{"query":"mutation { chatSend(chatID: \"`+appdb.NewID()+`\", mode: Chat, clusterID: \"1\", sandboxDisabled: false, providerID: \"fake\", modelID: \"fake\", effort: \"high\", requestID: \"`+appdb.NewID()+`\", content: \"hi\") { id } }"}`)
 
 	assert.Contains(t, string(raw), `"code":"KSTACK_RECORD_NOT_FOUND"`)
 }
@@ -1919,7 +1919,7 @@ func TestARefusedSendCarriesItsCode(t *testing.T) {
 func TestChatSendForwardsAClusterRefusal(t *testing.T) {
 	srv := newChatServer(t)
 
-	raw := postGQL(t, srv.URL, `{"query":"mutation { chatSend(mode: Chat, clusterID: \"999\", providerID: \"fake\", modelID: \"fake\", effort: \"high\", requestID: \"`+appdb.NewID()+`\", content: \"hi\") { id } }"}`)
+	raw := postGQL(t, srv.URL, `{"query":"mutation { chatSend(mode: Chat, clusterID: \"999\", sandboxDisabled: false, providerID: \"fake\", modelID: \"fake\", effort: \"high\", requestID: \"`+appdb.NewID()+`\", content: \"hi\") { id } }"}`)
 
 	assert.Contains(t, string(raw), `"code":"KSTACK_RECORD_NOT_FOUND"`)
 }
@@ -1938,7 +1938,7 @@ func TestAChatRefusalCarriesItsCode(t *testing.T) {
 // chatRefusals (TestTheChatRefusalTableIsPinned holds the count).
 func TestChatRefusalsCarryTheirCode(t *testing.T) {
 	send := func(effort string) string {
-		return `{"query":"mutation { chatSend(mode: Chat, clusterID: \"1\", providerID: \"fake\", modelID: \"fake\", effort: \"` + effort +
+		return `{"query":"mutation { chatSend(mode: Chat, clusterID: \"1\", sandboxDisabled: false, providerID: \"fake\", modelID: \"fake\", effort: \"` + effort +
 			`\", requestID: \"` + appdb.NewID() + `\", content: \"hi\") { id } }"}`
 	}
 	for _, tc := range []struct {
@@ -1951,6 +1951,7 @@ func TestChatRefusalsCarryTheirCode(t *testing.T) {
 		{chatsvc.ErrTurnInFlight, "KSTACK_CONFLICT"},
 		{chatsvc.ErrStopping, "KSTACK_SERVICE_UNAVAILABLE"},
 		{chatsvc.ErrChatContextFull, "KSTACK_CHAT_CONTEXT_FULL"},
+		{chatsvc.ErrChatSandboxChanged, "KSTACK_CHAT_SANDBOX_CHANGED"},
 	} {
 		t.Run(tc.err.Error(), func(t *testing.T) {
 			srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ChatSvc: refusingChat{err: tc.err}}))
@@ -2050,7 +2051,7 @@ func TestApprovalDecideReachesTheService(t *testing.T) {
 func TestAMessageCarriesItsToolCalls(t *testing.T) {
 	srv, _, fake := newChatServerOver(t)
 	fake.SetToolCalls(llm.StagedCall("Bash", `{"command":"ls","description":"List files"}`))
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID toolCalls { id } } }`)
 	answer := sent["chatSend"].(map[string]any)
 	assert.Equal(t, []any{}, answer["toolCalls"], "a new answer has none")
@@ -2074,44 +2075,13 @@ func TestAMessageCarriesItsToolCalls(t *testing.T) {
 	}}, frame["message"].(map[string]any)["toolCalls"])
 }
 
-// A command's action carries whether a sandbox confined it, off its row, and
-// whether the call asked to run outside the sandbox, off its arguments.
-func TestCommandActionCarriesTheSandbox(t *testing.T) {
-	srv, db, fake := newChatServerOver(t)
-	fake.SetToolCalls(llm.StagedCall("Bash", `{"command":"ls","dangerouslyDisableSandbox":true}`))
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
-		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
-	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
-	query := `subscription { chatMessagesWatch(chatID: "` + chatID + `") {
-		message { seq status toolCalls { action { command { text sandboxed outsideSandbox } } } } } }`
-	settled := func(f map[string]any) bool {
-		msg, ok := f["message"].(map[string]any)
-		return ok && msg["seq"] == float64(1) && msg["status"] == "Complete"
-	}
-	command := func(f map[string]any) any {
-		return f["message"].(map[string]any)["toolCalls"].([]any)[0].(map[string]any)["action"].(map[string]any)["command"]
-	}
-
-	resp, events := chatFrames(t, srv, query)
-	frame := awaitChatFrame(t, events, settled)
-	resp.Body.Close()
-	assert.Equal(t, map[string]any{"text": "ls", "sandboxed": false, "outsideSandbox": true}, command(frame))
-
-	_, err := db.Write.Exec(`UPDATE tool_calls SET sandboxed = 1`)
-	require.NoError(t, err)
-	resp, events = chatFrames(t, srv, query)
-	defer resp.Body.Close()
-	frame = awaitChatFrame(t, events, settled)
-	assert.Equal(t, map[string]any{"text": "ls", "sandboxed": true, "outsideSandbox": true}, command(frame))
-}
-
 // A call carries its cluster writes in the order asked: one that waits with its
 // body and subresource, one decided or abandoned, and a pending one on a call no
 // longer running, with neither body nor media type.
 func TestToolCallCarriesItsClusterWrites(t *testing.T) {
 	srv, db, fake := newChatServerOver(t)
 	fake.SetToolCalls(llm.StagedCall("Bash", `{"command":"kubectl delete pod x"}`))
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 	query := `subscription { chatMessagesWatch(chatID: "` + chatID + `") {
@@ -2166,7 +2136,7 @@ func TestToolCallCarriesItsClusterWrites(t *testing.T) {
 func TestAMessageCarriesAMemoryCallsScope(t *testing.T) {
 	srv, _, fake := newChatServerOver(t)
 	fake.SetToolCalls(llm.StagedCall("Memory", `{"op":"save","name":"prefs","body":"b","scope":"everywhere"}`))
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 
 	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") {
@@ -2191,7 +2161,7 @@ func TestAMessageCarriesItsSearchesAndCitations(t *testing.T) {
 		llm.Chunk{Text: "It shipped."},
 	)
 	fake.SetCitations(llm.Citation{Type: "web_search_result_location", URL: "https://kubernetes.io/releases", Title: "Releases", CitedText: "1.36"})
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID citations { url } } }`)
 	answer := sent["chatSend"].(map[string]any)
 	assert.Equal(t, []any{}, answer["citations"], "a new answer cites nothing")
@@ -2230,7 +2200,7 @@ func TestEveryActionKindIsServed(t *testing.T) {
 		llm.StagedCall(agenttool.Name, `{"description":"d","prompt":"p"}`),
 		llm.StagedCall(kubequery.Name, `{"sql":"SELECT 1"}`),
 	)
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 
 	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") {
@@ -2266,7 +2236,7 @@ func TestASubagentsCallIsServedUnderItsAgentCall(t *testing.T) {
 	srv, _, fake := newChatServerOver(t)
 	fake.SetToolCalls(llm.StagedCall(agenttool.Name, `{"description":"d","prompt":"p"}`))
 	fake.Route("p").SetToolCalls(llm.StagedCall(taskstop.Name, `{"task_id":"t"}`))
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 
 	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") {
@@ -2292,7 +2262,7 @@ func TestASubagentsCallIsServedUnderItsAgentCall(t *testing.T) {
 func TestAToolCallCarriesItsBackgroundTask(t *testing.T) {
 	srv, db, fake := newChatServerOver(t)
 	fake.SetToolCalls(llm.StagedCall("Bash", `{"command":"make serve","run_in_background":true}`))
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+chatID+`") { message { seq status } } }`)
@@ -2512,7 +2482,7 @@ func TestMemoriesWatchOpensWithASnapshot(t *testing.T) {
 func TestAnAgentsTaskAndWaitAreServed(t *testing.T) {
 	srv, db, fake := newChatServerOver(t)
 	fake.SetToolCalls(llm.StagedCall("Bash", `{"command":"make serve"}`))
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+chatID+`") { message { seq status } } }`)
@@ -2559,7 +2529,7 @@ func TestAnAgentsTaskAndWaitAreServed(t *testing.T) {
 func TestAKubeQueryCallServesItsQuery(t *testing.T) {
 	srv, _, fake := newChatServerOver(t)
 	fake.SetToolCalls(llm.StagedCall(kubequery.Name, `{"sql":"SELECT 1;","limit":5,"description":"Count the pods"}`))
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 
 	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") {
@@ -2588,7 +2558,7 @@ func TestTheSandboxQueryAnswersTheStatus(t *testing.T) {
 // sandbox.
 func TestChatSandboxDisabledSetServesTheSwitchedChat(t *testing.T) {
 	srv := newSandboxedChatServer(t, sandbox.Status{Available: true})
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 
@@ -2597,7 +2567,7 @@ func TestChatSandboxDisabledSetServesTheSwitchedChat(t *testing.T) {
 	assert.Equal(t, map[string]any{"id": chatID, "sandboxDisabled": true}, data["chatSandboxDisabledSet"])
 
 	none := newChatServer(t)
-	sent = mutate(t, none, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent = mutate(t, none, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID = sent["chatSend"].(map[string]any)["chatID"].(string)
 	raw := postGQL(t, none.URL, `{"query":"mutation { chatSandboxDisabledSet(id: \"`+chatID+`\", sandboxDisabled: true) { id } }"}`)

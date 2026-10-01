@@ -1240,8 +1240,6 @@ type CommandAction {
   background: Boolean!
   "Whether a sandbox confined the command."
   sandboxed: Boolean!
-  "Whether the call asked to run outside the sandbox."
-  outsideSandbox: Boolean!
 }
 
 "A read of a file, as the call named it."
@@ -1437,8 +1435,8 @@ type Mutation {
   clusterCachedKindSyncEnabledSet(id: ObjectID!, syncEnabled: Boolean!): ClusterCachedKind!
 
   # --- Chat ---
-  "Save a user message and start the assistant's turn. Returns the assistant's message as accepted, not as finished — the answer arrives on chatMessagesWatch. A null `chatID` creates the chat; a chat already running a turn is refused. `requestID` makes the send idempotent for as long as its chat lives, and a repeat is answered by that id alone: this call's `chatID`, `model`, `effort` and `content` are ignored. The key goes with the chat, so a repeat after its delete is a new send. A null `chatID` creates the chat in `mode` and under `clusterID`, which must name an existing cluster; otherwise both are ignored, and on a `requestID` replay they are ignored like `chatID` and `content`."
-  chatSend(chatID: ChatID, mode: ChatMode!, clusterID: ClusterID!, providerID: String!, modelID: String!, effort: String!, requestID: String!, content: String!): ChatMessage!
+  "Save a user message and start the assistant's turn. Returns the assistant's message as accepted, not as finished — the answer arrives on chatMessagesWatch. A null `chatID` creates the chat; a chat already running a turn is refused. `requestID` makes the send idempotent for as long as its chat lives, and a repeat is answered by that id alone: this call's `chatID`, `model`, `effort` and `content` are ignored. The key goes with the chat, so a repeat after its delete is a new send. A null `chatID` creates the chat in `mode` and under `clusterID`, which must name an existing cluster; otherwise both are ignored, and on a `requestID` replay they are ignored like `chatID` and `content`. `sandboxDisabled` is the chat's switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_SANDBOX_CHANGED`, and a replay ignores it too."
+  chatSend(chatID: ChatID, mode: ChatMode!, clusterID: ClusterID!, sandboxDisabled: Boolean!, providerID: String!, modelID: String!, effort: String!, requestID: String!, content: String!): ChatMessage!
 
   "Stop the in-flight turn, keeping the partial answer. Returns true; a no-op when nothing is running."
   chatCancel(chatID: ChatID!): Boolean!

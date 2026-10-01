@@ -1261,16 +1261,23 @@ func TestAMessageReadsCitationsByItsRunsDialect(t *testing.T) {
 		citationsOf(t, msgs[3]))
 }
 
-// runtimeTool answers with the cluster and chat its runtime names.
-type runtimeTool struct{ testTool }
+// runtimeTool answers with the cluster, the chat and the switch its runtime
+// names, after running before when it is set.
+type runtimeTool struct {
+	testTool
+	before func(ctx context.Context, rt tools.Runtime)
+}
 
-func (runtimeTool) Run(_ context.Context, rt tools.Runtime, _ json.RawMessage) (string, bool) {
-	return string(rt.ClusterID) + "/" + string(rt.ChatID), false
+func (r runtimeTool) Run(ctx context.Context, rt tools.Runtime, _ json.RawMessage) (string, bool) {
+	if r.before != nil {
+		r.before(ctx, rt)
+	}
+	return fmt.Sprintf("%s/%s/%t", rt.ClusterID, rt.ChatID, rt.OutsideSandbox), false
 }
 
 // A turn's tools reach its chat's stored cluster, never the send's, and its chat.
 func TestATurnsRuntimeIsItsChatsCluster(t *testing.T) {
-	s := startServiceWithTool(t, runtimeTool{testTool{name: "where"}})
+	s := startServiceWithTool(t, runtimeTool{testTool: testTool{name: "where"}})
 	fakeOf(s).SetToolCalls(llm.StagedCall("where", `{}`))
 
 	msg := sendAndSettle(t, s, nil, "2", "first", "hi")
@@ -1280,6 +1287,32 @@ func TestATurnsRuntimeIsItsChatsCluster(t *testing.T) {
 	for _, run := range []RunID{msg.RunID, again.RunID} {
 		rows := toolCallRows(t, s.db, run)
 		require.Len(t, rows, 1)
-		assert.Equal(t, "2/"+string(msg.ChatID), rows[0].result)
+		assert.Equal(t, "2/"+string(msg.ChatID)+"/false", rows[0].result)
+	}
+}
+
+// A turn reads the chat's switch once, as the send reserves it: a switch flipped
+// while it runs changes the next turn, never this one.
+func TestATurnsRuntimeCarriesItsChatsSwitch(t *testing.T) {
+	var s *service
+	flip := func(ctx context.Context, rt tools.Runtime) {
+		_, err := s.SetSandboxDisabled(ctx, rt.ChatID, false)
+		assert.NoError(t, err)
+	}
+	s = startServiceWithTool(t, runtimeTool{testTool: testTool{name: "where"}, before: flip})
+	s.sandboxStatus = sandbox.Status{Available: true}
+	msg := sendAndSettle(t, s, nil, "1", "first", "hi")
+	_, err := s.SetSandboxDisabled(t.Context(), msg.ChatID, true)
+	require.NoError(t, err)
+
+	fakeOf(s).SetToolCalls(llm.StagedCall("where", `{}`))
+	switched := sendAndSettle(t, s, &msg.ChatID, "1", "switched", "hi")
+	fakeOf(s).SetToolCalls(llm.StagedCall("where", `{}`))
+	after := sendAndSettle(t, s, &msg.ChatID, "1", "after", "hi")
+
+	for run, want := range map[RunID]string{switched.RunID: "true", after.RunID: "false"} {
+		rows := toolCallRows(t, s.db, run)
+		require.Len(t, rows, 1)
+		assert.Equal(t, "1/"+string(msg.ChatID)+"/"+want, rows[0].result)
 	}
 }

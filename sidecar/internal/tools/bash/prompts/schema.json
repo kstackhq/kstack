@@ -23,7 +23,7 @@
     },
     "workdir": {
       "type": "string",
-      "description": "The directory to run the command in: absolute, `~`-prefixed, or relative to the workspace. Defaults to the workspace. Use this instead of `cd`."
+      "description": "The directory to run the command in: absolute, `~`-prefixed, or relative to the workspace. Defaults to the workspace. Use this instead of `cd`. A `~` is the user's home outside the sandbox and the workspace in it, and a sandboxed command's directory must be under the workspace."
     }
   }
 }

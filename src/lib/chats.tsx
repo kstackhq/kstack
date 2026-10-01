@@ -76,7 +76,6 @@ const ChatMessagesWatchSubscription = graphql(`
               cwd
               background
               sandboxed
-              outsideSandbox
             }
             read {
               path

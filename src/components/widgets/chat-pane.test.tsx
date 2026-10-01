@@ -45,6 +45,12 @@ const { setContext, kubeContexts } = vi.hoisted(() => ({
 vi.mock('@/lib/active-kube-context', () => ({
   useActiveKubeContext: () => ({ contexts: kubeContexts.current, setContext }),
 }));
+// Whether the machine offers a sandbox, which the transcript's headings follow.
+const { useSandboxMock, sandboxRetry } = vi.hoisted(() => ({
+  useSandboxMock: vi.fn(),
+  sandboxRetry: vi.fn(),
+}));
+vi.mock('@/lib/sandbox', () => ({ useSandbox: useSandboxMock }));
 vi.mock('urql', () => ({ useMutation: () => [{}, vi.fn()] }));
 vi.mock('@/gql', () => ({ graphql: () => ({}) }));
 
@@ -83,11 +89,12 @@ vi.mock('@/components/widgets/chat-transcript', () => ({
 const { ChatOutboxProvider } = await import('@/lib/chat-outbox');
 const { ChatPane, NewChatPane } = await import('./chat-pane');
 
-const chat = (id: string, clusterID = '1') => ({
+const chat = (id: string, clusterID = '1', sandboxDisabled = false) => ({
   id,
   title: 'A chat',
   mode: 'Chat',
   clusterID,
+  sandboxDisabled,
   createdAt: '2026-09-01T00:00:00Z',
   updatedAt: '2026-09-01T10:00:00Z',
 });
@@ -160,6 +167,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   useActiveClusterMock.mockReturnValue({ clusterID: '1', phase: 'live' });
   useClustersMock.mockReturnValue({ clusters: [] });
+  useSandboxMock.mockReturnValue({ available: true, failed: false, retry: sandboxRetry });
   kubeContexts.current = [{ name: 'prod' }, { name: 'staging' }];
 });
 
@@ -184,6 +192,33 @@ describe('NewChatPane', () => {
 });
 
 describe('ChatPane', () => {
+  // The query re-runs for nobody, so a sidecar unreachable when the pane opened
+  // would leave the headings guessing until it remounts.
+  it('asks for the sandbox again once the watch is live', () => {
+    useSandboxMock.mockReturnValue({ available: undefined, failed: true, retry: sandboxRetry });
+    const panes = renderPanes();
+    panes.open('c1', { chats: [chat('c1')], messagesPhase: 'reconnecting' });
+    expect(sandboxRetry).not.toHaveBeenCalled();
+    panes.open('c1', { chats: [chat('c1')], messagesPhase: 'live' });
+    expect(sandboxRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("hands the composer the chat's switch and the transcript the machine's sandbox", () => {
+    const panes = renderPanes();
+    panes.open('c1', { chats: [chat('c1', '1', true)] });
+    expect(props('composer')).toMatchObject({ sandboxDisabled: true });
+    // Ask again sends it as what the user saw.
+    expect(props('transcript')).toMatchObject({ sandboxAvailable: true, sandboxDisabled: true });
+
+    // Before the list answers, the composer holds no switch to draw.
+    panes.open('c1', { chats: [], listPhase: 'connecting' });
+    expect(props('composer').sandboxDisabled).toBeUndefined();
+
+    useSandboxMock.mockReturnValue({ available: undefined, failed: false, retry: sandboxRetry });
+    panes.open('c1', { chats: [chat('c1')] });
+    expect(props('transcript').sandboxAvailable).toBeUndefined();
+  });
+
   it('draws the open chat and hands the composer its last message', () => {
     renderPanes().open('c1', { messages: [message(), message({ id: 'm2', seq: 2, status: 'Streaming' })] });
 

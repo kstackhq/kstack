@@ -60,6 +60,9 @@ var (
 	// ErrChatContextFull is a send into a chat longer than the model it named can
 	// read.
 	ErrChatContextFull = errors.New("chatsvc: " + contextFullText)
+	// ErrChatSandboxChanged is a send whose sender saw the chat's switch the
+	// other way.
+	ErrChatSandboxChanged = errors.New("chatsvc: the chat's sandbox switch changed")
 )
 
 const (
@@ -121,7 +124,7 @@ type Service interface {
 	// cluster it was made with. model and effort are what this turn runs on.
 	// requestID is the client's key for this send, a UUID it minted; a repeat
 	// returns the first attempt's message and starts nothing.
-	Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID apimeta.ClusterID, providerID, modelID, effort, requestID, content string) (ChatMessage, error)
+	Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, providerID, modelID, effort, requestID, content string) (ChatMessage, error)
 	// Cancel stops the in-flight turn, keeping the partial answer. A no-op when
 	// nothing is running.
 	Cancel(ctx context.Context, chatID ChatID) error
@@ -366,7 +369,7 @@ func (s *service) notify(key string) { s.db.Notify(key) }
 // Send saves the question and starts its answer. The key is looked up before every
 // other check, so a retry of the send that started the running turn is answered
 // rather than refused as a second one; on a hit the key is the whole identity.
-func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID apimeta.ClusterID, providerID, modelID, effort, requestID, content string) (ChatMessage, error) {
+func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, providerID, modelID, effort, requestID, content string) (ChatMessage, error) {
 	if err := s.enter(); err != nil {
 		return ChatMessage{}, err
 	}
@@ -419,8 +422,14 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 			return err
 		}
 		// Inside the transaction, so a send and a cluster's mark are serialized.
-		if err := s.checkChat(ctx, st, chatID, clusterID); err != nil {
+		disabled, err := s.checkChat(ctx, st, chatID, clusterID)
+		if err != nil {
 			return err
+		}
+		// Read in the transaction that pins it to the turn, so the turn runs where
+		// the sender saw it would, whichever window switched it meanwhile.
+		if disabled != sandboxDisabled {
+			return ErrChatSandboxChanged
 		}
 		// Before anything is written.
 		if chatID != nil {
@@ -437,9 +446,11 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 		if t, err = s.reserveTurn(id, newRunID(), target); err != nil {
 			return err
 		}
+		// Pinned here, beside the context block that tells the model.
+		t.outsideSandbox = disabled
 		// The chat's id is known only now: a new chat has none when the card is
 		// rendered.
-		question, err := questionBlocks(ctx, st, id, s.withWorkspace(contextText, id), content)
+		question, err := questionBlocks(ctx, st, id, s.withSandbox(s.withWorkspace(contextText, id), disabled), content)
 		if err != nil {
 			return err
 		}
@@ -515,26 +526,28 @@ func (s *service) seenBefore(ctx context.Context, st stmts, requestID string) (C
 }
 
 // checkChat refuses a send into a chat nobody has and a cluster that is missing or
-// marked. An existing chat's cluster is the chat's own, never the argument's.
-func (s *service) checkChat(ctx context.Context, st stmts, chatID *ChatID, clusterID apimeta.ClusterID) error {
+// marked, and answers the chat's switch: false for a chat the send creates, which
+// starts sandboxed. An existing chat's cluster is the chat's own, never the
+// argument's.
+func (s *service) checkChat(ctx context.Context, st stmts, chatID *ChatID, clusterID apimeta.ClusterID) (disabled bool, err error) {
 	if chatID != nil {
 		c, ok, err := getConversation(ctx, st, *chatID)
 		if err != nil {
-			return err
+			return false, err
 		}
 		if !ok {
-			return ErrChatGone
+			return false, ErrChatGone
 		}
-		clusterID = c.ClusterID
+		clusterID, disabled = c.ClusterID, c.SandboxDisabled
 	}
 	ok, err := clusterAccepts(ctx, st, clusterID)
 	if err != nil {
-		return err
+		return false, err
 	}
 	if !ok {
-		return ErrClusterGone
+		return false, ErrClusterGone
 	}
-	return nil
+	return disabled, nil
 }
 
 // resolveChat creates the chat a nil chatID asks for, else touches the one named:

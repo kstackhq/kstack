@@ -75,6 +75,11 @@ func TestTheSystemPromptExplainsTheMemorySection(t *testing.T) {
 // The prompt says what the Workspace section is, so the model can name a file
 // there to the file tools, which take absolute paths alone.
 func TestTheSystemPromptExplainsTheWorkspaceSection(t *testing.T) {
-	assert.Contains(t, promptSystem, "The last section, `## Workspace`, is this chat's workspace: `path` is the directory every command starts in, and its files last for the rest of the chat. "+
+	assert.Contains(t, promptSystem, "The next section, `## Workspace`, is this chat's workspace: `path` is the directory every command starts in, and its files last for the rest of the chat. "+
 		"Name a file there to `Read`, `Write` and `Edit` by its absolute path under `path`.")
+}
+
+func TestTheSystemPromptExplainsTheSandboxSection(t *testing.T) {
+	assert.Contains(t, promptSystem, "The last section, `## Sandbox`, says where this chat's commands run: "+
+		"`sandboxed` in the sandbox, `outside` as the user, each waiting for their approval. It is absent on a machine with no sandbox.")
 }

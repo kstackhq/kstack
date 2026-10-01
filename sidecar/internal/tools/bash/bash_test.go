@@ -80,124 +80,89 @@ var badInputs = []string{
 // A bash input is a command, an optional description and an optional timeout,
 // each key spelled exactly and once.
 func TestBashReadsItsInput(t *testing.T) {
-	in, err := parse(json.RawMessage(`{"command":"ls -la > out && cat out","description":"List files","timeout":1000}`), false)
+	in, err := parse(json.RawMessage(`{"command":"ls -la > out && cat out","description":"List files","timeout":1000}`))
 	require.NoError(t, err)
 	assert.Equal(t, input{Command: "ls -la > out && cat out", Description: "List files", Timeout: time.Second}, in)
 
-	in, err = parse(json.RawMessage(`{"description":"","command":"ls"}`), false)
+	in, err = parse(json.RawMessage(`{"description":"","command":"ls"}`))
 	require.NoError(t, err)
 	assert.Equal(t, input{Command: "ls", Timeout: DefaultTimeout}, in)
 
 	for _, raw := range badInputs {
-		_, err := parse(json.RawMessage(raw), false)
+		_, err := parse(json.RawMessage(raw))
 		assert.ErrorIs(t, err, errInput, raw)
 	}
 }
 
-// dangerouslyDisableSandbox is a boolean where the tool offers it, and anywhere
-// else a key like any unknown one.
-func TestTheFlagIsAcceptedOnlyWhereItIsOffered(t *testing.T) {
-	rt := testRuntime(t)
-	for raw, want := range map[string]bool{
-		`{"command":"ls","dangerouslyDisableSandbox":true}`:  true,
-		`{"command":"ls","dangerouslyDisableSandbox":false}`: false,
-		`{"command":"ls"}`: false,
-	} {
-		in, err := parse(json.RawMessage(raw), true)
-		require.NoError(t, err, raw)
-		assert.Equal(t, want, in.OutsideSandbox, raw)
-	}
-	for _, raw := range []string{
-		`{"command":"ls","dangerouslyDisableSandbox":"true"}`,
-		`{"command":"ls","dangerouslyDisableSandbox":null}`,
-		`{"command":"ls","dangerouslyDisableSandbox":true,"dangerouslyDisableSandbox":false}`,
-		`{"command":"ls","DangerouslyDisableSandbox":true}`,
-	} {
-		_, err := parse(json.RawMessage(raw), true)
-		assert.ErrorIs(t, err, errInputSandboxed, raw)
-	}
-	_, err := parse(json.RawMessage(`{"command":"ls","dangerouslyDisableSandbox":true}`), false)
+// dangerouslyDisableSandbox is a key like any unknown one, on every machine: the
+// model has no way out of the sandbox.
+func TestTheFlagIsBadInput(t *testing.T) {
+	raw := json.RawMessage(`{"command":"ls","dangerouslyDisableSandbox":true}`)
+	_, err := parse(raw)
 	assert.ErrorIs(t, err, errInput)
 	assert.NotContains(t, errInput.Error(), "dangerouslyDisableSandbox")
-	assert.Contains(t, errInputSandboxed.Error(), "dangerouslyDisableSandbox")
 
-	raw := json.RawMessage(`{"command":"ls","dangerouslyDisableSandbox":true}`)
-	tl := &Tool{home: "/home/ana", sandboxer: &fakeSandboxer{}}
-	_, err = tl.Approval(t.Context(), rt, raw)
-	require.NoError(t, err)
-	tl.sandboxer = nil
-	_, err = tl.Approval(t.Context(), rt, raw)
+	rt := testRuntime(t)
+	for _, boxer := range []sandboxer{&fakeSandboxer{confines: true}, nil} {
+		tl := &Tool{home: "/home/ana", sandboxer: boxer}
+		_, err = tl.Approval(t.Context(), rt, raw)
+		assert.ErrorIs(t, err, errInput)
+		text, isError := tl.Run(t.Context(), rt, raw)
+		assert.Equal(t, badInput, text)
+		assert.True(t, isError)
+	}
+	_, err = ActionOf(raw, "/home/ana", false)
 	assert.ErrorIs(t, err, errInput)
 }
 
-// A call a sandbox confines runs unasked; one with the flag, one through a
-// sandbox that does not confine, and one on a machine with no sandbox ask.
+// A call a sandbox confines runs unasked; one in a chat switched outside the
+// sandbox, one through a sandbox that does not confine, and one on a machine
+// with no sandbox ask.
 func TestASandboxedCallAsksNoOne(t *testing.T) {
-	assertSandboxedCallsAskNoOne(t, `{"command":"ls"}`, `{"command":"ls","dangerouslyDisableSandbox":true}`)
+	assertSandboxedCallsAskNoOne(t, `{"command":"ls"}`)
 }
 
 // A background call is gated as a foreground one is.
 func TestASandboxedBackgroundCallAsksNoOne(t *testing.T) {
-	assertSandboxedCallsAskNoOne(t,
-		`{"command":"sleep 1","run_in_background":true}`,
-		`{"command":"sleep 1","run_in_background":true,"dangerouslyDisableSandbox":true}`)
+	assertSandboxedCallsAskNoOne(t, `{"command":"sleep 1","run_in_background":true}`)
 }
 
-// assertSandboxedCallsAskNoOne checks the gate over one call, plain and with
-// the flag.
-func assertSandboxedCallsAskNoOne(t *testing.T, plain, outside string) {
+// assertSandboxedCallsAskNoOne checks the gate over one call, in a chat that
+// runs in the sandbox and in one switched outside it.
+func assertSandboxedCallsAskNoOne(t *testing.T, raw string) {
 	t.Helper()
 	rt := testRuntime(t)
+	outside := rt
+	outside.OutsideSandbox = true
 	ws := tools.WorkspacePath(rt.Dir)
 	asks := tools.Approval{Cwd: ws}
 	for _, c := range []struct {
 		boxer sandboxer
-		raw   string
+		rt    tools.Runtime
 		want  tools.Approval
 	}{
-		{&fakeSandboxer{confines: true}, plain, tools.Approval{Cwd: ws, Sandboxed: true, Skip: true}},
+		{&fakeSandboxer{confines: true}, rt, tools.Approval{Cwd: ws, Sandboxed: true, Skip: true}},
 		{&fakeSandboxer{confines: true}, outside, asks},
-		{&fakeSandboxer{confines: false}, plain, asks},
-		{nil, plain, asks},
+		{&fakeSandboxer{confines: false}, rt, asks},
+		{nil, rt, asks},
+		{nil, outside, asks},
 	} {
 		tl := &Tool{home: "/home/ana", sandboxer: c.boxer}
-		got, err := tl.Approval(t.Context(), rt, json.RawMessage(c.raw))
+		got, err := tl.Approval(t.Context(), c.rt, json.RawMessage(raw))
 		require.NoError(t, err)
-		assert.Equal(t, c.want, got, "sandbox=%v %s", c.boxer != nil, c.raw)
+		assert.Equal(t, c.want, got, "sandbox=%v outside=%v", c.boxer != nil, c.rt.OutsideSandbox)
 	}
-}
-
-// CallTimeout reads the flag where it is offered, so a call that sets it keeps
-// its own timeout rather than the loop's bound on a zero one.
-func TestTheFlagKeepsTheCallTimeout(t *testing.T) {
-	tl := &Tool{sandboxer: &fakeSandboxer{}}
-	got := tl.CallTimeout(json.RawMessage(`{"command":"ls","timeout":1000,"dangerouslyDisableSandbox":true}`))
-	assert.Equal(t, time.Second+killGrace+callMargin, got)
-}
-
-// A stored row keeps the flag on a machine that has since lost its sandbox, and
-// its action still reads.
-func TestActionOfReadsTheFlagAnywhere(t *testing.T) {
-	raw := json.RawMessage(`{"command":"curl -sI https://example.com","dangerouslyDisableSandbox":true}`)
-	for _, r := range []tools.Reader{&Tool{}, Reader{}} {
-		got, err := r.Action(raw, "/home/ana", false)
-		require.NoError(t, err)
-		assert.True(t, got.Command.OutsideSandbox)
-	}
-	got, err := ActionOf(json.RawMessage(`{"command":"ls"}`), "/home/ana", false)
-	require.NoError(t, err)
-	assert.False(t, got.Command.OutsideSandbox)
 }
 
 // A workdir is a string of up to 4,096 bytes with no control character: each
 // would make the line on the approval request harder to read.
 func TestWorkdirIsParsed(t *testing.T) {
-	in, err := parse(json.RawMessage(`{"command":"ls","workdir":"~/src"}`), false)
+	in, err := parse(json.RawMessage(`{"command":"ls","workdir":"~/src"}`))
 	require.NoError(t, err)
 	assert.Equal(t, "~/src", in.Workdir)
 
 	long := "/" + strings.Repeat("a", 4095)
-	in, err = parse(json.RawMessage(`{"command":"ls","workdir":"`+long+`"}`), false)
+	in, err = parse(json.RawMessage(`{"command":"ls","workdir":"` + long + `"}`))
 	require.NoError(t, err)
 	assert.Equal(t, long, in.Workdir)
 
@@ -212,7 +177,7 @@ func TestWorkdirIsParsed(t *testing.T) {
 		`{"command":"ls","workdir":"/a\u0085b"}`,
 		`{"command":"ls","workdir":"` + long + `a"}`,
 	} {
-		_, err := parse(json.RawMessage(raw), false)
+		_, err := parse(json.RawMessage(raw))
 		assert.ErrorIs(t, err, errInput, raw)
 	}
 }
@@ -220,11 +185,11 @@ func TestWorkdirIsParsed(t *testing.T) {
 // run_in_background is a boolean, spelled exactly and once, and the action
 // says the command will keep running.
 func TestBashReadsRunInBackground(t *testing.T) {
-	in, err := parse(json.RawMessage(`{"command":"make serve","run_in_background":true}`), false)
+	in, err := parse(json.RawMessage(`{"command":"make serve","run_in_background":true}`))
 	require.NoError(t, err)
 	assert.True(t, in.Background)
 
-	in, err = parse(json.RawMessage(`{"command":"ls","run_in_background":false}`), false)
+	in, err = parse(json.RawMessage(`{"command":"ls","run_in_background":false}`))
 	require.NoError(t, err)
 	assert.False(t, in.Background)
 
@@ -235,7 +200,7 @@ func TestBashReadsRunInBackground(t *testing.T) {
 		`{"command":"ls","run_in_background":true,"run_in_background":false}`,
 		`{"command":"ls","Run_In_Background":true}`,
 	} {
-		_, err := parse(json.RawMessage(raw), false)
+		_, err := parse(json.RawMessage(raw))
 		assert.ErrorIs(t, err, errInput, raw)
 	}
 
@@ -303,7 +268,7 @@ func TestATimeoutIsDefaultedCappedAndRounded(t *testing.T) {
 		`{"command":"ls","timeout":0.1}`:    time.Millisecond,
 		`{"command":"ls","timeout":1500.2}`: 1501 * time.Millisecond,
 	} {
-		in, err := parse(json.RawMessage(raw), false)
+		in, err := parse(json.RawMessage(raw))
 		require.NoError(t, err, raw)
 		assert.Equal(t, want, in.Timeout, raw)
 	}
@@ -788,29 +753,14 @@ func TestTheDefinitionIsTheReferences(t *testing.T) {
 	assert.NotContains(t, def.Description, "Monitor")
 	assert.NotContains(t, string(def.InputSchema), "dangerouslyDisableSandbox")
 
-	// With a sandbox, the schema is the same with the reference's flag restored.
 	sandboxed := Tool{sandboxer: &fakeSandboxer{}}
-	def = sandboxed.Definition()
-	var withFlag struct {
-		Type                 string              `json:"type"`
-		AdditionalProperties bool                `json:"additionalProperties"`
-		Required             []string            `json:"required"`
-		Properties           map[string]property `json:"properties"`
-	}
-	require.NoError(t, json.Unmarshal(def.InputSchema, &withFlag))
-	assert.Len(t, withFlag.Properties, 6)
-	assert.Equal(t, property{"boolean", "Set this to true to dangerously override sandbox mode and run commands without sandboxing."},
-		withFlag.Properties["dangerouslyDisableSandbox"])
-	delete(withFlag.Properties, "dangerouslyDisableSandbox")
-	assert.Equal(t, property{"string", workdirDescription + " In the sandbox, a `~` in `workdir` is the workspace, and the directory must be under it."},
-		withFlag.Properties["workdir"])
-	withFlag.Properties["workdir"] = schema.Properties["workdir"]
-	assert.Equal(t, schema, withFlag, "the rest is the same")
+	assert.Equal(t, def, sandboxed.Definition(), "one schema, with a sandbox or without")
 }
 
-// workdirDescription is workdir's description in the schema without the flag.
+// workdirDescription is workdir's description, for a chat that runs either way.
 const workdirDescription = "The directory to run the command in: absolute, `~`-prefixed, or relative to the workspace. " +
-	"Defaults to the workspace. Use this instead of `cd`."
+	"Defaults to the workspace. Use this instead of `cd`. A `~` is the user's home outside the sandbox and the workspace in it, " +
+	"and a sandboxed command's directory must be under the workspace."
 
 // The loop's bound on a bash call is the call's own timeout plus the grace, a
 // margin and the longest a call can wait on the snapshot, so a command stopped at
@@ -1011,15 +961,19 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 	assert.True(t, strings.HasPrefix(got, "## Bash\n\n"+sandboxPrompt), got)
 	assert.Contains(t, got, sandboxPrompt+"\n"+shared)
 	assert.NotContains(t, got, "Every command waits")
-	assert.Contains(t, sandboxPrompt, "Commands run in a sandbox and do not wait for the user, but for a change to the cluster.")
-	assert.Contains(t, sandboxPrompt, "A command with `dangerouslyDisableSandbox` waits for the user to approve it")
+	assert.True(t, strings.HasPrefix(sandboxPrompt, "Unless the user has switched this chat outside the sandbox, commands run in a sandbox"+
+		" and do not wait for the user, but for a change to the cluster."), sandboxPrompt)
+	assert.Contains(t, sandboxPrompt, "A command outside the sandbox waits for the user to approve it")
 	assert.Contains(t, sandboxPrompt, "A denied command was not run")
 	assert.Contains(t, sandboxPrompt, "`could not start`")
 	for _, p := range []string{plain, got} {
 		assert.Contains(t, p, "say what it will change before you run it")
 		assert.NotContains(t, p, "before you ask")
 	}
-	assert.Contains(t, sandboxPrompt, "`dangerouslyDisableSandbox`")
+	assert.Contains(t, sandboxPrompt, "If a command needs what the sandbox lacks — the user's files or credentials, the network, "+
+		"a helm change, a service account token, or a Secret's values — say so and what for. "+
+		"The user can switch this chat to run commands outside the sandbox; the question's context says whether they have. "+
+		"Do not work around the sandbox.")
 	assert.Contains(t, sandboxPrompt, "It reaches the chat's cluster alone, with the user's own access.", "a sandboxed run reaches the cluster through the proxy")
 	assert.Contains(t, sandboxPrompt, "Each request that changes the cluster, a dry run and `kubectl diff` included, waits for the user to approve it", "a write asks")
 	assert.Contains(t, sandboxPrompt, "give a command that changes the cluster one that leaves the user time to read each request", "the wait counts against the timeout")
@@ -1041,8 +995,22 @@ func TestTheLinuxPromptSaysASnapRunsOutside(t *testing.T) {
 
 	assert.True(t, strings.HasPrefix(got, "## Bash\n\n"+sandboxPrompt+sandboxLinuxPrompt), got)
 	assert.Contains(t, sandboxLinuxPrompt, "snap")
-	assert.Contains(t, sandboxLinuxPrompt, "`dangerouslyDisableSandbox`")
+	assert.Contains(t, sandboxLinuxPrompt, "A command that runs one needs this chat run outside the sandbox.")
 	assert.NotContains(t, (&Tool{kind: "bash", platform: "linux"}).Prompt(), "snap")
+}
+
+// The model has no way out of the sandbox, so nothing it reads names one.
+func TestNoPromptNamesTheFlag(t *testing.T) {
+	for _, tl := range []*Tool{
+		{kind: "bash", platform: "linux"},
+		{kind: "bash", platform: "linux", sandboxer: &fakeSandboxer{}},
+		{kind: "bash", platform: "darwin", sandboxer: &fakeSandboxer{}},
+	} {
+		assert.NotContains(t, tl.Prompt(), "dangerouslyDisableSandbox")
+		def := tl.Definition()
+		assert.NotContains(t, def.Description, "dangerouslyDisableSandbox")
+		assert.NotContains(t, string(def.InputSchema), "dangerouslyDisableSandbox")
+	}
 }
 
 // Both variants say where a command starts and what the workspace is for.
@@ -1133,8 +1101,9 @@ func TestAFailedConfinedRunSaysWhereItRan(t *testing.T) {
 	text, isError := tl.Run(t.Context(), rt, command("exit 3"))
 	assert.True(t, isError)
 	assert.Equal(t, "Exit code 3\n"+line, text)
-	outside, _ := json.Marshal(map[string]any{"command": "exit 3", "dangerouslyDisableSandbox": true})
-	text, _ = tl.Run(t.Context(), rt, outside)
+	outside := rt
+	outside.OutsideSandbox = true
+	text, _ = tl.Run(t.Context(), outside, command("exit 3"))
 	assert.Equal(t, "Exit code 3\n", text, "a run outside the sandbox")
 	tl.sandboxer = &fakeSandboxer{}
 	text, _ = tl.Run(t.Context(), rt, command("exit 3"))

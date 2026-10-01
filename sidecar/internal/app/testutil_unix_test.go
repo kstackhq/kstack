@@ -29,6 +29,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -233,15 +234,41 @@ func startE2E(t *testing.T) *e2e {
 	return e
 }
 
-// ask starts a chat on the cluster with question, whose turn asks for calls:
-// the fake answers a chat whose first question is question on a route of its
-// own, so each test stages its own.
-func (e *e2e) ask(t *testing.T, question string, calls ...llm.Block) {
+// ask starts a chat on the cluster with question, whose turn asks for calls,
+// and answers the chat's id: the fake answers a chat whose first question is
+// question on a route of its own, so each test stages its own.
+func (e *e2e) ask(t *testing.T, question string, calls ...llm.Block) string {
 	t.Helper()
 	e.fake.Route(question).SetToolCalls(calls...)
 	raw := graphql(t, e.url, `mutation { chatSend(mode: Chat, clusterID: "`+e.clusterID+
-		`", providerID: "fake", modelID: "fake", effort: "low", requestID: "`+appdb.NewID()+
+		`", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "low", requestID: "`+appdb.NewID()+
 		`", content: "`+question+`") { chatID } }`)
+	var resp struct {
+		Data struct {
+			ChatSend struct {
+				ChatID string `json:"chatID"`
+			} `json:"chatSend"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(raw), &resp), raw)
+	require.NotEmpty(t, resp.Data.ChatSend.ChatID, raw)
+	return resp.Data.ChatSend.ChatID
+}
+
+// askAgain sends a second question into the chat ask started with first, once
+// its turn has settled, whose turn asks for calls: the fake still routes the
+// chat by its first question. outside is the chat's switch as the sender saw it.
+func (e *e2e) askAgain(t *testing.T, chatID string, disabled bool, first string, calls ...llm.Block) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		var n int
+		err := e.db.QueryRow(`SELECT COUNT(*) FROM agent_runs WHERE conversation_id = ? AND status IN ('queued', 'running')`, chatID).Scan(&n)
+		return err == nil && n == 0
+	}, e2eConverge, 10*time.Millisecond, "the first turn settled")
+	e.fake.Route(first).SetToolCalls(calls...)
+	raw := graphql(t, e.url, `mutation { chatSend(chatID: "`+chatID+`", mode: Chat, clusterID: "`+e.clusterID+
+		`", sandboxDisabled: `+strconv.FormatBool(disabled)+`, providerID: "fake", modelID: "fake", effort: "low", requestID: "`+appdb.NewID()+
+		`", content: "again") { chatID } }`)
 	require.Contains(t, raw, `"chatID"`, raw)
 }
 
@@ -307,19 +334,15 @@ func firstLine(result string) string {
 	return line
 }
 
-// bashInput is a Bash call's arguments running command, with the flag when
-// outside is set.
-func bashInput(command string, outside bool) string {
-	return bashInputWithin(command, outside, 0)
+// bashInput is a Bash call's arguments running command.
+func bashInput(command string) string {
+	return bashInputWithin(command, 0)
 }
 
 // bashInputWithin is bashInput with the call's timeout in milliseconds, none
 // when zero.
-func bashInputWithin(command string, outside bool, timeoutMs int) string {
+func bashInputWithin(command string, timeoutMs int) string {
 	in := map[string]any{"command": command, "description": "e2e"}
-	if outside {
-		in["dangerouslyDisableSandbox"] = true
-	}
 	if timeoutMs > 0 {
 		in["timeout"] = timeoutMs
 	}

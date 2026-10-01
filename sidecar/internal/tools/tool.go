@@ -217,8 +217,6 @@ type CommandAction struct {
 	Background bool   `json:"background"`
 	// Sandboxed is whether a sandbox confined the command, off its row.
 	Sandboxed bool `json:"sandboxed"`
-	// OutsideSandbox is whether the call asked to run outside the sandbox.
-	OutsideSandbox bool `json:"outsideSandbox"`
 }
 
 // ReadAction is a read of the file the call named, as it named it.
@@ -410,11 +408,14 @@ type ClusterWriteAsker interface {
 // Runtime is what a tool gets of the chat its call runs in. chatsvc sets every
 // field it has; a test sets the ones its tool reads. ClusterID is the chat's stored
 // cluster, the one a tool acting on a cluster reaches, and ChatID the chat; a model
-// names neither. Agent is nil in a subagent's runtime, so a subagent spawns nothing.
-// ClusterWriteAsker is nil where nobody can be asked.
+// names neither. OutsideSandbox is the chat's switch as its turn read it: a
+// command runs outside the sandbox, asking first. Agent is nil in a subagent's
+// runtime, so a subagent spawns nothing. ClusterWriteAsker is nil where nobody
+// can be asked.
 type Runtime struct {
 	ClusterID         apimeta.ClusterID
 	ChatID            apimeta.ChatID
+	OutsideSandbox    bool
 	Dir               ChatDir
 	Tasks             Tasks
 	Files             FileStamps

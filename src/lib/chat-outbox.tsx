@@ -32,6 +32,7 @@ const ChatSendMutation = graphql(`
     $chatID: ChatID
     $mode: ChatMode!
     $clusterID: ClusterID!
+    $sandboxDisabled: Boolean!
     $providerID: String!
     $modelID: String!
     $effort: String!
@@ -42,6 +43,7 @@ const ChatSendMutation = graphql(`
       chatID: $chatID
       mode: $mode
       clusterID: $clusterID
+      sandboxDisabled: $sandboxDisabled
       providerID: $providerID
       modelID: $modelID
       effort: $effort
@@ -61,22 +63,31 @@ export type Send =
   | { status: 'idle' }
   | { status: 'sending'; requestID: string; content: string }
   /**
-   * No answer came. It may have committed, so Retry resends the same id, cluster and
-   * pick — and under the same ownership, since a held Ask again is still not the
-   * draft's send.
+   * No answer came. It may have committed, so Retry resends the same id, cluster,
+   * pick and switch — and under the same ownership, since a held Ask again is still
+   * not the draft's send.
    */
-  | { status: 'held'; requestID: string; content: string; clusterID: string; pick: ModelPick; own: boolean }
+  | {
+      status: 'held';
+      requestID: string;
+      content: string;
+      clusterID: string;
+      pick: ModelPick;
+      sandboxDisabled: boolean;
+      own: boolean;
+    }
   /** Accepted; over once the messages watch delivers the row with this `seq`. */
   | { status: 'awaiting'; seq: number };
 
 const IDLE: Send = { status: 'idle' };
 
 /**
- * Why the last send was refused, when the composer has something to say about it,
- * with the model the send named: the composer's pick can move on — or an Ask
- * again can have run on another — and the refusal is still that model's.
+ * Why the last send was refused, when the composer has something to say about it.
+ * A full chat carries the model the send named: the composer's pick can move on —
+ * or an Ask again can have run on another — and the refusal is still that model's.
+ * A changed switch means the chat's sandbox switch was not what the sender saw.
  */
-export type Refusal = { kind: 'context-full'; model: ModelRef };
+export type Refusal = { kind: 'context-full'; model: ModelRef } | { kind: 'sandbox-changed' };
 
 type Entry = { draft: string; send: Send; pick: ModelPick | null; refusal: Refusal | null };
 
@@ -129,6 +140,7 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
     content: string,
     cluster: string,
     pick: ModelPick,
+    sandboxDisabled: boolean,
     own = true,
   ): Promise<Created | null> => {
     patch({ send: { status: 'sending', requestID, content }, refusal: null });
@@ -136,6 +148,7 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
       chatID,
       mode: chatModeOf(mode),
       clusterID: cluster,
+      sandboxDisabled,
       providerID: pick.model.providerID,
       modelID: pick.model.id,
       effort: pick.effort,
@@ -146,18 +159,18 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
     if (result.error?.networkError) {
       // Committed-but-lost looks exactly like never-arrived. Keeping the id lets
       // Retry ask again under it, and the sidecar answers a repeat by its key.
-      patch({ send: { status: 'held', requestID, content, clusterID: cluster, pick, own } });
+      patch({ send: { status: 'held', requestID, content, clusterID: cluster, pick, sandboxDisabled, own } });
       return null;
     }
     const message = result.data?.chatSend;
     if (!message) {
       // Refused, so nothing committed: the draft stays and the next submit mints a
-      // fresh id. A full chat is the one refusal the composer draws.
+      // fresh id. A full chat and a changed switch are the refusals the composer draws.
       const code = result.error?.graphQLErrors[0]?.extensions?.code;
-      patch({
-        send: IDLE,
-        refusal: code === 'KSTACK_CHAT_CONTEXT_FULL' ? { kind: 'context-full', model: pick.model } : null,
-      });
+      let refusal: Refusal | null = null;
+      if (code === 'KSTACK_CHAT_CONTEXT_FULL') refusal = { kind: 'context-full', model: pick.model };
+      else if (code === 'KSTACK_CHAT_SANDBOX_CHANGED') refusal = { kind: 'sandbox-changed' };
+      patch({ send: IDLE, refusal });
       return null;
     }
     if (chatID) {
@@ -186,10 +199,21 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
     pick,
     setDraft: (draft: string) => patch({ draft }),
     setPick: (next: ModelPick) => patch({ pick: next }),
-    submit: () => (clusterID && pick ? run(crypto.randomUUID(), entry.draft, clusterID, pick) : Promise.resolve(null)),
+    /** Sends the draft under `sandboxDisabled`, the chat's switch as the composer shows it. */
+    submit: (sandboxDisabled: boolean) =>
+      clusterID && pick
+        ? run(crypto.randomUUID(), entry.draft, clusterID, pick, sandboxDisabled)
+        : Promise.resolve(null),
     retry: () =>
       entry.send.status === 'held'
-        ? run(entry.send.requestID, entry.send.content, entry.send.clusterID, entry.send.pick, entry.send.own)
+        ? run(
+            entry.send.requestID,
+            entry.send.content,
+            entry.send.clusterID,
+            entry.send.pick,
+            entry.send.sandboxDisabled,
+            entry.send.own,
+          )
         : Promise.resolve(null),
     /**
      * Asks a failed answer's question again: a fresh send under a new id, carrying
@@ -197,9 +221,9 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
      * do — the sidecar never retries a turn — and it rides the entry's one send, so
      * a press while anything is in flight sends nothing.
      */
-    askAgain: (content: string, ran: ModelPick) =>
+    askAgain: (content: string, ran: ModelPick, sandboxDisabled: boolean) =>
       clusterID && entry.send.status === 'idle'
-        ? run(crypto.randomUUID(), content, clusterID, ran, false)
+        ? run(crypto.randomUUID(), content, clusterID, ran, sandboxDisabled, false)
         : Promise.resolve(null),
     /**
      * Closes an accepted send once the row it is awaiting has reached the watch:

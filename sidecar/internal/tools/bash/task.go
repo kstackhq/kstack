@@ -29,7 +29,7 @@ import (
 // runTask starts a background command as the chat's task, checked as a
 // foreground one is, and answers in the reference's words once it is running.
 func (t *Tool) runTask(ctx context.Context, rt tools.Runtime, in input) (string, bool) {
-	cwd, err := t.startDir(in, rt.Dir)
+	cwd, err := t.startDir(in, rt)
 	if err != nil {
 		return `{"error":"bad-input"}`, true
 	}
@@ -39,7 +39,7 @@ func (t *Tool) runTask(ctx context.Context, rt tools.Runtime, in input) (string,
 	if err := t.checkDir(ctx, cwd); err != nil {
 		return "could not start: " + safe.String(err.Error()), true
 	}
-	boxer := t.sandboxerFor(in)
+	boxer := t.sandboxerFor(rt)
 	snapshot, err := t.snapshotFor(ctx)
 	if err != nil {
 		return "could not start: " + safe.String(err.Error()), true

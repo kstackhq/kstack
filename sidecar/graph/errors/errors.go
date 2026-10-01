@@ -30,6 +30,7 @@ var (
 	ErrWatchError          = NewError("KSTACK_WATCH_ERROR", "Watch error")
 	ErrServiceUnavailable  = NewError("KSTACK_SERVICE_UNAVAILABLE", "Service unavailable")
 	ErrChatContextFull     = NewError("KSTACK_CHAT_CONTEXT_FULL", "Chat is longer than the model can read")
+	ErrChatSandboxChanged  = NewError("KSTACK_CHAT_SANDBOX_CHANGED", "Chat's sandbox switch changed")
 	ErrMemoryNameTaken     = NewError("KSTACK_MEMORY_NAME_TAKEN", "Memory name taken")
 	ErrMemoryFull          = NewError("KSTACK_MEMORY_FULL", "Not enough room for this memory")
 	ErrMemorySecret        = NewError("KSTACK_MEMORY_SECRET", "Memory holds a credential")

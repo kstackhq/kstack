@@ -175,7 +175,8 @@ func (s *service) kick(chatID ChatID) {
 
 // startNoticeTurn is a send without a sender: a question of the waiting notices
 // alone, no request key and no cluster card, on what the chat's last answer ran
-// on, with every check a send makes. One transaction reserves the turn, files
+// on, with every check a send makes. It carries a context block only when the
+// switch moved since the newest one, so the model knows where its commands run. One transaction reserves the turn, files
 // the message, marks the notices told and moves the chat up its list.
 func (s *service) startNoticeTurn(chatID ChatID) error {
 	if err := s.enter(); err != nil {
@@ -205,8 +206,19 @@ func (s *service) startNoticeTurn(chatID ChatID) error {
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrBadRequest, err)
 		}
-		if err := s.checkChat(ctx, st, &chatID, ""); err != nil {
+		disabled, err := s.checkChat(ctx, st, &chatID, "")
+		if err != nil {
 			return err
+		}
+		newest, err := newestContext(ctx, st, chatID)
+		if err != nil {
+			return err
+		}
+		// A notice turn renders no card, so a moved switch reaches the model by
+		// re-sending the newest context with its Sandbox section replaced.
+		var question []llm.Block
+		if replaced := s.withSandboxReplaced(newest, disabled); replaced != newest {
+			question = []llm.Block{llm.ContextBlock(replaced)}
 		}
 		if err := roomFor(ctx, st, chatID, target, s.boxFor(target)); err != nil {
 			return err
@@ -214,13 +226,14 @@ func (s *service) startNoticeTurn(chatID ChatID) error {
 		if t, err = s.reserveTurn(chatID, newRunID(), target); err != nil {
 			return err
 		}
+		t.outsideSandbox = disabled
 		if err := markNotified(ctx, st, chatID, at); err != nil {
 			return err
 		}
 		if err := touchConversation(ctx, st, chatID, at); err != nil {
 			return err
 		}
-		assistant, err = s.writeTurnRows(ctx, st, t, "", effort, noticeBlocks(waiting), at)
+		assistant, err = s.writeTurnRows(ctx, st, t, "", effort, withNotices(question, waiting), at)
 		return err
 	})
 	if err != nil {

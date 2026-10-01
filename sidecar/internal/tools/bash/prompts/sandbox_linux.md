@@ -1,2 +1,2 @@
 
-A program installed as a snap, one under `/snap/bin`, does not run in the sandbox, since it starts through snapd. Set `dangerouslyDisableSandbox` for a command that runs one, such as a snap's `kubectl` or `helm`.
+A program installed as a snap, one under `/snap/bin`, does not run in the sandbox, since it starts through snapd. A command that runs one needs this chat run outside the sandbox.

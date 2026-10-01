@@ -181,8 +181,8 @@ func (r *mutationResolver) ClusterCachedKindSyncEnabledSet(ctx context.Context, 
 // ChatSend is the resolver for the chatSend field. The cluster is the chat service's
 // to check, inside the send's transaction, so a send and a cluster delete are
 // serialized where they meet.
-func (r *mutationResolver) ChatSend(ctx context.Context, chatID *apimeta.ChatID, mode chatsvc.Mode, clusterID apimeta.ClusterID, providerID string, modelID string, effort string, requestID string, content string) (*chatsvc.ChatMessage, error) {
-	msg, err := r.ChatSvc.Send(ctx, chatID, mode, clusterID, providerID, modelID, effort, requestID, content)
+func (r *mutationResolver) ChatSend(ctx context.Context, chatID *apimeta.ChatID, mode chatsvc.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, providerID string, modelID string, effort string, requestID string, content string) (*chatsvc.ChatMessage, error) {
+	msg, err := r.ChatSvc.Send(ctx, chatID, mode, clusterID, sandboxDisabled, providerID, modelID, effort, requestID, content)
 	if err != nil {
 		return nil, chatErr(err)
 	}

@@ -74,7 +74,7 @@ func (t *turn) Start(ctx context.Context, d tools.Delegation) (string, error) {
 		// chat's own turns are what write one.
 		Tools: s.boxFor(target).Without(tools.ActionDelegate, tools.ActionMemory),
 		Runtime: tools.Runtime{
-			ClusterID: t.clusterID, ChatID: chatID,
+			ClusterID: t.clusterID, ChatID: chatID, OutsideSandbox: t.outsideSandbox,
 			Dir: s.chatDir(chatID), Tasks: s.chatTasks(chatID, c.runJournal), Files: runStamps{},
 		},
 		MaxToolCalls: maxSubagentToolCalls, DefaultToolTimeout: defaultToolTimeout,

@@ -86,6 +86,10 @@ type ChatTranscriptProps = {
   clusterID?: string;
   /** How long Approve holds its place before it arms; production's is APPROVE_ARM_MS. */
   approveArmMs?: number;
+  /** Whether the machine offers a sandbox. Undefined until the sidecar says. */
+  sandboxAvailable?: boolean;
+  /** The chat's switch, which Ask again sends as what the user saw. Undefined until the list watch delivers the chat. */
+  sandboxDisabled?: boolean;
 };
 
 // Every message with something to say about itself: its text, the notices it
@@ -660,11 +664,12 @@ function ModelDescription({ line }: { line: string }) {
 
 type CommandAction = NonNullable<NonNullable<ChatToolCall['action']>['command']>;
 
-// What a command's request asks. A sandboxed command runs unasked, so a request
-// outside the sandbox says so; one on a machine with no sandbox never sets the
-// flag and asks as it always has.
-function commandHeading(command: CommandAction): string {
-  if (command.outsideSandbox) {
+// What a command's request asks. On a machine with a sandbox a sandboxed command
+// runs unasked, so every command that asks runs outside it, whichever way the
+// chat is switched now: the turn read the switch when it started. Unknown reads
+// as outside, which a machine with no sandbox is too.
+function commandHeading(command: CommandAction, sandboxAvailable: boolean | undefined): string {
+  if (sandboxAvailable !== false) {
     return command.background
       ? 'Run this command in the background, outside the sandbox?'
       : 'Run this command outside the sandbox?';
@@ -713,6 +718,7 @@ function ApprovalRequest({
   live,
   agent,
   armMs,
+  sandboxAvailable,
 }: {
   approval: NonNullable<ChatToolCall['approval']>;
   action: ChatToolCall['action'];
@@ -720,6 +726,7 @@ function ApprovalRequest({
   live: boolean;
   agent: string | null;
   armMs: number;
+  sandboxAvailable: boolean | undefined;
 }) {
   const [, approvalDecide] = useMutation(ApprovalDecideMutation);
   const buttons = useRef<HTMLDivElement>(null);
@@ -801,7 +808,7 @@ function ApprovalRequest({
   } else if (command) {
     body = (
       <>
-        <p className="text-xs text-muted-foreground">{commandHeading(command)}</p>
+        <p className="text-xs text-muted-foreground">{commandHeading(command, sandboxAvailable)}</p>
         {command.background && (
           <p className="text-xs text-muted-foreground">
             It keeps running after this answer, until it exits or you stop it.
@@ -1015,9 +1022,11 @@ function Message({
   labelOf,
   onAskAgain,
   approveArmMs,
+  sandboxAvailable,
 }: {
   message: ChatMessage;
   approveArmMs: number;
+  sandboxAvailable: boolean | undefined;
   /** The model this answer ran on, when it differs from the answer before it. */
   label?: string;
   /** How a model is named, by its provider and id. */
@@ -1042,9 +1051,11 @@ function Message({
   const modelLabel = (id: string) => labelOf(message.provider?.id, id);
   const mine = message.role === 'User';
   // A message of notices alone is its lines and nothing else: there is no bubble.
+  // Its context, when the sandbox switch moved, is drawn above them.
   if (mine && text === '' && notices.length > 0) {
     return (
       <article>
+        {card !== '' && <ClusterContext card={card} />}
         <Notices notices={notices} />
       </article>
     );
@@ -1088,6 +1099,7 @@ function Message({
             live={approval.status === 'Pending' && message.awaitingApproval}
             agent={agentOf(call)}
             armMs={approveArmMs}
+            sandboxAvailable={sandboxAvailable}
           />
         ))}
         {sources.length > 0 && <Sources sources={sources} />}
@@ -1130,6 +1142,8 @@ export function ChatTranscript({
   mode,
   clusterID,
   approveArmMs = APPROVE_ARM_MS,
+  sandboxAvailable,
+  sandboxDisabled,
 }: ChatTranscriptProps) {
   const { models } = useModels();
   const { send, askAgain } = useChatOutbox(mode, chatID, clusterID);
@@ -1177,12 +1191,13 @@ export function ChatTranscript({
   const failed = last?.role === 'Assistant' && last.status === 'Failed' && last.provider !== null;
   const question = failed ? questionBefore(messages, messages.indexOf(last)) : null;
   const onAskAgain =
-    failed && question !== null && send.status === 'idle'
+    failed && question !== null && send.status === 'idle' && sandboxDisabled !== undefined
       ? () =>
-          askAgain(question, {
-            model: { providerID: last.provider!.id, id: last.model },
-            effort: last.effort,
-          })
+          askAgain(
+            question,
+            { model: { providerID: last.provider!.id, id: last.model }, effort: last.effort },
+            sandboxDisabled,
+          )
       : undefined;
 
   let body;
@@ -1204,6 +1219,7 @@ export function ChatTranscript({
         labelOf={labelOf}
         onAskAgain={message.id === last?.id ? onAskAgain : undefined}
         approveArmMs={approveArmMs}
+        sandboxAvailable={sandboxAvailable}
       />
     ));
   }

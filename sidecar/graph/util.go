@@ -89,6 +89,9 @@ var chatRefusals = []struct {
 	// A chat the model cannot read whole is the model's limit, not the chat's
 	// state: the composer names it so the user can pick another model.
 	{chatsvc.ErrChatContextFull, gqlerrors.ErrChatContextFull},
+	// The sender saw the other switch, so the composer says it changed rather than
+	// running the turn where the user did not look.
+	{chatsvc.ErrChatSandboxChanged, gqlerrors.ErrChatSandboxChanged},
 }
 
 // clusterRefusals maps the cluster service's named errors onto wire codes: an id

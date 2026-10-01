@@ -57,6 +57,7 @@ function Harness({ replaced = false, ...props }: Props & { replaced?: boolean })
         phase="live"
         last={null}
         onCreated={onCreated}
+        sandboxDisabled={false}
         {...props}
       />
       {/* The entry the composer writes into, which the transcript's Ask again reads. */}
@@ -371,6 +372,38 @@ describe('ChatComposer', () => {
     expect(sendMock).toHaveBeenCalledTimes(2);
     expect(sendMock.mock.calls[1][0]).toEqual(sendMock.mock.calls[0][0]);
     expect(box()).toHaveValue('');
+  });
+
+  // The sidecar refuses a send whose switch differs from the chat's, so the send
+  // says which one the composer showed.
+  it('sends the switch it shows', async () => {
+    renderComposer({ sandboxDisabled: true });
+    type('hello');
+    await click('Send');
+    expect(sendMock.mock.calls[0][0]).toMatchObject({ sandboxDisabled: true });
+  });
+
+  it('holds Send for an open chat until the list delivers its switch', () => {
+    renderComposer({ sandboxDisabled: undefined });
+    type('hello');
+    expect(button('Send')).toBeDisabled();
+  });
+
+  it('starts a chat sandboxed', async () => {
+    renderComposer({ chatID: null, sandboxDisabled: undefined });
+    type('hello');
+    await click('Send');
+    expect(sendMock.mock.calls[0][0]).toMatchObject({ sandboxDisabled: false });
+  });
+
+  it('says when the switch changed under a send, and keeps the draft', async () => {
+    sendMock.mockResolvedValue(refused('KSTACK_CHAT_SANDBOX_CHANGED'));
+    renderComposer();
+    type('hello');
+    await click('Send');
+    expect(screen.getByText("This chat's sandbox switch changed. Check it, then send again.")).toBeInTheDocument();
+    expect(box()).toHaveValue('hello');
+    expect(button('Send')).toBeEnabled();
   });
 
   it('follows a retry that created the chat', async () => {

@@ -101,7 +101,7 @@ func TestFailedWatchEndsTheSubscriptionWithAnError(t *testing.T) {
 // fold the last frame's data twice.
 func TestChatWatchReportsItsFailure(t *testing.T) {
 	srv, db, _ := newChatServerOver(t)
-	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
 	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
 

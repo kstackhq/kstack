@@ -67,9 +67,13 @@ type turn struct {
 	// msg is the answer as it is now: the empty row a send wrote, then the rounds so
 	// far. Its ID is empty until startTurn, so a reserved turn overlays nothing.
 	msg ChatMessage
-	// clusterID is the chat's stored cluster, read before the run starts: the one its
-	// tools reach, and the subagents it spawns too.
-	clusterID apimeta.ClusterID
+	// clusterID is the chat's stored cluster, read before the run starts, and
+	// outsideSandbox its switch, read in the transaction that reserved the turn,
+	// so a send's runtime matches the context block it wrote: what its tools, and
+	// the subagents it spawns, run with. A switch flipped meanwhile changes the
+	// next turn.
+	clusterID      apimeta.ClusterID
+	outsideSandbox bool
 }
 
 // runJournal is one run's journal: the loop's Recorder and Approver, which
@@ -217,15 +221,16 @@ func (s *service) run(t *turn) (res agent.Result, err error) {
 	if err != nil {
 		return agent.Result{}, err
 	}
-	t.clusterID, err = s.chatCluster(t)
+	chat, err := s.chatOf(t)
 	if err != nil {
 		return agent.Result{}, err
 	}
+	t.clusterID = chat.ClusterID
 	spec := agent.Turn{
 		Target: t.target, SystemPrompt: systemPrompt(), Messages: history, AffinityKey: string(t.chatID),
 		Tools: s.boxFor(t.target),
 		Runtime: tools.Runtime{
-			ClusterID: t.clusterID, ChatID: t.chatID,
+			ClusterID: t.clusterID, ChatID: t.chatID, OutsideSandbox: t.outsideSandbox,
 			Dir: s.chatDir(t.chatID), Tasks: s.chatTasks(t.chatID, t.runJournal), Files: s.chatFiles(t.chatID),
 			Agent: t, ClusterWriteAsker: clusterWriteAsker{j: t.runJournal, run: t.ctx},
 		},
@@ -234,17 +239,17 @@ func (s *service) run(t *turn) (res agent.Result, err error) {
 	return agent.Run(t.ctx, spec, t, t)
 }
 
-// chatCluster is the chat's stored cluster, the one its tools reach: the send's
-// cluster is only what a create files under.
-func (s *service) chatCluster(t *turn) (apimeta.ClusterID, error) {
+// chatOf is the turn's chat as stored: its cluster, the one its tools reach, since
+// the send's cluster is only what a create files under.
+func (s *service) chatOf(t *turn) (Chat, error) {
 	c, ok, err := getConversation(t.ctx, s.store.Stmts(), t.chatID)
 	if err != nil {
-		return "", err
+		return Chat{}, err
 	}
 	if !ok {
-		return "", ErrChatGone
+		return Chat{}, ErrChatGone
 	}
-	return c.ClusterID, nil
+	return c, nil
 }
 
 // boxFor is what a run on target is offered: the tools its list names that the

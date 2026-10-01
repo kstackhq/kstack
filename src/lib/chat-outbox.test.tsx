@@ -56,7 +56,7 @@ const renderOutbox = (
 
 const submit = (result: { current: ReturnType<typeof useChatOutbox> }) =>
   act(async () => {
-    await result.current.submit();
+    await result.current.submit(false);
   });
 
 beforeEach(() => {
@@ -127,12 +127,24 @@ describe('a send', () => {
       chatID: null,
       mode: 'Dashboard',
       clusterID: '1',
+      sandboxDisabled: false,
       providerID: seeded.model.providerID,
       modelID: seeded.model.id,
       effort: seeded.effort,
       requestID: expect.any(String),
       content: 'hello',
     });
+  });
+
+  // The sidecar refuses a send whose switch differs from the chat's, so the send
+  // says which one the user saw.
+  it('sends the switch it is handed', async () => {
+    const { result } = renderOutbox();
+    act(() => result.current.setDraft('hello'));
+    await act(async () => {
+      await result.current.submit(true);
+    });
+    expect(sendMock.mock.calls[0][0]).toMatchObject({ sandboxDisabled: true });
   });
 
   it('holds the draft read-only while in flight', async () => {
@@ -147,7 +159,7 @@ describe('a send', () => {
 
     let sending!: Promise<unknown>;
     act(() => {
-      sending = result.current.submit();
+      sending = result.current.submit(false);
     });
     expect(result.current.send).toMatchObject({ status: 'sending', content: 'hello' });
     expect(result.current.draft).toBe('hello');
@@ -175,7 +187,7 @@ describe('a send', () => {
 
     let created;
     await act(async () => {
-      created = await result.current.submit();
+      created = await result.current.submit(false);
     });
 
     // The cluster rides back with the id, for a caller deciding whether to follow the
@@ -191,7 +203,7 @@ describe('a send', () => {
 
     let created;
     await act(async () => {
-      created = await result.current.submit();
+      created = await result.current.submit(false);
     });
 
     expect(created).toBeNull();
@@ -222,6 +234,17 @@ describe('a send', () => {
     sendMock.mockResolvedValue(refused('KSTACK_CONFLICT'));
     await submit(result);
     expect(result.current.refusal).toBeNull();
+  });
+
+  it('keeps a refusal for a changed switch on the entry', async () => {
+    sendMock.mockResolvedValue(refused('KSTACK_CHAT_SANDBOX_CHANGED'));
+    const { result } = renderOutbox();
+    act(() => result.current.setDraft('hello'));
+    await submit(result);
+
+    expect(result.current.draft).toBe('hello');
+    expect(result.current.send).toEqual({ status: 'idle' });
+    expect(result.current.refusal).toEqual({ kind: 'sandbox-changed' });
   });
 
   it('clears the refusal on the next send', async () => {
@@ -314,7 +337,7 @@ describe('a send', () => {
     const { result, rerender } = renderOutbox();
     act(() => result.current.setDraft('hello'));
     act(() => {
-      result.current.submit();
+      result.current.submit(false);
     });
 
     rerender(['chat', 'c2', '1', seeded]);
@@ -336,7 +359,7 @@ describe('a send', () => {
 
     let created;
     await act(async () => {
-      created = await result.current.submit();
+      created = await result.current.submit(false);
     });
 
     expect(created).toBeNull();
@@ -418,6 +441,22 @@ describe('a send', () => {
     expect(sendMock.mock.calls[1][0]).toEqual(sendMock.mock.calls[0][0]);
   });
 
+  // A retry is the same send, so it says what the user saw when they sent it.
+  it('retries a held send with the switch it was held with', async () => {
+    sendMock.mockResolvedValue(dropped());
+    const { result } = renderOutbox();
+    act(() => result.current.setDraft('hello'));
+    await act(async () => {
+      await result.current.submit(true);
+    });
+
+    sendMock.mockResolvedValue(accepted());
+    await act(async () => {
+      await result.current.retry();
+    });
+    expect(sendMock.mock.calls[1][0]).toMatchObject({ sandboxDisabled: true });
+  });
+
   // An accepted send stays closed until its row reaches the watch; whoever watches
   // the messages settles it, and the entry is idle again for the next thing the
   // window wants to send — Ask again included.
@@ -435,7 +474,7 @@ describe('a send', () => {
     expect(result.current.send).toEqual({ status: 'idle' });
 
     await act(async () => {
-      await result.current.askAgain('what is a pod?', seeded);
+      await result.current.askAgain('what is a pod?', seeded, false);
     });
     expect(sendMock).toHaveBeenCalledTimes(2);
   });
@@ -456,13 +495,14 @@ describe('a send', () => {
     act(() => result.current.setDraft('a follow-up I have not sent'));
 
     await act(async () => {
-      await result.current.askAgain('what is a pod?', seeded);
+      await result.current.askAgain('what is a pod?', seeded, false);
     });
 
     expect(sendMock).toHaveBeenCalledWith({
       chatID: 'c1',
       mode: 'Chat',
       clusterID: '1',
+      sandboxDisabled: false,
       providerID: seeded.model.providerID,
       modelID: seeded.model.id,
       effort: seeded.effort,
@@ -485,12 +525,12 @@ describe('a send', () => {
     const pick: Pick = seeded;
 
     act(() => {
-      result.current.askAgain('what is a pod?', pick);
+      result.current.askAgain('what is a pod?', pick, false);
     });
     expect(result.current.send.status).toBe('sending');
 
     await act(async () => {
-      await result.current.askAgain('what is a pod?', pick);
+      await result.current.askAgain('what is a pod?', pick, false);
     });
     expect(sendMock).toHaveBeenCalledTimes(1);
 
@@ -506,7 +546,7 @@ describe('a send', () => {
     const { result } = renderOutbox();
 
     await act(async () => {
-      await result.current.askAgain('what is a pod?', seeded);
+      await result.current.askAgain('what is a pod?', seeded, false);
     });
     act(() => result.current.setDraft('a follow-up I have not sent'));
     expect(result.current.send).toMatchObject({ status: 'held', content: 'what is a pod?' });

@@ -16,6 +16,7 @@ package chatsvc
 
 import (
 	"encoding/json"
+	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -30,9 +31,39 @@ const workspaceShare = 512
 // The path is fixed for the chat, so the section changes the context block on
 // the chat's first send alone.
 func (s *service) withWorkspace(card string, id ChatID) string {
-	raw, err := json.Marshal(map[string]string{"path": tools.WorkspacePath(s.chatDir(id))})
+	return withSection(card, "Workspace", map[string]string{"path": tools.WorkspacePath(s.chatDir(id))})
+}
+
+// withSandbox is card with where the chat's commands run appended as its own
+// section, on a machine with a sandbox: in it, or outside it once the user
+// switched the chat. The block goes again when the switch changes it.
+func (s *service) withSandbox(card string, outside bool) string {
+	if !s.sandboxStatus.Available {
+		return card
+	}
+	commands := "sandboxed"
+	if outside {
+		commands = "outside"
+	}
+	return withSection(card, "Sandbox", map[string]string{"commands": commands})
+}
+
+// withSandboxReplaced is newest with its Sandbox section saying where commands
+// run now. The section is always the block's last, so it is swapped as a suffix;
+// newest comes back unchanged when it already says so or has no such section.
+func (s *service) withSandboxReplaced(newest string, outside bool) string {
+	stale := s.withSandbox("", !outside)
+	if !s.sandboxStatus.Available || !strings.HasSuffix(newest, stale) {
+		return newest
+	}
+	return strings.TrimSuffix(newest, stale) + s.withSandbox("", outside)
+}
+
+// withSection is card with fields appended as the section heading.
+func withSection(card, heading string, fields map[string]string) string {
+	raw, err := json.Marshal(fields)
 	if err == nil {
-		card, err = clustercard.WithSection(card, "Workspace", raw)
+		card, err = clustercard.WithSection(card, heading, raw)
 	}
 	if err != nil {
 		// A string map always marshals, and WithSection takes any one value.

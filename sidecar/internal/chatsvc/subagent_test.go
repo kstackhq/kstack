@@ -32,6 +32,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	agenttool "github.com/kstackhq/kstack/sidecar/internal/tools/agent"
@@ -1423,11 +1424,11 @@ func TestAnEndThatCannotLandLeavesTheTaskRunning(t *testing.T) {
 
 // A subagent's tools reach the chat's cluster and the chat, as its parent's do.
 func TestASubagentsRuntimeIsItsChatsCluster(t *testing.T) {
-	s := startServiceWithAgent(t, runtimeTool{testTool{name: "where"}})
+	s := startServiceWithAgent(t, runtimeTool{testTool: testTool{name: "where"}})
 	fakeOf(s).SetToolCalls(agentCall("Look."))
 	subagentFake(s, "Look.").SetToolCalls(llm.StagedCall("where", `{}`))
 
-	msg, err := s.Send(t.Context(), nil, ModeChat, "2", "fake", "fake", "high", reqID("k"), "look")
+	msg, err := s.Send(t.Context(), nil, ModeChat, "2", false, "fake", "fake", "high", reqID("k"), "look")
 	require.NoError(t, err)
 	awaitSettled(t, s, msg.ChatID, msg.ID)
 	awaitTasks(t, s, msg.ChatID)
@@ -1436,5 +1437,25 @@ func TestASubagentsRuntimeIsItsChatsCluster(t *testing.T) {
 	require.Len(t, runs, 1)
 	rows := toolCallRows(t, s.db, runs[0].id)
 	require.Len(t, rows, 1)
-	assert.Equal(t, "2/"+string(msg.ChatID), rows[0].result)
+	assert.Equal(t, "2/"+string(msg.ChatID)+"/false", rows[0].result)
+}
+
+// A subagent runs as its parent's turn did: under the switch that turn read.
+func TestASubagentsRuntimeCarriesItsParentsSwitch(t *testing.T) {
+	s := startServiceWithAgent(t, runtimeTool{testTool: testTool{name: "where"}})
+	s.sandboxStatus = sandbox.Status{Available: true}
+	first := sendAndSettle(t, s, nil, "2", "first", "hi")
+	_, err := s.SetSandboxDisabled(t.Context(), first.ChatID, true)
+	require.NoError(t, err)
+	fakeOf(s).SetToolCalls(agentCall("Look."))
+	subagentFake(s, "Look.").SetToolCalls(llm.StagedCall("where", `{}`))
+
+	msg := sendAndSettle(t, s, &first.ChatID, "2", "look", "look")
+	awaitTasks(t, s, msg.ChatID)
+
+	runs := subagentRuns(t, s.db, msg.RunID)
+	require.Len(t, runs, 1)
+	rows := toolCallRows(t, s.db, runs[0].id)
+	require.Len(t, rows, 1)
+	assert.Equal(t, "2/"+string(msg.ChatID)+"/true", rows[0].result)
 }

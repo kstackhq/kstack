@@ -79,6 +79,8 @@ type ChatComposerProps = {
   onShowWaiting?: () => void;
   /** The first send from a null `chatID` created this chat. */
   onCreated?: (chatID: string) => void;
+  /** The open chat's switch. Undefined until the list watch delivers the chat. */
+  sandboxDisabled?: boolean;
 };
 
 type Option = { value: string; label: string };
@@ -153,6 +155,7 @@ export function ChatComposer({
   lastAnswer,
   onShowWaiting,
   onCreated,
+  sandboxDisabled,
 }: ChatComposerProps) {
   const { models, loaded, failed, retry: askAgainForModels } = useModels();
   // Without a catalog there is no pick and nothing can be sent.
@@ -211,6 +214,9 @@ export function ChatComposer({
   // A turn waiting on a command is as busy as one streaming: one turn per chat.
   const streaming = last !== null && inFlight(last.status);
   const settled = send.status === 'idle';
+  // What a send says the user saw. A chat that has not started has no row, and
+  // starts sandboxed.
+  const shownDisabled = chatID === null ? false : sandboxDisabled;
   // `streaming` is checked here as well as behind the Cancel button, so Enter refuses
   // for the same reason the button is not a Send: one turn per chat.
   // `picked` is the entry's own pick checked against the list, never a fallback
@@ -221,6 +227,7 @@ export function ChatComposer({
     picked !== null &&
     phase !== 'connecting' &&
     !streaming &&
+    shownDisabled !== undefined &&
     draft.trim() !== '';
   // All only once the watch they wait on has answered: a window at startup has not
   // failed to pick anything, and a catalog still in flight is not an empty one.
@@ -241,7 +248,7 @@ export function ChatComposer({
   };
 
   const onSend = () => {
-    if (canSend) follow(submit());
+    if (canSend && shownDisabled !== undefined) follow(submit(shownDisabled));
   };
 
   let action;
@@ -281,11 +288,14 @@ export function ChatComposer({
       }}
     >
       {/* Named for the model that refused, since another may still take the chat: the draft stays and Send stays open. */}
-      {refusal && (
+      {refusal?.kind === 'context-full' && (
         <p className="text-xs text-destructive">
           This chat is longer than {modelOf(models, refusal.model)?.label ?? refusal.model.id} can read. Pick a model
           that reads more, or start a new chat.
         </p>
+      )}
+      {refusal?.kind === 'sandbox-changed' && (
+        <p className="text-xs text-destructive">This chat&apos;s sandbox switch changed. Check it, then send again.</p>
       )}
       {onShowWaiting && (
         <p className="flex items-center gap-2 text-xs text-muted-foreground">

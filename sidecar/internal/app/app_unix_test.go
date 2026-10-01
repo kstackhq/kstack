@@ -45,8 +45,8 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// Where the probe passes, Bash is offered through the sandbox: its schema
-// takes the flag. Without one, testutil.RequireSandbox decides.
+// Where the probe passes, Bash is offered through the sandbox, and its schema
+// has no way out of it. Without one, testutil.RequireSandbox decides.
 func TestBashIsOfferedWithTheSandbox(t *testing.T) {
 	if _, v := sandbox.Probe(t.Context()); !v.Available {
 		testutil.RequireSandbox(t, "no sandbox: "+v.Reason)
@@ -62,8 +62,8 @@ func TestBashIsOfferedWithTheSandbox(t *testing.T) {
 		Properties map[string]json.RawMessage `json:"properties"`
 	}
 	require.NoError(t, json.Unmarshal(shell.Definition().InputSchema, &schema))
-	assert.Len(t, schema.Properties, 6)
-	assert.Contains(t, schema.Properties, "dangerouslyDisableSandbox")
+	assert.Len(t, schema.Properties, 5)
+	assert.NotContains(t, schema.Properties, "dangerouslyDisableSandbox")
 }
 
 // Off Windows, bash.New finds the shell on PATH once $SHELL names none, so the
@@ -157,7 +157,7 @@ func TestNewMakesAMissingDirectoryOwnerOnly(t *testing.T) {
 func TestASandboxedReadRunsUnasked(t *testing.T) {
 	e := startE2E(t)
 
-	e.ask(t, "how many pods", llm.StagedCall("Bash", bashInput("kubectl get pods -o json | jq '.items | length'", false)))
+	e.ask(t, "how many pods", llm.StagedCall("Bash", bashInput("kubectl get pods -o json | jq '.items | length'")))
 
 	row := e.bashCall(t, "succeeded", "failed", "awaiting_approval")
 	assert.Equal(t, "succeeded", row.status, row.result)
@@ -172,7 +172,7 @@ func TestASandboxedReadRunsUnasked(t *testing.T) {
 func TestASandboxedDeleteAsksAndRuns(t *testing.T) {
 	e := startE2E(t)
 
-	e.ask(t, "delete pod x", llm.StagedCall("Bash", bashInput("kubectl delete pod x --wait=false", false)))
+	e.ask(t, "delete pod x", llm.StagedCall("Bash", bashInput("kubectl delete pod x --wait=false")))
 
 	w := e.clusterWrite(t, "pending")
 	assert.Equal(t, "DELETE", w.request.Method)
@@ -196,7 +196,7 @@ func TestASandboxedDeleteAsksAndRuns(t *testing.T) {
 func TestASandboxedDeleteDeniedIsForbidden(t *testing.T) {
 	e := startE2E(t)
 
-	e.ask(t, "delete pod x", llm.StagedCall("Bash", bashInput("kubectl delete pod x --wait=false", false)))
+	e.ask(t, "delete pod x", llm.StagedCall("Bash", bashInput("kubectl delete pod x --wait=false")))
 	w := e.clusterWrite(t, "pending")
 	raw := graphql(t, e.url, `mutation { approvalDecide(id: "`+w.id+`", approve: false) }`)
 	require.Contains(t, raw, `"approvalDecide":true`, raw)
@@ -215,7 +215,7 @@ func TestASandboxedDeleteDeniedIsForbidden(t *testing.T) {
 func TestACallTimingOutWhileAWriteWaits(t *testing.T) {
 	e := startE2E(t)
 
-	e.ask(t, "delete pod x", llm.StagedCall("Bash", bashInputWithin("kubectl delete pod x --wait=false", false, 2000)))
+	e.ask(t, "delete pod x", llm.StagedCall("Bash", bashInputWithin("kubectl delete pod x --wait=false", 2000)))
 	e.clusterWrite(t, "pending")
 
 	row := e.bashCall(t, "succeeded", "failed")
@@ -227,17 +227,20 @@ func TestACallTimingOutWhileAWriteWaits(t *testing.T) {
 	}
 }
 
-// The same change with dangerouslyDisableSandbox waits for the user, and a
-// denial runs nothing.
-func TestTheFlagAsks(t *testing.T) {
+// The same change in a chat the user switched outside the sandbox waits for
+// the user, and a denial runs nothing.
+func TestASwitchedChatAsks(t *testing.T) {
 	e := startE2E(t)
+	chatID := e.ask(t, "switch this chat")
+	raw := graphql(t, e.url, `mutation { chatSandboxDisabledSet(id: "`+chatID+`", sandboxDisabled: true) { sandboxDisabled } }`)
+	require.Contains(t, raw, `"sandboxDisabled":true`, raw)
 
-	e.ask(t, "delete pod x outside", llm.StagedCall("Bash", bashInput("kubectl delete pod x", true)))
+	e.askAgain(t, chatID, true, "switch this chat", llm.StagedCall("Bash", bashInput("kubectl delete pod x")))
 
 	row := e.bashCall(t, "awaiting_approval")
 	assert.False(t, row.sandboxed)
 	assert.Equal(t, "pending", row.approvalStatus)
-	raw := graphql(t, e.url, `mutation { approvalDecide(id: "`+row.approvalID+`", approve: false) }`)
+	raw = graphql(t, e.url, `mutation { approvalDecide(id: "`+row.approvalID+`", approve: false) }`)
 	require.Contains(t, raw, `"approvalDecide":true`, raw)
 
 	row = e.bashCall(t, "denied")
@@ -251,7 +254,7 @@ func TestTheFlagAsks(t *testing.T) {
 func TestASubagentsSandboxedCallRunsUnasked(t *testing.T) {
 	e := startE2E(t)
 	e.fake.Route("count the pods").SetToolCalls(
-		llm.StagedCall("Bash", bashInput("kubectl get pods -o json | jq '.items | length'", false)))
+		llm.StagedCall("Bash", bashInput("kubectl get pods -o json | jq '.items | length'")))
 
 	e.ask(t, "have an agent count pods",
 		llm.StagedCall("Agent", `{"description":"Count pods","prompt":"count the pods"}`))

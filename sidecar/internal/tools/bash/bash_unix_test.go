@@ -658,11 +658,12 @@ func TestASandboxedCallRunsThroughTheSandbox(t *testing.T) {
 	assert.Contains(t, r.Env, "KSTACK=1")
 	assert.Contains(t, r.Env, "PWD="+tools.WorkspacePath(rt.Dir))
 
-	outside, _ := json.Marshal(map[string]any{"command": "echo outside", "dangerouslyDisableSandbox": true})
-	text, isError = tl.Run(t.Context(), rt, outside)
+	outside := rt
+	outside.OutsideSandbox = true
+	text, isError = tl.Run(t.Context(), outside, command("echo outside"))
 	assert.False(t, isError, text)
 	assert.Equal(t, "outside\n", text)
-	assert.Len(t, fake.seen(), 1, "the flag runs outside the sandbox")
+	assert.Len(t, fake.seen(), 1, "a chat switched outside runs outside the sandbox")
 
 	tasks := newFakeTasks(t)
 	text, isError = tl.Run(t.Context(), tools.Runtime{Dir: rt.Dir, Tasks: tasks}, background("echo in-background"))
@@ -938,7 +939,7 @@ func TestASandboxedWorkdirOutsideTheWorkspaceIsRefused(t *testing.T) {
 		_, err := tl.Approval(t.Context(), rt, commandIn("ls", workdir))
 		var refusal *tools.Refusal
 		require.ErrorAs(t, err, &refusal, workdir)
-		assert.Equal(t, "A sandboxed command starts in its workspace, "+ws+", or a directory under it. Name one there, or set dangerouslyDisableSandbox to run it outside the sandbox.", refusal.Result)
+		assert.Equal(t, "A sandboxed command starts in its workspace, "+ws+", or a directory under it. Name one there, or ask the user to run this chat outside the sandbox.", refusal.Result)
 
 		text, isError := tl.Run(t.Context(), rt, commandIn("ls", workdir))
 		assert.Equal(t, badInput, text)
@@ -964,7 +965,9 @@ func TestASandboxThatDoesNotConfineResolvesAsSandboxed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, tools.Approval{Cwd: ws}, got)
 
-	got, err = tl.Approval(t.Context(), rt, json.RawMessage(`{"command":"ls","workdir":"~","dangerouslyDisableSandbox":true}`))
+	outside := rt
+	outside.OutsideSandbox = true
+	got, err = tl.Approval(t.Context(), outside, commandIn("ls", "~"))
 	require.NoError(t, err)
 	assert.Equal(t, tools.Approval{Cwd: home}, got)
 }

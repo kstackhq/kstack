@@ -21,8 +21,46 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
+
+// A notice turn renders no card, so it carries a context block only when the
+// chat's switch moved since the newest one: the model then learns where the
+// turn's commands run before it runs one.
+func TestANoticeTurnSaysWhereCommandsRunWhenTheSwitchMoved(t *testing.T) {
+	tt := newTaskTool()
+	s := startServiceWithTool(t, tt)
+	s.sandboxStatus = sandbox.Status{Available: true}
+	first, ft := startTaskTurn(t, s, tt, nil, "1")
+	sandboxed := newestContextOf(t, s, first.ChatID)
+
+	_, err := s.SetSandboxDisabled(t.Context(), first.ChatID, true)
+	require.NoError(t, err)
+	ft.exit(0)
+	answer := awaitNoticeTurn(t, s, first.ChatID, first.ID)
+
+	q := questionOf(t, s, answer)
+	require.Equal(t, []llm.BlockType{llm.BlockContext, llm.BlockTaskNotification}, []llm.BlockType{q[0].Type, q[1].Type})
+	outside := strings.Replace(sandboxed, `{"commands":"sandboxed"}`, `{"commands":"outside"}`, 1)
+	assert.Equal(t, outside, newestContextOf(t, s, first.ChatID), "the newest block with the switch swapped")
+}
+
+// A notice turn whose switch is where the newest context says carries none.
+func TestANoticeTurnCarriesNoContextWhenTheSwitchStayed(t *testing.T) {
+	tt := newTaskTool()
+	s := startServiceWithTool(t, tt)
+	s.sandboxStatus = sandbox.Status{Available: true}
+	first, ft := startTaskTurn(t, s, tt, nil, "1")
+
+	ft.exit(0)
+	answer := awaitNoticeTurn(t, s, first.ChatID, first.ID)
+
+	q := questionOf(t, s, answer)
+	require.Len(t, q, 1)
+	assert.Equal(t, llm.BlockTaskNotification, q[0].Type)
+}
 
 // A notice turn makes every check a send makes, the length check included: a
 // task that exits in a chat past the ceiling starts no turn, files nothing, and

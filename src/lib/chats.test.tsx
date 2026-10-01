@@ -233,7 +233,7 @@ describe('useChatMessages', () => {
   it("carries a message's tool calls off the frame", () => {
     const { result, rerender } = renderMessages();
     expect(print(lastArgs!.query!)).toMatch(
-      /toolCalls \{\s+id\s+name\s+actionKind\s+status\s+runsOn\s+action \{\s+description\s+command \{\s+text\s+cwd\s+background\s+sandboxed\s+outsideSandbox\s+\}\s+read \{\s+path\s+\}\s+write \{\s+path\s+content\s+\}\s+edit \{\s+path\s+oldString\s+newString\s+replaceAll\s+\}\s+search \{\s+query\s+\}\s+fetch \{\s+url\s+host\s+\}\s+memory \{\s+op\s+name\s+body\s+scope\s+\}\s+delegate \{\s+prompt\s+agentType\s+model\s+\}\s+kubeQuery \{\s+sql\s+limit\s+\}\s+\}\s+agentCallID\s+approval \{\s+id\s+status\s+\}\s+clusterWrites \{\s+approval \{\s+id\s+status\s+\}\s+method\s+path\s+subresource\s+contentType\s+body\s+dryRun\s+\}\s+output\s+background \{\s+status\s+exitCode\s+report\s+\}\s+\}/,
+      /toolCalls \{\s+id\s+name\s+actionKind\s+status\s+runsOn\s+action \{\s+description\s+command \{\s+text\s+cwd\s+background\s+sandboxed\s+\}\s+read \{\s+path\s+\}\s+write \{\s+path\s+content\s+\}\s+edit \{\s+path\s+oldString\s+newString\s+replaceAll\s+\}\s+search \{\s+query\s+\}\s+fetch \{\s+url\s+host\s+\}\s+memory \{\s+op\s+name\s+body\s+scope\s+\}\s+delegate \{\s+prompt\s+agentType\s+model\s+\}\s+kubeQuery \{\s+sql\s+limit\s+\}\s+\}\s+agentCallID\s+approval \{\s+id\s+status\s+\}\s+clusterWrites \{\s+approval \{\s+id\s+status\s+\}\s+method\s+path\s+subresource\s+contentType\s+body\s+dryRun\s+\}\s+output\s+background \{\s+status\s+exitCode\s+report\s+\}\s+\}/,
     );
     expect(print(lastArgs!.query!)).toMatch(/citations \{\s+type\s+url\s+title\s+citedText\s+\}/);
     const call = {
@@ -243,7 +243,7 @@ describe('useChatMessages', () => {
       status: 'AwaitingApproval',
       action: {
         description: 'List files',
-        command: { text: 'ls', cwd: '/Users/ana', background: false, sandboxed: false, outsideSandbox: false },
+        command: { text: 'ls', cwd: '/Users/ana', background: false, sandboxed: false },
         read: null,
         write: null,
         edit: null,
