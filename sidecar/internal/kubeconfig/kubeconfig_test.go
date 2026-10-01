@@ -421,8 +421,12 @@ func TestKubeconfigEnvChainIsMergedAndWatched(t *testing.T) {
 	require.Contains(t, cfg.Contexts, "laptop", "both files merge")
 
 	// The second file lives in its own directory, so this only arrives if the whole
-	// chain is watched rather than the first entry.
-	writeKubeconfig(t, personal, "laptop", "staging")
+	// chain is watched rather than the first entry. Replaced by rename: written in
+	// place, the file is empty for a moment, and with the first file's contexts beside
+	// it that window publishes as a config without "laptop".
+	tmp := personal + ".tmp"
+	writeKubeconfig(t, tmp, "laptop", "staging")
+	require.NoError(t, os.Rename(tmp, personal))
 
 	assert.Contains(t, testutil.Recv(t, sub.Chan(), "the config after editing the second file").Contexts, "staging")
 }
