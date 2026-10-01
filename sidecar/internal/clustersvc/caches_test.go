@@ -2287,46 +2287,38 @@ func TestCachesWatchHealthReadsTheCeilingAboveAFullyPausedCache(t *testing.T) {
 	assert.Equal(t, ReasonSizeLimit, healths[0].Reason)
 }
 
-// The user's remedy has to reach the pass. A stopped cache holds no claim, so Manager.Clear
-// reopens nothing: no file, no janitor, and no verdict to wake the record — the clear does
-// the waking itself, or the cache stays stopped until the next start.
-//
-// Everything here is arranged so the requeue is the only wake left. The record is stopped
-// before beehive starts, carrying the message the pass itself would write, so the startup
-// pass changes nothing and wakes nothing. The file then empties as the clear runs, so no
-// earlier pass could have released it either.
-func TestClearingACacheReleasesItsSizeStop(t *testing.T) {
-	ctx := context.Background()
-	d, bh := newTestDepsAndBeehive(t)
-	cluster := storedCluster(t, d, beehive.NewAdminClient[ClusterStatus](bh, ClusterGroupKind), true, "uid-1")
+// The user's remedy has to reach the pass. A stopped cache holds no claim, so the cleared file
+// reopens nothing and wakes nothing: the clear requeues the record itself, after the file is
+// empty, so the pass it buys measures the cleared file and releases the stop
+// (TestCachePassRestartsACacheBackUnderItsLimit).
+func TestClearingACacheRequeuesItsRecord(t *testing.T) {
+	d, status := newClusterStatusDeps(t)
+	cluster := storedCluster(t, d, status, true, "uid-1")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
-	store := kubestoreFake(d)
-	store.setStats(overLimit())
-	store.onClear = func(int64) { store.setStats(kubestore.Stats{}) }
-	measured := testutil.NewProbe[int64](8)
-	store.onStats = measured.Fire
-	admin := beehive.NewAdminClient[ClusterCacheStatus](bh, ClusterCacheGroupKind)
-	require.NoError(t, admin.SetCondition(ctx, cache.ID, LiveCondition(ConditionSynced, ConditionFalse,
-		ReasonSizeLimit, "cache is 3221225472 bytes, over its 2147483648-byte limit")))
-	// The edge the pass declares, declared up front: a first pass that writes it would wake
-	// the record again, and this test's whole point is that nothing else does.
-	require.NoError(t, admin.AddDependency(ctx, cache.ID, cluster.ID))
-	stop, err := bh.Start(ctx)
+	var steps []string
+	var requeued beehive.ObjectID
+	kubestoreFake(d).onClear = func(int64) { steps = append(steps, "clear") }
+	d.cacheClient = requeueRecorder{Client: d.cacheClient, requeued: func(id beehive.ObjectID) {
+		steps = append(steps, "requeue")
+		requeued = id
+	}}
+
+	_, err := serviceOver(t, d).Caches().Clear(context.Background(), ClusterCacheID(cache.ID))
+
 	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, stop(context.Background())) })
-	// Two passes, not one: settling the first is itself a write, and that write wakes the
-	// record once more. Waiting for the second is waiting for the quiet in which the only
-	// wake left is the clear's own.
-	require.Equal(t, int64(cache.ID), measured.Await(t, "the startup pass to measure the cache"))
-	require.Equal(t, int64(cache.ID), measured.Await(t, "the pass its settling woke"))
+	assert.Equal(t, []string{"clear", "requeue"}, steps)
+	assert.Equal(t, cache.ID, requeued)
+}
 
-	_, clearErr := serviceOver(t, d).Caches().Clear(ctx, ClusterCacheID(cache.ID))
+// requeueRecorder is a cache client whose requeues are recorded rather than run.
+type requeueRecorder struct {
+	beehive.Client[ClusterCacheSpec, ClusterCacheStatus]
+	requeued func(beehive.ObjectID)
+}
 
-	require.NoError(t, clearErr)
-	require.Eventually(t, func() bool {
-		obj, err := d.cacheClient.Get(ctx, cache.ID)
-		return err == nil && FindCondition(obj.Conditions, ConditionSynced) == nil
-	}, 5*time.Second, time.Millisecond, "the clear to release the cache's size stop")
+func (r requeueRecorder) Requeue(_ context.Context, id beehive.ObjectID, _ ...beehive.RequeueOption) error {
+	r.requeued(id)
+	return nil
 }
 
 // The sentinel for this subsystem: a client-go error carries the request URL it failed on,
