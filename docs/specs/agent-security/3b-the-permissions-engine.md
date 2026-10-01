@@ -195,7 +195,7 @@ collection is verb `deletecollection`, so the production denial is two rules, on
 
 ### 2. The modes, per context
 
-`securityconfig.Settings` ([step 1C](1c-the-settings-file.md)) gains three fields:
+`securityconfig.Settings` ([`sidecar/CLAUDE.md`](../../../sidecar/CLAUDE.md#security-settings-internalsecurityconfig)) gains three fields:
 
 ```go
 // In securityconfig.Settings.

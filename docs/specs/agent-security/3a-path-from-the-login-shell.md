@@ -121,7 +121,7 @@ entry as the shell gave it, and `Target`, the path it resolved to.
 
 ### 3. `Settings.Path`
 
-The store is [step 1C](1c-the-settings-file.md)'s. This step adds the `Path` field to its
+The store is `securityconfig` ([`sidecar/CLAUDE.md`](../../../sidecar/CLAUDE.md#security-settings-internalsecurityconfig)). This step adds the `Path` field to its
 `Settings`, in `securityconfig/path.go`:
 
 ```go

@@ -2,7 +2,7 @@
 
 **Subject:** the sidecar can now borrow a credential from `aws`, `gh`, `gcloud` and `az` by running
 each tool's own command on the host, and keeps what it answers in memory until it expires. This
-is step 1D of [agent security](../specs/agent-security/1d-credentials-from-the-users-tools.md).
+is step 1D of the build order for [the sandbox, credentials and permissions note](../notes/sandbox-credentials-and-permissions.md).
 Nothing calls the store yet: `app` builds it, and the proxies of steps 5C, 6B and 6C will borrow
 through it. The living model is [security-model.md](../security-model.md).
 

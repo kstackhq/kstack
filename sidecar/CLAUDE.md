@@ -211,8 +211,7 @@ Nothing is written to disk (`app`'s `TestNoCredentialIsWrittenToDisk`). A leaf: 
 `gochan/watch` and `x/sync/singleflight`, and takes the kube contexts and the exclusion test as
 functions. `app` builds one (`newCredentials`: `exec.LookPath` for each tool on the sidecar's own
 `PATH`, `os.UserHomeDir()`, the kubeconfig's context names sorted) and keeps it as `App.creds`; the
-`credentials` part closes it. Nothing calls it yet; the proxies will. → [spec](../docs/specs/agent-security/1d-credentials-from-the-users-tools.md),
-[security record](../docs/security/2026-09-30-credentials-from-the-users-tools.md).
+`credentials` part closes it. Nothing calls it yet; the proxies will. → [security record](../docs/security/2026-09-30-credentials-from-the-users-tools.md).
 
 - **The borrows**, one file per provider (`aws.go`, `github.go`, `google.go`, `azure.go`), each
   with its command and its expiry table: `AWS(ctx, profile)` (`aws configure export-credentials`,
