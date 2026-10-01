@@ -21,11 +21,12 @@ sandbox holds no access token, and the closed home hides `~/.config/gcloud` and 
 After this step:
 
 - **Two injectors** (`egress/google.go`, `egress/azure.go`) put the token step 1D's store
-  borrows on each request to `*.googleapis.com`, `management.azure.com` and
+  borrows on each request to a closed list of Google API hosts, `management.azure.com` and
   `graph.microsoft.com`, over step 5D's termination. Nothing is copied from either tool's store.
 - **Two classifiers** put every request in a class: a `GET` is class 1, any other method class
-  4, and a curated list of deletions and IAM changes class 5. `Decide` and step 4B's prompt do
-  the rest; a monitor session (step 6D) has `NoPrompts`, so its writes are refused.
+  4, a curated list of deletions and IAM changes class 5, and a Secret Manager value class 6.
+  `Decide` and step 4B's prompt do the rest; a monitor session (step 6D) has `NoPrompts`, so
+  its writes are refused, and `NoSecretData`, so it reads no secret's value.
 - **The CLIs run in the sandbox as the user's active account**: `gcloud` sends a placeholder the
   proxy replaces; how `az` does is the one open question (Decisions).
 
@@ -42,8 +43,10 @@ and `gcloud container clusters delete` and `az aks delete` ask in every mode.
   of the user's kubeconfig, which the connection pool (`clustersvc/internal/kubeconn`) already
   runs on the host; `kubectl` in the sandbox reaches the cluster through the cluster proxy and
   never runs either.
-- **No data-plane hosts.** `storage.googleapis.com` object reads, `*.blob.core.windows.net` and
+- **No data-plane hosts.** `storage.googleapis.com`, `*.blob.core.windows.net` and
   `*.azurecr.io` are not injected; a later step may add them with their own classifiers.
+- **No other Google API.** A host off §1's list is unlisted, asks as class 3, and is tunnelled
+  with no token; a later step adds a host with its classifier rows.
 - Nothing changes on Windows.
 
 ## Design
@@ -56,10 +59,14 @@ host on an injected request calls `Store.MarkExpired(Key{Google, ""}, "", token)
 `Unauthorized`. The configured project is `Identity.Project` off `WaitFound` (step 1D §4), which waits for
 the first `Discover`, read once per start for the placeholder's project.
 
-**The injector.** Hosts: `*.googleapis.com`, less `oauth2.googleapis.com` and
-`sts.googleapis.com`, which are neither injected nor listed: a token exchange needs a credential
-the sandbox has not got, and a `gcloud` given an access token asks for none. The spike (task 1)
-checks that; a CLI that needs one of them anyway gets it as a tunnel, and the record says so.
+**The injector.** Hosts, each named, never a wildcard: `container.googleapis.com`,
+`compute.googleapis.com`, `cloudresourcemanager.googleapis.com`, `iam.googleapis.com` and
+`secretmanager.googleapis.com`. Every host on it has classifier rows below, and a host joins
+only with its rows. `oauth2.googleapis.com` and `sts.googleapis.com` are neither injected nor
+listed: a token exchange needs a credential the sandbox has not got, and a `gcloud` given an
+access token asks for none. The spike (task 1) checks that, and which hosts `gcloud container
+clusters list` and `gcloud projects get-iam-policy` reach; a host they need off the list is a
+change to this spec, not a tunnel with a token.
 Every request gets `Authorization: Bearer <token>`, by step 5D's rule: the placeholder
 replaced, a missing header added, any other left alone.
 
@@ -84,6 +91,7 @@ and adds `CLOUDSDK_PROXY_TYPE`, `CLOUDSDK_PROXY_ADDRESS` and `CLOUDSDK_PROXY_POR
 | --- | --- |
 | `GET`; a `POST` whose last segment is `:getIamPolicy` or `:testIamPermissions` | 1 |
 | any other method | 4 |
+| `GET` of `secretmanager.googleapis.com/v1*/projects/*/secrets/*/versions/*:access`, and the `locations/*` form | 6 |
 | `DELETE` of `container.googleapis.com/v1*/projects/*/locations/*/clusters/*`, of `…/clusters/*/nodePools/*`, and the `zones/*` forms | 5 |
 | `DELETE` of `cloudresourcemanager.googleapis.com/v*/projects/*` | 5 |
 | any request whose last segment is `:setIamPolicy` | 5 |
@@ -92,9 +100,16 @@ and adds `CLOUDSDK_PROXY_TYPE`, `CLOUDSDK_PROXY_ADDRESS` and `CLOUDSDK_PROXY_POR
 `Scope{Account, Region}` is the path's `projects/{p}` and `locations/{l}` or `zones/{z}`, else
 the configured project and no region. `Verb` is the method, `Kind` the host and the path with
 its parameters replaced, `Name` the last named segment. The `Summary` is *Delete GKE cluster
-`dev` in `my-project` / `us-central1`*, *Set IAM policy on `my-project`*, *Delete node pool
+`dev` in `my-project` / `us-central1`*, *Set IAM policy on `my-project`*, *Show secret
+`db-pass` version `latest` from `my-project`?*, *Delete node pool
 `default-pool` of `dev` in `my-project` / `us-central1`*, else *`POST`
 `container.googleapis.com/v1/projects/…`*, the path cut to one line.
+
+A secret version's `:access` is class 6 as AWS's `GetSecretValue` is (step 5C): the answer is
+the value, so `Allowed` passes it, `Prompted` asks, and `Denied` is a `403`, since there is
+nothing to redact around it. Step 5A's grant applies by provider, `Allow` class 6 `gcp` scoped
+to the project, and `NoSecretData` (step 5A §4) denies it ahead of every rule. Listing
+secrets and reading their metadata stay class 1: neither holds a value.
 
 ### 2. Azure
 
@@ -150,7 +165,8 @@ goes through `Handler.Decide` and step 4B's `ActionAsker` (step 5D §1), and eac
 as an AWS request is, the
 `ApprovalRequest`'s `aria-label` *Google Cloud action awaiting approval* or *Azure action
 awaiting approval* by the action's provider. A monitor session's `NoPrompts` turns every
-`Prompted` into `Denied` (step 3B), so a monitor never changes a project or a subscription.
+`Prompted` into `Denied` (step 3B), so a monitor never changes a project or a subscription,
+and its `NoSecretData` refuses every Secret Manager value.
 Both providers borrow at use time and write nothing to disk; step 1D's
 `TestNoCredentialIsWrittenToDisk` grows a proxied case for each.
 
@@ -196,6 +212,12 @@ not trusted it says instead that neither works yet, and that Settings turns them
 4. **The data-plane hosts are not injected.** Storage, container registries and Key Vault each
    need a classifier that reads a different grammar, and a Key Vault read is a Secret read. A
    later step. Recommended.
+5. **Google's hosts are a closed list, and Secret Manager is on it as class 6.** A wildcard
+   reaches every Google API, Storage objects included, with every `GET` class 1. A list of five
+   named hosts reaches what `gcloud`'s cluster, project and IAM commands need, and each host's
+   classifier rows are written with it. Secret Manager joins so a secret's value asks, as
+   AWS's does, rather than failing with no token; leaving it off is the other way, and makes
+   `gcloud secrets versions access` a class 3 tunnel that fails at Google. Recommended.
 
 ## Tasks
 
@@ -217,6 +239,13 @@ not trusted it says instead that neither works yet, and that Settings turns them
 - `TestAGoogleRequestIsInjected`: through a run's socket with a fake `container.googleapis.com`
   behind it, a request carrying `Bearer kstack-placeholder` reaches the fake with the borrowed
   token, and `oauth2.googleapis.com` is unlisted, so a `CONNECT` there asks as class 3.
+- `TestOnlyTheListedGoogleHostsAreInjected`: each of §1's five hosts is injected;
+  `storage.googleapis.com`, `bigquery.googleapis.com` and `sts.googleapis.com` are unlisted,
+  ask as class 3, and reach their fakes with no token.
+- `TestASecretVersionAccessIsClassSix`: a `GET …/versions/latest:access`, in both path forms,
+  is class 6 under every mode and never class 1; under `ReadOnly` and `Ask` it asks, a denial
+  is a `403` the fake never sees, an `Allow` class 6 `gcp` rule for the project passes it, and
+  `NoSecretData` refuses it under that rule; listing secrets stays class 1.
 - `TestAnAzureRequestIsInjectedForItsResource`: `management.azure.com` gets ARM's token and
   `graph.microsoft.com` Graph's; `login.microsoftonline.com` is unlisted.
 - `TestA401MarksTheProviderExpired`: a fake answering 401 on either provider's host sets the
@@ -247,9 +276,11 @@ not trusted it says instead that neither works yet, and that Settings turns them
 
 ## Security
 
-**Widened.** A sandboxed command can read what the user's Google and Azure accounts read, on the
-model's word, unasked: step 6B accepts the same for GitHub. The proxy reads the plaintext of the
-injected hosts and no other.
+**Widened.** A sandboxed command can read what the user's Google and Azure accounts read on the
+injected hosts, on the model's word, unasked: step 6B accepts the same for GitHub. A secret's
+value is not among those reads: it is class 6, which only step 5A's grant or `Auto` passes
+unasked (`TestASecretVersionAccessIsClassSix`). The proxy reads the plaintext of the injected hosts and
+no other, and Google's are five named hosts (`TestOnlyTheListedGoogleHostsAreInjected`).
 
 **Narrowed.** Before this step neither CLI worked in the sandbox, and outside it every call ran
 as the user with the user's stores. After it a change is a classified action the user's mode
@@ -268,7 +299,8 @@ for the mechanism and step 1D's for the borrow.
 
 - **The security record** above; the ADR step 5D writes gains a line for each classifier's
   class 5 list and for how `az` is signed in.
-- **`security-model.md`**: rows for the two injectors and classifiers, and the
+- **`security-model.md`**: rows for the two injectors and classifiers, Google's host list and
+  its class 6 row among them, and the
   no-credential-on-disk row gains the two proxied cases.
 - **`sidecar/CLAUDE.md`**: the two injectors and classifiers, the run's variables, the metadata
   endpoint. **Root `CLAUDE.md`**, *Chat*: the two `aria-label`s.

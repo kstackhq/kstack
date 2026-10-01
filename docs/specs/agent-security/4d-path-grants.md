@@ -34,7 +34,8 @@ After this step, on macOS and Linux:
   Always path or Kstack's directories, not inside or over a listed folder. The home itself may be
   granted, read-only, with a warning.
 - **`Read`, `Write` and `Edit` in a granted folder run unasked**, through a root on the folder,
-  as they do in the workspace (Decisions, 1).
+  as they do in the workspace (Decisions, 1). The Always part holds there too: a path is judged
+  after its links are followed, so a link inside a granted `~` to `.ssh` reads nothing.
 - **The monitor gets no folder from any chat.** The note's ninth invariant is pinned here.
 - **Settings: Sandbox gains *Folders***, the always grants with Add and Remove, and the
   denied-always list read-only under *Never readable*; the chat's grants ride the question's
@@ -198,14 +199,24 @@ root, so a link cannot carry a write out. This step treats a granted folder the 
 - `fileguard.Fence` gains the denied-always list beside Kstack's directories (`app` passes
   `sandbox.Never(home)` as it passes the data directories), and `Fence.Granted(folders
   []session.Folder, path string) (session.Folder, bool)` answers the folder a path is under by
-  name, and false for a path under an Always path or Kstack's directories, so a granted `~` never
-  skips `~/.ssh/config`: that asks as today.
+  name, and false for a path under an Always path or Kstack's directories by name or on disk.
+  On disk is `Holds`' check: the longest prefix that exists, every link on the way followed,
+  and each of its ancestors compared with the closed paths by `os.SameFile`. So a granted `~`
+  never skips `~/.ssh/config`, nor `~/alias/config` where `~/alias` links to `.ssh`: both ask as
+  today. A path whose resolved form leaves the folder is false too.
 - `Write.Approval` and `Edit.Approval` `Skip` for a path under a read-write folder;
   `Read.Approval` for a path under any folder. Each reads `rt.Session.Folders(ctx)`.
 - A skipped call goes through an `os.Root` opened on the granted folder (`Fence.File` takes the
   root's path; `tools.OpenWorkspace`'s `openIn` becomes `openRoot(dir)` for both), so a link out
-  of the folder is refused as one out of the workspace is. The stamp rule holds: `Write` replaces
-  and `Edit` changes only a file the chat read and unchanged since.
+  of the folder is refused as one out of the workspace is. An `os.Root` follows a link that
+  stays inside it, so in a granted folder the tool walks the path itself (`fileguard.Walk`): one
+  component at a time from the root, each directory opened as a handle and compared with the
+  closed paths by `os.SameFile` before the walk goes on, and the file opened with `noFollow`
+  from the last directory's handle and compared the same way. A link met on the way is read, and
+  its target walked the same way from the root. A closed handle is `ErrFenced`. Every check is on
+  a handle already open, so a link a command swaps in after `Granted` answered leads nowhere
+  closed (Decisions, 4). The stamp rule holds: `Write` replaces and `Edit` changes only a file
+  the chat read and unchanged since.
 - The transcript draws an unasked write in a granted folder open under its summary, as it draws
   one in the workspace: a `Write` or `Edit` with no `approval` that `Succeeded`, which is the
   same test `summaryOf` makes today, so nothing changes in `chat-transcript.tsx`.
@@ -262,6 +273,13 @@ as they reach the workspace.
    per grant per run. Recommended.
 3. **The home is read-only.** A read-write home would put every toolchain Read rule beneath a
    Write rule, which `Check` refuses, and would let a command plant a `.zshrc`. Recommended.
+4. **A file tool in a granted folder follows links, and judges where each one leads.** The
+   sandbox checks a file at its real location, and the file tools must agree with it: a link
+   inside a granted folder to an Always path is closed, and one to a file beside it is open.
+   Walking by handle makes the answer hold against a link swapped in while the tool runs, which
+   a check on the resolved path followed by an open cannot. Recommended. The alternative,
+   refusing every link under a granted folder, is simpler and breaks ordinary repositories,
+   whose `node_modules/.bin` and tool shims are links.
 
 ## Tasks
 
@@ -320,8 +338,16 @@ as they reach the workspace.
   changes.
 - `TestAnAlwaysPathUnderAGrantedHomeStillAsks`: `~/.ssh/config` under a granted `~` is not
   skipped.
+- `TestALinkToAnAlwaysPathUnderAGrantedHomeStillAsks`: with `~/alias` a link to `.ssh`, and
+  `~/deep` a link to `alias`, neither `~/alias/config` nor `~/deep/config` is skipped, and a
+  link to a file beside it in the home is.
 
-**`fileguard`**: `TestGrantedAnswersTheFolderByName`, and false under an Always path.
+**`fileguard`**
+
+- `TestGrantedAnswersTheFolderByName`, and false under an Always path, by name and through a
+  link on the way.
+- `TestTheWalkRefusesALinkSwappedIn`: a link to `.ssh` swapped in, through the walk's test seam,
+  after `Granted` answered is `ErrFenced`, and nothing under `.ssh` is read or changed.
 
 **Webview** (`sandbox-settings.test.tsx`, `sandbox-folders.test.tsx`, `chats.test.tsx`): the
 Folders rows with their tags, Remove, Add with the checkbox, a refusal's reason, the home's
@@ -335,7 +361,8 @@ writes the folders the user granted, for the chat or always, and so do `Read`, `
 without a request. What holds it: the Always part is the floor — no grant opens a credential
 path, a private folder or Kstack's directories, pinned over a real grant on both platforms; a
 grant is the user's own act, in Settings or on a click step 5B offers, never the model's; it is
-checked when written and at every run; the home is read-only; a grant is listed in Settings and
+checked when written and at every run; a file tool judges a path where its links lead, on
+handles a swapped link cannot redirect; the home is read-only; a grant is listed in Settings and
 in the question's context; and an unasked write is drawn open in the transcript.
 
 **Residuals.** A granted folder's contents leave the machine on the model's word, as cluster
@@ -361,7 +388,8 @@ for, in `sandbox.json` rather than `host.json`, with the security record and the
   tests; the denied-always row gains the grant test; the `Write`, `Edit` and `Read` rows say a
   granted folder; a row for the monitor holding no chat's folder.
 - **`sidecar/CLAUDE.md`**: `Settings.Folders`, `CheckFolder`, `Session.Folders`, the grants on
-  the Workspace policy, `Fence.Granted`, the file tools' skip, the context section, the mutation.
+  the Workspace policy, `Fence.Granted`, `fileguard.Walk`, the file tools' skip, the context
+  section, the mutation.
 - **Root `CLAUDE.md`**, the Settings dialog and *Chat*: the Folders rows, *Never readable*,
   `useSandboxFolders`, `contextOf`'s section.
 - **`docs/TODO.md`**: the home item closes.

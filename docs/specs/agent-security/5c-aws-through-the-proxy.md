@@ -28,13 +28,15 @@ After this step, on macOS and Linux, `aws` works inside the sandbox with no cred
 - **The CLI is pointed at the run's proxy** by `AWS_ENDPOINT_URL`, and signs each request with a
   **placeholder** key pair the run alone holds. The placeholder signs for nothing at AWS.
 - **`awsproxy`** checks the placeholder signature, reads the service and region off the
-  credential scope, classifies the action, asks `Decide`, borrows the user's real credentials
-  through step 1D's store, re-signs and forwards to the real endpoint.
+  credential scope, finds the endpoint in its own table, classifies the action, asks `Decide`,
+  borrows the user's real credentials through step 1D's store, re-signs with a fresh timestamp
+  and forwards to the real endpoint.
 - **The profile is the cluster's**: the one its kubeconfig's `exec` entry names, unless step 2D's
   Settings override it.
 - **The AWS classifier** assigns class 1, 4, 5 and 6 by action name, refuses the actions that mint
-  credentials outright, and step 3B's shipped `iam:*` rule now matches. A write asks as a
-  cluster write does, by the user's mode and rules.
+  credentials outright, and step 3B's shipped `iam:*` rule now matches. Class 1 is a table of
+  named reads; an action the table does not name is class 4. A write asks as a cluster write
+  does, by the user's mode and rules.
 
 Commands outside the sandbox are unchanged: `aws` runs there as the user, with the user's files.
 
@@ -58,6 +60,7 @@ Commands outside the sandbox are unchanged: `aws` runs there as the user, with t
 | Variable | Value |
 | --- | --- |
 | `AWS_ENDPOINT_URL` | `http://aws.kstack.invalid` |
+| `AWS_ENDPOINT_URL_<ID>` | `http://<prefix>.aws.kstack.invalid`, one per row of §2's endpoint table whose endpoint prefix differs from its signing name: `AWS_ENDPOINT_URL_BEDROCK_RUNTIME` is `http://bedrock-runtime.aws.kstack.invalid` |
 | `AWS_ACCESS_KEY_ID` | the placeholder id: `KSTACK` then 14 characters of `[A-Z2-7]`, random per run |
 | `AWS_SECRET_ACCESS_KEY` | the placeholder secret: 40 random characters, per run, held by the run's proxy |
 | `AWS_DEFAULT_REGION`, `AWS_REGION` | the profile's region (§4), left out when none is known |
@@ -68,9 +71,9 @@ Step 2A's never-list keeps every other `AWS_*` out; its test grows these rows. T
 `HTTP_PROXY` for an `http` endpoint, so each request reaches step 4C's server on the run's
 socket in absolute form, `GET http://aws.kstack.invalid/… HTTP/1.1`, with `Host:
 aws.kstack.invalid` and the run's token as proxy credentials. The server checks the token first,
-as the cluster proxy does, and routes that host to the run's `awsproxy.Handler`. **The token
-cannot ride in `AWS_ENDPOINT_URL`**: SigV4 signs the `Host` header, and botocore sends no
-userinfo as credentials in any case. `sandboxedRunFor` mints the pair
+as the cluster proxy does, and routes that host and every `*.aws.kstack.invalid` to the run's
+`awsproxy.Handler`. **The token cannot ride in `AWS_ENDPOINT_URL`**: SigV4 signs the `Host`
+header, and botocore sends no userinfo as credentials in any case. `sandboxedRunFor` mints the pair
 (`awsproxy.NewPlaceholder()`), puts it in the environment and hands it to the handler.
 
 ### 2. `awsproxy`
@@ -103,21 +106,29 @@ The handler, in order:
    else the SHA-256 of the body, read up to `maxBody` (8 MiB; past it, 413). A verified
    signature came from the run's environment and was not altered; one that does not verify is
    403 (§5), logged with the service and operation, never the body.
-2. **The endpoint.** `endpoint.go` maps the scope's service and region to a host: the standard
-   shape `<service>.<region>.amazonaws.com`, with a table of exceptions — `iam`, `route53`,
-   `cloudfront` and `organizations` global at `<service>.amazonaws.com`; `sts` regional, and
+2. **The endpoint.** A signing name does not name an endpoint: `bedrock` signs both
+   `bedrock` and `bedrock-runtime`. So `endpoint.go` holds a table of the services the proxy
+   reaches, one row each: its endpoint prefix, its signing name and its host. The row is found
+   by the request's `Host`, which SigV4 signs: `<prefix>.aws.kstack.invalid` is that prefix's
+   row, and the bare `aws.kstack.invalid` is the row whose prefix is the scope's service. The
+   row's signing name must be the scope's service. The host is the standard shape
+   `<prefix>.<region>.amazonaws.com` unless the row says otherwise — `iam`, `route53`,
+   `cloudfront` and `organizations` global at `<prefix>.amazonaws.com`; `sts` regional, and
    `sts.amazonaws.com` for `us-east-1`; `s3` at `s3.<region>.amazonaws.com`, path style, as the
-   CLI signs for a custom endpoint; `ses` at `email.<region>.amazonaws.com`. The table has a
-   test; an unknown service uses the standard shape. Only `amazonaws.com` is produced: the
-   China and GovCloud partitions and any custom endpoint are out of this step.
+   CLI signs for a custom endpoint; `ses` at `email.<region>.amazonaws.com`. No row, or a
+   signing name that does not match, is a 403 (§5): a service the table does not name is never
+   sent to a guessed host. The table grows a row as a service is met. Only `amazonaws.com` is
+   produced: the China and GovCloud partitions and any custom endpoint are out of this step.
 3. **Classify** (§3) and **decide**: `permissions.Decide(policy, s.Rules(ctx), act)`, the
    policy the session's as the cluster proxy builds it. `Allowed` forwards and records;
    `Prompted` asks through `Asker` as step 4B's prompt; `Denied` is a 403 naming the mode or the
    rule, as step 3B words it.
-4. **Borrow** `creds.AWS(ctx, profile)` and **re-sign**: the same canonical request with the real
-   key, `X-Amz-Security-Token` added to the signed headers when the credential has one, the
-   request's `X-Amz-Date` kept, and `x-amz-content-sha256` kept as sent, so a body signed
-   `UNSIGNED-PAYLOAD` or by a precomputed hash streams through unread.
+4. **Borrow** `creds.AWS(ctx, profile)` and **re-sign**, after any wait on the user and
+   immediately before the forward: the canonical request rebuilt with `Host` the endpoint, the
+   real key, `X-Amz-Security-Token` added to the signed headers when the credential has one,
+   `X-Amz-Date` and the scope's date set to the time of the re-sign, and `x-amz-content-sha256`
+   kept as sent, so a body signed `UNSIGNED-PAYLOAD` or by a precomputed hash streams through
+   unread. AWS refuses a signature more than 15 minutes old, and an approval can take longer.
 5. **Forward** with `Host` the endpoint, over HTTPS, through `Forward`: the sidecar's own dial,
    which checks the endpoint's address as step 4C's handler checks a host's (§5 there) and
    honours the user's `Deny` entries. No AWS host is on the run's allowlist, so a raw `CONNECT`
@@ -146,13 +157,18 @@ string) permissions.Action`. The action name is `<service>:<Operation>`, read fr
 | the method and path | `rest.go`'s route table for `eks` and `s3`; elsewhere the method alone | the REST services |
 
 A REST service the table does not know gets `Verb` the method, `Kind` the service, and the
-method and path as its operation: `GET` and `HEAD` are reads, the rest writes.
+method and path as its operation. It is class 4 whatever the method, since no read table names
+it.
 
 **The class**, first that applies:
 
 1. **Refused outright**, before `Decide`, with a 403 naming the action: `sts:GetFederationToken`,
    `sts:GetSessionToken`, `sts:AssumeRole*`, `iam:CreateAccessKey`, `iam:CreateLoginProfile`,
-   `ecr:GetAuthorizationToken`, `codeartifact:GetAuthorizationToken`. Each answers a credential
+   `iam:CreateServiceSpecificCredential`, `iam:ResetServiceSpecificCredential`,
+   `ecr:GetAuthorizationToken`, `ecr-public:GetAuthorizationToken`,
+   `codeartifact:GetAuthorizationToken`, `redshift:GetClusterCredentials`,
+   `redshift:GetClusterCredentialsWithIAM`, `redshift-serverless:GetCredentials`,
+   `ec2:GetPasswordData` and `lightsail:GetInstanceAccessDetails`. Each answers a credential
    the model would read, like the service account token the cluster proxy refuses.
 2. **Class 6**: `secretsmanager:GetSecretValue`, `secretsmanager:BatchGetSecretValue`, and
    `ssm:GetParameter`, `GetParameters` and `GetParametersByPath` with `WithDecryption` true. A
@@ -161,11 +177,13 @@ method and path as its operation: `GET` and `HEAD` are reads, the rest writes.
    `eks:Delete*`, `dynamodb:DeleteTable`, `cloudformation:DeleteStack`,
    `kms:ScheduleKeyDeletion`, any `organizations:*` write. Step 3B's shipped `AskFor` rule on
    `iam:*` writes matches here.
-4. **Class 1**: an operation starting with `Describe`, `List`, `Get`, `BatchGet`, `Query`,
-   `Scan`, `Search`, `Lookup`, `Check`, `Validate`, `Preview`, `Simulate` or `Head`, and
-   `sts:GetCallerIdentity`, which the store calls itself (step 1D §2). S3's `GetObject` is a
-   read: data leaves the machine on the model's word, as a cluster read does.
-5. **Class 4**: everything else.
+4. **Class 1**: an action `reads.go` names. The table lists each read by its full action name,
+   service by service — `ec2:DescribeInstances`, `eks:ListClusters`, `s3:GetObject`,
+   `sts:GetCallerIdentity`, which the store calls itself (step 1D §2) — and a row is added only
+   once the operation is known to answer no credential. S3's `GetObject` is a read: data leaves
+   the machine on the model's word, as a cluster read does.
+5. **Class 4**: everything else, a read the table does not name included. It asks, or runs or
+   is refused by the user's rules, as a write does.
 
 `Scope` is `{Account: account, Region: scope.region}`, the account from `creds.Account`.
 `Verb` is the operation, `Kind` the service, `Name` the resource when the parameters name one.
@@ -217,7 +235,7 @@ the service parses: `{"__type":"AccessDeniedException","message":…}` for a req
 | Case | Reason |
 | --- | --- |
 | a signature that does not verify | `the request was not signed by this sandbox` |
-| an endpoint the table cannot produce | `<service> in <region> has no endpoint the proxy reaches` |
+| a host or service the endpoint table has no row for | `<service> in <region> has no endpoint the proxy reaches` |
 | a chunk-signed body | `a streaming upload with chunked signatures cannot be forwarded` |
 | a credential-minting action | `<action> answers a credential and is not allowed` |
 | `Denied` by mode or rule | step 3B's wording |
@@ -231,8 +249,8 @@ A response from AWS passes through as it is, its own errors included.
 ### 6. The prompt
 
 `prompts/sandbox.md` gains one paragraph: `aws` works in the sandbox with the user's own
-credentials for the cluster's profile; a read runs as it is and each write asks the user, or
-runs or is refused by their rules, a refusal `AccessDenied` naming why; `--profile` and
+credentials for the cluster's profile; a common read runs as it is and any other action asks
+the user, or runs or is refused by their rules, a refusal `AccessDenied` naming why; `--profile` and
 presigned URLs do not work; an action that answers a credential is refused; do not try to read
 `~/.aws`. The question's context names the profile under *Sandbox*.
 
@@ -251,13 +269,22 @@ presigned URLs do not work; an action that answers a credential is refused; do n
    canonical request from a received one, which no SDK signer exposes, and the signer is a
    hundred lines. `go.mod` gains `github.com/aws/aws-sdk-go-v2` (the core module alone) as a
    test dependency. Recommended.
+5. **Class 1 is a table of named reads.** A read prefix such as `Get` also covers
+   `redshift:GetClusterCredentials`, so a prefix with a list of exceptions fails open for every
+   credential-minting read the list misses. Naming each read fails closed: a read the table
+   misses asks. Recommended; the cost is a prompt for each unlisted read until its row is added.
+6. **The endpoint comes from the table, chosen by the host the CLI was pointed at.** The
+   signing name alone is ambiguous, and guessing a host sends a request to AWS the proxy did not
+   choose. A service whose prefix differs from its signing name gets its own
+   `AWS_ENDPOINT_URL_<ID>` variable; one the table lacks is refused. Recommended; the
+   alternative, a variable for every row, grows the run's environment for no gain.
 
 ## Tasks
 
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
 | 1 | `awsproxy`: SigV4 verify and re-sign, the endpoint table, the status body | `awsproxy/sigv4.go`, `awsproxy/endpoint.go`, `awsproxy/status.go`, their tests | — | Planned |
-| 2 | The classifier, the refused list, class 5 and 6, the summary | `awsproxy/classify.go`, `awsproxy/rest.go`, their tests | — | Planned |
+| 2 | The classifier, the refused list, the read table, class 5 and 6, the summary | `awsproxy/classify.go`, `awsproxy/reads.go`, `awsproxy/rest.go`, their tests | — | Planned |
 | 3 | The handler: verify, decide, borrow, re-sign, forward | `awsproxy/awsproxy.go`, its tests | 1, 2 | Planned |
 | 4 | The run: the placeholders, the variables, `awsProfileFor` with the override, the route on the run's server | `tools/bash/env.go`, `tools/bash/aws.go`, `tools/bash/proxy.go`, `tools/bash/bash.go`, `app/app.go`, their tests | 3 | Planned |
 | 5 | The request through step 4B's `ActionRequest`; the `aria-label` and the disclosure line | `chatsvc/approval.go`, `sidecar/graph/schema.graphqls`, `graph/`, `src/gql/`, `src/lib/chats.tsx`, `chat-transcript.tsx`, their tests | 3 | Planned |
@@ -276,13 +303,23 @@ same time, then 8.
   verifies; one altered after signing, one signed with another secret, and one whose id is not
   the placeholder's are each 403.
 - `TestTheReSignedRequestVerifies`: the forwarded request, checked by the SDK's signer with the
-  real credentials, verifies, carries `X-Amz-Security-Token` in its signed headers, and keeps
-  `X-Amz-Date` and `x-amz-content-sha256`.
-- `TestTheEndpointTable`: one case per exception, the standard shape, a partition refused.
+  real credentials, verifies, carries `X-Amz-Security-Token` in its signed headers and `Host`
+  the endpoint, and keeps `x-amz-content-sha256`.
+- `TestALongApprovalIsReSignedFresh`: over a fake clock, a request approved 20 minutes after it
+  was signed forwards with `X-Amz-Date` and the scope's date set to the forward's time, and the
+  fake endpoint's 15-minute check accepts it.
+- `TestTheEndpointTable`: one case per exception, the standard shape, a partition refused;
+  `bedrock` on the bare host reaches `bedrock.<region>.amazonaws.com` and `bedrock` on
+  `bedrock-runtime.aws.kstack.invalid` reaches `bedrock-runtime.<region>.amazonaws.com`; a
+  service with no row, and a prefix whose row signs as another service, are each 403 and reach
+  nothing.
 - `TestEveryActionIsClassified`: `ec2:DescribeInstances` (1), `s3:GetObject` (1),
   `eks:UpdateNodegroupConfig` (4), `iam:CreateUser` (5), `ec2:TerminateInstances` (5),
   `secretsmanager:GetSecretValue` (6), `sts:GetSessionToken` refused; each of the three places
-  the name is read from; a REST route for `eks` and `s3`; an unknown REST service by method.
+  the name is read from; a REST route for `eks` and `s3`; an unknown REST service's `GET` (4).
+- `TestAReadTheTableDoesNotNameAsks`: `redshift:GetClusterCredentials` is refused, and a `Get`,
+  `Describe` and `List` operation absent from `reads.go` are each class 4; no action in the
+  refused list is in `reads.go`.
 - `TestASummaryReadsAsTheNoteSays`.
 - `TestDecideIsWired`: an `Auto` session's write forwards unasked and is recorded `allowed`; an
   `Ask` one waits on the asker and forwards once approved; a `ReadOnly` one is 403 naming the
@@ -308,7 +345,8 @@ same time, then 8.
   naming a profile no longer listed falls through; `--profile dev` in the args, `AWS_PROFILE` in
   the env, and neither, over a fake kubeconfig; `--region` read the same way, else the store's.
 - `TestTheRunsServerRoutesTheAWSHost` (`proxy_unix_test.go`): a request to `aws.kstack.invalid`
-  with the run's token reaches the handler; without it, 401 before any signature is read.
+  or `bedrock-runtime.aws.kstack.invalid` with the run's token reaches the handler; without it,
+  401 before any signature is read.
 - `TestNoCredentialIsWrittenToDiskByARun` (`bash_unix_test.go`; step 1D's invariant over a real
   run): after a borrow and a forwarded request, no file under the data, cache and runtime
   directories, and no log line, holds the secret or the session token.
@@ -329,22 +367,25 @@ its tag.
 
 **Widened.** The sandbox can now reach AWS, for everything the borrowed profile can do, and a
 class 1 read runs with nobody asked: an S3 object, a parameter without decryption, every
-`Describe`, and the answer leaves the machine on the model's word, as a cluster read does.
+`Describe` the read table names, and the answer leaves the machine on the model's word, as a
+cluster read does.
 
 **What bounds it.** No credential enters the sandbox: the placeholder signs for nothing, the
 real key is borrowed at use time by step 1D's store and lives in memory, and nothing under
 Kstack's directories holds it. Every request is verified before it is classified, and the run's
 token is checked before that. Every write goes through `Decide`: class 5 asks in every mode, the
 shipped `iam:*` rule cannot be removed, and the actions that mint credentials are refused before
-any rule. The endpoint is produced from the scope, never taken from the request, and `Forward`
-checks it; a command cannot reach an AWS host around the handler, since none is on the run's
-allowlist.
+any rule, and a read the table does not name asks. The endpoint is the table's row, found by
+the signed `Host` and checked against the scope, never a host the request names, and `Forward`
+checks it; a service with no row is refused. A command cannot reach an AWS host around the
+handler, since none is on the run's allowlist.
 
 **Residuals.** An allowed write reaches everything the profile can, and a rule's scope, an
 account and a region, is wider than a write. A read of S3 objects or `ssm` parameters leaves
 the machine unasked. On macOS the run's loopback port carries placeholder-signed requests any
-local process could send, which the token check answers 401. A credential-minting action the
-list does not name is class 1 by its `Get` prefix; the list grows as they are met.
+local process could send, which the token check answers 401. A credential-minting action that
+is added to the read table by mistake runs unasked; a test keeps the refused list out of the
+table, and a row is added only once its answer is known.
 
 The record, `docs/security/<date>-aws-through-the-proxy.md`, argues these and points at step
 1D's for the borrow.
@@ -353,11 +394,12 @@ The record, `docs/security/<date>-aws-through-the-proxy.md`, argues these and po
 
 - **The security record** above, and an ADR: AWS goes through a re-signing proxy with a
   placeholder key; the profile is the cluster's `exec` entry's, overridable in Settings; S3
-  through the same proxy; AWS secret reads are class 6.
+  through the same proxy; AWS secret reads are class 6; class 1 is a table of named reads; the
+  endpoint is a table row found by the signed host.
 - **`security-model.md`**: a row for the sandbox holding no AWS credential
   (`TestTheSandboxedEnvironmentIsFixed`, `TestNoCredentialIsWrittenToDiskByARun`); a row for AWS
-  writes through `Decide` and the refused list (`TestDecideIsWired`,
-  `TestEveryActionIsClassified`); a **By decision** row for reads leaving the machine.
+  writes through `Decide`, the refused list and the read table (`TestDecideIsWired`,
+  `TestEveryActionIsClassified`, `TestAReadTheTableDoesNotNameAsks`); a **By decision** row for reads leaving the machine.
 - **`sidecar/CLAUDE.md`**: `awsproxy`, the run's AWS variables and placeholder,
   `awsProfileFor` and its three rules, the route on the run's server, the prompt and context.
 - **Root `CLAUDE.md`**, *Chat*: the AWS request and its disclosure line.

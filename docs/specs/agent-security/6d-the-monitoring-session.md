@@ -148,16 +148,18 @@ prompt (§4), never as a path.
 
 ```sql
 -- proposals: a change the monitor proposes; prompt is the question Do it starts a chat with.
+-- request_key is the start's send key, set with 'started' and cleared once chat_id is written.
 CREATE TABLE proposals (
-  id         TEXT    PRIMARY KEY,
-  cluster_id TEXT    NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
-  title      TEXT    NOT NULL,
-  reason     TEXT    NOT NULL,
-  prompt     TEXT    NOT NULL,
-  status     TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'started', 'dismissed')),
-  chat_id    TEXT    REFERENCES conversations(id) ON DELETE SET NULL,
-  created_at INTEGER NOT NULL,
-  updated_at INTEGER NOT NULL
+  id          TEXT    PRIMARY KEY,
+  cluster_id  TEXT    NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
+  title       TEXT    NOT NULL,
+  reason      TEXT    NOT NULL,
+  prompt      TEXT    NOT NULL,
+  status      TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'started', 'dismissed')),
+  chat_id     TEXT    REFERENCES conversations(id) ON DELETE SET NULL,
+  request_key TEXT,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL
 ) STRICT, WITHOUT ROWID;
 CREATE INDEX proposals_cluster_idx ON proposals (cluster_id) WHERE status = 'open';
 ```
@@ -167,12 +169,23 @@ CREATE INDEX proposals_cluster_idx ON proposals (cluster_id) WHERE status = 'ope
 - `Add(ctx, clusterID, title, reason, prompt) (Proposal, error)`: title one line under 120
   characters, reason under 2,000, prompt under 4,000, else `ErrBadRequest`; a cluster marked or
   gone is `ErrClusterGone`. It notifies `appdb.KeyProposals`.
-- `Start(ctx, id, mode chatsvc.Mode) (chatsvc.Chat, error)`: flips `open` to `started` in one
-  transaction, refusing any other status (`ErrNotOpen`); then calls `chatsvc.Send(ctx, nil,
-  mode, clusterID, providerID, modelID, effort, appdb.NewID(), prompt)` on the catalog's first
+- `Start(ctx, id, mode chatsvc.Mode) (chatsvc.Chat, error)`: mints the send's key
+  (`appdb.NewID()`) and, in one transaction, flips `open` to `started` and stores the key as
+  `request_key`, refusing any other status (`ErrNotOpen`); then calls `chatsvc.Send(ctx, nil,
+  mode, clusterID, providerID, modelID, effort, requestKey, prompt)` on the catalog's first
   provider's first model at its default effort, the seed the composer gives a chat that has not
-  started; then writes `chat_id`. A send that fails puts the row back to `open` and returns the
-  error, so the card can be pressed again; an empty catalog is refused before the flip.
+  started; then writes `chat_id` and clears `request_key` in one transaction. A send that fails
+  puts the row back to `open`, clears the key and returns the error, so the card can be pressed
+  again; an empty catalog is refused before the flip. A link that fails to write after the
+  send committed leaves the row `started` with its key, for `Recover`. The key is what makes the chat
+  findable: `Send` answers a repeat of its key with the message it wrote, and
+  `chatsvc.ChatForRequest(ctx, key) (ChatID, bool, error)` names the chat of the message that
+  holds it.
+- `Recover(ctx)`: finishes a start the sidecar stopped inside. `app` runs it at start, after
+  `chatsvc`'s own start sweep and before the wire serves. For each `started` row that still
+  holds a `request_key`: a chat that holds the key is linked as `Start` links it; none puts the
+  row back to `open`, so its card returns. It never sends, so no turn runs that nobody is
+  watching (Decisions, 4).
 - `Dismiss(ctx, id)`: `open` to `dismissed`; any other status is `ErrNotOpen`.
 - `Watch(ctx, clusterID)`: a delta watch over the cluster's open proposals, folded with
   `deltafold` on `KeyProposals`: a snapshot, one `Bookmark`, then `Added` for a new one and
@@ -257,6 +270,10 @@ status `Run` sets and clears, and `monitorSettings: MonitorSettings!` (`shareFol
    approver, and `WebFetch` dials from the sidecar. Recommended; the agent's step can widen it.
 3. **`proposalStart` runs on the catalog's first model.** The card has no model select, and the
    chat can switch models on its next send. Recommended over a `modelID` argument.
+4. **A start the sidecar stopped inside is finished or reopened, never re-sent.** `Recover`
+   links the chat when the send committed and reopens the proposal when it did not. Re-sending
+   the prompt at start would also finish every interrupted start, but it runs a turn the user
+   is not watching, on a press they may have forgotten. Recommended.
 
 ## Tasks
 
@@ -264,7 +281,7 @@ status `Run` sets and clears, and `monitorSettings: MonitorSettings!` (`shareFol
 | --- | --- | --- | --- | --- |
 | 1 | `monitor`: `Session`, `Runner`, `monitorDir`, `tasks`, the folder, the sweep | `monitor/monitor.go`, `monitor/dir.go`, `app/paths.go`, `app/app.go`, their tests | — | Planned |
 | 2 | The invariants through the real proxies | `monitor/policy_test.go`, `kubeproxy/`, `egress/`, `awsproxy/` tests | 1 | Planned |
-| 3 | `proposals` and `Proposals`: add, start, dismiss, watch, cascade | `appdb/migrations/0001_init.sql`, `appdb/appdb.go`, `monitor/proposals.go`, its test | — | Planned |
+| 3 | `proposals` and `Proposals`: add, start, recover, dismiss, watch, cascade; `chatsvc.ChatForRequest` | `appdb/migrations/0001_init.sql`, `appdb/appdb.go`, `monitor/proposals.go`, `chatsvc/`, `app/app.go`, their tests | — | Planned |
 | 4 | The wire and codegen | `sidecar/graph/schema.graphqls`, `graph/`, generated code, `src/gql/` | 3 | Planned |
 | 5 | `useProposals`, the card, its two homes | `src/lib/proposals.tsx`, `src/components/widgets/proposal-card.tsx`, `dashboard-chat.tsx`, `src/layouts/app-layout.tsx`, their tests | 4 | Planned |
 | 6 | `Settings.Monitor`, `monitorStatus`, the Settings section | `sandboxconfig/`, `src/components/widgets/monitor-settings.tsx`, `settings-dialog.tsx`, their tests | 1, 4 | Planned |
@@ -295,6 +312,10 @@ status `Run` sets and clears, and `monitorSettings: MonitorSettings!` (`shareFol
 - `TestStartCreatesTheChatAndSendsThePrompt`: the chat is on the cluster in the mode asked with
   the prompt as its first user message, the row is `started` with the chat's id, a second start
   is refused, and the watch delivers `Deleted`; `TestAFailedSendReopensTheProposal`.
+- `TestRecoverFinishesOrReopensAnInterruptedStart`: a `started` row whose key a message holds
+  is linked to that message's chat and its key cleared; one whose key no message holds is
+  `open` again with no key, and nothing is sent; a started row whose chat was deleted
+  (`chat_id` null, no key) is left alone.
 - `TestDismissPutsItAway`, and a dismissed one cannot be started;
   `TestProposalsGoWithTheCluster`, the cascade.
 

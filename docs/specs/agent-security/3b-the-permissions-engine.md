@@ -174,17 +174,24 @@ asked. A rule matches an action when its `Provider` and `Class` are the action's
 alone matching all), and an unset field matches anything. `Reason` is a short struct: the mode
 or the rule, so a refusal and a record can name it.
 
+A rule field is a pattern; an action field is a literal value, and a kubeconfig context may be
+named `dev*` or hold a `[`. `permissions.Literal(s)` escapes a value into the pattern that matches
+it alone (a `\` before each `*`, `?`, `[` and `\`). Every rule Kstack writes from an action's
+fields goes through it; a rule the user writes in Settings is a pattern as typed.
+
 **The shipped rules** (`permissions/shipped.go`), each `Shipped: true`:
 
 | Effect | Class | Provider | Rule |
 | --- | --- | --- | --- |
 | Deny | 5 | k8s | `delete` of `namespaces` in context `prod*` |
+| Deny | 5 | k8s | `deletecollection` of `namespaces` in context `prod*` |
 | AskFor | 4 | k8s | any write of `clusterroles` or `clusterrolebindings` |
 | AskFor | 4 | k8s | any write of `roles` or `rolebindings` |
 | AskFor | 4 | aws | any `iam:*` write (step 5C makes it match) |
 
 The note's third shipped rule is "no cluster-scoped RBAC changes without a prompt"; namespaced
-RBAC is added since a `RoleBinding` to `cluster-admin` is as wide.
+RBAC is added since a `RoleBinding` to `cluster-admin` is as wide. Deleting the namespace
+collection is verb `deletecollection`, so the production denial is two rules, one per verb.
 
 ### 2. The modes, per context
 
@@ -262,9 +269,15 @@ The class 5 list, keyed on verb and kind, and on the body where the kind alone i
 - `deletecollection` of anything;
 - any write of `clusterroles`, `clusterrolebindings`, `roles`, `rolebindings`;
 - a write of the `scale` subresource, or a `PUT`/`PATCH` of `deployments`, `statefulsets` or
-  `replicasets`, whose decoded body has `spec.replicas` of 0 (a merge patch of `{"spec":
-  {"replicas": 0}}` included; an apply patch decodes through the YAML path `checkBody` already
-  uses).
+  `replicasets`, that sets `spec.replicas` to 0, read per media type by `scalesToZero`:
+  - a `PUT`, a merge patch or a strategic merge patch: the decoded body's `spec.replicas`;
+  - an apply patch: the same, decoded through the YAML path `checkBody` already uses;
+  - a JSON Patch: each operation whose `path` is `/spec/replicas` or a parent of it (`/spec`,
+    `""`). An `add` or `replace` there counts when its `value` puts 0 at `spec.replicas`; a
+    `move` or `copy` there counts always, since its value is not in the body.
+
+  **It fails closed.** A body that does not decode under its media type, a media type not in
+  that list, or a value at `spec.replicas` that is not a number, is class 5.
 
 `Scope` is `{Context: context, Namespace: p.namespace}`; `Verb`, `Kind` and `Name` off the
 path; `Summary` is the note's form, *Delete pod `api-7f9c` in `team-a` on `dev-eks`*, spelled
@@ -345,6 +358,14 @@ around.
    record that a dry run's body reaches the cluster's webhooks unasked.
 3. **A chat's rules end with the chat**, not with the app. "For this chat" then means what it
    says, and a chat reopened tomorrow keeps what the user allowed. Recommended.
+4. **A scale body the classifier cannot read is class 5.** The other answer is class 4, which
+   `Auto` runs unasked, so a form the classifier misses would scale to zero with no one asked.
+   Recommended: an unreadable body asks in `Auto`, and a read-only context refuses it either
+   way.
+5. **A rule Kstack writes escapes the action's values**, rather than a rule gaining an exact
+   field beside each pattern. A context is text the user's kubeconfig names, and read as a
+   pattern `dev*` would grant every `dev` context. Recommended: `Literal` keeps one rule shape,
+   and the file stays one a user can read and edit.
 
 ## Tasks
 
@@ -375,6 +396,11 @@ time, then 9.
 - `TestDenyWinsOverAskWinsOverAllow`.
 - `TestAScopeMatchesByGlob`: `dev-*` matches `dev-eks`, an unset field matches all, a set one
   refuses another value.
+- `TestALiteralMatchesItselfAlone`: `Literal("dev*")` matches `dev*` and not `dev-eks`, and a
+  context holding `[`, `?` or `\` matches itself.
+- `TestProdNamespaceDeletionIsDeniedByEitherVerb`: `delete` and `deletecollection` of
+  `namespaces` in `prod-eu`, under a user's `prod*` entry of `Ask` and of `Auto`, are `Denied`
+  naming a shipped rule.
 - `TestNoPromptsTurnsAPromptIntoADenial`, and leaves an `Allowed` alone.
 
 **`sandboxconfig`**
@@ -393,6 +419,10 @@ time, then 9.
 
 - `TestEveryRequestIsClassified`: a table over the rows of §5, the class 5 list included, a
   scale to 0 as a merge patch, a strategic patch and an apply, and a scale to 1 as class 4.
+- `TestAScaleToZeroIsClassFiveInEveryPatchForm`: a JSON Patch `replace` and `add` of
+  `/spec/replicas` to 0, a `replace` of `/spec` holding `replicas: 0`, a `move` and a `copy` onto
+  `/spec/replicas`, each as class 5, on the resource and on `scale`; a JSON Patch to 1 as class
+  4; a body that does not decode, and an unknown media type, as class 5.
 - `TestASummaryReadsAsTheNoteSays`: *Delete pod `api-7f9c` in `team-a` on `dev-eks`*, and the
   cluster-scoped and unnamed forms.
 - `TestAnAllowedWriteForwardsUnasked`, and is recorded `allowed` with its reason.

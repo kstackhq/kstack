@@ -51,7 +51,7 @@ plumbing for steps 6B and 6C. Nothing changes on Windows: no sandbox, no proxies
 
 `egress.Handler` (step 4C) answers every `CONNECT` on the run's socket. This step gives it two
 fields, `CA *CA` (§2) and `Injectors map[string]Injector`, keyed by host glob spelled as a
-`HostRule.Host` is (`api.github.com`, `*.googleapis.com`; one leading `*.` at most) and matched
+`HostRule.Host` is (`api.github.com`, `container.googleapis.com`; one leading `*.` at most) and matched
 the same way:
 
 ```go
@@ -76,8 +76,11 @@ connection in `tls.Server` with the leaf `CA.Leaf(host)` and `NextProtos: ["http
 so requests arrive one at a time, and serves an `http.Server` over it whose handler, per
 request:
 
-1. Refuses a request whose `Host` is not the `CONNECT`'s authority (`400`), so nothing rides a
-   terminated tunnel to another host.
+1. Refuses a request whose `Host` does not name the `CONNECT`'s host and port (`400`), so
+   nothing rides a terminated tunnel to another host. Both are compared as a host and a port:
+   the host lower-cased, and a missing port read as `443`. So `CONNECT api.github.com:443` takes
+   `Host: api.github.com` and `Host: api.github.com:443`, and refuses `Host: api.github.com:8443`
+   and a missing `Host`.
 2. Calls `Inject`. An error is a `403` naming it: `credentials.ErrExpired` reads *kstack: the
    <provider> login has expired; the user can renew it*, `credentials.ErrNoCLI` *kstack: <tool>
    is not installed on this machine*, and step 2D adds `ErrExcluded`'s line.
@@ -86,10 +89,10 @@ request:
    `ActionAsker` as a `tools.ActionRequest` — the action, and its `Write` (method, path with
    query, media type, the body up to the head) as an AWS request's (step 5C §3); `Denied`
    refuses.
-4. Forwards over a real TLS connection to `host:443`, through `Handler.Dial` to the addresses
-   `Resolver` checked as a tunnel is (step 4C §2), with the sidecar's own trust,
-   `FlushInterval: -1` and the body as a stream: the head already read, then the rest. A `401`
-   from the host on a request `Inject` edited calls `Unauthorized(r)` and passes through.
+4. Forwards over a real TLS connection to the `CONNECT`'s host and port, through `Handler.Dial`
+   to the addresses `Resolver` checked as a tunnel is (step 4C §2), with the sidecar's own
+   trust, `FlushInterval: -1` and the body as a stream: the head already read, then the rest. A
+   `401` from the host on a request `Inject` edited calls `Unauthorized(r)` and passes through.
 
 A refusal is a `403` with one line of text, `kstack: <reason>`, the reason as step 3B spells it —
 the mode, the rule, or *the user did not approve this change*. An injector that implements
@@ -219,8 +222,11 @@ Kstack's CA is in a keychain the system trusts, read by `trustd` outside the san
   `fake.kstack.test` behind it, a request reaches the fake carrying the injector's header; one
   sending `Placeholder` reaches it with what the injector put there, and the placeholder never
   does; one sending another credential keeps it; the leaf's ALPN is `http/1.1`.
-- `TestARequestForAnotherHostIsRefused`: a request whose `Host` is not the `CONNECT`'s is a 400
-  and reaches nothing. `TestATunnelHostIsUntouched`: a listed host with no injector is relayed
+- `TestARequestForAnotherHostIsRefused`: a request whose `Host` names another host, or another
+  port, than the `CONNECT`'s is a 400 and reaches nothing, and so is one with no `Host`.
+  `TestTheHostMatchesTheAuthorityWithItsDefaultPort`: after `CONNECT fake.kstack.test:443`,
+  `Host: fake.kstack.test`, `Host: fake.kstack.test:443` and `Host: FAKE.kstack.test` each reach
+  the fake. `TestATunnelHostIsUntouched`: a listed host with no injector is relayed
   byte for byte, and with `Injectors` empty every host is.
 - `TestDecideIsAsked`: under `ReadOnly` a `POST` is a 403 naming the mode, one line of text;
   under `Ask` it waits on the asker with the head as its `Write`, and forwards once approved;
@@ -247,8 +253,8 @@ is false and *Trusted* after, and the button calls `egressTrustCA` once.
 **Widened.** The proxy can read the plaintext of a request to a terminated host. What holds it:
 a host is terminated only because an injector claims it (Decisions 4), so the plaintext read is
 one the proxy is putting a credential on; nothing is terminated in this step, since no injector
-is registered; a `Host` that is not the `CONNECT`'s is refused, so a terminated tunnel reaches
-one host.
+is registered; a `Host` naming another host or port than the `CONNECT`'s is refused, so a
+terminated tunnel reaches one host.
 
 **The CA.** A leaked key lets its holder impersonate any host to any program that trusts the
 CA. On Linux the key dies with the sidecar and only sandboxed commands trust it. On macOS the

@@ -76,6 +76,7 @@ type ActionRequest struct {
 	Grantable bool               `json:"grantable"` // whether a rule may allow it: not class 5, and no shipped AskFor rule matches
 	Write     *ClusterWrite      `json:"write,omitempty"` // the request as sent; nil for an action with no request body (step 5A)
 	Diff      string             `json:"diff"`      // §3; "" for none
+	DiffCut   bool               `json:"diffCut"`   // Diff stops short of the whole change
 	DiffError string             `json:"diffError"` // why there is none, when the dry run failed
 }
 
@@ -84,16 +85,16 @@ type ActionRequest struct {
 ```
 
 `kubeproxy.Asker.Ask` takes a `kubeproxy.Request` of the same shape (`Action`, `Grantable`,
-`Write *Write`, `Diff`, `DiffError`); `bash`'s `runtimeAsker` converts it as it converts a
-`Write` today. `chatsvc`'s `askClusterWrite` becomes `askAction`, unchanged but for the type.
-`permissions.Grantable(rules, act) bool` is the one test of the flag: class 5 is never
+`Write *Write`, `Diff`, `DiffCut`, `DiffError`); `bash`'s `runtimeAsker` converts it as it
+converts a `Write` today. `chatsvc`'s `askClusterWrite` becomes `askAction`, unchanged but for
+the type. `permissions.Grantable(rules, act) bool` is the one test of the flag: class 5 is never
 grantable, and neither is an action a shipped `AskFor` rule matches.
 
 **A tool's own call can be an action too.** `tools.Approval` gains `Action *permissions.Action`,
-`Grantable bool` and `Diff string`, for a gated tool whose `Approval` classified its call
-itself (step 6E's cluster tools), and `Decided permissions.Decision` with `Reason` for a `Skip`
-the engine decided. The loop writes them on the call's own approval row (`kind: call`, its
-`request` the `ActionRequest` built from them), so a tool's request is drawn, answered and
+`Grantable bool`, `Diff string` and `DiffCut bool`, for a gated tool whose `Approval` classified
+its call itself (step 6E's cluster tools), and `Decided permissions.Decision` with `Reason` for
+a `Skip` the engine decided. The loop writes them on the call's own approval row (`kind: call`,
+its `request` the `ActionRequest` built from them), so a tool's request is drawn, answered and
 recorded as a proxied action's is. A raw command's `Approval` sets none of them, and its row
 stays what it is today.
 
@@ -122,6 +123,8 @@ type ClusterWrite {
   # as landed, then:
   "The change as YAML, a unified diff of the object now against the dry run's answer; empty for a create, a delete, or a dry run that failed."
   diff: String!
+  "Whether the diff was cut short of the whole change. The request then draws the raw request open, and Approve waits on it."
+  diffCut: Boolean!
   "Why there is no diff, when the dry run or the read before it failed; empty otherwise."
   diffError: String!
 }
@@ -145,14 +148,17 @@ a call's own) and checks before it delivers:
 | any | `Deny` | deliver denied |
 
 The rule is `Allow` of the action's `Class` and `Provider`, `Scope` the fields the provider has
-(`Context` and `Namespace` for Kubernetes; a cluster-scoped action has no namespace, so its
-rule matches every namespace of the context), `Verb` and `Kind` unset, `ID` from
-`appdb.NewID`. The note's example: `k8s:write context=dev-eks namespace=team-a`. The rule is
-written **before** the decision is delivered, and `Session.Rules` reads live (step 3B), so the
-command's next write finds it. A rule write that fails is the mutation's error, the waiter
+(`Context` and `Namespace` for Kubernetes; a cluster-scoped action has no namespace, so its rule
+matches every namespace of the context), `Verb` unset, `ID` from `appdb.NewID`. `Kind` is unset
+but where the provider's scope rides on it: a `net` action's `Kind` is its port (step 4C), so
+its rule keeps it and a grant for `example.com:443` reaches port 443 alone. Each value the rule
+copies goes through `permissions.Literal` (step 3B), so a context named `dev*` grants that
+context and no other. The note's example: `k8s:write context=dev-eks namespace=team-a`. The rule
+is written **before** the decision is delivered, and `Session.Rules` reads live (step 3B), so
+the command's next write finds it. A rule write that fails is the mutation's error, the waiter
 stays, and the user can answer again. The decision carries its duration to the turn
-(`waitDecision` reads a `decision{approved bool; duration}` off the channel), and
-`endApproval` writes `duration` with the status. `Once` records `once`.
+(`waitDecision` reads a `decision{approved bool; duration}` off the channel), and `endApproval`
+writes `duration` with the status. `Once` records `once`.
 
 ### 3. The diff
 
@@ -169,7 +175,8 @@ object:
    once, as it is: it is its own dry run. A failure — a webhook's refusal, a validation error,
    a conflict — is `DiffError`: the `Status` message through `safe.String`, never the body
    whole.
-3. **Drop** `metadata.managedFields` and `status` from both. On core `secrets`, run both
+3. **Drop** `metadata.managedFields` from both, and nothing else: a write can set `status`,
+   through the `status` subresource or on a kind that has none. On core `secrets`, run both
    through `redact` (`redact.go`), so a value is `[redacted]` on both sides and the diff shows
    which keys change and never what they hold.
 4. **Encode** both with `sigs.k8s.io/yaml.Marshal`, keys sorted, and diff them line by line
@@ -177,12 +184,14 @@ object:
    file header). **This is a new direct dependency**, MIT, one file, already in the module
    graph through testify.
 5. **Cut** past `maxDiffLines` (2,000): the first 2,000 lines, then one line, `… N more lines
-   not shown`. An empty diff — a write that changes nothing — is the line `No change.`
+   not shown`, and `DiffCut` set. A cut diff is not the whole change, so the request then draws
+   the raw request as it does with no diff (§4). An empty diff — a write that changes nothing —
+   is the line `No change.`
 
 Both requests run on the write's context, bounded by `diffTimeout` (10s, a field a test
 shrinks), and take a slot and the limiter as a read does. A `POST` has no object to read, so
-its request shows the body; a `DELETE` shows the summary alone. `Diff` and `DiffError` ride
-`Request`, `ActionRequest`, the row and the wire.
+its request shows the body; a `DELETE` shows the summary alone. `Diff`, `DiffCut` and
+`DiffError` ride `Request`, `ActionRequest`, the row and the wire.
 
 ### 4. The request
 
@@ -202,8 +211,9 @@ this order:
 3. **The request itself**: with a diff, a closed `<details>`, *Show the request*, holding the
    path, the method and media type, and the body as the landed request draws them — its own
    fold, which Approve does not wait on, since the diff is what the user reads. With no diff
-   (a create, a delete, a failed dry run, an object not there), they are drawn open as today,
-   the body folded with Approve waiting on it.
+   (a create, a delete, a failed dry run, an object not there), or with a diff `diffCut` marks,
+   they are drawn open as today, the body folded with Approve waiting on it, so a change past
+   the cut is never approved unseen.
 4. ***Sent by*** and the command, folded, which Approve does not wait on, as today.
 5. **The buttons**: **Approve once**, **Allow for this chat**, **Always allow**, **Deny**. Under
    each allow button, the scope in muted text: *cluster writes in `dev-eks` / `team-a`*,
@@ -239,7 +249,16 @@ once the next time; the model need not ask again for one in the same context and
    refuses the dry run refuses the write too, so its error is worth showing first.
 2. **Approve waits on the diff, not the raw request.** Recommended, and the security record
    says so: the API server computed the diff from the very bytes the request holds, and the
-   request is one fold away.
+   request is one fold away. A diff cut at 2,000 lines is not the whole change, so Approve then
+   waits on the raw request too.
+3. **A cut diff hands the review to the raw request**, rather than sending the whole diff. A
+   whole diff of a large object is tens of thousands of lines on the wire and in the row, drawn
+   in the request. Recommended: the raw request is the exact bytes, always whole behind its
+   fold, and a change that large is rare enough to read there.
+4. **The diff keeps `status`.** A write to the `status` subresource, or to a kind with none,
+   changes it, and dropping it would read *No change.* over a real one. Recommended: a line a
+   controller changed between the read and the dry run shows as noise, which is honest; a
+   hidden change is not.
 
 ## Tasks
 
@@ -269,6 +288,9 @@ once the next time; the model need not ask again for one in the same context and
 - `TestChatWritesAGrantBeforeTheDecisionLands`: `Chat` writes an `Allow` row of the action's
   class, provider, context and namespace, verb and kind unset, and the turn reads `approved`
   with `chat` only after the row is there.
+- `TestAGrantKeepsTheLiteralScope`: `Chat` on an action in a context named `dev*` writes a
+  rule that matches `dev*` and not `dev-eks`; on a `net` action for `example.com:443` it writes
+  `Kind` `443`, and the rule matches port 443 and not 8443.
 - `TestAlwaysWritesTheRuleIntoTheSettings`: the same rule in `sandboxconfig`, and `always` on
   the row.
 - `TestACallsOwnApprovalTakesOnceOrDenyAlone`: `Chat` and `Always` on a raw command's request
@@ -285,12 +307,14 @@ once the next time; the model need not ask again for one in the same context and
   dry run: the diff holds the changed line as `-` and `+`, and the request still asks.
 - `TestADiffForAPatch`, for a merge patch, a strategic patch and an apply, the dry run
   carrying the body and media type as sent, `dryRun=All` beside the query's own pairs.
-- `TestADiffDropsManagedFieldsAndStatus`, and `TestADiffOfASecretIsRedactedOnBothSides`: a
+- `TestADiffDropsManagedFieldsAlone`, and `TestADiffOfASecretIsRedactedOnBothSides`: a
   changed value shows its key and `[redacted]` on both lines.
+- `TestADiffShowsAStatusWrite`: a `PUT` to `/status`, and one to a custom resource with no
+  `status` subresource, each show the changed `status` line, never *No change.*
 - `TestAFailingDryRunIsReportedAndTheWriteStillAsks`: a webhook's 400 lands in `DiffError`,
   `Diff` is empty, and an approval forwards the write.
 - `TestAnObjectNotThereHasNoDiff`: a 404 on the read asks with the body alone.
-- `TestADiffIsCutAtTwoThousandLines`, with the closing line, and
+- `TestADiffIsCutAtTwoThousandLines`, with the closing line and `DiffCut` set, and
   `TestAWriteThatChangesNothingSaysSo`.
 - `TestTheDiffsRequestsAreBounded`: a dry run that hangs answers `DiffError` at `diffTimeout`
   and the write still asks.
@@ -304,6 +328,7 @@ once the next time; the model need not ask again for one in the same context and
   through `VisibleText`, and a long diff folds with Approve held until *Show the rest*.
 - With a diff the raw request sits under *Show the request*, closed, and Approve does not
   wait on it; without one the body is open and Approve waits on it.
+- A `diffCut` diff draws the raw request open under it, and Approve waits on both folds.
 - A failed dry run's line, and the request still approvable.
 - The four buttons, each allow button's scope line from `scopeLine`, each decision's mutation
   with its enum value, the three allow buttons armed by `useHeldStill` and Deny not; a
@@ -319,16 +344,17 @@ computed, with the raw request one fold away, in place of the raw request alone.
 it: the summary and the scope are the sidecar's, written by the classifier from the parsed
 path and never from the model's text; the diff is a dry run of the exact bytes the request
 holds, so it shows what the cluster will do rather than what the body says; the raw request is
-still drawn, byte for byte, behind *Show the request*; a class 5 action and a shipped ask
-cannot be allowed by a rule, so their requests offer no rule; an "always" rule is scoped to
-the context and namespace the button names and is on screen in Settings, where the user
-removes it; a raw command outside the sandbox keeps the bash tool record's rule.
+still drawn, byte for byte, behind *Show the request*, and drawn open with Approve waiting on
+it when the diff is cut; a class 5 action and a shipped ask cannot be allowed by a rule, so
+their requests offer no rule; an "always" rule is scoped to the context and namespace the
+button names, each copied as a literal, a host's port included, and is on screen in Settings,
+where the user removes it; a raw command outside the sandbox keeps the bash tool record's rule.
 
 Residuals: a dry run's body reaches admission webhooks for a write the user may then deny
 (decision 1); an `Allow` rule for a namespace covers every write there, a Pod that mounts a
-Secret included, as step 3B's record says; the diff hides what `managedFields` and `status`
-would show, which a write never sets; on a cluster-scoped action a chat rule covers every
-namespace of the context, and the scope line says so.
+Secret included, as step 3B's record says; the diff hides what `managedFields` would show,
+which a write never sets; on a cluster-scoped action a chat rule covers every namespace of the
+context, and the scope line says so.
 
 The record, `docs/security/<date>-the-prompt-names-the-action.md`, argues this and supersedes
 the request paragraph of [cluster writes ask](../../security/2026-09-29-cluster-writes-ask.md).

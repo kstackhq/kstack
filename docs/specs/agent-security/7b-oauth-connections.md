@@ -103,7 +103,7 @@ the user closes the dialog, which cancels it.
 | --- | --- | --- |
 | GitHub | `oauth_github.go` | Device flow: `POST /login/device/code` with the client id, then `POST /login/oauth/access_token` with `grant_type=urn:ietf:params:oauth:grant-type:device_code` every `interval` seconds, five more on `slow_down`, until the token, `expired_token` or `access_denied`. A refresh is the same endpoint with `grant_type=refresh_token`, no client secret, since the token came from the device flow |
 | Google | `oauth_google.go` | The loopback flow `internal/auth` runs: PKCE (S256), a `state` the loopback callback checks before it consumes a code, a listener on `127.0.0.1:0` bound before the URL is built, `access_type=offline` and `prompt=consent` so a refresh token comes back. Endpoints: `accounts.google.com/o/oauth2/v2/auth`, `oauth2.googleapis.com/token`, `oauth2.googleapis.com/revoke`. Scope `cloud-platform`, or `cloud-platform.read-only` for the monitor's |
-| Azure | `oauth_azure.go` | Device code grant on `login.microsoftonline.com/<tenant>/oauth2/v2.0/devicecode` and `/token`, polling as GitHub's does (`authorization_pending`, `authorization_declined`, `expired_token`). Scope `https://management.azure.com/.default offline_access`. The tenant is `organizations` unless `Credentials.AzureTenant` in `sandboxconfig` names one |
+| Azure | `oauth_azure.go` | Device code grant on `login.microsoftonline.com/<tenant>/oauth2/v2.0/devicecode` and `/token`, polling as GitHub's does (`authorization_pending`, `authorization_declined`, `expired_token`). The one sign-in asks consent for both resources step 6C injects: scope `https://management.azure.com/user_impersonation`, the registration's delegated Microsoft Graph permissions (`azureGraphScopes`), and `offline_access`. A token is for one resource, so each resource's token is its own refresh-token grant with `scope=<resource>/.default` (§3). The tenant is `organizations` unless `Credentials.AzureTenant` in `sandboxconfig` names one |
 | AWS | `oauth_aws.go` | IAM Identity Center's device authorization, as `aws sso login` runs it: `RegisterClient` (`clientType: public`, grant types device code and refresh token) once per start URL and region, its client id and secret kept in the keyring until `clientSecretExpiresAt`; `StartDeviceAuthorization` with the user's start URL, opening `verificationUriComplete`; `CreateToken` with the device code grant, polling on `authorization_pending` and `slow_down`. The SSO access token and its refresh token are the connection. Credentials for a profile are `GetRoleCredentials(accessToken, accountId, roleName)`, the account and role picked in Settings from `ListAccounts` and `ListAccountRoles` |
 
 `internal/auth`'s flow is not reused whole, since it verifies an ID token against Hydra and
@@ -119,6 +119,7 @@ passes, so a dev build's connections sit apart from a release's. The accounts:
 | Account | Holds |
 | --- | --- |
 | `connection-<provider>` | access token, refresh token, expiry, the identity the provider reported, the scopes or permissions granted, `connectedAt` |
+| `connection-azure` | as above, but an access token and expiry per resource: ARM's and Graph's, off the one refresh token |
 | `connection-<provider>-readonly` | the monitor's scoped-down connection (§5) |
 | `connection-aws-client` | the registered client id and secret, with `clientSecretExpiresAt` |
 | `connection-aws-roles` | nothing secret: the account and role per profile; kept here so the keyring is the one place a connection lives |
@@ -126,7 +127,14 @@ passes, so a dev build's connections sit apart from a release's. The accounts:
 `credentials` is the one reader. A token is refreshed by the sidecar before expiry, as
 `auth/grant.go` refreshes: a reader that finds the access token within two minutes of expiry
 refreshes it first, one refresh at a time per connection, and writes the keyring before it
-hands the token out. A refresh the provider refuses marks the connection `expired` (§4). Every
+hands the token out. A refresh the provider refuses marks the connection `expired` (§4).
+
+**Azure's tokens are per resource**, as step 1D's `Azure(ctx, resource)` borrow is. The reader
+keys the refresh on the resource: a Graph token is never answered for ARM, or ARM's for Graph.
+Each resource refreshes on its own, one at a time per connection and resource, and each grant's
+new refresh token replaces the kept one. A grant refused for want of consent
+(`consent_required`) fails that resource alone: the other keeps working, and the row says
+*Connect again to grant Microsoft Graph*. Every
 provider call goes through one `http.Client` with a 15 s timeout, as `auth/oauth` has.
 
 **Nothing writes a token anywhere but the keyring.** Not `sandbox.json`, not `app.db`, not a
@@ -171,9 +179,24 @@ step adds the provider's own refusal beside the proxy's, where one can express i
 | Azure | None | A token's rights are the user's Azure RBAC role assignments; `Reader` is assigned to the user by an administrator, not requested by an app. Settings says so under the Azure row: *Azure enforces read-only by the roles assigned to you; Kstack's proxy refuses writes for the monitor either way* |
 | AWS | `AssumeRole` into `MonitorRoleARN[profile]` with `PolicyArns` holding `arn:aws:iam::aws:policy/ReadOnlyAccess`, so the session's rights are the intersection of the role's and read-only. The credentials assuming it are the profile's, from either source, so this works with a CLI login too | The user names the role in Settings; a profile with none named gets no scoped credential |
 
-`credentials.ForSession(ctx, monitor bool, p credentials.Provider) (Credential, error)` is what
+```go
+// Request names one credential: the provider, and the argument its step 1D
+// reader keys on. The field for another provider is empty.
+type Request struct {
+	Provider Provider
+	Profile  string // AWS: the profile
+	Host     string // GitHub: the host
+	Resource string // Azure: the token's audience, ARM's or Graph's
+}
+```
+
+`credentials.ForSession(ctx, monitor bool, req credentials.Request) (Credential, error)` is what
 every injector calls in place of the plain reader once sessions exist, passing
-`s.Kind == session.Monitor`. `credentials` stays a leaf (step 1D): it imports neither `session`
+`s.Kind == session.Monitor` and the request it would have passed that reader: `awsproxy` the
+profile, the GitHub injector the host, the Azure injector the resource of the host it injects.
+Both sources key on it alike: the `cli` source calls step 1D's reader with it, the `connection`
+source reads the profile's picked account and role (§2) or the resource's token (§3), and the
+monitor's AWS role is `MonitorRole(req.Profile)`. `credentials` stays a leaf (step 1D): it imports neither `session`
 nor `sandboxconfig`, and reads the sources and the monitor's roles through hooks on the store,
 `Source func(Provider) Source` and `MonitorRole func(profile string) string`, which `app` sets to
 reads of `Settings.Credentials`, as step 2D sets `Excluded`. `sandboxconfig` importing
@@ -254,6 +277,12 @@ CredentialConnection` (null for none) and `source: CredentialSource!`. No field 
    authorization and `GetRoleCredentials` shapes are the OIDC and Portal references'. Azure:
    the device code grant as documented; `Reader` is the user's assignment, not the app's
    request, so Azure gets no scoped credential and Settings says so.
+4. **Azure's connection is one sign-in for both resources.** The device code request asks
+   consent for ARM and Microsoft Graph together, and each resource's token comes off the one
+   refresh token. The alternative is a sign-in per resource, which Settings would show as two
+   Azure connections. Recommended; the implementation first confirms against a real tenant
+   that the device code grant takes both resources' scopes in one request, and falls back to
+   a sign-in per resource if not.
 
 ## Tasks
 
@@ -282,6 +311,12 @@ CredentialConnection` (null for none) and `source: CredentialSource!`. No field 
   with another `state` is refused without consuming the code, and the exchange carries the
   verifier.
 - `TestTheAzureDeviceFlowNamesItsTenant`, and polls as GitHub's does.
+- `TestAnAzureConnectionAnswersATokenPerResource`: ARM's request and Graph's each answer a
+  token from a grant naming that resource's `.default`, each cached and refreshed on its own; a
+  grant refused `consent_required` for Graph leaves ARM's answering.
+- `TestForSessionKeysOnTheRequest`: at both sources, AWS profiles `dev` and `prod` each answer
+  their own credential, the monitor's role is the one named for the request's profile, and
+  Azure's ARM and Graph requests each answer their own resource's token.
 - `TestTheAWSFlowRegistersOnceAndKeepsTheClient`: `RegisterClient` once per start URL and
   region, its secret kept until it expires, and `GetRoleCredentials` with the picked account
   and role.

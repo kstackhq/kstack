@@ -24,7 +24,7 @@ After this step, every turn on a model that takes tools is offered five more too
 
 | Tool | Does |
 | --- | --- |
-| `k8s_read` | an object or a list, as JSON, YAML or a table, a Secret's values redacted unless the session may read them |
+| `k8s_read` | an object or a list, as JSON, YAML or a table, a Secret's values redacted unless the session may read them; a write's answer always redacts them |
 | `k8s_apply` | a server-side apply of one manifest, field manager `kstack` |
 | `k8s_delete` | one object |
 | `k8s_scale` | a workload to `replicas` |
@@ -129,7 +129,8 @@ Class 1 reads skip the gate: `k8s_read` answers `Skip` for anything but core `se
 Secret read is class 6, and follows step 5A: `Decide` answers `Allowed` when the session holds
 the grant, and `Run` reads the values; `Prompted` asks, and an approval reads them; `Denied`,
 which the monitor always is, reads them redacted rather than refusing, since the object's
-shape is still an answer. Class 5 asks in every mode and never runs under `NoPrompts`, as
+shape is still an answer. A write's answer is always redacted (*The result*, below).
+Class 5 asks in every mode and never runs under `NoPrompts`, as
 `Decide` has it; a background subagent's session is its parent's, so a write in it asks the
 user like the parent's does (the note's *An agent's requests wait* rule).
 
@@ -157,6 +158,10 @@ move with them. One table, two callers: `TestTheToolsClassifyAsTheProxyDoes` kee
 output is (`safe.Redact` over text, `safe.RedactJSON` over a body), through `tools.Fit` at
 `InlineLimit` and `SaveTo(rt.Dir)` past it. A `Status` the server refuses with is answered as
 its message, `isError` set; a write answers the object as returned, a delete the `Status`.
+A write's or a delete's answer about core `secrets` always goes through `RedactSecret` and
+`RedactRelease`, as the proxy's `rewriteSecrets` does for every write it forwards; only a
+`k8s_read` that step 5A lets through is whole. So an apply that changes only a label on an
+existing Secret does not hand back the values it left alone.
 
 ### 3. The record and the wire
 
@@ -239,6 +244,11 @@ out of a body; the set costs N tokens a fresh prefix, measured (Decisions, 1), a
    the transcript to one reader. Both recommended.
 3. **A Secret the monitor reads is redacted, not refused.** The object's shape is an answer a
    monitor can use, and the values are what step 5A protects. Recommended.
+4. **A write to a Secret always answers redacted.** The API server answers a write with the
+   whole object, values included, so an unredacted answer is a Secret read by another name.
+   Showing it under step 5A's grant is the other way; it adds a second decision to every
+   write and makes the tools answer what `kubectl` through the proxy never does. A session
+   that wants the values reads them with `k8s_read`. Recommended.
 
 ## Tasks
 
@@ -269,6 +279,10 @@ each request), the way `app`'s end-to-end tests fake one:
   `Accept` for a table.
 - `TestReadRedactsASecret`: values `[redacted]`, `last-applied-configuration` too, and a
   helm release's inside; and read whole under a session holding step 5A's grant.
+- `TestAWriteToASecretAnswersRedacted`: an apply that changes one label on an existing Secret,
+  and a delete of one, answer the fake's object with its values `[redacted]` and a helm
+  release's inside, and no request is put to the user for it; under an `Allow` class 6 rule
+  for the namespace they are still redacted, as the proxy's are.
 - `TestApplyIsServerSideUnderTheFieldManager`: `PATCH`, `application/apply-patch+yaml`,
   `fieldManager=kstack`, `force` as given; a multi-document manifest refused.
 - `TestApplyChecksTheBodyAsTheProxyDoes`: `[redacted]` in a string, a helm release Secret,
@@ -315,7 +329,8 @@ mode, the class 5 list and step 5A's Secret grant answer the same for `k8s_delet
 `kubectl delete`. The request is built by the sidecar from the call's arguments, which the
 tool alone reads ([ADR](../../adr/2026-09-23-a-tool-call-shows-itself-from-its-arguments.md)),
 and the diff as step 4B computes it. A monitor session runs no write and reads no Secret value
-through them (`TestTheMonitorNeverRunsAWrite`).
+through them (`TestTheMonitorNeverRunsAWrite`). A write's answer holds the object, so a
+Secret's values in it are always redacted (`TestAWriteToASecretAnswersRedacted`).
 
 To name: the tools bypass the sandbox's socket, so their bound is the engine and the
 connection, not the proxy's handler, which is why the classifier is shared rather than copied.
@@ -328,7 +343,8 @@ The record, `docs/security/<date>-first-class-cluster-tools.md`, is short and sa
 
 - **The security record** above, and the ADR amendment of §5, with the measured number.
 - **`security-model.md`**: a row for the five tools naming `TestTheToolsClassifyAsTheProxyDoes`,
-  `TestTheMonitorNeverRunsAWrite` and `TestATurnsToolsReachItsChatsCluster`; the KubeQuery
+  `TestTheMonitorNeverRunsAWrite`, `TestAWriteToASecretAnswersRedacted` and
+  `TestATurnsToolsReachItsChatsCluster`; the KubeQuery
   cluster-scope row gains the tools.
 - **`sidecar/CLAUDE.md`**: `tools/kube`, `kubeclass`, the exported `kubeproxy` checks and
   walk, the five kinds, `Prompts()`'s empty section, `catalog`'s `ours`. **Root

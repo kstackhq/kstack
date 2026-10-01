@@ -25,7 +25,8 @@ After this step, on macOS and Linux:
   through `credentials.GitHub` (step 1D), so the sandbox never contains a real token. `gh` runs
   with step 5D's `Placeholder` as `GH_TOKEN`, which the injector replaces.
 - **GitHub calls are classified**: a `GET` or `HEAD` is class 1, any other method class 4, and a
-  curated list class 5. A `git push` is class 4 naming the refs it updates, and a push that
+  curated list class 5. A `POST /graphql` is read by its document: queries alone are class 1,
+  anything else class 4 or 5. A `git push` is class 4 naming the refs it updates, and a push that
   deletes a ref is class 5. `Decide` and step 4B's prompt do the rest: `gh pr list` works in
   the sandbox, and `gh pr create` asks.
 
@@ -93,7 +94,9 @@ checking the value.
 | Request | Class |
 | --- | --- |
 | `GET`, `HEAD`; a `POST` to `…/git-upload-pack` (a fetch or clone) | 1 |
+| `POST api.github.com/graphql` whose document holds queries alone | 1 |
 | any other method | 4 |
+| `POST api.github.com/graphql` with a mutation naming `deleteRef`, `createBranchProtectionRule`, `updateBranchProtectionRule` or `deleteBranchProtectionRule` | 5 |
 | `DELETE /repos/{o}/{r}` | 5 |
 | `DELETE /repos/{o}/{r}/git/refs/*` | 5 |
 | `PUT` or `DELETE` on `/repos/{o}/{r}/branches/{b}/protection` and anything under it | 5 |
@@ -107,12 +110,22 @@ is 64 KiB: `Classify` reads the commands up to the flush and refuses a body whos
 not end inside the head. A force-push cannot be told from a push without the repository's
 history (Decisions).
 
+**A GraphQL call** is a JSON body, `{query, variables, operationName}`, read up to the same
+64 KiB head. `Classify` parses `query` with `gqlparser`'s parser, the one the sidecar's schema
+already uses, and reads each operation's type. Class 1 needs all of: the body ends inside the
+head, is one JSON object, carries a `query` string that parses, and every operation in it is a
+`query`. Anything else is class 4, or 5 by the row above: a mutation, a subscription, a
+document with both kinds whatever `operationName` picks, a batch array, a persisted query (an
+`id` or `extensions.persistedQuery` in place of `query`), or a body that does not parse.
+
 `Scope{Org, Repo}` comes from the route: `/repos/{o}/{r}`, `/orgs/{o}`, or the git path's
-`{o}/{r}`; `Verb` is the method, `Kind` the route with its parameters replaced, `Name` the ref
+`{o}/{r}`; a GraphQL call has none, since its variables name nodes by id. `Verb` is the
+method, `Kind` the route with its parameters replaced, `Name` the ref
 or the resource's name. The `Summary` is one line: *Create a pull request in
 `kstackhq/kstack`* for the routes a table in `github.go` names (pulls, issues,
 comments, releases, refs, contents, workflow dispatches, repos), *Push `refs/heads/fix-api` to
-`kstackhq/kstack`* (more refs as *and 2 more*), *Delete `refs/heads/old` in …*, else
+`kstackhq/kstack`* (more refs as *and 2 more*), *Delete `refs/heads/old` in …*, *GraphQL
+mutation `createPullRequest`* naming the top-level fields (more as *and 2 more*), else
 *`POST` `/repos/…`*. Every string in it came from the command and is drawn through
 `VisibleText`.
 
@@ -147,13 +160,18 @@ Enterprise Server does not yet. On a Mac whose CA is not trusted it says instead
    and a token per host; the note leaves its design open. Recommended.
 3. **A command that spells the placeholder gets what `gh` gets**, classified the same; a token
    the model invents fails at GitHub. This is step 5D's rule applied; recommended.
+4. **A GraphQL call is classified by parsing its document.** `gh pr list`, `gh issue list` and
+   most `gh` reads are a `POST /graphql`, so reading every `POST` as a write makes them ask and
+   fails them under `ReadOnly`. Matching `gh`'s own query names would break on any `gh` release
+   and pass a query the model writes by hand. So the proxy parses the document: queries alone
+   are a read, and every form it cannot read whole is class 4. Recommended.
 
 ## Tasks
 
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
 | 1 | The injector: hosts, the header rule, the refusal body, `Unauthorized` | `egress/github.go`, its test | — | Planned |
-| 2 | The classifier and the pkt-line reader | `egress/github.go`, `egress/pktline.go`, their tests, `egress/testdata/` | 1 | Planned |
+| 2 | The classifier, the pkt-line reader and the GraphQL reader | `egress/github.go`, `egress/pktline.go`, `egress/githubgraphql.go`, their tests, `egress/testdata/` | 1 | Planned |
 | 3 | The run: registration under `terminating`, `GH_TOKEN`, `GIT_TERMINAL_PROMPT` | `tools/bash/proxy.go`, `tools/bash/env.go`, their tests | 1 | Planned |
 | 4 | The `aria-label` and the disclosure line | `src/lib/chats.tsx`, `chat-transcript.tsx`, their tests | 2 | Planned |
 | 5 | The prompt; `gh api user` end to end | `tools/bash/prompts/sandbox.md`, `app/e2e_unix_test.go` | 2, 3 | Planned |
@@ -173,6 +191,12 @@ Enterprise Server does not yet. On a Mac whose CA is not trusted it says instead
 - `TestEveryGitHubRequestIsClassified`: a table over §3's rows, including a receive-pack fixture
   (`testdata/receive-pack-*.bin`) with one update, one create, one delete, and one whose
   commands do not end within 64 KiB, which is refused; a two-ref push's `Summary` and `Name`.
+- `TestAGraphQLCallIsClassifiedByItsDocument`: a document of queries alone, and two named
+  queries, are class 1; a mutation is class 4 with its fields in the `Summary`; `deleteRef` is
+  class 5; a document with a query and a mutation is class 4 whichever `operationName` names;
+  a subscription, a batch array, a persisted query with no `query`, a document that does not
+  parse, and a body past 64 KiB are each class 4. Under `ReadOnly` the queries pass and the
+  rest are refused.
 - `TestAGitHubRefusalIsShapedForItsTool`: under `ReadOnly` a `POST` is a 403 with `gh`'s JSON
   body on `api.github.com` and a text line on `github.com`, each naming the mode.
 - `TestAPushStreamsOnceAllowed`: a 10 MiB packfile is forwarded whole after the head, and an
@@ -209,7 +233,9 @@ string.
 
 **Residuals.** A force-push asks as a push (Decisions 1); a command that spells the placeholder
 gets the token's reads (Decisions 3); `uploads.github.com` takes what the model uploads under
-the user's name, asked as a class 4 write.
+the user's name, asked as a class 4 write. A GraphQL write has no repository in its scope, so
+a rule scoped to one repository never matches it, and it asks; its class 5 list names four
+mutations and is a list.
 
 The record, `docs/security/<date>-github-through-the-proxy.md`, is short and points at step
 5D's for the mechanism.
@@ -219,7 +245,8 @@ The record, `docs/security/<date>-github-through-the-proxy.md`, is short and poi
 - **The security record** above; the ADR step 5D writes gains a line: a force-push is a push.
 - **`security-model.md`**: rows for the GitHub injection (with the placeholder test) and the
   classifier, and the no-credential-on-disk row gains this step's case.
-- **`sidecar/CLAUDE.md`**: the GitHub injector and classifier, the pkt-line reader, the run's
+- **`sidecar/CLAUDE.md`**: the GitHub injector and classifier, the pkt-line and GraphQL
+  readers, the run's
   two variables. **Root `CLAUDE.md`**, *Chat*: the GitHub request and its `aria-label`. **The
   note's *Where this meets the code***: the force-push decision.
 - **The sequence's README**: this row's status.
@@ -230,7 +257,8 @@ Run the [verification commands](../README.md#verification-commands), including t
 with `egress`'s tests on Linux and in CI's macOS job.
 
 By hand, `pnpm tauri dev` on Linux with `gh` logged in: ask for `gh api user`, and read your
-login with no request; `git push` of a branch in an HTTPS clone, and read the request *Push
+login with no request; `gh pr list` in a read-only chat, and read the list with no request;
+`git push` of a branch in an HTTPS clone, and read the request *Push
 `refs/heads/…` to `…`*, then the push once approved; `git push origin --delete <branch>` asks
 whatever the mode; `env | grep GH_` prints the placeholder and nothing of yours. On macOS, click
 *Trust it* in Settings first (step 5D), then repeat.

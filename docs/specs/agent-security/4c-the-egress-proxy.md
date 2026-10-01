@@ -31,13 +31,15 @@ After this step, on macOS and Linux:
 - **The allowlist has sources**: every kube context's API server from the kubeconfig, GitHub's
   hosts, the user's entries, and the chat's rules. A cloud provider's hosts join only with the
   step whose proxy classifies what goes there (Decisions, 4). A `Deny` entry wins over every
-  source.
+  source, and so does a permission rule: a class 3 `net` rule that denies a host refuses it, and
+  one that asks for it asks, whatever lists it (Decisions, 5).
 - **An unlisted host is class 3.** The handler builds a `permissions.Action` and asks `Decide`:
   the `CONNECT` is held while the user answers ([the note](../../notes/sandbox-credentials-and-permissions.md)'s
   *Network*: "the agent wants to reach `example.com`; allow once or always?"), a rule or `Auto`
   lets it through, and a refusal is a `403` the command reads. A session nobody can ask never asks.
 - **A host is a name.** An IP literal is refused, and a name that resolves to the machine or the
-  local network is refused, except a kube API server the kubeconfig names there.
+  local network is refused, except a kube API server the kubeconfig names there, by name or by
+  address and port.
 - **The environment** points every tool at the proxy: `HTTPS_PROXY` and `HTTP_PROXY`, with
   `NO_PROXY` empty. A tool that ignores them reaches nothing, since the sandbox has no other
   network. On macOS the one Mach service TLS verification needs is allowed by name.
@@ -102,8 +104,9 @@ const (
 )
 
 // HostRule is one host a run may, or may not, reach. Host is a glob over the
-// lowercase ASCII name ("*.amazonaws.com"; one leading "*." at most); Port 0
-// is any port.
+// lowercase ASCII name ("*.amazonaws.com"; one leading "*." at most), or, on a
+// Kubeconfig rule alone, an IP address, which matches only itself. Port 0 is
+// any port.
 type HostRule struct {
 	ID     string
 	Host   string
@@ -112,12 +115,13 @@ type HostRule struct {
 	Deny   bool
 }
 
-// Policy is a run's allowlist. A Deny rule wins over every Allow.
+// Policy is a run's allowlist. Ask holds the hosts a permission rule asks for.
+// Deny wins over Ask, and Ask over Allow, as in permissions.Decide.
 type Policy struct {
-	Allow, Deny []HostRule
+	Allow, Ask, Deny []HostRule
 }
 
-// Match answers what the policy says of host and port: Denied with the rule,
+// Match answers what the policy says of host and port: Denied, Asked or
 // Listed with the rule, or Unlisted.
 func (p Policy) Match(host string, port int) (Verdict, HostRule)
 
@@ -143,17 +147,24 @@ an upload without a token. `Cloud` is a list this step leaves empty: step 6C fil
 Google's and Azure's hosts while its injectors terminate and classify them, and step 5C reaches
 AWS through a proxy of its own and lists nothing (Decisions, 4). `ServerRule(server
 string) (HostRule, bool)` turns a kubeconfig `server` URL into a rule on its host and port (443
-or 80 when the URL names none), source `Kubeconfig`, false for a URL that does not parse.
+or 80 when the URL names none), source `Kubeconfig`, false for a URL that does not parse. A
+server at an IP address gives a rule on that address in `netip`'s form, brackets stripped.
 
 **The handler**, for a `CONNECT host:port` and a plain absolute-form request alike:
 
 1. The token, else 407.
-2. The host, lowercased with a trailing dot dropped: a 403 when it is an IP literal
-   (`netip.ParseAddr` accepts it, brackets stripped), empty, or over 253 bytes.
-3. `Hosts(ctx).Match(host, port)`: `Denied` is a 403 naming the rule; `Listed` goes on;
-   `Unlisted` is class 3 (§4), and goes on only when the decision is `Allowed`.
+2. The host, lowercased with a trailing dot dropped and brackets stripped: a 403 when it is
+   empty, over 253 bytes, or neither an IP literal nor a name of ASCII letters, digits, `-`, `_`
+   and dots. So a host holds no glob character, and a rule written from it (§4) matches it
+   alone.
+3. `Hosts(ctx).Match(host, port)`: `Denied` is a 403 naming the rule. An IP literal
+   (`netip.ParseAddr` accepts it) goes on only when it is `Listed` by a `kubeconfig` rule on
+   that address and port; any other answer is a 403, and an IP literal is never asked. For a
+   name, `Listed` goes on, and `Asked` and `Unlisted` are class 3 (§4), which go on only when the
+   decision is `Allowed`.
 4. `Resolver.LookupNetIP(ctx, "ip", host)`: no answer is a 502 *kstack: <host> does not
    resolve*; every address is checked (§5), and one that fails is a 403 with no retry on the rest.
+   An IP literal is its own one address and is not looked up.
 5. The dial goes to the addresses checked, in order, never to the name again, so the check and
    the dial agree; a slot from `Tunnels`, else a 429 with no `Retry-After`.
 6. A `CONNECT` answers `200 Connection Established`, hijacks the connection and copies both ways,
@@ -176,11 +187,16 @@ it to `hostsFor(chatID)`, built from an `egress.Sources` that `app` wires:
 | `kubeconfig` | `kubeconfig.Service.Get()`, every `Clusters[*].Server` | `ServerRule` of each, so a reload is seen by the next request |
 | `cloud` | `egress.Cloud` | empty until step 6C fills it (§2) |
 | `github` | `egress.GitHub` | as listed in §2 |
-| `user` | `sandboxconfig.Settings.Hosts []egress.HostRule` | each entry as written, Allow or Deny; and every class 3 `Allow` rule of provider `net` in `Settings.Rules`, as a host entry |
-| `chat` | `chat_grants` | every class 3 `Allow` rule of provider `net` for the chat, as a host entry |
+| `user` | `sandboxconfig.Settings.Hosts []egress.HostRule` | each entry as written, Allow or Deny; and every class 3 rule of provider `net` in `Settings.Rules`, by its effect |
+| `chat` | `chat_grants` | every class 3 rule of provider `net` for the chat, by its effect |
 
 A rule's `Scope.Host` is the glob and its `Kind` the port as decimal (`""` any), so a class 3
-`net` rule and a `HostRule` say the same thing; `egress.FromRule` is the one conversion. The
+`net` rule and a `HostRule` say the same thing; `egress.FromRule` is the one conversion. An
+`Allow` rule joins `Allow`, a `Deny` rule `Deny`, and an `AskFor` rule `Ask`. So a permission rule
+outranks every source: a `Deny` refuses a GitHub host or a kubeconfig server, and an `AskFor` sends
+one to `Decide` as if it were unlisted, where the same rule makes it `Prompted` (Decisions, 5).
+Settings lists a user `Deny` rule among the denied hosts; an `AskFor` rule is not a row there, and
+stays in the permission rules step 3B lists. The
 policy is read per request, never cached: a grant written mid-run applies to the command's next
 connection, and a context added to the kubeconfig too. `Narrow` copies `Hosts`.
 
@@ -190,7 +206,7 @@ Settings with its reason.
 
 ### 4. An unlisted host is class 3
 
-For `Unlisted` the handler builds the action and asks `Decide`:
+For `Unlisted` and `Asked` the handler builds the action and asks `Decide`:
 
 ```go
 permissions.Action{
@@ -222,7 +238,8 @@ no asker, and the monitor's. Each of those answers `Denied` at once and never ho
 (`approved`, `denied`, `allowed` or `refused`, with the reason), so the transcript draws it as a
 request while it waits and after as a line in the call's disclosure, tagged as a cluster write's
 is. The request reads *Reach this host?*, then the host and, off 443, the port in mono through
-`VisibleText`. A listed host is not recorded: reaching it is class 1.
+`VisibleText`. A listed host is not recorded: reaching it is class 1. A host an `AskFor` rule
+names is asked and recorded, listed or not.
 
 ### 5. Addresses
 
@@ -231,7 +248,9 @@ is. The request reads *Reach this host?*, then the host and, off 443, the port i
 and an IPv4-mapped IPv6 form of any of them. A listed name that resolves to a refused address is
 a 403 *kstack: <host> resolves to a local address*, with one exception: a rule of source
 `kubeconfig` may resolve anywhere, since kind, minikube and Docker Desktop put an API server at
-`127.0.0.1:<port>`. The exception is the rule's, so only that host and that port get it. What a
+`127.0.0.1:<port>`. The exception is the rule's, so only that host and that port get it. A
+kubeconfig that names the server by address, as kind's does, gets the same exception through its
+address rule (§2, step 3): that address and port are reached, and no other literal is. What a
 command reaches there is what the server serves without a credential (`/version`, `/healthz`, the
 OIDC discovery paths); the cluster proxy is still the way to the chat's cluster.
 
@@ -334,13 +353,13 @@ adds that GitHub calls carry the user's login.
    run already has a socket to it. A second socket would be a second listener, a second token
    check and a second `Relay` for both compilers, for no boundary the first does not draw.
    Recommended.
-2. **An IP literal is refused outright, and a name that resolves locally is refused unless it is
-   a kube API server the kubeconfig names.** The note's "loopback stays open so `kubectl
-   port-forward` works" would open the proxy to every local service — Ollama, Docker's API, a dev
-   database, the sidecar's own socket — to a command the model runs unasked, and port-forward
-   stays refused anyway (the note's *Where this meets the code*, 7). A local API server is the
-   one local thing a Kubernetes tool needs. Recommended; a user who wants a local registry grants
-   it in step 4D's terms later, when a step gives a host rule an address.
+2. **An IP literal is refused, and a name that resolves locally is refused, unless it is a kube
+   API server the kubeconfig names, by name or by address and port.** The note's "loopback stays
+   open so `kubectl port-forward` works" would open the proxy to every local service — Ollama,
+   Docker's API, a dev database, the sidecar's own socket — to a command the model runs unasked,
+   and port-forward stays refused anyway (the note's *Where this meets the code*, 7). A local API
+   server is the one local thing a Kubernetes tool needs. Recommended; a user who wants a local
+   registry grants it in step 4D's terms later, when a step gives a host rule an address.
 3. **Reaching a listed host is class 1, whatever the mode.** Class 3 is a *new* host, so
    `ReadOnly` refuses the unlisted and not the listed. Recommended; the alternative makes
    read-only contexts unable to `helm repo update`.
@@ -353,6 +372,12 @@ adds that GitHub calls carry the user's login.
    reaches AWS through its re-signing proxy, and a raw `CONNECT` to an AWS host stays class 3,
    which asks; step 6C lists Google's and Azure's hosts only while its injectors terminate and
    classify each request. Recommended.
+5. **A permission rule on a host outranks the listing.** A class 3 `net` `Deny` rule refuses a
+   host whatever source lists it, and an `AskFor` rule asks for it, under `Decide`'s own order, so
+   a `ReadOnly` context refuses a host an `AskFor` rule names. The user's rules are the one
+   place a user says *never this host* or *always ask*, and a built-in source must not overrule
+   them. Recommended. The alternative, a listed host skipping the rules, makes a denial in
+   Settings or in a chat say nothing about GitHub or an API server.
 
 ## Tasks
 
@@ -379,21 +404,30 @@ same time, then 8.
 - `TestAnUnlistedHostAsksAndFollowsTheDecision`: `Decide` gets the action of §4; `Allowed`
   tunnels, `Denied` is a 403 naming the reason, `Prompted` holds the `CONNECT` until the answer.
 - `TestADeniedHostIsForbidden`: a `Deny` rule wins over an `Allow` of every source.
-- `TestAnIPLiteralIsRefused`: IPv4, IPv6 and bracketed, never resolved and never asked.
+- `TestAPermissionRuleOutranksTheListing`: a class 3 `net` `Deny` rule on `api.github.com` is a
+  403 naming the rule, and an `AskFor` rule on a kubeconfig server sends it to `Decide` and holds
+  the `CONNECT`; `FromRule` puts each effect in its list, and `Match` answers Deny over Ask over
+  Allow.
+- `TestAHostIsAName`: `*.example.com`, `a?b.example.com` and `[x].example.com` are a 403,
+  never asked, so no answer writes a rule wider than the host drawn.
+- `TestAnIPLiteralIsRefused`: IPv4, IPv6 and bracketed, never resolved and never asked; and a
+  `kubeconfig` rule from `https://127.0.0.1:6443` lets `127.0.0.1:6443` through with no lookup,
+  while `127.0.0.1:6444` and `[::1]:6443` are refused.
 - `TestALocalAddressIsRefused`: a listed name resolving to each refused family is a 403, and a
-  `kubeconfig` rule at `127.0.0.1:6443` tunnels. The note's second invariant kept: the proxy does
-  not open the machine.
+  `kubeconfig` rule on a name resolving to `127.0.0.1:6443` tunnels. The note's second invariant
+  kept: the proxy does not open the machine.
 - `TestTheDialGoesToTheAddressChecked`: the dialer sees the resolved address, never the name.
 - `TestTheTokenIsRequired`: no token and a wrong one are a 407; `TestTunnelsAreBounded`, and
   end with the context.
 - `TestMatchGlobsAndPorts`: `*.amazonaws.com` matches `sts.amazonaws.com` and not
   `amazonaws.com`; port 0 matches any. `TestServerRuleReadsAKubeconfigServer`: host, port, a
-  default port, a URL that does not parse.
+  default port, an IP address, a URL that does not parse.
 
 **`sandboxconfig`**: `TestABadHostEntryIsLeftOutWithItsReason`; `TestHostsPersist`.
 
 **`chatsvc`**: `TestTheSessionsHostsJoinEverySource`, a kubeconfig reload seen by the next read,
-and a chat's class 3 rule listed as `chat`; `TestNetworkHostGrantWritesWhereTheDurationSays`.
+a chat's class 3 rule listed as `chat`, and a `Deny` or `AskFor` rule of the chat's or the file's
+in the policy's `Deny` or `Ask`; `TestNetworkHostGrantWritesWhereTheDurationSays`.
 
 **`bash`**
 
@@ -431,8 +465,9 @@ unauthenticated paths, the cloud and GitHub endpoints, whatever the user added �
 credential in hand, and a host the user allowed on a prompt. What holds it: the sandbox still has
 no network but the relay, so every connection passes the handler; the handler resolves and dials,
 so the sandbox never learns an address it did not connect to; an unlisted host is the user's
-decision, recorded and on screen; a background command and a monitor session never ask and are
-refused; and the machine's other local services stay closed (Decisions, 2).
+decision, recorded and on screen; the user's `Deny` and `AskFor` rules hold over every source
+(Decisions, 5); a background command and a monitor session never ask and are refused; and the
+machine's other local services stay closed (Decisions, 2).
 
 **Residuals.** A listed host that takes an upload with no credential is an exfiltration path
 for what a command has read. GitHub's hosts take none without a token, and no cloud host is
@@ -440,15 +475,15 @@ listed until a proxy classifies what goes there (Decisions, 4); a host the user 
 user's to judge, and the Settings section says so. The names a command asks for reach the
 sidecar's resolver, so a hijacked command can leak a few bytes per lookup to whoever runs the
 machine's DNS; a listed name is resolved before its address is refused. A `Deny` entry is a glob
-over a name, not an address.
+over a name, not an address, and an address reaches the proxy only as a kubeconfig's server.
 
 The record, `docs/security/<date>-the-egress-proxy.md`, argues both.
 
 ## When it lands
 
 - **The security record** above, and an ADR: one relay serves every proxy; an IP literal and a
-  local address are refused, a kube API server excepted; a listed host is class 1; a cloud host
-  is listed by the proxy that classifies it.
+  local address are refused, a kube API server excepted; a listed host is class 1; a permission
+  rule outranks the listing; a cloud host is listed by the proxy that classifies it.
 - **`security-model.md`**: the network row says the relay carries the cluster proxy and the
   egress proxy, with the tests; a row for the allowlist and its sources; the address refusal as
   its own row; the macOS Mach services row gains `trustd.agent`.

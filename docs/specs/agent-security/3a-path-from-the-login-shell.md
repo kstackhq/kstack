@@ -31,7 +31,9 @@ After this step, on macOS and Linux:
 - **It is frozen** in the settings file, `<data>/sandbox.json`, which step 1C's
   `sandboxconfig` keeps. A run reads the list once when it starts. At each launch the fresh list is
   diffed against the stored one: an entry under an open zone is adopted, one under the home waits
-  for the user, one that disappeared is dropped (the note's *Freezing and syncing*).
+  for the user, one that disappeared is dropped unless the user removed it (the note's *Freezing
+  and syncing*). Each entry keeps the folder it resolved to, and one that resolves elsewhere is
+  filed again as if new.
 - **The sandbox's `PATH` and its Read rules are one list**, so a program on the path is readable,
   and **the user sees it** in Settings: each entry, its state, Include, Remove and Refresh PATH.
 
@@ -100,7 +102,7 @@ leaves `sandbox.json` as it was and logs one line with the reason, not a startup
 
 ### 2. Filtering
 
-`sandboxconfig.FilterPath(entries, closed []string) (kept []string, dropped map[string]int)`
+`sandboxconfig.FilterPath(entries, closed []string) (kept []PathDir, dropped map[string]int)`
 takes the raw list and `closed`, `Sandbox.Never(home)` plus Kstack's three directories
 (`bash.Paths.DeniedDirs`). It drops, in this order, counting each rule's drops:
 
@@ -114,7 +116,8 @@ takes the raw list and `closed`, `Sandbox.Never(home)` plus Kstack's three direc
 | project | a path with a `node_modules` component | a project folder is not user binaries (see Decisions) |
 
 The shell's order is kept; a duplicate keeps its first place. The count per rule goes on one log
-line, never an entry. Every check is on the resolved path; the entry is kept as the shell gave it.
+line, never an entry. Every check is on the resolved path. A kept `PathDir` holds both: `Dir`, the
+entry as the shell gave it, and `Target`, the path it resolved to.
 
 ### 3. `Settings.Path`
 
@@ -127,7 +130,8 @@ Path []PathEntry `json:"path,omitempty"` // in the shell's order
 
 // PathEntry is one folder of the user's PATH and what the sandbox does with it.
 type PathEntry struct {
-	Dir    string    `json:"dir"`
+	Dir    string    `json:"dir"`    // as the shell gave it
+	Target string    `json:"target"` // what Dir resolved to when the state was set
 	State  PathState `json:"state"`  // adopted, pending or gone
 	Source Source    `json:"source"` // shell or user
 }
@@ -137,24 +141,27 @@ type PathEntry struct {
 | --- | --- |
 | `adopted` | on the sandbox's `PATH` and readable in it |
 | `pending` | the shell lists it, it is under the home or another closed zone, and the user has not said yes |
-| `gone` | the user removed it; kept so a sync does not adopt it again, and off the sandbox's `PATH` |
+| `gone` | the user removed it; kept, whether or not the shell lists it, so a sync does not adopt it again, and off the sandbox's `PATH` |
 
 `Source` says whose decision the state is: `shell` when the sync set it, `user` when Include or
-Remove did. The field's line in step 1C's `check` refuses an entry whose `dir` is not absolute
-or whose state or source is not one of the names above, so a hand-edited entry is left out and
-shown, as every field is.
+Remove did. A state holds for `Target` alone: the approval is of the folder the entry resolved
+to, not of its spelling. The field's line in step 1C's `check` refuses an entry whose `dir` or
+`target` is not absolute or whose state or source is not one of the names above, so a
+hand-edited entry is left out and shown, as every field is.
 
 ### 4. Freezing and syncing
 
 **A run reads the list once.** `sandboxedRunFor` in `tools/bash/bash.go` calls `AdoptedPath()`
-on the store at the run's start, resolves each entry, and uses that one list for both:
+on the store at the run's start and resolves each entry. An entry that no longer resolves to its
+`Target` is left out of the run, and one log line names it; the next sync files it again. The
+run uses the rest, one list, for both:
 
 - `PATH` in `sandboxedRunEnv` (`tools/bash/env.go`), the row step 2A left as the sidecar's:
   the resolved entries joined in order. With none adopted — a first launch whose resolution
   failed — the platform's login default from §1, which `System` already reads, so `ls` still runs.
 - One Files Read rule per resolved entry that no Read rule of `System(home)` already covers: the
-  entry alone, never a tree, since step 2A's toolchain list covers the trees. An entry inside an
-  Always path never reaches here: the filter dropped it.
+  entry's `Target` alone, never a tree, since step 2A's toolchain list covers the trees. An
+  entry inside an Always path never reaches here: the filter dropped it.
 
 Nothing re-reads the store while the run lives, a background task included; a refresh or an
 Include changes the next run.
@@ -167,9 +174,12 @@ stored entries:
 
 | Case | What happens |
 | --- | --- |
-| a stored entry the shell no longer lists | dropped from the list, whatever its state |
+| an `adopted` or `pending` entry the shell no longer lists | dropped from the list |
+| a `gone` entry the shell no longer lists | kept, after the listed entries: the removal outlives the entry's absence |
 | a new entry under one of `open` | `adopted`, source `shell`: it adds no readable surface |
 | a new entry under the home or another closed zone | `pending`, source `shell` |
+| an `adopted` or `pending` entry whose `Target` changed | filed again as a new entry with the new `Target`: `adopted` under `open`, else `pending`, source `shell` |
+| a `gone` entry whose `Target` changed | stays `gone`, with the new `Target` |
 | the order changed | the stored entries are put in the shell's order; states are kept |
 
 After the diff, if the first adopted folder holding `kubectl`, `helm`, `aws` or `gh` differs
@@ -179,7 +189,8 @@ from before, one log line names the tool and both folders. The report carries th
 as its resolver, and runs `SyncPath(cfg.ShellPath)` in `Start`, before the shell snapshot's part,
 when `ShellPath` is not nil. **Refresh PATH** is `(*Service).RefreshPath(ctx)`: `Resolve`, then
 `SyncPath`; a `Fault` answers an error naming its reason and changes nothing. Include is
-`AdoptPath(dir)`: a `pending` or `gone` entry becomes `adopted`, source `user`. Remove is
+`AdoptPath(dir)`: a `pending` or `gone` entry becomes `adopted`, source `user`, for the `Target`
+it holds, never one resolved again, so Include approves the folder the user was shown. Remove is
 `DropPath(dir)`: an `adopted` or `pending` entry becomes `gone`, source `user`. A `dir` not
 listed, or already in the state asked for, is refused.
 
@@ -192,6 +203,8 @@ enum SandboxPathSource { Shell User }
 "One folder of the user's PATH, and what the sandbox does with it."
 type SandboxPathEntry {
   dir: String!
+  "The folder dir resolved to when its state was set; the one the sandbox reads."
+  target: String!
   state: SandboxPathState!
   source: SandboxPathSource!
 }
@@ -226,7 +239,8 @@ is true. `useSandboxPath()` in `src/lib/sandbox-path.tsx` is the one reader of t
 mutations.
 
 - The entries in order, each with its `dir` in mono through `VisibleText` (a folder name is text
-  the shell produced), and its state as a tag: *included*, *waiting for you*, *removed*.
+  the shell produced), its `target` under it the same way when the two differ, and its state as a
+  tag: *included*, *waiting for you*, *removed*.
 - **Include** on a *waiting* or *removed* entry, **Remove** on an *included* or *waiting* one,
   and **Refresh PATH** above the list. Each calls its mutation, is disabled in flight, and is
   handed back on an error, which `errorReportExchange` reports; a refused refresh draws *Your
@@ -246,8 +260,17 @@ drawn.
   binaries: its programs are whatever the last `npm install` fetched. Step 4D grants one.
 - **One shell run at launch, not two.** `Import` and `Path` read one `Result`, so the startup
   files run once, and the refresh is the only second run.
-- **A removed entry is kept as `gone`.** Without a tombstone the next launch would adopt an
-  open-zone entry back, and Remove would mean nothing.
+- **A removed entry is kept as `gone`, whether or not the shell lists it.** Without a tombstone
+  the next launch would adopt an open-zone entry back, and Remove would mean nothing. An entry
+  that leaves the shell's `PATH` for a launch and comes back is the same case. The tombstones
+  stay in `Path` rather than a list of their own, so a removal has one record; the cost is that
+  `Path` can hold folders the shell no longer lists, drawn *removed*. Recommended.
+- **An entry's approval is bound to the folder it resolved to.** A `PATH` entry is often a link
+  (`/usr/local/bin`, a version manager's `current`), and repointing it must not change what the
+  sandbox reads unasked. So each entry stores its `Target`, a run leaves out an entry that
+  resolves elsewhere, and the sync files it again. The alternative, storing the resolved path in
+  place of the entry, loses the shell's spelling the user recognises and still needs a check at
+  the run. Recommended.
 
 ## Tasks
 
@@ -282,14 +305,20 @@ drawn.
 - `TestFilterPathDropsEachRule`: one case per row of §2's table, over a fixture folder with a
   world-writable directory, a group-writable one with and without the sticky bit, a link into a
   closed path, and a `node_modules/.bin`; the kept list is in the shell's order, as given.
-- `TestSyncPathDiffsFourWays`: an entry that disappeared is dropped, a new one under `open` is
-  adopted, a new one under the home is pending, and a reorder keeps every state; a reorder that
-  moves `kubectl` logs once, naming both folders.
+- `TestSyncPathDiffsFourWays`: an adopted or pending entry that disappeared is dropped, a new one
+  under `open` is adopted, a new one under the home is pending, and a reorder keeps every state;
+  a reorder that moves `kubectl` logs once, naming both folders.
+- `TestARemovalOutlivesTheEntrysAbsence`: an entry under `open` removed, then a sync without it,
+  then a sync with it again: it is still `gone`, source `user`, and not on the run's `PATH`.
+- `TestSyncPathRefilesAMovedEntry`: an adopted link repointed from an open folder into the home
+  comes back `pending`, source `shell`, with the new `Target`; one repointed to another open folder
+  stays `adopted` with the new `Target`; a gone one stays `gone`.
 - `TestAFailedResolutionKeepsTheList`: `RefreshPath` with a resolver answering a `Fault` changes
   nothing and answers an error naming the reason.
 - `TestAdoptAndDropMoveOneEntry`: Include on a pending and on a gone entry, Remove on an adopted
-  and on a pending one, each refused when the entry is not listed or already there; and a gone
-  entry survives the next sync.
+  and on a pending one, each refused when the entry is not listed or already there; Include keeps
+  the stored `Target` even when the link now resolves elsewhere; and a gone entry survives the
+  next sync.
 - `TestPathEntriesPersist`: entries written survive a reopen, in order, with their states and
   sources; an entry with a relative `dir` or an unknown state is left out and listed by
   `Refused()`, as step 1C's convention says.
@@ -299,6 +328,8 @@ drawn.
 - `TestTheRunFreezesThePath`: over a fake sandbox, the run's `PATH` is the adopted entries
   resolved and joined, and its Read rules are those entries less the ones `System` covers; a
   store changed after `sandboxedRunFor` changes neither; and with none adopted, the default.
+- `TestTheRunLeavesOutAMovedEntry`: an adopted entry whose link is repointed after the sync is
+  neither on the run's `PATH` nor a Read rule, and one log line names it; the other entries run.
 - `TestAPendingEntryIsNotOnThePath`: a program in a pending folder is not found in a sandboxed
   `command -v`, and is found once the entry is adopted.
 
@@ -306,8 +337,9 @@ drawn.
 
 **Webview** (`sandbox-settings.test.tsx`, `sandbox-path.test.tsx`)
 
-- The entries draw in order with their tags, Include on waiting and removed entries, Remove on
-  included and waiting ones, and nothing while `sandbox.available` is false.
+- The entries draw in order with their tags, a `target` only where it differs from the `dir`,
+  Include on waiting and removed entries, Remove on included and waiting ones, and nothing while
+  `sandbox.available` is false.
 - Include, Remove and Refresh PATH call their mutations, are disabled in flight, and redraw from
   the answer; a refused refresh draws its reason.
 
@@ -317,7 +349,9 @@ drawn.
 next launch, unseen. After it, `PATH` is resolved from the account's shell with a scrubbed
 environment, filtered, and frozen: a new entry under the home waits for the user, a
 world-writable folder never gets in, the denied-always list and Kstack's directories still
-filter before the policy sees the entry, and `Check` still refuses a rule inside them.
+filter before the policy sees the entry, and `Check` still refuses a rule inside them. An entry's
+approval holds for the folder it resolved to: a link repointed after it grants nothing until a
+sync files it again, and a removal holds while the entry is off the shell's `PATH`.
 
 **Widened.** An adopted entry is a Read rule: a folder the shell put on `PATH`, outside the home,
 that step 2A did not list, becomes readable — one folder, never a tree, unasked only in an open zone.
