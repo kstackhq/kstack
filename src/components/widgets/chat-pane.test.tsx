@@ -45,12 +45,15 @@ const { setContext, kubeContexts } = vi.hoisted(() => ({
 vi.mock('@/lib/active-kube-context', () => ({
   useActiveKubeContext: () => ({ contexts: kubeContexts.current, setContext }),
 }));
-// Whether the machine offers a sandbox, which the transcript's headings follow.
-const { useSandboxMock, sandboxRetry } = vi.hoisted(() => ({
+// Whether the machine offers a sandbox, which the composer's switch and the
+// transcript's headings both follow.
+const { useSandboxMock, sandboxRetry, switchState } = vi.hoisted(() => ({
   useSandboxMock: vi.fn(),
   sandboxRetry: vi.fn(),
+  switchState: { switching: false, setSandboxDisabled: vi.fn() },
 }));
 vi.mock('@/lib/sandbox', () => ({ useSandbox: useSandboxMock }));
+vi.mock('@/lib/sandbox-switch', () => ({ useSandboxSwitch: () => switchState }));
 vi.mock('urql', () => ({ useMutation: () => [{}, vi.fn()] }));
 vi.mock('@/gql', () => ({ graphql: () => ({}) }));
 
@@ -168,6 +171,7 @@ beforeEach(() => {
   useActiveClusterMock.mockReturnValue({ clusterID: '1', phase: 'live' });
   useClustersMock.mockReturnValue({ clusters: [] });
   useSandboxMock.mockReturnValue({ available: true, failed: false, retry: sandboxRetry });
+  switchState.switching = false;
   kubeContexts.current = [{ name: 'prod' }, { name: 'staging' }];
 });
 
@@ -192,8 +196,19 @@ describe('NewChatPane', () => {
 });
 
 describe('ChatPane', () => {
+  // The chat's switch rides the list watch, so the composer draws what every
+  // window sees; the machine's sandbox is what the transcript's headings follow.
+  // A send reserves its turn under the switch as it is, so both ways of sending
+  // wait for a switch in flight.
+  it('hands both the switch in flight', () => {
+    switchState.switching = true;
+    renderPanes().open('c1', { chats: [chat('c1')] });
+    expect(props('composer')).toMatchObject({ switching: true });
+    expect(props('transcript')).toMatchObject({ switching: true });
+  });
+
   // The query re-runs for nobody, so a sidecar unreachable when the pane opened
-  // would leave the headings guessing until it remounts.
+  // would leave the switch hidden until it remounts.
   it('asks for the sandbox again once the watch is live', () => {
     useSandboxMock.mockReturnValue({ available: undefined, failed: true, retry: sandboxRetry });
     const panes = renderPanes();
@@ -203,10 +218,10 @@ describe('ChatPane', () => {
     expect(sandboxRetry).toHaveBeenCalledTimes(1);
   });
 
-  it("hands the composer the chat's switch and the transcript the machine's sandbox", () => {
+  it("hands the composer the chat's switch and both the machine's sandbox", () => {
     const panes = renderPanes();
     panes.open('c1', { chats: [chat('c1', '1', true)] });
-    expect(props('composer')).toMatchObject({ sandboxDisabled: true });
+    expect(props('composer')).toMatchObject({ sandboxAvailable: true, sandboxDisabled: true });
     // Ask again sends it as what the user saw.
     expect(props('transcript')).toMatchObject({ sandboxAvailable: true, sandboxDisabled: true });
 
@@ -216,6 +231,7 @@ describe('ChatPane', () => {
 
     useSandboxMock.mockReturnValue({ available: undefined, failed: false, retry: sandboxRetry });
     panes.open('c1', { chats: [chat('c1')] });
+    expect(props('composer').sandboxAvailable).toBeUndefined();
     expect(props('transcript').sandboxAvailable).toBeUndefined();
   });
 

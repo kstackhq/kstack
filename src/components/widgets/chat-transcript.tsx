@@ -90,6 +90,8 @@ type ChatTranscriptProps = {
   sandboxAvailable?: boolean;
   /** The chat's switch, which Ask again sends as what the user saw. Undefined until the list watch delivers the chat. */
   sandboxDisabled?: boolean;
+  /** The chat's sandbox switch is in flight, which Ask again waits for. */
+  switching?: boolean;
 };
 
 // Every message with something to say about itself: its text, the notices it
@@ -1144,6 +1146,7 @@ export function ChatTranscript({
   approveArmMs = APPROVE_ARM_MS,
   sandboxAvailable,
   sandboxDisabled,
+  switching = false,
 }: ChatTranscriptProps) {
   const { models } = useModels();
   const { send, askAgain } = useChatOutbox(mode, chatID, clusterID);
@@ -1191,7 +1194,7 @@ export function ChatTranscript({
   const failed = last?.role === 'Assistant' && last.status === 'Failed' && last.provider !== null;
   const question = failed ? questionBefore(messages, messages.indexOf(last)) : null;
   const onAskAgain =
-    failed && question !== null && send.status === 'idle' && sandboxDisabled !== undefined
+    failed && question !== null && send.status === 'idle' && !switching && sandboxDisabled !== undefined
       ? () =>
           askAgain(
             question,

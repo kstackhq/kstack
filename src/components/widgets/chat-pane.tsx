@@ -30,6 +30,7 @@ import { useChatMessages, useChats, waitingRequestsOf } from '@/lib/chats';
 import type { ChatMessage } from '@/lib/chats';
 import { useClusters } from '@/lib/clusters';
 import { useSandbox } from '@/lib/sandbox';
+import { useSandboxSwitch } from '@/lib/sandbox-switch';
 
 type NewChatPaneProps = {
   mode: AppMode;
@@ -111,9 +112,12 @@ function OpenChat({ chatID, mode, onGone }: ChatPaneProps) {
   // The clusters watch is one more thing the pane waits on: the window's cluster is
   // what says whether this chat is in scope, and an unanswered watch names none.
   const phase = listPhase === 'connecting' || clusterPhase === 'connecting' ? 'connecting' : messagesPhase;
-  // Without the answer, a request cannot say whether the machine has a sandbox.
+  // Without the answer the switch stays hidden.
   useAskAgainWhenLive(sandbox.failed, phase === 'live', sandbox.retry);
   const chat = chats.find((c) => c.id === chatID);
+  // Held here, since the composer's Send and the transcript's Ask again both wait
+  // for a switch in flight.
+  const { switching, setSandboxDisabled } = useSandboxSwitch(chatID, chat?.sandboxDisabled);
   const waiting = firstWaitingEarlier(messages);
 
   // Absence is gated on the list's Bookmark: before it, an id the map does not hold
@@ -150,6 +154,7 @@ function OpenChat({ chatID, mode, onGone }: ChatPaneProps) {
         clusterID={chat?.clusterID}
         sandboxAvailable={sandbox.available}
         sandboxDisabled={chat?.sandboxDisabled}
+        switching={switching}
       />
       {/* The chat's own cluster, so a send into it needs no active one. */}
       <ChatComposer
@@ -159,7 +164,10 @@ function OpenChat({ chatID, mode, onGone }: ChatPaneProps) {
         phase={phase}
         last={messages.at(-1) ?? null}
         lastAnswer={messages.filter((m) => m.role === 'Assistant').at(-1) ?? null}
+        sandboxAvailable={sandbox.available}
         sandboxDisabled={chat?.sandboxDisabled}
+        switching={switching}
+        onSwitchSandbox={setSandboxDisabled}
         onShowWaiting={
           waiting
             ? () => document.getElementById(approvalAnchor(waiting))?.scrollIntoView({ block: 'center' })

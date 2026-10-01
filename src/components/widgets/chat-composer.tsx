@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from '@kubetail/ui/elements/dropdown-menu';
 
+import { SandboxSwitch } from '@/components/widgets/sandbox-switch';
 import { graphql } from '@/gql';
 import type { AppMode } from '@/lib/app-mode';
 import { useAskAgainWhenLive } from '@/lib/ask-again-when-live';
@@ -79,8 +80,13 @@ type ChatComposerProps = {
   onShowWaiting?: () => void;
   /** The first send from a null `chatID` created this chat. */
   onCreated?: (chatID: string) => void;
+  /** Whether the machine offers a sandbox. Undefined until the sidecar says. */
+  sandboxAvailable?: boolean;
   /** The open chat's switch. Undefined until the list watch delivers the chat. */
   sandboxDisabled?: boolean;
+  /** A switch is in flight. Send waits for it rather than send a switch about to change. */
+  switching?: boolean;
+  onSwitchSandbox?: (disabled: boolean) => void;
 };
 
 type Option = { value: string; label: string };
@@ -155,7 +161,10 @@ export function ChatComposer({
   lastAnswer,
   onShowWaiting,
   onCreated,
+  sandboxAvailable,
   sandboxDisabled,
+  switching = false,
+  onSwitchSandbox = () => {},
 }: ChatComposerProps) {
   const { models, loaded, failed, retry: askAgainForModels } = useModels();
   // Without a catalog there is no pick and nothing can be sent.
@@ -227,6 +236,7 @@ export function ChatComposer({
     picked !== null &&
     phase !== 'connecting' &&
     !streaming &&
+    !switching &&
     shownDisabled !== undefined &&
     draft.trim() !== '';
   // All only once the watch they wait on has answered: a window at startup has not
@@ -322,6 +332,10 @@ export function ChatComposer({
       />
       <div className="flex items-center justify-between gap-2">
         <div className="flex min-w-0 items-center gap-1">
+          {/* A chat that has not started has no row to switch: it starts sandboxed. */}
+          {chatID !== null && sandboxAvailable === true && (
+            <SandboxSwitch sandboxDisabled={sandboxDisabled} switching={switching} onSwitch={onSwitchSandbox} />
+          )}
           {pick && picked && (
             <>
               <Segment

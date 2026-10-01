@@ -72,6 +72,7 @@ const draw = (
     approveArmMs?: number;
     sandboxAvailable?: boolean;
     sandboxDisabled?: boolean;
+    switching?: boolean;
   } = {
     sandboxAvailable: false,
   },
@@ -88,6 +89,7 @@ const draw = (
           approveArmMs={props.approveArmMs ?? 0}
           sandboxAvailable={'sandboxAvailable' in props ? props.sandboxAvailable : false}
           sandboxDisabled={'sandboxDisabled' in props ? props.sandboxDisabled : false}
+          switching={props.switching}
         />
       </ChatOutboxProvider>
     ) as ReactNode,
@@ -552,6 +554,11 @@ describe('ChatTranscript', () => {
 
     it('is not offered before the list delivers the switch', () => {
       draw(failed, { sandboxAvailable: true, sandboxDisabled: undefined });
+      expect(screen.queryByRole('button', { name: 'Ask again' })).toBeNull();
+    });
+
+    it('is not offered while the sandbox switch is in flight', () => {
+      draw(failed, { sandboxAvailable: false, switching: true });
       expect(screen.queryByRole('button', { name: 'Ask again' })).toBeNull();
     });
 
