@@ -12,9 +12,11 @@ import (
 	"io"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"time"
@@ -33,6 +35,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/cloud"
 	"github.com/kstackhq/kstack/sidecar/internal/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
+	"github.com/kstackhq/kstack/sidecar/internal/credentials"
 	"github.com/kstackhq/kstack/sidecar/internal/kubeconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
@@ -110,6 +113,9 @@ type App struct {
 	handler       http.Handler
 	graphqlServer *graph.Server
 	grpcServer    *grpcserver.Server
+
+	// creds borrows credentials from the user's tools; a part closes it.
+	creds *credentials.Store
 
 	// parts is start order; stop and close run in reverse, which is what keeps poke's
 	// hub open until its subscribers have drained, and app.db open until every
@@ -230,6 +236,8 @@ func New(cfg Config) (*App, error) {
 		mux.ServeHTTP(w, r)
 	}), &http2.Server{})
 
+	creds := newCredentials(kubeconfigSvc)
+
 	parts := []lifecycle.Part{
 		{Name: "app.db", StartCloser: lifecycle.CloseFunc(db.Close)},
 		{Name: "poke service", StartCloser: lifecycle.StartFunc(pokeSvc.Start)},
@@ -238,6 +246,7 @@ func New(cfg Config) (*App, error) {
 		{Name: "cloud service", StartCloser: lifecycle.StartFunc(cloudSvc.Start)},
 		{Name: "memory service", StartCloser: memorySvc},
 		{Name: "chat service", StartCloser: chatSvc},
+		{Name: "credentials", StartCloser: lifecycle.CloseFunc(func() error { creds.Close(); return nil })},
 	}
 	// Started after READY and before Serve, so no command can run ahead of it.
 	if cfg.ShellSnapshot && shell != nil {
@@ -247,8 +256,36 @@ func New(cfg Config) (*App, error) {
 		handler:       handler,
 		graphqlServer: graphqlServer,
 		grpcServer:    grpcServer,
+		creds:         creds,
 		parts:         parts,
 	}, nil
+}
+
+// newCredentials builds the store over the tools on the sidecar's own PATH — on
+// macOS the one imported from the login shell — running each in the user's home.
+func newCredentials(kubeconfigSvc *kubeconfig.Service) *credentials.Store {
+	look := func(name string) string {
+		path, err := exec.LookPath(name)
+		if err != nil {
+			return ""
+		}
+		return path
+	}
+	bins := credentials.Binaries{AWS: look("aws"), GH: look("gh"), Gcloud: look("gcloud"), Az: look("az")}
+	home, _ := os.UserHomeDir()
+	return credentials.NewStore(bins, home, kubeContexts(kubeconfigSvc), nil)
+}
+
+// kubeContexts answers the kubeconfig's context names, sorted, and none before it
+// has been read.
+func kubeContexts(kubeconfigSvc *kubeconfig.Service) func() []string {
+	return func() []string {
+		cfg, read := kubeconfigSvc.Get()
+		if !read {
+			return nil
+		}
+		return slices.Sorted(maps.Keys(cfg.Contexts))
+	}
 }
 
 // makeDirs refuses a directory that is empty or relative, and makes each one

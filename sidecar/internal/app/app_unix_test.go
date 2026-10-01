@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/credentials"
 	"github.com/kstackhq/kstack/sidecar/internal/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
@@ -264,4 +265,132 @@ func TestASubagentsSandboxedCallRunsUnasked(t *testing.T) {
 	assert.Equal(t, "2", firstLine(row.result))
 	assert.True(t, row.sandboxed)
 	assert.Empty(t, row.approvalID)
+}
+
+// The secrets the fake tools hand out, each of which must stay in memory.
+const (
+	diskAWSSecret  = "aws-secret-access-key-disk-0123456789"
+	diskAWSSession = "aws-session-token-disk-0123456789"
+	diskGitHub     = "gho_disktoken0123456789abcdefghijkl"
+	diskGoogle     = "ya29.disk-token-0123456789abcdef"
+	diskAzure      = "azure-disk-token-0123456789abcdef"
+)
+
+// fakeCredentialTools writes aws, gh, gcloud and az to a directory of their own.
+// Each answers its borrow and its discovery and writes what it prints to a file
+// in its working directory, as a tool that caches would.
+func fakeCredentialTools(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	tools := map[string]string{
+		"aws": `"configure export-credentials --profile dev --format process") out='{"Version":1,"AccessKeyId":"ASIAEXAMPLEKEY000001","SecretAccessKey":"` + diskAWSSecret + `","SessionToken":"` + diskAWSSession + `","Expiration":"2099-01-01T00:00:00Z"}' ;;
+"configure list-profiles") out=dev ;;
+"configure get region --profile dev") out=eu-west-1 ;;
+"sts get-caller-identity --output json")
+	[ "$AWS_ACCESS_KEY_ID" = ASIAEXAMPLEKEY000001 ] && [ -z "$AWS_PROFILE" ] || exit 1
+	out='{"Account":"111111111111"}' ;;`,
+		"gh": `"auth token --hostname github.com") out='` + diskGitHub + `' ;;
+"auth status --hostname github.com") out='  ✓ Logged in to github.com account alice (keyring)' ;;`,
+		"gcloud": `"config config-helper --min-expiry=15m --format=json") out='{"credential":{"access_token":"` + diskGoogle + `","token_expiry":"2099-01-01T00:00:00Z"}}' ;;
+"config get-value account") out=alice@example.com ;;
+"config get-value project") out=my-project ;;`,
+		"az": `"account get-access-token --resource https://management.azure.com/ --output json") out='{"accessToken":"` + diskAzure + `","expires_on":4070908800}' ;;
+"account show --output json") out='{"id":"sub","name":"my-sub","tenantId":"t","user":{"name":"alice@example.com"}}' ;;`,
+	}
+	for name, cases := range tools {
+		script := "#!/bin/sh\ncase \"$*\" in\n" + cases + "\n*) exit 1 ;;\nesac\n" +
+			"printf '%s\\n' \"$out\" > ./" + name + "-cache\nprintf '%s\\n' \"$out\"\n"
+		require.NoError(t, os.WriteFile(filepath.Join(dir, name), []byte(script), 0o755))
+	}
+	return dir
+}
+
+// No credential lands under Kstack's directories or in the log, whatever a tool
+// caches: each fake writes what it prints where it runs, and the test runs from
+// the data directory, so a tool run anywhere but the home would leave it there.
+func TestNoCredentialIsWrittenToDisk(t *testing.T) {
+	logs := testutil.CaptureLogs(t)
+	root := t.TempDir()
+	data, cache, runtime := filepath.Join(root, "data"), filepath.Join(root, "cache"), filepath.Join(root, "runtime")
+	for _, d := range []string{data, cache, runtime} {
+		require.NoError(t, os.MkdirAll(d, 0o700))
+	}
+	t.Chdir(data)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("SHELL", "")
+	t.Setenv("AWS_PROFILE", "prod")
+	t.Setenv("PATH", fakeCredentialTools(t))
+	kubeconfig := filepath.Join(t.TempDir(), "kubeconfig")
+	writeKubeconfig(t, kubeconfig, "context-A")
+
+	a, err := New(Config{KubeconfigPath: kubeconfig, DataDir: data, CacheDir: cache, RuntimeDir: runtime})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = a.Close() })
+
+	secrets := []string{diskAWSSecret, diskAWSSession, diskGitHub, diskGoogle, diskAzure}
+	assertNoSecretOnDisk := func(t *testing.T) {
+		t.Helper()
+		require.NoError(t, filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil || d.IsDir() {
+				return err
+			}
+			body, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			for _, s := range secrets {
+				assert.NotContains(t, string(body), s, path)
+			}
+			return nil
+		}))
+		for _, s := range secrets {
+			assert.NotContains(t, logs.String(), s)
+		}
+	}
+
+	cases := []struct {
+		name   string
+		cached string
+		borrow func(t *testing.T)
+	}{
+		{"aws", "aws-cache", func(t *testing.T) {
+			c, err := a.creds.AWS(t.Context(), "dev")
+			require.NoError(t, err)
+			assert.Equal(t, diskAWSSecret, c.SecretAccessKey)
+			assert.Equal(t, "111111111111", c.Account, "read with the borrowed keys")
+			a.creds.MarkExpired(credentials.Key{Provider: credentials.AWS, Name: "dev"}, "dev", c.SecretAccessKey)
+		}},
+		{"github", "gh-cache", func(t *testing.T) {
+			token, err := a.creds.GitHub(t.Context(), "github.com")
+			require.NoError(t, err)
+			assert.Equal(t, diskGitHub, token)
+			a.creds.MarkExpired(credentials.Key{Provider: credentials.GitHub}, "github.com", token)
+		}},
+		{"google", "gcloud-cache", func(t *testing.T) {
+			token, err := a.creds.Google(t.Context())
+			require.NoError(t, err)
+			assert.Equal(t, diskGoogle, token.Value)
+			a.creds.MarkExpired(credentials.Key{Provider: credentials.Google}, "", token.Value)
+		}},
+		{"azure", "az-cache", func(t *testing.T) {
+			token, err := a.creds.Azure(t.Context(), "https://management.azure.com/")
+			require.NoError(t, err)
+			assert.Equal(t, diskAzure, token.Value)
+			a.creds.MarkExpired(credentials.Key{Provider: credentials.Azure}, "https://management.azure.com/", token.Value)
+		}},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			c.borrow(t)
+			assert.FileExists(t, filepath.Join(home, c.cached), "the tool ran in the home")
+			assertNoSecretOnDisk(t)
+		})
+	}
+
+	found := a.creds.Discover(t.Context())
+	for _, tool := range found.Tools {
+		assert.True(t, tool.Present, tool.Provider)
+	}
+	assertNoSecretOnDisk(t)
 }
