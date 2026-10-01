@@ -3020,9 +3020,13 @@ directory no sandboxed command reads, and never synced. `app.New` opens it on ev
   that changes something creates the file; `Open` writes nothing.
 - **Decoding is per field, and a list per element.** `Open` reads the file as a JSON object and
   decodes each key into the field `encoding/json` writes under it. One bad list element is refused
-  alone; any other value of the wrong type is refused whole, and the other fields load. An unknown
-  key is ignored and the next write drops it. Only a file that is not a JSON object, `null`
-  included, fails `Open`, naming the file.
+  alone; any other value of the wrong type is refused whole, and the other fields load. A key no
+  field names is ignored and kept: every write puts it back as read, so an older Kstack's write
+  keeps a newer one's setting. Only a file that is not a JSON object, `null` included, fails
+  `Open`, naming the file.
+- **Every write stamps `schemaVersion`**: `schemaVersion` in `store.go`, or the file's own when a
+  newer Kstack wrote it, since this build cannot upgrade what it does not know. A step that
+  changes a field's layout bumps it and upgrades an older file in `Open`.
 - **A hand edit may cost a permission, never a restriction.** `strictest` (`check.go`) maps each
   field that restricts to what sets it to its most restrictive state. A refusal on such a field
   sets that state, never the zero value, and the store keeps the field's raw JSON, which every

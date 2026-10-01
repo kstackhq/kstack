@@ -110,6 +110,12 @@ slice, a map or a string is `omitempty`; a struct, which `omitempty` never leave
 `omitzero`. A file written before a step landed reads under it, since a missing key decodes to
 the zero value.
 
+**The file carries its layout's version.** Every write stamps `"schemaVersion"`: the store's
+`schemaVersion`, 1 in this step, or the file's own when it is higher, since a newer Kstack wrote
+it and this build cannot upgrade what it does not know. A step that changes a field's layout —
+a rename, a split, a list of strings become a list of objects — bumps it and upgrades an older
+file in `Open`, before decoding; a step that only adds a field does not.
+
 ### 3. Read-back
 
 Every field follows one convention, which its step's tests pin. `securityconfig/check.go` holds
@@ -133,8 +139,9 @@ that step beside what `Refused()` lists.
   `Refusal` with the element's raw JSON as its value, and its siblings load. Any other value that
   does not decode into its field's type — a string where a list belongs — is refused whole, with
   the field's raw JSON as its value; a struct field is one key, so one bad member refuses the
-  whole struct. The other fields load either way. An unknown key is ignored, and the next write
-  drops it. Only a file that is not a JSON object fails `Open`, `null` included. So a hand edit
+  whole struct. The other fields load either way. A key no field names is ignored and kept: every
+  write puts it back as read, so a write by an older Kstack keeps a setting a newer one wrote.
+  Only a file that is not a JSON object fails `Open`, `null` included. So a hand edit
   can cost a value, never the app.
 - **A refused value of a restricting field fails closed.** `check.go` holds `strictest`, a map
   from a restricting field's JSON key to a `func(*Settings)` that sets it to its most restrictive
@@ -231,6 +238,10 @@ store opens like anywhere else, since step 7A's `Onboarded` flag needs a home th
 - `TestAnUpdateNamingARefusedRestrictionWritesItsStrictestState`: an `Update` that sets the field
   to the strictest state it already answers keeps the raw JSON unless it names the field, and
   naming it writes and publishes that state.
+- `TestAWriteStampsTheVersion`: a write stamps `schemaVersion` 1 into a new file and into one
+  with no version, and keeps a newer file's higher one.
+- `TestAWriteKeepsTheKeysNoFieldNames`: a key no field names, and one spelled in another case,
+  is not refused and is written back as read.
 - `TestDecodeReadsTheKeyASaveWrites`: a field with no JSON name decodes from its Go name, and a
   field tagged `-` or unexported decodes from nothing.
 - `TestUpdateKeepsItsOwnCopy`: a slice the `Update` callback still holds cannot change the stored
@@ -257,7 +268,9 @@ the next launch or overwritten by the next `Update`. `security-model.md`'s
 owner-only files row gains `security.json`, pinned by `TestTheFileIsOwnerOnly`. A malformed
 value never loosens a restriction: a restricting field fails closed and keeps its raw JSON in the
 file (§2, §3), pinned by `TestARefusedRestrictionFailsClosed` and
-`TestAnUpdateKeepsARefusedRestrictionInTheFile`. No security record.
+`TestAnUpdateKeepsARefusedRestrictionInTheFile`. An older Kstack does not apply a setting a newer
+one wrote, but keeps it in the file, so going back and forward loses no restriction, pinned by
+`TestAWriteKeepsTheKeysNoFieldNames`. No security record.
 
 ## When it lands
 

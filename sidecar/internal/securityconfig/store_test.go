@@ -240,8 +240,46 @@ func TestARefusedValueIsLeftOutAndListed(t *testing.T) {
 	}))
 	after, err = os.ReadFile(file)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"count": 2}`, string(after), "the next write drops the refused value")
+	assert.JSONEq(t, `{"count": 2, "schemaVersion": 1}`, string(after), "the next write drops the refused value")
 	assert.Equal(t, want, s.Refused(), "and it is still listed")
+}
+
+func TestAWriteStampsTheVersion(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "security.json")
+	write := func(s *store[testSettings], count int) string {
+		t.Helper()
+		require.NoError(t, s.Update(func(v *testSettings) error {
+			v.Count = count
+			return nil
+		}))
+		data, err := os.ReadFile(file)
+		require.NoError(t, err)
+		return string(data)
+	}
+
+	assert.JSONEq(t, `{"count": 1, "schemaVersion": 1}`, write(openTest(t, file), 1), "a new file")
+
+	require.NoError(t, os.WriteFile(file, []byte(`{"count": 1}`), 0o600))
+	assert.JSONEq(t, `{"count": 2, "schemaVersion": 1}`, write(openTest(t, file), 2), "a file with no version")
+
+	require.NoError(t, os.WriteFile(file, []byte(`{"count": 1, "schemaVersion": 7}`), 0o600))
+	assert.JSONEq(t, `{"count": 2, "schemaVersion": 7}`, write(openTest(t, file), 2), "a newer Kstack's file keeps its version")
+}
+
+// A key no field names is a newer Kstack's setting, so a write keeps it.
+func TestAWriteKeepsTheKeysNoFieldNames(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "security.json")
+	require.NoError(t, os.WriteFile(file, []byte(`{"count": 1, "rules": [{"deny": "x"}], "Count": 9}`), 0o600))
+	s := openTest(t, file)
+	assert.Empty(t, s.Refused())
+
+	require.NoError(t, s.Update(func(v *testSettings) error {
+		v.Count = 2
+		return nil
+	}))
+	data, err := os.ReadFile(file)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"count": 2, "rules": [{"deny": "x"}], "Count": 9, "schemaVersion": 1}`, string(data))
 }
 
 // A field decodes from the key a save writes it under: its Go name when it has
@@ -312,7 +350,7 @@ func TestAnUpdateKeepsARefusedRestrictionInTheFile(t *testing.T) {
 	}))
 	data, err := os.ReadFile(file)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"count": 1, "denied": ["a", 1]}`, string(data), "an unrelated write keeps the raw value")
+	assert.JSONEq(t, `{"count": 1, "denied": ["a", 1], "schemaVersion": 1}`, string(data), "an unrelated write keeps the raw value")
 	assert.Equal(t, []string{"*"}, s.Get().Denied)
 
 	require.NoError(t, s.Update(func(v *testSettings) error {
@@ -321,7 +359,7 @@ func TestAnUpdateKeepsARefusedRestrictionInTheFile(t *testing.T) {
 	}))
 	data, err = os.ReadFile(file)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"count": 1, "denied": ["a"]}`, string(data), "a write of the field itself replaces it")
+	assert.JSONEq(t, `{"count": 1, "denied": ["a"], "schemaVersion": 1}`, string(data), "a write of the field itself replaces it")
 }
 
 // The fix can be the strictest state the field already answers, which changes
@@ -347,7 +385,7 @@ func TestAnUpdateNamingARefusedRestrictionWritesItsStrictestState(t *testing.T) 
 	require.NoError(t, s.Update(setStrictest, "denied"))
 	data, err = os.ReadFile(file)
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"denied": ["*"]}`, string(data), "an Update naming the field writes it")
+	assert.JSONEq(t, `{"denied": ["*"], "schemaVersion": 1}`, string(data), "an Update naming the field writes it")
 	_, err = rx.TryRecv()
 	assert.NoError(t, err, "the write is published")
 }

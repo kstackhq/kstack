@@ -26,6 +26,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -37,6 +38,14 @@ import (
 // Settings is the security settings. Each field is added by the step that
 // needs it; see the table in the spec.
 type Settings struct{}
+
+// schemaVersion is the file's layout, stamped under versionKey on every
+// write. A step that changes a field's layout bumps it and upgrades an older
+// file in Open.
+const (
+	schemaVersion = 1
+	versionKey    = "schemaVersion"
+)
 
 // Store keeps Settings in one JSON file and publishes each write. Safe for
 // concurrent use.
@@ -81,6 +90,12 @@ type store[T any] struct {
 	// answers its strictest state, so a write keeps it until one writes the
 	// field itself.
 	held map[string]json.RawMessage
+	// unknown is each key of the file no field names, kept as read so a write
+	// by an older Kstack keeps what a newer one wrote.
+	unknown map[string]json.RawMessage
+	// version is what a write stamps: the file's own when a newer Kstack
+	// wrote it, since this build cannot upgrade what it does not know.
+	version int
 
 	hub *watch.Hub[T]
 	tx  *watch.Sender[T]
@@ -103,6 +118,13 @@ func openStore[T any](file string, checks []func(*T) []Refusal, strictest map[st
 			set(&cur)
 		}
 	}
+	fields := fieldKeys[T]()
+	unknown := map[string]json.RawMessage{}
+	for key, raw := range keys {
+		if key != versionKey && !slices.Contains(fields, key) {
+			unknown[key] = raw
+		}
+	}
 	for _, r := range refused {
 		slog.Warn("security setting refused", "file", file, "field", r.Field, "value", r.Value, "reason", r.Reason)
 	}
@@ -113,6 +135,8 @@ func openStore[T any](file string, checks []func(*T) []Refusal, strictest map[st
 		save:    atomicjson.Save[map[string]json.RawMessage],
 		refused: refused,
 		held:    held,
+		unknown: unknown,
+		version: max(schemaVersion, versionOf(keys)),
 		hub:     hub,
 		tx:      hub.Sender(),
 		cur:     cur,
@@ -138,16 +162,21 @@ func readKeys(file string) (map[string]json.RawMessage, error) {
 	return keys, nil
 }
 
-// decode sets each field of T from the key that is its JSON name exactly. A
-// value that does not decode into its field is refused, and the other fields
-// still load; a key no field names is ignored.
-func decode[T any](keys map[string]json.RawMessage) (T, []Refusal) {
-	var v T
-	var refused []Refusal
-	rv := reflect.ValueOf(&v).Elem()
-	for i := range rv.NumField() {
-		// The key is the one encoding/json writes the field under, so a save reads back.
-		f := rv.Type().Field(i)
+// versionOf is the version the file was stamped with, 0 when it has none.
+func versionOf(keys map[string]json.RawMessage) int {
+	var v int
+	_ = json.Unmarshal(keys[versionKey], &v)
+	return v
+}
+
+// fieldKeys is the key each field of T is read and written under, by the
+// field's index; "" for a field encoding/json skips. The key is the one
+// encoding/json writes the field under, so a save reads back.
+func fieldKeys[T any]() []string {
+	t := reflect.TypeFor[T]()
+	keys := make([]string, t.NumField())
+	for i := range t.NumField() {
+		f := t.Field(i)
 		name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
 		if !f.IsExported() || name == "-" {
 			continue
@@ -155,8 +184,21 @@ func decode[T any](keys map[string]json.RawMessage) (T, []Refusal) {
 		if name == "" {
 			name = f.Name
 		}
+		keys[i] = name
+	}
+	return keys
+}
+
+// decode sets each field of T from the key that is its JSON name exactly. A
+// value that does not decode into its field is refused, and the other fields
+// still load; a key no field names is ignored.
+func decode[T any](keys map[string]json.RawMessage) (T, []Refusal) {
+	var v T
+	var refused []Refusal
+	rv := reflect.ValueOf(&v).Elem()
+	for i, name := range fieldKeys[T]() {
 		raw, ok := keys[name]
-		if !ok {
+		if name == "" || !ok {
 			continue
 		}
 		refused = append(refused, decodeField(name, raw, rv.Field(i))...)
@@ -225,8 +267,8 @@ func (s *store[T]) Update(fn func(*T) error, fields ...string) error {
 		return refused[0]
 	}
 	held := s.stillHeld(next, fields)
-	was, _ := json.Marshal(fileOf(s.cur, s.held))
-	is := fileOf(next, held)
+	was, _ := json.Marshal(s.fileOf(s.cur, s.held))
+	is := s.fileOf(next, held)
 	if b, _ := json.Marshal(is); bytes.Equal(was, b) {
 		return nil
 	}
@@ -242,7 +284,7 @@ func (s *store[T]) Update(fn func(*T) error, fields ...string) error {
 // stillHeld is the held fields an Update leaves alone: changing a field, or
 // naming it in fields, replaces the raw JSON kept for it.
 func (s *store[T]) stillHeld(next T, fields []string) map[string]json.RawMessage {
-	was, is := fileOf(s.cur, nil), fileOf(next, nil)
+	was, is := fieldsOf(s.cur), fieldsOf(next)
 	held := maps.Clone(s.held)
 	maps.DeleteFunc(held, func(key string, _ json.RawMessage) bool {
 		return slices.Contains(fields, key) || !bytes.Equal(was[key], is[key])
@@ -251,12 +293,21 @@ func (s *store[T]) stillHeld(next T, fields []string) map[string]json.RawMessage
 }
 
 // fileOf is what the file holds for v: each field's JSON, with the held raw
-// values in place of the fields they belong to.
-func fileOf[T any](v T, held map[string]json.RawMessage) map[string]json.RawMessage {
+// values in place of the fields they belong to, then the keys no field names,
+// and the version.
+func (s *store[T]) fileOf(v T, held map[string]json.RawMessage) map[string]json.RawMessage {
+	keys := fieldsOf(v)
+	maps.Copy(keys, held)
+	maps.Copy(keys, s.unknown)
+	keys[versionKey] = json.RawMessage(strconv.Itoa(s.version))
+	return keys
+}
+
+// fieldsOf is each field's JSON, by its key.
+func fieldsOf[T any](v T) map[string]json.RawMessage {
 	b, _ := json.Marshal(v)
 	keys := map[string]json.RawMessage{}
 	_ = json.Unmarshal(b, &keys)
-	maps.Copy(keys, held)
 	return keys
 }
 
