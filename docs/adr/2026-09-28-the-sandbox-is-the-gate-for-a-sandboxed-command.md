@@ -3,6 +3,7 @@ title: The sandbox is the gate for a sandboxed command
 date: 2026-09-28
 scope: cross-cutting
 status: Accepted
+amended_by: [Leaving the sandbox is the user's switch for a chat, never the model's flag](2026-09-30-leaving-the-sandbox-is-the-users-switch-for-a-chat.md)
 ---
 
 # The sandbox is the gate for a sandboxed command

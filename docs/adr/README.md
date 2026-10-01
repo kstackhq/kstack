@@ -168,3 +168,4 @@ usually just documentation in the wrong place.
 | 2026-09-30 | [The cluster service is one package of record families over private leaves](2026-09-30-the-cluster-service-is-one-package-over-private-leaves.md) | sidecar | Accepted |
 | 2026-09-30 | [A supervisor run may bring its next run forward, never push it back](2026-09-30-a-run-may-bring-its-next-run-forward.md) | sidecar | Accepted |
 | 2026-09-30 | [The kubeconfig fingerprint digests the whole file](2026-09-30-the-kubeconfig-fingerprint-digests-the-whole-file.md) | sidecar | Accepted |
+| 2026-09-30 | [Leaving the sandbox is the user's switch for a chat, never the model's flag](2026-09-30-leaving-the-sandbox-is-the-users-switch-for-a-chat.md) | cross-cutting | Accepted |
