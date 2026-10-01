@@ -1294,18 +1294,61 @@ failed save is a render of whole rows, where `Fit`'s would cut one.
 
 **`internal/sandbox` is the machine's sandbox**, a leaf that knows no tool and no cluster.
 `Probe(ctx)` answers a `*Sandbox`, nil for none, and a `Verdict` (`Available`, `Reason`), which
-`app` logs; `(*Sandbox).Command(ctx, Run)` is the process that runs a `Run` (`Shell`, `Args`,
-`Dir`, `Env`, the whole environment, what a platform mounts: `Workspace`, `Readable`,
-`Writable`, `Home`, `Denied` — Kstack's data, cache and runtime directories — `Port`, and
-`Socket`, the run's proxy socket, empty for a run with no cluster)
-sandboxed, made by `exec.CommandContext` and not yet started; `Run.Check` refuses a run whose
-own path (`Workspace`, `Writable`, `Readable`) is a link at its last component, since a profile
-resolves each path and would open the link's target (`TestARunsOwnPathThatIsALinkIsRefused`); `Confines()` is whether that
-confines it, and `Port()` the port the run's forwarder listens on; Windows' is `errNone`.
-Whether a sandbox confined a call is its row's `tool_calls.sandboxed`, beside `cwd` and kept the
-same way, since it is not in the arguments. On Windows `Probe` answers none, and `Command`'s
-start fails rather than running unconfined: native Windows has no sandbox, and a Windows user
-who wants one runs the Linux build in WSL2 → [ADR](../docs/adr/2026-09-28-native-windows-has-no-sandbox.md).
+`app` logs. `(*Sandbox).Command(ctx, Run)` is the process that runs a `Run` (`Shell`, `Args`,
+`Dir`, `Env`, the whole environment, and `Policy`) sandboxed, made by `exec.CommandContext` and
+not yet started, or an error and no command. `Confines()` is whether that confines it, and
+`Port()` the port a run's relay listens on. Whether a sandbox confined a call is its row's
+`tool_calls.sandboxed`, beside `cwd` and kept the same way, since it is not in the arguments. On
+Windows `Probe` answers none, `Command` answers `errNone`, and `System` and `Never` answer
+nothing: native Windows has no sandbox, and a Windows user who wants one runs the Linux build in
+WSL2 → [ADR](../docs/adr/2026-09-28-native-windows-has-no-sandbox.md).
+
+**A `Policy` is everything the sandbox enforces for a run** (`policy.go`), in three parts, and
+each platform compiles it without knowing what a path or a relay is for:
+
+- **`Files`** (`FilePolicy`): `Read` (readable, not writable), `Write` (readable and writable)
+  and `Deny` (neither). A rule covers a path and everything under it. **The deepest rule wins,
+  the narrower wins a tie** (Deny, then Read, then Write), **nothing sits beneath a Write rule**
+  (a run can rename what it writes, so a deeper rule could be moved out from under), and a path
+  no rule covers is off limits.
+- **`Always`** (`AlwaysPolicy`): `Deny`, the denied-always list, where nothing opens; `Kstack`,
+  Kstack's data, cache and runtime directories, where only the run's own `Read` and `Write`
+  paths open. **No Files rule opens an Always path**: it is not a Files Deny, which a deeper rule
+  opens. So a Read of `~` never exposes `~/.ssh`.
+- **`Network`** (`NetworkPolicy`): the `Relays`, each a loopback port the forwarder connects to a
+  Unix socket outside the run. No relay is no network; a run has at most one.
+
+**`Check` refuses** a relative path; any rule or Always path strictly beneath a Write rule, Files
+or Always; a Files rule on or inside an Always path; a run's own path outside every Kstack path,
+on or inside a Deny, holding a Deny (the run's own paths compile last), or that is a link at its last component, since the profile resolves it and
+would open the link's target (`TestARunsOwnPathThatIsALinkIsRefused`); and a second relay. Every path is compared resolved, a missing one through
+its deepest folder that exists (`resolved`), since both sandboxes check a file at its real
+location. **`Command` fails rather than narrows or widens**: a policy that fails `Check`, or that
+its platform cannot enforce, is `Command`'s error, which the model reads.
+
+**Both platforms compile one merged list** (`Policy.rules`), where the last matching rule wins:
+the Files rules, sorted by resolved path, shallowest first and on one path Write, Read, Deny;
+every Always path as a Deny; then the run's own paths, shallowest first. A Read or Write whose
+path does not exist opens nothing and is left out. A Deny is left out where no Files Read or Write
+reaches it, since its path is off limits already.
+
+**The lists are one shared file and one per platform** (`lists.go`, `lists_linux.go`,
+`lists_darwin.go`): a `Lists` of `System`, the folders every run reads, and `Never`, the paths no
+run reads, a `~/` path under the home. The credential directories and files are shared, and
+each platform adds its keyring (`~/.local/share/keyrings`, `~/Library/Keychains`); the System
+folders are each platform's own. **`Sandbox.System(home, shell, env)` is the `FilePolicy` every
+run starts from**: Read on the System folders, the `PATH` trees (`pathTrees`, below) and this
+executable at its resolved path, and on macOS Homebrew's `var` (`brewVar`) as a Deny. It holds
+no Read on or inside a Never path (`FilePolicy.Outside`), so Docker Desktop's `~/.docker/bin`
+opens nothing (`TestDockerDesktopsBinStaysDenied`). On Linux it also drops a `PATH` entry on
+`/tmp` or `/dev`, or on or under `/proc`, before `pathTrees` runs. **`Sandbox.Never(home)`** is
+the Never paths under the home, the absolute ones alone with none. The probe's policy is
+`probePolicy` (`probe.go`): `System`, its folder written, `Never` denied.
+
+**What no policy changes stays in each compiler**: on Linux the `/proc`, `/dev` and private `/tmp`
+mounts, the namespaces, `--die-with-parent --new-session --as-pid-1`, the closing `--remount-ro /`
+and the seccomp filter; on macOS the fixed reads, `setsid` and `setpgid` refused, signals within
+the sandbox, no `/dev/tty` and the one Mach service.
 
 **On Linux it is bubblewrap** (`sandbox_linux.go`). `Probe` tries the system's bwrap first, the
 first of `/usr/bin/bwrap`, `/bin/bwrap`, `/usr/local/bin/bwrap` and NixOS's
@@ -1318,67 +1361,67 @@ option` from a bwrap too old for a flag), and both reasons when both fail. The s
 first because the distribution patches it, while Kstack's own changes only when the user installs
 a new release. Kstack's own stands in where the system has none, or one that fails, as on Ubuntu
 23.10 and 24.04, where AppArmor blocks the system's and profiles Kstack's own alone. `Confines` is true, and `Port` the fixed
-`forwarderPort`, since the namespace's loopback is the run's own. `Command`'s arguments come in
-the order that lets each mount lie over the last: the namespaces (`--unshare-net`, `-pid`,
-`-ipc`, `-uts`, `--unshare-cgroup-try`, `--die-with-parent --new-session --as-pid-1`); `/proc`,
-`/dev`, a fresh `/tmp` and the `roots` (`rootArgs`: each that exists bound read-only at its
-resolved path unless another root holds it, and one that is a link or lies under one recreated as
-a link at its own path — a merged `/usr` makes `/bin` one, `/opt` can name `/var/opt`, and
-Homebrew's `/home/linuxbrew/.linuxbrew` lies under Fedora Atomic's linked `/home`); the `PATH`
-trees and links over the run's `PATH` plus the shell's directory; the denials over the roots and
-the trees alike, a directory as an empty tmpfs and a file as `/dev/null`; the run's own (`Readable` and this executable read-only, `Workspace` and
-`Writable` writable, each at its own path); `--remount-ro /`, then each directory denial
-remounted read-only after the binds made inside it; then the chain, `<self> sandbox-init
-[--socket <S> --port <P>] -- <self> sandbox-shell -- <Shell> <Args…>`. `/run` and `/var` are
-never mounted, so the runtime directory, the host's socket and a sibling run's kubeconfig are out
-of reach.
+`forwarderPort`, since the namespace's loopback is the run's own. **`Command` refuses a rule on
+`/tmp` or `/dev`, or on or under `/proc`**, a Files rule and a run's own path alike, since it
+would replace a fixed mount; a rule under `/tmp` or `/dev` is bound over it. The arguments come
+in the order that lets each mount lie over the last: the namespaces (`--unshare-net`, `-pid`,
+`-ipc`, `-uts`, `--unshare-cgroup-try`, `--die-with-parent --new-session --as-pid-1`); a rule on
+`/` itself; `/proc`, `/dev` and a fresh `/tmp`; the merged rules, one mount each (`mounter`): a
+Read or Write bound at its resolved path and, where that differs from the path as written,
+recreated as a link there (a merged `/usr` makes `/bin` one, and Homebrew's
+`/home/linuxbrew/.linuxbrew` lies under Fedora Atomic's linked `/home`) unless the last mount over it is a bind, which
+holds the tree's own link — a denied folder's tmpfs hides that link, so it is recreated in the
+tmpfs, whichever of the two is mounted first (`TestALinkInsideADenialLeadsToItsRead`), a Read already readable
+under an earlier Read not bound again (the fixed mounts hide what lies under them, as a denial does), the run's own paths bound as written, a denied folder an
+empty tmpfs and a denied file `/dev/null`; the links the run's `PATH` and the shell's directory
+need (`pathLinks`); `--remount-ro /`, then each denied folder remounted read-only after the binds
+made inside it; then the chain, `<self> sandbox-init [--socket <S> --port <P>] -- <self>
+sandbox-shell -- <Shell> <Args…>`. A Deny whose path is missing when the run starts covers
+nothing, since a mount needs a path. `/run` and `/var` are never mounted, so the runtime
+directory, the host's socket and a sibling run's kubeconfig are out of reach.
 
 **On macOS it is Seatbelt** (`sandbox_darwin.go`): `Probe` finds `/usr/bin/sandbox-exec` and runs
-`/usr/bin/true` under a no-cluster run's profile, bounded by two seconds, a failure's reason the
+`/usr/bin/true` under `probePolicy`, bounded by two seconds, a failure's reason the
 first line of its stderr. A probe that runs out of time keeps the sandbox, its reason saying so:
 it runs once, at startup, so a slow start must not leave the session unconfined. `Confines` is
 true; `Port` is a free loopback port, picked by listening on `127.0.0.1:0` and closing, since
 Seatbelt has no private loopback; and `Command` is `sandbox-exec -p <profile> -D …` then the argv
-(`Sandbox.argv`: the shell, or for a run with a `Socket` the forwarder with the shell its child) — its ctx bounds building the profile too, since resolving a path can hang on a
-network mount, and a ctx that ends first answers a command `Start` refuses — which `sandbox-exec` execs into, so the session the Bash tool starts is the run's process group and
+(`Sandbox.argv`: the shell, or for a run with a relay the forwarder with the shell its child) — its ctx bounds building the profile too, since resolving a path can hang on a
+network mount, and a ctx that ends first is its error — which `sandbox-exec` execs into, so the session the Bash tool starts is the run's process group and
 the profile holds every descendant. **The profile is `profile_darwin.sb`**, embedded: fixed rules
-with a marker line per list (`;; TREES`, `;; DENIED`, `;; OWN`, `;; ANCESTORS`, `;; NETWORK`),
-which `profile` replaces with one rule per path. **Every path is a parameter** (`-D TREE_3=…`,
-read as `(param "TREE_3")`), never text, since a path can hold `"` or `)`; the forwarder's port is
-the one value written into the text. **Every path is resolved** before it is passed, since
-Seatbelt checks a file's real path and `/var` and `/tmp` are links into `/private`; the socket is
-passed both as given and resolved. In order, a later rule winning: `deny default`; processes,
-signals and process info within the sandbox, `setsid` and `setpgid` refused (`syscall-unix`) so a
-process stays in the run's group, `sysctl-read`; reads of `/private/var`'s named files
-and `/dev`'s, never `/dev/tty`, since input pushed into a terminal (`TIOCSTI`) is run outside the
-sandbox by whatever reads it (`TestATerminalIsUnreachable`), a listing of `/` itself (dyld opens it at launch and aborts every program when it
-cannot), then the roots (`/usr`, `/bin`, `/sbin`, `/System`, `/Library`, `/Applications`,
-`/private/etc`, `/opt`), the `PATH` trees and the sidecar's executable; **denials** of the
-credential paths any of those reads takes in, each at its target, Homebrew's `var` (`brewVar`) and Kstack's directories; the
-run's own (the workspace and `Writable` read and written, `Readable` read), **each written path
-followed by a denial of unlinking or creating its root's own entry** (`literal`, so what lies
-inside stays writable): a run that could remove its workspace or kubectl cache and put a link
-there would have the next run's profile resolve it into Kstack's data
-(`TestARunCannotReplaceItsWorkspace`; on Linux each is a mount point, and the same test holds with
-no rule); `file-read-metadata`
-on every ancestor of what it reads, after the denials, so the workspace resolves under the denied
+with a marker line each for the policy's rules, the ancestors and the network (`;; RULES`,
+`;; ANCESTORS`, `;; NETWORK`), which `profile` replaces. **Every path is a parameter** (`-D
+RULE_3=…`, read as `(param "RULE_3")`), never text, since a path can hold `"` or `)`; the relay's
+port is the one value written into the text. **Every path is resolved** before it is passed,
+since Seatbelt checks a file's real path and `/var` and `/tmp` are links into `/private`; the
+socket is passed both as given and resolved. A Deny holds for its path whether or not it exists.
+In order, a later rule winning: `deny default`; processes, signals and process info within the
+sandbox, `setsid` and `setpgid` refused (`syscall-unix`) so a process stays in the run's group,
+`sysctl-read`; **the merged rules**, a Read as `allow file-read*` then `deny file-write*`, so it
+decides a tie with a Write as a read-only mount does, a Write as `allow file-read* file-write*`,
+**a run's own Write followed by a denial of unlinking or creating its root's own entry**
+(`literal`, so what lies inside stays writable), since a run that could remove its workspace or
+kubectl cache and put a link there would have the next run's profile resolve it into Kstack's
+data (`TestARunCannotReplaceItsWorkspace`; on Linux each is a mount point, and the same test holds
+with no rule), a Deny as `deny file-read* file-write*`; **then the fixed file rules**, so no rule of a policy
+undoes them: reads of `/private/var`'s named files and `/dev`'s, never `/dev/tty`, since input
+pushed into a terminal (`TIOCSTI`) is run outside the sandbox by whatever reads it
+(`TestATerminalIsUnreachable`), a listing of `/` itself (dyld opens it at launch and aborts every
+program when it cannot), and writes to `/dev/null` and `/dev/fd`; `file-read-metadata` on every
+ancestor of a Read or Write rule, after every Deny, so the workspace resolves under the denied
 data directory; one Mach service (`com.apple.system.opendirectoryd.libinfo`); and for a run with
-a socket, bind, inbound and outbound on `localhost:<port>` over TCP on IPv4 alone (`tcp4`, the
+a relay, bind, inbound and outbound on `localhost:<port>` over TCP on IPv4 alone (`tcp4`, the
 one endpoint the forwarder holds; `ip` would take in UDP and IPv6 at that number) and outbound to
-the socket, and no other network. So the per-user temp directories and `/tmp` are unreadable, and a run with no
-cluster has no network; xcrun's cache reaches a run as a copy in its `TMPDIR` instead. **`refusedServices` is what no profile names**, by name or by prefix:
+the socket (`relayRules`), and no other network. So the per-user temp directories and `/tmp` are unreadable, and a run with no
+relay has no network; xcrun's cache reaches a run as a copy in its `TMPDIR` instead. **`refusedServices` is what no profile names**, by name or by prefix:
 lookups, the Keychain, LaunchServices, Apple Events, the pasteboard, Spotlight and the services
 that fetch for their caller; `user-preference-read` and `-write` are never allowed either. A
 process spawned out of its group (`posix_spawn` with `POSIX_SPAWN_SETSID`, which Seatbelt cannot
 refuse) outlives the run's group kill, still confined: macOS has no PID namespace → [ADR: a macOS
 run keeps its group](../docs/adr/2026-09-28-a-macos-run-keeps-its-group-by-refusing-setsid.md).
 
-**`paths.go` is what every platform's sandbox reads the same way**: the credential list under the
-home (`credentialPaths`: the usual credential directories and files, and what a tool installed
-under the home keeps beside its programs — `.cargo/credentials`, `.cargo/credentials.toml`,
-`.pulumi/credentials.json`, `.fly/config.yml` — each resolved, so one that is a link is denied
-where its target lies); the trees a run's `PATH` makes readable beyond
-the platform's roots (`pathTrees`: an entry outside the home at its resolved path, one under it
+**`paths.go` is how `System` reads the `PATH`**: the trees a run's `PATH` makes readable beyond
+the System folders (`pathTrees`: an entry outside the home at its resolved path, one under it
 as the first directory below the home, nothing for the home or above it; `~/.local`,
 `~/.local/share` and `~/.config` count as homes of their own, since they hold the user's data and
 every tool's settings, each resolved so a linked one is a home where its link leads; an entry
@@ -1386,13 +1429,11 @@ under one of the platform's shared directories, which hold every app's data (mac
 and `.config`), names itself; and a program in an entry that is a link, read by
 `linkTargets`, opens the directory of every link on its way to the program — under
 `~/.local/share` the first directory below it, so a pipx or `uv tool` program reads its
-virtualenv, and elsewhere that directory alone — a root's entry included, since
-`/usr/local/bin` can link to a program under the home); the links that let an entry, or a directory a
+virtualenv, and elsewhere that directory alone — a System folder's entry included, since
+`/usr/local/bin` can link to a program under the home); and the links that let an entry, or a directory a
 program link names, be reached as written (`pathLinks`: `~/.nix-profile/bin`, anything under
-Fedora Atomic's linked `/home`); Kstack's directories resolved (`resolvedAll`, since the trees
-are resolved and `overlapping` compares text); and the denials that overlap what a platform
-mounts (`overlapping`), the only ones it lays over its roots and trees. What a root or a tree
-opens is readable whole but for those.
+Fedora Atomic's linked `/home`). What a System folder or a tree opens is readable whole but for
+the Never paths and Kstack's directories.
 
 **`sandbox-shell` confines the shell** (`sandbox.ShellMain`, `seccomp_linux.go`; `shell_notlinux.go`
 refuses it elsewhere). It sits between the forwarder and the shell: it locks its thread, sets
@@ -2037,7 +2078,7 @@ on Windows only Git for Windows', through Git's own install record (`SOFTWARE\Gi
 both `HKLM` registry views then `HKCU`, `readInstallPath` the test seam) and never off `PATH`,
 where `bash.exe` may be the WSL launcher — and the user's home directory; `ok` false offers no
 tool. Tests that want bash whatever the machine's login shell clear `SHELL` (the `tool` helper
-does). **The sandbox is reached through `Tool.sandboxer`**, a `sandboxer` (`Command`, `Confines`, `Port`) so a test can stand
+does). **The sandbox is reached through `Tool.sandboxer`**, a `sandboxer` (`Command`, `System`, `Never`, `Confines`, `Port`) so a test can stand
 in for it, set only for a non-nil `*sandbox.Sandbox`. A call is **sandboxed** when the tool has one
 and the call does not set `dangerouslyDisableSandbox`; `sandboxerFor` is that test, and a sandboxed
 call's `spec.sandboxedRun` (a `sandboxedRun`: the sandboxer, the run's directory and the `sandbox.Run`) makes
@@ -2096,10 +2137,14 @@ cache stays warm while the port moves, and never resolved, since client-go sends
 `proxy-url` in absolute form — dialled through `http://kstack:<token>@127.0.0.1:<Port()>`, the
 grant's token as the proxy's password, and a user holding nothing, since clientcmd applies a
 user's credentials only over TLS. `safe.Redact` blanks the token wherever a command prints the
-kubeconfig. The `Run` names the workspace, the snapshot and the run's directory readable, and
-its `TMPDIR` and the kubectl cache writable, the user's home as `Home`, and `Paths.DeniedDirs`
-(`app` passes the data, cache and runtime directories) as `Denied`, which bwrap and Seatbelt lay
-over the `PATH` trees. `sandboxedRunFor` refuses the run when `Run.Check` does.
+kubeconfig. **The `Run`'s policy is the Workspace policy** (`workspacePolicy`): its Files are the
+sandbox's `System` for the run's environment, less every rule on or inside Kstack's directories
+(`Outside`), so a `PATH` entry there is not readable, and `extraWritable` as a Files Write; its
+Always part is `Never` as its Deny, `Paths.DeniedDirs` (`app` passes the data, cache and runtime
+directories) as its Kstack paths, the snapshot and the run's directory as its own Read, and the
+workspace, its `TMPDIR` and the kubectl cache as its own Write; and a run with a cluster has one
+relay, from `Port()` to its proxy socket. Bash's tests lay their folders out under Kstack's three
+as `app/paths.go` does (`kstackDirs`), so a test's policy passes `Check` over a real sandbox.
 **A run with a cluster claims its connection and serves a grant over it** (`upstream.go`,
 `proxy.go`). `claim` acquires the lease with `AcquireConnection`, which does not dial, and the
 claim's `Endpoint` is `Lease.ConnFor(ctx, uid)` by the server UID `target` read (`target.serverUID`,
