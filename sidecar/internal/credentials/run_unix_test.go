@@ -134,11 +134,14 @@ func TestCloseStopsWhatTheToolStarted(t *testing.T) {
 }
 
 // A helper that outlives the tool, holding its output open, goes once the tool is
-// reaped, and the borrow answers what the tool printed.
+// reaped, and the borrow answers what the tool printed. The tool waits on proceed
+// until the helper has opened alive, or its exit could kill the helper first.
 func TestAHelperLeftBehindIsKilled(t *testing.T) {
 	alive := filepath.Join(t.TempDir(), "alive")
 	require.NoError(t, syscall.Mkfifo(alive, 0o600))
-	gh := fakeTool(t, "gh", "sleep 300 3> '"+alive+"' &\necho gho_token0123456789abcdef\n")
+	proceed := filepath.Join(t.TempDir(), "proceed")
+	require.NoError(t, syscall.Mkfifo(proceed, 0o600))
+	gh := fakeTool(t, "gh", "sleep 300 3> '"+alive+"' &\nread _ < '"+proceed+"'\necho gho_token0123456789abcdef\n")
 	t.Cleanup(safe.ResetSecrets)
 	s := newStoreWithOptions(Binaries{GH: gh}, t.TempDir(), nil, nil, withRunner(execRun(t.TempDir(), time.Millisecond)))
 	t.Cleanup(s.Close)
@@ -151,6 +154,7 @@ func TestAHelperLeftBehindIsKilled(t *testing.T) {
 	f, err := os.Open(alive) // returns once the helper has opened its end
 	require.NoError(t, err)
 	t.Cleanup(func() { f.Close() })
+	require.NoError(t, os.WriteFile(proceed, []byte("\n"), 0o600))
 
 	require.NoError(t, testutil.Recv(t, done, "the borrow"))
 	gone := make(chan error, 1)
