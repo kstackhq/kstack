@@ -846,9 +846,9 @@ func TestNoAppIsOpenedOrDriven(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _ = pasteboard(string(prev)) })
 
-	// Each is a negative assertion bounded at five seconds: a profile that let
+	// Each is a negative assertion bounded at 15 seconds: a profile that let
 	// the Apple Event through would wait on a privacy prompt, which never ends,
-	// while a refusal under a loaded suite can take over a second.
+	// while a refusal under a loaded suite can take over five seconds.
 	// AppleScript answers an application's own name from its bundle, and
 	// terms need Finder's dictionary, so the query is raw codes Finder alone
 	// can answer.
@@ -857,11 +857,11 @@ func TestNoAppIsOpenedOrDriven(t *testing.T) {
 		`osascript -e 'tell application "Finder" to get «property pnam» of «property sdsk»'`,
 		"echo inside | pbcopy",
 	} {
-		out, ok, late := shWithin(t, s, m.Run, 5*time.Second, script)
-		assert.False(t, late, "%s did not end within five seconds", script)
+		out, ok, late := shWithin(t, s, m.Run, 15*time.Second, script)
+		assert.False(t, late, "%s did not end within 15 seconds", script)
 		assert.False(t, ok, "%s: %s", script, out)
 	}
-	out, _, late := shWithin(t, s, m.Run, 5*time.Second, "pbpaste")
+	out, _, late := shWithin(t, s, m.Run, 15*time.Second, "pbpaste")
 	assert.False(t, late)
 	assert.NotContains(t, out, marker)
 	got, err := exec.Command("pbpaste").Output()

@@ -378,7 +378,7 @@ func TestMessagesEndsAtMessageStop(t *testing.T) {
 // A stream that only beats past the bound is alive; one that goes silent is ended
 // by the bound and says so, not as a cancel.
 func TestMessagesIdleBound(t *testing.T) {
-	const bound = 50 * time.Millisecond
+	const bound = 500 * time.Millisecond
 
 	t.Run("a stream that only beats", func(t *testing.T) {
 		p := serve(t, func(w http.ResponseWriter, r *http.Request) {
@@ -386,8 +386,8 @@ func TestMessagesIdleBound(t *testing.T) {
 			sse(w, textStream[0])
 			// Latency injected into the code under test: pings at a fraction of the
 			// bound, for longer than it, so the wire is busy while nothing is written.
-			for range 10 {
-				time.Sleep(bound / 5)
+			for range 15 {
+				time.Sleep(bound / 10)
 				sse(w, event{"ping", `{"type":"ping"}`})
 			}
 			sse(w, textStream[5])

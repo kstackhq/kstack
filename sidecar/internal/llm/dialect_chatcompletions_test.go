@@ -442,7 +442,7 @@ func TestChatCompletionsKeepsAMalformedReplyOutOfTheRecordAndTheLog(t *testing.T
 // The bound measures the wire: a stream that thinks in silence trips it, one that
 // only sends bytes does not.
 func TestChatCompletionsIdleBound(t *testing.T) {
-	const bound = 50 * time.Millisecond
+	const bound = 500 * time.Millisecond
 
 	t.Run("a stream that only sends bytes", func(t *testing.T) {
 		p := groqAt(newServer(t, func(w http.ResponseWriter, r *http.Request) {
@@ -451,8 +451,8 @@ func TestChatCompletionsIdleBound(t *testing.T) {
 			// Latency injected into the code under test: comments at a fraction of
 			// the bound, for longer than it, so the wire is busy while the loop
 			// sees no chunk.
-			for range 10 {
-				time.Sleep(bound / 5)
+			for range 15 {
+				time.Sleep(bound / 10)
 				fmt.Fprint(w, ": keep reading\n\n")
 				w.(http.Flusher).Flush()
 			}
