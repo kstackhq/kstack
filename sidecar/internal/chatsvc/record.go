@@ -121,8 +121,11 @@ type Chat struct {
 	Mode  Mode
 	// The cluster the chat was started under. Fixed at creation.
 	ClusterID apimeta.ClusterID
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	// SandboxDisabled is the user's switch: the chat's commands run outside the
+	// sandbox, each asking first.
+	SandboxDisabled bool
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 	// AwaitingApproval is whether any run of the chat waits on the user. Every
 	// write that moves a run into or out of waiting_approval pings the list.
 	AwaitingApproval bool

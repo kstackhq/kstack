@@ -36,6 +36,7 @@ const ChatsWatchSubscription = graphql(`
         createdAt
         updatedAt
         awaitingApproval
+        sandboxDisabled
       }
     }
   }

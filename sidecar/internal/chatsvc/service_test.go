@@ -2266,3 +2266,62 @@ func TestARepeatedToolUseIDLandsARowPerResult(t *testing.T) {
 		}
 	})
 }
+
+// A chat runs its commands in the sandbox until the user switches it.
+func TestAChatStartsSandboxed(t *testing.T) {
+	s := newTestService(t)
+	msg := sendAndSettle(t, s, nil, "1", "1", "hi")
+
+	c, ok, err := s.Get(t.Context(), msg.ChatID)
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.False(t, c.SandboxDisabled)
+	list, err := s.List(t.Context())
+	require.NoError(t, err)
+	require.Len(t, list, 1)
+	assert.False(t, list[0].SandboxDisabled)
+}
+
+// The switch is the chat's row: it reaches every window through the list watch,
+// and it is not activity, so the list's order stays.
+func TestTheSwitchIsWrittenAndWatched(t *testing.T) {
+	s := newTestService(t)
+	s.sandboxStatus = sandbox.Status{Available: true}
+	s.now = func() time.Time { return time.UnixMilli(5_000) }
+	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
+	w, err := s.WatchList(t.Context())
+	require.NoError(t, err)
+	require.Len(t, collectChatSnapshot(t, w.Frames), 1)
+
+	switched, err := s.SetSandboxDisabled(t.Context(), c.ID, true)
+	require.NoError(t, err)
+	assert.True(t, switched.SandboxDisabled)
+	assert.Equal(t, c.UpdatedAt, switched.UpdatedAt)
+	stored, _, err := s.Get(t.Context(), c.ID)
+	require.NoError(t, err)
+	assert.Equal(t, stored, switched)
+
+	f := testutil.Recv(t, w.Frames, "the switch")
+	assert.Equal(t, DeltaFrameModified, f.Type)
+	assert.True(t, f.Chat.SandboxDisabled)
+
+	back, err := s.SetSandboxDisabled(t.Context(), c.ID, false)
+	require.NoError(t, err)
+	assert.False(t, back.SandboxDisabled)
+
+	_, err = s.SetSandboxDisabled(t.Context(), ChatID(appdb.NewID()), true)
+	assert.ErrorIs(t, err, ErrChatGone)
+}
+
+// A machine with no sandbox has nothing to switch, so the switch is refused and
+// the row stays as it was.
+func TestTheSwitchIsRefusedWithoutASandbox(t *testing.T) {
+	s := newTestService(t)
+	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
+
+	_, err := s.SetSandboxDisabled(t.Context(), c.ID, true)
+	assert.ErrorIs(t, err, ErrBadRequest)
+	stored, _, err := s.Get(t.Context(), c.ID)
+	require.NoError(t, err)
+	assert.False(t, stored.SandboxDisabled)
+}

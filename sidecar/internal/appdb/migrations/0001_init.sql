@@ -61,15 +61,17 @@ CREATE TABLE clusters (
 -- is the clusters row it was started under, fixed at creation too. The cascade is the
 -- backstop: the sweeper empties a marked cluster before its row goes. A chat has no
 -- dialect of its own: each run records the one it ran on. title is NULL until
--- something sets one; the service reads it as ''. updated_at moves when a message is
--- posted or a run settles, never on a reconcile.
+-- something sets one; the service reads it as ''. sandbox_disabled is the user's switch:
+-- 1 runs the chat's commands outside the sandbox, each asking first. updated_at moves
+-- when a message is posted or a run settles, never on a reconcile or a switch.
 CREATE TABLE conversations (
-  id          TEXT    PRIMARY KEY,
-  cluster_id  TEXT    NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
-  mode        TEXT    NOT NULL CHECK (mode IN ('chat', 'dashboard')),
-  title       TEXT,
-  created_at  INTEGER NOT NULL,
-  updated_at  INTEGER NOT NULL
+  id               TEXT    PRIMARY KEY,
+  cluster_id       TEXT    NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
+  mode             TEXT    NOT NULL CHECK (mode IN ('chat', 'dashboard')),
+  title            TEXT,
+  sandbox_disabled INTEGER NOT NULL DEFAULT 0 CHECK (sandbox_disabled IN (0, 1)),
+  created_at       INTEGER NOT NULL,
+  updated_at       INTEGER NOT NULL
 ) STRICT, WITHOUT ROWID;
 
 -- agent_runs: one execution of an agent. A chat run answers the user message named

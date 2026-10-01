@@ -159,6 +159,19 @@ func renameConversation(ctx context.Context, st stmts, id ChatID, title string, 
 	return c, true, nil
 }
 
+// setSandboxDisabled writes a conversation's switch and returns the row it wrote.
+// No row means no conversation.
+func setSandboxDisabled(ctx context.Context, st stmts, id ChatID, disabled bool) (Chat, bool, error) {
+	c, err := scanChat(st.QueryRow(ctx, stmtSetSandboxDisabled, disabled, string(id)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Chat{}, false, nil
+	}
+	if err != nil {
+		return Chat{}, false, fmt.Errorf("set sandbox disabled: %w", err)
+	}
+	return c, true, nil
+}
+
 func getConversation(ctx context.Context, st stmts, id ChatID) (Chat, bool, error) {
 	c, err := scanChat(st.QueryRow(ctx, stmtSelectConversation, string(id)))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -216,7 +229,7 @@ func scanChat(s scanner) (Chat, error) {
 		c                    Chat
 		createdAt, updatedAt int64
 	)
-	if err := s.Scan(&c.ID, &c.Title, &c.Mode, &c.ClusterID, &createdAt, &updatedAt, &c.AwaitingApproval); err != nil {
+	if err := s.Scan(&c.ID, &c.Title, &c.Mode, &c.ClusterID, &c.SandboxDisabled, &createdAt, &updatedAt, &c.AwaitingApproval); err != nil {
 		return Chat{}, err
 	}
 	c.CreatedAt, c.UpdatedAt = fromMillis(createdAt), fromMillis(updatedAt)

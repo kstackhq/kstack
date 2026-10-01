@@ -2583,3 +2583,23 @@ func TestTheSandboxQueryAnswersTheStatus(t *testing.T) {
 
 	assert.Equal(t, map[string]any{"available": true, "reason": "bwrap at /usr/bin/bwrap"}, data["sandbox"])
 }
+
+// The switch answers the chat it committed, and is refused on a machine with no
+// sandbox.
+func TestChatSandboxDisabledSetServesTheSwitchedChat(t *testing.T) {
+	srv := newSandboxedChatServer(t, sandbox.Status{Available: true})
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
+	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
+
+	data := mutate(t, srv, `mutation { chatSandboxDisabledSet(id: "`+chatID+`", sandboxDisabled: true) { id sandboxDisabled } }`)
+
+	assert.Equal(t, map[string]any{"id": chatID, "sandboxDisabled": true}, data["chatSandboxDisabledSet"])
+
+	none := newChatServer(t)
+	sent = mutate(t, none, `mutation { chatSend(mode: Chat, clusterID: "1", providerID: "fake", modelID: "fake", effort: "high",
+		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
+	chatID = sent["chatSend"].(map[string]any)["chatID"].(string)
+	raw := postGQL(t, none.URL, `{"query":"mutation { chatSandboxDisabledSet(id: \"`+chatID+`\", sandboxDisabled: true) { id } }"}`)
+	assert.Contains(t, string(raw), `"code":"KSTACK_VALIDATION_ERROR"`)
+}

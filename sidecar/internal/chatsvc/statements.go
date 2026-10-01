@@ -25,6 +25,7 @@ const (
 	stmtInsertConversation stmtID = iota
 	stmtTouchConversation
 	stmtRenameConversation
+	stmtSetSandboxDisabled
 	stmtDeleteConversation
 	stmtSelectConversation
 	stmtSelectConversations
@@ -75,7 +76,7 @@ const (
 // conversationColumns is the projection every conversation read scans, in the
 // order scanChat scans it. title is nullable in the table and a string in Go.
 // The last is whether any run of the chat waits on the user.
-const conversationColumns = `id, COALESCE(title, ''), mode, cluster_id, created_at, updated_at,
+const conversationColumns = `id, COALESCE(title, ''), mode, cluster_id, sandbox_disabled, created_at, updated_at,
 	EXISTS (SELECT 1 FROM agent_runs w WHERE w.conversation_id = conversations.id AND w.status = 'waiting_approval')`
 
 // The insert projections, in the order the helpers bind them.
@@ -138,6 +139,7 @@ var statements = []sqlstmt.Statement{
 	// RETURNING, so the renamed row comes back from the write itself: a read beside it
 	// is a second statement a concurrent delete can land between.
 	stmtRenameConversation: sqlstmt.OnWriter(`UPDATE conversations SET title = ?, updated_at = ? WHERE id = ? RETURNING ` + conversationColumns),
+	stmtSetSandboxDisabled: sqlstmt.OnWriter(`UPDATE conversations SET sandbox_disabled = ? WHERE id = ? RETURNING ` + conversationColumns),
 	// The messages and runs go with the conversation: ON DELETE CASCADE, and
 	// foreign_keys(on) is in the writer's DSN. One statement, so the two tables'
 	// references to each other are checked once both are gone.

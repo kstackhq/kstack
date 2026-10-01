@@ -80,6 +80,15 @@ describe('useChats', () => {
   const pushChats = (...frames: { type: string; chat: unknown }[]) => push('chatsWatch', ...frames);
   const renderChats = () => render(() => useChats());
 
+  // The composer's sandbox button reads the chat's switch off the list, so every
+  // window sees a switch another one made.
+  it("selects each chat's switch", () => {
+    renderChats();
+    expect(print(lastArgs!.query!)).toMatch(
+      /chat \{\s+id\s+title\s+mode\s+clusterID\s+createdAt\s+updatedAt\s+awaitingApproval\s+sandboxDisabled\s+\}/,
+    );
+  });
+
   it('has no chats before the first frame', () => {
     const { result } = renderChats();
     expect(result.current.chats).toEqual([]);

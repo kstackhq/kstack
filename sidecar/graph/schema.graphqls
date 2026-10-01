@@ -989,6 +989,8 @@ type Chat {
   updatedAt: Time!
   "Whether any run of the chat waits on the user: its answers' own, or an agent's under one of them."
   awaitingApproval: Boolean!
+  "Whether the user disabled the sandbox for this chat: its commands run outside it, each asking first."
+  sandboxDisabled: Boolean!
 }
 
 "Whether sandboxed Bash is offered on this machine. It is fixed for the sidecar's life, so this is a query and not a watch."
@@ -1449,6 +1451,9 @@ type Mutation {
 
   "Retitle a chat. Returns the record it committed, whose `updatedAt` the rename moves."
   chatRename(id: ChatID!, title: String!): Chat!
+
+  "Switch a chat to run its commands outside the sandbox, each asking first, or back in it. Takes effect from the chat's next turn; what already started keeps running as it started. Leaves `updatedAt` alone. Refused with `KSTACK_VALIDATION_ERROR` on a machine with no sandbox. Returns the record it committed."
+  chatSandboxDisabledSet(id: ChatID!, sandboxDisabled: Boolean!): Chat!
 
   "Delete a chat and its messages. Instant and permanent — every window watching it sees the rows go. Deleting one already gone is not an error. Returns true."
   chatDelete(id: ChatID!): Boolean!

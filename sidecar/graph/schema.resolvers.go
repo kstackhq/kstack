@@ -224,6 +224,15 @@ func (r *mutationResolver) ChatRename(ctx context.Context, id apimeta.ChatID, ti
 	return &chat, nil
 }
 
+// ChatSandboxDisabledSet is the resolver for the chatSandboxDisabledSet field.
+func (r *mutationResolver) ChatSandboxDisabledSet(ctx context.Context, id apimeta.ChatID, sandboxDisabled bool) (*chatsvc.Chat, error) {
+	chat, err := r.ChatSvc.SetSandboxDisabled(ctx, id, sandboxDisabled)
+	if err != nil {
+		return nil, chatErr(err)
+	}
+	return &chat, nil
+}
+
 // ChatDelete is the resolver for the chatDelete field.
 func (r *mutationResolver) ChatDelete(ctx context.Context, id apimeta.ChatID) (bool, error) {
 	if err := r.ChatSvc.Delete(ctx, id); err != nil {

@@ -128,6 +128,10 @@ type Service interface {
 	// Rename retitles a chat. The title is trimmed, and one empty or over
 	// maxTitleLen is refused.
 	Rename(ctx context.Context, chatID ChatID, title string) (Chat, error)
+	// SetSandboxDisabled is the user's switch: the chat's commands from its next
+	// turn run outside the sandbox, or back in it. It is not activity, so
+	// UpdatedAt stays. ErrBadRequest on a machine with no sandbox.
+	SetSandboxDisabled(ctx context.Context, chatID ChatID, disabled bool) (Chat, error)
 	// Delete removes a chat, its messages and its directory. Deleting one already gone
 	// is not an error; an id that is not a UUID is ErrBadRequest.
 	Delete(ctx context.Context, chatID ChatID) error
@@ -625,6 +629,30 @@ func (s *service) Rename(ctx context.Context, chatID ChatID, title string) (Chat
 	}
 	s.notify(conversationsKey)
 	return renamed, nil
+}
+
+// SetSandboxDisabled writes the chat's switch and returns the record it committed.
+func (s *service) SetSandboxDisabled(ctx context.Context, chatID ChatID, disabled bool) (Chat, error) {
+	if !s.sandboxStatus.Available {
+		return Chat{}, ErrBadRequest
+	}
+	var switched Chat
+	err := s.store.InTx(ctx, func(st stmts) error {
+		c, ok, err := setSandboxDisabled(ctx, st, chatID, disabled)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrChatGone
+		}
+		switched = c
+		return nil
+	})
+	if err != nil {
+		return Chat{}, err
+	}
+	s.notify(conversationsKey)
+	return switched, nil
 }
 
 // Delete removes the chat's row, and its messages, runs and directory with it.

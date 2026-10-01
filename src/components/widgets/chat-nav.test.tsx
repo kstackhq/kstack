@@ -64,6 +64,7 @@ const chat = (id: string, title: string, mode = 'Chat', clusterID = '1') => ({
   createdAt: '2026-09-01T00:00:00Z',
   updatedAt: '2026-09-01T10:00:00Z',
   awaitingApproval: false,
+  sandboxDisabled: false,
 });
 
 function renderNav(chats = [chat('c1', 'First chat')], phase = 'live', mode: 'chat' | 'dashboard' = 'chat') {
