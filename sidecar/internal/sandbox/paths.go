@@ -241,12 +241,18 @@ func within(p, dir string) bool {
 	return err == nil && !filepath.IsAbs(rel) && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// resolved is p with its links followed, or p cleaned when it cannot be.
+// resolved is p with its links followed. A path that does not exist is
+// resolved through its deepest folder that does.
 func resolved(p string) string {
+	p = filepath.Clean(p)
 	if r, err := filepath.EvalSymlinks(p); err == nil {
 		return r
 	}
-	return filepath.Clean(p)
+	parent := filepath.Dir(p)
+	if parent == p {
+		return p
+	}
+	return filepath.Join(resolved(parent), filepath.Base(p))
 }
 
 // pathOf is the PATH env sets, split into its entries. The last one wins, as
