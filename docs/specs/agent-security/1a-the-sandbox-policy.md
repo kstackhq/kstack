@@ -1,7 +1,7 @@
 ---
 title: The sandbox policy
 scope: sidecar
-status: Planned
+status: Done
 ---
 
 # The sandbox policy
@@ -459,7 +459,7 @@ A Write rule on one of the run's own paths (`Always.Write`) is also followed by
 `(deny file-write-unlink file-write-create (literal …))`, so the run cannot replace the root with a
 link for the next run's profile to resolve
 ([a run cannot replace its own paths](../../security/2026-09-30-a-run-cannot-replace-its-own-paths.md)).
-`Policy.Check` keeps `Run.Check`'s refusal of an own path whose last component is a link.
+`Policy.Check` refuses an own path whose last component is a link.
 
 A Read rule carries its refusal to write, so it decides a tie with a Write rule the way Linux's
 read-only mount does. In `profile_darwin.sb`, the `TREES`, `DENIED` and `OWN` markers become one
@@ -538,14 +538,14 @@ same fixture.
 
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
-| 1 | Save today's output as goldens | `sandbox/sandbox_linux_test.go`, `sandbox/sandbox_darwin_test.go`, `sandbox/testdata/` | — | Planned |
-| 2 | The new types and every signature, with no compiler moved yet. `Policy` and its parts, `Check`, `Outside`, the lists, `System`, `Never` and `probePolicy`, beside `Run`'s old fields, which the compilers still read. `Command` answers `(*exec.Cmd, error)` on all three platforms: Linux and macOS answer nil but for macOS's context that ends, Windows answers `errNone`. `ForwarderArgs` takes a `Relay`, and Linux's `args` and macOS's `argv` pass one made from `Run.Port` and `Run.Socket`. Bash's `sandboxer` interface gains `System`, `Never` and the new `Command`, its callers fail the call on the error, and `fakeSandboxer` follows | `sandbox/sandbox.go`, `sandbox/paths.go`, `sandbox/policy.go`, `sandbox/probe.go`, `sandbox/lists.go`, `sandbox/lists_darwin.go`, `sandbox/lists_linux.go`, `sandbox/sandbox_linux.go`, `sandbox/sandbox_darwin.go`, `sandbox/sandbox_windows.go`, `sandbox/forward.go`, `tools/bash/bash.go` (the `sandboxer` interface), `tools/bash/bash_unix.go` (`shellCmd` and its caller), `tools/bash/task_unix.go` (which calls `shellCmd`), `tools/bash/task.go`, their tests | 1 | Planned |
-| 3 | The Linux compiler reads the `Policy`, and its probe runs `probePolicy`; the Linux tests' workspaces become Files Write rules | `sandbox/sandbox_linux.go`, `sandbox/sandbox_linux_test.go` | 2 | Planned |
-| 4 | The macOS compiler reads the `Policy`, and its probe runs `probePolicy` | `sandbox/sandbox_darwin.go`, `sandbox/profile_darwin.sb`, `sandbox/sandbox_darwin_test.go` | 2 | Planned |
-| 5 | Bash builds the Workspace policy, filling `Run.Policy` beside the old fields until task 6; `kstackDirs` lays the tests' folders out under Kstack's three | `tools/bash/bash.go` (`sandboxedRunFor`), `tools/bash/bash_test.go`, `tools/bash/bash_unix_test.go`, `tools/bash/proxy_unix_test.go` | 2 | Planned |
-| 6 | `Run`'s old fields go, and Bash stops filling them | `sandbox/sandbox.go`, `tools/bash/bash.go` | 3, 4, 5 | Planned |
-| 7 | The table of rule pairs, on both platforms | `sandbox/policy_unix_test.go` | 6 | Planned |
-| 8 | Docs, per *When it lands* | see there | 1–7 | Planned |
+| 1 | Save today's output as goldens | `sandbox/sandbox_linux_test.go`, `sandbox/sandbox_darwin_test.go`, `sandbox/testdata/` | — | Done |
+| 2 | The new types and every signature, with no compiler moved yet. `Policy` and its parts, `Check`, `Outside`, the lists, `System`, `Never` and `probePolicy`, beside `Run`'s old fields, which the compilers still read. `Command` answers `(*exec.Cmd, error)` on all three platforms: Linux and macOS answer nil but for macOS's context that ends, Windows answers `errNone`. `ForwarderArgs` takes a `Relay`, and Linux's `args` and macOS's `argv` pass one made from `Run.Port` and `Run.Socket`. Bash's `sandboxer` interface gains `System`, `Never` and the new `Command`, its callers fail the call on the error, and `fakeSandboxer` follows | `sandbox/sandbox.go`, `sandbox/paths.go`, `sandbox/policy.go`, `sandbox/probe.go`, `sandbox/lists.go`, `sandbox/lists_darwin.go`, `sandbox/lists_linux.go`, `sandbox/sandbox_linux.go`, `sandbox/sandbox_darwin.go`, `sandbox/sandbox_windows.go`, `sandbox/forward.go`, `tools/bash/bash.go` (the `sandboxer` interface), `tools/bash/bash_unix.go` (`shellCmd` and its caller), `tools/bash/task_unix.go` (which calls `shellCmd`), `tools/bash/task.go`, their tests | 1 | Done |
+| 3 | The Linux compiler reads the `Policy`, and its probe runs `probePolicy`; the Linux tests' workspaces become Files Write rules | `sandbox/sandbox_linux.go`, `sandbox/sandbox_linux_test.go` | 2 | Done |
+| 4 | The macOS compiler reads the `Policy`, and its probe runs `probePolicy` | `sandbox/sandbox_darwin.go`, `sandbox/profile_darwin.sb`, `sandbox/sandbox_darwin_test.go` | 2 | Done |
+| 5 | Bash builds the Workspace policy, filling `Run.Policy` beside the old fields until task 6; `kstackDirs` lays the tests' folders out under Kstack's three | `tools/bash/bash.go` (`sandboxedRunFor`), `tools/bash/bash_test.go`, `tools/bash/bash_unix_test.go`, `tools/bash/proxy_unix_test.go` | 2 | Done |
+| 6 | `Run`'s old fields go, and Bash stops filling them | `sandbox/sandbox.go`, `tools/bash/bash.go` | 3, 4, 5 | Done |
+| 7 | The table of rule pairs, on both platforms | `sandbox/policy_unix_test.go` | 6 | Done |
+| 8 | Docs, per *When it lands* | see there | 1–7 | Done |
 
 **Order:** 1, then 2, then 3, 4 and 5 at the same time, then 6, then 7, then 8. Task 2 makes
 every signature change on every platform, so 3, 4 and 5 touch disjoint files and each task leaves
