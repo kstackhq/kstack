@@ -20,6 +20,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -302,25 +303,38 @@ func TestARunThatCannotBeMadeReleasesItsClaim(t *testing.T) {
 }
 
 // A sandboxed task that cannot start ends its run: the claim is released and
-// the run's directory goes.
+// the run's directory goes. It cannot start when its shell is missing, or
+// when the sandbox refuses its policy, whose reason the model reads.
 func TestASandboxedTaskThatCannotStartEndsItsRun(t *testing.T) {
-	lease := &fakeLease{serverUID: "uid-1"}
-	tl := proxyTool(t, lease)
-	tl.sandboxer = &fakeSandboxer{} // runs the shell itself, so its start is the task's
-	tl.shell = filepath.Join(t.TempDir(), "no-shell")
-	rt := clusterRuntime(t)
-	tasks := newFakeTasks(t)
-	rt.Tasks = tasks
+	for name, boxer := range map[string]*fakeSandboxer{
+		"no shell": {},
+		"refused":  {cmdErr: errors.New("a rule over a fixed mount")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			lease := &fakeLease{serverUID: "uid-1"}
+			tl := proxyTool(t, lease)
+			tl.sandboxer = boxer // runs the shell itself, so its start is the task's
+			if boxer.cmdErr == nil {
+				tl.shell = filepath.Join(t.TempDir(), "no-shell")
+			}
+			rt := clusterRuntime(t)
+			tasks := newFakeTasks(t)
+			rt.Tasks = tasks
 
-	text, isError := tl.Run(t.Context(), rt, background("true"))
+			text, isError := tl.Run(t.Context(), rt, background("true"))
 
-	assert.True(t, isError, text)
-	assert.Empty(t, tasks.started)
-	assert.Equal(t, int32(1), lease.released.Load())
-	entries, err := os.ReadDir(tl.runsDir)
-	require.NoError(t, err)
-	for _, e := range entries {
-		assert.False(t, e.IsDir(), "a run's directory was left: %s", e.Name())
+			assert.True(t, isError, text)
+			if boxer.cmdErr != nil {
+				assert.Contains(t, text, boxer.cmdErr.Error())
+			}
+			assert.Empty(t, tasks.started)
+			assert.Equal(t, int32(1), lease.released.Load())
+			entries, err := os.ReadDir(tl.runsDir)
+			require.NoError(t, err)
+			for _, e := range entries {
+				assert.False(t, e.IsDir(), "a run's directory was left: %s", e.Name())
+			}
+		})
 	}
 }
 

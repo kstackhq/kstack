@@ -75,190 +75,213 @@ func ruleAt(t *testing.T, text, name string) int {
 
 // profileRun is a run over a stand-in machine for the profile's own tests: a
 // home with ~/.cargo/bin on PATH, one PATH entry outside it, and Kstack's
-// three directories holding the workspace, the writable and the readable.
-func profileRun(t *testing.T) (Run, string) {
+// three directories holding the workspace, the TMPDIR and the run's own
+// directory. Its policy is the Workspace policy on s.
+func profileRun(t *testing.T, s *Sandbox) (Run, string) {
 	t.Helper()
 	base := resolved(t.TempDir())
 	d := mkdirs(t, base, "home/.cargo/bin", "tools/bin", "data/chats/c/workspace", "cache/tmp/1-a", "runtime/runs/1-a")
+	home := filepath.Join(base, "home")
+	env := []string{"PATH=" + d[0] + string(filepath.ListSeparator) + d[1] + string(filepath.ListSeparator) + "/usr/bin"}
+	kstack := []string{filepath.Join(base, "data"), filepath.Join(base, "cache"), filepath.Join(base, "runtime")}
 	return Run{
-		Shell:     "/bin/sh",
-		Dir:       d[2],
-		Env:       []string{"PATH=" + d[0] + string(filepath.ListSeparator) + d[1] + string(filepath.ListSeparator) + "/usr/bin"},
-		Workspace: d[2],
-		Readable:  []string{d[4]},
-		Writable:  []string{d[3]},
-		Home:      filepath.Join(base, "home"),
-		Denied:    []string{filepath.Join(base, "data"), filepath.Join(base, "cache"), filepath.Join(base, "runtime")},
+		Shell: "/bin/sh",
+		Dir:   d[2],
+		Env:   env,
+		Policy: Policy{
+			Files:  s.System(home, "/bin/sh", env).Outside(kstack...),
+			Always: AlwaysPolicy{Deny: s.Never(home), Kstack: kstack, Read: []string{d[4]}, Write: []string{d[2], d[3]}},
+		},
 	}, base
 }
+
+// ruleNamed is where the text first reads the rule whose format and value are
+// given, its %s the rule's parameter.
+func ruleNamed(t *testing.T, text string, params map[string]string, format, p string) int {
+	t.Helper()
+	for name, value := range params {
+		if value == p && strings.HasPrefix(name, "RULE_") {
+			if i := strings.Index(text, fmt.Sprintf(format, name)); i >= 0 {
+				return i
+			}
+		}
+	}
+	require.Failf(t, "no rule", "%s for %s in %v", format, p, params)
+	return -1
+}
+
+// The rule shapes each kind compiles to.
+const (
+	readRule  = `(allow file-read* (subpath (param "%s")))`
+	writeRule = `(allow file-read* file-write* (subpath (param "%s")))`
+	denyRule  = `(deny file-read* file-write* (subpath (param "%s")))`
+)
 
 // Every path reaches the profile as a parameter, and its text holds only names
 // Kstack made: a path holding a quote or a parenthesis is data, never code.
 func TestTheProfileWritesNoPathIntoItsText(t *testing.T) {
-	r, base := profileRun(t)
-	odd := mkdirs(t, base, "we\"ird)\n(allow default)")[0]
-	r.Workspace, r.Dir = odd, odd
 	s := &Sandbox{self: "/bin/sh"}
+	r, base := profileRun(t, s)
+	odd := mkdirs(t, base, "data/we\"ird)\n(allow default)")[0]
+	r.Policy.Always.Write[0], r.Dir = odd, odd
 
-	text, args := s.profile(r, nil)
+	text, args := s.profile(r)
 
 	assert.NotContains(t, text, base)
 	assert.NotContains(t, text, "(allow default)")
-	for _, m := range []string{markerTrees, markerDenied, markerOwn, markerAncestors, markerNetwork} {
+	for _, m := range []string{markerRules, markerAncestors, markerNetwork} {
 		assert.NotContains(t, text, m)
 	}
 	params := paramsOf(t, args)
-	nameOf(t, params, "WRITE", odd)
+	ruleNamed(t, text, params, writeRule, odd)
 	for name := range params {
 		assert.Regexp(t, `^[A-Z]+(_[A-Z]+)*(_[0-9]+)?$`, name)
 	}
 }
 
-// The roots, the PATH trees and the sidecar's own executable are read; the
-// workspace and the writable are read and written, the readable read.
+// The System folders that exist, the PATH trees and the sidecar's own
+// executable are read and not written; the workspace and the TMPDIR are read
+// and written, the run's directory read.
 func TestTheProfileNamesWhatARunReads(t *testing.T) {
-	r, base := profileRun(t)
 	s := &Sandbox{self: "/bin/sh"}
+	r, base := profileRun(t, s)
 
-	text, args := s.profile(r, nil)
+	text, args := s.profile(r)
 	params := paramsOf(t, args)
 
-	for _, p := range []string{"/usr", "/System", "/Library", "/Applications", "/private/etc", "/opt", resolved("/bin/sh"),
-		filepath.Join(base, "home", ".cargo"), filepath.Join(base, "tools", "bin")} {
-		assert.Contains(t, text, `(allow file-read* (subpath (param "`+nameOf(t, params, "TREE", p)+`")))`, p)
-	}
-	for _, p := range []string{r.Workspace, r.Writable[0]} {
-		assert.Contains(t, text, `(allow file-read* file-write* (subpath (param "`+nameOf(t, params, "WRITE", p)+`")))`, p)
-	}
-	assert.Contains(t, text, `(allow file-read* (subpath (param "`+nameOf(t, params, "READ", r.Readable[0])+`")))`)
-}
-
-// A PATH entry under ~/Library or ~/.config names only itself.
-func TestTheProfilesTreesAreNotWidenedUnderASharedDirectory(t *testing.T) {
-	r, base := profileRun(t)
-	d := mkdirs(t, base, "home/Library/Application Support/x/bin", "home/.config/x/bin")
-	r.Env = []string{"PATH=" + strings.Join(d, string(filepath.ListSeparator))}
-	s := &Sandbox{self: "/bin/sh"}
-
-	_, args := s.profile(r, nil)
-	params := paramsOf(t, args)
-
-	nameOf(t, params, "TREE", d[0])
-	nameOf(t, params, "TREE", d[1])
-	for name, v := range params {
-		if strings.HasPrefix(name, "TREE_") {
-			assert.NotEqual(t, filepath.Join(base, "home", "Library"), v)
-			assert.NotEqual(t, filepath.Join(base, "home", ".config"), v)
+	reads := []string{resolved("/bin/sh"), filepath.Join(base, "home", ".cargo"), filepath.Join(base, "tools", "bin")}
+	for _, p := range platformLists.System {
+		if _, err := os.Stat(p); err == nil {
+			reads = append(reads, resolved(p))
 		}
 	}
+	for _, p := range reads {
+		i := ruleNamed(t, text, params, readRule, p)
+		assert.Less(t, i, ruleNamed(t, text, params, `(deny file-write* (subpath (param "%s")))`, p), p)
+	}
+	for _, p := range r.Policy.Always.Write {
+		ruleNamed(t, text, params, writeRule, p)
+	}
+	ruleNamed(t, text, params, readRule, r.Policy.Always.Read[0])
 }
 
 // Seatbelt checks a file's real path, so every path is resolved, but for the
 // socket, which is named both as given and as resolved.
 func TestAProfilePathIsResolved(t *testing.T) {
-	r, base := profileRun(t)
-	link := filepath.Join(base, "ws-link")
-	require.NoError(t, os.Symlink(r.Workspace, link))
-	sockLink := filepath.Join(base, "runtime-link")
-	require.NoError(t, os.Symlink(r.Readable[0], sockLink))
-	r.Workspace, r.Dir = link, link
-	require.NoError(t, os.WriteFile(filepath.Join(r.Readable[0], "proxy.sock"), nil, 0o600))
-	r.Socket, r.Port = filepath.Join(sockLink, "proxy.sock"), 4321
 	s := &Sandbox{self: "/bin/sh"}
+	r, base := profileRun(t, s)
+	runDir := r.Policy.Always.Read[0]
+	link := filepath.Join(base, "ws-link")
+	require.NoError(t, os.Symlink(r.Policy.Always.Write[0], link))
+	sockLink := filepath.Join(base, "runtime-link")
+	require.NoError(t, os.Symlink(runDir, sockLink))
+	r.Policy.Always.Write[0], r.Dir = link, link
+	require.NoError(t, os.WriteFile(filepath.Join(runDir, "proxy.sock"), nil, 0o600))
+	socket := filepath.Join(sockLink, "proxy.sock")
+	r.Policy.Network.Relays = []Relay{{Port: 4321, Socket: socket}}
 
-	_, args := s.profile(r, nil)
+	text, args := s.profile(r)
 	params := paramsOf(t, args)
 
-	nameOf(t, params, "WRITE", filepath.Join(base, "data", "chats", "c", "workspace"))
-	assert.Equal(t, r.Socket, params["SOCKET"])
-	assert.Equal(t, filepath.Join(r.Readable[0], "proxy.sock"), params["SOCKET_RESOLVED"])
+	ruleNamed(t, text, params, writeRule, filepath.Join(base, "data", "chats", "c", "workspace"))
+	assert.Equal(t, socket, params["SOCKET"])
+	assert.Equal(t, filepath.Join(runDir, "proxy.sock"), params["SOCKET_RESOLVED"])
 }
 
-// Denied are the credential paths a tree takes in, Homebrew's var and
-// Kstack's directories, after every read and before the run's own, since a
-// later rule wins.
+// Denied are the Always paths and Files Denies a read takes in — here the
+// credential paths in a tree and Homebrew's var — after the read that holds
+// them and before the run's own, since a later rule wins. Kstack's directories,
+// which no read takes in, are left out.
 func TestTheProfileDeniesBetweenTheReadsAndTheRunsOwn(t *testing.T) {
-	r, base := profileRun(t)
-	brew := mkdirs(t, base, "tools/var")
 	s := &Sandbox{self: "/bin/sh"}
+	r, base := profileRun(t, s)
+	brew := mkdirs(t, base, "tools/bin/var")[0]
+	r.Policy.Files.Deny = []string{brew}
 
-	text, args := s.profile(r, brew)
+	text, args := s.profile(r)
 	params := paramsOf(t, args)
 
 	cargo := filepath.Join(base, "home", ".cargo")
-	denied := append([]string{filepath.Join(cargo, "credentials"), filepath.Join(cargo, "credentials.toml"), brew[0]}, r.Denied...)
+	denied := []string{filepath.Join(cargo, "credentials"), filepath.Join(cargo, "credentials.toml"), brew}
 	var names []string
 	for name, v := range params {
-		if strings.HasPrefix(name, "DENY_") {
+		if strings.HasPrefix(name, "RULE_") && strings.Contains(text, fmt.Sprintf(denyRule, name)) {
 			names = append(names, v)
 		}
 	}
-	assert.ElementsMatch(t, denied, names, "no credential path a tree does not take in")
+	assert.ElementsMatch(t, denied, names, "no Deny a read does not take in")
 	for _, p := range denied {
-		name := nameOf(t, params, "DENY", p)
-		assert.Contains(t, text, `(deny file-read* file-write* (subpath (param "`+name+`")))`)
-		assert.Greater(t, ruleAt(t, text, name), ruleAt(t, text, nameOf(t, params, "TREE", cargo)))
-		assert.Less(t, ruleAt(t, text, name), ruleAt(t, text, nameOf(t, params, "WRITE", r.Workspace)))
-		assert.Less(t, ruleAt(t, text, name), ruleAt(t, text, nameOf(t, params, "READ", r.Readable[0])))
+		i := ruleNamed(t, text, params, denyRule, p)
+		assert.Less(t, ruleNamed(t, text, params, readRule, filepath.Dir(p)), i, p)
+		assert.Less(t, i, ruleNamed(t, text, params, writeRule, r.Policy.Always.Write[0]))
+		assert.Less(t, i, ruleNamed(t, text, params, readRule, r.Policy.Always.Read[0]))
 	}
 }
 
-// Each path the run writes is followed by a denial of its root's own entry,
-// so the allow cannot outrank it.
+// Each of the run's own Write paths is followed by a denial of its root's own
+// entry, so the allow cannot outrank it; a Files Write rule gets none.
 func TestTheProfileKeepsARunsOwnRootsInPlace(t *testing.T) {
-	r, _ := profileRun(t)
 	s := &Sandbox{self: "/bin/sh"}
-	text, args := s.profile(r, nil)
+	r, base := profileRun(t, s)
+	extra := mkdirs(t, base, "extra")[0]
+	r.Policy.Files.Write = append(r.Policy.Files.Write, extra)
+
+	text, args := s.profile(r)
 	params := paramsOf(t, args)
-	for _, p := range append([]string{r.Workspace}, r.Writable...) {
-		name := nameOf(t, params, "WRITE", p)
-		allow := `(allow file-read* file-write* (subpath (param "` + name + `")))`
-		deny := `(deny file-write-unlink file-write-create (literal (param "` + name + `")))`
-		assert.Contains(t, text, allow+"\n"+deny)
+
+	deny := `(deny file-write-unlink file-write-create (literal (param "%s")))`
+	for _, p := range r.Policy.Always.Write {
+		name := nameOf(t, params, "RULE", resolved(p))
+		assert.Contains(t, text, fmt.Sprintf(writeRule, name)+"\n"+fmt.Sprintf(deny, name))
 	}
+	name := nameOf(t, params, "RULE", extra)
+	assert.NotContains(t, text, fmt.Sprintf(deny, name))
 }
 
-// A credential path is compared at its target against every read, the roots
-// among them: ~/.aws linked under /usr is denied there.
+// A credential path is compared at its target against every read, the System
+// folders among them: ~/.aws linked under /usr is denied there.
 func TestTheProfileDeniesALinkedCredentialPathUnderARoot(t *testing.T) {
-	r, _ := profileRun(t)
-	require.NoError(t, os.Symlink("/usr/share", filepath.Join(r.Home, ".aws")))
 	s := &Sandbox{self: "/bin/sh"}
+	r, base := profileRun(t, s)
+	require.NoError(t, os.Symlink("/usr/share", filepath.Join(base, "home", ".aws")))
 
-	_, args := s.profile(r, nil)
+	text, args := s.profile(r)
 
-	nameOf(t, paramsOf(t, args), "DENY", "/usr/share")
+	ruleNamed(t, text, paramsOf(t, args), denyRule, "/usr/share")
 }
 
-// Every ancestor of what a run reads can be statted, after the denials, so the
-// workspace's own resolves though the data directory holding it is denied.
+// Every ancestor of what a run reads can be statted, after the denials and the
+// fixed rules, so the workspace's own resolves though the data directory
+// holding it is denied.
 func TestTheProfileLetsEveryAncestorBeStattedAfterTheDenials(t *testing.T) {
-	r, base := profileRun(t)
 	s := &Sandbox{self: "/bin/sh"}
+	r, base := profileRun(t, s)
 
-	text, args := s.profile(r, nil)
+	text, args := s.profile(r)
 	params := paramsOf(t, args)
 
-	lastDenial := ruleAt(t, text, nameOf(t, params, "DENY", r.Denied[2]))
+	lastDenial := strings.LastIndex(text, "(deny file-read* file-write*")
+	fixed := strings.Index(text, `(allow file-read-data (literal "/"))`)
+	require.Greater(t, fixed, lastDenial)
 	for _, p := range []string{"/", base, filepath.Join(base, "data"), filepath.Join(base, "data", "chats", "c"), filepath.Dir(resolved("/bin/sh"))} {
 		name := nameOf(t, params, "UP", p)
 		assert.Contains(t, text, `(allow file-read-metadata (literal (param "`+name+`")))`)
-		assert.Greater(t, ruleAt(t, text, name), lastDenial)
+		assert.Greater(t, ruleAt(t, text, name), fixed)
 	}
 }
 
-// A run with no cluster has no network rule at all; one with a cluster may
-// bind and reach its port and reach its socket, and nothing else.
+// A run with no relay has no network rule at all; one with a relay may bind
+// and reach its port and reach its socket, and nothing else.
 func TestOnlyARunWithASocketHasNetwork(t *testing.T) {
-	r, _ := profileRun(t)
 	s := &Sandbox{self: "/bin/sh"}
+	r, _ := profileRun(t, s)
 
-	text, args := s.profile(r, nil)
+	text, args := s.profile(r)
 	assert.NotContains(t, text, "network")
 	assert.NotContains(t, paramsOf(t, args), "SOCKET")
 
-	r.Socket, r.Port = filepath.Join(r.Readable[0], "proxy.sock"), 4321
-	text, _ = s.profile(r, nil)
+	r.Policy.Network.Relays = []Relay{{Port: 4321, Socket: filepath.Join(r.Policy.Always.Read[0], "proxy.sock")}}
+	text, _ = s.profile(r)
 	assert.Contains(t, text, `(allow network-bind network-inbound (local tcp4 "localhost:4321"))`)
 	assert.Contains(t, text, `(remote tcp4 "localhost:4321")`)
 	assert.Contains(t, text, `(remote unix-socket (path-literal (param "SOCKET")))`)
@@ -341,20 +364,20 @@ func TestAProbeThatTimesOutKeepsTheSandbox(t *testing.T) {
 // The command is sandbox-exec with the run's profile, then the run's argv: the
 // shell, or for a run with a socket the forwarder with the shell its child.
 func TestTheCommandIsSandboxExecOverTheProfile(t *testing.T) {
-	r, _ := profileRun(t)
-	r.Args = []string{"-c", "exit 0"}
 	s := &Sandbox{self: "/bin/kstack-sidecar", launcher: "/usr/bin/sandbox-exec"}
+	r, _ := profileRun(t, s)
+	r.Args = []string{"-c", "exit 0"}
 
-	cmd := s.Command(t.Context(), r)
+	cmd := command(t, s, t.Context(), r)
 
-	text, params := s.profile(r, brewVar)
+	text, params := s.profile(r)
 	assert.Equal(t, "/usr/bin/sandbox-exec", cmd.Path)
 	assert.Equal(t, slices.Concat([]string{"/usr/bin/sandbox-exec", "-p", text}, params, []string{"/bin/sh", "-c", "exit 0"}), cmd.Args)
 	assert.Equal(t, r.Dir, cmd.Dir)
 	assert.Equal(t, r.Env, cmd.Env)
 
-	r.Socket, r.Port = "/run/p.sock", 4321
-	cmd = s.Command(t.Context(), r)
+	r.Policy.Network.Relays = []Relay{{Port: 4321, Socket: "/run/p.sock"}}
+	cmd = command(t, s, t.Context(), r)
 	name, args := s.argv(r)
 	assert.Equal(t, append([]string{name}, args...), cmd.Args[len(cmd.Args)-len(args)-1:])
 }
@@ -363,13 +386,14 @@ func TestTheCommandIsSandboxExecOverTheProfile(t *testing.T) {
 // child; a run with none runs the shell itself.
 func TestARunWithASocketStartsAsTheForwarder(t *testing.T) {
 	s := &Sandbox{self: "/bin/kstack-sidecar"}
-	r := Run{Shell: "/bin/sh", Args: []string{"-c", "--port 1"}, Socket: "/run/p.sock", Port: 6443}
+	relay := Relay{Port: 6443, Socket: "/run/p.sock"}
+	r := Run{Shell: "/bin/sh", Args: []string{"-c", "--port 1"}, Policy: Policy{Network: NetworkPolicy{Relays: []Relay{relay}}}}
 
 	name, args := s.argv(r)
 	require.Equal(t, "/bin/kstack-sidecar", name)
-	assert.Equal(t, append(append(ForwarderArgs(r), r.Shell), r.Args...), args)
+	assert.Equal(t, append(append(ForwarderArgs(relay), r.Shell), r.Args...), args)
 
-	r.Socket = ""
+	r.Policy.Network.Relays = nil
 	name, args = s.argv(r)
 	assert.Equal(t, "/bin/sh", name)
 	assert.Equal(t, r.Args, args)
@@ -379,14 +403,15 @@ func TestARunWithASocketStartsAsTheForwarder(t *testing.T) {
 // does, holds the command only until its context ends.
 func TestACommandWhoseProfileHangsIsRefusedWhenItsContextEnds(t *testing.T) {
 	release := make(chan struct{})
-	buildProfile = func(*Sandbox, Run, []string) (string, []string) { <-release; return "", nil }
+	buildProfile = func(*Sandbox, Run) (string, []string) { <-release; return "", nil }
 	t.Cleanup(func() { close(release); buildProfile = (*Sandbox).profile })
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
-	cmd := (&Sandbox{self: "/bin/sh", launcher: "/usr/bin/true"}).Command(ctx, Run{Shell: "/bin/sh"})
+	cmd, err := (&Sandbox{self: "/bin/sh", launcher: "/usr/bin/true"}).Command(ctx, Run{Shell: "/bin/sh"})
 
-	assert.ErrorIs(t, cmd.Start(), context.Canceled)
+	assert.Nil(t, cmd)
+	assert.ErrorIs(t, err, context.Canceled)
 }
 
 // The port a run's kubeconfig dials is a free loopback one, which the
@@ -493,6 +518,27 @@ func errCode(err error) int {
 type machineRun struct {
 	Run
 	base, home, data, cache, runtime, runDir string
+	ws, snapshot, tmp, kubectl, socket       string
+	port                                     int
+}
+
+// on is m as it runs on s, its policy the Workspace policy: System less what
+// lies in Kstack's directories, the Never paths and Kstack's directories
+// denied, the run's own paths inside them, and with a cluster one relay.
+func (m *machineRun) on(s *Sandbox) Run {
+	r := m.Run
+	kstack := []string{m.data, m.cache, m.runtime}
+	r.Policy = Policy{
+		Files: s.System(m.home, r.Shell, r.Env).Outside(kstack...),
+		Always: AlwaysPolicy{
+			Deny: s.Never(m.home), Kstack: kstack,
+			Read: []string{m.snapshot, m.runDir}, Write: []string{m.ws, m.tmp, m.kubectl},
+		},
+	}
+	if m.socket != "" {
+		r.Policy.Network.Relays = []Relay{{Port: m.port, Socket: m.socket}}
+	}
+	return r
 }
 
 func standIn(t *testing.T) *machineRun {
@@ -508,15 +554,11 @@ func standIn(t *testing.T) *machineRun {
 	snapshot := filepath.Join(d[5], "snapshot.sh")
 	require.NoError(t, os.WriteFile(snapshot, []byte("true\n"), 0o400))
 	SeedTmpDir(tmp)
+	m.ws, m.snapshot, m.tmp, m.kubectl = ws, snapshot, tmp, kubectl
 	m.Run = Run{
-		Shell:     "/bin/sh",
-		Dir:       ws,
-		Env:       []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "HOME=" + ws, "TMPDIR=" + tmp},
-		Workspace: ws,
-		Readable:  []string{snapshot, m.runDir},
-		Writable:  []string{tmp, kubectl},
-		Home:      m.home,
-		Denied:    []string{m.data, m.cache, m.runtime},
+		Shell: "/bin/sh",
+		Dir:   ws,
+		Env:   []string{"PATH=/usr/bin:/bin:/usr/sbin:/sbin", "HOME=" + ws, "TMPDIR=" + tmp},
 	}
 	return m
 }
@@ -525,10 +567,10 @@ func standIn(t *testing.T) *machineRun {
 // free port for its forwarder.
 func (m *machineRun) withCluster(t *testing.T) {
 	t.Helper()
-	m.Socket = filepath.Join(m.runDir, "proxy.sock")
-	serveHTTP(t, "unix", m.Socket, "ok")
-	m.Port = freePort(t)
-	m.Env = append(m.Env, "PORT="+strconv.Itoa(m.Port), "SOCKET="+m.Socket)
+	m.socket = filepath.Join(m.runDir, "proxy.sock")
+	serveHTTP(t, "unix", m.socket, "ok")
+	m.port = freePort(t)
+	m.Env = append(m.Env, "PORT="+strconv.Itoa(m.port), "SOCKET="+m.socket)
 }
 
 // serveHTTP answers body to every request on a listener of network at addr,
@@ -561,7 +603,7 @@ func shWithin(t *testing.T, s *Sandbox, r Run, d time.Duration, script string, e
 	defer cancel()
 	r.Args = []string{"-c", script}
 	r.Env = slices.Concat(r.Env, env)
-	out, err := s.Command(ctx, r).CombinedOutput()
+	out, err := command(t, s, ctx, r).CombinedOutput()
 	return string(out), err == nil, ctx.Err() != nil
 }
 
@@ -607,7 +649,7 @@ func TestTheListedProgramsRun(t *testing.T) {
 			m := standIn(t)
 			m.withCluster(t)
 
-			out, ok := sh(t, s, m.Run, p.script)
+			out, ok := sh(t, s, m.on(s), p.script)
 
 			assert.True(t, ok, out)
 		})
@@ -619,9 +661,9 @@ func TestTheHomeIsUnreadable(t *testing.T) {
 	m := standIn(t)
 	file := write(t, m.home, "secret")
 
-	out, ok := sh(t, s, m.Run, `cat "$F"`, "F="+file)
+	out, ok := sh(t, s, m.on(s), `cat "$F"`, "F="+file)
 	assert.False(t, ok, out)
-	out, ok = sh(t, s, m.Run, `ls "$F"`, "F="+m.home)
+	out, ok = sh(t, s, m.on(s), `ls "$F"`, "F="+m.home)
 	assert.False(t, ok, out)
 }
 
@@ -633,10 +675,10 @@ func TestACredentialPathInsideAReadableTreeIsUnreadable(t *testing.T) {
 	creds := write(t, m.home, ".cargo/credentials.toml")
 	m.Env[0] = "PATH=" + bin + ":/usr/bin:/bin"
 
-	out, ok := sh(t, s, m.Run, "tool")
+	out, ok := sh(t, s, m.on(s), "tool")
 	assert.True(t, ok, out)
 	assert.Equal(t, "tool\n", out)
-	out, ok = sh(t, s, m.Run, `cat "$F"`, "F="+creds)
+	out, ok = sh(t, s, m.on(s), `cat "$F"`, "F="+creds)
 	assert.False(t, ok, out)
 }
 
@@ -650,7 +692,7 @@ func TestALinkedCredentialPathIsUnreadable(t *testing.T) {
 	require.NoError(t, os.Symlink(filepath.Dir(secret), filepath.Join(m.home, ".aws")))
 	m.Env[0] = "PATH=" + bin + ":/usr/bin:/bin"
 
-	out, ok := sh(t, s, m.Run, `cat "$F"`, "F="+secret)
+	out, ok := sh(t, s, m.on(s), `cat "$F"`, "F="+secret)
 
 	assert.False(t, ok, out)
 }
@@ -665,10 +707,10 @@ func TestAnEntryUnderASharedDirectoryOpensOnlyItself(t *testing.T) {
 	others := []string{write(t, m.home, "Library/Application Support/y/z"), write(t, m.home, ".config/y/z")}
 	m.Env[0] = "PATH=" + strings.Join(bins, ":") + ":/usr/bin:/bin"
 
-	out, ok := sh(t, s, m.Run, "tool-Application\\ Support && tool-.config")
+	out, ok := sh(t, s, m.on(s), "tool-Application\\ Support && tool-.config")
 	assert.True(t, ok, out)
 	for _, f := range others {
-		out, ok = sh(t, s, m.Run, `cat "$F"`, "F="+f)
+		out, ok = sh(t, s, m.on(s), `cat "$F"`, "F="+f)
 		assert.False(t, ok, out)
 	}
 }
@@ -685,9 +727,9 @@ func TestHomebrewsVarIsDenied(t *testing.T) {
 	t.Cleanup(func() { brewVar = saved })
 	m.Env[0] = "PATH=" + brew + ":/usr/bin:/bin"
 
-	out, ok := sh(t, s, m.Run, `cat "$F"`, "F="+db)
+	out, ok := sh(t, s, m.on(s), `cat "$F"`, "F="+db)
 	assert.False(t, ok, out)
-	out, ok = sh(t, s, m.Run, `cat "$F"`, "F="+readme)
+	out, ok = sh(t, s, m.on(s), `cat "$F"`, "F="+readme)
 	assert.True(t, ok, out)
 }
 
@@ -696,14 +738,14 @@ func TestKstacksDirectoriesAreUnreadable(t *testing.T) {
 	m := standIn(t)
 	assert.True(t, strings.HasPrefix(m.base, "/var/"), "the run's paths are passed unresolved: %s", m.base)
 	for _, f := range []string{write(t, m.data, "app.db"), write(t, m.cache, "kubestore/c.db"), write(t, m.runtime, "host.sock"), write(t, m.runtime, "shell/other")} {
-		out, ok := sh(t, s, m.Run, `cat "$F"`, "F="+f)
+		out, ok := sh(t, s, m.on(s), `cat "$F"`, "F="+f)
 		assert.False(t, ok, "%s: %s", f, out)
 	}
 	for _, f := range []string{
-		write(t, m.Workspace, "f"), m.Readable[0], write(t, m.runDir, "kubeconfig"),
-		write(t, m.Writable[0], "f"), write(t, m.Writable[1], "f"),
+		write(t, m.ws, "f"), m.snapshot, write(t, m.runDir, "kubeconfig"),
+		write(t, m.tmp, "f"), write(t, m.kubectl, "f"),
 	} {
-		out, ok := sh(t, s, m.Run, `cat "$F"`, "F="+f)
+		out, ok := sh(t, s, m.on(s), `cat "$F"`, "F="+f)
 		assert.True(t, ok, "%s: %s", f, out)
 	}
 }
@@ -717,9 +759,9 @@ func TestASiblingRunsKubeconfigIsUnreadable(t *testing.T) {
 	socket := filepath.Join(sibling, "proxy.sock")
 	serveHTTP(t, "unix", socket, "sibling")
 
-	out, ok := sh(t, s, m.Run, `cat "$F"`, "F="+kubeconfig)
+	out, ok := sh(t, s, m.on(s), `cat "$F"`, "F="+kubeconfig)
 	assert.False(t, ok, out)
-	out, _ = sh(t, s, m.Run, `curl -sS --unix-socket "$F" http://x/`, "F="+socket)
+	out, _ = sh(t, s, m.on(s), `curl -sS --unix-socket "$F" http://x/`, "F="+socket)
 	assert.NotContains(t, out, "sibling")
 }
 
@@ -732,9 +774,9 @@ func TestTheTempDirectoriesAreDenied(t *testing.T) {
 		t.Cleanup(func() { _ = os.RemoveAll(dir) })
 		file := write(t, dir, "f")
 
-		out, ok := sh(t, s, m.Run, `cat "$F"`, "F="+file)
+		out, ok := sh(t, s, m.on(s), `cat "$F"`, "F="+file)
 		assert.False(t, ok, "%s: %s", file, out)
-		out, ok = sh(t, s, m.Run, `echo x > "$D/new"`, "D="+dir)
+		out, ok = sh(t, s, m.on(s), `echo x > "$D/new"`, "D="+dir)
 		assert.False(t, ok, "%s: %s", dir, out)
 		assert.NoFileExists(t, filepath.Join(dir, "new"))
 	}
@@ -743,12 +785,12 @@ func TestTheTempDirectoriesAreDenied(t *testing.T) {
 func TestOnlyTheWorkspaceAndTheCacheAreWritten(t *testing.T) {
 	s := confining(t)
 	m := standIn(t)
-	for _, dir := range []string{m.Workspace, m.Writable[0], m.Writable[1]} {
-		out, ok := sh(t, s, m.Run, `echo x > "$D/new"`, "D="+dir)
+	for _, dir := range []string{m.ws, m.tmp, m.kubectl} {
+		out, ok := sh(t, s, m.on(s), `echo x > "$D/new"`, "D="+dir)
 		assert.True(t, ok, "%s: %s", dir, out)
 	}
-	for _, dir := range []string{m.home, filepath.Dir(m.Workspace), m.runDir, filepath.Dir(m.Readable[0]), m.base} {
-		out, ok := sh(t, s, m.Run, `echo x > "$D/new"`, "D="+dir)
+	for _, dir := range []string{m.home, filepath.Dir(m.ws), m.runDir, filepath.Dir(m.snapshot), m.base} {
+		out, ok := sh(t, s, m.on(s), `echo x > "$D/new"`, "D="+dir)
 		assert.False(t, ok, "%s: %s", dir, out)
 		assert.NoFileExists(t, filepath.Join(dir, "new"))
 	}
@@ -767,9 +809,9 @@ func TestARunCannotReplaceItsWorkspace(t *testing.T) {
 		`ln -s "$D" "$O/l" && perl -e 'rename($ARGV[0], $ARGV[1]) or die "$!\n"' "$O/l" "$W"`,
 	} {
 		m := standIn(t)
-		for _, pair := range [][2]string{{m.Workspace, m.Writable[1]}, {m.Writable[1], m.Workspace}} {
+		for _, pair := range [][2]string{{m.ws, m.kubectl}, {m.kubectl, m.ws}} {
 			w, other := pair[0], pair[1]
-			out, ok := sh(t, s, m.Run, script, "W="+w, "D="+m.data, "O="+other)
+			out, ok := sh(t, s, m.on(s), script, "W="+w, "D="+m.data, "O="+other)
 			assert.False(t, ok, "%s on %s: %s", script, w, out)
 			info, err := os.Lstat(w)
 			require.NoError(t, err, script)
@@ -778,8 +820,8 @@ func TestARunCannotReplaceItsWorkspace(t *testing.T) {
 	}
 
 	m := standIn(t)
-	for _, w := range []string{m.Workspace, m.Writable[1]} {
-		out, ok := sh(t, s, m.Run, `mkdir "$W/a" && echo x > "$W/a/f" && mv "$W/a" "$W/b" && rm -rf "$W/b" && ln -s /usr "$W/l" && rm "$W/l"`, "W="+w)
+	for _, w := range []string{m.ws, m.kubectl} {
+		out, ok := sh(t, s, m.on(s), `mkdir "$W/a" && echo x > "$W/a/f" && mv "$W/a" "$W/b" && rm -rf "$W/b" && ln -s /usr "$W/l" && rm "$W/l"`, "W="+w)
 		assert.True(t, ok, "%s: %s", w, out)
 	}
 }
@@ -787,11 +829,11 @@ func TestARunCannotReplaceItsWorkspace(t *testing.T) {
 func TestAnAncestorCanBeStatted(t *testing.T) {
 	s := confining(t)
 	m := standIn(t)
-	parent := filepath.Dir(m.Workspace)
+	parent := filepath.Dir(m.ws)
 
-	out, ok := sh(t, s, m.Run, `stat "$D"`, "D="+parent)
+	out, ok := sh(t, s, m.on(s), `stat "$D"`, "D="+parent)
 	assert.True(t, ok, out)
-	out, ok = sh(t, s, m.Run, `ls "$D"`, "D="+parent)
+	out, ok = sh(t, s, m.on(s), `ls "$D"`, "D="+parent)
 	assert.False(t, ok, out)
 }
 
@@ -800,7 +842,7 @@ func TestTheEnvironmentIsExactlyGiven(t *testing.T) {
 	m := standIn(t)
 	m.Shell = "/usr/bin/env"
 
-	out, err := s.Command(t.Context(), m.Run).Output()
+	out, err := command(t, s, t.Context(), m.on(s)).Output()
 
 	require.NoError(t, err)
 	assert.ElementsMatch(t, m.Env, strings.Split(strings.TrimSuffix(string(out), "\n"), "\n"))
@@ -811,7 +853,7 @@ func TestTheEnvironmentIsExactlyGiven(t *testing.T) {
 func TestTheKeychainIsDenied(t *testing.T) {
 	s := confining(t)
 	m := standIn(t)
-	keychain := filepath.Join(m.Workspace, "k.keychain")
+	keychain := filepath.Join(m.ws, "k.keychain")
 	service := "kstack-test-" + rand.Text()
 	security := func(args ...string) error { return exec.Command("security", args...).Run() }
 	require.NoError(t, security("create-keychain", "-p", "pw", keychain))
@@ -821,7 +863,7 @@ func TestTheKeychainIsDenied(t *testing.T) {
 	require.NoError(t, security("find-generic-password", "-s", service, keychain), "found outside")
 
 	// A negative assertion: a lookup that reached the Keychain would answer at once.
-	out, ok, late := shWithin(t, s, m.Run, time.Second, `security find-generic-password -s "$S" "$K"`, "S="+service, "K="+keychain)
+	out, ok, late := shWithin(t, s, m.on(s), time.Second, `security find-generic-password -s "$S" "$K"`, "S="+service, "K="+keychain)
 
 	assert.False(t, late, "the lookup did not fail within a second")
 	assert.False(t, ok, out)
@@ -857,11 +899,11 @@ func TestNoAppIsOpenedOrDriven(t *testing.T) {
 		`osascript -e 'tell application "Finder" to get «property pnam» of «property sdsk»'`,
 		"echo inside | pbcopy",
 	} {
-		out, ok, late := shWithin(t, s, m.Run, 15*time.Second, script)
+		out, ok, late := shWithin(t, s, m.on(s), 15*time.Second, script)
 		assert.False(t, late, "%s did not end within 15 seconds", script)
 		assert.False(t, ok, "%s: %s", script, out)
 	}
-	out, _, late := shWithin(t, s, m.Run, 15*time.Second, "pbpaste")
+	out, _, late := shWithin(t, s, m.on(s), 15*time.Second, "pbpaste")
 	assert.False(t, late)
 	assert.NotContains(t, out, marker)
 	got, err := exec.Command("pbpaste").Output()
@@ -881,7 +923,7 @@ func TestNoServiceReadsForTheRun(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "kstack-value\n", string(got))
 
-	out, ok := sh(t, s, m.Run, `defaults read "$D" k`, "D="+domain)
+	out, ok := sh(t, s, m.on(s), `defaults read "$D" k`, "D="+domain)
 
 	assert.False(t, ok, out)
 	assert.NotContains(t, out, "kstack-value")
@@ -901,7 +943,7 @@ func TestNoOtherProcessIsRead(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(outside), arg)
 
-	out, _ := sh(t, s, m.Run, `ps -E -ww -p "$P"`, "P="+pid)
+	out, _ := sh(t, s, m.on(s), `ps -E -ww -p "$P"`, "P="+pid)
 
 	assert.NotContains(t, out, arg)
 	assert.NotContains(t, out, value)
@@ -916,7 +958,7 @@ func TestAPublicNameDoesNotResolve(t *testing.T) {
 
 	// A negative assertion bounded at a second: a lookup that left the machine
 	// would take longer, or answer.
-	out, ok, late := shWithin(t, s, m.Run, time.Second, "curl -sS --max-time 5 http://example.com/")
+	out, ok, late := shWithin(t, s, m.on(s), time.Second, "curl -sS --max-time 5 http://example.com/")
 
 	assert.False(t, late, "the lookup did not fail within a second")
 	assert.False(t, ok, out)
@@ -928,18 +970,18 @@ func TestOnlyTheRunsPortAndSocketAreReached(t *testing.T) {
 	m := standIn(t)
 	m.withCluster(t)
 	other := serveHTTP(t, "tcp", "127.0.0.1:0", "other")
-	otherSocket := filepath.Join(m.Workspace, "o.sock")
+	otherSocket := filepath.Join(m.ws, "o.sock")
 	serveHTTP(t, "unix", otherSocket, "other")
 
-	out, ok := sh(t, s, m.Run, `curl -sS "http://127.0.0.1:$PORT/"`)
+	out, ok := sh(t, s, m.on(s), `curl -sS "http://127.0.0.1:$PORT/"`)
 	assert.True(t, ok, out)
 	assert.Equal(t, "ok", out)
-	out, ok = sh(t, s, m.Run, `curl -sS --unix-socket "$SOCKET" http://x/`)
+	out, ok = sh(t, s, m.on(s), `curl -sS --unix-socket "$SOCKET" http://x/`)
 	assert.True(t, ok, out)
 	assert.Equal(t, "ok", out)
-	out, _ = sh(t, s, m.Run, `curl -sS "http://$A/"`, "A="+other)
+	out, _ = sh(t, s, m.on(s), `curl -sS "http://$A/"`, "A="+other)
 	assert.NotContains(t, out, "other")
-	out, _ = sh(t, s, m.Run, `curl -sS --unix-socket "$F" http://x/`, "F="+otherSocket)
+	out, _ = sh(t, s, m.on(s), `curl -sS --unix-socket "$F" http://x/`, "F="+otherSocket)
 	assert.NotContains(t, out, "other")
 }
 
@@ -949,14 +991,14 @@ func TestThePortIsReachedOverIPv4TCPAlone(t *testing.T) {
 	s := confining(t)
 	m := standIn(t)
 	m.withCluster(t)
-	port := strconv.Itoa(m.Port)
+	port := strconv.Itoa(m.port)
 	for _, target := range []string{"udp4 127.0.0.1:" + port, "tcp6 [::1]:" + port, "udp6 [::1]:" + port} {
-		out, ok := sh(t, s, m.Run, sendEnv+`="$T" "$BIN"`, "T="+target, "BIN="+os.Args[0])
+		out, ok := sh(t, s, m.on(s), sendEnv+`="$T" "$BIN"`, "T="+target, "BIN="+os.Args[0])
 
 		assert.False(t, ok, target)
 		assert.Contains(t, out, "operation not permitted", target)
 	}
-	out, ok := sh(t, s, m.Run, sendEnv+`="$T" "$BIN"`, "T=tcp4 127.0.0.1:"+port, "BIN="+os.Args[0])
+	out, ok := sh(t, s, m.on(s), sendEnv+`="$T" "$BIN"`, "T=tcp4 127.0.0.1:"+port, "BIN="+os.Args[0])
 	assert.True(t, ok, out)
 }
 
@@ -965,7 +1007,7 @@ func TestARunWithoutAClusterHasNoNetwork(t *testing.T) {
 	m := standIn(t)
 	addr := serveHTTP(t, "tcp", "127.0.0.1:0", "reached")
 
-	out, _ := sh(t, s, m.Run, `curl -sS "http://$A/"`, "A="+addr)
+	out, _ := sh(t, s, m.on(s), `curl -sS "http://$A/"`, "A="+addr)
 
 	assert.NotContains(t, out, "reached")
 }
@@ -974,13 +1016,13 @@ func TestAPathIsAParameter(t *testing.T) {
 	s := confining(t)
 	m := standIn(t)
 	ws := mkdirs(t, m.data, "chats/we\"ird)\n(allow default)/workspace")[0]
-	m.Workspace, m.Dir = ws, ws
+	m.ws, m.Dir = ws, ws
 	file := write(t, m.home, "secret")
 
-	out, ok := sh(t, s, m.Run, "echo x > f && cat f")
+	out, ok := sh(t, s, m.on(s), "echo x > f && cat f")
 	assert.True(t, ok, out)
 	assert.Equal(t, "x\n", out)
-	out, ok = sh(t, s, m.Run, `cat "$F"`, "F="+file)
+	out, ok = sh(t, s, m.on(s), `cat "$F"`, "F="+file)
 	assert.False(t, ok, out)
 }
 
@@ -988,17 +1030,17 @@ func TestATakenPortFailsTheRun(t *testing.T) {
 	s := confining(t)
 	m := standIn(t)
 	m.withCluster(t)
-	held, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(m.Port)))
+	held, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(m.port)))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = held.Close() })
 
 	m.Args = []string{"-c", "echo started"}
-	out, err := s.Command(t.Context(), m.Run).CombinedOutput()
+	out, err := command(t, s, t.Context(), m.on(s)).CombinedOutput()
 
 	var exit *exec.ExitError
 	require.ErrorAs(t, err, &exit)
 	assert.Equal(t, initFailed, exit.ExitCode())
-	assert.Contains(t, string(out), "sandbox-init: cannot listen on 127.0.0.1:"+strconv.Itoa(m.Port))
+	assert.Contains(t, string(out), "sandbox-init: cannot listen on 127.0.0.1:"+strconv.Itoa(m.port))
 	assert.NotContains(t, string(out), "started")
 }
 
@@ -1012,7 +1054,7 @@ func TestAProcessCannotLeaveItsGroup(t *testing.T) {
 		require.NoError(t, err, string(outside))
 		require.Equal(t, "<nil>\n", string(outside), "%s succeeds outside", call)
 
-		out, ok := sh(t, s, m.Run, leaveEnv+`="$C" "$BIN"`, "C="+call, "BIN="+os.Args[0])
+		out, ok := sh(t, s, m.on(s), leaveEnv+`="$C" "$BIN"`, "C="+call, "BIN="+os.Args[0])
 
 		assert.True(t, ok, out)
 		assert.Equal(t, "operation not permitted\n", out, call)
@@ -1028,22 +1070,22 @@ func TestAProcessThatLeavesTheGroupStaysConfined(t *testing.T) {
 		t.Skip("no Command Line Tools: /usr/bin/python3 only offers to install them")
 	}
 	m := standIn(t)
-	fifo := filepath.Join(m.Workspace, "go")
+	fifo := filepath.Join(m.ws, "go")
 	require.NoError(t, syscall.Mkfifo(fifo, 0o600))
 	listener := serveHTTP(t, "tcp", "127.0.0.1:0", "reached")
-	m.Env = append(m.Env, lingerEnv+"="+m.Workspace, homeFileEnv+"="+write(t, m.home, "secret"), listenerEnv+"="+listener, "BIN="+os.Args[0])
+	m.Env = append(m.Env, lingerEnv+"="+m.ws, homeFileEnv+"="+write(t, m.home, "secret"), listenerEnv+"="+listener, "BIN="+os.Args[0])
 	// Its output goes to /dev/null, or the run's pipe stays open behind it.
 	m.Args = []string{"-c", `exec /usr/bin/python3 -c 'import os, sys
 null = [(os.POSIX_SPAWN_OPEN, fd, "/dev/null", os.O_WRONLY, 0) for fd in (1, 2)]
 pid = os.posix_spawn(sys.argv[1], [sys.argv[1]], os.environ, file_actions=null, setsid=True)
 open("pid", "w").write(str(pid))' "$BIN"`}
 
-	cmd := s.Command(t.Context(), m.Run)
+	cmd := command(t, s, t.Context(), m.on(s))
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, string(out))
 	_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-	raw, err := os.ReadFile(filepath.Join(m.Workspace, "pid"))
+	raw, err := os.ReadFile(filepath.Join(m.ws, "pid"))
 	require.NoError(t, err)
 	pid, err := strconv.Atoi(string(raw))
 	require.NoError(t, err)
@@ -1058,7 +1100,7 @@ open("pid", "w").write(str(pid))' "$BIN"`}
 	}()
 	f := testutil.Recv(t, opened, "the process left behind opens its FIFO")
 	require.NoError(t, f.Close())
-	result := filepath.Join(m.Workspace, "result")
+	result := filepath.Join(m.ws, "result")
 	require.Eventually(t, func() bool { _, err := os.Stat(result); return err == nil }, testutil.Timeout, 10*time.Millisecond)
 	got, err := os.ReadFile(result)
 	require.NoError(t, err)
@@ -1076,7 +1118,7 @@ func TestATerminalIsUnreachable(t *testing.T) {
 	require.Contains(t, string(outside), "opened", "script gives its command a terminal")
 
 	m.Args = []string{"-c", opened}
-	run := s.Command(t.Context(), m.Run)
+	run := command(t, s, t.Context(), m.on(s))
 	cmd := exec.CommandContext(t.Context(), "/usr/bin/script", slices.Concat([]string{"-q", "/dev/null"}, run.Args)...)
 	cmd.Dir, cmd.Env = run.Dir, run.Env
 	out, err := cmd.CombinedOutput()
@@ -1084,4 +1126,86 @@ func TestATerminalIsUnreachable(t *testing.T) {
 	require.NoError(t, err, string(out))
 	assert.Contains(t, string(out), "refused")
 	assert.NotContains(t, string(out), "opened")
+}
+
+// System is the lists' System folders, the PATH trees and this executable at
+// its resolved path, with Homebrew's var as a Deny. The shell's folder adds
+// nothing, and an entry under a shared home folder names only itself.
+func TestSystemIsTheListsAndTheTrees(t *testing.T) {
+	base := resolved(t.TempDir())
+	d := mkdirs(t, base, "usr/bin", "home/apps/bin", "home/Library/tool/bin", "home/shells", "app")
+	self := write(t, d[4], "kstack-sidecar")
+	require.NoError(t, os.Symlink(self, filepath.Join(base, "self-link")))
+	oldShared, oldPlatform, oldBrew := sharedLists, platformLists, brewVar
+	sharedLists.System = []string{filepath.Join(base, "shared")}
+	platformLists.System = []string{filepath.Join(base, "usr")}
+	brewVar = []string{filepath.Join(base, "usr", "var")}
+	t.Cleanup(func() { sharedLists, platformLists, brewVar = oldShared, oldPlatform, oldBrew })
+	s := &Sandbox{self: filepath.Join(base, "self-link")}
+
+	got := s.System(filepath.Join(base, "home"), filepath.Join(d[3], "zsh"), []string{"PATH=" + d[1] + ":" + d[2] + ":" + d[0]})
+
+	assert.Equal(t, FilePolicy{
+		Read: []string{filepath.Join(base, "shared"), filepath.Join(base, "usr"), d[2], filepath.Join(base, "home", "apps"), self},
+		Deny: []string{filepath.Join(base, "usr", "var")},
+	}, got)
+}
+
+// A policy that fails Check answers its error and no command.
+func TestAPolicyThatFailsCheckStartsNothing(t *testing.T) {
+	s := &Sandbox{self: "/bin/sh", launcher: "/usr/bin/sandbox-exec"}
+	r := Run{Shell: "/bin/sh", Dir: "/w", Policy: Policy{Files: FilePolicy{Read: []string{"relative"}}}}
+
+	cmd, err := s.Command(t.Context(), r)
+
+	assert.Nil(t, cmd)
+	assert.Error(t, err)
+}
+
+// A Deny holds for a path that does not exist when the profile is made: a
+// file made there afterwards cannot be read. The home is under /var, a link,
+// so the Deny is resolved through the deepest folder that exists.
+func TestADenyHoldsForAPathMadeLater(t *testing.T) {
+	s := confining(t)
+	m := standIn(t)
+	r := m.on(s)
+	r.Policy.Files.Read = append(r.Policy.Files.Read, m.home)
+	r.Args = []string{"-c", `cat "$F"`}
+	r.Env = append(r.Env, "F="+filepath.Join(m.home, ".ssh", "id_ed25519"))
+
+	cmd := command(t, s, t.Context(), r)
+	write(t, filepath.Join(m.home, ".ssh"), "id_ed25519")
+	out, err := cmd.CombinedOutput()
+
+	assert.Error(t, err)
+	assert.NotContains(t, string(out), "secret")
+}
+
+// A Read and a Write rule whose paths are missing are skipped: the run
+// starts, and it cannot make either path.
+func TestAMissingReadOrWritePathIsSkipped(t *testing.T) {
+	s := confining(t)
+	m := standIn(t)
+	read, written := filepath.Join(m.base, "read"), filepath.Join(m.base, "written")
+	r := m.on(s)
+	r.Policy.Files.Read = append(r.Policy.Files.Read, read)
+	r.Policy.Files.Write = append(r.Policy.Files.Write, written)
+
+	out, _ := sh(t, s, r, `mkdir -p "$R" "$W" 2>/dev/null; touch "$R/x" "$W/x" 2>/dev/null; echo started`, "R="+read, "W="+written)
+
+	assert.Equal(t, "started\n", out)
+	assert.NoDirExists(t, read)
+	assert.NoDirExists(t, written)
+}
+
+// The probe's run writes its own folder and reads its shell: the profile it
+// hands the launcher names both.
+func TestTheProbeHandsTheLauncherItsPolicy(t *testing.T) {
+	check := `printf '%s\n' "$@" | grep -q '^RULE_[0-9]*=.*kstack-probe-' || { echo 'no probe folder' >&2; exit 1; }
+printf '%s\n' "$@" | grep -q '^RULE_[0-9]*=/usr$' || { echo 'no /usr' >&2; exit 1; }
+`
+	s, v := probe(t.Context(), launcher(t, check+passThrough), testutil.Timeout)
+
+	require.NotNil(t, s, v.Reason)
+	assert.True(t, v.Available)
 }

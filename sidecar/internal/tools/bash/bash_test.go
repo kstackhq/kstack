@@ -411,14 +411,19 @@ func TestAFailedCommandLeadsWithItsExitCode(t *testing.T) {
 func tool(t *testing.T) *Tool {
 	t.Helper()
 	t.Setenv("SHELL", "")
-	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil)
+	k := kstackDirs(t)
+	tl, ok := New(Paths{ShellDir: filepath.Join(k.runtime, "shell")}, 0, nil, nil)
 	if !ok {
 		t.Skip("no bash found on this machine")
 	}
 	tl.home = t.TempDir()
-	tl.runsDir = runsIn(t)
-	tl.tmpDir = t.TempDir()
-	tl.kubectlDir = t.TempDir()
+	tl.runsDir = filepath.Join(k.runtime, "runs")
+	tl.tmpDir = filepath.Join(k.cache, "tmp")
+	tl.kubectlDir = filepath.Join(k.cache, "kubectl")
+	tl.denied = []string{k.data, k.cache, k.runtime}
+	for _, dir := range []string{tl.runsDir, tl.tmpDir, tl.kubectlDir} {
+		require.NoError(t, os.MkdirAll(dir, 0o700))
+	}
 	return tl
 }
 
@@ -432,6 +437,37 @@ func runsIn(t *testing.T) string {
 	return runs
 }
 
+// kstackLayout is a test's stand-ins for Kstack's data, cache and runtime
+// directories, which hold a run's own paths as app/paths.go lays them out.
+type kstackLayout struct{ data, cache, runtime string }
+
+var (
+	layoutsMu sync.Mutex
+	layouts   = map[*testing.T]kstackLayout{}
+)
+
+// kstackDirs is t's Kstack directories: made on its first call in t, and the
+// same on every later one, so the tool and the runtime a test makes agree. A
+// subtest is a *testing.T of its own, so a tool made in one and a runtime in
+// another get two layouts, and over a real sandbox the workspace fails Check.
+// The runtime directory is short, since a run's socket must fit under it.
+func kstackDirs(t *testing.T) kstackLayout {
+	t.Helper()
+	layoutsMu.Lock()
+	defer layoutsMu.Unlock()
+	if k, ok := layouts[t]; ok {
+		return k
+	}
+	k := kstackLayout{data: t.TempDir(), cache: t.TempDir(), runtime: shortTemp(t)}
+	layouts[t] = k
+	t.Cleanup(func() {
+		layoutsMu.Lock()
+		defer layoutsMu.Unlock()
+		delete(layouts, t)
+	})
+	return k
+}
+
 // shortTemp is a temp directory for one test, short enough for a run's socket.
 // Not t.TempDir(): it embeds the test's name, and on macOS its path is past
 // what a run's socket fits under.
@@ -443,18 +479,21 @@ func shortTemp(t *testing.T) string {
 	return dir
 }
 
-// fakeSandboxer runs a command as given and keeps each Run it was handed. Its
-// port is 6443, or portErr.
+// fakeSandboxer runs a command as given and keeps each Run it was handed,
+// or answers cmdErr and runs nothing. Its port is 6443, or portErr.
 type fakeSandboxer struct {
 	confines  bool
+	cmdErr    error
 	portErr   error
-	hold      *testutil.Signal // when set, Command fires it and waits for ctx to end
+	system    sandbox.FilePolicy // what System answers
+	never     []string           // what Never answers
+	hold      *testutil.Signal   // when set, Command fires it and waits for ctx to end
 	mu        sync.Mutex
 	runs      []sandbox.Run
 	portsSeen int
 }
 
-func (f *fakeSandboxer) Command(ctx context.Context, r sandbox.Run) *exec.Cmd {
+func (f *fakeSandboxer) Command(ctx context.Context, r sandbox.Run) (*exec.Cmd, error) {
 	if f.hold != nil {
 		f.hold.Fire()
 		<-ctx.Done()
@@ -462,10 +501,20 @@ func (f *fakeSandboxer) Command(ctx context.Context, r sandbox.Run) *exec.Cmd {
 	f.mu.Lock()
 	f.runs = append(f.runs, r)
 	f.mu.Unlock()
+	if f.hold != nil {
+		return nil, ctx.Err()
+	}
+	if f.cmdErr != nil {
+		return nil, f.cmdErr
+	}
 	cmd := exec.CommandContext(ctx, r.Shell, r.Args...)
 	cmd.Dir, cmd.Env = r.Dir, r.Env
-	return cmd
+	return cmd, nil
 }
+
+func (f *fakeSandboxer) System(string, string, []string) sandbox.FilePolicy { return f.system }
+
+func (f *fakeSandboxer) Never(string) []string { return f.never }
 
 func (f *fakeSandboxer) Confines() bool { return f.confines }
 
@@ -828,10 +877,15 @@ func TestTheToolSectionNamesPlatformAndShell(t *testing.T) {
 // chatDir is a chat's directory of the test's own.
 type chatDir string
 
-// testChatDir is a chat's directory under the test's temporary
-// directory, not yet made.
+// testChatDir is a fresh chat's directory under the test's data directory,
+// not yet made.
 func testChatDir(t *testing.T) chatDir {
-	return chatDir(filepath.Join(t.TempDir(), "c1"))
+	t.Helper()
+	chats := filepath.Join(kstackDirs(t).data, "chats")
+	require.NoError(t, os.MkdirAll(chats, 0o700))
+	dir, err := os.MkdirTemp(chats, "c")
+	require.NoError(t, err)
+	return chatDir(filepath.Join(dir, "c1"))
 }
 
 // testRuntime is a runtime holding testChatDir alone.

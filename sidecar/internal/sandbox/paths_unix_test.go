@@ -56,7 +56,12 @@ func TestAHomeThroughALinkIsNamedAtItsTarget(t *testing.T) {
 	require.NoError(t, os.Symlink(home, link))
 
 	trees := pathTrees(link, nil, nil, []string{bin})
-	denied := overlapping(credentialPaths(link), trees)
+	var denied []string
+	for _, r := range (Policy{Files: FilePolicy{Read: trees}, Always: AlwaysPolicy{Deny: neverPaths(link)}}).rules() {
+		if r.kind == ruleDeny {
+			denied = append(denied, r.at)
+		}
+	}
 
 	assert.Equal(t, []string{filepath.Join(home, ".docker")}, trees)
 	assert.Equal(t, []string{filepath.Join(home, ".docker")}, denied)
@@ -117,7 +122,7 @@ func TestAnEntryThroughALinkIsRecreated(t *testing.T) {
 	require.NoError(t, os.WriteFile(notADir, nil, 0o600))
 	entries := []string{filepath.Join(nix, "bin"), filepath.Join(links, "tool"), inRoot, toHome, tool, notADir, "relative/bin"}
 
-	got := pathLinks([]string{root}, pathTrees(home, []string{root}, nil, entries), entries)
+	got := pathLinks(append([]string{root}, pathTrees(home, []string{root}, nil, entries)...), entries)
 
 	assert.Equal(t, []link{
 		{path: filepath.Join(nix, "bin"), target: profile},
@@ -137,40 +142,12 @@ func TestAProgramLinkThroughALinkedHomeIsRecreated(t *testing.T) {
 	require.NoError(t, os.Symlink(filepath.Join(venv, "x"), filepath.Join(bin, "x")))
 	require.NoError(t, os.WriteFile(filepath.Join(venv, "x"), nil, 0o700))
 
-	got := pathLinks(nil, pathTrees(linked, nil, nil, []string{bin}), []string{bin})
+	got := pathLinks(pathTrees(linked, nil, nil, []string{bin}), []string{bin})
 
 	assert.Equal(t, []link{
 		{path: bin, target: filepath.Join(home, ".local", "bin")},
 		{path: venv, target: filepath.Join(home, ".local", "share", "pipx", "venvs", "x", "bin")},
 	}, got)
-}
-
-// Kstack's directories are resolved before they are compared, so one given
-// through a linked home still falls inside the tree that holds it.
-func TestKstacksDirectoriesAreResolved(t *testing.T) {
-	home, _, outside := machine(t)
-	linked := filepath.Join(outside, "home-link")
-	require.NoError(t, os.Symlink(home, linked))
-	data := mkdirs(t, home, "tools/kstack")[0]
-	mkdirs(t, home, "tools/bin")
-	missing := filepath.Join(linked, "no-such-dir")
-
-	denied := resolvedAll([]string{filepath.Join(linked, "tools", "kstack"), missing})
-	trees := pathTrees(linked, nil, nil, []string{filepath.Join(linked, "tools", "bin")})
-
-	assert.Equal(t, []string{data, missing}, denied)
-	assert.Equal(t, []string{data}, overlapping(denied, trees))
-}
-
-// A credential that is a link is named at its target, so it falls inside the
-// tree that holds the target.
-func TestACredentialThroughALinkIsNamedAtItsTarget(t *testing.T) {
-	home, _, _ := machine(t)
-	creds := mkdirs(t, home, "tools/credentials")[0]
-	require.NoError(t, os.Symlink(creds, filepath.Join(home, ".kube")))
-
-	assert.Contains(t, credentialPaths(home), creds)
-	assert.NotContains(t, credentialPaths(home), filepath.Join(home, ".kube"))
 }
 
 // An entry inside a root opens no tree of its own, but a program in it that
@@ -218,4 +195,14 @@ func TestAProgramLinkChainOpensEachDirectory(t *testing.T) {
 	require.NoError(t, os.Symlink("loop", filepath.Join(bin, "loop")))
 
 	assert.Equal(t, []string{bin, install, links}, pathTrees(home, nil, nil, []string{bin}))
+}
+
+// A path that does not exist is resolved through its deepest folder that
+// does, so a missing path under a link names where the link leads.
+func TestAMissingPathIsResolvedThroughItsDeepestFolder(t *testing.T) {
+	base := resolved(t.TempDir())
+	target := mkdirs(t, base, "private/var")[0]
+	require.NoError(t, os.Symlink(target, filepath.Join(base, "var")))
+
+	assert.Equal(t, filepath.Join(target, "missing", "file"), resolved(filepath.Join(base, "var", "missing", "file")))
 }

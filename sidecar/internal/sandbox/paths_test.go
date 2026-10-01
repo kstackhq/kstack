@@ -82,46 +82,6 @@ func TestATreeInsideAnotherIsDropped(t *testing.T) {
 	assert.Equal(t, []string{d[0], d[2]}, pathTrees(home, nil, nil, []string{d[1], d[2], d[0]}))
 }
 
-func TestTheCredentialPathsAreUnderTheHome(t *testing.T) {
-	home, _, _ := machine(t)
-
-	paths := credentialPaths(home)
-
-	require.Len(t, paths, len(credentials))
-	assert.Contains(t, paths, filepath.Join(home, ".kube"))
-	assert.Contains(t, paths, filepath.Join(home, ".local", "share", "keyrings"))
-}
-
-// A tool installed under the home that keeps a credential beside its programs
-// has that credential on the list, since its bin on PATH opens its tree.
-func TestTheCredentialsBesideAToolsProgramsAreListed(t *testing.T) {
-	home, _, _ := machine(t)
-
-	paths := credentialPaths(home)
-
-	for _, c := range []string{".cargo/credentials", ".cargo/credentials.toml", ".pulumi/credentials.json", ".fly/config.yml"} {
-		assert.Contains(t, paths, filepath.Join(home, filepath.FromSlash(c)))
-	}
-}
-
-func TestWhichDenialsOverlapATree(t *testing.T) {
-	home := filepath.FromSlash("/home/ana")
-	trees := []string{filepath.Join(home, ".local"), filepath.Join(home, ".kube"), filepath.FromSlash("/srv/tools")}
-	keyrings := filepath.Join(home, ".local", "share", "keyrings")
-	kube := filepath.Join(home, ".kube")
-	runtime := filepath.FromSlash("/srv")
-
-	got := overlapping([]string{
-		filepath.Join(home, ".ssh"), // no tree reaches it
-		keyrings,                    // inside a tree
-		kube,                        // a tree itself
-		runtime,                     // holds a tree
-		filepath.Join(home, ".localized"),
-	}, trees)
-
-	assert.Equal(t, []string{keyrings, kube, runtime}, got)
-}
-
 func TestThePathIsTheEnvironmentsLast(t *testing.T) {
 	sep := string(filepath.ListSeparator)
 	env := []string{"PATH=/first", "HOME=/w", "PATH=/a" + sep + "/b", "XPATH=/no"}

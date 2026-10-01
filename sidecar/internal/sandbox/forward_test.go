@@ -57,15 +57,14 @@ func TestInitArgsRefuseWhatIsMissing(t *testing.T) {
 // The forwarder's command line parses back to the run it was written for,
 // with or without a socket.
 func TestForwarderArgsRoundTrip(t *testing.T) {
-	r := Run{Shell: "/bin/sh", Args: []string{"-c", "--port 1"}, Socket: "/run/p.sock", Port: 6443}
-	args := ForwarderArgs(r)
+	relay := Relay{Port: 6443, Socket: "/run/p.sock"}
+	args := ForwarderArgs(relay)
 	require.Equal(t, InitCommand, args[0])
-	got, err := parseInitArgs(append(append(args[1:], r.Shell), r.Args...))
+	got, err := parseInitArgs(append(args[1:], "/bin/sh", "-c", "--port 1"))
 	require.NoError(t, err)
-	assert.Equal(t, initArgs{socket: r.Socket, port: 6443, argv: []string{"/bin/sh", "-c", "--port 1"}}, got)
+	assert.Equal(t, initArgs{socket: relay.Socket, port: 6443, argv: []string{"/bin/sh", "-c", "--port 1"}}, got)
 
-	r.Socket = ""
-	got, err = parseInitArgs(append(ForwarderArgs(r)[1:], r.Shell))
+	got, err = parseInitArgs(append(ForwarderArgs(Relay{})[1:], "/bin/sh"))
 	require.NoError(t, err)
 	assert.Equal(t, initArgs{argv: []string{"/bin/sh"}}, got)
 }

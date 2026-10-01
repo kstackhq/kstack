@@ -31,10 +31,10 @@ import (
 // InitCommand is the subcommand that makes this executable a run's forwarder.
 const InitCommand = "sandbox-init"
 
-// ForwarderArgs is the forwarder's command line for r, after the executable:
-// InitCommand, the socket and port where r has a socket, and the -- the
-// child's command follows.
-func ForwarderArgs(r Run) []string {
+// ForwarderArgs is the forwarder's command line for relay r, after the
+// executable: InitCommand, the socket and port where r has a socket, and the
+// -- the child's command follows. The zero Relay relays nothing.
+func ForwarderArgs(r Relay) []string {
 	args := []string{InitCommand}
 	if r.Socket != "" {
 		args = append(args, "--socket", r.Socket, "--port", strconv.Itoa(r.Port))

@@ -1,6 +1,6 @@
 ;; A sandboxed run's Seatbelt profile. A later rule wins over an earlier one.
 ;; Every path Kstack does not fix here is a parameter, and each marker line
-;; is replaced by one rule per path (sandbox_darwin.go).
+;; is replaced by the rules it names (sandbox_darwin.go).
 (version 1)
 (deny default)
 
@@ -13,12 +13,15 @@
 (allow signal (target same-sandbox))
 (allow process-info* (target same-sandbox))
 (allow sysctl-read)
+;; The policy's file rules (sandbox_darwin.go): its Files rules, every path
+;; it always denies over them, then the run's own paths.
+;; RULES
+
+;; Fixed file rules, after the policy's, so none of its rules undoes them.
 ;; No /dev/tty: input pushed into a terminal (TIOCSTI) is run by whatever reads
 ;; it, outside the sandbox (TestATerminalIsUnreachable).
 (allow file-ioctl (literal "/dev/null") (subpath "/dev/fd"))
-
-;; Reads: the system's named files, then the roots, the PATH trees and the
-;; sidecar's own executable.
+;; The system's named files.
 (allow file-read*
   (subpath "/private/var/select")
   (subpath "/private/var/db/timezone")
@@ -35,14 +38,6 @@
 ;; dyld opens the root at launch and aborts every program when it cannot.
 ;; This lists the root's own names, never what lies under them.
 (allow file-read-data (literal "/"))
-;; TREES
-
-;; Denials: the credential paths a tree takes in, Homebrew's var and
-;; Kstack's directories.
-;; DENIED
-
-;; The run's own, which lie under Kstack's directories.
-;; OWN
 (allow file-write* (literal "/dev/null") (subpath "/dev/fd"))
 
 ;; Ancestors: an lstat alone, so a program resolves its own path and git

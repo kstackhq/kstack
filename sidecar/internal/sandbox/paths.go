@@ -22,26 +22,6 @@ import (
 	"strings"
 )
 
-// credentials are the paths under the home that hold a credential. Each is
-// denied wherever a readable tree takes it in. The last four sit beside a
-// tool's programs, in a tree its bin on PATH opens.
-var credentials = []string{
-	".kube", ".aws", ".azure", ".config/gcloud", ".ssh", ".gnupg", ".config/gh", ".docker",
-	".netrc", ".git-credentials", ".local/share/keyrings", "Library/Keychains",
-	".cargo/credentials", ".cargo/credentials.toml", ".pulumi/credentials.json", ".fly/config.yml",
-}
-
-// credentialPaths is the credential list under home, each resolved as
-// pathTrees resolves a tree, so the two compare: a credential that is a link
-// is denied where its target lies.
-func credentialPaths(home string) []string {
-	paths := make([]string, len(credentials))
-	for i, c := range credentials {
-		paths[i] = resolved(filepath.Join(home, filepath.FromSlash(c)))
-	}
-	return paths
-}
-
 // resolvedAll is each of paths resolved. The trees are resolved and the
 // comparisons against them read text, so a path named through a link would
 // match no tree.
@@ -188,9 +168,9 @@ type link struct{ path, target string }
 
 // pathLinks is the links that let entries, and the directories their program
 // links name, be reached as written: each whose resolved path differs from its
-// own, lies inside a root or a tree, and whose own path lies in neither. A
+// own, lies inside one of dirs, and whose own path lies in none. A
 // link inside another's path is left out, since the outer one reaches it.
-func pathLinks(roots, trees, entries []string) []link {
+func pathLinks(dirs, entries []string) []link {
 	// A PATH directory's program links mostly name a few directories, so each
 	// is resolved once.
 	named := map[string]bool{}
@@ -201,7 +181,7 @@ func pathLinks(roots, trees, entries []string) []link {
 			}
 		}
 	}
-	inside := func(p string) bool { return inAny(p, roots) || inAny(p, trees) }
+	inside := func(p string) bool { return inAny(p, dirs) }
 	var links []link
 	for e := range named {
 		p, err := filepath.EvalSymlinks(e)
@@ -215,19 +195,6 @@ func pathLinks(roots, trees, entries []string) []link {
 	return slices.DeleteFunc(links, func(l link) bool {
 		return slices.ContainsFunc(all, func(o link) bool { return o != l && within(l.path, o.path) })
 	})
-}
-
-// overlapping is the denials that overlap a tree, in their order: one inside
-// a tree, or one holding a tree. Each is laid over the trees, so a denial the
-// trees never reach needs no rule.
-func overlapping(denials, trees []string) []string {
-	var out []string
-	for _, d := range denials {
-		if slices.ContainsFunc(trees, func(t string) bool { return within(d, t) || within(t, d) }) {
-			out = append(out, d)
-		}
-	}
-	return out
 }
 
 // inAny reports whether p lies within any of dirs.

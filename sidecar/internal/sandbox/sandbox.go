@@ -12,18 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package sandbox runs a command in this machine's sandbox. It knows no tool and
-// no cluster. Each platform's file supplies Probe, Command, Confines and Port,
+// Package sandbox runs a command in this machine's sandbox, under a Policy
+// (policy.go) each platform compiles. It knows no tool and no cluster. Each
+// platform's file supplies Probe, Command, System, Never, Confines and Port,
 // and InitMain, a run's forwarder (forward.go).
 package sandbox
-
-import (
-	"errors"
-	"fmt"
-	"io/fs"
-	"os"
-	"slices"
-)
 
 // Main runs this executable as the part of a run its first argument names,
 // sandbox-init or sandbox-shell, and answers the exit code. ok is false for
@@ -49,36 +42,7 @@ type Run struct {
 	Dir   string   // where it starts
 	Env   []string // the whole environment
 
-	// What a platform mounts.
-	Workspace string   // writable, and HOME
-	Readable  []string // beyond the system roots and PATH
-	Writable  []string // beyond the workspace
-	Home      string   // the user's home, unreadable but for the PATH trees in it
-	Denied    []string // Kstack's own directories, unreadable but for Readable and Writable
-	Port      int      // where the run's kubeconfig dials its forwarder
-
-	// Socket is the run's proxy socket, which the forwarder relays Port to;
-	// empty for a run with no cluster, whose forwarder relays nothing.
-	Socket string
-}
-
-// Check is why r cannot run, or nil: one of its own paths is a link. A
-// profile resolves each path, so a link a run planted where its workspace was
-// would open the link's target to the next. Only the last component is
-// checked: a link above it, such as macOS's /var, is the system's. A path
-// that is not there opens nothing and is passed over.
-func (r Run) Check() error {
-	for _, p := range slices.Concat([]string{r.Workspace}, r.Writable, r.Readable) {
-		info, err := os.Lstat(p)
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-		case err != nil:
-			return err
-		case info.Mode()&fs.ModeSymlink != 0:
-			return fmt.Errorf("%s is a link", p)
-		}
-	}
-	return nil
+	Policy Policy
 }
 
 // Verdict is whether this machine has a sandbox for commands to run through,

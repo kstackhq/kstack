@@ -101,7 +101,12 @@ func run(parent context.Context, s spec) result {
 	ctx, cancel := s.hooks.deadline(parent, s.timeout)
 	defer cancel()
 	g := newGuard(s.hooks)
-	cmd := shellCmd(ctx, s, w)
+	cmd, err := shellCmd(ctx, s, w)
+	if err != nil {
+		_ = w.Close()
+		_ = r.Close()
+		return result{Error: err.Error()}
+	}
 	cmd.Cancel = func() error { return stopBash(parent, cmd, g, s.killGrace) }
 	if err := cmd.Start(); err != nil {
 		_ = w.Close()
@@ -131,19 +136,22 @@ func run(parent context.Context, s spec) result {
 }
 
 // shellCmd is bash on s.command in s.dir, through the sandbox when s has one, in
-// a process group of its own, its stdout and stderr on w. ctx is what exec
-// kills it on; a task passes none.
+// a process group of its own, its stdout and stderr on w, or why the sandbox
+// cannot run it. ctx is what exec kills it on; a task passes none.
 //
 // A sandboxed run also leads a session of its own, so it has no controlling
 // terminal: input pushed into one (TIOCSTI) is run by whatever reads it,
 // outside the sandbox. The sidecar has one when started from a terminal.
-func shellCmd(ctx context.Context, s spec, w *os.File) *exec.Cmd {
+func shellCmd(ctx context.Context, s spec, w *os.File) (*exec.Cmd, error) {
 	var cmd *exec.Cmd
 	attr := &syscall.SysProcAttr{Setpgid: true}
 	if s.sandboxedRun != nil {
 		r := s.sandboxedRun.run
 		r.Shell, r.Args, r.Dir = s.shell, []string{"-c", s.command}, s.dir
-		cmd = s.sandboxedRun.boxer.Command(ctx, r)
+		var err error
+		if cmd, err = s.sandboxedRun.boxer.Command(ctx, r); err != nil {
+			return nil, err
+		}
 		attr = &syscall.SysProcAttr{Setsid: true}
 	} else {
 		cmd = exec.CommandContext(ctx, s.shell, "-c", s.command)
@@ -151,7 +159,7 @@ func shellCmd(ctx context.Context, s spec, w *os.File) *exec.Cmd {
 	}
 	cmd.Stdout, cmd.Stderr = w, w
 	cmd.SysProcAttr = attr
-	return cmd
+	return cmd, nil
 }
 
 // stopBash is cmd.Cancel. exec can run it after the OS has reaped bash and

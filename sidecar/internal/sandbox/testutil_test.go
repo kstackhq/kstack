@@ -15,7 +15,11 @@
 package sandbox
 
 import (
+	"context"
+	"os/exec"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
@@ -34,4 +38,12 @@ func confining(t *testing.T) *Sandbox {
 	}
 	testutil.RequireSandbox(t, why)
 	return nil
+}
+
+// command is the command s makes for r, which must make one.
+func command(t *testing.T, s *Sandbox, ctx context.Context, r Run) *exec.Cmd {
+	t.Helper()
+	cmd, err := s.Command(ctx, r)
+	require.NoError(t, err)
+	return cmd
 }

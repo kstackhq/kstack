@@ -683,12 +683,14 @@ func TestASandboxedRunLeadsItsOwnSession(t *testing.T) {
 	t.Cleanup(func() { _ = w.Close() })
 	s := spec{shell: "/bin/sh", command: "true", dir: t.TempDir()}
 
-	outside := shellCmd(t.Context(), s, w).SysProcAttr
+	outside, err := shellCmd(t.Context(), s, w)
+	require.NoError(t, err)
 	s.sandboxedRun = &sandboxedRun{boxer: &fakeSandboxer{}}
-	inside := shellCmd(t.Context(), s, w).SysProcAttr
+	inside, err := shellCmd(t.Context(), s, w)
+	require.NoError(t, err)
 
-	assert.Equal(t, &syscall.SysProcAttr{Setpgid: true}, outside)
-	assert.Equal(t, &syscall.SysProcAttr{Setsid: true}, inside)
+	assert.Equal(t, &syscall.SysProcAttr{Setpgid: true}, outside.SysProcAttr)
+	assert.Equal(t, &syscall.SysProcAttr{Setsid: true}, inside.SysProcAttr)
 }
 
 // A task's sandbox that hangs while it prepares, as one resolving a path on a
@@ -716,15 +718,23 @@ func TestATaskWhoseSandboxHangsIsRefusedWhenTheCallEnds(t *testing.T) {
 	assert.Empty(t, tasks.started)
 }
 
-// A sandboxed run carries the built environment and names what a platform
-// mounts: the workspace, its run's directory readable and its TMPDIR writable,
-// the home and Kstack's directories denied. With no cluster it has no port.
-func TestASandboxedRunNamesWhatItMounts(t *testing.T) {
+// A sandboxed run carries the built environment and the Workspace policy: the
+// sandbox's System less what lies in Kstack's directories, the Never paths and
+// Kstack's directories denied, and the run's own paths inside them — the
+// snapshot and its run's directory read, the workspace and its TMPDIR written.
+// With no cluster it has no relay.
+func TestTheWorkspacePolicyIsSystemAndTheRunsOwn(t *testing.T) {
 	rt := testRuntime(t)
 	tl := tool(t)
-	tl.denied = []string{"/data", "/cache", "/runtime"}
-	fake := &fakeSandboxer{}
+	k := kstackDirs(t)
+	fake := &fakeSandboxer{
+		system: sandbox.FilePolicy{Read: []string{"/usr", filepath.Join(k.data, "bin")}, Deny: []string{"/usr/var"}},
+		never:  []string{filepath.Join(tl.home, ".ssh")},
+	}
 	tl.sandboxer = fake
+	tl.snapshot = filepath.Join(k.runtime, "shell", "snapshot.sh")
+	require.NoError(t, os.MkdirAll(filepath.Dir(tl.snapshot), 0o700))
+	require.NoError(t, os.WriteFile(tl.snapshot, nil, 0o400))
 
 	text, isError := tl.Run(t.Context(), rt, command(`echo "$ZDOTDIR"; echo "$TMPDIR"`))
 	require.False(t, isError, text)
@@ -738,15 +748,20 @@ func TestASandboxedRunNamesWhatItMounts(t *testing.T) {
 	rd := &runDir{path: lines[0], tmp: tmp}
 	ws := tools.WorkspacePath(rt.Dir)
 	assert.Equal(t, sandboxedRunEnv(os.Environ(), tl.env, ws, ws, rd, nil), r.Env)
-	assert.Equal(t, ws, r.Workspace)
-	assert.Equal(t, []string{rd.path}, r.Readable)
-	assert.Equal(t, []string{tmp}, r.Writable)
-	assert.Equal(t, tl.home, r.Home)
-	assert.Equal(t, tl.denied, r.Denied)
-	assert.Zero(t, r.Port)
+	assert.Equal(t, sandbox.Policy{
+		Files: sandbox.FilePolicy{Read: []string{"/usr"}, Deny: []string{"/usr/var"}},
+		Always: sandbox.AlwaysPolicy{
+			Deny:   fake.never,
+			Kstack: []string{k.data, k.cache, k.runtime},
+			Read:   []string{tl.snapshot, rd.path},
+			Write:  []string{ws, tmp},
+		},
+	}, r.Policy)
+	assert.NoError(t, r.Policy.Check())
 }
 
-// A test's extra writable directories ride after the run's own.
+// A test's extra writable directories are Files Write rules: they lie in none
+// of Kstack's directories.
 func TestASandboxedRunWritesTheExtraWritable(t *testing.T) {
 	tl := tool(t)
 	fake := &fakeSandboxer{}
@@ -757,7 +772,7 @@ func TestASandboxedRunWritesTheExtraWritable(t *testing.T) {
 	require.False(t, isError, text)
 
 	require.Len(t, fake.seen(), 1)
-	assert.Equal(t, []string{strings.TrimSpace(text), "/cover"}, fake.seen()[0].Writable)
+	assert.Equal(t, []string{"/cover"}, fake.seen()[0].Policy.Files.Write)
 }
 
 // A run's directory and its TMPDIR, in the cache's tmp directory, go when the
@@ -790,8 +805,7 @@ func TestARunWithNoClusterHasNoForwarder(t *testing.T) {
 
 	assert.Empty(t, text, "no socket in the run's directory")
 	require.Len(t, fake.seen(), 1)
-	assert.Empty(t, fake.seen()[0].Socket)
-	assert.Zero(t, fake.seen()[0].Port)
+	assert.Empty(t, fake.seen()[0].Policy.Network.Relays)
 	assert.Zero(t, fake.portsAsked())
 }
 
@@ -839,7 +853,8 @@ func TestTheRunsKubeconfigNamesTheCardsContextAndPort(t *testing.T) {
 	assert.Contains(t, lines[3], "proxy-url: http://[redacted]@127.0.0.1:6443\n")
 	runs := tl.sandboxer.(*fakeSandboxer).seen()
 	require.Len(t, runs, 1)
-	assert.Equal(t, filepath.Join(runs[0].Readable[0], socketName), runs[0].Socket)
+	own := runs[0].Policy.Always.Read
+	assert.Equal(t, []sandbox.Relay{{Port: 6443, Socket: filepath.Join(own[len(own)-1], socketName)}}, runs[0].Policy.Network.Relays)
 }
 
 // Every chat on a cluster shares its kubectl cache, under the cluster's
@@ -991,8 +1006,8 @@ func TestAWorkspaceThatCannotBeMadeCouldNotStart(t *testing.T) {
 }
 
 // A sandboxed run that cannot be given what it needs could not start, and
-// nothing runs: no port for its kubeconfig, or a runs directory too long for
-// its socket.
+// nothing runs: no port for its kubeconfig, a runs directory too long for its
+// socket, or a policy the sandbox refuses.
 func TestASandboxedRunThatCannotBePreparedCouldNotStart(t *testing.T) {
 	long := "/" + strings.Repeat("t", maxSocketPath)
 	for name, tc := range map[string]struct {
@@ -1003,6 +1018,7 @@ func TestASandboxedRunThatCannotBePreparedCouldNotStart(t *testing.T) {
 	}{
 		"no port":       {boxer: &fakeSandboxer{portErr: errors.New("no free port")}, cluster: true, want: "no free port"},
 		"too long runs": {boxer: &fakeSandboxer{}, runs: long, want: long},
+		"refused":       {boxer: &fakeSandboxer{cmdErr: errors.New("a rule over a fixed mount")}, want: "a rule over a fixed mount"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			tl := tool(t)
@@ -1024,7 +1040,10 @@ func TestASandboxedRunThatCannotBePreparedCouldNotStart(t *testing.T) {
 			assert.True(t, isError)
 			assert.True(t, strings.HasPrefix(text, "could not start: "), text)
 			assert.Contains(t, text, tc.want)
-			assert.Empty(t, tc.boxer.seen())
+			assert.NotContains(t, text, "ran\n")
+			if tc.boxer.cmdErr == nil {
+				assert.Empty(t, tc.boxer.seen())
+			}
 		})
 	}
 }
@@ -1040,7 +1059,7 @@ func TestASandboxedRunReadsTheSnapshot(t *testing.T) {
 	text, isError := tl.Run(t.Context(), testRuntime(t), command(`echo "$ZDOTDIR"`))
 	require.False(t, isError, text)
 
-	assert.Equal(t, []string{tl.snapshot, strings.TrimSpace(text)}, fake.seen()[0].Readable)
+	assert.Equal(t, []string{tl.snapshot, strings.TrimSpace(text)}, fake.seen()[0].Policy.Always.Read)
 }
 
 // Stored arguments whose workdir is absolute only on Unix, where alone a run
@@ -1065,4 +1084,23 @@ func TestASaveThatCannotOpenItsDirectoryFallsBack(t *testing.T) {
 
 	text, _ := tool(t).Run(t.Context(), rt, command(line))
 	assert.Regexp(t, `the output could not be saved\]$`, text)
+}
+
+// Docker Desktop puts its programs in ~/.docker/bin, whose tree ~/.docker is a
+// Never path. With it on PATH the policy passes Check and the run starts, and
+// neither ~/.docker/config.json nor ~/.docker/bin can be read.
+func TestDockerDesktopsBinStaysDenied(t *testing.T) {
+	tl := proxyTool(t, &fakeLease{})
+	tl.sandboxer = confining(t)
+	bin := filepath.Join(tl.home, ".docker", "bin")
+	require.NoError(t, os.MkdirAll(bin, 0o700))
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "docker"), []byte("#!/bin/sh\necho docker-ran\n"), 0o700))
+	config := filepath.Join(tl.home, ".docker", "config.json")
+	require.NoError(t, os.WriteFile(config, []byte("secret"), 0o600))
+	t.Setenv("PATH", bin+string(filepath.ListSeparator)+os.Getenv("PATH"))
+
+	text, isError := tl.Run(t.Context(), testRuntime(t), command(fmt.Sprintf(`cat '%s' 2>/dev/null; ls '%s' 2>/dev/null; echo started`, config, bin)))
+
+	require.False(t, isError, text)
+	assert.Equal(t, "started\n", text)
 }

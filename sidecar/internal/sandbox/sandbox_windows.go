@@ -29,12 +29,10 @@ func Probe(context.Context) (*Sandbox, Verdict) {
 	return nil, Verdict{Reason: "no sandbox on native Windows; run Kstack in WSL2"}
 }
 
-// Command answers a command whose Start fails, so nothing runs unconfined in
-// the sandbox's name.
-func (s *Sandbox) Command(ctx context.Context, r Run) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, r.Shell, r.Args...)
-	cmd.Err = errNone
-	return cmd
+// Command answers errNone and no command, so nothing runs unconfined in the
+// sandbox's name.
+func (s *Sandbox) Command(context.Context, Run) (*exec.Cmd, error) {
+	return nil, errNone
 }
 
 // Confines reports whether a command run through s is confined: never, here.
@@ -42,3 +40,9 @@ func (s *Sandbox) Confines() bool { return false }
 
 // Port answers no port, since no command runs sandboxed.
 func (s *Sandbox) Port() (int, error) { return 0, errNone }
+
+// Never answers nothing, since no command runs sandboxed.
+func (s *Sandbox) Never(string) []string { return nil }
+
+// System answers nothing, since no command runs sandboxed.
+func (s *Sandbox) System(string, string, []string) FilePolicy { return FilePolicy{} }

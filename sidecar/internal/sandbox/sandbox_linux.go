@@ -35,9 +35,6 @@ const probeBound = 5 * time.Second
 // loopback is the run's own, so any port is free.
 const forwarderPort = 6443
 
-// roots are the system's trees every run reads.
-var roots = []string{"/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/etc", "/opt", "/nix/store", "/home/linuxbrew/.linuxbrew"}
-
 // systemBwraps are where a distribution puts bwrap, in the order looked for.
 // bwrap is never found off PATH.
 var systemBwraps = []string{"/usr/bin/bwrap", "/bin/bwrap", "/usr/local/bin/bwrap", "/run/current-system/sw/bin/bwrap"}
@@ -79,14 +76,18 @@ func (s *Sandbox) try(ctx context.Context, bound time.Duration) error {
 		return err
 	}
 	defer os.RemoveAll(dir)
+	// With no home the policy denies the absolute Never paths alone.
 	home, _ := os.UserHomeDir()
 	ctx, cancel := context.WithTimeout(ctx, bound)
 	defer cancel()
-	cmd := s.Command(ctx, Run{
-		Shell: "/bin/sh", Args: []string{"-c", "true"}, Dir: dir,
-		Env:       []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "TMPDIR=" + dir},
-		Workspace: dir, Home: home,
+	shell, env := "/bin/sh", []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "TMPDIR=" + dir}
+	cmd, err := s.Command(ctx, Run{
+		Shell: shell, Args: []string{"-c", "true"}, Dir: dir, Env: env,
+		Policy: s.probePolicy(shell, env, dir, home),
 	})
+	if err != nil {
+		return err
+	}
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	err = cmd.Run()
@@ -126,92 +127,152 @@ func exists(path string) bool {
 }
 
 // Command is the process that runs r under bwrap, not yet started, made by
-// exec.CommandContext on ctx. The caller sets its output, process group and
-// Cancel, and starts it; exec refuses a Cancel on a command made without ctx.
-func (s *Sandbox) Command(ctx context.Context, r Run) *exec.Cmd {
+// exec.CommandContext on ctx, or why r's policy cannot be enforced. The caller
+// sets its output, process group and Cancel, and starts it; exec refuses a
+// Cancel on a command made without ctx.
+func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
+	if err := r.Policy.Check(); err != nil {
+		return nil, err
+	}
+	p := r.Policy
+	for _, path := range slices.Concat(p.Files.Read, p.Files.Write, p.Files.Deny, p.Always.Read, p.Always.Write) {
+		if overFixedMount(resolved(path)) {
+			return nil, fmt.Errorf("a rule on %s would replace a mount every run has", path)
+		}
+	}
 	cmd := exec.CommandContext(ctx, s.bwrap, s.args(r)...)
 	cmd.Env = r.Env
-	return cmd
+	return cmd, nil
 }
 
 // args is bwrap's arguments for r, in order, since a later mount lies over an
-// earlier one.
+// earlier one: the namespaces; a rule on / itself, then the fixed mounts over
+// it; the policy's other rules; the links the PATH needs; then the closing
+// remounts and the chain.
 func (s *Sandbox) args(r Run) []string {
 	args := []string{
 		"--unshare-net", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try",
 		"--die-with-parent", "--new-session", "--as-pid-1",
-		"--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp",
 	}
-	rootMounts, bound := rootArgs(roots)
-	args = append(args, rootMounts...)
-
-	// An entry inside a root, as written or bound, is the root's already.
-	inRoots := append(slices.Clone(roots), bound...)
-	entries := append(pathOf(r.Env), filepath.Dir(r.Shell))
-	trees := pathTrees(r.Home, inRoots, nil, entries)
-	for _, t := range trees {
-		args = append(args, "--ro-bind", t, t)
+	// Rules sort shallowest first, so any rule on / leads.
+	rules := r.Policy.rules()
+	var m mounter
+	for len(rules) > 0 && rules[0].at == "/" {
+		m.mount(rules[0])
+		rules = rules[1:]
 	}
-	for _, l := range pathLinks(inRoots, trees, entries) {
-		args = append(args, "--symlink", l.target, l.path)
+	m.args = append(m.args, "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp")
+	// These hide the tree beneath them as a denial does, so a rule under one
+	// is bound however readable a rule on / made it.
+	for _, at := range []string{"/proc", "/dev", "/tmp"} {
+		m.mounted = append(m.mounted, rule{path: at, at: at, kind: ruleDeny})
 	}
-
-	// Each denial lies over whatever a root or a tree made readable, a
-	// directory as an empty tmpfs and a file as /dev/null.
-	var sealed []string
-	denials := append(credentialPaths(r.Home), resolvedAll(r.Denied)...)
-	for _, d := range overlapping(denials, slices.Concat(bound, trees)) {
-		info, err := os.Stat(d)
-		switch {
-		case err != nil:
-		case info.IsDir():
-			args = append(args, "--tmpfs", d)
-			sealed = append(sealed, d)
-		default:
-			args = append(args, "--ro-bind", "/dev/null", d)
-		}
+	for _, ru := range rules {
+		m.mount(ru)
 	}
-
-	for _, p := range append(slices.Clone(r.Readable), s.self) {
-		args = append(args, "--ro-bind", p, p)
+	// A link is recreated where a PATH entry, or a program's link in one,
+	// names a path the rules reach only through a link.
+	reads := slices.Concat(r.Policy.Files.Read, resolvedAll(r.Policy.Files.Read))
+	for _, l := range pathLinks(reads, append(pathOf(r.Env), filepath.Dir(r.Shell))) {
+		m.args = append(m.args, "--symlink", l.target, l.path)
 	}
-	for _, p := range append([]string{r.Workspace}, r.Writable...) {
-		args = append(args, "--bind", p, p)
-	}
+	args = append(args, m.args...)
 
 	// A remount is not recursive, so the binds made inside a denial stay
 	// writable; it comes after them, since bwrap makes their mount points in
 	// the tmpfs.
 	args = append(args, "--remount-ro", "/")
-	for _, d := range sealed {
+	for _, d := range m.sealed {
 		args = append(args, "--remount-ro", d)
 	}
 	args = append(args, "--chdir", r.Dir, "--", s.self)
-	args = append(args, ForwarderArgs(r)...)
+	args = append(args, ForwarderArgs(r.Policy.Network.relay())...)
 	args = append(args, s.self, ShellCommand, "--", r.Shell)
 	return append(args, r.Args...)
 }
 
-// rootArgs binds each root that exists read-only at its resolved path, and
-// answers the arguments and the directories bound. A root that is a link, or
-// lies under one, is recreated as a link at its own path: a merged /usr makes
-// /bin a link, and Fedora Atomic links /home. A target already inside a bound
-// directory is not bound again.
-func rootArgs(roots []string) (args, bound []string) {
-	for _, root := range roots {
-		at, err := filepath.EvalSymlinks(root)
-		if err != nil {
-			continue
+// mounter is bwrap's arguments for a policy's rules, one mount per rule.
+type mounter struct {
+	args    []string
+	mounted []rule   // each rule mounted, in order
+	sealed  []string // the denied folders, remounted read-only at the end
+	links   []rule   // each Read or Write rule whose path is a link, one per path
+}
+
+// mount adds ru's mount. A Read or Write rule is bound at its resolved path,
+// and where that differs from the path as written the link is recreated
+// there, so a merged /usr still has /bin. A Read rule whose path is readable
+// already under an earlier Read is not bound again. The run's own paths are
+// bound as written, since bwrap resolves them through the links the tree
+// holds. A denied folder is an empty tmpfs, and a denied file /dev/null.
+func (m *mounter) mount(ru rule) {
+	switch {
+	case ru.own:
+		m.args = append(m.args, bindFlag(ru.kind), ru.path, ru.path)
+	case ru.kind == ruleDeny:
+		info, err := os.Stat(ru.at)
+		switch {
+		case err != nil:
+			return
+		case info.IsDir():
+			m.args = append(m.args, "--tmpfs", ru.at)
+			m.sealed = append(m.sealed, ru.at)
+			// The tmpfs hides every link inside it, the tree's and those
+			// recreated, and a rule may reach its path through one.
+			for _, l := range m.links {
+				if within(l.path, ru.at) {
+					m.args = append(m.args, "--symlink", l.at, l.path)
+				}
+			}
+		default:
+			m.args = append(m.args, "--ro-bind", "/dev/null", ru.at)
 		}
-		if !inAny(at, bound) {
-			args = append(args, "--ro-bind", at, at)
-			bound = append(bound, at)
-		}
-		if at != root {
-			args = append(args, "--symlink", at, root)
+	case ru.kind == ruleRead && m.readable(ru.at):
+		m.link(ru)
+		return
+	default:
+		m.args = append(m.args, bindFlag(ru.kind), ru.at, ru.at)
+		m.link(ru)
+	}
+	m.mounted = append(m.mounted, ru)
+}
+
+// bindFlag is bwrap's bind for a Read or Write rule.
+func bindFlag(kind ruleKind) string {
+	if kind == ruleRead {
+		return "--ro-bind"
+	}
+	return "--bind"
+}
+
+// readable reports whether the last mount over at is a Files Read rule's.
+func (m *mounter) readable(at string) bool {
+	last, ok := m.lastOver(at)
+	return ok && last.kind == ruleRead && !last.own
+}
+
+// lastOver is the last rule mounted on or above p, if any.
+func (m *mounter) lastOver(p string) (rule, bool) {
+	for i := len(m.mounted) - 1; i >= 0; i-- {
+		if within(p, m.mounted[i].at) {
+			return m.mounted[i], true
 		}
 	}
-	return args, bound
+	return rule{}, false
+}
+
+// link recreates ru's path as a link to where it resolves, unless it is its
+// own path, a link is already there, or the last mount over it is a bind,
+// which holds the tree's own link. A denial mounted later recreates it too.
+func (m *mounter) link(ru rule) {
+	if ru.at == filepath.Clean(ru.path) || slices.ContainsFunc(m.links, func(l rule) bool { return l.path == ru.path }) {
+		return
+	}
+	m.links = append(m.links, ru)
+	if last, ok := m.lastOver(ru.path); ok && last.kind != ruleDeny {
+		return
+	}
+	m.args = append(m.args, "--symlink", ru.at, ru.path)
 }
 
 // Confines reports whether a command run through s is confined: always, here.
@@ -219,3 +280,24 @@ func (s *Sandbox) Confines() bool { return true }
 
 // Port is where a run's forwarder listens, on the namespace's own loopback.
 func (s *Sandbox) Port() (int, error) { return forwarderPort, nil }
+
+// System is the FilePolicy every sandboxed run on this machine starts from:
+// the System folders, the trees the PATH env sets and the shell's folder make
+// readable, and this executable at its resolved path. It holds no rule on or
+// inside a Never path under home, and none a fixed mount would refuse.
+func (s *Sandbox) System(home, shell string, env []string) FilePolicy {
+	roots := systemFolders()
+	// An entry inside a root, as written or resolved, is the root's already.
+	inRoots := slices.Concat(roots, resolvedAll(roots))
+	// Dropped before pathTrees, which would fold /tmp/x/bin into a /tmp entry.
+	entries := slices.DeleteFunc(append(pathOf(env), filepath.Dir(shell)), overFixedMount)
+	trees := slices.DeleteFunc(pathTrees(home, inRoots, nil, entries), overFixedMount)
+	return s.systemFiles(home, trees, nil)
+}
+
+// overFixedMount reports whether a rule on p would replace a mount every run
+// has: its private /tmp, its /dev, or anything on or under /proc.
+func overFixedMount(p string) bool {
+	p = filepath.Clean(p)
+	return p == "/tmp" || p == "/dev" || within(p, "/proc")
+}

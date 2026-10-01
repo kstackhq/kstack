@@ -48,7 +48,12 @@ func startTask(ctx context.Context, s spec, out io.Writer) (*task, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := shellCmd(ctx, s, w)
+	cmd, err := shellCmd(ctx, s, w)
+	if err != nil {
+		_ = w.Close()
+		_ = r.Close()
+		return nil, err
+	}
 	// With no Cancel, ctx ending after Start leaves the task running.
 	cmd.Cancel = nil
 	if err := cmd.Start(); err != nil {

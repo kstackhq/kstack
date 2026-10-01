@@ -15,29 +15,15 @@
 package sandbox
 
 import (
-	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-func TestWindowsHasNoSandbox(t *testing.T) {
-	s, v := Probe(context.Background())
-	assert.Nil(t, s)
-	assert.Equal(t, Verdict{Available: false, Reason: "no sandbox on native Windows; run Kstack in WSL2"}, v)
-
-	var none *Sandbox
-	assert.False(t, none.Confines())
-	_, err := none.Port()
-	assert.ErrorIs(t, err, errNone)
-}
-
-// Command answers errNone and no command, so nothing runs unconfined.
-func TestCommandAnswersErrNone(t *testing.T) {
-	var none *Sandbox
-
-	cmd, err := none.Command(context.Background(), Run{Shell: `C:\Windows\System32\cmd.exe`, Args: []string{"/c", "exit"}})
-
-	assert.Nil(t, cmd)
-	assert.ErrorIs(t, err, errNone)
+// A tool installed under the home that keeps a credential beside its programs
+// has that credential on the list, since its bin on PATH opens its tree.
+func TestTheCredentialsBesideAToolsProgramsAreListed(t *testing.T) {
+	for _, c := range []string{"~/.cargo/credentials", "~/.cargo/credentials.toml", "~/.pulumi/credentials.json", "~/.fly/config.yml"} {
+		assert.Contains(t, sharedLists.Never, c)
+	}
 }

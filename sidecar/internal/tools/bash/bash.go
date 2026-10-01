@@ -107,7 +107,9 @@ var _ interface {
 // sandboxer runs a command sandboxed: *sandbox.Sandbox, or a test's fake.
 // Command's contract is sandbox.Sandbox.Command's, exec.CommandContext included.
 type sandboxer interface {
-	Command(ctx context.Context, r sandbox.Run) *exec.Cmd
+	Command(ctx context.Context, r sandbox.Run) (*exec.Cmd, error)
+	System(home, shell string, env []string) sandbox.FilePolicy
+	Never(home string) []string
 	Confines() bool
 	Port() (int, error)
 }
@@ -650,14 +652,16 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		r.end()
 		return nil, err
 	}
-	var readable []string
+	var reads []string
 	if snapshot != "" {
-		readable = append(readable, snapshot)
+		reads = append(reads, snapshot)
 	}
-	writable := append([]string{r.dir.tmp}, t.extraWritable...)
-	var socket string
+	reads = append(reads, r.dir.path)
+	ws := tools.WorkspacePath(rt.Dir)
+	writes := []string{ws, r.dir.tmp}
+	var relays []sandbox.Relay
 	if cluster != nil {
-		socket = r.dir.socket()
+		socket := r.dir.socket()
 		asker, refusal := writesFor(rt, background)
 		if r.proxy, err = startProxy(r.claim, socket, asker, refusal); err != nil {
 			r.end()
@@ -667,19 +671,36 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 			r.end()
 			return nil, err
 		}
-		writable = append(writable, cluster.cacheDir)
+		writes = append(writes, cluster.cacheDir)
+		relays = []sandbox.Relay{{Port: port, Socket: socket}}
 	}
-	ws := tools.WorkspacePath(rt.Dir)
-	r.run = sandbox.Run{
-		Env:       sandboxedRunEnv(os.Environ(), t.env, ws, cwd, r.dir, cluster),
-		Workspace: ws, Readable: append(readable, r.dir.path), Writable: writable,
-		Home: t.home, Denied: t.denied, Port: port, Socket: socket,
-	}
-	if err := r.run.Check(); err != nil {
+	env := sandboxedRunEnv(os.Environ(), t.env, ws, cwd, r.dir, cluster)
+	// System reads the PATH's folders, which can hang on a network mount, so
+	// the policy is built on a goroutine abandoned if ctx ends first.
+	built := make(chan sandbox.Policy, 1)
+	go func() { built <- t.workspacePolicy(boxer, env, reads, writes, relays) }()
+	select {
+	case p := <-built:
+		r.run = sandbox.Run{Env: env, Policy: p}
+		return r, nil
+	case <-ctx.Done():
 		r.end()
-		return nil, err
+		return nil, ctx.Err()
 	}
-	return r, nil
+}
+
+// workspacePolicy is a sandboxed run's policy: the sandbox's System for env,
+// less what lies in Kstack's directories, and the extra writable, which lies
+// in none; the Never paths and Kstack's directories denied but for the run's
+// own reads and writes, which lie inside them; and relays.
+func (t *Tool) workspacePolicy(boxer sandboxer, env, reads, writes []string, relays []sandbox.Relay) sandbox.Policy {
+	files := boxer.System(t.home, t.shell, env).Outside(t.denied...)
+	files.Write = append(files.Write, t.extraWritable...)
+	return sandbox.Policy{
+		Files:   files,
+		Always:  sandbox.AlwaysPolicy{Deny: boxer.Never(t.home), Kstack: t.denied, Read: reads, Write: writes},
+		Network: sandbox.NetworkPolicy{Relays: relays},
+	}
 }
 
 // checkDir is nil when dir is a directory, else why the command cannot start

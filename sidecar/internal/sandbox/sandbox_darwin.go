@@ -65,13 +65,23 @@ func probe(ctx context.Context, path string, timeout time.Duration) (*Sandbox, V
 	s := &Sandbox{self: self, launcher: path}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := s.Command(ctx, Run{
-		Shell: "/usr/bin/true", Dir: dir, Workspace: dir, Home: home,
-		Env: []string{"PATH=" + os.Getenv("PATH")},
-	})
+	shell, env := "/usr/bin/true", []string{"PATH=" + os.Getenv("PATH")}
+	// The policy reads the PATH's folders, which can hang on a network mount,
+	// so it is built on a goroutine abandoned if ctx ends first.
+	built := make(chan Policy, 1)
+	go func() { built <- s.probePolicy(shell, env, dir, home) }()
+	var cmd *exec.Cmd
+	select {
+	case p := <-built:
+		cmd, err = s.Command(ctx, Run{Shell: shell, Dir: dir, Env: env, Policy: p})
+	case <-ctx.Done():
+		err = ctx.Err()
+	}
 	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	err = cmd.Run()
+	if err == nil {
+		cmd.Stderr = &stderr
+		err = cmd.Run()
+	}
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return s, Verdict{Available: true, Reason: "Seatbelt, unconfirmed: the probe did not finish within " + timeout.String()}
@@ -91,36 +101,45 @@ func probeFailure(stderr string, err error) string {
 }
 
 // Command is the process that runs r sandboxed, not yet started, made by
-// exec.CommandContext on ctx: sandbox-exec over r's profile, then the shell,
-// or for a run with a socket the forwarder with the shell its child.
+// exec.CommandContext on ctx, or why r's policy cannot be enforced:
+// sandbox-exec over r's profile, then the shell, or for a run with a relay the
+// forwarder with the shell its child.
 // sandbox-exec execs into it, so the session the caller makes is the run's
 // process group, and the profile holds every descendant. The caller sets its
 // output, session and Cancel, and starts it.
 //
-// The profile resolves paths, which can hang on a network mount, so ctx
-// bounds it too: ctx ending first answers a command Start refuses.
-func (s *Sandbox) Command(ctx context.Context, r Run) *exec.Cmd {
+// Check and the profile resolve paths, which can hang on a network mount, so
+// ctx bounds them too: ctx ending first answers its error.
+func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 	type built struct {
 		text   string
 		params []string
+		err    error
 	}
 	done := make(chan built, 1)
 	build := buildProfile
 	go func() {
-		text, params := build(s, r, brewVar)
-		done <- built{text, params}
+		if err := r.Policy.Check(); err != nil {
+			done <- built{err: err}
+			return
+		}
+		text, params := build(s, r)
+		done <- built{text: text, params: params}
 	}()
 	var b built
 	select {
 	case b = <-done:
 	case <-ctx.Done():
-		return exec.CommandContext(ctx, s.launcher)
+		return nil, ctx.Err()
+	}
+	if b.err != nil {
+		return nil, b.err
 	}
 	name, args := s.argv(r)
 	cmd := exec.CommandContext(ctx, s.launcher, slices.Concat([]string{"-p", b.text}, b.params, []string{name}, args)...)
 	cmd.Dir = r.Dir
 	cmd.Env = r.Env
-	return cmd
+	return cmd, nil
 }
 
 // Confines reports whether a command run through s is confined: always, here.
@@ -139,45 +158,35 @@ func (s *Sandbox) Port() (int, error) {
 	return ln.Addr().(*net.TCPAddr).Port, nil
 }
 
-// argv is the process that runs r: the shell, or for a run with a socket, this
+// argv is the process that runs r: the shell, or for a run with a relay, this
 // executable as the run's forwarder with the shell its child.
 func (s *Sandbox) argv(r Run) (name string, args []string) {
-	if r.Socket == "" {
+	relay := r.Policy.Network.relay()
+	if relay.Socket == "" {
 		return r.Shell, r.Args
 	}
-	return s.self, append(append(ForwarderArgs(r), r.Shell), r.Args...)
+	return s.self, append(append(ForwarderArgs(relay), r.Shell), r.Args...)
 }
 
 // buildProfile is profile, which a test replaces with one that hangs.
 var buildProfile = (*Sandbox).profile
 
 // profileText is the Seatbelt profile's fixed rules, with a marker line where
-// each list's rules go.
+// the policy's rules, the ancestors and the network go.
 //
 //go:embed profile_darwin.sb
 var profileText string
 
 // The marker lines profile replaces.
 const (
-	markerTrees     = ";; TREES\n"
-	markerDenied    = ";; DENIED\n"
-	markerOwn       = ";; OWN\n"
+	markerRules     = ";; RULES\n"
 	markerAncestors = ";; ANCESTORS\n"
 	markerNetwork   = ";; NETWORK\n"
 )
 
-// roots are the system's trees a run reads. /Applications holds app bundles,
-// which are programs: Docker Desktop's kubectl is a link into one, and so is
-// Xcode's developer directory.
-var roots = []string{"/usr", "/bin", "/sbin", "/System", "/Library", "/Applications", "/private/etc", "/opt"}
-
 // sharedHomeDirs are the directories under the home that hold every app's
 // data, where a PATH entry names only itself.
 var sharedHomeDirs = []string{"Library", ".config"}
-
-// brewVar is Homebrew's var, which the roots take in and which holds its
-// services' databases and logs.
-var brewVar = []string{"/opt/homebrew/var", "/usr/local/var"}
 
 // refusedServices are the Mach services no profile names: a service that
 // resolves names, holds the Keychain, opens or drives an app, holds the
@@ -204,62 +213,63 @@ func refused(service string) bool {
 	})
 }
 
-// networkRules is a run's network with a cluster: its forwarder's port, which
-// is the one value written into the text, and its socket, by the path as given
-// and as resolved, since Seatbelt's match on a socket's path is undocumented.
-// The port is TCP on 127.0.0.1 alone, the one endpoint the forwarder holds:
-// UDP or IPv6 at that number could be another service's.
-const networkRules = `(allow network-bind network-inbound (local tcp4 "localhost:%[1]d"))
+// relayRules is one relay's network: its port, which is the one value written
+// into the text, and its socket, by the path as given and as resolved, since
+// Seatbelt's match on a socket's path is undocumented. The port is TCP on
+// 127.0.0.1 alone, the one endpoint the forwarder holds: UDP or IPv6 at that
+// number could be another service's.
+const relayRules = `(allow network-bind network-inbound (local tcp4 "localhost:%[1]d"))
 (allow network-outbound
   (remote tcp4 "localhost:%[1]d")
   (remote unix-socket (path-literal (param "SOCKET")))
   (remote unix-socket (path-literal (param "SOCKET_RESOLVED"))))
 `
 
-// ownWriteRule opens a path the run writes, but not its root's own entry: a
-// run that could unlink or create the root could put a link there, and the
-// next run's profile, which resolves it, would open wherever the link leads.
-const ownWriteRule = `(allow file-read* file-write* (subpath (param "%[1]s")))
-(deny file-write-unlink file-write-create (literal (param "%[1]s")))`
-
-// profile is r's Seatbelt profile and the -D arguments it reads, with extra
-// denied beside the credential paths and Kstack's directories. Every path is
-// resolved, since Seatbelt checks a file's real path, and is a parameter,
-// since a path can hold what the text would read as code.
-func (s *Sandbox) profile(r Run, extra []string) (text string, params []string) {
-	trees := pathTrees(r.Home, roots, sharedHomeDirs, pathOf(r.Env))
-	reads := slices.Concat(roots, trees, []string{resolved(s.self)})
-	denied := slices.Concat(overlapping(credentialPaths(r.Home), reads), resolvedAll(extra), resolvedAll(r.Denied))
-	writes := resolvedAll(append([]string{r.Workspace}, r.Writable...))
-	own := resolvedAll(r.Readable)
-	up := ancestors(slices.Concat(reads, writes, own))
+// profile is r's Seatbelt profile and the -D arguments it reads. Every path
+// is resolved, since Seatbelt checks a file's real path, and is a parameter,
+// since a path can hold what the text would read as code. A Read rule carries
+// its refusal to write, so it decides a tie with a Write rule the way a
+// read-only mount does.
+func (s *Sandbox) profile(r Run) (text string, params []string) {
+	var rules strings.Builder
+	var reached []string
+	for i, ru := range r.Policy.rules() {
+		name := "RULE_" + strconv.Itoa(i)
+		params = append(params, "-D", name+"="+ru.at)
+		switch ru.kind {
+		case ruleRead:
+			fmt.Fprintf(&rules, "(allow file-read* (subpath (param \"%[1]s\")))\n(deny file-write* (subpath (param \"%[1]s\")))\n", name)
+			reached = append(reached, ru.at)
+		case ruleWrite:
+			fmt.Fprintf(&rules, "(allow file-read* file-write* (subpath (param \"%s\")))\n", name)
+			// A run that could unlink or create its own path's root could put a
+			// link there, and the next run's profile would open where it leads.
+			if ru.own {
+				fmt.Fprintf(&rules, "(deny file-write-unlink file-write-create (literal (param \"%s\")))\n", name)
+			}
+			reached = append(reached, ru.at)
+		case ruleDeny:
+			fmt.Fprintf(&rules, "(deny file-read* file-write* (subpath (param \"%s\")))\n", name)
+		}
+	}
 
 	var network string
-	if r.Socket != "" {
-		params = append(params, "-D", "SOCKET="+r.Socket, "-D", "SOCKET_RESOLVED="+resolved(r.Socket))
-		network = fmt.Sprintf(networkRules, r.Port)
+	if relay := r.Policy.Network.relay(); relay.Socket != "" {
+		params = append(params, "-D", "SOCKET="+relay.Socket, "-D", "SOCKET_RESOLVED="+resolved(relay.Socket))
+		network = fmt.Sprintf(relayRules, relay.Port)
+	}
+	var up strings.Builder
+	for i, p := range ancestors(reached) {
+		name := "UP_" + strconv.Itoa(i)
+		params = append(params, "-D", name+"="+p)
+		fmt.Fprintf(&up, "(allow file-read-metadata (literal (param \"%s\")))\n", name)
 	}
 	text = strings.NewReplacer(
-		markerTrees, rules(&params, "TREE", `(allow file-read* (subpath (param "%s")))`, reads),
-		markerDenied, rules(&params, "DENY", `(deny file-read* file-write* (subpath (param "%s")))`, denied),
-		markerOwn, rules(&params, "WRITE", ownWriteRule, writes)+
-			rules(&params, "READ", `(allow file-read* (subpath (param "%s")))`, own),
-		markerAncestors, rules(&params, "UP", `(allow file-read-metadata (literal (param "%s")))`, up),
+		markerRules, rules.String(),
+		markerAncestors, up.String(),
 		markerNetwork, network,
 	).Replace(profileText)
 	return text, params
-}
-
-// rules is one rule per path, format's %s naming its parameter, each name
-// prefix and its index, and adds the parameters to params.
-func rules(params *[]string, prefix, format string, paths []string) string {
-	var b strings.Builder
-	for i, p := range paths {
-		name := prefix + "_" + strconv.Itoa(i)
-		*params = append(*params, "-D", name+"="+p)
-		fmt.Fprintf(&b, format+"\n", name)
-	}
-	return b.String()
 }
 
 // ancestors is every directory above one of paths, sorted.
@@ -274,4 +284,12 @@ func ancestors(paths []string) []string {
 		}
 	}
 	return slices.Sorted(maps.Keys(seen))
+}
+
+// System is the FilePolicy every sandboxed run on this machine starts from:
+// the System folders, the trees the PATH env sets makes readable, and this
+// executable at its resolved path, less Homebrew's var. It holds no rule on or
+// inside a Never path under home. The shell is under a System folder.
+func (s *Sandbox) System(home, _ string, env []string) FilePolicy {
+	return s.systemFiles(home, pathTrees(home, systemFolders(), sharedHomeDirs, pathOf(env)), brewVar)
 }
