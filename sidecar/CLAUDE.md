@@ -17,6 +17,7 @@ sweeps it and removes it:
 ```
 <data>/                                what a user would lose
   app.db                               app
+  sandbox.json                         app: the sandbox's settings
   beehive.db                           clustersvc
   settings.json, settings-queue.json   cloud
   chats/<chat id>/                     chatsvc: results/, tasks/, workspace/
@@ -80,7 +81,7 @@ that is what keeps cluster-controlled text from forging a line (`TestInitWritesO
 host](../docs/adr/2026-09-08-json-logs-rendered-by-the-host.md), [ADR: two processes, two log
 files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
 
-- `internal/app/` builds `poke`, `kubeconfig`, opens `app.db`, builds `clustersvc`, `memorysvc` and `chatsvc` over it, `auth`, `cloud`, wires `graph.NewServer` + `grpcserver.NewServer`, and multiplexes both onto one h2c handler. `App.parts` is start order (app.db → poke → kubeconfig → cluster → cloud → memory → chat, then the shell snapshot when `ShellSnapshot` is set); stop and close reverse it. **kubeconfig before cluster is load-bearing** (`app_test.go` pins it). The transports stay out of the slice; `grpcServer.Stop()` runs first in `Close`.
+- `internal/app/` builds `poke`, `kubeconfig`, opens the sandbox's settings (`sandboxconfig.Open`, before `app.db`, since the store holds no handle) and `app.db`, builds `clustersvc`, `memorysvc` and `chatsvc` over it, `auth`, `cloud`, wires `graph.NewServer` + `grpcserver.NewServer`, and multiplexes both onto one h2c handler. `App.parts` is start order (app.db → poke → kubeconfig → cluster → cloud → memory → chat, then the shell snapshot when `ShellSnapshot` is set); stop and close reverse it. **kubeconfig before cluster is load-bearing** (`app_test.go` pins it). The transports stay out of the slice; `grpcServer.Stop()` runs first in `Close`.
 
   **`READY` promises a socket, not a finished startup.** `run` prints it after the bind and before `Start`; the first request is answered after `Start`, and every part completes its startup work inside `Start`. Everything that reads the environment does so after `main`'s shell import, which finishes before `run` — nothing sends before it, and `net/http` reads the proxy variables once per process on the first request.
 - `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.SandboxCfg` is the sandbox's settings store, named for what it holds since it is not a service; its one resolver is `sandboxRefused`.
@@ -3004,7 +3005,6 @@ it concurrently.
 | `llm.ErrBadRequest` | `ErrValidationError` | `KSTACK_VALIDATION_ERROR` |
 | `llm.ErrModelUnavailable` | `ErrConflict` | `KSTACK_CONFLICT` |
 
-## Auth / identity (`internal/auth`)
 ## Sandbox settings (`internal/sandboxconfig`)
 
 **`<data>/sandbox.json` is the sandbox's settings**, 0600 through `atomicjson`, in the data
@@ -3039,6 +3039,7 @@ directory no sandboxed command reads, and never synced. `app.New` opens it on ev
 - **The core is generic** (`store[T]`), so the tests run it over their own settings type before
   `Settings` has a field.
 
+## Auth / identity (`internal/auth`)
 
 Local-first accounts against kstack-cloud's Hydra: system browser (auth-code + PKCE, loopback redirect), verification via go-oidc, refresh token in the OS keyring. Signed-in ⇔ refresh token present; works offline; degrades to signed-out when unconfigured. → [ADR: local-first auth & settings](../docs/adr/2026-08-09-local-first-auth-settings.md).
 

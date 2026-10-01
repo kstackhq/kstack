@@ -428,6 +428,8 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **Hoist the doubling-backoff ladder into a shared leaf when a second consumer appears.** Only `prefsync`'s `backoffDelay` (`internal/cloud/prefsync/engine.go` — `baseBackoff << attempt`, clamped to `maxBackoff`, then jittered, with a `withBackoff(base, max)` test seam) computes one by hand: everything inside the control plane rides beehive's own per-object ladder instead. **Trigger:** the next thing that cannot ride beehive's — anything outside the control plane, which is what `prefsync` is. At that point extract base/max/jitter and the `Reset`-on-success discipline into a leaf (e.g. `internal/backoff`) with the same parameterized-cadence seam the testing conventions require. Note the two readings a shared type has to keep expressible: `prefsync` counts attempts across reconnects, where a pass-oriented ladder re-levels on any clean pass.
 
+- **`appdb.Close` during the janitor's first sweep can leave `app.db-wal` behind.** The sweep starts the moment `Open` returns; a `Close` that cancels it mid-statement leaves the WAL beside the file (about 1 in 200 in a loop of `Open` then `Close` after a short delay). A failed `app.New` that closes the file right after opening it hits this, and a test asserting the WAL's absence flakes. Wanted: `Close` leaves no WAL after joining the janitor, e.g. an uncancelled checkpoint before the pools close.
+
 ## Host (Tauri/Rust)
 
 - **The log level can only be set by an environment variable.** The host reads `KSTACK_LOG_LEVEL` in

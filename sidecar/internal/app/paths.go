@@ -29,6 +29,7 @@ import (
 //
 //	<data>/                                what a user would lose
 //	  app.db                               app
+//	  sandbox.json                         app: the sandbox's settings
 //	  beehive.db                           clustersvc
 //	  settings.json, settings-queue.json   cloud
 //	  chats/<chat id>/                     chatsvc: results/, tasks/, workspace/
@@ -41,18 +42,20 @@ import (
 //	  shell/                               bash: the snapshot, and Windows' scripts
 //	  runs/<pid>-*/, runs/<pid>.lock       bash: a run's kubeconfig and socket, the lock
 type paths struct {
-	AppDBFile string
-	ChatsDir  string
-	Cloud     cloud.Paths
-	Cluster   clustersvc.Paths
-	Bash      bash.Paths
+	AppDBFile   string
+	SandboxFile string
+	ChatsDir    string
+	Cloud       cloud.Paths
+	Cluster     clustersvc.Paths
+	Bash        bash.Paths
 }
 
 func pathsOf(cfg Config) paths {
 	data, cache, runtime := cfg.DataDir, cfg.CacheDir, cfg.RuntimeDir
 	return paths{
-		AppDBFile: filepath.Join(data, "app.db"),
-		ChatsDir:  filepath.Join(data, "chats"),
+		AppDBFile:   filepath.Join(data, "app.db"),
+		SandboxFile: filepath.Join(data, "sandbox.json"),
+		ChatsDir:    filepath.Join(data, "chats"),
 		Cloud: cloud.Paths{
 			SettingsFile: filepath.Join(data, "settings.json"),
 			QueueFile:    filepath.Join(data, "settings-queue.json"),

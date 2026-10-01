@@ -596,6 +596,18 @@ func TestAppClosesTheDatabaseWhenTheCloudServiceFails(t *testing.T) {
 	assert.NoFileExists(t, filepath.Join(dir, "app.db-wal"))
 }
 
+// A sandbox file that is not a JSON object fails New naming it, before app.db
+// opens.
+func TestABadSandboxFileFailsNew(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "sandbox.json")
+	require.NoError(t, os.WriteFile(file, []byte("{"), 0o600))
+
+	_, err := New(withDirs(t, Config{DataDir: dir}))
+	require.ErrorContains(t, err, file)
+	assert.NoFileExists(t, filepath.Join(dir, "app.db"))
+}
+
 // The catalog is the config's: each keyed provider at the base URL a debug build
 // moved it to, then the fake when asked for.
 func TestTheCatalogIsTheConfigs(t *testing.T) {

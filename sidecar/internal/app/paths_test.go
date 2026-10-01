@@ -29,6 +29,7 @@ func TestEveryPathIsUnderItsKind(t *testing.T) {
 	for want, got := range map[string]string{
 		filepath.Join(data, "app.db"):              p.AppDBFile,
 		filepath.Join(data, "chats"):               p.ChatsDir,
+		filepath.Join(data, "sandbox.json"):        p.SandboxFile,
 		filepath.Join(data, "settings.json"):       p.Cloud.SettingsFile,
 		filepath.Join(data, "settings-queue.json"): p.Cloud.QueueFile,
 		filepath.Join(data, "beehive.db"):          p.Cluster.BeehiveDBFile,
