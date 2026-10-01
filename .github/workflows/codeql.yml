@@ -1,0 +1,63 @@
+name: codeql
+
+permissions:
+  contents: read
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: CodeQL · ${{ matrix.language }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: manual
+          - language: javascript-typescript
+            build-mode: none
+          - language: rust
+            build-mode: none
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-environment
+        if: matrix.language == 'go'
+        with:
+          setup-go: "true"
+
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+
+      # CodeQL extracts only the files a build compiles, so one build per GOOS
+      # brings in the _darwin.go and _windows.go files a Linux build skips.
+      - name: Build sidecar for every GOOS
+        if: matrix.language == 'go'
+        working-directory: ./sidecar
+        run: |
+          for goos in linux darwin windows; do
+            GOOS=$goos go build ./...
+          done
+
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
