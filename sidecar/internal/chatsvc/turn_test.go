@@ -123,6 +123,24 @@ func TestLLMCallStartedClaimsNothingOnACancelledContext(t *testing.T) {
 	assert.Zero(t, tableCount(t, s.db, "llm_calls"))
 }
 
+// A cancel that reaches the history read as the store's own error settles
+// cancelled, not failed with the driver's text.
+func TestACancelThatInterruptsAReadSettlesCancelled(t *testing.T) {
+	s := newTestService(t)
+	now := time.UnixMilli(1_000).UTC()
+	c := seedChat(t, s.db, aChat("1", now))
+	seeded := seedTurn(t, s.db, c.ID, now)
+	tr, err := s.reserveTurn(c.ID, seeded.Run, fakeTarget(s))
+	require.NoError(t, err)
+	tr.cancel()
+
+	tr.settle(agent.Result{}, errors.New("list messages: begin: interrupted (9)"))
+
+	assert.Equal(t, runCancelled, tr.status)
+	assert.Empty(t, tr.errText)
+	assert.Equal(t, runCancelled, runStatusOf(t, s.db, seeded.Run))
+}
+
 // A settle that cannot land leaves the run unfinished, whichever of its writes the
 // store refuses: the next start is what fails it, as stranded. Which unfinished
 // status it is left at is the refused write's own — a refused claim never left

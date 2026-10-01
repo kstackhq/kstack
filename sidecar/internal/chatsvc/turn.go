@@ -550,6 +550,11 @@ func callError(streamErr error) string {
 // stored run is until the row lands.
 func (t *turn) settle(res agent.Result, streamErr error) {
 	t.settled = true
+	if streamErr != nil && t.ctx.Err() != nil {
+		// A cancel can reach a store read as the driver's own error
+		// ("interrupted (9)"), not as the context's.
+		streamErr = t.ctx.Err()
+	}
 	t.status, t.errText = runOutcome(streamErr)
 	t.s.turnsMu.Lock()
 	t.answer = t.msg.Content
