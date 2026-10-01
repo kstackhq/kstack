@@ -282,8 +282,11 @@ func TestRepointedSymlinkFollowsToTheNewTarget(t *testing.T) {
 	moved := filepath.Join(elsewhere, "config")
 	writeKubeconfig(t, moved, "work")
 
-	require.NoError(t, os.Remove(link))
-	require.NoError(t, os.Symlink(moved, link))
+	// Swapped in by rename: a remove-then-link leaves a moment with no kubeconfig,
+	// and a poll landing in it publishes the empty config ahead of "work".
+	tmp := link + ".tmp"
+	require.NoError(t, os.Symlink(moved, tmp))
+	require.NoError(t, os.Rename(tmp, link))
 	require.Contains(t, testutil.Recv(t, sub.Chan(), "the config after re-pointing").Contexts, "work")
 
 	// The claim: the new target is followed from here on, not just at the moment of the
