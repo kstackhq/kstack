@@ -27,6 +27,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	agenttool "github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
@@ -1588,9 +1589,22 @@ func newChatServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
+// newSandboxedChatServer is newChatServer on a machine whose sandbox is status.
+func newSandboxedChatServer(t *testing.T, status sandbox.Status) *httptest.Server {
+	t.Helper()
+	srv, _, _ := newChatServerWith(t, status)
+	return srv
+}
+
 // newChatServerOver is newChatServer handing back the app.db, for a test that fails
 // the store by closing it, and the fake, for one that stages a reply.
 func newChatServerOver(t *testing.T) (*httptest.Server, *appdb.DB, *llm.Fake) {
+	t.Helper()
+	return newChatServerWith(t, sandbox.Status{})
+}
+
+// newChatServerWith is newChatServerOver on a machine whose sandbox is status.
+func newChatServerWith(t *testing.T, status sandbox.Status) (*httptest.Server, *appdb.DB, *llm.Fake) {
 	t.Helper()
 	db, err := appdb.Open(filepath.Join(t.TempDir(), "app.db"), 0)
 	require.NoError(t, err)
@@ -1603,7 +1617,7 @@ func newChatServerOver(t *testing.T) (*httptest.Server, *appdb.DB, *llm.Fake) {
 	// The search is offered, since a test stages a turn that searched; the rest
 	// is read alone, so no call runs while stored calls still show.
 	box := tools.NewBox([]tools.Tool{agenttool.New(), anthropicwebsearch.New(time.Now)}, bash.Reader{}, &read.Tool{}, &write.Tool{}, &edit.Tool{}, &webfetch.Tool{}, taskstop.New(), memory.New(nil), kubequery.New(nil))
-	chatSvc, err := chatsvc.New(db, filepath.Join(t.TempDir(), "chats"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat)
+	chatSvc, err := chatsvc.New(db, filepath.Join(t.TempDir(), "chats"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status)
 	require.NoError(t, err)
 	stop, err := chatSvc.Start(t.Context())
 	require.NoError(t, err)
@@ -1613,6 +1627,7 @@ func newChatServerOver(t *testing.T) (*httptest.Server, *appdb.DB, *llm.Fake) {
 	})
 	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
 		ClusterSvc: newFakeClusterService(nil), ChatSvc: chatSvc, LLMSvc: llmSvc, Auth: newFakeAuth(auth.Identity{}),
+		SandboxStatus: status,
 	}))
 	t.Cleanup(srv.Close)
 	return srv, db, fake
@@ -2558,4 +2573,13 @@ func TestAKubeQueryCallServesItsQuery(t *testing.T) {
 	assert.Equal(t, []any{map[string]any{"action": map[string]any{
 		"description": "Count the pods", "kubeQuery": map[string]any{"sql": "SELECT 1", "limit": float64(5)},
 	}}}, frame["message"].(map[string]any)["toolCalls"])
+}
+
+// The sandbox query answers the status the app built, reason and all.
+func TestTheSandboxQueryAnswersTheStatus(t *testing.T) {
+	srv := newSandboxedChatServer(t, sandbox.Status{Available: true, Reason: "bwrap at /usr/bin/bwrap"})
+
+	data := mutate(t, srv, `{ sandbox { available reason } }`)
+
+	assert.Equal(t, map[string]any{"available": true, "reason": "bwrap at /usr/bin/bwrap"}, data["sandbox"])
 }

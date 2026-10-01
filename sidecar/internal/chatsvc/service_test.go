@@ -32,6 +32,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/sqlstmt"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -88,7 +89,7 @@ func TestStartTellsAPreStartWatchOfAStrandedRun(t *testing.T) {
 	c := seedChat(t, db, aChat("1", now))
 	stranded := seedTurn(t, db, c.ID, now)
 	setRunStatus(t, db, stranded.Run, runRunning)
-	s, err := newService(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists)
+	s, err := newService(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{})
 	require.NoError(t, err)
 
 	w, err := s.WatchMessages(t.Context(), c.ID)
@@ -109,7 +110,7 @@ func TestStartTellsAPreStartWatchOfAStrandedRun(t *testing.T) {
 // before it: nothing else will, since the lifecycle stops only what started.
 func TestAFailedStartEndsThePreStartWatches(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
-	s, err := newService(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists)
+	s, err := newService(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{})
 	require.NoError(t, err)
 	w, err := s.WatchList(t.Context())
 	require.NoError(t, err)
@@ -151,7 +152,7 @@ func TestNewFailsWhenTheStatementsWillNotPrepare(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
 	require.NoError(t, db.Close())
 
-	_, err := New(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, tools.Box{}, noLists)
+	_, err := New(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, tools.Box{}, noLists, sandbox.Status{})
 
 	assert.ErrorContains(t, err, "prepare chat statements")
 }
@@ -160,7 +161,7 @@ func TestNewFailsWhenTheStatementsWillNotPrepare(t *testing.T) {
 // quietly left stranded rows behind.
 func TestStartReportsAReconcileItCouldNotRun(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
-	s, err := newService(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists)
+	s, err := newService(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{})
 	require.NoError(t, err)
 	// The statements fail to close on the closed file; the directory is what matters.
 	t.Cleanup(func() { _ = s.Close() })
@@ -173,7 +174,7 @@ func TestStartReportsAReconcileItCouldNotRun(t *testing.T) {
 // The service's context exists from construction, so a watch that arrives before
 // Start is answered.
 func TestAWatchBeforeStartIsAnswered(t *testing.T) {
-	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists)
+	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{})
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), testutil.Timeout)
@@ -190,7 +191,7 @@ func TestAWatchBeforeStartIsAnswered(t *testing.T) {
 // Nothing joins the WaitGroup once stop has run: work admitted after its Wait is
 // work Close pulls the connection out from under.
 func TestWorkArrivingAfterStopIsRefused(t *testing.T) {
-	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists)
+	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{})
 	require.NoError(t, err)
 	stop, err := s.Start(t.Context())
 	require.NoError(t, err)
@@ -1282,7 +1283,7 @@ func TestASendDuringADeleteIsRefused(t *testing.T) {
 
 // Stop cancels every turn and waits for its settle.
 func TestStopCancelsTheTurnsAndSettlesThem(t *testing.T) {
-	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists)
+	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{})
 	require.NoError(t, err)
 	stop, err := s.Start(t.Context())
 	require.NoError(t, err)
@@ -1302,7 +1303,7 @@ func TestStopCancelsTheTurnsAndSettlesThem(t *testing.T) {
 
 func TestASendAfterARestartContinuesTheSeq(t *testing.T) {
 	dir := t.TempDir()
-	first, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists)
+	first, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{})
 	require.NoError(t, err)
 	stop, err := first.Start(t.Context())
 	require.NoError(t, err)
@@ -1811,7 +1812,7 @@ func TestAStartThatCannotCloseAStrandedCallFails(t *testing.T) {
 			require.NoError(t, err)
 			_, err = db.Write.Exec(tc.trigger)
 			require.NoError(t, err)
-			s, err := newService(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists)
+			s, err := newService(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{})
 			require.NoError(t, err)
 
 			_, err = s.Start(t.Context())

@@ -991,6 +991,13 @@ type Chat {
   awaitingApproval: Boolean!
 }
 
+"Whether sandboxed Bash is offered on this machine. It is fixed for the sidecar's life, so this is a query and not a watch."
+type SandboxStatus {
+  available: Boolean!
+  "What the probe found, such as Seatbelt or bwrap at /usr/bin/bwrap, or why there is none, in the sidecar's words."
+  reason: String!
+}
+
 """
 One message. An assistant message is also the record of its turn: while `status` is
 `Streaming` its `content` grows, re-sent whole on every frame — so any one frame is
@@ -1372,6 +1379,10 @@ type Query {
   # --- Model ---
   "Every model the sidecar can answer with, in catalog order — the first entry is what a picker starts on. Fixed for the process's life, so this is a query and not a watch."
   models: [Model!]!
+
+  # --- Sandbox ---
+  "Whether this machine offers sandboxed Bash, and why."
+  sandbox: SandboxStatus!
 
   # --- Cluster ---
   "A single cluster by id; null if not tracked."

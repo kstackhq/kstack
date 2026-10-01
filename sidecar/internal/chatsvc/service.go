@@ -31,6 +31,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/drain"
 	"github.com/kstackhq/kstack/sidecar/internal/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/sqlstmt"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/version"
@@ -155,6 +156,8 @@ type service struct {
 	clusterCards ClusterCards
 	memories     Memories
 	lists        ToolLists
+	// sandboxStatus is whether sandboxed Bash is offered, which the switch needs.
+	sandboxStatus sandbox.Status
 	// tools is every tool the app knows, in offer order, and the readers of those
 	// this machine cannot offer: each turn is offered what its list names and its
 	// target takes, and every stored call is read through it, whether or not a
@@ -213,15 +216,15 @@ type service struct {
 // New builds the service over the app's DB, the directory each chat's files go
 // under, the providers a send can name, the card source, the memories each
 // chat's cluster sees, the box: the tools every turn is offered from, which read
-// every stored call, and the lists that pick a turn's tools from it. Nothing runs
-// until Start.
-func New(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists) (Service, error) {
-	return newService(db, chatsDir, llmSvc, clusterCards, memories, box, lists)
+// every stored call, the lists that pick a turn's tools from it, and whether the
+// machine offers sandboxed Bash. Nothing runs until Start.
+func New(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status) (Service, error) {
+	return newService(db, chatsDir, llmSvc, clusterCards, memories, box, lists, sandboxStatus)
 }
 
-// newService is New returning the concrete type, for tests. A nil memories sends no
-// memory section.
-func newService(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists) (*service, error) {
+// newService is New returning the concrete type, for tests. A nil memories sends
+// no memory section.
+func newService(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status) (*service, error) {
 	chatsRoot, err := openChats(chatsDir)
 	if err != nil {
 		return nil, err
@@ -240,6 +243,7 @@ func newService(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards
 		memories:           memories,
 		tools:              box,
 		lists:              lists,
+		sandboxStatus:      sandboxStatus,
 		turns:              map[ChatID]*turn{},
 		deleting:           map[ChatID]int{},
 		pending:            map[ApprovalID]chan bool{},

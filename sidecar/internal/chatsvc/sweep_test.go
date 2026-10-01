@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
 
@@ -139,7 +140,7 @@ func TestTheClusterReadsReportAStorageFault(t *testing.T) {
 // A service that is stopping refuses to start its sweeper, the way every other
 // entrant is refused once stop has begun.
 func TestStartAfterStopRefusesTheSweeper(t *testing.T) {
-	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists)
+	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{})
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, s.Close()) })
 	require.NoError(t, s.stop(t.Context()))
@@ -192,7 +193,7 @@ func TestDeleteByClusterReportsAReadThatFailed(t *testing.T) {
 // A chats' directory the sweep cannot list is left for the next start.
 func TestTheStartSweepLeavesAChatsDirectoryItCannotList(t *testing.T) {
 	dir := t.TempDir()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists)
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{})
 	require.NoError(t, err)
 	require.NoError(t, s.chatsRoot.Close())
 	logs := testutil.CaptureLogs(t)
@@ -215,7 +216,7 @@ func TestTheStartSweepRemovesTheDirectoriesOfGoneChats(t *testing.T) {
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(results, "stray"), nil, 0o600))
 
-	s, err := newService(db, chatsDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists)
+	s, err := newService(db, chatsDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{})
 	require.NoError(t, err)
 	startPrepared(t, s)
 

@@ -387,6 +387,9 @@ models:
   Chat:
     model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.Chat
 
+  SandboxStatus:
+    model: github.com/kstackhq/kstack/sidecar/internal/sandbox.Status
+
   # The stored vocabulary is lower-case (the Messages API's own), so each enum member
   # binds to the constant that carries it.
   ChatMessageRole:

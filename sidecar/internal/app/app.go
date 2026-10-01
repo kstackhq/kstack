@@ -180,7 +180,8 @@ func New(cfg Config) (*App, error) {
 
 	cat := newCatalog(cfg)
 	llmSvc := llm.New(cat.Providers()...)
-	shell, _ := newShell(p.Bash, cfg.HostPID, clusterSvc)
+	shell, found, probed := newShell(p.Bash, cfg.HostPID, clusterSvc)
+	sandboxStatus := sandboxStatusOf(found, probed)
 	memorySvc, err := memorysvc.New(db, serverUIDLookup{clusters: clusterSvc.Clusters()})
 	if err != nil {
 		return fail(err)
@@ -191,17 +192,18 @@ func New(cfg Config) (*App, error) {
 	if err != nil {
 		return fail(fmt.Errorf("fence Kstack's directories: %w", err))
 	}
-	chatSvc, err := chatsvc.New(db, p.ChatsDir, llmSvc, clustercard.New(clusterSvc), memorySvc, box, cat)
+	chatSvc, err := chatsvc.New(db, p.ChatsDir, llmSvc, clustercard.New(clusterSvc), memorySvc, box, cat, sandboxStatus)
 	if err != nil {
 		return fail(err)
 	}
 
 	graphqlServer := graph.NewServer(&graph.Resolver{
-		ClusterSvc: clusterSvc,
-		ChatSvc:    chatSvc,
-		MemorySvc:  memorySvc,
-		LLMSvc:     llmSvc,
-		Auth:       authSvc,
+		ClusterSvc:    clusterSvc,
+		ChatSvc:       chatSvc,
+		MemorySvc:     memorySvc,
+		LLMSvc:        llmSvc,
+		SandboxStatus: sandboxStatus,
+		Auth:          authSvc,
 	})
 
 	grpcServer := grpcserver.NewServer(authSvc, pokeSvc)
@@ -323,12 +325,22 @@ func newCatalog(cfg Config) catalog.Catalog {
 	return catalog.New(catalog.Config{APIKeys: cfg.LLMKeys, BaseURLs: cfg.LLMBaseURLs, Fake: fake})
 }
 
-// newShell is the bash tool over the machine's sandbox, probed once here; ok
-// false offers no bash.
-func newShell(paths bash.Paths, hostPID int, clusterSvc clustersvc.Service) (shell *bash.Tool, ok bool) {
+// newShell is the bash tool over the machine's sandbox, probed once here, and
+// the probe's status; ok false offers no bash.
+func newShell(paths bash.Paths, hostPID int, clusterSvc clustersvc.Service) (shell *bash.Tool, ok bool, status sandbox.Status) {
 	sb, status := sandbox.Probe(context.Background())
 	slog.Info("sandbox probed", "available", status.Available, "reason", status.Reason)
-	return bash.New(paths, hostPID, sb, clusterSvc)
+	shell, ok = bash.New(paths, hostPID, sb, clusterSvc)
+	return shell, ok, status
+}
+
+// sandboxStatusOf is whether sandboxed Bash is offered: a sandbox with no shell
+// has no command to confine.
+func sandboxStatusOf(shellFound bool, probed sandbox.Status) sandbox.Status {
+	if !shellFound {
+		return sandbox.Status{Reason: "no shell was found"}
+	}
+	return probed
 }
 
 // chatTools is the one box: bash where New found a shell, Read, Memory, Write, Edit

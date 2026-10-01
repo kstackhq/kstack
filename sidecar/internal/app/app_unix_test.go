@@ -55,7 +55,7 @@ func TestBashIsOfferedWithTheSandbox(t *testing.T) {
 	withBash := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(withBash, "bash"), []byte("#!/bin/sh\n"), 0o755))
 	t.Setenv("PATH", withBash)
-	shell, found := newShell(bash.Paths{ShellDir: t.TempDir()}, 0, nil)
+	shell, found, _ := newShell(bash.Paths{ShellDir: t.TempDir()}, 0, nil)
 	require.True(t, found)
 
 	var schema struct {

@@ -10,6 +10,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 )
 
 // Resolver carries every operation's dependencies. Each field MUST be non-nil — the
@@ -28,6 +29,9 @@ type Resolver struct {
 	// LLMSvc answers the models query, every provider's catalog in picker order, and
 	// labels a message's provider.
 	LLMSvc *llm.Service
+	// SandboxStatus answers the sandbox query: whether this machine offers
+	// sandboxed Bash.
+	SandboxStatus sandbox.Status
 	// Auth backs the authState query/watch and the login/logout mutations; it degrades
 	// internally when no cloud account is configured.
 	Auth auth.Service

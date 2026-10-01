@@ -17,6 +17,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 )
 
 // Thinking is the resolver for the thinking field: what the message's blocks hold
@@ -293,6 +294,11 @@ func (r *queryResolver) Models(ctx context.Context) ([]*model.Model, error) {
 		}
 	}
 	return out, nil
+}
+
+// Sandbox is the resolver for the sandbox field.
+func (r *queryResolver) Sandbox(ctx context.Context) (*sandbox.Status, error) {
+	return &r.Resolver.SandboxStatus, nil
 }
 
 // Cluster is the resolver for the cluster field. An id naming nothing is null per the

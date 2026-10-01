@@ -25,6 +25,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -54,7 +55,7 @@ func startServiceWithMemories(t *testing.T, cards ClusterCards, memories *stubMe
 	if len(offered) > 0 {
 		box, lists = testBox(offered...)
 	}
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), cards, memories, box, lists)
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), cards, memories, box, lists, sandbox.Status{})
 	require.NoError(t, err)
 	startPrepared(t, s)
 	return s

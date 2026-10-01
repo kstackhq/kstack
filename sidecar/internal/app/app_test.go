@@ -27,6 +27,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
@@ -637,4 +638,15 @@ func TestTheFakeIsListedOnlyWhenAsked(t *testing.T) {
 
 	assert.Equal(t, []string{"anthropic"}, providers(false))
 	assert.Equal(t, []string{"anthropic", "fake"}, providers(true))
+}
+
+// Sandboxed Bash is offered where a shell was found and the probe found a
+// sandbox; the reason is the probe's, or that there is no shell.
+func TestTheSandboxStatusIsTheShellAndTheProbe(t *testing.T) {
+	found := sandbox.Status{Available: true, Reason: "bwrap at /usr/bin/bwrap"}
+	missing := sandbox.Status{Reason: "bwrap was not found"}
+
+	assert.Equal(t, sandbox.Status{Available: true, Reason: "bwrap at /usr/bin/bwrap"}, sandboxStatusOf(true, found))
+	assert.Equal(t, sandbox.Status{Reason: "bwrap was not found"}, sandboxStatusOf(true, missing))
+	assert.Equal(t, sandbox.Status{Reason: "no shell was found"}, sandboxStatusOf(false, found))
 }
