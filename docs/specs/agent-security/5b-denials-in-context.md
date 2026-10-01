@@ -27,8 +27,7 @@ After this step, on macOS and Linux:
   Seatbelt's report on macOS and from the command's error output on Linux; a host the egress
   proxy refused and a write or Secret read the engine refused, which steps 3B, 4C and 5A already
   record.
-- **`Policy.Explain(path)`** answers what the policy says of a path and which rule decided, the
-  goal step 1A set.
+- **`Policy.Explain(path)`** answers what the policy says of a path and which rule decided.
 - **The record**: `tool_calls.denials`, written when the call settles, on the wire as
   `ToolCall.denials`.
 - **The model reads one line per denial** after the output, in place of the sandbox line.
@@ -89,9 +88,9 @@ type Denial struct {
 func (p Policy) Explain(path string) (Verdict, Rule)
 ```
 
-It applies step 1A's combination rules — the deepest rule wins, the narrower wins a tie, an
-Always path wins over everything — over the same resolved lists the compilers use, so its answer
-is the sandbox's. `Rule` is `{Kind: Read | Write | Deny | Always | None, Path}`.
+It applies the policy's combination rules (`sidecar/CLAUDE.md`) — the deepest rule wins, the
+narrower wins a tie, an Always path wins over everything — over the same resolved lists the
+compilers use, so its answer is the sandbox's. `Rule` is `{Kind: Read | Write | Deny | Always | None, Path}`.
 
 **macOS.** Seatbelt reports every denial to the unified log by default: `(with report)` is not a
 modifier a `deny` rule takes (`sandbox-exec` refuses it: *report modifier does not apply to deny
@@ -278,9 +277,9 @@ segmented pickers, one Grant button, and a Cancel; Escape closes it; it is disab
 
 **`sandbox`**
 
-- `TestExplainFollowsTheRuleTable`: every pair of step 1A's rule table, and an Always path under
-  a Read rule, answers the verdict and the rule the sandbox gives (`TestEveryPairOfRulesAnswersAlike`
-  is the same table run through the sandbox; this one asks the policy).
+- `TestExplainFollowsTheRuleTable`: every pair of `TestEveryPairOfRulesAnswersAlike`'s table, and
+  an Always path under a Read rule, answers the verdict and the rule the sandbox gives (that test
+  runs the table through the sandbox; this one asks the policy).
 - `TestParseReportReadsSeatbeltsLine`, in `reports_darwin_test.go`: the two-line message, the
   tag, an operation with no path, and the *duplicate reports* form rejected.
 - `TestReportsFanOutByTag`, in `reports_darwin_test.go`: over a fake `log` (a script printing a

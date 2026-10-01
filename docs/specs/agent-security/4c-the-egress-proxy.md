@@ -66,8 +66,7 @@ this step only tunnels.
 
 `sandboxedRunFor` in `tools/bash/bash.go` asks the sandbox for a port and starts the run's server
 for every run, not only one with a cluster. The Workspace policy always has its one relay, the
-port to the run's `proxy.sock`. `Policy.Check` keeps refusing more than one relay: the row step 1A
-reserved, "a second `Relay`, step 4C", is satisfied by one relay, as the README's shared
+port to the run's `proxy.sock`. `Policy.Check` keeps refusing more than one relay: one is enough, as the README's shared
 vocabulary says — one server on the socket serves every proxy.
 
 `startProxy` in `tools/bash/proxy.go` serves `route(cluster, egress)` instead of the grant alone:

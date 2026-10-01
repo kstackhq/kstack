@@ -46,7 +46,7 @@ and the snapshot.
 
 ### 1. The zones as lists
 
-`Lists` (step 1A) gains `Toolchain`, and the note's zones fill the three:
+`Lists` (`sandbox/lists.go`) gains `Toolchain`, and the note's zones fill the three:
 
 ```go
 type Lists struct {
@@ -98,16 +98,16 @@ and closes the files that hold secrets. That is the documented deviation the not
 A location is a Read rule only when its folder exists, and its `Env` is set only then. Task 1
 checks each on a real Mac and a real Linux machine and drops one whose tool does not run.
 
-**`Never`**, the note's third table, on top of step 1A's: `~/.helm`, `~/.terraform.d`,
+**`Never`**, the note's third table, on top of today's: `~/.helm`, `~/.terraform.d`,
 `~/.npmrc`, `~/.pypirc`, `~/.gem/credentials`, `~/.config/git/credentials`, every `~/.*_history`
 and `~/.bash_history`, `~/Documents`, `~/Desktop`, `~/Downloads`, `/run/containerd`,
 `/var/run/docker.sock`, `~/.docker/run/docker.sock`, `/root`, and the other users' homes
 (`/Users/*` and `/home/*` but the user's own, resolved at run time). macOS adds
 `~/Library/Cookies`, `~/Library/Application Support/Google/Chrome`, `~/Library/Application
 Support/Firefox`, `~/Library/Safari`; Linux adds `~/.config/google-chrome`, `~/.config/chromium`,
-`~/.mozilla`. A path on `Never` that does not exist is a Deny that covers nothing, as step 1A says.
+`~/.mozilla`. A path on `Never` that does not exist is a Deny that covers nothing.
 
-`Sandbox.System(home)` (step 1A) loses its `env` argument and no longer reads `PATH`: its Read
+`Sandbox.System(home)` loses its `env` argument and no longer reads `PATH`: its Read
 is `System`, each `Toolchain` folder that exists, and Kstack's own executable; its Deny is
 Homebrew's `var` on either platform. `Sandbox.Never(home)` is unchanged. A new
 `Sandbox.ToolchainEnv(home)` answers the `Env` of each location found.

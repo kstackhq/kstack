@@ -29,7 +29,7 @@ After this step, on macOS and Linux:
 - **A grant is a Files rule on the run's policy**, Read or Write, and **the Always part still
   wins**: a grant of `~` reads the home and not `~/.ssh`, `~/.kube`, `~/Documents` or Kstack's
   directories. This is the note's first invariant, "the single most important invariant in the
-  sandbox", which step 1A pinned for the policy and this step pins for a grant.
+  sandbox", which `TestTheDeniedAlwaysListWinsOverARead` pins for the policy and this step pins for a grant.
 - **A grant is checked when written and when read**: absolute, existing, not `/`, not inside an
   Always path or Kstack's directories, not inside or over a listed folder. The home itself may be
   granted, read-only, with a warning.
@@ -100,10 +100,10 @@ to the next command, since a sandbox is per command.
 ### 2. The policy
 
 `sandboxedRunFor` in `tools/bash/bash.go` adds each folder to the Workspace policy's Files
-(step 1A §6): `Read` for a read grant, `Write` for a read-write one. The Always part is untouched,
+(`workspacePolicy`): `Read` for a read grant, `Write` for a read-write one. The Always part is untouched,
 so `Policy.Check` and both compilers give the note's answer: a Read rule over `~` opens the home,
 and `~/.ssh`, `~/.kube` and the rest of `Never`, and Kstack's directories, stay closed inside it.
-That is `TestTheDeniedAlwaysListWinsOverARead` (step 1A), and this step adds the test over a real
+That is `TestTheDeniedAlwaysListWinsOverARead`, and this step adds the test over a real
 grant (§Tests).
 
 A grant reaches the policy only through the check in §3, run again at the run's start: a folder
@@ -372,7 +372,7 @@ grant lets a command plant a file a later command outside the sandbox (step 1B) 
 runs, which is the bash tool record's residual over a wider folder. A folder granted always is
 readable by every chat, and the user must remember it is. On Linux a denied-always path under a
 granted folder that does not exist when a run starts is not mounted over, so a file something
-outside the run makes there while it runs is readable to it (step 1A's residual); macOS holds
+outside the run makes there while it runs is readable to it (the residual on the denied-always row of `security-model.md`); macOS holds
 the Deny whether or not the path exists.
 
 The record, `docs/security/<date>-path-grants.md`, argues both. The TODO item *Revisit how

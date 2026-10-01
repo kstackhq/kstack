@@ -70,7 +70,7 @@ type Limits struct {
 }
 ```
 
-`Policy` gains `Limits Limits`, the field step 1A reserves. `Check` refuses a negative limit.
+`Policy` gains `Limits Limits`. `Check` refuses a negative limit.
 
 Each limit is one resource limit, set soft and hard so a process cannot raise it back:
 
@@ -102,7 +102,7 @@ alone.
 
 ### 2. The Workspace policy's limits
 
-`sandboxedRunFor` in `tools/bash/bash.go` sets `Limits` on the policy it builds (step 1A §6):
+`sandboxedRunFor` in `tools/bash/bash.go` sets `Limits` on the policy it builds (`workspacePolicy`):
 
 | Limit | Value | Why |
 | --- | --- | --- |
@@ -158,7 +158,7 @@ Linux is done: `sandbox-shell` sets `PR_SET_NO_NEW_PRIVS` before it execs the sh
 bit under it grants nothing, and `sudo` says so and exits 1.
 
 macOS gains one fixed rule in `profile_darwin.sb`, after `(allow process-exec)` and before the
-policy's rules, so no rule of a policy undoes it (step 1A §3):
+policy's rules, so no rule of a policy undoes it, like everything else the compiler holds fixed:
 
 ```scheme
 ;; No privilege escalation. Seatbelt cannot name "setuid", so this names the
@@ -302,7 +302,7 @@ outside the sandbox, to prove the sandbox is what refuses it, skips when that ch
 - `TestSudoCannotGainRoot`, in `policy_unix_test.go`: `sudo -n id -u` prints `0` outside the
   sandbox (else skipped), and inside it exits nonzero and prints no `0`, on both platforms.
 - `TestTheCompiledArgumentsMatchTheGolden` (Linux) and `TestTheCompiledProfileMatchesTheGolden`
-  (macOS), step 1A's goldens updated: the argument list gains `--limits` on `sandbox-init` and
+  (macOS), their goldens updated: the argument list gains `--limits` on `sandbox-init` and
   `--memory` on `sandbox-shell`; the profile gains the one `deny process-exec` rule. The
   reviewer reads the diff, and nothing else may change.
 

@@ -150,7 +150,7 @@ func (t *Tool) ProbeTools(ctx context.Context, specs []ToolSpec) []ToolReport
 
 Each invocation is one Workspace run with no cluster:
 
-- **Its policy is `sandboxedRunFor`'s** (step 1A §6, as steps 2A, 2B, 3A and 4D leave it), built
+- **Its policy is `sandboxedRunFor`'s** (`workspacePolicy`, as steps 2A, 2B, 3A and 4D leave it), built
   for a throwaway workspace `<cache>/tmp/<pid>-probe-*/workspace` and a `TMPDIR` beside it,
   both under the cache directory so `Check` accepts them, removed after the run through
   `rootdir.RemoveAll`. It names no relay: no cluster, no egress, so a tool's update check gets
