@@ -77,6 +77,7 @@ var imported = []variable{
 	{"CLOUDSDK_CORE_PROJECT", plain},         // which project gke-gcloud-auth-plugin targets
 	{"GOOGLE_APPLICATION_CREDENTIALS", path}, // a service-account key
 	{"AZURE_CONFIG_DIR", path},               // the Azure CLI's token cache
+	{"GH_CONFIG_DIR", path},                  // gh's config, holding its login
 	{"HTTP_PROXY", plain},                    // reaching the API server from a corporate network
 	{"HTTPS_PROXY", plain},                   // the same, for TLS
 	{"NO_PROXY", plain},                      // a list, but not of paths

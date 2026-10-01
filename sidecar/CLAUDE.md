@@ -131,7 +131,7 @@ that is itself a secret. → [ADR: shell-environment allowlist](../docs/adr/2026
 | `pathList` | `:`-separated paths, each resolved, survivors rejoined |
 
 The list is `PATH`, `KUBECONFIG`, the AWS profile/region/config variables, `CLOUDSDK_*`,
-`GOOGLE_APPLICATION_CREDENTIALS`, `AZURE_CONFIG_DIR`, the proxy variables in both spellings,
+`GOOGLE_APPLICATION_CREDENTIALS`, `AZURE_CONFIG_DIR`, `GH_CONFIG_DIR`, the proxy variables in both spellings,
 `SSL_CERT_FILE`/`SSL_CERT_DIR`, and `OLLAMA_HOST` (an endpoint, not a credential) — read
 `imported` for the current set and the reason beside each row; `TestImportedIsExactlyTheAllowlist`
 pins every row.
