@@ -629,8 +629,12 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		return nil, err
 	}
 	reads := []string{r.dir.path}
-	ws := tools.WorkspacePath(rt.Dir)
-	writes := []string{ws, r.dir.tmp}
+	if err := makeToolHome(rt.Dir); err != nil {
+		r.end()
+		return nil, errors.New("the tool home " + tools.ToolHomePath(rt.Dir) + " could not be made: " + err.Error())
+	}
+	ws, toolHome := tools.WorkspacePath(rt.Dir), tools.ToolHomePath(rt.Dir)
+	writes := []string{ws, toolHome, r.dir.tmp}
 	var relays []sandbox.Relay
 	if cluster != nil {
 		socket := r.dir.socket()
@@ -646,7 +650,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		writes = append(writes, cluster.cacheDir)
 		relays = []sandbox.Relay{{Port: port, Socket: socket}}
 	}
-	env := sandboxedRunEnv(os.Environ(), t.env, ws, cwd, r.dir, cluster)
+	env := sandboxedRunEnv(os.Environ(), t.env, ws, cwd, r.dir, cluster, toolHome)
 	// System reads the PATH's folders, which can hang on a network mount, so
 	// the policy is built on a goroutine abandoned if ctx ends first.
 	built := make(chan sandbox.Policy, 1)

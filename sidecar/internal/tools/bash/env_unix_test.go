@@ -28,7 +28,7 @@ func TestTheSandboxedEnvironmentIsBuiltWhole(t *testing.T) {
 	rd := &runDir{path: "/run/kstack/runs/10-1", tmp: "/cache/tmp/10-2"}
 	cluster := &target{context: "prod", cacheDir: "/cache/kubectl/7/abc"}
 
-	got := sandboxedRunEnv(processEnv, kstackVars, "/data/ws", "/data/ws/sub", rd, cluster)
+	got := sandboxedRunEnv(processEnv, kstackVars, "/data/ws", "/data/ws/sub", rd, cluster, "/data/th")
 
 	assert.Equal(t, []string{
 		"PATH=/usr/local/bin:/usr/bin",
@@ -42,6 +42,17 @@ func TestTheSandboxedEnvironmentIsBuiltWhole(t *testing.T) {
 		"LC_ALL=en_US.UTF-8",
 		"LC_CTYPE=UTF-8",
 		"TERM=dumb",
+		"XDG_CACHE_HOME=/data/th/xdg/cache",
+		"XDG_CONFIG_HOME=/data/th/xdg/config",
+		"XDG_DATA_HOME=/data/th/xdg/data",
+		"HELM_CACHE_HOME=/data/th/helm/cache",
+		"HELM_CONFIG_HOME=/data/th/helm/config",
+		"HELM_DATA_HOME=/data/th/helm/data",
+		"NPM_CONFIG_CACHE=/data/th/npm",
+		"PIP_CACHE_DIR=/data/th/pip",
+		"GOCACHE=/data/th/go/build",
+		"GOMODCACHE=/data/th/go/mod",
+		"CARGO_HOME=/data/th/cargo",
 		"KSTACK=1",
 		"KSTACK_SIDECAR_PID=10",
 		"KSTACK_HOST_PID=9",

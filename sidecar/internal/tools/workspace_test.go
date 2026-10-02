@@ -34,6 +34,14 @@ func TestWorkspacePathIsUnderTheChatsDirectory(t *testing.T) {
 	assert.NoDirExists(t, string(dir))
 }
 
+// The tool home sits beside the workspace, named without touching disk.
+func TestToolHomePathIsBesideTheWorkspace(t *testing.T) {
+	dir := testChatDir(filepath.Join(t.TempDir(), "c1"))
+
+	assert.Equal(t, filepath.Join(string(dir), "toolhome"), ToolHomePath(dir))
+	assert.NoDirExists(t, string(dir))
+}
+
 // Opening with create makes the workspace, and the chat's directory above it.
 func TestOpenWorkspaceMakesIt(t *testing.T) {
 	results := testChatDir(filepath.Join(t.TempDir(), "c1"))

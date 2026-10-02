@@ -722,7 +722,7 @@ func TestATaskWhoseSandboxHangsIsRefusedWhenTheCallEnds(t *testing.T) {
 // A sandboxed run carries the built environment and the Workspace policy: the
 // sandbox's System less what lies in Kstack's directories, the Never paths and
 // Kstack's directories denied, and the run's own paths inside them — its
-// run's directory read, the workspace and its TMPDIR written.
+// run's directory read, the workspace, the tool home and its TMPDIR written.
 // With no cluster it has no relay.
 func TestTheWorkspacePolicyIsSystemAndTheRunsOwn(t *testing.T) {
 	rt := testRuntime(t)
@@ -745,14 +745,14 @@ func TestTheWorkspacePolicyIsSystemAndTheRunsOwn(t *testing.T) {
 	tmp := lines[1]
 	rd := &runDir{path: lines[0], tmp: tmp}
 	ws := tools.WorkspacePath(rt.Dir)
-	assert.Equal(t, sandboxedRunEnv(os.Environ(), tl.env, ws, ws, rd, nil), r.Env)
+	assert.Equal(t, sandboxedRunEnv(os.Environ(), tl.env, ws, ws, rd, nil, tools.ToolHomePath(rt.Dir)), r.Env)
 	assert.Equal(t, sandbox.Policy{
 		Files: sandbox.FilePolicy{Read: []string{"/usr"}, Deny: []string{"/usr/var"}},
 		Always: sandbox.AlwaysPolicy{
 			Deny:   fake.never,
 			Kstack: []string{k.data, k.cache, k.runtime},
 			Read:   []string{rd.path},
-			Write:  []string{ws, tmp},
+			Write:  []string{ws, tools.ToolHomePath(rt.Dir), tmp},
 		},
 	}, r.Policy)
 	assert.NoError(t, r.Policy.Check())

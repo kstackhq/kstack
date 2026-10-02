@@ -34,8 +34,9 @@ func outsideEnv(environ, kstack []string, dir string) []string {
 // made for the run and so holding no startup file, so zsh -c never sources a
 // .zshenv a command left in the workspace; TMPDIR the run's own, in the cache;
 // KUBECONFIG and KUBECACHEDIR for a run with a cluster (cluster not nil);
-// TERM=dumb; and what Kstack adds.
-func sandboxedRunEnv(environ, kstack []string, workspace, dir string, rd *runDir, cluster *target) []string {
+// TERM=dumb; the variables that point each tool into toolHome; and what
+// Kstack adds.
+func sandboxedRunEnv(environ, kstack []string, workspace, dir string, rd *runDir, cluster *target, toolHome string) []string {
 	var path string
 	var locale []string
 	for _, kv := range environ {
@@ -57,5 +58,6 @@ func sandboxedRunEnv(environ, kstack []string, workspace, dir string, rd *runDir
 	}
 	env = append(env, locale...)
 	env = append(env, "TERM=dumb")
+	env = append(env, toolHomeEnv(toolHome)...)
 	return append(env, kstack...)
 }

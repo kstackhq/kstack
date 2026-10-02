@@ -21,8 +21,12 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/rootdir"
 )
 
-// workspaceName is the workspace's directory under the chat's.
-const workspaceName = "workspace"
+// workspaceName is the workspace's directory under the chat's, and
+// toolHomeName the tool home's.
+const (
+	workspaceName = "workspace"
+	toolHomeName  = "toolhome"
+)
 
 // WorkspacePath is the chat's workspace: a directory under the chat's, where
 // every command starts and whose files last for the rest of the chat. It may not
@@ -35,6 +39,19 @@ func WorkspacePath(dir ChatDir) string {
 // caller closes the root.
 func OpenWorkspace(dir ChatDir, create bool) (*os.Root, error) {
 	return openIn(dir, workspaceName, create)
+}
+
+// ToolHomePath is the chat's tool home, beside its workspace: where a
+// sandboxed command's tools keep what they would write under the home, through
+// their own variables. It may not exist.
+func ToolHomePath(dir ChatDir) string {
+	return filepath.Join(dir.Path(), toolHomeName)
+}
+
+// OpenToolHome opens the chat's tool home as a root, as openIn opens it. The
+// caller closes the root.
+func OpenToolHome(dir ChatDir, create bool) (*os.Root, error) {
+	return openIn(dir, toolHomeName, create)
 }
 
 // openIn opens name under the chat's directory, reached through the chat's root

@@ -15,6 +15,7 @@
 package bash
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -40,7 +41,7 @@ var kstackVars = []string{"KSTACK=1", "KSTACK_SIDECAR_PID=10", "KSTACK_HOST_PID=
 
 // A run with no cluster has no kubeconfig and no kubectl cache to name.
 func TestWithNoClusterTheEnvironmentNamesNoKubeconfig(t *testing.T) {
-	got := sandboxedRunEnv(processEnv, kstackVars, "/data/ws", "/data/ws", &runDir{path: "/tmp/r"}, nil)
+	got := sandboxedRunEnv(processEnv, kstackVars, "/data/ws", "/data/ws", &runDir{path: "/tmp/r"}, nil, "/th")
 
 	for _, kv := range got {
 		assert.NotRegexp(t, `^KUBE`, kv)
@@ -50,9 +51,10 @@ func TestWithNoClusterTheEnvironmentNamesNoKubeconfig(t *testing.T) {
 // A process with no PATH gives the run none.
 func TestNoPathIsNoPath(t *testing.T) {
 	rd := &runDir{path: "/run/r", tmp: "/cache/t"}
-	got := sandboxedRunEnv([]string{"LANG=C"}, nil, "/ws", "/ws", rd, nil)
+	got := sandboxedRunEnv([]string{"LANG=C"}, nil, "/ws", "/ws", rd, nil, "/th")
 
-	assert.Equal(t, []string{"HOME=/ws", "PWD=/ws", "ZDOTDIR=/run/r", "TMPDIR=/cache/t", "LANG=C", "TERM=dumb"}, got)
+	assert.Equal(t, []string{"HOME=/ws", "PWD=/ws", "ZDOTDIR=/run/r", "TMPDIR=/cache/t", "LANG=C", "TERM=dumb"}, got[:6])
+	assert.NotRegexp(t, `^PATH=`, strings.Join(got, "\n"))
 }
 
 // A run outside the sandbox keeps the process's environment whole, then what
