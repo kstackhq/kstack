@@ -637,3 +637,18 @@ func TestNoSnapshotStartsAfterTheStop(t *testing.T) {
 	require.False(t, isError, text)
 	assert.Equal(t, "ok\n", text)
 }
+
+// The snapshot's shell sees the process's environment, as a command outside the
+// sandbox does: only the PATH resolution's is scrubbed.
+func TestTheSnapshotKeepsTheProcessEnvironment(t *testing.T) {
+	for _, kind := range shells {
+		t.Run(kind, func(t *testing.T) {
+			t.Setenv("KSTACK_TEST_PROCESS_VAR", "kept")
+			tl := profileTool(t, kind, `printf %s "$KSTACK_TEST_PROCESS_VAR" > ~/seen`+"\n")
+			snapshotOf(t, tl)
+			seen, err := os.ReadFile(filepath.Join(os.Getenv("HOME"), "seen"))
+			require.NoError(t, err)
+			assert.Equal(t, "kept", string(seen))
+		})
+	}
+}

@@ -13,11 +13,11 @@
 
 // Package loginshell runs the user's login shell. Launch runs one command in it,
 // and the bash tool's profile snapshot uses it on every Unix. Resolve runs the
-// user's login shell once and reads two things from it: the PATH the sandbox
-// finds programs on, and an allowlisted set of the environment, which a macOS
-// GUI launch does not inherit from launchd: without it, kubeconfig `exec`
-// credential plugins on the shell PATH are not found, and the ones that are run
-// against the wrong identity.
+// account's login shell once, in a scrubbed environment, and reads two things
+// from it: the PATH the sandbox finds programs on, and an allowlisted set of the
+// environment, which a macOS GUI launch does not inherit from launchd: without
+// it, kubeconfig `exec` credential plugins on the shell PATH are not found, and
+// the ones that are run against the wrong identity.
 package loginshell
 
 import (
@@ -126,10 +126,6 @@ func readPosix(frames [][]byte) (Result, bool) {
 	return Result{Path: filepath.SplitList(a.env["PATH"]), Env: env}, true
 }
 
-// defaultShell is macOS's login shell, used when $SHELL says nothing usable. A
-// variable so a test can stand on a machine without one.
-var defaultShell = "/bin/zsh"
-
 // maxOutputBytes caps each of the shell's two streams. Startup files are chatty,
 // but not this chatty; past it we are reading something we do not understand.
 const maxOutputBytes = 64 << 10
@@ -177,16 +173,16 @@ type Result struct {
 	Env  map[string]string // the imported allowlist, resolved; what main sets on macOS
 }
 
-// Resolve runs the user's login shell once and reads both. The deadline is
+// Resolve runs the account's login shell once and reads both. The deadline is
 // ctx's. Resolve never touches the process's environment, so a failure leaves
 // the inherited one exactly as it was.
 func Resolve(ctx context.Context) (Result, *Fault) {
-	shell, f := shellOrDefault()
+	shell, f := findShellOrTimeout(ctx)
 	if f != nil {
 		return Result{}, f
 	}
 	frames := len(imported) + 1
-	out, f := Launch(ctx, shell, InteractiveLogin(command), ProcessEnv(), maxOutputBytes, func(buf []byte, _ int) bool {
+	out, f := Launch(ctx, shell, InteractiveLogin(command), scrubbedEnv(shell), maxOutputBytes, func(buf []byte, _ int) bool {
 		_, ok := parse(buf, frames)
 		return ok
 	})
@@ -202,6 +198,32 @@ func Resolve(ctx context.Context) (Result, *Fault) {
 	return res, nil
 }
 
+// findShell is accountShell, or a test's stand-in.
+var findShell = accountShell
+
+// findShellOrTimeout is findShell, or a timeout when ctx ends first. Finding
+// the shell stats the one the record names and reads the account, which can
+// block on a dead network mount past any cancel, so it runs on a goroutine
+// abandoned when ctx ends.
+func findShellOrTimeout(ctx context.Context) (string, *Fault) {
+	type found struct {
+		shell string
+		f     *Fault
+	}
+	answer := make(chan found, 1)
+	find := findShell
+	go func() {
+		shell, f := find(ctx)
+		answer <- found{shell, f}
+	}()
+	select {
+	case a := <-answer:
+		return a.shell, a.f
+	case <-ctx.Done():
+		return "", fault(reasonTimeout)
+	}
+}
+
 // Path is Resolve's Path alone, bounded by DefaultTimeout, for a caller that
 // has no use for the environment. Its error is a *Fault.
 func Path(ctx context.Context) ([]string, error) {
@@ -212,6 +234,25 @@ func Path(ctx context.Context) ([]string, error) {
 		return nil, f
 	}
 	return res.Path, nil
+}
+
+// scrubbedEnv is the resolution's environment: the identity, locale and agent
+// sockets copied from the process when set, and the rest fixed, PATH at the
+// platform's login default, so no startup file sees the sidecar's variables and
+// every launch resolves from the same start. The agent sockets are copied because
+// a startup file that starts an agent when none is set would otherwise start one
+// on every run, and the agent leaves the shell's session, so the kill misses it.
+func scrubbedEnv(shell string) []string {
+	env := []string{"SHELL=" + shell, "TERM=dumb", "DISABLE_AUTO_UPDATE=true", "PATH=" + DefaultPath}
+	for _, name := range []string{
+		"HOME", "USER", "LOGNAME", "TMPDIR", "LANG", "TZ",
+		"SSH_AUTH_SOCK", "SSH_AGENT_PID", "GPG_AGENT_INFO", "XDG_RUNTIME_DIR",
+	} {
+		if value, ok := os.LookupEnv(name); ok {
+			env = append(env, name+"="+value)
+		}
+	}
+	return env
 }
 
 // InteractiveLogin is the arguments that run command in an interactive login
@@ -322,17 +363,6 @@ func Find() (string, bool) {
 		return shell, true
 	}
 	return "", false
-}
-
-// shellOrDefault returns the shell to ask for a PATH: Find, else macOS's own.
-func shellOrDefault() (string, *Fault) {
-	if shell, ok := Find(); ok {
-		return shell, nil
-	}
-	if executable(defaultShell) {
-		return defaultShell, nil
-	}
-	return "", fault(reasonNoShell)
 }
 
 func executable(file string) bool {

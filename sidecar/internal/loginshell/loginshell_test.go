@@ -42,7 +42,7 @@ const testDeadline = testutil.Timeout
 
 func TestResolveImportsThePathTheShellBuilds(t *testing.T) {
 	dir, plugin := fixturePlugin(t)
-	t.Setenv("SHELL", fakeShell(t, dir, "", ""))
+	useAccountShell(t, fakeShell(t, dir, "", ""))
 	t.Setenv("PATH", "/usr/bin:/bin")
 	t.Setenv("KSTACK_UNRELATED", "kept")
 	_, err := exec.LookPath(plugin)
@@ -66,7 +66,7 @@ func TestResolveStopsAtTheLastMarker(t *testing.T) {
 	// answers and never exits. Neither sleep is a wait for time to pass: they
 	// are a pipe nobody will close, which is the trap.
 	pre := "sleep 300 &\necho $! > '" + pidFile + "'\n"
-	t.Setenv("SHELL", fakeShell(t, dir, pre, "sleep 300\n"))
+	useAccountShell(t, fakeShell(t, dir, pre, "sleep 300\n"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
@@ -96,7 +96,7 @@ func TestResolveImportsTheVariablesTheShellExports(t *testing.T) {
 	// The second entry is relative, so it means nothing outside the shell that
 	// reported it.
 	pre := "export KUBECONFIG='/etc/k.yaml:.kube/work.yaml'\nexport AWS_PROFILE=work\n"
-	t.Setenv("SHELL", fakeShell(t, dir, pre, ""))
+	useAccountShell(t, fakeShell(t, dir, pre, ""))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
@@ -118,7 +118,7 @@ func TestResolveResolvesAgainstTheDirectoryTheShellEndedIn(t *testing.T) {
 	// A startup file that changes directory: the entry means the directory the
 	// shell ended in, not the one it was started in.
 	pre := "mkdir -p work\ncd work\nexport KUBECONFIG=config\n"
-	t.Setenv("SHELL", fakeShell(t, dir, pre, ""))
+	useAccountShell(t, fakeShell(t, dir, pre, ""))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
@@ -132,7 +132,7 @@ func TestResolveResolvesAgainstTheDirectoryTheShellEndedIn(t *testing.T) {
 // would leave the process unable to find any command.
 func TestResolveRefusesAPathThatFindsNothing(t *testing.T) {
 	dir, _ := fixturePlugin(t)
-	t.Setenv("SHELL", fakeShell(t, dir, "PATH=\n", ""))
+	useAccountShell(t, fakeShell(t, dir, "PATH=\n", ""))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
@@ -144,7 +144,7 @@ func TestResolveRefusesAPathThatFindsNothing(t *testing.T) {
 
 func TestResolveOmitsWhatTheShellDoesNotSet(t *testing.T) {
 	dir, _ := fixturePlugin(t)
-	t.Setenv("SHELL", fakeShell(t, dir, "", ""))
+	useAccountShell(t, fakeShell(t, dir, "", ""))
 	// Empty is unset as far as a frame goes, and whoever runs this may have
 	// either one set for real.
 	t.Setenv("KUBECONFIG", "")
@@ -176,7 +176,7 @@ func TestResolveFallsBackWhenTheShellCannotAnswer(t *testing.T) {
 	}
 	for name, tc := range tests {
 		t.Run(name, func(t *testing.T) {
-			t.Setenv("SHELL", writeScript(t, "shell", tc.script))
+			useAccountShell(t, writeScript(t, "shell", tc.script))
 
 			ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 			defer cancel()
@@ -218,7 +218,7 @@ func TestResolveFallsBackWhenTheShellNeverAnswers(t *testing.T) {
 	// The deadline is the assertion, not a wait: this shell never answers, so
 	// only ctx can end the call. Short because production's ten seconds is the
 	// caller's to choose.
-	t.Setenv("SHELL", writeScript(t, "shell", "#!/bin/sh\nsleep 300\n"))
+	useAccountShell(t, writeScript(t, "shell", "#!/bin/sh\nsleep 300\n"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
@@ -229,7 +229,7 @@ func TestResolveFallsBackWhenTheShellNeverAnswers(t *testing.T) {
 }
 
 func TestResolveLeavesTheEnvironmentAloneOnFailure(t *testing.T) {
-	t.Setenv("SHELL", writeScript(t, "shell", "#!/bin/sh\nexit 1\n"))
+	useAccountShell(t, writeScript(t, "shell", "#!/bin/sh\nexit 1\n"))
 	t.Setenv("PATH", "/usr/bin:/bin")
 
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
@@ -238,46 +238,6 @@ func TestResolveLeavesTheEnvironmentAloneOnFailure(t *testing.T) {
 	_, f := Resolve(ctx)
 	require.NotNil(t, f)
 	require.Equal(t, "/usr/bin:/bin", os.Getenv("PATH"), "a fallback must keep the inherited PATH")
-}
-
-func TestShellOrDefaultPrefersAnAbsoluteSHELL(t *testing.T) {
-	shell := writeScript(t, "myshell", "#!/bin/sh\nexit 0\n")
-	t.Setenv("SHELL", shell)
-
-	got, f := shellOrDefault()
-	require.Nil(t, f)
-	require.Equal(t, shell, got)
-}
-
-func TestShellOrDefaultFallsBackWhenSHELLIsUnsetMissingOrRelative(t *testing.T) {
-	tests := map[string]string{
-		"unset":    "",
-		"missing":  filepath.Join(t.TempDir(), "gone"),
-		"relative": "zsh",
-	}
-	defer func(shell string) { defaultShell = shell }(defaultShell)
-	defaultShell = writeScript(t, "zsh", "#!/bin/sh\nexit 0\n")
-	for name, value := range tests {
-		t.Run(name, func(t *testing.T) {
-			t.Setenv("SHELL", value)
-
-			got, f := shellOrDefault()
-			require.Nil(t, f)
-			require.Equal(t, defaultShell, got)
-		})
-	}
-}
-
-// With no $SHELL and no default shell, Resolve has nothing to ask.
-func TestResolveFallsBackWhenThereIsNoShell(t *testing.T) {
-	t.Setenv("SHELL", "")
-	defer func(shell string) { defaultShell = shell }(defaultShell)
-	defaultShell = filepath.Join(t.TempDir(), "zsh")
-
-	_, f := Resolve(t.Context())
-	require.NotNil(t, f)
-	require.Equal(t, reasonNoShell, f.Reason)
-	require.Equal(t, -1, f.ExitCode)
 }
 
 func TestLaunchReportsAShellThatWillNotStart(t *testing.T) {
@@ -582,6 +542,88 @@ func TestLaunchRunsWithWhatItIsGiven(t *testing.T) {
 	require.Equal(t, "-l -c cmd|yes||END", string(out))
 }
 
+// Resolve runs the account record's shell, whatever $SHELL names.
+func TestResolveRunsTheAccountShell(t *testing.T) {
+	dir, _ := fixturePlugin(t)
+	t.Setenv("SHELL", writeScript(t, "shell", "#!/bin/sh\nexit 7\n"))
+	useAccountShell(t, fakeShell(t, dir, "", ""))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+	defer cancel()
+
+	got, f := Resolve(ctx)
+	require.Nil(t, f)
+	require.Contains(t, got.Path, dir)
+}
+
+// Path is PATH as the shell exported it, split, with nothing resolved or dropped.
+func TestResolveAnswersThePathAsExported(t *testing.T) {
+	dir, _ := fixturePlugin(t)
+	useAccountShell(t, fakeShell(t, dir, "PATH=\"$PATH:bin::~/x\"\n", ""))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+	defer cancel()
+
+	got, f := Resolve(ctx)
+	require.Nil(t, f)
+	want := append(append([]string{dir}, filepath.SplitList(DefaultPath)...), "bin", "", "~/x")
+	require.Equal(t, want, got.Path)
+}
+
+// The resolution's shell sees a fixed list and nothing else of the process's,
+// so a dev run from a terminal and a Finder launch resolve the same PATH.
+func TestTheShellsEnvironmentIsScrubbed(t *testing.T) {
+	dir, _ := fixturePlugin(t)
+	seen := filepath.Join(t.TempDir(), "env")
+	shell := writeScript(t, "shell", "#!/bin/sh\n/usr/bin/env > '"+seen+"'\n/bin/sh -c \"$4\"\n")
+	useAccountShell(t, shell)
+	kept := map[string]string{
+		"HOME": t.TempDir(), "USER": "ren", "LOGNAME": "ren", "TMPDIR": t.TempDir(), "LANG": "en_US.UTF-8", "TZ": "UTC",
+		"SSH_AUTH_SOCK": "/tmp/agent.sock", "SSH_AGENT_PID": "42", "GPG_AGENT_INFO": "/tmp/gpg:1:1", "XDG_RUNTIME_DIR": t.TempDir(),
+	}
+	for name, value := range kept {
+		t.Setenv(name, value)
+	}
+	t.Setenv("PATH", dir+":/usr/bin:/bin")
+	t.Setenv("KSTACK_TEST_LEAK", "leaked")
+	t.Setenv("LC_ALL", "C")
+
+	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+	defer cancel()
+	_, f := Resolve(ctx)
+	require.Nil(t, f)
+
+	out, err := os.ReadFile(seen)
+	require.NoError(t, err)
+	got := map[string]string{}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		name, value, _ := strings.Cut(line, "=")
+		switch name {
+		case "PWD", "OLDPWD", "SHLVL", "_":
+			// The shell sets these itself.
+		default:
+			got[name] = value
+		}
+	}
+	want := map[string]string{"SHELL": shell, "TERM": "dumb", "DISABLE_AUTO_UPDATE": "true", "PATH": DefaultPath}
+	for name, value := range kept {
+		want[name] = value
+	}
+	require.Equal(t, want, got)
+}
+
+// With no record and none of the platform's shells, there is nothing to ask.
+func TestResolveFallsBackWhenThereIsNoShell(t *testing.T) {
+	useAccountShell(t, "")
+	defer func(shells []string) { defaultShells = shells }(defaultShells)
+	defaultShells = []string{filepath.Join(t.TempDir(), "zsh")}
+
+	_, f := Resolve(t.Context())
+	require.NotNil(t, f)
+	require.Equal(t, reasonNoShell, f.Reason)
+	require.Equal(t, -1, f.ExitCode)
+}
+
 // parseAnswer is parse over a posix run's frames, read as an answer.
 func parseAnswer(out []byte) (answer, bool) {
 	frames, ok := parse(out, len(imported)+1)
@@ -594,7 +636,7 @@ func parseAnswer(out []byte) (answer, bool) {
 // Path is Resolve's PATH, or the Fault as its error.
 func TestAFaultAnswersNoPath(t *testing.T) {
 	dir, _ := fixturePlugin(t)
-	t.Setenv("SHELL", fakeShell(t, dir, "", ""))
+	useAccountShell(t, fakeShell(t, dir, "", ""))
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 	path, err := Path(ctx)
@@ -605,7 +647,7 @@ func TestAFaultAnswersNoPath(t *testing.T) {
 		"#!/bin/sh\nexit 3\n":                   reasonShellExited,
 		"#!/bin/sh\necho 'command not found'\n": reasonBadOutput,
 	} {
-		t.Setenv("SHELL", writeScript(t, "shell", script))
+		useAccountShell(t, writeScript(t, "shell", script))
 		path, err := Path(ctx)
 		require.Nil(t, path)
 		var f *Fault
