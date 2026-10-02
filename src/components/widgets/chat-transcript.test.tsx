@@ -2493,6 +2493,7 @@ describe('ChatTranscript', () => {
       contentType: 'application/json',
       body: '{"propagationPolicy":"Background"}',
       dryRun: false,
+      reason: null,
       ...over,
     });
     // The sandboxed command that sent the writes, running while one waits.
@@ -2526,7 +2527,15 @@ describe('ChatTranscript', () => {
       expect(sendMock).toHaveBeenCalledWith({ id: 'w-1', approve: true });
     });
 
-    it('names what each method does, and a dry run', () => {
+    it('says a dry run is one', () => {
+      draw([
+        waitingOn([clusterWrite({ method: 'POST', path: '/apis/example.com/v1/widgets?dryRun=All', dryRun: true })]),
+      ]);
+
+      expect(request()).toHaveTextContent('Create in the cluster? (dry run)');
+    });
+
+    it('names what each method does', () => {
       (
         [
           ['POST', 'Create in the cluster?'],
@@ -2539,8 +2548,6 @@ describe('ChatTranscript', () => {
         expect(request()).toHaveTextContent(heading);
         unmount();
       });
-      draw([waitingOn([clusterWrite({ method: 'PATCH', dryRun: true })])]);
-      expect(request()).toHaveTextContent('Patch in the cluster? (dry run)');
     });
 
     // An eviction is a POST that creates nothing: a subresource's heading names
@@ -2668,6 +2675,50 @@ describe('ChatTranscript', () => {
         'DELETE /api/v1/namespaces/web/pods/dnot answered',
       ]);
       expect(screen.queryByRole('group', { name: 'Cluster change awaiting approval' })).toBeNull();
+    });
+
+    // A write the engine decided with nobody asked is tagged with what it
+    // decided and why; a dry run says so after its path.
+    it('tags a write nobody was asked about with its reason', () => {
+      draw([
+        msg({
+          content: [],
+          toolCalls: [
+            sender(
+              [
+                clusterWrite({
+                  approval: { id: 'w-1', status: 'Allowed' },
+                  path: '/api/v1/namespaces/web/pods/a',
+                  body: '',
+                  reason: 'auto mode',
+                }),
+                clusterWrite({
+                  approval: { id: 'w-2', status: 'Refused' },
+                  path: '/api/v1/namespaces/web/pods/b',
+                  body: '',
+                  reason: 'this context is read-only',
+                }),
+                clusterWrite({
+                  approval: { id: 'w-3', status: 'Allowed' },
+                  method: 'PATCH',
+                  path: '/api/v1/namespaces/web/pods/c?dryRun=All',
+                  body: '',
+                  dryRun: true,
+                  reason: 'it changes nothing',
+                }),
+              ],
+              { status: 'Succeeded' },
+            ),
+          ],
+        }),
+      ]);
+      const items = [...screen.getByText('wc -l ~/.kube/config').closest('details')!.querySelectorAll('li')];
+      expect(items.map((li) => li.textContent)).toEqual([
+        'DELETE /api/v1/namespaces/web/pods/aallowedauto mode',
+        'DELETE /api/v1/namespaces/web/pods/brefusedthis context is read-only',
+        'PATCH /api/v1/namespaces/web/pods/c?dryRun=All (dry run)allowedit changes nothing',
+      ]);
+      items.forEach((li) => expect(li.querySelector('[title]')).toBeNull());
     });
 
     it('lists no write that still waits', () => {
