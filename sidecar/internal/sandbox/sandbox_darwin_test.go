@@ -1234,3 +1234,14 @@ printf '%s\n' "$@" | grep -q '^RULE_[0-9]*=/usr$' || { echo 'no /usr' >&2; exit 
 	require.NotNil(t, s, v.Reason)
 	assert.True(t, v.Available)
 }
+
+// Command refuses a run holding a variable no run may hold.
+func TestARunWithAnUnpassableVariableIsRefused(t *testing.T) {
+	s := &Sandbox{self: "/bin/sh", launcher: "/usr/bin/sandbox-exec"}
+	for _, kv := range []string{"LD_PRELOAD=/x.so", "AWS_SESSION_TOKEN=t"} {
+		cmd, err := s.Command(t.Context(), Run{Shell: "/bin/sh", Dir: "/", Env: []string{kv}})
+
+		assert.Nil(t, cmd, kv)
+		assert.ErrorContains(t, err, "may not pass", kv)
+	}
+}

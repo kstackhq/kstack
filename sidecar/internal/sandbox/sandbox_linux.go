@@ -131,7 +131,7 @@ func exists(path string) bool {
 // sets its output, process group and Cancel, and starts it; exec refuses a
 // Cancel on a command made without ctx.
 func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
-	if err := r.Policy.Check(); err != nil {
+	if err := r.check(); err != nil {
 		return nil, err
 	}
 	p := r.Policy

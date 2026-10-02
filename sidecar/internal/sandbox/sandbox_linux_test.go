@@ -1080,3 +1080,14 @@ func TestAProbeWithNoHomeFindsTheSandbox(t *testing.T) {
 	require.NotNil(t, s, v.Reason)
 	assert.True(t, v.Available)
 }
+
+// Command refuses a run holding a variable no run may hold.
+func TestARunWithAnUnpassableVariableIsRefused(t *testing.T) {
+	s := &Sandbox{self: "/k", bwrap: "/usr/bin/bwrap"}
+	for _, kv := range []string{"LD_PRELOAD=/x.so", "AWS_SESSION_TOKEN=t"} {
+		cmd, err := s.Command(context.Background(), Run{Shell: "/bin/sh", Dir: "/", Env: []string{kv}})
+
+		assert.Nil(t, cmd, kv)
+		assert.ErrorContains(t, err, "may not pass", kv)
+	}
+}

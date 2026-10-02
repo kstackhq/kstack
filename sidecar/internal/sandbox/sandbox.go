@@ -18,6 +18,11 @@
 // and InitMain, a run's forwarder (forward.go).
 package sandbox
 
+import (
+	"fmt"
+	"strings"
+)
+
 // Main runs this executable as the part of a run its first argument names,
 // sandbox-init or sandbox-shell, and answers the exit code. ok is false for
 // any other command line, which is the caller's own. Every binary a run can
@@ -43,6 +48,21 @@ type Run struct {
 	Env   []string // the whole environment
 
 	Policy Policy
+}
+
+// check is why r cannot start: its policy's Check, or a variable in its
+// environment that NeverEnv names. Both platforms' Command call it, so no
+// caller passes one by hand.
+func (r Run) check() error {
+	if err := r.Policy.Check(); err != nil {
+		return err
+	}
+	for _, kv := range r.Env {
+		if name, _, _ := strings.Cut(kv, "="); Unpassable(name) {
+			return fmt.Errorf("%s may not pass into a sandboxed run", name)
+		}
+	}
+	return nil
 }
 
 // Status is whether this machine has a sandbox for commands to run through,

@@ -119,7 +119,7 @@ func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 	done := make(chan built, 1)
 	build := buildProfile
 	go func() {
-		if err := r.Policy.Check(); err != nil {
+		if err := r.check(); err != nil {
 			done <- built{err: err}
 			return
 		}

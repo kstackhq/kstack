@@ -35,3 +35,13 @@ func TestMainRunsTheSubcommandItNames(t *testing.T) {
 		assert.False(t, ok, argv)
 	}
 }
+
+// A run holding a variable no run may hold fails its check, whatever its
+// policy; one holding none passes as its policy does.
+func TestARunsCheckRefusesAnUnpassableVariable(t *testing.T) {
+	for _, kv := range []string{"LD_PRELOAD=/x.so", "AWS_SESSION_TOKEN=t"} {
+		r := Run{Env: []string{"PATH=/usr/bin", kv}}
+		assert.ErrorContains(t, r.check(), "may not pass", kv)
+	}
+	assert.NoError(t, Run{Env: []string{"PATH=/usr/bin", "HOME=/w"}}.check())
+}
