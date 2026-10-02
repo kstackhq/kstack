@@ -238,7 +238,12 @@ func runDirOf(t *testing.T, tl *Tool, out string) string {
 
 // clusterRuntime is a fresh chat on cluster "7".
 func clusterRuntime(t *testing.T) tools.Runtime {
-	return tools.Runtime{ClusterID: "7", Dir: testChatDir(t)}
+	return tools.Runtime{ClusterID: "7", Dir: testChatDir(t), Session: askSession}
+}
+
+// askSession asks for every write, as a fresh Settings does.
+var askSession = session.Session{
+	Mode: func(context.Context, string) permissions.Mode { return permissions.Ask },
 }
 
 // watchLine opens a watch in a client that outlives the run's group, waits for
@@ -302,7 +307,7 @@ func TestTheGrantKeepsTheSession(t *testing.T) {
 
 // A proxy that cannot listen on its socket answers why.
 func TestAProxyThatCannotListenFails(t *testing.T) {
-	_, err := startProxy(refused{}, session.Session{}, filepath.Join(t.TempDir(), "missing", socketName), nil, refusedNoAsker)
+	_, err := startProxy(refused{}, session.Session{}, "prod", filepath.Join(t.TempDir(), "missing", socketName), nil, refusedNoAsker)
 	assert.Error(t, err)
 }
 
@@ -483,6 +488,29 @@ func (f *fakeClusterWriteAsker) Record(_ context.Context, w tools.ClusterWriteRe
 	return nil
 }
 
+// A run's grant decides its writes in the context of the chat's cluster, as
+// the record names it, whatever the run's kubeconfig calls it.
+func TestTheGrantDecidesInTheRecordsContext(t *testing.T) {
+	api := newFakeAPI(t)
+	tl := proxyTool(t, &fakeLease{serverUID: "uid-1", conn: api.connection()})
+	rt := clusterRuntime(t)
+	var contexts []string
+	rt.Session.Mode = func(_ context.Context, c string) permissions.Mode {
+		contexts = append(contexts, c)
+		return permissions.Auto
+	}
+	asker := &fakeClusterWriteAsker{}
+	rt.ClusterWriteAsker = asker
+
+	text, isError := tl.Run(t.Context(), rt, command(clientLine("delete")))
+
+	require.False(t, isError, text)
+	assert.Equal(t, []string{"prod"}, contexts)
+	assert.Empty(t, asker.asked, "auto mode asks nobody")
+	require.Len(t, asker.recorded, 1)
+	assert.Equal(t, "Delete pod x in web on prod", asker.recorded[0].Action.Summary)
+}
+
 // A foreground call's write is put to the user through its runtime, and
 // reaches the cluster once approved; with no one to ask it is refused.
 func TestAForegroundGrantAsksThroughTheRuntime(t *testing.T) {
@@ -533,7 +561,7 @@ func TestABackgroundGrantRefusesWrites(t *testing.T) {
 // answers 100 Continue, which Go's server sends on the handler's first read.
 func TestTheProxyClosesBeforeItWaits(t *testing.T) {
 	socket := filepath.Join(shortTemp(t), socketName)
-	p, err := startProxy(refused{}, session.Session{}, socket, runtimeAsker{&fakeClusterWriteAsker{approve: true}}, "")
+	p, err := startProxy(refused{}, session.Session{}, "prod", socket, runtimeAsker{&fakeClusterWriteAsker{approve: true}}, "")
 	require.NoError(t, err)
 	conn, err := net.Dial("unix", socket)
 	require.NoError(t, err)

@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"net/url"
@@ -28,6 +29,7 @@ import (
 
 	"sigs.k8s.io/yaml"
 
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/safe"
 )
 
@@ -63,17 +65,23 @@ type Write struct {
 	ContentType string
 	Body        []byte // valid UTF-8, or empty
 	DryRun      bool   // a POST, PUT or PATCH whose every dryRun is All
+	Action      permissions.Action
 }
 
-// Asker puts a write to the user. false is a denial. A context error is a wait
-// that ended without a decision, which the asker records as abandoned; any
-// other error is a request or decision the asker could not record.
+// Asker puts a write to the user, and records one decided with nobody asked.
+// From Ask, false is a denial; a context error is a wait that ended without a
+// decision, which the asker records as abandoned; any other error is a request
+// or decision the asker could not record. From Record, an error is a record
+// the asker could not write.
 type Asker interface {
 	Ask(ctx context.Context, w Write) (bool, error)
+	Record(ctx context.Context, w Write, d permissions.Decision, why permissions.Reason) error
 }
 
-// serveWrite puts a write the policy passed to the user, and forwards it once
-// approved.
+// serveWrite decides a write the policy passed: forwards it when Decide allows
+// it, refuses it when Decide denies it, and otherwise puts it to the user and
+// forwards it once approved. Each one decided with nobody asked is recorded
+// first.
 func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 	// What needs no body is refused before the queue, so a burst of them reads
 	// its own refusal.
@@ -92,7 +100,7 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		return
 	}
 	// Held until the forward returns, so the cluster sees writes in the order
-	// they were approved, and one wait on the user at a time.
+	// they were decided, and one wait on the user at a time.
 	if !g.takeWriteLock(r.Context(), w) {
 		return
 	}
@@ -110,10 +118,28 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		writeStatus(w, http.StatusForbidden, string(why))
 		return
 	}
-	approved, err := g.asker.Ask(r.Context(), Write{
+	act := classify(r, p, body, g.context)
+	write := Write{
 		Method: r.Method, Path: r.URL.RequestURI(), Subresource: p.subresource,
-		ContentType: r.Header.Get("Content-Type"), Body: body, DryRun: isDryRun(r),
-	})
+		ContentType: r.Header.Get("Content-Type"), Body: body, DryRun: isDryRun(r), Action: act,
+	}
+	switch d, why := g.decide(r.Context(), act); d {
+	case permissions.Allowed:
+		if err := g.asker.Record(r.Context(), write, d, why); err != nil {
+			writeStatus(w, http.StatusForbidden, string(refusedUnrecorded))
+			return
+		}
+		g.forward(w, r, p, body)
+		return
+	case permissions.Denied:
+		// Nothing runs either way, so the refusal does not wait on the record.
+		if err := g.asker.Record(r.Context(), write, d, why); err != nil {
+			slog.Warn("a refused cluster write was not recorded", "err", err)
+		}
+		writeStatus(w, http.StatusForbidden, "kstack: "+act.Summary+" is not allowed: "+why.String())
+		return
+	}
+	approved, err := g.asker.Ask(r.Context(), write)
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		writeStatus(w, http.StatusForbidden, string(refusedUnanswered))
 		return
@@ -127,6 +153,21 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		return
 	}
 	g.forward(w, r, p, body)
+}
+
+// decide is what Decide answers for act under the session's mode for the
+// grant's context and its rules, read now, so a change made meanwhile applies.
+// A session with no mode is read-only.
+func (g *Grant) decide(ctx context.Context, act permissions.Action) (permissions.Decision, permissions.Reason) {
+	policy := permissions.Policy{Mode: permissions.ReadOnly, NoPrompts: g.session.NoPrompts}
+	if g.session.Mode != nil {
+		policy.Mode = g.session.Mode(ctx, act.Scope.Context)
+	}
+	var rules []permissions.Rule
+	if g.session.Rules != nil {
+		rules = g.session.Rules(ctx)
+	}
+	return permissions.Decide(policy, rules, act)
 }
 
 // takeWriteLock waits for the write lock, as one of at most maxQueuedWrites, and

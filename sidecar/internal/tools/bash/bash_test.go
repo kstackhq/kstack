@@ -990,13 +990,15 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 		"The user can switch this chat to run commands outside the sandbox; the question's context says whether they have. "+
 		"Do not work around the sandbox.")
 	assert.Contains(t, sandboxPrompt, "It reaches the chat's cluster alone, with the user's own access.", "a sandboxed run reaches the cluster through the proxy")
-	assert.Contains(t, sandboxPrompt, "Each request that changes the cluster, a dry run and `kubectl diff` included, waits for the user to approve it", "a write asks")
+	assert.Contains(t, sandboxPrompt, "A request that changes the cluster runs at once when the user's rules allow it, waits for the user to approve it, "+
+		"or comes back `Forbidden` because the user's mode for this context, or one of their rules, refuses it.", "a write is decided by the mode and the rules")
+	assert.Contains(t, sandboxPrompt, "A `Forbidden` that names the mode or a rule is the user's decision, not an error to work around", "a refusal is the user's")
+	assert.Contains(t, sandboxPrompt, "A dry run of a built-in resource runs at once, so `kubectl diff` and `--dry-run=server` preview such a change without asking; a dry run of a custom resource waits like the change.", "a dry run is a read")
 	assert.Contains(t, sandboxPrompt, "give a command that changes the cluster one that leaves the user time to read each request", "the wait counts against the timeout")
 	assert.Contains(t, sandboxPrompt, "a service account token, a helm change and a change past 1 MiB come back `Forbidden`, and so does a change from a background command")
 	assert.Contains(t, sandboxPrompt, "`kubectl apply --server-side`")
 	assert.Contains(t, sandboxPrompt, "the network, a helm change, a service account token, or a Secret's values")
 	assert.Contains(t, sandboxPrompt, "What follows about the user's own credentials, `kubectl diff` and `--dry-run=server` is for a command run outside the sandbox.")
-	assert.NotContains(t, sandboxPrompt, "read-only")
 	assert.Contains(t, sandboxPrompt, "A Secret's values read `[redacted]`", "a sandboxed run reads Secrets redacted")
 	assert.Contains(t, sandboxPrompt, "The sandbox has the user's tools and none of their shell's functions, aliases or variables. "+
 		"`HOME` is the workspace. A tool that cannot find its own files under the home needs a folder the user grants, "+

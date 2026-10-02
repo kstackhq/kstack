@@ -20,6 +20,7 @@ import (
 	"net/http"
 
 	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -66,20 +67,29 @@ func writesFor(rt tools.Runtime, background bool) (kubeproxy.Asker, string) {
 type runtimeAsker struct{ w tools.ClusterWriteAsker }
 
 func (a runtimeAsker) Ask(ctx context.Context, w kubeproxy.Write) (bool, error) {
-	return a.w.Ask(ctx, tools.ClusterWriteRequest{
-		Method: w.Method, Path: w.Path, Subresource: w.Subresource,
-		ContentType: w.ContentType, Body: string(w.Body), DryRun: w.DryRun,
-	})
+	return a.w.Ask(ctx, requestOf(w))
 }
 
-// startProxy serves a grant over up for the run of sess on socket, whose writes
-// go to asker or are refused with refusal.
-func startProxy(up kubeproxy.Upstream, sess session.Session, socket string, asker kubeproxy.Asker, refusal string) (*runProxy, error) {
+func (a runtimeAsker) Record(ctx context.Context, w kubeproxy.Write, d permissions.Decision, why permissions.Reason) error {
+	return a.w.Record(ctx, requestOf(w), d, why)
+}
+
+// requestOf is a grant's write as the runtime's asker takes it.
+func requestOf(w kubeproxy.Write) tools.ClusterWriteRequest {
+	return tools.ClusterWriteRequest{
+		Method: w.Method, Path: w.Path, Subresource: w.Subresource,
+		ContentType: w.ContentType, Body: string(w.Body), DryRun: w.DryRun, Action: &w.Action,
+	}
+}
+
+// startProxy serves a grant over up for the run of sess in kubeContext on
+// socket, whose writes go to asker or are refused with refusal.
+func startProxy(up kubeproxy.Upstream, sess session.Session, kubeContext, socket string, asker kubeproxy.Asker, refusal string) (*runProxy, error) {
 	ln, err := net.Listen("unix", socket)
 	if err != nil {
 		return nil, err
 	}
-	grant := kubeproxy.NewGrant(up, sess, asker, refusal, proxyQPS, proxyBurst, proxyMaxInFlight)
+	grant := kubeproxy.NewGrant(up, sess, kubeContext, asker, refusal, proxyQPS, proxyBurst, proxyMaxInFlight)
 	p := &runProxy{grant: grant, ln: ln, srv: kubeproxy.NewServer(grant)}
 	go func() { _ = p.srv.Serve(ln) }()
 	return p, nil
