@@ -38,6 +38,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
 
@@ -112,7 +113,7 @@ type served struct {
 
 func serve(t *testing.T, up Upstream) *served {
 	t.Helper()
-	return serveGrant(t, NewGrant(up, nil, noAsker, 1000, 1000, 32))
+	return serveGrant(t, NewGrant(up, session.Session{}, nil, noAsker, 1000, 1000, 32))
 }
 
 func serveGrant(t *testing.T, g *Grant) *served {
@@ -198,7 +199,7 @@ func TestAWrongOrDeadTokenIsUnauthorized(t *testing.T) {
 
 // A grant's token is 256 random bits, a new one each grant.
 func TestEachGrantHasItsOwnToken(t *testing.T) {
-	a, b := NewGrant(nil, nil, noAsker, 1, 1, 1), NewGrant(nil, nil, noAsker, 1, 1, 1)
+	a, b := NewGrant(nil, session.Session{}, nil, noAsker, 1, 1, 1), NewGrant(nil, session.Session{}, nil, noAsker, 1, 1, 1)
 	assert.Len(t, a.Token(), 64)
 	assert.NotEqual(t, a.Token(), b.Token())
 }
@@ -265,7 +266,7 @@ func TestAnAbsoluteFormRequestPasses(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"major":"1","minor":"34","gitVersion":"v1.34.0"}`)
 	})
-	g := NewGrant(api.upstream(), nil, noAsker, 1000, 1000, 32)
+	g := NewGrant(api.upstream(), session.Session{}, nil, noAsker, 1000, 1000, 32)
 	t.Cleanup(g.End)
 	srv := httptest.NewServer(g)
 	t.Cleanup(srv.Close)
@@ -497,7 +498,7 @@ func TestARetiredConnectionCancelsItsWatch(t *testing.T) {
 func TestABurstWaits(t *testing.T) {
 	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
 	const qps, burst = 10, 2
-	s := serveGrant(t, NewGrant(api.upstream(), nil, noAsker, qps, burst, 32))
+	s := serveGrant(t, NewGrant(api.upstream(), session.Session{}, nil, noAsker, qps, burst, 32))
 
 	start := time.Now()
 	for range burst + 2 {
@@ -513,7 +514,7 @@ func TestABurstWaits(t *testing.T) {
 // Retry-After, so client-go does not retry it; a watch closing frees its slot.
 func TestPastTheCapIsTooManyRequests(t *testing.T) {
 	api, _, ended := watchServer(t)
-	s := serveGrant(t, NewGrant(api.upstream(), nil, noAsker, 1000, 1000, 2))
+	s := serveGrant(t, NewGrant(api.upstream(), session.Session{}, nil, noAsker, 1000, 1000, 2))
 	_, closeFirst := s.openWatch(t)
 	s.openWatch(t)
 
@@ -562,7 +563,7 @@ func TestAnOversizedBodyIsRefused(t *testing.T) {
 // client timeout.
 func TestAWaitOnTheLimiterEndsWithItsClient(t *testing.T) {
 	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
-	s := serveGrant(t, NewGrant(api.upstream(), nil, noAsker, rate.Every(time.Hour), 1, 32))
+	s := serveGrant(t, NewGrant(api.upstream(), session.Session{}, nil, noAsker, rate.Every(time.Hour), 1, 32))
 	s.send(t, "GET", "/api", s.g.Token())
 	s.client.Timeout = 100 * time.Millisecond
 

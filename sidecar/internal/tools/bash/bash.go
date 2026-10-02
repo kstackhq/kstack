@@ -660,7 +660,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 	if cluster != nil {
 		socket := r.dir.socket()
 		asker, refusal := writesFor(rt, background)
-		if r.proxy, err = startProxy(r.claim, socket, asker, refusal); err != nil {
+		if r.proxy, err = startProxy(r.claim, rt.Session, socket, asker, refusal); err != nil {
 			r.end()
 			return nil, err
 		}

@@ -20,6 +20,7 @@ import (
 	"net/http"
 
 	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -71,14 +72,14 @@ func (a runtimeAsker) Ask(ctx context.Context, w kubeproxy.Write) (bool, error) 
 	})
 }
 
-// startProxy serves a grant over up on socket, whose writes go to asker or are
-// refused with refusal.
-func startProxy(up kubeproxy.Upstream, socket string, asker kubeproxy.Asker, refusal string) (*runProxy, error) {
+// startProxy serves a grant over up for the run of sess on socket, whose writes
+// go to asker or are refused with refusal.
+func startProxy(up kubeproxy.Upstream, sess session.Session, socket string, asker kubeproxy.Asker, refusal string) (*runProxy, error) {
 	ln, err := net.Listen("unix", socket)
 	if err != nil {
 		return nil, err
 	}
-	grant := kubeproxy.NewGrant(up, asker, refusal, proxyQPS, proxyBurst, proxyMaxInFlight)
+	grant := kubeproxy.NewGrant(up, sess, asker, refusal, proxyQPS, proxyBurst, proxyMaxInFlight)
 	p := &runProxy{grant: grant, ln: ln, srv: kubeproxy.NewServer(grant)}
 	go func() { _ = p.srv.Serve(ln) }()
 	return p, nil

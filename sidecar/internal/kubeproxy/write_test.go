@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
 
@@ -67,7 +68,7 @@ func (a fakeAsker) next(t *testing.T) asked {
 // serveAsking is a grant over up that puts each write to asker.
 func serveAsking(t *testing.T, up Upstream, asker Asker) *served {
 	t.Helper()
-	return serveGrant(t, NewGrant(up, asker, noAsker, 1000, 1000, 32))
+	return serveGrant(t, NewGrant(up, session.Session{}, asker, noAsker, 1000, 1000, 32))
 }
 
 // writeRequest is method on path with body sent as contentType, as a command
@@ -207,7 +208,7 @@ const quietWindow = 50 * time.Millisecond
 func serveCountingWaiters(t *testing.T, up Upstream, asker Asker) (*served, *atomic.Int32) {
 	t.Helper()
 	var waiting atomic.Int32
-	g := NewGrant(up, asker, noAsker, 1000, 1000, 32)
+	g := NewGrant(up, session.Session{}, asker, noAsker, 1000, 1000, 32)
 	g.waitersMoved = func(delta int) { waiting.Add(int32(delta)) }
 	return serveGrant(t, g), &waiting
 }
@@ -296,7 +297,7 @@ func TestQueuedWritesAreBounded(t *testing.T) {
 func TestAWriteWaitingHoldsNoSlot(t *testing.T) {
 	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
 	asker := make(fakeAsker, 1)
-	s := serveGrant(t, NewGrant(api.upstream(), asker, noAsker, 1000, 1000, 1))
+	s := serveGrant(t, NewGrant(api.upstream(), session.Session{}, asker, noAsker, 1000, 1000, 1))
 
 	s.sendAsync(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/a", "", ""))
 	asker.next(t)

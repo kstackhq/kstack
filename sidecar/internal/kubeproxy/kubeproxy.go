@@ -34,6 +34,8 @@ import (
 
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/time/rate"
+
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 )
 
 // Host is the cluster's name in every run's kubeconfig. client-go sends each
@@ -81,7 +83,8 @@ var (
 
 // Grant is one run's way to its chat's cluster, dead once End is called.
 type Grant struct {
-	up Upstream
+	up      Upstream
+	session session.Session
 	// asker puts a write to the user; nil refuses every write with refusal.
 	asker   Asker
 	refusal string
@@ -107,16 +110,16 @@ type Grant struct {
 	handlers sync.WaitGroup
 }
 
-// NewGrant is a live grant over up: a fresh 256-bit token, a limiter of qps
-// with burst, and at most maxInFlight requests open at once. Each write is put
-// to asker, or, with none, refused with refusal.
-func NewGrant(up Upstream, asker Asker, refusal string, qps rate.Limit, burst, maxInFlight int) *Grant {
+// NewGrant is a live grant over up for the run of sess: a fresh 256-bit token,
+// a limiter of qps with burst, and at most maxInFlight requests open at once.
+// Each write is put to asker, or, with none, refused with refusal.
+func NewGrant(up Upstream, sess session.Session, asker Asker, refusal string, qps rate.Limit, burst, maxInFlight int) *Grant {
 	var b [32]byte
 	_, _ = rand.Read(b[:])
 	token := hex.EncodeToString(b[:])
 	ctx, end := context.WithCancel(context.Background())
 	return &Grant{
-		up: up, asker: asker, refusal: refusal, token: token,
+		up: up, session: sess, asker: asker, refusal: refusal, token: token,
 		auth:         []byte("Basic " + base64.StdEncoding.EncodeToString([]byte(ProxyUser+":"+token))),
 		limiter:      rate.NewLimiter(qps, burst),
 		openRequests: semaphore.NewWeighted(int64(maxInFlight)),
@@ -124,6 +127,9 @@ func NewGrant(up Upstream, asker Asker, refusal string, qps rate.Limit, burst, m
 		ctx: ctx, end: end,
 	}
 }
+
+// Session is the session of the run the grant serves: what its token maps to.
+func (g *Grant) Session() session.Session { return g.session }
 
 // Token is the password a request carries as ProxyUser's.
 func (g *Grant) Token() string { return g.token }

@@ -1557,7 +1557,8 @@ runs the child; `forward_windows.go` answers 125 with *no sandbox on this platfo
 `tools` or `clustersvc`: `kubeproxy.go` the grant and the handler, `policy.go` the path parse
 and the read policy, `redact.go` and `redact_helm.go` the Secret rewriter, `status.go` the
 `Status` every refusal writes, `server.go` the server a run serves a grant on, `write.go` the
-write path. **A `Grant`** (`NewGrant(up, asker, refusal, qps, burst, maxInFlight)`) holds a 256-bit
+write path. **A `Grant`** (`NewGrant(up, sess, asker, refusal, qps, burst, maxInFlight)`) holds the
+session of the run it serves, answered by `Session()` (what the token maps to), a 256-bit
 token, an `Upstream` (`Endpoint(ctx)`: an `Endpoint` per request, the connection's base URL and client
 and a `Done` that closes when they no longer reach the chat's cluster, which cancels the request
 still open, a watch or a follow included), a
@@ -2250,7 +2251,7 @@ since most commands never touch the cluster: a cluster never identified (no UID)
 `kubeproxy.ErrNotIdentified` or `ErrNotConnectable`; `ErrNotFound` is `errClusterGone`, and any
 other error `could not start:`. `sandboxedRunFor` asks the sandbox for a port only for a run
 with a cluster, then `startProxy` listens on the run's `proxy.sock` and serves a
-`kubeproxy.NewGrant(claim, asker, refusal, 20, 50, 32)` on `kubeproxy.NewServer`, and `Run.Socket`
+`kubeproxy.NewGrant(claim, rt.Session, asker, refusal, 20, 50, 32)` on `kubeproxy.NewServer`, and `Run.Socket`
 names the socket. `writesFor` picks the grant's writes: a foreground call's asks through its
 runtime's `ClusterWriteAsker` (`runtimeAsker`, which turns a `kubeproxy.Write` into a
 `tools.ClusterWriteRequest`), or refuses with *this sandbox reads the cluster and changes nothing*

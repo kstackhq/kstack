@@ -45,6 +45,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -283,9 +284,24 @@ func TestTheGrantDiesWithTheRun(t *testing.T) {
 	})
 }
 
+// A run's grant answers the session of the runtime it was made for, which is
+// how its token maps to that session.
+func TestTheGrantKeepsTheSession(t *testing.T) {
+	api := newFakeAPI(t)
+	tl := proxyTool(t, &fakeLease{serverUID: "uid-1", conn: api.connection()})
+	rt := clusterRuntime(t)
+	rt.Session = session.Session{Kind: session.Subagent}
+
+	r, err := tl.sandboxedRunFor(t.Context(), &fakeSandboxer{}, rt, tools.WorkspacePath(rt.Dir), false)
+	require.NoError(t, err)
+	t.Cleanup(r.end)
+
+	assert.Equal(t, rt.Session, r.proxy.grant.Session())
+}
+
 // A proxy that cannot listen on its socket answers why.
 func TestAProxyThatCannotListenFails(t *testing.T) {
-	_, err := startProxy(refused{}, filepath.Join(t.TempDir(), "missing", socketName), nil, refusedNoAsker)
+	_, err := startProxy(refused{}, session.Session{}, filepath.Join(t.TempDir(), "missing", socketName), nil, refusedNoAsker)
 	assert.Error(t, err)
 }
 
@@ -508,7 +524,7 @@ func TestABackgroundGrantRefusesWrites(t *testing.T) {
 // answers 100 Continue, which Go's server sends on the handler's first read.
 func TestTheProxyClosesBeforeItWaits(t *testing.T) {
 	socket := filepath.Join(shortTemp(t), socketName)
-	p, err := startProxy(refused{}, socket, runtimeAsker{&fakeClusterWriteAsker{approve: true}}, "")
+	p, err := startProxy(refused{}, session.Session{}, socket, runtimeAsker{&fakeClusterWriteAsker{approve: true}}, "")
 	require.NoError(t, err)
 	conn, err := net.Dial("unix", socket)
 	require.NoError(t, err)
