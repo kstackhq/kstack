@@ -20,11 +20,19 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// System reads the system's folders, /private/etc whole, and denies
-// Homebrew's var.
-func TestDarwinListsReadTheSystem(t *testing.T) {
+// System reads the system's folders, /private/etc whole, with its secret
+// files on Never under the path System reads them by.
+func TestDarwinListsReadTheSystemAndHideItsSecrets(t *testing.T) {
 	for _, p := range []string{"/usr", "/private/etc", "/opt", "/Applications", "/nix/store", "/nix/var/nix/profiles", "/run/current-system"} {
 		assert.Contains(t, platformLists.System, p)
+	}
+	for _, p := range []string{
+		"/private/etc/ssh", "/private/etc/sudoers", "/private/etc/sudoers.d", "/private/etc/master.passwd",
+		"/private/etc/krb5.conf", "/private/etc/krb5.keytab",
+		"~/Library/Keychains", "~/Library/Cookies", "~/Library/Application Support/Google/Chrome",
+		"~/Library/Application Support/Firefox", "~/Library/Safari",
+	} {
+		assert.Contains(t, platformLists.Never, p)
 	}
 	assert.Equal(t, []string{"/opt/homebrew/var", "/usr/local/var"}, brewVar)
 }

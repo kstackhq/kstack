@@ -1003,6 +1003,32 @@ func TestAFolderOnThePathIsNotRead(t *testing.T) {
 	assert.NotContains(t, out, "todo")
 }
 
+// /etc is read whole and its secret files are not, whatever their mode: a
+// stand-in plays it, and the real /etc/hosts still reads.
+func TestEtcSecretsStayHidden(t *testing.T) {
+	s := confining(t)
+	etc := filepath.Join(resolved(t.TempDir()), "etc")
+	hosts := write(t, filepath.Join(etc, "hosts"), "hosts-read")
+	key := write(t, filepath.Join(etc, "ssh", "ssh_host_ed25519_key"), "secret")
+	shadow := write(t, filepath.Join(etc, "shadow"), "secret")
+	for _, f := range []string{hosts, key, shadow} {
+		require.NoError(t, os.Chmod(f, 0o644))
+	}
+	addRoot(t, etc)
+	old := platformLists
+	platformLists.Never = append(slices.Clone(platformLists.Never), filepath.Join(etc, "ssh"), shadow)
+	t.Cleanup(func() { platformLists = old })
+
+	_, out := run(t, s, shRun(t, "cat "+hosts+" "+key+" "+shadow))
+
+	assert.Contains(t, out, "hosts-read")
+	assert.NotContains(t, out, "secret")
+
+	code, out := run(t, s, shRun(t, "cat /etc/hosts >/dev/null && echo read"))
+	assert.Equal(t, 0, code)
+	assert.Equal(t, "read\n", out)
+}
+
 // Each Toolchain location runs a program from its first folder, with its
 // variables set and pointing into the home.
 func TestEachToolchainLocationRunsAProgram(t *testing.T) {

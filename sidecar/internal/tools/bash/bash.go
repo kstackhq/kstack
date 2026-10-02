@@ -651,9 +651,10 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		writes = append(writes, cluster.cacheDir)
 		relays = []sandbox.Relay{{Port: port, Socket: socket}}
 	}
-	// System stats folders under the home and toolVersions reads a file
-	// under it, either of which can hang on a network mount, so the run is
-	// built on a goroutine abandoned if ctx ends first.
+	// System stats folders under the home, Never lists the other homes and
+	// toolVersions reads a file under the home, any of which can hang on a
+	// network mount, so the run is built on a goroutine abandoned if ctx ends
+	// first.
 	built := make(chan sandbox.Run, 1)
 	go func() {
 		sys := boxer.System(t.home, t.shell)

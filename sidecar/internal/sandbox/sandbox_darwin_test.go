@@ -191,9 +191,10 @@ func TestAProfilePathIsResolved(t *testing.T) {
 }
 
 // Denied are the Always paths and Files Denies a read takes in — here the
-// credential paths in a tree and Homebrew's var — after the read that holds
-// them and before the run's own, since a later rule wins. Kstack's directories,
-// which no read takes in, are left out.
+// credential paths in a tree, /etc's secrets and Homebrew's var — after the
+// read that holds them and before the run's own, since a later rule wins.
+// Kstack's directories and the other homes, which no read takes in, are left
+// out.
 func TestTheProfileDeniesBetweenTheReadsAndTheRunsOwn(t *testing.T) {
 	s := &Sandbox{self: "/bin/sh"}
 	r, base := profileRun(t, s)
@@ -205,6 +206,11 @@ func TestTheProfileDeniesBetweenTheReadsAndTheRunsOwn(t *testing.T) {
 
 	cargo := filepath.Join(base, "home", ".cargo")
 	denied := []string{filepath.Join(cargo, "credentials"), filepath.Join(cargo, "credentials.toml"), brew}
+	for _, p := range platformLists.Never {
+		if !strings.HasPrefix(p, "~/") {
+			denied = append(denied, p)
+		}
+	}
 	var names []string
 	for name, v := range params {
 		if strings.HasPrefix(name, "RULE_") && strings.Contains(text, fmt.Sprintf(denyRule, name)) {
@@ -723,6 +729,37 @@ func TestHomebrewsVarIsDenied(t *testing.T) {
 	assert.False(t, ok, out)
 	out, ok = sh(t, s, m.on(s), `cat "$F"`, "F="+readme)
 	assert.True(t, ok, out)
+}
+
+// /etc is read whole and its secret files are not, whatever their mode: a
+// stand-in plays it, and the real /etc/hosts still reads.
+func TestEtcSecretsStayHidden(t *testing.T) {
+	s := confining(t)
+	m := standIn(t)
+	etc := filepath.Join(resolved(m.base), "etc")
+	hosts := write(t, etc, "hosts")
+	require.NoError(t, os.WriteFile(hosts, []byte("hosts-read"), 0o644))
+	key := write(t, etc, "ssh/ssh_host_ed25519_key")
+	shadow := write(t, etc, "shadow")
+	for _, f := range []string{key, shadow} {
+		require.NoError(t, os.Chmod(f, 0o644))
+	}
+	addRoot(t, etc)
+	old := platformLists
+	platformLists.Never = append(slices.Clone(platformLists.Never), filepath.Join(etc, "ssh"), shadow)
+	t.Cleanup(func() { platformLists = old })
+
+	out, ok := sh(t, s, m.on(s), `cat "$F"`, "F="+hosts)
+	assert.True(t, ok, out)
+	assert.Equal(t, "hosts-read", out)
+	for _, f := range []string{key, shadow} {
+		out, ok = sh(t, s, m.on(s), `cat "$F"`, "F="+f)
+		assert.False(t, ok, out)
+	}
+
+	out, ok = sh(t, s, m.on(s), "cat /etc/hosts >/dev/null && echo read")
+	assert.True(t, ok, out)
+	assert.Equal(t, "read\n", out)
 }
 
 // A folder on the sidecar's PATH opens nothing: only the lists decide what a

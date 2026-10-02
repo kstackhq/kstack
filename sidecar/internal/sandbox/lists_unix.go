@@ -25,8 +25,19 @@ import (
 )
 
 // Never is the paths no run on this machine can read, whatever its policy
-// grants, with ~/ under home.
-func (s *Sandbox) Never(home string) []string { return neverPaths(home) }
+// grants: the Never lists with ~/ under home, /root, the other users' homes
+// and, on Linux, the rootless container sockets. The homes and the sockets
+// are read at call time, and listing a folder can hang on a network mount, so
+// the caller bounds it. A path on or above home is left out, so a home of
+// /root does not deny itself.
+func (s *Sandbox) Never(home string) []string {
+	paths := slices.Concat(neverPaths(home), []string{"/root"}, otherHomes(home), runtimeNever())
+	if home == "" {
+		return paths
+	}
+	h := resolved(home)
+	return slices.DeleteFunc(paths, func(p string) bool { return within(h, resolved(p)) })
+}
 
 // neverPaths is the Never lists with ~/ under home.
 func neverPaths(home string) []string {
@@ -49,11 +60,35 @@ func inHome(home string, paths []string) []string {
 	return out
 }
 
+// otherHomes is each entry of homesParent but notHomes and any on or above
+// home, compared resolved, so a home nested in an entry keeps that entry. A
+// parent that cannot be listed adds nothing.
+func otherHomes(home string) []string {
+	entries, err := os.ReadDir(homesParent)
+	if err != nil {
+		return nil
+	}
+	own := ""
+	if home != "" {
+		own = resolved(home)
+	}
+	var homes []string
+	for _, e := range entries {
+		p := filepath.Join(homesParent, e.Name())
+		if slices.Contains(notHomes, e.Name()) || (own != "" && within(own, resolved(p))) {
+			continue
+		}
+		homes = append(homes, p)
+	}
+	return homes
+}
+
 // System is what every sandboxed run on this machine starts from, from one
 // look at home. It reads the System folders, each Toolchain folder that
 // exists and is not broad (broadDirs), shell's folders (shellReads) and this
 // executable at its resolved path, and denies Homebrew's var. It holds no
-// Read on or inside a Never path, and none over a fixed mount. A
+// Read on or inside a Never path or another user's home, and none over a
+// fixed mount. A
 // location's Env is set when its first folder exists.
 func (s *Sandbox) System(home, shell string) System {
 	var sys System
@@ -82,7 +117,7 @@ func (s *Sandbox) System(home, shell string) System {
 		}
 	}
 	read = slices.DeleteFunc(append(read, resolved(s.self)), overFixedMount)
-	sys.Files = FilePolicy{Read: read, Deny: slices.Clone(brewVar)}.Outside(neverPaths(home)...)
+	sys.Files = FilePolicy{Read: read, Deny: slices.Clone(brewVar)}.Outside(slices.Concat(neverPaths(home), otherHomes(home))...)
 	return sys
 }
 

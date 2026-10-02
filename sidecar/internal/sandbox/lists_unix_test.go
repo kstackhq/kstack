@@ -57,18 +57,84 @@ func TestEveryListPathIsAbsoluteOrInTheHome(t *testing.T) {
 	}
 }
 
+// otherHomesIn makes parent the folder the users' homes sit in for the rest
+// of the test.
+func otherHomesIn(t *testing.T, parent string) {
+	t.Helper()
+	old := homesParent
+	homesParent = parent
+	t.Cleanup(func() { homesParent = old })
+}
+
 // Never is the Never paths with ~/ under the home, and with no home the
 // absolute ones alone, since a ~/ path would be relative.
 func TestNeverWithNoHomeIsTheAbsolutePaths(t *testing.T) {
+	otherHomesIn(t, t.TempDir())
 	old := platformLists
 	platformLists.Never = append(slices.Clone(old.Never), "/etc/kstack-secret")
 	t.Cleanup(func() { platformLists = old })
 	var s *Sandbox
 
-	assert.Equal(t, []string{"/etc/kstack-secret"}, s.Never(""))
+	for _, p := range s.Never("") {
+		assert.True(t, filepath.IsAbs(p), p)
+	}
+	assert.Contains(t, s.Never(""), "/etc/kstack-secret")
+	assert.Contains(t, s.Never(""), "/root")
 	assert.Contains(t, s.Never("/home/ana"), "/home/ana/.kube")
 	assert.Contains(t, s.Never("/home/ana"), "/etc/kstack-secret")
-	assert.Len(t, s.Never("/home/ana"), len(sharedLists.Never)+len(platformLists.Never))
+}
+
+// Every other folder where the users' homes sit is Never, read at call time,
+// but for the user's own and the one that is no user's. System reads none.
+func TestTheOtherHomesAreNever(t *testing.T) {
+	parent := resolved(t.TempDir())
+	d := mkdirs(t, parent, "a", "b", notHomes[0], "ana")
+	otherHomesIn(t, parent)
+	s := &Sandbox{self: "/usr/bin/true"}
+
+	never := s.Never(d[3])
+
+	assert.Contains(t, never, d[0])
+	assert.Contains(t, never, d[1])
+	assert.NotContains(t, never, d[2])
+	assert.NotContains(t, never, d[3])
+	read := s.System(d[3], "/bin/sh").Files.Read
+	assert.NotContains(t, read, d[0])
+	assert.NotContains(t, read, d[1])
+}
+
+// A home nested in a folder of the homes parent keeps its own reads: that
+// folder holds it, so it is not another user's home.
+func TestANestedHomeIsNotAnotherUsersHome(t *testing.T) {
+	parent := resolved(t.TempDir())
+	d := mkdirs(t, parent, "company/alice/.nvm", "bo")
+	home := filepath.Dir(d[0])
+	otherHomesIn(t, parent)
+	withLists(t, Lists{Toolchain: []Location{{Name: "nvm", Read: []string{"~/.nvm"}}}})
+	s := &Sandbox{self: "/usr/bin/true"}
+
+	read := s.System(home, filepath.Join(home, "bin", "bash")).Files.Read
+
+	assert.Contains(t, read, d[0])
+	assert.Contains(t, read, filepath.Join(home, "bin"))
+	assert.Equal(t, []string{d[1]}, otherHomes(home))
+	assert.NotContains(t, s.Never(home), filepath.Join(parent, "company"))
+}
+
+// A Never path on or above the home is dropped, so a home of /root or one
+// inside a denied folder does not deny itself. Never reads nothing under the
+// home, so the home need not exist.
+func TestANeverPathAboveTheHomeIsDropped(t *testing.T) {
+	otherHomesIn(t, t.TempDir())
+	base := resolved(t.TempDir())
+	old := platformLists
+	platformLists.Never = append(slices.Clone(old.Never), filepath.Join(base, "never"))
+	t.Cleanup(func() { platformLists = old })
+	var s *Sandbox
+
+	assert.NotContains(t, s.Never("/root"), "/root")
+	assert.Contains(t, s.Never("/root"), "/root/.ssh")
+	assert.NotContains(t, s.Never(filepath.Join(base, "never", "ana")), filepath.Join(base, "never"))
 }
 
 // addRoot makes dir one of the system roots for the rest of the test.
@@ -185,11 +251,13 @@ func TestWithNoHomeSystemHoldsNoHomeRule(t *testing.T) {
 
 // A shell installed under a prefix outside the home reads the prefix, so it
 // reaches its own share. Under the home, or where the prefix holds the home
-// or is /, its folder is read alone.
+// or is /, its folder is read alone. One in another user's home adds nothing.
 func TestTheShellsPrefixIsReadButNeverTheHome(t *testing.T) {
 	base := resolved(t.TempDir())
 	homes := mkdirs(t, base, "users")[0]
 	home := mkdirs(t, homes, "ana")[0]
+	other := mkdirs(t, homes, "bo/bin")[0]
+	otherHomesIn(t, homes)
 	withLists(t, Lists{})
 	s := &Sandbox{self: "/usr/bin/true"}
 	read := func(shell string) []string {
@@ -203,6 +271,7 @@ func TestTheShellsPrefixIsReadButNeverTheHome(t *testing.T) {
 	assert.Equal(t, []string{filepath.Join(homes, "bin")}, read(filepath.Join(homes, "bin", "zsh")))
 	assert.Equal(t, []string{"/bin"}, read("/bin/zsh"))
 	assert.Equal(t, []string{"/bin"}, read("/bin/bash"))
+	assert.Empty(t, read(filepath.Join(other, "zsh")))
 }
 
 // A shell whose folder is broad — the home, a folder of every app's data
@@ -211,6 +280,7 @@ func TestAShellInABroadFolderReadsOnlyItself(t *testing.T) {
 	base := resolved(t.TempDir())
 	home := mkdirs(t, base, "home/.config")[0]
 	home = filepath.Dir(home)
+	otherHomesIn(t, t.TempDir())
 	withLists(t, Lists{})
 	s := &Sandbox{self: "/usr/bin/true"}
 
@@ -230,6 +300,7 @@ func TestAShellLinkReadsWhereItLeads(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(d[2], "bash"), nil, 0o700))
 	require.NoError(t, os.Symlink("../shell-install/bin/bash", filepath.Join(d[1], "bash")))
 	require.NoError(t, os.Symlink(filepath.Join(d[1], "bash"), filepath.Join(d[0], "bash")))
+	otherHomesIn(t, t.TempDir())
 	withLists(t, Lists{})
 	s := &Sandbox{self: "/usr/bin/true"}
 

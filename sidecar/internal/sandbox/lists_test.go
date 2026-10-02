@@ -34,6 +34,20 @@ func TestTheCredentialsBesideAToolsProgramsAreListed(t *testing.T) {
 	}
 }
 
+// Never holds the note's list: the tools' credentials, the shells' and
+// REPLs' histories, and the container sockets.
+func TestNeverHoldsTheNotesList(t *testing.T) {
+	for _, p := range []string{
+		"~/.helm", "~/.terraform.d", "~/.npmrc", "~/.pypirc", "~/.gem/credentials", "~/.config/git/credentials",
+		"~/.bash_history", "~/.zsh_history", "~/.python_history", "~/.node_repl_history", "~/.psql_history",
+		"~/.mysql_history", "~/.lesshst", "~/.local/share/fish/fish_history",
+		"/run/containerd", "/var/run/docker.sock", "/run/docker.sock", "/run/podman",
+		"~/.rd/docker.sock", "~/.orbstack/run", "~/.colima", "~/.lima",
+	} {
+		assert.Contains(t, sharedLists.Never, p)
+	}
+}
+
 // Every location reads under the home, and only the asdf location sets
 // asdf's own variables.
 func TestTheToolchainIsUnderTheHome(t *testing.T) {

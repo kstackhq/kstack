@@ -14,16 +14,40 @@
 
 package sandbox
 
+import (
+	"os"
+	"path/filepath"
+	"strconv"
+)
+
 // platformLists is what only Linux's sandbox reads and hides. /etc is read
-// whole, since the loader and libc read files no short list names.
+// whole, since the loader and libc read files no short list names, and its
+// secret files are on Never.
 var platformLists = Lists{
 	System: []string{
 		"/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/etc", "/opt",
 		"/nix/store", "/nix/var/nix/profiles", "/run/current-system", "/snap", "/home/linuxbrew/.linuxbrew",
 	},
-	Never: []string{"~/.local/share/keyrings"},
+	Never: []string{
+		"/etc/ssh", "/etc/sudoers", "/etc/sudoers.d", "/etc/shadow", "/etc/gshadow", "/etc/krb5.conf", "/etc/krb5.keytab",
+		"~/.local/share/keyrings", "~/.config/google-chrome", "~/.config/chromium", "~/.mozilla",
+	},
 }
 
 // brewVar is Linuxbrew's var, which the System folders take in and which
 // holds its services' databases and logs.
 var brewVar = []string{"/home/linuxbrew/.linuxbrew/var"}
+
+// homesParent is the folder the users' homes sit in, and notHomes its entries
+// that are no user's.
+var (
+	homesParent = "/home"
+	notHomes    = []string{"linuxbrew"}
+)
+
+// runtimeNever is the rootless container sockets in the user's runtime
+// folder. Kstack's own runtime folder sits beside them.
+func runtimeNever() []string {
+	dir := filepath.Join("/run/user", strconv.Itoa(os.Getuid()))
+	return []string{filepath.Join(dir, "docker.sock"), filepath.Join(dir, "podman")}
+}

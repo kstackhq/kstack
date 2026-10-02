@@ -26,8 +26,8 @@ func (s *Sandbox) probePolicy(shell, dir, home string) Policy {
 }
 
 // probePolicyWithin is probePolicy, or ctx's error if ctx ends first: the
-// policy reads folders under the home, which can hang on a network mount,
-// so it is built on a goroutine left behind then.
+// policy reads folders under the home and lists the other homes, which can
+// hang on a network mount, so it is built on a goroutine left behind then.
 func (s *Sandbox) probePolicyWithin(ctx context.Context, shell, dir, home string) (Policy, error) {
 	built, build := make(chan Policy, 1), buildProbePolicy
 	go func() { built <- build(s, shell, dir, home) }()

@@ -80,7 +80,14 @@ var sharedLists = Lists{
 		"~/.kube", "~/.aws", "~/.azure", "~/.config/gcloud", "~/.ssh", "~/.gnupg", "~/.config/gh", "~/.docker",
 		"~/.netrc", "~/.git-credentials",
 		"~/.cargo/credentials", "~/.cargo/credentials.toml", "~/.pulumi/credentials.json", "~/.fly/config.yml",
+		"~/.helm", "~/.terraform.d", "~/.npmrc", "~/.pypirc", "~/.gem/credentials", "~/.config/git/credentials",
 		"~/.local/share/uv/credentials",
+		// A glob compiles to no rule, so each history is named.
+		"~/.bash_history", "~/.zsh_history", "~/.python_history", "~/.node_repl_history", "~/.psql_history",
+		"~/.mysql_history", "~/.lesshst", "~/.local/share/fish/fish_history",
+		// The container sockets. Docker Desktop's ~/.docker/run is inside ~/.docker.
+		"/run/containerd", "/var/run/docker.sock", "/run/docker.sock", "/run/podman",
+		"~/.rd/docker.sock", "~/.orbstack/run", "~/.colima", "~/.lima",
 	},
 }
 
