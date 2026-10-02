@@ -6,6 +6,14 @@
 
 ;; Processes and the system.
 (allow process-exec)
+;; No privilege escalation (TestSudoCannotGainRoot). macOS 27 refuses every
+;; setuid program under a profile (TestEverySetuidProgramIsRefused); the list
+;; holds wherever it does not.
+(deny process-exec
+  (literal "/usr/bin/sudo")
+  (literal "/usr/bin/su")
+  (literal "/usr/bin/login")
+  (literal "/usr/libexec/security_authtrampoline"))
 (allow process-fork)
 ;; A process stays in the run's group, which the group's kill ends. posix_spawn
 ;; can still start one in a new session or group (TestAProcessThatLeavesTheGroupStaysConfined).

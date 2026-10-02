@@ -1385,7 +1385,7 @@ seam).
 **What no policy changes stays in each compiler**: on Linux the `/proc`, `/dev` and private `/tmp`
 mounts, the namespaces, `--die-with-parent --new-session --as-pid-1`, the closing `--remount-ro /`
 and the seccomp filter; on macOS the fixed reads, `setsid` and `setpgid` refused, signals within
-the sandbox, no `/dev/tty` and the one Mach service.
+the sandbox, the setuid programs that escalate refused, no `/dev/tty` and the one Mach service.
 
 **On Linux it is bubblewrap** (`sandbox_linux.go`). `Probe` tries the system's bwrap first, the
 first of `/usr/bin/bwrap`, `/bin/bwrap`, `/usr/local/bin/bwrap` and NixOS's
@@ -1434,7 +1434,9 @@ port is the one value written into the text. **Every path is resolved** before i
 since Seatbelt checks a file's real path and `/var` and `/tmp` are links into `/private`; the
 socket is passed both as given and resolved. A Deny holds for its path whether or not it exists.
 In order, a later rule winning: `deny default`; processes, signals and process info within the
-sandbox, `setsid` and `setpgid` refused (`syscall-unix`) so a process stays in the run's group,
+sandbox, but no exec of `sudo`, `su`, `login` or `security_authtrampoline`, by path
+(`TestTheProfileRefusesSetuidPrograms`; macOS 27 runs no setuid program under a profile, `ps` and
+`top` included, `TestEverySetuidProgramIsRefused`), `setsid` and `setpgid` refused (`syscall-unix`) so a process stays in the run's group,
 `sysctl-read`; **the merged rules**, a Read as `allow file-read*` then `deny file-write*`, so it
 decides a tie with a Write as a read-only mount does, a Write as `allow file-read* file-write*`,
 **a run's own Write followed by a denial of unlinking or creating its root's own entry**

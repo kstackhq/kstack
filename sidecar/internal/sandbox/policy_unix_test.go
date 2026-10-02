@@ -21,6 +21,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -277,4 +278,18 @@ func TestOpeningPastTheFileLimitFails(t *testing.T) {
 	require.NoError(t, err, out)
 	assert.Less(t, n, 64)
 	assert.True(t, emfile, out)
+}
+
+// sudo cannot gain root: Linux sets no_new_privs, and macOS refuses to start
+// it.
+func TestSudoCannotGainRoot(t *testing.T) {
+	if out, err := exec.Command("sudo", "-n", "id", "-u").Output(); err != nil || string(out) != "0\n" {
+		t.Skip("sudo does not gain root outside the sandbox without a password")
+	}
+	s := confining(t)
+
+	code, out := limitedRun(t, s, Limits{}, nil, "/bin/sh", "-c", "sudo -n id -u")
+
+	assert.NotEqual(t, 0, code)
+	assert.NotContains(t, out, "0")
 }

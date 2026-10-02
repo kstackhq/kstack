@@ -1081,6 +1081,44 @@ func TestNoOtherProcessIsRead(t *testing.T) {
 	assert.NotContains(t, out, value)
 }
 
+// setuidPrograms are the programs that exist to escalate, which the profile
+// refuses to start.
+var setuidPrograms = []string{"/usr/bin/sudo", "/usr/bin/su", "/usr/bin/login", "/usr/libexec/security_authtrampoline"}
+
+func TestTheProfileRefusesSetuidPrograms(t *testing.T) {
+	text, _ := (&Sandbox{self: "/bin/kstack-sidecar"}).profile(Run{})
+	allow, deny := strings.Index(text, "(allow process-exec)\n"), strings.Index(text, "(deny process-exec\n")
+	require.NotEqual(t, -1, deny, text)
+	assert.Less(t, allow, deny)
+	for _, p := range setuidPrograms {
+		assert.Contains(t, text[deny:], `(literal "`+p+`")`)
+	}
+
+	s := confining(t)
+	m := standIn(t)
+	for _, p := range setuidPrograms {
+		if _, err := os.Stat(p); err != nil {
+			continue
+		}
+		out, _ := sh(t, s, m.on(s), `"$P" </dev/null; echo "exit=$?"`, "P="+p)
+		assert.Contains(t, out, "Operation not permitted", p)
+		assert.Contains(t, out, "exit=126", p)
+	}
+}
+
+// macOS refuses to start a setuid program under any profile, so ps and top,
+// setuid root and off the profile's list, are refused as well.
+func TestEverySetuidProgramIsRefused(t *testing.T) {
+	s := confining(t)
+	m := standIn(t)
+
+	for _, p := range []string{"/bin/ps", "/usr/bin/top"} {
+		out, _ := sh(t, s, m.on(s), `"$P" </dev/null; echo "exit=$?"`, "P="+p)
+		assert.Contains(t, out, "Operation not permitted", p)
+		assert.Contains(t, out, "exit=126", p)
+	}
+}
+
 // sample examines another process through its task port, which the profile
 // refuses: inside it fails with the line it prints when the port is refused,
 // so a sample that cannot start or read a file does not pass.
