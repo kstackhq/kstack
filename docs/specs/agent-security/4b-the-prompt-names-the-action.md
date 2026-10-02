@@ -104,7 +104,7 @@ type ToolCallApproval {
 }
 
 type PermissionAction {
-  # step 3B's summary, class, provider and scope, then:
+  # step 3B's summary, class, provider, context and namespace, then:
   "Whether a rule may allow it: false for class 5 and for an action a shipped rule always asks about. The request offers ONCE and DENY alone then."
   grantable: Boolean!
 }
@@ -133,7 +133,7 @@ a call's own) and checks before it delivers:
 | a call's own (`kind: call`) with no `Action`, a raw command | `Chat`, `Always` | `KSTACK_VALIDATION_ERROR`; the request stays |
 | an action with `Grantable` false | `Chat`, `Always` | `KSTACK_VALIDATION_ERROR`; the request stays |
 | an action | `Chat` | `addGrant(ctx, chatID, rule)`: a `chat_grants` row, then deliver approved |
-| an action | `Always` | the rule into `securityconfig`'s `Rules`, through the write `permissionRuleAdd` uses, then deliver approved |
+| an action | `Always` | the rule into `securityconfig`'s `Rules`, through the write `permissionRuleAdd` uses, then deliver approved; while the store holds `rules` (step 3B), that write answers `ErrHeld`, so the answer is `KSTACK_VALIDATION_ERROR` naming the file and the request stays, for *Once* or *Deny* |
 | any | `Once` | deliver approved |
 | any | `Deny` | deliver denied |
 
@@ -161,8 +161,8 @@ object:
    request shows the body as it does today and no diff. Any other failure is `DiffError`.
 2. **Dry-run the write**: the same request, body and `Content-Type` as sent, with `dryRun=All`
    set on the query beside whatever it holds. Step 3B made a dry run a read, so this asks no
-   one. The answer is the object as it will be. A request that is itself a dry run is sent
-   once, as it is: it is its own dry run. A failure — a webhook's refusal, a validation error,
+   one. The answer is the object as it will be. A `PUT` or `PATCH` that is itself a dry run never
+   reaches here: step 3B runs it unasked. A failure — a webhook's refusal, a validation error,
    a conflict — is `DiffError`: the `Status` message through `safe.String`, never the body
    whole.
 3. **Drop** `metadata.managedFields` from both, and nothing else: a write can set `status`,
@@ -188,9 +188,10 @@ its request shows the body; a `DELETE` shows the summary alone. `Diff`, `DiffCut
 `ApprovalRequest` in `src/components/widgets/chat-transcript.tsx`, for a `change`, draws in
 this order:
 
-1. **The heading**: `change.action.summary` through `VisibleText`, with *(dry run)* after it
-   when `dryRun` is set. The sidecar writes the summary (step 3B), so the webview parses no
-   path.
+1. **The heading**: `change.action.summary` through `VisibleText`. The sidecar writes the
+   summary (step 3B), so the webview parses no path. No request is a dry run the proxy can read:
+   step 3B runs those unasked. `kubectl delete --dry-run=server` carries its dry run in a body the
+   proxy does not read (`isDryRun`), so it asks as the delete it names, which errs toward asking.
 2. **The diff**, when `diff` is not empty: `DiffBlock` (`diff-block.tsx`), one `<span>` per
    line through `VisibleText`, a class on a line starting `+` or `-` (`diff-add`, `diff-del`,
    colored by `--hl-addition` and `--hl-deletion` from `markdown.css`) and a muted one on a
@@ -283,6 +284,8 @@ once the next time; the model need not ask again for one in the same context and
   `Kind` `443`, and the rule matches port 443 and not 8443.
 - `TestAlwaysWritesTheRuleIntoTheSettings`: the same rule in `securityconfig`, and `always` on
   the row.
+- `TestAlwaysWaitsWhileTheRulesAreHeld`: with `rules` held, `Always` is refused, writes nothing,
+  and the request stays answerable with `Once`.
 - `TestACallsOwnApprovalTakesOnceOrDenyAlone`: `Chat` and `Always` on a raw command's request
   are `ErrBadRequest`, the waiter still there, and `Once` then lands.
 - `TestAnUngrantableActionTakesOnceOrDenyAlone`: the same for a class 5 action.
@@ -310,7 +313,7 @@ once the next time; the model need not ask again for one in the same context and
 
 **Webview** (`chat-transcript.test.tsx`, `diff-block.test.tsx`, `permissions.test.ts`)
 
-- The heading is the summary, with *(dry run)* where set, and never the method.
+- The heading is the summary and never the method.
 - A diff's `+` and `-` lines carry their classes, a `@@` line is muted, every line goes
   through `VisibleText`, and a long diff folds with Approve held until *Show the rest*.
 - With a diff the raw request sits under *Show the request*, closed, and Approve does not

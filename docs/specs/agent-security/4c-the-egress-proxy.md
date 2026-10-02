@@ -210,7 +210,9 @@ permissions.Action{
 ```
 
 `Handler.Decide` is what Bash builds from the session (`hostDecider` in `tools/bash/proxy.go`):
-`permissions.Decide` under the session's `Policy{Mode, NoPrompts}` and `Rules`, then, for
+`permissions.Decide` under the session's `Policy{Mode, NoPrompts}` and `Rules`, both called with
+the run's cluster context (`clustercard.ScopeContext`, the one its cluster grant names; `""` for
+a run with no cluster), so a host is decided under that context's mode, then, for
 `Prompted`, the runtime's asker, whose yes or no becomes `Allowed` or `Denied` with a reason
 naming the user. Step 4B, in this wave, turns that asker into `ActionAsker` taking a
 `tools.ActionRequest`; whichever of the two lands second adapts. Landing first, this step asks
@@ -224,8 +226,10 @@ second, it hands an `ActionRequest` with the action and no `Write`. So:
 | `Prompted` | the `CONNECT` is held; the command blocks as it does on a cluster write, its `timeout` running; the user answers with step 4B's four answers, a *this chat* or *always* one writing an `Allow` class 3 `net` rule scoped to the host and port |
 | `Denied` (`ReadOnly`, a `Deny` rule, `NoPrompts`, or the user's no) | a 403 whose body is *kstack: charts.example.com is not allowed: <reason>*; curl prints *Received HTTP code 403 from proxy after CONNECT* |
 
-`NoPrompts` is set as the cluster proxy sets it (step 3B §6): a background command's, a grant with
-no asker, and the monitor's. Each of those answers `Denied` at once and never holds a `CONNECT`.
+A grant with no asker, a background command's, refuses an unlisted host at once, before
+`Decide`, as the cluster proxy refuses its writes (step 3B §6): there is no call open to record
+against. The monitor's session sets `NoPrompts`, so a `Prompted` there is `Denied` at once. Neither
+ever holds a `CONNECT`.
 
 **The record** is step 4B's: an `approvals` row of kind `action` with the `Action` and its status
 (`approved`, `denied`, `allowed` or `refused`, with the reason), so the transcript draws it as a

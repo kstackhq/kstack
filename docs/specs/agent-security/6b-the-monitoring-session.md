@@ -63,9 +63,9 @@ package, inside the data directory every chat's `Always` part hides.
 func Session() session.Session {
 	return session.Session{
 		Kind:      session.Monitor,
-		Mode:      func(context.Context) permissions.Mode { return permissions.ReadOnly },
+		Mode:      func(context.Context, string) permissions.Mode { return permissions.ReadOnly },
 		NoPrompts: true,
-		Rules:     func(context.Context) []permissions.Rule { return permissions.Shipped() },
+		Rules:     func(context.Context, string) []permissions.Rule { return permissions.Shipped() },
 		Hosts:     monitorHosts, // §2: the kubeconfig's servers alone
 		Folders:   nil,
 	}
@@ -73,9 +73,9 @@ func Session() session.Session {
 ```
 
 The runtime's `ChatID` is empty, and `Outside` is false: a monitor never runs outside the sandbox. `Mode` is
-`ReadOnly` whatever `Settings.ModeFor` says of the cluster's context, and `Rules` is the
-shipped rules alone: no `chat_grants` row and no always rule of the user's reaches it, since a
-grant the user wrote for a chat means that chat.
+`ReadOnly` whatever the store's `ModeFor` says of the cluster's context, and `Rules` is the
+shipped rules alone, whatever mode Settings sets for the context: no `chat_grants` row and no
+always rule of the user's reaches it, since a grant the user wrote for a chat means that chat.
 
 **The runner** builds a runtime and hands it to a caller:
 
