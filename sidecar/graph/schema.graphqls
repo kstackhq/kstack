@@ -1123,6 +1123,10 @@ type ClusterWrite {
   body: String!
   "Whether the request asks for a dry run: a POST, PUT or PATCH whose every `dryRun` is `All`. Never a DELETE."
   dryRun: Boolean!
+  "What the proxy classified the write as; null on a write it did not classify."
+  action: PermissionAction
+  "Who decided a write nobody was asked about: the mode (`this context is read-only`, `auto mode`) or the rule's line. Null for a write the user answered."
+  reason: String
 }
 
 "What a call does, from the tool that made it. Never read from the call's arguments."
@@ -1275,13 +1279,16 @@ type ToolCallApproval {
 Where the user's decision is. `Pending` until it commits, and after, when the call's turn ended
 before anyone answered: the record of a question nobody answered. An `Approved` call whose status
 is `NotRun` was approved and never started. `Abandoned` is a cluster write whose wait ended with no
-decision while its call ran on; a call's own approval never takes it.
+decision while its call ran on; a call's own approval never takes it. `Allowed` and `Refused`
+are cluster writes the permissions engine decided with nobody asked.
 """
 enum ApprovalStatus {
   Pending
   Approved
   Denied
   Abandoned
+  Allowed
+  Refused
 }
 
 """
@@ -1353,6 +1360,37 @@ input MemorySaveInput {
   clusterID: ClusterID
   name: String!
   body: String!
+}
+
+# --- Permissions ---
+
+"How much an action can do, as the permissions engine numbers its classes 1 to 6."
+enum PermissionClass {
+  ReadInside
+  WriteInside
+  NewHost
+  UpstreamWrite
+  Destructive
+  SecretRead
+}
+
+"Whose action it is."
+enum PermissionProvider {
+  K8s
+  Net
+  Path
+}
+
+"What the proxy classified a request as. Every string is cluster or user text: draw it through VisibleText."
+type PermissionAction {
+  "One line, as the prompt and the disclosure draw it."
+  summary: String!
+  class: PermissionClass!
+  provider: PermissionProvider!
+  "The context, as the grant was made for it; empty for a record that names none."
+  context: String!
+  "The namespace; empty for a cluster-scoped request."
+  namespace: String!
 }
 
 # --- Cloud account ---

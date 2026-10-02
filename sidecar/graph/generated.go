@@ -24,6 +24,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/rawjson"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
@@ -49,6 +50,7 @@ type ResolverRoot interface {
 	ClusterCachedKindSpec() ClusterCachedKindSpecResolver
 	ClusterPrincipal() ClusterPrincipalResolver
 	Mutation() MutationResolver
+	PermissionAction() PermissionActionResolver
 	Query() QueryResolver
 	Subscription() SubscriptionResolver
 	ToolCall() ToolCallResolver
@@ -349,12 +351,14 @@ type ComplexityRoot struct {
 	}
 
 	ClusterWrite struct {
+		Action      func(childComplexity int) int
 		Approval    func(childComplexity int) int
 		Body        func(childComplexity int) int
 		ContentType func(childComplexity int) int
 		DryRun      func(childComplexity int) int
 		Method      func(childComplexity int) int
 		Path        func(childComplexity int) int
+		Reason      func(childComplexity int) int
 		Subresource func(childComplexity int) int
 	}
 
@@ -482,6 +486,14 @@ type ComplexityRoot struct {
 	ObjectRef struct {
 		ID   func(childComplexity int) int
 		Kind func(childComplexity int) int
+	}
+
+	PermissionAction struct {
+		Class     func(childComplexity int) int
+		Context   func(childComplexity int) int
+		Namespace func(childComplexity int) int
+		Provider  func(childComplexity int) int
+		Summary   func(childComplexity int) int
 	}
 
 	PrinterColumn struct {
@@ -671,6 +683,10 @@ type MutationResolver interface {
 	MemoryDelete(ctx context.Context, id memorysvc.MemoryID) (bool, error)
 	AuthLoginStart(ctx context.Context) (bool, error)
 	AuthLogout(ctx context.Context) (bool, error)
+}
+type PermissionActionResolver interface {
+	Context(ctx context.Context, obj *permissions.Action) (string, error)
+	Namespace(ctx context.Context, obj *permissions.Action) (string, error)
 }
 type QueryResolver interface {
 	Models(ctx context.Context) ([]*model.Model, error)
@@ -1841,6 +1857,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ClusterWatchFrame.Type(childComplexity), true
 
+	case "ClusterWrite.action":
+		if e.ComplexityRoot.ClusterWrite.Action == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ClusterWrite.Action(childComplexity), true
 	case "ClusterWrite.approval":
 		if e.ComplexityRoot.ClusterWrite.Approval == nil {
 			break
@@ -1877,6 +1899,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ClusterWrite.Path(childComplexity), true
+	case "ClusterWrite.reason":
+		if e.ComplexityRoot.ClusterWrite.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ClusterWrite.Reason(childComplexity), true
 	case "ClusterWrite.subresource":
 		if e.ComplexityRoot.ClusterWrite.Subresource == nil {
 			break
@@ -2457,6 +2485,37 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ObjectRef.Kind(childComplexity), true
+
+	case "PermissionAction.class":
+		if e.ComplexityRoot.PermissionAction.Class == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PermissionAction.Class(childComplexity), true
+	case "PermissionAction.context":
+		if e.ComplexityRoot.PermissionAction.Context == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PermissionAction.Context(childComplexity), true
+	case "PermissionAction.namespace":
+		if e.ComplexityRoot.PermissionAction.Namespace == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PermissionAction.Namespace(childComplexity), true
+	case "PermissionAction.provider":
+		if e.ComplexityRoot.PermissionAction.Provider == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PermissionAction.Provider(childComplexity), true
+	case "PermissionAction.summary":
+		if e.ComplexityRoot.PermissionAction.Summary == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PermissionAction.Summary(childComplexity), true
 
 	case "PrinterColumn.jsonPath":
 		if e.ComplexityRoot.PrinterColumn.JSONPath == nil {
@@ -3781,6 +3840,10 @@ func (ec *executionContext) childFields_ClusterWrite(ctx context.Context, field 
 		return ec.fieldContext_ClusterWrite_body(ctx, field)
 	case "dryRun":
 		return ec.fieldContext_ClusterWrite_dryRun(ctx, field)
+	case "action":
+		return ec.fieldContext_ClusterWrite_action(ctx, field)
+	case "reason":
+		return ec.fieldContext_ClusterWrite_reason(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ClusterWrite", field.Name)
 }
@@ -3987,6 +4050,22 @@ func (ec *executionContext) childFields_ObjectRef(ctx context.Context, field gra
 		return ec.fieldContext_ObjectRef_kind(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ObjectRef", field.Name)
+}
+
+func (ec *executionContext) childFields_PermissionAction(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "summary":
+		return ec.fieldContext_PermissionAction_summary(ctx, field)
+	case "class":
+		return ec.fieldContext_PermissionAction_class(ctx, field)
+	case "provider":
+		return ec.fieldContext_PermissionAction_provider(ctx, field)
+	case "context":
+		return ec.fieldContext_PermissionAction_context(ctx, field)
+	case "namespace":
+		return ec.fieldContext_PermissionAction_namespace(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type PermissionAction", field.Name)
 }
 
 func (ec *executionContext) childFields_PrinterColumn(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -9775,6 +9854,61 @@ func (ec *executionContext) fieldContext_ClusterWrite_dryRun(_ context.Context, 
 	return graphql.NewScalarFieldContext("ClusterWrite", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
+func (ec *executionContext) _ClusterWrite_action(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ClusterWrite_action(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Action, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *permissions.Action) graphql.Marshaler {
+			return ec.marshalOPermissionAction2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐAction(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ClusterWrite_action(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ClusterWrite",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_PermissionAction(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _ClusterWrite_reason(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ClusterWrite_reason(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ClusterWrite_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ClusterWrite", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
 func (ec *executionContext) _CommandAction_text(ctx context.Context, field graphql.CollectedField, obj *tools.CommandAction) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -11981,6 +12115,121 @@ func (ec *executionContext) _ObjectRef_kind(ctx context.Context, field graphql.C
 }
 func (ec *executionContext) fieldContext_ObjectRef_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ObjectRef", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _PermissionAction_summary(ctx context.Context, field graphql.CollectedField, obj *permissions.Action) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PermissionAction_summary(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Summary, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PermissionAction_summary(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _PermissionAction_class(ctx context.Context, field graphql.CollectedField, obj *permissions.Action) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PermissionAction_class(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Class, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v permissions.Class) graphql.Marshaler {
+			return ec.marshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PermissionAction_class(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type PermissionClass does not have child fields"))
+}
+
+func (ec *executionContext) _PermissionAction_provider(ctx context.Context, field graphql.CollectedField, obj *permissions.Action) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PermissionAction_provider(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Provider, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v permissions.Provider) graphql.Marshaler {
+			return ec.marshalNPermissionProvider2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐProvider(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PermissionAction_provider(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type PermissionProvider does not have child fields"))
+}
+
+func (ec *executionContext) _PermissionAction_context(ctx context.Context, field graphql.CollectedField, obj *permissions.Action) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PermissionAction_context(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.PermissionAction().Context(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PermissionAction_context(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PermissionAction", field, true, true, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _PermissionAction_namespace(ctx context.Context, field graphql.CollectedField, obj *permissions.Action) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PermissionAction_namespace(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.PermissionAction().Namespace(ctx, obj)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PermissionAction_namespace(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PermissionAction", field, true, true, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _PrinterColumn_name(ctx context.Context, field graphql.CollectedField, obj *clustersvc.PrinterColumn) (ret graphql.Marshaler) {
@@ -18294,6 +18543,16 @@ func (ec *executionContext) _ClusterWrite(ctx context.Context, sel ast.Selection
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "action":
+			out.Values[i] = ec._ClusterWrite_action(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._ClusterWrite_reason(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -19262,6 +19521,130 @@ func (ec *executionContext) _ObjectRef(ctx context.Context, sel ast.SelectionSet
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var permissionActionImplementors = []string{"PermissionAction"}
+
+func (ec *executionContext) _PermissionAction(ctx context.Context, sel ast.SelectionSet, obj *permissions.Action) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, permissionActionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("PermissionAction")
+		case "summary":
+			out.Values[i] = ec._PermissionAction_summary(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "class":
+			out.Values[i] = ec._PermissionAction_class(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "provider":
+			out.Values[i] = ec._PermissionAction_provider(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "context":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._PermissionAction_context(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+		case "namespace":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._PermissionAction_namespace(ctx, field, obj)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			if field.IsDeferred() {
+				deferredFieldSet.AddField(field)
+				fieldIndex := len(deferredFieldSet.Values) - 1
+				deferredFieldSet.Concurrently(fieldIndex, func(ctx context.Context) graphql.Marshaler {
+					return innerFunc(ctx, deferredFieldSet)
+				})
+
+				for _, deferrable := range field.Deferrables {
+					view, ok := deferLabelToView[deferrable.Label]
+					if !ok {
+						view = deferredFieldSet.NewView()
+						deferLabelToView[deferrable.Label] = view
+					}
+					view.AddIndices(fieldIndex)
+				}
+
+				// don't run the out.Concurrently() call below
+				out.Values[i] = graphql.Null
+				continue
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -20881,12 +21264,16 @@ var (
 		"Approved":  chatsvc.ApprovalApproved,
 		"Denied":    chatsvc.ApprovalDenied,
 		"Abandoned": chatsvc.ApprovalAbandoned,
+		"Allowed":   chatsvc.ApprovalAllowed,
+		"Refused":   chatsvc.ApprovalRefused,
 	}
 	marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalStatus = map[chatsvc.ApprovalStatus]string{
 		chatsvc.ApprovalPending:   "Pending",
 		chatsvc.ApprovalApproved:  "Approved",
 		chatsvc.ApprovalDenied:    "Denied",
 		chatsvc.ApprovalAbandoned: "Abandoned",
+		chatsvc.ApprovalAllowed:   "Allowed",
+		chatsvc.ApprovalRefused:   "Refused",
 	}
 )
 
@@ -21749,6 +22136,72 @@ func (ec *executionContext) marshalNObjectRef2githubᚗcomᚋkstackhqᚋkstack�
 	return ec._ObjectRef(ctx, sel, &v)
 }
 
+func (ec *executionContext) unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass(ctx context.Context, v any) (permissions.Class, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass[tmp]
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass(ctx context.Context, sel ast.SelectionSet, v permissions.Class) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(marshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass[v])
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
+var (
+	unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass = map[string]permissions.Class{
+		"ReadInside":    permissions.ReadInside,
+		"WriteInside":   permissions.WriteInside,
+		"NewHost":       permissions.NewHost,
+		"UpstreamWrite": permissions.UpstreamWrite,
+		"Destructive":   permissions.Destructive,
+		"SecretRead":    permissions.SecretRead,
+	}
+	marshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass = map[permissions.Class]string{
+		permissions.ReadInside:    "ReadInside",
+		permissions.WriteInside:   "WriteInside",
+		permissions.NewHost:       "NewHost",
+		permissions.UpstreamWrite: "UpstreamWrite",
+		permissions.Destructive:   "Destructive",
+		permissions.SecretRead:    "SecretRead",
+	}
+)
+
+func (ec *executionContext) unmarshalNPermissionProvider2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐProvider(ctx context.Context, v any) (permissions.Provider, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalNPermissionProvider2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐProvider[tmp]
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNPermissionProvider2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐProvider(ctx context.Context, sel ast.SelectionSet, v permissions.Provider) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(marshalNPermissionProvider2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐProvider[v])
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
+var (
+	unmarshalNPermissionProvider2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐProvider = map[string]permissions.Provider{
+		"K8s":  permissions.Kubernetes,
+		"Net":  permissions.Net,
+		"Path": permissions.Path,
+	}
+	marshalNPermissionProvider2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐProvider = map[permissions.Provider]string{
+		permissions.Kubernetes: "K8s",
+		permissions.Net:        "Net",
+		permissions.Path:       "Path",
+	}
+)
+
 func (ec *executionContext) marshalNPrinterColumn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐPrinterColumn(ctx context.Context, sel ast.SelectionSet, v clustersvc.PrinterColumn) graphql.Marshaler {
 	return ec._PrinterColumn(ctx, sel, &v)
 }
@@ -22503,6 +22956,13 @@ func (ec *executionContext) marshalOObjectID2ᚖgithubᚗcomᚋkstackhqᚋkstack
 		return graphql.Null
 	}
 	return v
+}
+
+func (ec *executionContext) marshalOPermissionAction2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐAction(ctx context.Context, sel ast.SelectionSet, v *permissions.Action) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._PermissionAction(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalOProvider2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐProvider(ctx context.Context, sel ast.SelectionSet, v *model.Provider) graphql.Marshaler {

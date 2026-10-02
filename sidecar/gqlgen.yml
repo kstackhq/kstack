@@ -346,6 +346,10 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalDenied
       Abandoned:
         value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalAbandoned
+      Allowed:
+        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalAllowed
+      Refused:
+        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalRefused
 
   BackgroundTask:
     model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.BackgroundTask
@@ -457,6 +461,34 @@ models:
   SecurityRefusal:
     model: github.com/kstackhq/kstack/sidecar/internal/securityconfig.Refusal
 
+  # --- Permissions ---
+  PermissionClass:
+    model: github.com/kstackhq/kstack/sidecar/internal/permissions.Class
+    enum_values:
+      ReadInside:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.ReadInside
+      WriteInside:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.WriteInside
+      NewHost:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.NewHost
+      UpstreamWrite:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.UpstreamWrite
+      Destructive:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.Destructive
+      SecretRead:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.SecretRead
+  PermissionProvider:
+    model: github.com/kstackhq/kstack/sidecar/internal/permissions.Provider
+    enum_values:
+      K8s:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.Kubernetes
+      Net:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.Net
+      Path:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.Path
+  # Context and namespace are the action's scope's.
+  PermissionAction:
+    model: github.com/kstackhq/kstack/sidecar/internal/permissions.Action
   # --- Auth ---
   # Bind the GraphQL auth types straight to the auth domain types so the
   # resolvers need no field-by-field mapper. Only schema fields are exposed —

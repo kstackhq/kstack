@@ -17,6 +17,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 )
@@ -308,6 +309,16 @@ func (r *mutationResolver) AuthLogout(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// Context is the resolver for the context field.
+func (r *permissionActionResolver) Context(ctx context.Context, obj *permissions.Action) (string, error) {
+	return obj.Scope.Context, nil
+}
+
+// Namespace is the resolver for the namespace field.
+func (r *permissionActionResolver) Namespace(ctx context.Context, obj *permissions.Action) (string, error) {
+	return obj.Scope.Namespace, nil
 }
 
 // Models is the resolver for the models field.
@@ -605,6 +616,9 @@ func (r *Resolver) ClusterPrincipal() ClusterPrincipalResolver { return &cluster
 // Mutation returns MutationResolver implementation.
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 
+// PermissionAction returns PermissionActionResolver implementation.
+func (r *Resolver) PermissionAction() PermissionActionResolver { return &permissionActionResolver{r} }
+
 // Query returns QueryResolver implementation.
 func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
 
@@ -622,6 +636,7 @@ type (
 	clusterCachedKindSpecResolver struct{ *Resolver }
 	clusterPrincipalResolver      struct{ *Resolver }
 	mutationResolver              struct{ *Resolver }
+	permissionActionResolver      struct{ *Resolver }
 	queryResolver                 struct{ *Resolver }
 	subscriptionResolver          struct{ *Resolver }
 	toolCallResolver              struct{ *Resolver }
