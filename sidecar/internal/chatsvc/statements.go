@@ -70,6 +70,8 @@ const (
 
 	stmtSelectClusterAccepts
 	stmtSelectMarkedClusterIDs
+
+	stmtSelectChatGrants
 	numStmts int = iota
 )
 
@@ -282,6 +284,8 @@ var statements = []sqlstmt.Statement{
 
 	// The clusters whose conversations the sweeper deletes.
 	stmtSelectMarkedClusterIDs: sqlstmt.OnReader(`SELECT id FROM clusters WHERE delete_requested_at IS NOT NULL ORDER BY id`),
+
+	stmtSelectChatGrants: sqlstmt.OnReader(`SELECT rule FROM chat_grants WHERE chat_id = ? ORDER BY created_at, id`),
 }
 
 // stmts issues the set's statements, on the pools or inside a transaction.

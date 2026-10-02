@@ -242,7 +242,7 @@ func (s *service) run(t *turn) (res agent.Result, err error) {
 
 // session is the turn's session, fixed for the turn.
 func (t *turn) session() session.Session {
-	return session.Session{Kind: session.Chat, Outside: t.outsideSandbox}
+	return t.s.sessionFor(t.chatID, t.outsideSandbox)
 }
 
 // chatOf is the turn's chat as stored: its cluster, the one its tools reach, since
