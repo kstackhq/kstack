@@ -2043,7 +2043,7 @@ func TestSecurityRefusedIsWhatOpenLeftOut(t *testing.T) {
 	}
 	cfg, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"), securityconfig.WithChecks(refuse))
 	require.NoError(t, err)
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{SecurityCfg: cfg}))
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{SecurityCfg: securityconfig.NewService(cfg, nil, nil, "")}))
 	t.Cleanup(srv.Close)
 
 	raw := postGQL(t, srv.URL, `{"query":"{ securityRefused { field value reason } }"}`)

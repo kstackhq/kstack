@@ -30,13 +30,14 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/webfetch"
 )
 
-// TestMain answers sandbox-init and sandbox-shell: newShell's probe starts
+// TestMain answers sandbox-init and sandbox-shell: newBashTool's probe starts
 // this test binary as both, through the machine's sandbox.
 func TestMain(m *testing.M) {
 	if code, ok := sandbox.Main(os.Args); ok {
@@ -55,7 +56,7 @@ func TestBashIsOfferedWithTheSandbox(t *testing.T) {
 	withBash := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(withBash, "bash"), []byte("#!/bin/sh\n"), 0o755))
 	t.Setenv("PATH", withBash)
-	shell, found, _ := newShell(bash.Paths{ShellDir: t.TempDir()}, 0, nil)
+	shell, found, _, _ := newBashTool(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil)
 	require.True(t, found)
 
 	var schema struct {
@@ -264,4 +265,36 @@ func TestASubagentsSandboxedCallRunsUnasked(t *testing.T) {
 	assert.Equal(t, "2", firstLine(row.result))
 	assert.True(t, row.sandboxed)
 	assert.Empty(t, row.approvalID)
+}
+
+// The PATH main read at launch is synced at Start, before the snapshot, on a
+// machine with a sandbox; with none read there is nothing to sync.
+func TestStartSyncsTheLaunchPath(t *testing.T) {
+	if _, v := sandbox.Probe(t.Context()); !v.Available {
+		testutil.RequireSandbox(t, "no sandbox: "+v.Reason)
+	}
+	t.Setenv("SHELL", "")
+	withBash := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(withBash, "bash"), []byte("#!/bin/sh\n"), 0o755))
+	t.Setenv("PATH", withBash)
+
+	a, err := New(withDirs(t, Config{DataDir: t.TempDir()}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	assert.False(t, slices.ContainsFunc(a.parts, func(p lifecycle.Part) bool { return p.Name == "PATH sync" }))
+
+	data := t.TempDir()
+	usrBin, err := filepath.EvalSymlinks("/usr/bin")
+	require.NoError(t, err)
+	a, err = New(withDirs(t, Config{DataDir: data, ShellPath: []string{"/usr/bin", "bin"}, ShellSnapshot: true}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+	assert.Equal(t, partIndex(t, a, "shell snapshot")-1, partIndex(t, a, "PATH sync"))
+	startApp(t, a)
+
+	store, err := securityconfig.Open(filepath.Join(data, "security.json"))
+	require.NoError(t, err)
+	assert.Equal(t, []securityconfig.PathEntry{
+		{Dir: "/usr/bin", Target: usrBin, State: securityconfig.PathAdopted, Source: securityconfig.SourceShell},
+	}, store.Get().Path)
 }

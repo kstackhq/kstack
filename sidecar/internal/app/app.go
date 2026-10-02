@@ -142,7 +142,7 @@ func New(cfg Config) (*App, error) {
 
 	p := pathsOf(cfg)
 	// The security settings hold no handle, so a failure leaves nothing to close.
-	securityCfg, err := securityconfig.Open(p.SecurityFile)
+	securityStore, err := securityconfig.Open(p.SecurityFile)
 	if err != nil {
 		return nil, err
 	}
@@ -192,8 +192,10 @@ func New(cfg Config) (*App, error) {
 
 	cat := newCatalog(cfg)
 	llmSvc := llm.New(cat.Providers()...)
-	shell, found, probed := newShell(p.Bash, cfg.HostPID, clusterSvc)
+	pathList := func() securityconfig.RunPath { return securityStore.Get().RunPath() }
+	shell, found, sb, probed := newBashTool(p.Bash, cfg.HostPID, clusterSvc, pathList)
 	sandboxStatus := sandboxStatusOf(found, probed)
+	securityCfg := newSecurityService(securityStore, sb, shell, sandboxStatus, p.Bash.DeniedDirs, cfg.ShellFault)
 	memorySvc, err := memorysvc.New(db, serverUIDLookup{clusters: clusterSvc.Clusters()})
 	if err != nil {
 		return fail(err)
@@ -243,6 +245,13 @@ func New(cfg Config) (*App, error) {
 		{Name: "cloud service", StartCloser: lifecycle.StartFunc(cloudSvc.Start)},
 		{Name: "memory service", StartCloser: memorySvc},
 		{Name: "chat service", StartCloser: chatSvc},
+	}
+	// Before the snapshot, so the first sandboxed run reads the synced list.
+	if cfg.ShellPath != nil && sandboxStatus.Available {
+		parts = append(parts, lifecycle.Part{Name: "PATH sync", StartCloser: lifecycle.StartFunc(func(ctx context.Context) (func(context.Context) error, error) {
+			syncPath(ctx, securityCfg, cfg.ShellPath)
+			return func(context.Context) error { return nil }, nil
+		})})
 	}
 	// Started after READY and before Serve, so no command can run ahead of it.
 	if cfg.ShellSnapshot && shell != nil {
@@ -338,13 +347,37 @@ func newCatalog(cfg Config) catalog.Catalog {
 	return catalog.New(catalog.Config{APIKeys: cfg.LLMKeys, BaseURLs: cfg.LLMBaseURLs, Fake: fake})
 }
 
-// newShell is the bash tool over the machine's sandbox, probed once here, and
-// the probe's status; ok false offers no bash.
-func newShell(paths bash.Paths, hostPID int, clusterSvc clustersvc.Service) (shell *bash.Tool, ok bool, status sandbox.Status) {
-	sb, status := sandbox.Probe(context.Background())
+// newBashTool probes the machine's sandbox once and builds the bash tool over
+// it. It answers the tool, false when none is offered, the sandbox, nil for
+// none, and the probe's status. A sandboxed run searches pathList.
+func newBashTool(paths bash.Paths, hostPID int, clusterSvc clustersvc.Service, pathList func() securityconfig.RunPath) (shell *bash.Tool, ok bool, sb *sandbox.Sandbox, status sandbox.Status) {
+	sb, status = sandbox.Probe(context.Background())
 	slog.Info("sandbox probed", "available", status.Available, "reason", status.Reason)
-	shell, ok = bash.New(paths, hostPID, sb, clusterSvc, nil)
-	return shell, ok, status
+	shell, ok = bash.New(paths, hostPID, sb, clusterSvc, pathList)
+	return shell, ok, sb, status
+}
+
+// newSecurityService is the security settings and the frozen PATH kept in
+// them. The sync judges an entry by what a sandboxed run of the bash tool's
+// shell reads, and by the paths no rule opens, Kstack's directories among
+// them. On a machine with no sandbox it syncs nothing and keeps no fault.
+func newSecurityService(store *securityconfig.Store, sb *sandbox.Sandbox, shell *bash.Tool, status sandbox.Status, denied []string, fault string) *securityconfig.Service {
+	if !status.Available {
+		return securityconfig.NewService(store, nil, nil, "")
+	}
+	home, _ := os.UserHomeDir()
+	zones := func() securityconfig.Zones {
+		return securityconfig.Zones{Never: slices.Concat(sb.Never(home), denied), Open: sb.System(home, shell.Shell()).Files, Home: home}
+	}
+	return securityconfig.NewService(store, zones, resolveShellPath, fault)
+}
+
+// syncPath folds the launch's PATH into the stored list. A sync that fails
+// changes nothing and is not a startup error.
+func syncPath(ctx context.Context, svc *securityconfig.Service, path []string) {
+	if err := svc.SyncPath(ctx, path); err != nil {
+		slog.Warn("PATH not synced", "err", err)
+	}
 }
 
 // sandboxStatusOf is whether sandboxed Bash is offered: a sandbox with no shell
