@@ -11,6 +11,8 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 )
 
 // The connecting principal's effective RBAC in one namespace (live
@@ -54,6 +56,34 @@ type Mutation struct {
 type NonResourceRule struct {
 	Verbs           []string `json:"verbs"`
 	NonResourceUrls []string `json:"nonResourceUrls"`
+}
+
+// A rule to add; every string is a pattern but `group`, and empty matches anything.
+type PermissionRuleInput struct {
+	Effect    permissions.Effect   `json:"effect"`
+	Class     permissions.Class    `json:"class"`
+	Provider  permissions.Provider `json:"provider"`
+	Context   string               `json:"context"`
+	Namespace string               `json:"namespace"`
+	Host      string               `json:"host"`
+	Folder    string               `json:"folder"`
+	Verb      string               `json:"verb"`
+	Group     string               `json:"group"`
+	Kind      string               `json:"kind"`
+}
+
+// The modes and rules sandboxed commands' cluster writes are decided by.
+type PermissionSettings struct {
+	// The mode of a context nothing else names.
+	DefaultMode permissions.Mode `json:"defaultMode"`
+	// Each known context's mode, by context.
+	Contexts []*securityconfig.ContextModeState `json:"contexts"`
+	// The user's always rules.
+	Rules []*permissions.Rule `json:"rules"`
+	// The writes that always ask, in words.
+	Destructive []string `json:"destructive"`
+	// The settings fields the file holds a value of that Kstack cannot read: `defaultMode`, `modes`, `rules`.
+	Held []string `json:"held"`
 }
 
 // A provider the sidecar can send a turn to.

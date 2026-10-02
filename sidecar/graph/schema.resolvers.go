@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"time"
 
+	gqlerrors "github.com/kstackhq/kstack/sidecar/graph/errors"
 	"github.com/kstackhq/kstack/sidecar/graph/model"
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/chatsvc"
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
@@ -292,6 +294,44 @@ func (r *mutationResolver) MemoryDelete(ctx context.Context, id memorysvc.Memory
 	return true, nil
 }
 
+// PermissionDefaultModeSet is the resolver for the permissionDefaultModeSet field.
+func (r *mutationResolver) PermissionDefaultModeSet(ctx context.Context, mode permissions.Mode) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.SecurityCfg.SetDefaultMode(mode))
+}
+
+// PermissionModeSet is the resolver for the permissionModeSet field.
+func (r *mutationResolver) PermissionModeSet(ctx context.Context, context string, mode permissions.Mode) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.SecurityCfg.SetMode(context, mode))
+}
+
+// PermissionModeClear is the resolver for the permissionModeClear field.
+func (r *mutationResolver) PermissionModeClear(ctx context.Context, context string) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.SecurityCfg.ClearMode(context))
+}
+
+// PermissionRuleAdd is the resolver for the permissionRuleAdd field.
+func (r *mutationResolver) PermissionRuleAdd(ctx context.Context, input model.PermissionRuleInput) (*model.PermissionSettings, error) {
+	if !permissions.Enforced(input.Provider, input.Class) {
+		return nil, gqlerrors.NewValidationError("permission", "rules: this kind of rule is not enforced yet")
+	}
+	rule := permissions.Rule{
+		ID: appdb.NewID(), Effect: input.Effect, Class: input.Class, Provider: input.Provider,
+		Scope: permissions.Scope{Context: input.Context, Namespace: input.Namespace, Host: input.Host, Folder: input.Folder},
+		Verb:  input.Verb, Group: input.Group, Kind: input.Kind,
+	}
+	return r.permissionsAfter(ctx, r.SecurityCfg.AddRule(rule))
+}
+
+// PermissionRuleRemove is the resolver for the permissionRuleRemove field.
+func (r *mutationResolver) PermissionRuleRemove(ctx context.Context, id string) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.SecurityCfg.RemoveRule(id))
+}
+
+// PermissionDiscardRefused is the resolver for the permissionDiscardRefused field.
+func (r *mutationResolver) PermissionDiscardRefused(ctx context.Context, field string) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.SecurityCfg.DiscardRefused(field))
+}
+
 // AuthLoginStart is the resolver for the authLoginStart field: setup runs synchronously
 // (its error surfaces here), the browser round-trip in the background, with the signed-in
 // state arriving via authStateWatch.
@@ -319,6 +359,31 @@ func (r *permissionActionResolver) Context(ctx context.Context, obj *permissions
 // Namespace is the resolver for the namespace field.
 func (r *permissionActionResolver) Namespace(ctx context.Context, obj *permissions.Action) (string, error) {
 	return obj.Scope.Namespace, nil
+}
+
+// Context is the resolver for the context field.
+func (r *permissionRuleResolver) Context(ctx context.Context, obj *permissions.Rule) (string, error) {
+	return obj.Scope.Context, nil
+}
+
+// Namespace is the resolver for the namespace field.
+func (r *permissionRuleResolver) Namespace(ctx context.Context, obj *permissions.Rule) (string, error) {
+	return obj.Scope.Namespace, nil
+}
+
+// Host is the resolver for the host field.
+func (r *permissionRuleResolver) Host(ctx context.Context, obj *permissions.Rule) (string, error) {
+	return obj.Scope.Host, nil
+}
+
+// Folder is the resolver for the folder field.
+func (r *permissionRuleResolver) Folder(ctx context.Context, obj *permissions.Rule) (string, error) {
+	return obj.Scope.Folder, nil
+}
+
+// Line is the resolver for the line field.
+func (r *permissionRuleResolver) Line(ctx context.Context, obj *permissions.Rule) (string, error) {
+	return obj.String(), nil
 }
 
 // Models is the resolver for the models field.
@@ -409,6 +474,11 @@ func (r *queryResolver) SandboxPathFault(ctx context.Context) (*string, error) {
 // SandboxPathResolved is the resolver for the sandboxPathResolved field.
 func (r *queryResolver) SandboxPathResolved(ctx context.Context) (bool, error) {
 	return r.SecurityCfg.PathResolved(), nil
+}
+
+// PermissionSettings is the resolver for the permissionSettings field.
+func (r *queryResolver) PermissionSettings(ctx context.Context) (*model.PermissionSettings, error) {
+	return r.permissionSettings(ctx)
 }
 
 // AuthState is the resolver for the authState field. auth.State binds directly to the
@@ -619,6 +689,9 @@ func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 // PermissionAction returns PermissionActionResolver implementation.
 func (r *Resolver) PermissionAction() PermissionActionResolver { return &permissionActionResolver{r} }
 
+// PermissionRule returns PermissionRuleResolver implementation.
+func (r *Resolver) PermissionRule() PermissionRuleResolver { return &permissionRuleResolver{r} }
+
 // Query returns QueryResolver implementation.
 func (r *Resolver) Query() QueryResolver { return &queryResolver{r} }
 
@@ -637,6 +710,7 @@ type (
 	clusterPrincipalResolver      struct{ *Resolver }
 	mutationResolver              struct{ *Resolver }
 	permissionActionResolver      struct{ *Resolver }
+	permissionRuleResolver        struct{ *Resolver }
 	queryResolver                 struct{ *Resolver }
 	subscriptionResolver          struct{ *Resolver }
 	toolCallResolver              struct{ *Resolver }
