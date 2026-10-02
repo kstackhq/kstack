@@ -34,6 +34,14 @@ type Documents = {
     "\n  subscription ClusterSchedule($id: ClusterID!) {\n    clusterScheduleWatch(id: $id) {\n      nextRequeueAt\n      probing\n    }\n  }\n": typeof types.ClusterScheduleDocument,
     "\n  mutation MemorySave($input: MemorySaveInput!) {\n    memorySave(input: $input) {\n      id\n    }\n  }\n": typeof types.MemorySaveDocument,
     "\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n": typeof types.MemoryDeleteDocument,
+    "\n  query PermissionSettings {\n    permissionSettings {\n      defaultMode\n      contexts {\n        context\n        mode\n        source\n        pattern\n        own\n      }\n      rules {\n        id\n        line\n      }\n      destructive\n      held\n    }\n  }\n": typeof types.PermissionSettingsDocument,
+    "\n  query SecurityRefused {\n    securityRefused {\n      field\n      value\n      reason\n    }\n  }\n": typeof types.SecurityRefusedDocument,
+    "\n  mutation PermissionDefaultModeSet($mode: PermissionMode!) {\n    permissionDefaultModeSet(mode: $mode) {\n      held\n    }\n  }\n": typeof types.PermissionDefaultModeSetDocument,
+    "\n  mutation PermissionModeSet($context: String!, $mode: PermissionMode!) {\n    permissionModeSet(context: $context, mode: $mode) {\n      held\n    }\n  }\n": typeof types.PermissionModeSetDocument,
+    "\n  mutation PermissionModeClear($context: String!) {\n    permissionModeClear(context: $context) {\n      held\n    }\n  }\n": typeof types.PermissionModeClearDocument,
+    "\n  mutation PermissionRuleAdd($input: PermissionRuleInput!) {\n    permissionRuleAdd(input: $input) {\n      held\n    }\n  }\n": typeof types.PermissionRuleAddDocument,
+    "\n  mutation PermissionRuleRemove($id: String!) {\n    permissionRuleRemove(id: $id) {\n      held\n    }\n  }\n": typeof types.PermissionRuleRemoveDocument,
+    "\n  mutation PermissionDiscardRefused($field: String!) {\n    permissionDiscardRefused(field: $field) {\n      held\n    }\n  }\n": typeof types.PermissionDiscardRefusedDocument,
     "\n  subscription AuthStateWatch {\n    authStateWatch {\n      authenticated\n      identity {\n        sub\n        email\n        name\n      }\n    }\n  }\n": typeof types.AuthStateWatchDocument,
     "\n  mutation AuthLoginStart {\n    authLoginStart\n  }\n": typeof types.AuthLoginStartDocument,
     "\n  mutation AuthLogout {\n    authLogout\n  }\n": typeof types.AuthLogoutDocument,
@@ -76,6 +84,14 @@ const documents: Documents = {
     "\n  subscription ClusterSchedule($id: ClusterID!) {\n    clusterScheduleWatch(id: $id) {\n      nextRequeueAt\n      probing\n    }\n  }\n": types.ClusterScheduleDocument,
     "\n  mutation MemorySave($input: MemorySaveInput!) {\n    memorySave(input: $input) {\n      id\n    }\n  }\n": types.MemorySaveDocument,
     "\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n": types.MemoryDeleteDocument,
+    "\n  query PermissionSettings {\n    permissionSettings {\n      defaultMode\n      contexts {\n        context\n        mode\n        source\n        pattern\n        own\n      }\n      rules {\n        id\n        line\n      }\n      destructive\n      held\n    }\n  }\n": types.PermissionSettingsDocument,
+    "\n  query SecurityRefused {\n    securityRefused {\n      field\n      value\n      reason\n    }\n  }\n": types.SecurityRefusedDocument,
+    "\n  mutation PermissionDefaultModeSet($mode: PermissionMode!) {\n    permissionDefaultModeSet(mode: $mode) {\n      held\n    }\n  }\n": types.PermissionDefaultModeSetDocument,
+    "\n  mutation PermissionModeSet($context: String!, $mode: PermissionMode!) {\n    permissionModeSet(context: $context, mode: $mode) {\n      held\n    }\n  }\n": types.PermissionModeSetDocument,
+    "\n  mutation PermissionModeClear($context: String!) {\n    permissionModeClear(context: $context) {\n      held\n    }\n  }\n": types.PermissionModeClearDocument,
+    "\n  mutation PermissionRuleAdd($input: PermissionRuleInput!) {\n    permissionRuleAdd(input: $input) {\n      held\n    }\n  }\n": types.PermissionRuleAddDocument,
+    "\n  mutation PermissionRuleRemove($id: String!) {\n    permissionRuleRemove(id: $id) {\n      held\n    }\n  }\n": types.PermissionRuleRemoveDocument,
+    "\n  mutation PermissionDiscardRefused($field: String!) {\n    permissionDiscardRefused(field: $field) {\n      held\n    }\n  }\n": types.PermissionDiscardRefusedDocument,
     "\n  subscription AuthStateWatch {\n    authStateWatch {\n      authenticated\n      identity {\n        sub\n        email\n        name\n      }\n    }\n  }\n": types.AuthStateWatchDocument,
     "\n  mutation AuthLoginStart {\n    authLoginStart\n  }\n": types.AuthLoginStartDocument,
     "\n  mutation AuthLogout {\n    authLogout\n  }\n": types.AuthLogoutDocument,
@@ -192,6 +208,38 @@ export function graphql(source: "\n  mutation MemorySave($input: MemorySaveInput
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n"): (typeof documents)["\n  mutation MemoryDelete($id: MemoryID!) {\n    memoryDelete(id: $id)\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  query PermissionSettings {\n    permissionSettings {\n      defaultMode\n      contexts {\n        context\n        mode\n        source\n        pattern\n        own\n      }\n      rules {\n        id\n        line\n      }\n      destructive\n      held\n    }\n  }\n"): (typeof documents)["\n  query PermissionSettings {\n    permissionSettings {\n      defaultMode\n      contexts {\n        context\n        mode\n        source\n        pattern\n        own\n      }\n      rules {\n        id\n        line\n      }\n      destructive\n      held\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  query SecurityRefused {\n    securityRefused {\n      field\n      value\n      reason\n    }\n  }\n"): (typeof documents)["\n  query SecurityRefused {\n    securityRefused {\n      field\n      value\n      reason\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation PermissionDefaultModeSet($mode: PermissionMode!) {\n    permissionDefaultModeSet(mode: $mode) {\n      held\n    }\n  }\n"): (typeof documents)["\n  mutation PermissionDefaultModeSet($mode: PermissionMode!) {\n    permissionDefaultModeSet(mode: $mode) {\n      held\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation PermissionModeSet($context: String!, $mode: PermissionMode!) {\n    permissionModeSet(context: $context, mode: $mode) {\n      held\n    }\n  }\n"): (typeof documents)["\n  mutation PermissionModeSet($context: String!, $mode: PermissionMode!) {\n    permissionModeSet(context: $context, mode: $mode) {\n      held\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation PermissionModeClear($context: String!) {\n    permissionModeClear(context: $context) {\n      held\n    }\n  }\n"): (typeof documents)["\n  mutation PermissionModeClear($context: String!) {\n    permissionModeClear(context: $context) {\n      held\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation PermissionRuleAdd($input: PermissionRuleInput!) {\n    permissionRuleAdd(input: $input) {\n      held\n    }\n  }\n"): (typeof documents)["\n  mutation PermissionRuleAdd($input: PermissionRuleInput!) {\n    permissionRuleAdd(input: $input) {\n      held\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation PermissionRuleRemove($id: String!) {\n    permissionRuleRemove(id: $id) {\n      held\n    }\n  }\n"): (typeof documents)["\n  mutation PermissionRuleRemove($id: String!) {\n    permissionRuleRemove(id: $id) {\n      held\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation PermissionDiscardRefused($field: String!) {\n    permissionDiscardRefused(field: $field) {\n      held\n    }\n  }\n"): (typeof documents)["\n  mutation PermissionDiscardRefused($field: String!) {\n    permissionDiscardRefused(field: $field) {\n      held\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
