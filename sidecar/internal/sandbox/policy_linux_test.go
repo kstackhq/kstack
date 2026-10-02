@@ -15,6 +15,8 @@
 package sandbox
 
 import (
+	"os"
+	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -42,4 +44,25 @@ func TestAllocatingPastTheMemoryLimitFails(t *testing.T) {
 	code, out = limitedRun(t, s, Limits{MemoryBytes: 512 << 20, OpenFiles: 4096}, nil, dd...)
 	assert.NotEqual(t, 0, code)
 	assert.Contains(t, out, "memory", "dd says why it stopped")
+}
+
+// A fork loop stops at the run's process limit, which counts the run's own
+// namespace alone, and holds forwarderTasks for the forwarder: the test starts
+// a process while the run is full.
+func TestAForkLoopStopsAtTheProcessLimit(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("the kernel holds root to no process limit")
+	}
+	s := confining(t)
+	if n, err := s.CountedProcesses(); err != nil || n != 0 {
+		t.Skip("the run has no namespace of its own to count")
+	}
+
+	n, eagain, more := forkLoop(t, s, Limits{Processes: 128, OpenFiles: 4096}, 256, func() error {
+		return exec.Command("/bin/true").Run()
+	})
+
+	assert.Less(t, n, 128+forwarderTasks)
+	assert.True(t, eagain)
+	assert.NoError(t, more, "a process outside the run")
 }

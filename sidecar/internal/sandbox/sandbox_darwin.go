@@ -89,7 +89,7 @@ func probe(ctx context.Context, path string, timeout time.Duration) (*Sandbox, S
 // probeFailure is why the probe's run failed: the first line of its stderr,
 // else what ended it.
 func probeFailure(stderr string, err error) string {
-	if line, _, _ := strings.Cut(strings.TrimSpace(stderr), "\n"); line != "" {
+	if line := firstLine(strings.TrimSpace(stderr)); line != "" {
 		return line
 	}
 	return err.Error()

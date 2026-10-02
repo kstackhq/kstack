@@ -1321,10 +1321,13 @@ each platform compiles it without knowing what a path or a relay is for:
   Unix socket outside the run. No relay is no network; a run has at most one.
 - **`Limits`**: `CPUSeconds`, `MemoryBytes` (Linux alone; macOS's `Command` refuses one),
   `OpenFiles` and `Processes`, each a resource limit set soft and hard, zero for the platform's
-  own. `CPUSeconds` has a hard limit `cpuGrace` (5 s) above its soft one. The sandbox adds
-  `forwarderTasks` to `Processes` for the forwarder, which starts before the limit is set (32
-  tasks on Linux, whose kernel counts its threads and which runs with one P; 1 process on
-  macOS). → [ADR: process limits are set inside the run](../docs/adr/2026-10-02-process-limits-are-set-inside-the-run.md).
+  own. `CPUSeconds` has a hard limit `cpuGrace` (5 s) above its soft one. `Processes` is counted
+  over the base **`Sandbox.CountedProcesses()`** answers, and the sandbox adds `forwarderTasks`
+  for the forwarder, which starts before the limit is set (32 tasks on Linux, whose kernel counts
+  its threads and which runs with one P, `TestTheForwarderStaysUnderItsTasks`; 1 process on
+  macOS). The base is 0 on Linux from 5.14 in a user namespace of the run's own, else the user's
+  count (`procs_linux.go` scans `/proc` by real uid and sums `Threads:`,
+  `procs_darwin.go` counts `kern.proc.ruid`). → [ADR: process limits are set inside the run](../docs/adr/2026-10-02-process-limits-are-set-inside-the-run.md).
 
 **`Check` refuses** a relative path; any rule or Always path strictly beneath a Write rule, Files
 or Always; a Files rule on or inside an Always path; a run's own path outside every Kstack path,
@@ -1391,8 +1394,11 @@ the sandbox, the setuid programs that escalate refused, no `/dev/tty` and the on
 first of `/usr/bin/bwrap`, `/bin/bwrap`, `/usr/local/bin/bwrap` and NixOS's
 `/run/current-system/sw/bin/bwrap` that exists, then Kstack's own, `../lib/kstack/bwrap` beside the
 executable (`src-tauri/CLAUDE.md`) (`bwrapPaths`; never off `PATH`), and answers the
-first that runs `/bin/sh -c true` through `Command` within five seconds (`probeBound`: it starts
-this executable twice). A failure's reason is the first line it wrote, naming the cause
+first that runs a shell through `Command` within five seconds (`probeBound`: it starts
+this executable twice). The probe's shell prints the first line of its `/proc/self/uid_map`, with
+builtins alone; a line that differs from the sidecar's means the run had a user namespace of its
+own (`ownUserNS`), and `Probe` keeps whether the kernel's release is 5.14 or later
+(`perNamespace`), the two `CountedProcesses` reads. A failure's reason is the first line it wrote, naming the cause
 (`setting up uid map: Permission denied` where AppArmor restricts user namespaces, `Unknown
 option` from a bwrap too old for a flag), and both reasons when both fail. The system's comes
 first because the distribution patches it, while Kstack's own changes only when the user installs
@@ -1401,7 +1407,8 @@ a new release. Kstack's own stands in where the system has none, or one that fai
 `forwarderPort`, since the namespace's loopback is the run's own. **`Command` refuses a rule on
 `/tmp` or `/dev`, or on or under `/proc`**, a Files rule and a run's own path alike, since it
 would replace a fixed mount; a rule under `/tmp` or `/dev` is bound over it. The arguments come
-in the order that lets each mount lie over the last: the namespaces (`--unshare-net`, `-pid`,
+in the order that lets each mount lie over the last: the namespaces (`--unshare-user-try`, so a
+setuid bwrap makes the run a user namespace where the machine allows one, `--unshare-net`, `-pid`,
 `-ipc`, `-uts`, `--unshare-cgroup-try`, `--die-with-parent --new-session --as-pid-1`); a rule on
 `/` itself; `/proc`, `/dev` and a fresh `/tmp`; the merged rules, one mount each (`mounter`): a
 Read or Write bound at its resolved path and, where that differs from the path as written,

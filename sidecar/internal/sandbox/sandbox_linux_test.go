@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -83,9 +84,9 @@ func TestTheCommandStartsBwrapOverTheChain(t *testing.T) {
 	assert.Equal(t, []string{"A=1"}, cmd.Env)
 	args := cmd.Args[1:]
 	assert.Equal(t, []string{
-		"--unshare-net", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try",
+		"--unshare-user-try", "--unshare-net", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try",
 		"--die-with-parent", "--new-session", "--as-pid-1",
-	}, args[:8])
+	}, args[:9])
 	assert.True(t, seq(args, "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp"), args)
 	for _, p := range []string{snap, d[4], self} {
 		assert.True(t, seq(args, "--ro-bind", p, p), p)
@@ -1098,7 +1099,7 @@ func TestTheProbePolicyIsBounded(t *testing.T) {
 	t.Cleanup(func() { buildProbePolicy = old })
 	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
 
-	err := s.try(t.Context(), 10*time.Millisecond)
+	_, err := s.try(t.Context(), 10*time.Millisecond)
 
 	assert.EqualError(t, err, "no answer in 10ms")
 }
@@ -1131,6 +1132,39 @@ func TestALinkedShellRuns(t *testing.T) {
 
 	assert.Equal(t, 0, code)
 	assert.Equal(t, "ran\n", out)
+}
+
+// From 5.14 the kernel counts a process limit per user namespace.
+func TestTheKernelReleaseIsRead(t *testing.T) {
+	for _, release := range []string{"5.14.0-284.el9", "6.1.0", "7.0.14"} {
+		assert.True(t, countsPerNamespace(release), release)
+	}
+	for _, release := range []string{"4.18.0-553.el8", "5.13.19", "", "linux", "5"} {
+		assert.False(t, countsPerNamespace(release), release)
+	}
+}
+
+// Two namespaces with different maps are different namespaces; a line that
+// matches the sidecar's, or none, is not the run's own.
+func TestTheUidMapDecidesTheNamespace(t *testing.T) {
+	sidecar := "         0          0 4294967295"
+
+	assert.True(t, ownNamespace("1000 1000 1", sidecar))
+	assert.False(t, ownNamespace("0 0 4294967295", sidecar))
+	assert.False(t, ownNamespace("", sidecar))
+}
+
+// Where the machine makes a user namespace, the probed sandbox's run has one
+// of its own, and every run asks bwrap for it.
+func TestTheProbeFindsItsOwnUserNamespace(t *testing.T) {
+	if err := exec.Command("unshare", "-U", "true").Run(); err != nil {
+		t.Skip("no user namespace outside the sandbox: ", err)
+	}
+	s := confining(t)
+
+	assert.True(t, s.ownUserNS)
+	args := command(t, s, t.Context(), Run{Shell: "/bin/sh", Dir: "/"}).Args
+	assert.Contains(t, args, "--unshare-user-try")
 }
 
 // Through the real sandbox a command cannot trace even its own child, which

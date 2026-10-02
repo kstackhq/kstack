@@ -662,12 +662,6 @@ func shWithin(t *testing.T, s *Sandbox, r Run, d time.Duration, script string, e
 	return strings.ReplaceAll(string(out), coverWarning, ""), err == nil, ctx.Err() != nil
 }
 
-// firstLine is what a run printed first.
-func firstLine(out string) string {
-	line, _, _ := strings.Cut(out, "\n")
-	return line
-}
-
 // write makes a file holding "secret" under dir.
 func write(t *testing.T, dir, name string) string {
 	t.Helper()

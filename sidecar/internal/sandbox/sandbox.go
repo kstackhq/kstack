@@ -44,6 +44,12 @@ func Main(argv []string) (code int, ok bool) {
 	return 0, false
 }
 
+// firstLine is s up to its first newline.
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(s, "\n")
+	return line
+}
+
 // Run is one command to start sandboxed.
 type Run struct {
 	Shell string   // the shell's path
@@ -84,4 +90,8 @@ type Sandbox struct {
 	bwrap string
 	// launcher is the sandbox-exec a run starts under, on macOS.
 	launcher string
+	// perNamespace is whether the kernel counts a process limit per user
+	// namespace, and ownUserNS whether the probe's run had a user namespace
+	// of its own, on Linux.
+	perNamespace, ownUserNS bool
 }

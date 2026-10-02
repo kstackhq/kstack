@@ -17,12 +17,15 @@
 package sandbox
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
@@ -278,6 +281,70 @@ func TestOpeningPastTheFileLimitFails(t *testing.T) {
 	require.NoError(t, err, out)
 	assert.Less(t, n, 64)
 	assert.True(t, emfile, out)
+}
+
+func init() {
+	// forks starts sleep children until it cannot, or until it has started
+	// KSTACK_SANDBOX_TEST_FORKS, so a limit that fails to hold never takes the
+	// machine. It prints how many it started and whether the kernel said
+	// EAGAIN, then waits for its input to end.
+	helpers["forks"] = func() int {
+		most, _ := strconv.Atoi(os.Getenv("KSTACK_SANDBOX_TEST_FORKS"))
+		n := 0
+		var err error
+		for ; n < most; n++ {
+			if err = exec.Command("sleep", "1000").Start(); err != nil {
+				break
+			}
+		}
+		fmt.Println(n, errors.Is(err, syscall.EAGAIN))
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		return 0
+	}
+}
+
+// forkLoop runs the forks helper through s under l, at most most children,
+// calls whileFull once it stops, and answers how many children it started,
+// whether it stopped on EAGAIN, and whileFull's error.
+func forkLoop(t *testing.T, s *Sandbox, l Limits, most int, whileFull func() error) (n int, eagain bool, err error) {
+	t.Helper()
+	env := []string{"KSTACK_SANDBOX_TEST_HELPER=forks", "KSTACK_SANDBOX_TEST_FORKS=" + strconv.Itoa(most)}
+	cmd := command(t, s, t.Context(), limitedRunOf(t, s, l, env, os.Args[0]))
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	in, err := cmd.StdinPipe()
+	require.NoError(t, err)
+	out, err := cmd.StdoutPipe()
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() { _ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); _ = cmd.Wait() })
+
+	line, err := bufio.NewReader(out).ReadString('\n')
+	require.NoError(t, err)
+	_, err = fmt.Sscan(line, &n, &eagain)
+	require.NoError(t, err, line)
+	err = whileFull()
+	_ = in.Close()
+	return n, eagain, err
+}
+
+// Where the kernel counts the user's whole machine, a margin over the count
+// still stops a fork loop. Other tests move the count, so the bound is loose:
+// the test proves a limit holds, not its value.
+func TestAForkLoopStopsUnderAMachineWideCount(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("the kernel holds root to no process limit")
+	}
+	s := confining(t)
+	base, err := s.CountedProcesses()
+	require.NoError(t, err)
+	if base == 0 {
+		t.Skip("the run counts its own namespace alone")
+	}
+
+	n, eagain, _ := forkLoop(t, s, Limits{Processes: base + 512, OpenFiles: 4096}, 4096, func() error { return nil })
+
+	assert.Less(t, n, 4096)
+	assert.True(t, eagain)
 }
 
 // sudo cannot gain root: Linux sets no_new_privs, and macOS refuses to start

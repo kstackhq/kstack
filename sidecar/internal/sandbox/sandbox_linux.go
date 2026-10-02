@@ -23,8 +23,11 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // probeBound is how long a probe's run may take. It starts this executable
@@ -55,25 +58,32 @@ func probe(ctx context.Context, self string, bwraps []string, bound time.Duratio
 	if len(bwraps) == 0 {
 		return nil, Status{Reason: "bwrap not found"}
 	}
+	var uts unix.Utsname
+	perNamespace := unix.Uname(&uts) == nil && countsPerNamespace(unix.ByteSliceToString(uts.Release[:]))
 	var reasons []string
 	for _, bwrap := range bwraps {
-		s := &Sandbox{self: self, bwrap: bwrap}
-		if err := s.try(ctx, bound); err != nil {
+		s := &Sandbox{self: self, bwrap: bwrap, perNamespace: perNamespace}
+		uidMap, err := s.try(ctx, bound)
+		if err != nil {
 			reasons = append(reasons, bwrap+": "+err.Error())
 			continue
 		}
+		own, _ := os.ReadFile("/proc/self/uid_map")
+		s.ownUserNS = ownNamespace(uidMap, firstLine(string(own)))
 		return s, Status{Available: true, Reason: "bwrap at " + bwrap}
 	}
 	return nil, Status{Reason: strings.Join(reasons, "; ")}
 }
 
-// try runs /bin/sh -c true through s, as a run with no cluster: bwrap, the
-// forwarder, and the shell launcher's filter. Its error is the first line the
-// run wrote, which names the cause.
-func (s *Sandbox) try(ctx context.Context, bound time.Duration) error {
+// try runs a shell through s, as a run with no cluster: bwrap, the forwarder,
+// and the shell launcher's filter. It answers the first line of the run's
+// /proc/self/uid_map, read with the shell's builtins alone, since a NixOS
+// run's PATH holds no other program. Its error is the first line the run
+// wrote, which names the cause.
+func (s *Sandbox) try(ctx context.Context, bound time.Duration) (string, error) {
 	dir, err := os.MkdirTemp("", "kstack-probe-")
 	if err != nil {
-		return err
+		return "", err
 	}
 	defer os.RemoveAll(dir)
 	// With no home the policy denies the absolute Never paths alone.
@@ -83,25 +93,27 @@ func (s *Sandbox) try(ctx context.Context, bound time.Duration) error {
 	shell, env := "/bin/sh", []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "TMPDIR=" + dir}
 	p, err := s.probePolicyWithin(ctx, shell, dir, home)
 	if err != nil {
-		return fmt.Errorf("no answer in %s", bound)
+		return "", fmt.Errorf("no answer in %s", bound)
 	}
-	cmd, err := s.Command(ctx, Run{Shell: shell, Args: []string{"-c", "true"}, Dir: dir, Env: env, Policy: p})
+	cmd, err := s.Command(ctx, Run{
+		Shell: shell, Args: []string{"-c", `read -r m < /proc/self/uid_map; echo "$m"`}, Dir: dir, Env: env, Policy: p,
+	})
 	if err != nil {
-		return err
+		return "", err
 	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err = cmd.Run()
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return fmt.Errorf("no answer in %s", bound)
+		return "", fmt.Errorf("no answer in %s", bound)
 	case err == nil:
-		return nil
+		return firstLine(stdout.String()), nil
 	}
-	if line, _, _ := strings.Cut(stderr.String(), "\n"); line != "" {
-		return errors.New(line)
+	if line := firstLine(stderr.String()); line != "" {
+		return "", errors.New(line)
 	}
-	return err
+	return "", err
 }
 
 // bwrapPaths is the bwraps the probe tries, in order: the first of system
@@ -151,7 +163,7 @@ func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 // it; the policy's other rules; then the closing remounts and the chain.
 func (s *Sandbox) args(r Run) []string {
 	args := []string{
-		"--unshare-net", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try",
+		"--unshare-user-try", "--unshare-net", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try",
 		"--die-with-parent", "--new-session", "--as-pid-1",
 	}
 	// Rules sort shallowest first, so any rule on / leads.
@@ -282,4 +294,28 @@ func (s *Sandbox) Port() (int, error) { return forwarderPort, nil }
 func overFixedMount(p string) bool {
 	p = filepath.Clean(p)
 	return p == "/tmp" || p == "/dev" || within(p, "/proc")
+}
+
+// countsPerNamespace reports whether a kernel of release counts a process
+// limit per user namespace, which Linux does from 5.14. A release that does
+// not parse does not.
+func countsPerNamespace(release string) bool {
+	major, minor, _ := strings.Cut(release, ".")
+	if i := strings.IndexFunc(minor, func(r rune) bool { return r < '0' || r > '9' }); i >= 0 {
+		minor = minor[:i]
+	}
+	m, err1 := strconv.Atoi(major)
+	n, err2 := strconv.Atoi(minor)
+	if err1 != nil || err2 != nil {
+		return false
+	}
+	return m > 5 || m == 5 && n >= 14
+}
+
+// ownNamespace reports whether a run's first uid_map line names a user
+// namespace other than the sidecar's: two namespaces with different maps are
+// different namespaces. An empty line is not the run's own.
+func ownNamespace(run, sidecar string) bool {
+	fields := strings.Fields(run)
+	return len(fields) > 0 && !slices.Equal(fields, strings.Fields(sidecar))
 }
