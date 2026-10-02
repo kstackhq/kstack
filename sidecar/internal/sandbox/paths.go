@@ -54,3 +54,15 @@ func resolved(p string) string {
 	}
 	return filepath.Join(resolved(parent), filepath.Base(p))
 }
+
+// Resolved is each of paths with its links followed, so a caller comparing
+// many paths against them resolves them once.
+func Resolved(paths []string) []string {
+	return resolvedAll(paths)
+}
+
+// Under reports whether p is one of dirs or lies under one, by their text
+// alone: both must already be resolved.
+func Under(p string, dirs []string) bool {
+	return inAny(p, dirs)
+}
