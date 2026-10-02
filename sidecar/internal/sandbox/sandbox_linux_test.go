@@ -1132,3 +1132,15 @@ func TestALinkedShellRuns(t *testing.T) {
 	assert.Equal(t, 0, code)
 	assert.Equal(t, "ran\n", out)
 }
+
+// Through the real sandbox a command cannot trace even its own child, which
+// the kernel's own checks would allow: the filter is what refuses it.
+func TestTheShellCannotTraceItsOwnChild(t *testing.T) {
+	outside(t, "trace")
+	s := confining(t)
+
+	code, out := run(t, s, self(t, "trace"))
+
+	assert.Equal(t, 1, code)
+	assert.Equal(t, "operation not permitted", out)
+}

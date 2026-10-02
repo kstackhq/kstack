@@ -122,6 +122,16 @@ func filter() []bpf.Instruction {
 	for _, nr := range []uint32{unix.SYS_IO_URING_SETUP, unix.SYS_IO_URING_ENTER, unix.SYS_IO_URING_REGISTER, unix.SYS_CLONE3} {
 		prog = append(prog, bpf.JumpIf{Cond: bpf.JumpEqual, Val: nr, SkipFalse: 1}, enosys)
 	}
+	// No process traces, reads or writes another, takes its descriptors, or
+	// compares kernel objects with it, its own children included. Nor does
+	// one reach the kernel keyring, which bwrap leaves the user's session's.
+	for _, nr := range []uint32{
+		unix.SYS_PTRACE, unix.SYS_PROCESS_VM_READV, unix.SYS_PROCESS_VM_WRITEV,
+		unix.SYS_PIDFD_GETFD, unix.SYS_KCMP, unix.SYS_PROCESS_MADVISE,
+		unix.SYS_KEYCTL, unix.SYS_ADD_KEY, unix.SYS_REQUEST_KEY,
+	} {
+		prog = append(prog, bpf.JumpIf{Cond: bpf.JumpEqual, Val: nr, SkipFalse: 1}, eperm)
+	}
 	return append(prog,
 		bpf.JumpIf{Cond: bpf.JumpEqual, Val: unix.SYS_UNSHARE, SkipTrue: 1},
 		bpf.JumpIf{Cond: bpf.JumpEqual, Val: unix.SYS_CLONE, SkipFalse: 4},

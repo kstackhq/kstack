@@ -226,6 +226,13 @@ func TestInitExitsWhenTheChildCannotStart(t *testing.T) {
 	assert.True(t, strings.HasPrefix(stderr, "sandbox-init: cannot start /nonexistent/shell: "), stderr)
 }
 
+// helperCmd is the test binary as the helper named, outside any sandbox.
+func helperCmd(name string) *exec.Cmd {
+	cmd := exec.Command(os.Args[0])
+	cmd.Env = append(os.Environ(), "KSTACK_SANDBOX_TEST_HELPER="+name)
+	return cmd
+}
+
 // initCmd is the test binary as the forwarder, given args.
 func initCmd(args ...string) *exec.Cmd {
 	return exec.Command(os.Args[0], append([]string{InitCommand}, args...)...)

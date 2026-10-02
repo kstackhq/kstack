@@ -1466,7 +1466,9 @@ past the network namespace — and so does
 `socketpair` unless it is a stream or seqpacket pair, since a datagram end can send to a host's
 pathname socket in any directory the run reads; io_uring
 `ENOSYS`, `unshare` and `clone` with `CLONE_NEWUSER` `EPERM`, and `clone3`, whose flags it cannot
-read, `ENOSYS`, on which glibc falls back to `clone`. Its tests run it on `bpf.VM` over a
+read, `ENOSYS`, on which glibc falls back to `clone`; tracing (`ptrace`, `process_vm_readv`,
+`process_vm_writev`, `pidfd_getfd`, `kcmp`, `process_madvise`) and the kernel keyring (`keyctl`,
+`add_key`, `request_key`), which a run inherits from the user's session, `EPERM`. Its tests run it on `bpf.VM` over a
 `seccomp_data` laid out big-endian word by word, and `ShellMain` in a child.
 
 **Tests that start the chain call `sandbox.Main` from their `TestMain`**: `sandbox`, `bash`

@@ -1055,6 +1055,26 @@ func TestNoOtherProcessIsRead(t *testing.T) {
 	assert.NotContains(t, out, value)
 }
 
+// sample examines another process through its task port, which the profile
+// refuses: inside it fails with the line it prints when the port is refused,
+// so a sample that cannot start or read a file does not pass.
+func TestATaskPortIsRefused(t *testing.T) {
+	other := exec.Command("sleep", "60")
+	require.NoError(t, other.Start())
+	t.Cleanup(func() { _ = other.Process.Kill(); _ = other.Wait() })
+	pid := strconv.Itoa(other.Process.Pid)
+	if out, err := exec.Command("/usr/bin/sample", pid, "1").CombinedOutput(); err != nil {
+		t.Skip("sample cannot examine a process outside the sandbox: ", string(out))
+	}
+	s := confining(t)
+	m := standIn(t)
+
+	out, ok := sh(t, s, m.on(s), `/usr/bin/sample "$P" 1`, "P="+pid)
+
+	assert.False(t, ok, out)
+	assert.Contains(t, out, "cannot examine process "+pid)
+}
+
 func TestAPublicNameDoesNotResolve(t *testing.T) {
 	s := confining(t)
 	m := standIn(t)
