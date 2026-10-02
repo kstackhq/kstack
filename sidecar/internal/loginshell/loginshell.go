@@ -115,6 +115,35 @@ func buildCommand() string {
 	return b.String()
 }
 
+// nuCommand is command's two frames in nushell: the cwd, then PATH, a list
+// there, joined as the posix shells export it.
+var nuCommand = `^/usr/bin/printf '\000` + marker + `\000'; ^/bin/pwd; ` +
+	`^/usr/bin/printf '\000` + marker + `\000'; $env.PATH | str join ':' | print; ` +
+	`^/usr/bin/printf '\000` + marker + `\000'`
+
+// A shellKind is how a family of shells is asked: its arguments, how many
+// frames its command prints, and what those frames answer.
+type shellKind struct {
+	args   []string
+	frames int
+	read   func(frames [][]byte) (Result, bool)
+}
+
+var (
+	// posix is every shell but nushell: fish parses command too.
+	posix = shellKind{args: InteractiveLogin(command), frames: len(imported) + 1, read: readPosix}
+	// nu reads env.nu, config.nu and login.nu under -c only as a login shell.
+	nu = shellKind{args: []string{"-l", "-c", nuCommand}, frames: 2, read: readNu}
+)
+
+// kindOf is the kind shell is, read off its base name.
+func kindOf(shell string) shellKind {
+	if filepath.Base(shell) == "nu" {
+		return nu
+	}
+	return posix
+}
+
 // readPosix answers the PATH as exported and the allowlist resolved. It
 // reports false for a PATH that is missing or resolves to nothing.
 func readPosix(frames [][]byte) (Result, bool) {
@@ -124,6 +153,16 @@ func readPosix(frames [][]byte) (Result, bool) {
 		return Result{}, false
 	}
 	return Result{Path: filepath.SplitList(a.env["PATH"]), Env: env}, true
+}
+
+// readNu answers the PATH alone, since the allowlist is read from a posix
+// shell's printenv. It reports false for an empty PATH.
+func readNu(frames [][]byte) (Result, bool) {
+	path := string(frames[1])
+	if path == "" {
+		return Result{}, false
+	}
+	return Result{Path: filepath.SplitList(path), Env: map[string]string{}}, true
 }
 
 // maxOutputBytes caps each of the shell's two streams. Startup files are chatty,
@@ -181,16 +220,16 @@ func Resolve(ctx context.Context) (Result, *Fault) {
 	if f != nil {
 		return Result{}, f
 	}
-	frames := len(imported) + 1
-	out, f := Launch(ctx, shell, InteractiveLogin(command), scrubbedEnv(shell), maxOutputBytes, func(buf []byte, _ int) bool {
-		_, ok := parse(buf, frames)
+	kind := kindOf(shell)
+	out, f := Launch(ctx, shell, kind.args, scrubbedEnv(shell), maxOutputBytes, func(buf []byte, _ int) bool {
+		_, ok := parse(buf, kind.frames)
 		return ok
 	})
 	if f != nil {
 		return Result{}, f
 	}
-	parsed, _ := parse(out, frames)
-	res, ok := readPosix(parsed)
+	frames, _ := parse(out, kind.frames)
+	res, ok := kind.read(frames)
 	if !ok {
 		// The shell answered, but with a PATH that finds nothing.
 		return Result{}, fault(reasonBadOutput)

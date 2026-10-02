@@ -626,11 +626,42 @@ func TestResolveFallsBackWhenThereIsNoShell(t *testing.T) {
 
 // parseAnswer is parse over a posix run's frames, read as an answer.
 func parseAnswer(out []byte) (answer, bool) {
-	frames, ok := parse(out, len(imported)+1)
+	frames, ok := parse(out, posix.frames)
 	if !ok {
 		return answer{}, false
 	}
 	return answerOf(frames), true
+}
+
+// Each kind of shell is run with its own flags and asked in its own language,
+// and either answers the PATH it built.
+func TestResolveReadsEachShellKind(t *testing.T) {
+	m := `\000` + marker + `\000`
+	tests := map[string]struct {
+		flags, answer string
+		env           map[string]string
+	}{
+		// The posix fake runs the command it is handed, so the command is under test.
+		"zsh": {"-i -l -c", "PATH=/a:/b /bin/sh -c \"$4\"", map[string]string{"PATH": "/a:/b"}},
+		// A fake cannot speak nushell, so it answers as the nushell command would.
+		"nu": {"-l -c", "/usr/bin/printf '" + m + "/home\\n" + m + "/a:/b\\n" + m + "'", map[string]string{}},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			shell := filepath.Join(t.TempDir(), name)
+			require.NoError(t, os.WriteFile(shell, []byte("#!/bin/sh\n"+
+				"[ \"$1 $2 $3\" = \""+tc.flags+"\" ] || [ \"$1 $2\" = \""+tc.flags+"\" ] && [ $# = "+
+				strconv.Itoa(len(strings.Fields(tc.flags))+1)+" ] || exit 9\n"+tc.answer+"\n"), 0o700))
+			useAccountShell(t, shell)
+
+			ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+			defer cancel()
+			got, f := Resolve(ctx)
+			require.Nil(t, f)
+			require.Equal(t, []string{"/a", "/b"}, got.Path)
+			require.Equal(t, tc.env, got.Env)
+		})
+	}
 }
 
 // Path is Resolve's PATH, or the Fault as its error.
@@ -654,4 +685,18 @@ func TestAFaultAnswersNoPath(t *testing.T) {
 		require.ErrorAs(t, err, &f)
 		require.Equal(t, reason, f.Reason)
 	}
+}
+
+// A nushell that answers an empty PATH is bad output, as a posix one is.
+func TestResolveRefusesAnEmptyNuPath(t *testing.T) {
+	m := `\000` + marker + `\000`
+	shell := filepath.Join(t.TempDir(), "nu")
+	require.NoError(t, os.WriteFile(shell, []byte("#!/bin/sh\n/usr/bin/printf '"+m+"/home\\n"+m+"\\n"+m+"'\n"), 0o700))
+	useAccountShell(t, shell)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+	defer cancel()
+	_, f := Resolve(ctx)
+	require.NotNil(t, f)
+	require.Equal(t, reasonBadOutput, f.Reason)
 }
