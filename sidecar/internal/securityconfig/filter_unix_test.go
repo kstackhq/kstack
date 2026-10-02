@@ -25,37 +25,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 )
-
-// zoneFixture is a machine in miniature: open is what every run reads, with
-// a closed folder inside it, home is outside it, and never is denied always.
-type zoneFixture struct {
-	base, open, closed, home, never string
-	zones                           Zones
-}
-
-func newZones(t *testing.T) *zoneFixture {
-	t.Helper()
-	base, err := filepath.EvalSymlinks(t.TempDir())
-	require.NoError(t, err)
-	z := &zoneFixture{
-		base:   base,
-		open:   dirWithMode(t, base, "open", 0o755),
-		closed: dirWithMode(t, base, "open/closed", 0o755),
-		home:   dirWithMode(t, base, "home", 0o755),
-		never:  dirWithMode(t, base, "never", 0o755),
-	}
-	z.zones = Zones{Never: []string{z.never}, Open: sandbox.FilePolicy{Read: []string{z.open}, Deny: []string{z.closed}}}
-	return z
-}
-
-// dir makes a folder under the fixture's base and answers its path.
-func (z *zoneFixture) dir(t *testing.T, rel string) string {
-	t.Helper()
-	return dirWithMode(t, z.base, rel, 0o755)
-}
 
 // fakeGroups answers every gid's name as name, or fails when name is "",
 // and starts the cache empty.

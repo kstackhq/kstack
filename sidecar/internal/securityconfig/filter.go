@@ -29,16 +29,6 @@ type pathDir struct {
 	Shared bool   // writable by a group other than an administrators' one
 }
 
-// Zones is what the sync judges an entry by: Never, the paths no rule opens;
-// Open, what every run reads, whose Read paths are the open folders and whose
-// Deny paths close what lies under them again; and Home, which with its
-// app-data folders no entry may be or hold.
-type Zones struct {
-	Never []string
-	Open  sandbox.FilePolicy
-	Home  string
-}
-
 // zones is Zones with every path resolved once, so each folder is compared
 // with them by text.
 type zones struct {
