@@ -68,7 +68,7 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 | --- | --- | --- |
 | `sandbox` | the OS sandbox: `Policy`, the zone `Lists`, `Limits`, and reading a run's denials | landed; 1A, 2A, 2B, 5B |
 | `securityconfig` | the settings file `<data>/security.json`: the store, and the fields later steps add — the frozen `PATH`, the permission rules and modes, the host rules, the folders granted always, the registered tools, the monitor's switch, the onboarding flag | 1C |
-| `session` | a `Session`: one agent run's kind, workspace, approval mode, host allowlist, folder grants and rules; and how a subagent's is narrowed from its parent's | 2C |
+| `session` | a `Session`: one agent run's kind and sandbox switch, then its approval mode, host allowlist, folder grants and rules; and how a subagent's is narrowed from its parent's | 2C |
 | `permissions` | the action classes, the approval modes, the rules, and `Decide` | 3B |
 | `kubeproxy` | the cluster proxy | landed; 3B, 5A |
 | `egress` | the egress proxy: the host allowlist | 4C |
@@ -83,10 +83,9 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 - **`sandbox.Lists`**: the zones on a platform. `System` (readable by default), `Toolchain`
   (readable under the home by default), `Never` (denied always), `Closed` (denied, but a grant
   inside one opens what it names). One shared file and one per platform.
-- **`session.Session`**: `Kind` (`chat`, `monitor` or `subagent`), `ChatID`, `ClusterID` and
-  `Outside` (2C); the approval `Mode`, `NoPrompts` and `Rules` (3B); `Hosts` (4C); `Folders`
-  (4D); `NoSecretData` (5A). There is no workspace field: the workspace is
-  `tools.WorkspacePath(rt.Dir)`. Identity fields and the switch are copied when a subagent
+- **`session.Session`**: `Kind` (`chat`, `monitor` or `subagent`) and `Outside` (2C); the approval `Mode`, `NoPrompts` and `Rules` (3B); `Hosts` (4C); `Folders`
+  (4D); `NoSecretData` (5A). The chat, the cluster and the workspace are not on it: they are the
+  runtime's `ChatID`, `ClusterID` and `tools.WorkspacePath(rt.Dir)`. Identity fields and the switch are copied when a subagent
   spawns; policy the user can change (`Mode`, `Rules`, `Hosts`, `Folders`) is a function read
   live, which `Narrow` never widens (step 2C). `tools.Runtime.Session` carries it to every tool.
 - **`permissions.Class`**: 1 to 6 as the note numbers them. **`permissions.Mode`**: `ReadOnly`,
@@ -138,7 +137,7 @@ sandboxer whose `Command` 1A changes. 1B and 1C each add a few lines to `app.New
 | --- | --- | --- |
 | 2A | **The sandbox's own environment.** The zone lists become `Lists`, with the other users' homes on `Never` and `~/Documents`, `~/Desktop` and `~/Downloads` `Closed`; the environment is built from one table, the note's pass-through list plus the run's own paths and the toolchains' variables, and `sandbox.NeverEnv` refuses a run that would carry a name it lists; the `*_HOME` redirects into a per-chat tool home; a sandboxed run neither waits for nor sources the snapshot. **Landed**; `sidecar/CLAUDE.md` describes it. | Nothing in the user's environment reaches a sandboxed command, and a tool that writes under the home writes a cache Kstack owns. |
 | 2B | **Process limits and restrictions.** Memory, open files, core size, a process count over what the kernel counts against the run (512 processes on macOS, 128 tasks per CPU and at least 1024 on Linux), and CPU time for a foreground run alone, set on the run by `Policy.Limits` and applied by the run's first processes: the forwarder, which becomes every run's first process, sets CPU, files and core size, and on macOS the process count; `sandbox-shell` sets memory and, on Linux, the process count; `sudo` refused on both platforms, tracing refused, and the kernel keyring on Linux. **Landed**; `sidecar/CLAUDE.md` describes it. | A runaway command cannot take the machine, and no command escalates. |
-| [2C](2c-sessions.md) | **Sessions.** A `Session` binds an agent run to its kind, workspace and switch; a chat's turn makes one, a subagent narrows its parent's, and the run's token maps to it. No behavior changes. Needs 1B. | Every policy question has one place to ask, and a subagent can never hold more than its parent. |
+| 2C | **Sessions.** A `Session` holds an agent run's kind and switch; a chat's turn makes one, a subagent narrows its parent's, and the run's token maps to it through its grant. No behavior changes. **Landed**; `sidecar/CLAUDE.md` describes it. | Every policy question has one place to ask, and a subagent can never hold more than its parent. |
 
 Seams: 2A and 2B both change the compiled arguments and profile and their goldens; the step
 that lands second regenerates them. 2A, 2B and 2C each change `sandboxedRunFor`. Each spec says

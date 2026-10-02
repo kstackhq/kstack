@@ -57,12 +57,12 @@ clustersvc.Service, proposals *Proposals) *Runner`, where `Paths` is
 package, inside the data directory every chat's `Always` part hides.
 
 ```go
-// Session is the monitor's session for one cluster. One per watched cluster,
-// since a session's cluster proxy is one cluster's connection.
-func Session(clusterID apimeta.ClusterID) session.Session {
+// Session is the monitor's session. Each watched cluster gets a run of its
+// own, whose runtime names the cluster, since a run's cluster proxy is one
+// cluster's connection.
+func Session() session.Session {
 	return session.Session{
 		Kind:      session.Monitor,
-		ClusterID: clusterID,
 		Mode:      func(context.Context) permissions.Mode { return permissions.ReadOnly },
 		NoPrompts: true,
 		Rules:     func(context.Context) []permissions.Rule { return permissions.Shipped() },
@@ -72,7 +72,7 @@ func Session(clusterID apimeta.ClusterID) session.Session {
 }
 ```
 
-`ChatID` is empty and `Outside` is false: a monitor never runs outside the sandbox. `Mode` is
+The runtime's `ChatID` is empty, and `Outside` is false: a monitor never runs outside the sandbox. `Mode` is
 `ReadOnly` whatever `Settings.ModeFor` says of the cluster's context, and `Rules` is the
 shipped rules alone: no `chat_grants` row and no always rule of the user's reaches it, since a
 grant the user wrote for a chat means that chat.
