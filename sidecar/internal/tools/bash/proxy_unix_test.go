@@ -45,6 +45,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -462,9 +463,10 @@ func TestASandboxedRunReadsASecretRedacted(t *testing.T) {
 // fakeClusterWriteAsker is a runtime's ClusterWriteAsker that records each
 // write and answers with approve.
 type fakeClusterWriteAsker struct {
-	mu      sync.Mutex
-	approve bool
-	asked   []tools.ClusterWriteRequest
+	mu       sync.Mutex
+	approve  bool
+	asked    []tools.ClusterWriteRequest
+	recorded []tools.ClusterWriteRequest
 }
 
 func (f *fakeClusterWriteAsker) Ask(_ context.Context, w tools.ClusterWriteRequest) (bool, error) {
@@ -472,6 +474,13 @@ func (f *fakeClusterWriteAsker) Ask(_ context.Context, w tools.ClusterWriteReque
 	defer f.mu.Unlock()
 	f.asked = append(f.asked, w)
 	return f.approve, nil
+}
+
+func (f *fakeClusterWriteAsker) Record(_ context.Context, w tools.ClusterWriteRequest, _ permissions.Decision, _ permissions.Reason) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.recorded = append(f.recorded, w)
+	return nil
 }
 
 // A foreground call's write is put to the user through its runtime, and

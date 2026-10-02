@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -148,6 +149,38 @@ func (w clusterWriteAsker) Ask(ctx context.Context, cw tools.ClusterWriteRequest
 	return w.j.askClusterWrite(ctx, cw)
 }
 
+func (w clusterWriteAsker) Record(ctx context.Context, cw tools.ClusterWriteRequest, d permissions.Decision, why permissions.Reason) error {
+	return w.j.recordClusterWrite(ctx, cw, d, why)
+}
+
+// recordClusterWrite records a sandboxed command's cluster write the
+// permissions engine decided with nobody asked, against the call the run has
+// open, as askClusterWrite records one the user decided: written already
+// decided, so nothing waits and the run stays running.
+func (j *runJournal) recordClusterWrite(ctx context.Context, w tools.ClusterWriteRequest, d permissions.Decision, why permissions.Reason) error {
+	s := j.s
+	status, ok := recordedStatus[d]
+	if !ok {
+		return errNotRecorded
+	}
+	call := j.openTool
+	if call == nil {
+		return errNoRunningCall
+	}
+	now := normalizeTime(s.now())
+	a := &approval{
+		ID: newApprovalID(), ToolCallID: call.ID, Status: status, CreatedAt: now,
+		DecidedAt: nullMillis(now), Request: &w, Reason: why.String(),
+	}
+	wctx := context.WithoutCancel(ctx)
+	if err := s.store.InTx(wctx, func(st stmts) error { return upsertApproval(wctx, st, *a) }); err != nil {
+		return err
+	}
+	call.ClusterWrites = append(call.ClusterWrites, a)
+	j.publish(StatusStreaming)
+	return nil
+}
+
 // askClusterWrite puts a sandboxed command's cluster write to the user as a
 // request of the call the run has open: calls run one at a time, so it is the
 // one whose command sent the write. Unlike Approve, every end of the wait writes
@@ -194,6 +227,16 @@ func (j *runJournal) askClusterWrite(ctx context.Context, w tools.ClusterWriteRe
 
 // errNoRunningCall is a write asked while no call of the run is running.
 var errNoRunningCall = errors.New("chatsvc: a cluster write with no call running")
+
+// recordedStatus is the status a decision is recorded as. A prompt is asked,
+// never recorded.
+var recordedStatus = map[permissions.Decision]ApprovalStatus{
+	permissions.Allowed: ApprovalAllowed,
+	permissions.Denied:  ApprovalRefused,
+}
+
+// errNotRecorded is a record of a decision that is not Allowed or Denied.
+var errNotRecorded = errors.New("chatsvc: only an allowed or denied cluster write is recorded")
 
 // await registers a waiter for id: a channel of one, buffered, so a decision
 // delivered before the turn reaches its select is kept for it.

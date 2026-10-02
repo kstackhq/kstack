@@ -29,6 +29,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
 )
@@ -398,12 +399,17 @@ type ClusterWriteRequest struct {
 	// Body is valid UTF-8, or empty.
 	Body   string `json:"body"`
 	DryRun bool   `json:"dryRun"`
+	// Action is what the proxy classified the write as; nil on a write it did
+	// not classify.
+	Action *permissions.Action `json:"action,omitempty"`
 }
 
 // ClusterWriteAsker puts a sandboxed command's cluster write to the user, as
-// a request of the call that is running.
+// a request of the call that is running, and records one the proxy decided
+// with nobody asked against that call.
 type ClusterWriteAsker interface {
 	Ask(ctx context.Context, w ClusterWriteRequest) (bool, error)
+	Record(ctx context.Context, w ClusterWriteRequest, d permissions.Decision, why permissions.Reason) error
 }
 
 // Runtime is what a tool gets of the chat its call runs in. chatsvc sets every
