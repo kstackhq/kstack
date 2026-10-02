@@ -8,7 +8,7 @@ status: Planned
 
 **Needs:** step 3B, whose `permissions.Action`, `Decide`, `chat_grants` and record statuses this
 step builds on. **Unblocks:** steps 4C, 4D, 5A and 5B, each of which draws its own action through
-this request, and step 6E, whose tools write the summary the request draws.
+this request.
 
 Go paths below are under `sidecar/internal/` unless they say otherwise.
 
@@ -36,8 +36,6 @@ Windows: no command there reaches the proxy, and a call's own request is unchang
 
 ## What is not in this step
 
-- **No first-class tools.** Step 6E writes summaries the sidecar composed; this step draws what
-  the classifier parsed out of a raw command's request.
 - **No Secret grant.** Step 5A puts a class 6 read through this request.
 - **No host or folder prompt.** Steps 4C and 4D send their actions through it and add their
   headings and `aria-label`s.
@@ -59,8 +57,8 @@ duration TEXT CHECK (duration IN ('once','chat','always')),
 reason   TEXT,          -- step 3B
 ```
 
-`'cluster'` becomes `'action'`: a host prompt (step 4C), a folder grant (step 4D), a Secret
-read (step 5A) and a cloud write (steps 5C, 5D and 6C) are actions the same row records.
+`'cluster'` becomes `'action'`: a host prompt (step 4C), a folder grant (step 4D) and a Secret
+read (step 5A) are actions the same row records.
 `approvals_writes_idx` becomes `approvals_actions_idx`, partial on `kind = 'action'`, and the
 CHECK on `abandoned` names `'action'`. `duration` is set on `approved` alone: what the user
 chose. It is NULL on a denial, an abandon, and on `allowed` and `refused`, which nobody chose.
@@ -89,14 +87,6 @@ type ActionRequest struct {
 converts a `Write` today. `chatsvc`'s `askClusterWrite` becomes `askAction`, unchanged but for
 the type. `permissions.Grantable(rules, act) bool` is the one test of the flag: class 5 is never
 grantable, and neither is an action a shipped `AskFor` rule matches.
-
-**A tool's own call can be an action too.** `tools.Approval` gains `Action *permissions.Action`,
-`Grantable bool`, `Diff string` and `DiffCut bool`, for a gated tool whose `Approval` classified
-its call itself (step 6E's cluster tools), and `Decided permissions.Decision` with `Reason` for
-a `Skip` the engine decided. The loop writes them on the call's own approval row (`kind: call`,
-its `request` the `ActionRequest` built from them), so a tool's request is drawn, answered and
-recorded as a proxied action's is. A raw command's `Approval` sets none of them, and its row
-stays what it is today.
 
 ### 2. The decision on the wire
 
@@ -295,9 +285,6 @@ once the next time; the model need not ask again for one in the same context and
   the row.
 - `TestACallsOwnApprovalTakesOnceOrDenyAlone`: `Chat` and `Always` on a raw command's request
   are `ErrBadRequest`, the waiter still there, and `Once` then lands.
-- `TestAToolsOwnActionIsRecordedAndGrantable`: a gated tool whose `Approval` carries an
-  `Action` has it on its row's `request`, takes `Chat`, and a `Skip` with `Decided` is recorded
-  `allowed` with its reason.
 - `TestAnUngrantableActionTakesOnceOrDenyAlone`: the same for a class 5 action.
 - `TestAFailedRuleWriteLeavesTheRequestWaiting`, and `TestADenialRecordsNoDuration`.
 

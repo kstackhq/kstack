@@ -7,8 +7,7 @@ status: Planned
 # The monitoring session
 
 **Needs:** step 5A, whose `NoPrompts` keeps Secret data redacted; step 4C, whose egress proxy
-holds the host allowlist; step 2D, whose credential status pauses a cluster's monitor. **Unblocks:**
-steps 7A and 7B.
+holds the host allowlist. **Unblocks:** nothing.
 
 Go paths below are under `sidecar/internal/` unless they say otherwise.
 
@@ -29,8 +28,8 @@ agent's **plumbing** exists, driven by a stand-in until an agent is designed, as
   card** draws it over the chat list. **Do it** starts a chat on the cluster whose first
   question is the proposal's, so the change runs under the normal permission flow;
   **Dismiss** puts it away.
-- **Settings: Monitoring** shows which clusters the monitor watches, that it shares no folder
-  grant, and each watched cluster's credential status.
+- **Settings: Monitoring** shows which clusters the monitor watches and that it shares no
+  folder grant.
 
 A monitor session holds exactly what its token says: it reads everything its cluster serves but
 Secret data, writes its own workspace, and asks nobody. A finding reaches the user as a card
@@ -45,8 +44,6 @@ and a chat as a message, never as a path into another workspace.
   finding that reaches the user here.
 - **No shared folder grants.** The note calls sharing a chat's grants with the monitor a
   separate, explicit switch; it is drawn disabled here (§6).
-- **No scoped-down token.** Step 7B gives the monitor a read-only OAuth token where a provider
-  can mint one; here its read-only guarantee is the proxies' alone.
 - **Windows.** No sandbox, so `Runner.Run` refuses there, as on any machine with none (§1);
   the table, the watch and the card work everywhere.
 
@@ -55,22 +52,21 @@ and a chat as a message, never as a path into another workspace.
 ### 1. The `monitor` package and the session
 
 `monitor/monitor.go`. `monitor.New(paths Paths, bashTool *bash.Tool, clusterSvc
-clustersvc.Service, creds *credentials.Store, proposals *Proposals) *Runner`, where `Paths` is
+clustersvc.Service, proposals *Proposals) *Runner`, where `Paths` is
 `{Dir string}`, the app's `<data>/monitor`, added to `app/paths.go`'s tree and made 0700 by the
 package, inside the data directory every chat's `Always` part hides.
 
 ```go
 // Session is the monitor's session for one cluster. One per watched cluster,
 // since a session's cluster proxy is one cluster's connection.
-func Session(clusterID apimeta.ClusterID, workspace string) session.Session {
+func Session(clusterID apimeta.ClusterID) session.Session {
 	return session.Session{
 		Kind:      session.Monitor,
 		ClusterID: clusterID,
-		Workspace: workspace, // <data>/monitor/<clusterID>/workspace
-		Mode:      permissions.ReadOnly,
+		Mode:      func(context.Context) permissions.Mode { return permissions.ReadOnly },
 		NoPrompts: true,
 		Rules:     func(context.Context) []permissions.Rule { return permissions.Shipped() },
-		Hosts:     monitorHosts, // §2: the kubeconfig's servers and the cloud hosts alone
+		Hosts:     monitorHosts, // §2: the kubeconfig's servers alone
 		Folders:   nil,
 	}
 }
@@ -85,9 +81,8 @@ grant the user wrote for a chat means that chat.
 
 ```go
 // Run builds the monitor's runtime for clusterID and calls fn with it. It
-// refuses a machine with no sandbox (ErrNoSandbox), a cluster that is not
-// watched (ErrNotWatched), and one whose credential is expired (ErrPaused,
-// and the cluster's status says so).
+// refuses a machine with no sandbox (ErrNoSandbox) and a cluster that is not
+// watched (ErrNotWatched).
 func (r *Runner) Run(ctx context.Context, clusterID apimeta.ClusterID, fn func(rt tools.Runtime)) error
 ```
 
@@ -116,10 +111,8 @@ answers `Denied` for class 3, 4 and 5, and for class 6, since a `Prompted` under
 | A `POST`, `PUT`, `PATCH`, `DELETE` or `DELETECOLLECTION` from a monitor token is refused (the note's fifth) | the cluster proxy's write path: `Decide` under `ReadOnly` refuses class 4 and 5 with a 403 naming the mode, and `writesFor` has no asker to fall back to | `TestAMonitorWriteIsRejected`, a table over the five methods and over `scale`, `status`, `ephemeralcontainers` and `binding`; each reaches nothing upstream |
 | `exec`, `attach`, `portforward` and `proxy` are refused whatever the verb | the policy's refusals, before classification, as for any session | the same test's last rows |
 | Secret `data` and `stringData` are always redacted (the note's sixth) | step 5A: a class 6 read under `NoPrompts` never holds the grant, so the rewriter runs | `TestAMonitorReadsASecretRedacted`, a `GET` of `secrets` and a list, values `[redacted]` |
-| An unlisted host is refused with no prompt | the egress proxy: a monitor session's `Hosts` answers step 4C's `kubeconfig` and `cloud` sources alone, never `github.com`, never one the user added, never a chat's rule; class 3 under `NoPrompts` is `Denied` | `TestAMonitorNeverAsksForAHost`: a `CONNECT` to a user-added host and to `github.com` is refused, the asker is never called, and the API server's host passes |
+| An unlisted host is refused with no prompt | the egress proxy: a monitor session's `Hosts` answers step 4C's `kubeconfig` source alone, never one the user added, never a chat's rule; class 3 under `NoPrompts` is `Denied` | `TestAMonitorNeverAsksForAHost`: a `CONNECT` to a user-added host is refused, the asker is never called, and the API server's host passes |
 | No chat's folder grant reaches it (the note's ninth) | `Folders` is nil and nothing fills it; the policy's Files rules are `System` and the run's own | `TestAChatsFoldersNeverReachTheMonitor`: a folder granted always and one granted to a chat are absent from the monitor run's policy and unreadable in it (step 4D keeps the same test) |
-| AWS, GitHub, Google and Azure writes are refused and reads pass | steps 5C, 5D and 6C's classifiers hand `Decide` a class 4 or 5 action, refused under `ReadOnly` | `TestAMonitorCloudWriteIsDenied`, one row per provider's proxy, and a read row for each |
-| An expired credential pauses the cluster's monitor and never asks | `Run` reads step 2D's status for the cluster's providers first; expired is `ErrPaused` and a `Status` the Settings section reads (§6), never a notice or a request | `TestAnExpiredCredentialPausesTheMonitor` |
 
 The run's token is one per run, as today: `sandboxedRunFor` makes the grant with the session,
 and the proxies read the policy off it. Nothing in this step changes the proxies; they read
@@ -248,18 +241,15 @@ create. Neither draws it for a window with no cluster.
 
 - **Clusters**: one row per cluster the clusters watch knows, its name (or context) and a
   switch bound to `spec.monitoringEnabled`, writing `clusterMonitoringEnabledSet(id, on)`; off
-  for every cluster until an agent exists (the column's default). Under a watched cluster,
-  its status from `monitorStatus`: *Ready*, or *Paused: AWS session `dev` expired* with step
-  2D's re-login button.
+  for every cluster until an agent exists (the column's default).
 - **Folders**: a switch, *Share folder grants with the monitor*, drawn off and disabled with
   *Not yet* beside it, and one line: *The monitor sees no folder you granted to a chat. Sharing
   one is a separate switch, and it is not built.* The note calls it a separate explicit switch,
   and no grant reaches the monitor until someone builds it on purpose.
 
 `securityconfig.Settings` gains `Monitor MonitorSettings` with `ShareFolders bool`, always false
-and never written in this step: the switch's home. The wire: `monitorStatus:
-[MonitorClusterStatus!]!` (`clusterID`, `paused: Boolean!`, `reason: String!`), the in-memory
-status `Run` sets and clears, and `monitorSettings: MonitorSettings!` (`shareFolders: Boolean!`).
+and never written in this step: the switch's home. The wire: `monitorSettings: MonitorSettings!`
+(`shareFolders: Boolean!`).
 
 ## Decisions this step asks for
 
@@ -280,11 +270,11 @@ status `Run` sets and clears, and `monitorSettings: MonitorSettings!` (`shareFol
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
 | 1 | `monitor`: `Session`, `Runner`, `monitorDir`, `tasks`, the folder, the sweep | `monitor/monitor.go`, `monitor/dir.go`, `app/paths.go`, `app/app.go`, their tests | — | Planned |
-| 2 | The invariants through the real proxies | `monitor/policy_test.go`, `kubeproxy/`, `egress/`, `awsproxy/` tests | 1 | Planned |
+| 2 | The invariants through the real proxies | `monitor/policy_test.go`, `kubeproxy/`, `egress/` tests | 1 | Planned |
 | 3 | `proposals` and `Proposals`: add, start, recover, dismiss, watch, cascade; `chatsvc.ChatForRequest` | `appdb/migrations/0001_init.sql`, `appdb/appdb.go`, `monitor/proposals.go`, `chatsvc/`, `app/app.go`, their tests | — | Planned |
 | 4 | The wire and codegen | `sidecar/graph/schema.graphqls`, `graph/`, generated code, `src/gql/` | 3 | Planned |
 | 5 | `useProposals`, the card, its two homes | `src/lib/proposals.tsx`, `src/components/widgets/proposal-card.tsx`, `dashboard-chat.tsx`, `src/layouts/app-layout.tsx`, their tests | 4 | Planned |
-| 6 | `Settings.Monitor`, `monitorStatus`, the Settings section | `securityconfig/`, `src/components/widgets/monitor-settings.tsx`, `settings-dialog.tsx`, their tests | 1, 4 | Planned |
+| 6 | `Settings.Monitor`, the Settings section | `securityconfig/`, `src/components/widgets/monitor-settings.tsx`, `settings-dialog.tsx`, their tests | 1, 4 | Planned |
 | 7 | Docs, per *When it lands* | see there | 1–6 | Planned |
 
 **Order:** 1 and 3 at the same time, then 2 and 4, then 5 and 6 at the same time, then 7.
@@ -301,8 +291,7 @@ status `Run` sets and clears, and `monitorSettings: MonitorSettings!` (`shareFol
 - `TestAMonitorRunsOnlyInASandbox`: a sandbox that does not confine, and none, is `ErrNoSandbox`
   and nothing is made.
 - `TestAMonitorWriteIsRejected`, `TestAMonitorReadsASecretRedacted`,
-  `TestAMonitorNeverAsksForAHost`, `TestAChatsFoldersNeverReachTheMonitor`,
-  `TestAMonitorCloudWriteIsDenied`, `TestAnExpiredCredentialPausesTheMonitor`: §2's table, each
+  `TestAMonitorNeverAsksForAHost`, `TestAChatsFoldersNeverReachTheMonitor`: §2's table, each
   through the real proxy with a fake upstream, in `policy_test.go`.
 - `TestAChatCannotReadTheMonitorsFolder` and `TestTheMonitorCannotReadAChatsFolder`, in
   `monitor_unix_test.go`, through the real sandbox.
@@ -330,16 +319,15 @@ status `Run` sets and clears, and `monitorSettings: MonitorSettings!` (`shareFol
   text with markdown left literal; Do it calls `proposalStart` and `onStarted` with the chat's
   id; Dismiss calls `proposalDismiss`; a `Deleted` removes the card; both homes mount it over
   the list and neither without a cluster.
-- The clusters' switches call `clusterMonitoringEnabledSet`; a paused cluster's line names the
-  reason; the folders switch is off, disabled and says *Not yet*.
+- The clusters' switches call `clusterMonitoringEnabledSet`; the folders switch is off, disabled
+  and says *Not yet*.
 
 ## Security
 
 This step adds a session that holds less than any chat's: no prompt can widen it, no grant
 reaches it, and its writes are refused at the proxy by its mode before any asker is looked for.
-What a hijacked monitor can do: read everything its cluster serves but Secret data, read what
-the cloud proxies pass as reads, and write its own workspace. What it cannot: change the
-cluster, the cloud or GitHub; reach a host the kubeconfig or a cloud provider did not name;
+What a hijacked monitor can do: read everything its cluster serves but Secret data, and write
+its own workspace. What it cannot: change the cluster; reach a host the kubeconfig did not name;
 reach a chat's files or a credential; run outside the sandbox; or ask anyone. The proposal is
 text the user reads before a chat runs it, and the chat asks as any chat does.
 
@@ -369,4 +357,4 @@ By hand, `pnpm tauri dev` against a kind cluster, with a dev build's hook that c
 `Proposals.Add` for the window's cluster: read the card above the chat list on both panes;
 press Do it and read a chat open on the cluster with the prompt as its first question, its
 `kubectl delete` asking as any chat's does; press Dismiss on another and read it go. Turn the
-cluster's monitoring on in Settings and read *Ready*; behind an expired AWS SSO profile, *Paused*.
+cluster's monitoring on in Settings and read the switch hold.

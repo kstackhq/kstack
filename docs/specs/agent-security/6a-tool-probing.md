@@ -15,7 +15,7 @@ Go paths below are under `sidecar/internal/` unless they say otherwise.
 ## In short
 
 Today the first sign that a tool does not run in the sandbox is a failed command in a chat:
-`gcloud` cannot read its install tree, an `asdf` shim execs something the sandbox hides, or
+a `kubectl` plugin cannot read its install tree, an `asdf` shim execs something the sandbox hides, or
 `kubectl` is simply not there. The model reads a cryptic error and the user learns nothing
 until they ask.
 
@@ -72,16 +72,13 @@ The curated list, in this order:
 | `kubectl` | `kubectl version --client` |
 | `helm` | `helm version` |
 | `kustomize` | `kustomize version` |
-| `aws` | `aws --version` |
-| `gcloud` | `gcloud --version` |
-| `az` | `az version` |
-| `gh` | `gh --version` |
 | `git` | `git --version` |
 | `jq` | `jq --version` |
 | `yq` | `yq --version` |
-| `aws-iam-authenticator` | `aws-iam-authenticator version` |
-| `kubelogin` | `kubelogin --version` |
-| `gke-gcloud-auth-plugin` | `gke-gcloud-auth-plugin --version` |
+
+A kubeconfig's `exec` credential plugins (`aws`, `gke-gcloud-auth-plugin`, `kubelogin`) run in
+the sidecar, outside the sandbox, so they are not on the list: a probe says what a sandboxed
+command can run, and a command never runs them.
 
 Then the user's registered tools, from `securityconfig.Settings`, which gains:
 
@@ -156,7 +153,7 @@ Each invocation is one Workspace run with no cluster:
   `rootdir.RemoveAll`. It names no relay: no cluster, no egress, so a tool's update check gets
   nothing by the policy, not by the tool's manners.
 - **Its environment is `sandboxedRunEnv`'s** with no cluster, `HOME` the throwaway workspace, the
-  frozen `PATH`, and none of step 4C's or step 5C's variables, since the run has no relay.
+  frozen `PATH`, and none of step 4C's variables, since the run has no relay.
 - **Its argv** is the resolved binary and the invocation's remaining fields, bounded by
   `probeTimeout` (15 s) and step 2B's limits.
 - **Denials are read** as step 5B reads them for a command, so `Denied` is what a chat would
@@ -312,7 +309,7 @@ not drawn.
   `testutil.RequireSandbox`): a fake tool registered on a fixture `PATH` that reads a file under
   the home is `OK` false with that path in `Denied`; granted always (step 4D), it is `OK`.
 - `TestTheProbesSandboxHasNoClusterAndNoNetwork` (`probe_unix_test.go`): the run's policy names
-  no relay, its environment holds no `KUBECONFIG`, `HTTP_PROXY` or `AWS_ENDPOINT_URL`, and a
+  no relay, its environment holds no `KUBECONFIG` or `HTTP_PROXY`, and a
   listener on loopback outside the sandbox gets no connection from a fake tool that dials it.
 - `TestAProbeIsBounded`: a fake tool that sleeps past `probeTimeout` reports the timeout;
   `TestOneProbeRunsAtATime`: a second `ProbeTools` during the first answers the first's report;
@@ -363,9 +360,9 @@ the listed invocations, in the sandbox, with no cluster and no network, pinned b
 Run the [verification commands](../README.md#verification-commands), including the wire checks,
 with the probe's tests on Linux and in CI's macOS job.
 
-By hand, `pnpm tauri dev` on macOS or Linux, on a machine with Homebrew's `kubectl`, `gcloud`
-installed outside step 2A's list and an `asdf` shim for `helm`: open Settings, press *Probe
-again*, and read `kubectl` resolved to Homebrew's with its version, `helm` as a shim with its
-target, and `gcloud` failed with a denied path; grant it always from the popover, probe again,
-and read `gcloud` ok. Register `kubectl-foo` with no invocation and read *not found*; rename
-`kubectl` away and read the line at the top.
+By hand, `pnpm tauri dev` on macOS or Linux, on a machine with Homebrew's `kubectl`, an `asdf`
+shim for `helm` and a `kubectl` plugin whose data lives outside step 2A's list: open Settings,
+press *Probe again*, and read `kubectl` resolved to Homebrew's with its version and `helm` as a
+shim with its target. Register the plugin, probe again, and read it failed with a denied path;
+grant it always from the popover, probe again, and read it ok. Register `kubectl-foo` with no
+invocation and read *not found*; rename `kubectl` away and read the line at the top.

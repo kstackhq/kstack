@@ -8,7 +8,7 @@ status: Planned
 
 **Needs:** step 2C, whose session the handler reads through the run's token; step 3B, whose
 `permissions.Action`, `Decide`, `chat_grants` and `securityconfig.Settings` a new host is decided
-with; step 2B, whose forwarder is every run's first process. **Unblocks:** steps 5B, 5C, 5D and 6D.
+with; step 2B, whose forwarder is every run's first process. **Unblocks:** steps 5B and 6B.
 
 Go paths below are under `sidecar/internal/` unless they say otherwise.
 
@@ -28,10 +28,9 @@ After this step, on macOS and Linux:
 - **`egress`** is a new leaf package: a host **policy** (allow and deny rules, each a host glob,
   a port and a source), and a **handler** that checks the host, resolves the name outside the
   sandbox, and tunnels the bytes (`CONNECT`) or forwards the request (plain HTTP).
-- **The allowlist has sources**: every kube context's API server from the kubeconfig, GitHub's
-  hosts, the user's entries, and the chat's rules. A cloud provider's hosts join only with the
-  step whose proxy classifies what goes there (Decisions, 4). A `Deny` entry wins over every
-  source, and so does a permission rule: a class 3 `net` rule that denies a host refuses it, and
+- **The allowlist has sources**: every kube context's API server from the kubeconfig, the user's
+  entries, and the chat's rules. No cloud provider's host is listed (Decisions, 4). A `Deny` entry
+  wins over every source, and so does a permission rule: a class 3 `net` rule that denies a host refuses it, and
   one that asks for it asks, whatever lists it (Decisions, 5).
 - **An unlisted host is class 3.** The handler builds a `permissions.Action` and asks `Decide`:
   the `CONNECT` is held while the user answers ([the note](../../notes/sandbox-credentials-and-permissions.md)'s
@@ -47,17 +46,17 @@ After this step, on macOS and Linux:
   deny list.
 
 This is the note's "mechanism that makes prompt injection mostly harmless": a hijacked command
-holds no credential and reaches only the listed hosts. Step 5D terminates TLS over this relay;
-this step only tunnels.
+holds no credential and reaches only the listed hosts. Every host is a tunnel the proxy cannot
+see into, and the command holds no credential to send through it: `gh` reaches `api.github.com`
+and gets a 401.
 
 ## What is not in this step
 
-- **No TLS termination, no CA, no credential for any host.** Step 5D. A tunnelled connection
-  carries whatever the tool sends, and the tool holds no credential to send.
-- **No AWS endpoint.** Step 5C adds `AWS_ENDPOINT_URL` and the SigV4 path on the same server.
+- **No credential for any host.** The cluster proxy is the one place a credential is put on a
+  request; a tunnelled connection carries whatever the tool sends, and the tool holds none.
 - **No denial drawn in the transcript.** A refused host is recorded here; step 5B draws it under
   the call with the grant that resolves it.
-- **No monitor.** Step 6D builds the session; this step says what its `NoPrompts` does here.
+- **No monitor.** Step 6B builds the session; this step says what its `NoPrompts` does here.
 - Nothing changes on Windows: a command there runs outside the sandbox and reaches no proxy.
 
 ## Design
@@ -96,14 +95,12 @@ type Source string
 
 const (
 	Kubeconfig Source = "kubeconfig" // a kube context's API server
-	Cloud      Source = "cloud"      // a cloud provider's endpoints
-	GitHub     Source = "github"     // GitHub's hosts
 	User       Source = "user"       // the user's entry, in securityconfig
 	Chat       Source = "chat"       // a chat's rule, in chat_grants
 )
 
 // HostRule is one host a run may, or may not, reach. Host is a glob over the
-// lowercase ASCII name ("*.amazonaws.com"; one leading "*." at most), or, on a
+// lowercase ASCII name ("*.example.com"; one leading "*." at most), or, on a
 // Kubeconfig rule alone, an IP address, which matches only itself. Port 0 is
 // any port.
 type HostRule struct {
@@ -140,12 +137,7 @@ type Handler struct {
 }
 ```
 
-`GitHub` is a package value: GitHub's hosts (`github.com`, `api.github.com`, `uploads.github.com`,
-`objects.githubusercontent.com`, `codeload.github.com`), each on port 443, none of which takes
-an upload without a token. `Cloud` is a list this step leaves empty: step 6C fills it with
-Google's and Azure's hosts while its injectors terminate and classify them, and step 5C reaches
-AWS through a proxy of its own and lists nothing (Decisions, 4). `ServerRule(server
-string) (HostRule, bool)` turns a kubeconfig `server` URL into a rule on its host and port (443
+`ServerRule(server string) (HostRule, bool)` turns a kubeconfig `server` URL into a rule on its host and port (443
 or 80 when the URL names none), source `Kubeconfig`, false for a URL that does not parse. A
 server at an IP address gives a rule on that address in `netip`'s form, brackets stripped.
 
@@ -178,26 +170,28 @@ by connecting to it. Only a refusal is logged, at debug, with the host and the r
 
 ### 3. The allowlist's sources
 
-`Session.Hosts func(context.Context) egress.Policy` is the field step 2C reserved. `chatsvc` sets
-it to `hostsFor(chatID)`, built from an `egress.Sources` that `app` wires:
+`Session.Hosts func(context.Context) session.HostPolicy` is a field this step adds, a live read by
+step 2C's narrowing rule. By 2C's leaf rule `session` imports no proxy, so `HostRule` and the
+policy, with its `Match` method, are declared there as `session.HostRule` and
+`session.HostPolicy`, and `egress` aliases them (`type HostRule = session.HostRule`,
+`type Policy = session.HostPolicy`); the block above shows their shape. `chatsvc` sets it to
+`hostsFor(chatID)`, built from an `egress.Sources` that `app` wires:
 
 | Source | Read from | Rule |
 | --- | --- | --- |
 | `kubeconfig` | `kubeconfig.Service.Get()`, every `Clusters[*].Server` | `ServerRule` of each, so a reload is seen by the next request |
-| `cloud` | `egress.Cloud` | empty until step 6C fills it (§2) |
-| `github` | `egress.GitHub` | as listed in §2 |
 | `user` | `securityconfig.Settings.Hosts []egress.HostRule` | each entry as written, Allow or Deny; and every class 3 rule of provider `net` in `Settings.Rules`, by its effect |
 | `chat` | `chat_grants` | every class 3 rule of provider `net` for the chat, by its effect |
 
 A rule's `Scope.Host` is the glob and its `Kind` the port as decimal (`""` any), so a class 3
 `net` rule and a `HostRule` say the same thing; `egress.FromRule` is the one conversion. An
 `Allow` rule joins `Allow`, a `Deny` rule `Deny`, and an `AskFor` rule `Ask`. So a permission rule
-outranks every source: a `Deny` refuses a GitHub host or a kubeconfig server, and an `AskFor` sends
+outranks every source: a `Deny` refuses a kubeconfig server, and an `AskFor` sends
 one to `Decide` as if it were unlisted, where the same rule makes it `Prompted` (Decisions, 5).
 Settings lists a user `Deny` rule among the denied hosts; an `AskFor` rule is not a row there, and
 stays in the permission rules step 3B lists. The
 policy is read per request, never cached: a grant written mid-run applies to the command's next
-connection, and a context added to the kubeconfig too. `Narrow` copies `Hosts`.
+connection, and a context added to the kubeconfig too. `Narrow` hands the subagent the parent's `Hosts`.
 
 `securityconfig` reads `Hosts` back through its shape check as it reads `Rules`: an entry whose
 host is not a glob over a name, or whose port is out of range, is left out, logged, and shown in
@@ -261,11 +255,11 @@ OIDC discovery paths); the cluster proxy is still the way to the chat's cluster.
 | --- | --- |
 | `HTTPS_PROXY`, `https_proxy`, `HTTP_PROXY`, `http_proxy` | `http://kstack:<token>@127.0.0.1:<port>` |
 | `NO_PROXY`, `no_proxy` | `` (empty: nothing bypasses) |
-| `ALL_PROXY` | unset, and on `neverPassed` |
+| `ALL_PROXY` | unset, and an `EnvRule` in `sandbox.NeverEnv` |
 
 The lowercase spellings are for curl, which reads `http_proxy` in lowercase alone, and the
 uppercase for Go. `safe.Redact` blanks the token wherever a command prints its environment, as it
-does for the kubeconfig. The CA bundle variables are step 5D's. SSH is not routed: a `git` remote
+does for the kubeconfig. SSH is not routed: a `git` remote
 over SSH fails in the sandbox with no route, and the prompt says to use HTTPS.
 
 ### 7. macOS: TLS trust in the sandbox
@@ -293,7 +287,7 @@ mutations:
 
 - **Allowed hosts**: one row per rule, the host in mono through `VisibleText` (a kubeconfig's
   server name is the user's file's text), the port when not 443, and the source as a tag: *from
-  your kubeconfig*, *cloud provider*, *GitHub*, *added by you*. A source's row is read-only; a
+  your kubeconfig*, *added by you*. A source's row is read-only; a
   user row has Remove.
 - **Add**: a host field, an optional port field and a *Deny* checkbox; disabled in flight, a
   refusal's reason under the field, and one line above it: *Sandboxed commands can send what
@@ -306,7 +300,7 @@ mutations:
 The wire:
 
 ```graphql
-enum NetworkHostSource { Kubeconfig Cloud GitHub User Chat }
+enum NetworkHostSource { Kubeconfig User Chat }
 enum GrantDuration { Chat Always }
 
 type NetworkHost {
@@ -340,11 +334,12 @@ mutations are refused.
 ### 9. The prompt
 
 `prompts/sandbox.md` replaces *The sandbox reaches no network* with: the sandbox reaches the
-network through Kstack's proxy, which lets a command reach the cluster's API servers, the cloud
-providers, GitHub and the hosts the user allowed; a host not on that list waits for the user, and a
-refused one comes back `403` from the proxy, which is the user's decision; a tool must read
-`HTTPS_PROXY`, and `git` over SSH does not work in the sandbox — use an HTTPS remote. Step 6B
-adds that GitHub calls carry the user's login.
+network through Kstack's proxy, which lets a command reach the cluster's API servers and the
+hosts the user allowed; a host not on that list waits for the user, and a refused one comes back
+`403` from the proxy, which is the user's decision; the cluster is the one host a command reaches
+with a credential, so `gh`, `aws`, `gcloud` and `az` have no login in the sandbox and a private
+registry takes no token; a tool must read `HTTPS_PROXY`, and `git` over SSH does not work in the
+sandbox — use an HTTPS remote.
 
 ## Decisions this step asks for
 
@@ -362,21 +357,18 @@ adds that GitHub calls carry the user's login.
 3. **Reaching a listed host is class 1, whatever the mode.** Class 3 is a *new* host, so
    `ReadOnly` refuses the unlisted and not the listed. Recommended; the alternative makes
    read-only contexts unable to `helm repo update`.
-4. **A cloud host is listed by the step whose proxy classifies what goes there, never as a
-   plain tunnel.** The note lists the cloud endpoints among the allowlist's sources. But a
-   tunnel to `*.amazonaws.com` carries whatever a command sends, and a bucket that takes
-   anonymous uploads is an exfiltration path that needs no credential at all. That is the
-   note's own second principle: a tool that talks to an upstream directly is outside both
-   credential isolation and permission enforcement. So this step lists no cloud host. Step 5C
-   reaches AWS through its re-signing proxy, and a raw `CONNECT` to an AWS host stays class 3,
-   which asks; step 6C lists Google's and Azure's hosts only while its injectors terminate and
-   classify each request. Recommended.
+4. **No cloud host is listed.** A tunnel to `*.amazonaws.com` carries whatever a command sends,
+   and a bucket that takes anonymous uploads is an exfiltration path that needs no credential at
+   all. That is the note's own second principle: a tool that talks to an upstream directly is
+   outside both credential isolation and permission enforcement, and no proxy classifies what
+   goes to a cloud host. So a `CONNECT` to one is class 3, which asks, and the user's answer is
+   the user's to judge. Recommended.
 5. **A permission rule on a host outranks the listing.** A class 3 `net` `Deny` rule refuses a
    host whatever source lists it, and an `AskFor` rule asks for it, under `Decide`'s own order, so
    a `ReadOnly` context refuses a host an `AskFor` rule names. The user's rules are the one
    place a user says *never this host* or *always ask*, and a built-in source must not overrule
    them. Recommended. The alternative, a listed host skipping the rules, makes a denial in
-   Settings or in a chat say nothing about GitHub or an API server.
+   Settings or in a chat say nothing about an API server.
 
 ## Tasks
 
@@ -403,8 +395,8 @@ same time, then 8.
 - `TestAnUnlistedHostAsksAndFollowsTheDecision`: `Decide` gets the action of §4; `Allowed`
   tunnels, `Denied` is a 403 naming the reason, `Prompted` holds the `CONNECT` until the answer.
 - `TestADeniedHostIsForbidden`: a `Deny` rule wins over an `Allow` of every source.
-- `TestAPermissionRuleOutranksTheListing`: a class 3 `net` `Deny` rule on `api.github.com` is a
-  403 naming the rule, and an `AskFor` rule on a kubeconfig server sends it to `Decide` and holds
+- `TestAPermissionRuleOutranksTheListing`: a class 3 `net` `Deny` rule on a host the user listed
+  is a 403 naming the rule, and an `AskFor` rule on a kubeconfig server sends it to `Decide` and holds
   the `CONNECT`; `FromRule` puts each effect in its list, and `Match` answers Deny over Ask over
   Allow.
 - `TestAHostIsAName`: `*.example.com`, `a?b.example.com` and `[x].example.com` are a 403,
@@ -418,8 +410,8 @@ same time, then 8.
 - `TestTheDialGoesToTheAddressChecked`: the dialer sees the resolved address, never the name.
 - `TestTheTokenIsRequired`: no token and a wrong one are a 407; `TestTunnelsAreBounded`, and
   end with the context.
-- `TestMatchGlobsAndPorts`: `*.amazonaws.com` matches `sts.amazonaws.com` and not
-  `amazonaws.com`; port 0 matches any. `TestServerRuleReadsAKubeconfigServer`: host, port, a
+- `TestMatchGlobsAndPorts`: `*.example.com` matches `charts.example.com` and not
+  `example.com`; port 0 matches any. `TestServerRuleReadsAKubeconfigServer`: host, port, a
   default port, an IP address, a URL that does not parse.
 
 **`securityconfig`**: `TestABadHostEntryIsLeftOutWithItsReason`; `TestHostsPersist`.
@@ -460,8 +452,8 @@ reason, and nothing while `sandbox.available` is false.
 
 **Widened.** Before this step a sandboxed command reached the chat's cluster and nothing else.
 After it, a command the model runs unasked reaches every listed host — an API server's
-unauthenticated paths, the cloud and GitHub endpoints, whatever the user added — with no
-credential in hand, and a host the user allowed on a prompt. What holds it: the sandbox still has
+unauthenticated paths, whatever the user added — with no credential in hand, and a host the
+user allowed on a prompt. What holds it: the sandbox still has
 no network but the relay, so every connection passes the handler; the handler resolves and dials,
 so the sandbox never learns an address it did not connect to; an unlisted host is the user's
 decision, recorded and on screen; the user's `Deny` and `AskFor` rules hold over every source
@@ -469,8 +461,7 @@ decision, recorded and on screen; the user's `Deny` and `AskFor` rules hold over
 machine's other local services stay closed (Decisions, 2).
 
 **Residuals.** A listed host that takes an upload with no credential is an exfiltration path
-for what a command has read. GitHub's hosts take none without a token, and no cloud host is
-listed until a proxy classifies what goes there (Decisions, 4); a host the user adds is the
+for what a command has read. No cloud host is listed (Decisions, 4); a host the user adds is the
 user's to judge, and the Settings section says so. The names a command asks for reach the
 sidecar's resolver, so a hijacked command can leak a few bytes per lookup to whoever runs the
 machine's DNS; a listed name is resolved before its address is refused. A `Deny` entry is a glob
@@ -482,10 +473,11 @@ The record, `docs/security/<date>-the-egress-proxy.md`, argues both.
 
 - **The security record** above, and an ADR: one relay serves every proxy; an IP literal and a
   local address are refused, a kube API server excepted; a listed host is class 1; a permission
-  rule outranks the listing; a cloud host is listed by the proxy that classifies it.
+  rule outranks the listing; no cloud host is listed.
 - **`security-model.md`**: the network row says the relay carries the cluster proxy and the
   egress proxy, with the tests; a row for the allowlist and its sources; the address refusal as
-  its own row; the macOS Mach services row gains `trustd.agent`.
+  its own row; a row that no credential rides to any host but the cluster; the macOS Mach
+  services row gains `trustd.agent`.
 - **`sidecar/CLAUDE.md`**: `egress`, the route on the run's socket, every run's relay, the
   allowlist's sources, `Session.Hosts`, the environment rows, `refusedServices` less the agent.
 - **Root `CLAUDE.md`**, the Settings dialog: the Network section and `useNetworkHosts`.
@@ -500,6 +492,7 @@ By hand, `pnpm tauri dev` on macOS and on Linux: ask for `helm repo add bitnami
 https://charts.bitnami.com/bitnami` and read the request *Reach this host?* naming
 `charts.bitnami.com`; approve it for the chat and read `helm repo update` run with no request;
 ask for `curl https://example.com`, deny it, and read the 403 line in the output; ask for `curl
-http://127.0.0.1:11434` and read it refused with no request; `gh api /zen` reaches
-`api.github.com` and answers 401, since no credential rides yet; `git clone` of an SSH remote
+http://127.0.0.1:11434` and read it refused with no request; `gh api /zen` asks for
+`api.github.com` as a new host and, allowed, answers 401, since the sandbox holds no login;
+`git clone` of an SSH remote
 fails and the model names HTTPS; Settings lists the kubeconfig's servers.

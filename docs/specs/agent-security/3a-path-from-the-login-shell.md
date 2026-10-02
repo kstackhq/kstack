@@ -6,7 +6,7 @@ status: Planned
 
 # `PATH` from the login shell
 
-**Needs:** step 2A, whose `System(home)` decides which new entries are adopted unasked and whose
+**Needs:** step 2A, whose `System(home, shell)` decides which new entries are adopted unasked and whose
 environment table this step's `PATH` row fills, and step 1C, whose store keeps the list.
 **Unblocks:** 4A (the resolution runs confined), 4D (grants join the settings file), 6A (probes
 follow a refresh) and 7A (onboarding shows the list).
@@ -159,7 +159,7 @@ run uses the rest, one list, for both:
 - `PATH` in `sandboxedRunEnv` (`tools/bash/env.go`), the row step 2A left as the sidecar's:
   the resolved entries joined in order. With none adopted — a first launch whose resolution
   failed — the platform's login default from §1, which `System` already reads, so `ls` still runs.
-- One Files Read rule per resolved entry that no Read rule of `System(home)` already covers: the
+- One Files Read rule per resolved entry that no Read rule of `System(home, shell)` already covers: the
   entry's `Target` alone, never a tree, since step 2A's toolchain list covers the trees. An
   entry inside an Always path never reaches here: the filter dropped it.
 
@@ -168,7 +168,7 @@ Include changes the next run.
 
 **The sync.** `(*Service).SyncPath(ctx, resolved []string) (PathReport, error)` in
 `securityconfig/service.go`, where `Service` is the store plus what the sync needs: the filter's
-`closed` list, `open` (the Read paths of `Sandbox.System(home)`), and `Resolve func(ctx)
+`closed` list, `open` (the Read paths of `Sandbox.System(home, shell)`), and `Resolve func(ctx)
 ([]string, *loginshell.Fault)` for the refresh. It filters `resolved`, then diffs against the
 stored entries:
 
@@ -182,7 +182,7 @@ stored entries:
 | a `gone` entry whose `Target` changed | stays `gone`, with the new `Target` |
 | the order changed | the stored entries are put in the shell's order; states are kept |
 
-After the diff, if the first adopted folder holding `kubectl`, `helm`, `aws` or `gh` differs
+After the diff, if the first adopted folder holding `kubectl` or `helm` differs
 from before, one log line names the tool and both folders. The report carries the four lists.
 
 `app.New` builds the `Service` over the store it opened (step 1C), with `loginshell.Path`
@@ -226,7 +226,7 @@ extend type Mutation {
 
 Each mutation answers the whole list, so the section redraws from one result. `Service` embeds
 the `Store`, and `graph.Resolver`'s `SecurityCfg` (step 1C) becomes a `*securityconfig.Service`:
-the embedding promotes every `Store` method, so resolvers steps 2D and 3B wrote against the store
+the embedding promotes every `Store` method, so resolvers step 3B wrote against the store
 keep compiling in either order, and only `app`'s construction changes;
 on a machine with no sandbox (`sandbox.available` false, step 1B) the query answers an empty
 list and the mutations are refused.

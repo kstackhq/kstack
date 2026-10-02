@@ -27,9 +27,12 @@ After this step, on macOS and Linux:
   see `~/code/my-service`"). A grant is a `permissions.Rule`: a chat's is a `chat_grants` row,
   an always one is in `securityconfig`.
 - **A grant is a Files rule on the run's policy**, Read or Write, and **the Always part still
-  wins**: a grant of `~` reads the home and not `~/.ssh`, `~/.kube`, `~/Documents` or Kstack's
-  directories. This is the note's first invariant, "the single most important invariant in the
-  sandbox", which `TestTheDeniedAlwaysListWinsOverARead` pins for the policy and this step pins for a grant.
+  wins**: a grant of `~` reads the home and not `~/.ssh`, `~/.kube` or Kstack's directories.
+  This is the note's first invariant, "the single most important invariant in the sandbox",
+  which `TestTheDeniedAlwaysListWinsOverARead` pins for the policy and this step pins for a
+  grant. `~/Documents`, `~/Desktop` and `~/Downloads` are step 2A's `Closed` folders: a grant of
+  `~` leaves them shut, a grant of a folder inside one opens that folder, and a grant of exactly
+  one is refused (§3).
 - **A grant is checked when written and when read**: absolute, existing, not `/`, not inside an
   Always path or Kstack's directories, not inside or over a listed folder. The home itself may be
   granted, read-only, with a warning.
@@ -50,7 +53,7 @@ the failure into the offer.
   under the call; it calls this step's mutation.
 - **No probe.** Step 6A runs the curated tools and offers a grant per denied path.
 - **No grant to the monitor.** The note's "extending them to monitoring is a separate, explicit
-  switch" is step 6D's to add if it wants it; this step gives the monitor none.
+  switch" is step 6B's to add if it wants it; this step gives the monitor none.
 - **No grant of a file.** A grant is a folder.
 - Nothing changes on Windows, which has no sandbox: `Read`, `Write` and `Edit` ask outside the
   workspace as today.
@@ -77,7 +80,7 @@ type Folder struct {
 }
 ```
 
-`session.Session` gains the field step 2C reserved:
+`session.Session` gains a field, a live read by step 2C's narrowing rule:
 
 ```go
 // Folder is one folder a session's commands may read, or read and write.
@@ -94,7 +97,7 @@ Folders func(context.Context) []Folder
 `chatsvc` sets it to `foldersFor(chatID)`: the chat's class 1 and 2 `Allow` rules of provider
 `Path` from `grantsFor`, then `securityconfig.Settings.Folders`, each as a `Folder`; a folder
 listed twice keeps the wider grant. A session with no chat (the monitor) gets none (§6). `Narrow`
-copies it. `sandboxedRunFor` reads it once when the run starts, so a grant written mid-run applies
+hands the subagent the parent's function. `sandboxedRunFor` reads it once when the run starts, so a grant written mid-run applies
 to the next command, since a sandbox is per command.
 
 ### 2. The policy
@@ -114,10 +117,10 @@ refused there too, and a run is never started with a policy other than the one c
 
 ### 3. The rules for a grant
 
-`securityconfig.CheckFolder(path string, write bool, listed []Folder, closed []string, read
-[]string) error`, where `closed` is `sandbox.Never(home)` plus Kstack's three directories and
-`read` the Read paths of `Sandbox.System(home)` (the toolchain folders among them) and the
-adopted `PATH` entries. Run on every write (§4) and on every read (§2), on the resolved path:
+`securityconfig.CheckFolder(path string, write bool, listed []Folder, closed, shut, read
+[]string) error`, where `closed` is `sandbox.Never(home)` plus Kstack's three directories, `shut`
+step 2A's `Closed` folders, and `read` the Read paths of `Sandbox.System(home, shell)` (the
+toolchain folders among them) and the adopted `PATH` entries. Run on every write (§4) and on every read (§2), on the resolved path:
 
 | Rule | Refused when | The reason shown |
 | --- | --- | --- |
@@ -125,6 +128,7 @@ adopted `PATH` entries. Run on every write (§4) and on every read (§2), on the
 | exists | it is not a directory after following links | *This folder does not exist.* |
 | not the root | it is `/` | *The root cannot be granted.* |
 | not closed | it is one of `closed`, or under one | *This folder is never readable in the sandbox.* (an Always path) or *Kstack's own folders cannot be granted.* |
+| not a closed folder | it is one of `shut` itself, whose Deny a grant of the same path does not outrank | *Grant a folder inside it.* |
 | not nested | it is inside a listed folder, or a listed folder is inside it | *`<other>` is already granted; remove it first.* |
 | not over a read | `write` is set and a path of `read` is under it | *Kstack reads tools from `<path>`; grant it read-only, or a folder beside it.* |
 | not over a never path | `write` is set and a path of `closed` is under it | *`<path>` is never readable in the sandbox, so this folder can be granted read-only.* |
@@ -226,9 +230,9 @@ tool, as today.
 
 ### 6. The monitor
 
-`session.Narrow` copies a parent's `Folders`, and a `Monitor` session has none by construction:
+`session.Narrow` hands a subagent its parent's `Folders` function, and a `Monitor` session has none by construction:
 `foldersFor` takes a chat id, and a session with no chat is built with `Folders` answering nil.
-Step 6D keeps that when it builds the session. `TestAChatsFoldersNeverReachTheMonitor` pins the
+Step 6B keeps that when it builds the session. `TestAChatsFoldersNeverReachTheMonitor` pins the
 note's ninth invariant, "path grants attached to a chat session do not appear in the monitoring
 session's profile": with a chat's grants in `chat_grants` and always grants in the file, the
 policy built for a `Monitor` session has no Read or Write rule from either.
@@ -325,7 +329,8 @@ as they reach the workspace.
 - `TestADeniedAlwaysPathStaysHiddenUnderAGrantedHome`, in `bash_unix_test.go`, through the real
   sandbox on both platforms: with `~` granted read, `cat ~/.zshrc` reads and `cat
   ~/.ssh/id_ed25519`, `ls ~/.kube` and `ls ~/Documents` do not, and neither does Kstack's
-  `app.db`. The note's first invariant, over a grant.
+  `app.db`. The note's first invariant, over a grant. A grant of `~/Documents/project` reads
+  that folder and nothing else of `~/Documents` (`Closed`).
 - `TestAReadWriteGrantIsWritten`, and a read grant is not, through the real sandbox.
 - `TestAChatsFoldersNeverReachTheMonitor`: the policy built for a `Monitor` session holds no
   rule from `chat_grants` or `Settings.Folders`. The note's ninth invariant.

@@ -45,7 +45,8 @@ If the machine has no sandbox, all three run as they do today, and the sidecar l
   aliases and `PATH` shape every command run outside the sandbox (step 1B's switch), and the
   imported variables shape the sidecar's own `exec` credential plugins, which run with no
   sandbox. A startup file that puts a folder first on `PATH` still decides which `aws` a plugin
-  runs. Sandboxed commands are not affected: they source no snapshot (step 2A) and take their
+  runs. Sandboxed commands are not affected: they neither wait for nor source the snapshot, which on a
+machine with a sandbox is taken on the first run outside it (step 2A), and they take their
   `PATH` from the frozen list (step 3A). What protects a startup file from a sandboxed command is
   the write policy: it writes the workspace and, from step 4D, the folders the user granted, and
   nothing on `PATH`.

@@ -7,14 +7,14 @@ status: Planned
 # The permissions engine
 
 **Needs:** step 2C, whose session carries the mode, and step 1C, whose settings file keeps the
-rules. **Unblocks:** steps 4B, 4C, 4D, 5A, 5C, 6B, 6C, 6D and 6E.
+rules. **Unblocks:** steps 4B, 4C, 4D, 5A and 6B.
 
 Go paths below are under `sidecar/internal/` unless they say otherwise.
 
 ## In short
 
 Today the cluster proxy has one rule for a write: put it to the user, or refuse it when nobody
-can be asked. The note wants every upstream action to fall into one of six **classes**, and the
+can be asked. The note wants every action to fall into one of six **classes**, and the
 user's **approval mode** and **rules** to decide, per class and scope, whether the action runs,
 asks or is refused. The model is never the enforcement point; the proxy is.
 
@@ -33,17 +33,16 @@ After this step:
 - **A Settings section** shows the modes and the rules, the shipped ones read-only.
 
 The request the user sees is unchanged in this step; step 4B redraws it around the action. Class
-3 (a new host) arrives with step 4C, class 2 (a granted folder) with step 4D, class 6's grant
-with step 5A, and the AWS and GitHub classifiers with steps 5C and 5D. This step builds the
-engine and wires Kubernetes.
+3 (a new host) arrives with step 4C, class 2 (a granted folder) with step 4D, and class 6's
+grant with step 5A. This step builds the engine and wires Kubernetes.
 
 ## What is not in this step
 
 - **No new prompt.** Step 4B draws the action and offers the durations. Until then a `Prompt` is
   today's request, answered once.
 - **No Secret grant.** Secret reads are tagged class 6 and still always redacted; step 5A asks.
-- **No host, folder, AWS or GitHub actions.** Their steps add the classifier and the scope each
-  needs; `Decide` takes them as it takes Kubernetes'.
+- **No host or folder actions.** Their steps add the classifier and the scope each needs;
+  `Decide` takes them as it takes Kubernetes'.
 - Nothing changes on Windows: a command there runs outside the sandbox and reaches no proxy.
 
 ## Design
@@ -60,7 +59,7 @@ const (
 	ReadInside    Class = 1 // read inside the sandbox
 	WriteInside   Class = 2 // write the workspace or a granted folder
 	NewHost       Class = 3 // reach a host not on the allowlist
-	UpstreamWrite Class = 4 // change the cluster, the cloud or GitHub
+	UpstreamWrite Class = 4 // change the cluster
 	Destructive   Class = 5 // a curated list of high blast-radius writes
 	SecretRead    Class = 6 // read Kubernetes Secret data
 )
@@ -80,21 +79,15 @@ type Provider string
 
 const (
 	Kubernetes Provider = "k8s"
-	AWS        Provider = "aws"
-	GitHub     Provider = "github"
-	Google     Provider = "gcp"   // step 6C
-	Azure      Provider = "azure" // step 6C
-	Net        Provider = "net"   // step 4C
-	Path       Provider = "path"  // step 4D
+	Net        Provider = "net"  // step 4C
+	Path       Provider = "path" // step 4D
 )
 
 // Scope is where an action lands. Each field is a glob ("" matches
-// everything): context and namespace for Kubernetes, account and region for
-// AWS, org and repo for GitHub, host for net, folder for path.
+// everything): context and namespace for Kubernetes, host for net, folder for
+// path.
 type Scope struct {
 	Context, Namespace string
-	Account, Region    string
-	Org, Repo          string
 	Host, Folder       string
 }
 
@@ -127,8 +120,8 @@ type Action struct {
 	Provider Provider
 	Class    Class
 	Scope    Scope
-	Verb     string // get, create, update, patch, delete, deletecollection; an AWS action name; an HTTP method
-	Kind     string // the Kubernetes resource, the AWS service, the GitHub route
+	Verb     string // get, create, update, patch, delete, deletecollection; CONNECT for a host
+	Kind     string // the Kubernetes resource; a port for a host
 	Name     string // the object's name, when it has one
 	Summary  string // one line for the prompt, written by the classifier
 }
@@ -187,7 +180,6 @@ fields goes through it; a rule the user writes in Settings is a pattern as typed
 | Deny | 5 | k8s | `deletecollection` of `namespaces` in context `prod*` |
 | AskFor | 4 | k8s | any write of `clusterroles` or `clusterrolebindings` |
 | AskFor | 4 | k8s | any write of `roles` or `rolebindings` |
-| AskFor | 4 | aws | any `iam:*` write (step 5C makes it match) |
 
 The note's third shipped rule is "no cluster-scoped RBAC changes without a prompt"; namespaced
 RBAC is added since a `RoleBinding` to `cluster-admin` is as wide. Deleting the namespace
@@ -239,11 +231,13 @@ answer does, and `chatDelete` cascades.
 
 ### 4. The session's policy
 
-`session.Session` gains `Mode permissions.Mode` and `NoPrompts bool`. `chatsvc` sets `Mode`
-from `Settings.ModeFor` of the chat's cluster's context (`clustercard.ContextName` of the
-record; a chat with no cluster gets `DefaultMode`), once per turn, so a mode changed in Settings
-applies to the next turn. `NoPrompts` is false for a chat and a subagent; step 6D sets it for
-the monitor. `Narrow` keeps both.
+`session.Session` gains `Mode func(context.Context) permissions.Mode` and `NoPrompts bool`.
+`chatsvc` sets `Mode` to a read of `Settings.ModeFor` of the chat's cluster's context
+(`clustercard.ContextName` of the record; a chat with no cluster gets `DefaultMode`), read live,
+so a mode changed in Settings applies to the next write, a running subagent's included.
+`NoPrompts` is false for a chat and a subagent; step 6B sets it for the monitor. By step 2C's
+narrowing rule `NoPrompts` is identity, copied at spawn, and `Mode` is policy: `Narrow` hands the
+subagent the parent's function.
 
 `session.Session` also gains `Rules func(ctx) []permissions.Rule`, set by `chatsvc` to the
 chat's grants joined with `securityconfig`'s rules and the shipped ones, read live. A test sets a
@@ -294,7 +288,7 @@ the note's *Where this meets the code* decides. `ephemeralcontainers` is a class
 
 1. `act := classify(...)`.
 2. `d, why := permissions.Decide(policy, rules, act)`, where `policy` is
-   `{Mode: session.Mode, NoPrompts: session.NoPrompts || nobody to ask}` — a background task's
+   `{Mode: session.Mode(ctx), NoPrompts: session.NoPrompts || nobody to ask}` — a background task's
    grant and a grant with no asker set `NoPrompts`, so a `Prompted` there is `Denied` with
    today's message, and an `Allowed` goes through, which is new: a background `kubectl apply`
    under `Auto`, or under an allow rule, runs.

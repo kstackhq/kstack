@@ -7,7 +7,7 @@ status: Planned
 # Secret data is a permissioned read
 
 **Needs:** step 3B, whose classifier tags a Secret read class 6 and whose `Decide` answers it,
-and step 4B, whose request and four answers this step's prompt rides. **Unblocks:** step 6D,
+and step 4B, whose request and four answers this step's prompt rides. **Unblocks:** step 6B,
 whose monitor session this step's `NoSecretData` policy is written for.
 
 Go paths below are under `sidecar/internal/` unless they say otherwise.
@@ -32,7 +32,7 @@ redacts by default and treats showing the data as a permissioned action. After t
 - **The helm release write refusal is lifted** for a session `Decide` lets read real values in
   the release's namespace, since such a session rebuilds a release from what it read.
 - **A session can be one that never reads Secret data**, whatever its rules: the policy the
-  monitor session (step 6D) runs under. That is how the note's "the monitoring session must
+  monitor session (step 6B) runs under. That is how the note's "the monitoring session must
   never receive Secret data" is pinned here, ahead of the session that needs it.
 
 The mirror is untouched: KubeQuery reads `kubestore`, which redacts at write time and holds no
@@ -40,7 +40,7 @@ value to show. Nothing changes on Windows: no command there reaches the proxy.
 
 ## What is not in this step
 
-- **No monitor.** Step 6D builds the session; this step gives it the policy field and the
+- **No monitor.** Step 6B builds the session; this step gives it the policy field and the
   test.
 - **No audit of what else carries a secret.** The [TODO](../../TODO.md#security) item stands:
   ConfigMaps, env values and the state of tools that hold credentials pass as they do today.
@@ -109,9 +109,9 @@ redacted. This is the decision below.
 `session.Session` gains `NoSecretData bool`, and `permissions.Policy` gains the same field.
 `Decide` reads it first for a class 6 action: `Denied`, with a reason that says the session
 never reads Secret data, ahead of every rule. `chatsvc` sets it false for a chat's session;
-`Narrow` keeps the parent's; step 6D sets it true for the monitor. So no rule the user writes
+`Narrow` copies the parent's, since step 2C classes it as identity; step 6B sets it true for the monitor. So no rule the user writes
 in Settings, and no `Auto` mode, opens Secret data to a session built with it: the invariant
-is the policy's, not a filter step 6D has to remember.
+is the policy's, not a filter step 6B has to remember.
 
 ### 5. The prompt
 
@@ -192,7 +192,7 @@ then 8.
 - `TestSecretDataIsRedactedWithoutTheGrant`: under `ReadOnly` and `Ask` with `NoPrompts` and no
   `Allow` rule, and under every mode with `NoSecretData` and an `Allow` rule, every read of
   `secrets` — get, list, table, watch, a helm release — answers `[redacted]`. The note's sixth
-  invariant, and step 6D's. (`Auto` without `NoSecretData` allows the read, as the note's table
+  invariant, and step 6B's. (`Auto` without `NoSecretData` allows the read, as the note's table
   has it.)
 - `TestAHelmReleaseWriteRunsUnderTheGrant`: under an `Allow` class 6 rule for the namespace,
   a `PUT` of `sh.helm.release.v1.x` and a `POST` typed `helm.sh/release.v1` reach the write's

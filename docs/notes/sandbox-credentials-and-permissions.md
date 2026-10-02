@@ -1,7 +1,7 @@
 # Sandbox, credentials and permissions
 
 A note, not a spec: the design of the agent runtime's security, written 29 September 2026 and
-brought up to date with the specs' decisions on 30 September (*Where this meets the code*). The
+brought up to date with the specs' decisions on 2 October (*Where this meets the code*). The
 spec sequence in [`docs/specs/agent-security/`](../specs/agent-security/README.md) builds it, in
 its own order; its README says which steps have landed. What has already landed of it is
 described by `sidecar/CLAUDE.md`.
@@ -14,13 +14,13 @@ and their sandbox profiles are usable starting points.
 ## Purpose and scope
 
 This note specifies the security architecture for the agent runtime of a Kubernetes monitoring
-and troubleshooting app: how agent shell commands are sandboxed, how upstream credentials are
-isolated, and how user permissions are enforced. It describes mechanisms and invariants, not code.
+and troubleshooting app: how agent shell commands are sandboxed, how the cluster's credentials
+are isolated, and how user permissions are enforced. It describes mechanisms and invariants, not code.
 
 The app runs on the user's laptop (macOS first, Linux second). Users drive it from a chat
 interface. A chat agent runs bash commands to answer questions and act; a monitoring agent runs in
-the background while the app is open. Both use the user's own CLI tools (`kubectl`, `helm`, `aws`,
-`gcloud`, `az`, `gh`, `git`).
+the background while the app is open. Both use the user's own CLI tools (`kubectl`, `helm`,
+`kustomize`, `git`, `jq`). The cluster is the one upstream they reach with a credential.
 
 ## Design principles and threat model
 
@@ -33,11 +33,12 @@ most questions this note does not answer.
    model. The approval layer can be heuristic because the floor is underneath it. Codex exposes
    exactly these two axes to users (sandbox mode and approval policy); copy that.
 2. **Enforce upstream permissions at the credential proxy, not on the command line.** Every
-   Kubernetes, cloud and GitHub call passes through a proxy that injects credentials. The proxy
-   therefore sees every call and can classify it as read or write mechanically (HTTP verb, API
-   action name). This classification is immune to aliases, `sh -c`, `eval`, base64 tricks and
-   every other reason bash pattern-matching fails. Bash allowlists remain useful as UX; they are
-   never the security boundary.
+   Kubernetes call passes through a proxy that injects the cluster's credentials. The proxy
+   therefore sees every call and can classify it as read or write mechanically (HTTP verb, path).
+   This classification is immune to aliases, `sh -c`, `eval`, base64 tricks and every other
+   reason bash pattern-matching fails. Bash allowlists remain useful as UX; they are never the
+   security boundary. Every other host a command reaches, it reaches with no credential at all,
+   so the only question the proxy asks there is whether the host is allowed.
 3. **One session = one sandbox instance + one proxy token + one approval policy.** The chat
    agent, the monitoring agent and any subagents are simply sessions with different tokens. The
    monitoring agent's "reads need no permission" property is enforced by giving it a token the
@@ -50,11 +51,11 @@ GitHub issues that hijacks the model. The monitoring agent reads such content co
 unattended, so it is the more exposed of the two agents, not the less.
 
 Assume the attacker fully controls the model's outputs. Then the attacker can: read anything the
-user's cluster and cloud credentials can read (subject to Secret redaction, see Permissions),
-write inside the session workspace and granted paths, and ask the user for permission. The
-attacker must not be able to: read any credential, reach any network host outside the allowlist,
-write to the cluster, cloud or GitHub without a human approving, execute anything outside the
-sandbox, or read files outside the allowed zones. Every mechanism below exists to make that
+user's cluster credentials can read (subject to Secret redaction, see Permissions), write inside
+the session workspace and granted paths, and ask the user for permission. The attacker must not
+be able to: read any credential, reach any network host outside the allowlist, write to the
+cluster without a human approving, execute anything outside the sandbox, or read files outside
+the allowed zones. Every mechanism below exists to make that
 sentence true.
 
 Out of scope: a malicious binary already installed on the user's PATH (the sandbox runs the
@@ -73,19 +74,20 @@ user's own tools and cannot protect against them), and the app process itself be
 
 ## System overview
 
-The system has four components: sessions, the sandbox, the credential proxy, and the permissions
-layer. Two sessions (chat and monitoring) share one proxy, which fronts three classes of upstream
-(Kubernetes API servers, cloud APIs, GitHub).
+The system has four components: sessions, the sandbox, the proxy, and the permissions layer.
+Two sessions (chat and monitoring) share one proxy with two faces: the cluster proxy, which
+fronts the Kubernetes API servers with the cluster's credentials, and the egress proxy, which
+relays a listed host and injects nothing.
 
 Each agent runs in its own sandboxed session with no credentials and no direct network egress;
-every upstream call carries a session token to the proxy, which authenticates it, classifies it,
-and applies that session's approval policy before forwarding.
+every connection carries a session token to the proxy, which authenticates it, classifies a
+cluster call or checks a host, and applies that session's approval policy before forwarding.
 
 | Component | Responsibility | Lives |
 | --- | --- | --- |
 | Session | Binds a sandbox instance, a proxy token and an approval policy to one agent run | App process |
 | Sandbox | Confines each agent command: filesystem zones, allow-listed environment, no egress, syscall limits | OS primitives (Seatbelt, bubblewrap) |
-| Credential proxy | Holds or borrows credentials, redirects `kubectl`/`aws`/`gh` traffic, classifies read vs write, enforces host allowlist | Host process, outside the sandbox |
+| Proxy | Holds the cluster's credentials, redirects `kubectl`/`helm` traffic, classifies read vs write, enforces the host allowlist for everything else | Host process, outside the sandbox |
 | Permissions | Action classes, approval modes, grant rules, prompt UX; decisions consumed by the proxy and by the app's tool layer | App process |
 
 ## Sandbox
@@ -138,7 +140,7 @@ home is cheap.
 
 | Path | Why |
 | --- | --- |
-| `~/.kube`, `~/.aws`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.docker`, `~/.helm`, `~/.terraform.d` | Cluster and cloud credentials; the proxy owns these |
+| `~/.kube`, `~/.aws`, `~/.config/gh`, `~/.config/gcloud`, `~/.azure`, `~/.docker`, `~/.helm`, `~/.terraform.d` | Cluster credentials, which the proxy owns, and cloud credentials, which no command in the sandbox may hold |
 | `~/.ssh`, `~/.gnupg`, `~/.netrc`, `~/.npmrc`, `~/.pypirc`, `~/.gem/credentials`, `~/.git-credentials`, `~/.config/git/credentials` | Tokens for everything else |
 | `~/Library/Keychains`, `~/Library/Cookies`, browser profile directories, the app's own data directory | OS, browser and app secrets |
 | `~/.bash_history`, `~/.zsh_history`, `~/.*_history` | Frequently contain pasted secrets |
@@ -168,10 +170,8 @@ similar, so sessions do not re-download.
 
 The environment is constructed from scratch, never inherited from the user's shell or from the
 app's launch environment. Pass through only: `PATH` (the resolved and filtered list), `HOME` and
-`TMPDIR` (workspace), `KUBECONFIG` (the generated proxy kubeconfig), `AWS_ENDPOINT_URL` plus
-placeholder `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, `HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`,
-the CA bundle variables (`SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `GIT_SSL_CAINFO`, `AWS_CA_BUNDLE`,
-`REQUESTS_CA_BUNDLE`), `TERM`, `LANG`, `TZ`, and the `*_HOME` redirects above.
+`TMPDIR` (workspace), `KUBECONFIG` (the generated proxy kubeconfig),
+`HTTPS_PROXY`/`HTTP_PROXY`/`NO_PROXY`, `TERM`, `LANG`, `TZ`, and the `*_HOME` redirects above.
 
 Must never pass through: `SSH_AUTH_SOCK`, `GITHUB_TOKEN`, `GH_TOKEN`, `AWS_PROFILE`, any `AWS_*`
 credential variable, `DOCKER_HOST`, `DYLD_LIBRARY_PATH`, `DYLD_INSERT_LIBRARIES`,
@@ -192,17 +192,19 @@ path; cover them with a test so a later passthrough cannot reintroduce them.
 
 ### Network
 
-Deny by default; all egress goes through the credential proxy. The sandboxed process has no
-outbound sockets other than loopback. The proxy enforces a host allowlist: the API servers of
-every kube context, GitHub's hosts, the chart and package registries the user has allowed, and a
-cloud provider's endpoints once a proxy classifies what goes there (decision 13). An attempt to
-reach an unlisted host is an action requiring permission ("the agent wants to reach
-`example.com`; allow once or always?"). The machine's own services are closed too: an IP
+Deny by default; all egress goes through the proxy. The sandboxed process has no outbound
+sockets other than loopback. The proxy enforces a host allowlist: the API servers of every kube
+context, and the hosts the user has allowed, such as a chart or package registry. A listed host
+is a tunnel the proxy cannot see into, and the command holds no credential to send through it.
+An attempt to reach an unlisted host is an action requiring permission ("the agent wants to
+reach `example.com`; allow once or always?"). The machine's own services are closed too: an IP
 literal, and a name that resolves to the machine or the local network, are refused, except a
 kube API server the kubeconfig puts there. `kubectl port-forward` stays refused (decision 7).
 
 This is the mechanism that makes prompt injection mostly harmless: a hijacked agent that holds no
-credentials and can reach no arbitrary host cannot exfiltrate.
+credentials and can reach no arbitrary host cannot exfiltrate. The residual is a listed host
+that takes an upload with no credential, which is why a host the user lists is the user's to
+judge and Settings says so.
 
 ### Per-OS implementation notes
 
@@ -224,11 +226,10 @@ refuse rather than run unsandboxed.
 
 Do not attempt to compute per-binary dependency lists. The zone model covers nearly all shared
 libraries (`/usr/lib`, `/System/Library`, `/opt/homebrew/lib`, `/nix/store`) and the tools that
-matter most (`kubectl`, `helm`, `gh`) are static Go binaries. The cases that break are
-interpreter-based tools reading files at runtime: `aws` v2 (bundled Python under its install
-directory), `gcloud` and `az` (Python plus large install trees), and tools installed through
-`pyenv`/`nvm` reading their standard library from inside the version-manager tree. The toolchain
-allowlist exists for these. The remaining long tail is handled by denial logging at runtime (see
+matter most (`kubectl`, `helm`, `kustomize`) are static Go binaries. The cases that break are
+interpreter-based tools reading files at runtime: a `kubectl` plugin in Python, and tools
+installed through `pyenv`/`nvm` reading their standard library from inside the version-manager
+tree. The toolchain allowlist exists for these. The remaining long tail is handled by denial logging at runtime (see
 User experience), which catches libraries, data files and plugin directories in one mechanism and
 keeps working when a tool updates.
 
@@ -292,7 +293,7 @@ At each app launch, re-resolve and diff against the stored list:
 - New entries under `~` or another closed zone: adopt only after a one-click confirmation using
   the same grant UI as denied paths ("your shell added `~/.local/share/mise/shims` to PATH;
   include it?").
-- Order changes: adopt silently, but if the resolved location of `kubectl`, `helm`, `aws` or `gh`
+- Order changes: adopt silently, but if the resolved location of `kubectl` or `helm`
   changed as a result, say so once.
 
 Provide a "Refresh PATH" action in settings for users who install a tool mid-session.
@@ -304,14 +305,14 @@ PATH: a typical PATH resolves to thousands of executables, nearly all in open zo
 arbitrary binaries found on a user's machine is unacceptable. Static analysis of all of them
 produces a long, mostly false-positive report nobody reads and still misses runtime file reads.
 
-The curated list is the set the agent will actually call and their auth helpers: `kubectl`,
-`helm`, `kustomize`, `aws`, `gcloud`, `az`, `gh`, `git`, `jq`, `yq`, `aws-iam-authenticator`,
-`kubelogin`, `gke-gcloud-auth-plugin`. For each, the app knows a safe invocation
-(`kubectl version --client`, `aws --version`, `helm version`, `gh --version`).
+The curated list is the set the agent will actually call: `kubectl`, `helm`, `kustomize`,
+`git`, `jq`, `yq`. For each, the app knows a safe invocation (`kubectl version --client`, `helm
+version`, `git --version`). A kubeconfig's `exec` credential plugins (`aws`, `gke-gcloud-auth-plugin`,
+`kubelogin`) run in the sidecar, outside the sandbox, and are not probed.
 
 At onboarding and after each PATH refresh, run each probe inside the real sandbox with denial
-reporting on, collect denied paths, and present them with a one-click grant ("`gcloud` needs to
-read `/Applications/google-cloud-sdk`; allow?"). Resolve shims to real binaries first;
+reporting on, collect denied paths, and present them with a one-click grant ("`kustomize` needs
+to read `/opt/kustomize`; allow?"). Resolve shims to real binaries first;
 `~/.asdf/shims/kubectl` is a shell script and the thing to check is what it execs. Report which
 binary each tool resolved to, so a user with several `kubectl` installs knows which one the agent
 uses. If `kubectl` is absent, say so at onboarding rather than letting the first chat fail.
@@ -319,11 +320,13 @@ uses. If `kubectl` is absent, say so at onboarding rather than letting the first
 Let users register additional tools in settings with an invocation (default `--version`); teams
 with in-house CLIs will want it.
 
-## Credential proxy
+## The proxy
 
-The proxy is one host process, outside every sandbox, that holds or borrows all upstream
-credentials, injects them into requests from sandboxed tools, and applies the permission decision
-for each call. The sandbox never contains a real credential.
+The proxy is one host process, outside every sandbox. It has two faces on one socket: the
+**cluster proxy**, which holds the cluster's credentials, injects them into requests from
+sandboxed tools, and applies the permission decision for each call; and the **egress proxy**,
+which relays a listed host and injects nothing. The sandbox never contains a real credential,
+and the cluster is the one upstream a command reaches with one.
 
 ### Session tokens
 
@@ -335,76 +338,40 @@ a token whose policy is at most as permissive as the parent's.
 
 ### Tool redirection
 
-Each CLI tool is pointed at the proxy using the tool's own configuration mechanism where one
-exists, and a TLS-intercepting HTTPS proxy otherwise.
+`kubectl`, `helm` and `kustomize` are pointed at the cluster proxy by a generated kubeconfig in
+the workspace whose `server` for every context is the proxy and whose auth is the session token;
+`KUBECONFIG` points at it. The proxy maps the context name to the real cluster and credentials.
+Users with an existing `~/.kube/config` need zero setup. Everything else (`curl`, `git` over
+HTTPS, `helm repo update`) reaches the egress proxy through `HTTPS_PROXY`, and a tool that
+ignores the variable reaches nothing, since the sandbox has no other network.
 
-| Tool | Mechanism | Notes |
-| --- | --- | --- |
-| `kubectl`, `helm`, `kustomize` | A generated kubeconfig in the workspace whose `server` for every context is the proxy and whose auth is the session token; `KUBECONFIG` points at it | The proxy maps the context name to the real cluster and credentials. If the real kubeconfig uses an `exec` credential plugin, the proxy runs it on the host. Users with an existing `~/.kube/config` need zero setup |
-| `aws` | `AWS_ENDPOINT_URL` set to the proxy; placeholder access key and secret in the environment | The proxy validates the placeholder SigV4 signature, strips it, and re-signs with real credentials. Known edge cases: S3 presigned URLs and services with non-standard endpoint shapes; handle as encountered |
-| `gh`, `git` over HTTPS, `curl`, and everything else | `HTTPS_PROXY` set to the proxy; a CA the sandbox trusts through `SSL_CERT_FILE`, `NODE_EXTRA_CA_CERTS`, `GIT_SSL_CAINFO`, `AWS_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, made per start on Linux and per install on macOS, where the login keychain must trust it too | The proxy terminates TLS only for a host it holds a credential for, injects `Authorization`, forwards; every other listed host is a tunnel it cannot see into. The CA private key lives only in the proxy process or the OS keyring, never on disk. Prefer tool-specific endpoint overrides where they exist; use this path for the rest |
-| `gcloud`, `az` | Same HTTPS proxy path; both read the standard CA bundle variables | Their access tokens are borrowed as described below |
+Because every cluster call passes through the proxy, the proxy is also where the read/write
+classifier lives, and every connection passes it, so the host allowlist lives there too (see
+Permissions). An implementer must not add any tool a path around the proxy "for performance";
+the moment a tool talks to a cluster directly, that tool is outside both credential isolation and
+permission enforcement.
 
-Because every upstream call passes through the proxy, the proxy is also where the read/write
-classifier and the host allowlist live (see Permissions). An implementer must not add any tool a
-path around the proxy "for performance"; the moment a tool talks to a cluster directly, that tool
-is outside both credential isolation and permission enforcement.
+### The credential is the kubeconfig's
 
-### Credential sources: borrow existing logins first
+The proxy reads the real kubeconfig files (`~/.kube/config` and `KUBECONFIG` entries) and runs
+any `exec` credential plugin itself, on the host, the way `kubectl` would. That delegates every
+edge case (an SSO session, an enterprise identity provider, a cloud CLI's token cache) to the
+plugin that already handles it. The proxy never parses a cloud credentials file and never stores
+a long-lived secret.
 
-Users expect their tools to work with no extra sign-in, as they do in Claude Code and Codex.
-Those tools achieve it by letting the sandbox read `~/.aws` and `~/.config/gh`. This app closes
-those directories but achieves the same experience by having the proxy, which runs on the host
-with full access, obtain credentials the same way the tool would, by invoking the tool's own
-credential resolution:
-
-| Provider | How the proxy obtains credentials |
-| --- | --- |
-| AWS | `aws configure export-credentials --profile <p>`; covers SSO caches, `credential_process`, role assumption and MFA sessions |
-| GitHub | `gh auth token` (reads `hosts.yml` or the keyring) |
-| GCP | `gcloud auth print-access-token`; GKE via the `gke-gcloud-auth-plugin` exec entry in the kubeconfig |
-| Azure | `az account get-access-token` |
-| Kubernetes | Reads the real kubeconfig files (`~/.kube/config` and `KUBECONFIG` entries) and runs any `exec` credential plugins itself |
-
-This delegates every edge case (SSO refresh, enterprise hosts, 1Password shell plugins) to the
-tool that already handles it. The proxy never parses a credentials file, never stores a
-long-lived secret, reads at use time, and caches in memory until expiry.
-
-The proxy must not copy anything from `~/.aws`, `hosts.yml` or a kubeconfig into the app's own
-store, even encrypted. That would make the app a second place secrets live and a second thing to
-revoke.
-
-### OAuth: optional upgrade, not entry ticket
-
-Offer "connect with GitHub / AWS / Google / Azure" in settings for three cases: users with no CLI
-login on this machine; users who want an app-scoped token revocable from the provider console
-without touching their CLI login; and scoping down. Scoping down is the real value: with the app's
-own OAuth app it can request read-only scopes for the monitoring session's token, and with AWS it
-can `AssumeRole` into a read-only role or attach an STS session policy, so the monitoring agent's
-read-only guarantee is enforced by the provider as well as by the proxy. Borrowed CLI credentials
-are whatever the user has, usually admin.
-
-OAuth tokens are stored in the OS keychain and read only by the proxy.
-
-### Expiry and re-login
-
-When a borrowed credential expires (SSO sessions do, typically daily), the proxy notices the
-upstream failure and surfaces it in chat with an action: "AWS session for `dev` expired; run `aws
-sso login --profile dev`", where the button runs the command on the host and opens the browser.
-Never attempt to complete SSO inside the sandbox; the browser handoff is host-side by nature. For
-the monitoring agent an expired credential pauses that context's checks and shows a status
-indicator, never a modal.
+The proxy must not copy anything from a kubeconfig into the app's own store, even encrypted. That
+would make the app a second place secrets live and a second thing to revoke.
 
 ### What the user sees
 
-At onboarding, one screen: "Found: GitHub as `@alice`, AWS profiles `dev` and `prod`, 4 kube
-contexts, gcloud project `foo`." Nothing to click unless they want to exclude something. From then
-on their tools work in the sandbox immediately and the proxy is invisible unless they look.
+At onboarding, the folders the sandbox finds programs in and which `kubectl` it runs. Nothing to
+sign into: the cluster works because the kubeconfig does. From then on their tools work in the
+sandbox immediately and the proxy is invisible unless they look.
 
 ## Permissions
 
-Permissions are enforced in two places: the proxy for upstream actions and the app's tool layer
-for bash and filesystem. The model is never a policy enforcement point.
+Permissions are enforced in two places: the proxy for cluster writes and new hosts, and the
+app's tool layer for bash and filesystem. The model is never a policy enforcement point.
 
 ### Action classes
 
@@ -413,11 +380,11 @@ against them.
 
 | Class | Examples | Where enforced |
 | --- | --- | --- |
-| 1. Read inside the sandbox | `ls`, `cat`, `grep`, `kubectl get`, `aws describe-*` | Sandbox (nothing to enforce) |
+| 1. Read inside the sandbox | `ls`, `cat`, `grep`, `kubectl get` | Sandbox (nothing to enforce) |
 | 2. Write inside workspace or granted paths | Writing a manifest to the workspace, editing a granted repo | Sandbox |
 | 3. Reach a new network host | `curl https://example.com`, a chart from an unlisted registry | Proxy host allowlist |
-| 4. Upstream write | Kubernetes `POST`/`PUT`/`PATCH`/`DELETE`; non-read AWS actions; non-`GET` GitHub calls | Proxy classifier |
-| 5. Destructive or high blast-radius write | Delete namespace, delete PV/PVC, scale to zero, RBAC changes, `aws iam` writes, force-push | Proxy classifier with a curated list |
+| 4. Upstream write | Kubernetes `POST`/`PUT`/`PATCH`/`DELETE` | Proxy classifier |
+| 5. Destructive or high blast-radius write | Delete namespace, delete PV/PVC, scale to zero, RBAC changes | Proxy classifier with a curated list |
 | 6. Read Kubernetes Secret data | `kubectl get secret -o yaml`, the `secrets` resource in any read | Proxy: `data` fields redacted unless permitted |
 
 Class 6 deserves its own entry because it is a read that carries write-like risk. The proxy
@@ -433,16 +400,8 @@ regardless of verb, since they run code in or against the cluster. Dry-run reque
 (`?dryRun=All`) are reads. Class 5 is a curated list keyed on resource kind and verb, and on
 context name patterns.
 
-**AWS.** The proxy sees the signed request, so the action name is available (from the `Action`
-parameter, the `X-Amz-Target` header, or the REST path per service). Classify with the IAM
-read-only action list (`Describe*`, `List*`, `Get*`, `Batch Get*`) plus a curated override map
-for the exceptions (`GetFederationToken` and `GetSessionToken` mint credentials; some `Get*` calls
-on S3 download objects, which is a data read but still class 1). Class 5: `iam:*` writes,
-`ec2:TerminateInstances`, `rds:Delete*`, `s3:DeleteBucket`, `eks:Delete*`.
-
-**GitHub.** `GET` and `HEAD` are reads; everything else is a write. Class 5: deleting repositories
-or branches, force-pushes (visible as `git push --force` through the git-over-HTTPS proxy path),
-changing branch protection.
+**The network.** A host is listed or it is not; there is nothing to classify in a tunnel, and no
+credential rides through one. A listed host is class 1, an unlisted one class 3.
 
 **Bash.** Bash inside the sandbox is far less dangerous than it sounds: it can only affect the
 workspace, granted paths and upstream reads. Everything else is caught by the sandbox or the
@@ -478,12 +437,12 @@ mode that shows Secret values without asking, and the Settings picker says so.
 Grants are rules of the form `class : resource scope : duration`, in the style of Claude Code's
 allow and deny lists. Examples: `k8s:write context=dev-eks namespace=team-a` for this session;
 `net:host registry.example.com` always; `k8s:secret-read context=dev-*` for this session. Scopes
-for Kubernetes are context and namespace; for AWS, account and region; for GitHub, organization
-and repository. Durations are once, this session, or always.
+for Kubernetes are context and namespace; for the network, a host; for a path, a folder.
+Durations are once, this session, or always.
 
 Deny rules always win over allow rules, and the app ships default deny rules: no namespace
 deletion in contexts matching `prod*`, no cluster-scoped RBAC changes without a prompt in any
-mode, no `aws iam` writes without a prompt in any mode. Users can add deny rules; they cannot
+mode. Users can add deny rules; they cannot
 remove the shipped ones from the Ask mode, only override them per prompt.
 
 ### Prompt UX
@@ -493,12 +452,8 @@ Prompt with the classified action, not the shell string: "Delete pod `api-7f9c` 
 the diff is available: it reads the object, dry-runs the request against the API server, and
 diffs the two, so the user sees what the cluster will do rather than what the body says. Each prompt offers: approve once, allow for this chat (scoped to the
 resource scope shown), always allow this scope, deny. The "always" option writes a grant rule the
-user can see and remove in settings.
-
-Expose a few first-class tools to the agent alongside raw bash: `k8s_read`, `k8s_apply`,
-`k8s_delete`, `k8s_scale`, `k8s_rollout_restart`. The model will mostly use them, prompts become
-legible without parsing, and raw bash remains the fallback. Actions taken through raw bash are
-still classified by the proxy; they just produce a less descriptive prompt.
+user can see and remove in settings. The cluster surface stays `kubectl` in Bash and KubeQuery
+over the mirror; the proxy's classifier is what makes a raw command's prompt legible.
 
 ## Sessions and multiple agents
 
@@ -524,9 +479,8 @@ the more likely injection target.
 - Different grants: a user granting `~/code/my-service` means the conversation they are in, not
   the background process. Path grants attach to the chat session by default; extending them to
   monitoring is a separate, explicit switch.
-- Different network shape: monitoring needs only the cluster API servers and cloud metrics
-  endpoints. Its allowlist is tighter, and it must never raise a "reach new host?" prompt because
-  nobody is there to answer.
+- Different network shape: monitoring needs only the cluster API servers. Its allowlist is
+  tighter, and it must never raise a "reach new host?" prompt because nobody is there to answer.
 
 ### Session definitions
 
@@ -561,13 +515,10 @@ that show the sandbox in the user's own terms.
 1. Resolve PATH from the login shell; filter; show the list.
 2. Probe the curated tools inside the sandbox; report which binary each resolved to and any
    denied paths, each with a grant button. Say plainly if `kubectl` is missing.
-3. Discover credentials through the tools' own resolution; show one screen of what was found
-   (GitHub user, AWS profiles, kube contexts, gcloud project) with the option to exclude any.
-4. Set the approval mode: Ask by default, with Read-only pre-applied to contexts matching `prod*`
+3. Set the approval mode: Ask by default, with Read-only pre-applied to contexts matching `prod*`
    and shown as such.
 
-No step requires typing a secret or signing in; OAuth appears as an optional "connect" in
-settings.
+No step requires typing a secret or signing in: the cluster works because the kubeconfig does.
 
 ### Denials in context
 
@@ -575,7 +526,7 @@ The biggest usability failure of sandboxes is a command that dies with a cryptic
 denied" from three layers down. Every denied path, host and upstream write is found per command
 (on macOS from Seatbelt's reports in the system log, each deny rule tagged with the run's id so
 the sidecar can read its own from a `log stream`; on Linux, where no unprivileged process can
-read the kernel's log, from the command's error output checked against the policy; the proxies'
+read the kernel's log, from the command's error output checked against the policy; the proxy's
 own records for hosts, writes and Secret reads). The chat shows the denial in plain terms with
 the action that resolves it: "the command tried to read `~/code/foo` and was blocked; grant
 access?", "the agent wants to reach `charts.example.com`; allow?". This turns the closed home
@@ -589,22 +540,19 @@ Grants offered from a denial carry the same once / session / always choices as p
 - Sandbox: the resolved PATH list with a refresh action; registered extra tools; path grants with
   read or read-write; the denied-always list shown read-only so users understand why `~/.ssh` is
   unreachable.
-- Credentials: what was discovered, what is excluded, OAuth connections, and per-provider status
-  (valid, expired with a re-login button).
 - Permissions: approval mode per context; grant rules and deny rules as a list the user can edit;
   the shipped deny rules shown but not removable.
-- Network: the host allowlist with sources (from kubeconfig, from cloud provider, added by user),
-  and per-session vs always entries.
-- Monitoring: which contexts it watches, whether it shares any path grants, its current
-  credential status.
+- Network: the host allowlist with sources (from kubeconfig, added by user), and per-session vs
+  always entries.
+- Monitoring: which contexts it watches, and whether it shares any path grants.
 
 Everything in settings speaks in the user's terms (contexts, namespaces, profiles, folders), never
 in Seatbelt rules or proxy internals.
 
 ## Implementation order, invariants and open questions
 
-Build the proxy first, because it delivers both credential isolation and enforceable permissions;
-the sandbox second; OAuth third; the TLS-intercepting path last.
+Build the cluster proxy first, because it delivers both credential isolation and enforceable
+permissions; the sandbox second; the egress proxy and the permissions UI after.
 
 ### Order
 
@@ -617,15 +565,11 @@ turns it into steps, given what had already landed when the design was adopted.
 2. Sandbox on macOS (Seatbelt), starting from Codex's or Claude Code's published profile: zones,
    environment construction, network deny, denial reporting. Then PATH resolution and the curated
    probe.
-3. AWS path: `AWS_ENDPOINT_URL` redirection, SigV4 re-signing, `export-credentials` borrowing, the
-   AWS classifier.
-4. Permissions UI: approval modes, grant and deny rules, prompt cards with diffs,
+3. Permissions UI: approval modes, grant and deny rules, prompt cards with diffs,
    denial-in-context grants.
-5. Monitoring session with a read-only token, Secret redaction, and the proposal-card handoff.
-6. Linux sandbox (bubblewrap, seccomp).
-7. OAuth connections and scoped-down tokens for monitoring.
-8. HTTPS interception with Kstack's CA for `gh`, `gcloud`, `az`, `git` and general egress;
-   host allowlist prompts.
+4. Monitoring session with a read-only token, Secret redaction, and the proposal-card handoff.
+5. Linux sandbox (bubblewrap, seccomp).
+6. The egress proxy: the host allowlist and its prompts.
 
 ### Invariants that must have tests
 
@@ -645,16 +589,11 @@ turns it into steps, given what had already landed when the design was adopted.
 - [ ] Path grants attached to a chat session do not appear in the monitoring session's profile.
 - [ ] If the sandbox cannot be established, every command asks the user before it runs and the
       user is told why; no command runs unconfined and unasked.
-- [ ] Nothing from `~/.aws`, `~/.config/gh` or any kubeconfig is written into the app's data
+- [ ] Nothing from a kubeconfig or an `exec` plugin's answer is written into the app's data
       directory.
 
 ### Open questions, and where they were answered
 
-- SigV4 re-signing edge cases. **Answered by step 5C**: S3 goes through the same re-signing
-  proxy, path style; a chunk-signed streaming upload is refused; presigned URLs do not work in
-  the sandbox and the prompt says so. Revisit if `aws s3 cp` of a large file is asked for.
-- `gh` against GitHub Enterprise Server: `GH_HOST` handling through the proxy needs a design.
-  **Still open**; steps 6B and 7B leave it out.
 - Whether project-local PATH entries (`node_modules/.bin`) count as user binaries. **Answered by
   step 3A**: they do not, and are dropped.
 - Persistent per-cluster caches versus per-session workspaces. **Answered by step 2A**: one tool
@@ -684,13 +623,13 @@ above, that is most of 1, 2 and 6.
    every command there, each one asking, as the bash tool record has it. The default is the
    sandbox, and no chain of approvals leaves it.
 2. **Session grants and "always" rules supersede the bash tool record's rule** ("no setting, no
-   allowlist, no read exempt") for actions the proxies classify. A raw command outside the
+   allowlist, no read exempt") for actions the proxy classifies. A raw command outside the
    sandbox still asks every time.
 3. **The monitoring session's plumbing is built ahead of a monitoring agent**: its kind, its
    read-only token policy and the proposal card, driven by a stand-in until an agent exists.
 4. **One token per run, mapped to its session.** A run's token dies with the run, as it does
    today, which is stricter than one per session and costs nothing; the session is what the token
-   maps to. The proxies read the session's policy through the run's grant.
+   maps to. The proxy reads the session's policy through the run's grant.
 5. **A path grant lasts for a chat or always.** Kstack has no project; the chat is the session.
 6. **The login shell runs in a read-only sandbox**, not merely outside the agent's, so a startup
    file cannot reach Kstack's data or the network while it runs.
@@ -704,7 +643,7 @@ above, that is most of 1, 2 and 6.
    its own would separate nothing, and its `Write` and `Edit` are drawn open under the chat as
    the parent's are. The chat and the monitor keep separate workspaces, as the note says.
 10. **Native Windows has no sandbox** ([ADR](../adr/2026-09-28-native-windows-has-no-sandbox.md)),
-   so every command there runs outside it and asks, and none of the proxies' credential isolation
+   so every command there runs outside it and asks, and none of the proxy's credential isolation
    holds. The design is for macOS and Linux, WSL2 included.
 
 **Decisions the specs added**, each argued in the spec named:
@@ -715,24 +654,27 @@ above, that is most of 1, 2 and 6.
     rule that says "always ask" cannot turn a refusal into a prompt.
 12. **`/etc` is readable whole, with its secret files on the denied-always list** (step 2A),
     since the loader and libc read files the note's short list cannot name.
-13. **A cloud provider's hosts are never a plain tunnel** (steps 4C, 5C, 6C). AWS is reached only
-    through the re-signing proxy, and Google's and Azure's hosts are listed only while an
-    injector terminates and classifies each request. A raw `CONNECT` to a cloud host asks as a
-    new host. A bucket that takes anonymous uploads would otherwise be an exfiltration path
-    that needs no credential.
+13. **A cloud provider's hosts are not on the allowlist** (step 4C). A tunnel to
+    `*.amazonaws.com` carries whatever a command sends, and a bucket that takes anonymous uploads
+    is an exfiltration path that needs no credential. A `CONNECT` to a cloud host asks as a new
+    host, and the user's answer is the user's to judge.
 14. **A folder grant is read-only over the home, and a read-write grant may not hold a
     denied-always path** (step 4D), because a command that can write a folder can rename what
     is under it out from under a Seatbelt rule.
 15. **The prompt's diff is a server dry run of the exact bytes the request holds, and Approve
     waits on the diff** (step 4B), with the raw request one fold away.
-16. **A force-push asks as a push** (class 4, naming its refs) **and a ref deletion is class 5**
-    (step 6B), since the proxy sees old and new ids and not whether one descends from the other.
-17. **Memory on macOS is bounded by the wall clock alone, and the process limit is the user's
-    count plus a margin** (step 2B), since macOS enforces no address-space limit and a cgroup
-    is not delegated to a desktop app.
-18. **The CA is made per start on Linux and per install on macOS, and TLS is terminated only
-    for a host an injector claims** (step 5D), so the plaintext the proxy reads is always one
-    it is putting a credential on.
-19. **The monitor is refused by its mode and its no-prompts policy, never by its kind** (step
-    6D), so a proxy that forgot about monitors would still refuse it; its proposal is text a
+16. **Memory on macOS is bounded by the wall clock alone, and the process limit is a margin
+    over what the kernel already counts against the run** (step 2B): nothing in a Linux user
+    namespace of the run's own, the user's whole count elsewhere. macOS checks `RLIMIT_AS`, but
+    every process already maps past any limit that would stop a leak, so none can be set; and
+    a cgroup is not delegated to a desktop app. The CPU limit is the longest timeout and its
+    kill grace, times the CPU count, so it binds only a process that outlives the clock, and on
+    macOS only one that does not ignore `SIGXCPU`.
+17. **The monitor is refused by its mode and its no-prompts policy, never by its kind** (step
+    6B), so a proxy that forgot about monitors would still refuse it; its proposal is text a
     chat runs under the normal flow.
+18. **macOS refuses the setuid programs that exist to escalate, not every setuid program**
+    (step 2B): `sudo`, `su`, `login` and `security_authtrampoline`. Seatbelt's `file-mode` rule
+    also refuses setgid files, and no later rule wins `ps` and `top` back, which macOS installs
+    setuid root and commands need. Every setuid program still runs inside the profile, and on
+    Linux `no_new_privs` refuses them all.
