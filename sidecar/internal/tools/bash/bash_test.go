@@ -445,11 +445,14 @@ func shortTemp(t *testing.T) string {
 }
 
 // fakeSandboxer runs a command as given and keeps each Run it was handed,
-// or answers cmdErr and runs nothing. Its port is 6443, or portErr.
+// or answers cmdErr and runs nothing. Its port is 6443, or portErr, and the
+// processes it counts are counted, or countErr.
 type fakeSandboxer struct {
 	confines  bool
 	cmdErr    error
 	portErr   error
+	counted   int
+	countErr  error
 	system    sandbox.System   // what System answers
 	never     []string         // what Never answers
 	hold      *testutil.Signal // when set, Command fires it and waits for ctx to end
@@ -490,6 +493,8 @@ func (f *fakeSandboxer) System(string, string) sandbox.System {
 func (f *fakeSandboxer) Never(string) []string { return f.never }
 
 func (f *fakeSandboxer) Confines() bool { return f.confines }
+
+func (f *fakeSandboxer) CountedProcesses() (int, error) { return f.counted, f.countErr }
 
 func (f *fakeSandboxer) Port() (int, error) {
 	f.mu.Lock()
@@ -1120,4 +1125,13 @@ func TestAFailedConfinedRunSaysWhereItRan(t *testing.T) {
 	tl.sandboxer = &fakeSandboxer{}
 	text, _ = tl.Run(t.Context(), rt, command("exit 3"))
 	assert.Equal(t, "Exit code 3\n", text, "a sandbox that confines nothing")
+}
+
+// The sandbox prompt says sudo does not work, what the limits are and how a
+// process past one ends, and what a thread that cannot start means.
+func TestThePromptSaysSudoDoesNotWork(t *testing.T) {
+	assert.Contains(t, sandboxPrompt, "`sudo` does not work in the sandbox.")
+	assert.Contains(t, sandboxPrompt, "limited in memory and open files, and in the foreground in count and CPU time")
+	assert.Contains(t, sandboxPrompt, "exit 152")
+	assert.Contains(t, sandboxPrompt, "cannot create a thread")
 }

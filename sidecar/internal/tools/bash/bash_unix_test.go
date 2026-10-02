@@ -26,6 +26,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -757,8 +758,50 @@ func TestTheWorkspacePolicyIsSystemAndTheRunsOwn(t *testing.T) {
 			Read:   []string{rd.path},
 			Write:  []string{ws, tools.ToolHomePath(rt.Dir), tmp},
 		},
+		Limits: r.Policy.Limits,
 	}, r.Policy)
 	assert.NoError(t, r.Policy.Check())
+}
+
+// workspaceLimits is a run's limits over a base of 37, in the foreground or
+// the background, as the fake sandboxer was handed them.
+func workspaceLimits(t *testing.T, run func(*Tool, tools.Runtime)) sandbox.Limits {
+	t.Helper()
+	tl := tool(t)
+	fake := &fakeSandboxer{counted: 37}
+	tl.sandboxer = fake
+	rt := testRuntime(t)
+	tasks := newFakeTasks(t)
+	rt.Tasks = tasks
+	run(tl, rt)
+	for _, tk := range tasks.started {
+		tk.Wait()
+	}
+	runs := fake.seen()
+	require.Len(t, runs, 1)
+	return runs[0].Policy.Limits
+}
+
+func TestTheWorkspacePolicyHasTheLimits(t *testing.T) {
+	got := workspaceLimits(t, func(tl *Tool, rt tools.Runtime) {
+		text, isError := tl.Run(t.Context(), rt, command("true"))
+		require.False(t, isError, text)
+	})
+
+	assert.Equal(t, sandbox.Limits{
+		CPUSeconds: 605 * runtime.NumCPU(), MemoryBytes: limitMemory, OpenFiles: 4096, Processes: 37 + processMargin(runtime.NumCPU()),
+	}, got)
+}
+
+// A background run has no clock, so no CPU or process limit either: a long
+// one must not die of CPU, or of other programs filling a machine-wide count.
+func TestABackgroundRunHasNoCPUOrProcessLimit(t *testing.T) {
+	got := workspaceLimits(t, func(tl *Tool, rt tools.Runtime) {
+		text, isError := tl.Run(t.Context(), rt, background("true"))
+		require.False(t, isError, text)
+	})
+
+	assert.Equal(t, sandbox.Limits{MemoryBytes: limitMemory, OpenFiles: 4096}, got)
 }
 
 // A test's extra writable directories are Files Write rules: they lie in none
@@ -904,6 +947,43 @@ func TestAGoneClusterCouldNotStart(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A base the sandbox cannot read fails a foreground call before anything is
+// made or run: a run never starts under a limit other than its policy's.
+func TestABaseThatCannotBeReadFailsTheCall(t *testing.T) {
+	tl := tool(t)
+	fake := &fakeSandboxer{countErr: errors.New("no /proc")}
+	tl.sandboxer = fake
+
+	text, isError := tl.Run(t.Context(), testRuntime(t), command("echo ran"))
+
+	assert.True(t, isError)
+	assert.Contains(t, text, "no /proc")
+	assert.Empty(t, fake.seen())
+	for _, dir := range []string{tl.runsDir, tl.tmpDir} {
+		entries, err := os.ReadDir(dir)
+		require.NoError(t, err)
+		assert.Empty(t, entries, dir)
+	}
+}
+
+// A background run reads no base, since it has no process limit.
+func TestABackgroundRunReadsNoBase(t *testing.T) {
+	tl := tool(t)
+	fake := &fakeSandboxer{countErr: errors.New("no /proc")}
+	tl.sandboxer = fake
+	rt := testRuntime(t)
+	tasks := newFakeTasks(t)
+	rt.Tasks = tasks
+
+	text, isError := tl.Run(t.Context(), rt, background("true"))
+
+	require.False(t, isError, text)
+	for _, tk := range tasks.started {
+		tk.Wait()
+	}
+	assert.Len(t, fake.seen(), 1)
 }
 
 // zsh -c reads $ZDOTDIR/.zshenv, and HOME is the workspace, so a .zshenv a
@@ -1123,4 +1203,22 @@ func TestASandboxedRunCarriesAsdfsVersions(t *testing.T) {
 
 	require.False(t, isError, text)
 	assert.Equal(t, "/h/.asdf 20.1.0\n", text)
+}
+
+// A sandboxed command runs under the Workspace policy's limits. The process
+// limit is at least the margin: the sandbox adds the user's count and what
+// its forwarder takes.
+func TestASandboxedCommandRunsUnderTheLimits(t *testing.T) {
+	tl := proxyTool(t, &fakeLease{})
+	tl.sandboxer = confining(t)
+
+	text, isError := tl.Run(t.Context(), testRuntime(t), command("ulimit -t; ulimit -n; ulimit -c; ulimit -u"))
+
+	require.False(t, isError, text)
+	lines := strings.Fields(text)
+	require.Len(t, lines, 4, text)
+	assert.Equal(t, []string{strconv.Itoa(605 * runtime.NumCPU()), "4096", "0"}, lines[:3])
+	processes, err := strconv.Atoi(lines[3])
+	require.NoError(t, err, text)
+	assert.GreaterOrEqual(t, processes, processMargin(runtime.NumCPU()))
 }

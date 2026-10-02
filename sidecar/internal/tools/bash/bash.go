@@ -84,6 +84,11 @@ const (
 	MaxTimeout     = 600 * time.Second
 	// killGrace is how long a timed-out group has between SIGTERM and SIGKILL.
 	killGrace = 5 * time.Second
+	// The Workspace policy's limits. limitCPU is a process's CPU time per CPU:
+	// no foreground process reaches it before the clock and the grace end the
+	// run, so it binds only one that outlives them.
+	limitCPU       = MaxTimeout + killGrace
+	limitOpenFiles = 4096
 	// callMargin puts the loop's bound on a call above the command's own and its
 	// grace, covering pipeGrace and scheduling, so a timed-out command answers with
 	// its own result rather than the loop's timeout refusal.
@@ -107,6 +112,7 @@ type sandboxer interface {
 	Never(home string) []string
 	Confines() bool
 	Port() (int, error)
+	CountedProcesses() (int, error)
 }
 
 // Tool is a shell found on the machine. It is the tools.Gated a turn is offered.
@@ -607,9 +613,24 @@ func (r *sandboxedRun) end() {
 // sandboxed kubectl aimed at nothing would read as the cluster being down. The
 // caller calls end when the run ends.
 func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Runtime, cwd string, background bool) (*sandboxedRun, error) {
+	limits := sandbox.Limits{MemoryBytes: limitMemory, OpenFiles: limitOpenFiles}
+	// A background run has no clock, so a long one must not die of CPU, nor of
+	// the process count: where the kernel counts the user's whole machine, other
+	// programs fill the margin over hours.
+	if !background {
+		// Read before anything is made, so a run never starts under a limit
+		// other than its policy's.
+		base, err := boxer.CountedProcesses()
+		if err != nil {
+			return nil, err
+		}
+		limits.CPUSeconds = int(limitCPU/time.Second) * runtime.NumCPU()
+		limits.Processes = base + processMargin(runtime.NumCPU())
+	}
 	r := &sandboxedRun{boxer: boxer}
 	var cluster *target
 	var port int
+	var err error
 	if rt.ClusterID != "" {
 		tg, err := t.target(ctx, rt.ClusterID)
 		if err != nil {
@@ -624,7 +645,6 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 			return nil, err
 		}
 	}
-	var err error
 	if r.dir, err = newRunDir(t.runsDir, t.tmpDir, os.Getpid()); err != nil {
 		r.end()
 		return nil, err
@@ -663,7 +683,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 			toolchain = slices.Concat(sys.Env, toolVersions(t.home))
 		}
 		env := sandboxedRunEnv(os.Environ(), t.env, ws, cwd, r.dir, cluster, toolHome, toolchain)
-		built <- sandbox.Run{Env: env, Policy: t.workspacePolicy(boxer, sys.Files, reads, writes, relays)}
+		built <- sandbox.Run{Env: env, Policy: t.workspacePolicy(boxer, sys.Files, reads, writes, relays, limits)}
 	}()
 	select {
 	case r.run = <-built:
@@ -677,14 +697,15 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 // workspacePolicy is a sandboxed run's policy: system, the sandbox's System,
 // less what lies in Kstack's directories, and the extra writable, which lies
 // in none; the Never paths and Kstack's directories denied but for the run's
-// own reads and writes, which lie inside them; and relays.
-func (t *Tool) workspacePolicy(boxer sandboxer, system sandbox.FilePolicy, reads, writes []string, relays []sandbox.Relay) sandbox.Policy {
+// own reads and writes, which lie inside them; relays; and limits.
+func (t *Tool) workspacePolicy(boxer sandboxer, system sandbox.FilePolicy, reads, writes []string, relays []sandbox.Relay, limits sandbox.Limits) sandbox.Policy {
 	files := system.Outside(t.denied...)
 	files.Write = append(files.Write, t.extraWritable...)
 	return sandbox.Policy{
 		Files:   files,
 		Always:  sandbox.AlwaysPolicy{Deny: boxer.Never(t.home), Kstack: t.denied, Read: reads, Write: writes},
 		Network: sandbox.NetworkPolicy{Relays: relays},
+		Limits:  limits,
 	}
 }
 

@@ -2216,7 +2216,15 @@ sandbox's `System` `Files`, less every rule on or inside Kstack's directories (`
 (`app` passes the data, cache and runtime directories) as its Kstack paths, the run's directory
 as its own Read, and the workspace, the tool home, its `TMPDIR` and the kubectl cache as its own
 Write; and a run with a cluster has one
-relay, from `Port()` to its proxy socket. Bash's tests lay their folders out under Kstack's three
+relay, from `Port()` to its proxy socket. **Its `Limits`** are `limitCPU` (`MaxTimeout` plus
+`killGrace`) in seconds times `runtime.NumCPU()` on a foreground run and none on a background one,
+which has no clock; `limitMemory` (`limits_linux.go`: 16 GiB; `limits_other.go`: 0, since macOS
+sets none); `limitOpenFiles` (4096); and the sandbox's `CountedProcesses` plus
+`processMargin(runtime.NumCPU())` (`limits_linux.go`: `max(1024, 128 × cpus)`, since Linux counts
+threads; `limits_other.go`: 512) on a foreground run and none on a background one, since a
+machine-wide count drifts over hours as other programs start. `sandboxedRunFor` reads a foreground
+run's base first, through the `sandboxer` seam, and its error fails the call before anything is
+made, so a run never starts under a limit other than its policy's. Bash's tests lay their folders out under Kstack's three
 as `app/paths.go` does (`kstackDirs`), so a test's policy passes `Check` over a real sandbox.
 **A run with a cluster claims its connection and serves a grant over it** (`upstream.go`,
 `proxy.go`). `claim` acquires the lease with `AcquireConnection`, which does not dial, and the
@@ -2247,8 +2255,9 @@ cluster has no grant, no socket and no forwarder. `prompts/sandbox.md` says a sa
 for the user only for a change to the cluster, one request at a time, a denial `Forbidden` and the
 wait counting against its `timeout`; that `exec`, `attach`, `port-forward`, a service account
 token, a helm change, a change past 1 MiB and a background command's change come back
-`Forbidden`; that a Secret changes with `kubectl apply --server-side`; and that a Secret reads
-`[redacted]`.
+`Forbidden`; that a Secret changes with `kubectl apply --server-side`; that a Secret reads
+`[redacted]`; and that `sudo` does not work, a command's processes are limited, one past its CPU
+time is killed with exit 152, and a crash that cannot create a thread hit the count.
 **A `Tool` is the `tools.Gated` a turn is offered**, matched to Claude Code's `Bash`: `Definition` is a function named `Bash` whose
 schema (`prompts/schema.json`), one with a sandbox or without, takes `command`, `description`, `timeout` (milliseconds), `run_in_background` and `workdir` —
 never the reference's `dangerouslyDisableSandbox`, so leaving the sandbox is the user's switch — and whose description is `prompts/description.md`. The schema's `description` property is Kstack's
