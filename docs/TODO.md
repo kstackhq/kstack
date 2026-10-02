@@ -165,12 +165,12 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   - **The proxy.** Reads skip the asker and writes wait one at a time behind the write lock; asked
     reads need their own answer to both.
 
-- **Draw every approval from an action once a second target asks (with cloud mutations).** A
-  call's request draws from its `ToolAction`, one of `command`, `read`, `write` and the rest, while
-  a cluster write is a `ClusterWrite` of its own with its own branch in the request. When a cloud
-  target asks too, make each target's request an action in that family (`ClusterAction`,
-  `AWSAction`, `GCPAction`), carrying what `tools.ClusterWriteRequest` carries for the cluster, so
-  one request draws whatever is asked. The table stays as it is: `approvals.kind` says what the
+- **Draw every approval from an action once a second target asks.** A call's request draws from
+  its `ToolAction`, one of `command`, `read`, `write` and the rest, while a cluster write is a
+  `ClusterWrite` of its own with its own branch in the request. When a second target asks too (a
+  host the egress proxy holds, a folder), make each target's request an action in that family
+  (`ClusterAction`, `HostAction`), carrying what `tools.ClusterWriteRequest` carries for the
+  cluster, so one request draws whatever is asked. The table stays as it is: `approvals.kind` says what the
   row holds, `call` or a target, and the read maps a target's row to its action as the box maps a
   call's arguments to its own. In the same change, fold `toolCallEntry`'s `ClusterWrites` into one
   list with `Approval`, so a new target adds no field.

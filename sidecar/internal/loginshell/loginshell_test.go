@@ -522,7 +522,6 @@ func TestImportedIsExactlyTheAllowlist(t *testing.T) {
 		{"CLOUDSDK_CORE_PROJECT", plain},
 		{"GOOGLE_APPLICATION_CREDENTIALS", path},
 		{"AZURE_CONFIG_DIR", path},
-		{"GH_CONFIG_DIR", path},
 		{"HTTP_PROXY", plain},
 		{"HTTPS_PROXY", plain},
 		{"NO_PROXY", plain},
