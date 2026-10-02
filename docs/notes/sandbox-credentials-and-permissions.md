@@ -131,7 +131,7 @@ home is cheap.
 | Path | Why |
 | --- | --- |
 | `~/.local/bin`, `~/bin`, `~/go/bin`, `~/.cargo/bin` | User-installed binaries |
-| `~/.asdf`, `~/.local/share/mise`, `~/.nvm`, `~/.pyenv`, `~/.rbenv`, `~/.volta` | Version-manager shims and the interpreters, standard libraries and site-packages behind them |
+| `~/.asdf`, `~/.local/share/mise`, `~/.nvm`, `~/.pyenv`, `~/.rbenv`, `~/.volta`, `~/.rustup` | Version-manager shims and the interpreters, standard libraries and site-packages behind them |
 | `~/.krew` | kubectl plugins |
 | `~/.local/share/helm/plugins` | helm plugins |
 | Every other directory on the user's resolved PATH | Detected once, filtered, shown in settings (see PATH resolution) |
@@ -162,7 +162,7 @@ directories, so a compromised session cannot plant a modified `kubectl` for the 
 Tools that insist on writing under `$HOME` are redirected with their own variables rather than by
 opening the real home: `HELM_CACHE_HOME`, `HELM_CONFIG_HOME`, `HELM_DATA_HOME`, `KUBECACHEDIR`,
 `XDG_CACHE_HOME`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `NPM_CONFIG_CACHE`, `PIP_CACHE_DIR`,
-`GOCACHE`, `GOMODCACHE`. Setting `HOME` itself to the workspace catches the rest. Prefer a
+`GOCACHE`, `GOMODCACHE`, `CARGO_HOME`. Setting `HOME` itself to the workspace catches the rest. Prefer a
 persistent per-cluster cache directory over a per-session one for helm repository indexes and
 similar, so sessions do not re-download.
 
@@ -678,3 +678,16 @@ above, that is most of 1, 2 and 6.
     also refuses setgid files, and no later rule wins `ps` and `top` back, which macOS installs
     setuid root and commands need. Every setuid program still runs inside the profile, and on
     Linux `no_new_privs` refuses them all.
+19. **`~/Documents`, `~/Desktop` and `~/Downloads` are `Closed`, not denied always** (step 2A).
+    A Files Deny keeps them shut under a grant of `~`, and lets a grant of a folder inside one,
+    such as a project under `~/Documents`, open it.
+20. **The tool home is per chat, and only the kubectl cache is per cluster** (step 2A). A shared
+    config or build cache lets one chat plant what a later chat runs.
+21. **`LANG` is the sidecar's or a platform default, and `LC_*` does not pass** (step 2A).
+22. **A `PATH` entry no list covers finds nothing until step 3A** (step 2A), which reaches users
+    in the same release.
+23. **asdf's global versions ride as `ASDF_<TOOL>_VERSION`** (step 2A), read from the user's
+    `~/.tool-versions` on the host, since `HOME` is the workspace.
+24. **The environment holds more than the pass-through list** (step 2A): `PWD`, `ZDOTDIR`,
+    `KUBECACHEDIR`, the `KSTACK` variables, the tool home's variables, each toolchain location's
+    and `ASDF_<TOOL>_VERSION`, each built by Kstack and none copied from the sidecar's.

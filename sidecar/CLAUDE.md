@@ -20,7 +20,7 @@ sweeps it and removes it:
   security.json                        app: the security settings
   beehive.db                           clustersvc
   settings.json, settings-queue.json   cloud
-  chats/<chat id>/                     chatsvc: results/, tasks/, workspace/
+  chats/<chat id>/                     chatsvc: results/, tasks/, workspace/, toolhome/
 <cache>/                               what Kstack rebuilds
   kubestore/<cache id>.db              clustersvc: the mirror
   kubectl/<cluster id>/<server>/       bash: the kubectl cache
@@ -1219,7 +1219,8 @@ it refuses the arguments or reads an action of another kind than its own. Caller
 with the chat: `results/`, the output tools saved; `tasks/`, its background tasks' output; and
 `workspace/`. It is `Path()`, the directory as a result names it, and `Root(create)`, that
 directory as an `os.Root`. **`WorkspacePath(dir)` is the chat's workspace**, where every command
-starts and whose files last for the rest of the chat. `OpenWorkspace(dir, create)` opens it
+starts and whose files last for the rest of the chat, and `ToolHomePath(dir)` the tool home beside
+it, where a sandboxed command's tools write (`OpenToolHome` opens it as the workspace is opened). `OpenWorkspace(dir, create)` opens it
 through the chat's root with `rootdir.Open` (`internal/rootdir`, a leaf), which is how a chat's
 directory, every level above it and its `results/` are opened too: `Lstat` through the
 parent, make it 0700 with `create`, refuse anything but a directory (`rootdir.ErrNotADirectory`, a link
@@ -1324,8 +1325,13 @@ or Always; a Files rule on or inside an Always path; a run's own path outside ev
 on or inside a Deny, holding a Deny (the run's own paths compile last), or that is a link at its last component, since the profile resolves it and
 would open the link's target (`TestARunsOwnPathThatIsALinkIsRefused`); and a second relay. Every path is compared resolved, a missing one through
 its deepest folder that exists (`resolved`), since both sandboxes check a file at its real
-location. **`Command` fails rather than narrows or widens**: a policy that fails `Check`, or that
-its platform cannot enforce, is `Command`'s error, which the model reads.
+location. **`Command` fails rather than narrows or widens**: a run that fails `Run.check` — its policy's
+`Check`, or an `Env` entry `Unpassable` matches — or that its platform cannot enforce, is
+`Command`'s error, which the model reads. **What may never pass is one list**, `neverEnv`
+(`env.go`): an `EnvRule` names a variable or a prefix; `NeverEnv()` hands out a copy and
+`Unpassable(name)` matches. It holds what reaches past the sandbox (`SSH_AUTH_SOCK`,
+`DOCKER_HOST`, the GitHub tokens), what changes what a program loads (`LD_*`, `DYLD_*`), what a
+shell runs on its own (`BASH_ENV`, `ENV`, `PROMPT_COMMAND`) and every `AWS_` name.
 
 **Both platforms compile one merged list** (`Policy.rules`), where the last matching rule wins:
 the Files rules, sorted by resolved path, shallowest first and on one path Write, Read, Deny;
@@ -1333,18 +1339,40 @@ every Always path as a Deny; then the run's own paths, shallowest first. A Read 
 path does not exist opens nothing and is left out. A Deny is left out where no Files Read or Write
 reaches it, since its path is off limits already.
 
-**The lists are one shared file and one per platform** (`lists.go`, `lists_linux.go`,
-`lists_darwin.go`): a `Lists` of `System`, the folders every run reads, and `Never`, the paths no
-run reads, a `~/` path under the home. The credential directories and files are shared, and
-each platform adds its keyring (`~/.local/share/keyrings`, `~/Library/Keychains`); the System
-folders are each platform's own. **`Sandbox.System(home, shell, env)` is the `FilePolicy` every
-run starts from**: Read on the System folders, the `PATH` trees (`pathTrees`, below) and this
-executable at its resolved path, and on macOS Homebrew's `var` (`brewVar`) as a Deny. It holds
-no Read on or inside a Never path (`FilePolicy.Outside`), so Docker Desktop's `~/.docker/bin`
-opens nothing (`TestDockerDesktopsBinStaysDenied`). On Linux it also drops a `PATH` entry on
-`/tmp` or `/dev`, or on or under `/proc`, before `pathTrees` runs. **`Sandbox.Never(home)`** is
-the Never paths under the home, the absolute ones alone with none. The probe's policy is
-`probePolicy` (`probe.go`): `System`, its folder written, `Never` denied.
+**The zones are lists, one shared file and one per platform** (`lists.go`, `lists_linux.go`,
+`lists_darwin.go`), a `~/` path under the home and none with no home. A `Lists` holds `System`,
+the folders every run reads (`/etc` and `/private/etc` whole); `Toolchain`, the `Location`s under
+the home that hold the user's tools, each read where its folders exist, with the variables that
+point its tool at them (`Env`, set when the first folder is read), since `HOME` is the workspace
+(asdf's sets `ASDF_DATA_DIR` alone, since its scripts may live under a package prefix; rustup's
+sets `RUSTUP_HOME`, since `~/.cargo/bin` holds only its proxies);
+`Never`, what no run reads whatever else is granted — the credentials, the histories, the
+container sockets, the browsers' profiles and `/etc`'s secret files; and `Closed`, `~/Documents`,
+`~/Desktop` and `~/Downloads`, a Files Deny, so a Read of the home leaves them shut and a Read of a
+folder inside one opens it. **A `PATH` entry opens nothing** (`TestAFolderOnThePathIsNotRead`).
+Adding a location is a security change: every run reads it. **`Sandbox.System(home, shell)`
+answers what every run starts from**, from one look at the home: a `System` of `Files` — Read on
+the System folders, each Toolchain folder that exists and resolves below the home and every
+app-data folder (`appDataDirs`: `~/.config`, `~/.local`, `~/.local/share`, `~/Library`), so a link
+to one of them reads nothing (`TestAToolchainLinkToABroadFolderIsNotRead`), the shell's folders
+(`shellReads`: the shell's own and that of each link on its way to the program, each as
+`shellFolder` names it — a `bin` outside the home reads its parent unless that is `/` or holds the
+home, and any other folder is read alone — or the program alone where that folder is broad: `/`,
+the home or an app-data folder; `TestAShellInABroadFolderReadsOnlyItself`,
+`TestAShellLinkReadsWhereItLeads`, `TestALinkedShellRuns`) and this executable at its resolved
+path, and Deny on Homebrew's `var` (`brewVar`, Linuxbrew's on Linux) and the Closed folders —
+`Env`, each found location's variables, and `Asdf`, whether asdf's was found. It holds no Read on
+or inside a `neverPaths` path or another user's home (`FilePolicy.Outside`), so Docker Desktop's `~/.docker/bin` opens nothing
+(`TestDockerDesktopsBinStaysDenied`), and on Linux none over a fixed mount (`overFixedMount`;
+macOS answers false). **`Sandbox.Never(home)`** is the Never lists under the home, `/root`, every
+other entry of `homesParent` (`/home` or `/Users`, but `notHomes`: `linuxbrew`, `Shared`, and an
+entry holding the home, so a nested home is not another user's) and on
+Linux the rootless container sockets in `/run/user/<uid>`, less any path on or above the home.
+It and `System` stat and list folders, which can hang on a network mount, so both run under a
+bound: bash's policy goroutine, and the probe's (`probePolicy`, `probe.go`: `System`, its folder
+written, `Never` denied, built through `probePolicyWithin` and `buildProbePolicy`, a test's
+seam).
+→ [ADR: the sandbox's zones are Kstack's lists](../docs/adr/2026-10-02-the-sandboxs-zones-are-kstacks-lists.md).
 
 **What no policy changes stays in each compiler**: on Linux the `/proc`, `/dev` and private `/tmp`
 mounts, the namespaces, `--die-with-parent --new-session --as-pid-1`, the closing `--remount-ro /`
@@ -1374,8 +1402,7 @@ recreated as a link there (a merged `/usr` makes `/bin` one, and Homebrew's
 holds the tree's own link — a denied folder's tmpfs hides that link, so it is recreated in the
 tmpfs, whichever of the two is mounted first (`TestALinkInsideADenialLeadsToItsRead`), a Read already readable
 under an earlier Read not bound again (the fixed mounts hide what lies under them, as a denial does), the run's own paths bound as written, a denied folder an
-empty tmpfs and a denied file `/dev/null`; the links the run's `PATH` and the shell's directory
-need (`pathLinks`); `--remount-ro /`, then each denied folder remounted read-only after the binds
+empty tmpfs and a denied file `/dev/null`; `--remount-ro /`, then each denied folder remounted read-only after the binds
 made inside it; then the chain, `<self> sandbox-init [--socket <S> --port <P>] -- <self>
 sandbox-shell -- <Shell> <Args…>`. A Deny whose path is missing when the run starts covers
 nothing, since a mount needs a path. `/run` and `/var` are never mounted, so the runtime
@@ -1421,20 +1448,11 @@ process spawned out of its group (`posix_spawn` with `POSIX_SPAWN_SETSID`, which
 refuse) outlives the run's group kill, still confined: macOS has no PID namespace → [ADR: a macOS
 run keeps its group](../docs/adr/2026-09-28-a-macos-run-keeps-its-group-by-refusing-setsid.md).
 
-**`paths.go` is how `System` reads the `PATH`**: the trees a run's `PATH` makes readable beyond
-the System folders (`pathTrees`: an entry outside the home at its resolved path, one under it
-as the first directory below the home, nothing for the home or above it; `~/.local`,
-`~/.local/share` and `~/.config` count as homes of their own, since they hold the user's data and
-every tool's settings, each resolved so a linked one is a home where its link leads; an entry
-under one of the platform's shared directories, which hold every app's data (macOS: `Library`
-and `.config`), names itself; and a program in an entry that is a link, read by
-`linkTargets`, opens the directory of every link on its way to the program — under
-`~/.local/share` the first directory below it, so a pipx or `uv tool` program reads its
-virtualenv, and elsewhere that directory alone — a System folder's entry included, since
-`/usr/local/bin` can link to a program under the home); and the links that let an entry, or a directory a
-program link names, be reached as written (`pathLinks`: `~/.nix-profile/bin`, anything under
-Fedora Atomic's linked `/home`). What a System folder or a tree opens is readable whole but for
-the Never paths and Kstack's directories.
+**`paths.go` is how paths compare**: `resolved` (links followed, a missing path through its
+deepest folder that exists), `resolvedAll`, `within` and `inAny`, by text, which the policy and
+both compilers use. A Toolchain folder that is a link (`~/.nix-profile`) is bound at its target
+and recreated as a link by `mounter.link` on Linux (`TestAToolchainLinkIsRecreated`); Seatbelt
+checks the resolved path.
 
 **`sandbox-shell` confines the shell** (`sandbox.ShellMain`, `seccomp_linux.go`; `shell_notlinux.go`
 refuses it elsewhere). It sits between the forwarder and the shell: it locks its thread, sets
@@ -1882,8 +1900,8 @@ internal/chatsvc/
   notices.go     how a task ended, told to the model: on a question, or a turn of its own
 ```
 
-**Each chat's files live in `<data>/chats/<chatID>`** (`chatdir.go`): `results/`, `tasks/` and
-`workspace/` (*Tools*, above), so all of them go with the chat, and none names the chat's
+**Each chat's files live in `<data>/chats/<chatID>`** (`chatdir.go`): `results/`, `tasks/`,
+`workspace/` and `toolhome/` (*Tools*, above), so all of them go with the chat, and none names the chat's
 cluster. `New` makes the chats' directory 0700 and opens it as an `os.Root` (`openChats`), closed on
 `Close`; its path is absolute, since a result names its file under the root's name and `Read` takes
 only an absolute path. `chatDir` is a chat's `tools.ChatDir`, built from its id: `Root` is
@@ -2091,8 +2109,8 @@ call's `spec.sandboxedRun` (a `sandboxedRun`: the sandboxer, the run's directory
 `shellCmd` build the command through `Command` (foreground and background alike). `Approval`'s `Sandboxed` is true only for a sandboxed call on a sandbox that
 `Confines`, and so is its `Skip`: such a call runs unasked, and every other call asks.
 → [ADR: the sandbox is the gate for a sandboxed command](../docs/adr/2026-09-28-the-sandbox-is-the-gate-for-a-sandboxed-command.md).
-**A sandboxed run carries its own directory, environment and kubeconfig** (`sandboxedRunFor`, after the
-snapshot wait; a `sandboxedRun` on the `spec`). Its directory (`rundir.go`) is
+**A sandboxed run carries its own directory, environment and kubeconfig** (`sandboxedRunFor`; a
+`sandboxedRun` on the `spec`). Its directory (`rundir.go`) is
 `<runtime>/runs/<pid>-*` (`Tool.runsDir`), 0700 through `MkdirTemp`, holding `kubeconfig` and, for
 a run with a cluster, its proxy's `proxy.sock`: outside the workspace, so a sandbox that confines can keep a
 command from rewriting them (bwrap and Seatbelt both leave it read-only), and
@@ -2121,11 +2139,24 @@ directory with `flock` before making anything there (`holdRunLock`, once per pro
 exit), and the sweep takes each `<pid>`'s lock it can, removes that pid's directories while holding
 it, then the lock file. A lock dies with its process, where a pid passes to later ones, across a
 reboot too, so a reused pid never keeps a gone sidecar's `TMPDIR`. A sidecar that waited on a
-sweep's hold takes the lock again when the sweep removed the file. **Its environment is built, never inherited** (`sandboxedRunEnv`, `env.go`): the
-process's `PATH`, `LANG` and every `LC_*`; `HOME` the workspace and `PWD` the start directory;
-`ZDOTDIR` the run's directory, which holds no startup file, so `zsh -c` never sources a `.zshenv`
-a command left in the workspace; `TMPDIR` its own; `KUBECONFIG` and `KUBECACHEDIR` for a run
-with a cluster; `TERM=dumb`; and `kstackEnv`. **A run with a cluster** (`rt.ClusterID`) reads it
+sweep's hold takes the lock again when the sweep removed the file. **Its environment is one table** (`sandboxedRunEnv`, `env.go`): the process's `PATH`;
+`HOME` the workspace and `PWD` the start directory; `TMPDIR` its own; `ZDOTDIR` the run's
+directory, which holds no startup file, so `zsh -c` never sources a `.zshenv` a command left in
+the workspace; `KUBECONFIG` and `KUBECACHEDIR` for a run with a cluster; `LANG` the process's, else
+`en_US.UTF-8` on macOS and on Linux `C.UTF-8` where the system has it, else `C` (`defaultLang`);
+`TZ` the process's; `TERM=dumb`; the tool home's variables; `System`'s `Env`; asdf's global
+versions as `ASDF_<TOOL>_VERSION` when `System` found asdf (`toolVersions`, read from the user's
+`~/.tool-versions`, a plain file of at most 64 KiB, each line whose tool and version are plain);
+and `kstackEnv`. Nothing else of the process's passes, `LC_*` included
+(`TestTheSandboxedEnvironmentIsFixed`). **The tool home** (`toolhome.go`) is
+`tools.ToolHomePath(dir)`, `<chat>/toolhome/`, beside the workspace: `xdg/`, `helm/`, `npm`,
+`pip`, `go/` and `cargo` folders, each named by its variable (`toolHomeVars`: the `XDG_*_HOME`,
+`HELM_*_HOME`, `NPM_CONFIG_CACHE`, `PIP_CACHE_DIR`, `GOCACHE`, `GOMODCACHE`, `CARGO_HOME`). `makeToolHome` makes
+it before each sandboxed run through `tools.OpenToolHome`, one level at a time through
+`rootdir.Open`, so a link a command swaps in is refused; it goes with the chat's directory, and a
+subagent shares it. **`System`, `Never`, `toolVersions` and the policy are built on one
+goroutine** abandoned if the call's context ends first, since each can hang on a network mount
+(`TestTheEnvironmentIsBuiltOnThePolicyGoroutine`). **A run with a cluster** (`rt.ClusterID`) reads it
 through `Tool.clusterSvc`, the cluster service, as KubeQuery does: `target` (`target.go`) reads
 the record with `Clusters().Get`, and a record that is gone, marked, or fails to read is `could
 not start:` before anything is made, since a sandboxed kubectl aimed at nothing would read as the
@@ -2144,11 +2175,11 @@ cache stays warm while the port moves, and never resolved, since client-go sends
 grant's token as the proxy's password, and a user holding nothing, since clientcmd applies a
 user's credentials only over TLS. `safe.Redact` blanks the token wherever a command prints the
 kubeconfig. **The `Run`'s policy is the Workspace policy** (`workspacePolicy`): its Files are the
-sandbox's `System` for the run's environment, less every rule on or inside Kstack's directories
-(`Outside`), so a `PATH` entry there is not readable, and `extraWritable` as a Files Write; its
-Always part is `Never` as its Deny, `Paths.DeniedDirs` (`app` passes the data, cache and runtime
-directories) as its Kstack paths, the snapshot and the run's directory as its own Read, and the
-workspace, its `TMPDIR` and the kubectl cache as its own Write; and a run with a cluster has one
+sandbox's `System` `Files`, less every rule on or inside Kstack's directories (`Outside`), and
+`extraWritable` as a Files Write; its Always part is `Never` as its Deny, `Paths.DeniedDirs`
+(`app` passes the data, cache and runtime directories) as its Kstack paths, the run's directory
+as its own Read, and the workspace, the tool home, its `TMPDIR` and the kubectl cache as its own
+Write; and a run with a cluster has one
 relay, from `Port()` to its proxy socket. Bash's tests lay their folders out under Kstack's three
 as `app/paths.go` does (`kstackDirs`), so a test's policy passes `Check` over a real sandbox.
 **A run with a cluster claims its connection and serves a grant over it** (`upstream.go`,
@@ -2236,7 +2267,7 @@ request showed. Outside the sandbox the environment is `os.Environ()` plus `KSTA
 `KSTACK_SIDECAR_PID` and, when `--host-pid` was given, `KSTACK_HOST_PID` — nothing taken away
 (`outsideEnv`); a sandboxed run's is built (above) —
 stdin the null device, stdout and stderr one pipe, keeping `tools.FileLimit` (8 MiB). **What the
-shell runs is the wrapper** (`wrapper.go`): `source` the snapshot (when there is one), under zsh
+shell runs is the wrapper** (`wrapper.go`): `source` the snapshot (outside the sandbox, when there is one), under zsh
 `setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL NO_NOMATCH SH_WORD_SPLIT` so bash-style text globs
 and splits as bash has it (an unmatched `{.items[*]}` stays a word), then `eval
 '<command>' < /dev/null`, the command through `quote` — single quotes, each inner quote closed,
@@ -2249,13 +2280,18 @@ to reparse, and the child is built with `CreateProcess` directly — started sus
 a kill-on-close job object, then resumed. `New` sweeps `<runtime>/shell` for a script a crash
 left behind.
 
-**The snapshot is the user's profile, taken once per start** (`snapshot.go`). It is the
-`shell snapshot` `lifecycle.Part`, which `app.New` adds last when `Config.ShellSnapshot` is set.
-`StartSnapshot` runs the login shell `-l -i` in a goroutine under a context of its own, since
-Start's bounds startup only; its stop cancels that context and waits for the reap, so no shell
-outlives the sidecar. A call that arrives meanwhile waits for the snapshot or for its own context
-(`awaitSnapshot`), and `CallTimeout` adds `snapshotTimeout` (10s) to its sum; a tool whose
-snapshot never started does not wait. **The dump** (`dumpCommand`) turns alias expansion off with
+**The snapshot is the user's profile, taken at most once per start, for commands outside the
+sandbox alone** (`snapshot.go`). A sandboxed run neither sources nor waits for it: `snapshotFor`
+answers none for it. It is the `shell snapshot`
+`lifecycle.Part`, which `app.New` adds last when `Config.ShellSnapshot` is set. `StartSnapshot`
+makes the context the login shell runs under, since Start's bounds startup only, and starts it
+only on a machine with no sandbox; with one, `snapshotFor` starts it on the first run outside the
+sandbox (`startSnapshot`, under a mutex, so concurrent first runs share one). Its stop is final:
+under that mutex it cancels the context the start reads, then waits for the reap of a shell
+already started, so no shell outlives the sidecar and none starts after it. A
+call outside the sandbox waits for the snapshot or for its own context (`awaitSnapshot`), and
+`CallTimeout` adds `snapshotTimeout` (10s) to its sum; a tool whose snapshot never started does
+not wait. **The dump** (`dumpCommand`) turns alias expansion off with
 a line no alias can match, then `eval`s the rest with every command through `builtin`, so the
 profile's names cannot steer it. Between two NUL-framed markers it prints `unalias -a`, the
 options, the functions, the regular aliases and `export PATH`. **PATH is resolved by
