@@ -36,8 +36,17 @@ import (
 )
 
 // Settings is the security settings. Each field is added by the step that
-// needs it; see the table in the spec.
-type Settings struct{}
+// needs it.
+type Settings struct {
+	Path []PathEntry `json:"path,omitempty"` // the user's PATH, frozen, in the shell's order
+	// PathResolved is set by the first sync: before it a run searches the
+	// platform's default PATH, after it the list alone.
+	PathResolved bool `json:"pathResolved,omitempty"`
+	// PathStrict is set by a Remove that ends the store's hold on path, and
+	// cleared by the next sync, which it makes file every new entry pending:
+	// the entry the store could not read may have been a removal.
+	PathStrict bool `json:"pathStrict,omitempty"`
+}
 
 // schemaVersion is the file's layout, stamped under versionKey on every
 // write. A step that changes a field's layout bumps it and upgrades an older
