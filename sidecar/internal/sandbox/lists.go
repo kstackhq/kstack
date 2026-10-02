@@ -16,11 +16,12 @@ package sandbox
 
 // Lists is what the sandbox reads and hides on a platform, before a run adds
 // its own paths. A path starting with ~/ is under the user's home; with no
-// home, Toolchain and the ~/ paths of Never add nothing.
+// home, Toolchain, Closed and the ~/ paths of Never add nothing.
 type Lists struct {
 	System    []string   // readable by default
 	Toolchain []Location // readable under the home by default, when present
 	Never     []string   // denied always
+	Closed    []string   // denied, but a grant inside one opens what it names
 }
 
 // Location is a folder the user's tools live in. Env is set only when the
@@ -89,6 +90,7 @@ var sharedLists = Lists{
 		"/run/containerd", "/var/run/docker.sock", "/run/docker.sock", "/run/podman",
 		"~/.rd/docker.sock", "~/.orbstack/run", "~/.colima", "~/.lima",
 	},
+	Closed: []string{"~/Documents", "~/Desktop", "~/Downloads"},
 }
 
 // appDataDirs are the folders under the home that hold every app's data. A

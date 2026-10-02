@@ -780,6 +780,31 @@ func TestAFolderOnThePathIsNotRead(t *testing.T) {
 	assert.False(t, ok, out)
 }
 
+// A Read of the home leaves the Closed folders shut, and a Read of a folder
+// inside one opens that folder.
+func TestAGrantOfTheHomeLeavesClosedFoldersShut(t *testing.T) {
+	s := confining(t)
+	m := standIn(t)
+	notes := write(t, m.home, "notes")
+	private := write(t, m.home, "Documents/private")
+	project := write(t, m.home, "Documents/project/main.go")
+	r := m.on(s)
+	r.Policy.Files.Read = append(r.Policy.Files.Read, m.home)
+
+	out, ok := sh(t, s, r, `cat "$F"`, "F="+notes)
+	assert.True(t, ok, out)
+	for _, f := range []string{private, project} {
+		out, ok = sh(t, s, r, `cat "$F"`, "F="+f)
+		assert.False(t, ok, out)
+	}
+
+	r.Policy.Files.Read = append(r.Policy.Files.Read, filepath.Dir(project))
+	out, ok = sh(t, s, r, `cat "$F"`, "F="+project)
+	assert.True(t, ok, out)
+	out, ok = sh(t, s, r, `cat "$F"`, "F="+private)
+	assert.False(t, ok, out)
+}
+
 // Each Toolchain location runs a program from its first folder, with its
 // variables set and pointing into the home.
 func TestEachToolchainLocationRunsAProgram(t *testing.T) {

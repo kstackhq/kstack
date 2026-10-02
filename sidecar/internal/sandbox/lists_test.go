@@ -48,6 +48,11 @@ func TestNeverHoldsTheNotesList(t *testing.T) {
 	}
 }
 
+// The folders that hold the user's files stay shut under a grant above them.
+func TestTheUsersFoldersAreClosed(t *testing.T) {
+	assert.Equal(t, []string{"~/Documents", "~/Desktop", "~/Downloads"}, sharedLists.Closed)
+}
+
 // Every location reads under the home, and only the asdf location sets
 // asdf's own variables.
 func TestTheToolchainIsUnderTheHome(t *testing.T) {

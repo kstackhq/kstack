@@ -86,9 +86,8 @@ func otherHomes(home string) []string {
 // System is what every sandboxed run on this machine starts from, from one
 // look at home. It reads the System folders, each Toolchain folder that
 // exists and is not broad (broadDirs), shell's folders (shellReads) and this
-// executable at its resolved path, and denies Homebrew's var. It holds no
-// Read on or inside a Never path or another user's home, and none over a
-// fixed mount. A
+// executable at its resolved path, and denies Homebrew's var and the Closed folders. It holds no Read on or inside
+// a Never path or another user's home, and none over a fixed mount. A
 // location's Env is set when its first folder exists.
 func (s *Sandbox) System(home, shell string) System {
 	var sys System
@@ -117,7 +116,8 @@ func (s *Sandbox) System(home, shell string) System {
 		}
 	}
 	read = slices.DeleteFunc(append(read, resolved(s.self)), overFixedMount)
-	sys.Files = FilePolicy{Read: read, Deny: slices.Clone(brewVar)}.Outside(slices.Concat(neverPaths(home), otherHomes(home))...)
+	deny := slices.Concat(brewVar, inHome(home, slices.Concat(sharedLists.Closed, platformLists.Closed)))
+	sys.Files = FilePolicy{Read: read, Deny: deny}.Outside(slices.Concat(neverPaths(home), otherHomes(home))...)
 	return sys
 }
 

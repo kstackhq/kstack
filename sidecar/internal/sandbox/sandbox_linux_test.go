@@ -1029,6 +1029,29 @@ func TestEtcSecretsStayHidden(t *testing.T) {
 	assert.Equal(t, "read\n", out)
 }
 
+// A Read of the home leaves the Closed folders shut, and a Read of a folder
+// inside one opens that folder.
+func TestAGrantOfTheHomeLeavesClosedFoldersShut(t *testing.T) {
+	s := confining(t)
+	r := shRun(t, "")
+	notes := write(t, filepath.Join(r.home, "notes"), "home-read")
+	private := write(t, filepath.Join(r.home, "Documents", "private"), "secret")
+	project := write(t, filepath.Join(r.home, "Documents", "project", "main.go"), "project-read")
+	r.Args[1] = "cat " + notes + " " + private + " " + project
+	r.files.Read = []string{r.home}
+
+	_, out := run(t, s, r)
+
+	assert.Contains(t, out, "home-read")
+	assert.NotContains(t, out, "secret")
+	assert.NotContains(t, out, "project-read")
+
+	r.files.Read = append(r.files.Read, filepath.Dir(project))
+	_, out = run(t, s, r)
+	assert.Contains(t, out, "project-read")
+	assert.NotContains(t, out, "secret")
+}
+
 // Each Toolchain location runs a program from its first folder, with its
 // variables set and pointing into the home.
 func TestEachToolchainLocationRunsAProgram(t *testing.T) {

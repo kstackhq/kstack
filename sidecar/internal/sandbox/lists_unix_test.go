@@ -37,6 +37,7 @@ func listPaths() [][]string {
 		slices.Concat(sharedLists.System, platformLists.System),
 		toolchain,
 		slices.Concat(sharedLists.Never, platformLists.Never),
+		slices.Concat(sharedLists.Closed, platformLists.Closed),
 	}
 }
 
@@ -164,7 +165,7 @@ func withLists(t *testing.T, l Lists) {
 
 // System reads the System folders, each Toolchain folder that exists, the
 // shell's folder and this executable at its resolved path, and denies
-// Homebrew's var. Its Env is each found location's,
+// Homebrew's var and the Closed folders. Its Env is each found location's,
 // and Asdf says whether asdf's was found. A missing location adds nothing.
 func TestSystemReadsTheZones(t *testing.T) {
 	base := resolved(t.TempDir())
@@ -180,6 +181,7 @@ func TestSystemReadsTheZones(t *testing.T) {
 			{Name: "asdf", Read: []string{"~/.asdf"}, Env: map[string]string{"ASDF_DATA_DIR": "~/.asdf", "ASDF_HOME_TEST": "~/.asdf"}},
 			{Name: "gone", Read: []string{"~/gone", "~/late"}, Env: map[string]string{"GONE": "~/gone"}},
 		},
+		Closed: []string{"~/Documents"},
 	})
 	brewVar = []string{filepath.Join(base, "usr", "var")}
 	s := &Sandbox{self: filepath.Join(base, "self-link")}
@@ -189,7 +191,7 @@ func TestSystemReadsTheZones(t *testing.T) {
 	assert.Equal(t, System{
 		Files: FilePolicy{
 			Read: []string{filepath.Join(base, "usr"), d[0], d[1], d[3], d[2], self},
-			Deny: []string{filepath.Join(base, "usr", "var")},
+			Deny: []string{filepath.Join(base, "usr", "var"), filepath.Join(home, "Documents")},
 		},
 		Env:  []string{"ASDF_DATA_DIR=" + d[1], "ASDF_HOME_TEST=" + d[1]},
 		Asdf: true,
@@ -235,7 +237,7 @@ func TestAToolchainLinkToABroadFolderIsNotRead(t *testing.T) {
 	assert.Empty(t, got.Env, "a location whose first folder is not read sets no variable")
 }
 
-// With no home, System holds no Toolchain rule and no Env, and a
+// With no home, System holds no Toolchain or Closed rule and no Env, and a
 // probe's policy over it passes Check.
 func TestWithNoHomeSystemHoldsNoHomeRule(t *testing.T) {
 	s := &Sandbox{self: "/usr/bin/true"}
