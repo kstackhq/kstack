@@ -1261,8 +1261,8 @@ func TestAMessageReadsCitationsByItsRunsDialect(t *testing.T) {
 		citationsOf(t, msgs[3]))
 }
 
-// runtimeTool answers with the cluster, the chat and the switch its runtime
-// names, after running before when it is set.
+// runtimeTool answers with its session's kind, its runtime's cluster and chat,
+// and the session's switch, after running before when it is set.
 type runtimeTool struct {
 	testTool
 	before func(ctx context.Context, rt tools.Runtime)
@@ -1272,7 +1272,7 @@ func (r runtimeTool) Run(ctx context.Context, rt tools.Runtime, _ json.RawMessag
 	if r.before != nil {
 		r.before(ctx, rt)
 	}
-	return fmt.Sprintf("%s/%s/%t", rt.ClusterID, rt.ChatID, rt.OutsideSandbox), false
+	return fmt.Sprintf("%s %s/%s/%t", rt.Session.Kind, rt.ClusterID, rt.ChatID, rt.Session.Outside), false
 }
 
 // A turn's tools reach its chat's stored cluster, never the send's, and its chat.
@@ -1287,7 +1287,7 @@ func TestATurnsRuntimeIsItsChatsCluster(t *testing.T) {
 	for _, run := range []RunID{msg.RunID, again.RunID} {
 		rows := toolCallRows(t, s.db, run)
 		require.Len(t, rows, 1)
-		assert.Equal(t, "2/"+string(msg.ChatID)+"/false", rows[0].result)
+		assert.Equal(t, "chat 2/"+string(msg.ChatID)+"/false", rows[0].result)
 	}
 }
 
@@ -1313,6 +1313,6 @@ func TestATurnsRuntimeCarriesItsChatsSwitch(t *testing.T) {
 	for run, want := range map[RunID]string{switched.RunID: "true", after.RunID: "false"} {
 		rows := toolCallRows(t, s.db, run)
 		require.Len(t, rows, 1)
-		assert.Equal(t, "1/"+string(msg.ChatID)+"/"+want, rows[0].result)
+		assert.Equal(t, "chat 1/"+string(msg.ChatID)+"/"+want, rows[0].result)
 	}
 }

@@ -1243,10 +1243,20 @@ have seen of the files they read: `Stamp(path)` and `SetStamp(path, s)`, keyed b
 model was shown every byte as it is — from line 1 to the end, nothing cut, redacted or stripped —
 so Write can tell a file seen whole from one seen in part. A `Runtime` is what a tool gets of the chat its call
 runs in: `ClusterID`, the chat's stored cluster, and `ChatID`, which a model names neither of,
-`OutsideSandbox`, the chat's switch as its turn read it, then `Dir`, `Tasks`, `Files`, `Agent` and `ClusterWriteAsker`, which puts a sandboxed command's cluster
+`Session`, then `Dir`, `Tasks`, `Files`, `Agent` and `ClusterWriteAsker`, which puts a sandboxed command's cluster
 write (`ClusterWriteRequest`) to the user, nil where nobody can be asked. `chatsvc` sets every
 field; a test sets the ones its tool
-reads. Each tool reads the fields it uses (Read `Dir` and `Files`, Write and Edit `Dir` and `Files`,
+reads. **A `session.Session`** is one agent run's policy: its `Kind` (`Chat`, `Subagent` or
+`Monitor`, the last built by nothing yet) and `Outside`, the chat's switch as its turn read it.
+The chat, the cluster and the workspace are not on it: the runtime's `ChatID`, `ClusterID` and
+`tools.WorkspacePath(rt.Dir)` are their one source, and policy that depends on the cluster is a
+function `chatsvc` builds knowing it. A turn builds its session (`turn.session()`); a
+subagent's is **`session.Narrow`** of its parent turn's: identity and the switch are copied at spawn,
+and a field of policy the user can change while it runs is a `func(context.Context) T` read live,
+which `Narrow` hands on or tightens and never widens, so a subagent never holds more than its
+parent now does. A later field is classed by that rule and gets its line in
+`TestNarrowKeepsTheParentsIdentity`. `session` is a leaf: it imports nothing of ours, and a proxy
+imports it, never the reverse. Each tool reads the fields it uses (Read `Dir` and `Files`, Write and Edit `Dir` and `Files`,
 WebFetch `Dir`, TaskStop `Tasks`, bash `Dir` and `Tasks`, Memory `ClusterID` and `ChatID`,
 KubeQuery `ClusterID` and `Dir`). **A tool that acts through a service is built with it**:
 `memory.New(memorySvc)` and `kubequery.New(clusterSvc)` in `app`'s `chatTools`, each calling its
@@ -1942,7 +1952,7 @@ cluster. `New` makes the chats' directory 0700 and opens it as an `os.Root` (`op
 `Close`; its path is absolute, since a result names its file under the root's name and `Read` takes
 only an absolute path. `chatDir` is a chat's `tools.ChatDir`, built from its id: `Root` is
 `rootdir.Open` of the chat's entry, so a link a command swaps in reaches no other directory. The
-turn's box is `s.boxFor(t.target)`, and its runtime is `tools.Runtime{ClusterID: t.clusterID, ChatID: chatID, OutsideSandbox: t.outsideSandbox, Dir: s.chatDir(chatID), Tasks: s.chatTasks(chatID, t.runJournal), Files: s.chatFiles(chatID), Agent: t}`, `t.clusterID` read once as the run starts (`chatOf`) and `t.outsideSandbox` once in the transaction that reserves the turn, beside the context block that tells the model, so a switch flipped mid-turn changes the next turn; a subagent and a task take both from the turn that started them.
+turn's box is `s.boxFor(t.target)`, and its runtime is `tools.Runtime{ClusterID: t.clusterID, ChatID: chatID, Session: t.session(), Dir: s.chatDir(chatID), Tasks: s.chatTasks(chatID, t.runJournal), Files: s.chatFiles(chatID), Agent: t}`, `t.clusterID` read once as the run starts (`chatOf`) and `t.outsideSandbox` once in the transaction that reserves the turn, beside the context block that tells the model, so a switch flipped mid-turn changes the next turn; a subagent and a task take both from the turn that started them, a subagent's session being `session.Narrow(t.session())`.
 **A chat's file stamps** (`files.go`) are one map per chat under `stampsMu`, never persisted:
 `Delete` drops them once the rows are gone, and a restart forgets them all, which fails closed.
 **`Delete` refuses an id that is not a UUID** (`ErrBadRequest`) before touching anything: the id
@@ -2140,7 +2150,7 @@ where `bash.exe` may be the WSL launcher — and the user's home directory; `ok`
 tool. Tests that want bash whatever the machine's login shell clear `SHELL` (the `tool` helper
 does). **The sandbox is reached through `Tool.sandboxer`**, a `sandboxer` (`Command`, `System`, `Never`, `Confines`, `Port`) so a test can stand
 in for it, set only for a non-nil `*sandbox.Sandbox`. A call is **sandboxed** when the tool has one
-and its runtime's `OutsideSandbox` is false: the model has no say. `sandboxerFor(rt)` is that test, which `Approval`, `startDir`, `runCall` and `runTask` all ask, and a sandboxed
+and its runtime's `Session.Outside` is false: the model has no say. `sandboxerFor(rt)` is that test, which `Approval`, `startDir`, `runCall` and `runTask` all ask, and a sandboxed
 call's `spec.sandboxedRun` (a `sandboxedRun`: the sandboxer, the run's directory and the `sandbox.Run`) makes
 `shellCmd` build the command through `Command` (foreground and background alike). `Approval`'s `Sandboxed` is true only for a sandboxed call on a sandbox that
 `Confines`, and so is its `Skip`: such a call runs unasked, and every other call asks.

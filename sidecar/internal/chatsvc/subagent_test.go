@@ -1437,10 +1437,11 @@ func TestASubagentsRuntimeIsItsChatsCluster(t *testing.T) {
 	require.Len(t, runs, 1)
 	rows := toolCallRows(t, s.db, runs[0].id)
 	require.Len(t, rows, 1)
-	assert.Equal(t, "2/"+string(msg.ChatID)+"/false", rows[0].result)
+	assert.Equal(t, "subagent 2/"+string(msg.ChatID)+"/false", rows[0].result)
 }
 
-// A subagent runs as its parent's turn did: under the switch that turn read.
+// A subagent's session is Narrow of its parent turn's: under the switch that
+// turn read.
 func TestASubagentsRuntimeCarriesItsParentsSwitch(t *testing.T) {
 	s := startServiceWithAgent(t, runtimeTool{testTool: testTool{name: "where"}})
 	s.sandboxStatus = sandbox.Status{Available: true}
@@ -1457,5 +1458,5 @@ func TestASubagentsRuntimeCarriesItsParentsSwitch(t *testing.T) {
 	require.Len(t, runs, 1)
 	rows := toolCallRows(t, s.db, runs[0].id)
 	require.Len(t, rows, 1)
-	assert.Equal(t, "2/"+string(msg.ChatID)+"/true", rows[0].result)
+	assert.Equal(t, "subagent 2/"+string(msg.ChatID)+"/true", rows[0].result)
 }

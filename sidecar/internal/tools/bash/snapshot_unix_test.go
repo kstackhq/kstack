@@ -549,7 +549,7 @@ func TestASandboxedRunDoesNotWaitForTheSnapshot(t *testing.T) {
 // outside it take it once, and every one of them waits for it.
 func TestTheSnapshotIsTakenOnTheFirstRunOutside(t *testing.T) {
 	rt := testRuntime(t)
-	rt.OutsideSandbox = true
+	rt.Session.Outside = true
 	tl := tool(t)
 	tl.sandboxer = &fakeSandboxer{}
 	release := make(chan struct{})
@@ -586,7 +586,7 @@ func TestTheSnapshotIsTakenOnTheFirstRunOutside(t *testing.T) {
 // shell is reaped; with none started it returns at once.
 func TestTheStopReapsASnapshotStartedLate(t *testing.T) {
 	rt := testRuntime(t)
-	rt.OutsideSandbox = true
+	rt.Session.Outside = true
 	tl := tool(t)
 	tl.sandboxer = &fakeSandboxer{}
 	launched := testutil.NewSignal()
@@ -621,7 +621,7 @@ func TestTheStopReapsASnapshotStartedLate(t *testing.T) {
 // shell and runs without a snapshot.
 func TestNoSnapshotStartsAfterTheStop(t *testing.T) {
 	rt := testRuntime(t)
-	rt.OutsideSandbox = true
+	rt.Session.Outside = true
 	tl := tool(t)
 	tl.sandboxer = &fakeSandboxer{}
 	tl.launch = func(context.Context) ([]byte, string, int) {

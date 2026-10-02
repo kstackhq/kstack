@@ -27,6 +27,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/version"
 )
@@ -74,7 +75,7 @@ func (t *turn) Start(ctx context.Context, d tools.Delegation) (string, error) {
 		// chat's own turns are what write one.
 		Tools: s.boxFor(target).Without(tools.ActionDelegate, tools.ActionMemory),
 		Runtime: tools.Runtime{
-			ClusterID: t.clusterID, ChatID: chatID, OutsideSandbox: t.outsideSandbox,
+			ClusterID: t.clusterID, ChatID: chatID, Session: session.Narrow(t.session()),
 			Dir: s.chatDir(chatID), Tasks: s.chatTasks(chatID, c.runJournal), Files: runStamps{},
 		},
 		MaxToolCalls: maxSubagentToolCalls, DefaultToolTimeout: defaultToolTimeout,

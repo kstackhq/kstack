@@ -30,6 +30,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 )
 
 const (
@@ -408,14 +409,13 @@ type ClusterWriteAsker interface {
 // Runtime is what a tool gets of the chat its call runs in. chatsvc sets every
 // field it has; a test sets the ones its tool reads. ClusterID is the chat's stored
 // cluster, the one a tool acting on a cluster reaches, and ChatID the chat; a model
-// names neither. OutsideSandbox is the chat's switch as its turn read it: a
-// command runs outside the sandbox, asking first. Agent is nil in a subagent's
-// runtime, so a subagent spawns nothing. ClusterWriteAsker is nil where nobody
-// can be asked.
+// names neither. Session is the run's policy, the chat's switch as its turn read
+// it included. Agent is nil in a subagent's runtime, so a subagent spawns
+// nothing. ClusterWriteAsker is nil where nobody can be asked.
 type Runtime struct {
 	ClusterID         apimeta.ClusterID
 	ChatID            apimeta.ChatID
-	OutsideSandbox    bool
+	Session           session.Session
 	Dir               ChatDir
 	Tasks             Tasks
 	Files             FileStamps

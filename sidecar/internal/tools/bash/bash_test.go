@@ -133,7 +133,7 @@ func assertSandboxedCallsAskNoOne(t *testing.T, raw string) {
 	t.Helper()
 	rt := testRuntime(t)
 	outside := rt
-	outside.OutsideSandbox = true
+	outside.Session.Outside = true
 	ws := tools.WorkspacePath(rt.Dir)
 	asks := tools.Approval{Cwd: ws}
 	for _, c := range []struct {
@@ -150,7 +150,7 @@ func assertSandboxedCallsAskNoOne(t *testing.T, raw string) {
 		tl := &Tool{home: "/home/ana", sandboxer: c.boxer}
 		got, err := tl.Approval(t.Context(), c.rt, json.RawMessage(raw))
 		require.NoError(t, err)
-		assert.Equal(t, c.want, got, "sandbox=%v outside=%v", c.boxer != nil, c.rt.OutsideSandbox)
+		assert.Equal(t, c.want, got, "sandbox=%v outside=%v", c.boxer != nil, c.rt.Session.Outside)
 	}
 }
 
@@ -1119,7 +1119,7 @@ func TestAFailedConfinedRunSaysWhereItRan(t *testing.T) {
 	assert.True(t, isError)
 	assert.Equal(t, "Exit code 3\n"+line, text)
 	outside := rt
-	outside.OutsideSandbox = true
+	outside.Session.Outside = true
 	text, _ = tl.Run(t.Context(), outside, command("exit 3"))
 	assert.Equal(t, "Exit code 3\n", text, "a run outside the sandbox")
 	tl.sandboxer = &fakeSandboxer{}

@@ -660,7 +660,7 @@ func TestASandboxedCallRunsThroughTheSandbox(t *testing.T) {
 	assert.Contains(t, r.Env, "PWD="+tools.WorkspacePath(rt.Dir))
 
 	outside := rt
-	outside.OutsideSandbox = true
+	outside.Session.Outside = true
 	text, isError = tl.Run(t.Context(), outside, command("echo outside"))
 	assert.False(t, isError, text)
 	assert.Equal(t, "outside\n", text)
@@ -1046,7 +1046,7 @@ func TestASandboxThatDoesNotConfineResolvesAsSandboxed(t *testing.T) {
 	assert.Equal(t, tools.Approval{Cwd: ws}, got)
 
 	outside := rt
-	outside.OutsideSandbox = true
+	outside.Session.Outside = true
 	got, err = tl.Approval(t.Context(), outside, commandIn("ls", "~"))
 	require.NoError(t, err)
 	assert.Equal(t, tools.Approval{Cwd: home}, got)

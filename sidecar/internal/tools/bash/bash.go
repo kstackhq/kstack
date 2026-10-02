@@ -486,7 +486,7 @@ func makeWorkspace(dir tools.ChatDir) error {
 // sandboxerFor is the sandboxer a call of rt's chat runs through: the tool's,
 // unless the user switched the chat outside it; nil for none.
 func (t *Tool) sandboxerFor(rt tools.Runtime) sandboxer {
-	if rt.OutsideSandbox {
+	if rt.Session.Outside {
 		return nil
 	}
 	return t.sandboxer

@@ -30,6 +30,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/rawjson"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -230,13 +231,18 @@ func (s *service) run(t *turn) (res agent.Result, err error) {
 		Target: t.target, SystemPrompt: systemPrompt(), Messages: history, AffinityKey: string(t.chatID),
 		Tools: s.boxFor(t.target),
 		Runtime: tools.Runtime{
-			ClusterID: t.clusterID, ChatID: t.chatID, OutsideSandbox: t.outsideSandbox,
+			ClusterID: t.clusterID, ChatID: t.chatID, Session: t.session(),
 			Dir: s.chatDir(t.chatID), Tasks: s.chatTasks(t.chatID, t.runJournal), Files: s.chatFiles(t.chatID),
 			Agent: t, ClusterWriteAsker: clusterWriteAsker{j: t.runJournal, run: t.ctx},
 		},
 		MaxToolCalls: maxToolCalls, DefaultToolTimeout: defaultToolTimeout,
 	}
 	return agent.Run(t.ctx, spec, t, t)
+}
+
+// session is the turn's session, fixed for the turn.
+func (t *turn) session() session.Session {
+	return session.Session{Kind: session.Chat, Outside: t.outsideSandbox}
 }
 
 // chatOf is the turn's chat as stored: its cluster, the one its tools reach, since
