@@ -15,18 +15,76 @@
 package sandbox
 
 // Lists is what the sandbox reads and hides on a platform, before a run adds
-// its own paths. A path starting with ~/ is under the user's home.
+// its own paths. A path starting with ~/ is under the user's home; with no
+// home, Toolchain and the ~/ paths of Never add nothing.
 type Lists struct {
-	System []string // folders every sandboxed run can read
-	Never  []string // paths no sandboxed run can read, whatever else is granted
+	System    []string   // readable by default
+	Toolchain []Location // readable under the home by default, when present
+	Never     []string   // denied always
 }
 
-// sharedLists is what every platform's sandbox reads and hides. The last four
-// Never paths sit beside a tool's programs, in a tree its bin on PATH opens.
+// Location is a folder the user's tools live in. Env is set only when the
+// first Read folder exists.
+type Location struct {
+	Name string            // shown in Settings, like "asdf"
+	Read []string          // folders every run can read
+	Env  map[string]string // variables that point the tool at them, since HOME is the workspace
+}
+
+// System is what every sandboxed run starts from.
+type System struct {
+	Files FilePolicy // what every run reads, and the folders it may not
+	Env   []string   // each found location's Env, as NAME=value with ~ expanded
+	Asdf  bool       // whether the asdf location was found
+}
+
+// sharedLists is what every platform's sandbox reads and hides. A credential
+// a tool keeps inside its location's tree is on Never, since the location
+// makes that tree readable.
 var sharedLists = Lists{
+	Toolchain: []Location{
+		{Name: "user binaries", Read: []string{"~/.local/bin", "~/bin", "~/go/bin", "~/.cargo/bin"}},
+		// ~/.asdf is asdf's data; its scripts may live under a package prefix,
+		// which asdf finds itself, so ASDF_DIR is left unset.
+		{Name: "asdf", Read: []string{"~/.asdf"}, Env: map[string]string{"ASDF_DATA_DIR": "~/.asdf"}},
+		{Name: "mise", Read: []string{"~/.local/share/mise", "~/.config/mise"}, Env: map[string]string{
+			"MISE_DATA_DIR": "~/.local/share/mise", "MISE_CONFIG_DIR": "~/.config/mise",
+		}},
+		// ~/.cargo/bin's cargo and rustc are rustup's proxies, which run the
+		// toolchains under ~/.rustup. CARGO_HOME is the tool home's, since cargo
+		// writes its registry there.
+		{Name: "rustup", Read: []string{"~/.rustup"}, Env: map[string]string{"RUSTUP_HOME": "~/.rustup"}},
+		{Name: "nvm", Read: []string{"~/.nvm"}, Env: map[string]string{"NVM_DIR": "~/.nvm"}},
+		{Name: "pyenv", Read: []string{"~/.pyenv"}, Env: map[string]string{"PYENV_ROOT": "~/.pyenv"}},
+		{Name: "rbenv", Read: []string{"~/.rbenv"}, Env: map[string]string{"RBENV_ROOT": "~/.rbenv"}},
+		{Name: "volta", Read: []string{"~/.volta"}, Env: map[string]string{"VOLTA_HOME": "~/.volta"}},
+		{Name: "SDKMAN", Read: []string{"~/.sdkman/candidates"}},
+		{Name: "tfenv", Read: []string{"~/.tfenv"}},
+		{Name: "aqua", Read: []string{"~/.local/share/aquaproj-aqua", "~/.config/aquaproj-aqua"}, Env: map[string]string{
+			"AQUA_ROOT_DIR": "~/.local/share/aquaproj-aqua", "AQUA_GLOBAL_CONFIG": "~/.config/aquaproj-aqua/aqua.yaml",
+		}},
+		{Name: "bun", Read: []string{"~/.bun/bin"}},
+		{Name: "deno", Read: []string{"~/.deno/bin"}},
+		{Name: "pipx and uv", Read: []string{"~/.local/share/pipx", "~/.local/share/uv"}},
+		{Name: "krew", Read: []string{"~/.krew"}, Env: map[string]string{"KREW_ROOT": "~/.krew"}},
+		{Name: "helm plugins", Read: []string{"~/.local/share/helm/plugins"}, Env: map[string]string{"HELM_PLUGINS": "~/.local/share/helm/plugins"}},
+		{Name: "Google Cloud SDK", Read: []string{"~/google-cloud-sdk"}},
+		{Name: "Nix", Read: []string{"~/.nix-profile"}},
+		// The folders above their bin hold the Docker socket.
+		{Name: "Rancher Desktop", Read: []string{"~/.rd/bin"}},
+		{Name: "OrbStack", Read: []string{"~/.orbstack/bin"}},
+		{Name: "Linkerd", Read: []string{"~/.linkerd2/bin"}},
+		{Name: "istioctl", Read: []string{"~/.istioctl/bin"}},
+	},
 	Never: []string{
 		"~/.kube", "~/.aws", "~/.azure", "~/.config/gcloud", "~/.ssh", "~/.gnupg", "~/.config/gh", "~/.docker",
 		"~/.netrc", "~/.git-credentials",
 		"~/.cargo/credentials", "~/.cargo/credentials.toml", "~/.pulumi/credentials.json", "~/.fly/config.yml",
+		"~/.local/share/uv/credentials",
 	},
 }
+
+// appDataDirs are the folders under the home that hold every app's data. A
+// Toolchain or shell folder that resolves to one of them, to the home, or
+// above either, is not read, since it would read all of it.
+var appDataDirs = []string{"~/.config", "~/.local", "~/.local/share", "~/Library"}

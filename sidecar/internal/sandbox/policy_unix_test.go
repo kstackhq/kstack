@@ -53,7 +53,7 @@ func accessOf(t *testing.T, s *Sandbox, base string, files FilePolicy, always Al
 	}
 	script.WriteString("true")
 	env := []string{"PATH=/usr/bin:/bin"}
-	system := s.System(home, "/bin/sh", env)
+	system := s.System(home, "/bin/sh").Files
 	files.Read = append(system.Read, files.Read...)
 	files.Deny = append(system.Deny, files.Deny...)
 	always.Deny = append(s.Never(home), always.Deny...)

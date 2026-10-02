@@ -81,10 +81,11 @@ func (s *Sandbox) try(ctx context.Context, bound time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, bound)
 	defer cancel()
 	shell, env := "/bin/sh", []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "TMPDIR=" + dir}
-	cmd, err := s.Command(ctx, Run{
-		Shell: shell, Args: []string{"-c", "true"}, Dir: dir, Env: env,
-		Policy: s.probePolicy(shell, env, dir, home),
-	})
+	p, err := s.probePolicyWithin(ctx, shell, dir, home)
+	if err != nil {
+		return fmt.Errorf("no answer in %s", bound)
+	}
+	cmd, err := s.Command(ctx, Run{Shell: shell, Args: []string{"-c", "true"}, Dir: dir, Env: env, Policy: p})
 	if err != nil {
 		return err
 	}
@@ -147,8 +148,7 @@ func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 
 // args is bwrap's arguments for r, in order, since a later mount lies over an
 // earlier one: the namespaces; a rule on / itself, then the fixed mounts over
-// it; the policy's other rules; the links the PATH needs; then the closing
-// remounts and the chain.
+// it; the policy's other rules; then the closing remounts and the chain.
 func (s *Sandbox) args(r Run) []string {
 	args := []string{
 		"--unshare-net", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try",
@@ -169,12 +169,6 @@ func (s *Sandbox) args(r Run) []string {
 	}
 	for _, ru := range rules {
 		m.mount(ru)
-	}
-	// A link is recreated where a PATH entry, or a program's link in one,
-	// names a path the rules reach only through a link.
-	reads := slices.Concat(r.Policy.Files.Read, resolvedAll(r.Policy.Files.Read))
-	for _, l := range pathLinks(reads, append(pathOf(r.Env), filepath.Dir(r.Shell))) {
-		m.args = append(m.args, "--symlink", l.target, l.path)
 	}
 	args = append(args, m.args...)
 
@@ -280,20 +274,6 @@ func (s *Sandbox) Confines() bool { return true }
 
 // Port is where a run's forwarder listens, on the namespace's own loopback.
 func (s *Sandbox) Port() (int, error) { return forwarderPort, nil }
-
-// System is the FilePolicy every sandboxed run on this machine starts from:
-// the System folders, the trees the PATH env sets and the shell's folder make
-// readable, and this executable at its resolved path. It holds no rule on or
-// inside a Never path under home, and none a fixed mount would refuse.
-func (s *Sandbox) System(home, shell string, env []string) FilePolicy {
-	roots := systemFolders()
-	// An entry inside a root, as written or resolved, is the root's already.
-	inRoots := slices.Concat(roots, resolvedAll(roots))
-	// Dropped before pathTrees, which would fold /tmp/x/bin into a /tmp entry.
-	entries := slices.DeleteFunc(append(pathOf(env), filepath.Dir(shell)), overFixedMount)
-	trees := slices.DeleteFunc(pathTrees(home, inRoots, nil, entries), overFixedMount)
-	return s.systemFiles(home, trees, nil)
-}
 
 // overFixedMount reports whether a rule on p would replace a mount every run
 // has: its private /tmp, its /dev, or anything on or under /proc.

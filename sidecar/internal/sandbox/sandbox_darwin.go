@@ -66,16 +66,10 @@ func probe(ctx context.Context, path string, timeout time.Duration) (*Sandbox, S
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	shell, env := "/usr/bin/true", []string{"PATH=" + os.Getenv("PATH")}
-	// The policy reads the PATH's folders, which can hang on a network mount,
-	// so it is built on a goroutine abandoned if ctx ends first.
-	built := make(chan Policy, 1)
-	go func() { built <- s.probePolicy(shell, env, dir, home) }()
 	var cmd *exec.Cmd
-	select {
-	case p := <-built:
+	p, err := s.probePolicyWithin(ctx, shell, dir, home)
+	if err == nil {
 		cmd, err = s.Command(ctx, Run{Shell: shell, Dir: dir, Env: env, Policy: p})
-	case <-ctx.Done():
-		err = ctx.Err()
 	}
 	var stderr bytes.Buffer
 	if err == nil {
@@ -184,10 +178,6 @@ const (
 	markerNetwork   = ";; NETWORK\n"
 )
 
-// sharedHomeDirs are the directories under the home that hold every app's
-// data, where a PATH entry names only itself.
-var sharedHomeDirs = []string{"Library", ".config"}
-
 // refusedServices are the Mach services no profile names: a service that
 // resolves names, holds the Keychain, opens or drives an app, holds the
 // pasteboard, searches the home, or fetches a URL for its caller. One ending
@@ -286,10 +276,6 @@ func ancestors(paths []string) []string {
 	return slices.Sorted(maps.Keys(seen))
 }
 
-// System is the FilePolicy every sandboxed run on this machine starts from:
-// the System folders, the trees the PATH env sets makes readable, and this
-// executable at its resolved path, less Homebrew's var. It holds no rule on or
-// inside a Never path under home. The shell is under a System folder.
-func (s *Sandbox) System(home, _ string, env []string) FilePolicy {
-	return s.systemFiles(home, pathTrees(home, systemFolders(), sharedHomeDirs, pathOf(env)), brewVar)
-}
+// overFixedMount reports whether a rule on p would replace a mount every run
+// has: never, since a Seatbelt run has no mounts of its own.
+func overFixedMount(string) bool { return false }

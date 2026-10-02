@@ -14,16 +14,16 @@
 
 package sandbox
 
-// platformLists is what only Linux's sandbox reads and hides. /etc is read
-// whole, since the loader and libc read files no short list names.
-var platformLists = Lists{
-	System: []string{
-		"/usr", "/bin", "/sbin", "/lib", "/lib32", "/lib64", "/libx32", "/etc", "/opt",
-		"/nix/store", "/nix/var/nix/profiles", "/run/current-system", "/snap", "/home/linuxbrew/.linuxbrew",
-	},
-	Never: []string{"~/.local/share/keyrings"},
-}
+import (
+	"testing"
 
-// brewVar is Linuxbrew's var, which the System folders take in and which
-// holds its services' databases and logs.
-var brewVar = []string{"/home/linuxbrew/.linuxbrew/var"}
+	"github.com/stretchr/testify/assert"
+)
+
+// System reads the system's folders, /etc whole, and denies Linuxbrew's var.
+func TestLinuxListsReadTheSystem(t *testing.T) {
+	for _, p := range []string{"/usr", "/etc", "/opt", "/nix/store", "/home/linuxbrew/.linuxbrew", "/snap", "/nix/var/nix/profiles", "/run/current-system"} {
+		assert.Contains(t, platformLists.System, p)
+	}
+	assert.Equal(t, []string{"/home/linuxbrew/.linuxbrew/var"}, brewVar)
+}

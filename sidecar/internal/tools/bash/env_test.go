@@ -15,11 +15,15 @@
 package bash
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // processEnv is a process environment carrying credentials a sandboxed run
@@ -42,7 +46,7 @@ var kstackVars = []string{"KSTACK=1", "KSTACK_SIDECAR_PID=10", "KSTACK_HOST_PID=
 
 // A run with no cluster has no kubeconfig and no kubectl cache to name.
 func TestWithNoClusterTheEnvironmentNamesNoKubeconfig(t *testing.T) {
-	got := sandboxedRunEnv(processEnv, kstackVars, "/data/ws", "/data/ws", &runDir{path: "/tmp/r"}, nil, "/th")
+	got := sandboxedRunEnv(processEnv, kstackVars, "/data/ws", "/data/ws", &runDir{path: "/tmp/r"}, nil, "/th", nil)
 
 	for _, kv := range got {
 		assert.NotRegexp(t, `^KUBE`, kv)
@@ -52,7 +56,7 @@ func TestWithNoClusterTheEnvironmentNamesNoKubeconfig(t *testing.T) {
 // A process with no PATH gives the run none.
 func TestNoPathIsNoPath(t *testing.T) {
 	rd := &runDir{path: "/run/r", tmp: "/cache/t"}
-	got := sandboxedRunEnv([]string{"LANG=C"}, nil, "/ws", "/ws", rd, nil, "/th")
+	got := sandboxedRunEnv([]string{"LANG=C"}, nil, "/ws", "/ws", rd, nil, "/th", nil)
 
 	assert.Equal(t, []string{"HOME=/ws", "PWD=/ws", "TMPDIR=/cache/t", "ZDOTDIR=/run/r", "LANG=C", "TERM=dumb"}, got[:6])
 	assert.NotRegexp(t, `^PATH=`, strings.Join(got, "\n"))
@@ -70,8 +74,8 @@ func TestAnOutsideRunKeepsItsEnvironment(t *testing.T) {
 // en_US.UTF-8, on Linux C.UTF-8 where the system has that locale, else C.
 func TestTheLocale(t *testing.T) {
 	rd := &runDir{path: "/run/r", tmp: "/cache/t"}
-	assert.Contains(t, sandboxedRunEnv([]string{"LANG=de_DE.UTF-8"}, nil, "/ws", "/ws", rd, nil, "/th"), "LANG=de_DE.UTF-8")
-	assert.Contains(t, sandboxedRunEnv(nil, nil, "/ws", "/ws", rd, nil, "/th"), "LANG="+defaultLang(runtime.GOOS, fileExists))
+	assert.Contains(t, sandboxedRunEnv([]string{"LANG=de_DE.UTF-8"}, nil, "/ws", "/ws", rd, nil, "/th", nil), "LANG=de_DE.UTF-8")
+	assert.Contains(t, sandboxedRunEnv(nil, nil, "/ws", "/ws", rd, nil, "/th", nil), "LANG="+defaultLang(runtime.GOOS, fileExists))
 
 	none := func(string) bool { return false }
 	assert.Equal(t, "en_US.UTF-8", defaultLang("darwin", none))
@@ -79,4 +83,51 @@ func TestTheLocale(t *testing.T) {
 	for _, dir := range []string{"/usr/lib/locale/C.utf8", "/usr/lib/locale/C.UTF-8"} {
 		assert.Equal(t, "C.UTF-8", defaultLang("linux", func(p string) bool { return p == dir }), dir)
 	}
+}
+
+// The toolchain's variables follow the fixed ones, before Kstack's own.
+func TestTheToolchainsVariablesRideTheEnvironment(t *testing.T) {
+	rd := &runDir{path: "/run/r", tmp: "/cache/t"}
+	toolchain := []string{"NVM_DIR=/home/ana/.nvm", "ASDF_NODEJS_VERSION=20.1.0"}
+
+	got := sandboxedRunEnv([]string{"LANG=C"}, kstackVars, "/ws", "/ws", rd, nil, "/th", toolchain)
+
+	i := slices.Index(got, "CARGO_HOME=/th/cargo")
+	assert.Equal(t, toolchain, got[i+1:i+3])
+	assert.Equal(t, kstackVars, got[i+3:])
+}
+
+// Each line of ~/.tool-versions whose tool and first version are plain
+// becomes ASDF_<TOOL>_VERSION, spelled as asdf spells it; any other line is
+// skipped.
+func TestAsdfVersionsComeFromToolVersions(t *testing.T) {
+	text := "nodejs 20.1.0 18.0.0\n" +
+		"golang  1.22.3 # pinned\n" +
+		"kube-linter v0.6.8\n" +
+		"python 3.12.1+local\n" +
+		"# a comment\n\n" +
+		"Bad-Name 1.0\n" +
+		"ruby $(evil)\n" +
+		"terraform\n"
+
+	assert.Equal(t, []string{
+		"ASDF_NODEJS_VERSION=20.1.0",
+		"ASDF_GOLANG_VERSION=1.22.3",
+		"ASDF_KUBE_LINTER_VERSION=v0.6.8",
+		"ASDF_PYTHON_VERSION=3.12.1+local",
+	}, parseToolVersions(text))
+}
+
+// The versions are read from the user's home, a plain file alone; with none,
+// or with something other than a plain file, there are none.
+func TestAsdfVersionsAreReadFromTheHome(t *testing.T) {
+	home := t.TempDir()
+	assert.Empty(t, toolVersions(home))
+
+	require.NoError(t, os.WriteFile(filepath.Join(home, ".tool-versions"), []byte("nodejs 20.1.0\n"), 0o600))
+	assert.Equal(t, []string{"ASDF_NODEJS_VERSION=20.1.0"}, toolVersions(home))
+
+	big := filepath.Join(t.TempDir(), "home")
+	require.NoError(t, os.MkdirAll(filepath.Join(big, ".tool-versions"), 0o700))
+	assert.Empty(t, toolVersions(big), "a folder")
 }

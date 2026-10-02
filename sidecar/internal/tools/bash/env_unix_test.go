@@ -36,8 +36,9 @@ func TestTheSandboxedEnvironmentIsFixed(t *testing.T) {
 	for _, r := range sandbox.NeverEnv() {
 		environ = append(environ, r.Name+r.Prefix+"=leaked")
 	}
+	toolchain := []string{"NVM_DIR=/home/ana/.nvm", "ASDF_NODEJS_VERSION=20.1.0"}
 
-	got := sandboxedRunEnv(environ, kstackVars, "/data/ws", "/data/ws/sub", rd, cluster, "/data/th")
+	got := sandboxedRunEnv(environ, kstackVars, "/data/ws", "/data/ws/sub", rd, cluster, "/data/th", toolchain)
 
 	assert.Equal(t, []string{
 		"PATH=/usr/local/bin:/usr/bin",
@@ -61,6 +62,8 @@ func TestTheSandboxedEnvironmentIsFixed(t *testing.T) {
 		"GOCACHE=/data/th/go/build",
 		"GOMODCACHE=/data/th/go/mod",
 		"CARGO_HOME=/data/th/cargo",
+		"NVM_DIR=/home/ana/.nvm",
+		"ASDF_NODEJS_VERSION=20.1.0",
 		"KSTACK=1",
 		"KSTACK_SIDECAR_PID=10",
 		"KSTACK_HOST_PID=9",

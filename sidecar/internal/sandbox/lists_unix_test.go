@@ -17,22 +17,42 @@
 package sandbox
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
+// listPaths is every path the lists name, each once per list it is on.
+func listPaths() [][]string {
+	var toolchain []string
+	for _, l := range slices.Concat(sharedLists.Toolchain, platformLists.Toolchain) {
+		toolchain = append(toolchain, l.Read...)
+	}
+	return [][]string{
+		slices.Concat(sharedLists.System, platformLists.System),
+		toolchain,
+		slices.Concat(sharedLists.Never, platformLists.Never),
+	}
+}
+
 func TestNoPathIsInTwoLists(t *testing.T) {
-	for _, p := range slices.Concat(sharedLists.System, sharedLists.Never) {
-		assert.NotContains(t, slices.Concat(platformLists.System, platformLists.Never), p)
+	lists := listPaths()
+	seen := map[string]bool{}
+	for _, list := range lists {
+		for _, p := range list {
+			assert.False(t, seen[p], "%s is on two lists, or twice on one", p)
+			seen[p] = true
+		}
 	}
 }
 
 func TestEveryListPathIsAbsoluteOrInTheHome(t *testing.T) {
-	for _, p := range slices.Concat(sharedLists.System, sharedLists.Never, platformLists.System, platformLists.Never) {
+	for _, p := range slices.Concat(listPaths()...) {
 		assert.True(t, strings.HasPrefix(p, "/") || strings.HasPrefix(p, "~/"), p)
 	}
 }
@@ -51,17 +71,188 @@ func TestNeverWithNoHomeIsTheAbsolutePaths(t *testing.T) {
 	assert.Len(t, s.Never("/home/ana"), len(sharedLists.Never)+len(platformLists.Never))
 }
 
-// A PATH entry inside a Never path makes no rule, so a policy of System and
-// Never passes Check.
+// addRoot makes dir one of the system roots for the rest of the test.
+func addRoot(t *testing.T, dir string) {
+	t.Helper()
+	old := platformLists
+	platformLists.System = append(slices.Clone(old.System), dir)
+	t.Cleanup(func() { platformLists = old })
+}
+
+// addToolchain makes read a Toolchain location for the rest of the test.
+func addToolchain(t *testing.T, read ...string) {
+	t.Helper()
+	old := sharedLists
+	sharedLists.Toolchain = append(slices.Clone(old.Toolchain), Location{Name: "test", Read: read})
+	t.Cleanup(func() { sharedLists = old })
+}
+
+// withLists makes l the shared lists, with no platform lists and no
+// Homebrew var, for the rest of the test.
+func withLists(t *testing.T, l Lists) {
+	t.Helper()
+	oldShared, oldPlatform, oldBrew := sharedLists, platformLists, brewVar
+	sharedLists, platformLists, brewVar = l, Lists{}, nil
+	t.Cleanup(func() { sharedLists, platformLists, brewVar = oldShared, oldPlatform, oldBrew })
+}
+
+// System reads the System folders, each Toolchain folder that exists, the
+// shell's folder and this executable at its resolved path, and denies
+// Homebrew's var. Its Env is each found location's,
+// and Asdf says whether asdf's was found. A missing location adds nothing.
+func TestSystemReadsTheZones(t *testing.T) {
+	base := resolved(t.TempDir())
+	home := filepath.Join(base, "home")
+	d := mkdirs(t, home, "bins", ".asdf", "shells", "late")
+	self := filepath.Join(mkdirs(t, base, "app")[0], "kstack-sidecar")
+	require.NoError(t, os.WriteFile(self, nil, 0o700))
+	require.NoError(t, os.Symlink(self, filepath.Join(base, "self-link")))
+	withLists(t, Lists{
+		System: []string{filepath.Join(base, "usr")},
+		Toolchain: []Location{
+			{Name: "bins", Read: []string{"~/bins", "~/missing"}},
+			{Name: "asdf", Read: []string{"~/.asdf"}, Env: map[string]string{"ASDF_DATA_DIR": "~/.asdf", "ASDF_HOME_TEST": "~/.asdf"}},
+			{Name: "gone", Read: []string{"~/gone", "~/late"}, Env: map[string]string{"GONE": "~/gone"}},
+		},
+	})
+	brewVar = []string{filepath.Join(base, "usr", "var")}
+	s := &Sandbox{self: filepath.Join(base, "self-link")}
+
+	got := s.System(home, filepath.Join(d[2], "zsh"))
+
+	assert.Equal(t, System{
+		Files: FilePolicy{
+			Read: []string{filepath.Join(base, "usr"), d[0], d[1], d[3], d[2], self},
+			Deny: []string{filepath.Join(base, "usr", "var")},
+		},
+		Env:  []string{"ASDF_DATA_DIR=" + d[1], "ASDF_HOME_TEST=" + d[1]},
+		Asdf: true,
+	}, got)
+
+	withLists(t, Lists{Toolchain: []Location{{Name: "asdf", Read: []string{"~/none"}, Env: map[string]string{"ASDF_DIR": "~/none"}}}})
+	got = s.System(home, "/bin/sh")
+	assert.Empty(t, got.Env)
+	assert.False(t, got.Asdf)
+}
+
+// A toolchain folder that is, or links to, the home, a folder above it, or a
+// folder of every app's data under it, is not read: it would read all of it.
+// A link to another folder under the home is read.
+func TestAToolchainLinkToABroadFolderIsNotRead(t *testing.T) {
+	base := resolved(t.TempDir())
+	home := filepath.Join(base, "home")
+	d := mkdirs(t, home, ".config/x", ".local/share/x", "Library", "dotfiles/bin")
+	links := map[string]string{
+		"bin": home, ".nvm": base, ".krew": filepath.Join(home, ".config"), ".pyenv": filepath.Join(home, ".local"),
+		".rbenv": filepath.Join(home, ".local", "share"), ".volta": filepath.Join(home, "Library"), "go": d[3],
+	}
+	// The first folder decides whether Env is set, so it is one not read.
+	read := []string{"~/bin"}
+	for name, target := range links {
+		require.NoError(t, os.Symlink(target, filepath.Join(home, name)))
+		if name != "bin" {
+			read = append(read, "~/"+name)
+		}
+	}
+	withLists(t, Lists{Toolchain: []Location{{Name: "links", Read: read, Env: map[string]string{"X": "~/bin"}}}})
+	s := &Sandbox{self: "/usr/bin/true"}
+
+	got := s.System(home, "/bin/sh")
+
+	for name, target := range links {
+		if target == d[3] {
+			assert.Contains(t, got.Files.Read, filepath.Join(home, name))
+			continue
+		}
+		assert.NotContains(t, got.Files.Read, filepath.Join(home, name), name)
+	}
+	assert.Empty(t, got.Env, "a location whose first folder is not read sets no variable")
+}
+
+// With no home, System holds no Toolchain rule and no Env, and a
+// probe's policy over it passes Check.
+func TestWithNoHomeSystemHoldsNoHomeRule(t *testing.T) {
+	s := &Sandbox{self: "/usr/bin/true"}
+
+	got := s.System("", "/bin/sh")
+
+	assert.Equal(t, append(systemFolders(), resolved("/usr/bin/true")), got.Files.Read)
+	assert.Equal(t, brewVar, got.Files.Deny)
+	assert.Empty(t, got.Env)
+	assert.False(t, got.Asdf)
+	assert.NoError(t, s.probePolicy("/bin/sh", resolved(t.TempDir()), "").Check())
+}
+
+// A shell installed under a prefix outside the home reads the prefix, so it
+// reaches its own share. Under the home, or where the prefix holds the home
+// or is /, its folder is read alone.
+func TestTheShellsPrefixIsReadButNeverTheHome(t *testing.T) {
+	base := resolved(t.TempDir())
+	homes := mkdirs(t, base, "users")[0]
+	home := mkdirs(t, homes, "ana")[0]
+	withLists(t, Lists{})
+	s := &Sandbox{self: "/usr/bin/true"}
+	read := func(shell string) []string {
+		return slices.DeleteFunc(s.System(home, shell).Files.Read, func(p string) bool { return p == resolved(s.self) })
+	}
+
+	assert.Equal(t, []string{filepath.Join(base, "opt", "zsh")}, read(filepath.Join(base, "opt", "zsh", "bin", "zsh")))
+	for _, bin := range []string{".local/bin", "opt/zsh/bin", "bin"} {
+		assert.Equal(t, []string{filepath.Join(home, bin)}, read(filepath.Join(home, bin, "zsh")), bin)
+	}
+	assert.Equal(t, []string{filepath.Join(homes, "bin")}, read(filepath.Join(homes, "bin", "zsh")))
+	assert.Equal(t, []string{"/bin"}, read("/bin/zsh"))
+	assert.Equal(t, []string{"/bin"}, read("/bin/bash"))
+}
+
+// A shell whose folder is broad — the home, a folder of every app's data
+// under it, or / — reads the program alone, never the folder.
+func TestAShellInABroadFolderReadsOnlyItself(t *testing.T) {
+	base := resolved(t.TempDir())
+	home := mkdirs(t, base, "home/.config")[0]
+	home = filepath.Dir(home)
+	withLists(t, Lists{})
+	s := &Sandbox{self: "/usr/bin/true"}
+
+	for _, shell := range []string{filepath.Join(home, "bash"), filepath.Join(home, ".config", "bash"), "/sh"} {
+		read := s.System(home, shell).Files.Read
+		assert.Contains(t, read, shell)
+		assert.NotContains(t, read, filepath.Dir(shell))
+	}
+}
+
+// A shell that is a link reads where each link on its way leads, so the
+// program it names runs, and nothing wider than shellFolder would read.
+func TestAShellLinkReadsWhereItLeads(t *testing.T) {
+	base := resolved(t.TempDir())
+	home := filepath.Join(base, "home")
+	d := mkdirs(t, home, ".local/bin", "links", "shell-install/bin")
+	require.NoError(t, os.WriteFile(filepath.Join(d[2], "bash"), nil, 0o700))
+	require.NoError(t, os.Symlink("../shell-install/bin/bash", filepath.Join(d[1], "bash")))
+	require.NoError(t, os.Symlink(filepath.Join(d[1], "bash"), filepath.Join(d[0], "bash")))
+	withLists(t, Lists{})
+	s := &Sandbox{self: "/usr/bin/true"}
+
+	read := s.System(home, filepath.Join(d[0], "bash")).Files.Read
+
+	assert.Equal(t, []string{d[0], d[1], d[2], resolved(s.self)}, read)
+}
+
+// A Toolchain folder inside a Never path makes no rule, so a policy of
+// System and Never passes Check.
 func TestSystemLeavesOutTheNeverPaths(t *testing.T) {
 	base := resolved(t.TempDir())
 	home := filepath.Join(base, "home")
-	d := mkdirs(t, home, ".docker/bin", "apps/bin")
+	d := mkdirs(t, home, ".docker/bin", "apps")
+	withLists(t, Lists{
+		Toolchain: []Location{{Name: "docker", Read: []string{"~/.docker/bin"}}, {Name: "apps", Read: []string{"~/apps"}}},
+		Never:     []string{"~/.docker"},
+	})
 	s := &Sandbox{self: "/usr/bin/true"}
 
-	got := s.System(home, "/bin/sh", []string{"PATH=" + d[0] + ":" + d[1]})
+	got := s.System(home, "/bin/sh").Files
 
-	assert.NotContains(t, got.Read, filepath.Join(home, ".docker"))
-	assert.Contains(t, got.Read, filepath.Join(home, "apps"))
+	assert.NotContains(t, got.Read, d[0])
+	assert.Contains(t, got.Read, d[1])
 	assert.NoError(t, Policy{Files: got, Always: AlwaysPolicy{Deny: s.Never(home)}}.Check())
 }

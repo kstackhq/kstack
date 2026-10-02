@@ -15,9 +15,14 @@
 package bash
 
 import (
+	"io"
 	"os"
+	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
+
+	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/fileguard"
 )
 
 // outsideEnv is a run's environment outside the sandbox: the process's whole,
@@ -39,8 +44,9 @@ func outsideEnv(environ, kstack []string, dir string) []string {
 // zsh -c never sources a .zshenv a command left in the workspace; KUBECONFIG
 // and KUBECACHEDIR for a run with a cluster (cluster not nil); LANG the
 // sidecar's or the platform's default; TERM=dumb; then the variables that
-// point each tool into toolHome; then what Kstack adds.
-func sandboxedRunEnv(environ, kstack []string, workspace, dir string, rd *runDir, cluster *target, toolHome string) []string {
+// point each tool into toolHome; then toolchain, each found location's
+// variables and asdf's versions; then what Kstack adds.
+func sandboxedRunEnv(environ, kstack []string, workspace, dir string, rd *runDir, cluster *target, toolHome string, toolchain []string) []string {
 	var path, lang, tz string
 	for _, kv := range environ {
 		name, value, _ := strings.Cut(kv, "=")
@@ -70,6 +76,7 @@ func sandboxedRunEnv(environ, kstack []string, workspace, dir string, rd *runDir
 	}
 	env = append(env, "TERM=dumb")
 	env = append(env, toolHomeEnv(toolHome)...)
+	env = append(env, toolchain...)
 	return append(env, kstack...)
 }
 
@@ -89,4 +96,45 @@ func defaultLang(goos string, exists func(string) bool) string {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// toolVersionsLimit is the most of ~/.tool-versions read.
+const toolVersionsLimit = 64 << 10
+
+// toolVersions is asdf's global versions, read from the user's
+// ~/.tool-versions as parseToolVersions reads them. asdf reads them from
+// $HOME, which in the sandbox is the workspace, so they ride as variables.
+// Anything but a plain file holds none.
+func toolVersions(home string) []string {
+	f, err := fileguard.Open(filepath.Join(home, ".tool-versions"))
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	text, err := io.ReadAll(io.LimitReader(f, toolVersionsLimit))
+	if err != nil {
+		return nil
+	}
+	return parseToolVersions(string(text))
+}
+
+var (
+	asdfTool    = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]*$`)
+	asdfVersion = regexp.MustCompile(`^[A-Za-z0-9._+-]+$`)
+)
+
+// parseToolVersions is ASDF_<TOOL>_VERSION for each line of text whose tool
+// and first version match asdf's plain shapes, the tool upper-cased with -
+// spelled _, as asdf spells it. Any other line is skipped.
+func parseToolVersions(text string) []string {
+	var env []string
+	for _, line := range strings.Split(text, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 || !asdfTool.MatchString(f[0]) || !asdfVersion.MatchString(f[1]) {
+			continue
+		}
+		name := strings.ToUpper(strings.ReplaceAll(f[0], "-", "_"))
+		env = append(env, "ASDF_"+name+"_VERSION="+f[1])
+	}
+	return env
 }

@@ -74,14 +74,16 @@ func ruleAt(t *testing.T, text, name string) int {
 }
 
 // profileRun is a run over a stand-in machine for the profile's own tests: a
-// home with ~/.cargo/bin on PATH, one PATH entry outside it, and Kstack's
-// three directories holding the workspace, the TMPDIR and the run's own
-// directory. Its policy is the Workspace policy on s.
+// home whose ~/.cargo is a toolchain folder, one System folder outside it,
+// and Kstack's three directories holding the workspace, the TMPDIR and the
+// run's own directory. Its policy is the Workspace policy on s.
 func profileRun(t *testing.T, s *Sandbox) (Run, string) {
 	t.Helper()
 	base := resolved(t.TempDir())
 	d := mkdirs(t, base, "home/.cargo/bin", "tools/bin", "data/chats/c/workspace", "cache/tmp/1-a", "runtime/runs/1-a")
 	home := filepath.Join(base, "home")
+	addToolchain(t, "~/.cargo")
+	addRoot(t, d[1])
 	env := []string{"PATH=" + d[0] + string(filepath.ListSeparator) + d[1] + string(filepath.ListSeparator) + "/usr/bin"}
 	kstack := []string{filepath.Join(base, "data"), filepath.Join(base, "cache"), filepath.Join(base, "runtime")}
 	return Run{
@@ -89,7 +91,7 @@ func profileRun(t *testing.T, s *Sandbox) (Run, string) {
 		Dir:   d[2],
 		Env:   env,
 		Policy: Policy{
-			Files:  s.System(home, "/bin/sh", env).Outside(kstack...),
+			Files:  s.System(home, "/bin/sh").Files.Outside(kstack...),
 			Always: AlwaysPolicy{Deny: s.Never(home), Kstack: kstack, Read: []string{d[4]}, Write: []string{d[2], d[3]}},
 		},
 	}, base
@@ -139,7 +141,7 @@ func TestTheProfileWritesNoPathIntoItsText(t *testing.T) {
 	}
 }
 
-// The System folders that exist, the PATH trees and the sidecar's own
+// The System folders that exist, the toolchain folders and the sidecar's own
 // executable are read and not written; the workspace and the TMPDIR are read
 // and written, the run's directory read.
 func TestTheProfileNamesWhatARunReads(t *testing.T) {
@@ -529,7 +531,7 @@ func (m *machineRun) on(s *Sandbox) Run {
 	r := m.Run
 	kstack := []string{m.data, m.cache, m.runtime}
 	r.Policy = Policy{
-		Files: s.System(m.home, r.Shell, r.Env).Outside(kstack...),
+		Files: s.System(m.home, r.Shell).Files.Outside(kstack...),
 		Always: AlwaysPolicy{
 			Deny: s.Never(m.home), Kstack: kstack,
 			Read: []string{m.snapshot, m.runDir}, Write: []string{m.ws, m.tmp, m.kubectl},
@@ -607,6 +609,12 @@ func shWithin(t *testing.T, s *Sandbox, r Run, d time.Duration, script string, e
 	return string(out), err == nil, ctx.Err() != nil
 }
 
+// firstLine is what a run printed first.
+func firstLine(out string) string {
+	line, _, _ := strings.Cut(out, "\n")
+	return line
+}
+
 // write makes a file holding "secret" under dir.
 func write(t *testing.T, dir, name string) string {
 	t.Helper()
@@ -673,6 +681,7 @@ func TestACredentialPathInsideAReadableTreeIsUnreadable(t *testing.T) {
 	bin := mkdirs(t, m.home, ".cargo/bin")[0]
 	require.NoError(t, os.WriteFile(filepath.Join(bin, "tool"), []byte("#!/bin/sh\necho tool\n"), 0o700))
 	creds := write(t, m.home, ".cargo/credentials.toml")
+	addToolchain(t, "~/.cargo")
 	m.Env[0] = "PATH=" + bin + ":/usr/bin:/bin"
 
 	out, ok := sh(t, s, m.on(s), "tool")
@@ -683,36 +692,19 @@ func TestACredentialPathInsideAReadableTreeIsUnreadable(t *testing.T) {
 }
 
 // ~/.aws linked into ~/tools is unreadable at its target, which the ~/tools
-// tree takes in.
+// toolchain folder takes in.
 func TestALinkedCredentialPathIsUnreadable(t *testing.T) {
 	s := confining(t)
 	m := standIn(t)
 	bin := mkdirs(t, m.home, "tools/bin")[0]
 	secret := write(t, m.home, "tools/aws/credentials")
 	require.NoError(t, os.Symlink(filepath.Dir(secret), filepath.Join(m.home, ".aws")))
+	addToolchain(t, "~/tools")
 	m.Env[0] = "PATH=" + bin + ":/usr/bin:/bin"
 
 	out, ok := sh(t, s, m.on(s), `cat "$F"`, "F="+secret)
 
 	assert.False(t, ok, out)
-}
-
-func TestAnEntryUnderASharedDirectoryOpensOnlyItself(t *testing.T) {
-	s := confining(t)
-	m := standIn(t)
-	bins := mkdirs(t, m.home, "Library/Application Support/x/bin", ".config/x/bin")
-	for _, b := range bins {
-		require.NoError(t, os.WriteFile(filepath.Join(b, "tool-"+filepath.Base(filepath.Dir(filepath.Dir(b)))), []byte("#!/bin/sh\necho ran\n"), 0o700))
-	}
-	others := []string{write(t, m.home, "Library/Application Support/y/z"), write(t, m.home, ".config/y/z")}
-	m.Env[0] = "PATH=" + strings.Join(bins, ":") + ":/usr/bin:/bin"
-
-	out, ok := sh(t, s, m.on(s), "tool-Application\\ Support && tool-.config")
-	assert.True(t, ok, out)
-	for _, f := range others {
-		out, ok = sh(t, s, m.on(s), `cat "$F"`, "F="+f)
-		assert.False(t, ok, out)
-	}
 }
 
 // Homebrew's var is denied inside a tree that takes it in; a stand-in plays it.
@@ -725,12 +717,64 @@ func TestHomebrewsVarIsDenied(t *testing.T) {
 	saved := brewVar
 	brewVar = []string{filepath.Join(brew, "var")}
 	t.Cleanup(func() { brewVar = saved })
-	m.Env[0] = "PATH=" + brew + ":/usr/bin:/bin"
+	addRoot(t, brew)
 
 	out, ok := sh(t, s, m.on(s), `cat "$F"`, "F="+db)
 	assert.False(t, ok, out)
 	out, ok = sh(t, s, m.on(s), `cat "$F"`, "F="+readme)
 	assert.True(t, ok, out)
+}
+
+// A folder on the sidecar's PATH opens nothing: only the lists decide what a
+// run reads.
+func TestAFolderOnThePathIsNotRead(t *testing.T) {
+	s := confining(t)
+	m := standIn(t)
+	bin := mkdirs(t, m.home, "notes/bin")[0]
+	require.NoError(t, os.WriteFile(filepath.Join(bin, "tool"), []byte("#!/bin/sh\necho tool\n"), 0o700))
+	notes := write(t, m.home, "notes/todo")
+	m.Env[0] = "PATH=" + bin + ":/usr/bin:/bin"
+
+	out, ok := sh(t, s, m.on(s), "tool")
+	assert.False(t, ok, out)
+	out, ok = sh(t, s, m.on(s), `cat "$F"`, "F="+notes)
+	assert.False(t, ok, out)
+	out, ok = sh(t, s, m.on(s), `ls "$F"`, "F="+filepath.Dir(notes))
+	assert.False(t, ok, out)
+}
+
+// Each Toolchain location runs a program from its first folder, with its
+// variables set and pointing into the home.
+func TestEachToolchainLocationRunsAProgram(t *testing.T) {
+	s := confining(t)
+	for _, l := range sharedLists.Toolchain {
+		t.Run(l.Name, func(t *testing.T) {
+			m := standIn(t)
+			dir := inHome(m.home, l.Read[:1])[0]
+			if filepath.Base(dir) != "bin" {
+				dir = filepath.Join(dir, "bin")
+			}
+			require.NoError(t, os.MkdirAll(dir, 0o700))
+			prog := filepath.Join(dir, "kstack-tool")
+			require.NoError(t, os.WriteFile(prog, []byte("#!/bin/sh\necho tool-ran\n"), 0o700))
+			r := m.on(s)
+			r.Env = append(r.Env, s.System(m.home, r.Shell).Env...)
+			script := `"$P"`
+			for name := range l.Env {
+				script += `; printf '%s\n' "$` + name + `"`
+			}
+
+			out, ok := sh(t, s, r, script, "P="+prog)
+
+			require.True(t, ok, out)
+			lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+			assert.Equal(t, "tool-ran", lines[0])
+			require.Len(t, lines, 1+len(l.Env))
+			for _, v := range lines[1:] {
+				assert.True(t, within(v, m.home), "%s is not under the home", v)
+			}
+		})
+	}
 }
 
 func TestKstacksDirectoriesAreUnreadable(t *testing.T) {
@@ -973,12 +1017,15 @@ func TestOnlyTheRunsPortAndSocketAreReached(t *testing.T) {
 	otherSocket := filepath.Join(m.ws, "o.sock")
 	serveHTTP(t, "unix", otherSocket, "other")
 
-	out, ok := sh(t, s, m.on(s), `curl -sS "http://127.0.0.1:$PORT/"`)
+	// Under coverage the forwarder, this test binary, warns as it exits, since
+	// its GOCOVERDIR is outside the sandbox, so curl's line is ended and read
+	// alone.
+	out, ok := sh(t, s, m.on(s), `curl -sS "http://127.0.0.1:$PORT/" && echo`)
 	assert.True(t, ok, out)
-	assert.Equal(t, "ok", out)
-	out, ok = sh(t, s, m.on(s), `curl -sS --unix-socket "$SOCKET" http://x/`)
+	assert.Equal(t, "ok", firstLine(out))
+	out, ok = sh(t, s, m.on(s), `curl -sS --unix-socket "$SOCKET" http://x/ && echo`)
 	assert.True(t, ok, out)
-	assert.Equal(t, "ok", out)
+	assert.Equal(t, "ok", firstLine(out))
 	out, _ = sh(t, s, m.on(s), `curl -sS "http://$A/"`, "A="+other)
 	assert.NotContains(t, out, "other")
 	out, _ = sh(t, s, m.on(s), `curl -sS --unix-socket "$F" http://x/`, "F="+otherSocket)
@@ -1151,29 +1198,6 @@ func TestTheCompiledProfileMatchesTheGolden(t *testing.T) {
 			f.golden(t, "profile_darwin_"+name+".golden", f.inlined(t, text, args))
 		})
 	}
-}
-
-// System is the lists' System folders, the PATH trees and this executable at
-// its resolved path, with Homebrew's var as a Deny. The shell's folder adds
-// nothing, and an entry under a shared home folder names only itself.
-func TestSystemIsTheListsAndTheTrees(t *testing.T) {
-	base := resolved(t.TempDir())
-	d := mkdirs(t, base, "usr/bin", "home/apps/bin", "home/Library/tool/bin", "home/shells", "app")
-	self := write(t, d[4], "kstack-sidecar")
-	require.NoError(t, os.Symlink(self, filepath.Join(base, "self-link")))
-	oldShared, oldPlatform, oldBrew := sharedLists, platformLists, brewVar
-	sharedLists.System = []string{filepath.Join(base, "shared")}
-	platformLists.System = []string{filepath.Join(base, "usr")}
-	brewVar = []string{filepath.Join(base, "usr", "var")}
-	t.Cleanup(func() { sharedLists, platformLists, brewVar = oldShared, oldPlatform, oldBrew })
-	s := &Sandbox{self: filepath.Join(base, "self-link")}
-
-	got := s.System(filepath.Join(base, "home"), filepath.Join(d[3], "zsh"), []string{"PATH=" + d[1] + ":" + d[2] + ":" + d[0]})
-
-	assert.Equal(t, FilePolicy{
-		Read: []string{filepath.Join(base, "shared"), filepath.Join(base, "usr"), d[2], filepath.Join(base, "home", "apps"), self},
-		Deny: []string{filepath.Join(base, "usr", "var")},
-	}, got)
 }
 
 // A policy that fails Check answers its error and no command.

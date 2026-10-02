@@ -32,6 +32,7 @@ import (
 	"os/exec"
 	"regexp"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -102,7 +103,7 @@ var _ interface {
 // Command's contract is sandbox.Sandbox.Command's, exec.CommandContext included.
 type sandboxer interface {
 	Command(ctx context.Context, r sandbox.Run) (*exec.Cmd, error)
-	System(home, shell string, env []string) sandbox.FilePolicy
+	System(home, shell string) sandbox.System
 	Never(home string) []string
 	Confines() bool
 	Port() (int, error)
@@ -650,14 +651,21 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		writes = append(writes, cluster.cacheDir)
 		relays = []sandbox.Relay{{Port: port, Socket: socket}}
 	}
-	env := sandboxedRunEnv(os.Environ(), t.env, ws, cwd, r.dir, cluster, toolHome)
-	// System reads the PATH's folders, which can hang on a network mount, so
-	// the policy is built on a goroutine abandoned if ctx ends first.
-	built := make(chan sandbox.Policy, 1)
-	go func() { built <- t.workspacePolicy(boxer, env, reads, writes, relays) }()
+	// System stats folders under the home and toolVersions reads a file
+	// under it, either of which can hang on a network mount, so the run is
+	// built on a goroutine abandoned if ctx ends first.
+	built := make(chan sandbox.Run, 1)
+	go func() {
+		sys := boxer.System(t.home, t.shell)
+		toolchain := sys.Env
+		if sys.Asdf {
+			toolchain = slices.Concat(sys.Env, toolVersions(t.home))
+		}
+		env := sandboxedRunEnv(os.Environ(), t.env, ws, cwd, r.dir, cluster, toolHome, toolchain)
+		built <- sandbox.Run{Env: env, Policy: t.workspacePolicy(boxer, sys.Files, reads, writes, relays)}
+	}()
 	select {
-	case p := <-built:
-		r.run = sandbox.Run{Env: env, Policy: p}
+	case r.run = <-built:
 		return r, nil
 	case <-ctx.Done():
 		r.end()
@@ -665,12 +673,12 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 	}
 }
 
-// workspacePolicy is a sandboxed run's policy: the sandbox's System for env,
+// workspacePolicy is a sandboxed run's policy: system, the sandbox's System,
 // less what lies in Kstack's directories, and the extra writable, which lies
 // in none; the Never paths and Kstack's directories denied but for the run's
 // own reads and writes, which lie inside them; and relays.
-func (t *Tool) workspacePolicy(boxer sandboxer, env, reads, writes []string, relays []sandbox.Relay) sandbox.Policy {
-	files := boxer.System(t.home, t.shell, env).Outside(t.denied...)
+func (t *Tool) workspacePolicy(boxer sandboxer, system sandbox.FilePolicy, reads, writes []string, relays []sandbox.Relay) sandbox.Policy {
+	files := system.Outside(t.denied...)
 	files.Write = append(files.Write, t.extraWritable...)
 	return sandbox.Policy{
 		Files:   files,

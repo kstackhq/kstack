@@ -30,9 +30,10 @@ import (
 var update = flag.Bool("update", false, "rewrite the golden files in testdata")
 
 // fixture is a whole machine under one folder, for the goldens: system roots,
-// one of them a link, a home with programs on PATH, every credential path and
-// Kstack's three directories, the runtime one reached through a link. Its
-// roots stand in for the platform's for the test's life.
+// one of them a link, a home with toolchain folders, one of them inside a
+// credential path, every credential path and Kstack's three directories, the
+// runtime one reached through a link. Its roots and toolchain stand in for
+// the lists' for the test's life.
 type fixture struct {
 	base, home, shell, self                 string
 	env                                     []string
@@ -81,7 +82,6 @@ func newFixture(t *testing.T) fixture {
 		runtime: filepath.Join(base, "run", "kstack"),
 	}
 	f.env = []string{"PATH=" + strings.Join([]string{
-		filepath.Join(f.home, "apps", "bin"), filepath.Join(f.home, ".cargo", "bin"), filepath.Join(f.home, ".docker", "bin"),
 		filepath.Join(base, "sys", "bin"), filepath.Join(base, "sys", "usr", "bin"),
 	}, string(filepath.ListSeparator))}
 	f.workspace = filepath.Join(f.data, "chats", "c", "workspace")
@@ -90,9 +90,14 @@ func newFixture(t *testing.T) fixture {
 	f.runDir = filepath.Join(f.runtime, "runs", "1-a")
 	f.socket = filepath.Join(f.runDir, "proxy.sock")
 
-	old := platformLists
+	oldShared, oldPlatform := sharedLists, platformLists
+	sharedLists.Toolchain = []Location{
+		{Name: "apps", Read: []string{"~/apps"}},
+		{Name: "cargo", Read: []string{"~/.cargo/bin"}},
+		{Name: "docker", Read: []string{"~/.docker/bin"}},
+	}
 	platformLists.System = f.roots
-	t.Cleanup(func() { platformLists = old })
+	t.Cleanup(func() { sharedLists, platformLists = oldShared, oldPlatform })
 	return f
 }
 
@@ -103,7 +108,7 @@ func (f fixture) run(s *Sandbox, cluster bool) Run {
 	r := Run{
 		Shell: f.shell, Args: []string{"-c", "true"}, Dir: f.workspace, Env: f.env,
 		Policy: Policy{
-			Files: s.System(f.home, f.shell, f.env).Outside(kstack...),
+			Files: s.System(f.home, f.shell).Files.Outside(kstack...),
 			Always: AlwaysPolicy{
 				Deny: s.Never(f.home), Kstack: kstack,
 				Read: []string{f.runDir}, Write: []string{f.workspace, f.tmp},

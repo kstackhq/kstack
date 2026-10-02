@@ -450,9 +450,11 @@ type fakeSandboxer struct {
 	confines  bool
 	cmdErr    error
 	portErr   error
-	system    sandbox.FilePolicy // what System answers
-	never     []string           // what Never answers
-	hold      *testutil.Signal   // when set, Command fires it and waits for ctx to end
+	system    sandbox.System   // what System answers
+	never     []string         // what Never answers
+	hold      *testutil.Signal // when set, Command fires it and waits for ctx to end
+	onSystem  func()           // when set, System calls it, then waits for holdSys to close
+	holdSys   chan struct{}
 	mu        sync.Mutex
 	runs      []sandbox.Run
 	portsSeen int
@@ -477,7 +479,13 @@ func (f *fakeSandboxer) Command(ctx context.Context, r sandbox.Run) (*exec.Cmd, 
 	return cmd, nil
 }
 
-func (f *fakeSandboxer) System(string, string, []string) sandbox.FilePolicy { return f.system }
+func (f *fakeSandboxer) System(string, string) sandbox.System {
+	if f.onSystem != nil {
+		f.onSystem()
+		<-f.holdSys
+	}
+	return f.system
+}
 
 func (f *fakeSandboxer) Never(string) []string { return f.never }
 
@@ -983,6 +991,10 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 	assert.Contains(t, sandboxPrompt, "What follows about the user's own credentials, `kubectl diff` and `--dry-run=server` is for a command run outside the sandbox.")
 	assert.NotContains(t, sandboxPrompt, "read-only")
 	assert.Contains(t, sandboxPrompt, "A Secret's values read `[redacted]`", "a sandboxed run reads Secrets redacted")
+	assert.Contains(t, sandboxPrompt, "The sandbox has the user's tools and none of their shell's functions, aliases or variables. "+
+		"`HOME` is the workspace. A tool that cannot find its own files under the home needs a folder the user grants, "+
+		"or this chat switched outside the sandbox.", "what a sandboxed run starts from")
+	assert.NotContains(t, sandboxPrompt, "you can leave")
 	assert.Equal(t, 1, strings.Count(got, "## Bash"))
 	assert.NotContains(t, got, "snap")
 }

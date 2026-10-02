@@ -14,11 +14,30 @@
 
 package sandbox
 
+import "context"
+
 // probePolicy is what a probe's run reaches before any run exists: System over
-// its shell and PATH, its folder dir writable, and the Never paths under home
-// denied. It names no Kstack path and no relay.
-func (s *Sandbox) probePolicy(shell string, env []string, dir, home string) Policy {
-	files := s.System(home, shell, env)
+// its shell, its folder dir writable, and the Never paths under home denied.
+// It names no Kstack path and no relay.
+func (s *Sandbox) probePolicy(shell, dir, home string) Policy {
+	files := s.System(home, shell).Files
 	files.Write = append(files.Write, dir)
 	return Policy{Files: files, Always: AlwaysPolicy{Deny: s.Never(home)}}
 }
+
+// probePolicyWithin is probePolicy, or ctx's error if ctx ends first: the
+// policy reads folders under the home, which can hang on a network mount,
+// so it is built on a goroutine left behind then.
+func (s *Sandbox) probePolicyWithin(ctx context.Context, shell, dir, home string) (Policy, error) {
+	built, build := make(chan Policy, 1), buildProbePolicy
+	go func() { built <- build(s, shell, dir, home) }()
+	select {
+	case p := <-built:
+		return p, nil
+	case <-ctx.Done():
+		return Policy{}, ctx.Err()
+	}
+}
+
+// buildProbePolicy is probePolicy, which a test replaces with one that hangs.
+var buildProbePolicy = (*Sandbox).probePolicy

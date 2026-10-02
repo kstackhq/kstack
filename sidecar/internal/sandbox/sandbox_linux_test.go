@@ -259,7 +259,7 @@ type testRun struct {
 // what lies in r's Kstack paths, then r's own Files rules, and the Never paths
 // denied beside r's Always part.
 func (r testRun) on(s *Sandbox) Run {
-	files := s.System(r.home, r.Shell, r.Env).Outside(r.always.Kstack...)
+	files := s.System(r.home, r.Shell).Files.Outside(r.always.Kstack...)
 	files.Read = append(files.Read, r.files.Read...)
 	files.Write = append(files.Write, r.files.Write...)
 	files.Deny = append(files.Deny, r.files.Deny...)
@@ -315,11 +315,12 @@ func index(args []string, want ...string) int {
 
 // The mounts come in the order that lets each lie over the last: the Files
 // rules, shallowest first and on one path the narrower last, then every Always
-// path over them, then the run's own, then the PATH links, then the read-only
-// remounts, which come after the binds made inside a denial. A rule on / goes
-// under the fixed mounts.
+// path over them, then the run's own, then the read-only remounts, which come
+// after the binds made inside a denial. A rule on / goes under the fixed
+// mounts.
 func TestTheCommandMountsInOrder(t *testing.T) {
-	home, _, outside := machine(t)
+	d := mkdirs(t, resolved(t.TempDir()), "home/ana", "tools")
+	home, outside := d[0], d[1]
 	cargo := mkdirs(t, home, ".cargo/bin")[0]
 	tree := filepath.Dir(cargo)
 	creds := filepath.Join(tree, "credentials.toml")
@@ -327,14 +328,11 @@ func TestTheCommandMountsInOrder(t *testing.T) {
 	data := mkdirs(t, home, ".cargo/kstack-data")[0]
 	ws := mkdirs(t, data, "chats/1/workspace")[0]
 	tool := mkdirs(t, outside, "tool/bin")[0]
-	links := mkdirs(t, outside, "links")[0]
-	require.NoError(t, os.Symlink(tool, filepath.Join(links, "tool")))
 	tie := mkdirs(t, outside, "tie")[0]
 	runtime := mkdirs(t, outside, "runtime")[0]
 	s := &Sandbox{self: "/k", bwrap: "/usr/bin/bwrap"}
 	r := Run{
 		Shell: "/bin/sh", Args: []string{"-c", "true"}, Dir: ws,
-		Env: []string{"PATH=" + cargo + ":" + filepath.Join(links, "tool")},
 		Policy: Policy{
 			Files:  FilePolicy{Read: []string{tree, tool, tie}, Deny: []string{cargo, tie}},
 			Always: AlwaysPolicy{Deny: []string{creds}, Kstack: []string{data, runtime}, Write: []string{ws}},
@@ -352,7 +350,6 @@ func TestTheCommandMountsInOrder(t *testing.T) {
 		"cred":    index(args, "--ro-bind", "/dev/null", creds),
 		"data":    index(args, "--tmpfs", data),
 		"own":     index(args, "--bind", ws, ws),
-		"symlink": index(args, "--symlink", tool, filepath.Join(links, "tool")),
 		"root":    index(args, "--remount-ro", "/"),
 		"sealed":  index(args, "--remount-ro", data),
 	}
@@ -367,8 +364,7 @@ func TestTheCommandMountsInOrder(t *testing.T) {
 	}
 	assert.Less(t, at["cred"], at["data"])
 	assert.Less(t, at["data"], at["own"])
-	assert.Less(t, at["own"], at["symlink"])
-	assert.Less(t, at["symlink"], at["root"])
+	assert.Less(t, at["own"], at["root"])
 	assert.Less(t, at["root"], at["sealed"])
 	assert.Equal(t, -1, index(args, "--tmpfs", runtime), "a denial no Read or Write reaches needs no mount")
 
@@ -450,7 +446,8 @@ func program(t *testing.T, path, name string) string {
 	return write(t, path, "#!/bin/sh\necho "+name+"\n")
 }
 
-// withPath is r with PATH set to the system's then entries.
+// withPath is r with PATH set to the system's then entries. PATH opens
+// nothing: an entry finds its programs only where a list reads them.
 func withPath(r testRun, entries ...string) testRun {
 	r.Env = append([]string{"PATH=" + strings.Join(append([]string{"/usr/bin", "/bin"}, entries...), ":")}, r.Env[1:]...)
 	return r
@@ -472,6 +469,7 @@ func TestACredentialPathInsideAReadableTreeIsUnreadable(t *testing.T) {
 	r := shRun(t, "")
 	program(t, filepath.Join(r.home, ".cargo", "bin", "tool"), "tool-ran")
 	creds := write(t, filepath.Join(r.home, ".cargo", "credentials.toml"), "secret")
+	addToolchain(t, "~/.cargo")
 	r = withPath(r, filepath.Join(r.home, ".cargo", "bin"))
 	r.Args[1] = "tool; cat " + creds
 
@@ -500,42 +498,6 @@ func TestLocalShareIsUnreadable(t *testing.T) {
 	assert.NotContains(t, out, "secret")
 }
 
-// A ~/.local/share that links elsewhere in the home opens the tool's tree
-// there, and nothing beside it.
-func TestALinkedLocalShareOpensOnlyTheToolsTree(t *testing.T) {
-	s := confining(t)
-	r := shRun(t, "")
-	docs := filepath.Join(r.home, "Documents")
-	program(t, filepath.Join(docs, "pipx", "bin", "x"), "pipx-ran")
-	private := write(t, filepath.Join(docs, "private", "notes"), "secret")
-	require.NoError(t, os.MkdirAll(filepath.Join(r.home, ".local"), 0o700))
-	require.NoError(t, os.Symlink(docs, filepath.Join(r.home, ".local", "share")))
-	r = withPath(r, filepath.Join(r.home, ".local", "share", "pipx", "bin"))
-	r.Args[1] = "x; cat " + private
-
-	_, out := run(t, s, r)
-
-	assert.Contains(t, out, "pipx-ran")
-	assert.NotContains(t, out, "secret")
-}
-
-// A program reached through a chain of links runs.
-func TestAProgramLinkChainRuns(t *testing.T) {
-	s := confining(t)
-	r := shRun(t, "tool")
-	tool := program(t, filepath.Join(r.home, "install", "bin", "tool"), "tool-ran")
-	bin := filepath.Join(r.home, ".local", "bin")
-	require.NoError(t, os.MkdirAll(bin, 0o700))
-	require.NoError(t, os.MkdirAll(filepath.Join(r.home, "links"), 0o700))
-	require.NoError(t, os.Symlink(tool, filepath.Join(r.home, "links", "tool")))
-	require.NoError(t, os.Symlink(filepath.Join(r.home, "links", "tool"), filepath.Join(bin, "tool")))
-
-	code, out := run(t, s, withPath(r, bin))
-
-	assert.Equal(t, 0, code)
-	assert.Equal(t, "tool-ran\n", out)
-}
-
 // linkedHome is a home reached through a link: the link, and the directory
 // it names.
 func linkedHome(t *testing.T) (link, home string) {
@@ -547,23 +509,6 @@ func linkedHome(t *testing.T) (link, home string) {
 	return link, home
 }
 
-func TestAProgramLinkThroughALinkedHomeRuns(t *testing.T) {
-	s := confining(t)
-	link, _ := linkedHome(t)
-	r := shRun(t, "x")
-	r.home = link
-	x := program(t, filepath.Join(link, ".local", "share", "pipx", "venvs", "x", "bin", "x"), "pipx-ran")
-	bin := filepath.Join(link, ".local", "bin")
-	require.NoError(t, os.MkdirAll(bin, 0o700))
-	require.NoError(t, os.Symlink(x, filepath.Join(bin, "x")))
-	r = withPath(r, bin)
-
-	code, out := run(t, s, r)
-
-	assert.Equal(t, 0, code)
-	assert.Equal(t, "pipx-ran\n", out)
-}
-
 func TestKstacksDirectoriesAreUnreadableThroughALinkedHome(t *testing.T) {
 	s := confining(t)
 	link, home := linkedHome(t)
@@ -571,6 +516,7 @@ func TestKstacksDirectoriesAreUnreadableThroughALinkedHome(t *testing.T) {
 	r.home = link
 	program(t, filepath.Join(home, ".config", "tool", "bin", "tool"), "tool-ran")
 	write(t, filepath.Join(home, ".config", "kstack", "app.db"), "secret")
+	addRoot(t, filepath.Join(link, ".config"))
 	r.always.Kstack = []string{filepath.Join(link, ".config", "kstack")}
 	r = withPath(r, filepath.Join(link, ".config", "tool", "bin"))
 	r.Args[1] = "tool; cat " + filepath.Join(home, ".config", "kstack", "app.db") + " " + filepath.Join(link, ".config", "kstack", "app.db")
@@ -581,39 +527,32 @@ func TestKstacksDirectoriesAreUnreadableThroughALinkedHome(t *testing.T) {
 	assert.NotContains(t, out, "secret")
 }
 
-func TestAPathEntryThroughALinkRuns(t *testing.T) {
+// A toolchain folder that is a link into a readable store is recreated as
+// a link, so a PATH entry through it runs its program.
+func TestAToolchainLinkIsRecreated(t *testing.T) {
 	s := confining(t)
-	r := shRun(t, "nixtool; tool")
-	outside := resolved(t.TempDir())
-	program(t, filepath.Join(outside, "profile", "bin", "nixtool"), "nix-ran")
-	require.NoError(t, os.Symlink(filepath.Join(outside, "profile"), filepath.Join(r.home, ".nix-profile")))
-	program(t, filepath.Join(outside, "tool", "bin", "tool"), "tool-ran")
-	require.NoError(t, os.MkdirAll(filepath.Join(outside, "links"), 0o700))
-	require.NoError(t, os.Symlink(filepath.Join(outside, "tool", "bin"), filepath.Join(outside, "links", "tool")))
-	r = withPath(r, filepath.Join(r.home, ".nix-profile", "bin"), filepath.Join(outside, "links", "tool"))
+	r := shRun(t, "nixtool")
+	store := resolved(t.TempDir())
+	addRoot(t, store)
+	program(t, filepath.Join(store, "profile", "bin", "nixtool"), "nix-ran")
+	require.NoError(t, os.Symlink(filepath.Join(store, "profile"), filepath.Join(r.home, ".nix-profile")))
+	r = withPath(r, filepath.Join(r.home, ".nix-profile", "bin"))
 
 	code, out := run(t, s, r)
 
 	assert.Equal(t, 0, code)
-	assert.Equal(t, "nix-ran\ntool-ran\n", out)
-}
-
-// addRoot makes dir one of the system roots for the rest of the test.
-func addRoot(t *testing.T, dir string) {
-	t.Helper()
-	old := platformLists
-	platformLists.System = append(slices.Clone(old.System), dir)
-	t.Cleanup(func() { platformLists = old })
+	assert.Equal(t, "nix-ran\n", out)
 }
 
 // A credential that is a link is unreadable where its target lies, though a
-// PATH tree takes that in.
+// toolchain folder takes that in.
 func TestACredentialThroughALinkIsUnreadable(t *testing.T) {
 	s := confining(t)
 	r := shRun(t, "")
 	program(t, filepath.Join(r.home, "tools", "bin", "tool"), "tool-ran")
 	creds := write(t, filepath.Join(r.home, "tools", "credentials", "config"), "secret")
 	require.NoError(t, os.Symlink(filepath.Dir(creds), filepath.Join(r.home, ".kube")))
+	addToolchain(t, "~/tools")
 	r = withPath(r, filepath.Join(r.home, "tools", "bin"))
 	r.Args[1] = "tool; cat " + creds
 
@@ -633,23 +572,6 @@ func TestARootThatIsALinkRuns(t *testing.T) {
 	addRoot(t, opt)
 
 	code, out := run(t, s, withPath(shRun(t, "tool"), filepath.Join(opt, "bin")))
-
-	assert.Equal(t, 0, code)
-	assert.Equal(t, "tool-ran\n", out)
-}
-
-// A program in a root's PATH entry that links under the home runs, as
-// /usr/local/bin/tool linked to ~/tools/tool does.
-func TestAProgramLinkInARootRuns(t *testing.T) {
-	s := confining(t)
-	root := resolved(t.TempDir())
-	addRoot(t, root)
-	r := shRun(t, "tool")
-	tool := program(t, filepath.Join(r.home, "tools", "tool"), "tool-ran")
-	require.NoError(t, os.MkdirAll(filepath.Join(root, "bin"), 0o700))
-	require.NoError(t, os.Symlink(tool, filepath.Join(root, "bin", "tool")))
-
-	code, out := run(t, s, withPath(r, filepath.Join(root, "bin")))
 
 	assert.Equal(t, 0, code)
 	assert.Equal(t, "tool-ran\n", out)
@@ -675,7 +597,8 @@ func TestKstacksDirectoriesInsideARootAreUnreadable(t *testing.T) {
 }
 
 // kstackRun is a run laid out as Kstack lays one out, with its data and cache
-// directories where a PATH tree takes them in, and a sibling run beside it.
+// directories where a toolchain folder takes them in, and a sibling run
+// beside it.
 type kstackRun struct {
 	testRun
 	data, cache, runtime, sibling  string
@@ -702,6 +625,7 @@ func newKstackRun(t *testing.T) kstackRun {
 	kubectl := mkdirs(t, cache, "kubectl/c")[0]
 	r.Dir, r.ws, r.files.Write = ws, ws, nil
 	r.always = AlwaysPolicy{Kstack: []string{data, cache, runtime}, Read: []string{snapshot, runDir}, Write: []string{ws, tmp, kubectl}}
+	addToolchain(t, "~/apps", "~/.cache")
 	r = withPath(r, filepath.Join(home, "apps", "bin"), filepath.Join(home, ".cache", "bin"))
 	return kstackRun{
 		testRun: r, data: data, cache: cache, runtime: runtime, sibling: sibling,
@@ -966,39 +890,19 @@ func TestTheCompiledArgumentsMatchTheGolden(t *testing.T) {
 	}
 }
 
-// System is the lists' System folders, the PATH trees, the shell's folder
-// among them, and this executable at its resolved path.
-func TestSystemIsTheListsAndTheTrees(t *testing.T) {
-	base := resolved(t.TempDir())
-	d := mkdirs(t, base, "usr/bin", "home/apps/bin", "home/shells", "app")
-	self := write(t, filepath.Join(d[3], "kstack-sidecar"), "")
-	require.NoError(t, os.Symlink(self, filepath.Join(base, "self-link")))
-	oldShared, oldPlatform := sharedLists, platformLists
-	sharedLists.System = []string{filepath.Join(base, "shared")}
-	platformLists.System = []string{filepath.Join(base, "usr"), filepath.Join(base, "missing")}
-	t.Cleanup(func() { sharedLists, platformLists = oldShared, oldPlatform })
-	s := &Sandbox{self: filepath.Join(base, "self-link")}
-
-	got := s.System(filepath.Join(base, "home"), filepath.Join(d[2], "bash"), []string{"PATH=" + d[1] + ":" + d[0]})
-
-	assert.Equal(t, FilePolicy{Read: []string{
-		filepath.Join(base, "shared"), filepath.Join(base, "usr"), filepath.Join(base, "missing"),
-		filepath.Join(base, "home", "apps"), filepath.Join(base, "home", "shells"), self,
-	}}, got)
-}
-
-// A PATH entry on /tmp or /dev, or on or under /proc, makes no rule, since a
-// rule there would replace a fixed mount; one under /tmp does.
+// A shell on /tmp or /dev, or on or under /proc, makes no rule, since a rule
+// there would replace a fixed mount; one under /tmp does.
 func TestSystemLeavesOutTheFixedMounts(t *testing.T) {
-	under := mkdirs(t, t.TempDir(), "x/bin")[0]
+	under := mkdirs(t, resolved(t.TempDir()), "x")[0]
 	s := &Sandbox{self: "/usr/bin/true"}
 
-	got := s.System("/nonexistent/home", "/bin/sh", []string{"PATH=/tmp:" + under + ":/proc/1:/dev"})
-
-	for _, p := range []string{"/tmp", "/dev", "/proc/1", "/proc"} {
-		assert.NotContains(t, got.Read, p)
+	for _, shell := range []string{"/tmp/sh", "/proc/1/sh", "/proc/sh", "/dev/sh"} {
+		got := s.System("/nonexistent/home", shell).Files
+		for _, p := range []string{"/tmp", "/dev", "/proc/1", "/proc"} {
+			assert.NotContains(t, got.Read, p, shell)
+		}
 	}
-	assert.Contains(t, got.Read, resolved(under))
+	assert.Contains(t, s.System("/nonexistent/home", filepath.Join(under, "sh")).Files.Read, under)
 }
 
 // A policy that fails Check answers its error and no command.
@@ -1081,6 +985,75 @@ func TestAProbeWithNoHomeFindsTheSandbox(t *testing.T) {
 	assert.True(t, v.Available)
 }
 
+// A folder on the sidecar's PATH opens nothing: only the lists decide what a
+// run reads.
+func TestAFolderOnThePathIsNotRead(t *testing.T) {
+	s := confining(t)
+	r := shRun(t, "")
+	bin := filepath.Join(r.home, "notes", "bin")
+	program(t, filepath.Join(bin, "tool"), "tool-ran")
+	notes := write(t, filepath.Join(r.home, "notes", "todo"), "secret")
+	r = withPath(r, bin)
+	r.Args[1] = "tool; cat " + notes + "; ls " + filepath.Dir(notes)
+
+	_, out := run(t, s, r)
+
+	assert.NotContains(t, out, "tool-ran")
+	assert.NotContains(t, out, "secret")
+	assert.NotContains(t, out, "todo")
+}
+
+// Each Toolchain location runs a program from its first folder, with its
+// variables set and pointing into the home.
+func TestEachToolchainLocationRunsAProgram(t *testing.T) {
+	s := confining(t)
+	for _, l := range sharedLists.Toolchain {
+		t.Run(l.Name, func(t *testing.T) {
+			r := shRun(t, "")
+			dir := inHome(r.home, l.Read[:1])[0]
+			if filepath.Base(dir) != "bin" {
+				dir = filepath.Join(dir, "bin")
+			}
+			prog := program(t, filepath.Join(dir, "kstack-tool"), "tool-ran")
+			sys := s.System(r.home, r.Shell)
+			r.Env = append(r.Env, sys.Env...)
+			script := prog
+			for name := range l.Env {
+				script += `; printf '%s\n' "$` + name + `"`
+			}
+			r.Args[1] = script
+
+			code, out := run(t, s, r)
+
+			require.Equal(t, 0, code, out)
+			lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+			assert.Equal(t, "tool-ran", lines[0])
+			require.Len(t, lines, 1+len(l.Env))
+			for _, v := range lines[1:] {
+				assert.True(t, within(v, r.home), "%s is not under the home", v)
+			}
+		})
+	}
+}
+
+// A probe whose policy never answers fails at its bound: the policy lists
+// folders, which can hang on a network mount.
+func TestTheProbePolicyIsBounded(t *testing.T) {
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	old := buildProbePolicy
+	buildProbePolicy = func(*Sandbox, string, string, string) Policy {
+		<-release
+		return Policy{}
+	}
+	t.Cleanup(func() { buildProbePolicy = old })
+	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
+
+	err := s.try(t.Context(), 10*time.Millisecond)
+
+	assert.EqualError(t, err, "no answer in 10ms")
+}
+
 // Command refuses a run holding a variable no run may hold.
 func TestARunWithAnUnpassableVariableIsRefused(t *testing.T) {
 	s := &Sandbox{self: "/k", bwrap: "/usr/bin/bwrap"}
@@ -1090,4 +1063,23 @@ func TestARunWithAnUnpassableVariableIsRefused(t *testing.T) {
 		assert.Nil(t, cmd, kv)
 		assert.ErrorContains(t, err, "may not pass", kv)
 	}
+}
+
+// A shell installed under the home and reached through a link runs: the
+// policy reads where the link leads.
+func TestALinkedShellRuns(t *testing.T) {
+	s := confining(t)
+	r := shRun(t, "echo ran")
+	sh, err := os.ReadFile("/bin/sh")
+	require.NoError(t, err)
+	install := write(t, filepath.Join(r.home, "shell-install", "bin", "sh"), string(sh))
+	link := filepath.Join(r.home, ".local", "bin", "sh")
+	require.NoError(t, os.MkdirAll(filepath.Dir(link), 0o700))
+	require.NoError(t, os.Symlink(install, link))
+	r.Shell = link
+
+	code, out := run(t, s, r)
+
+	assert.Equal(t, 0, code)
+	assert.Equal(t, "ran\n", out)
 }

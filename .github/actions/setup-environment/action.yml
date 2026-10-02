@@ -129,7 +129,8 @@ runs:
 
     # The app's end-to-end tests run kubectl and jq in the sandbox and fail
     # without them under KSTACK_REQUIRE_SANDBOX, so they are installed here
-    # rather than taken from the runner image.
+    # rather than taken from the runner image. kubectl goes to ~/.local/bin,
+    # since a sandboxed run reads Kstack's toolchain folders, never PATH.
     - name: Install kubectl and jq
       if: inputs.setup-sandbox == 'true' && runner.os != 'Windows'
       shell: bash
@@ -142,7 +143,7 @@ runs:
           arm64 | aarch64) arch=arm64 ;;
         esac
         url="https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/${os}/${arch}/kubectl"
-        dir="$RUNNER_TEMP/kubectl"
+        dir="$HOME/.local/bin"
         mkdir -p "$dir"
         curl -fsSL -o "$dir/kubectl" "$url"
         echo "$(curl -fsSL "$url.sha256")  $dir/kubectl" | shasum -a 256 --check

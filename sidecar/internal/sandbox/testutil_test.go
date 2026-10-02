@@ -16,7 +16,9 @@ package sandbox
 
 import (
 	"context"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -46,4 +48,15 @@ func command(t *testing.T, s *Sandbox, ctx context.Context, r Run) *exec.Cmd {
 	cmd, err := s.Command(ctx, r)
 	require.NoError(t, err)
 	return cmd
+}
+
+// mkdirs makes each path under base, and answers them joined to it.
+func mkdirs(t *testing.T, base string, rels ...string) []string {
+	t.Helper()
+	out := make([]string, len(rels))
+	for i, r := range rels {
+		out[i] = filepath.Join(base, filepath.FromSlash(r))
+		require.NoError(t, os.MkdirAll(out[i], 0o700))
+	}
+	return out
 }

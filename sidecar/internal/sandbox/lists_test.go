@@ -15,15 +15,64 @@
 package sandbox
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 )
 
-// A tool installed under the home that keeps a credential beside its programs
-// has that credential on the list, since its bin on PATH opens its tree.
+// Each credential a tool keeps inside a Toolchain location's tree is on Never,
+// since the location makes the tree readable. The credentials outside every
+// location stay on the list as credentials.
 func TestTheCredentialsBesideAToolsProgramsAreListed(t *testing.T) {
+	assert.Contains(t, sharedLists.Never, "~/.local/share/uv/credentials")
+	assert.True(t, slices.ContainsFunc(sharedLists.Toolchain, func(l Location) bool {
+		return slices.ContainsFunc(l.Read, func(r string) bool { return within("~/.local/share/uv/credentials", r) })
+	}))
 	for _, c := range []string{"~/.cargo/credentials", "~/.cargo/credentials.toml", "~/.pulumi/credentials.json", "~/.fly/config.yml"} {
 		assert.Contains(t, sharedLists.Never, c)
+	}
+}
+
+// Every location reads under the home, and only the asdf location sets
+// asdf's own variables.
+func TestTheToolchainIsUnderTheHome(t *testing.T) {
+	names := map[string]bool{}
+	for _, l := range sharedLists.Toolchain {
+		assert.False(t, names[l.Name], "%s is listed twice", l.Name)
+		names[l.Name] = true
+		assert.NotEmpty(t, l.Read, l.Name)
+		for _, r := range l.Read {
+			assert.Regexp(t, `^~/`, r, l.Name)
+		}
+		for _, v := range l.Env {
+			assert.Regexp(t, `^~/`, v, l.Name)
+		}
+	}
+	for name, env := range map[string][]string{
+		"asdf": {"ASDF_DATA_DIR"}, "mise": {"MISE_DATA_DIR", "MISE_CONFIG_DIR"}, "nvm": {"NVM_DIR"},
+		"pyenv": {"PYENV_ROOT"}, "rbenv": {"RBENV_ROOT"}, "volta": {"VOLTA_HOME"}, "rustup": {"RUSTUP_HOME"},
+		"aqua": {"AQUA_ROOT_DIR", "AQUA_GLOBAL_CONFIG"}, "krew": {"KREW_ROOT"}, "helm plugins": {"HELM_PLUGINS"},
+	} {
+		i := slices.IndexFunc(sharedLists.Toolchain, func(l Location) bool { return l.Name == name })
+		if assert.NotEqual(t, -1, i, name) {
+			for _, k := range env {
+				assert.Contains(t, sharedLists.Toolchain[i].Env, k, name)
+			}
+		}
+	}
+	// ~/.asdf is asdf's data. Its implementation may live under a package
+	// prefix, so ASDF_DIR would point it at the wrong scripts.
+	i := slices.IndexFunc(sharedLists.Toolchain, func(l Location) bool { return l.Name == "asdf" })
+	assert.NotContains(t, sharedLists.Toolchain[i].Env, "ASDF_DIR")
+	// cargo writes its registry under CARGO_HOME, which the tool home sets.
+	i = slices.IndexFunc(sharedLists.Toolchain, func(l Location) bool { return l.Name == "rustup" })
+	assert.NotContains(t, sharedLists.Toolchain[i].Env, "CARGO_HOME")
+	// Their folders above the bin hold the Docker socket.
+	for _, name := range []string{"Rancher Desktop", "OrbStack"} {
+		i := slices.IndexFunc(sharedLists.Toolchain, func(l Location) bool { return l.Name == name })
+		if assert.NotEqual(t, -1, i, name) {
+			assert.Regexp(t, `/bin$`, sharedLists.Toolchain[i].Read[0])
+		}
 	}
 }

@@ -18,32 +18,35 @@ package sandbox
 
 import (
 	"path/filepath"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// The probe's policy is System over its shell and PATH, its folder writable,
-// and the Never paths denied, with no Kstack paths and no relay. It passes
-// Check with ~/.docker/bin on its PATH, and with no home at all.
+// The probe's policy is System over its shell, its folder writable, and the
+// Never paths denied, with no Kstack paths and no relay. It passes Check with
+// a toolchain folder inside ~/.docker, and with no home at all.
 func TestTheProbeKeepsTheCredentialsHidden(t *testing.T) {
 	base := resolved(t.TempDir())
 	home := filepath.Join(base, "home")
-	docker := mkdirs(t, home, ".docker/bin")[0]
+	mkdirs(t, home, ".docker/bin")
 	dir := mkdirs(t, base, "probe")[0]
+	old := sharedLists
+	sharedLists.Toolchain = append(slices.Clone(old.Toolchain), Location{Name: "docker", Read: []string{"~/.docker/bin"}})
+	t.Cleanup(func() { sharedLists = old })
 	s := &Sandbox{self: "/usr/bin/true"}
-	env := []string{"PATH=/usr/bin:/bin:" + docker}
 
-	p := s.probePolicy("/bin/sh", env, dir, home)
+	p := s.probePolicy("/bin/sh", dir, home)
 
 	require.NoError(t, p.Check())
-	assert.Equal(t, s.System(home, "/bin/sh", env).Read, p.Files.Read)
+	assert.Equal(t, s.System(home, "/bin/sh").Files.Read, p.Files.Read)
 	assert.Equal(t, []string{dir}, p.Files.Write)
 	assert.Equal(t, AlwaysPolicy{Deny: s.Never(home)}, p.Always)
 	assert.Empty(t, p.Network.Relays)
 
-	p = s.probePolicy("/bin/sh", env, dir, "")
+	p = s.probePolicy("/bin/sh", dir, "")
 
 	require.NoError(t, p.Check())
 	assert.Equal(t, s.Never(""), p.Always.Deny)

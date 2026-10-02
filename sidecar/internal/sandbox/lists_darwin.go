@@ -18,8 +18,11 @@ package sandbox
 // holds app bundles, which are programs: Docker Desktop's kubectl is a link
 // into one, and so is Xcode's developer directory.
 var platformLists = Lists{
-	System: []string{"/usr", "/bin", "/sbin", "/System", "/Library", "/Applications", "/private/etc", "/opt"},
-	Never:  []string{"~/Library/Keychains"},
+	System: []string{
+		"/usr", "/bin", "/sbin", "/System", "/Library", "/Applications", "/private/etc", "/opt",
+		"/nix/store", "/nix/var/nix/profiles", "/run/current-system",
+	},
+	Never: []string{"~/Library/Keychains"},
 }
 
 // brewVar is Homebrew's var, which the System folders take in and which holds

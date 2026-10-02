@@ -44,5 +44,5 @@ func (s *Sandbox) Port() (int, error) { return 0, errNone }
 // Never answers nothing, since no command runs sandboxed.
 func (s *Sandbox) Never(string) []string { return nil }
 
-// System answers nothing, since no command runs sandboxed.
-func (s *Sandbox) System(string, string, []string) FilePolicy { return FilePolicy{} }
+// System answers the zero System, since no command runs sandboxed.
+func (s *Sandbox) System(string, string) System { return System{} }
