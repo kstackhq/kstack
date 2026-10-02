@@ -370,7 +370,7 @@ func TestAProbeThatTimesOutKeepsTheSandbox(t *testing.T) {
 }
 
 // The command is sandbox-exec with the run's profile, then the run's argv: the
-// shell, or for a run with a socket the forwarder with the shell its child.
+// forwarder, with sandbox-shell its child, which execs the shell.
 func TestTheCommandIsSandboxExecOverTheProfile(t *testing.T) {
 	s := &Sandbox{self: "/bin/kstack-sidecar", launcher: "/usr/bin/sandbox-exec"}
 	r, _ := profileRun(t, s)
@@ -380,7 +380,8 @@ func TestTheCommandIsSandboxExecOverTheProfile(t *testing.T) {
 
 	text, params := s.profile(r)
 	assert.Equal(t, "/usr/bin/sandbox-exec", cmd.Path)
-	assert.Equal(t, slices.Concat([]string{"/usr/bin/sandbox-exec", "-p", text}, params, []string{"/bin/sh", "-c", "exit 0"}), cmd.Args)
+	assert.Equal(t, slices.Concat([]string{"/usr/bin/sandbox-exec", "-p", text}, params,
+		[]string{"/bin/kstack-sidecar", InitCommand, "--", "/bin/kstack-sidecar", ShellCommand, "--", "/bin/sh", "-c", "exit 0"}), cmd.Args)
 	assert.Equal(t, r.Dir, cmd.Dir)
 	assert.Equal(t, r.Env, cmd.Env)
 
@@ -390,21 +391,40 @@ func TestTheCommandIsSandboxExecOverTheProfile(t *testing.T) {
 	assert.Equal(t, append([]string{name}, args...), cmd.Args[len(cmd.Args)-len(args)-1:])
 }
 
-// A run with a socket starts as this executable's forwarder, the shell its
-// child; a run with none runs the shell itself.
-func TestARunWithASocketStartsAsTheForwarder(t *testing.T) {
+// Every run starts as this executable's forwarder, with this executable as
+// sandbox-shell its child: a run with a socket carries it, and one with
+// limits carries them to sandbox-shell.
+func TestEveryRunStartsAsTheForwarder(t *testing.T) {
 	s := &Sandbox{self: "/bin/kstack-sidecar"}
-	relay := Relay{Port: 6443, Socket: "/run/p.sock"}
-	r := Run{Shell: "/bin/sh", Args: []string{"-c", "--port 1"}, Policy: Policy{Network: NetworkPolicy{Relays: []Relay{relay}}}}
+	r := Run{Shell: "/bin/sh", Args: []string{"-c", "--port 1"}}
 
 	name, args := s.argv(r)
 	require.Equal(t, "/bin/kstack-sidecar", name)
-	assert.Equal(t, append(append(ForwarderArgs(relay), r.Shell), r.Args...), args)
+	assert.Equal(t, []string{InitCommand, "--", "/bin/kstack-sidecar", ShellCommand, "--", "/bin/sh", "-c", "--port 1"}, args)
+
+	r.Policy.Network.Relays = []Relay{{Port: 6443, Socket: "/run/p.sock"}}
+	_, args = s.argv(r)
+	assert.Equal(t, []string{
+		InitCommand, "--socket", "/run/p.sock", "--port", "6443", "--", "/bin/kstack-sidecar", ShellCommand, "--", "/bin/sh", "-c", "--port 1",
+	}, args)
 
 	r.Policy.Network.Relays = nil
-	name, args = s.argv(r)
-	assert.Equal(t, "/bin/sh", name)
-	assert.Equal(t, r.Args, args)
+	r.Policy.Limits = Limits{CPUSeconds: 7, OpenFiles: 64, Processes: 512}
+	_, args = s.argv(r)
+	assert.Equal(t, []string{
+		InitCommand, "--", "/bin/kstack-sidecar", ShellCommand, "--cpu", "7", "--files", "64", "--processes", "513", "--", "/bin/sh", "-c", "--port 1",
+	}, args)
+}
+
+// macOS has no memory limit to set, so a run asking for one is refused rather
+// than run without it.
+func TestAMemoryLimitIsRefused(t *testing.T) {
+	r := Run{Shell: "/bin/sh", Policy: Policy{Limits: Limits{MemoryBytes: 1 << 34, OpenFiles: 64}}}
+
+	cmd, err := (&Sandbox{self: "/bin/sh", launcher: "/usr/bin/true"}).Command(t.Context(), r)
+
+	assert.Nil(t, cmd)
+	assert.ErrorIs(t, err, errNoMemoryLimit)
 }
 
 // A profile that hangs, as one resolving a path on a stalled network mount
@@ -604,7 +624,13 @@ func sh(t *testing.T, s *Sandbox, r Run, script string, env ...string) (string, 
 	return out, ok
 }
 
-// shWithin is sh bounded by d, and answers whether d ran out.
+// coverWarning is what this test binary prints as it exits under coverage,
+// as a run's forwarder or a helper a run starts, since its GOCOVERDIR is
+// outside the sandbox.
+const coverWarning = "warning: GOCOVERDIR not set, no coverage data emitted\n"
+
+// shWithin is sh bounded by d, and answers whether d ran out. The output
+// leaves out coverWarning.
 func shWithin(t *testing.T, s *Sandbox, r Run, d time.Duration, script string, env ...string) (string, bool, bool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), d)
@@ -612,7 +638,7 @@ func shWithin(t *testing.T, s *Sandbox, r Run, d time.Duration, script string, e
 	r.Args = []string{"-c", script}
 	r.Env = slices.Concat(r.Env, env)
 	out, err := command(t, s, ctx, r).CombinedOutput()
-	return string(out), err == nil, ctx.Err() != nil
+	return strings.ReplaceAll(string(out), coverWarning, ""), err == nil, ctx.Err() != nil
 }
 
 // firstLine is what a run printed first.
@@ -1202,9 +1228,11 @@ func TestAProcessThatLeavesTheGroupStaysConfined(t *testing.T) {
 	fifo := filepath.Join(m.ws, "go")
 	require.NoError(t, syscall.Mkfifo(fifo, 0o600))
 	listener := serveHTTP(t, "tcp", "127.0.0.1:0", "reached")
-	m.Env = append(m.Env, lingerEnv+"="+m.ws, homeFileEnv+"="+write(t, m.home, "secret"), listenerEnv+"="+listener, "BIN="+os.Args[0])
-	// Its output goes to /dev/null, or the run's pipe stays open behind it.
-	m.Args = []string{"-c", `exec /usr/bin/python3 -c 'import os, sys
+	m.Env = append(m.Env, homeFileEnv+"="+write(t, m.home, "secret"), listenerEnv+"="+listener, "BIN="+os.Args[0], "W="+m.ws)
+	// lingerEnv is set in the command, since the forwarder is this binary too
+	// and would linger itself. Its output goes to /dev/null, or the run's pipe
+	// stays open behind it.
+	m.Args = []string{"-c", `export ` + lingerEnv + `="$W"; exec /usr/bin/python3 -c 'import os, sys
 null = [(os.POSIX_SPAWN_OPEN, fd, "/dev/null", os.O_WRONLY, 0) for fd in (1, 2)]
 pid = os.posix_spawn(sys.argv[1], [sys.argv[1]], os.environ, file_actions=null, setsid=True)
 open("pid", "w").write(str(pid))' "$BIN"`}

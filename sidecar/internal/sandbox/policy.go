@@ -30,6 +30,7 @@ type Policy struct {
 	Files   FilePolicy
 	Always  AlwaysPolicy
 	Network NetworkPolicy
+	Limits  Limits
 }
 
 // FilePolicy is what a run may do with files. A rule covers a path and
@@ -63,6 +64,33 @@ type NetworkPolicy struct {
 type Relay struct {
 	Port   int
 	Socket string
+}
+
+// Limits bounds what a run's processes may use. Zero is the platform's
+// default for that resource. Each holds per process but Processes, which
+// the kernel holds against a count (Sandbox.CountedProcesses).
+type Limits struct {
+	CPUSeconds  int // CPU time per process
+	MemoryBytes int // address space per process; Linux alone
+	OpenFiles   int // open descriptors per process
+	Processes   int // the kernel's count of tasks (Linux) or processes (macOS)
+}
+
+// cpuGrace is how far a run's hard CPU limit sits above its soft one, so a
+// process that traps SIGXCPU can say something before the kernel kills it.
+const cpuGrace = 5
+
+// check is why l cannot be enforced, or nil. sandbox-shell execs under memory
+// and process limits without restoring the open-files limit the Go runtime
+// raises, so either needs that limit set.
+func (l Limits) check() error {
+	if min(l.CPUSeconds, l.MemoryBytes, l.OpenFiles, l.Processes) < 0 {
+		return fmt.Errorf("a negative limit: %+v", l)
+	}
+	if (l.MemoryBytes > 0 || l.Processes > 0) && l.OpenFiles == 0 {
+		return errors.New("a memory or process limit with no open-files limit")
+	}
+	return nil
 }
 
 // Check is why p cannot be enforced as written, or nil. Paths are compared
@@ -105,7 +133,7 @@ func (p Policy) Check() error {
 	if len(p.Network.Relays) > 1 {
 		return fmt.Errorf("%d relays, and the forwarder relays one", len(p.Network.Relays))
 	}
-	return nil
+	return p.Limits.check()
 }
 
 // notLink fails when path's last component is a symbolic link, or when it

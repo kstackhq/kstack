@@ -16,6 +16,11 @@ package sandbox
 
 import "golang.org/x/sys/unix"
 
+// forwarderTasks is how many tasks a run's process limit holds for the
+// forwarder: the kernel counts each of its threads, and with one P its
+// runtime keeps them to a handful (TestTheForwarderStaysUnderItsTasks).
+const forwarderTasks = 32
+
 // guardMemory makes the forwarder non-dumpable, so nothing under the filter
 // can read or write its memory through /proc/<pid>/mem or ptrace: the shell
 // has no capability in bwrap's user namespace to override that.

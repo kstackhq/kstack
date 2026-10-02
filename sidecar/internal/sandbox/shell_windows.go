@@ -12,16 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !linux
-
 package sandbox
 
-import (
-	"errors"
-	"os"
-)
+import "os"
 
-// ShellMain is sandbox-shell, which only Linux has a filter for.
+// ShellMain is sandbox-shell, which Windows refuses: it has no sandbox.
 func ShellMain([]string) int {
-	return fail(os.Stderr, ShellCommand, "no filter on this platform", errors.New("unsupported"))
+	return fail(os.Stderr, ShellCommand, "no sandbox on this platform", errNone)
 }

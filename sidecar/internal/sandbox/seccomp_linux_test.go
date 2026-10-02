@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -196,6 +198,45 @@ func TestTheFilterAssembles(t *testing.T) {
 	require.NoError(t, err)
 	assert.Len(t, got, len(filter()))
 	assert.Equal(t, unix.SockFilter{Code: 0x06, K: unix.SECCOMP_RET_ALLOW}, got[len(got)-1])
+}
+
+// limitOf is the soft limit /proc/<pid>/limits names on the line beginning
+// with name.
+func limitOf(t *testing.T, limits, name string) string {
+	t.Helper()
+	for _, line := range strings.Split(limits, "\n") {
+		if rest, ok := strings.CutPrefix(line, name); ok {
+			return strings.Fields(rest)[0]
+		}
+	}
+	require.Failf(t, "no limit", "%q in %s", name, limits)
+	return ""
+}
+
+// sandbox-shell sets the memory and process limits on what it execs, and
+// everything that starts.
+func TestTheShellAppliesItsLimits(t *testing.T) {
+	p := strconv.Itoa(ownProcesses(t))
+	cmd := exec.Command(os.Args[0], ShellCommand, "--memory", "536870912", "--processes", p, "--", "/bin/sh", "-c", "cat /proc/self/limits")
+
+	out, err := cmd.CombinedOutput()
+
+	require.NoError(t, err, string(out))
+	assert.Equal(t, "536870912", limitOf(t, string(out), "Max address space"))
+	assert.Equal(t, p, limitOf(t, string(out), "Max processes"))
+}
+
+// A command the kernel will not exec under the limits is sandbox-shell's
+// failure, written without allocating: the line, the errno, and 125.
+func TestAShellThatCannotExecUnderLimitsSaysWhy(t *testing.T) {
+	garbage := filepath.Join(t.TempDir(), "garbage")
+	require.NoError(t, os.WriteFile(garbage, []byte{0, 1, 2, 3}, 0o700))
+	p := strconv.Itoa(ownProcesses(t))
+
+	code, _, stderr := runInit(t, exec.Command(os.Args[0], ShellCommand, "--memory", "536870912", "--processes", p, "--", garbage))
+
+	assert.Equal(t, 125, code)
+	assert.Equal(t, "sandbox-shell: cannot start "+garbage+": errno "+strconv.Itoa(int(unix.ENOEXEC))+"\n", stderr)
 }
 
 // Tracing is refused: attaching, reading or writing another process's memory,

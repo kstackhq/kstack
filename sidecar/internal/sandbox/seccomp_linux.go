@@ -15,10 +15,14 @@
 package sandbox
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
+	"runtime/debug"
+	"strconv"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/net/bpf"
@@ -26,16 +30,17 @@ import (
 )
 
 // ShellMain is sandbox-shell, given the arguments after the subcommand: it
-// installs the filter and execs the command under it, so the filter holds the
-// command and everything it starts. It answers only if it cannot.
+// installs the filter, sets the run's limits and execs the command under
+// both, so they hold the command and everything it starts. It answers only if
+// it cannot.
 func ShellMain(args []string) int {
-	argv, err := parseShellArgs(args)
+	a, err := parseShellArgs(args)
 	if err != nil {
 		return fail(os.Stderr, ShellCommand, "bad arguments", err)
 	}
-	path, err := exec.LookPath(argv[0])
+	path, err := exec.LookPath(a.argv[0])
 	if err != nil {
-		return fail(os.Stderr, ShellCommand, "cannot start "+argv[0], err)
+		return fail(os.Stderr, ShellCommand, "cannot start "+a.argv[0], err)
 	}
 	// no_new_privs holds for the calling thread alone, and seccomp refuses a
 	// thread without it; the exec below runs on this one.
@@ -46,8 +51,47 @@ func ShellMain(args []string) int {
 	if err := install(filter()); err != nil {
 		return fail(os.Stderr, ShellCommand, "cannot install the filter", err)
 	}
-	err = unix.Exec(path, argv, os.Environ())
-	return fail(os.Stderr, ShellCommand, "cannot start "+argv[0], err)
+	if err := setTimeAndFiles(a); err != nil {
+		return fail(os.Stderr, ShellCommand, "cannot set limits", err)
+	}
+	if a.memory > 0 || a.processes > 0 {
+		return execLimited(path, a)
+	}
+	err = unix.Exec(path, a.argv, os.Environ())
+	return fail(os.Stderr, ShellCommand, "cannot start "+a.argv[0], err)
+}
+
+// execLimited execs path under a's process and memory limits. Past the
+// address-space limit an allocation is a runtime crash, so everything the
+// exec needs, its failure line included, is built first, the collector is
+// off, and nothing from the last limit to the exit allocates. It answers only
+// if it cannot set the limits.
+func execLimited(path string, a shellArgs) int {
+	debug.SetGCPercent(-1)
+	pathp, err1 := syscall.BytePtrFromString(path)
+	argvp, err2 := syscall.SlicePtrFromStrings(a.argv)
+	envp, err3 := syscall.SlicePtrFromStrings(os.Environ())
+	if err := errors.Join(err1, err2, err3); err != nil {
+		return fail(os.Stderr, ShellCommand, "cannot start "+a.argv[0], err)
+	}
+	prefix := "sandbox-shell: cannot start " + a.argv[0] + ": errno "
+	line := append(make([]byte, 0, len(prefix)+24), prefix...)
+
+	// The address space last: it is the limit a stray mapping trips.
+	for _, l := range []struct{ resource, value int }{{unix.RLIMIT_NPROC, a.processes}, {unix.RLIMIT_AS, a.memory}} {
+		if l.value > 0 {
+			if err := setClamped(l.resource, l.value, 0); err != nil {
+				return fail(os.Stderr, ShellCommand, "cannot set limits", err)
+			}
+		}
+	}
+	_, _, errno := unix.RawSyscall(unix.SYS_EXECVE,
+		uintptr(unsafe.Pointer(pathp)), uintptr(unsafe.Pointer(&argvp[0])), uintptr(unsafe.Pointer(&envp[0])))
+	line = strconv.AppendUint(line, uint64(errno), 10)
+	line = append(line, '\n')
+	_, _, _ = unix.RawSyscall(unix.SYS_WRITE, 2, uintptr(unsafe.Pointer(&line[0])), uintptr(len(line)))
+	_, _, _ = unix.RawSyscall(unix.SYS_EXIT_GROUP, initFailed, 0, 0)
+	return initFailed
 }
 
 // install loads prog on every thread of the process, since the Go runtime

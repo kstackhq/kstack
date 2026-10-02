@@ -1305,7 +1305,7 @@ Windows `Probe` answers none, `Command` answers `errNone`, and `System` and `Nev
 nothing: native Windows has no sandbox, and a Windows user who wants one runs the Linux build in
 WSL2 → [ADR](../docs/adr/2026-09-28-native-windows-has-no-sandbox.md).
 
-**A `Policy` is everything the sandbox enforces for a run** (`policy.go`), in three parts, and
+**A `Policy` is everything the sandbox enforces for a run** (`policy.go`), in four parts, and
 each platform compiles it without knowing what a path or a relay is for:
 
 - **`Files`** (`FilePolicy`): `Read` (readable, not writable), `Write` (readable and writable)
@@ -1319,11 +1319,19 @@ each platform compiles it without knowing what a path or a relay is for:
   opens. So a Read of `~` never exposes `~/.ssh`.
 - **`Network`** (`NetworkPolicy`): the `Relays`, each a loopback port the forwarder connects to a
   Unix socket outside the run. No relay is no network; a run has at most one.
+- **`Limits`**: `CPUSeconds`, `MemoryBytes` (Linux alone; macOS's `Command` refuses one),
+  `OpenFiles` and `Processes`, each a resource limit set soft and hard, zero for the platform's
+  own. `CPUSeconds` has a hard limit `cpuGrace` (5 s) above its soft one. The sandbox adds
+  `forwarderTasks` to `Processes` for the forwarder, which starts before the limit is set (32
+  tasks on Linux, whose kernel counts its threads and which runs with one P; 1 process on
+  macOS). → [ADR: process limits are set inside the run](../docs/adr/2026-10-02-process-limits-are-set-inside-the-run.md).
 
 **`Check` refuses** a relative path; any rule or Always path strictly beneath a Write rule, Files
 or Always; a Files rule on or inside an Always path; a run's own path outside every Kstack path,
 on or inside a Deny, holding a Deny (the run's own paths compile last), or that is a link at its last component, since the profile resolves it and
-would open the link's target (`TestARunsOwnPathThatIsALinkIsRefused`); and a second relay. Every path is compared resolved, a missing one through
+would open the link's target (`TestARunsOwnPathThatIsALinkIsRefused`); a second relay; a negative
+limit; and a memory or process limit with no open-files limit, since `sandbox-shell` execs under
+them without restoring the open-files limit the Go runtime raised. Every path is compared resolved, a missing one through
 its deepest folder that exists (`resolved`), since both sandboxes check a file at its real
 location. **`Command` fails rather than narrows or widens**: a run that fails `Run.check` — its policy's
 `Check`, or an `Env` entry `Unpassable` matches — or that its platform cannot enforce, is
@@ -1404,17 +1412,19 @@ tmpfs, whichever of the two is mounted first (`TestALinkInsideADenialLeadsToItsR
 under an earlier Read not bound again (the fixed mounts hide what lies under them, as a denial does), the run's own paths bound as written, a denied folder an
 empty tmpfs and a denied file `/dev/null`; `--remount-ro /`, then each denied folder remounted read-only after the binds
 made inside it; then the chain, `<self> sandbox-init [--socket <S> --port <P>] -- <self>
-sandbox-shell -- <Shell> <Args…>`. A Deny whose path is missing when the run starts covers
+sandbox-shell [--cpu <C>] [--files <F>] [--memory <M>] [--processes <N>] -- <Shell> <Args…>`. A Deny whose path is missing when the run starts covers
 nothing, since a mount needs a path. `/run` and `/var` are never mounted, so the runtime
 directory, the host's socket and a sibling run's kubeconfig are out of reach.
 
 **On macOS it is Seatbelt** (`sandbox_darwin.go`): `Probe` finds `/usr/bin/sandbox-exec` and runs
-`/usr/bin/true` under `probePolicy`, bounded by two seconds, a failure's reason the
+`/usr/bin/true` under `probePolicy`, bounded by five seconds (`probeTimeout`: the forwarder
+starts this executable once more), a failure's reason the
 first line of its stderr. A probe that runs out of time keeps the sandbox, its reason saying so:
 it runs once, at startup, so a slow start must not leave the session unconfined. `Confines` is
 true; `Port` is a free loopback port, picked by listening on `127.0.0.1:0` and closing, since
 Seatbelt has no private loopback; and `Command` is `sandbox-exec -p <profile> -D …` then the argv
-(`Sandbox.argv`: the shell, or for a run with a relay the forwarder with the shell its child) — its ctx bounds building the profile too, since resolving a path can hang on a
+(`Sandbox.argv`: the forwarder, with its relay, and `sandbox-shell` its child, with the limits,
+for every run) — its ctx bounds building the profile too, since resolving a path can hang on a
 network mount, and a ctx that ends first is its error — which `sandbox-exec` execs into, so the session the Bash tool starts is the run's process group and
 the profile holds every descendant. **The profile is `profile_darwin.sb`**, embedded: fixed rules
 with a marker line each for the policy's rules, the ancestors and the network (`;; RULES`,
@@ -1454,8 +1464,12 @@ both compilers use. A Toolchain folder that is a link (`~/.nix-profile`) is boun
 and recreated as a link by `mounter.link` on Linux (`TestAToolchainLinkIsRecreated`); Seatbelt
 checks the resolved path.
 
-**`sandbox-shell` confines the shell** (`sandbox.ShellMain`, `seccomp_linux.go`; `shell_notlinux.go`
-refuses it elsewhere). It sits between the forwarder and the shell: it locks its thread, sets
+**`sandbox-shell` sets the run's limits and confines the shell** (`sandbox.ShellMain`;
+`shell.go` writes and reads its command line through `shellCommand` and `parseShellArgs`). It sits
+between the forwarder and the shell, so the limits hold the shell and everything under it and
+never the forwarder, which lives as long as the run and relays every connection. **On macOS**
+(`shell_darwin.go`) it refuses `--memory`, sets the CPU, open-files and process limits and execs
+the shell; `shell_windows.go` refuses it. **On Linux** (`seccomp_linux.go`) it locks its thread, sets
 `PR_SET_NO_NEW_PRIVS`, installs `filter()` on every thread (`SECCOMP_FILTER_FLAG_TSYNC`) and execs
 the shell, so the filter holds the shell and everything under it while the forwarder, which dials
 the run's socket, stays outside. `filter()` is a classic BPF program built with
@@ -1468,7 +1482,14 @@ pathname socket in any directory the run reads; io_uring
 `ENOSYS`, `unshare` and `clone` with `CLONE_NEWUSER` `EPERM`, and `clone3`, whose flags it cannot
 read, `ENOSYS`, on which glibc falls back to `clone`; tracing (`ptrace`, `process_vm_readv`,
 `process_vm_writev`, `pidfd_getfd`, `kcmp`, `process_madvise`) and the kernel keyring (`keyctl`,
-`add_key`, `request_key`), which a run inherits from the user's session, `EPERM`. Its tests run it on `bpf.VM` over a
+`add_key`, `request_key`), which a run inherits from the user's session, `EPERM`. After the filter
+it sets `--cpu` and `--files` (`setTimeAndFiles`, `shell_unix.go`), each clamped to its own hard
+limit (`setClamped`: a stricter machine stays stricter), CPU's hard one `cpuGrace` above. **Given
+`--memory` or `--processes`** it then sets `RLIMIT_NPROC`, then `RLIMIT_AS`, clamped the same way,
+and execs through a raw `execve` (`execLimited`): the
+collector is off and the exec's arguments and failure line are built first, since an allocation
+past the address-space limit is a runtime crash; a failed exec writes `sandbox-shell: cannot start
+<argv0>: errno <n>` with raw `write`s and exits 125. Its tests run it on `bpf.VM` over a
 `seccomp_data` laid out big-endian word by word, and `ShellMain` in a child.
 
 **Tests that start the chain call `sandbox.Main` from their `TestMain`**: `sandbox`, `bash`
@@ -1492,7 +1513,10 @@ and its Bash call read back from `app.db`. A missing sandbox, `kubectl` or `jq` 
 `main` reaches through `sandbox.Main` before it reads a flag of its own; `sandbox.ForwarderArgs`
 is the one writer of its command line. `sandbox.ExitCode` is how a process ended as a shell reports it,
 bash's included. `--socket` and `--port` come together or not at all: a run with no cluster
-passes neither, and its forwarder listens on nothing. With them it listens on
+passes neither, and its forwarder listens on nothing. It sets the core size to zero before the
+child starts, so no process of a run dumps a core, and no other limit: those are
+`sandbox-shell`'s. `sandbox.Main` gives it one P (`GOMAXPROCS(1)`), which keeps its threads
+within `forwarderTasks`. With a socket it listens on
 `127.0.0.1:<port>` before the child starts, so a command never races it,
 relays each connection to the socket byte for byte, half-closing each side as the other ends,
 retries a failed accept after a doubling wait (5ms to 1s, as `net/http`'s server does), since a
@@ -1505,7 +1529,7 @@ Under bwrap the group is bwrap's alone (`--new-session`), and bwrap forwards no 
 it ends bwrap, `--die-with-parent` kills the forwarder, and the kernel ends everything in the
 namespace, so a sandboxed command has no grace on a timeout.
 **Its own failures exit 125** with one `sandbox-init:` line on stderr (bad arguments, a port it
-cannot listen on, a command it cannot start), and `sandbox-shell`'s with one `sandbox-shell:`
+cannot listen on, a core size it cannot set, a command it cannot start), and `sandbox-shell`'s with one `sandbox-shell:`
 line; a command can exit 125 itself, so the line is what tells them apart. `forward_unix.go`
 runs the child; `forward_windows.go` answers 125 with *no sandbox on this platform*.
 

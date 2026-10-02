@@ -20,6 +20,7 @@ package sandbox
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 )
 
@@ -33,6 +34,9 @@ func Main(argv []string) (code int, ok bool) {
 	}
 	switch argv[1] {
 	case InitCommand:
+		// Each thread the forwarder starts counts against the run's process
+		// limit on Linux (forwarderTasks), and relaying needs no parallelism.
+		runtime.GOMAXPROCS(1)
 		return InitMain(argv[2:]), true
 	case ShellCommand:
 		return ShellMain(argv[2:]), true

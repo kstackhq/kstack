@@ -191,7 +191,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   break every sandboxed call, or log a Seatbelt denial on macOS, and nothing in the sidecar says so.
   It also costs time and memory. Measured on Linux with a release build, a start takes 6.9 ms and
   holds 7.4 MB of anonymous memory. A Go binary with only the forwarder's code takes 1.0 ms and
-  1.7 MB. Linux starts the binary twice per call, as `sandbox-init` and `sandbox-shell`.
+  1.7 MB. Every call starts the binary twice, as `sandbox-init` and `sandbox-shell`.
   **Shape:** a Go program under `sidecar/cmd/` that shares no code with the sidecar. A test of its
   imports refuses any package of the sidecar's module. `sandbox-shell` goes in it too, since it
   also runs inside the sandbox.
@@ -202,7 +202,8 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   - `SIGTERM`, `SIGINT` and `SIGHUP` caught, never ignored;
   - the child's status as the exit code, 128 plus a signal that killed it;
   - 125 and one `sandbox-init:` line on stderr for its own failures;
-  - as a PID namespace's first process, every orphan reaped and its memory non-dumpable.
+  - as a PID namespace's first process, every orphan reaped and its memory non-dumpable;
+  - a core size of zero for the child, and one P, so its threads stay within `forwarderTasks`.
 
   The sidecar keeps `Sandbox.argv` and its own `ExitCode`. The forwarder's tests already drive a
   process and read only its exit, output and port, so they become black-box tests against the
@@ -221,8 +222,8 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   - macOS signing and notarizing it;
   - `Probe` finding it next to `os.Executable()`, and reporting no sandbox without it.
 
-  **Trigger:** met on Linux, where `sandbox-shell` doubles the starts and the `init`s run
-  confined under bubblewrap.
+  **Trigger:** met, since `sandbox-shell` doubles the starts on both platforms and the `init`s
+  run confined under bubblewrap.
 
 - **Reorganize the model, tool and run-loop code into `llm` → `tools` → `agent` → `chatsvc`.** `llm` speaks to models, `tools` is what the sidecar can do, `agent` runs a loop over the two, and `chatsvc` owns chats, rows, approvals and the live view, with Go enforcing the one import direction; the spec sequence is written when the work starts.
 

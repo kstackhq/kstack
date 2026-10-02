@@ -102,7 +102,8 @@ func newFixture(t *testing.T) fixture {
 }
 
 // run is the run Bash builds over the fixture on s, with a cluster or
-// without: its policy is the Workspace policy.
+// without: its policy is the Workspace policy, with its limits on an 8-CPU
+// machine whose kernel counts the run's namespace alone.
 func (f fixture) run(s *Sandbox, cluster bool) Run {
 	kstack := []string{f.data, f.cache, f.runtime}
 	r := Run{
@@ -113,6 +114,7 @@ func (f fixture) run(s *Sandbox, cluster bool) Run {
 				Deny: s.Never(f.home), Kstack: kstack,
 				Read: []string{f.runDir}, Write: []string{f.workspace, f.tmp},
 			},
+			Limits: Limits{CPUSeconds: 4840, MemoryBytes: 16 << 30, OpenFiles: 4096, Processes: 1024},
 		},
 	}
 	if cluster {

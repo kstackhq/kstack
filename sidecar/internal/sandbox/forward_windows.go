@@ -16,6 +16,9 @@ package sandbox
 
 import "os"
 
+// forwarderTasks is 0: Windows starts no forwarder.
+const forwarderTasks = 0
+
 // InitMain is sandbox-init, which Windows refuses: it has no sandbox.
 func InitMain([]string) int {
 	return fail(os.Stderr, InitCommand, "no sandbox on this platform", errNone)

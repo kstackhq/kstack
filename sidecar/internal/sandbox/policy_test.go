@@ -107,3 +107,18 @@ func TestADenyIsCompiledOnlyWhereAReadOrWriteReachesIt(t *testing.T) {
 
 	assert.Equal(t, []string{keyrings, kube, filepath.Join(base, "srv")}, denied)
 }
+
+func TestLimitsAreChecked(t *testing.T) {
+	assert.NoError(t, Policy{}.Check(), "no limits")
+	assert.NoError(t, Policy{Limits: Limits{CPUSeconds: 1, MemoryBytes: 1, OpenFiles: 1, Processes: 1}}.Check())
+	for name, l := range map[string]Limits{
+		"a negative CPU time":          {CPUSeconds: -1},
+		"a negative memory":            {MemoryBytes: -1, OpenFiles: 1},
+		"a negative file count":        {OpenFiles: -1},
+		"a negative process count":     {Processes: -1, OpenFiles: 1},
+		"memory with no file limit":    {MemoryBytes: 1},
+		"processes with no file limit": {Processes: 1},
+	} {
+		assert.Error(t, Policy{Limits: l}.Check(), name)
+	}
+}

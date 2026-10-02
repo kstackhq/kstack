@@ -63,6 +63,14 @@ $FIXTURE/run/kstack/runs/1-a/proxy.sock
 --
 $FIXTURE/app/kstack-sidecar
 sandbox-shell
+--cpu
+4840
+--files
+4096
+--memory
+17179869184
+--processes
+1056
 --
 $FIXTURE/sys/usr/bin/bash
 -c

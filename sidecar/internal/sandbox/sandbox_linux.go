@@ -181,7 +181,9 @@ func (s *Sandbox) args(r Run) []string {
 	}
 	args = append(args, "--chdir", r.Dir, "--", s.self)
 	args = append(args, ForwarderArgs(r.Policy.Network.relay())...)
-	args = append(args, s.self, ShellCommand, "--", r.Shell)
+	args = append(args, s.self)
+	args = append(args, shellCommand(r.Policy.Limits)...)
+	args = append(args, r.Shell)
 	return append(args, r.Args...)
 }
 

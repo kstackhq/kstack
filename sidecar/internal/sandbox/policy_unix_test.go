@@ -17,14 +17,19 @@
 package sandbox
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
 
 // access is what a run could do with a file: read its contents, write it.
@@ -204,4 +209,72 @@ func TestARunsOwnPathThatCannotBeLookedAtIsRefused(t *testing.T) {
 	p := Policy{Always: AlwaysPolicy{Kstack: []string{filepath.Join(base, "data")}, Write: d}}
 
 	assert.ErrorIs(t, p.Check(), os.ErrPermission)
+}
+
+func init() {
+	// files opens /dev/null until it cannot, and prints how many it opened
+	// and why it stopped.
+	helpers["files"] = func() int {
+		for n := 0; ; n++ {
+			if _, err := os.Open("/dev/null"); err != nil {
+				fmt.Println(n, errors.Is(err, syscall.EMFILE))
+				return 0
+			}
+		}
+	}
+}
+
+// limitedRunOf is a run of argv on s under the System policy over a fresh
+// home, with a workspace it writes, the system's PATH and env, and limits l.
+func limitedRunOf(t *testing.T, s *Sandbox, l Limits, env []string, argv ...string) Run {
+	t.Helper()
+	d := mkdirs(t, resolved(t.TempDir()), "home", "ws")
+	env = append([]string{"PATH=/usr/bin:/bin"}, env...)
+	files := s.System(d[0], "/bin/sh").Files
+	files.Write = append(files.Write, d[1])
+	return Run{
+		Shell: argv[0], Args: argv[1:], Dir: d[1], Env: env,
+		Policy: Policy{Files: files, Always: AlwaysPolicy{Deny: s.Never(d[0])}, Limits: l},
+	}
+}
+
+// limitedRun runs limitedRunOf's run to its end and answers its exit code and
+// stdout. A failsafe bounds it, since a limit that fails to hold leaves a
+// spin running; a run that reaches it fails the test, so the kill is never
+// read as the limit's.
+func limitedRun(t *testing.T, s *Sandbox, l Limits, env []string, argv ...string) (int, string) {
+	t.Helper()
+	r := limitedRunOf(t, s, l, env, argv...)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*testutil.Timeout)
+	defer cancel()
+	cmd := command(t, s, ctx, r)
+	out, err := cmd.Output()
+	if cmd.ProcessState == nil {
+		require.NoError(t, err)
+	}
+	require.NoError(t, ctx.Err(), "the run outlived its bound")
+	return ExitCode(cmd.ProcessState), string(out)
+}
+
+// A process past its CPU time dies of SIGXCPU, which a shell reports as 152.
+func TestACPUSpinEndsWithSIGXCPU(t *testing.T) {
+	s := confining(t)
+
+	code, _ := limitedRun(t, s, Limits{CPUSeconds: 1}, nil, "/bin/sh", "-c", "while :; do :; done")
+
+	assert.Equal(t, 152, code)
+}
+
+func TestOpeningPastTheFileLimitFails(t *testing.T) {
+	s := confining(t)
+
+	code, out := limitedRun(t, s, Limits{OpenFiles: 64}, []string{"KSTACK_SANDBOX_TEST_HELPER=files"}, os.Args[0])
+
+	require.Equal(t, 0, code, out)
+	var n int
+	var emfile bool
+	_, err := fmt.Sscan(out, &n, &emfile)
+	require.NoError(t, err, out)
+	assert.Less(t, n, 64)
+	assert.True(t, emfile, out)
 }

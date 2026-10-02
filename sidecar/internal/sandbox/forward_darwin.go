@@ -14,6 +14,10 @@
 
 package sandbox
 
+// forwarderTasks is how many processes a run's process limit holds for the
+// forwarder: itself, since macOS counts processes, never threads.
+const forwarderTasks = 1
+
 // guardMemory has nothing to do: the forwarder is never a PID namespace's
 // first process on macOS.
 func guardMemory() error { return nil }

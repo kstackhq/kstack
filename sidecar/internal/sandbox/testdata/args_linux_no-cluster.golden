@@ -56,6 +56,14 @@ sandbox-init
 --
 $FIXTURE/app/kstack-sidecar
 sandbox-shell
+--cpu
+4840
+--files
+4096
+--memory
+17179869184
+--processes
+1056
 --
 $FIXTURE/sys/usr/bin/bash
 -c

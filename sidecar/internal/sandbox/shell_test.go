@@ -25,9 +25,38 @@ import (
 func TestParseShellArgs(t *testing.T) {
 	got, err := parseShellArgs([]string{"--", "/bin/sh", "-c", "true"})
 	require.NoError(t, err)
-	assert.Equal(t, []string{"/bin/sh", "-c", "true"}, got)
-	for _, args := range [][]string{nil, {"--"}, {"/bin/sh"}} {
+	assert.Equal(t, shellArgs{argv: []string{"/bin/sh", "-c", "true"}}, got)
+	for _, args := range [][]string{nil, {"--"}, {"/bin/sh"}, {"--memory", "1", "/bin/sh"}} {
 		_, err := parseShellArgs(args)
 		assert.Error(t, err, args)
 	}
+}
+
+func TestShellArgsReadTheLimits(t *testing.T) {
+	got, err := parseShellArgs([]string{
+		"--cpu", "7", "--files", "64", "--memory", "536870912", "--processes", "128", "--", "/bin/sh", "--memory", "1",
+	})
+	require.NoError(t, err)
+	assert.Equal(t, shellArgs{cpu: 7, files: 64, memory: 536870912, processes: 128, argv: []string{"/bin/sh", "--memory", "1"}}, got)
+
+	for _, args := range [][]string{
+		{"--memory", "-1", "--", "x"}, {"--processes", "x", "--", "x"}, {"--memory", "0x10", "--", "x"}, {"--cpu", "", "--", "x"},
+		{"--other", "1", "--", "x"}, {"x", "--", "y"},
+	} {
+		_, err := parseShellArgs(args)
+		assert.Error(t, err, args)
+	}
+}
+
+// sandbox-shell's command line carries each limit that is set, and parses
+// back to them, the process limit holding forwarderTasks more, since the
+// forwarder starts before it is set.
+func TestShellCommandRoundTrip(t *testing.T) {
+	assert.Equal(t, []string{ShellCommand, "--"}, shellCommand(Limits{}))
+
+	args := shellCommand(Limits{CPUSeconds: 7, MemoryBytes: 1 << 30, OpenFiles: 64, Processes: 9})
+	require.Equal(t, ShellCommand, args[0])
+	got, err := parseShellArgs(append(args[1:], "/bin/sh"))
+	require.NoError(t, err)
+	assert.Equal(t, shellArgs{cpu: 7, files: 64, memory: 1 << 30, processes: 9 + forwarderTasks, argv: []string{"/bin/sh"}}, got)
 }

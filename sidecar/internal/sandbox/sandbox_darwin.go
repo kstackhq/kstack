@@ -31,8 +31,9 @@ import (
 	"time"
 )
 
-// probeTimeout bounds the probe: its profile and its sandboxed true.
-const probeTimeout = 2 * time.Second
+// probeTimeout bounds the probe: its profile, and its sandboxed true under
+// the forwarder, which starts this executable once more.
+const probeTimeout = 5 * time.Second
 
 // Probe answers Seatbelt, available when sandbox-exec runs true under the
 // profile a run with no cluster gets.
@@ -95,9 +96,9 @@ func probeFailure(stderr string, err error) string {
 }
 
 // Command is the process that runs r sandboxed, not yet started, made by
-// exec.CommandContext on ctx, or why r's policy cannot be enforced:
-// sandbox-exec over r's profile, then the shell, or for a run with a relay the
-// forwarder with the shell its child.
+// exec.CommandContext on ctx, or why r's policy cannot be enforced, a memory
+// limit included: sandbox-exec over r's profile, then the forwarder with
+// sandbox-shell its child, which execs the shell.
 // sandbox-exec execs into it, so the session the caller makes is the run's
 // process group, and the profile holds every descendant. The caller sets its
 // output, session and Cancel, and starts it.
@@ -105,6 +106,9 @@ func probeFailure(stderr string, err error) string {
 // Check and the profile resolve paths, which can hang on a network mount, so
 // ctx bounds them too: ctx ending first answers its error.
 func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
+	if r.Policy.Limits.MemoryBytes > 0 {
+		return nil, errNoMemoryLimit
+	}
 	type built struct {
 		text   string
 		params []string
@@ -152,14 +156,12 @@ func (s *Sandbox) Port() (int, error) {
 	return ln.Addr().(*net.TCPAddr).Port, nil
 }
 
-// argv is the process that runs r: the shell, or for a run with a relay, this
-// executable as the run's forwarder with the shell its child.
+// argv is the process that runs r: this executable as the run's forwarder,
+// with this executable as sandbox-shell its child, which sets r's limits and
+// execs the shell.
 func (s *Sandbox) argv(r Run) (name string, args []string) {
-	relay := r.Policy.Network.relay()
-	if relay.Socket == "" {
-		return r.Shell, r.Args
-	}
-	return s.self, append(append(ForwarderArgs(relay), r.Shell), r.Args...)
+	return s.self, slices.Concat(
+		ForwarderArgs(r.Policy.Network.relay()), []string{s.self}, shellCommand(r.Policy.Limits), []string{r.Shell}, r.Args)
 }
 
 // buildProfile is profile, which a test replaces with one that hangs.

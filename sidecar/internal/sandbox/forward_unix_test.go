@@ -360,3 +360,16 @@ func TestTheRelayClosesWhatItCannotCarry(t *testing.T) {
 	assert.ErrorIs(t, err, io.EOF)
 	<-done
 }
+
+// The forwarder starts its child with a core size of zero, so no process of a
+// run dumps its memory outside the sandbox.
+func TestTheCoreSizeIsZero(t *testing.T) {
+	self := "'" + os.Args[0] + "'"
+	cmd := exec.Command("/bin/sh", "-c", "ulimit -c unlimited 2>/dev/null; exec "+self+" "+InitCommand+" -- "+self)
+	cmd.Env = append(os.Environ(), "KSTACK_SANDBOX_TEST_HELPER=rlimits")
+
+	code, stdout, stderr := runInit(t, cmd)
+
+	require.Equal(t, 0, code, stderr)
+	assert.Contains(t, stdout, "core=0/0")
+}

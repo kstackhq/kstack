@@ -54,8 +54,8 @@ type initArgs struct {
 	argv   []string // the command to run as the child
 }
 
-// parseInitArgs reads [--socket <path> --port <n>] -- <argv…>, the two flags
-// together or neither; flag stops at the --, so argv is never read as flags.
+// parseInitArgs reads [--socket <path> --port <n>] -- <argv…>, both flags or
+// neither; flag stops at the --, so argv is never read as flags.
 func parseInitArgs(args []string) (initArgs, error) {
 	var a initArgs
 	fs := flag.NewFlagSet(InitCommand, flag.ContinueOnError)
@@ -78,6 +78,15 @@ func parseInitArgs(args []string) (initArgs, error) {
 		return initArgs{}, errors.New("no command")
 	}
 	return a, nil
+}
+
+// count reads a limit: a non-negative decimal integer.
+func count(v string) (int, error) {
+	n, err := strconv.Atoi(v)
+	if err == nil && n < 0 {
+		err = fmt.Errorf("negative: %d", n)
+	}
+	return n, err
 }
 
 // fail writes the subcommand's one line on stderr, which is the run's output,

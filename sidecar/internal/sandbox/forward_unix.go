@@ -26,6 +26,8 @@ import (
 	"strconv"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // The wait after a failed accept starts at minAcceptWait and doubles up to
@@ -62,6 +64,12 @@ func InitMain(args []string) int {
 		if err := guardMemory(); err != nil {
 			return fail(os.Stderr, InitCommand, "cannot guard its memory", err)
 		}
+	}
+	// Inherited by the whole run, so no process of it dumps its memory outside
+	// the sandbox. The run's other limits are sandbox-shell's, so they never
+	// bind the forwarder, which lives as long as the run.
+	if err := unix.Setrlimit(unix.RLIMIT_CORE, &unix.Rlimit{}); err != nil {
+		return fail(os.Stderr, InitCommand, "cannot set the core size", err)
 	}
 	path, err := exec.LookPath(a.argv[0])
 	if err != nil {
