@@ -23,6 +23,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sync"
 	"time"
 
@@ -88,6 +89,9 @@ type Service struct {
 	// newFSWatcher builds the notification layer; a build seam, since the case worth
 	// testing is the kernel refusing one, which a test cannot ask for.
 	newFSWatcher func() (*fsnotify.Watcher, error)
+	// load reads the chain; a seam, since a test has to change a file while the
+	// load is under way.
+	load func(*clientcmd.ClientConfigLoadingRules) (*api.Config, error)
 
 	hub *watch.Hub[*api.Config]
 
@@ -115,6 +119,7 @@ func New(kubeconfigPath string, pokeSvc *poke.Service) *Service {
 		settle:       defaultSettle,
 		pokeSvc:      pokeSvc,
 		newFSWatcher: fsnotify.NewWatcher,
+		load:         (*clientcmd.ClientConfigLoadingRules).Load,
 		hub:          watch.New(current),
 		current:      current,
 	}
@@ -353,13 +358,29 @@ func (s *Service) markRead() {
 	s.read = true
 }
 
-// truncated reports whether any file in the precedence chain is an existing
-// zero-length one. Sampled before the load, so a file that fills in between the two
-// reads counts as truncated rather than the other way round: the cost is a publish
-// deferred to the next reload, the alternative is publishing the truncated read.
-func (s *Service) truncated() bool {
-	for _, pathname := range s.loadingRules.GetLoadingPrecedence() {
-		if fi, err := os.Stat(pathname); err == nil && fi.Size() == 0 {
+// fileStamp is what a stat says of one file in the precedence chain; the zero
+// value is a file that is not there.
+type fileStamp struct {
+	size    int64
+	modTime int64
+}
+
+// stamps stats every file in the precedence chain.
+func (s *Service) stamps() []fileStamp {
+	paths := s.loadingRules.GetLoadingPrecedence()
+	out := make([]fileStamp, len(paths))
+	for i, pathname := range paths {
+		if fi, err := os.Stat(pathname); err == nil {
+			out[i] = fileStamp{size: fi.Size(), modTime: fi.ModTime().UnixNano()}
+		}
+	}
+	return out
+}
+
+// truncated reports whether any file is an existing zero-length one.
+func truncated(stamps []fileStamp) bool {
+	for _, st := range stamps {
+		if st != (fileStamp{}) && st.size == 0 {
 			return true
 		}
 	}
@@ -367,17 +388,26 @@ func (s *Service) truncated() bool {
 }
 
 func (s *Service) poll() {
-	truncated := s.truncated()
+	before := s.stamps()
 
 	// clientcmd returns an empty config rather than an error when no file is found,
 	// which is the right reading: a machine with no kubeconfig tracks no clusters.
-	cfg, err := s.loadingRules.Load()
+	cfg, err := s.load(s.loadingRules)
 	if err != nil {
 		// Debug, not warn: a hand-edited file is unparseable in the middle of an edit
 		// as a matter of course, and the last good config carries on serving. But
 		// silence would leave a permanently broken kubeconfig looking like a service
 		// that simply stopped noticing.
 		slog.Debug("kubeconfig load failed, keeping the last good config", "err", err)
+		s.markRead()
+		return
+	}
+
+	// A file that changed during the load may have been read mid-write: an in-place
+	// rewrite truncates first, and a read in that window loads as a valid config with
+	// no contexts. The change raises its own event, or the next tick sees it, so this
+	// read is dropped and that one publishes.
+	if !slices.Equal(before, s.stamps()) {
 		s.markRead()
 		return
 	}
@@ -389,7 +419,7 @@ func (s *Service) poll() {
 	// config standing, so an emptied one is treated the same way — and only when the
 	// merge has no contexts at all, which leaves a placeholder empty file beside a real
 	// kubeconfig publishing as usual.
-	if truncated && len(cfg.Contexts) == 0 {
+	if truncated(before) && len(cfg.Contexts) == 0 {
 		s.markRead()
 		return
 	}

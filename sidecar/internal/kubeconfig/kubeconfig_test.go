@@ -496,6 +496,27 @@ func TestATruncatedFileIsNotPublished(t *testing.T) {
 	assert.Contains(t, cfg.Contexts, "prod", "the truncate window must not replace the last good config")
 }
 
+// A writer can truncate the file after the poll has looked at it and fill it again
+// after the load has read it, so the load reads the window while neither look sees
+// an empty file. The load is rigged to land in that window.
+func TestALoadDuringARewriteIsNotPublished(t *testing.T) {
+	w, path := newTestService(t, time.Hour)
+	writeKubeconfig(t, path, "prod")
+	start(t, w)
+
+	w.load = func(rules *clientcmd.ClientConfigLoadingRules) (*api.Config, error) {
+		require.NoError(t, os.WriteFile(path, nil, 0o600))
+		cfg, err := rules.Load()
+		writeKubeconfig(t, path, "prod", "staging")
+		return cfg, err
+	}
+	w.poll()
+
+	cfg, read := w.Get()
+	assert.True(t, read)
+	assert.Contains(t, cfg.Contexts, "prod", "a read the rewrite overlapped must not replace the last good config")
+}
+
 // Re-pointing a symlink adds the new target's directory; the old one has to go, or
 // it stays watched for the life of the process — waking the loop on every unrelated
 // write in it, and on macOS holding an fd per file it contains.
