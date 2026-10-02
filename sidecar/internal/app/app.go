@@ -95,6 +95,11 @@ type Config struct {
 	// HostPID is the host's process, which a command's kill is refused against;
 	// 0 when the sidecar was not told it.
 	HostPID int
+	// ShellPath is the login shell's PATH as main read it at launch, nil when
+	// it was not read; ShellFault is why not, "" when it was. main alone sets
+	// them, so no test spawns the developer's login shell.
+	ShellPath  []string
+	ShellFault string
 	// ShellSnapshot takes the login shell's snapshot after Start. main alone sets
 	// it, so no test spawns the developer's login shell.
 	ShellSnapshot bool

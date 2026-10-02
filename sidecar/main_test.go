@@ -65,7 +65,7 @@ func TestRunFailsWhenTheEndpointCannotBeBound(t *testing.T) {
 	}
 }
 
-// A shutdown signal that lands before run — during the shell import — exits 0
+// A shutdown signal that lands before run — during the login shell — exits 0
 // without binding or announcing READY, like the stdin-EOF shutdown.
 func TestRunExitsCleanlyWhenTheContextEndedBeforeStart(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())

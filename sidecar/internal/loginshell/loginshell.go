@@ -12,11 +12,12 @@
 //go:build unix
 
 // Package loginshell runs the user's login shell. Launch runs one command in it,
-// and the bash tool's profile snapshot uses it on every Unix. Import uses it to
-// recover an allowlisted set of the environment the login shell builds, which a
-// macOS GUI launch does not inherit from launchd: without it, kubeconfig `exec`
+// and the bash tool's profile snapshot uses it on every Unix. Resolve runs the
+// user's login shell once and reads two things from it: the PATH the sandbox
+// finds programs on, and an allowlisted set of the environment, which a macOS
+// GUI launch does not inherit from launchd: without it, kubeconfig `exec`
 // credential plugins on the shell PATH are not found, and the ones that are run
-// against the wrong identity. Only main calls Import, on darwin.
+// against the wrong identity.
 package loginshell
 
 import (
@@ -32,10 +33,12 @@ import (
 	"time"
 )
 
-// DefaultTimeout bounds the whole resolution — spawn, read, kill, reap. Long
-// enough for a startup file that does real work, short enough that a stalled one
-// does not hold up the sidecar's READY line.
-const DefaultTimeout = 5 * time.Second
+// DefaultTimeout bounds the whole resolution — spawn, read, kill, reap. A shell
+// that answers ends it early, so the bound costs time only for a slow one, and a
+// failure leaves macOS without the environment its credential plugins need. Long
+// enough for startup files that do real work, short enough that a stalled one
+// does not hold up the sidecar's READY line for long.
+const DefaultTimeout = 10 * time.Second
 
 // marker delimits the PATH in the shell's stdout. It must begin with a letter:
 // printf reads `\0` as the start of an octal escape, so a marker starting 0-7
@@ -112,6 +115,17 @@ func buildCommand() string {
 	return b.String()
 }
 
+// readPosix answers the PATH as exported and the allowlist resolved. It
+// reports false for a PATH that is missing or resolves to nothing.
+func readPosix(frames [][]byte) (Result, bool) {
+	a := answerOf(frames)
+	env, ok := resolveEnv(a.env, a.dir)
+	if !ok {
+		return Result{}, false
+	}
+	return Result{Path: filepath.SplitList(a.env["PATH"]), Env: env}, true
+}
+
 // defaultShell is macOS's login shell, used when $SHELL says nothing usable. A
 // variable so a test can stand on a machine without one.
 var defaultShell = "/bin/zsh"
@@ -138,6 +152,9 @@ type Fault struct {
 	ExitCode int
 }
 
+// Error is the reason alone, so the message is as safe to log as the Fault.
+func (f *Fault) Error() string { return f.Reason }
+
 func fault(reason string) *Fault { return &Fault{Reason: reason, ExitCode: -1} }
 
 // answer is what the shell reported: the directory it ended in, and the raw value
@@ -154,47 +171,77 @@ type outcome struct {
 	reason string
 }
 
-// Import asks the user's login shell for the variables in imported and returns
-// the ones it had set, resolved. The deadline is ctx's; the caller installs the
-// answer. Import never touches the environment itself, so a failure leaves the
-// inherited one exactly as it was.
-func Import(ctx context.Context) (map[string]string, *Fault) {
+// Result is what one run of the login shell answered.
+type Result struct {
+	Path []string          // PATH as the shell exported it, split on ":", unfiltered
+	Env  map[string]string // the imported allowlist, resolved; what main sets on macOS
+}
+
+// Resolve runs the user's login shell once and reads both. The deadline is
+// ctx's. Resolve never touches the process's environment, so a failure leaves
+// the inherited one exactly as it was.
+func Resolve(ctx context.Context) (Result, *Fault) {
 	shell, f := shellOrDefault()
 	if f != nil {
-		return nil, f
+		return Result{}, f
 	}
-	out, f := Launch(ctx, shell, command, maxOutputBytes, func(buf []byte, _ int) bool {
-		_, ok := parse(buf)
+	frames := len(imported) + 1
+	out, f := Launch(ctx, shell, InteractiveLogin(command), ProcessEnv(), maxOutputBytes, func(buf []byte, _ int) bool {
+		_, ok := parse(buf, frames)
 		return ok
 	})
 	if f != nil {
-		return nil, f
+		return Result{}, f
 	}
-	a, _ := parse(out)
-	env, ok := resolveEnv(a.env, a.dir)
+	parsed, _ := parse(out, frames)
+	res, ok := readPosix(parsed)
 	if !ok {
 		// The shell answered, but with a PATH that finds nothing.
-		return nil, fault(reasonBadOutput)
+		return Result{}, fault(reasonBadOutput)
 	}
-	return env, nil
+	return res, nil
 }
 
-// Launch runs command in shell as an interactive login shell and returns its
-// stdout as read up to the moment done says it is complete. done is handed the
-// whole read so far and where the latest read began. Each of the shell's two
-// streams is capped at limit. The deadline is ctx's, and the shell's session is
-// killed and reaped before Launch returns, whatever happened.
-func Launch(ctx context.Context, shell, command string, limit int, done func(buf []byte, from int) bool) ([]byte, *Fault) {
-	// Interactive login flags, passed separately because fish does not cluster
-	// them, so the shell reads the startup files where a user sets PATH.
-	cmd := exec.Command(shell, "-i", "-l", "-c", command)
+// Path is Resolve's Path alone, bounded by DefaultTimeout, for a caller that
+// has no use for the environment. Its error is a *Fault.
+func Path(ctx context.Context) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	defer cancel()
+	res, f := Resolve(ctx)
+	if f != nil {
+		return nil, f
+	}
+	return res.Path, nil
+}
+
+// InteractiveLogin is the arguments that run command in an interactive login
+// shell, so the shell reads the startup files where a user sets PATH. The
+// flags are separate because fish does not cluster them.
+func InteractiveLogin(command string) []string {
+	return []string{"-i", "-l", "-c", command}
+}
+
+// ProcessEnv is the process's environment with DISABLE_AUTO_UPDATE set, so
+// oh-my-zsh does not stop to ask.
+func ProcessEnv() []string {
+	return append(os.Environ(), "DISABLE_AUTO_UPDATE=true")
+}
+
+// Launch runs shell with args in env, and nothing else of the process's, and
+// returns its stdout as read up to the moment done says it is complete. done is
+// handed the whole read so far and where the latest read began. Each of the
+// shell's two streams is capped at limit. The deadline is ctx's, and the
+// shell's session is killed and reaped before Launch returns, whatever happened.
+func Launch(ctx context.Context, shell string, args, env []string, limit int, done func(buf []byte, from int) bool) ([]byte, *Fault) {
+	cmd := exec.Command(shell, args...)
 	// nil stdin is /dev/null: a startup file that reads it gets EOF, not a hang.
 	cmd.Stdin = nil
 	cmd.SysProcAttr = shellProcAttr()
 	if home, err := os.UserHomeDir(); err == nil {
 		cmd.Dir = home
 	}
-	cmd.Env = append(os.Environ(), "DISABLE_AUTO_UPDATE=true")
+	// Never nil, which exec reads as the process's environment.
+	cmd.Env = append([]string{}, env...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -267,8 +314,8 @@ func shellProcAttr() *syscall.SysProcAttr {
 }
 
 // Find is $SHELL when it names an executable file by absolute path. A
-// relative one is never looked up: resolving it would search the very PATH
-// Import is here to replace.
+// relative one is never looked up: resolving it would search a PATH the shell
+// is the source of. The bash tool picks its shell with it.
 func Find() (string, bool) {
 	shell := os.Getenv("SHELL")
 	if filepath.IsAbs(shell) && executable(shell) {
@@ -317,35 +364,39 @@ func readMarked(r io.Reader, limit int, done func([]byte, int) bool) outcome {
 	}
 }
 
-// parse returns what the shell reported: the cwd frame first, then the raw value
-// of each variable it had set, keyed by name. It reports false while the last
-// marker has not arrived yet, so a caller reading a stream can keep going; out is
-// the bytes read so far.
-func parse(out []byte) (answer, bool) {
+// parse returns the n frames the shell printed between the markers. It
+// reports false while the last marker has not arrived yet, so a caller reading
+// a stream can keep going; out is the bytes read so far.
+func parse(out []byte, n int) ([][]byte, bool) {
 	delimiter := []byte("\x00" + marker + "\x00")
 	_, rest, ok := bytes.Cut(out, delimiter)
 	if !ok {
-		return answer{}, false
+		return nil, false
 	}
-	frames := make([][]byte, 0, len(imported)+1)
-	for range len(imported) + 1 {
+	frames := make([][]byte, 0, n)
+	for range n {
 		var frame []byte
 		frame, rest, ok = bytes.Cut(rest, delimiter)
 		if !ok {
-			return answer{}, false
+			return nil, false
 		}
-		// printenv's own trailing newline, and only that one: a value may hold
-		// any byte but NUL, newlines included, so nothing further is trimmed and
-		// nothing else is judged.
+		// The utility's own trailing newline, and only that one: a value may
+		// hold any byte but NUL, newlines included, so nothing further is
+		// trimmed and nothing else is judged.
 		frame = bytes.TrimSuffix(frame, []byte("\n"))
 		// A NUL cannot come from either utility, so one here means the markers
 		// framed something other than the payload we asked for.
 		if bytes.IndexByte(frame, 0) >= 0 {
-			return answer{}, false
+			return nil, false
 		}
 		frames = append(frames, frame)
 	}
+	return frames, true
+}
 
+// answerOf reads a posix run's frames: the cwd first, then the raw value of
+// each variable it had set, keyed by name.
+func answerOf(frames [][]byte) answer {
 	a := answer{dir: string(frames[0]), env: make(map[string]string, len(imported))}
 	for i, v := range imported {
 		// printenv prints nothing for an unset variable and `|| true` swallows
@@ -354,7 +405,7 @@ func parse(out []byte) (answer, bool) {
 			a.env[v.name] = string(frame)
 		}
 	}
-	return a, true
+	return a
 }
 
 // resolveEnv resolves each raw value by its kind and drops the ones left empty.

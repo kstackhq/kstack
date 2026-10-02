@@ -85,10 +85,11 @@ pkill() {
 }
 `
 
-// launchDump runs the dump in the login shell, through the launcher
-// loginshell.Import uses. reason is "" when the dump arrived whole.
+// launchDump runs the dump in the login shell, in the process's environment,
+// since a command outside the sandbox sources what it finds. reason is "" when
+// the dump arrived whole.
 func (t *Tool) launchDump(ctx context.Context) (out []byte, reason string, code int) {
-	out, f := loginshell.Launch(ctx, t.shell, dumpCommand(t.kind), t.snapLimit, snapshotDone)
+	out, f := loginshell.Launch(ctx, t.shell, loginshell.InteractiveLogin(dumpCommand(t.kind)), loginshell.ProcessEnv(), t.snapLimit, snapshotDone)
 	if f != nil {
 		return nil, f.Reason, f.ExitCode
 	}

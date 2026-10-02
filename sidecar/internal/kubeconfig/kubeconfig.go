@@ -73,8 +73,8 @@ const defaultSettle = 50 * time.Millisecond
 type Service struct {
 	// explicitPath is the --kubeconfig argument; empty means clientcmd's chain.
 	explicitPath string
-	// loadingRules is built at Start, not New: it reads KUBECONFIG, and main's
-	// shell import has finished before run.
+	// loadingRules is built at Start, not New: it reads KUBECONFIG, which on
+	// macOS main sets from the login shell before run.
 	loadingRules *clientcmd.ClientConfigLoadingRules
 	// interval paces the reload; tests shrink it before Start rather than outwait it.
 	interval time.Duration

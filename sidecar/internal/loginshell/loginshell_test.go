@@ -34,13 +34,13 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
 
-// testDeadline bounds an Import that should not need it. Every test using it
+// testDeadline bounds a Resolve that should not need it. Every test using it
 // ends on the shell's answer or exit, so it is only a backstop, and generous:
 // under the race detector on a loaded runner, the command's two dozen spawns
 // can take seconds.
 const testDeadline = testutil.Timeout
 
-func TestImportImportsThePathTheShellBuilds(t *testing.T) {
+func TestResolveImportsThePathTheShellBuilds(t *testing.T) {
 	dir, plugin := fixturePlugin(t)
 	t.Setenv("SHELL", fakeShell(t, dir, "", ""))
 	t.Setenv("PATH", "/usr/bin:/bin")
@@ -48,18 +48,18 @@ func TestImportImportsThePathTheShellBuilds(t *testing.T) {
 	_, err := exec.LookPath(plugin)
 	require.Error(t, err, "fixture must be off the inherited PATH")
 
-	got, f := Import(context.Background())
+	got, f := Resolve(context.Background())
 	require.Nil(t, f)
-	require.Contains(t, got["PATH"], dir)
+	require.Contains(t, got.Env["PATH"], dir)
 
-	require.NoError(t, os.Setenv("PATH", got["PATH"]))
+	require.NoError(t, os.Setenv("PATH", got.Env["PATH"]))
 	found, err := exec.LookPath(plugin)
 	require.NoError(t, err)
 	require.Equal(t, filepath.Join(dir, plugin), found)
 	require.Equal(t, "kept", os.Getenv("KSTACK_UNRELATED"))
 }
 
-func TestImportStopsAtTheLastMarker(t *testing.T) {
+func TestResolveStopsAtTheLastMarker(t *testing.T) {
 	dir, _ := fixturePlugin(t)
 	pidFile := filepath.Join(t.TempDir(), "grandchild.pid")
 	// A startup file backgrounds a process that inherits stdout, then the shell
@@ -71,9 +71,9 @@ func TestImportStopsAtTheLastMarker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Import(ctx)
+	got, f := Resolve(ctx)
 	require.Nil(t, f, "an answer in hand must not wait on the pipe closing")
-	require.Contains(t, got["PATH"], dir)
+	require.Contains(t, got.Env["PATH"], dir)
 
 	// The kill goes to the group, so the grandchild dies with the shell.
 	require.Eventually(t, func() bool {
@@ -86,7 +86,7 @@ func TestImportStopsAtTheLastMarker(t *testing.T) {
 	}, testDeadline, 10*time.Millisecond)
 }
 
-func TestImportImportsTheVariablesTheShellExports(t *testing.T) {
+func TestResolveImportsTheVariablesTheShellExports(t *testing.T) {
 	dir, _ := fixturePlugin(t)
 	// EvalSymlinks because pwd reports the physical directory, and a temp dir is
 	// reached through a symlink on macOS.
@@ -101,14 +101,14 @@ func TestImportImportsTheVariablesTheShellExports(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Import(ctx)
+	got, f := Resolve(ctx)
 	require.Nil(t, f)
-	require.Contains(t, got["PATH"], dir)
-	require.Equal(t, "/etc/k.yaml:"+filepath.Join(home, ".kube/work.yaml"), got["KUBECONFIG"])
-	require.Equal(t, "work", got["AWS_PROFILE"])
+	require.Contains(t, got.Env["PATH"], dir)
+	require.Equal(t, "/etc/k.yaml:"+filepath.Join(home, ".kube/work.yaml"), got.Env["KUBECONFIG"])
+	require.Equal(t, "work", got.Env["AWS_PROFILE"])
 }
 
-func TestImportResolvesAgainstTheDirectoryTheShellEndedIn(t *testing.T) {
+func TestResolveResolvesAgainstTheDirectoryTheShellEndedIn(t *testing.T) {
 	dir, _ := fixturePlugin(t)
 	// EvalSymlinks because pwd reports the physical directory, and a temp dir is
 	// reached through a symlink on macOS.
@@ -123,26 +123,26 @@ func TestImportResolvesAgainstTheDirectoryTheShellEndedIn(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Import(ctx)
+	got, f := Resolve(ctx)
 	require.Nil(t, f)
-	require.Equal(t, filepath.Join(home, "work", "config"), got["KUBECONFIG"])
+	require.Equal(t, filepath.Join(home, "work", "config"), got.Env["KUBECONFIG"])
 }
 
 // A shell that answers with a PATH that finds nothing is refused: installing it
 // would leave the process unable to find any command.
-func TestImportRefusesAPathThatFindsNothing(t *testing.T) {
+func TestResolveRefusesAPathThatFindsNothing(t *testing.T) {
 	dir, _ := fixturePlugin(t)
 	t.Setenv("SHELL", fakeShell(t, dir, "PATH=\n", ""))
 
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	_, f := Import(ctx)
+	_, f := Resolve(ctx)
 	require.NotNil(t, f)
 	require.Equal(t, reasonBadOutput, f.Reason)
 }
 
-func TestImportOmitsWhatTheShellDoesNotSet(t *testing.T) {
+func TestResolveOmitsWhatTheShellDoesNotSet(t *testing.T) {
 	dir, _ := fixturePlugin(t)
 	t.Setenv("SHELL", fakeShell(t, dir, "", ""))
 	// Empty is unset as far as a frame goes, and whoever runs this may have
@@ -153,13 +153,13 @@ func TestImportOmitsWhatTheShellDoesNotSet(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Import(ctx)
+	got, f := Resolve(ctx)
 	require.Nil(t, f)
-	require.NotContains(t, got, "KUBECONFIG")
-	require.NotContains(t, got, "AWS_PROFILE")
+	require.NotContains(t, got.Env, "KUBECONFIG")
+	require.NotContains(t, got.Env, "AWS_PROFILE")
 }
 
-func TestImportFallsBackWhenTheShellCannotAnswer(t *testing.T) {
+func TestResolveFallsBackWhenTheShellCannotAnswer(t *testing.T) {
 	tests := map[string]struct {
 		script string
 		reason string
@@ -181,7 +181,7 @@ func TestImportFallsBackWhenTheShellCannotAnswer(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 			defer cancel()
 
-			_, f := Import(ctx)
+			_, f := Resolve(ctx)
 			require.NotNil(t, f)
 			require.Equal(t, tc.reason, f.Reason)
 			if tc.code >= 0 {
@@ -214,28 +214,28 @@ func TestTheShellRunsInASessionOfItsOwn(t *testing.T) {
 	require.NotEqual(t, ours, sid)
 }
 
-func TestImportFallsBackWhenTheShellNeverAnswers(t *testing.T) {
+func TestResolveFallsBackWhenTheShellNeverAnswers(t *testing.T) {
 	// The deadline is the assertion, not a wait: this shell never answers, so
-	// only ctx can end the call. Short because production's five seconds is the
+	// only ctx can end the call. Short because production's ten seconds is the
 	// caller's to choose.
 	t.Setenv("SHELL", writeScript(t, "shell", "#!/bin/sh\nsleep 300\n"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
 
-	_, f := Import(ctx)
+	_, f := Resolve(ctx)
 	require.NotNil(t, f)
 	require.Equal(t, reasonTimeout, f.Reason)
 }
 
-func TestImportLeavesTheEnvironmentAloneOnFailure(t *testing.T) {
+func TestResolveLeavesTheEnvironmentAloneOnFailure(t *testing.T) {
 	t.Setenv("SHELL", writeScript(t, "shell", "#!/bin/sh\nexit 1\n"))
 	t.Setenv("PATH", "/usr/bin:/bin")
 
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	_, f := Import(ctx)
+	_, f := Resolve(ctx)
 	require.NotNil(t, f)
 	require.Equal(t, "/usr/bin:/bin", os.Getenv("PATH"), "a fallback must keep the inherited PATH")
 }
@@ -268,27 +268,27 @@ func TestShellOrDefaultFallsBackWhenSHELLIsUnsetMissingOrRelative(t *testing.T) 
 	}
 }
 
-// With no $SHELL and no default shell, Import has nothing to ask.
-func TestImportFallsBackWhenThereIsNoShell(t *testing.T) {
+// With no $SHELL and no default shell, Resolve has nothing to ask.
+func TestResolveFallsBackWhenThereIsNoShell(t *testing.T) {
 	t.Setenv("SHELL", "")
 	defer func(shell string) { defaultShell = shell }(defaultShell)
 	defaultShell = filepath.Join(t.TempDir(), "zsh")
 
-	_, f := Import(t.Context())
+	_, f := Resolve(t.Context())
 	require.NotNil(t, f)
 	require.Equal(t, reasonNoShell, f.Reason)
 	require.Equal(t, -1, f.ExitCode)
 }
 
 func TestLaunchReportsAShellThatWillNotStart(t *testing.T) {
-	_, f := Launch(t.Context(), filepath.Join(t.TempDir(), "gone"), "", maxOutputBytes, func([]byte, int) bool { return true })
+	_, f := Launch(t.Context(), filepath.Join(t.TempDir(), "gone"), nil, nil, maxOutputBytes, func([]byte, int) bool { return true })
 	require.NotNil(t, f)
 	require.Equal(t, reasonNoShell, f.Reason)
 	require.Equal(t, -1, f.ExitCode)
 }
 
 func TestFindDeclinesARelativeSHELL(t *testing.T) {
-	// Resolving it would mean searching the very PATH we are here to replace.
+	// Resolving it would mean searching a PATH the shell is the source of.
 	t.Setenv("SHELL", "zsh")
 
 	_, ok := Find()
@@ -316,14 +316,14 @@ func TestParseTakesEachVariablesFrame(t *testing.T) {
 		"AWS_PROFILE": "work",
 	}
 
-	got, ok := parse(markedEnv("/Users/ren", want))
+	got, ok := parseAnswer(markedEnv("/Users/ren", want))
 	require.True(t, ok)
 	require.Equal(t, "/Users/ren", got.dir)
 	require.Equal(t, want, got.env)
 }
 
 func TestParseReadsAnEmptyFrameAsUnset(t *testing.T) {
-	got, ok := parse(markedEnv("/Users/ren", map[string]string{"PATH": "/usr/bin"}))
+	got, ok := parseAnswer(markedEnv("/Users/ren", map[string]string{"PATH": "/usr/bin"}))
 	require.True(t, ok)
 	require.NotContains(t, got.env, "KUBECONFIG")
 }
@@ -332,7 +332,7 @@ func TestParseIgnoresOutputAroundTheMarkers(t *testing.T) {
 	out := append([]byte("Welcome to zsh!\nnvm: loaded\n"), markedEnv("/Users/ren", map[string]string{"PATH": "/opt/bin"})...)
 	out = append(out, "\nbye\n"...)
 
-	got, ok := parse(out)
+	got, ok := parseAnswer(out)
 	require.True(t, ok)
 	require.Equal(t, "/opt/bin", got.env["PATH"])
 }
@@ -343,7 +343,7 @@ func TestParseKeepsAValueByteForByte(t *testing.T) {
 	// newline printenv itself appends is removed, so an interior one is data.
 	const path = "/Users/ren/Applications/My Tools:/opt/日本語/bin:/odd\nname:"
 
-	got, ok := parse(markedEnv("/Users/ren", map[string]string{"PATH": path}))
+	got, ok := parseAnswer(markedEnv("/Users/ren", map[string]string{"PATH": path}))
 	require.True(t, ok)
 	require.Equal(t, path, got.env["PATH"])
 }
@@ -351,7 +351,7 @@ func TestParseKeepsAValueByteForByte(t *testing.T) {
 func TestParseWaitsForTheLastMarker(t *testing.T) {
 	partial := bytes.TrimSuffix(markedEnv("/Users/ren", map[string]string{"PATH": "/usr/bin"}), delimiter())
 
-	_, ok := parse(partial)
+	_, ok := parseAnswer(partial)
 	require.False(t, ok)
 }
 
@@ -362,7 +362,7 @@ func TestParseRejectsUnusablePayloads(t *testing.T) {
 	}
 	for name, out := range tests {
 		t.Run(name, func(t *testing.T) {
-			_, ok := parse(out)
+			_, ok := parseAnswer(out)
 			require.False(t, ok)
 		})
 	}
@@ -542,7 +542,7 @@ func TestLaunchHandsDoneWhereTheLatestReadBegan(t *testing.T) {
 	defer cancel()
 
 	var seen int
-	out, f := Launch(ctx, shell, "", maxOutputBytes, func(buf []byte, from int) bool {
+	out, f := Launch(ctx, shell, nil, nil, maxOutputBytes, func(buf []byte, from int) bool {
 		require.Equal(t, seen, from)
 		seen = len(buf)
 		return bytes.HasSuffix(buf, []byte("END"))
@@ -556,7 +556,60 @@ func TestLaunchKeepsItsCap(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	_, f := Launch(ctx, shell, "", 1000, func([]byte, int) bool { return false })
+	_, f := Launch(ctx, shell, nil, nil, 1000, func([]byte, int) bool { return false })
 	require.NotNil(t, f)
 	require.Equal(t, reasonOutputLimit, f.Reason)
+}
+
+// A caller off this package holds a Fault as an error, its reason the message.
+func TestAFaultIsAnError(t *testing.T) {
+	var err error = fault(reasonTimeout)
+	require.Equal(t, reasonTimeout, err.Error())
+}
+
+// Launch runs the shell with the arguments and the environment it is handed, and
+// nothing of the process's.
+func TestLaunchRunsWithWhatItIsGiven(t *testing.T) {
+	t.Setenv("KSTACK_TEST_PROCESS_VAR", "leaked")
+	shell := writeScript(t, "shell", "#!/bin/sh\nprintf '%s|%s|%s|' \"$*\" \"$GIVEN\" \"$KSTACK_TEST_PROCESS_VAR\"\nprintf END\nsleep 300\n")
+	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+	defer cancel()
+
+	out, f := Launch(ctx, shell, []string{"-l", "-c", "cmd"}, []string{"GIVEN=yes"}, maxOutputBytes, func(buf []byte, _ int) bool {
+		return bytes.HasSuffix(buf, []byte("END"))
+	})
+	require.Nil(t, f)
+	require.Equal(t, "-l -c cmd|yes||END", string(out))
+}
+
+// parseAnswer is parse over a posix run's frames, read as an answer.
+func parseAnswer(out []byte) (answer, bool) {
+	frames, ok := parse(out, len(imported)+1)
+	if !ok {
+		return answer{}, false
+	}
+	return answerOf(frames), true
+}
+
+// Path is Resolve's PATH, or the Fault as its error.
+func TestAFaultAnswersNoPath(t *testing.T) {
+	dir, _ := fixturePlugin(t)
+	t.Setenv("SHELL", fakeShell(t, dir, "", ""))
+	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+	defer cancel()
+	path, err := Path(ctx)
+	require.NoError(t, err)
+	require.Equal(t, dir, path[0])
+
+	for script, reason := range map[string]string{
+		"#!/bin/sh\nexit 3\n":                   reasonShellExited,
+		"#!/bin/sh\necho 'command not found'\n": reasonBadOutput,
+	} {
+		t.Setenv("SHELL", writeScript(t, "shell", script))
+		path, err := Path(ctx)
+		require.Nil(t, path)
+		var f *Fault
+		require.ErrorAs(t, err, &f)
+		require.Equal(t, reason, f.Reason)
+	}
 }
