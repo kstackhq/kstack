@@ -74,7 +74,7 @@ func TestBashIsOfferedWhenItIsFound(t *testing.T) {
 	withBash := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(withBash, "bash"), []byte("#!/bin/sh\n"), 0o755))
 	t.Setenv("PATH", withBash)
-	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil)
+	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 	require.True(t, found)
 	box, err := chatTools(shell, []string{t.TempDir()}, 0o022, nil, nil)
 	require.NoError(t, err)
@@ -92,7 +92,7 @@ func TestEveryGatedToolCanBeShown(t *testing.T) {
 	withBash := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(withBash, "bash"), []byte("#!/bin/sh\n"), 0o755))
 	t.Setenv("PATH", withBash)
-	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil)
+	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 	require.True(t, found)
 
 	box, err := chatTools(shell, []string{t.TempDir()}, 0o022, nil, nil)

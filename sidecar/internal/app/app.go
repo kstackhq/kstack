@@ -343,7 +343,7 @@ func newCatalog(cfg Config) catalog.Catalog {
 func newShell(paths bash.Paths, hostPID int, clusterSvc clustersvc.Service) (shell *bash.Tool, ok bool, status sandbox.Status) {
 	sb, status := sandbox.Probe(context.Background())
 	slog.Info("sandbox probed", "available", status.Available, "reason", status.Reason)
-	shell, ok = bash.New(paths, hostPID, sb, clusterSvc)
+	shell, ok = bash.New(paths, hostPID, sb, clusterSvc, nil)
 	return shell, ok, status
 }
 
