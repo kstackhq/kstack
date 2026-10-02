@@ -34,6 +34,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
@@ -454,15 +455,16 @@ func TestThePortIsAFreeLoopbackOne(t *testing.T) {
 }
 
 // The test binary answers these when a run starts it as a process that tries
-// to leave its group (leaveGroup), as the process left behind (linger), or to
-// send a byte (send). init runs them before TestMain, which knows nothing of
-// macOS.
+// to leave its group (leaveGroup), as the process left behind (linger), to
+// send a byte (send), or to read a process's arguments (procArgs). init runs
+// them before TestMain, which knows nothing of macOS.
 const (
 	leaveEnv    = "KSTACK_SANDBOX_TEST_LEAVE"
 	lingerEnv   = "KSTACK_SANDBOX_TEST_LINGER"
 	homeFileEnv = "KSTACK_SANDBOX_TEST_HOME_FILE"
 	listenerEnv = "KSTACK_SANDBOX_TEST_LISTENER"
 	sendEnv     = "KSTACK_SANDBOX_TEST_SEND"
+	procArgsEnv = "KSTACK_SANDBOX_TEST_PROCARGS"
 )
 
 func init() {
@@ -475,6 +477,25 @@ func init() {
 	if target := os.Getenv(sendEnv); target != "" {
 		os.Exit(send(target))
 	}
+	if pid := os.Getenv(procArgsEnv); pid != "" {
+		os.Exit(procArgs(pid))
+	}
+}
+
+// procArgs prints pid's arguments and environment as ps reads them, through
+// kern.procargs2, or why it cannot.
+func procArgs(pid string) int {
+	n, err := strconv.Atoi(pid)
+	var raw []byte
+	if err == nil {
+		raw, err = unix.SysctlRaw("kern.procargs2", n)
+	}
+	if err != nil {
+		fmt.Println(err)
+		return 1
+	}
+	fmt.Println(strings.ReplaceAll(string(raw), "\x00", "\n"))
+	return 0
 }
 
 // send dials target, "<network> <address>", and writes a byte, printing why
@@ -1061,24 +1082,31 @@ func TestNoServiceReadsForTheRun(t *testing.T) {
 	assert.NotContains(t, out, "kstack-value")
 }
 
-func TestNoOtherProcessIsRead(t *testing.T) {
+// The profile refuses process information outside the run, but not
+// kern.procargs2, which no Seatbelt rule reaches: a run reads another
+// process's arguments. Before macOS 27 it reads its environment too, which
+// docs/TODO.md tracks, so the test pins the arguments alone.
+func TestAnotherProcessesArgumentsAreRead(t *testing.T) {
 	s := confining(t)
 	m := standIn(t)
-	arg, value := "kstack-arg-"+rand.Text(), "kstack-env-"+rand.Text()
+	arg := "kstack-arg-" + rand.Text()
 	// Two commands, so sh stays the process and keeps its arguments.
 	other := exec.Command("/bin/sh", "-c", "sleep 60; :", arg)
-	other.Env = []string{"KSTACK_TEST_MARKER=" + value}
 	require.NoError(t, other.Start())
 	t.Cleanup(func() { _ = other.Process.Kill(); _ = other.Wait() })
 	pid := strconv.Itoa(other.Process.Pid)
-	outside, err := exec.Command("ps", "-E", "-ww", "-p", pid).Output()
+	read := exec.Command(os.Args[0])
+	read.Env = []string{procArgsEnv + "=" + pid}
+	outside, err := read.Output()
 	require.NoError(t, err)
 	require.Contains(t, string(outside), arg)
 
-	out, _ := sh(t, s, m.on(s), `ps -E -ww -p "$P"`, "P="+pid)
+	// ps is setuid, which no run can start, so the test binary reads what ps
+	// would.
+	out, ok := sh(t, s, m.on(s), procArgsEnv+`="$P" "$BIN"`, "P="+pid, "BIN="+os.Args[0])
 
-	assert.NotContains(t, out, arg)
-	assert.NotContains(t, out, value)
+	require.True(t, ok, out)
+	assert.Contains(t, out, arg, "the arguments are read")
 }
 
 // setuidPrograms are the programs that exist to escalate, which the profile

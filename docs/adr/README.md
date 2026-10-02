@@ -171,3 +171,4 @@ usually just documentation in the wrong place.
 | 2026-09-30 | [Leaving the sandbox is the user's switch for a chat, never the model's flag](2026-09-30-leaving-the-sandbox-is-the-users-switch-for-a-chat.md) | cross-cutting | Accepted |
 | 2026-10-02 | [The sandbox's zones are Kstack's lists, and its environment one table](2026-10-02-the-sandboxs-zones-are-kstacks-lists.md) | sidecar | Accepted |
 | 2026-10-02 | [Bound a sandboxed run's processes with resource limits set inside the run](2026-10-02-process-limits-are-set-inside-the-run.md) | sidecar | Accepted |
+| 2026-10-02 | [Accept that a sandboxed command on macOS reads other processes' arguments](2026-10-02-a-macos-sandboxed-command-reads-other-processes-arguments.md) | sidecar | Accepted |

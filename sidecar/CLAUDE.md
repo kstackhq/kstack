@@ -1436,7 +1436,8 @@ socket is passed both as given and resolved. A Deny holds for its path whether o
 In order, a later rule winning: `deny default`; processes, signals and process info within the
 sandbox, but no exec of `sudo`, `su`, `login` or `security_authtrampoline`, by path
 (`TestTheProfileRefusesSetuidPrograms`; macOS 27 runs no setuid program under a profile, `ps` and
-`top` included, `TestEverySetuidProgramIsRefused`), `setsid` and `setpgid` refused (`syscall-unix`) so a process stays in the run's group,
+`top` included, `TestEverySetuidProgramIsRefused`, and `kern.procargs2` still reads any of the
+user's processes' arguments, and before macOS 27 their environment → [ADR](../docs/adr/2026-10-02-a-macos-sandboxed-command-reads-other-processes-arguments.md)), `setsid` and `setpgid` refused (`syscall-unix`) so a process stays in the run's group,
 `sysctl-read`; **the merged rules**, a Read as `allow file-read*` then `deny file-write*`, so it
 decides a tie with a Write as a read-only mount does, a Write as `allow file-read* file-write*`,
 **a run's own Write followed by a denial of unlinking or creating its root's own entry**

@@ -568,6 +568,29 @@ A risk we decide to accept is recorded as a **By decision** row in
 [`security-model.md`](security-model.md), each linking the ADR that accepted it — so an accepted
 risk stays distinguishable from an unnoticed one, and is not repeated here.
 
+- **Show what the sandbox does on this machine (high; sandbox owner).** On macOS 15 and 26,
+  `kern.procargs2` hands a sandboxed run the exec-time environment of any of the user's processes,
+  credentials included, and no Seatbelt rule closes it: the read is not checked by the sandbox
+  there ([ADR](adr/2026-10-02-a-macos-sandboxed-command-reads-other-processes-arguments.md)).
+  macOS 27 withholds it. Kstack's users skew towards the newest macOS, so the answer is to say so
+  rather than to work around a version on its way out. **Shape:** the `sandbox` query answers one
+  of three states, and the composer's `SandboxSwitch` draws it: *Sandboxed* (bubblewrap, or macOS
+  27 and later), commands run unasked and confined; *Sandboxed, with a known gap* (macOS 15 and
+  26), a broken shield and a warning naming what is exposed: the environment variables other
+  programs were started with, such as tokens exported in a terminal, until macOS 27; and *No
+  sandbox* (Windows, Linux without a usable bubblewrap), every command asks, which is not a broken
+  shield, since nothing runs unasked. Landing it widens the ADR to the environment shown to the
+  user, moves its row in `security-model.md` to **By decision**, and is a security record.
+
+- **Keep Kstack's provider keys out of its exec-time environment (medium; sidecar owner).** On
+  macOS 15 and 26 a sandboxed run reads the sidecar's exec-time environment like any other
+  process's, and the sidecar reads the provider keys from its environment; clearing them with
+  `os.Unsetenv` changes only its live copy. The sidecar will run standalone, started by the app or
+  a CLI, so it cannot count on its launcher. **Shape:** before it starts a run, the sidecar execs
+  itself again without the key variables and takes the keys over an inherited pipe, since Go has
+  no supported way to reach the exec-time strings and overwrite them in place. A darwin test reads
+  the sidecar through `kern.procargs2` and finds no key.
+
 - **Audit what secrets a sandboxed read still passes (medium; sandbox owner).** Redaction covers
   a Secret's values, `last-applied-configuration`, and a helm release's values and manifest
   Secrets. Check what else carries a secret to the model: env values and ConfigMaps; a helm
