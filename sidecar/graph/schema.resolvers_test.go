@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -2588,4 +2589,97 @@ func TestChatSandboxDisabledSetServesTheSwitchedChat(t *testing.T) {
 	chatID = sent["chatSend"].(map[string]any)["chatID"].(string)
 	raw := postGQL(t, none.URL, `{"query":"mutation { chatSandboxDisabledSet(id: \"`+chatID+`\", sandboxDisabled: true) { id } }"}`)
 	assert.Contains(t, string(raw), `"code":"KSTACK_VALIDATION_ERROR"`)
+}
+
+// sandboxPathServer is a server over a Service whose sync reads open as every
+// run's, with pending outside it, and whose refresh answers resolve; with no
+// sandbox the Service has neither.
+func sandboxPathServer(t *testing.T, available bool, resolve func(context.Context) ([]string, error)) (srv *httptest.Server, open, pending string) {
+	t.Helper()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	open, pending = filepath.Join(base, "open"), filepath.Join(base, "pending")
+	require.NoError(t, os.Mkdir(open, 0o755))
+	require.NoError(t, os.Mkdir(pending, 0o755))
+	store, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	require.NoError(t, err)
+	svc := securityconfig.NewService(store, nil, nil, "")
+	if available {
+		zones := func() securityconfig.Zones {
+			return securityconfig.Zones{Open: sandbox.FilePolicy{Read: []string{open}}}
+		}
+		svc = securityconfig.NewService(store, zones, resolve, "timeout")
+		require.NoError(t, svc.SyncPath(t.Context(), []string{open, pending}))
+	}
+	srv = httptest.NewServer(graph.NewServer(&graph.Resolver{SecurityCfg: svc, SandboxStatus: sandbox.Status{Available: available}}))
+	t.Cleanup(srv.Close)
+	return srv, open, pending
+}
+
+// refusal is errs' one error's code and message.
+func refusal(t *testing.T, errs []gqlError) (code, message string) {
+	t.Helper()
+	require.Len(t, errs, 1)
+	code, _ = errs[0].Extensions["code"].(string)
+	return code, errs[0].Message
+}
+
+func TestSandboxPathMutationsAnswerTheList(t *testing.T) {
+	srv, open, pending := sandboxPathServer(t, true, func(context.Context) ([]string, error) {
+		return nil, errors.New("no shell")
+	})
+	entry := func(dir, state, source string) map[string]any {
+		return map[string]any{"dir": dir, "target": dir, "state": state, "source": source, "shared": false}
+	}
+	const fields = `{ dir target state source shared }`
+
+	data, _ := mutation(t, srv.URL, `{ sandboxPath `+fields+` sandboxPathFault sandboxPathResolved }`)
+	assert.Equal(t, []any{entry(open, "Adopted", "Shell"), entry(pending, "Pending", "Shell")}, data["sandboxPath"])
+	assert.Equal(t, "timeout", data["sandboxPathFault"])
+	assert.Equal(t, true, data["sandboxPathResolved"])
+
+	data, _ = mutation(t, srv.URL, `mutation { sandboxPathInclude(dir: "`+jsonEscape(pending)+`", target: "`+jsonEscape(pending)+`") `+fields+` }`)
+	assert.Equal(t, []any{entry(open, "Adopted", "Shell"), entry(pending, "Adopted", "User")}, data["sandboxPathInclude"])
+	data, _ = mutation(t, srv.URL, `mutation { sandboxPathRemove(dir: "`+jsonEscape(open)+`") `+fields+` }`)
+	assert.Equal(t, []any{entry(open, "Gone", "User"), entry(pending, "Adopted", "User")}, data["sandboxPathRemove"])
+
+	for query, message := range map[string]string{
+		`mutation { sandboxPathInclude(dir: "` + jsonEscape(pending) + `", target: "` + jsonEscape(pending) + `") { dir } }`: "That folder is already included.",
+		`mutation { sandboxPathInclude(dir: "` + jsonEscape(pending) + `", target: "/elsewhere") { dir } }`:                  "That folder now leads somewhere else. Check it, then include it again.",
+		`mutation { sandboxPathRemove(dir: "/nowhere") { dir } }`:                                                            "That folder is not in the list.",
+		`mutation { sandboxPathRefresh { dir } }`:                                                                            "Your shell did not answer: no shell.",
+	} {
+		_, errs := mutation(t, srv.URL, query)
+		code, got := refusal(t, errs)
+		assert.Equal(t, "KSTACK_VALIDATION_ERROR", code, query)
+		assert.Equal(t, message, got, query)
+	}
+	data, _ = mutation(t, srv.URL, `{ sandboxPathFault }`)
+	assert.Equal(t, "no shell", data["sandboxPathFault"], "the refresh's fault replaces the launch's")
+}
+
+// A machine with no sandbox answers an empty list and no fault, and refuses
+// every change.
+func TestSandboxPathIsEmptyWithNoSandbox(t *testing.T) {
+	srv, open, _ := sandboxPathServer(t, false, nil)
+
+	data, _ := mutation(t, srv.URL, `{ sandboxPath { dir } sandboxPathFault sandboxPathResolved }`)
+	assert.Equal(t, []any{}, data["sandboxPath"])
+	assert.Nil(t, data["sandboxPathFault"])
+	assert.Equal(t, false, data["sandboxPathResolved"])
+	for _, query := range []string{
+		`mutation { sandboxPathInclude(dir: "` + jsonEscape(open) + `", target: "` + jsonEscape(open) + `") { dir } }`,
+		`mutation { sandboxPathRemove(dir: "` + jsonEscape(open) + `") { dir } }`,
+		`mutation { sandboxPathRefresh { dir } }`,
+	} {
+		_, errs := mutation(t, srv.URL, query)
+		code, _ := refusal(t, errs)
+		assert.Equal(t, "KSTACK_VALIDATION_ERROR", code, query)
+	}
+}
+
+// jsonEscape is s as the inside of a GraphQL string literal.
+func jsonEscape(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b[1 : len(b)-1])
 }

@@ -1526,8 +1526,10 @@ nothing installed, it sets the variable alone; on both it installs `kubectl` and
 `testutil_unix_test.go`): an app over a fake API server its kubeconfig names, which answers the
 probes, discovery and a list of two pods and records every request; the fake model, handed in
 through `Config.fake` and staged per chat with `Fake.Route(question)`; a chat sent over GraphQL,
-and its Bash call read back from `app.db`. A missing sandbox, `kubectl` or `jq` goes through
-`testutil.RequireSandbox`.
+and its Bash call read back from `app.db`. `kubectl` and `jq` reach the run through a folder of
+links to them that the launch's `PATH` names and the test includes (`toolsFolder`), since the
+folder a runner keeps them in may be one no run searches. A missing sandbox, `kubectl` or `jq`
+goes through `testutil.RequireSandbox`.
 
 **The forwarder is `kstack-sidecar sandbox-init`** (`sandbox.InitMain`, `forward.go`), which
 `main` reaches through `sandbox.Main` before it reads a flag of its own; `sandbox.ForwarderArgs`
