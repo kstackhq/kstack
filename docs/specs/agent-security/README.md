@@ -147,7 +147,7 @@ what it does in either order.
 
 | Spec | Step | After it |
 | --- | --- | --- |
-| [3A](3a-path-from-the-login-shell.md) | **`PATH` from the login shell.** The user's `PATH` is resolved from their login shell, filtered, frozen in `securityconfig`, diffed at each launch with a confirmation for a new entry that would open more, refreshed on request, and shown in Settings. Needs 2A and 1C. | The sandbox finds the tools the user's shell finds, and no startup file widens it unseen. |
+| 3A | **`PATH` from the login shell.** The user's `PATH` is resolved from their login shell, filtered, frozen in `securityconfig`, diffed at each launch with a confirmation for a new entry that would open more, refreshed on request, and shown in Settings. **Landed**; the root and `sidecar/` `CLAUDE.md` describe it. | The sandbox finds the tools the user's shell finds, and no startup file widens it unseen. |
 | [3B](3b-the-permissions-engine.md) | **The permissions engine.** Classes, modes, rules, the shipped deny rules, and `Decide`; the Kubernetes classifier assigns class 4 and 5; the cluster proxy asks `Decide` before each write; modes per context in `securityconfig`, `*prod*` read-only by default; the Settings section. Needs 2C and 1C. | A cluster write runs, asks or is refused by the user's mode and rules, and class 5 is never allowed unasked. |
 
 Seam: both add fields to `securityconfig.Settings`, and both need the store's `Held`: the step

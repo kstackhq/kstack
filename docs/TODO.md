@@ -431,6 +431,27 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **`appdb.Close` during the janitor's first sweep can leave `app.db-wal` behind.** The sweep starts the moment `Open` returns; a `Close` that cancels it mid-statement leaves the WAL beside the file (about 1 in 200 in a loop of `Open` then `Close` after a short delay). A failed `app.New` that closes the file right after opening it hits this, and a test asserting the WAL's absence flakes. Wanted: `Close` leaves no WAL after joining the janitor, e.g. an uncancelled checkpoint before the pools close.
 
+- **Give `app` a runtime struct for what `main` measured at launch.** `app.Config` mixes the
+  settings `main` read from flags and the environment with facts it measured before `run`:
+  `HostPID`, `UserUmask`, and the login shell's answer, split across `ShellPath` and `ShellFault`.
+  Move the facts into a struct of their own. Carry the shell's answer as one field, a path or the
+  reason there is none, whose zero value means `main` did not run the shell (tests, Windows).
+  - **One way into the PATH's state.** The launch's fault enters `securityconfig.Service` through
+    `NewService`, while a refresh's goes through `RefreshPath`. Give the service one method that
+    records a resolution: the fault when it failed, else a sync of its path. The launch's PATH
+    sync part and `RefreshPath` both call it, and `NewService` loses its `fault` argument.
+
+- **Rename `securityconfig` to `securitysvc`, once 3A and 3B have merged.** The package is a
+  service like `chatsvc` and `memorysvc`: a `Service` with operations, runtime state and a watch,
+  which the resolvers call. "config" reads as a file loaded once. Do it before a step-4 branch
+  starts, so nothing in flight conflicts with the move.
+  - **Scope.** `git mv` the package, fix its importers and the gqlgen binding, and regenerate.
+    Update both `CLAUDE.md`s, `docs/security-model.md`, the specs and the security records' code
+    references. Leave the ADRs. `security.json` and its schema stay as they are.
+  - **Keep it narrow.** It holds the user's security settings and the operations on them, not
+    everything about security. Say so in the package doc, and say in `sidecar/CLAUDE.md` that a
+    service need not sit on `app.db`.
+
 ## Host (Tauri/Rust)
 
 - **The log level can only be set by an environment variable.** The host reads `KSTACK_LOG_LEVEL` in

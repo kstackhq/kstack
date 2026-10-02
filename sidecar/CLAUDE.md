@@ -45,15 +45,17 @@ This file states what is true now. Why it is that way lives in `docs/adr/`; ever
 `main()` first hands `os.Args` to `sandbox.Main`, which runs a `sandbox-init` or `sandbox-shell`
 command line (*Tools*, below), and exits with its code. Otherwise it does four things before `run`, in this order: tighten the
 umask, parse the command line,
-install the logger, and import the shell environment (macOS only, below). Parsing comes first
-because `--log-file`/`--log-stderr` decide where records go; the import comes after the logger
+install the logger, and run the login shell once (`launchShell`, below), which sets the
+shell environment on macOS and hands its `PATH` to the app as `app.Config.ShellPath`, or why it
+failed as `ShellFault`. Parsing comes first
+because `--log-file`/`--log-stderr` decide where records go; the shell comes after the logger
 because it writes a line through it, and before `run` because everything that reads the
 environment — `KUBECONFIG`, the proxy variables, `OLLAMA_HOST` — runs inside it. The shutdown
-signals are listened for before the import, and the one context reaches both it and `run`: a
-quit during the import cancels it, so `loginshell.Import` kills and reaps the login shell's
+signals are listened for before the shell runs, and the one context reaches both it and `run`: a
+quit during it cancels it, so `loginshell.Resolve` kills and reaps the login shell's
 session, and `run` shuts down on the context it was handed. Tightening the umask returns the one
 the process started with, which `main` sets as `app.Config.UserUmask`: a file Write makes for the
-user takes it, not the sidecar's owner-only one. Beside the import, and for the same
+user takes it, not the sidecar's owner-only one. Beside the shell's run, and for the same
 reason, `main` sets `app.Config.ShellSnapshot`: a test's `run` never spawns the developer's login
 shell.
 `run(ctx, cfg, …)` is the tested seam and takes the parsed config;
@@ -81,10 +83,10 @@ that is what keeps cluster-controlled text from forging a line (`TestInitWritesO
 host](../docs/adr/2026-09-08-json-logs-rendered-by-the-host.md), [ADR: two processes, two log
 files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
 
-- `internal/app/` builds `poke`, `kubeconfig`, opens the security settings (`securityconfig.Open`, before `app.db`, since the store holds no handle) and `app.db`, builds `clustersvc`, `memorysvc` and `chatsvc` over it, `auth`, `cloud`, wires `graph.NewServer` + `grpcserver.NewServer`, and multiplexes both onto one h2c handler. `App.parts` is start order (app.db → poke → kubeconfig → cluster → cloud → memory → chat, then the shell snapshot when `ShellSnapshot` is set); stop and close reverse it. **kubeconfig before cluster is load-bearing** (`app_test.go` pins it). The transports stay out of the slice; `grpcServer.Stop()` runs first in `Close`.
+- `internal/app/` builds `poke`, `kubeconfig`, opens the security settings (`securityconfig.Open`, before `app.db`, since the store holds no handle) and `app.db`, builds `clustersvc`, `memorysvc` and `chatsvc` over it, `auth`, `cloud`, wires `graph.NewServer` + `grpcserver.NewServer`, and multiplexes both onto one h2c handler. `App.parts` is start order (app.db → poke → kubeconfig → cluster → cloud → memory → chat, then the `PATH` sync when `ShellPath` is set on a machine with a sandbox, then the shell snapshot when `ShellSnapshot` is set); stop and close reverse it. The sync folds the launch's `PATH` into the stored list, and one that fails is a warning, not a startup error. **kubeconfig before cluster is load-bearing** (`app_test.go` pins it). The transports stay out of the slice; `grpcServer.Stop()` runs first in `Close`.
 
   **`READY` promises a socket, not a finished startup.** `run` prints it after the bind and before `Start`; the first request is answered after `Start`, and every part completes its startup work inside `Start`. Everything that reads the environment does so after `main`'s shell import, which finishes before `run` — nothing sends before it, and `net/http` reads the proxy variables once per process on the first request.
-- `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.SecurityCfg` is the security settings store, named for what it holds since it is not a service; its one resolver is `securityRefused`.
+- `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.SecurityCfg` is `securityconfig.Service`, the settings store with the frozen `PATH` kept in it; its resolvers are `securityRefused`, and `sandboxPath`, `sandboxPathFault` and the three `sandboxPath*` mutations, which answer an empty list, no fault and a refusal on a machine with no sandbox. A `securityconfig.PathRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxPathErr`).
 - `grpc/` — `AuthService`, `PokeService`, committed protoc output in `authpb/`, `pokepb/`. Regenerate with `make proto`; **never hand-edit `*.pb.go`**. `IsGRPCRequest` lives here.
 - `internal/` — `ipc`, `atomicjson`, `logging`, `safe` (an error rendered for a log line, and a command's output redacted: `Redact` line by line, `RedactJSON` a JSON text by its structure, for text that is one line with its newlines escaped; the field and flag rules read a credential's name off `credentialNames`, with or without the separator inside it, so camelCase keys match), `sqlitemigrate` (the migration runner, `Apply`), `sqlitepool` (the one home of the SQLite open contract: `OpenWriter` a store's one writer connection, `OpenReader` a reader pool, `OpenQuery` read-only connections through a caller's driver with none kept idle), `sqlstmt` (a store's statement table, prepared once on a file's writer and reader pools and routed per call: a `[]sqlstmt.Statement` indexed by the store's own id type, each entry its text and pool — `OnWriter`, `OnReader`, or `OnBoth` for a read some caller runs inside a write transaction; `Prepare[ID]` compiles it at open, since modernc caches nothing and a text handed to a pool at a call site is compiled every time; `Set.Stmts()` issues on the pools, `Set.InTx` inside one write transaction, `Set.InReadTx` inside one read-only transaction on the reader, always rolled back; inside a transaction the copy rebound, once per id, is the one prepared on that transaction's pool, and an id its pool does not hold panics; `Set.Close` finalizes the statements alone, and a closed set refuses `InTx`/`InReadTx` with `ErrClosed`, since `Tx.StmtContext` would quietly re-prepare a closed statement; imports nothing of ours; → [ADR: one statement set](../docs/adr/2026-09-16-sqlstmt-prepares-a-services-statements.md)), `appdb`, `rawjson`, `apimeta` (wire vocabulary no service owns — the delta-frame type, `ObjectID`, `ClusterID`, which `clustersvc` aliases, and `ChatID`, which `chatsvc` aliases and `memorysvc` and `tools.Runtime` name), `deltafold` (a watch's memory: `Snapshot`/`Diff`/`Upsert`/`Has` over a caller's key, equality and frame, plus `Send`; imports `apimeta` alone), `version` (`Version` is `dev` unless the linker stamped it: `scripts/build-sidecar.go` passes `-X …/internal/version.Version=$SIDECAR_VERSION` when set, `release.yml` sets it to the release version, and `main` logs it on the `sidecar starting` line; nothing reads a version from the environment or a file), `poke`, `kubeconfig`, `drain`, `lifecycle`, `loginshell`, `workqueue`, `supervisor`, `clustercard` (the cluster card a chat send will carry), `rootdir` (a directory opened and removed through an `os.Root`, under *Tools*), `sandbox` (the machine's sandbox and a run's forwarder, under *Tools*), `kubeproxy` (the cluster proxy a sandboxed run reaches its cluster through, under *Tools*), `session` (one agent run's identity and policy, under *Tools*), `memorysvc` (the notes a chat's cluster sees, below), `securityconfig` (the security settings, below), `catalog` (the providers and the tools each is offered, below), `testutil` (test-only, imported by no production code), plus the subsystems below.
 
@@ -108,16 +110,36 @@ Full picture: [`docs/security-model.md`](../docs/security-model.md). The sidecar
 - **Restored identity is display-only.** Login verifies the ID token; startup decodes the stored token without verification. `UnverifiedIdentity.DisplayOnly` returns an ordinary `Identity`, so review must keep identity and the local `Authenticated` flag out of authorization decisions. The cloud verifies access tokens independently. The loopback callback checks state before consuming a code or error (`TestLoopbackRejectsInvalidCallbackWithoutConsuming`).
 
 
-## Shell environment on macOS (`internal/loginshell`)
+## The login shell (`internal/loginshell`)
 
-A GUI launch inherits launchd's minimal environment, not the one the user's shell builds, so a
-kubeconfig `exec` credential plugin (`aws`, `gke-gcloud-auth-plugin`) is not found even though the
-same kubeconfig works in a terminal — and an exported `KUBECONFIG` or `AWS_PROFILE` is invisible.
-`main()` asks the login shell for an allowlisted set of variables and installs the answer
-process-wide, because Go resolves a command name against the process PATH — a per-child env
-override would not help client-go find the binary. The split is by filename, `main_darwin.go` against
-`main_default.go`; the package itself is `//go:build unix` throughout, so CI exercises it on
-Linux and Windows never builds it.
+`main()` runs the user's login shell **once per launch**, on macOS and Linux (`launchShell` in
+`main_unix.go`; `main_windows.go`'s runs nothing). `loginshell.Resolve` answers a `Result` with
+two readers: `Path`, the shell's `PATH` split and unfiltered, which the app hands to the sync
+(*Security settings*, below), and `Env`, the allowlisted environment, which `setShellEnv`
+sets process-wide on macOS (`main_darwin.go`; a no-op in `main_default.go`). A GUI launch
+inherits launchd's minimal environment, so without it a kubeconfig `exec` credential plugin
+(`aws`, `gke-gcloud-auth-plugin`) is not found even though the same kubeconfig works in a
+terminal — and an exported `KUBECONFIG` or `AWS_PROFILE` is invisible. It is installed
+process-wide because Go resolves a command name against the process PATH. `loginshell.Path` is
+`Resolve`'s `Path` alone, the refresh's reader, its error the `*Fault`, which is an `error`
+naming its reason. The package is `//go:build unix` throughout, so nothing outside a Unix file
+imports it: the app takes the refresh's resolver from `app/shellpath_unix.go`.
+
+**The shell is the account record's** (`accountShell`), never `$SHELL`: `dscl /Search -read
+/Users/<name> UserShell` on macOS, `getent passwd <name>` then the user's line in `/etc/passwd`
+elsewhere, each through `lookupCommand`, which a test points at a fake. A record naming no
+executable by absolute path falls back to the platform's own (`/bin/zsh`; `/bin/bash`, then
+`/bin/sh`), else `no shell`. Finding it stats a file and reads the account, which can block on
+a dead network mount past any cancel, so `Resolve` runs it on a goroutine and answers `timeout`
+at its deadline (`findShellOrTimeout`). **The command follows the shell's kind**, by base name: `nu` runs
+`-l -c` with two frames (the cwd, then `$env.PATH | str join ":"`), and any other shell `-i -l -c`
+with the posix command below, so a nushell run answers `Path` and an empty `Env`. **The
+environment is scrubbed**: `HOME`, `USER`, `LOGNAME`, `TMPDIR`, `LANG` and `TZ` copied when set,
+`SHELL` the shell run, `TERM=dumb`, `DISABLE_AUTO_UPDATE=true`, and `PATH` at
+`loginshell.DefaultPath`, the platform's login default, so a terminal launch and a Finder launch
+resolve the same list. `Launch` takes its arguments and environment from its caller; the bash
+tool's snapshot passes `InteractiveLogin` and `ProcessEnv`, the process's environment, as before.
+`Find()` stays for the bash tool, which picks the shell a command runs in.
 
 **The allowlist is the security boundary.** `imported` names every variable and its kind, the shell
 command is built from that list, and adding a row is a security change: we spawn credential plugins
@@ -150,12 +172,9 @@ Three rules resolve a `path` or `pathList` value, **in this order**:
   could not report is no base, and the entry passes through as given.
 - **An empty entry is dropped**, and a variable left empty is not installed at all.
 
-The shell is `Find()` — `$SHELL` when it is an absolute path to an executable — else
-`/bin/zsh`; **a relative `$SHELL` is never looked up**, and falls back like an unset one —
-resolving it would search the very PATH being replaced. `Launch` runs it `-i -l -c` (three flags:
-fish does not cluster them) with one built command, started in the user's home, stdin at
-`/dev/null`, in a **session** of its own, and reads stdout until the caller's `done(buf, from)`
-says the answer is whole. The bash tool's snapshot is its other caller. Nothing from a kubeconfig,
+`Launch` runs the shell with the flags its kind takes (three for posix: fish does not cluster
+them) and one built command, started in the user's home, stdin at `/dev/null`, in a **session**
+of its own, and reads stdout until the caller's `done(buf, from)` says the answer is whole. Nothing from a kubeconfig,
 cluster data, or the socket may ever reach that command.
 
 Traps worth knowing:
@@ -167,8 +186,8 @@ Traps worth knowing:
   is run from one — `pnpm tauri dev`.
 - **The marker must begin with a letter and the escape is `\000`.** `printf` reads `\0` as the
   start of an octal escape, so a marker starting `0`-`7` is swallowed into it and simply vanishes.
-- **Resolution stops at the last marker, not at EOF.** The shell's cwd leads, so N variables are
-  framed by N+2 markers: one before `pwd`, one before each `printenv`, and one after the last. A startup file that backgrounds a daemon leaves it
+- **Resolution stops at the last marker, not at EOF.** `parse` takes the number of frames the
+  kind prints. The shell's cwd leads, so N variables are framed by N+2 markers: one before `pwd`, one before each `printenv`, and one after the last. A startup file that backgrounds a daemon leaves it
   holding stdout; waiting for the pipe to close would hand it the power to stall every launch. The
   shell's exit status gates only when nothing usable was captured.
 - **Each surviving entry is byte-for-byte.** A directory name may hold anything but NUL and the
@@ -183,13 +202,15 @@ Traps worth knowing:
   startup file ran `set -e`. It is the only shell syntax beyond the original command, and it sets a
   floor: fish grew `||` in 3.0.
 
-Five seconds bounds the whole thing (`loginshell.DefaultTimeout`), after which the group is killed
-and reaped. Any failure keeps the inherited environment and logs one warning naming a fixed reason —
+Ten seconds bounds the whole thing (`loginshell.DefaultTimeout`), after which the group is killed
+and reaped. Any failure keeps the inherited environment and the stored `PATH` list, and logs one
+warning naming a fixed reason —
 `no shell`, `shell exited`, `bad output`, `output limit`, `timeout` — and never a value, the
-shell's output, or anything else the user's environment holds. A success logs at `Info` with the
-names it installed, so a shipped build can say whether the import ran. Falling back is not a
-startup error. Resolution runs **once per process**, so a change to a startup file takes effect on
-the next launch.
+shell's output, or anything else the user's environment holds; the reason reaches Settings as
+`sandboxPathFault`. A success logs at `Info` how long the shell took, so the timeout can be
+judged against real startup files, and on macOS the names it set. Falling back is not a
+startup error. Resolution runs **once per launch**, and again only on Refresh PATH, so a change to
+a startup file takes effect on the next launch.
 
 Process-wide means process-wide: `internal/auth`'s browser opener resolves `open`/`xdg-open`
 against the imported PATH too.
@@ -1370,7 +1391,8 @@ sets `RUSTUP_HOME`, since `~/.cargo/bin` holds only its proxies);
 `Never`, what no run reads whatever else is granted — the credentials, the histories, the
 container sockets, the browsers' profiles and `/etc`'s secret files; and `Closed`, `~/Documents`,
 `~/Desktop` and `~/Downloads`, a Files Deny, so a Read of the home leaves them shut and a Read of a
-folder inside one opens it. **A `PATH` entry opens nothing** (`TestAFolderOnThePathIsNotRead`).
+folder inside one opens it. **The zones open no `PATH` entry** (`TestAFolderOnThePathIsNotRead`):
+a run's adopted `PATH` folders are Read rules of its own (*Tools*, the bash tool).
 Adding a location is a security change: every run reads it. **`Sandbox.System(home, shell)`
 answers what every run starts from**, from one look at the home: a `System` of `Files` — Read on
 the System folders, each Toolchain folder that exists and resolves below the home and every
@@ -1478,6 +1500,17 @@ process spawned out of its group (`posix_spawn` with `POSIX_SPAWN_SETSID`, which
 refuse) outlives the run's group kill, still confined: macOS has no PID namespace → [ADR: a macOS
 run keeps its group](../docs/adr/2026-09-28-a-macos-run-keeps-its-group-by-refusing-setsid.md).
 
+**`search.go` is the one rule for a folder a run's `PATH` may search** (`SearchFolder(dir,
+never, broad)`): absolute, resolving to a directory, not world-writable (sticky bit or not), not on
+or under an Always path, not broad — `/`, the home or an app-data folder under it (`Broad(home)`,
+the same `broadDirs` that keeps a toolchain folder out of `System`), or a folder holding one —
+not a fixed mount (`overFixedMount`, which `Command` refuses), and no list
+separator in its name, which a joined `PATH` would split — each refusal a reason of its own, so a
+folder that passes never stops a run from starting. `securityconfig`'s filter and its per-run
+check both call it, then add only the list's own rules. `FilePolicy.WithSearch(folders)` is the
+run's Read rules for them, a Files Deny on one of those very folders dropped, since it would win
+the tie.
+
 **`paths.go` is how paths compare**: `resolved` (links followed, a missing path through its
 deepest folder that exists), `resolvedAll`, `within` and `inAny`, by text, which the policy and
 both compilers use. A Toolchain folder that is a link (`~/.nix-profile`) is bound at its target
@@ -1515,7 +1548,7 @@ past the address-space limit is a runtime crash; a failed exec writes `sandbox-s
 **Tests that start the chain call `sandbox.Main` from their `TestMain`**: `sandbox`, `bash`
 (whose proxy tests run on the machine's sandbox, through `sandboxed` in
 `testutil_unix_test.go`, and write their coverage through `Tool.extraWritable`, a test's seam)
-and `app` (whose tests reach the real probe through `newShell`). A test binary that did not would
+and `app` (whose tests reach the real probe through `newBashTool`). A test binary that did not would
 run its own suite inside the probe until its bound. A test that needs a sandbox, or a confining
 one, and finds none calls `testutil.RequireSandbox`, which fails under `KSTACK_REQUIRE_SANDBOX=1` and skips otherwise,
 saying why; CI's Linux Go jobs set it through `setup-environment`'s `setup-sandbox`, with
@@ -2129,7 +2162,7 @@ chat. → [ADR: every tool is in the box](../docs/adr/2026-09-24-every-tool-is-i
 
 **A turn can run a command, once the user says so.** Bash is one tool in the box `chatsvc.New`
 takes, like any other, and every turn on a model that takes tools is offered the same `bash.Tool`,
-given its chat. **`app.go` offers it wherever `bash.New` finds a shell** (`newShell`, which
+given its chat. **`app.go` offers it wherever `bash.New` finds a shell** (`newBashTool`, which
 probes the sandbox once, logs the status first and returns it beside the tool; `sandboxStatusOf`
 builds the one `sandbox.Status` from both, available only with a shell and a sandbox, which
 `chatsvc.New` and `graph.Resolver` take; `chatTools`, the one
@@ -2145,7 +2178,7 @@ call's own timeout plus `killGrace` (5s) plus `callMargin` (5s), so a command st
 timeout answers with its own result rather than the loop's `timeout`, while every other tool
 keeps chat's 2s `defaultToolTimeout`. → [security records: the bash tool](../docs/security/2026-09-18-bash-tool.md), [bash offered to every turn](../docs/security/2026-09-22-bash-offered-to-every-turn.md).
 
-**`internal/tools/bash` is the tool.** `New(Paths{ShellDir, RunsDir, TmpDir, KubectlDir, DeniedDirs}, hostPID, sandbox, clusterSvc)` finds the shell — on Unix
+**`internal/tools/bash` is the tool.** `New(Paths{ShellDir, RunsDir, TmpDir, KubectlDir, DeniedDirs, Path}, hostPID, sandbox, clusterSvc)` finds the shell — on Unix
 `loginshell.Find()` when its base name is `zsh` or `bash` (`Tool.kind`), else bash on `PATH`;
 on Windows only Git for Windows', through Git's own install record (`SOFTWARE\GitForWindows`,
 both `HKLM` registry views then `HKCU`, `readInstallPath` the test seam) and never off `PATH`,
@@ -2188,7 +2221,22 @@ directory with `flock` before making anything there (`holdRunLock`, once per pro
 exit), and the sweep takes each `<pid>`'s lock it can, removes that pid's directories while holding
 it, then the lock file. A lock dies with its process, where a pid passes to later ones, across a
 reboot too, so a reused pid never keeps a gone sidecar's `TMPDIR`. A sidecar that waited on a
-sweep's hold takes the lock again when the sweep removed the file. **Its environment is one table** (`sandboxedRunEnv`, `env.go`): the process's `PATH`;
+sweep's hold takes the lock again when the sweep removed the file. **Its `PATH` is frozen at its start** (`path.go`): `New`'s `pathList` is the
+stored settings' `RunPath`, the list and whether a sync has written it, read
+once before the run is built, and
+`runPath` checks each adopted entry with a `securityconfig.RunCheck` over the run's `System` and its `Always` paths, each list
+resolved once per run — the
+folder it resolves to now when the sync would adopt that unasked, the stored `Target` for one the
+user adopted, nothing for one inside an `Always` path, broad, world-writable, or no longer open or
+shared under the shell's adoption — logging each entry it leaves out or moves. The folders that
+pass are the run's `PATH`, joined in order without repeats, or `emptyPath` (`/nonexistent`) with
+none, since an empty `PATH` searches the writable working directory. **Only a list never
+resolved** (`Settings.PathResolved` unset: no sync has run, as after a first launch whose shell
+failed) searches `loginshell.DefaultPath` instead, each folder an entry the shell adopted under the
+same checks; a resolved list that is empty, or whose every entry fails them, searches nothing. Each folder
+`System` does not open is a Files Read rule of the run, which takes the place of a Files Deny on
+that very folder, so an included closed folder opens (`FilePolicy.WithSearch`). Nothing re-reads the store while the run
+lives. **Its environment is one table** (`sandboxedRunEnv`, `env.go`): that `PATH`;
 `HOME` the workspace and `PWD` the start directory; `TMPDIR` its own; `ZDOTDIR` the run's
 directory, which holds no startup file, so `zsh -c` never sources a `.zshenv` a command left in
 the workspace; `KUBECONFIG` and `KUBECACHEDIR` for a run with a cluster; `LANG` the process's, else
@@ -2356,7 +2404,7 @@ options, the functions, the regular aliases and `export PATH`. **PATH is resolve
 `loginshell`'s rules** before it is printed, in the dump itself: a command runs in its own
 directory, not where the profile may have `cd`'d, so a relative entry is prefixed with the dump's `$PWD`, a
 leading `~` passes through, an empty entry is dropped, and a PATH left empty is not exported —
-on macOS the replay would otherwise overwrite the PATH `Import` already resolved. Left out: the
+on macOS the replay would otherwise overwrite the PATH `main` already installed. Left out: the
 options that say how the shell was started (`monitor` above all — replayed, it moves a command's jobs out of its group —
 and bash's read-only `login_shell` and `restricted_shell`) and global and suffix aliases, which
 expand anywhere in a line. Options come before functions because a body is parsed under the
@@ -2513,7 +2561,7 @@ timeout (the fetch's bound is its one clock), `Dialing.RootCAs` as its trust, an
 `net.Dialer` whose `ControlContext` refuses an address `Dialing.Public` rejects
 (`errPrivate`) — the address actually dialled, after DNS, on every connection. The one
 destination let through is the proxy: `Dialing.Proxy` is an `httpproxy.Config` (`app` passes
-`FromEnvironment()`, which on macOS holds what `importShellEnv` set), and a dial to its
+`FromEnvironment()`, which on macOS holds what `setShellEnv` set), and a dial to its
 `HTTPSProxy` address — every fetch is https, so no other proxy carries one — spelled as
 `net/http`'s `canonicalAddr` spells it (`proxyAddr`), skips the control. `Public` refuses loopback, private, link-local, multicast and unspecified addresses,
 `0.0.0.0/8`, `100.64.0.0/10`, `192.0.0.0/24`, `198.18.0.0/15` and `240.0.0.0/4`, and judges NAT64,
@@ -3104,8 +3152,8 @@ it concurrently.
 **`<data>/security.json` is the security settings**, 0600 through `atomicjson`, in the data
 directory no sandboxed command reads, and never synced. `app.New` opens it on every platform;
 `Store` has `Get`, `Update`, `Subscribe` (a `gochan/watch` receiver, current on subscribe) and
-`Refused`. `Settings` has no fields yet: each step of the agent-security sequence adds its own,
-`omitempty` (`omitzero` for a struct), and names it in its spec.
+`Refused`. Each step of the agent-security sequence adds its own field to `Settings`,
+`omitempty` (`omitzero` for a struct), and names it in its spec. `Path` is the first.
 
 - **Every value crosses a JSON copy** (`clone`): `Get` and each send are copies, so a caller
   never reaches the store's value; receivers share one delivery and treat it as read-only.
@@ -3113,7 +3161,8 @@ directory no sandboxed command reads, and never synced. `app.New` opens it on ev
   publishes nothing, so a nil slice swapped for an empty one is no change. The first write
   that changes something creates the file; `Open` writes nothing.
 - **Decoding is per field, and a list per element.** `Open` reads the file as a JSON object and
-  decodes each key into the field `encoding/json` writes under it. One bad list element is refused
+  decodes each key into the field `encoding/json` writes under it. A `null` is refused, since
+  `encoding/json` would read it as the zero value. One bad list element is refused
   alone; any other value of the wrong type is refused whole, and the other fields load. A key no
   field names is ignored and kept: every write puts it back as read, so an older Kstack's write
   keeps a newer one's setting. Only a file that is not a JSON object, `null` included, fails
@@ -3124,18 +3173,61 @@ directory no sandboxed command reads, and never synced. `app.New` opens it on ev
 - **A hand edit may cost a permission, never a restriction.** `strictest` (`check.go`) maps each
   field that restricts to what sets it to its most restrictive state. A refusal on such a field
   sets that state, never the zero value, and the store keeps the field's raw JSON, which every
-  `Update` writes back until one changes the field or names it in `fields` (its JSON key). The fix
-  can be the strictest state the field already answers, which changes nothing in memory, so a
-  Settings section's mutation names the field it writes. A field not listed only grants, and a
-  refused value of it is dropped.
+  `Update` writes back until one names the field in `fields` (its JSON key), which ends the hold.
+  **The store guards a held field**: an `Update` that changes one without naming it is `ErrHeld`
+  and writes nothing, so no writer drops the value by accident; `Held(field)` says whether the
+  store still keeps it. The fix can be the strictest state the field already answers, which
+  changes nothing in memory, so a Settings section's mutation names the field it writes. A field
+  not listed only grants, and a refused value of it is dropped.
 - **The read-back is `checks`** (`check.go`), one per field, each added by its field's step. A
   check reads the value alone, removes what it refuses, and answers a `Refusal` (field, value,
   reason in the user's words) for each. On `Open` every refused value is logged and kept for the
   store's life in `Refused()`, which the `securityRefused` query serves. On `Update` a refusal is
   the error (`Refusal` is an `error`), and nothing is written. `WithChecks` is the test seam that
   swaps the list.
-- **The core is generic** (`store[T]`), so the tests run it over their own settings type before
-  `Settings` has a field.
+- **The core is generic** (`store[T]`), so the tests run it over their own settings type.
+
+**`Settings.Path` is the user's `PATH`, frozen** (`path.go`): a `PathEntry` per folder, in the
+shell's order — `Dir` as the shell gave it, `Target` the folder it resolved to when its state was
+set, `State` (`adopted`, `pending`, `gone`), `Source` (`shell` for the sync's decision, `user` for
+Include's or Remove's) and `Shared`. A state holds for `Target` alone. Its check refuses an entry
+whose `dir` or `target` is not absolute, a repeated `dir`, or an unknown state or source; its
+`strictest` line keeps the entries that passed, since a refused one may have been a removal.
+`filterPath` (`filter.go`) drops, by the resolved path, what `sandbox.SearchFolder` refuses, then
+`node_modules` and duplicate entries, and marks `Shared` a folder writable by a group that is not an administrators'
+one (`admin` and `wheel` on macOS, `root`, `wheel`, `sudo` and `admin` elsewhere, gid 0 on both;
+a group that cannot be looked up is shared, and each gid is looked up once per process).
+
+**`Service` (`service.go`) is the store plus the sync**, built by `app.New` over the store with
+`Zones` (`Never`; `Open`, the bash tool's shell's `System(home, shell).Files`; and `Home`, for the
+broad folders), the refresh's
+resolver and the launch's fault; on a machine with no sandbox it has neither and syncs nothing.
+`Service` embeds the `Store`, so every store method is its own. An entry is **open** when its
+`Target` is under one of `Open`'s Read paths and none of its Deny paths, every list resolved once
+per sync (`sandbox.Resolved`) and compared by text (`sandbox.Under`). `SyncPath`
+reads the disk on a goroutine abandoned when its context ends or `SyncTimeout` (5s) passes, at
+launch and on refresh alike, then diffs in one `Update` naming
+`path`: a new entry open and not shared is `adopted`, any other new one `pending`; an entry whose
+`Target` changed is filed again as new; every entry whose `Target` held takes the folder's
+`Shared` as it is now; a shell-adopted entry now shared or no longer open goes
+`pending`; an `adopted` or `pending` entry the shell no longer lists is dropped, a `gone` one kept
+after the listed ones; and the shell's order wins; and it sets `PathResolved` and clears
+`PathStrict`. While the field is held, or while `PathStrict` is set — by a Remove that ended the
+hold, stored so it survives a restart — every new entry is `pending`. Both marks restrict: a
+refused value answers resolved and strict. A move of the
+first adopted folder holding `kubectl` or `helm` logs one line; the probes are a diagnostic, so
+they look at adopted folders alone and run on a goroutine after the write, and one that hangs
+never holds a sync. `RefreshPath` resolves again,
+keeping or clearing the fault (`PathFault`), and syncs; `AdoptPath` (Include) sets a `pending` or
+`gone` entry `adopted` for the target the user was shown, refused `ErrPathChanged` when a refresh
+has moved the entry since and `ErrPathHeld` while the field is held;
+`DropPath` (Remove) sets an `adopted` or `pending` entry `gone`. Each refusal is a `PathRefusal`
+in the user's words; each path method, and `Path`, answers `ErrNoSandbox` or nothing on a machine
+with no sandbox, so the resolvers ask the service alone. The refresh's resolver,
+`loginshell.Path`, is bounded by `DefaultTimeout` itself. `RunCheck` (`checkrun.go`) is `filterDir` and the
+adoption rule over one folder for a run, and says whether the run's open folders read it already.
+→ [ADR: `PATH` is the login shell's, filtered and frozen](../docs/adr/2026-10-02-path-is-the-login-shells-filtered-and-frozen.md),
+[security record](../docs/security/2026-10-02-path-from-the-login-shell.md).
 
 ## Auth / identity (`internal/auth`)
 
