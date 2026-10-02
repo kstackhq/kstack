@@ -86,9 +86,9 @@ files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
 - `internal/app/` builds `poke`, `kubeconfig`, opens the security settings (`securityconfig.Open`, before `app.db`, since the store holds no handle) and `app.db`, builds `clustersvc`, `memorysvc` and `chatsvc` over it, `auth`, `cloud`, wires `graph.NewServer` + `grpcserver.NewServer`, and multiplexes both onto one h2c handler. `App.parts` is start order (app.db → poke → kubeconfig → cluster → cloud → memory → chat, then the `PATH` sync when `ShellPath` is set on a machine with a sandbox, then the shell snapshot when `ShellSnapshot` is set); stop and close reverse it. The sync folds the launch's `PATH` into the stored list, and one that fails is a warning, not a startup error. **kubeconfig before cluster is load-bearing** (`app_test.go` pins it). The transports stay out of the slice; `grpcServer.Stop()` runs first in `Close`.
 
   **`READY` promises a socket, not a finished startup.** `run` prints it after the bind and before `Start`; the first request is answered after `Start`, and every part completes its startup work inside `Start`. Everything that reads the environment does so after `main`'s shell import, which finishes before `run` — nothing sends before it, and `net/http` reads the proxy variables once per process on the first request.
-- `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.SecurityCfg` is `securityconfig.Service`, the settings store with the frozen `PATH` kept in it; its resolvers are `securityRefused`, and `sandboxPath`, `sandboxPathFault` and the three `sandboxPath*` mutations, which answer an empty list, no fault and a refusal on a machine with no sandbox. A `securityconfig.PathRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxPathErr`).
+- `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.SecurityCfg` is `securityconfig.Service`, the settings store with the frozen `PATH` kept in it; its resolvers are `securityRefused`, and `sandboxPath`, `sandboxPathFault` and the three `sandboxPath*` mutations, which answer an empty list, no fault and a refusal on a machine with no sandbox. A `securityconfig.PathRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxPathErr`). Its permission resolvers are `permissionSettings` and the six `permission*` mutations, each answering the settings it left (`permissionSettings` in `util.go`, the known contexts read off `Clusters().List`), and a refused one `KSTACK_VALIDATION_ERROR` with the reason (`permissionsAfter`); a rule's id is `appdb.NewID()`, and `permissionRuleAdd` refuses a rule `permissions.Enforced` says nothing acts on yet, since only Kubernetes cluster writes reach `Decide`.
 - `grpc/` — `AuthService`, `PokeService`, committed protoc output in `authpb/`, `pokepb/`. Regenerate with `make proto`; **never hand-edit `*.pb.go`**. `IsGRPCRequest` lives here.
-- `internal/` — `ipc`, `atomicjson`, `logging`, `safe` (an error rendered for a log line, and a command's output redacted: `Redact` line by line, `RedactJSON` a JSON text by its structure, for text that is one line with its newlines escaped; the field and flag rules read a credential's name off `credentialNames`, with or without the separator inside it, so camelCase keys match), `sqlitemigrate` (the migration runner, `Apply`), `sqlitepool` (the one home of the SQLite open contract: `OpenWriter` a store's one writer connection, `OpenReader` a reader pool, `OpenQuery` read-only connections through a caller's driver with none kept idle), `sqlstmt` (a store's statement table, prepared once on a file's writer and reader pools and routed per call: a `[]sqlstmt.Statement` indexed by the store's own id type, each entry its text and pool — `OnWriter`, `OnReader`, or `OnBoth` for a read some caller runs inside a write transaction; `Prepare[ID]` compiles it at open, since modernc caches nothing and a text handed to a pool at a call site is compiled every time; `Set.Stmts()` issues on the pools, `Set.InTx` inside one write transaction, `Set.InReadTx` inside one read-only transaction on the reader, always rolled back; inside a transaction the copy rebound, once per id, is the one prepared on that transaction's pool, and an id its pool does not hold panics; `Set.Close` finalizes the statements alone, and a closed set refuses `InTx`/`InReadTx` with `ErrClosed`, since `Tx.StmtContext` would quietly re-prepare a closed statement; imports nothing of ours; → [ADR: one statement set](../docs/adr/2026-09-16-sqlstmt-prepares-a-services-statements.md)), `appdb`, `rawjson`, `apimeta` (wire vocabulary no service owns — the delta-frame type, `ObjectID`, `ClusterID`, which `clustersvc` aliases, and `ChatID`, which `chatsvc` aliases and `memorysvc` and `tools.Runtime` name), `deltafold` (a watch's memory: `Snapshot`/`Diff`/`Upsert`/`Has` over a caller's key, equality and frame, plus `Send`; imports `apimeta` alone), `version` (`Version` is `dev` unless the linker stamped it: `scripts/build-sidecar.go` passes `-X …/internal/version.Version=$SIDECAR_VERSION` when set, `release.yml` sets it to the release version, and `main` logs it on the `sidecar starting` line; nothing reads a version from the environment or a file), `poke`, `kubeconfig`, `drain`, `lifecycle`, `loginshell`, `workqueue`, `supervisor`, `clustercard` (the cluster card a chat send will carry), `rootdir` (a directory opened and removed through an `os.Root`, under *Tools*), `sandbox` (the machine's sandbox and a run's forwarder, under *Tools*), `kubeproxy` (the cluster proxy a sandboxed run reaches its cluster through, under *Tools*), `session` (one agent run's identity and policy, under *Tools*), `memorysvc` (the notes a chat's cluster sees, below), `securityconfig` (the security settings, below), `catalog` (the providers and the tools each is offered, below), `testutil` (test-only, imported by no production code), plus the subsystems below.
+- `internal/` — `ipc`, `atomicjson`, `logging`, `safe` (an error rendered for a log line, and a command's output redacted: `Redact` line by line, `RedactJSON` a JSON text by its structure, for text that is one line with its newlines escaped; the field and flag rules read a credential's name off `credentialNames`, with or without the separator inside it, so camelCase keys match), `sqlitemigrate` (the migration runner, `Apply`), `sqlitepool` (the one home of the SQLite open contract: `OpenWriter` a store's one writer connection, `OpenReader` a reader pool, `OpenQuery` read-only connections through a caller's driver with none kept idle), `sqlstmt` (a store's statement table, prepared once on a file's writer and reader pools and routed per call: a `[]sqlstmt.Statement` indexed by the store's own id type, each entry its text and pool — `OnWriter`, `OnReader`, or `OnBoth` for a read some caller runs inside a write transaction; `Prepare[ID]` compiles it at open, since modernc caches nothing and a text handed to a pool at a call site is compiled every time; `Set.Stmts()` issues on the pools, `Set.InTx` inside one write transaction, `Set.InReadTx` inside one read-only transaction on the reader, always rolled back; inside a transaction the copy rebound, once per id, is the one prepared on that transaction's pool, and an id its pool does not hold panics; `Set.Close` finalizes the statements alone, and a closed set refuses `InTx`/`InReadTx` with `ErrClosed`, since `Tx.StmtContext` would quietly re-prepare a closed statement; imports nothing of ours; → [ADR: one statement set](../docs/adr/2026-09-16-sqlstmt-prepares-a-services-statements.md)), `appdb`, `rawjson`, `apimeta` (wire vocabulary no service owns — the delta-frame type, `ObjectID`, `ClusterID`, which `clustersvc` aliases, and `ChatID`, which `chatsvc` aliases and `memorysvc` and `tools.Runtime` name), `deltafold` (a watch's memory: `Snapshot`/`Diff`/`Upsert`/`Has` over a caller's key, equality and frame, plus `Send`; imports `apimeta` alone), `version` (`Version` is `dev` unless the linker stamped it: `scripts/build-sidecar.go` passes `-X …/internal/version.Version=$SIDECAR_VERSION` when set, `release.yml` sets it to the release version, and `main` logs it on the `sidecar starting` line; nothing reads a version from the environment or a file), `poke`, `kubeconfig`, `drain`, `lifecycle`, `loginshell`, `workqueue`, `supervisor`, `clustercard` (the cluster card a chat send will carry), `rootdir` (a directory opened and removed through an `os.Root`, under *Tools*), `sandbox` (the machine's sandbox and a run's forwarder, under *Tools*), `kubeproxy` (the cluster proxy a sandboxed run reaches its cluster through, under *Tools*), `permissions` (the classes, modes and rules a cluster write is decided by, under *Tools*), `session` (one agent run's identity and policy, under *Tools*), `memorysvc` (the notes a chat's cluster sees, below), `securityconfig` (the security settings, below), `catalog` (the providers and the tools each is offered, below), `testutil` (test-only, imported by no production code), plus the subsystems below.
 
 ## gRPC + GraphQL over one socket (h2c)
 
@@ -1265,10 +1265,15 @@ model was shown every byte as it is — from line 1 to the end, nothing cut, red
 so Write can tell a file seen whole from one seen in part. A `Runtime` is what a tool gets of the chat its call
 runs in: `ClusterID`, the chat's stored cluster, and `ChatID`, which a model names neither of,
 `Session`, then `Dir`, `Tasks`, `Files`, `Agent` and `ClusterWriteAsker`, which puts a sandboxed command's cluster
-write (`ClusterWriteRequest`) to the user, nil where nobody can be asked. `chatsvc` sets every
+write (`ClusterWriteRequest`, carrying the proxy's `permissions.Action`) to the user, or records one the
+proxy decided with nobody asked (`Record`), nil where nobody can be asked. `chatsvc` sets every
 field; a test sets the ones its tool
 reads. **A `session.Session`** is one agent run's policy: its `Kind` (`Chat`, `Subagent` or
-`Monitor`, the last built by nothing yet) and `Outside`, the chat's switch as its turn read it.
+`Monitor`, the last built by nothing yet), `Outside`, the chat's switch as its turn read it,
+`NoPrompts`, a run nobody can be asked about, and `Mode`, a function of a kube-context, and
+`Rules`, both read live on every write, which `chatsvc` sets to the security store's `ModeFor` and
+to the chat's grants joined with the store's `Rules()` (`sessionFor`, `grants.go`), so
+a mode or rule changed in Settings applies to the next write, a running subagent's included.
 The chat, the cluster and the workspace are not on it: the runtime's `ChatID`, `ClusterID` and
 `tools.WorkspacePath(rt.Dir)` are their one source, and policy that depends on the cluster is a
 function `chatsvc` builds knowing it. A turn builds its session (`turn.session()`); a
@@ -1588,12 +1593,41 @@ cannot listen on, a core size it cannot set, a command it cannot start), and `sa
 line; a command can exit 125 itself, so the line is what tells them apart. `forward_unix.go`
 runs the child; `forward_windows.go` answers 125 with *no sandbox on this platform*.
 
+**`internal/permissions` is the decision** (`permissions.go`, `match.go`), a leaf that
+imports nothing of ours: the six `Class`es, the `Mode`s (`ReadOnly`, `Ask`, `Auto`), a `Rule` (an
+`Effect`, a class, a `Provider`, a `Scope` of patterns, and for `k8s` a verb, a group and a kind),
+an `Action` (a classified request), and `Decide(Policy, rules,
+act)`, which answers the first that applies: class 1 or 2 allowed; a matching `Deny`; a read-only
+mode refusing classes 3 to 5; a matching `AskFor`; class 5 asking; a matching `Allow`; `Auto`
+allowing; else asking — and with `NoPrompts` a prompt is a refusal. A rule's class covers its own,
+and class 4 covers class 5; a `Kind` with no `/` covers its `scale` and no other subresource; `Group` is exact. `Match`
+is the one matcher: `*` crosses `/` and `:`, `?` is one character, `\` escapes. `Literal` escapes a
+value into the pattern that matches it alone, and every rule or mode Kstack writes from a value goes
+through it. `Reason` names what decided, and its `String` is what a refusal and a record say.
+`Refused` is the `Deny` of every cluster write that stands in for a rule Kstack could not read.
+
+**`kubeproxy/classify.go` classifies a request**: a `GET` of core `secrets` is class 6, any other
+read, a self review and a dry run on a group in `honorsDryRun` (those the API server serves
+itself; an aggregated API may ignore `dryRun`) class 1, a write on the class 5 list class 5 (`destructive`: a
+delete of a namespace, node, PV, PVC or CRD; any `deletecollection`; any write of RBAC, of the
+admission webhooks and policies, of a CSR's `approval` or of `ephemeralcontainers`; and a replica
+write — a `PUT` or `PATCH` of a `scale` subresource, of an `apps` deployment, stateful set or
+replica set, or of a core replication controller — in any form but the plain ones `keepsReplicas` reads whole: an object body with no `$`
+directive on it or its spec and a literal positive `spec.replicas`, or on a workload none, which the
+API server keeps or defaults to one, or a JSON Patch, its keys read exactly, that only adds or
+replaces `/spec/replicas` with a positive count or, on a workload, touches paths under `/metadata/`
+or `/spec/` beside `replicas`; an apply is not plain on a `scale`), and any other write class 4. Its
+`Summary` is one line (*Delete pod api-7f9c in team-a on dev-eks*), a built-in named by its kubectl
+singular and any other resource by its plural. A write to a core Namespace is in that namespace's
+scope, so a rule scoped to it matches. `Destructive` is the class 5 list in words, which
+Settings shows. → [ADR: permissions are classes, modes and rules decided at the proxy](../docs/adr/2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md).
+
 **`internal/kubeproxy` is the cluster proxy**, a leaf beside `sandbox` that imports nothing of
 `tools` or `clustersvc`: `kubeproxy.go` the grant and the handler, `policy.go` the path parse
 and the read policy, `redact.go` and `redact_helm.go` the Secret rewriter, `status.go` the
 `Status` every refusal writes, `server.go` the server a run serves a grant on, `write.go` the
-write path. **A `Grant`** (`NewGrant(up, sess, asker, refusal, qps, burst, maxInFlight)`) holds the
-session of the run it serves, answered by `Session()` (what the token maps to), a 256-bit
+write path, `classify.go` the classifier. **A `Grant`** (`NewGrant(up, sess, kubeContext, asker, refusal, qps, burst, maxInFlight)`) holds the
+session of the run it serves, the kube-context its writes are decided in (the chat's cluster record's `KubeContext()`, uncut), answered by `Session()` (what the token maps to), a 256-bit
 token, an `Upstream` (`Endpoint(ctx)`: an `Endpoint` per request, the connection's base URL and client
 and a `Done` that closes when they no longer reach the chat's cluster, which cancels the request
 still open, a watch or a follow included), a
@@ -1639,9 +1673,15 @@ or apply YAML (a `DELETE` may carry none), one that does not decode as its media
 else as one JSON value), one with `[redacted]` or its base64 in any decoded string, a key
 included, so an escape that spells the mark differently does not hide it, and a `POST`
 to `secrets` that is not a JSON object or is typed `helm.sh/release.v1`, read by exact key;
-then `Ask`s with a `Write` — the method, the path and raw query, the policy's subresource, the
-media type, the body, and `DryRun`, set only for a `POST`, `PUT` or `PATCH` whose every `dryRun`
-is `All`, since the API server reads a `DELETE`'s options from its body when it has one. A
+then, still under the lock, so writes reach the cluster in the order they were decided,
+classifies it (`classify`, below) into a `Write` — the method, the path and raw query, the
+policy's subresource, the media type, the body, `DryRun`, set only for a `POST`, `PUT` or `PATCH`
+whose every `dryRun` is `All`, since the API server reads a `DELETE`'s options from its body when it
+has one, and the `Action` — and asks `permissions.Decide` under the session's `Mode` and `Rules` for
+the grant's context (a session with no `Mode` is read-only). `Allowed` is recorded through
+`Asker.Record`, then forwarded, and a record that fails forwards nothing (*this change could not be
+recorded*); `Denied` is recorded, a failed record logged, and answered 403 *kstack: <summary> is not
+allowed: <reason>*; `Prompted` is `Ask`ed with the `Write`. A
 denial is a 403 *the user did not approve this change*, a wait that ended a 403 *the user did
 not answer this change*, and an approval forwards the bytes read, taking a slot and the limiter
 only then, so a write waiting on the user holds neither. **A request
@@ -2002,11 +2042,12 @@ chat's large workspace) lists the chats' directory, **then** reads the chats, an
 chat (`rootdir.Sweep`): a send can run before `Start`, and it commits its row before its turn
 writes anything.
 
-**Eight tables** in `0001_init.sql`, the only schema authority: `clusters` (`clustersvc`'s),
+**Nine tables** in `0001_init.sql`, the only schema authority: `clusters` (`clustersvc`'s),
 then this service's `conversations`, `messages`, `agent_runs`, `llm_calls`, `tool_calls`,
 `approvals` — the user's decisions on a call: its own, one per gated call, and each cluster
 write its sandboxed command sent (below) — and
-`background_tasks`, one row per command started in the background (*Background commands*, below). In Go and on the wire a conversation is a `Chat` with a `ChatID`, and a message a
+`background_tasks`, one row per command started in the background (*Background commands*, below),
+and `chat_grants`, the rules that last for a chat (below). In Go and on the wire a conversation is a `Chat` with a `ChatID`, and a message a
 `ChatMessage` with a `MessageID`. A conversation carries `sandbox_disabled`, the user's switch
 (`Chat.SandboxDisabled`, 0 at creation), and a `mode` column — which of the app's two modes lists it, fixed at creation and checked by
 the column, since each mode shows only its own chats — and a `cluster_id`, the `clusters` row it
@@ -2301,10 +2342,10 @@ since most commands never touch the cluster: a cluster never identified (no UID)
 `kubeproxy.ErrNotIdentified` or `ErrNotConnectable`; `ErrNotFound` is `errClusterGone`, and any
 other error `could not start:`. `sandboxedRunFor` asks the sandbox for a port only for a run
 with a cluster, then `startProxy` listens on the run's `proxy.sock` and serves a
-`kubeproxy.NewGrant(claim, rt.Session, asker, refusal, 20, 50, 32)` on `kubeproxy.NewServer`, and `Run.Socket`
+`kubeproxy.NewGrant(claim, rt.Session, target.scopeContext, asker, refusal, 20, 50, 32)` on `kubeproxy.NewServer`, and `Run.Socket`
 names the socket. `writesFor` picks the grant's writes: a foreground call's asks through its
 runtime's `ClusterWriteAsker` (`runtimeAsker`, which turns a `kubeproxy.Write` into a
-`tools.ClusterWriteRequest`), or refuses with *this sandbox reads the cluster and changes nothing*
+`tools.ClusterWriteRequest` for `Ask` and `Record` alike), or refuses with *this sandbox reads the cluster and changes nothing*
 when it has none; a background task's refuses every write with *a background command cannot change
 the cluster*. The `sandboxedRun` owns the claim, the proxy and the directory, so every failure while
 it is made is its `end`. **The run ends in order** (`sandboxedRun.end`), at the reap for a call
@@ -2313,8 +2354,9 @@ server and its socket close, then the grant's `Wait` joins every handler — aft
 a handler reading a body returns only once its connection closes — the claim is released, and only
 then does the run's directory go. So no write is put to the user once `Run` has returned. A run with no
 cluster has no grant, no socket and no forwarder. `prompts/sandbox.md` says a sandboxed command waits
-for the user only for a change to the cluster, one request at a time, a denial `Forbidden` and the
-wait counting against its `timeout`; that `exec`, `attach`, `port-forward`, a service account
+for the user only for a change to the cluster, which runs at once under the user's rules, waits for
+them, or comes back `Forbidden` because their mode or a rule refuses it — the user's decision, not an
+error to work around — that a dry run of a built-in resource runs at once and one of a custom resource waits, and the wait counts against its `timeout`; that `exec`, `attach`, `port-forward`, a service account
 token, a helm change, a change past 1 MiB and a background command's change come back
 `Forbidden`; that a Secret changes with `kubectl apply --server-side`; that a Secret reads
 `[redacted]`; and that `sudo` does not work, a command's processes are limited, one past its CPU
@@ -2709,7 +2751,15 @@ that one; its writes, `toolCallEntry.ClusterWrites`, are read by statements of t
 same scope (`callReads`), in `created_at, id` order, and `writeCalls` writes them again at the
 settle. On the wire each is a `ClusterWrite` in `ToolCall.clusterWrites`, carrying its body and
 media type only while it waits — pending on a running call — since each publish sends the list
-whole.
+whole, its `action`, and its `reason`. **A write the engine decided is recorded with no wait**
+(`recordClusterWrite`, `clusterWriteAsker.Record`): one approval of `kind` `cluster`, written
+already decided, `allowed` or `refused` — statuses only such a write takes — with its `reason` (the
+`permissions.Reason`'s text), against the open call; the run stays `running`.
+
+**A chat's rules are `chat_grants` rows** (`grants.go`), each a `permissions.Rule` as JSON,
+cascading with the chat. `grantsFor` reads them on every decision, never cached; a row that does not
+decode, one with a key `Rule` does not name included, or a read that fails, is logged and read as `permissions.Refused`. Nothing writes the table
+yet.
 
 **The live message lists every call, off its rows.** `ChatMessage.ToolCalls` is the turn's
 calls as one JSON string of `ToolCall` (`id`, `toolUseID`, `name`, `arguments`, `status`,
@@ -2971,11 +3021,12 @@ child answers (its agent's file, `general.md`). All under `prompts/`. Per-run st
 way, so the prefix cache holds.
 
 **A question carries a cluster card when the card has changed.** `chatsvc.New(db, chatsDir,
-llmSvc, clusterCards, memories, box, lists, sandbox)` takes a `ClusterCards` — `ClusterCard(ctx, clusterID)
+llmSvc, clusterCards, memories, box, lists, sandbox, security)` takes a `ClusterCards` — `ClusterCard(ctx, clusterID)
 string`, the one thing this package asks about a cluster — which `internal/clustercard` implements
 over `clustersvc.Service`, and a `Memories` — `Section(ctx, clusterID)`, every note the cluster
 sees — which `memorysvc` implements. `sandbox` is whether the machine offers sandboxed Bash, which
-the switch and the `## Sandbox` section need. The
+the switch and the `## Sandbox` section need, and `security` the store each session's modes and
+rules are read from. The
 question's `context` block is the card, then the notes as its `## Memory` section
 (`withMemory`, through `clustercard.WithSection`; a section that is not one JSON value is sent
 `{"unavailable":true}`), then the chat's workspace as its `## Workspace` section, `{"path": …}`
@@ -3153,7 +3204,8 @@ it concurrently.
 directory no sandboxed command reads, and never synced. `app.New` opens it on every platform;
 `Store` has `Get`, `Update`, `Subscribe` (a `gochan/watch` receiver, current on subscribe) and
 `Refused`. Each step of the agent-security sequence adds its own field to `Settings`,
-`omitempty` (`omitzero` for a struct), and names it in its spec. `Path` is the first.
+`omitempty` (`omitzero` for a struct), and names it in its spec. `Path` is the first. `Store` wraps the generic
+`store[Settings]` so it can carry methods of `Settings`' own.
 
 - **Every value crosses a JSON copy** (`clone`): `Get` and each send are copies, so a caller
   never reaches the store's value; receivers share one delivery and treat it as read-only.
@@ -3186,6 +3238,23 @@ directory no sandboxed command reads, and never synced. `app.New` opens it on ev
   the error (`Refusal` is an `error`), and nothing is written. `WithChecks` is the test seam that
   swaps the list.
 - **The core is generic** (`store[T]`), so the tests run it over their own settings type.
+- **The approval modes and the always rules** (`permissions.go`): `DefaultMode` (`Ask` when
+  empty), `Modes` (`ContextMode`s, first match wins) and `Rules`. `ModeFor(context)` is read-only
+  while `modes` is held (source `refused`), else the first entry whose pattern matches (`entry`),
+  else the default (`default`); `ContextModes` is the same for a list, with the entry's pattern and
+  whether it is the context's own (`Own`, what `ClearMode` removes), and `DefaultMode()` the
+  default, `Ask` when unset. `Rules()` is the always rules, or while `rules` is held those less
+  every `Allow`, plus `permissions.Refused`, which a session reads per write. Each reads one `view`, the settings and the held fields under one
+  lock. `FieldDefaultMode`, `FieldModes` and `FieldRules` are the fields' keys. The
+  mutations: `SetDefaultMode` (names `defaultMode`, its fix), `SetMode` (the context's literal,
+  first, replacing one already there), `ClearMode`, `AddRule`, `RemoveRule` (`ErrNoRule`) and
+  `DiscardRefused` (`modes` or `rules`, naming it; `ErrNotHeld` otherwise). The checks refuse a mode
+  that is not one of the three, an entry with no context, and a rule with an unknown effect, class
+  or provider, a class its provider does not have (class 1 and 2 never), an `Allow` of class 5, an
+  empty, repeated or `refused` id, a verb, group or kind off `k8s`, or a scope field its provider
+  does not have; a list element with a key its type does not name is refused before them, since a
+  misspelled narrowing field dropped would widen the rule. `defaultMode`'s strictest line sets `ReadOnly`; `modes`' and `rules`' leave what
+  passed and only hold the field, whose strict state `ModeFor` and `Rules` apply where they read it.
 
 **`Settings.Path` is the user's `PATH`, frozen** (`path.go`): a `PathEntry` per folder, in the
 shell's order — `Dir` as the shell gave it, `Target` the folder it resolved to when its state was

@@ -210,8 +210,8 @@ permissions.Action{
 ```
 
 `Handler.Decide` is what Bash builds from the session (`hostDecider` in `tools/bash/proxy.go`):
-`permissions.Decide` under the session's `Policy{Mode, NoPrompts}` and `Rules`, both called with
-the run's cluster context (`clustercard.ScopeContext`, the one its cluster grant names; `""` for
+`permissions.Decide` under the session's `Policy{Mode, NoPrompts}` and `Rules`, the mode read for
+the run's cluster context (its record's `KubeContext()`, the one its cluster grant names; `""` for
 a run with no cluster), so a host is decided under that context's mode, then, for
 `Prompted`, the runtime's asker, whose yes or no becomes `Allowed` or `Denied` with a reason
 naming the user. Step 4B, in this wave, turns that asker into `ActionAsker` taking a
