@@ -17,30 +17,38 @@
 package bash
 
 import (
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 )
 
-// A sandboxed run's environment is built whole: exactly the list, key for key,
-// and none of the process's credentials.
-func TestTheSandboxedEnvironmentIsBuiltWhole(t *testing.T) {
+// A sandboxed run's environment is the table and nothing else: with the
+// sidecar's holding every name NeverEnv matches and every LC_*, none of them
+// passes, and nothing in it is a name no run may hold.
+func TestTheSandboxedEnvironmentIsFixed(t *testing.T) {
 	rd := &runDir{path: "/run/kstack/runs/10-1", tmp: "/cache/tmp/10-2"}
 	cluster := &target{context: "prod", cacheDir: "/cache/kubectl/7/abc"}
+	environ := append(slices.Clone(processEnv), "TZ=Europe/Paris", "LC_MESSAGES=C", "LC_NUMERIC=de_DE.UTF-8")
+	for _, r := range sandbox.NeverEnv() {
+		environ = append(environ, r.Name+r.Prefix+"=leaked")
+	}
 
-	got := sandboxedRunEnv(processEnv, kstackVars, "/data/ws", "/data/ws/sub", rd, cluster, "/data/th")
+	got := sandboxedRunEnv(environ, kstackVars, "/data/ws", "/data/ws/sub", rd, cluster, "/data/th")
 
 	assert.Equal(t, []string{
 		"PATH=/usr/local/bin:/usr/bin",
 		"HOME=/data/ws",
 		"PWD=/data/ws/sub",
-		"ZDOTDIR=/run/kstack/runs/10-1",
 		"TMPDIR=/cache/tmp/10-2",
+		"ZDOTDIR=/run/kstack/runs/10-1",
 		"KUBECONFIG=/run/kstack/runs/10-1/kubeconfig",
 		"KUBECACHEDIR=/cache/kubectl/7/abc",
 		"LANG=en_US.UTF-8",
-		"LC_ALL=en_US.UTF-8",
-		"LC_CTYPE=UTF-8",
+		"TZ=Europe/Paris",
 		"TERM=dumb",
 		"XDG_CACHE_HOME=/data/th/xdg/cache",
 		"XDG_CONFIG_HOME=/data/th/xdg/config",
@@ -57,4 +65,8 @@ func TestTheSandboxedEnvironmentIsBuiltWhole(t *testing.T) {
 		"KSTACK_SIDECAR_PID=10",
 		"KSTACK_HOST_PID=9",
 	}, got)
+	for _, kv := range got {
+		name, _, _ := strings.Cut(kv, "=")
+		assert.False(t, sandbox.Unpassable(name), name)
+	}
 }

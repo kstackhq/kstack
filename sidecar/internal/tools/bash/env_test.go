@@ -15,6 +15,7 @@
 package bash
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 
@@ -53,7 +54,7 @@ func TestNoPathIsNoPath(t *testing.T) {
 	rd := &runDir{path: "/run/r", tmp: "/cache/t"}
 	got := sandboxedRunEnv([]string{"LANG=C"}, nil, "/ws", "/ws", rd, nil, "/th")
 
-	assert.Equal(t, []string{"HOME=/ws", "PWD=/ws", "ZDOTDIR=/run/r", "TMPDIR=/cache/t", "LANG=C", "TERM=dumb"}, got[:6])
+	assert.Equal(t, []string{"HOME=/ws", "PWD=/ws", "TMPDIR=/cache/t", "ZDOTDIR=/run/r", "LANG=C", "TERM=dumb"}, got[:6])
 	assert.NotRegexp(t, `^PATH=`, strings.Join(got, "\n"))
 }
 
@@ -63,4 +64,19 @@ func TestAnOutsideRunKeepsItsEnvironment(t *testing.T) {
 	got := outsideEnv(processEnv, kstackVars, "/data/ws")
 
 	assert.Equal(t, append(append(append([]string{}, processEnv...), kstackVars...), "PWD=/data/ws"), got)
+}
+
+// The sidecar's LANG passes; with none, the platform's default: on macOS
+// en_US.UTF-8, on Linux C.UTF-8 where the system has that locale, else C.
+func TestTheLocale(t *testing.T) {
+	rd := &runDir{path: "/run/r", tmp: "/cache/t"}
+	assert.Contains(t, sandboxedRunEnv([]string{"LANG=de_DE.UTF-8"}, nil, "/ws", "/ws", rd, nil, "/th"), "LANG=de_DE.UTF-8")
+	assert.Contains(t, sandboxedRunEnv(nil, nil, "/ws", "/ws", rd, nil, "/th"), "LANG="+defaultLang(runtime.GOOS, fileExists))
+
+	none := func(string) bool { return false }
+	assert.Equal(t, "en_US.UTF-8", defaultLang("darwin", none))
+	assert.Equal(t, "C", defaultLang("linux", none))
+	for _, dir := range []string{"/usr/lib/locale/C.utf8", "/usr/lib/locale/C.UTF-8"} {
+		assert.Equal(t, "C.UTF-8", defaultLang("linux", func(p string) bool { return p == dir }), dir)
+	}
 }
