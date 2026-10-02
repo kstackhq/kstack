@@ -40,7 +40,7 @@ func (t *Tool) runTask(ctx context.Context, rt tools.Runtime, in input) (string,
 		return "could not start: " + safe.String(err.Error()), true
 	}
 	boxer := t.sandboxerFor(rt)
-	snapshot, err := t.snapshotFor(ctx)
+	snapshot, err := t.snapshotFor(ctx, boxer != nil)
 	if err != nil {
 		return "could not start: " + safe.String(err.Error()), true
 	}
@@ -61,7 +61,7 @@ func (t *Tool) runTask(ctx context.Context, rt tools.Runtime, in input) (string,
 			return startTask(ctx, s, out)
 		}
 		// Made here, with the process, so a start the chat refuses makes nothing.
-		sandboxedRun, err := t.sandboxedRunFor(ctx, boxer, rt, cwd, snapshot, true)
+		sandboxedRun, err := t.sandboxedRunFor(ctx, boxer, rt, cwd, true)
 		if err != nil {
 			return nil, err
 		}

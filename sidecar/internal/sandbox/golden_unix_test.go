@@ -34,11 +34,11 @@ var update = flag.Bool("update", false, "rewrite the golden files in testdata")
 // Kstack's three directories, the runtime one reached through a link. Its
 // roots stand in for the platform's for the test's life.
 type fixture struct {
-	base, home, shell, self                           string
-	env                                               []string
-	roots, brewVar                                    []string
-	data, cache, runtime                              string
-	workspace, tmp, kubectl, runDir, snapshot, socket string
+	base, home, shell, self                 string
+	env                                     []string
+	roots, brewVar                          []string
+	data, cache, runtime                    string
+	workspace, tmp, kubectl, runDir, socket string
 }
 
 // goldenFiles are the fixture's files, beside the folders mkdirs makes.
@@ -47,7 +47,7 @@ var goldenFiles = []string{
 	"home/apps/bin/tool", "home/tools/cargo/bin/cargo", "home/.docker/bin/docker", "home/.docker/config.json",
 	"home/.netrc", "home/.git-credentials", "home/.cargo/credentials", "home/.cargo/credentials.toml",
 	"home/.pulumi/credentials.json", "home/.fly/config.yml",
-	"app/kstack-sidecar", "private/run/kstack/shell/snapshot.sh",
+	"app/kstack-sidecar",
 }
 
 func newFixture(t *testing.T) fixture {
@@ -88,7 +88,6 @@ func newFixture(t *testing.T) fixture {
 	f.tmp = filepath.Join(f.cache, "tmp", "1-a")
 	f.kubectl = filepath.Join(f.cache, "kubectl", "c", "s")
 	f.runDir = filepath.Join(f.runtime, "runs", "1-a")
-	f.snapshot = filepath.Join(f.runtime, "shell", "snapshot.sh")
 	f.socket = filepath.Join(f.runDir, "proxy.sock")
 
 	old := platformLists
@@ -107,7 +106,7 @@ func (f fixture) run(s *Sandbox, cluster bool) Run {
 			Files: s.System(f.home, f.shell, f.env).Outside(kstack...),
 			Always: AlwaysPolicy{
 				Deny: s.Never(f.home), Kstack: kstack,
-				Read: []string{f.snapshot, f.runDir}, Write: []string{f.workspace, f.tmp},
+				Read: []string{f.runDir}, Write: []string{f.workspace, f.tmp},
 			},
 		},
 	}

@@ -50,9 +50,6 @@ $FIXTURE/cache/kstack/tmp/1-a
 --ro-bind
 $FIXTURE/run/kstack/runs/1-a
 $FIXTURE/run/kstack/runs/1-a
---ro-bind
-$FIXTURE/run/kstack/shell/snapshot.sh
-$FIXTURE/run/kstack/shell/snapshot.sh
 --bind
 $FIXTURE/home/apps/kstack/chats/c/workspace
 $FIXTURE/home/apps/kstack/chats/c/workspace

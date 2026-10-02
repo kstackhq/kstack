@@ -137,11 +137,16 @@ type Tool struct {
 	// denied is Kstack's own directories, which a sandboxed run cannot read.
 	denied []string
 
-	// The profile snapshot every command sources: its path, "" while there is
-	// none, and ready, closed once it is written or given up — nil for a tool
-	// whose snapshot was never started. snapTimeout and snapLimit bound taking it.
-	snapshot    string
-	ready       chan struct{}
+	// The profile snapshot every command outside the sandbox sources: its
+	// path, "" while there is none, and ready, closed once it is written or
+	// given up — nil for a tool whose snapshot was never started. snapTimeout
+	// and snapLimit bound taking it.
+	snapshot string
+	ready    chan struct{}
+	// snapCtx is the context StartSnapshot made, which its stop cancels;
+	// snapMu guards it and the start that sets ready.
+	snapMu      sync.Mutex
+	snapCtx     context.Context
 	snapTimeout time.Duration
 	snapLimit   int
 	// launch runs the login shell: launchDump, or a test's stand-in.
@@ -547,7 +552,7 @@ func (t *Tool) runCall(ctx context.Context, in input, rt tools.Runtime) (string,
 		return resultText(result{Error: err.Error()}, in.Timeout, nil, false), true
 	}
 	boxer := t.sandboxerFor(rt)
-	snapshot, err := t.snapshotFor(ctx)
+	snapshot, err := t.snapshotFor(ctx, boxer != nil)
 	if err != nil {
 		return resultText(result{Error: err.Error()}, in.Timeout, nil, false), true
 	}
@@ -557,7 +562,7 @@ func (t *Tool) runCall(ctx context.Context, in input, rt tools.Runtime) (string,
 		capture: tools.FileLimit, timeout: in.Timeout, killGrace: killGrace, pipeGrace: pipeGrace,
 	}
 	if boxer != nil {
-		sandboxedRun, err := t.sandboxedRunFor(ctx, boxer, rt, cwd, snapshot, false)
+		sandboxedRun, err := t.sandboxedRunFor(ctx, boxer, rt, cwd, false)
 		if err != nil {
 			return resultText(result{Error: err.Error()}, in.Timeout, nil, false), true
 		}
@@ -600,7 +605,7 @@ func (r *sandboxedRun) end() {
 // cache. A cluster that is gone fails it before anything is made, since a
 // sandboxed kubectl aimed at nothing would read as the cluster being down. The
 // caller calls end when the run ends.
-func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Runtime, cwd, snapshot string, background bool) (*sandboxedRun, error) {
+func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Runtime, cwd string, background bool) (*sandboxedRun, error) {
 	r := &sandboxedRun{boxer: boxer}
 	var cluster *target
 	var port int
@@ -623,11 +628,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		r.end()
 		return nil, err
 	}
-	var reads []string
-	if snapshot != "" {
-		reads = append(reads, snapshot)
-	}
-	reads = append(reads, r.dir.path)
+	reads := []string{r.dir.path}
 	ws := tools.WorkspacePath(rt.Dir)
 	writes := []string{ws, r.dir.tmp}
 	var relays []sandbox.Relay

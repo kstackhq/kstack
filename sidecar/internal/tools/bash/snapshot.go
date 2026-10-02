@@ -118,21 +118,48 @@ func snapshotText(out []byte) (string, bool) {
 	return string(text), ok
 }
 
-// StartSnapshot is the Start of the shell snapshot lifecycle part. It takes the
-// snapshot in the background under a context of its own, since the ctx it is
-// handed bounds startup only. The stop it returns ends the shell and waits, under
-// the drain context, for its reap, so no login shell outlives the sidecar.
+// StartSnapshot is the Start of the shell snapshot lifecycle part. It makes
+// the context the snapshot is taken under, since the ctx it is handed bounds
+// startup only, and takes the snapshot now only on a machine with no sandbox;
+// with one, the first run outside it starts it (snapshotFor). The stop it
+// returns is final: it ends a shell already started and waits, under the
+// drain context, for its reap, so no login shell outlives the sidecar, and no
+// shell starts once it has returned.
 func (t *Tool) StartSnapshot(context.Context) (func(context.Context) error, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	t.ready = make(chan struct{})
+	t.snapMu.Lock()
+	t.snapCtx = ctx
+	t.snapMu.Unlock()
+	if t.sandboxer == nil {
+		t.startSnapshot()
+	}
+	return func(drainCtx context.Context) error {
+		t.snapMu.Lock()
+		cancel()
+		ready := t.ready
+		t.snapMu.Unlock()
+		if ready == nil {
+			return nil
+		}
+		return drain.WithContext(drainCtx, func() { <-ready })
+	}, nil
+}
+
+// startSnapshot takes the snapshot in the background, once, under the
+// context StartSnapshot made. Before StartSnapshot or after its stop it
+// starts nothing, and a call goes on with no snapshot.
+func (t *Tool) startSnapshot() {
+	t.snapMu.Lock()
+	defer t.snapMu.Unlock()
+	if t.ready != nil || t.snapCtx == nil || t.snapCtx.Err() != nil {
+		return
+	}
+	ctx, ready := t.snapCtx, make(chan struct{})
+	t.ready = ready
 	go func() {
-		defer close(t.ready)
+		defer close(ready)
 		t.takeSnapshot(ctx)
 	}()
-	return func(drainCtx context.Context) error {
-		cancel()
-		return drain.WithContext(drainCtx, func() { <-t.ready })
-	}, nil
 }
 
 // awaitSnapshot is the snapshot for a call to source, once it is written or
@@ -158,10 +185,16 @@ func (t *Tool) awaitSnapshot(ctx context.Context) string {
 	}
 }
 
-// snapshotFor is awaitSnapshot, refused while the directory the shell's own
-// sits in is not this user's alone (checkPrivate), since every command sources
-// the file by its path.
-func (t *Tool) snapshotFor(ctx context.Context) (string, error) {
+// snapshotFor is the snapshot a run sources: none for a sandboxed run, which
+// neither sources nor waits for it; for a run outside the sandbox, started if
+// this is the first such run, then awaited, and refused while the directory
+// the shell's own sits in is not this user's alone (checkPrivate), since every
+// such command sources the file by its path.
+func (t *Tool) snapshotFor(ctx context.Context, sandboxed bool) (string, error) {
+	if sandboxed {
+		return "", nil
+	}
+	t.startSnapshot()
 	snapshot := t.awaitSnapshot(ctx)
 	if snapshot == "" {
 		return "", nil

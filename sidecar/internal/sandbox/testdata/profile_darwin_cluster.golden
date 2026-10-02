@@ -41,8 +41,6 @@
 (deny file-write-unlink file-write-create (literal "$FIXTURE/cache/kstack/kubectl/c/s"))
 (allow file-read* (subpath "$FIXTURE/private/run/kstack/runs/1-a"))
 (deny file-write* (subpath "$FIXTURE/private/run/kstack/runs/1-a"))
-(allow file-read* (subpath "$FIXTURE/private/run/kstack/shell/snapshot.sh"))
-(deny file-write* (subpath "$FIXTURE/private/run/kstack/shell/snapshot.sh"))
 (allow file-read* file-write* (subpath "$FIXTURE/home/apps/kstack/chats/c/workspace"))
 (deny file-write-unlink file-write-create (literal "$FIXTURE/home/apps/kstack/chats/c/workspace"))
 
@@ -90,7 +88,6 @@
 (allow file-read-metadata (literal "$FIXTURE/private/run"))
 (allow file-read-metadata (literal "$FIXTURE/private/run/kstack"))
 (allow file-read-metadata (literal "$FIXTURE/private/run/kstack/runs"))
-(allow file-read-metadata (literal "$FIXTURE/private/run/kstack/shell"))
 (allow file-read-metadata (literal "$FIXTURE/sys"))
 (allow file-read-metadata (literal "$FIXTURE/sys/usr"))
 

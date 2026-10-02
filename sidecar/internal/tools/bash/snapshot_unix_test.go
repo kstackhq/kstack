@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -32,6 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
 // shells is every kind a snapshot is taken for.
@@ -497,4 +499,141 @@ func TestTheSnapshotIsInItsShellDirectory(t *testing.T) {
 	tl.home = t.TempDir()
 	tl.takeSnapshot(t.Context())
 	assert.FileExists(t, filepath.Join(shell, "snapshot.sh"))
+}
+
+// A sandboxed run sources no snapshot and its policy does not read one: a
+// function the profile defined is not there.
+func TestASandboxedRunSourcesNoSnapshot(t *testing.T) {
+	rt := testRuntime(t)
+	tl := tool(t)
+	tl.launch = heldLaunch(closed(), "greet() { echo hi; }\n")
+	tl.takeSnapshot(t.Context())
+	require.NotEmpty(t, tl.snapshot)
+	fake := &fakeSandboxer{}
+	tl.sandboxer = fake
+
+	text, isError := tl.Run(t.Context(), rt, command("type greet >/dev/null 2>&1 && echo found || echo none"))
+
+	require.False(t, isError, text)
+	assert.Equal(t, "none\n", text)
+	runs := fake.seen()
+	require.Len(t, runs, 1)
+	assert.NotContains(t, runs[0].Args[1], tl.snapshot)
+	assert.NotContains(t, runs[0].Policy.Always.Read, tl.snapshot)
+}
+
+// A sandboxed call and a sandboxed background call run while the snapshot is
+// still being taken: neither waits for it.
+func TestASandboxedRunDoesNotWaitForTheSnapshot(t *testing.T) {
+	rt := testRuntime(t)
+	tl := tool(t)
+	tl.launch = heldLaunch(make(chan struct{}), "")
+	stop, err := tl.StartSnapshot(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = stop(context.Background()) })
+	tl.sandboxer = &fakeSandboxer{}
+	tl.onSnapshotWait = func() { t.Error("a sandboxed run waited on the snapshot") }
+
+	text, isError := tl.Run(t.Context(), rt, command("echo ran"))
+	require.False(t, isError, text)
+	assert.Equal(t, "ran\n", text)
+
+	tasks := newFakeTasks(t)
+	text, isError = tl.Run(t.Context(), tools.Runtime{Dir: rt.Dir, Tasks: tasks}, background("true"))
+	require.False(t, isError, text)
+	require.Len(t, tasks.started, 1)
+	assert.Equal(t, 0, tasks.started[0].Wait().Code)
+}
+
+// On a machine with a sandbox no snapshot is taken at start. The first runs
+// outside it take it once, and every one of them waits for it.
+func TestTheSnapshotIsTakenOnTheFirstRunOutside(t *testing.T) {
+	rt := testRuntime(t)
+	rt.OutsideSandbox = true
+	tl := tool(t)
+	tl.sandboxer = &fakeSandboxer{}
+	release := make(chan struct{})
+	var launches atomic.Int32
+	held := heldLaunch(release, "greet() { echo hi; }\n")
+	tl.launch = func(ctx context.Context) ([]byte, string, int) {
+		launches.Add(1)
+		return held(ctx)
+	}
+	waiting := make(chan struct{}, 2)
+	tl.onSnapshotWait = func() { waiting <- struct{}{} }
+	stop, err := tl.StartSnapshot(t.Context())
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = stop(context.Background()) })
+	assert.Nil(t, tl.ready, "no snapshot is started at start")
+
+	texts := make(chan string, 2)
+	for range 2 {
+		go func() {
+			text, _ := tl.Run(t.Context(), rt, command("greet"))
+			texts <- text
+		}()
+	}
+	testutil.Recv(t, waiting, "the first run to wait")
+	testutil.Recv(t, waiting, "the second run to wait")
+	close(release)
+
+	assert.Equal(t, "hi\n", testutil.Recv(t, texts, "the first run"))
+	assert.Equal(t, "hi\n", testutil.Recv(t, texts, "the second run"))
+	assert.Equal(t, int32(1), launches.Load())
+}
+
+// The stop cancels a snapshot a run outside started and returns once its
+// shell is reaped; with none started it returns at once.
+func TestTheStopReapsASnapshotStartedLate(t *testing.T) {
+	rt := testRuntime(t)
+	rt.OutsideSandbox = true
+	tl := tool(t)
+	tl.sandboxer = &fakeSandboxer{}
+	launched := testutil.NewSignal()
+	var reaped atomic.Bool
+	tl.launch = func(ctx context.Context) ([]byte, string, int) {
+		launched.Fire()
+		<-ctx.Done()
+		reaped.Store(true)
+		return nil, "timeout", -1
+	}
+	stop, err := tl.StartSnapshot(t.Context())
+	require.NoError(t, err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _ = tl.Run(t.Context(), rt, command("true"))
+	}()
+	launched.Wait(t, "the snapshot to start")
+
+	require.NoError(t, stop(t.Context()))
+	assert.True(t, reaped.Load(), "the stop returned before the shell was reaped")
+	testutil.WaitClosed(t, done, "the run")
+
+	idle := tool(t)
+	idle.sandboxer = &fakeSandboxer{}
+	stop, err = idle.StartSnapshot(t.Context())
+	require.NoError(t, err)
+	assert.NoError(t, stop(t.Context()))
+}
+
+// Once the stop has returned, a first run outside the sandbox starts no
+// shell and runs without a snapshot.
+func TestNoSnapshotStartsAfterTheStop(t *testing.T) {
+	rt := testRuntime(t)
+	rt.OutsideSandbox = true
+	tl := tool(t)
+	tl.sandboxer = &fakeSandboxer{}
+	tl.launch = func(context.Context) ([]byte, string, int) {
+		t.Error("a login shell started after the stop")
+		return nil, "timeout", -1
+	}
+	stop, err := tl.StartSnapshot(t.Context())
+	require.NoError(t, err)
+	require.NoError(t, stop(t.Context()))
+
+	text, isError := tl.Run(t.Context(), rt, command("echo ok"))
+
+	require.False(t, isError, text)
+	assert.Equal(t, "ok\n", text)
 }

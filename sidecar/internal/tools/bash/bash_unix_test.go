@@ -721,8 +721,8 @@ func TestATaskWhoseSandboxHangsIsRefusedWhenTheCallEnds(t *testing.T) {
 
 // A sandboxed run carries the built environment and the Workspace policy: the
 // sandbox's System less what lies in Kstack's directories, the Never paths and
-// Kstack's directories denied, and the run's own paths inside them — the
-// snapshot and its run's directory read, the workspace and its TMPDIR written.
+// Kstack's directories denied, and the run's own paths inside them — its
+// run's directory read, the workspace and its TMPDIR written.
 // With no cluster it has no relay.
 func TestTheWorkspacePolicyIsSystemAndTheRunsOwn(t *testing.T) {
 	rt := testRuntime(t)
@@ -733,9 +733,6 @@ func TestTheWorkspacePolicyIsSystemAndTheRunsOwn(t *testing.T) {
 		never:  []string{filepath.Join(tl.home, ".ssh")},
 	}
 	tl.sandboxer = fake
-	tl.snapshot = filepath.Join(k.runtime, "shell", "snapshot.sh")
-	require.NoError(t, os.MkdirAll(filepath.Dir(tl.snapshot), 0o700))
-	require.NoError(t, os.WriteFile(tl.snapshot, nil, 0o400))
 
 	text, isError := tl.Run(t.Context(), rt, command(`echo "$ZDOTDIR"; echo "$TMPDIR"`))
 	require.False(t, isError, text)
@@ -754,7 +751,7 @@ func TestTheWorkspacePolicyIsSystemAndTheRunsOwn(t *testing.T) {
 		Always: sandbox.AlwaysPolicy{
 			Deny:   fake.never,
 			Kstack: []string{k.data, k.cache, k.runtime},
-			Read:   []string{tl.snapshot, rd.path},
+			Read:   []string{rd.path},
 			Write:  []string{ws, tmp},
 		},
 	}, r.Policy)
@@ -1049,20 +1046,6 @@ func TestASandboxedRunThatCannotBePreparedCouldNotStart(t *testing.T) {
 			}
 		})
 	}
-}
-
-// A sandboxed run reads the snapshot it sources.
-func TestASandboxedRunReadsTheSnapshot(t *testing.T) {
-	tl := tool(t)
-	fake := &fakeSandboxer{}
-	tl.sandboxer = fake
-	tl.snapshot = filepath.Join(t.TempDir(), "snapshot.sh")
-	require.NoError(t, os.WriteFile(tl.snapshot, nil, 0o400))
-
-	text, isError := tl.Run(t.Context(), testRuntime(t), command(`echo "$ZDOTDIR"`))
-	require.False(t, isError, text)
-
-	assert.Equal(t, []string{tl.snapshot, strings.TrimSpace(text)}, fake.seen()[0].Policy.Always.Read)
 }
 
 // Stored arguments whose workdir is absolute only on Unix, where alone a run
