@@ -23,13 +23,14 @@ import (
 )
 
 // target is how a sandboxed run reaches the chat's cluster: the kube-context its
-// kubeconfig names, the directory its kubectl cache lives in, and the server UID
-// the cache is keyed on and the claim vouches for, "" for a cluster never
-// identified.
+// kubeconfig names, the context its grant decides permissions in, the directory
+// its kubectl cache lives in, and the server UID the cache is keyed on and the
+// claim vouches for, "" for a cluster never identified.
 type target struct {
-	context   string
-	cacheDir  string
-	serverUID string
+	context      string
+	scopeContext string
+	cacheDir     string
+	serverUID    string
 }
 
 // errClusterGone is a chat's cluster that is gone or being deleted.
@@ -62,5 +63,5 @@ func (t *Tool) target(ctx context.Context, id apimeta.ClusterID) (target, error)
 	if name == "" {
 		name = unnamedContext
 	}
-	return target{context: name, cacheDir: cacheDir, serverUID: uid}, nil
+	return target{context: name, scopeContext: cluster.KubeContext(), cacheDir: cacheDir, serverUID: uid}, nil
 }

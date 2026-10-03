@@ -70,6 +70,8 @@ const (
 
 	stmtSelectClusterAccepts
 	stmtSelectMarkedClusterIDs
+
+	stmtSelectChatGrants
 	numStmts int = iota
 )
 
@@ -87,7 +89,7 @@ const (
 	llmCallColumns  = `id, run_id, seq, provider, model, effort, started_at`
 	toolCallColumns = `id, llm_call_id, seq, runs_on, tool_name, contract_name, tool_use_id, arguments, cwd, sandboxed, result, error,
 	is_mutating, spawned_run_id, status, created_at, started_at, finished_at`
-	approvalColumns = `id, tool_call_id, kind, request, status, created_at, decided_at`
+	approvalColumns = `id, tool_call_id, kind, request, status, reason, created_at, decided_at`
 )
 
 // toolCallReadColumns is what a read of the calls scans, in toolCallsByRun's order:
@@ -110,7 +112,7 @@ const toolCallReadFrom = ` FROM tool_calls t JOIN llm_calls c ON c.id = t.llm_ca
 // pending write's body is read: no other is served.
 const clusterWriteReadColumns = `a.tool_call_id, a.id, a.status,
 	CASE a.status WHEN 'pending' THEN a.request ELSE json_remove(a.request, '$.body', '$.contentType') END,
-	a.created_at, a.decided_at`
+	COALESCE(a.reason, ''), a.created_at, a.decided_at`
 
 const clusterWriteReadFrom = ` FROM approvals a JOIN tool_calls t ON t.id = a.tool_call_id
 	JOIN llm_calls c ON c.id = t.llm_call_id JOIN agent_runs r ON r.id = c.run_id`
@@ -209,8 +211,8 @@ var statements = []sqlstmt.Statement{
 	WHERE finished_at IS NULL AND runs_on = 'sidecar'`),
 	// An approval is written whole like its call: pending with the request, then the
 	// decision, then again at the settle.
-	stmtUpsertApproval: sqlstmt.OnWriter(`INSERT INTO approvals (` + approvalColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?)
-	ON CONFLICT(id) DO UPDATE SET status = excluded.status, decided_at = excluded.decided_at`),
+	stmtUpsertApproval: sqlstmt.OnWriter(`INSERT INTO approvals (` + approvalColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET status = excluded.status, reason = excluded.reason, decided_at = excluded.decided_at`),
 	// A chat's calls, beside its messages. OnBoth, since the repeated send's read
 	// runs inside the send's transaction.
 	stmtSelectToolCalls: sqlstmt.OnBoth(`SELECT ` + toolCallReadColumns + toolCallReadFrom + `
@@ -282,6 +284,8 @@ var statements = []sqlstmt.Statement{
 
 	// The clusters whose chats the sweeper deletes.
 	stmtSelectMarkedClusterIDs: sqlstmt.OnReader(`SELECT id FROM clusters WHERE delete_requested_at IS NOT NULL ORDER BY id`),
+
+	stmtSelectChatGrants: sqlstmt.OnReader(`SELECT rule FROM chat_grants WHERE chat_id = ? ORDER BY created_at, id`),
 }
 
 // stmts issues the set's statements, on the pools or inside a transaction.

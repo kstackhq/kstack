@@ -91,8 +91,8 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 - **`permissions.Class`**: 1 to 6 as the note numbers them. **`permissions.Mode`**: `ReadOnly`,
   `Ask`, `Auto` (step 3B says why the note's *Trusted scopes* is `Ask` with rules).
   **`permissions.Rule`**: `Effect` (`Allow`, `Deny` or `AskFor`), `Class`, `Provider`, `Scope`,
-  and where it lives: a chat's rules are `chat_grants` rows, the always rules are in
-  `securityconfig`, and the shipped rules are code. **`permissions.Decision`**: `Allowed`,
+  and where it lives: a chat's rules are `chat_grants` rows, and the always rules are in
+  `securityconfig`. **`permissions.Decision`**: `Allowed`,
   `Prompted` or `Denied`, with a `Reason`.
 - **`permissions.Action`**: one classified action: its `Provider` (`k8s`, `net`, `path`),
   `Class`, `Scope` (context and namespace, host, or folder), a one-line `Summary` for the
@@ -148,7 +148,7 @@ what it does in either order.
 | Spec | Step | After it |
 | --- | --- | --- |
 | 3A | **`PATH` from the login shell.** The user's `PATH` is resolved from their login shell, filtered, frozen in `securityconfig`, diffed at each launch with a confirmation for a new entry that would open more, refreshed on request, and shown in Settings. **Landed**; the root and `sidecar/` `CLAUDE.md` describe it. | The sandbox finds the tools the user's shell finds, and no startup file widens it unseen. |
-| [3B](3b-the-permissions-engine.md) | **The permissions engine.** Classes, modes, rules, the shipped deny rules, and `Decide`; the Kubernetes classifier assigns class 4 and 5; the cluster proxy asks `Decide` before each write; modes per context in `securityconfig`, `*prod*` read-only by default; the Settings section. Needs 2C and 1C. | A cluster write runs, asks or is refused by the user's mode and rules, and class 5 is never allowed unasked. |
+| 3B | **The permissions engine.** Classes, modes, rules and `Decide`; the Kubernetes classifier assigns class 4 and 5; the cluster proxy asks `Decide` before each write; modes per context in `securityconfig`; the Settings section. Needs 2C and 1C. **Landed**; `sidecar/CLAUDE.md` describes it. | A cluster write runs, asks or is refused by the user's mode and rules, and class 5 is never allowed unasked. |
 
 Seam: both add fields to `securityconfig.Settings`, and both need the store's `Held`: the step
 that lands first adds it, the other uses it.
@@ -182,7 +182,7 @@ Seam: 4B replaces the asker 4C asks a new host through; 4C says what it does in 
 
 | Spec | Step | After it |
 | --- | --- | --- |
-| [7A](7a-onboarding.md) | **Onboarding.** One flow on first launch: the `PATH` list, the probes, and the approval mode with `*prod*` read-only. Needs 3A, 3B, 5B and 6A. | A new user's tools work in the sandbox with nothing typed and nothing signed into. |
+| [7A](7a-onboarding.md) | **Onboarding.** One flow on first launch: the `PATH` list, the probes, and the approval mode. Needs 3A, 3B, 5B and 6A. | A new user's tools work in the sandbox with nothing typed and nothing signed into. |
 
 ## What each step records
 
@@ -201,7 +201,7 @@ neither and says so. A risk a step accepts on purpose is a **By decision** row i
 | 2B | no | yes | rows for the limits and the core size, the setuid programs, tracing with its `/proc` residual, and the keyring |
 | 2C | no | no | a row for a subagent's session never being looser than its parent's; the KubeQuery and outside-the-sandbox rows' citations |
 | 3A | yes | yes | the shell-import and sandboxed-command rows say the frozen list |
-| 3B | yes | yes | the cluster-write rows say `Decide`; a row for the shipped rules; the bash tool record's consent line amended |
+| 3B | yes | yes | the cluster-write rows say `Decide`; the bash tool record's consent line amended |
 | 4A | yes | no | the snapshot and shell-import rows; a **By decision** row for what the shell's output shapes outside the sandbox |
 | 4B | yes | yes | the request row; the rules row |
 | 4C | yes | yes | the network row; rows for the allowlist, the address refusal and no credential for any host; the Mach services row |
