@@ -13,3 +13,9 @@ overrides:
   js-yaml@4: ^4.3.2
   shell-quote: ^1.10.0
   ws: ^8.21.3
+auditConfig:
+  ignoreGhsas:
+    # braces <= 3.0.3 (every release) has no patch. Dev-only, under ESLint and
+    # GraphQL codegen, expanding our own globs. Remove once braces ships a fix.
+    # → docs/adr/2026-10-03-ignore-the-braces-advisory-until-it-has-a-patch.md
+    - GHSA-vfj7-8cjw-p6xm
