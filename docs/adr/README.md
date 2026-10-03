@@ -173,5 +173,6 @@ usually just documentation in the wrong place.
 | 2026-10-02 | [Bound a sandboxed run's processes with resource limits set inside the run](2026-10-02-process-limits-are-set-inside-the-run.md) | sidecar | Accepted |
 | 2026-10-02 | [Accept that a sandboxed command on macOS reads other processes' arguments](2026-10-02-a-macos-sandboxed-command-reads-other-processes-arguments.md) | sidecar | Accepted |
 | 2026-10-02 | [PATH is the login shell's, filtered and frozen](2026-10-02-path-is-the-login-shells-filtered-and-frozen.md) | sidecar, webview | Accepted |
+| 2026-10-02 | [A sandboxed cluster write runs, asks or is refused by its class, the context's mode and the user's rules](2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md) | cross-cutting | Accepted |
 | 2026-10-03 | [Ignore the braces advisory until it has a patch](2026-10-03-ignore-the-braces-advisory-until-it-has-a-patch.md) | repo | Accepted |
 | 2026-10-03 | [A spec never reaches main](2026-10-03-a-spec-never-reaches-main.md) | repo | Accepted |
