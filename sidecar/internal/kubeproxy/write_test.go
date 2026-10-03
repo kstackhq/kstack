@@ -339,8 +339,8 @@ func (s *served) askedFor(t *testing.T, asker fakeAsker, c writeCase) Write {
 }
 
 // A body the user could not read as it will be sent is refused unasked: one
-// that is not JSON or YAML, one encoded, one not UTF-8, one past 1 MiB. A
-// media type's parameters are not its type.
+// that is not JSON or YAML, one encoded, one not UTF-8, one past 1 MiB, one
+// repeating a key in an object. A media type's parameters are not its type.
 func TestAWriteThatCannotBeShownIsRefused(t *testing.T) {
 	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
 	asker := make(fakeAsker, 1)
@@ -358,6 +358,16 @@ func TestAWriteThatCannotBeShownIsRefused(t *testing.T) {
 		"past 1 MiB":   {writeCase{method: "POST", path: path, contentType: "application/json", body: `{"a":"` + strings.Repeat("x", maxWriteBody) + `"}`}, refusedTooLarge},
 		"with a body":  {writeCase{method: "DELETE", path: path + "/x", body: `{}`}, refusedUnshowable},
 		"a pdf delete": {writeCase{method: "DELETE", path: path + "/x", contentType: "application/pdf", body: `{}`}, refusedUnshowable},
+		"a namespace create repeating metadata": {writeCase{method: "POST", path: "/api/v1/namespaces", contentType: "application/json",
+			body: `{"metadata":{"name":"blocked"},"metadata":{"labels":{"x":"y"}}}`}, refusedRepeatedKey},
+		"a put repeating spec": {writeCase{method: "PUT", path: path + "/x", contentType: "application/json",
+			body: `{"spec":{"replicas":0},"spec":{"template":{}}}`}, refusedRepeatedKey},
+		"a patch repeating a nested key": {writeCase{method: "PATCH", path: path + "/x", contentType: "application/merge-patch+json",
+			body: `{"spec":{"replicas":0,"replicas":3}}`}, refusedRepeatedKey},
+		"an apply repeating spec": {writeCase{method: "PATCH", path: path + "/x", contentType: "application/apply-patch+yaml",
+			body: "spec:\n  replicas: 0\nspec:\n  template: {}\n"}, refusedRepeatedKey},
+		"a json patch repeating path": {writeCase{method: "PATCH", path: path + "/x", contentType: "application/json-patch+json",
+			body: `[{"op":"replace","path":"/spec/replicas","path":"/metadata/labels/a","value":0}]`}, refusedRepeatedKey},
 	} {
 		r, write := s.sendWrite(t, asker, c.c)
 		t.Run(name, func(t *testing.T) {
@@ -375,6 +385,9 @@ func TestAWriteThatCannotBeShownIsRefused(t *testing.T) {
 		_, write := s.sendWrite(t, asker, writeCase{method: "PATCH", path: path + "/x", contentType: contentType, body: `{}`})
 		assert.NotNil(t, write, contentType)
 	}
+	_, write := s.sendWrite(t, asker, writeCase{method: "PUT", path: path + "/x", contentType: "application/json",
+		body: `{"metadata":{"name":"x"},"data":{"metadata":"y","name":"z"}}`})
+	assert.NotNil(t, write, "a key repeated across objects is not repeated")
 }
 
 // A DELETE may carry no body, and asks.

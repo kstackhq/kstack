@@ -1636,7 +1636,9 @@ only then, under `maxWriteBody` (1 MiB, else a 403); refuses (`checkBody`, each 
 with a `Content-Encoding`, not valid UTF-8, or whose media type, parameters aside, is not JSON
 or apply YAML (a `DELETE` may carry none), one that does not decode as its media type says
 (`decodeBody`: an apply patch through `sigs.k8s.io/yaml`, as the API server reads one, anything
-else as one JSON value), one with `[redacted]` or its base64 in any decoded string, a key
+else as one JSON value), one repeating a key in one object (`uniqueKeys`), since `decodeBody`
+keeps the last where the API server's typed decoder merges, so the body would be shown as
+other than it runs, one with `[redacted]` or its base64 in any decoded string, a key
 included, so an escape that spells the mark differently does not hide it, and a `POST`
 to `secrets` that is not a JSON object or is typed `helm.sh/release.v1`, read by exact key;
 then `Ask`s with a `Write` — the method, the path and raw query, the policy's subresource, the

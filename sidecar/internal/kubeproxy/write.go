@@ -171,6 +171,12 @@ func checkBody(r *http.Request, p apiPath, body []byte) refusal {
 		if err != nil {
 			return refusedUnshowable
 		}
+		// decodeBody keeps a repeated key's last value, where the API server's
+		// typed decoder merges repeated objects, so a body repeating one would
+		// be shown as other than it runs.
+		if !uniqueKeys(mediaType, body) {
+			return refusedRepeatedKey
+		}
 		if holdsMark(value) {
 			return refusedRedacted
 		}
@@ -202,6 +208,49 @@ func decodeBody(mediaType string, body []byte) (any, error) {
 		return nil, errors.New("kubeproxy: a body holds more than one value")
 	}
 	return value, nil
+}
+
+// uniqueKeys is whether body parses with no object repeating a key.
+func uniqueKeys(mediaType string, body []byte) bool {
+	if mediaType == "application/apply-patch+yaml" {
+		_, err := yaml.YAMLToJSONStrict(body)
+		return err == nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	return uniqueKeysIn(dec) && !dec.More()
+}
+
+// uniqueKeysIn reads the next JSON value off dec, false if it does not parse or
+// an object in it repeats a key.
+func uniqueKeysIn(dec *json.Decoder) bool {
+	tok, err := dec.Token()
+	if err != nil {
+		return false
+	}
+	switch tok {
+	case json.Delim('{'):
+		seen := map[string]bool{}
+		for dec.More() {
+			key, err := dec.Token()
+			if err != nil || seen[key.(string)] {
+				return false
+			}
+			seen[key.(string)] = true
+			if !uniqueKeysIn(dec) {
+				return false
+			}
+		}
+	case json.Delim('['):
+		for dec.More() {
+			if !uniqueKeysIn(dec) {
+				return false
+			}
+		}
+	default:
+		return true
+	}
+	_, err = dec.Token()
+	return err == nil
 }
 
 // holdsMark is whether any string in value, a key included, holds a redacted
