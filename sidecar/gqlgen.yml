@@ -346,6 +346,10 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalDenied
       Abandoned:
         value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalAbandoned
+      Allowed:
+        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalAllowed
+      Refused:
+        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalRefused
 
   BackgroundTask:
     model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.BackgroundTask

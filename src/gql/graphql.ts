@@ -8,13 +8,16 @@ import type { TypedDocumentNode as DocumentNode } from '@graphql-typed-document-
  * Where the user's decision is. `Pending` until it commits, and after, when the call's turn ended
  * before anyone answered: the record of a question nobody answered. An `Approved` call whose status
  * is `NotRun` was approved and never started. `Abandoned` is a cluster write whose wait ended with no
- * decision while its call ran on; a call's own approval never takes it.
+ * decision while its call ran on; a call's own approval never takes it. `Allowed` and `Refused`
+ * are cluster writes the permissions engine decided with nobody asked.
  */
 export type ApprovalStatus =
   | 'Abandoned'
+  | 'Allowed'
   | 'Approved'
   | 'Denied'
-  | 'Pending';
+  | 'Pending'
+  | 'Refused';
 
 /**
  * Where a background task is. A command ends `Exited`; an agent `Completed` (it answered) or

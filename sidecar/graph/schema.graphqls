@@ -1123,6 +1123,8 @@ type ClusterWrite {
   body: String!
   "Whether the request asks for a dry run: a POST, PUT or PATCH whose every `dryRun` is `All`. Never a DELETE."
   dryRun: Boolean!
+  "Who decided a write nobody was asked about: the mode (`this context is read-only`, `auto mode`) or the rule's line. Null for a write the user answered."
+  reason: String
 }
 
 "What a call does, from the tool that made it. Never read from the call's arguments."
@@ -1275,13 +1277,16 @@ type ToolCallApproval {
 Where the user's decision is. `Pending` until it commits, and after, when the call's turn ended
 before anyone answered: the record of a question nobody answered. An `Approved` call whose status
 is `NotRun` was approved and never started. `Abandoned` is a cluster write whose wait ended with no
-decision while its call ran on; a call's own approval never takes it.
+decision while its call ran on; a call's own approval never takes it. `Allowed` and `Refused`
+are cluster writes the permissions engine decided with nobody asked.
 """
 enum ApprovalStatus {
   Pending
   Approved
   Denied
   Abandoned
+  Allowed
+  Refused
 }
 
 """
