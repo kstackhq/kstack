@@ -114,6 +114,44 @@ export type MemorySaveInput = {
   name: string;
 };
 
+/** How much an action can do, as the permissions engine numbers its classes 1 to 6. A rule may name `UpstreamWrite` or `Destructive`. */
+export type PermissionClass =
+  | 'Destructive'
+  | 'NewHost'
+  | 'ReadInside'
+  | 'SecretRead'
+  | 'UpstreamWrite'
+  | 'WriteInside';
+
+/** What a rule does to an action it matches. */
+export type PermissionEffect =
+  | 'Allow'
+  | 'Ask'
+  | 'Deny';
+
+/** Which classes ask: `ReadOnly` refuses writes, `Ask` asks for every write, `Auto` asks for destructive ones alone. */
+export type PermissionMode =
+  | 'Ask'
+  | 'Auto'
+  | 'ReadOnly';
+
+/** Where a context's mode comes from: `Refused`, read-only while the file's modes cannot be read; `Entry`, a mode entry whose pattern matches; `Default`, the default mode. */
+export type PermissionModeSource =
+  | 'Default'
+  | 'Entry'
+  | 'Refused';
+
+/** A rule to add; every string is a pattern but `group`, and empty matches anything. */
+export type PermissionRuleInput = {
+  class: PermissionClass;
+  context?: string;
+  effect: PermissionEffect;
+  group?: string;
+  kind?: string;
+  namespace?: string;
+  verb?: string;
+};
+
 /** Whose decision a PATH entry's state is. */
 export type SandboxPathSource =
   /** Kstack's, when it read the login shell's PATH. */
@@ -309,6 +347,59 @@ export type MemoryDeleteMutationVariables = Exact<{
 
 export type MemoryDeleteMutation = { memoryDelete: boolean };
 
+export type PermissionSettingsQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type PermissionSettingsQuery = { permissionSettings: { defaultMode: PermissionMode, destructive: Array<string>, held: Array<string>, contexts: Array<{ context: string, mode: PermissionMode, source: PermissionModeSource, pattern: string, own: boolean }>, rules: Array<{ id: string, line: string }> } };
+
+export type SecurityRefusedQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type SecurityRefusedQuery = { securityRefused: Array<{ field: string, value: string, reason: string }> };
+
+export type PermissionDefaultModeSetMutationVariables = Exact<{
+  mode: PermissionMode;
+}>;
+
+
+export type PermissionDefaultModeSetMutation = { permissionDefaultModeSet: { held: Array<string> } };
+
+export type PermissionModeSetMutationVariables = Exact<{
+  context: string;
+  mode: PermissionMode;
+}>;
+
+
+export type PermissionModeSetMutation = { permissionModeSet: { held: Array<string> } };
+
+export type PermissionModeClearMutationVariables = Exact<{
+  context: string;
+}>;
+
+
+export type PermissionModeClearMutation = { permissionModeClear: { held: Array<string> } };
+
+export type PermissionRuleAddMutationVariables = Exact<{
+  input: PermissionRuleInput;
+}>;
+
+
+export type PermissionRuleAddMutation = { permissionRuleAdd: { held: Array<string> } };
+
+export type PermissionRuleRemoveMutationVariables = Exact<{
+  id: string;
+}>;
+
+
+export type PermissionRuleRemoveMutation = { permissionRuleRemove: { held: Array<string> } };
+
+export type PermissionDiscardRefusedMutationVariables = Exact<{
+  field: string;
+}>;
+
+
+export type PermissionDiscardRefusedMutation = { permissionDiscardRefused: { held: Array<string> } };
+
 export type AuthStateWatchSubscriptionVariables = Exact<{ [key: string]: never; }>;
 
 
@@ -463,6 +554,14 @@ export const ClusterCachedKindsDocument = {"kind":"Document","definitions":[{"ki
 export const ClusterScheduleDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"ClusterSchedule"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ClusterID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"clusterScheduleWatch"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"nextRequeueAt"}},{"kind":"Field","name":{"kind":"Name","value":"probing"}}]}}]}}]} as unknown as DocumentNode<ClusterScheduleSubscription, ClusterScheduleSubscriptionVariables>;
 export const MemorySaveDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"MemorySave"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"MemorySaveInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"memorySave"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}}]}}]}}]} as unknown as DocumentNode<MemorySaveMutation, MemorySaveMutationVariables>;
 export const MemoryDeleteDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"MemoryDelete"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"MemoryID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"memoryDelete"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}]}]}}]} as unknown as DocumentNode<MemoryDeleteMutation, MemoryDeleteMutationVariables>;
+export const PermissionSettingsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"PermissionSettings"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"permissionSettings"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"defaultMode"}},{"kind":"Field","name":{"kind":"Name","value":"contexts"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"context"}},{"kind":"Field","name":{"kind":"Name","value":"mode"}},{"kind":"Field","name":{"kind":"Name","value":"source"}},{"kind":"Field","name":{"kind":"Name","value":"pattern"}},{"kind":"Field","name":{"kind":"Name","value":"own"}}]}},{"kind":"Field","name":{"kind":"Name","value":"rules"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"line"}}]}},{"kind":"Field","name":{"kind":"Name","value":"destructive"}},{"kind":"Field","name":{"kind":"Name","value":"held"}}]}}]}}]} as unknown as DocumentNode<PermissionSettingsQuery, PermissionSettingsQueryVariables>;
+export const SecurityRefusedDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"SecurityRefused"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"securityRefused"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"field"}},{"kind":"Field","name":{"kind":"Name","value":"value"}},{"kind":"Field","name":{"kind":"Name","value":"reason"}}]}}]}}]} as unknown as DocumentNode<SecurityRefusedQuery, SecurityRefusedQueryVariables>;
+export const PermissionDefaultModeSetDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"PermissionDefaultModeSet"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"mode"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"PermissionMode"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"permissionDefaultModeSet"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"mode"},"value":{"kind":"Variable","name":{"kind":"Name","value":"mode"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"held"}}]}}]}}]} as unknown as DocumentNode<PermissionDefaultModeSetMutation, PermissionDefaultModeSetMutationVariables>;
+export const PermissionModeSetDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"PermissionModeSet"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"context"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"mode"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"PermissionMode"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"permissionModeSet"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"context"},"value":{"kind":"Variable","name":{"kind":"Name","value":"context"}}},{"kind":"Argument","name":{"kind":"Name","value":"mode"},"value":{"kind":"Variable","name":{"kind":"Name","value":"mode"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"held"}}]}}]}}]} as unknown as DocumentNode<PermissionModeSetMutation, PermissionModeSetMutationVariables>;
+export const PermissionModeClearDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"PermissionModeClear"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"context"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"permissionModeClear"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"context"},"value":{"kind":"Variable","name":{"kind":"Name","value":"context"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"held"}}]}}]}}]} as unknown as DocumentNode<PermissionModeClearMutation, PermissionModeClearMutationVariables>;
+export const PermissionRuleAddDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"PermissionRuleAdd"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"input"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"PermissionRuleInput"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"permissionRuleAdd"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"input"},"value":{"kind":"Variable","name":{"kind":"Name","value":"input"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"held"}}]}}]}}]} as unknown as DocumentNode<PermissionRuleAddMutation, PermissionRuleAddMutationVariables>;
+export const PermissionRuleRemoveDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"PermissionRuleRemove"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"permissionRuleRemove"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"held"}}]}}]}}]} as unknown as DocumentNode<PermissionRuleRemoveMutation, PermissionRuleRemoveMutationVariables>;
+export const PermissionDiscardRefusedDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"PermissionDiscardRefused"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"field"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"permissionDiscardRefused"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"field"},"value":{"kind":"Variable","name":{"kind":"Name","value":"field"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"held"}}]}}]}}]} as unknown as DocumentNode<PermissionDiscardRefusedMutation, PermissionDiscardRefusedMutationVariables>;
 export const AuthStateWatchDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"AuthStateWatch"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"authStateWatch"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"authenticated"}},{"kind":"Field","name":{"kind":"Name","value":"identity"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"sub"}},{"kind":"Field","name":{"kind":"Name","value":"email"}},{"kind":"Field","name":{"kind":"Name","value":"name"}}]}}]}}]}}]} as unknown as DocumentNode<AuthStateWatchSubscription, AuthStateWatchSubscriptionVariables>;
 export const AuthLoginStartDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"AuthLoginStart"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"authLoginStart"}}]}}]} as unknown as DocumentNode<AuthLoginStartMutation, AuthLoginStartMutationVariables>;
 export const AuthLogoutDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"AuthLogout"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"authLogout"}}]}}]} as unknown as DocumentNode<AuthLogoutMutation, AuthLogoutMutationVariables>;
