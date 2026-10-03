@@ -198,3 +198,145 @@ func TestAReasonSaysWhatDecided(t *testing.T) {
 		assert.Equal(t, want, why)
 	}
 }
+
+func TestTheZeroVerdictIsADenial(t *testing.T) {
+	var v Verdict
+	assert.Equal(t, Unmatched, v)
+	assert.Less(t, Unmatched, Permit)
+	assert.Less(t, Permit, Forbid)
+	assert.Less(t, Forbid, Refuse)
+}
+
+func TestOutcomeOfEveryVerdict(t *testing.T) {
+	for v, want := range map[Verdict]Decision{
+		Permit:    Allowed,
+		Unmatched: Prompted,
+		Forbid:    Prompted,
+		Refuse:    Denied,
+	} {
+		assert.Equal(t, want, v.Outcome(), "verdict %d", v)
+	}
+}
+
+// orderedTable states the policy as a priority list: the first branch that
+// applies decides. It is a second statement of the same policy as Authorize,
+// so a change to the table changes this list in the same commit.
+func orderedTable(p Policy, act Action) (Decision, string) {
+	if act.Class == ReadInside || act.Class == WriteInside {
+		return Allowed, "it changes nothing in the cluster"
+	}
+	if r, ok := p.first(Deny, act); ok {
+		return Denied, "a rule denies it: " + r.Line()
+	}
+	if p.Mode == ReadOnly && act.Class != SecretRead {
+		return Denied, "this context is read-only"
+	}
+	if r, ok := p.first(AskFor, act); ok {
+		return Prompted, "a rule asks for it: " + r.Line()
+	}
+	if act.Class == Destructive {
+		return Prompted, "it always asks"
+	}
+	if r, ok := p.first(Allow, act); ok {
+		return Allowed, "a rule allows it: " + r.Line()
+	}
+	if p.Mode == Auto {
+		return Allowed, "auto mode"
+	}
+	return Prompted, string(p.Mode) + " mode"
+}
+
+func TestTheVerdictMatchesTheOrderedTable(t *testing.T) {
+	// Each effect is absent, or one rule of class 4 or 5: the classes a rule
+	// can have.
+	choices := []Class{0, UpstreamWrite, Destructive}
+	for _, mode := range []Mode{ReadOnly, Ask, Auto} {
+		for class := ReadInside; class <= SecretRead; class++ {
+			for _, deny := range choices {
+				for _, ask := range choices {
+					for _, allow := range choices {
+						var rules []Rule
+						for e, c := range map[Effect]Class{Deny: deny, AskFor: ask, Allow: allow} {
+							if c != 0 {
+								rules = append(rules, Rule{ID: string(e), Effect: e, Class: c})
+							}
+						}
+						p := Policy{Mode: mode, Rules: rules}
+						want, wantWhy := orderedTable(p, patch(class))
+						v, why := p.Authorize(patch(class))
+						assert.Equal(t, want, v.Outcome(), "%s, class %d, rules %v", mode, class, rules)
+						assert.Equal(t, wantWhy, why, "%s, class %d, rules %v", mode, class, rules)
+					}
+				}
+			}
+		}
+	}
+}
+
+func TestAForbidOnAFolderClassRefuses(t *testing.T) {
+	// No rule Kstack reads today has class 1: the shape checks refuse one.
+	// Should one reach the engine anyway, a forbid still wins.
+	for _, c := range []struct {
+		effect Effect
+		want   Verdict
+		why    string
+	}{
+		{Deny, Refuse, "a rule denies it: Deny reads inside the sandbox everywhere"},
+		{AskFor, Forbid, "a rule asks for it: Ask for reads inside the sandbox everywhere"},
+		{Allow, Permit, "it changes nothing in the cluster"},
+	} {
+		rules := []Rule{{ID: "r", Effect: c.effect, Class: ReadInside}}
+		got, why := Policy{Mode: Auto, Rules: rules}.Authorize(patch(ReadInside))
+		assert.Equal(t, c.want, got, "%s", c.effect)
+		assert.Equal(t, c.why, why, "%s", c.effect)
+	}
+}
+
+func TestAVerdictIsOrderIndependent(t *testing.T) {
+	rule := func(e Effect) Rule { return Rule{ID: string(e), Effect: e, Class: UpstreamWrite} }
+	for _, rules := range [][]Rule{
+		{rule(Deny), rule(AskFor), rule(Allow)},
+		{rule(Deny), rule(Allow), rule(AskFor)},
+		{rule(AskFor), rule(Deny), rule(Allow)},
+		{rule(AskFor), rule(Allow), rule(Deny)},
+		{rule(Allow), rule(Deny), rule(AskFor)},
+		{rule(Allow), rule(AskFor), rule(Deny)},
+	} {
+		got, why := Policy{Mode: Auto, Rules: rules}.Authorize(patch(UpstreamWrite))
+		assert.Equal(t, Refuse, got, "%v", rules)
+		assert.Equal(t, "a rule denies it: Deny cluster writes everywhere", why, "%v", rules)
+	}
+}
+
+func TestAForbidWinsOverAPermit(t *testing.T) {
+	rule := func(e Effect) Rule { return Rule{ID: string(e), Effect: e, Class: UpstreamWrite} }
+	got, _ := Policy{Mode: Ask, Rules: []Rule{rule(Allow), rule(AskFor)}}.Authorize(patch(UpstreamWrite))
+	assert.Equal(t, Forbid, got)
+	got, _ = Policy{Mode: Ask, Rules: []Rule{rule(Allow), rule(Deny)}}.Authorize(patch(UpstreamWrite))
+	assert.Equal(t, Refuse, got)
+	got, _ = Policy{Mode: Auto, Rules: []Rule{rule(Allow)}}.Authorize(patch(Destructive))
+	assert.Equal(t, Forbid, got)
+}
+
+func TestAnUnmatchedActionIsTheDefaultDenial(t *testing.T) {
+	got, why := Policy{Mode: Ask}.Authorize(patch(UpstreamWrite))
+	assert.Equal(t, Unmatched, got)
+	assert.Equal(t, Prompted, got.Outcome())
+	assert.Equal(t, "ask mode", why)
+	got, _ = Policy{Mode: Auto}.Authorize(patch(UpstreamWrite))
+	assert.Equal(t, Permit, got)
+}
+
+func TestReadOnlyRefusesClassesThreeToFive(t *testing.T) {
+	for class, want := range map[Class]Verdict{
+		ReadInside:    Permit,
+		WriteInside:   Permit,
+		NewHost:       Refuse,
+		UpstreamWrite: Refuse,
+		Destructive:   Refuse,
+		SecretRead:    Unmatched,
+	} {
+		got, _ := Policy{Mode: ReadOnly}.Authorize(patch(class))
+		assert.Equal(t, want, got, "class %d", class)
+	}
+}
