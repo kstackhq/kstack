@@ -28,6 +28,7 @@ import (
 
 	"sigs.k8s.io/yaml"
 
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/safe"
 )
 
@@ -65,11 +66,14 @@ type Write struct {
 	DryRun      bool   // a POST, PUT or PATCH whose every dryRun is All
 }
 
-// Asker puts a write to the user. false is a denial. A context error is a wait
-// that ended without a decision, which the asker records as abandoned; any
-// other error is a request or decision the asker could not record.
+// Asker puts a write to the user, and records one decided with nobody asked.
+// From Ask, false is a denial; a context error is a wait that ended without a
+// decision, which the asker records as abandoned; any other error is a request
+// or decision the asker could not record. From Record, an error is a record
+// the asker could not write; reason is the decision in the user's words.
 type Asker interface {
 	Ask(ctx context.Context, w Write) (bool, error)
+	Record(ctx context.Context, w Write, d permissions.Decision, reason string) error
 }
 
 // serveWrite puts a write the policy passed to the user, and forwards it once

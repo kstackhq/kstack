@@ -20,6 +20,7 @@ import (
 	"net/http"
 
 	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -66,10 +67,19 @@ func writesFor(rt tools.Runtime, background bool) (kubeproxy.Asker, string) {
 type runtimeAsker struct{ w tools.ClusterWriteAsker }
 
 func (a runtimeAsker) Ask(ctx context.Context, w kubeproxy.Write) (bool, error) {
-	return a.w.Ask(ctx, tools.ClusterWriteRequest{
+	return a.w.Ask(ctx, requestOf(w))
+}
+
+func (a runtimeAsker) Record(ctx context.Context, w kubeproxy.Write, d permissions.Decision, reason string) error {
+	return a.w.Record(ctx, requestOf(w), d, reason)
+}
+
+// requestOf is a grant's write as the runtime's asker takes it.
+func requestOf(w kubeproxy.Write) tools.ClusterWriteRequest {
+	return tools.ClusterWriteRequest{
 		Method: w.Method, Path: w.Path, Subresource: w.Subresource,
 		ContentType: w.ContentType, Body: string(w.Body), DryRun: w.DryRun,
-	})
+	}
 }
 
 // startProxy serves a grant over up for the run of sess on socket, whose writes

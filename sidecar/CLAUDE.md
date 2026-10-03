@@ -1265,7 +1265,8 @@ model was shown every byte as it is — from line 1 to the end, nothing cut, red
 so Write can tell a file seen whole from one seen in part. A `Runtime` is what a tool gets of the chat its call
 runs in: `ClusterID`, the chat's stored cluster, and `ChatID`, which a model names neither of,
 `Session`, then `Dir`, `Tasks`, `Files`, `Agent` and `ClusterWriteAsker`, which puts a sandboxed command's cluster
-write (`ClusterWriteRequest`) to the user, nil where nobody can be asked. `chatsvc` sets every
+write (`ClusterWriteRequest`) to the user, or records one the proxy decided with nobody asked
+(`Record`, with the reason in the user's words), nil where nobody can be asked. `chatsvc` sets every
 field; a test sets the ones its tool
 reads. **A `session.Session`** is one agent run's policy: its `Kind` (`Chat`, `Subagent` or
 `Monitor`, the last built by nothing yet) and `Outside`, the chat's switch as its turn read it.
@@ -2338,7 +2339,7 @@ with a cluster, then `startProxy` listens on the run's `proxy.sock` and serves a
 `kubeproxy.NewGrant(claim, rt.Session, asker, refusal, 20, 50, 32)` on `kubeproxy.NewServer`, and `Run.Socket`
 names the socket. `writesFor` picks the grant's writes: a foreground call's asks through its
 runtime's `ClusterWriteAsker` (`runtimeAsker`, which turns a `kubeproxy.Write` into a
-`tools.ClusterWriteRequest`), or refuses with *this sandbox reads the cluster and changes nothing*
+`tools.ClusterWriteRequest` for `Ask` and `Record` alike), or refuses with *this sandbox reads the cluster and changes nothing*
 when it has none; a background task's refuses every write with *a background command cannot change
 the cluster*. The `sandboxedRun` owns the claim, the proxy and the directory, so every failure while
 it is made is its `end`. **The run ends in order** (`sandboxedRun.end`), at the reap for a call
@@ -2743,7 +2744,10 @@ that one; its writes, `toolCallEntry.ClusterWrites`, are read by statements of t
 same scope (`callReads`), in `created_at, id` order, and `writeCalls` writes them again at the
 settle. On the wire each is a `ClusterWrite` in `ToolCall.clusterWrites`, carrying its body and
 media type only while it waits — pending on a running call — since each publish sends the list
-whole.
+whole, and its `reason`. **A write the policy decided is recorded with no wait**
+(`recordClusterWrite`, `clusterWriteAsker.Record`): one approval of `kind` `cluster`, written
+already decided, `allowed` or `refused` — statuses only such a write takes — with its `reason` in
+the user's words, against the open call; the run stays `running`.
 
 **The live message lists every call, off its rows.** `ChatMessage.ToolCalls` is the turn's
 calls as one JSON string of `ToolCall` (`id`, `toolUseID`, `name`, `arguments`, `status`,

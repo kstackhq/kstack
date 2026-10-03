@@ -296,19 +296,22 @@ CREATE INDEX tool_calls_spawned_idx  ON tool_calls (spawned_run_id);
 -- nobody answered. A 'cluster' approval is a request a sandboxed command sent
 -- to the cluster while its call ran, held until the user decided, or
 -- 'abandoned' when its wait ended first; request is the write as JSON, its body
--- as sent. A write left 'pending' is one a crash stranded.
+-- as sent. A write left 'pending' is one a crash stranded. A cluster write the
+-- permissions engine decided with nobody asked is 'allowed' or 'refused', and
+-- reason names the mode or the rule that decided it.
 CREATE TABLE approvals (
   id           TEXT    PRIMARY KEY,
   tool_call_id TEXT    NOT NULL REFERENCES tool_calls(id) ON DELETE CASCADE,
   kind         TEXT    NOT NULL DEFAULT 'call' CHECK (kind IN ('call', 'cluster')),
   request      TEXT,
   status       TEXT    NOT NULL DEFAULT 'pending'
-                       CHECK (status IN ('pending', 'approved', 'denied', 'abandoned')),
+                       CHECK (status IN ('pending', 'approved', 'denied', 'abandoned', 'allowed', 'refused')),
+  reason       TEXT,
   created_at   INTEGER NOT NULL,
   decided_at   INTEGER,
 
   CHECK ((kind = 'call') = (request IS NULL)),
-  CHECK (status != 'abandoned' OR kind = 'cluster')
+  CHECK (status NOT IN ('abandoned', 'allowed', 'refused') OR kind = 'cluster')
 ) STRICT, WITHOUT ROWID;
 
 CREATE UNIQUE INDEX approvals_call_idx ON approvals (tool_call_id) WHERE kind = 'call';

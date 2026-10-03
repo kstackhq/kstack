@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
@@ -57,6 +58,11 @@ func (a fakeAsker) Ask(ctx context.Context, w Write) (bool, error) {
 	case <-ctx.Done():
 		return false, ctx.Err()
 	}
+}
+
+// Record records nothing: a fakeAsker's tests read what is asked.
+func (a fakeAsker) Record(context.Context, Write, permissions.Decision, string) error {
+	return nil
 }
 
 // next is the next write put to a, once it is asked.
@@ -173,6 +179,10 @@ func TestADeniedWriteIsForbidden(t *testing.T) {
 type errAsker struct{ err error }
 
 func (a errAsker) Ask(context.Context, Write) (bool, error) { return false, a.err }
+
+func (a errAsker) Record(context.Context, Write, permissions.Decision, string) error {
+	return a.err
+}
 
 // A write the asker could not record answers 403 saying so, not that the user
 // did not answer, and the cluster never sees it.
@@ -576,6 +586,10 @@ func (a holdingAsker) Ask(ctx context.Context, _ Write) (bool, error) {
 	<-ctx.Done()
 	<-a.release
 	return false, ctx.Err()
+}
+
+func (holdingAsker) Record(context.Context, Write, permissions.Decision, string) error {
+	return nil
 }
 
 // End cancels a waiting Ask and returns; Wait returns only once that Ask has.
