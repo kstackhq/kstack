@@ -356,7 +356,7 @@ func TestAnUpdateKeepsARefusedRestrictionInTheFile(t *testing.T) {
 	require.NoError(t, s.Update(func(v *testSettings) error {
 		v.Denied = []string{"a"}
 		return nil
-	}))
+	}, "denied"))
 	data, err = os.ReadFile(file)
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"count": 1, "denied": ["a"], "schemaVersion": 1}`, string(data), "a write of the field itself replaces it")
@@ -390,6 +390,56 @@ func TestAnUpdateNamingARefusedRestrictionWritesItsStrictestState(t *testing.T) 
 	assert.NoError(t, err, "the write is published")
 }
 
+// A change to a held field that does not name it would drop the value the
+// store could not read, so it is refused; naming the field ends the hold, and
+// leaving it alone keeps it.
+func TestAHeldFieldRefusesAnUnnamedChange(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "security.json")
+	require.NoError(t, os.WriteFile(file, []byte(`{"denied": ["a", 1]}`), 0o600))
+	s := openTest(t, file)
+	require.True(t, s.Held("denied"))
+	require.False(t, s.Held("count"))
+
+	err := s.Update(func(v *testSettings) error {
+		v.Denied = []string{"a"}
+		return nil
+	})
+	require.ErrorIs(t, err, ErrHeld)
+	data, err := os.ReadFile(file)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"denied": ["a", 1]}`, string(data), "a refused Update writes nothing")
+	assert.Equal(t, []string{"*"}, s.Get().Denied)
+
+	require.NoError(t, s.Update(func(v *testSettings) error {
+		v.Count = 1
+		return nil
+	}))
+	assert.True(t, s.Held("denied"), "an Update that leaves the field alone keeps the hold")
+
+	require.NoError(t, s.Update(func(v *testSettings) error {
+		v.Denied = []string{"a"}
+		return nil
+	}, "denied"))
+	assert.False(t, s.Held("denied"), "an Update naming the field ends the hold")
+	data, err = os.ReadFile(file)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"count": 1, "denied": ["a"], "schemaVersion": 1}`, string(data))
+}
+
 func TestCloneRefusesAValueThatIsNotJSON(t *testing.T) {
 	assert.Panics(t, func() { clone(struct{ C chan int }{}) })
+}
+
+// encoding/json reads null as the zero value without an error, so a null is
+// refused like any value of the wrong type: a field that restricts answers
+// its strictest state, never its zero value.
+func TestANullIsRefused(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "security.json")
+	require.NoError(t, os.WriteFile(file, []byte(`{"denied": null}`), 0o600))
+	s := openTest(t, file)
+
+	assert.Equal(t, []string{"*"}, s.Get().Denied)
+	assert.True(t, s.Held("denied"))
+	require.Len(t, s.Refused(), 1)
+	assert.Equal(t, "denied", s.Refused()[0].Field)
 }

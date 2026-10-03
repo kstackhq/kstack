@@ -28,6 +28,8 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
 )
 
 // socketPath returns a bindable AF_UNIX path for one test.
@@ -158,4 +160,23 @@ func TestRunShutsDownWhenItsContextEnds(t *testing.T) {
 	require.Equal(t, 0, end())
 	_, err := os.Stat(cfg.Socket)
 	require.True(t, os.IsNotExist(err), "socket file still present after shutdown")
+}
+
+// One run of the login shell answers both readers: its environment is set
+// and its PATH handed on.
+func TestResolveIsRunOnceAtLaunch(t *testing.T) {
+	runs := 0
+	path, fault := runShell(t.Context(), func(context.Context) (loginshell.Result, *loginshell.Fault) {
+		runs++
+		return loginshell.Result{Path: []string{"/opt/bin", "/usr/bin"}}, nil
+	})
+	require.Equal(t, 1, runs)
+	require.Equal(t, []string{"/opt/bin", "/usr/bin"}, path)
+	require.Empty(t, fault)
+
+	path, fault = runShell(t.Context(), func(context.Context) (loginshell.Result, *loginshell.Fault) {
+		return loginshell.Result{}, &loginshell.Fault{Reason: "timeout", ExitCode: -1}
+	})
+	require.Nil(t, path)
+	require.Equal(t, "timeout", fault)
 }

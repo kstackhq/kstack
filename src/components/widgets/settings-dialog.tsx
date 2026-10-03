@@ -23,6 +23,7 @@ import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@
 import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
 
 import { Dialog } from '@/components/widgets/dialog';
+import { SandboxSettings } from '@/components/widgets/sandbox-settings';
 import { type AppDialogProps } from '@/lib/dialog';
 import { type ColorSchemePreference, useColorScheme } from '@/lib/theme';
 
@@ -61,6 +62,7 @@ export function SettingsDialog({ open, onOpenChange }: AppDialogProps) {
           </FieldContent>
           <ColorSchemePicker />
         </Field>
+        <SandboxSettings />
       </FieldGroup>
     </Dialog>
   );

@@ -18,7 +18,6 @@ package bash
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 
@@ -72,10 +71,8 @@ func TestARunWritesOnlyItsOwnToolHome(t *testing.T) {
 
 // helm, where the machine has it, names the tool home and writes there.
 func TestHelmWritesItsCache(t *testing.T) {
-	if _, err := exec.LookPath("helm"); err != nil {
-		t.Skip("no helm on this machine")
-	}
 	tl := confiningTool(t)
+	withTool(t, tl, "helm")
 	rt := testRuntime(t)
 
 	text, isError := tl.Run(t.Context(), rt, command(`helm env HELM_CACHE_HOME && touch "$(helm env HELM_CACHE_HOME)/x" && echo wrote`))

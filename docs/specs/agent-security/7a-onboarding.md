@@ -190,7 +190,7 @@ keeps answering empty there, and the `PATH` mutations stay refused.
 - The launcher opens the dialog once when `onboarded` is false, not again on a re-render, and
   not at all when it is true or the query fails.
 - Each step draws its data off its hook: the Programs list with a waiting entry and Include
-  calling `sandboxPathAdopt`; the Tools step running `sandboxToolsProbe` once on open, the
+  calling `sandboxPathInclude`; the Tools step running `sandboxToolsProbe` once on open, the
   spinner until it answers, the resolved binaries, a denied path with the popover's always
   grant, the `kubectl` alert when it is missing and Try again on a failed probe; the
   Permissions picker with Ask selected and the `*prod*` line.
