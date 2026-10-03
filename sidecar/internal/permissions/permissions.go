@@ -13,8 +13,11 @@
 // limitations under the License.
 
 // Package permissions decides, for one classified cluster write, whether it
-// runs, asks or is refused: by its class, the approval mode, and the rules. A
-// leaf: the proxy that enforces it imports it, and it imports nothing of ours.
+// runs, asks or is refused: by its class, the approval mode, and the rules.
+// Authorization is binary and fails closed: the policy permits an action or
+// denies it, a forbid wins over a permit, and nothing matching is a denial. A
+// prompt is a denial the user may lift. A leaf: the proxy that enforces it
+// imports it, and it imports nothing of ours.
 package permissions
 
 import (
@@ -92,40 +95,79 @@ const (
 	Denied   Decision = "denied"
 )
 
+// Verdict is what the policy says of an action before anyone is asked:
+// permitted, or denied in one of three ways. The strongest of what matched
+// wins, so a forbid beats a permit, and the verdicts are numbered in that
+// order: the greatest that applies is the answer, and the zero value is the
+// default denial.
+type Verdict int
+
+const (
+	// Unmatched: nothing matched. The default denial, which an answer lifts
+	// once and a grant lifts for good.
+	Unmatched Verdict = iota
+	// Permit: a permit matched and no forbid did. The action runs.
+	Permit
+	// Forbid: a forbid an answer lifts once and no grant lifts, since a
+	// forbid wins over any permit: an AskFor rule, or class 5.
+	Forbid
+	// Refuse: a forbid no answer lifts: a Deny rule, or the mode.
+	Refuse
+)
+
+// Outcome is what the proxies do with a verdict: a permit runs, a refusal is
+// refused, and either other denial is put to the user.
+func (v Verdict) Outcome() Decision {
+	switch v {
+	case Permit:
+		return Allowed
+	case Refuse:
+		return Denied
+	}
+	return Prompted
+}
+
 // Policy is what a session brings to a decision: the context's mode and the
-// rules that apply, in the order they are read.
+// rules that apply. Their order picks the reason alone, never the verdict.
 type Policy struct {
 	Mode  Mode
 	Rules []Rule
 }
 
-// Decide answers what happens to act under p, and why, in the user's words.
-// The first of these that applies wins; the mode's refusal comes before every
-// AskFor rule and class 5's prompt, so neither turns a read-only context's
-// refusal into a prompt.
+// Decide answers what happens to act under p, and why, in the user's words:
+// the policy's verdict, then what the proxies do with it.
 func (p Policy) Decide(act Action) (Decision, string) {
-	if act.Class == ReadInside || act.Class == WriteInside {
-		return Allowed, "it changes nothing in the cluster"
-	}
+	v, why := p.Authorize(act)
+	return v.Outcome(), why
+}
+
+// Authorize is the policy's verdict on act, and the reason in the user's
+// words: the strongest of what matched, a rule's line when a rule decided it.
+// The checks run strongest first, so the first that applies is the verdict,
+// and which rules match decides it whatever their order.
+func (p Policy) Authorize(act Action) (Verdict, string) {
 	if r, ok := p.first(Deny, act); ok {
-		return Denied, "a rule denies it: " + r.Line()
+		return Refuse, "a rule denies it: " + r.Line()
 	}
-	if p.Mode == ReadOnly && act.Class != SecretRead {
-		return Denied, "this context is read-only"
+	if p.Mode == ReadOnly && act.Class >= NewHost && act.Class <= Destructive {
+		return Refuse, "this context is read-only"
 	}
 	if r, ok := p.first(AskFor, act); ok {
-		return Prompted, "a rule asks for it: " + r.Line()
+		return Forbid, "a rule asks for it: " + r.Line()
 	}
 	if act.Class == Destructive {
-		return Prompted, "it always asks"
+		return Forbid, "it always asks"
+	}
+	if act.Class == ReadInside || act.Class == WriteInside {
+		return Permit, "it changes nothing in the cluster"
 	}
 	if r, ok := p.first(Allow, act); ok {
-		return Allowed, "a rule allows it: " + r.Line()
+		return Permit, "a rule allows it: " + r.Line()
 	}
 	if p.Mode == Auto {
-		return Allowed, "auto mode"
+		return Permit, "auto mode"
 	}
-	return Prompted, string(p.Mode) + " mode"
+	return Unmatched, string(p.Mode) + " mode"
 }
 
 // first is the first rule of effect that matches act.
