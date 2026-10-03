@@ -48,6 +48,10 @@ type Documents = {
     "\n  subscription ClusterCacheHealthWatch {\n    clusterCacheHealthWatch {\n      cacheID\n      status\n      reason\n      unhealthyKindRefs {\n        apiVersion\n        resource\n      }\n      totalKinds\n      unhealthyKinds\n      pausedKinds\n      lastUpdateAt\n      lastLiveAt\n    }\n  }\n": typeof types.ClusterCacheHealthWatchDocument,
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": typeof types.MemoriesWatchDocument,
     "\n  query Models {\n    models {\n      provider {\n        id\n        label\n      }\n      id\n      label\n      efforts\n      defaultEffort\n    }\n  }\n": typeof types.ModelsDocument,
+    "\n  query SandboxPath {\n    sandboxPath {\n      dir\n      target\n      state\n      source\n      shared\n    }\n    sandboxPathFault\n    sandboxPathResolved\n  }\n": typeof types.SandboxPathDocument,
+    "\n  mutation SandboxPathInclude($dir: String!, $target: String!) {\n    sandboxPathInclude(dir: $dir, target: $target) {\n      dir\n    }\n  }\n": typeof types.SandboxPathIncludeDocument,
+    "\n  mutation SandboxPathRemove($dir: String!) {\n    sandboxPathRemove(dir: $dir) {\n      dir\n    }\n  }\n": typeof types.SandboxPathRemoveDocument,
+    "\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      dir\n    }\n  }\n": typeof types.SandboxPathRefreshDocument,
     "\n  mutation ChatSandboxDisabledSet($id: ChatID!, $sandboxDisabled: Boolean!) {\n    chatSandboxDisabledSet(id: $id, sandboxDisabled: $sandboxDisabled) {\n      id\n      sandboxDisabled\n    }\n  }\n": typeof types.ChatSandboxDisabledSetDocument,
     "\n  query Sandbox {\n    sandbox {\n      available\n    }\n  }\n": typeof types.SandboxDocument,
 };
@@ -86,6 +90,10 @@ const documents: Documents = {
     "\n  subscription ClusterCacheHealthWatch {\n    clusterCacheHealthWatch {\n      cacheID\n      status\n      reason\n      unhealthyKindRefs {\n        apiVersion\n        resource\n      }\n      totalKinds\n      unhealthyKinds\n      pausedKinds\n      lastUpdateAt\n      lastLiveAt\n    }\n  }\n": types.ClusterCacheHealthWatchDocument,
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": types.MemoriesWatchDocument,
     "\n  query Models {\n    models {\n      provider {\n        id\n        label\n      }\n      id\n      label\n      efforts\n      defaultEffort\n    }\n  }\n": types.ModelsDocument,
+    "\n  query SandboxPath {\n    sandboxPath {\n      dir\n      target\n      state\n      source\n      shared\n    }\n    sandboxPathFault\n    sandboxPathResolved\n  }\n": types.SandboxPathDocument,
+    "\n  mutation SandboxPathInclude($dir: String!, $target: String!) {\n    sandboxPathInclude(dir: $dir, target: $target) {\n      dir\n    }\n  }\n": types.SandboxPathIncludeDocument,
+    "\n  mutation SandboxPathRemove($dir: String!) {\n    sandboxPathRemove(dir: $dir) {\n      dir\n    }\n  }\n": types.SandboxPathRemoveDocument,
+    "\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      dir\n    }\n  }\n": types.SandboxPathRefreshDocument,
     "\n  mutation ChatSandboxDisabledSet($id: ChatID!, $sandboxDisabled: Boolean!) {\n    chatSandboxDisabledSet(id: $id, sandboxDisabled: $sandboxDisabled) {\n      id\n      sandboxDisabled\n    }\n  }\n": types.ChatSandboxDisabledSetDocument,
     "\n  query Sandbox {\n    sandbox {\n      available\n    }\n  }\n": types.SandboxDocument,
 };
@@ -240,6 +248,22 @@ export function graphql(source: "\n  subscription MemoriesWatch($clusterID: Clus
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  query Models {\n    models {\n      provider {\n        id\n        label\n      }\n      id\n      label\n      efforts\n      defaultEffort\n    }\n  }\n"): (typeof documents)["\n  query Models {\n    models {\n      provider {\n        id\n        label\n      }\n      id\n      label\n      efforts\n      defaultEffort\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  query SandboxPath {\n    sandboxPath {\n      dir\n      target\n      state\n      source\n      shared\n    }\n    sandboxPathFault\n    sandboxPathResolved\n  }\n"): (typeof documents)["\n  query SandboxPath {\n    sandboxPath {\n      dir\n      target\n      state\n      source\n      shared\n    }\n    sandboxPathFault\n    sandboxPathResolved\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation SandboxPathInclude($dir: String!, $target: String!) {\n    sandboxPathInclude(dir: $dir, target: $target) {\n      dir\n    }\n  }\n"): (typeof documents)["\n  mutation SandboxPathInclude($dir: String!, $target: String!) {\n    sandboxPathInclude(dir: $dir, target: $target) {\n      dir\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation SandboxPathRemove($dir: String!) {\n    sandboxPathRemove(dir: $dir) {\n      dir\n    }\n  }\n"): (typeof documents)["\n  mutation SandboxPathRemove($dir: String!) {\n    sandboxPathRemove(dir: $dir) {\n      dir\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      dir\n    }\n  }\n"): (typeof documents)["\n  mutation SandboxPathRefresh {\n    sandboxPathRefresh {\n      dir\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

@@ -111,6 +111,22 @@ export type MemorySaveInput = {
   name: string;
 };
 
+/** Whose decision a PATH entry's state is. */
+export type SandboxPathSource =
+  /** Kstack's, when it read the login shell's PATH. */
+  | 'Shell'
+  /** The user's, by Include or Remove. */
+  | 'User';
+
+/** What the sandbox does with one folder of the user's PATH. */
+export type SandboxPathState =
+  /** On the sandbox's PATH and readable in it. */
+  | 'Adopted'
+  /** Removed by the user, and kept so a launch does not adopt it again. */
+  | 'Gone'
+  /** Listed by the shell and waiting for the user: adopting it would open more to commands, or its group can add programs to it. */
+  | 'Pending';
+
 /** What a call does, from the tool that made it. Never read from the call's arguments. */
 export type ToolActionKind =
   | 'Command'
@@ -385,6 +401,31 @@ export type ModelsQueryVariables = Exact<{ [key: string]: never; }>;
 
 export type ModelsQuery = { models: Array<{ id: string, label: string, efforts: Array<string>, defaultEffort: string, provider: { id: string, label: string } }> };
 
+export type SandboxPathQueryVariables = Exact<{ [key: string]: never; }>;
+
+
+export type SandboxPathQuery = { sandboxPathFault: string | null, sandboxPathResolved: boolean, sandboxPath: Array<{ dir: string, target: string, state: SandboxPathState, source: SandboxPathSource, shared: boolean }> };
+
+export type SandboxPathIncludeMutationVariables = Exact<{
+  dir: string;
+  target: string;
+}>;
+
+
+export type SandboxPathIncludeMutation = { sandboxPathInclude: Array<{ dir: string }> };
+
+export type SandboxPathRemoveMutationVariables = Exact<{
+  dir: string;
+}>;
+
+
+export type SandboxPathRemoveMutation = { sandboxPathRemove: Array<{ dir: string }> };
+
+export type SandboxPathRefreshMutationVariables = Exact<{ [key: string]: never; }>;
+
+
+export type SandboxPathRefreshMutation = { sandboxPathRefresh: Array<{ dir: string }> };
+
 export type ChatSandboxDisabledSetMutationVariables = Exact<{
   id: string;
   sandboxDisabled: boolean;
@@ -433,5 +474,9 @@ export const ClusterCachesWatchDocument = {"kind":"Document","definitions":[{"ki
 export const ClusterCacheHealthWatchDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"ClusterCacheHealthWatch"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"clusterCacheHealthWatch"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"cacheID"}},{"kind":"Field","name":{"kind":"Name","value":"status"}},{"kind":"Field","name":{"kind":"Name","value":"reason"}},{"kind":"Field","name":{"kind":"Name","value":"unhealthyKindRefs"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"apiVersion"}},{"kind":"Field","name":{"kind":"Name","value":"resource"}}]}},{"kind":"Field","name":{"kind":"Name","value":"totalKinds"}},{"kind":"Field","name":{"kind":"Name","value":"unhealthyKinds"}},{"kind":"Field","name":{"kind":"Name","value":"pausedKinds"}},{"kind":"Field","name":{"kind":"Name","value":"lastUpdateAt"}},{"kind":"Field","name":{"kind":"Name","value":"lastLiveAt"}}]}}]}}]} as unknown as DocumentNode<ClusterCacheHealthWatchSubscription, ClusterCacheHealthWatchSubscriptionVariables>;
 export const MemoriesWatchDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"subscription","name":{"kind":"Name","value":"MemoriesWatch"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"clusterID"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ClusterID"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"memoriesWatch"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"clusterID"},"value":{"kind":"Variable","name":{"kind":"Name","value":"clusterID"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"type"}},{"kind":"Field","name":{"kind":"Name","value":"memory"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"clusterID"}},{"kind":"Field","name":{"kind":"Name","value":"name"}},{"kind":"Field","name":{"kind":"Name","value":"body"}},{"kind":"Field","name":{"kind":"Name","value":"writtenBy"}},{"kind":"Field","name":{"kind":"Name","value":"updatedAt"}}]}}]}}]}}]} as unknown as DocumentNode<MemoriesWatchSubscription, MemoriesWatchSubscriptionVariables>;
 export const ModelsDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"Models"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"models"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"provider"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"label"}}]}},{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"label"}},{"kind":"Field","name":{"kind":"Name","value":"efforts"}},{"kind":"Field","name":{"kind":"Name","value":"defaultEffort"}}]}}]}}]} as unknown as DocumentNode<ModelsQuery, ModelsQueryVariables>;
+export const SandboxPathDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"SandboxPath"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"sandboxPath"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"dir"}},{"kind":"Field","name":{"kind":"Name","value":"target"}},{"kind":"Field","name":{"kind":"Name","value":"state"}},{"kind":"Field","name":{"kind":"Name","value":"source"}},{"kind":"Field","name":{"kind":"Name","value":"shared"}}]}},{"kind":"Field","name":{"kind":"Name","value":"sandboxPathFault"}},{"kind":"Field","name":{"kind":"Name","value":"sandboxPathResolved"}}]}}]} as unknown as DocumentNode<SandboxPathQuery, SandboxPathQueryVariables>;
+export const SandboxPathIncludeDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"SandboxPathInclude"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"dir"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"target"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"sandboxPathInclude"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"dir"},"value":{"kind":"Variable","name":{"kind":"Name","value":"dir"}}},{"kind":"Argument","name":{"kind":"Name","value":"target"},"value":{"kind":"Variable","name":{"kind":"Name","value":"target"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"dir"}}]}}]}}]} as unknown as DocumentNode<SandboxPathIncludeMutation, SandboxPathIncludeMutationVariables>;
+export const SandboxPathRemoveDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"SandboxPathRemove"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"dir"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"String"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"sandboxPathRemove"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"dir"},"value":{"kind":"Variable","name":{"kind":"Name","value":"dir"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"dir"}}]}}]}}]} as unknown as DocumentNode<SandboxPathRemoveMutation, SandboxPathRemoveMutationVariables>;
+export const SandboxPathRefreshDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"SandboxPathRefresh"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"sandboxPathRefresh"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"dir"}}]}}]}}]} as unknown as DocumentNode<SandboxPathRefreshMutation, SandboxPathRefreshMutationVariables>;
 export const ChatSandboxDisabledSetDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"mutation","name":{"kind":"Name","value":"ChatSandboxDisabledSet"},"variableDefinitions":[{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"id"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"ChatID"}}}},{"kind":"VariableDefinition","variable":{"kind":"Variable","name":{"kind":"Name","value":"sandboxDisabled"}},"type":{"kind":"NonNullType","type":{"kind":"NamedType","name":{"kind":"Name","value":"Boolean"}}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"chatSandboxDisabledSet"},"arguments":[{"kind":"Argument","name":{"kind":"Name","value":"id"},"value":{"kind":"Variable","name":{"kind":"Name","value":"id"}}},{"kind":"Argument","name":{"kind":"Name","value":"sandboxDisabled"},"value":{"kind":"Variable","name":{"kind":"Name","value":"sandboxDisabled"}}}],"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"id"}},{"kind":"Field","name":{"kind":"Name","value":"sandboxDisabled"}}]}}]}}]} as unknown as DocumentNode<ChatSandboxDisabledSetMutation, ChatSandboxDisabledSetMutationVariables>;
 export const SandboxDocument = {"kind":"Document","definitions":[{"kind":"OperationDefinition","operation":"query","name":{"kind":"Name","value":"Sandbox"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"sandbox"},"selectionSet":{"kind":"SelectionSet","selections":[{"kind":"Field","name":{"kind":"Name","value":"available"}}]}}]}}]} as unknown as DocumentNode<SandboxQuery, SandboxQueryVariables>;

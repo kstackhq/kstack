@@ -35,6 +35,9 @@ import (
 	"golang.org/x/sys/windows/registry"
 )
 
+// defaultPath is empty: Windows has no sandbox, so no run is built with it.
+const defaultPath = ""
+
 // pipeGrace bounds the wait for the output pipe to close once the job has
 // been terminated: nothing can leave the job, but a handle inherited by
 // something outside it could still hold the pipe, and the call must end
