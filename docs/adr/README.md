@@ -173,3 +173,4 @@ usually just documentation in the wrong place.
 | 2026-10-02 | [Bound a sandboxed run's processes with resource limits set inside the run](2026-10-02-process-limits-are-set-inside-the-run.md) | sidecar | Accepted |
 | 2026-10-02 | [Accept that a sandboxed command on macOS reads other processes' arguments](2026-10-02-a-macos-sandboxed-command-reads-other-processes-arguments.md) | sidecar | Accepted |
 | 2026-10-03 | [Ignore the braces advisory until it has a patch](2026-10-03-ignore-the-braces-advisory-until-it-has-a-patch.md) | repo | Accepted |
+| 2026-10-03 | [A spec never reaches main](2026-10-03-a-spec-never-reaches-main.md) | repo | Accepted |

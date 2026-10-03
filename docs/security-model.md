@@ -5,7 +5,7 @@ rather than by remembering. Present tense, like a `CLAUDE.md`: this file states 
 
 Dated findings live in [`docs/security/`](security/) and are never rewritten. Gaps live in
 [`TODO.md`](TODO.md#security), each carrying the shape of the work; one settled enough to build
-straight through gets a spec in [`docs/specs/`](specs/). A risk we decide to accept becomes an ADR
+straight through gets a spec ([`docs/specs/`](specs/README.md)). A risk we decide to accept becomes an ADR
 and a **By decision** row below, so it can be told apart from one nobody has noticed.
 
 Latest review and complete disposition register: [4 September 2026](security/2026-09-04-security-review.md).

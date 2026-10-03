@@ -6,26 +6,56 @@ It is a plan with a shelf life.
 The other two doc kinds keep their jobs: `CLAUDE.md` says what is true now, `docs/adr/` says why a
 design was chosen. A spec says what comes next.
 
-## Filenames
+## Where a spec lives
 
-```
-docs/specs/<n>-short-slug.md   a spec with a place in a sequence
-docs/specs/short-slug.md       one that stands alone
-docs/specs/<topic>/<n>-slug.md a sequence of its own, with a README.md naming its steps
-```
+**A spec never reaches `main`.** It lives on a pull request, then on a `wip/<topic>` branch of
+this repository, and is deleted in the PR that lands its code:
 
-No dates — a spec is edited as the work moves, not appended to. **The number is the build order**,
-so the directory listing is the plan; a spec with no place in a sequence goes without one.
-Renumber when the planned build order changes, and fix the links in the same edit. Retiring a
-completed step does not renumber the remaining steps; their numbers preserve the original order.
+1. **Propose.** Add the spec on a branch of your fork, open a draft PR into `main` titled
+   `📜 Spec: <what it builds>`, labelled `spec`, and link the issue it answers. The spec is
+   reviewed there, line by line.
+2. **Accept.** A maintainer creates `wip/<topic>` from `main`, retargets the spec PR to it and
+   merges it. They then open a draft PR from `wip/<topic>` into `main`, which shows the whole
+   change as it grows.
+3. **Build.** Each implementation PR targets `wip/<topic>`, and updates the spec as the work
+   moves. Keep `wip/<topic>` current with `main` as the work goes.
+4. **Land.** When the work is finished, the `wip/<topic>` PR folds what is now true into the
+   relevant `CLAUDE.md`, writes an ADR if a decision needs its reasons recorded, deletes the spec,
+   and merges into `main`.
 
-## Lifecycle
+How `wip/<topic>` keeps up with `main`, and whether it lands as a squash, a rebase or a merge
+commit, is the maintainers' call for each piece of work. A rebase rewrites the branch under any
+open PR, so warn their authors first.
 
-Update the spec while the work is in progress. When it lands, fold what is now true into the
-relevant `CLAUDE.md`, write an ADR if a decision needs its reasons recorded, and delete the spec.
-A spec left behind after the code ships is a second source of truth.
-A security spec also has a line in [`TODO.md`](../TODO.md#security) and a row in
-[`security-model.md`](../security-model.md); its own *When it lands* section says where the row moves.
+The open `spec` PRs are the proposals; the open PRs from `wip/*` are the work in progress.
+
+Whether something is worth building is settled before its spec, in an issue, or in a Discussion
+for an open-ended proposal. A security spec's gap keeps its line in [`TODO.md`](../TODO.md#security),
+linking the PR, and its row in [`security-model.md`](../security-model.md); the spec's own
+*When it lands* section says where the row moves.
+
+## Naming
+
+A spec is named for its shape. No dates: a spec is edited as the work moves, not appended to.
+
+| Shape | File | Prose |
+| --- | --- | --- |
+| One spec | `docs/specs/<topic>.md` | — |
+| Steps built one after another | `docs/specs/<topic>/<n>-<slug>.md` | step 3 |
+| Waves of steps built in parallel | `docs/specs/<topic>/<n><a>-<slug>.md` | step 3B |
+
+**A sequence** — the second and third shapes — has a `docs/specs/<topic>/README.md` naming its
+steps, and shares one `wip/<topic>`: the README and each step's spec merge into it as they are
+accepted, and it lands once the last step is built. In the third shape, `<n>` is the wave: every
+step in one wave can be built at the same time, and a step needs only steps of earlier waves. The
+letter orders a wave's steps for reading, not for building. Use it only when a sequence has a wave
+of more than one step.
+
+Branches on a fork are the contributor's to name. We suggest the spec's own name: `<topic>`,
+`<topic>-<n>` or `<topic>-<n><a>`.
+
+**[Agent security](agent-security/README.md) is the one sequence on `main`.** It is the third
+shape. Each step is deleted, with its row in that README, in the change that lands it.
 
 ## Working a numbered spec
 
@@ -38,13 +68,13 @@ All tasks start Planned; record their status and implementation commit/PR in the
 moves.
 Each handoff reports changed files, acceptance cases, verification results and remaining failures.
 
-Keep dependent cutover work on the spec's branch until its integration gate passes. Supporting
+Keep dependent cutover work on `wip/<topic>` until its integration gate passes. Supporting
 work should compile and pass focused checks; do not merge an incomplete schema/service cutover.
 Do not introduce a generic repository framework, a second DB owner, or dual writes.
 Paths in task lists are relative to `sidecar/internal/` unless explicitly rooted elsewhere.
 
 When complete, update current-state documentation and ADRs as the spec's *When it lands* lists,
-then delete **that spec only** and remove its row from the index in the same change. Keep later spec numbers
+then delete **that spec only** and remove its row from the sequence's README in the same change. Keep later spec numbers
 stable: their prerequisites are delivered code and current-state docs, never a retired spec file.
 
 ### What every spec inherits
@@ -96,23 +126,7 @@ root `CLAUDE.md`. All commands below run from the repository root unless explici
 
 ## Index
 
-The numbered specs 1–6 and 8 have landed and are retired. 7, the function bash on Chat
-Completions, was retired by 22, which offers bash as a function on every dialect.
-
-Spec 9 onward is the LLM rewrite, which reorganizes the model, tool and run-loop code, one step
-each. Landed: 9 to 23 (10, 12 and 13 to 15 were built without a spec), 24, the fake's knobs, 25,
-stored blocks and the foreign strip, 26, provider and request details, 27, context windows and
-the length check, 29, chat service hardening, 30, the wiring tests, and 31, prompt caching on
-every provider, and 32, a chat can switch to any model (both live checks with real keys are in
-[`TODO.md`](../TODO.md)). Still to come:
-
-- 28 ports what is left of the tests the rewrite's purge removed.
-
-KubeQuery's own sequence, four steps, has landed and is retired; the
-[KubeQuery note](../notes/kubequery.md) describes what it built.
-
-The rest stand alone. Each is deleted, and its row removed, in the change that lands it.
-
-| Spec | Scope | Status |
-| --- | --- | --- |
-| [Sandbox, credentials and permissions](agent-security/README.md), a sequence of its own | sidecar, host, webview | Planned |
+Proposed: the open spec PRs, [`is:pr is:open label:spec`](https://github.com/kstackhq/kstack/pulls?q=is%3Apr+is%3Aopen+label%3Aspec).
+In progress: the open PRs from a `wip/<topic>` branch into `main`.
+On `main`: [Sandbox, credentials and permissions](agent-security/README.md), the agent-security
+sequence (sidecar, host, webview).

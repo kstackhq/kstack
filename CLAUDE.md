@@ -92,6 +92,11 @@ pull request and issue in this repo, all three languages.
   and lead the title with the template's emoji for the change type — 🎣 bug fix,
   🐋 new feature, 📜 documentation, ✨ general improvement. Titles must be natural
   titles with first letter capitalized, not conventional commit headings.
+- **A spec never reaches `main`.** It is proposed as a
+  draft PR labelled `spec` and titled `📜 Spec: …`; once accepted it merges
+  into a `wip/<topic>` branch, implementation PRs target that branch, and a PR
+  from it lands the work on `main` and deletes the spec. → [`docs/specs/README.md`](docs/specs/README.md),
+  [ADR: a spec never reaches main](docs/adr/2026-10-03-a-spec-never-reaches-main.md).
 - **An issue that describes work to be done follows
   [`.github/ISSUE_TEMPLATE/task.md`](.github/ISSUE_TEMPLATE/task.md)** — a bug,
   an improvement or a feature someone can pick up. Keep `Summary` and

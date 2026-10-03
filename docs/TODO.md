@@ -2,7 +2,7 @@
 
 Pending work across the three parts of the app. Grouped by area; detailed items keep their acceptance notes inline.
 
-> **The specs are the plan.** Work with a settled shape lives in [`docs/specs/`](specs/) and is not repeated here. This file holds what has no spec yet: watch items, simplifications, and work whose shape is still a question.
+> **The specs are the plan.** Work with a settled shape has a spec — proposed in a pull request labelled `spec`, accepted on a `wip/<topic>` branch, or a step of the [agent-security sequence](specs/agent-security/README.md) — and is not repeated here. This file holds what has no spec yet: watch items, simplifications, and work whose shape is still a question.
 
 ## Sidecar — cluster service
 
@@ -874,4 +874,5 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
 ## Testing
 
 - **Integration tests against the cloud model providers.** Every `internal/llm` test serves a synthetic body, so a vendor that changes its catalog shape, its finish reasons or what it accepts for `max_tokens` and `reasoning_effort` is found by a user, or by someone running `make llm-catalogs`, not by a test. Wanted: an opt-in suite behind a build tag, keyed from the environment, that runs each cloud row's discovery and one short turn per written effort against the real endpoint, kept out of `make test`.
+- **Port what is left of the tests the LLM rewrite's purge removed.** The last step of the rewrite's sequence; its spec is not written yet.
 - **Keep the no-wall-clock rule.** Both `CLAUDE.md` files state it, and the tree is currently clean: the frontend suites use `vi.useFakeTimers()` + `advanceTimersByTimeAsync`, `waitFor`, or the `flush()` helper with no `setTimeout` waits; Go's three `time.Sleep` calls are all the permitted kind and each says so — a widened truncate window in `kubeconfig_test.go`, a writer racing a gauge in `caches_test.go`, and `kubesync`'s deliberate exit latency; and `src-tauri/.../sidecar/ipc.rs`'s retry test — `#[tokio::test(start_paused = true)]`, letting tokio auto-advance virtual time between parked timers — is the shape to match. **What to watch for:** not `time.Sleep` but *thin real-timer margins* — tests that never sleep yet still fail on a loaded machine because they race short real durations. The fix shape is an injectable clock/timer seam so the test advances virtual time. The ~30 `time.After(...)` uses in sidecar tests are almost all *deadlines* guarding a channel receive, which the rule explicitly permits; keep those separate from any load-bearing wait. A `-count=20` soak on a loaded machine is the cheapest way to find regressions.
