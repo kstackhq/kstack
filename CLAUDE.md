@@ -97,7 +97,9 @@ pull request and issue in this repo, all three languages.
 - **A spec never reaches `main`.** It is proposed as a
   draft PR labelled `spec` and titled `📜 Spec: …`; once accepted it merges
   into a `wip/<topic>` branch, implementation PRs target that branch, and a PR
-  from it lands the work on `main` and deletes the spec. → [`docs/specs/README.md`](docs/specs/README.md),
+  from it lands the work on `main` and deletes the spec. The proposal uses
+  [`.github/PULL_REQUEST_TEMPLATE/spec.md`](.github/PULL_REQUEST_TEMPLATE/spec.md)
+  (`gh pr create --template spec.md`). → [`docs/specs/README.md`](docs/specs/README.md),
   [ADR: a spec never reaches main](docs/adr/2026-10-03-a-spec-never-reaches-main.md).
 - **An issue that describes work to be done follows
   [`.github/ISSUE_TEMPLATE/task.md`](.github/ISSUE_TEMPLATE/task.md)** — a bug,

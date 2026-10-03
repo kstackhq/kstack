@@ -13,7 +13,8 @@ this repository, and is deleted in the PR that lands its code:
 
 1. **Propose.** Add the spec on a branch of your fork, open a draft PR into `main` titled
    `📜 Spec: <what it builds>`, labelled `spec`, and link the issue it answers. The spec is
-   reviewed there, line by line.
+   reviewed there, line by line. Use the spec PR template:
+   `gh pr create --draft --template spec.md`, or add `?template=spec.md` to the compare URL.
 2. **Accept.** A maintainer creates `wip/<topic>` from `main`, retargets the spec PR to it and
    merges it. They then open a draft PR from `wip/<topic>` into `main`, which shows the whole
    change as it grows.
