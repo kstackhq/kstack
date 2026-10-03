@@ -152,6 +152,14 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     it reads apart from a foreground request. The request is the whole gate, so this needs its
     own ADR and security record.
 
+- **Let a user flag a context as production (when users ask).** Every context starts at the
+  default mode, and a user marks a production one by setting its mode to read-only or adding a
+  `Deny` rule. A flag could carry its own defaults: read-only, and namespace deletion refused in
+  every mode. Guessing it from the context's name (`*prod*`) was weighed and left out, since it
+  catches `nonprod` and misses a production cluster named otherwise → [ADR: permissions are
+  classes, modes and rules](adr/2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md).
+  **Trigger:** a user asks for it.
+
 - **Ask for a sandboxed command's cluster reads under a locked-down mode (design first).** Today
   the proxy forwards every read unasked. A mode that asks for reads too could record each one as
   an approvals row beside the writes, in the same request shape with no body, so the table needs
@@ -451,6 +459,24 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   - **Keep it narrow.** It holds the user's security settings and the operations on them, not
     everything about security. Say so in the package doc, and say in `sidecar/CLAUDE.md` that a
     service need not sit on `app.db`.
+
+- **Group `security.json`'s keys by area, and rethink how settings sync (design first).** The
+  file's keys are flat, and later steps add more of them (host rules, folders granted always,
+  registered tools, the monitor's switch, the onboarding flag).
+  - **Grouping.** One object per area: `sandbox` (`path`, `pathResolved`, `pathStrict`),
+    `permissions` (`defaultMode`, `modes`, `rules`), and later `network` and `folders`. The store
+    refuses and holds a value per top-level key and per list element, so the decode has to recurse
+    to keep that. Holding `permissions` as one key would hold the modes along with one bad rule.
+    Nothing has shipped, so the layout changes without a migration.
+  - **Sync.** Settings live in three places today: `host.json` (the host's, such as the color
+    scheme), `<data>/settings.json` with its queue (`cloud`'s, synced), and `security.json`
+    (never synced). Decide which settings follow a user to another machine; whether a security
+    setting may ever sync, and if so only one that narrows, since a value from the cloud must
+    never widen what a sandbox may do; and whether settings should be rows in `app.db` rather
+    than files, with sync a queue of changes. Rows would bring a watch, transactions and one
+    schema, but `security.json` is meant to be edited by hand. The sync design needs an ADR.
+  - **Trigger:** the grouping before step 4C adds the host rules; the sync before the first
+    setting that has to sync.
 
 ## Host (Tauri/Rust)
 
