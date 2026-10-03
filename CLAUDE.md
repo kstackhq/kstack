@@ -51,6 +51,8 @@ A `UserPromptSubmit` hook (`scripts/writing-standards-hook.sh`, wired in `.claud
 
 These apply to `src/`, `sidecar/`, and `src-tauri/` alike; each area's `CLAUDE.md` adds its own tooling on top.
 
+**While working, run `make test-changed`** — the tests your changes touch, in each language (`scripts/test-changed.sh`). Don't run `make test`, `make cover-js` or `make cover-go` locally unless asked: CI runs every suite and both coverage gates on every PR. Raise a coverage threshold when CI reports the number rose.
+
 **Every test file sits beside the file it covers.** `foo_test.go` / `foo.test.ts` tests `foo.go` / `foo.ts`. A test file with no counterpart means the unit under test is buried in a larger file — split the *implementation* out to match the test's name rather than renaming the test to match the monolith. The one exception is a file that exists solely to hold shared fixtures (`testutil_test.go`), which tests nothing.
 
 **In Go, a platform-specific test goes in a platform-named file, never behind a `runtime.GOOS` check.** `foo_unix_test.go` (`//go:build !windows`) beside `foo_test.go`, matching how `internal/ipc` splits its implementation. The build constraint is the mechanism the language already has: a `GOOS` skip compiles the test everywhere and then declines to run it, so the file's name no longer says who it is for and the assertion silently disappears on the platform it was written for. **Split rather than skip** — a test that is *partly* platform-specific keeps its cross-platform half in the plain file, so neither half is a subset of the other (`atomicjson`'s `TestSaveCreatesMissingDirs` and `TestSaveIsOwnerOnly`). A Unix path (`/tmp`, `/srv/app`) is not absolute on Windows, and a reader holding a file open keeps a rename from replacing it there, so both belong to the Unix half.
@@ -226,7 +228,7 @@ Connection lifecycle is published out of band on the per-operation **transport-s
 Vitest + `@testing-library/react` (jsdom), co-located (`*.test.ts[x]`). Mock the Tauri bridge with **`mockTauriCore()` from `@/test-utils`** (+ `vi.mock('@tauri-apps/api/core', …)` and dynamic import of the module under test). For GraphQL-driven components, push frames via `liveChannel().onmessage!(...)` — see `src/components/widgets/sync-health-badge.test.tsx`.
 
 - The repo-wide rules above (co-located test files, no magic sleeps) apply here — `vi.useFakeTimers()` + `advanceTimersByTimeAsync`, `await waitFor(...)`, or a `flush()`/`act` helper, never a bare `setTimeout` wait.
-- Run: `pnpm test --run` (or `make test-js`). Watch: `pnpm test`.
+- Run: `make test-changed` while working; `pnpm test --run` (or `make test-js`) for the whole suite. Watch: `pnpm test`.
 - **Coverage is gated.** `make cover-js` runs the suite with v8 coverage and fails below the line percentage in `scripts/coverage-threshold`. The gate is one number in one file: **raise it when a change lifts coverage, and never lower it without saying why in the commit body.** Excluded in `vite.config.ts`: generated output (`src/gql/`), `routeTree.ts`, `main.tsx`, and `test-utils.tsx` — nothing a test could assert that running the suite doesn't already.
 
 ### Lint / build

@@ -2,7 +2,7 @@
 # so it doesn't belong in package.json scripts; this Makefile is the
 # place where Go, Rust, and JS commands meet.
 
-.PHONY: sidecar sidecar-dev bwrap proto proto-go proto-rust test test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js vet vet-go vet-rust check-cache check-switch clean
+.PHONY: sidecar sidecar-dev bwrap proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js vet vet-go vet-rust check-cache check-switch clean
 
 # Build the Go sidecar into src-tauri/binaries/ with the Tauri-required
 # `<name>-<rust-host-triple>` filename. Tauri's externalBin picks it up.
@@ -53,6 +53,11 @@ test-rust: sidecar
 
 test-js:
 	pnpm test --run
+
+# Only the tests this branch's changes touch (scripts/test-changed.sh). The
+# check to run while working; CI runs every suite and both coverage gates.
+test-changed:
+	bash scripts/test-changed.sh
 
 # Go coverage gate. Runs the suite untagged and with `-tags debug` (the only build
 # that compiles the environment overrides), merges the profiles, drops generated

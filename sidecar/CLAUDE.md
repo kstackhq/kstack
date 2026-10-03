@@ -3187,7 +3187,7 @@ Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-
 - No magic sleeps (root `CLAUDE.md`). A cadence becomes a parameter whose production value is the constant.
 - Wait on channels through `internal/testutil` (`Wait`, `Recv`, `RecvClosed`, `WaitClosed`); the one failsafe is `testutil.Timeout`. A negative assertion gets its own short window.
 - A fake that notifies the test uses `testutil.Signal` (single-shot, idempotent `Fire`) or `testutil.Probe[T]` (repeating, non-blocking, drops oldest). Exception: a consumer doing edge detection needs a lossless fan-out (`internal/cloud`'s `fakeAuth`).
-- `make test-go`, `make lint-go` (gofmt), `make vet-go`. Run `gofmt -w` before committing.
+- `make test-changed` while working (the changed packages), `make test-go` for the whole suite, `make lint-go` (gofmt), `make vet-go`. Run `gofmt -w` before committing.
 
 **Coverage is gated.** `make cover-go` (CI's `Go · Coverage` job) runs the suite twice —
 untagged and `-tags debug`, the only build that compiles `applyEnvOverrides` — merges the

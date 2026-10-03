@@ -55,6 +55,7 @@ The `Makefile` is the polyglot entry point:
 
 ```
 make test    # JS + Rust + Go
+make test-changed  # only the tests this branch's changes touch
 make lint
 make vet
 make proto   # regenerate the gRPC bindings after editing proto/
