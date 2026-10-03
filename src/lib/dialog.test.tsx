@@ -53,6 +53,16 @@ describe('useDialog', () => {
     expect(result.current.mountedDialog).toBeNull();
   });
 
+  // A confirm inside an open dialog closes through the same wrapper; it must not
+  // take the dialog it sits in down with it.
+  it('keeps an open dialog mounted when a dialog inside it closes', () => {
+    const { result } = renderDialog();
+    act(() => result.current.openDialog('settings'));
+
+    act(() => result.current.notifyClosed());
+    expect(result.current.mountedDialog).toBe('settings');
+  });
+
   it('swaps straight to another dialog, one open at a time', () => {
     const { result } = renderDialog();
     act(() => result.current.openDialog('clusters'));

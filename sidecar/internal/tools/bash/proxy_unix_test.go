@@ -45,6 +45,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -237,7 +238,12 @@ func runDirOf(t *testing.T, tl *Tool, out string) string {
 
 // clusterRuntime is a fresh chat on cluster "7".
 func clusterRuntime(t *testing.T) tools.Runtime {
-	return tools.Runtime{ClusterID: "7", Dir: testChatDir(t)}
+	return tools.Runtime{ClusterID: "7", Dir: testChatDir(t), Session: askSession}
+}
+
+// askSession asks for every write, as a fresh Settings does.
+var askSession = session.Session{
+	Policy: func(context.Context, string) permissions.Policy { return permissions.Policy{Mode: permissions.Ask} },
 }
 
 // watchLine opens a watch in a client that outlives the run's group, waits for
@@ -301,7 +307,7 @@ func TestTheGrantKeepsTheSession(t *testing.T) {
 
 // A proxy that cannot listen on its socket answers why.
 func TestAProxyThatCannotListenFails(t *testing.T) {
-	_, err := startProxy(refused{}, session.Session{}, filepath.Join(t.TempDir(), "missing", socketName), nil, refusedNoAsker)
+	_, err := startProxy(refused{}, session.Session{}, "prod", filepath.Join(t.TempDir(), "missing", socketName), nil, refusedNoAsker)
 	assert.Error(t, err)
 }
 
@@ -462,9 +468,10 @@ func TestASandboxedRunReadsASecretRedacted(t *testing.T) {
 // fakeClusterWriteAsker is a runtime's ClusterWriteAsker that records each
 // write and answers with approve.
 type fakeClusterWriteAsker struct {
-	mu      sync.Mutex
-	approve bool
-	asked   []tools.ClusterWriteRequest
+	mu       sync.Mutex
+	approve  bool
+	asked    []tools.ClusterWriteRequest
+	recorded []tools.ClusterWriteRequest
 }
 
 func (f *fakeClusterWriteAsker) Ask(_ context.Context, w tools.ClusterWriteRequest) (bool, error) {
@@ -472,6 +479,36 @@ func (f *fakeClusterWriteAsker) Ask(_ context.Context, w tools.ClusterWriteReque
 	defer f.mu.Unlock()
 	f.asked = append(f.asked, w)
 	return f.approve, nil
+}
+
+func (f *fakeClusterWriteAsker) Record(_ context.Context, w tools.ClusterWriteRequest, _ permissions.Decision, _ string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.recorded = append(f.recorded, w)
+	return nil
+}
+
+// A run's grant decides its writes in the context of the chat's cluster, as
+// the record names it, whatever the run's kubeconfig calls it.
+func TestTheGrantDecidesInTheRecordsContext(t *testing.T) {
+	api := newFakeAPI(t)
+	tl := proxyTool(t, &fakeLease{serverUID: "uid-1", conn: api.connection()})
+	rt := clusterRuntime(t)
+	var contexts []string
+	rt.Session.Policy = func(_ context.Context, c string) permissions.Policy {
+		contexts = append(contexts, c)
+		return permissions.Policy{Mode: permissions.Auto}
+	}
+	asker := &fakeClusterWriteAsker{}
+	rt.ClusterWriteAsker = asker
+
+	text, isError := tl.Run(t.Context(), rt, command(clientLine("delete")))
+
+	require.False(t, isError, text)
+	assert.Equal(t, []string{"prod"}, contexts)
+	assert.Empty(t, asker.asked, "auto mode asks nobody")
+	require.Len(t, asker.recorded, 1)
+	assert.Equal(t, "/api/v1/namespaces/web/pods/x", asker.recorded[0].Path)
 }
 
 // A foreground call's write is put to the user through its runtime, and
@@ -524,7 +561,7 @@ func TestABackgroundGrantRefusesWrites(t *testing.T) {
 // answers 100 Continue, which Go's server sends on the handler's first read.
 func TestTheProxyClosesBeforeItWaits(t *testing.T) {
 	socket := filepath.Join(shortTemp(t), socketName)
-	p, err := startProxy(refused{}, session.Session{}, socket, runtimeAsker{&fakeClusterWriteAsker{approve: true}}, "")
+	p, err := startProxy(refused{}, session.Session{}, "prod", socket, runtimeAsker{&fakeClusterWriteAsker{approve: true}}, "")
 	require.NoError(t, err)
 	conn, err := net.Dial("unix", socket)
 	require.NoError(t, err)

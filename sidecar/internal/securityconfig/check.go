@@ -14,11 +14,13 @@
 
 package securityconfig
 
+import "github.com/kstackhq/kstack/sidecar/internal/permissions"
+
 // checks is the read-back: one check per field, each added by the field's
 // step. A check reads the value alone, never the disk or another service; it
 // removes from the settings every value it refuses and answers one Refusal for
 // each.
-var checks = []func(*Settings) []Refusal{checkPath}
+var checks = []func(*Settings) []Refusal{checkPath, checkDefaultMode, checkModes, checkRules}
 
 // A Refusal is one value a check left out. Value is what the field's Settings
 // section names it by, else its JSON; Reason is in the user's words. As an
@@ -46,6 +48,11 @@ func runChecks[T any](v *T, checks []func(*T) []Refusal) []Refusal {
 // file holds a value of one the store refuses, the field answers that state
 // until the user fixes the file, never its zero value. A field not listed only
 // grants, so a refused value of it is dropped.
+//
+// modes and rules answer theirs where they are read (ModeFor, Rules): their
+// lines leave the elements that passed alone and only make the store hold the
+// field, since a strictest state kept in Settings would be saved by the next
+// per-element edit.
 var strictest = map[string]func(*Settings){
 	// A refused entry may have been a removal, so the field restricts. The
 	// entries that passed stay as they are: what makes the field strict is
@@ -54,5 +61,8 @@ var strictest = map[string]func(*Settings){
 	// Resolved, so no default stands in for the list.
 	"pathResolved": func(v *Settings) { v.PathResolved = true },
 	// Strict, so the next sync adopts nothing new unasked.
-	"pathStrict": func(v *Settings) { v.PathStrict = true },
+	"pathStrict":     func(v *Settings) { v.PathStrict = true },
+	FieldDefaultMode: func(v *Settings) { v.DefaultMode = permissions.ReadOnly },
+	FieldModes:       func(*Settings) {},
+	FieldRules:       func(*Settings) {},
 }

@@ -374,6 +374,9 @@ type approval struct {
 	DecidedAt  sql.NullInt64
 	// Request is the write a cluster approval holds; nil on a call's own.
 	Request *tools.ClusterWriteRequest
+	// Reason is the mode or rule that decided a write nobody was asked about;
+	// "" for one the user answered.
+	Reason string
 }
 
 // nextSeq is the seq the chat's next message takes.
@@ -555,7 +558,7 @@ func upsertApproval(ctx context.Context, st stmts, a approval) error {
 		kind, request = approvalClusterWrite, sql.NullString{String: string(b), Valid: true}
 	}
 	_, err := st.Exec(ctx, stmtUpsertApproval,
-		string(a.ID), string(a.ToolCallID), kind, request, a.Status, millis(a.CreatedAt), a.DecidedAt)
+		string(a.ID), string(a.ToolCallID), kind, request, a.Status, nullString(a.Reason), millis(a.CreatedAt), a.DecidedAt)
 	if err != nil {
 		return fmt.Errorf("upsert approval: %w", err)
 	}
@@ -637,7 +640,7 @@ func clusterWritesByCall(ctx context.Context, st stmts, stmt stmtID, arg string)
 			request   string
 			createdAt int64
 		)
-		if err := rows.Scan(&a.ToolCallID, &a.ID, &a.Status, &request, &createdAt, &a.DecidedAt); err != nil {
+		if err := rows.Scan(&a.ToolCallID, &a.ID, &a.Status, &request, &a.Reason, &createdAt, &a.DecidedAt); err != nil {
 			return nil, fmt.Errorf("cluster writes: %w", err)
 		}
 		a.CreatedAt = time.UnixMilli(createdAt).UTC()
