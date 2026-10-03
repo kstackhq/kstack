@@ -29,6 +29,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -925,7 +926,7 @@ func TestAStrandedWaitClearsTheChatsMark(t *testing.T) {
 	setRunStatus(t, db, turn.Run, runWaitingApproval)
 	require.NoError(t, db.Close())
 
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{})
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -1185,4 +1186,76 @@ func TestAWriteWithNoRunningCallIsRefused(t *testing.T) {
 
 	assert.False(t, ok)
 	assert.ErrorIs(t, err, errNoRunningCall)
+}
+
+// recorderTool is a tool whose run records two cluster writes decided with
+// nobody asked, as Bash's grant does under a mode or a rule, then holds until
+// the test closes hold.
+type recorderTool struct {
+	testTool
+	hold chan struct{}
+}
+
+// allowedPatch is the write a recorderTool records allowed.
+var allowedPatch = tools.ClusterWriteRequest{
+	Method: "PATCH", Path: "/api/v1/namespaces/web/configmaps/c", ContentType: "application/merge-patch+json", Body: `{}`,
+}
+
+func (r recorderTool) Run(ctx context.Context, rt tools.Runtime, _ json.RawMessage) (string, bool) {
+	err := rt.ClusterWriteAsker.Record(ctx, allowedPatch, permissions.Allowed, "auto mode")
+	if err == nil {
+		err = rt.ClusterWriteAsker.Record(ctx, deleteX, permissions.Denied, "this context is read-only")
+	}
+	<-r.hold
+	if err != nil {
+		return err.Error(), true
+	}
+	return "recorded", false
+}
+
+// A write decided with nobody asked is recorded against the open call with its
+// reason, with no wait: the run stays streaming.
+func TestARecordedWriteNeedsNoWait(t *testing.T) {
+	hold := make(chan struct{})
+	s := startServiceWithTool(t, recorderTool{testTool: testTool{name: "Recorder"}, hold: hold})
+	fakeOf(s).SetToolCalls(llm.StagedCall("Recorder", `{}`))
+
+	msg := send(t, s, nil, "1", "hi")
+	got := awaitWrite(t, s, msg, ApprovalRefused)
+
+	assert.Equal(t, StatusStreaming, got.Status)
+	writes := toolCallsOf(t, got)[0].ClusterWrites
+	require.Len(t, writes, 2)
+	assert.Equal(t, ApprovalAllowed, writes[0].Approval.Status)
+	assert.Equal(t, "auto mode", *writes[0].Reason)
+	assert.Empty(t, writes[0].Body, "a recorded write waits on nobody, so its body is not served")
+	assert.Equal(t, ApprovalRefused, writes[1].Approval.Status)
+	assert.Equal(t, "this context is read-only", *writes[1].Reason)
+	assert.Equal(t, []approvalRow{{status: ApprovalAllowed, decided: true}, {status: ApprovalRefused, decided: true}}, approvalRows(t, s.db))
+	assert.Equal(t, runRunning, runStatusOf(t, s.db, msg.RunID))
+
+	close(hold)
+	settled := awaitSettled(t, s, msg.ChatID, msg.ID)
+	assert.Equal(t, "recorded", toolCallsOf(t, settled)[0].Output)
+	assert.Equal(t, "auto mode", *toolCallsOf(t, settled)[0].ClusterWrites[0].Reason, "the stored read serves the reason")
+}
+
+// A write recorded while no call of the run is running is refused.
+func TestARecordWithNoRunningCallIsRefused(t *testing.T) {
+	j := &runJournal{s: newTestService(t)}
+
+	err := j.recordClusterWrite(t.Context(), deleteX, permissions.Allowed, "auto mode")
+
+	assert.ErrorIs(t, err, errNoRunningCall)
+}
+
+// Only an allowed or denied write is recorded, so a prompt passed by mistake
+// is refused rather than recorded as allowed.
+func TestARecordOfAPromptIsRefused(t *testing.T) {
+	j := &runJournal{s: newTestService(t), openTool: &toolCallEntry{}}
+
+	err := j.recordClusterWrite(t.Context(), deleteX, permissions.Prompted, "ask mode")
+
+	assert.ErrorIs(t, err, errNotRecorded)
+	assert.Empty(t, approvalRows(t, j.s.db))
 }

@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
@@ -59,6 +60,51 @@ func (a fakeAsker) Ask(ctx context.Context, w Write) (bool, error) {
 	}
 }
 
+// Record records nothing: a fakeAsker's tests read what is asked.
+func (a fakeAsker) Record(context.Context, Write, permissions.Decision, string) error {
+	return nil
+}
+
+// recorded is one write a recordingAsker was told was decided.
+type recorded struct {
+	w   Write
+	d   permissions.Decision
+	why string
+}
+
+// recordingAsker asks as its fakeAsker does, and hands each record to the
+// test, failing it with err when set.
+type recordingAsker struct {
+	fakeAsker
+	records chan recorded
+	err     error
+}
+
+func newRecordingAsker() *recordingAsker {
+	return &recordingAsker{fakeAsker: make(fakeAsker, 1), records: make(chan recorded, 16)}
+}
+
+func (a *recordingAsker) Record(_ context.Context, w Write, d permissions.Decision, why string) error {
+	a.records <- recorded{w: w, d: d, why: why}
+	return a.err
+}
+
+// sessionIn is a session whose mode is mode in every context, under rules.
+func sessionIn(mode permissions.Mode, rules ...permissions.Rule) session.Session {
+	return session.Session{
+		Policy: func(context.Context, string) permissions.Policy { return permissions.Policy{Mode: mode, Rules: rules} },
+	}
+}
+
+// askSession asks for every write, as a fresh Settings does.
+var askSession = sessionIn(permissions.Ask)
+
+// serveIn is a grant in context dev under sess that puts each write to asker.
+func serveIn(t *testing.T, up Upstream, sess session.Session, asker Asker) *served {
+	t.Helper()
+	return serveGrant(t, NewGrant(up, sess, "dev", asker, noAsker, 1000, 1000, 32))
+}
+
 // next is the next write put to a, once it is asked.
 func (a fakeAsker) next(t *testing.T) asked {
 	t.Helper()
@@ -68,7 +114,7 @@ func (a fakeAsker) next(t *testing.T) asked {
 // serveAsking is a grant over up that puts each write to asker.
 func serveAsking(t *testing.T, up Upstream, asker Asker) *served {
 	t.Helper()
-	return serveGrant(t, NewGrant(up, session.Session{}, asker, noAsker, 1000, 1000, 32))
+	return serveGrant(t, NewGrant(up, askSession, "dev", asker, noAsker, 1000, 1000, 32))
 }
 
 // writeRequest is method on path with body sent as contentType, as a command
@@ -174,6 +220,10 @@ type errAsker struct{ err error }
 
 func (a errAsker) Ask(context.Context, Write) (bool, error) { return false, a.err }
 
+func (a errAsker) Record(context.Context, Write, permissions.Decision, string) error {
+	return a.err
+}
+
 // A write the asker could not record answers 403 saying so, not that the user
 // did not answer, and the cluster never sees it.
 func TestAWriteThatCannotBeRecordedIsForbidden(t *testing.T) {
@@ -207,8 +257,14 @@ const quietWindow = 50 * time.Millisecond
 // counted.
 func serveCountingWaiters(t *testing.T, up Upstream, asker Asker) (*served, *atomic.Int32) {
 	t.Helper()
+	return serveCountingWaitersIn(t, up, askSession, asker)
+}
+
+// serveCountingWaitersIn is serveCountingWaiters under sess.
+func serveCountingWaitersIn(t *testing.T, up Upstream, sess session.Session, asker Asker) (*served, *atomic.Int32) {
+	t.Helper()
 	var waiting atomic.Int32
-	g := NewGrant(up, session.Session{}, asker, noAsker, 1000, 1000, 32)
+	g := NewGrant(up, sess, "dev", asker, noAsker, 1000, 1000, 32)
 	g.waitersMoved = func(delta int) { waiting.Add(int32(delta)) }
 	return serveGrant(t, g), &waiting
 }
@@ -297,7 +353,7 @@ func TestQueuedWritesAreBounded(t *testing.T) {
 func TestAWriteWaitingHoldsNoSlot(t *testing.T) {
 	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
 	asker := make(fakeAsker, 1)
-	s := serveGrant(t, NewGrant(api.upstream(), session.Session{}, asker, noAsker, 1000, 1000, 1))
+	s := serveGrant(t, NewGrant(api.upstream(), askSession, "dev", asker, noAsker, 1000, 1000, 1))
 
 	s.sendAsync(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/a", "", ""))
 	asker.next(t)
@@ -339,8 +395,8 @@ func (s *served) askedFor(t *testing.T, asker fakeAsker, c writeCase) Write {
 }
 
 // A body the user could not read as it will be sent is refused unasked: one
-// that is not JSON or YAML, one encoded, one not UTF-8, one past 1 MiB. A
-// media type's parameters are not its type.
+// that is not JSON or YAML, one encoded, one not UTF-8, one past 1 MiB, one
+// repeating a key in an object. A media type's parameters are not its type.
 func TestAWriteThatCannotBeShownIsRefused(t *testing.T) {
 	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
 	asker := make(fakeAsker, 1)
@@ -358,6 +414,16 @@ func TestAWriteThatCannotBeShownIsRefused(t *testing.T) {
 		"past 1 MiB":   {writeCase{method: "POST", path: path, contentType: "application/json", body: `{"a":"` + strings.Repeat("x", maxWriteBody) + `"}`}, refusedTooLarge},
 		"with a body":  {writeCase{method: "DELETE", path: path + "/x", body: `{}`}, refusedUnshowable},
 		"a pdf delete": {writeCase{method: "DELETE", path: path + "/x", contentType: "application/pdf", body: `{}`}, refusedUnshowable},
+		"a namespace create repeating metadata": {writeCase{method: "POST", path: "/api/v1/namespaces", contentType: "application/json",
+			body: `{"metadata":{"name":"blocked"},"metadata":{"labels":{"x":"y"}}}`}, refusedRepeatedKey},
+		"a put repeating spec": {writeCase{method: "PUT", path: path + "/x", contentType: "application/json",
+			body: `{"spec":{"replicas":0},"spec":{"template":{}}}`}, refusedRepeatedKey},
+		"a patch repeating a nested key": {writeCase{method: "PATCH", path: path + "/x", contentType: "application/merge-patch+json",
+			body: `{"spec":{"replicas":0,"replicas":3}}`}, refusedRepeatedKey},
+		"an apply repeating spec": {writeCase{method: "PATCH", path: path + "/x", contentType: "application/apply-patch+yaml",
+			body: "spec:\n  replicas: 0\nspec:\n  template: {}\n"}, refusedRepeatedKey},
+		"a json patch repeating path": {writeCase{method: "PATCH", path: path + "/x", contentType: "application/json-patch+json",
+			body: `[{"op":"replace","path":"/spec/replicas","path":"/metadata/labels/a","value":0}]`}, refusedRepeatedKey},
 	} {
 		r, write := s.sendWrite(t, asker, c.c)
 		t.Run(name, func(t *testing.T) {
@@ -375,6 +441,9 @@ func TestAWriteThatCannotBeShownIsRefused(t *testing.T) {
 		_, write := s.sendWrite(t, asker, writeCase{method: "PATCH", path: path + "/x", contentType: contentType, body: `{}`})
 		assert.NotNil(t, write, contentType)
 	}
+	_, write := s.sendWrite(t, asker, writeCase{method: "PUT", path: path + "/x", contentType: "application/json",
+		body: `{"metadata":{"name":"x"},"data":{"metadata":"y","name":"z"}}`})
+	assert.NotNil(t, write, "a key repeated across objects is not repeated")
 }
 
 // A DELETE may carry no body, and asks.
@@ -486,22 +555,35 @@ func TestAWriteNamesItsSubresource(t *testing.T) {
 	assert.Empty(t, s.askedFor(t, asker, writeCase{method: "POST", path: "/api/v1/namespaces/web/pods", contentType: "application/json", body: `{}`}).Subresource)
 }
 
-// A dry run is read strictly: only a POST, PUT or PATCH whose every dryRun is
-// All. A DELETE never is one, since the API server reads a delete's options
-// from its body when it has one.
-func TestADryRunAsks(t *testing.T) {
-	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
-	asker := make(fakeAsker, 1)
-	s := serveAsking(t, api.upstream(), asker)
+// A dry run on a group the API server serves itself is a read: it runs unasked
+// in every mode, recorded allowed. It is read strictly: only a POST, PUT or
+// PATCH whose every dryRun is All. A DELETE never is one, since the API server
+// reads a delete's options from its body when it has one. On any other group
+// it asks, still marked a dry run, since an aggregated API may ignore it.
+func TestADryRunIsARead(t *testing.T) {
 	const pods = "/api/v1/namespaces/web/pods"
-
-	for _, c := range []writeCase{
+	dryRuns := []writeCase{
 		{method: "POST", path: pods + "?dryRun=All", contentType: "application/json", body: `{}`},
 		{method: "PUT", path: pods + "/x?dryRun=All&dryRun=All", contentType: "application/json", body: `{}`},
 		{method: "PATCH", path: pods + "/x?fieldManager=m&dryRun=All", contentType: "application/merge-patch+json", body: `{}`},
-	} {
-		assert.True(t, s.askedFor(t, asker, c).DryRun, c.method+" "+c.path)
 	}
+	for _, mode := range []permissions.Mode{permissions.ReadOnly, permissions.Ask, permissions.Auto} {
+		api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
+		asker := newRecordingAsker()
+		s := serveIn(t, api.upstream(), sessionIn(mode), asker)
+		for _, c := range dryRuns {
+			resp, body := s.do(t, s.writeRequest(t, c.method, c.path, c.contentType, c.body))
+			assert.Equal(t, http.StatusOK, resp.StatusCode, "%s %s under %s: %s", c.method, c.path, mode, body)
+			r := testutil.Recv(t, (<-chan recorded)(asker.records), "the dry run's record")
+			assert.Equal(t, permissions.Allowed, r.d)
+			assert.True(t, r.w.DryRun)
+		}
+		assert.Len(t, api.requests(), len(dryRuns), "under %s", mode)
+	}
+
+	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
+	asker := make(fakeAsker, 1)
+	s := serveAsking(t, api.upstream(), asker)
 	for _, c := range []writeCase{
 		{method: "POST", path: pods + "?dryrun=All", contentType: "application/json", body: `{}`},
 		{method: "POST", path: pods + "?dryRun=All&dryRun=x", contentType: "application/json", body: `{}`},
@@ -512,7 +594,15 @@ func TestADryRunAsks(t *testing.T) {
 	} {
 		assert.False(t, s.askedFor(t, asker, c).DryRun, c.method+" "+c.path+" "+c.body)
 	}
+	custom := writeCase{method: "POST", path: "/apis/example.com/v1/namespaces/web/widgets?dryRun=All", contentType: "application/json", body: `{}`}
+	assert.True(t, s.askedFor(t, asker, custom).DryRun, "a custom group's dry run asks")
 	assert.Empty(t, api.requests())
+
+	secrets := answering(t, secretJSON)
+	s = serveIn(t, secrets.upstream(), sessionIn(permissions.ReadOnly), newRecordingAsker())
+	resp, body := s.do(t, s.writeRequest(t, "POST", "/api/v1/namespaces/web/secrets?dryRun=All", "application/json", `{"metadata":{"name":"db"}}`))
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+	assert.JSONEq(t, redactedSecretJSON, body, "a dry run on secrets reads nothing a GET would not")
 }
 
 // A write's answer on secrets is redacted, as a read's is.
@@ -563,6 +653,10 @@ func (a holdingAsker) Ask(ctx context.Context, _ Write) (bool, error) {
 	<-ctx.Done()
 	<-a.release
 	return false, ctx.Err()
+}
+
+func (holdingAsker) Record(context.Context, Write, permissions.Decision, string) error {
+	return nil
 }
 
 // End cancels a waiting Ask and returns; Wait returns only once that Ask has.
@@ -625,4 +719,151 @@ func TestAWriteWithAQueryThatDoesNotParseIsRefused(t *testing.T) {
 		assertForbidden(t, r.resp, r.body, refusedQuery)
 	}
 	assert.Empty(t, api.requests())
+}
+
+// A background command's grant has no asker, so it refuses every write as
+// today, under Auto and under an Allow rule alike, and records nothing.
+func TestABackgroundWriteIsRefused(t *testing.T) {
+	allow := permissions.Rule{ID: "a", Effect: permissions.Allow, Class: permissions.UpstreamWrite}
+	for _, sess := range []session.Session{sessionIn(permissions.Auto), sessionIn(permissions.Ask, allow)} {
+		api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
+		s := serveGrant(t, NewGrant(api.upstream(), sess, "dev", nil, noAsker, 1000, 1000, 32))
+
+		resp, body := s.do(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/x", "", ""))
+
+		assertForbidden(t, resp, body, noAsker)
+		assert.Empty(t, api.requests())
+	}
+}
+
+// A write the mode or a rule allows reaches the cluster with nobody asked,
+// recorded allowed with its reason before it is forwarded; one whose record the
+// store refuses forwards nothing.
+func TestAnAllowedWriteForwardsUnasked(t *testing.T) {
+	asker := newRecordingAsker()
+	var recordedFirst bool
+	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) { recordedFirst = len(asker.records) == 1 })
+	s := serveIn(t, api.upstream(), sessionIn(permissions.Auto), asker)
+
+	resp, body := s.do(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/x", "", ""))
+
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+	assert.True(t, recordedFirst, "the record lands before the forward")
+	r := testutil.Recv(t, (<-chan recorded)(asker.records), "the record")
+	assert.Equal(t, permissions.Allowed, r.d)
+	assert.Equal(t, "auto mode", r.why)
+	assert.Equal(t, "/api/v1/namespaces/web/pods/x", r.w.Path)
+	assert.Empty(t, asker.fakeAsker, "nobody was asked")
+
+	allow := permissions.Rule{ID: "a", Effect: permissions.Allow, Class: permissions.UpstreamWrite, Context: "dev"}
+	s = serveIn(t, api.upstream(), sessionIn(permissions.Ask, allow), asker)
+	resp, body = s.do(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/x", "", ""))
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+	r = testutil.Recv(t, (<-chan recorded)(asker.records), "the record")
+	assert.Equal(t, "a rule allows it: Allow cluster writes in dev", r.why)
+
+	failing := newRecordingAsker()
+	failing.err = errors.New("store refused")
+	before := len(api.requests())
+	s = serveIn(t, api.upstream(), sessionIn(permissions.Auto), failing)
+	resp, body = s.do(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/x", "", ""))
+	assertForbidden(t, resp, body, refusedUnrecorded)
+	assert.Len(t, api.requests(), before, "nothing runs that the record does not hold")
+}
+
+// A write the mode or a rule refuses is a 403 naming why, recorded refused; a
+// record the store refuses changes nothing about the answer.
+func TestADeniedWriteIsAForbiddenStatus(t *testing.T) {
+	deny := permissions.Rule{ID: "d", Effect: permissions.Deny, Class: permissions.UpstreamWrite, Context: "dev"}
+	for _, c := range []struct {
+		sess session.Session
+		why  string
+	}{
+		{sessionIn(permissions.ReadOnly), "this context is read-only"},
+		{sessionIn(permissions.Auto, deny), "a rule denies it: Deny cluster writes in dev"},
+	} {
+		for _, fail := range []bool{false, true} {
+			api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
+			asker := newRecordingAsker()
+			if fail {
+				asker.err = errors.New("store refused")
+			}
+			s := serveIn(t, api.upstream(), c.sess, asker)
+
+			resp, body := s.do(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/x", "", ""))
+
+			assertForbidden(t, resp, body, refusal("kstack: Delete pods/x in web on dev is not allowed: "+c.why))
+			r := testutil.Recv(t, (<-chan recorded)(asker.records), "the record")
+			assert.Equal(t, permissions.Denied, r.d)
+			assert.Equal(t, c.why, r.why)
+			assert.Empty(t, api.requests())
+		}
+	}
+}
+
+// A read-only context refuses every write, a destructive one and an RBAC one
+// included, and still answers a Secret read redacted.
+func TestAReadOnlyContextRefusesEveryWrite(t *testing.T) {
+	api := answering(t, secretJSON)
+	s := serveIn(t, api.upstream(), sessionIn(permissions.ReadOnly), newRecordingAsker())
+	for _, c := range []writeCase{
+		{method: "DELETE", path: "/api/v1/namespaces/web"},
+		{method: "POST", path: "/apis/rbac.authorization.k8s.io/v1/namespaces/web/rolebindings", contentType: "application/json", body: `{}`},
+		{method: "PATCH", path: "/apis/apps/v1/namespaces/web/deployments/api", contentType: "application/merge-patch+json", body: `{"spec":{"replicas":0}}`},
+		{method: "PUT", path: "/api/v1/namespaces/web/configmaps/x", contentType: "application/json", body: `{}`},
+	} {
+		resp, body := s.do(t, s.writeRequest(t, c.method, c.path, c.contentType, c.body))
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode, c.method+" "+c.path)
+		assert.Contains(t, body, "this context is read-only", c.method+" "+c.path)
+	}
+	assert.Empty(t, api.requests())
+
+	resp, body := s.send(t, "GET", "/api/v1/namespaces/web/secrets/db", s.g.Token())
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.JSONEq(t, redactedSecretJSON, body)
+}
+
+// The proxy asks the session for the mode of the context its grant was made
+// for.
+func TestTheModeIsReadForTheGrantsContext(t *testing.T) {
+	var modes []string
+	sess := session.Session{
+		Policy: func(_ context.Context, c string) permissions.Policy {
+			modes = append(modes, c)
+			return permissions.Policy{Mode: permissions.Auto}
+		},
+	}
+	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
+	s := serveGrant(t, NewGrant(api.upstream(), sess, "arn:aws:eks:us-east-1:1:cluster/dev", newRecordingAsker(), noAsker, 1000, 1000, 32))
+
+	resp, body := s.do(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/x", "", ""))
+
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+	assert.Equal(t, []string{"arn:aws:eks:us-east-1:1:cluster/dev"}, modes)
+}
+
+// A write is decided under the write lock, so an allowed one behind a pending
+// one waits for it, and the cluster sees them in the order they were decided.
+func TestDecideRunsUnderTheWriteLock(t *testing.T) {
+	var mu sync.Mutex
+	var order []string
+	api := newAPIServer(t, func(_ http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		order = append(order, r.Method+" "+r.URL.Path)
+	})
+	allow := permissions.Rule{ID: "a", Effect: permissions.Allow, Class: permissions.UpstreamWrite, Kind: "configmaps"}
+	asker := newRecordingAsker()
+	s, waiters := serveCountingWaitersIn(t, api.upstream(), sessionIn(permissions.Ask, allow), asker)
+
+	first := s.sendAsync(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/x", "", ""))
+	pending := asker.next(t)
+	second := s.sendAsync(t, s.writeRequest(t, "PUT", "/api/v1/namespaces/web/configmaps/c", "application/json", `{}`))
+	require.Eventually(t, func() bool { return waiters.Load() == 1 }, time.Second, time.Millisecond, "the allowed write waits for the lock")
+	assert.Empty(t, api.requests())
+
+	pending.answer <- true
+	testutil.Recv(t, first, "the first write")
+	testutil.Recv(t, second, "the second write")
+	assert.Equal(t, []string{"DELETE /api/v1/namespaces/web/pods/x", "PUT /api/v1/namespaces/web/configmaps/c"}, order)
 }

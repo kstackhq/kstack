@@ -429,7 +429,8 @@ Two orthogonal user controls, as in Codex:
 | Trusted scopes | Allow | Prompt | Allow in listed contexts and namespaces, prompt elsewhere | Prompt | Prompt |
 | Auto | Allow | Allow | Allow | Prompt | Allow |
 
-Read-only mode is the recommended default for any context whose name matches `*prod*`. Class 5
+Kstack does not guess which contexts are production: the user sets a production context's mode
+to Read-only (decision 25). Class 5
 always prompts, even in Auto; there is no mode that removes it, and Read-only refuses it. The
 engine has three modes: *Trusted scopes* is Ask with Allow rules scoped to the trusted contexts
 and namespaces, which the prompt's *Allow for this chat* and *Always allow* answers write, so
@@ -444,12 +445,9 @@ allow and deny lists. Examples: `k8s:write context=dev-eks namespace=team-a` for
 for Kubernetes are context and namespace; for the network, a host; for a path, a folder.
 Durations are once, this session, or always.
 
-Deny rules always win over allow rules, and the app ships default deny rules: no namespace
-deletion in contexts matching `*prod*`, no cluster-scoped RBAC changes without a prompt in any
-mode. Users can add deny rules; they cannot remove the shipped ones, and no rule or prompt
-overrides them. A mode the user sets for one context lifts the namespace rule there, since
-`*prod*` only guesses from a name (decision 25). Where they hold, what they refuse is done from a
-chat switched outside the sandbox, where the user approves the command itself.
+Deny rules always win over allow rules, and users can add them. A cluster-scoped RBAC change is
+on the class 5 list, so it asks in every mode. What a deny rule refuses is done from a chat
+switched outside the sandbox, where the user approves the command itself.
 
 ### Prompt UX
 
@@ -521,8 +519,8 @@ that show the sandbox in the user's own terms.
 1. Resolve PATH from the login shell; filter; show the list.
 2. Probe the curated tools inside the sandbox; report which binary each resolved to and any
    denied paths, each with a grant button. Say plainly if `kubectl` is missing.
-3. Set the approval mode: Ask by default, with Read-only pre-applied to contexts matching `*prod*`
-   and shown as such.
+3. Set the approval mode: Ask by default, and Read-only for any context the user names as
+   production.
 
 No step requires typing a secret or signing in: the cluster works because the kubeconfig does.
 
@@ -546,8 +544,7 @@ Grants offered from a denial carry the same once / session / always choices as p
 - Sandbox: the resolved PATH list with a refresh action; registered extra tools; path grants with
   read or read-write; the denied-always list shown read-only so users understand why `~/.ssh` is
   unreachable.
-- Permissions: approval mode per context; grant rules and deny rules as a list the user can edit;
-  the shipped deny rules shown but not removable.
+- Permissions: approval mode per context; grant rules and deny rules as a list the user can edit.
 - Network: the host allowlist with sources (from kubeconfig, added by user), and per-session vs
   always entries.
 - Monitoring: which contexts it watches, and whether it shares any path grants.
@@ -591,8 +588,7 @@ turns it into steps, given what had already landed when the design was adopted.
       `proxy` subresource request, from a monitoring token is rejected by the proxy.
 - [ ] Secret `data` and `stringData` are redacted for any token without the secret-read grant.
 - [ ] A request with an unknown or expired session token is rejected.
-- [ ] Shipped deny rules apply in every approval mode, until the user sets a mode for that one
-  context in Settings; no rule, prompt or pattern entry lifts them. Class 5 prompts in Auto mode.
+- [ ] Class 5 prompts in Auto mode.
 - [ ] Path grants attached to a chat session do not appear in the monitoring session's profile.
 - [ ] If the sandbox cannot be established, every command asks the user before it runs and the
       user is told why; no command runs unconfined and unasked.
@@ -657,7 +653,7 @@ above, that is most of 1, 2 and 6.
 
 11. **Three approval modes, not four** (step 3B). *Trusted scopes* is Ask with Allow rules scoped
     to the trusted contexts and namespaces, which is what the prompt's "for this chat" and
-    "always" answers write. The read-only mode's refusal comes before every shipped rule, so a
+    "always" answers write. The read-only mode's refusal comes before every rule that asks, so a
     rule that says "always ask" cannot turn a refusal into a prompt.
 12. **`/etc` is readable whole, with its secret files on the denied-always list** (step 2A),
     since the loader and libc read files the note's short list cannot name.
@@ -698,14 +694,14 @@ above, that is most of 1, 2 and 6.
 24. **The environment holds more than the pass-through list** (step 2A): `PWD`, `ZDOTDIR`,
     `KUBECACHEDIR`, the `KSTACK` variables, the tool home's variables, each toolchain location's
     and `ASDF_<TOOL>_VERSION`, each built by Kstack and none copied from the sidecar's.
-25. **The production default is `*prod*`, and a pattern's `*` crosses `/`** (step 3B). Cloud
+25. **No production default, and a pattern's `*` crosses `/`** (step 3B). A guess from the
+    context's name (`*prod*`) catches `nonprod` and `dev-products` and misses a production
+    cluster named otherwise, so every context starts at the default mode and the user sets a
+    production one's. A way to flag a context as production waits until users ask for one. Cloud
     tools name a context after the account first (`arn:aws:eks:…:cluster/prod-eu`,
-    `gke_project_zone_prod`), which a prefix, or a `*` that stops at `/`, cannot reach. Since the
-    substring also catches `nonprod` and `dev-products`, a mode the user sets for one context in
-    Settings lifts both the read-only default and the shipped namespace rule there; a pattern
-    entry lifts neither.
+    `gke_project_zone_prod`), which a `*` that stops at `/` cannot reach.
 26. **A cluster-write rule covers destructive writes** (step 3B): a `Deny` of class 4 refuses a
     class 5 write in its scope, and no `Allow` reaches class 5. Cluster RBAC is on the class 5
-    list, so it needs no shipped rule to ask.
+    list, so it asks with no rule.
 27. **A security setting Kstack cannot read refuses rather than allows** (step 3B): a bad mode
     is read-only, and a bad rule refuses every cluster write until the file is fixed.

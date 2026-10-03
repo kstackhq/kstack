@@ -206,7 +206,7 @@ func New(cfg Config) (*App, error) {
 	if err != nil {
 		return fail(fmt.Errorf("fence Kstack's directories: %w", err))
 	}
-	chatSvc, err := chatsvc.New(db, p.ChatsDir, llmSvc, clustercard.New(clusterSvc), memorySvc, box, cat, sandboxStatus)
+	chatSvc, err := chatsvc.New(db, p.ChatsDir, llmSvc, clustercard.New(clusterSvc), memorySvc, box, cat, sandboxStatus, securityStore)
 	if err != nil {
 		return fail(err)
 	}
