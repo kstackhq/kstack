@@ -30,7 +30,8 @@ type DialogContextValue = {
   mountedDialog: DialogId | null;
   openDialog: (id: DialogId) => void;
   closeDialog: () => void;
-  // Close transition settled → unmount. Called by the shared `Dialog` wrapper only.
+  // Close transition settled → unmount, unless a dialog is open. Called by the
+  // shared `Dialog` wrapper only.
   notifyClosed: () => void;
 };
 
@@ -55,7 +56,11 @@ export function DialogProvider({ children }: { children: ReactNode }) {
         setActiveDialog(id);
       },
       closeDialog: () => setActiveDialog(null),
-      notifyClosed: () => setMountedDialog(null),
+      // A dialog still open means what closed sat inside it, or was replaced by
+      // it: either way the mounted one stays.
+      notifyClosed: () => {
+        if (activeDialog === null) setMountedDialog(null);
+      },
     }),
     [activeDialog, mountedDialog],
   );
