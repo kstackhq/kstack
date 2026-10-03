@@ -19,6 +19,8 @@ import { mockTauriCore } from '@/test-utils';
 
 const { invokeMock, factory } = mockTauriCore();
 vi.mock('@tauri-apps/api/core', () => factory());
+// The section reads the sidecar; its own test covers it.
+vi.mock('@/components/widgets/sandbox-settings', () => ({ SandboxSettings: () => <p>sandbox section</p> }));
 
 const { ThemeProvider } = await import('@/lib/theme');
 const { SettingsDialog } = await import('@/components/widgets/settings-dialog');
@@ -48,5 +50,14 @@ describe('SettingsDialog', () => {
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('update_host_file', { patch: { colorSchemePreference: 'dark' } }),
     );
+  });
+
+  it('holds the sandbox section', () => {
+    render(
+      <ThemeProvider>
+        <SettingsDialog open onOpenChange={() => {}} />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText('sandbox section')).toBeInTheDocument();
   });
 });

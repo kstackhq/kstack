@@ -12,13 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !darwin
+//go:build unix && !darwin
 
 package main
 
-import "context"
-
-// importShellEnv does nothing off macOS. Only a macOS GUI launch is handed an
+// setShellEnv does nothing off macOS. Only a macOS GUI launch is handed an
 // environment that lacks what the user's shell builds; everywhere else the
 // inherited one is already right.
-func importShellEnv(context.Context) {}
+func setShellEnv(map[string]string) {}

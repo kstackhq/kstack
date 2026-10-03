@@ -18,7 +18,7 @@ package securityconfig
 // step. A check reads the value alone, never the disk or another service; it
 // removes from the settings every value it refuses and answers one Refusal for
 // each.
-var checks []func(*Settings) []Refusal
+var checks = []func(*Settings) []Refusal{checkPath}
 
 // A Refusal is one value a check left out. Value is what the field's Settings
 // section names it by, else its JSON; Reason is in the user's words. As an
@@ -46,4 +46,13 @@ func runChecks[T any](v *T, checks []func(*T) []Refusal) []Refusal {
 // file holds a value of one the store refuses, the field answers that state
 // until the user fixes the file, never its zero value. A field not listed only
 // grants, so a refused value of it is dropped.
-var strictest = map[string]func(*Settings){}
+var strictest = map[string]func(*Settings){
+	// A refused entry may have been a removal, so the field restricts. The
+	// entries that passed stay as they are: what makes the field strict is
+	// the sync's, while the store holds it.
+	"path": func(*Settings) {},
+	// Resolved, so no default stands in for the list.
+	"pathResolved": func(v *Settings) { v.PathResolved = true },
+	// Strict, so the next sync adopts nothing new unasked.
+	"pathStrict": func(v *Settings) { v.PathStrict = true },
+}

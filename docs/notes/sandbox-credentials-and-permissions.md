@@ -268,8 +268,11 @@ Drop before writing entries into the sandbox profile:
 
 - Empty entries, `.`, and relative paths (they resolve to the workspace, which is writable).
 - Directories that do not exist.
-- Directories writable by other users, or group-writable without the sticky bit (a persistence
-  vector for anything else on the machine).
+- Directories writable by other users, sticky bit or not (a persistence vector for anything else
+  on the machine). A directory writable by a group that is not an administrators' one waits for
+  the user rather than being dropped: only the user knows who else is in the group. An
+  administrators' group (`admin`, `wheel`, gid 0) adds no writer, since its members can write
+  anywhere through `sudo`, so Homebrew's prefix is adopted on a default Mac.
 - Anything under the denied-always list, such as `~/.docker/bin`, `~/.kube/bin`, `~/.aws/bin`.
 - Project-local entries such as `node_modules/.bin`: a project folder is not user binaries
   (step 3A).
@@ -282,8 +285,9 @@ Store the resolved list in settings and display it; this is the one sandbox comp
 recognize. Use the same list for the read-allow rules and for the `PATH` variable inside the
 sandbox; if the two drift, binaries are on the path but unreadable.
 
-A running session keeps the PATH it started with. Never re-resolve mid-session, both for
-consistency and so a session cannot trigger its own expansion.
+A run reads the list once, when it starts, and keeps it for its life. Only the user's Include,
+Remove and Refresh PATH change the list, through the sidecar's socket, which no sandboxed command
+reaches, so a session cannot trigger its own expansion. A change applies from the next run.
 
 At each app launch, re-resolve and diff against the stored list:
 
@@ -687,8 +691,8 @@ above, that is most of 1, 2 and 6.
 20. **The tool home is per chat, and only the kubectl cache is per cluster** (step 2A). A shared
     config or build cache lets one chat plant what a later chat runs.
 21. **`LANG` is the sidecar's or a platform default, and `LC_*` does not pass** (step 2A).
-22. **A `PATH` entry no list covers finds nothing until step 3A** (step 2A), which reaches users
-    in the same release.
+22. **A `PATH` entry no list covers finds nothing until the user includes it** (step 3A). An
+    entry a list already opens is adopted unasked; any other waits in Settings.
 23. **asdf's global versions ride as `ASDF_<TOOL>_VERSION`** (step 2A), read from the user's
     `~/.tool-versions` on the host, since `HOME` is the workspace.
 24. **The environment holds more than the pass-through list** (step 2A): `PWD`, `ZDOTDIR`,

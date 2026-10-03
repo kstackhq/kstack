@@ -77,8 +77,8 @@ func main() {
 		slog.Warn("no log file; logging to stderr only", "path", cfg.LogFile, "err", logErr)
 	}
 
-	// The shutdown signals, from here: the import runs under them too, so a quit
-	// during it cancels it — Resolve then kills and reaps the login shell's
+	// The shutdown signals, from here: the login shell runs under them too, so a
+	// quit during it cancels it — Resolve then kills and reaps the shell's
 	// session, where the default disposition would end the process and leave
 	// the shell running — and run sees a context already ended.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -87,9 +87,9 @@ func main() {
 	// process environment, and net/http reads the proxy variables once per
 	// process, on the first request anything makes. Nothing else is running yet,
 	// so nothing can do either with the old one. After the logger, which it
-	// writes one line through. Outside run, which tests call — importing there
+	// writes one line through. Outside run, which tests call — running it there
 	// would spawn a developer's real login shell from every case.
-	importShellEnv(ctx)
+	cfg.App.ShellPath, cfg.App.ShellFault = launchShell(ctx)
 	// Here for the same reason: a test's run never takes the snapshot.
 	cfg.App.ShellSnapshot = true
 
@@ -105,7 +105,7 @@ func main() {
 // code instead of calling os.Exit. Everything main does after logging setup
 // lives here so the boot and shutdown sequence is reachable from a test.
 func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int {
-	// A quit during the shell import: a clean exit, not a bind and a READY
+	// A quit during the login shell: a clean exit, not a bind and a READY
 	// followed by a start that fails on the ended context.
 	if ctx.Err() != nil {
 		slog.Info("sidecar shutting down", "reason", "signal before start")
