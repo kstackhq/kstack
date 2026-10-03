@@ -1598,10 +1598,15 @@ imports nothing of ours: the six `Class`es, numbered as the note numbers them, t
 (`ReadOnly`, `Ask`, `Auto`), a `Rule` (an `Effect`, a class, and the patterns `Context`,
 `Namespace`, `Verb` and `Kind` with an exact `Group`, each unset matching anything), an `Action` (a
 classified request: its class, context, namespace, verb, group, kind, name and one-line `Summary`),
-and a `Policy` — a mode and the rules in the order they are read — whose `Decide(act)` answers a
-`Decision` and the reason in the user's words, the first that applies: class 1 or 2 allowed; a
-matching `Deny`; a read-only mode refusing every write; a matching `AskFor`; class 5 asking; a
-matching `Allow`; `Auto` allowing; else asking. A rule's class covers its own, and class 4 covers
+and a `Policy` — a mode and the rules — whose `Decide(act)` answers a `Decision` and the reason in
+the user's words. **`Decide` is `Authorize` then `Outcome`.** `Authorize(act)` is a `Verdict`, the
+strongest of what matched: `Refuse` (a matching `Deny`, or a read-only mode on class 3, 4 or 5),
+then `Forbid` (a matching `AskFor`, or class 5), then `Permit` (class 1 or 2, a matching `Allow`, or
+`Auto`), else `Unmatched`, the default denial and the zero value. Its reason is the first source of
+that verdict in that order, a rule's line when a rule decided it. **The verdict is
+order-independent**: the rules' order picks the reason alone, so adding a rule never changes what
+another means. `Verdict.Outcome()` is the `Decision`: `Permit` runs, `Refuse` is denied, and
+`Unmatched` and `Forbid` prompt — a prompt is a denial the user may lift. A rule's class covers its own, and class 4 covers
 class 5; a bare `*` `Kind` matches every kind, and any other `Kind` with no `/` matches the resource alone, though `*` crosses `/`, and covers its `scale` and no other subresource; a set `Namespace` never matches a cluster-scoped action. `Match` is the one
 matcher, a glob compiled to a regexp: `*` crosses `/` and `:`, `?` is one character, `\` escapes.
 `Literal` escapes a value into the pattern that matches it alone, and every mode Kstack writes from
@@ -1623,7 +1628,7 @@ or `/spec/` beside `replicas`, never a `move` or `copy`; an apply is not plain o
 any other write class 4. Its `Summary` is one line naming the target as kubectl does (*Delete
 pods/api-7f9c in team-a on dev-eks*). A write to a core Namespace is in that namespace's scope, a create's
 read off the body's `metadata.name`, so a rule scoped to it matches. `Destructive` is the class 5 list in words, which
-Settings shows. → [ADR: permissions are classes, modes and rules decided at the proxy](../docs/adr/2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md).
+Settings shows. → [ADR: permissions are classes, modes and rules decided at the proxy](../docs/adr/2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md), [ADR: a prompt is a denial the user may lift](../docs/adr/2026-10-03-authorization-is-binary-and-a-prompt-is-a-denial-the-user-may-lift.md).
 
 **`internal/kubeproxy` is the cluster proxy**, a leaf beside `sandbox` that imports nothing of
 `tools` or `clustersvc`: `kubeproxy.go` the grant and the handler, `policy.go` the path parse
