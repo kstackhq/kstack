@@ -3187,7 +3187,8 @@ it concurrently.
 directory no sandboxed command reads, and never synced. `app.New` opens it on every platform;
 `Store` has `Get`, `Update`, `Subscribe` (a `gochan/watch` receiver, current on subscribe) and
 `Refused`. Each step of the agent-security sequence adds its own field to `Settings`,
-`omitempty` (`omitzero` for a struct), and names it in its spec. `Path` is the first.
+`omitempty` (`omitzero` for a struct), and names it in its spec. `Path` is the first. `Store` wraps the generic
+`store[Settings]` so it can carry methods of `Settings`' own.
 
 - **Every value crosses a JSON copy** (`clone`): `Get` and each send are copies, so a caller
   never reaches the store's value; receivers share one delivery and treat it as read-only.
@@ -3220,6 +3221,23 @@ directory no sandboxed command reads, and never synced. `app.New` opens it on ev
   the error (`Refusal` is an `error`), and nothing is written. `WithChecks` is the test seam that
   swaps the list.
 - **The core is generic** (`store[T]`), so the tests run it over their own settings type.
+- **The approval modes and the always rules** (`permissions.go`): `DefaultMode` (`Ask` when
+  empty), `Modes` (`ContextMode`s, first match wins) and `Rules`. `ModeFor(context)` is a
+  `ContextModeState`: read-only while `modes` is held (source `refused`), else the first entry
+  whose pattern matches (`entry`, with the entry's pattern and whether it is the context's own,
+  `Own`, what `ClearMode` removes), else the default (`default`); `DefaultMode()` is the default,
+  `Ask` when unset. `Rules()` is the always rules, or while `rules` is held those less every
+  `Allow`, plus `permissions.Refused`, which a session reads per write. `FieldDefaultMode`,
+  `FieldModes` and `FieldRules` are the fields' keys. The mutations: `SetDefaultMode` (names
+  `defaultMode`, its fix), `SetMode` (the context's literal, first, replacing one already there),
+  `ClearMode`, `AddRule`, `RemoveRule` (`ErrNoRule`) and `DiscardRefused` (`modes` or `rules`,
+  naming it; `ErrNotHeld` otherwise). The checks refuse a mode that is not one of the three, an
+  entry with no context, and a rule with an unknown effect, a class other than 4 or 5 (the two a
+  cluster write is decided as), an `Allow` of class 5, or an empty, repeated or `refused` id; a
+  list element with a key its type does not name is refused before them, since a misspelled
+  narrowing field dropped would widen the rule. `defaultMode`'s strictest line sets `ReadOnly`;
+  `modes`' and `rules`' leave what passed and only hold the field, whose strict state `ModeFor`
+  and `Rules` apply where they read it.
 
 **`Settings.Path` is the user's `PATH`, frozen** (`path.go`): a `PathEntry` per folder, in the
 shell's order — `Dir` as the shell gave it, `Target` the folder it resolved to when its state was
