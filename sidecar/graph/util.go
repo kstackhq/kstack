@@ -9,10 +9,12 @@ import (
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
 	gqlerrors "github.com/kstackhq/kstack/sidecar/graph/errors"
+	"github.com/kstackhq/kstack/sidecar/graph/model"
 
 	"github.com/kstackhq/kstack/sidecar/internal/chatsvc"
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
+	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 )
 
 // mapStream maps a latest-value source onto the returned channel until ctx ends or sub
@@ -150,4 +152,39 @@ func chatErr(err error) error {
 		}
 	}
 	return err
+}
+
+// sandboxPathErr is what every sandbox path resolver returns an error
+// through: a refusal in the user's words is a validation error carrying them,
+// and anything else stays opaque.
+func sandboxPathErr(err error) error {
+	var refusal securityconfig.PathRefusal
+	if errors.As(err, &refusal) {
+		return gqlerrors.NewValidationError("sandbox-path", refusal.Error())
+	}
+	return err
+}
+
+// The path entries' states and sources, by their wire spelling.
+var (
+	sandboxPathStates = map[securityconfig.PathState]model.SandboxPathState{
+		securityconfig.PathAdopted: model.SandboxPathStateAdopted,
+		securityconfig.PathPending: model.SandboxPathStatePending,
+		securityconfig.PathGone:    model.SandboxPathStateGone,
+	}
+	sandboxPathSources = map[securityconfig.Source]model.SandboxPathSource{
+		securityconfig.SourceShell: model.SandboxPathSourceShell,
+		securityconfig.SourceUser:  model.SandboxPathSourceUser,
+	}
+)
+
+// sandboxPathOf is entries on the wire, in order.
+func sandboxPathOf(entries []securityconfig.PathEntry) []*model.SandboxPathEntry {
+	out := make([]*model.SandboxPathEntry, len(entries))
+	for i, e := range entries {
+		out[i] = &model.SandboxPathEntry{
+			Dir: e.Dir, Target: e.Target, State: sandboxPathStates[e.State], Source: sandboxPathSources[e.Source], Shared: e.Shared,
+		}
+	}
+	return out
 }

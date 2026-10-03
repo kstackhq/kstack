@@ -1372,6 +1372,36 @@ type AuthState {
   identity: Identity
 }
 
+"What the sandbox does with one folder of the user's PATH."
+enum SandboxPathState {
+  "On the sandbox's PATH and readable in it."
+  Adopted
+  "Listed by the shell and waiting for the user: adopting it would open more to commands, or its group can add programs to it."
+  Pending
+  "Removed by the user, and kept so a launch does not adopt it again."
+  Gone
+}
+
+"Whose decision a PATH entry's state is."
+enum SandboxPathSource {
+  "Kstack's, when it read the login shell's PATH."
+  Shell
+  "The user's, by Include or Remove."
+  User
+}
+
+"One folder of the user's PATH, and what the sandbox does with it."
+type SandboxPathEntry {
+  "The folder as the shell gave it."
+  dir: String!
+  "The folder dir resolved to when its state was set; the one the sandbox reads."
+  target: String!
+  state: SandboxPathState!
+  source: SandboxPathSource!
+  "Whether target was writable by a group other than an administrators' one, so others in it can add programs to it."
+  shared: Boolean!
+}
+
 "One value the security settings file held and the sidecar left out."
 type SecurityRefusal {
   "The setting's JSON key in the file."
@@ -1417,6 +1447,15 @@ type Query {
   # --- Sandbox ---
   "Every value the security settings file held that the sidecar left out at start, each with its reason. Fixed for the process's life, so this is a query and not a watch."
   securityRefused: [SecurityRefusal!]!
+
+  "The frozen PATH sandboxed commands search, in the shell's order. Empty on a machine with no sandbox."
+  sandboxPath: [SandboxPathEntry!]!
+
+  "Why the last read of the login shell's PATH failed, at launch or on refresh; null once one answers, and on a machine with no sandbox."
+  sandboxPathFault: String
+
+  "Whether a sync has ever read the login shell's PATH. Until one has, sandboxed commands search the platform's default folders; after it, the list alone, so an empty one searches nothing. False on a machine with no sandbox."
+  sandboxPathResolved: Boolean!
 
   # --- Cloud account ---
   "Current authentication state. Signed-out when no cloud account is configured; live updates via authStateWatch."
@@ -1469,6 +1508,16 @@ type Mutation {
 
   "Delete a chat and its messages. Instant and permanent — every window watching it sees the rows go. Deleting one already gone is not an error. Returns true."
   chatDelete(id: ChatID!): Boolean!
+
+  # --- Sandbox ---
+  "Include a pending or removed PATH entry, for `target`, the folder the user was shown. Refused KSTACK_VALIDATION_ERROR for a dir not listed or already included, one whose target has moved since, while the settings file holds an entry Kstack cannot read, or on a machine with no sandbox. Returns the whole list."
+  sandboxPathInclude(dir: String!, target: String!): [SandboxPathEntry!]!
+
+  "Remove a PATH entry. Refused KSTACK_VALIDATION_ERROR for a dir not listed or already removed, or on a machine with no sandbox. Returns the whole list."
+  sandboxPathRemove(dir: String!): [SandboxPathEntry!]!
+
+  "Run the login shell again and fold its PATH in. Refused KSTACK_VALIDATION_ERROR with the shell's fault, or on a machine with no sandbox. Returns the whole list."
+  sandboxPathRefresh: [SandboxPathEntry!]!
 
   # --- Memory ---
   "Create a memory, or rewrite one by `id`; a rewrite can rename it and move it between one cluster and every cluster. Written by the user. Refused `KSTACK_MEMORY_NAME_TAKEN` for a name the target scope holds, `KSTACK_MEMORY_FULL` for a scope with no room for the memory, `KSTACK_MEMORY_SECRET` for a credential, `KSTACK_VALIDATION_ERROR` for a note out of shape, and `KSTACK_RECORD_NOT_FOUND` for an unknown id or a missing cluster."

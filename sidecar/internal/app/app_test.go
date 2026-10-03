@@ -17,6 +17,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -661,4 +663,19 @@ func TestTheSandboxStatusIsTheShellAndTheProbe(t *testing.T) {
 	assert.Equal(t, sandbox.Status{Available: true, Reason: "bwrap at /usr/bin/bwrap"}, sandboxStatusOf(true, found))
 	assert.Equal(t, sandbox.Status{Reason: "bwrap was not found"}, sandboxStatusOf(true, missing))
 	assert.Equal(t, sandbox.Status{Reason: "no shell was found"}, sandboxStatusOf(false, found))
+}
+
+// On a machine with no sandbox the service syncs nothing and keeps no fault,
+// and a sync that fails at Start is a warning, not a startup error.
+func TestASecurityServiceWithNoSandboxSyncsNothing(t *testing.T) {
+	store, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	require.NoError(t, err)
+	svc := newSecurityService(store, nil, nil, sandbox.Status{}, nil, "timeout")
+	assert.Empty(t, svc.PathFault())
+	assert.False(t, svc.Get().RunPath().Resolved)
+
+	log := testutil.CaptureLogs(t)
+	syncPath(t.Context(), svc, []string{t.TempDir()})
+	assert.Contains(t, log.String(), "PATH not synced")
+	assert.Empty(t, store.Get().Path)
 }

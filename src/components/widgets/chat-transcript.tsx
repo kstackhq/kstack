@@ -31,6 +31,7 @@ import { useMutation } from 'urql';
 import { AppLogo } from '@/components/widgets/app-logo';
 import { approvalAnchor } from '@/lib/approval-anchor';
 import { Markdown } from '@/components/widgets/markdown';
+import { VisibleText } from '@/components/widgets/visible-text';
 import { graphql } from '@/gql';
 import type { AppMode } from '@/lib/app-mode';
 import { useChatOutbox } from '@/lib/chat-outbox';
@@ -50,7 +51,7 @@ import type { ChatClusterWrite, ChatMessage, ChatToolCall, Source, TaskNotice } 
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import { useHeldStill } from '@/lib/held-still';
 import { modelOf, useModels } from '@/lib/models';
-import { cutText, descriptionLine, visibleSegments } from '@/lib/visible-text';
+import { cutText, descriptionLine } from '@/lib/visible-text';
 
 // How close to the end still counts as reading the end. Fixed, not a fraction of the
 // viewport: a threshold that grows with the window yanks a reader back mid-paragraph.
@@ -613,21 +614,6 @@ function AgentBody({
         </div>
       )}
     </>
-  );
-}
-
-// A spelled character is marked so it cannot pass for the command's own text.
-function VisibleText({ text, trailing }: { text: string; trailing?: 'lines' | 'end' }) {
-  return visibleSegments(text, trailing).map((segment, i) =>
-    segment.spelled ? (
-      // eslint-disable-next-line react/no-array-index-key
-      <mark key={i} className="rounded-sm bg-destructive/20 px-0.5 text-destructive" title="An invisible character">
-        {segment.text}
-      </mark>
-    ) : (
-      // eslint-disable-next-line react/no-array-index-key
-      <Fragment key={i}>{segment.text}</Fragment>
-    ),
   );
 }
 

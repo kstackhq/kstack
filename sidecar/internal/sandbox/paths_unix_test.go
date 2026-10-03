@@ -34,3 +34,18 @@ func TestAMissingPathIsResolvedThroughItsDeepestFolder(t *testing.T) {
 
 	assert.Equal(t, filepath.Join(target, "missing", "file"), resolved(filepath.Join(base, "var", "missing", "file")))
 }
+
+// Resolved follows a link, so a path through one is Under the folder it
+// leads into; Under itself reads the text alone.
+func TestUnderComparesResolvedPaths(t *testing.T) {
+	base := resolved(t.TempDir())
+	inside := mkdirs(t, base, "denied/inside")[0]
+	link := filepath.Join(base, "link")
+	require.NoError(t, os.Symlink(inside, link))
+	denied := Resolved([]string{filepath.Join(base, "denied")})
+
+	assert.True(t, Under(Resolved([]string{link})[0], denied))
+	assert.True(t, Under(denied[0], denied))
+	assert.False(t, Under(link, denied), "an unresolved link is compared as written")
+	assert.False(t, Under(base, denied))
+}
