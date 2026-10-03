@@ -54,17 +54,17 @@ func TestNewFindsBashOrDeclines(t *testing.T) {
 	require.NoError(t, os.Symlink(bash, filepath.Join(bin, "bash")))
 	t.Setenv("SHELL", "")
 	t.Setenv("PATH", bin)
-	_, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil)
+	_, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 	assert.True(t, ok)
 
 	t.Setenv("PATH", "")
-	_, ok = New(Paths{ShellDir: t.TempDir()}, 0, nil, nil)
+	_, ok = New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 	assert.False(t, ok)
 
 	// A bash with no home to start in is no tool either.
 	t.Setenv("PATH", bin)
 	t.Setenv("HOME", "")
-	_, ok = New(Paths{ShellDir: t.TempDir()}, 0, nil, nil)
+	_, ok = New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 	assert.False(t, ok)
 }
 
@@ -92,7 +92,7 @@ func TestTheShellIsTheLoginShellWhenItIsZshOrBash(t *testing.T) {
 		"":                           {onPath, "bash"},
 	} {
 		t.Setenv("SHELL", shell)
-		tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil)
+		tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 		require.True(t, ok, shell)
 		assert.Equal(t, want.path, tl.shell, shell)
 		assert.Equal(t, want.kind, tl.kind, shell)
@@ -101,7 +101,7 @@ func TestTheShellIsTheLoginShellWhenItIsZshOrBash(t *testing.T) {
 	notExecutable := filepath.Join(t.TempDir(), "zsh")
 	require.NoError(t, os.WriteFile(notExecutable, nil, 0o644))
 	t.Setenv("SHELL", notExecutable)
-	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil)
+	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 	require.True(t, ok)
 	assert.Equal(t, onPath, tl.shell)
 }
@@ -118,7 +118,7 @@ func TestNewReadsTheBashVersion(t *testing.T) {
 		bin := t.TempDir()
 		require.NoError(t, os.WriteFile(filepath.Join(bin, "bash"), []byte("#!/bin/sh\n"+script+"\n"), 0o755))
 		t.Setenv("PATH", bin)
-		tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil)
+		tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 		require.True(t, ok, script)
 		assert.Equal(t, want, tl.version, script)
 	}
@@ -298,12 +298,12 @@ func TestACommandsEnvironmentIsTheProcessOwn(t *testing.T) {
 func TestACommandSeesKstacksOwnVariables(t *testing.T) {
 	t.Setenv("SHELL", "")
 	line := `echo "$KSTACK/$KSTACK_SIDECAR_PID/${KSTACK_HOST_PID-unset}"`
-	tl, ok := New(Paths{ShellDir: t.TempDir()}, 4242, nil, nil)
+	tl, ok := New(Paths{ShellDir: t.TempDir()}, 4242, nil, nil, nil)
 	require.True(t, ok)
 	r := run(t.Context(), tl.spec(line, 1024))
 	assert.Equal(t, "1/"+strconv.Itoa(os.Getpid())+"/4242\n", r.Output)
 
-	tl, ok = New(Paths{ShellDir: t.TempDir()}, 0, nil, nil)
+	tl, ok = New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 	require.True(t, ok)
 	r = run(t.Context(), tl.spec(line, 1024))
 	assert.Equal(t, "1/"+strconv.Itoa(os.Getpid())+"/unset\n", r.Output)
@@ -756,6 +756,7 @@ func TestTheWorkspacePolicyIsSystemAndTheRunsOwn(t *testing.T) {
 		never: []string{filepath.Join(tl.home, ".ssh")},
 	}
 	tl.sandboxer = fake
+	tl.pathList, tl.fallbackPath = nil, nil
 
 	text, isError := tl.Run(t.Context(), rt, command(`echo "$ZDOTDIR"; echo "$TMPDIR"`))
 	require.False(t, isError, text)
@@ -768,7 +769,7 @@ func TestTheWorkspacePolicyIsSystemAndTheRunsOwn(t *testing.T) {
 	tmp := lines[1]
 	rd := &runDir{path: lines[0], tmp: tmp}
 	ws := tools.WorkspacePath(rt.Dir)
-	assert.Equal(t, sandboxedRunEnv(os.Environ(), tl.env, ws, ws, rd, nil, tools.ToolHomePath(rt.Dir), fake.system.Env), r.Env)
+	assert.Equal(t, sandboxedRunEnv(os.Environ(), tl.env, emptyPath, ws, ws, rd, nil, tools.ToolHomePath(rt.Dir), fake.system.Env), r.Env)
 	assert.Equal(t, sandbox.Policy{
 		Files: sandbox.FilePolicy{Read: []string{"/usr"}, Deny: []string{"/usr/var"}},
 		Always: sandbox.AlwaysPolicy{

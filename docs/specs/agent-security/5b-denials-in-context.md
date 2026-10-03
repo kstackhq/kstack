@@ -239,7 +239,7 @@ above its buttons so the user grants what they read, not what the line implied.
 | --- | --- | --- | --- |
 | `folder` | the folder | read / read and write; this chat / always | `folderGrant` |
 | `host` | the host and port | this chat / always | `networkHostGrant` |
-| `path-entry` | a `PATH` entry step 3A left *waiting for you* | include | `sandboxPathAdopt(dir)` |
+| `path-entry` | a `PATH` entry step 3A left *waiting for you* | include | `sandboxPathInclude(dir)` |
 
 Step 3A's Sandbox section moves its *Include* onto this popover with the note's wording, *your
 shell added `~/.local/share/mise/shims` to PATH; include it?*, and step 6A's probe results open it
@@ -312,7 +312,7 @@ wire: a refused host and a refused write appear beside a hidden path, in order.
   draws *never allowed*; a subagent's inside the `Agent` disclosure.
 - The popover's choices per kind, Grant calling the right mutation with the folder of a file
   path, the line reading *Granted* after, disabled in flight and handed back on an error.
-- Step 3A's Include opens the popover with the entry and calls `sandboxPathAdopt`.
+- Step 3A's Include opens the popover with the entry and calls `sandboxPathInclude`.
 - `denialsOf` reads the field and nothing else.
 
 ## Security

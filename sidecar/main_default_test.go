@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !darwin
+//go:build unix && !darwin
 
 package main
 
@@ -23,12 +23,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestImportShellEnvIsANoOpOffDarwin(t *testing.T) {
+// Only a macOS GUI launch is handed an environment that lacks what the user's
+// shell builds, so nothing is set elsewhere.
+func TestSetShellEnvIsANoOpOffDarwin(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin:/bin")
-	// A shell that would answer, to prove nothing runs one here.
-	t.Setenv("SHELL", "/bin/sh")
 
-	importShellEnv(t.Context())
+	setShellEnv(map[string]string{"PATH": "/opt/bin"})
 
 	require.Equal(t, "/usr/bin:/bin", os.Getenv("PATH"))
 }

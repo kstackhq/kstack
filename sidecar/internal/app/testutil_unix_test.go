@@ -40,6 +40,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -176,6 +177,26 @@ func shortTemp(t *testing.T) string {
 	return dir
 }
 
+// toolsFolder is a folder holding a link to each of names, where the machine
+// has them, for a run to search: the folder a tool is in may be one no run
+// searches, as a CI runner's world-writable /usr/local/bin is. Without one of
+// names, testutil.RequireSandbox decides.
+func toolsFolder(t *testing.T, names ...string) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	for _, name := range names {
+		bin, err := exec.LookPath(name)
+		if err != nil {
+			testutil.RequireSandbox(t, "no "+name+" on PATH")
+		}
+		target, err := filepath.EvalSymlinks(bin)
+		require.NoError(t, err)
+		require.NoError(t, os.Symlink(target, filepath.Join(dir, name)))
+	}
+	return dir
+}
+
 // startE2E starts the app over a fake cluster and waits for the cluster to be
 // identified, so a sandboxed run can claim its connection. Without a sandbox,
 // kubectl or jq, testutil.RequireSandbox decides.
@@ -184,11 +205,7 @@ func startE2E(t *testing.T) *e2e {
 	if _, v := sandbox.Probe(t.Context()); !v.Available {
 		testutil.RequireSandbox(t, "no sandbox: "+v.Reason)
 	}
-	for _, name := range []string{"kubectl", "jq"} {
-		if _, err := exec.LookPath(name); err != nil {
-			testutil.RequireSandbox(t, "no "+name+" on PATH")
-		}
-	}
+	bin := toolsFolder(t, "kubectl", "jq")
 
 	cluster := serveFakeCluster(t)
 	dir := t.TempDir()
@@ -196,12 +213,17 @@ func startE2E(t *testing.T) *e2e {
 	writeClusterKubeconfig(t, kubeconfig, cluster)
 	data := filepath.Join(dir, "data")
 	fake := llm.NewFake(0)
-	a, err := New(withDirs(t, Config{KubeconfigPath: kubeconfig, DataDir: data, RuntimeDir: shortTemp(t), fake: fake}))
+	shellPath := append([]string{bin}, filepath.SplitList(loginshell.DefaultPath)...)
+	a, err := New(withDirs(t, Config{KubeconfigPath: kubeconfig, DataDir: data, RuntimeDir: shortTemp(t), ShellPath: shellPath, fake: fake}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = a.Close() })
 	startApp(t, a)
 	srv := httptest.NewServer(a)
 	t.Cleanup(srv.Close)
+	// No folder under the temp directory is open, so the sync leaves bin
+	// pending until the user includes it.
+	raw := graphql(t, srv.URL, `mutation { sandboxPathInclude(dir: "`+bin+`", target: "`+bin+`") { dir } }`)
+	require.Contains(t, raw, `"dir":"`+bin+`"`, raw)
 
 	db, err := sql.Open("sqlite", "file:"+filepath.Join(data, "app.db")+"?mode=ro")
 	require.NoError(t, err)

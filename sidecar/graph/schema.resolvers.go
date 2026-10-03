@@ -242,6 +242,24 @@ func (r *mutationResolver) ChatDelete(ctx context.Context, id apimeta.ChatID) (b
 	return true, nil
 }
 
+// SandboxPathInclude is the resolver for the sandboxPathInclude field.
+func (r *mutationResolver) SandboxPathInclude(ctx context.Context, dir string, target string) ([]*model.SandboxPathEntry, error) {
+	entries, err := r.SecurityCfg.AdoptPath(dir, target)
+	return sandboxPathOf(entries), sandboxPathErr(err)
+}
+
+// SandboxPathRemove is the resolver for the sandboxPathRemove field.
+func (r *mutationResolver) SandboxPathRemove(ctx context.Context, dir string) ([]*model.SandboxPathEntry, error) {
+	entries, err := r.SecurityCfg.DropPath(dir)
+	return sandboxPathOf(entries), sandboxPathErr(err)
+}
+
+// SandboxPathRefresh is the resolver for the sandboxPathRefresh field.
+func (r *mutationResolver) SandboxPathRefresh(ctx context.Context) ([]*model.SandboxPathEntry, error) {
+	entries, err := r.SecurityCfg.RefreshPath(ctx)
+	return sandboxPathOf(entries), sandboxPathErr(err)
+}
+
 // MemorySave is the resolver for the memorySave field: an update with an id, a
 // create without one.
 func (r *mutationResolver) MemorySave(ctx context.Context, input model.MemorySaveInput) (*memorysvc.Memory, error) {
@@ -362,6 +380,24 @@ func (r *queryResolver) SecurityRefused(ctx context.Context) ([]*securityconfig.
 		out[i] = &refused[i]
 	}
 	return out, nil
+}
+
+// SandboxPath is the resolver for the sandboxPath field.
+func (r *queryResolver) SandboxPath(ctx context.Context) ([]*model.SandboxPathEntry, error) {
+	return sandboxPathOf(r.SecurityCfg.Path()), nil
+}
+
+// SandboxPathFault is the resolver for the sandboxPathFault field.
+func (r *queryResolver) SandboxPathFault(ctx context.Context) (*string, error) {
+	if fault := r.SecurityCfg.PathFault(); fault != "" {
+		return &fault, nil
+	}
+	return nil, nil
+}
+
+// SandboxPathResolved is the resolver for the sandboxPathResolved field.
+func (r *queryResolver) SandboxPathResolved(ctx context.Context) (bool, error) {
+	return r.SecurityCfg.PathResolved(), nil
 }
 
 // AuthState is the resolver for the authState field. auth.State binds directly to the

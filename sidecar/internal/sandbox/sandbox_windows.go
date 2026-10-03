@@ -17,6 +17,7 @@ package sandbox
 import (
 	"context"
 	"errors"
+	"os"
 	"os/exec"
 )
 
@@ -43,6 +44,12 @@ func (s *Sandbox) Port() (int, error) { return 0, errNone }
 
 // Never answers nothing, since no command runs sandboxed.
 func (s *Sandbox) Never(string) []string { return nil }
+
+// overFixedMount and worldWritable answer false, and broadDirs nothing, since
+// no command runs sandboxed and a Windows mode is not a Unix permission.
+func overFixedMount(string) bool     { return false }
+func worldWritable(os.FileInfo) bool { return false }
+func broadDirs(string) []string      { return nil }
 
 // System answers the zero System, since no command runs sandboxed.
 func (s *Sandbox) System(string, string) System { return System{} }

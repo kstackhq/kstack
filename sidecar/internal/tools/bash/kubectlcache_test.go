@@ -142,7 +142,7 @@ func TestNewSweepsTheKubectlCache(t *testing.T) {
 	_, err := makeKubectlCache(dir, "9", "uid")
 	require.NoError(t, err)
 
-	if _, ok := New(Paths{ShellDir: t.TempDir(), RunsDir: t.TempDir(), TmpDir: t.TempDir(), KubectlDir: dir}, 0, nil, fakeService{}); !ok {
+	if _, ok := New(Paths{ShellDir: t.TempDir(), RunsDir: t.TempDir(), TmpDir: t.TempDir(), KubectlDir: dir}, 0, nil, fakeService{}, nil); !ok {
 		t.Skip("no bash found on this machine")
 	}
 

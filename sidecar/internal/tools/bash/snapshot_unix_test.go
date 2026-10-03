@@ -60,7 +60,7 @@ func profileTool(t *testing.T, kind, rc string) *Tool {
 	case "zsh":
 		require.NoError(t, os.WriteFile(filepath.Join(home, ".zshrc"), []byte(rc), 0o600))
 	}
-	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil)
+	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 	require.True(t, ok)
 	require.Equal(t, kind, tl.kind)
 	tl.home = t.TempDir()
@@ -492,7 +492,7 @@ func TestAnExtglobFunctionSurvivesTheSnapshot(t *testing.T) {
 func TestTheSnapshotIsInItsShellDirectory(t *testing.T) {
 	t.Setenv("SHELL", "")
 	shell := filepath.Join(t.TempDir(), "shell")
-	tl, ok := New(Paths{ShellDir: shell}, 0, nil, nil)
+	tl, ok := New(Paths{ShellDir: shell}, 0, nil, nil, nil)
 	if !ok {
 		t.Skip("no bash found on this machine")
 	}
@@ -636,4 +636,19 @@ func TestNoSnapshotStartsAfterTheStop(t *testing.T) {
 
 	require.False(t, isError, text)
 	assert.Equal(t, "ok\n", text)
+}
+
+// The snapshot's shell sees the process's environment, as a command outside the
+// sandbox does: only the PATH resolution's is scrubbed.
+func TestTheSnapshotKeepsTheProcessEnvironment(t *testing.T) {
+	for _, kind := range shells {
+		t.Run(kind, func(t *testing.T) {
+			t.Setenv("KSTACK_TEST_PROCESS_VAR", "kept")
+			tl := profileTool(t, kind, `printf %s "$KSTACK_TEST_PROCESS_VAR" > ~/seen`+"\n")
+			snapshotOf(t, tl)
+			seen, err := os.ReadFile(filepath.Join(os.Getenv("HOME"), "seen"))
+			require.NoError(t, err)
+			assert.Equal(t, "kept", string(seen))
+		})
+	}
 }
