@@ -3,6 +3,8 @@ title: A sandboxed cluster write runs, asks or is refused by its class, the cont
 date: 2026-10-02
 scope: cross-cutting
 status: Accepted
+amended_by:
+  - [Authorization is binary, and a prompt is a denial the user may lift](2026-10-03-authorization-is-binary-and-a-prompt-is-a-denial-the-user-may-lift.md)
 ---
 
 # A sandboxed cluster write runs, asks or is refused by its class, the context's mode and the user's rules
