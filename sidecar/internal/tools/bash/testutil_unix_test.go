@@ -17,9 +17,15 @@
 package bash
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
 
@@ -45,4 +51,26 @@ func confining(t *testing.T) *sandbox.Sandbox {
 	}
 	testutil.RequireSandbox(t, "no confining sandbox: "+v.Reason)
 	return nil
+}
+
+// withTool puts name, where the machine has it, on tl's PATH through a folder
+// the user included that holds a link to it: the folder it is in may be one
+// no run searches, as a CI runner's world-writable /usr/local/bin is. A
+// machine without it skips the test.
+func withTool(t *testing.T, tl *Tool, name string) {
+	t.Helper()
+	bin, err := exec.LookPath(name)
+	if err != nil {
+		t.Skip("no " + name + " on PATH")
+	}
+	target, err := filepath.EvalSymlinks(bin)
+	require.NoError(t, err)
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	require.NoError(t, err)
+	require.NoError(t, os.Symlink(target, filepath.Join(dir, name)))
+	list := tl.pathList()
+	list.Entries = append([]securityconfig.PathEntry{{
+		Dir: dir, Target: dir, State: securityconfig.PathAdopted, Source: securityconfig.SourceUser,
+	}}, list.Entries...)
+	tl.pathList = func() securityconfig.RunPath { return list }
 }

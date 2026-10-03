@@ -15,7 +15,7 @@ Go paths below are under `sidecar/internal/` unless they say otherwise.
 
 By step 6A the sandbox has a Settings section for each of its parts: the `PATH` list (step 3A),
 the tools it probed (step 6A), and the approval modes (step 3B). A new user meets none of them until something fails, and the first failure is
-`kubectl` missing from the sandbox or a `prod` write refused with no warning.
+`kubectl` missing from the sandbox or a write refused with no warning.
 
 After this step, **one flow on first launch** walks the three in order, each step skippable,
 nothing typed and nothing signed into, as [the note](../../notes/sandbox-credentials-and-permissions.md)'s
@@ -24,7 +24,7 @@ nothing typed and nothing signed into, as [the note](../../notes/sandbox-credent
 1. **Programs**: the folders sandboxed commands find programs in, with any waiting for a yes.
 2. **Tools**: which `kubectl`, `helm` and the rest the sandbox runs, what each was refused, and
    a plain line when `kubectl` is missing.
-3. **Permissions**: the default mode, Ask, and the contexts, `prod*` read-only.
+3. **Permissions**: the default mode, Ask, and the contexts.
 
 Finish writes `securityconfig.Settings.Onboarded`, and the flow can be opened again from
 Settings. **Nothing widens by default**: every grant in the flow is a click on one path or host,
@@ -104,11 +104,10 @@ include the folder it is in under Programs, then press Refresh.* The probe's err
 fails, is one line under the spinner's place with **Try again**.
 
 **Permissions.** Step 3B's default-mode picker and contexts list, the same components its
-Settings section draws (`permission-settings.tsx` exports them), Ask selected; each context
-whose mode comes from `prod*` says *read-only by default*, and an override made here writes
-`permissionModeSet` as it does there. Under the picker: *Ask means a change to a cluster, a
-new host or a Secret's values waits for you. Read-only refuses the changes instead. Contexts
-named `prod…` start read-only.*
+Settings section draws (`permission-settings.tsx` exports them), Ask selected, and an override
+made here writes `permissionModeSet` as it does there. Under the picker: *Ask means a change to a
+cluster, a new host or a Secret's values waits for you. Read-only refuses the changes instead.
+Set a production context to read-only here.*
 
 **Finish** calls `sandboxOnboarded(true)`, then `closeDialog()`; a refused write leaves the
 dialog open with the error on one line and Finish handed back. The close button and Escape
@@ -190,10 +189,10 @@ keeps answering empty there, and the `PATH` mutations stay refused.
 - The launcher opens the dialog once when `onboarded` is false, not again on a re-render, and
   not at all when it is true or the query fails.
 - Each step draws its data off its hook: the Programs list with a waiting entry and Include
-  calling `sandboxPathAdopt`; the Tools step running `sandboxToolsProbe` once on open, the
+  calling `sandboxPathInclude`; the Tools step running `sandboxToolsProbe` once on open, the
   spinner until it answers, the resolved binaries, a denied path with the popover's always
   grant, the `kubectl` alert when it is missing and Try again on a failed probe; the
-  Permissions picker with Ask selected and the `prod*` line.
+  Permissions picker with Ask selected and each context's mode.
 - Skip goes to the next step and calls nothing; Back returns; Finish calls
   `sandboxOnboarded(true)` then closes; closing by Escape calls nothing.
 - With `sandbox.available` false the one screen draws, with the reason on Linux and without it
@@ -203,7 +202,7 @@ keeps answering empty there, and the `PATH` mutations stay refused.
 ## Security
 
 Nothing widens by default. Every grant in the flow is a click on a specific path (a Programs
-Include, a Tools always-grant), each written by the mutation its step already guards; the mode defaults to Ask with `prod*` read-only, which is step 3B's default with
+Include, a Tools always-grant), each written by the mutation its step already guards; the mode defaults to Ask, which is step 3B's default with
 or without the flow. The flow adds no mutation but the flag, and the flag gates nothing:
 a machine that never finishes onboarding runs the sandbox as the earlier steps left it.
 
@@ -228,7 +227,7 @@ Run the [verification commands](../README.md#verification-commands), including t
 
 By hand, `pnpm tauri dev` on macOS with a fresh data directory: read the dialog open on the
 first paint of the app, the Programs list with any home folder waiting, the Tools step probing
-and naming which `kubectl` it found, and the Permissions step with Ask selected and a `prod*`
-context read-only; press Finish, restart, and read no dialog; open Settings and press *Set up the
+and naming which `kubectl` it found, and the Permissions step with Ask selected and each context
+in it; press Finish, restart, and read no dialog; open Settings and press *Set up the
 sandbox again*. Rename `kubectl` off your `PATH` and read the red line. On Windows, or on Linux
 with `kernel.unprivileged_userns_clone=0`, read the one screen and its reason.

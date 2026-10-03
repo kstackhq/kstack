@@ -12,11 +12,13 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/graph/model"
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/chatsvc"
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 )
@@ -242,6 +244,24 @@ func (r *mutationResolver) ChatDelete(ctx context.Context, id apimeta.ChatID) (b
 	return true, nil
 }
 
+// SandboxPathInclude is the resolver for the sandboxPathInclude field.
+func (r *mutationResolver) SandboxPathInclude(ctx context.Context, dir string, target string) ([]*model.SandboxPathEntry, error) {
+	entries, err := r.SecurityCfg.AdoptPath(dir, target)
+	return sandboxPathOf(entries), sandboxPathErr(err)
+}
+
+// SandboxPathRemove is the resolver for the sandboxPathRemove field.
+func (r *mutationResolver) SandboxPathRemove(ctx context.Context, dir string) ([]*model.SandboxPathEntry, error) {
+	entries, err := r.SecurityCfg.DropPath(dir)
+	return sandboxPathOf(entries), sandboxPathErr(err)
+}
+
+// SandboxPathRefresh is the resolver for the sandboxPathRefresh field.
+func (r *mutationResolver) SandboxPathRefresh(ctx context.Context) ([]*model.SandboxPathEntry, error) {
+	entries, err := r.SecurityCfg.RefreshPath(ctx)
+	return sandboxPathOf(entries), sandboxPathErr(err)
+}
+
 // MemorySave is the resolver for the memorySave field: an update with an id, a
 // create without one.
 func (r *mutationResolver) MemorySave(ctx context.Context, input model.MemorySaveInput) (*memorysvc.Memory, error) {
@@ -271,6 +291,40 @@ func (r *mutationResolver) MemoryDelete(ctx context.Context, id memorysvc.Memory
 		return false, memoryErr(err)
 	}
 	return true, nil
+}
+
+// PermissionDefaultModeSet is the resolver for the permissionDefaultModeSet field.
+func (r *mutationResolver) PermissionDefaultModeSet(ctx context.Context, mode permissions.Mode) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.SecurityCfg.SetDefaultMode(mode))
+}
+
+// PermissionModeSet is the resolver for the permissionModeSet field.
+func (r *mutationResolver) PermissionModeSet(ctx context.Context, context string, mode permissions.Mode) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.SecurityCfg.SetMode(context, mode))
+}
+
+// PermissionModeClear is the resolver for the permissionModeClear field.
+func (r *mutationResolver) PermissionModeClear(ctx context.Context, context string) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.SecurityCfg.ClearMode(context))
+}
+
+// PermissionRuleAdd is the resolver for the permissionRuleAdd field.
+func (r *mutationResolver) PermissionRuleAdd(ctx context.Context, input model.PermissionRuleInput) (*model.PermissionSettings, error) {
+	rule := permissions.Rule{
+		ID: appdb.NewID(), Effect: input.Effect, Class: input.Class,
+		Context: input.Context, Namespace: input.Namespace, Verb: input.Verb, Group: input.Group, Kind: input.Kind,
+	}
+	return r.permissionsAfter(ctx, r.SecurityCfg.AddRule(rule))
+}
+
+// PermissionRuleRemove is the resolver for the permissionRuleRemove field.
+func (r *mutationResolver) PermissionRuleRemove(ctx context.Context, id string) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.SecurityCfg.RemoveRule(id))
+}
+
+// PermissionDiscardRefused is the resolver for the permissionDiscardRefused field.
+func (r *mutationResolver) PermissionDiscardRefused(ctx context.Context, field string) (*model.PermissionSettings, error) {
+	return r.permissionsAfter(ctx, r.SecurityCfg.DiscardRefused(field))
 }
 
 // AuthLoginStart is the resolver for the authLoginStart field: setup runs synchronously
@@ -362,6 +416,29 @@ func (r *queryResolver) SecurityRefused(ctx context.Context) ([]*securityconfig.
 		out[i] = &refused[i]
 	}
 	return out, nil
+}
+
+// SandboxPath is the resolver for the sandboxPath field.
+func (r *queryResolver) SandboxPath(ctx context.Context) ([]*model.SandboxPathEntry, error) {
+	return sandboxPathOf(r.SecurityCfg.Path()), nil
+}
+
+// SandboxPathFault is the resolver for the sandboxPathFault field.
+func (r *queryResolver) SandboxPathFault(ctx context.Context) (*string, error) {
+	if fault := r.SecurityCfg.PathFault(); fault != "" {
+		return &fault, nil
+	}
+	return nil, nil
+}
+
+// SandboxPathResolved is the resolver for the sandboxPathResolved field.
+func (r *queryResolver) SandboxPathResolved(ctx context.Context) (bool, error) {
+	return r.SecurityCfg.PathResolved(), nil
+}
+
+// PermissionSettings is the resolver for the permissionSettings field.
+func (r *queryResolver) PermissionSettings(ctx context.Context) (*model.PermissionSettings, error) {
+	return r.permissionSettings(ctx)
 }
 
 // AuthState is the resolver for the authState field. auth.State binds directly to the

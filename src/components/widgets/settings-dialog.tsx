@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The app's settings dialog: one `Field` row per setting. Rendered by
+// The app's settings dialog: one `Field` row per setting, then the Permissions
+// section. Rendered by
 // `AppDialogs`, not inline in the account menu that opens it, so it outlives the
 // sidebar card unmounting on auto-collapse. Settings persist to the host's
 // host.json; see docs/adr/2026-08-09-host-json-settings.md
@@ -23,6 +24,8 @@ import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from '@
 import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
 
 import { Dialog } from '@/components/widgets/dialog';
+import { PermissionSettings } from '@/components/widgets/permission-settings';
+import { SandboxSettings } from '@/components/widgets/sandbox-settings';
 import { type AppDialogProps } from '@/lib/dialog';
 import { type ColorSchemePreference, useColorScheme } from '@/lib/theme';
 
@@ -52,7 +55,13 @@ function ColorSchemePicker() {
 
 export function SettingsDialog({ open, onOpenChange }: AppDialogProps) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange} title="Settings" description="Manage your app preferences.">
+    <Dialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Settings"
+      description="Manage your app preferences."
+      className="sm:max-w-2xl"
+    >
       <FieldGroup>
         <Field orientation="responsive">
           <FieldContent>
@@ -61,7 +70,9 @@ export function SettingsDialog({ open, onOpenChange }: AppDialogProps) {
           </FieldContent>
           <ColorSchemePicker />
         </Field>
+        <SandboxSettings />
       </FieldGroup>
+      <PermissionSettings />
     </Dialog>
   );
 }

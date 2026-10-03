@@ -36,6 +36,6 @@ type Resolver struct {
 	// Auth backs the authState query/watch and the login/logout mutations; it degrades
 	// internally when no cloud account is configured.
 	Auth auth.Service
-	// SecurityCfg is the security settings file.
-	SecurityCfg *securityconfig.Store
+	// SecurityCfg is the security settings file, and the frozen PATH kept in it.
+	SecurityCfg *securityconfig.Service
 }

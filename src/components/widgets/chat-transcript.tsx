@@ -31,6 +31,7 @@ import { useMutation } from 'urql';
 import { AppLogo } from '@/components/widgets/app-logo';
 import { approvalAnchor } from '@/lib/approval-anchor';
 import { Markdown } from '@/components/widgets/markdown';
+import { VisibleText } from '@/components/widgets/visible-text';
 import { graphql } from '@/gql';
 import type { AppMode } from '@/lib/app-mode';
 import { useChatOutbox } from '@/lib/chat-outbox';
@@ -50,7 +51,7 @@ import type { ChatClusterWrite, ChatMessage, ChatToolCall, Source, TaskNotice } 
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import { useHeldStill } from '@/lib/held-still';
 import { modelOf, useModels } from '@/lib/models';
-import { cutText, descriptionLine, visibleSegments } from '@/lib/visible-text';
+import { cutText, descriptionLine } from '@/lib/visible-text';
 
 // How close to the end still counts as reading the end. Fixed, not a fraction of the
 // viewport: a threshold that grows with the window yanks a reader back mid-paragraph.
@@ -529,8 +530,10 @@ function ToolCalls({
 }
 
 // A call's cluster writes that no longer wait, one line each: the method and
-// the path, tagged with what the user decided. `approved` is the decision, not
-// that the cluster received it; the output says what the command read back.
+// the path, tagged with what the user or the permissions engine decided, and
+// for the engine's, the mode or rule that decided it. `approved` and `allowed`
+// are the decision, not that the cluster received it; the output says what the
+// command read back.
 function ClusterWriteLines({ call }: { call: ChatToolCall }) {
   const settled = call.clusterWrites.filter((w) => !isWaitingWrite(call, w));
   if (settled.length === 0) return null;
@@ -541,7 +544,13 @@ function ClusterWriteLines({ call }: { call: ChatToolCall }) {
           <span className="font-mono break-all">
             <VisibleText text={`${w.method} ${w.path}`} />
           </span>
+          {w.dryRun && ' (dry run)'}
           <span className="ml-2 opacity-70">{clusterWriteTag(w)}</span>
+          {w.reason && (
+            <span className="ml-2 text-muted-foreground">
+              <VisibleText text={w.reason} />
+            </span>
+          )}
         </li>
       ))}
     </ul>
@@ -551,9 +560,18 @@ function ClusterWriteLines({ call }: { call: ChatToolCall }) {
 // What became of a write that no longer waits. A pending one here is one a
 // crash stranded, as an abandoned one's wait ended with nobody's answer.
 function clusterWriteTag(w: ChatClusterWrite): string {
-  if (w.approval.status === 'Approved') return 'approved';
-  if (w.approval.status === 'Denied') return 'denied';
-  return 'not answered';
+  switch (w.approval.status) {
+    case 'Approved':
+      return 'approved';
+    case 'Denied':
+      return 'denied';
+    case 'Allowed':
+      return 'allowed';
+    case 'Refused':
+      return 'refused';
+    default:
+      return 'not answered';
+  }
 }
 
 // A model id as the reader is shown it: the catalog's label, or the id itself.
@@ -616,21 +634,6 @@ function AgentBody({
   );
 }
 
-// A spelled character is marked so it cannot pass for the command's own text.
-function VisibleText({ text, trailing }: { text: string; trailing?: 'lines' | 'end' }) {
-  return visibleSegments(text, trailing).map((segment, i) =>
-    segment.spelled ? (
-      // eslint-disable-next-line react/no-array-index-key
-      <mark key={i} className="rounded-sm bg-destructive/20 px-0.5 text-destructive" title="An invisible character">
-        {segment.text}
-      </mark>
-    ) : (
-      // eslint-disable-next-line react/no-array-index-key
-      <Fragment key={i}>{segment.text}</Fragment>
-    ),
-  );
-}
-
 // A value the sidecar bounds, as one line after a muted label: where a command
 // runs, or the host a fetch dials. Never folded or cut, and spelled like the
 // command, since the model chose it.
@@ -689,7 +692,8 @@ const CLUSTER_WRITE_HEADINGS: Record<string, string> = {
 
 // What a cluster write's request asks. A write to a subresource names no method,
 // since a POST to pods/x/eviction creates nothing: the path says what it does.
-// The subresource is the proxy's parse, never read off the path here.
+// The subresource is the proxy's parse, never read off the path here. A dry run
+// on a group the proxy cannot trust to honor it asks too, and says so.
 function clusterWriteHeading(change: ChatClusterWrite): string {
   const heading =
     change.subresource === ''

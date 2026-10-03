@@ -16,6 +16,12 @@
 // imports it to read the session a run's token maps to, so it imports no proxy.
 package session
 
+import (
+	"context"
+
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
+)
+
 // Kind is what kind of agent a session runs.
 type Kind string
 
@@ -32,11 +38,15 @@ const (
 type Session struct {
 	Kind    Kind
 	Outside bool // the user switched the chat to run outside the sandbox
+	// Policy is the mode and rules a cluster write in kubeContext, the context
+	// the run's grant was made for, is decided by. It is read live on every
+	// write, so a mode or rule changed meanwhile applies to the next one.
+	Policy func(ctx context.Context, kubeContext string) permissions.Policy
 }
 
 // Narrow is a subagent's session under parent: the parent's, as Kind Subagent.
 // The switch is copied at spawn, so a subagent started outside the sandbox
-// stays outside.
+// stays outside, and it decides by its parent's Policy.
 func Narrow(parent Session) Session {
 	parent.Kind = Subagent
 	return parent

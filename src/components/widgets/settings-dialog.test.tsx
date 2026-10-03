@@ -19,6 +19,11 @@ import { mockTauriCore } from '@/test-utils';
 
 const { invokeMock, factory } = mockTauriCore();
 vi.mock('@tauri-apps/api/core', () => factory());
+// The section reads the sidecar; its own test covers it.
+vi.mock('@/components/widgets/sandbox-settings', () => ({ SandboxSettings: () => <p>sandbox section</p> }));
+vi.mock('@/components/widgets/permission-settings', () => ({
+  PermissionSettings: () => <section aria-label="Permissions" />,
+}));
 
 const { ThemeProvider } = await import('@/lib/theme');
 const { SettingsDialog } = await import('@/components/widgets/settings-dialog');
@@ -30,6 +35,15 @@ beforeEach(() => {
 });
 
 describe('SettingsDialog', () => {
+  it('holds the Permissions section', () => {
+    render(
+      <ThemeProvider>
+        <SettingsDialog open onOpenChange={() => {}} />
+      </ThemeProvider>,
+    );
+    expect(screen.getByRole('region', { name: 'Permissions' })).toBeInTheDocument();
+  });
+
   it('drives the theme through the appearance picker', async () => {
     render(
       <ThemeProvider>
@@ -48,5 +62,14 @@ describe('SettingsDialog', () => {
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('update_host_file', { patch: { colorSchemePreference: 'dark' } }),
     );
+  });
+
+  it('holds the sandbox section', () => {
+    render(
+      <ThemeProvider>
+        <SettingsDialog open onOpenChange={() => {}} />
+      </ThemeProvider>,
+    );
+    expect(screen.getByText('sandbox section')).toBeInTheDocument();
   });
 });

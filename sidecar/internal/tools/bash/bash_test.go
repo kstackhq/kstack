@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -377,7 +378,7 @@ func tool(t *testing.T) *Tool {
 	t.Helper()
 	t.Setenv("SHELL", "")
 	k := kstackDirs(t)
-	tl, ok := New(Paths{ShellDir: filepath.Join(k.runtime, "shell")}, 0, nil, nil)
+	tl, ok := New(Paths{ShellDir: filepath.Join(k.runtime, "shell")}, 0, nil, nil, nil)
 	if !ok {
 		t.Skip("no bash found on this machine")
 	}
@@ -386,6 +387,7 @@ func tool(t *testing.T) *Tool {
 	tl.tmpDir = filepath.Join(k.cache, "tmp")
 	tl.kubectlDir = filepath.Join(k.cache, "kubectl")
 	tl.denied = []string{k.data, k.cache, k.runtime}
+	tl.pathList = defaultEntries
 	for _, dir := range []string{tl.runsDir, tl.tmpDir, tl.kubectlDir} {
 		require.NoError(t, os.MkdirAll(dir, 0o700))
 	}
@@ -521,14 +523,14 @@ func (f *fakeSandboxer) seen() []sandbox.Run {
 // through a nil pointer: Bash is offered as it is on a machine with none.
 func TestNewTakesNoSandboxAsNone(t *testing.T) {
 	t.Setenv("SHELL", "")
-	none, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil)
+	none, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 	if !ok {
 		t.Skip("no bash found on this machine")
 	}
 	assert.Nil(t, none.sandboxer)
 	assert.JSONEq(t, string(inputSchema), string(none.Definition().InputSchema))
 
-	some, ok := New(Paths{ShellDir: t.TempDir()}, 0, &sandbox.Sandbox{}, nil)
+	some, ok := New(Paths{ShellDir: t.TempDir()}, 0, &sandbox.Sandbox{}, nil, nil)
 	require.True(t, ok)
 	assert.NotNil(t, some.sandboxer)
 }
@@ -568,7 +570,7 @@ func TestTheToolsHomeIsTheUsers(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home)
-	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil)
+	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 	if !ok {
 		t.Skip("no bash found on this machine")
 	}
@@ -581,7 +583,7 @@ func TestNewSweepsWhatACrashLeft(t *testing.T) {
 	left := filepath.Join(shell, "cmd-left-behind")
 	require.NoError(t, os.MkdirAll(shell, 0o700))
 	require.NoError(t, os.WriteFile(left, []byte("x"), 0o400))
-	if _, ok := New(Paths{ShellDir: shell}, 0, nil, nil); !ok {
+	if _, ok := New(Paths{ShellDir: shell}, 0, nil, nil, nil); !ok {
 		t.Skip("no bash found on this machine")
 	}
 	_, err := os.Stat(left)
@@ -988,13 +990,15 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 		"The user can switch this chat to run commands outside the sandbox; the question's context says whether they have. "+
 		"Do not work around the sandbox.")
 	assert.Contains(t, sandboxPrompt, "It reaches the chat's cluster alone, with the user's own access.", "a sandboxed run reaches the cluster through the proxy")
-	assert.Contains(t, sandboxPrompt, "Each request that changes the cluster, a dry run and `kubectl diff` included, waits for the user to approve it", "a write asks")
+	assert.Contains(t, sandboxPrompt, "A request that changes the cluster runs at once when the user's rules allow it, waits for the user to approve it, "+
+		"or comes back `Forbidden` because the user's mode for this context, or one of their rules, refuses it.", "a write is decided by the mode and the rules")
+	assert.Contains(t, sandboxPrompt, "A `Forbidden` that names the mode or a rule is the user's decision, not an error to work around", "a refusal is the user's")
+	assert.Contains(t, sandboxPrompt, "A dry run of a built-in resource runs at once, so `kubectl diff` and `--dry-run=server` preview such a change without asking; a dry run of a custom resource waits like the change.", "a dry run is a read")
 	assert.Contains(t, sandboxPrompt, "give a command that changes the cluster one that leaves the user time to read each request", "the wait counts against the timeout")
 	assert.Contains(t, sandboxPrompt, "a service account token, a helm change and a change past 1 MiB come back `Forbidden`, and so does a change from a background command")
 	assert.Contains(t, sandboxPrompt, "`kubectl apply --server-side`")
 	assert.Contains(t, sandboxPrompt, "the network, a helm change, a service account token, or a Secret's values")
 	assert.Contains(t, sandboxPrompt, "What follows about the user's own credentials, `kubectl diff` and `--dry-run=server` is for a command run outside the sandbox.")
-	assert.NotContains(t, sandboxPrompt, "read-only")
 	assert.Contains(t, sandboxPrompt, "A Secret's values read `[redacted]`", "a sandboxed run reads Secrets redacted")
 	assert.Contains(t, sandboxPrompt, "The sandbox has the user's tools and none of their shell's functions, aliases or variables. "+
 		"`HOME` is the workspace. A tool that cannot find its own files under the home needs a folder the user grants, "+
@@ -1134,4 +1138,16 @@ func TestThePromptSaysSudoDoesNotWork(t *testing.T) {
 	assert.Contains(t, sandboxPrompt, "limited in memory and open files, and in the foreground in count and CPU time")
 	assert.Contains(t, sandboxPrompt, "exit 152")
 	assert.Contains(t, sandboxPrompt, "cannot create a thread")
+}
+
+// defaultEntries is the platform's default PATH as folders the user included,
+// so a run over a fake sandbox, which opens no folder, still finds sleep.
+func defaultEntries() securityconfig.RunPath {
+	var entries []securityconfig.PathEntry
+	for _, dir := range filepath.SplitList(defaultPath) {
+		entries = append(entries, securityconfig.PathEntry{
+			Dir: dir, Target: dir, State: securityconfig.PathAdopted, Source: securityconfig.SourceUser,
+		})
+	}
+	return securityconfig.RunPath{Entries: entries, Resolved: true}
 }

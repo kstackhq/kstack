@@ -33,11 +33,25 @@ import (
 	"github.com/amorey/gochan/watch"
 
 	"github.com/kstackhq/kstack/sidecar/internal/atomicjson"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 )
 
 // Settings is the security settings. Each field is added by the step that
-// needs it; see the table in the spec.
-type Settings struct{}
+// needs it.
+type Settings struct {
+	Path []PathEntry `json:"path,omitempty"` // the user's PATH, frozen, in the shell's order
+	// PathResolved is set by the first sync: before it a run searches the
+	// platform's default PATH, after it the list alone.
+	PathResolved bool `json:"pathResolved,omitempty"`
+	// PathStrict is set by a Remove that ends the store's hold on path, and
+	// cleared by the next sync, which it makes file every new entry pending:
+	// the entry the store could not read may have been a removal.
+	PathStrict bool `json:"pathStrict,omitempty"`
+
+	DefaultMode permissions.Mode   `json:"defaultMode,omitempty"` // Ask when empty
+	Modes       []ContextMode      `json:"modes,omitempty"`       // first match wins
+	Rules       []permissions.Rule `json:"rules,omitempty"`       // the always rules, the user's
+}
 
 // schemaVersion is the file's layout, stamped under versionKey on every
 // write. A step that changes a field's layout bumps it and upgrades an older
@@ -47,9 +61,16 @@ const (
 	versionKey    = "schemaVersion"
 )
 
+// ErrHeld is an Update that changes a held field without naming it: the write
+// would drop the value the store could not read.
+var ErrHeld = errors.New("a setting the file holds and Kstack cannot read would be lost")
+
 // Store keeps Settings in one JSON file and publishes each write. Safe for
-// concurrent use.
-type Store = store[Settings]
+// concurrent use. It wraps the generic store so the permission readers in
+// permissions.go can be its methods.
+type Store struct {
+	*store[Settings]
+}
 
 // An Option changes how Open reads the file.
 type Option func(*options)
@@ -74,7 +95,11 @@ func Open(file string, opts ...Option) (*Store, error) {
 	for _, opt := range opts {
 		opt(&o)
 	}
-	return openStore(file, o.checks, strictest)
+	s, err := openStore(file, o.checks, strictest)
+	if err != nil {
+		return nil, err
+	}
+	return &Store{s}, nil
 }
 
 // store is Store over any settings type, so the tests can run it over fields
@@ -191,7 +216,9 @@ func fieldKeys[T any]() []string {
 
 // decode sets each field of T from the key that is its JSON name exactly. A
 // value that does not decode into its field is refused, and the other fields
-// still load; a key no field names is ignored.
+// still load; a key no field names is ignored. A null is refused too, since
+// encoding/json reads it as the zero value, which for a field that restricts
+// is not its strictest state.
 func decode[T any](keys map[string]json.RawMessage) (T, []Refusal) {
 	var v T
 	var refused []Refusal
@@ -201,13 +228,18 @@ func decode[T any](keys map[string]json.RawMessage) (T, []Refusal) {
 		if name == "" || !ok {
 			continue
 		}
+		if string(bytes.TrimSpace(raw)) == "null" {
+			refused = append(refused, wrongType(name, raw))
+			continue
+		}
 		refused = append(refused, decodeField(name, raw, rv.Field(i))...)
 	}
 	return v, refused
 }
 
 // decodeField decodes a list element by element, so one bad element is refused
-// alone, and any other value whole.
+// alone, and any other value whole. An element with a key its type does not
+// name is refused too.
 func decodeField(name string, raw json.RawMessage, field reflect.Value) []Refusal {
 	var elems []json.RawMessage
 	if field.Kind() == reflect.Slice && json.Unmarshal(raw, &elems) == nil && elems != nil {
@@ -217,6 +249,10 @@ func decodeField(name string, raw json.RawMessage, field reflect.Value) []Refusa
 			v := reflect.New(field.Type().Elem())
 			if err := json.Unmarshal(elem, v.Interface()); err != nil {
 				refused = append(refused, wrongType(name, elem))
+				continue
+			}
+			if err := unmarshalStrict(elem, v.Interface()); err != nil {
+				refused = append(refused, Refusal{Field: name, Value: string(elem), Reason: "has a key Kstack does not know"})
 				continue
 			}
 			list = reflect.Append(list, v.Elem())
@@ -229,6 +265,15 @@ func decodeField(name string, raw json.RawMessage, field reflect.Value) []Refusa
 		return []Refusal{wrongType(name, raw)}
 	}
 	return nil
+}
+
+// unmarshalStrict refuses a key no field names. An element's fields narrow
+// it, so a misspelled one dropped would leave a rule matching more than its
+// author wrote.
+func unmarshalStrict(raw json.RawMessage, v any) error {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.DisallowUnknownFields()
+	return dec.Decode(v)
 }
 
 func wrongType(field string, raw json.RawMessage) Refusal {
@@ -254,8 +299,10 @@ func (s *store[T]) Get() T {
 // must not call the store: it runs under the lock.
 //
 // fields names, by JSON key, each field fn sets. A field whose refused raw JSON
-// the store keeps is written as fn left it when fn changes it or fields names
-// it: the strictest state a held field already answers can be the user's fix.
+// the store keeps is written as fn left it when fields names it, which ends the
+// hold: the strictest state a held field already answers can be the user's
+// fix. A change to a held field fields does not name is ErrHeld, so no writer
+// drops the held value by accident.
 func (s *store[T]) Update(fn func(*T) error, fields ...string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -266,7 +313,10 @@ func (s *store[T]) Update(fn func(*T) error, fields ...string) error {
 	if refused := runChecks(&next, s.checks); len(refused) > 0 {
 		return refused[0]
 	}
-	held := s.stillHeld(next, fields)
+	held, err := s.stillHeld(next, fields)
+	if err != nil {
+		return err
+	}
 	was, _ := json.Marshal(s.fileOf(s.cur, s.held))
 	is := s.fileOf(next, held)
 	if b, _ := json.Marshal(is); bytes.Equal(was, b) {
@@ -281,15 +331,30 @@ func (s *store[T]) Update(fn func(*T) error, fields ...string) error {
 	return nil
 }
 
-// stillHeld is the held fields an Update leaves alone: changing a field, or
-// naming it in fields, replaces the raw JSON kept for it.
-func (s *store[T]) stillHeld(next T, fields []string) map[string]json.RawMessage {
+// stillHeld is the held fields an Update leaves held: naming a field in
+// fields replaces the raw JSON kept for it, and changing one unnamed is
+// ErrHeld.
+func (s *store[T]) stillHeld(next T, fields []string) (map[string]json.RawMessage, error) {
 	was, is := fieldsOf(s.cur), fieldsOf(next)
 	held := maps.Clone(s.held)
-	maps.DeleteFunc(held, func(key string, _ json.RawMessage) bool {
-		return slices.Contains(fields, key) || !bytes.Equal(was[key], is[key])
-	})
-	return held
+	for key := range s.held {
+		switch {
+		case slices.Contains(fields, key):
+			delete(held, key)
+		case !bytes.Equal(was[key], is[key]):
+			return nil, fmt.Errorf("%s: %w", key, ErrHeld)
+		}
+	}
+	return held, nil
+}
+
+// Held reports whether the store still keeps field's raw JSON, by its key: the
+// file holds a value of it the store refused, and no write has named it since.
+func (s *store[T]) Held(field string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.held[field]
+	return ok
 }
 
 // fileOf is what the file holds for v: each field's JSON, with the held raw

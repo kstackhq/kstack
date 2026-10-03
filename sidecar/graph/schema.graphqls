@@ -1123,6 +1123,8 @@ type ClusterWrite {
   body: String!
   "Whether the request asks for a dry run: a POST, PUT or PATCH whose every `dryRun` is `All`. Never a DELETE."
   dryRun: Boolean!
+  "Who decided a write nobody was asked about: the mode (`this context is read-only`, `auto mode`) or the rule's line. Null for a write the user answered."
+  reason: String
 }
 
 "What a call does, from the tool that made it. Never read from the call's arguments."
@@ -1275,13 +1277,16 @@ type ToolCallApproval {
 Where the user's decision is. `Pending` until it commits, and after, when the call's turn ended
 before anyone answered: the record of a question nobody answered. An `Approved` call whose status
 is `NotRun` was approved and never started. `Abandoned` is a cluster write whose wait ended with no
-decision while its call ran on; a call's own approval never takes it.
+decision while its call ran on; a call's own approval never takes it. `Allowed` and `Refused`
+are cluster writes the permissions engine decided with nobody asked.
 """
 enum ApprovalStatus {
   Pending
   Approved
   Denied
   Abandoned
+  Allowed
+  Refused
 }
 
 """
@@ -1355,6 +1360,89 @@ input MemorySaveInput {
   body: String!
 }
 
+# --- Permissions ---
+
+"How much an action can do, as the permissions engine numbers its classes 1 to 6. A rule may name `UpstreamWrite` or `Destructive`."
+enum PermissionClass {
+  ReadInside
+  WriteInside
+  NewHost
+  UpstreamWrite
+  Destructive
+  SecretRead
+}
+
+"Which classes ask: `ReadOnly` refuses writes, `Ask` asks for every write, `Auto` asks for destructive ones alone."
+enum PermissionMode {
+  ReadOnly
+  Ask
+  Auto
+}
+
+"What a rule does to an action it matches."
+enum PermissionEffect {
+  Allow
+  Deny
+  Ask
+}
+
+"Where a context's mode comes from: `Refused`, read-only while the file's modes cannot be read; `Entry`, a mode entry whose pattern matches; `Default`, the default mode."
+enum PermissionModeSource {
+  Refused
+  Entry
+  Default
+}
+
+"One rule over cluster writes. Every string but `group` is a pattern: `*` matches any run of characters, `?` one, `\\` escapes the next. An empty field matches anything. Every string is user text: draw it through VisibleText."
+type PermissionRule {
+  id: String!
+  effect: PermissionEffect!
+  class: PermissionClass!
+  context: String!
+  namespace: String!
+  verb: String!
+  group: String!
+  kind: String!
+  "The rule in the user's words."
+  line: String!
+}
+
+"A context the clusters watch knows, and the mode its sandboxed commands run under."
+type PermissionContextMode {
+  context: String!
+  mode: PermissionMode!
+  source: PermissionModeSource!
+  "The mode entry that decided the mode, for source `Entry`; empty otherwise."
+  pattern: String!
+  "Whether that entry names this context alone: the one `permissionModeClear` removes."
+  own: Boolean!
+}
+
+"The modes and rules sandboxed commands' cluster writes are decided by."
+type PermissionSettings {
+  "The mode of a context nothing else names."
+  defaultMode: PermissionMode!
+  "Each known context's mode, by context."
+  contexts: [PermissionContextMode!]!
+  "The user's always rules."
+  rules: [PermissionRule!]!
+  "The writes that always ask, in words."
+  destructive: [String!]!
+  "The settings fields the file holds a value of that Kstack cannot read: `defaultMode`, `modes`, `rules`."
+  held: [String!]!
+}
+
+"A rule to add; every string is a pattern but `group`, and empty matches anything."
+input PermissionRuleInput {
+  effect: PermissionEffect!
+  class: PermissionClass!
+  context: String! = ""
+  namespace: String! = ""
+  verb: String! = ""
+  group: String! = ""
+  kind: String! = ""
+}
+
 # --- Cloud account ---
 # The sidecar-owned sign-in and display identity. Tokens never appear here.
 # Login verifies claims; startup restores display claims without re-verification.
@@ -1370,6 +1458,36 @@ type Identity {
 type AuthState {
   authenticated: Boolean!
   identity: Identity
+}
+
+"What the sandbox does with one folder of the user's PATH."
+enum SandboxPathState {
+  "On the sandbox's PATH and readable in it."
+  Adopted
+  "Listed by the shell and waiting for the user: adopting it would open more to commands, or its group can add programs to it."
+  Pending
+  "Removed by the user, and kept so a launch does not adopt it again."
+  Gone
+}
+
+"Whose decision a PATH entry's state is."
+enum SandboxPathSource {
+  "Kstack's, when it read the login shell's PATH."
+  Shell
+  "The user's, by Include or Remove."
+  User
+}
+
+"One folder of the user's PATH, and what the sandbox does with it."
+type SandboxPathEntry {
+  "The folder as the shell gave it."
+  dir: String!
+  "The folder dir resolved to when its state was set; the one the sandbox reads."
+  target: String!
+  state: SandboxPathState!
+  source: SandboxPathSource!
+  "Whether target was writable by a group other than an administrators' one, so others in it can add programs to it."
+  shared: Boolean!
 }
 
 "One value the security settings file held and the sidecar left out."
@@ -1417,6 +1535,18 @@ type Query {
   # --- Sandbox ---
   "Every value the security settings file held that the sidecar left out at start, each with its reason. Fixed for the process's life, so this is a query and not a watch."
   securityRefused: [SecurityRefusal!]!
+
+  "The frozen PATH sandboxed commands search, in the shell's order. Empty on a machine with no sandbox."
+  sandboxPath: [SandboxPathEntry!]!
+
+  "Why the last read of the login shell's PATH failed, at launch or on refresh; null once one answers, and on a machine with no sandbox."
+  sandboxPathFault: String
+
+  "Whether a sync has ever read the login shell's PATH. Until one has, sandboxed commands search the platform's default folders; after it, the list alone, so an empty one searches nothing. False on a machine with no sandbox."
+  sandboxPathResolved: Boolean!
+
+  "The permission modes and rules, as Settings shows them."
+  permissionSettings: PermissionSettings!
 
   # --- Cloud account ---
   "Current authentication state. Signed-out when no cloud account is configured; live updates via authStateWatch."
@@ -1470,12 +1600,41 @@ type Mutation {
   "Delete a chat and its messages. Instant and permanent — every window watching it sees the rows go. Deleting one already gone is not an error. Returns true."
   chatDelete(id: ChatID!): Boolean!
 
+  # --- Sandbox ---
+  "Include a pending or removed PATH entry, for `target`, the folder the user was shown. Refused KSTACK_VALIDATION_ERROR for a dir not listed or already included, one whose target has moved since, while the settings file holds an entry Kstack cannot read, or on a machine with no sandbox. Returns the whole list."
+  sandboxPathInclude(dir: String!, target: String!): [SandboxPathEntry!]!
+
+  "Remove a PATH entry. Refused KSTACK_VALIDATION_ERROR for a dir not listed or already removed, or on a machine with no sandbox. Returns the whole list."
+  sandboxPathRemove(dir: String!): [SandboxPathEntry!]!
+
+  "Run the login shell again and fold its PATH in. Refused KSTACK_VALIDATION_ERROR with the shell's fault, or on a machine with no sandbox. Returns the whole list."
+  sandboxPathRefresh: [SandboxPathEntry!]!
+
   # --- Memory ---
   "Create a memory, or rewrite one by `id`; a rewrite can rename it and move it between one cluster and every cluster. Written by the user. Refused `KSTACK_MEMORY_NAME_TAKEN` for a name the target scope holds, `KSTACK_MEMORY_FULL` for a scope with no room for the memory, `KSTACK_MEMORY_SECRET` for a credential, `KSTACK_VALIDATION_ERROR` for a note out of shape, and `KSTACK_RECORD_NOT_FOUND` for an unknown id or a missing cluster."
   memorySave(input: MemorySaveInput!): Memory!
 
   "Delete a memory. Refused `KSTACK_RECORD_NOT_FOUND` for an unknown id. Returns true."
   memoryDelete(id: MemoryID!): Boolean!
+
+  # --- Permissions ---
+  "Set the mode of a context nothing else names. Also the fix for a default mode the file holds that Kstack cannot read."
+  permissionDefaultModeSet(mode: PermissionMode!): PermissionSettings!
+
+  "Set one context's own mode, ahead of every pattern. Refused `KSTACK_VALIDATION_ERROR` while the file's modes cannot be read."
+  permissionModeSet(context: String!, mode: PermissionMode!): PermissionSettings!
+
+  "Clear one context's own mode. Refused `KSTACK_VALIDATION_ERROR` while the file's modes cannot be read."
+  permissionModeClear(context: String!): PermissionSettings!
+
+  "Add an always rule. Refused `KSTACK_VALIDATION_ERROR` for a rule Kstack cannot apply, saying why, and while the file's rules cannot be read."
+  permissionRuleAdd(input: PermissionRuleInput!): PermissionSettings!
+
+  "Remove an always rule. Refused `KSTACK_VALIDATION_ERROR` for an unknown id, and while the file's rules cannot be read."
+  permissionRuleRemove(id: String!): PermissionSettings!
+
+  "Write `modes` or `rules` as Kstack read it, dropping what it could not read. Refused `KSTACK_VALIDATION_ERROR` for a field that holds nothing unread."
+  permissionDiscardRefused(field: String!): PermissionSettings!
 
   # --- Cloud account ---
   "Start the sidecar-owned browser sign-in (OAuth). Setup (loopback bind + browser open) runs synchronously, so a setup failure — or no cloud account — returns an error. Returns true once the browser opens; the token exchange then completes in the background, with the signed-in state delivered via authStateWatch."

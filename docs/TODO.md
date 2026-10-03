@@ -152,6 +152,14 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     it reads apart from a foreground request. The request is the whole gate, so this needs its
     own ADR and security record.
 
+- **Let a user flag a context as production (when users ask).** Every context starts at the
+  default mode, and a user marks a production one by setting its mode to read-only or adding a
+  `Deny` rule. A flag could carry its own defaults: read-only, and namespace deletion refused in
+  every mode. Guessing it from the context's name (`*prod*`) was weighed and left out, since it
+  catches `nonprod` and misses a production cluster named otherwise → [ADR: permissions are
+  classes, modes and rules](adr/2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md).
+  **Trigger:** a user asks for it.
+
 - **Ask for a sandboxed command's cluster reads under a locked-down mode (design first).** Today
   the proxy forwards every read unasked. A mode that asks for reads too could record each one as
   an approvals row beside the writes, in the same request shape with no body, so the table needs
@@ -430,6 +438,45 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 - **Hoist the doubling-backoff ladder into a shared leaf when a second consumer appears.** Only `prefsync`'s `backoffDelay` (`internal/cloud/prefsync/engine.go` — `baseBackoff << attempt`, clamped to `maxBackoff`, then jittered, with a `withBackoff(base, max)` test seam) computes one by hand: everything inside the control plane rides beehive's own per-object ladder instead. **Trigger:** the next thing that cannot ride beehive's — anything outside the control plane, which is what `prefsync` is. At that point extract base/max/jitter and the `Reset`-on-success discipline into a leaf (e.g. `internal/backoff`) with the same parameterized-cadence seam the testing conventions require. Note the two readings a shared type has to keep expressible: `prefsync` counts attempts across reconnects, where a pass-oriented ladder re-levels on any clean pass.
 
 - **`appdb.Close` during the janitor's first sweep can leave `app.db-wal` behind.** The sweep starts the moment `Open` returns; a `Close` that cancels it mid-statement leaves the WAL beside the file (about 1 in 200 in a loop of `Open` then `Close` after a short delay). A failed `app.New` that closes the file right after opening it hits this, and a test asserting the WAL's absence flakes. Wanted: `Close` leaves no WAL after joining the janitor, e.g. an uncancelled checkpoint before the pools close.
+
+- **Give `app` a runtime struct for what `main` measured at launch.** `app.Config` mixes the
+  settings `main` read from flags and the environment with facts it measured before `run`:
+  `HostPID`, `UserUmask`, and the login shell's answer, split across `ShellPath` and `ShellFault`.
+  Move the facts into a struct of their own. Carry the shell's answer as one field, a path or the
+  reason there is none, whose zero value means `main` did not run the shell (tests, Windows).
+  - **One way into the PATH's state.** The launch's fault enters `securityconfig.Service` through
+    `NewService`, while a refresh's goes through `RefreshPath`. Give the service one method that
+    records a resolution: the fault when it failed, else a sync of its path. The launch's PATH
+    sync part and `RefreshPath` both call it, and `NewService` loses its `fault` argument.
+
+- **Rename `securityconfig` to `securitysvc`, once 3A and 3B have merged.** The package is a
+  service like `chatsvc` and `memorysvc`: a `Service` with operations, runtime state and a watch,
+  which the resolvers call. "config" reads as a file loaded once. Do it before a step-4 branch
+  starts, so nothing in flight conflicts with the move.
+  - **Scope.** `git mv` the package, fix its importers and the gqlgen binding, and regenerate.
+    Update both `CLAUDE.md`s, `docs/security-model.md`, the specs and the security records' code
+    references. Leave the ADRs. `security.json` and its schema stay as they are.
+  - **Keep it narrow.** It holds the user's security settings and the operations on them, not
+    everything about security. Say so in the package doc, and say in `sidecar/CLAUDE.md` that a
+    service need not sit on `app.db`.
+
+- **Group `security.json`'s keys by area, and rethink how settings sync (design first).** The
+  file's keys are flat, and later steps add more of them (host rules, folders granted always,
+  registered tools, the monitor's switch, the onboarding flag).
+  - **Grouping.** One object per area: `sandbox` (`path`, `pathResolved`, `pathStrict`),
+    `permissions` (`defaultMode`, `modes`, `rules`), and later `network` and `folders`. The store
+    refuses and holds a value per top-level key and per list element, so the decode has to recurse
+    to keep that. Holding `permissions` as one key would hold the modes along with one bad rule.
+    Nothing has shipped, so the layout changes without a migration.
+  - **Sync.** Settings live in three places today: `host.json` (the host's, such as the color
+    scheme), `<data>/settings.json` with its queue (`cloud`'s, synced), and `security.json`
+    (never synced). Decide which settings follow a user to another machine; whether a security
+    setting may ever sync, and if so only one that narrows, since a value from the cloud must
+    never widen what a sandbox may do; and whether settings should be rows in `app.db` rather
+    than files, with sync a queue of changes. Rows would bring a watch, transactions and one
+    schema, but `security.json` is meant to be edited by hand. The sync design needs an ADR.
+  - **Trigger:** the grouping before step 4C adds the host rules; the sync before the first
+    setting that has to sync.
 
 ## Host (Tauri/Rust)
 
