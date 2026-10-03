@@ -24,9 +24,11 @@ The note's *Prompt UX* section asks for three things, and this step builds them:
   pod `api-7f9c` in `team-a` on `dev-eks`* — and for a change to an object that exists it shows
   **a diff**: what the object is now against what the dry run says it will be, as YAML. The raw
   request is one fold away.
-- **Four answers**: Approve once, Allow for this chat, Always allow, Deny. "This chat" writes a
-  `chat_grants` row; "Always" writes a rule into `securityconfig`, which Settings shows and
-  removes. Each allow button says the scope it grants.
+- **Five answers**: Approve once, Allow for this command, Allow for this chat, Always allow,
+  Deny. "This command" lets the rest of the command repeat the same change: a rule on the
+  command's grant, in memory, gone when the command ends. "This chat" writes a `chat_grants`
+  row; "Always" writes a rule into `securityconfig`, which Settings shows and removes. Each
+  allow button says the scope it grants.
 - **The record keeps the duration**, and the call's disclosure says it: `approved · this chat`.
 
 The bash tool record's rule stands for a raw command outside the sandbox: it asks every time,
@@ -53,7 +55,7 @@ kind     TEXT NOT NULL DEFAULT 'call' CHECK (kind IN ('call', 'action')),
 request  TEXT,          -- an action approval's tools.ActionRequest as JSON
 status   TEXT NOT NULL DEFAULT 'pending'
          CHECK (status IN ('pending','approved','denied','abandoned','allowed','refused')),
-duration TEXT CHECK (duration IN ('once','chat','always')),
+duration TEXT CHECK (duration IN ('once','command','chat','always')),
 reason   TEXT,          -- step 3B
 ```
 
@@ -83,19 +85,20 @@ type ActionRequest struct {
 ```
 
 `kubeproxy.Asker.Ask` takes a `kubeproxy.Request` of the same shape (`Action`, `Grantable`,
-`Write *Write`, `Diff`, `DiffCut`, `DiffError`); `bash`'s `runtimeAsker` converts it as it
-converts a `Write` today. `chatsvc`'s `askClusterWrite` becomes `askAction`, unchanged but for
+`Write *Write`, `Diff`, `DiffCut`, `DiffError`) and answers an `Answer`: `Approved`, and the
+`Duration` the user chose (`once`, `command`, `chat` or `always`). `bash`'s `runtimeAsker`
+converts both as it converts a `Write` today. `chatsvc`'s `askClusterWrite` becomes `askAction`, unchanged but for
 the type. `permissions.Grantable(rules, act) bool` is the one test of the flag: class 5 is never
 grantable, and neither is an action a shipped `AskFor` rule matches.
 
 ### 2. The decision on the wire
 
 ```graphql
-"The user's answer to a request. ONCE and DENY answer this request alone; CHAT and ALWAYS also write an Allow rule for the action's class and scope."
-enum ApprovalDecision { Once Chat Always Deny }
+"The user's answer to a request. ONCE and DENY answer this request alone; COMMAND also allows the same change for the rest of the command; CHAT and ALWAYS also write an Allow rule for the action's class and scope."
+enum ApprovalDecision { Once Command Chat Always Deny }
 
-"How long an approval holds: this request, the chat, or always. Null unless the status is Approved."
-enum ApprovalDuration { Once Chat Always }
+"How long an approval holds: this request, the rest of the command, the chat, or always. Null unless the status is Approved."
+enum ApprovalDuration { Once Command Chat Always }
 
 type ToolCallApproval {
   id: ApprovalID!
@@ -107,6 +110,10 @@ type PermissionAction {
   # step 3B's summary, class, provider, context and namespace, then:
   "Whether a rule may allow it: false for class 5 and for an action a shipped rule always asks about. The request offers ONCE and DENY alone then."
   grantable: Boolean!
+  "The verb, the API group and the resource, subresource included, which a COMMAND answer's rule names; empty off Kubernetes."
+  verb: String!
+  group: String!
+  kind: String!
 }
 
 type ClusterWrite {
@@ -130,8 +137,9 @@ a call's own) and checks before it delivers:
 
 | Waiter | Decision | Result |
 | --- | --- | --- |
-| a call's own (`kind: call`) with no `Action`, a raw command | `Chat`, `Always` | `KSTACK_VALIDATION_ERROR`; the request stays |
-| an action with `Grantable` false | `Chat`, `Always` | `KSTACK_VALIDATION_ERROR`; the request stays |
+| a call's own (`kind: call`) with no `Action`, a raw command | `Command`, `Chat`, `Always` | `KSTACK_VALIDATION_ERROR`; the request stays |
+| an action with `Grantable` false | `Command`, `Chat`, `Always` | `KSTACK_VALIDATION_ERROR`; the request stays |
+| an action | `Command` | deliver approved with `command`; no row and no file, since the proxy holds the rule (§2a) |
 | an action | `Chat` | `addGrant(ctx, chatID, rule)`: a `chat_grants` row, then deliver approved |
 | an action | `Always` | the rule into `securityconfig`'s `Rules`, through the write `permissionRuleAdd` uses, then deliver approved; while the store holds `rules` (step 3B), that write answers `ErrHeld`, so the answer is `KSTACK_VALIDATION_ERROR` naming the file and the request stays, for *Once* or *Deny* |
 | any | `Once` | deliver approved |
@@ -149,6 +157,30 @@ the command's next write finds it. A rule write that fails is the mutation's err
 stays, and the user can answer again. The decision carries its duration to the turn
 (`waitDecision` reads a `decision{approved bool; duration}` off the channel), and `endApproval`
 writes `duration` with the status. `Once` records `once`.
+
+### 2a. The rest of the command
+
+A `Command` answer allows **the same change** for as long as the command runs. The proxy's
+`Grant` lives exactly as long as one Bash call, so the rule lives on it, in memory, and nothing
+writes, keeps or cleans it up.
+
+- **The rule** is `permissions.CommandRule(act)`: `Allow` of the action's `Class` and
+  `Provider`, its `Scope`, and its `Verb`, `Group` and `Kind`, each value through
+  `permissions.Literal`, with `Command` set. It is narrower than a chat or always rule, which
+  leave the verb and kind unset: the user saw one object and allows its repeats, not every
+  change in the namespace. `Rule.Command` is never read from a file (`json:"-"`), and
+  `Rule.String` ends a command rule's line with *for this command*.
+- **The grant keeps it.** On an `Answer` whose `Duration` is `command`, `serveWrite` appends
+  the rule to `Grant.commandRules`, still under the write lock, so the next write is decided
+  with it. `decide` passes `Decide` the session's `Rules` and then the grant's own.
+- **What it lets through** is recorded `allowed`, as any rule's write is (step 3B), its reason
+  *a rule allows it: Allow delete of core pods in dev-eks / web for this command*.
+- **What it never lets through**: a class 5 action is not grantable, so its request offers no
+  `Command`; a `Deny` and a read-only mode come before every `Allow` in `Decide`; and a change
+  of another verb, group, resource, namespace or context asks as before.
+
+So `kubectl delete pods --all -n web` over fifty pods asks once, and *Allow for this command*
+lets the other forty-nine go, each a line of the call's disclosure.
 
 ### 3. The diff
 
@@ -206,12 +238,13 @@ this order:
    they are drawn open as today, the body folded with Approve waiting on it, so a change past
    the cut is never approved unseen.
 4. ***Sent by*** and the command, folded, which Approve does not wait on, as today.
-5. **The buttons**: **Approve once**, **Allow for this chat**, **Always allow**, **Deny**. Under
-   each allow button, the scope in muted text: *cluster writes in `dev-eks` / `team-a`*,
-   spelled by `scopeLine(action)` in `src/lib/permissions.ts`, the one spelling, which the
-   Settings rules (step 3B) use too. An action with `grantable` false draws Approve once and
-   Deny alone. The three allow buttons arm on `useHeldStill` as Approve does today; Deny
-   never does. Each calls `approvalDecide(id, decision)`; the pressed state and the error line
+5. **The buttons**: **Approve once**, **Allow for this command**, **Allow for this chat**,
+   **Always allow**, **Deny**. Under each allow button, the scope in muted text: *delete of
+   core pods in `dev-eks` / `team-a`* for this command, *cluster writes in `dev-eks` /
+   `team-a`* for the others, spelled by `scopeLine(action, duration)` in
+   `src/lib/permissions.ts`, the one spelling, which the Settings rules (step 3B) use too. An
+   action with `grantable` false draws Approve once and Deny alone. The four allow buttons arm
+   on `useHeldStill` as Approve does today; Deny never does. Each calls `approvalDecide(id, decision)`; the pressed state and the error line
    are as today.
 
 An agent's request opens with *An agent asks:* as today. The group's `aria-label` reads
@@ -221,7 +254,8 @@ no kind a later step draws offers Deny alone, as a request with no drawable acti
 ### 5. The tags in the disclosure
 
 `ClusterWriteLines` tags each settled write off `approval.status` and `approval.duration`:
-`approved · once`, `approved · this chat`, `approved · always`, `denied`, `not answered`
+`approved · once`, `approved · this command`, `approved · this chat`, `approved · always`,
+`denied`, `not answered`
 (`Abandoned`, or `Pending` on a stranded call), and step 3B's `allowed` and `refused`, each with
 its reason in a muted span. `clusterWriteTag` is the one spelling. `waitingRequestsOf`,
 `isWaitingWrite`, `approvalAnchor`, the composer's *Show* and the chat list's dot key on the
@@ -230,7 +264,9 @@ approval's id and status, and change only for the renamed type.
 ### 6. The prompt
 
 `tools/bash/prompts/sandbox.md`: a change the user allowed for this chat, or always, runs at
-once the next time; the model need not ask again for one in the same context and namespace.
+once the next time; the model need not ask again for one in the same context and namespace. A
+change allowed for the command runs at once for the rest of that command, and asks again in the
+next one.
 
 ## Decisions this step asks for
 
@@ -250,6 +286,11 @@ once the next time; the model need not ask again for one in the same context and
    changes it, and dropping it would read *No change.* over a real one. Recommended: a line a
    controller changed between the read and the dry run shows as noise, which is honest; a
    hidden change is not.
+5. **A command rule names the verb and the resource; a chat or always rule does not.** The
+   user saw one object and allows the command to repeat that change, so `delete` of `pods`
+   in `web` allows the rest of a `--all`, and a `delete` of a deployment in the same command
+   still asks. Recommended: the scope stays what the request showed, and the other forty-nine
+   objects, which the user did not see, are changes of the same kind.
 
 ## Tasks
 
@@ -261,9 +302,11 @@ once the next time; the model need not ask again for one in the same context and
 | 4 | The wire and codegen | `sidecar/graph/schema.graphqls`, `graph/`, generated code, `src/gql/` | 2, 3 | Planned |
 | 5 | The request, the buttons, the tags | `src/components/widgets/chat-transcript.tsx`, `diff-block.tsx`, `src/lib/permissions.ts`, `src/lib/chats.tsx`, their tests | 4 | Planned |
 | 6 | The prompt | `tools/bash/prompts/sandbox.md`, its test | 2 | Planned |
-| 7 | Docs, per *When it lands* | see there | 1–6 | Planned |
+| 7 | Docs, per *When it lands* | see there | 1–6, 8 | Planned |
+| 8 | The rest of the command: `CommandRule`, `Rule.Command`, the grant's rules | `permissions/permissions.go`, `kubeproxy/write.go`, `kubeproxy/kubeproxy.go`, `tools/bash/proxy.go`, their tests | 1, 2 | Planned |
 
-**Order:** 1, then 2 and 3 at the same time, then 4, then 5 and 6 at the same time, then 7.
+**Order:** 1, then 2 and 3 at the same time, then 4 and 8, then 5 and 6 at the same time,
+then 7.
 
 ## Tests
 
@@ -271,6 +314,9 @@ once the next time; the model need not ask again for one in the same context and
 
 - `TestGrantableRefusesClassFiveAndAShippedAsk`: class 5 is never grantable; an action a
   shipped `AskFor` rule matches is not; a class 4 write nothing names is.
+- `TestACommandRuleNamesTheChange`: `CommandRule` of a pod delete in `dev*` matches another
+  pod's delete there, and not a deployment's, a patch of a pod, or a pod delete in `dev-eks`;
+  its line ends *for this command*, and a file cannot set `Command`.
 
 **`chatsvc`**
 
@@ -286,8 +332,10 @@ once the next time; the model need not ask again for one in the same context and
   the row.
 - `TestAlwaysWaitsWhileTheRulesAreHeld`: with `rules` held, `Always` is refused, writes nothing,
   and the request stays answerable with `Once`.
-- `TestACallsOwnApprovalTakesOnceOrDenyAlone`: `Chat` and `Always` on a raw command's request
-  are `ErrBadRequest`, the waiter still there, and `Once` then lands.
+- `TestACallsOwnApprovalTakesOnceOrDenyAlone`: `Command`, `Chat` and `Always` on a raw
+  command's request are `ErrBadRequest`, the waiter still there, and `Once` then lands.
+- `TestCommandWritesNoRule`: `Command` records `approved` with `command`, and `grantsFor` and
+  the file are unchanged.
 - `TestAnUngrantableActionTakesOnceOrDenyAlone`: the same for a class 5 action.
 - `TestAFailedRuleWriteLeavesTheRequestWaiting`, and `TestADenialRecordsNoDuration`.
 
@@ -310,6 +358,11 @@ once the next time; the model need not ask again for one in the same context and
   and the write still asks.
 - `TestARuleWrittenBetweenTwoWritesAllowsTheSecond`: two writes on one grant, the session's
   `Rules` flipped by the test between them; the second is `allowed` unasked.
+- `TestACommandAnswerAllowsTheRestOfTheCommand`: three pod deletes on one grant, the first
+  answered `command`; the other two are `allowed` with the rule's line, and a deployment delete
+  after them still asks.
+- `TestACommandRuleEndsWithTheGrant`: a second grant on the same session asks for the same
+  delete again.
 
 **Webview** (`chat-transcript.test.tsx`, `diff-block.test.tsx`, `permissions.test.ts`)
 
@@ -320,12 +373,13 @@ once the next time; the model need not ask again for one in the same context and
   wait on it; without one the body is open and Approve waits on it.
 - A `diffCut` diff draws the raw request open under it, and Approve waits on both folds.
 - A failed dry run's line, and the request still approvable.
-- The four buttons, each allow button's scope line from `scopeLine`, each decision's mutation
-  with its enum value, the three allow buttons armed by `useHeldStill` and Deny not; a
+- The five buttons, each allow button's scope line from `scopeLine`, each decision's mutation
+  with its enum value, the four allow buttons armed by `useHeldStill` and Deny not; a
   `grantable: false` action draws Approve once and Deny alone.
-- `scopeLine` spells a namespaced and a cluster-scoped Kubernetes scope.
-- Each tag: `approved · once`, `approved · this chat`, `approved · always`, `denied`, `not
-  answered`, `allowed` and `refused` with their reasons.
+- `scopeLine` spells a namespaced and a cluster-scoped Kubernetes scope, and a command's verb
+  and resource.
+- Each tag: `approved · once`, `approved · this command`, `approved · this chat`, `approved ·
+  always`, `denied`, `not answered`, `allowed` and `refused` with their reasons.
 
 ## Security
 
@@ -338,13 +392,17 @@ still drawn, byte for byte, behind *Show the request*, and drawn open with Appro
 it when the diff is cut; a class 5 action and a shipped ask cannot be allowed by a rule, so
 their requests offer no rule; an "always" rule is scoped to the context and namespace the
 button names, each copied as a literal, a host's port included, and is on screen in Settings,
-where the user removes it; a raw command outside the sandbox keeps the bash tool record's rule.
+where the user removes it; a "this command" rule names the verb and the resource as well, lives
+on the command's grant and ends with it; a raw command outside the sandbox keeps the bash tool
+record's rule.
 
 Residuals: a dry run's body reaches admission webhooks for a write the user may then deny
 (decision 1); an `Allow` rule for a namespace covers every write there, a Pod that mounts a
 Secret included, as step 3B's record says; the diff hides what `managedFields` would show,
 which a write never sets; on a cluster-scoped action a chat rule covers every namespace of the
-context, and the scope line says so.
+context, and the scope line says so; *Allow for this command* approves objects the user has not
+seen, how many unknown until the command ends, and the button's scope line, not the object, is
+what it allows.
 
 The record, `docs/security/<date>-the-prompt-names-the-action.md`, argues this and supersedes
 the request paragraph of [cluster writes ask](../../security/2026-09-29-cluster-writes-ask.md).
@@ -357,8 +415,9 @@ the request paragraph of [cluster writes ask](../../security/2026-09-29-cluster-
   diff is a dry run, the raw request is one fold away, and which fold Approve waits on, with
   the tests; the rules row gains the chat and always writes.
 - **`sidecar/CLAUDE.md`**: `ActionRequest`, `ActionAsker`, `Grantable`, the diff and its two
-  requests, `approvals.duration` and `kind: action`, `service.Approve`'s table.
-- **Root `CLAUDE.md`**, *Chat* and the security invariants: the request's order, the four
+  requests, `approvals.duration` and `kind: action`, `service.Approve`'s table, `CommandRule`
+  and the grant's rules.
+- **Root `CLAUDE.md`**, *Chat* and the security invariants: the request's order, the five
   buttons and their arming, `scopeLine`, the tags, `DiffBlock`.
 - **`docs/TODO.md`**: *Check cluster writes by hand* reads the new request. **The sequence's
   README**: this row's status.
@@ -374,4 +433,6 @@ whose `replicas` line changes, the patch under *Show the request*; press Allow f
 ask to scale it back, and read the write go with no request and `approved · this chat` on the
 first call and `allowed` on the second; ask for `kubectl delete ns test` and read a request
 with Approve once and Deny alone; ask for `kubectl apply` of a Secret and read `[redacted]` on
-both sides of its diff.
+both sides of its diff. Create three pods, ask for `kubectl delete pods --all`, press Allow for
+this command on the first request, and read the other two go with no request, tagged `allowed`;
+ask for the same again and read a request.
