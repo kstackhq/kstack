@@ -188,7 +188,7 @@ type taskRow struct {
 
 func taskRows(t *testing.T, db *appdb.DB) []taskRow {
 	t.Helper()
-	rows, err := db.Read.Query(`SELECT id, conversation_id, tool_call_id, output_path, status, stopped_by, exit_code,
+	rows, err := db.Read.Query(`SELECT id, chat_id, tool_call_id, output_path, status, stopped_by, exit_code,
 		finished_at, notified_at FROM background_tasks ORDER BY started_at, id`)
 	require.NoError(t, err)
 	defer rows.Close()
@@ -435,7 +435,7 @@ func TestStartingATaskDoesNotTouchTheChat(t *testing.T) {
 	var before, after int64
 	updatedAt := func() int64 {
 		var at int64
-		require.NoError(t, s.db.Read.QueryRow(`SELECT updated_at FROM conversations`).Scan(&at))
+		require.NoError(t, s.db.Read.QueryRow(`SELECT updated_at FROM chats`).Scan(&at))
 		return at
 	}
 	tt.around = func(start func()) {
@@ -922,7 +922,7 @@ func TestTheStartSweepMarksRunningTasksLost(t *testing.T) {
 		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, cwd, status, created_at, started_at, finished_at)
 		 VALUES ('t', 'l', 0, 'Bash', 'call-9', '{"command":"make serve","description":"Serve the site","run_in_background":true}', '/home', 'succeeded', 0, 0, 0)`,
 		`INSERT INTO approvals (id, tool_call_id, status, created_at) VALUES ('a', 't', 'approved', 0)`,
-		`INSERT INTO background_tasks (id, conversation_id, tool_call_id, output_path, status, started_at)
+		`INSERT INTO background_tasks (id, chat_id, tool_call_id, output_path, status, started_at)
 		 VALUES ('task-1', '` + string(c.ID) + `', 't', '/r/task-1.output', 'running', 0)`,
 	} {
 		_, err := db.Write.Exec(q)
@@ -1074,7 +1074,7 @@ func refuse(t *testing.T, s *service, kind, table string) {
 // A notice turn whose writes fail files nothing, frees the slot it reserved,
 // and leaves the notices waiting.
 func TestANoticeTurnThatCannotWriteStartsNothing(t *testing.T) {
-	for _, table := range []string{"background_tasks", "conversations"} {
+	for _, table := range []string{"background_tasks", "chats"} {
 		t.Run(table, func(t *testing.T) {
 			tt := newTaskTool()
 			s := startServiceWithTool(t, tt)

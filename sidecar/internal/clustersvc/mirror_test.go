@@ -175,7 +175,7 @@ func TestMirrorTearsDownAMarkedRow(t *testing.T) {
 func TestMirrorHoldsARowWithChats(t *testing.T) {
 	d := newRunningStandInDeps(t)
 	row := importCluster(t, d, "prod")
-	_, err := d.db.Write.Exec(`INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c', ?, 'chat', 0, 0)`, string(row.ID))
+	_, err := d.db.Write.Exec(`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', ?, 'chat', 0, 0)`, string(row.ID))
 	require.NoError(t, err)
 	_, passed := startMirror(t, d)
 	testutil.Recv(t, passed, "the first pass")
@@ -187,7 +187,7 @@ func TestMirrorHoldsARowWithChats(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, ok, "the chat holds the row")
 
-	_, err = d.db.Write.Exec(`DELETE FROM conversations`)
+	_, err = d.db.Write.Exec(`DELETE FROM chats`)
 	require.NoError(t, err)
 	d.db.Notify(appdb.KeyClusters)
 	awaitPass(t, passed, func() bool {
@@ -219,7 +219,7 @@ func TestMirrorResumesATeardownAtStartup(t *testing.T) {
 func TestMirrorNeverRecreatesAMarkedRowsObject(t *testing.T) {
 	d := newRunningStandInDeps(t)
 	row := importCluster(t, d, "prod")
-	_, err := d.db.Write.Exec(`INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c', ?, 'chat', 0, 0)`, string(row.ID))
+	_, err := d.db.Write.Exec(`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', ?, 'chat', 0, 0)`, string(row.ID))
 	require.NoError(t, err)
 	_, err = markCluster(context.Background(), d.store.Stmts(), row.ID, t0)
 	require.NoError(t, err)

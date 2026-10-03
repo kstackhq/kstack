@@ -98,7 +98,7 @@ const (
 )
 
 // The change-bus keys this service notifies and watches, spelled by appdb.
-const conversationsKey = appdb.KeyConversations
+const chatsKey = appdb.KeyChats
 
 func messagesKey(id ChatID) string { return appdb.MessagesKey(string(id)) }
 
@@ -275,7 +275,7 @@ func newService(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards
 
 func (s *service) deleteRow(ctx context.Context, id ChatID) (deleted bool, err error) {
 	err = s.store.InTx(ctx, func(st stmts) (err error) {
-		deleted, err = deleteConversation(ctx, st, id)
+		deleted, err = deleteChat(ctx, st, id)
 		return err
 	})
 	return deleted, err
@@ -289,7 +289,7 @@ func (s *service) Start(ctx context.Context) (func(context.Context) error, error
 	now := normalizeTime(s.now())
 	var stranded, lost []ChatID
 	err := s.store.InTx(ctx, func(st stmts) (err error) {
-		// The stranded runs settle without moving their conversations: the sends
+		// The stranded runs settle without moving their chats: the sends
 		// that stranded them already did, and moving them again would put every
 		// interrupted chat above ones the user touched since.
 		if stranded, err = failStrandedRuns(ctx, st, strandedReason, now); err != nil {
@@ -321,7 +321,7 @@ func (s *service) Start(ctx context.Context) (func(context.Context) error, error
 	}
 	// A stranded run may have been waiting on the user, which the list marks.
 	if len(stranded) > 0 {
-		s.notify(conversationsKey)
+		s.notify(chatsKey)
 	}
 	if err := s.startSweeper(); err != nil {
 		return nil, err
@@ -472,7 +472,7 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 
 	s.startTurn(t, assistant)
 	s.notify(messagesKey(assistant.ChatID))
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 	return assistant, nil
 }
 
@@ -483,7 +483,7 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 // timeout is the render's alone: the rows go on the send's own context.
 func (s *service) contextText(ctx context.Context, chatID *ChatID, clusterID apimeta.ClusterID) (string, error) {
 	if chatID != nil {
-		c, ok, err := getConversation(ctx, s.store.Stmts(), *chatID)
+		c, ok, err := getChat(ctx, s.store.Stmts(), *chatID)
 		if err != nil {
 			return "", err
 		}
@@ -531,7 +531,7 @@ func (s *service) seenBefore(ctx context.Context, st stmts, requestID string) (C
 // argument's.
 func (s *service) checkChat(ctx context.Context, st stmts, chatID *ChatID, clusterID apimeta.ClusterID) (disabled bool, err error) {
 	if chatID != nil {
-		c, ok, err := getConversation(ctx, st, *chatID)
+		c, ok, err := getChat(ctx, st, *chatID)
 		if err != nil {
 			return false, err
 		}
@@ -555,9 +555,9 @@ func (s *service) checkChat(ctx context.Context, st stmts, chatID *ChatID, clust
 func (s *service) resolveChat(ctx context.Context, st stmts, chatID *ChatID, mode Mode, clusterID apimeta.ClusterID, content string, at time.Time) (ChatID, error) {
 	if chatID == nil {
 		c := Chat{ID: newChatID(), Title: titleFrom(content), Mode: mode, ClusterID: clusterID, CreatedAt: at, UpdatedAt: at}
-		return c.ID, insertConversation(ctx, st, c)
+		return c.ID, insertChat(ctx, st, c)
 	}
-	return *chatID, touchConversation(ctx, st, *chatID, at)
+	return *chatID, touchChat(ctx, st, *chatID, at)
 }
 
 // writeTurnRows writes what one accepted send owes, in the order their references
@@ -578,7 +578,7 @@ func (s *service) writeTurnRows(ctx context.Context, st stmts, t *turn, requestI
 		return ChatMessage{}, err
 	}
 	run := agentRun{
-		ID: t.runID, ConversationID: t.chatID, TriggerMessageID: user.ID,
+		ID: t.runID, ChatID: t.chatID, TriggerMessageID: user.ID,
 		ProviderID: providerID, ModelID: modelID, Effort: effort, Dialect: t.target.Provider.Dialect,
 		AppVersion: version.Version, CreatedAt: at,
 	}
@@ -627,7 +627,7 @@ func (s *service) Rename(ctx context.Context, chatID ChatID, title string) (Chat
 	at := normalizeTime(s.now())
 	var renamed Chat
 	err := s.store.InTx(ctx, func(st stmts) error {
-		c, ok, err := renameConversation(ctx, st, chatID, title, at)
+		c, ok, err := renameChat(ctx, st, chatID, title, at)
 		if err != nil {
 			return err
 		}
@@ -640,7 +640,7 @@ func (s *service) Rename(ctx context.Context, chatID ChatID, title string) (Chat
 	if err != nil {
 		return Chat{}, err
 	}
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 	return renamed, nil
 }
 
@@ -664,7 +664,7 @@ func (s *service) SetSandboxDisabled(ctx context.Context, chatID ChatID, disable
 	if err != nil {
 		return Chat{}, err
 	}
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 	return switched, nil
 }
 
@@ -717,7 +717,7 @@ func (s *service) Delete(ctx context.Context, chatID ChatID) error {
 	// sidecar's writes to the directory after.
 	s.removeChatDir(chatID)
 	s.dropStamps(chatID)
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 	s.notify(messagesKey(chatID))
 	// The mirror removes a marked cluster's row only once its chats are gone, and
 	// this may have been the last: a row that went is its signal, whoever asked.
@@ -728,22 +728,22 @@ func (s *service) Delete(ctx context.Context, chatID ChatID) error {
 }
 
 func (s *service) Get(ctx context.Context, chatID ChatID) (Chat, bool, error) {
-	return getConversation(ctx, s.store.Stmts(), chatID)
+	return getChat(ctx, s.store.Stmts(), chatID)
 }
 
 func (s *service) List(ctx context.Context) ([]Chat, error) {
-	return listConversations(ctx, s.store.Stmts())
+	return listChats(ctx, s.store.Stmts())
 }
 
 // WatchList streams every chat, newest activity first, then every change to the list.
 func (s *service) WatchList(ctx context.Context) (*Stream[ChatWatchFrame], error) {
 	return newStream(s, ctx, func(ctx context.Context, out chan<- ChatWatchFrame) error {
 		// Subscribe, then read: a snapshot taken first would miss a commit in between.
-		rx := s.db.Subscribe(conversationsKey)
+		rx := s.db.Subscribe(chatsKey)
 		defer rx.Close()
 
 		f := newChatFold()
-		chats, err := listConversations(ctx, s.store.Stmts())
+		chats, err := listChats(ctx, s.store.Stmts())
 		if err != nil {
 			return err
 		}
@@ -756,7 +756,7 @@ func (s *service) WatchList(ctx context.Context) (*Stream[ChatWatchFrame], error
 			if _, err := rx.RecvContext(ctx); err != nil {
 				return nil
 			}
-			chats, err := listConversations(ctx, s.store.Stmts())
+			chats, err := listChats(ctx, s.store.Stmts())
 			if err != nil {
 				return err
 			}

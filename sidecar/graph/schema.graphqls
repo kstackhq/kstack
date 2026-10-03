@@ -929,7 +929,7 @@ type Model {
 }
 
 # --- Chat ---
-# The app's own conversations, held in app.db. Sending a message is a save, not a
+# The app's own chats, held in app.db. Sending a message is a save, not a
 # phone call: chatSend returns once the turn is accepted and the answer arrives on
 # chatMessagesWatch. See docs/adr/2026-09-10-the-answer-is-a-record.md.
 

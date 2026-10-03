@@ -1016,7 +1016,7 @@ func TestADeleteDuringASettleRetryEndsIt(t *testing.T) {
 	testutil.Wait(t, tr.done, "the retry to end")
 
 	assert.Nil(t, s.turnOf(msg.ChatID))
-	assert.Zero(t, tableCount(t, s.db, "conversations"))
+	assert.Zero(t, tableCount(t, s.db, "chats"))
 	assert.Zero(t, tableCount(t, s.db, "messages"))
 }
 

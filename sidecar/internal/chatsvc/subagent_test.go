@@ -822,7 +822,7 @@ func TestStartFailsAStrandedSubagentAndKeepsItsLink(t *testing.T) {
 	setRunStatus(t, db, turn.Run, runRunning)
 	subagent, call := appdb.NewID(), appdb.NewID()
 	for _, q := range []string{
-		`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, conversation_id, provider, model, dialect, task, status, created_at)
+		`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, chat_id, provider, model, dialect, task, status, created_at)
 		 VALUES ('` + subagent + `', '` + string(turn.Run) + `', 'general-purpose', 'test', 'agent', '` + string(c.ID) + `', 'fake', 'fake', 'fake', 'p', 'running', 0)`,
 		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES ('` + call + `', '` + string(turn.Run) + `', 0, 'fake', 'fake', 0)`,
 		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, spawned_run_id, status, created_at, started_at)
@@ -882,14 +882,14 @@ type subagentRun struct {
 	task, result, errText      string
 	started, finished          bool
 	parent                     RunID
-	conversation               ChatID
+	chat                       ChatID
 }
 
 // subagentRuns is every run under parent, in the order they were created.
 func subagentRuns(t *testing.T, db *appdb.DB, parent RunID) []subagentRun {
 	t.Helper()
 	rows, err := db.Read.Query(`SELECT id, trigger, agent_type, status, provider, model, effort, task, result, error,
-		started_at, finished_at, parent_run_id, conversation_id
+		started_at, finished_at, parent_run_id, chat_id
 		FROM agent_runs WHERE parent_run_id = ? ORDER BY created_at, id`, string(parent))
 	require.NoError(t, err)
 	defer rows.Close()
@@ -901,7 +901,7 @@ func subagentRuns(t *testing.T, db *appdb.DB, parent RunID) []subagentRun {
 			started, finished             sql.NullInt64
 		)
 		require.NoError(t, rows.Scan(&r.id, &r.trigger, &r.agentType, &r.status, &r.provider, &r.model, &effort, &task, &result, &errText,
-			&started, &finished, &r.parent, &r.conversation))
+			&started, &finished, &r.parent, &r.chat))
 		r.effort, r.task, r.result, r.errText = effort.String, task.String, result.String, errText.String
 		r.started, r.finished = started.Valid, finished.Valid
 		out = append(out, r)
@@ -939,7 +939,7 @@ func TestAnAgentCallRunsASubagentAndAnswersWithItsReport(t *testing.T) {
 	assert.Equal(t, subagentRun{
 		id: runs[0].id, trigger: "agent", agentType: agenttool.GeneralPurpose, status: string(runSucceeded),
 		provider: "fake", model: "fake", effort: "high", task: "Count the pods.", result: fakeSentence,
-		started: true, finished: true, parent: msg.RunID, conversation: msg.ChatID,
+		started: true, finished: true, parent: msg.RunID, chat: msg.ChatID,
 	}, runs[0])
 	assert.Len(t, llmCallRows(t, s.db, runs[0].id), 1, "the subagent's model call is its own run's")
 	assert.Len(t, llmCallRows(t, s.db, msg.RunID), 2, "the parent asked, then answered")
@@ -1321,12 +1321,12 @@ func TestAStrandedAgentIsLost(t *testing.T) {
 	settleSeededRun(t, db, turn.Run, runSucceeded, time.UnixMilli(1_000).UTC())
 	sub := appdb.NewID()
 	for _, q := range []string{
-		`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, conversation_id, provider, model, dialect, task, status, created_at)
+		`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, chat_id, provider, model, dialect, task, status, created_at)
 		 VALUES ('` + sub + `', '` + string(turn.Run) + `', 'general-purpose', 'test', 'agent', '` + string(c.ID) + `', 'fake', 'fake', 'fake', 'p', 'running', 0)`,
 		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at, finished_at) VALUES ('l', '` + string(turn.Run) + `', 0, 'fake', 'fake', 0, 0)`,
 		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, spawned_run_id, status, created_at, started_at, finished_at)
 		 VALUES ('a', 'l', 0, 'Agent', 'call-1', '{}', '` + sub + `', 'succeeded', 0, 0, 0)`,
-		`INSERT INTO background_tasks (id, conversation_id, tool_call_id, output_path, status, started_at)
+		`INSERT INTO background_tasks (id, chat_id, tool_call_id, output_path, status, started_at)
 		 VALUES ('task-1', '` + string(c.ID) + `', 'a', '/r/task-1.output', 'running', 0)`,
 	} {
 		_, err := db.Write.Exec(q)

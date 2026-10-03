@@ -202,7 +202,7 @@ func (s *service) runTurn(t *turn) {
 	s.settleUntilLanded(t)
 	s.releaseTurn(t)
 	s.notify(messagesKey(t.chatID))
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 	// A cancelled or failed turn does not: a Cancel stops the chat.
 	if t.succeeded {
 		s.kick(t.chatID)
@@ -248,7 +248,7 @@ func (t *turn) session() session.Session {
 // chatOf is the turn's chat as stored: its cluster, the one its tools reach, since
 // the send's cluster is only what a create files under.
 func (s *service) chatOf(t *turn) (Chat, error) {
-	c, ok, err := getConversation(t.ctx, s.store.Stmts(), t.chatID)
+	c, ok, err := getChat(t.ctx, s.store.Stmts(), t.chatID)
 	if err != nil {
 		return Chat{}, err
 	}
@@ -626,7 +626,7 @@ func (s *service) settleUntilLanded(t *turn) {
 
 // settleRow is the settle's one transaction: the content, the run's terminal
 // status, every call row of the turn and each approval written whole again
-// (writeCalls), and the conversation's recency. A subagent's rows are its own
+// (writeCalls), and the chat's recency. A subagent's rows are its own
 // task's to write. The rows go after the run's status, so a write a trigger
 // refused while the run was live is healed here.
 func (s *service) settleRow(ctx context.Context, t *turn) error {
@@ -640,7 +640,7 @@ func (s *service) settleRow(ctx context.Context, t *turn) error {
 		if err := t.writeCalls(ctx, st); err != nil {
 			return err
 		}
-		return touchConversation(ctx, st, t.chatID, t.at)
+		return touchChat(ctx, st, t.chatID, t.at)
 	})
 }
 

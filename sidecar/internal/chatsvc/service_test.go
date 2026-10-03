@@ -66,7 +66,7 @@ func TestStartFailsAStrandedRun(t *testing.T) {
 }
 
 // A stranded run under no chat — a monitor's — is failed like the rest, and the
-// reconcile survives its NULL conversation.
+// reconcile survives its NULL chat.
 func TestStartFailsAStrandedRunWithNoChat(t *testing.T) {
 	dir := t.TempDir()
 	db := openTestDB(t, dir)
@@ -125,7 +125,7 @@ func TestAFailedStartEndsThePreStartWatches(t *testing.T) {
 	require.NoError(t, s.Close())
 }
 
-// The stranded runs settle without moving their conversations: the sends that
+// The stranded runs settle without moving their chats: the sends that
 // stranded them already did, and moving them again would put every interrupted
 // chat above ones the user touched since.
 func TestTheStartupReconcileLeavesTheListOrderAlone(t *testing.T) {
@@ -501,7 +501,7 @@ func TestListWatchReportsCreatesAndRenames(t *testing.T) {
 	require.Equal(t, DeltaFrameBookmark, bookmark.Type)
 
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 	added := awaitFrame(t, w.Frames, func(f ChatWatchFrame) bool { return f.Type == DeltaFrameAdded })
 	assert.Equal(t, c.ID, added.Chat.ID)
 
@@ -539,10 +539,10 @@ func TestAWatchWhoseReadFailsReportsWhy(t *testing.T) {
 
 	// A closed pool is how a failing read is produced.
 	require.NoError(t, s.store.Close())
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 
 	testutil.WaitClosed(t, w.Frames, "the failed watch")
-	assert.ErrorContains(t, w.Err(), "list conversations")
+	assert.ErrorContains(t, w.Err(), "list chats")
 }
 
 func TestAMessagesWatchReportsAFailedReRead(t *testing.T) {
@@ -570,7 +570,7 @@ func TestAWatchThatCannotReadItsSnapshotFails(t *testing.T) {
 	list, err := s.WatchList(t.Context())
 	require.NoError(t, err)
 	testutil.WaitClosed(t, list.Frames, "the failed list watch")
-	assert.ErrorContains(t, list.Err(), "list conversations")
+	assert.ErrorContains(t, list.Err(), "list chats")
 
 	msgs, err := s.WatchMessages(t.Context(), ChatID(appdb.NewID()))
 	require.NoError(t, err)
@@ -632,8 +632,8 @@ func TestAChangeTheConsumerNeverReadsEndsThePump(t *testing.T) {
 	c := seedChat(t, s.db, aChat("1", now))
 	addRows := func(t *testing.T) {
 		for range 3 {
-			_, err := s.db.Write.Exec(`INSERT INTO messages (id, conversation_id, seq, role, content, created_at)
-			VALUES (?, ?, (SELECT COALESCE(MAX(seq), -1) + 1 FROM messages WHERE conversation_id = ?), 'user', '[]', ?)`,
+			_, err := s.db.Write.Exec(`INSERT INTO messages (id, chat_id, seq, role, content, created_at)
+			VALUES (?, ?, (SELECT COALESCE(MAX(seq), -1) + 1 FROM messages WHERE chat_id = ?), 'user', '[]', ?)`,
 				appdb.NewID(), string(c.ID), string(c.ID), millis(now))
 			require.NoError(t, err)
 		}
@@ -646,7 +646,7 @@ func TestAChangeTheConsumerNeverReadsEndsThePump(t *testing.T) {
 	}{
 		{"rows appearing", addRows},
 		{"the chat going", func(t *testing.T) {
-			_, err := deleteConversation(t.Context(), s.store.Stmts(), c.ID)
+			_, err := deleteChat(t.Context(), s.store.Stmts(), c.ID)
 			require.NoError(t, err)
 			s.notify(messagesKey(c.ID))
 		}},
@@ -682,17 +682,17 @@ func TestAListChangeTheConsumerNeverReadsEndsThePump(t *testing.T) {
 	}{
 		{"the chats renamed", func(t *testing.T) {
 			for i, id := range ids {
-				_, _, err := renameConversation(t.Context(), s.store.Stmts(), id, "renamed", time.UnixMilli(int64(i)))
+				_, _, err := renameChat(t.Context(), s.store.Stmts(), id, "renamed", time.UnixMilli(int64(i)))
 				require.NoError(t, err)
 			}
-			s.notify(conversationsKey)
+			s.notify(chatsKey)
 		}},
 		{"the chats going", func(t *testing.T) {
 			for _, id := range ids {
-				_, err := deleteConversation(t.Context(), s.store.Stmts(), id)
+				_, err := deleteChat(t.Context(), s.store.Stmts(), id)
 				require.NoError(t, err)
 			}
-			s.notify(conversationsKey)
+			s.notify(chatsKey)
 		}},
 	} {
 		t.Run(change.what, func(t *testing.T) {
@@ -765,7 +765,7 @@ func TestSendRejectsAModeThatIsNeitherConstant(t *testing.T) {
 	s := newTestService(t)
 	_, err := s.Send(t.Context(), nil, Mode("panel"), "1", false, "fake", "fake", "high", reqID("1"), "hi")
 	assert.ErrorIs(t, err, ErrBadRequest)
-	assert.Zero(t, tableCount(t, s.db, "conversations"))
+	assert.Zero(t, tableCount(t, s.db, "chats"))
 }
 
 func TestSendCapsTheTitleItDerives(t *testing.T) {
@@ -823,7 +823,7 @@ func TestSendRefusesAProviderTheServiceDoesNotHold(t *testing.T) {
 	s := newTestService(t)
 	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, "nobody", "fake", "high", reqID("1"), "hi")
 	assert.ErrorIs(t, err, ErrBadRequest)
-	assert.Zero(t, tableCount(t, s.db, "conversations"))
+	assert.Zero(t, tableCount(t, s.db, "chats"))
 }
 
 func TestSendIntoAnUnknownChatIsChatGone(t *testing.T) {
@@ -841,7 +841,7 @@ func TestSendIntoAMarkedClusterIsClusterGone(t *testing.T) {
 	assert.ErrorIs(t, err, ErrClusterGone)
 	_, err = s.Send(t.Context(), nil, ModeChat, "no-such-cluster", false, "fake", "fake", "high", reqID("2"), "hi")
 	assert.ErrorIs(t, err, ErrClusterGone)
-	assert.Zero(t, tableCount(t, s.db, "conversations"))
+	assert.Zero(t, tableCount(t, s.db, "chats"))
 }
 
 // runDialect is a run's stored dialect.
@@ -929,7 +929,7 @@ func TestASendWhoseRowsCannotBeWrittenReleasesItsTurn(t *testing.T) {
 	s := newTestService(t)
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, s.db, aChat("1", now))
-	_, err := s.db.Write.Exec(`INSERT INTO messages (id, conversation_id, seq, role, content, request_key, created_at)
+	_, err := s.db.Write.Exec(`INSERT INTO messages (id, chat_id, seq, role, content, request_key, created_at)
 		VALUES (?, ?, 0, 'user', '[]', ?, 0)`, appdb.NewID(), string(c.ID), reqID("1"))
 	require.NoError(t, err)
 
@@ -1066,7 +1066,7 @@ func TestARetryIgnoresItsOtherArguments(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, first.ID, again.ID)
-	assert.Equal(t, 1, tableCount(t, s.db, "conversations"))
+	assert.Equal(t, 1, tableCount(t, s.db, "chats"))
 }
 
 // A read mid-answer, the fake gated inside its thought, sees the thinking so far
@@ -1129,7 +1129,7 @@ func TestARetryAfterADeleteIsAFreshSend(t *testing.T) {
 	again := send(t, s, nil, "1", "hi")
 	assert.NotEqual(t, first.ChatID, again.ChatID)
 	awaitSettled(t, s, again.ChatID, again.ID)
-	assert.Equal(t, 1, tableCount(t, s.db, "conversations"))
+	assert.Equal(t, 1, tableCount(t, s.db, "chats"))
 }
 
 func TestCancelKeepsThePartialAnswer(t *testing.T) {
@@ -1381,7 +1381,7 @@ func TestASendWhoseStoreFailsWritesNothingAndLeavesTheChatFree(t *testing.T) {
 		swap    string
 		trigger string
 	}{
-		{name: "the chat read", id: stmtSelectConversation, swap: `SELECT 1, 2`},
+		{name: "the chat read", id: stmtSelectChat, swap: `SELECT 1, 2`},
 		{name: "the cluster check", id: stmtSelectClusterAccepts, swap: `SELECT 1, 2`},
 		{name: "the next seq", id: stmtNextSeq, swap: `SELECT 1, 2`},
 		{name: "the run insert", trigger: `CREATE TRIGGER refuse BEFORE INSERT ON agent_runs BEGIN SELECT RAISE(ABORT, 'refused'); END`},
@@ -1415,7 +1415,7 @@ func TestASendWhoseStoreFailsWritesNothingAndLeavesTheChatFree(t *testing.T) {
 func TestARenameTheStoreRefusesIsNotAMissingChat(t *testing.T) {
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
-	_, err := s.db.Write.Exec(`CREATE TRIGGER refuse BEFORE UPDATE ON conversations BEGIN SELECT RAISE(ABORT, 'refused'); END`)
+	_, err := s.db.Write.Exec(`CREATE TRIGGER refuse BEFORE UPDATE ON chats BEGIN SELECT RAISE(ABORT, 'refused'); END`)
 	require.NoError(t, err)
 
 	_, err = s.Rename(t.Context(), c.ID, "renamed")
@@ -1865,7 +1865,7 @@ func TestSendRefusesAModelTheRegistryDoesNotHold(t *testing.T) {
 	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, "fake", "nonesuch", "high", reqID("1"), "hello")
 
 	assert.ErrorIs(t, err, ErrBadRequest)
-	assert.Zero(t, tableCount(t, s.db, "conversations"))
+	assert.Zero(t, tableCount(t, s.db, "chats"))
 }
 
 // A follow-up is checked against its chat's cluster, never the one its argument

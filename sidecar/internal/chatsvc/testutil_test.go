@@ -94,7 +94,7 @@ func prepareOn(t *testing.T, db *appdb.DB) *sqlstmt.Set[stmtID] {
 // The rows a send writes, seeded by hand, for the tests of what reads and removes
 // them.
 
-// aChat is a conversation row to seed, filed under clusterID at now.
+// aChat is a chat row to seed, filed under clusterID at now.
 func aChat(clusterID apimeta.ClusterID, at time.Time) Chat {
 	return Chat{ID: ChatID(appdb.NewID()), Title: "t", Mode: ModeChat, ClusterID: clusterID, CreatedAt: at, UpdatedAt: at}
 }
@@ -102,7 +102,7 @@ func aChat(clusterID apimeta.ClusterID, at time.Time) Chat {
 // seedChat writes c's row.
 func seedChat(t *testing.T, db *appdb.DB, c Chat) Chat {
 	t.Helper()
-	_, err := db.Write.Exec(`INSERT INTO conversations (id, title, mode, cluster_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+	_, err := db.Write.Exec(`INSERT INTO chats (id, title, mode, cluster_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
 		string(c.ID), c.Title, string(c.Mode), string(c.ClusterID), millis(c.CreatedAt), millis(c.UpdatedAt))
 	require.NoError(t, err)
 	return c
@@ -119,16 +119,16 @@ type seededTurn struct {
 func seedTurn(t *testing.T, db *appdb.DB, chatID ChatID, at time.Time) seededTurn {
 	t.Helper()
 	var seq int64
-	require.NoError(t, db.Read.QueryRow(`SELECT COALESCE(MAX(seq), -1) + 1 FROM messages WHERE conversation_id = ?`, string(chatID)).Scan(&seq))
+	require.NoError(t, db.Read.QueryRow(`SELECT COALESCE(MAX(seq), -1) + 1 FROM messages WHERE chat_id = ?`, string(chatID)).Scan(&seq))
 	turn := seededTurn{User: MessageID(appdb.NewID()), Assistant: MessageID(appdb.NewID()), Run: RunID(appdb.NewID())}
-	_, err := db.Write.Exec(`INSERT INTO messages (id, conversation_id, seq, role, content, request_key, created_at) VALUES (?, ?, ?, 'user', ?, ?, ?)`,
+	_, err := db.Write.Exec(`INSERT INTO messages (id, chat_id, seq, role, content, request_key, created_at) VALUES (?, ?, ?, 'user', ?, ?, ?)`,
 		string(turn.User), string(chatID), seq, `[{"type":"text","text":"hi"}]`, appdb.NewID(), millis(at))
 	require.NoError(t, err)
-	_, err = db.Write.Exec(`INSERT INTO agent_runs (id, agent_type, app_version, trigger, conversation_id, trigger_message_id, provider, model, dialect, effort, created_at)
+	_, err = db.Write.Exec(`INSERT INTO agent_runs (id, agent_type, app_version, trigger, chat_id, trigger_message_id, provider, model, dialect, effort, created_at)
 		VALUES (?, 'chat', 'test', 'chat', ?, ?, 'fake', 'fake', 'fake', 'high', ?)`,
 		string(turn.Run), string(chatID), string(turn.User), millis(at))
 	require.NoError(t, err)
-	_, err = db.Write.Exec(`INSERT INTO messages (id, conversation_id, seq, role, content, run_id, created_at) VALUES (?, ?, ?, 'assistant', '[]', ?, ?)`,
+	_, err = db.Write.Exec(`INSERT INTO messages (id, chat_id, seq, role, content, run_id, created_at) VALUES (?, ?, ?, 'assistant', '[]', ?, ?)`,
 		string(turn.Assistant), string(chatID), seq+1, string(turn.Run), millis(at))
 	require.NoError(t, err)
 	return turn

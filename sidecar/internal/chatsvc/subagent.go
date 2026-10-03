@@ -52,7 +52,7 @@ func (t *turn) Start(ctx context.Context, d tools.Delegation) (string, error) {
 		return "", err
 	}
 	run := agentRun{
-		ID: newRunID(), ParentID: t.runID, AgentType: d.Type, ConversationID: t.chatID,
+		ID: newRunID(), ParentID: t.runID, AgentType: d.Type, ChatID: t.chatID,
 		ProviderID: target.Provider.ID, ModelID: target.Model.ID, Effort: target.Effort,
 		Dialect: target.Provider.Dialect, Task: d.Prompt, AppVersion: version.Version, CreatedAt: normalizeTime(s.now()),
 	}

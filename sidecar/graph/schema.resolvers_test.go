@@ -1669,11 +1669,11 @@ func TestChatSendReturnsTheAnswerRow(t *testing.T) {
 func TestChatSendAcceptsAModelOnAnotherDialect(t *testing.T) {
 	srv, db, _ := newChatServerOver(t)
 	for _, stmt := range []string{
-		`INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c', '1', 'chat', 0, 0)`,
-		`INSERT INTO messages (id, conversation_id, seq, role, content, created_at) VALUES ('u', 'c', 0, 'user', '[{"type":"text","text":"hi"}]', 0)`,
-		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, conversation_id, trigger_message_id, provider, model, dialect, status, created_at)
+		`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', '1', 'chat', 0, 0)`,
+		`INSERT INTO messages (id, chat_id, seq, role, content, created_at) VALUES ('u', 'c', 0, 'user', '[{"type":"text","text":"hi"}]', 0)`,
+		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, chat_id, trigger_message_id, provider, model, dialect, status, created_at)
 		 VALUES ('r', 'chat', 'test', 'chat', 'c', 'u', 'anthropic', 'claude-haiku-4-5', 'messages', 'succeeded', 0)`,
-		`INSERT INTO messages (id, conversation_id, seq, role, content, run_id, created_at) VALUES ('a', 'c', 1, 'assistant', '[{"type":"text","text":"Hello."}]', 'r', 0)`,
+		`INSERT INTO messages (id, chat_id, seq, role, content, run_id, created_at) VALUES ('a', 'c', 1, 'assistant', '[{"type":"text","text":"Hello."}]', 'r', 0)`,
 	} {
 		_, err := db.Write.Exec(stmt)
 		require.NoError(t, err)
@@ -2012,7 +2012,7 @@ func TestAChatWatchOverAFailedStoreEndsWithItsReason(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	for _, tc := range []struct{ query, read string }{
-		{`subscription { chatsWatch { type } }`, "list conversations"},
+		{`subscription { chatsWatch { type } }`, "list chats"},
 		{`subscription { chatMessagesWatch(chatID: "` + appdb.NewID() + `") { type } }`, "list messages"},
 	} {
 		resp, events := chatFrames(t, srv, tc.query)
@@ -2289,7 +2289,7 @@ func TestAToolCallCarriesItsBackgroundTask(t *testing.T) {
 	resp.Body.Close()
 	for _, q := range []string{
 		`INSERT INTO approvals (id, tool_call_id, status, created_at) SELECT 'a', id, 'approved', 0 FROM tool_calls`,
-		`INSERT INTO background_tasks (id, conversation_id, tool_call_id, output_path, status, exit_code, started_at, finished_at)
+		`INSERT INTO background_tasks (id, chat_id, tool_call_id, output_path, status, exit_code, started_at, finished_at)
 		 SELECT 'task-1', '` + chatID + `', id, '/r/task-1.output', 'exited', 3, 0, 0 FROM tool_calls`,
 	} {
 		_, err := db.Write.Exec(q)
@@ -2508,11 +2508,11 @@ func TestAnAgentsTaskAndWaitAreServed(t *testing.T) {
 	})
 	resp.Body.Close()
 	for _, q := range []string{
-		`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, conversation_id, provider, model, dialect, task, result, status, created_at)
-		 SELECT 'sub', run_id, 'general-purpose', 'test', 'agent', conversation_id, 'fake', 'fake', 'fake', 'p', 'Two pods.', 'waiting_approval', 0
+		`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, chat_id, provider, model, dialect, task, result, status, created_at)
+		 SELECT 'sub', run_id, 'general-purpose', 'test', 'agent', chat_id, 'fake', 'fake', 'fake', 'p', 'Two pods.', 'waiting_approval', 0
 		 FROM messages WHERE seq = 1`,
 		`UPDATE tool_calls SET spawned_run_id = 'sub'`,
-		`INSERT INTO background_tasks (id, conversation_id, tool_call_id, output_path, status, started_at, finished_at)
+		`INSERT INTO background_tasks (id, chat_id, tool_call_id, output_path, status, started_at, finished_at)
 		 SELECT 'task-1', '` + chatID + `', id, '/r/task-1.output', 'completed', 0, 0 FROM tool_calls`,
 	} {
 		_, err := db.Write.Exec(q)

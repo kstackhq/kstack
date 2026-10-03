@@ -825,7 +825,7 @@ func TestASubagentWaitingMarksItsSettledAnswer(t *testing.T) {
 	turn := seedTurn(t, s.db, c.ID, now)
 	settleSeededRun(t, s.db, turn.Run, runSucceeded, now)
 	sub := appdb.NewID()
-	_, err := s.db.Write.Exec(`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, conversation_id, provider, model, dialect, task, status, created_at)
+	_, err := s.db.Write.Exec(`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, chat_id, provider, model, dialect, task, status, created_at)
 		VALUES (?, ?, 'general-purpose', 'test', 'agent', ?, 'fake', 'fake', 'fake', 'p', 'waiting_approval', 0)`, sub, string(turn.Run), string(c.ID))
 	require.NoError(t, err)
 

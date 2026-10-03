@@ -4,7 +4,7 @@ A standalone Go binary started by the Tauri host. It serves the app's GraphQL AP
 
 `--data-dir`, `--cache-dir` and `--runtime-dir` are **required** and absolute; `app.New` errors on an empty or relative one, makes a missing one 0700, and tests pass `t.TempDir()`. `<data-dir>/app.db` is `internal/appdb`'s: one migration sequence, numbered files in `appdb/migrations/`, never a second embed against the same file. `appdb.Open` hands back two pools — the one-connection writer, migrated, and a `query_only` reader — so a consumer's reads never queue behind its writes — and runs the file's janitor, one per open `DB` (`appdb/janitor.go`): a freelist-gated bounded vacuum, then a `TRUNCATE` `wal_checkpoint` after a vacuum or when the log outweighs the file; a zero interval runs none, and `Close` joins it before the pools close. **A service's statements are a `sqlstmt.Set`** prepared on `db.Write, db.Read` (see `sqlstmt` under `internal/`); the SQL stays the service's. Nothing has shipped, so a table change edits `0001_init.sql` rather than adding a file. → [ADR: schema edit, not migration](../docs/adr/2026-08-29-schema-edit-not-migration.md).
 
-**The app owns app.db.** `app.New` opens the file once and hands the `*appdb.DB` to every service that writes or watches it (`clustersvc.New(db, …)`, `memorysvc.New(db, …)` and `chatsvc.New(db, …)`). The file opens right before the first such service, so an earlier constructor failing leaves nothing to close, and a later one failing closes it before `New` returns. It is the first of `App.parts`, a `lifecycle.CloseFunc` (nothing to start), so the reverse close order releases it after every service, and a failed `Start` in `main.run` still reaches `application.Close`. A service prepares its statements on the pools it is given and closes only those; its tests build it over a temporary DB of their own (`openTestDB` in `chatsvc`) and simulate a failed store by closing that DB. **The DB carries the change bus** (`appdb.go`): `Notify(key)` after a commit, never inside the transaction, and `Subscribe(keys…)` before the first read — a `gobus/conflate` receiver, one coalesced ping per key, ended by `DB.Close`; no keys is a panic. **The keys are named there** (`KeyClusters`, `KeyConversations`, `KeyMemories`, `MessagesKey`, `StreamKey`), so a writer in one service and a watcher in another cannot spell one apart; a service wraps them under its own id type and adds none of its own. `clustersvc` and `chatsvc` both notify and subscribe to `KeyClusters` (*Cluster subsystem*, below), and `memorysvc`'s watch re-reads on it too, since a cluster's delete cascades to its memories. A service joins its own pumps in its stop, before that close runs. **Row ids are `appdb`'s**: `NewID()` mints a canonical lowercase UUIDv7, increasing in the order minted within a process, and `ValidateUUID` accepts the canonical spelling of a v4 or v7 with the RFC variant and nothing else — not the nil UUID, braces, `urn:`, uppercase, bare hex or a ULID. It validates a client's request key as well as a row id, and says nothing about who minted it. → [ADR: the app owns app.db](../docs/adr/2026-09-16-the-app-owns-app-db.md).
+**The app owns app.db.** `app.New` opens the file once and hands the `*appdb.DB` to every service that writes or watches it (`clustersvc.New(db, …)`, `memorysvc.New(db, …)` and `chatsvc.New(db, …)`). The file opens right before the first such service, so an earlier constructor failing leaves nothing to close, and a later one failing closes it before `New` returns. It is the first of `App.parts`, a `lifecycle.CloseFunc` (nothing to start), so the reverse close order releases it after every service, and a failed `Start` in `main.run` still reaches `application.Close`. A service prepares its statements on the pools it is given and closes only those; its tests build it over a temporary DB of their own (`openTestDB` in `chatsvc`) and simulate a failed store by closing that DB. **The DB carries the change bus** (`appdb.go`): `Notify(key)` after a commit, never inside the transaction, and `Subscribe(keys…)` before the first read — a `gobus/conflate` receiver, one coalesced ping per key, ended by `DB.Close`; no keys is a panic. **The keys are named there** (`KeyClusters`, `KeyChats`, `KeyMemories`, `MessagesKey`, `StreamKey`), so a writer in one service and a watcher in another cannot spell one apart; a service wraps them under its own id type and adds none of its own. `clustersvc` and `chatsvc` both notify and subscribe to `KeyClusters` (*Cluster subsystem*, below), and `memorysvc`'s watch re-reads on it too, since a cluster's delete cascades to its memories. A service joins its own pumps in its stop, before that close runs. **Row ids are `appdb`'s**: `NewID()` mints a canonical lowercase UUIDv7, increasing in the order minted within a process, and `ValidateUUID` accepts the canonical spelling of a v4 or v7 with the RFC variant and nothing else — not the nil UUID, braces, `urn:`, uppercase, bare hex or a ULID. It validates a client's request key as well as a row id, and says nothing about who minted it. → [ADR: the app owns app.db](../docs/adr/2026-09-16-the-app-owns-app-db.md).
 
 ## Directories
 
@@ -1968,17 +1968,17 @@ chat (`rootdir.Sweep`): a send can run before `Start`, and it commits its row be
 writes anything.
 
 **Eight tables** in `0001_init.sql`, the only schema authority: `clusters` (`clustersvc`'s),
-then this service's `conversations`, `messages`, `agent_runs`, `llm_calls`, `tool_calls`,
+then this service's `chats`, `messages`, `agent_runs`, `llm_calls`, `tool_calls`,
 `approvals` — the user's decisions on a call: its own, one per gated call, and each cluster
 write its sandboxed command sent (below) — and
-`background_tasks`, one row per command started in the background (*Background commands*, below). In Go and on the wire a conversation is a `Chat` with a `ChatID`, and a message a
-`ChatMessage` with a `MessageID`. A conversation carries `sandbox_disabled`, the user's switch
+`background_tasks`, one row per command started in the background (*Background commands*, below). In Go and on the wire a chat is a `Chat` with a `ChatID`, and a message a
+`ChatMessage` with a `MessageID`. A chat carries `sandbox_disabled`, the user's switch
 (`Chat.SandboxDisabled`, 0 at creation), and a `mode` column — which of the app's two modes lists it, fixed at creation and checked by
 the column, since each mode shows only its own chats — and a `cluster_id`, the `clusters` row it
 was started under, fixed at creation too: each cluster lists only its own chats. It references
 `clusters(id)` with `ON DELETE CASCADE` as a backstop; the sweeper (below) empties a marked cluster
 before its row goes. `title` is nullable and read as `''`. **Ids are UUIDv7 from `appdb.NewID`,
-identity alone**: the transcript's order is `messages.seq`, a per-conversation counter the send
+identity alone**: the transcript's order is `messages.seq`, a per-chat counter the send
 transaction assigns from `MAX(seq)` inside the writer's transaction (`_txlock=immediate`), and the
 list's is `updated_at` — v7 orders within one process only, and a clock moved back between runs
 would file a new message before a persisted one. Times are unix millis. `content` is the Messages
@@ -1986,18 +1986,18 @@ API's content blocks **verbatim** — the API is stateless, so every turn resend
 conversation and a prettified copy would have to be turned back into a request each time. What
 to draw comes from the blocks, never from the role alone: a `user` message carrying `tool_result`
 blocks is machinery, and thinking blocks have to go back unchanged. The roles are `user` and
-`assistant`; there is no system role. `conversations.updated_at` moves when a row is created or
+`assistant`; there is no system role. `chats.updated_at` moves when a row is created or
 settles, and is never worked out from the messages later. Two things do not move it: a
 checkpoint, which notifies nothing, so a timestamp it moved would be one the list never hears
 about; and the startup reconcile, because the send that stranded the run already stamped the
-conversation — stamping it again would jump every interrupted chat to the top of the sidebar for
+chat — stamping it again would jump every interrupted chat to the top of the sidebar for
 work the user did not do.
 
 **A message is what a client posts; a run is what the server does about it.** `agent_runs` is
 one row per execution: for a chat turn, `trigger = 'chat'`, `trigger_message_id` the user message
 it answers (unique, so a message starts at most one run), and the assistant message's `run_id`
-pointing back at it — plain references both ways, cascaded off the conversation alone, so a
-conversation goes with **one `DELETE`** (`stmtDeleteConversation`), which is what lets SQLite check
+pointing back at it — plain references both ways, cascaded off the chat alone, so a
+chat goes with **one `DELETE`** (`stmtDeleteChat`), which is what lets SQLite check
 the two references after both sides are gone. **`messages` has no status and no model columns.**
 An assistant message's public `Status` is its run's (`messageStatusOf`: `queued` and `running` →
 Streaming, `waiting_approval` → WaitingApproval, `succeeded` → Complete, `failed` → Failed,
@@ -2036,7 +2036,7 @@ transaction** (`settleRow`, behind the `settleWrite` seam): `writeContent` (the 
 else the text so far, so a turn that broke off keeps what the reader saw), then `settleRun`
 (`cancelled` on a context error, `failed` with the error's text otherwise, `succeeded` on a
 clean stream; `error` NULL when empty, `finished_at`), then every call row (`writeCalls`), then
-`touchConversation`. `turn.settle` fixes that outcome and its time once and shows it on the live
+`touchChat`. `turn.settle` fixes that outcome and its time once and shows it on the live
 message, still `Streaming`, before the first attempt; every attempt writes the same thing, on the
 turn's context without its cancel, so a cancelled turn still lands. **A settle that fails is
 retried** (`settleUntilLanded`): the first failure is logged and closes `retrying`, each wait
@@ -2837,7 +2837,7 @@ turn's status, and the call rows are where usage and timing are read.
 
 **Two watches, two bus keys.** `WatchList` and `WatchMessages` return `chatsvc`'s own
 `Stream[T]`; the bus is the DB's (`Notify`/`Subscribe`) and the keys are `appdb`'s:
-`conversations` and `messages/<chatID>` (the rows changed — re-read and diff). A watcher
+`chats` and `messages/<chatID>` (the rows changed — re-read and diff). A watcher
 subscribes, then reads, then sends `Added` frames and one `Bookmark`; a re-read that fails ends
 the watch with the reason on `Err`, and a consumer leaving ends it cleanly wherever the pump
 had got to. Writers notify **after** commit: `Rename` the list key, `Delete` both. Every send
@@ -2939,7 +2939,7 @@ for the chat, so it changes the block on the chat's first send alone, and a swit
 next question. A nil `Memories`, which only tests pass, sends the card alone. `Send`
 renders both before its transaction (`service.contextText`), for the chat's stored cluster,
 which a turn's tools also reach (`Runtime.ClusterID`, from `chatOf`, one read of the
-conversation), and which the subagents it spawns reach too
+chat), and which the subagents it spawns reach too
 (the send's `clusterID` is only what a create files under), under `clusterCardTimeout` — the
 render's alone, so the rows go in on the send's own context, and a render that outlives it is
 the unavailable card. The replay lookup is ahead of it, so a retry renders none. Inside the

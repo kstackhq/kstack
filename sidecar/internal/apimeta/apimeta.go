@@ -29,7 +29,7 @@ import (
 // under one without importing clustersvc.
 type ClusterID string
 
-// ChatID identifies a chat: its conversations row id in app.db, a UUIDv7 minted by
+// ChatID identifies a chat: its chats row id in app.db, a UUIDv7 minted by
 // appdb and identity alone (the GraphQL ChatID scalar binds to it as a string). It
 // lives here so a tool's runtime and memorysvc can name a chat without importing
 // chatsvc.

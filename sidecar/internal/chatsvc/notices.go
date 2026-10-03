@@ -230,7 +230,7 @@ func (s *service) startNoticeTurn(chatID ChatID) error {
 		if err := markNotified(ctx, st, chatID, at); err != nil {
 			return err
 		}
-		if err := touchConversation(ctx, st, chatID, at); err != nil {
+		if err := touchChat(ctx, st, chatID, at); err != nil {
 			return err
 		}
 		assistant, err = s.writeTurnRows(ctx, st, t, "", effort, withNotices(question, waiting), at)
@@ -244,6 +244,6 @@ func (s *service) startNoticeTurn(chatID ChatID) error {
 	}
 	s.startTurn(t, assistant)
 	s.notify(messagesKey(chatID))
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 	return nil
 }
