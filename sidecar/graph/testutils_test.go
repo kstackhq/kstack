@@ -7,15 +7,18 @@ package graph_test
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"sync"
 	"testing"
 
 	"github.com/amorey/gochan/watch"
+	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/chatsvc"
+	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 )
 
 // fakeAuth is a hand-written auth.Service for the resolver tests. The resolver
@@ -144,4 +147,12 @@ type refusingChat struct {
 
 func (c refusingChat) Send(context.Context, *chatsvc.ChatID, chatsvc.Mode, apimeta.ClusterID, bool, string, string, string, string, string) (chatsvc.ChatMessage, error) {
 	return chatsvc.ChatMessage{}, c.err
+}
+
+// testSecurity is a security store over a file not yet written: every default.
+func testSecurity(t *testing.T) *securityconfig.Store {
+	t.Helper()
+	s, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	require.NoError(t, err)
+	return s
 }

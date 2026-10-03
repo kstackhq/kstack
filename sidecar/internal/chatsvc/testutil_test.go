@@ -35,6 +35,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/rawjson"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/sqlstmt"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -179,7 +180,7 @@ func startService(t *testing.T, dir string) *service {
 // tool box and lists.
 func startServiceWith(t *testing.T, dir string, llmSvc *llm.Service, clusterCards ClusterCards, box tools.Box, lists ToolLists) *service {
 	t.Helper()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), llmSvc, clusterCards, nil, box, lists, sandbox.Status{})
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), llmSvc, clusterCards, nil, box, lists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	startPrepared(t, s)
 	return s
@@ -660,4 +661,12 @@ func offered(req llm.Request) []string {
 		out = append(out, d.Name)
 	}
 	return out
+}
+
+// testSecurity is a security store over a file not yet written: every default.
+func testSecurity(t *testing.T) *securityconfig.Store {
+	t.Helper()
+	s, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	require.NoError(t, err)
+	return s
 }
