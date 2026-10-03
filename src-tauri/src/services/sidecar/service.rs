@@ -38,8 +38,8 @@ const READY_MARKER: &[u8] = b"READY ";
 const SIDECAR_LOG_FILE: &str = "sidecar.log";
 
 /// How long [`SidecarService::ready`] waits for [`READY_MARKER`]. Startup is not
-/// a dial but a sum: on macOS the sidecar first imports the user's login-shell
-/// environment (`sidecar/internal/loginshell`, five seconds at worst), then
+/// a dial but a sum: on macOS and Linux the sidecar first runs the user's login
+/// shell (`sidecar/internal/loginshell`, ten seconds at worst), then
 /// migrates and binds. The model catalogs are discovered after `READY`, so they
 /// are not in it. The frontend's `ReadyGate` does not retry on its own — one
 /// timeout is an error screen — so this clears that sum with room to spare.

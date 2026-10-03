@@ -16,40 +16,17 @@ package main
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-func TestImportShellEnvInstallsWhatTheShellReports(t *testing.T) {
-	// A stand-in login shell that exports the way a startup file would, then runs
-	// the -c command for real.
-	dir := t.TempDir()
-	shell := filepath.Join(dir, "shell")
-	script := "#!/bin/sh\nPATH='" + dir + "':\"$PATH\"\nexport PATH\n" +
-		"export AWS_PROFILE=work\nexec /bin/sh -c \"$4\"\n"
-	require.NoError(t, os.WriteFile(shell, []byte(script), 0o700))
-	t.Setenv("SHELL", shell)
+func TestSetShellEnvSetsWhatItIsHanded(t *testing.T) {
 	t.Setenv("PATH", "/usr/bin:/bin")
 	t.Setenv("AWS_PROFILE", "")
 
-	importShellEnv(t.Context())
+	setShellEnv(map[string]string{"PATH": "/opt/bin:/usr/bin", "AWS_PROFILE": "work"})
 
-	require.Contains(t, os.Getenv("PATH"), dir)
+	require.Equal(t, "/opt/bin:/usr/bin", os.Getenv("PATH"))
 	require.Equal(t, "work", os.Getenv("AWS_PROFILE"))
-}
-
-func TestImportShellEnvKeepsTheInheritedEnvironmentWhenResolutionFails(t *testing.T) {
-	// A stand-in login shell that exits without answering.
-	shell := filepath.Join(t.TempDir(), "shell")
-	require.NoError(t, os.WriteFile(shell, []byte("#!/bin/sh\nexit 1\n"), 0o700))
-	t.Setenv("SHELL", shell)
-	t.Setenv("PATH", "/usr/bin:/bin")
-	t.Setenv("AWS_PROFILE", "inherited")
-
-	importShellEnv(t.Context())
-
-	require.Equal(t, "/usr/bin:/bin", os.Getenv("PATH"))
-	require.Equal(t, "inherited", os.Getenv("AWS_PROFILE"), "a fallback must install nothing")
 }
