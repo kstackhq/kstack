@@ -1269,7 +1269,11 @@ write (`ClusterWriteRequest`) to the user, or records one the proxy decided with
 (`Record`, with the reason in the user's words), nil where nobody can be asked. `chatsvc` sets every
 field; a test sets the ones its tool
 reads. **A `session.Session`** is one agent run's policy: its `Kind` (`Chat`, `Subagent` or
-`Monitor`, the last built by nothing yet) and `Outside`, the chat's switch as its turn read it.
+`Monitor`, the last built by nothing yet), `Outside`, the chat's switch as its turn read it, and
+`Policy`, a function of a kube-context answering a `permissions.Policy` — the context's mode and the
+rules — read live on every write, which `chatsvc` sets to the security store's `ModeFor` and the
+chat's grants joined with the store's `Rules()` (`sessionFor`, `grants.go`), so a mode or rule
+changed in Settings applies to the next write, a running subagent's included.
 The chat, the cluster and the workspace are not on it: the runtime's `ChatID`, `ClusterID` and
 `tools.WorkspacePath(rt.Dir)` are their one source, and policy that depends on the cluster is a
 function `chatsvc` builds knowing it. A turn builds its session (`turn.session()`); a
@@ -2037,11 +2041,12 @@ chat's large workspace) lists the chats' directory, **then** reads the chats, an
 chat (`rootdir.Sweep`): a send can run before `Start`, and it commits its row before its turn
 writes anything.
 
-**Eight tables** in `0001_init.sql`, the only schema authority: `clusters` (`clustersvc`'s),
+**Nine tables** in `0001_init.sql`, the only schema authority: `clusters` (`clustersvc`'s),
 then this service's `conversations`, `messages`, `agent_runs`, `llm_calls`, `tool_calls`,
 `approvals` — the user's decisions on a call: its own, one per gated call, and each cluster
 write its sandboxed command sent (below) — and
-`background_tasks`, one row per command started in the background (*Background commands*, below). In Go and on the wire a conversation is a `Chat` with a `ChatID`, and a message a
+`background_tasks`, one row per command started in the background (*Background commands*, below),
+and `chat_grants`, the rules that last for a chat (below). In Go and on the wire a conversation is a `Chat` with a `ChatID`, and a message a
 `ChatMessage` with a `MessageID`. A conversation carries `sandbox_disabled`, the user's switch
 (`Chat.SandboxDisabled`, 0 at creation), and a `mode` column — which of the app's two modes lists it, fixed at creation and checked by
 the column, since each mode shows only its own chats — and a `cluster_id`, the `clusters` row it
@@ -2749,6 +2754,11 @@ whole, and its `reason`. **A write the policy decided is recorded with no wait**
 already decided, `allowed` or `refused` — statuses only such a write takes — with its `reason` in
 the user's words, against the open call; the run stays `running`.
 
+**A chat's rules are `chat_grants` rows** (`grants.go`), each a `permissions.Rule` as JSON,
+cascading with the chat. `grantsFor` reads them on every decision, never cached; a row that does not
+decode, one with a key `Rule` does not name included, or a read that fails, is logged and read as `permissions.Refused`. Nothing writes the table
+yet.
+
 **The live message lists every call, off its rows.** `ChatMessage.ToolCalls` is the turn's
 calls as one JSON string of `ToolCall` (`id`, `toolUseID`, `name`, `arguments`, `status`,
 `actionKind`, `action`, `approval`, `output`, `isError`, `background`, `clusterWrites`) — a string so the record stays comparable and a
@@ -3009,11 +3019,12 @@ child answers (its agent's file, `general.md`). All under `prompts/`. Per-run st
 way, so the prefix cache holds.
 
 **A question carries a cluster card when the card has changed.** `chatsvc.New(db, chatsDir,
-llmSvc, clusterCards, memories, box, lists, sandbox)` takes a `ClusterCards` — `ClusterCard(ctx, clusterID)
+llmSvc, clusterCards, memories, box, lists, sandbox, security)` takes a `ClusterCards` — `ClusterCard(ctx, clusterID)
 string`, the one thing this package asks about a cluster — which `internal/clustercard` implements
 over `clustersvc.Service`, and a `Memories` — `Section(ctx, clusterID)`, every note the cluster
 sees — which `memorysvc` implements. `sandbox` is whether the machine offers sandboxed Bash, which
-the switch and the `## Sandbox` section need. The
+the switch and the `## Sandbox` section need, and `security` the store each session's modes and
+rules are read from. The
 question's `context` block is the card, then the notes as its `## Memory` section
 (`withMemory`, through `clustercard.WithSection`; a section that is not one JSON value is sent
 `{"unavailable":true}`), then the chat's workspace as its `## Workspace` section, `{"path": …}`

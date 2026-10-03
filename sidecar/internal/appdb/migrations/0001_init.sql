@@ -318,6 +318,17 @@ CREATE UNIQUE INDEX approvals_call_idx ON approvals (tool_call_id) WHERE kind = 
 CREATE INDEX approvals_writes_idx ON approvals (tool_call_id) WHERE kind = 'cluster';
 CREATE INDEX approvals_pending_idx ON approvals (id) WHERE status = 'pending';
 
+-- chat_grants: the rules that last for one chat, each a permissions.Rule as
+-- JSON, read on every decision and gone with the chat. Only Kstack writes it.
+CREATE TABLE chat_grants (
+  id         TEXT    PRIMARY KEY,
+  chat_id    TEXT    NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  rule       TEXT    NOT NULL,
+  created_at INTEGER NOT NULL
+) STRICT, WITHOUT ROWID;
+
+CREATE INDEX chat_grants_chat_idx ON chat_grants (chat_id);
+
 -- memories: notes kept for later chats. cluster_id NULL is a note for every cluster.
 -- server_uid is the cluster's kube-system UID at the last write, NULL for a note for
 -- every cluster or a cluster never identified.
