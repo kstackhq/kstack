@@ -69,7 +69,7 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 | `sandbox` | the OS sandbox: `Policy`, the zone `Lists`, `Limits`, and reading a run's denials | landed; 1A, 2A, 2B, 5B |
 | `securityconfig` | the settings file `<data>/security.json`: the store, and the fields later steps add — the frozen `PATH`, the permission rules and modes, the host rules, the folders granted always, the registered tools, the monitor's switch, the onboarding flag | 1C |
 | `session` | a `Session`: one agent run's kind and sandbox switch, then its approval mode, host allowlist, folder grants and rules; and how a subagent's is narrowed from its parent's | 2C |
-| `permissions` | the action classes, the approval modes, the rules, and `Decide` | 3B |
+| `permissions` | the action classes, the approval modes, the rules, and `Decide` | 3B, 3C |
 | `kubeproxy` | the cluster proxy | landed; 3B, 5A |
 | `egress` | the egress proxy: the host allowlist | 4C |
 | `monitor` | the monitoring session and its proposal cards | 6B |
@@ -168,7 +168,7 @@ what it does in either order.
 | --- | --- | --- |
 | 3A | **`PATH` from the login shell.** The user's `PATH` is resolved from their login shell, filtered, frozen in `securityconfig`, diffed at each launch with a confirmation for a new entry that would open more, refreshed on request, and shown in Settings. **Landed**; the root and `sidecar/` `CLAUDE.md` describe it. | The sandbox finds the tools the user's shell finds, and no startup file widens it unseen. |
 | 3B | **The permissions engine.** Classes, modes, rules and `Decide`; the Kubernetes classifier assigns class 4 and 5; the cluster proxy asks `Decide` before each write; modes per context in `securityconfig`; the Settings section. Needs 2C and 1C. **Landed**; `sidecar/CLAUDE.md` describes it. | A cluster write runs, asks or is refused by the user's mode and rules, and class 5 is never allowed unasked. |
-| [3C](3c-a-prompt-is-a-denial-the-user-may-lift.md) | **A prompt is a denial the user may lift.** `Decide` becomes `Authorize`, a binary verdict in which a forbid wins and nothing matching denies, then `Outcome`, which puts a denial the user may lift to them and refuses one they may not. No answer a rule Kstack reads today can get changes. Needs 3B, which has landed, so it is the one wave 3 step left to build. | Steps 4B, 4C, 5A and 6B name a verdict where they now reason about `Decide`'s branch order, and no answer can write a rule that reaches past a forbid. |
+| 3C | **A prompt is a denial the user may lift.** `Decide` becomes `Authorize`, a binary verdict in which a forbid wins and nothing matching denies, then `Outcome`, which puts a denial the user may lift to them and refuses one they may not. No answer a rule Kstack reads today can get changes. Needs 3B. **Landed**; `sidecar/CLAUDE.md` describes it. | Steps 4B, 4C, 5A and 6B name a verdict where they now reason about `Decide`'s branch order, and no answer can write a rule that reaches past a forbid. |
 
 Seam: 3A and 3B both add fields to `securityconfig.Settings`, and both need the store's `Held`:
 the step that lands first adds it, the other uses it.
