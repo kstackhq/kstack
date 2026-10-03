@@ -26,7 +26,7 @@ in the note's [Where this meets the code](../../notes/sandbox-credentials-and-pe
 **Steps are numbered by wave.** A step's id is a wave number and a letter: `1A`, `3B`. Every
 step in one wave can be built at the same time, and a step needs only steps of earlier waves.
 The letter orders a wave's steps for reading, not for building. Files are named by the id
-(`3b-the-permissions-engine.md`); prose says "step 3B". Seven waves, 17 steps.
+(`3b-the-permissions-engine.md`); prose says "step 3B". Seven waves, 18 steps.
 
 **What has landed.** The sandboxed Bash work built the
 Workspace sandbox on macOS and Linux, the cluster proxy with its Kubernetes classifier and
@@ -83,20 +83,37 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 - **`sandbox.Lists`**: the zones on a platform. `System` (readable by default), `Toolchain`
   (readable under the home by default), `Never` (denied always), `Closed` (denied, but a grant
   inside one opens what it names). One shared file and one per platform.
-- **`session.Session`**: `Kind` (`chat`, `monitor` or `subagent`) and `Outside` (2C); the approval `Mode`, `NoPrompts` and `Rules` (3B); `Hosts` (4C); `Folders`
-  (4D); `NoSecretData` (5A). The chat, the cluster and the workspace are not on it: they are the
-  runtime's `ChatID`, `ClusterID` and `tools.WorkspacePath(rt.Dir)`. Identity fields and the switch are copied when a subagent
-  spawns; policy the user can change (`Mode`, `Rules`, `Hosts`, `Folders`) is a function read
-  live, which `Narrow` never widens (step 2C). `tools.Runtime.Session` carries it to every tool.
-- **`permissions.Class`**: 1 to 6 as the note numbers them. **`permissions.Mode`**: `ReadOnly`,
-  `Ask`, `Auto` (step 3B says why the note's *Trusted scopes* is `Ask` with rules).
-  **`permissions.Rule`**: `Effect` (`Allow`, `Deny` or `AskFor`), `Class`, `Provider`, `Scope`,
-  and where it lives: a chat's rules are `chat_grants` rows, and the always rules are in
-  `securityconfig`. **`permissions.Decision`**: `Allowed`,
-  `Prompted` or `Denied`, with a `Reason`.
-- **`permissions.Action`**: one classified action: its `Provider` (`k8s`, `net`, `path`),
-  `Class`, `Scope` (context and namespace, host, or folder), a one-line `Summary` for the
-  prompt, and the request behind it.
+- **`session.Session`**: `Kind` (`chat`, `monitor` or `subagent`) and `Outside` (2C); `Policy`,
+  a function answering the `permissions.Policy` for a kube context, read live on every decision
+  (3B); `Hosts` (4C); `Folders` (4D); `NoPrompts` and `NoSecretData` (5A). The chat, the cluster
+  and the workspace are not on it: they are the runtime's `ChatID`, `ClusterID` and
+  `tools.WorkspacePath(rt.Dir)`. `Narrow` copies the whole session and sets `Kind`, so a subagent
+  holds its parent's switch and reads its parent's functions (step 2C); a later field that must
+  differ for a subagent says so. `tools.Runtime.Session` carries it to every tool.
+- **`permissions.Class`**: 1 to 6 as the note numbers them. **The class names the provider**:
+  1 and 2 are folders, 3 hosts, 4 to 6 the cluster. There is no separate provider field.
+  **`permissions.Mode`**: `ReadOnly`, `Ask`, `Auto` (step 3B says why the note's *Trusted
+  scopes* is `Ask` with rules).
+- **`permissions.Rule`**: flat, one field per thing it can name. `ID`, `Effect` (`Allow`, `Deny`
+  or `AskFor`) and `Class`; for the cluster `Context`, `Namespace`, `Verb`, `Group` and `Kind`
+  (3B); for a host `Host` and `Port` (4C); for a folder `Folder` (4D); and `Command`, never
+  stored (4B). Each new field is `omitempty`, so a row written before it decodes unchanged.
+  A chat's rules are `chat_grants` rows. **Every always rule is in `securityconfig`'s `Rules`**:
+  cluster writes, hosts and folders alike. A class is accepted once its step adds it to
+  `ruleClasses`, and shape-checked by the case it adds to `ruleRefusal`. `Rule.Line()` is the rule in the
+  user's words.
+- **`permissions.Policy`**: `Mode` and `Rules` (3B), then `NoPrompts` and `NoSecretData` (5A).
+  `Policy.Decide(act)` answers a **`permissions.Decision`** (`Allowed`, `Prompted` or `Denied`)
+  and the reason in the user's words, a string. It is two layers (3C): `Authorize(act)` answers
+  a **`permissions.Verdict`** — `Permit`, or one of three denials, `Unmatched` (nothing matched;
+  a grant lifts it), `Forbid` (an `AskFor` rule or class 5; an answer lifts it once, no grant
+  does) and `Refuse` (a `Deny` rule or the mode; nothing lifts it) — and `Verdict.Outcome()` is
+  the `Decision`: a permit runs, a refusal is refused, either other denial is put to the user.
+  A prompt is a denial the user may lift, and an approval that outlasts the request is a grant.
+- **`permissions.Action`**: one classified action: `Class`, `Context`, `Namespace`, `Verb`,
+  `Group`, `Kind`, `Name` and a one-line `Summary` (3B); `Host` and `Port` for a host (4C). A
+  folder grant is never an action: it is decided by the user in Settings or on a denial, and no
+  command asks for one (4D).
 - **The run's token**: one per run, as today, mapped to the run's `Session`. Both proxies served
   on the run's socket read the session through the token, and one server on that socket serves
   both: the cluster proxy by its `Host`, the egress proxy by `CONNECT` and the absolute-form
@@ -105,6 +122,8 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 **The record.** `approvals` is the one table a prompt writes: a call's own (`kind: call`) and,
 from step 4B, any classified action (`kind: action`, carried to the user as a
 `tools.ActionRequest` through the runtime's `ActionAsker`), with the decision's duration.
+Every ask and every record of one run goes through the journal one at a time (`askMu`, the
+record task steps 4B and 4C share), since two proxies can ask at once.
 `tool_calls.sandboxed` stays what it is. `chats.sandbox_disabled` is step 1B's switch.
 
 **The wire.** `approvalDecide` takes the decision. Settings are read and written through
@@ -149,20 +168,35 @@ what it does in either order.
 | --- | --- | --- |
 | 3A | **`PATH` from the login shell.** The user's `PATH` is resolved from their login shell, filtered, frozen in `securityconfig`, diffed at each launch with a confirmation for a new entry that would open more, refreshed on request, and shown in Settings. **Landed**; the root and `sidecar/` `CLAUDE.md` describe it. | The sandbox finds the tools the user's shell finds, and no startup file widens it unseen. |
 | 3B | **The permissions engine.** Classes, modes, rules and `Decide`; the Kubernetes classifier assigns class 4 and 5; the cluster proxy asks `Decide` before each write; modes per context in `securityconfig`; the Settings section. Needs 2C and 1C. **Landed**; `sidecar/CLAUDE.md` describes it. | A cluster write runs, asks or is refused by the user's mode and rules, and class 5 is never allowed unasked. |
+| [3C](3c-a-prompt-is-a-denial-the-user-may-lift.md) | **A prompt is a denial the user may lift.** `Decide` becomes `Authorize`, a binary verdict in which a forbid wins and nothing matching denies, then `Outcome`, which puts a denial the user may lift to them and refuses one they may not. No answer a rule Kstack reads today can get changes. Needs 3B, which has landed, so it is the one wave 3 step left to build. | Steps 4B, 4C, 5A and 6B name a verdict where they now reason about `Decide`'s branch order, and no answer can write a rule that reaches past a forbid. |
 
-Seam: both add fields to `securityconfig.Settings`, and both need the store's `Held`: the step
-that lands first adds it, the other uses it.
+Seam: 3A and 3B both add fields to `securityconfig.Settings`, and both need the store's `Held`:
+the step that lands first adds it, the other uses it.
 
 **Wave 4** — needs waves 1 to 3.
 
 | Spec | Step | After it |
 | --- | --- | --- |
-| [4A](4a-the-login-shell-runs-in-the-sandbox.md) | **The login shell runs in the sandbox.** The `PATH` resolution and the shell snapshot run confined: everything but Kstack's folders readable, nothing writable, no network. Needs 1A and 3A. | A startup file cannot read `app.db` or reach the network while Kstack runs it. |
-| [4B](4b-the-prompt-names-the-action.md) | **The prompt names the action.** A request draws the classified action, a diff for an apply or a patch, and five answers: once, this command, this chat, always, deny. "Always" writes a rule. Needs 3B. | The user reads "Delete pod `api-7f9c` in `team-a` on `dev-eks`" and decides for the scope they see. |
+| [4A](4a-the-login-shell-runs-in-the-sandbox.md) | **The login shell runs in the sandbox.** The `PATH` resolution and the shell snapshot run confined: everything but Kstack's folders readable, nothing writable but a scratch folder, no network. Needs 1A and 3A. | A startup file cannot read `app.db` or reach the network while Kstack runs it. |
+| [4B](4b-the-prompt-names-the-action.md) | **The prompt names the action.** A request draws the classified action, a diff for an apply or a patch, and five answers: once, this command, this chat, always, deny. "Always" writes a rule. Needs 3B. | The user reads "Delete pods/api-7f9c in team-a on dev-eks" and decides for the scope they see. |
 | [4C](4c-the-egress-proxy.md) | **The egress proxy and the host allowlist.** One server on every run's socket; an HTTP proxy that lets a command reach the listed hosts and asks for an unlisted one (class 3), resolving names outside the sandbox; the list's sources; `trustd` allowed on macOS; the Settings section. Needs 2B, 2C and 3B. | `helm repo update` reaches the registries the user listed, and a hijacked command reaches nothing else. |
-| [4D](4d-path-grants.md) | **Path grants.** The user grants a folder, read or read-write, for a chat or always; the denied-always list still wins; the Settings section. Needs 1A, 2C and 3B. | The agent can see `~/code/my-service` because the user said so, and `~/.ssh` under a granted `~` stays hidden. |
+| [4D](4d-path-grants.md) | **Path grants.** The user grants a folder, read or read-write, for a chat or always; the denied-always list still wins; the Settings section. Needs 1A, 2C, 3A and 3B. | The agent can see `~/code/my-service` because the user said so, and `~/.ssh` under a granted `~` stays hidden. |
 
-Seam: 4B replaces the asker 4C asks a new host through; 4C says what it does in each order.
+Seams, each said in both specs' own text:
+
+- 4B and 4C share 4B's task 1: the record of kind `action`, the action on every request, the
+  journal's `askMu`, and `Grantable`, `GrantRule` and `CommandRule`. Whichever lands first does
+  it; 4C says what its host request offers in each order.
+- 4B, 4C and 4D each write a `chat_grants` row: whichever lands first adds `addGrant` and its
+  statement, and 4D adds `removeGrant` beside it.
+- 4B, 4C and 4D each add fields to `permissions.Rule` (4B `Command`, 4C `Host` and `Port`, 4D
+  `Folder`), 4C and 4D to the wire's `PermissionRule`, and 4C and 4D each add their classes to
+  `ruleClasses` and a case to `ruleRefusal`; the step that lands second adds its fields and its
+  case beside the first's.
+- 4C and 4D both change `sandboxedRunFor` and `workspacePolicy`: 4C the relay every run gets, 4D
+  the Files rules a grant adds. They touch different parts of the policy, and the second keeps
+  the first's.
+- 4C and 4D both take a grant's duration: whichever lands first adds `GrantDuration`.
 
 **Wave 5** — needs waves 1 to 4.
 
@@ -202,6 +236,7 @@ neither and says so. A risk a step accepts on purpose is a **By decision** row i
 | 2C | no | no | a row for a subagent's session never being looser than its parent's; the KubeQuery and outside-the-sandbox rows' citations |
 | 3A | yes | yes | the shell-import and sandboxed-command rows say the frozen list |
 | 3B | yes | yes | the cluster-write rows say `Decide`; the bash tool record's consent line amended |
+| 3C | no | yes | the cluster-write rows cite the verdict's tests |
 | 4A | yes | no | the snapshot and shell-import rows; a **By decision** row for what the shell's output shapes outside the sandbox |
 | 4B | yes | yes | the request row; the rules row |
 | 4C | yes | yes | the network row; rows for the allowlist, the address refusal and no credential for any host; the Mach services row |
