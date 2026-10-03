@@ -347,18 +347,19 @@ func (s *Service) publishKind(subject string, snap supervisor.Snapshot) {
 	if !ok {
 		return
 	}
-	key, moved := s.recordKindReason(cacheID, id, snap)
-	if moved {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if key, moved := s.recordKindReason(cacheID, id, snap); moved {
 		_ = s.kindHub.Sender().Send(key, struct{}{})
 	}
 }
 
 // recordKindReason files what this pass would tell a reader and reports whether it is news. A
-// pass for a kind nobody tracks, or one under a cache nobody has armed, is neither.
+// pass for a kind nobody tracks, or one under a cache nobody has armed, is neither. The caller
+// holds s.mu and sends the wake before releasing it, so a move anyone can read has always been
+// sent: a wake sent after the lock could reach a subscriber that read the move first. Sending
+// under the lock is safe because conflate's Send never blocks and runs no caller code.
 func (s *Service) recordKindReason(cacheID int64, id kindID, snap supervisor.Snapshot) (KindKey, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	sess, armed := s.sessions[cacheID]
 	k, tracked := s.tracked[cacheID][id]
 	if !armed || !tracked {
