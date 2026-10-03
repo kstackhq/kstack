@@ -1604,6 +1604,22 @@ a value goes through it. `Rule.Line` is the rule in the user's words, a class 5 
 Settings shows and a reason names. `Refused` is the `Deny` of every cluster write that stands in for a rule Kstack could
 not read.
 
+**`kubeproxy/classify.go` classifies a request**: a `GET` of core `secrets` is class 6, any other
+read, a self review and a dry run on a group version in `honorsDryRun` (the stable ones the API server
+serves itself; an aggregated API, routed by group and version, may ignore `dryRun`) class 1, a write on the class 5 list class 5 (`destructive`: a
+delete of a namespace, node, PV, PVC or CRD; any `deletecollection`; any write of RBAC, of the
+admission webhooks and policies, of a CSR's `approval` or of `ephemeralcontainers`; and a replica
+write — a `PUT` or `PATCH` of a `scale` subresource, of an `apps` deployment, stateful set or
+replica set, or of a core replication controller — in any form but the plain ones `keepsReplicas` reads whole: an object body with no `$`
+directive on it or its spec and a literal positive `spec.replicas`, or on a workload none, which the
+API server keeps or defaults to one, or a JSON Patch, its keys read exactly, that only adds or
+replaces `/spec/replicas` with a positive count or, on a workload, touches paths under `/metadata/`
+or `/spec/` beside `replicas`, never a `move` or `copy`; an apply is not plain on a `scale`), and
+any other write class 4. Its `Summary` is one line naming the target as kubectl does (*Delete
+pods/api-7f9c in team-a on dev-eks*). A write to a core Namespace is in that namespace's scope, a create's
+read off the body's `metadata.name`, so a rule scoped to it matches. `Destructive` is the class 5 list in words, which
+Settings shows. → [ADR: permissions are classes, modes and rules decided at the proxy](../docs/adr/2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md).
+
 **`internal/kubeproxy` is the cluster proxy**, a leaf beside `sandbox` that imports nothing of
 `tools` or `clustersvc`: `kubeproxy.go` the grant and the handler, `policy.go` the path parse
 and the read policy, `redact.go` and `redact_helm.go` the Secret rewriter, `status.go` the
