@@ -15,7 +15,6 @@
 package bash
 
 import (
-	"os/exec"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -24,11 +23,9 @@ import (
 // node reserves about 10 GiB of address space for a WebAssembly memory, which
 // fits under the memory limit.
 func TestNodeRunsUnderTheMemoryLimit(t *testing.T) {
-	if _, err := exec.LookPath("node"); err != nil {
-		t.Skip("no node on PATH")
-	}
 	tl := proxyTool(t, &fakeLease{})
 	tl.sandboxer = confining(t)
+	withTool(t, tl, "node")
 
 	text, isError := tl.Run(t.Context(), testRuntime(t), command(`node -e 'new WebAssembly.Memory({initial: 1})'`))
 

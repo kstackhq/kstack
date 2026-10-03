@@ -38,7 +38,8 @@ func outsideEnv(environ, kstack []string, dir string) []string {
 }
 
 // sandboxedRunEnv is a sandboxed run's environment, built from one table so
-// nothing of the sidecar's rides in but PATH, LANG and TZ: HOME the workspace
+// nothing of the sidecar's rides in but LANG and TZ: PATH the run's own, the
+// folders it froze at its start; HOME the workspace
 // and PWD the start directory; TMPDIR the run's own, in the cache; ZDOTDIR
 // the run's directory, made for the run and so holding no startup file, so
 // zsh -c never sources a .zshenv a command left in the workspace; KUBECONFIG
@@ -46,23 +47,18 @@ func outsideEnv(environ, kstack []string, dir string) []string {
 // sidecar's or the platform's default; TERM=dumb; then the variables that
 // point each tool into toolHome; then toolchain, each found location's
 // variables and asdf's versions; then what Kstack adds.
-func sandboxedRunEnv(environ, kstack []string, workspace, dir string, rd *runDir, cluster *target, toolHome string, toolchain []string) []string {
-	var path, lang, tz string
+func sandboxedRunEnv(environ, kstack []string, path, workspace, dir string, rd *runDir, cluster *target, toolHome string, toolchain []string) []string {
+	var lang, tz string
 	for _, kv := range environ {
 		name, value, _ := strings.Cut(kv, "=")
 		switch name {
-		case "PATH":
-			path = value
 		case "LANG":
 			lang = value
 		case "TZ":
 			tz = value
 		}
 	}
-	var env []string
-	if path != "" {
-		env = append(env, "PATH="+path)
-	}
+	env := []string{"PATH=" + path}
 	env = append(env, "HOME="+workspace, "PWD="+dir, "TMPDIR="+rd.tmp, "ZDOTDIR="+rd.path)
 	if cluster != nil {
 		env = append(env, "KUBECONFIG="+rd.kubeconfig(), "KUBECACHEDIR="+cluster.cacheDir)

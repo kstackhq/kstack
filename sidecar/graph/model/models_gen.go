@@ -3,6 +3,11 @@
 package model
 
 import (
+	"bytes"
+	"fmt"
+	"io"
+	"strconv"
+
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
@@ -73,5 +78,136 @@ type ResourceRule struct {
 	ResourceNames []string `json:"resourceNames"`
 }
 
+// One folder of the user's PATH, and what the sandbox does with it.
+type SandboxPathEntry struct {
+	// The folder as the shell gave it.
+	Dir string `json:"dir"`
+	// The folder dir resolved to when its state was set; the one the sandbox reads.
+	Target string            `json:"target"`
+	State  SandboxPathState  `json:"state"`
+	Source SandboxPathSource `json:"source"`
+	// Whether target was writable by a group other than an administrators' one, so others in it can add programs to it.
+	Shared bool `json:"shared"`
+}
+
 type Subscription struct {
+}
+
+// Whose decision a PATH entry's state is.
+type SandboxPathSource string
+
+const (
+	// Kstack's, when it read the login shell's PATH.
+	SandboxPathSourceShell SandboxPathSource = "Shell"
+	// The user's, by Include or Remove.
+	SandboxPathSourceUser SandboxPathSource = "User"
+)
+
+var AllSandboxPathSource = []SandboxPathSource{
+	SandboxPathSourceShell,
+	SandboxPathSourceUser,
+}
+
+func (e SandboxPathSource) IsValid() bool {
+	switch e {
+	case SandboxPathSourceShell, SandboxPathSourceUser:
+		return true
+	}
+	return false
+}
+
+func (e SandboxPathSource) String() string {
+	return string(e)
+}
+
+func (e *SandboxPathSource) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = SandboxPathSource(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid SandboxPathSource", str)
+	}
+	return nil
+}
+
+func (e SandboxPathSource) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *SandboxPathSource) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e SandboxPathSource) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// What the sandbox does with one folder of the user's PATH.
+type SandboxPathState string
+
+const (
+	// On the sandbox's PATH and readable in it.
+	SandboxPathStateAdopted SandboxPathState = "Adopted"
+	// Listed by the shell and waiting for the user: adopting it would open more to commands, or its group can add programs to it.
+	SandboxPathStatePending SandboxPathState = "Pending"
+	// Removed by the user, and kept so a launch does not adopt it again.
+	SandboxPathStateGone SandboxPathState = "Gone"
+)
+
+var AllSandboxPathState = []SandboxPathState{
+	SandboxPathStateAdopted,
+	SandboxPathStatePending,
+	SandboxPathStateGone,
+}
+
+func (e SandboxPathState) IsValid() bool {
+	switch e {
+	case SandboxPathStateAdopted, SandboxPathStatePending, SandboxPathStateGone:
+		return true
+	}
+	return false
+}
+
+func (e SandboxPathState) String() string {
+	return string(e)
+}
+
+func (e *SandboxPathState) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = SandboxPathState(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid SandboxPathState", str)
+	}
+	return nil
+}
+
+func (e SandboxPathState) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *SandboxPathState) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e SandboxPathState) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
 }
