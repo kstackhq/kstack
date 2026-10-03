@@ -1619,7 +1619,7 @@ func newChatServerWith(t *testing.T, status sandbox.Status) (*httptest.Server, *
 	// The search is offered, since a test stages a turn that searched; the rest
 	// is read alone, so no call runs while stored calls still show.
 	box := tools.NewBox([]tools.Tool{agenttool.New(), anthropicwebsearch.New(time.Now)}, bash.Reader{}, &read.Tool{}, &write.Tool{}, &edit.Tool{}, &webfetch.Tool{}, taskstop.New(), memory.New(nil), kubequery.New(nil))
-	chatSvc, err := chatsvc.New(db, filepath.Join(t.TempDir(), "chats"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status)
+	chatSvc, err := chatsvc.New(db, filepath.Join(t.TempDir(), "chats"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status, testSecurity(t))
 	require.NoError(t, err)
 	stop, err := chatSvc.Start(t.Context())
 	require.NoError(t, err)
@@ -2682,4 +2682,155 @@ func TestSandboxPathIsEmptyWithNoSandbox(t *testing.T) {
 func jsonEscape(s string) string {
 	b, _ := json.Marshal(s)
 	return string(b[1 : len(b)-1])
+}
+
+// newPermissionServer is a server over the default cluster fixtures and a
+// security store over file, which holds body when it is not empty.
+func newPermissionServer(t *testing.T, body string) *httptest.Server {
+	t.Helper()
+	file := filepath.Join(t.TempDir(), "security.json")
+	if body != "" {
+		require.NoError(t, os.WriteFile(file, []byte(body), 0o600))
+	}
+	cfg, err := securityconfig.Open(file)
+	require.NoError(t, err)
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ClusterSvc: newFakeClusterService(clusterFixtures()), SecurityCfg: securityconfig.NewService(cfg, nil, nil, "")}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+const permissionSettingsFields = `defaultMode contexts { context mode source pattern own }
+	rules { effect class context namespace verb group kind line } held`
+
+// refusalOf posts query and answers its one error's message and code.
+func refusalOf(t *testing.T, srv *httptest.Server, query string) (string, string) {
+	t.Helper()
+	body, _ := json.Marshal(map[string]string{"query": query})
+	raw := postGQL(t, srv.URL, string(body))
+	var resp struct {
+		Errors []struct {
+			Message    string
+			Extensions struct{ Code string }
+		}
+	}
+	require.NoError(t, json.Unmarshal(raw, &resp), "%s", raw)
+	require.Len(t, resp.Errors, 1, "%s", raw)
+	return resp.Errors[0].Message, resp.Errors[0].Extensions.Code
+}
+
+// permissionSettings answers each known context's mode and where it comes
+// from, the rules, and the class 5 list in words.
+func TestPermissionSettingsShowsModesAndRules(t *testing.T) {
+	srv := newPermissionServer(t, `{"modes": [{"context": "prod", "mode": "read-only"}], "rules": [{"id": "r", "effect": "deny", "class": 5,
+		"context": "prod*", "verb": "delete", "group": "core", "kind": "namespaces"}]}`)
+
+	data := mutate(t, srv, `{ permissionSettings { `+permissionSettingsFields+` destructive } }`)
+
+	got := data["permissionSettings"].(map[string]any)
+	assert.Equal(t, "Ask", got["defaultMode"])
+	assert.Equal(t, []any{
+		map[string]any{"context": "prod", "mode": "ReadOnly", "source": "Entry", "pattern": "prod", "own": true},
+		map[string]any{"context": "staging", "mode": "Ask", "source": "Default", "pattern": "", "own": false},
+	}, got["contexts"])
+	assert.Equal(t, []any{map[string]any{
+		"effect": "Deny", "class": "Destructive", "context": "prod*", "namespace": "",
+		"verb": "delete", "group": "core", "kind": "namespaces",
+		"line": "Deny destructive delete of core namespaces in prod*",
+	}}, got["rules"])
+	assert.NotEmpty(t, got["destructive"])
+	assert.Equal(t, []any{}, got["held"])
+}
+
+// Each mutation writes the settings and answers them as they now stand.
+func TestPermissionMutationsWriteTheSettings(t *testing.T) {
+	srv := newPermissionServer(t, "")
+
+	data := mutate(t, srv, `mutation { permissionModeSet(context: "prod", mode: Ask) { contexts { context mode source pattern } } }`)
+	assert.Equal(t, map[string]any{"context": "prod", "mode": "Ask", "source": "Entry", "pattern": "prod"},
+		data["permissionModeSet"].(map[string]any)["contexts"].([]any)[0])
+
+	data = mutate(t, srv, `mutation { permissionRuleAdd(input: {effect: Allow, class: UpstreamWrite, context: "staging", namespace: "web"}) {
+		rules { id line } } }`)
+	rules := data["permissionRuleAdd"].(map[string]any)["rules"].([]any)
+	require.Len(t, rules, 1)
+	added := rules[0].(map[string]any)
+	assert.Equal(t, "Allow cluster writes in staging / web", added["line"])
+	assert.NoError(t, appdb.ValidateUUID(added["id"].(string)), "the resolver mints the id")
+
+	data = mutate(t, srv, `mutation { permissionRuleRemove(id: "`+added["id"].(string)+`") { rules { id } } }`)
+	assert.Empty(t, data["permissionRuleRemove"].(map[string]any)["rules"])
+
+	data = mutate(t, srv, `mutation { permissionModeClear(context: "prod") { contexts { context source } } }`)
+	assert.Equal(t, map[string]any{"context": "prod", "source": "Default"}, data["permissionModeClear"].(map[string]any)["contexts"].([]any)[0])
+
+	data = mutate(t, srv, `mutation { permissionDefaultModeSet(mode: Auto) { defaultMode contexts { context mode } } }`)
+	set := data["permissionDefaultModeSet"].(map[string]any)
+	assert.Equal(t, "Auto", set["defaultMode"])
+	assert.Equal(t, map[string]any{"context": "staging", "mode": "Auto"}, set["contexts"].([]any)[1])
+}
+
+// A rule Kstack cannot apply, an edit of a field the file holds unread, and a
+// discard of a field that holds nothing unread are validation errors saying
+// why; a discard ends a hold.
+func TestAPermissionRefusalIsAValidationError(t *testing.T) {
+	srv := newPermissionServer(t, "")
+	message, code := refusalOf(t, srv, `mutation { permissionRuleAdd(input: {effect: Allow, class: Destructive}) { held } }`)
+	assert.Equal(t, "KSTACK_VALIDATION_ERROR", code)
+	assert.Contains(t, message, "allows a destructive write")
+	_, code = refusalOf(t, srv, `mutation { permissionDiscardRefused(field: "rules") { held } }`)
+	assert.Equal(t, "KSTACK_VALIDATION_ERROR", code)
+	_, code = refusalOf(t, srv, `mutation { permissionRuleRemove(id: "nope") { held } }`)
+	assert.Equal(t, "KSTACK_VALIDATION_ERROR", code)
+
+	srv = newPermissionServer(t, `{"rules": [{"id": "b", "effect": "deny", "class": 9}]}`)
+	data := mutate(t, srv, `{ permissionSettings { held } }`)
+	assert.Equal(t, []any{"rules"}, data["permissionSettings"].(map[string]any)["held"])
+	message, code = refusalOf(t, srv, `mutation { permissionRuleAdd(input: {effect: Deny, class: UpstreamWrite}) { held } }`)
+	assert.Equal(t, "KSTACK_VALIDATION_ERROR", code)
+	assert.Contains(t, message, "cannot read")
+
+	data = mutate(t, srv, `mutation { permissionDiscardRefused(field: "rules") { held } }`)
+	assert.Equal(t, []any{}, data["permissionDiscardRefused"].(map[string]any)["held"])
+}
+
+// A default mode the file holds that Kstack cannot read is held until the user
+// sets one.
+func TestADefaultModeIsHeldUntilItIsSet(t *testing.T) {
+	srv := newPermissionServer(t, `{"defaultMode": "readonly"}`)
+	data := mutate(t, srv, `{ permissionSettings { held } }`)
+	assert.Equal(t, []any{"defaultMode"}, data["permissionSettings"].(map[string]any)["held"])
+
+	data = mutate(t, srv, `mutation { permissionDefaultModeSet(mode: Auto) { held } }`)
+	assert.Equal(t, []any{}, data["permissionDefaultModeSet"].(map[string]any)["held"])
+}
+
+// The settings read the known contexts off the cluster service, so a list it
+// cannot answer fails the query rather than drawing no contexts.
+func TestPermissionSettingsFailsWithTheClusterList(t *testing.T) {
+	cfg, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	require.NoError(t, err)
+	svc := newFakeClusterService(clusterFixtures())
+	svc.listErr = errors.New("store closed")
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ClusterSvc: svc, SecurityCfg: securityconfig.NewService(cfg, nil, nil, "")}))
+	t.Cleanup(srv.Close)
+
+	_, code := refusalOf(t, srv, `{ permissionSettings { held } }`)
+
+	assert.NotEqual(t, "KSTACK_VALIDATION_ERROR", code)
+}
+
+// A rule of a class nothing decides — a Secret read, a new host — is refused,
+// so a saved rule always acts.
+func TestARuleNothingDecidesIsRefused(t *testing.T) {
+	srv := newPermissionServer(t, "")
+	for _, input := range []string{
+		`{effect: Allow, class: SecretRead}`,
+		`{effect: Allow, class: NewHost, context: "dev"}`,
+	} {
+		message, code := refusalOf(t, srv, `mutation { permissionRuleAdd(input: `+input+`) { held } }`)
+		assert.Equal(t, "KSTACK_VALIDATION_ERROR", code, input)
+		assert.Contains(t, message, "names a class no rule decides", input)
+	}
+	data := mutate(t, srv, `{ permissionSettings { rules { id } } }`)
+	assert.Empty(t, data["permissionSettings"].(map[string]any)["rules"], "nothing was written")
 }

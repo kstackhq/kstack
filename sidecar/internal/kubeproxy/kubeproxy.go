@@ -15,7 +15,8 @@
 // Package kubeproxy is the cluster proxy a sandboxed run reaches its chat's
 // cluster through: a grant per run, which answers a request carrying its token
 // that the policy passes with the cluster connection's own credentials, a
-// write once its Asker approves it. It knows no tool and no cluster record.
+// write once permissions.Decide allows it or its Asker approves it. It knows
+// no tool and no cluster record.
 package kubeproxy
 
 import (
@@ -85,6 +86,9 @@ var (
 type Grant struct {
 	up      Upstream
 	session session.Session
+	// context is the kube-context the grant was made for: the scope every
+	// action is classified, and its mode and rules read, in.
+	context string
 	// asker puts a write to the user; nil refuses every write with refusal.
 	asker   Asker
 	refusal string
@@ -110,16 +114,17 @@ type Grant struct {
 	handlers sync.WaitGroup
 }
 
-// NewGrant is a live grant over up for the run of sess: a fresh 256-bit token,
-// a limiter of qps with burst, and at most maxInFlight requests open at once.
-// Each write is put to asker, or, with none, refused with refusal.
-func NewGrant(up Upstream, sess session.Session, asker Asker, refusal string, qps rate.Limit, burst, maxInFlight int) *Grant {
+// NewGrant is a live grant over up for the run of sess in kubeContext: a fresh
+// 256-bit token, a limiter of qps with burst, and at most maxInFlight requests
+// open at once. Each write is decided and recorded through asker, or, with
+// none, refused with refusal.
+func NewGrant(up Upstream, sess session.Session, kubeContext string, asker Asker, refusal string, qps rate.Limit, burst, maxInFlight int) *Grant {
 	var b [32]byte
 	_, _ = rand.Read(b[:])
 	token := hex.EncodeToString(b[:])
 	ctx, end := context.WithCancel(context.Background())
 	return &Grant{
-		up: up, session: sess, asker: asker, refusal: refusal, token: token,
+		up: up, session: sess, context: kubeContext, asker: asker, refusal: refusal, token: token,
 		auth:         []byte("Basic " + base64.StdEncoding.EncodeToString([]byte(ProxyUser+":"+token))),
 		limiter:      rate.NewLimiter(qps, burst),
 		openRequests: semaphore.NewWeighted(int64(maxInFlight)),

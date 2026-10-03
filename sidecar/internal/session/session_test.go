@@ -15,9 +15,12 @@
 package session
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 )
 
 // A subagent's session is its parent's under Kind Subagent, compared field by
@@ -31,4 +34,14 @@ func TestNarrowKeepsTheParentsIdentity(t *testing.T) {
 		assert.Equal(t, Subagent, got.Kind)
 		assert.Equal(t, parent.Outside, got.Outside)
 	}
+}
+
+// A subagent decides by its parent's mode and rules.
+func TestNarrowKeepsThePolicy(t *testing.T) {
+	policy := permissions.Policy{Mode: permissions.Auto, Rules: []permissions.Rule{permissions.Refused}}
+	parent := Session{Kind: Chat, Policy: func(context.Context, string) permissions.Policy { return policy }}
+
+	got := Narrow(parent)
+
+	assert.Equal(t, policy, got.Policy(t.Context(), "dev"))
 }

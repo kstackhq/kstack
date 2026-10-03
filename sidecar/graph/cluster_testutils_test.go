@@ -50,7 +50,9 @@ type fakeClusterService struct {
 	cachedKinds []clustersvc.ClusterCachedKind // per-kind sync records, streamed cache-scoped via CachedKinds().Watch
 	cacheStats  map[clustersvc.ClusterCacheID]clustersvc.ClusterCacheStats
 	// When set, Delete fails with it.
-	deleteErr   error
+	deleteErr error
+	// When set, List fails with it.
+	listErr     error
 	syncEvents  map[clustersvc.ClusterCachedKindID][]clustersvc.Event
 	events      map[clustersvc.ClusterID][]clustersvc.Event                   // connection-event history, keyed by ClusterID
 	cacheEvents map[clustersvc.ClusterCacheID][]clustersvc.Event              // sync-event history, keyed by ClusterCacheID
@@ -180,6 +182,9 @@ func (f *fakeClusterService) cacheSnapshot() []clustersvc.ClusterCache {
 }
 
 func (f fakeClusters) List(context.Context) ([]*clustersvc.Cluster, error) {
+	if f.s.listErr != nil {
+		return nil, f.s.listErr
+	}
 	return f.s.snapshot(), nil
 }
 
