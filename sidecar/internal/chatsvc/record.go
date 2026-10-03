@@ -75,6 +75,10 @@ const (
 	// ApprovalAbandoned is a cluster write whose wait ended with no decision
 	// while its call ran on; a call's own approval never takes it.
 	ApprovalAbandoned ApprovalStatus = "abandoned"
+	// ApprovalAllowed and ApprovalRefused are cluster writes the permissions
+	// engine decided with nobody asked.
+	ApprovalAllowed ApprovalStatus = "allowed"
+	ApprovalRefused ApprovalStatus = "refused"
 )
 
 // Role is who produced a message, as the Messages API's wire format names them.
@@ -313,6 +317,9 @@ type ToolCall struct {
 type ClusterWrite struct {
 	Approval ToolCallApproval `json:"approval"`
 	tools.ClusterWriteRequest
+	// Reason is the mode or rule that decided a write nobody was asked about;
+	// nil for one the user answered.
+	Reason *string `json:"reason"`
 }
 
 // clusterWritesOf is a call's writes as the wire serves them. A write waits
@@ -321,6 +328,9 @@ func clusterWritesOf(r toolCallEntry) []ClusterWrite {
 	out := make([]ClusterWrite, 0, len(r.ClusterWrites))
 	for _, a := range r.ClusterWrites {
 		w := ClusterWrite{Approval: ToolCallApproval{ID: a.ID, Status: a.Status}, ClusterWriteRequest: *a.Request}
+		if a.Reason != "" {
+			w.Reason = &a.Reason
+		}
 		if a.Status != ApprovalPending || r.Status != toolRunning {
 			w.ContentType, w.Body = "", ""
 		}

@@ -20,6 +20,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"mime"
 	"net/http"
 	"net/url"
@@ -28,6 +29,7 @@ import (
 
 	"sigs.k8s.io/yaml"
 
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/safe"
 )
 
@@ -65,15 +67,20 @@ type Write struct {
 	DryRun      bool   // a POST, PUT or PATCH whose every dryRun is All
 }
 
-// Asker puts a write to the user. false is a denial. A context error is a wait
-// that ended without a decision, which the asker records as abandoned; any
-// other error is a request or decision the asker could not record.
+// Asker puts a write to the user, and records one decided with nobody asked.
+// From Ask, false is a denial; a context error is a wait that ended without a
+// decision, which the asker records as abandoned; any other error is a request
+// or decision the asker could not record. From Record, an error is a record
+// the asker could not write; reason is the decision in the user's words.
 type Asker interface {
 	Ask(ctx context.Context, w Write) (bool, error)
+	Record(ctx context.Context, w Write, d permissions.Decision, reason string) error
 }
 
-// serveWrite puts a write the policy passed to the user, and forwards it once
-// approved.
+// serveWrite decides a write the policy passed: forwards it when the policy
+// allows it, refuses it when the policy denies it, and otherwise puts it to
+// the user and forwards it once approved. Each one decided with nobody asked
+// is recorded first.
 func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 	// What needs no body is refused before the queue, so a burst of them reads
 	// its own refusal.
@@ -92,7 +99,7 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		return
 	}
 	// Held until the forward returns, so the cluster sees writes in the order
-	// they were approved, and one wait on the user at a time.
+	// they were decided, and one wait on the user at a time.
 	if !g.takeWriteLock(r.Context(), w) {
 		return
 	}
@@ -110,10 +117,28 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		writeStatus(w, http.StatusForbidden, string(why))
 		return
 	}
-	approved, err := g.asker.Ask(r.Context(), Write{
+	act := classify(r, p, body, g.context)
+	write := Write{
 		Method: r.Method, Path: r.URL.RequestURI(), Subresource: p.subresource,
 		ContentType: r.Header.Get("Content-Type"), Body: body, DryRun: isDryRun(r),
-	})
+	}
+	switch d, reason := g.policy(r.Context()).Decide(act); d {
+	case permissions.Allowed:
+		if err := g.asker.Record(r.Context(), write, d, reason); err != nil {
+			writeStatus(w, http.StatusForbidden, string(refusedUnrecorded))
+			return
+		}
+		g.forward(w, r, p, body)
+		return
+	case permissions.Denied:
+		// Nothing runs either way, so the refusal does not wait on the record.
+		if err := g.asker.Record(r.Context(), write, d, reason); err != nil {
+			slog.Warn("a refused cluster write was not recorded", "err", err)
+		}
+		writeStatus(w, http.StatusForbidden, "kstack: "+act.Summary+" is not allowed: "+reason)
+		return
+	}
+	approved, err := g.asker.Ask(r.Context(), write)
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		writeStatus(w, http.StatusForbidden, string(refusedUnanswered))
 		return
@@ -127,6 +152,15 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		return
 	}
 	g.forward(w, r, p, body)
+}
+
+// policy is the session's mode and rules for the grant's context, read now, so
+// a change made meanwhile applies. A session with no policy is read-only.
+func (g *Grant) policy(ctx context.Context) permissions.Policy {
+	if g.session.Policy == nil {
+		return permissions.Policy{Mode: permissions.ReadOnly}
+	}
+	return g.session.Policy(ctx, g.context)
 }
 
 // takeWriteLock waits for the write lock, as one of at most maxQueuedWrites, and
@@ -171,6 +205,12 @@ func checkBody(r *http.Request, p apiPath, body []byte) refusal {
 		if err != nil {
 			return refusedUnshowable
 		}
+		// decodeBody keeps a repeated key's last value, where the API server's
+		// typed decoder merges repeated objects, so a body repeating one would
+		// be classified and shown as other than it runs.
+		if !uniqueKeys(mediaType, body) {
+			return refusedRepeatedKey
+		}
 		if holdsMark(value) {
 			return refusedRedacted
 		}
@@ -202,6 +242,49 @@ func decodeBody(mediaType string, body []byte) (any, error) {
 		return nil, errors.New("kubeproxy: a body holds more than one value")
 	}
 	return value, nil
+}
+
+// uniqueKeys is whether body parses with no object repeating a key.
+func uniqueKeys(mediaType string, body []byte) bool {
+	if mediaType == "application/apply-patch+yaml" {
+		_, err := yaml.YAMLToJSONStrict(body)
+		return err == nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(body))
+	return uniqueKeysIn(dec) && !dec.More()
+}
+
+// uniqueKeysIn reads the next JSON value off dec, false if it does not parse or
+// an object in it repeats a key.
+func uniqueKeysIn(dec *json.Decoder) bool {
+	tok, err := dec.Token()
+	if err != nil {
+		return false
+	}
+	switch tok {
+	case json.Delim('{'):
+		seen := map[string]bool{}
+		for dec.More() {
+			key, err := dec.Token()
+			if err != nil || seen[key.(string)] {
+				return false
+			}
+			seen[key.(string)] = true
+			if !uniqueKeysIn(dec) {
+				return false
+			}
+		}
+	case json.Delim('['):
+		for dec.More() {
+			if !uniqueKeysIn(dec) {
+				return false
+			}
+		}
+	default:
+		return true
+	}
+	_, err = dec.Token()
+	return err == nil
 }
 
 // holdsMark is whether any string in value, a key included, holds a redacted

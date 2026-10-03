@@ -3,6 +3,7 @@ title: A sandboxed command asks for each cluster write
 date: 2026-09-29
 scope: cross-cutting
 status: Accepted
+amended_by: [A sandboxed cluster write runs, asks or is refused by its class, the context's mode and the user's rules](2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md)
 ---
 
 # A sandboxed command asks for each cluster write

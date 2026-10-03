@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"time"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/chatsvc"
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
+	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 )
@@ -187,4 +189,54 @@ func sandboxPathOf(entries []securityconfig.PathEntry) []*model.SandboxPathEntry
 		}
 	}
 	return out
+}
+
+// permissionSettings is the permission modes and rules as Settings shows them,
+// each known context's mode among them.
+func (r *Resolver) permissionSettings(ctx context.Context) (*model.PermissionSettings, error) {
+	clusters, err := r.ClusterSvc.Clusters().List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var contexts []string
+	for _, c := range clusters {
+		if name := c.KubeContext(); name != "" && c.DeletionRequestedAt == nil {
+			contexts = append(contexts, name)
+		}
+	}
+	slices.Sort(contexts)
+	contexts = slices.Compact(contexts)
+
+	cfg := r.SecurityCfg
+	out := &model.PermissionSettings{DefaultMode: cfg.DefaultMode(), Destructive: kubeproxy.Destructive, Held: []string{}}
+	for _, c := range contexts {
+		st := cfg.ModeFor(c)
+		out.Contexts = append(out.Contexts, &st)
+	}
+	for _, rule := range cfg.Get().Rules {
+		out.Rules = append(out.Rules, &rule)
+	}
+	for _, field := range []string{securityconfig.FieldDefaultMode, securityconfig.FieldModes, securityconfig.FieldRules} {
+		if cfg.Held(field) {
+			out.Held = append(out.Held, field)
+		}
+	}
+	return out, nil
+}
+
+// permissionsAfter is a permission mutation's answer: its refusal, else the
+// settings it left.
+func (r *Resolver) permissionsAfter(ctx context.Context, err error) (*model.PermissionSettings, error) {
+	var refusal securityconfig.Refusal
+	switch {
+	case errors.As(err, &refusal):
+		return nil, gqlerrors.NewValidationError("permission", refusal.Error())
+	case errors.Is(err, securityconfig.ErrHeld):
+		return nil, gqlerrors.NewValidationError("permission", "the security settings file holds a value Kstack cannot read: fix it, or discard what Kstack cannot read")
+	case errors.Is(err, securityconfig.ErrNoRule), errors.Is(err, securityconfig.ErrNotHeld):
+		return nil, gqlerrors.NewValidationError("permission", err.Error())
+	case err != nil:
+		return nil, err
+	}
+	return r.permissionSettings(ctx)
 }

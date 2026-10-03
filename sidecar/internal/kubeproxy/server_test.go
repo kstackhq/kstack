@@ -28,13 +28,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
 
 // The server keeps the production bounds.
 func TestNewServerSetsTheBounds(t *testing.T) {
-	srv := NewServer(NewGrant(nil, session.Session{}, nil, noAsker, 1, 1, 1))
+	srv := NewServer(NewGrant(nil, askSession, "dev", nil, noAsker, 1, 1, 1))
 	assert.Equal(t, 10*time.Second, srv.ReadHeaderTimeout)
 	assert.Equal(t, 60*time.Second, srv.IdleTimeout)
 	assert.Equal(t, 64<<10, srv.MaxHeaderBytes)
@@ -48,7 +47,7 @@ func TestNewServerSetsTheBounds(t *testing.T) {
 func TestTheServerBoundsItsConnections(t *testing.T) {
 	const bound = 50 * time.Millisecond
 	api, _, _ := watchServer(t)
-	g := NewGrant(api.upstream(), session.Session{}, nil, noAsker, 1000, 1000, 32)
+	g := NewGrant(api.upstream(), askSession, "dev", nil, noAsker, 1000, 1000, 32)
 	t.Cleanup(g.End)
 	srv := newServer(g, bound, bound)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")

@@ -129,6 +129,7 @@ const ChatMessagesWatchSubscription = graphql(`
             contentType
             body
             dryRun
+            reason
           }
           output
           background {
