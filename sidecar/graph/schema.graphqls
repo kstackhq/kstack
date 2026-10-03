@@ -1360,6 +1360,89 @@ input MemorySaveInput {
   body: String!
 }
 
+# --- Permissions ---
+
+"How much an action can do, as the permissions engine numbers its classes 1 to 6. A rule may name `UpstreamWrite` or `Destructive`."
+enum PermissionClass {
+  ReadInside
+  WriteInside
+  NewHost
+  UpstreamWrite
+  Destructive
+  SecretRead
+}
+
+"Which classes ask: `ReadOnly` refuses writes, `Ask` asks for every write, `Auto` asks for destructive ones alone."
+enum PermissionMode {
+  ReadOnly
+  Ask
+  Auto
+}
+
+"What a rule does to an action it matches."
+enum PermissionEffect {
+  Allow
+  Deny
+  Ask
+}
+
+"Where a context's mode comes from: `Refused`, read-only while the file's modes cannot be read; `Entry`, a mode entry whose pattern matches; `Default`, the default mode."
+enum PermissionModeSource {
+  Refused
+  Entry
+  Default
+}
+
+"One rule over cluster writes. Every string but `group` is a pattern: `*` matches any run of characters, `?` one, `\\` escapes the next. An empty field matches anything. Every string is user text: draw it through VisibleText."
+type PermissionRule {
+  id: String!
+  effect: PermissionEffect!
+  class: PermissionClass!
+  context: String!
+  namespace: String!
+  verb: String!
+  group: String!
+  kind: String!
+  "The rule in the user's words."
+  line: String!
+}
+
+"A context the clusters watch knows, and the mode its sandboxed commands run under."
+type PermissionContextMode {
+  context: String!
+  mode: PermissionMode!
+  source: PermissionModeSource!
+  "The mode entry that decided the mode, for source `Entry`; empty otherwise."
+  pattern: String!
+  "Whether that entry names this context alone: the one `permissionModeClear` removes."
+  own: Boolean!
+}
+
+"The modes and rules sandboxed commands' cluster writes are decided by."
+type PermissionSettings {
+  "The mode of a context nothing else names."
+  defaultMode: PermissionMode!
+  "Each known context's mode, by context."
+  contexts: [PermissionContextMode!]!
+  "The user's always rules."
+  rules: [PermissionRule!]!
+  "The writes that always ask, in words."
+  destructive: [String!]!
+  "The settings fields the file holds a value of that Kstack cannot read: `defaultMode`, `modes`, `rules`."
+  held: [String!]!
+}
+
+"A rule to add; every string is a pattern but `group`, and empty matches anything."
+input PermissionRuleInput {
+  effect: PermissionEffect!
+  class: PermissionClass!
+  context: String! = ""
+  namespace: String! = ""
+  verb: String! = ""
+  group: String! = ""
+  kind: String! = ""
+}
+
 # --- Cloud account ---
 # The sidecar-owned sign-in and display identity. Tokens never appear here.
 # Login verifies claims; startup restores display claims without re-verification.
@@ -1462,6 +1545,9 @@ type Query {
   "Whether a sync has ever read the login shell's PATH. Until one has, sandboxed commands search the platform's default folders; after it, the list alone, so an empty one searches nothing. False on a machine with no sandbox."
   sandboxPathResolved: Boolean!
 
+  "The permission modes and rules, as Settings shows them."
+  permissionSettings: PermissionSettings!
+
   # --- Cloud account ---
   "Current authentication state. Signed-out when no cloud account is configured; live updates via authStateWatch."
   authState: AuthState!
@@ -1530,6 +1616,25 @@ type Mutation {
 
   "Delete a memory. Refused `KSTACK_RECORD_NOT_FOUND` for an unknown id. Returns true."
   memoryDelete(id: MemoryID!): Boolean!
+
+  # --- Permissions ---
+  "Set the mode of a context nothing else names. Also the fix for a default mode the file holds that Kstack cannot read."
+  permissionDefaultModeSet(mode: PermissionMode!): PermissionSettings!
+
+  "Set one context's own mode, ahead of every pattern. Refused `KSTACK_VALIDATION_ERROR` while the file's modes cannot be read."
+  permissionModeSet(context: String!, mode: PermissionMode!): PermissionSettings!
+
+  "Clear one context's own mode. Refused `KSTACK_VALIDATION_ERROR` while the file's modes cannot be read."
+  permissionModeClear(context: String!): PermissionSettings!
+
+  "Add an always rule. Refused `KSTACK_VALIDATION_ERROR` for a rule Kstack cannot apply, saying why, and while the file's rules cannot be read."
+  permissionRuleAdd(input: PermissionRuleInput!): PermissionSettings!
+
+  "Remove an always rule. Refused `KSTACK_VALIDATION_ERROR` for an unknown id, and while the file's rules cannot be read."
+  permissionRuleRemove(id: String!): PermissionSettings!
+
+  "Write `modes` or `rules` as Kstack read it, dropping what it could not read. Refused `KSTACK_VALIDATION_ERROR` for a field that holds nothing unread."
+  permissionDiscardRefused(field: String!): PermissionSettings!
 
   # --- Cloud account ---
   "Start the sidecar-owned browser sign-in (OAuth). Setup (loopback bind + browser open) runs synchronously, so a setup failure — or no cloud account — returns an error. Returns true once the browser opens; the token exchange then completes in the background, with the signed-in state delivered via authStateWatch."

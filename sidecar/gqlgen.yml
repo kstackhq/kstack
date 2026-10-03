@@ -461,6 +461,55 @@ models:
   SecurityRefusal:
     model: github.com/kstackhq/kstack/sidecar/internal/securityconfig.Refusal
 
+  # --- Permissions ---
+  PermissionClass:
+    model: github.com/kstackhq/kstack/sidecar/internal/permissions.Class
+    enum_values:
+      ReadInside:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.ReadInside
+      WriteInside:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.WriteInside
+      NewHost:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.NewHost
+      UpstreamWrite:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.UpstreamWrite
+      Destructive:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.Destructive
+      SecretRead:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.SecretRead
+  PermissionMode:
+    model: github.com/kstackhq/kstack/sidecar/internal/permissions.Mode
+    enum_values:
+      ReadOnly:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.ReadOnly
+      Ask:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.Ask
+      Auto:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.Auto
+  PermissionEffect:
+    model: github.com/kstackhq/kstack/sidecar/internal/permissions.Effect
+    enum_values:
+      Allow:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.Allow
+      Deny:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.Deny
+      Ask:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.AskFor
+  PermissionModeSource:
+    model: github.com/kstackhq/kstack/sidecar/internal/securityconfig.ModeSource
+    enum_values:
+      Refused:
+        value: github.com/kstackhq/kstack/sidecar/internal/securityconfig.SourceRefused
+      Entry:
+        value: github.com/kstackhq/kstack/sidecar/internal/securityconfig.SourceEntry
+      Default:
+        value: github.com/kstackhq/kstack/sidecar/internal/securityconfig.SourceDefault
+  # line binds to the rule's Line method.
+  PermissionRule:
+    model: github.com/kstackhq/kstack/sidecar/internal/permissions.Rule
+  PermissionContextMode:
+    model: github.com/kstackhq/kstack/sidecar/internal/securityconfig.ContextModeState
+
   # --- Auth ---
   # Bind the GraphQL auth types straight to the auth domain types so the
   # resolvers need no field-by-field mapper. Only schema fields are exposed —
