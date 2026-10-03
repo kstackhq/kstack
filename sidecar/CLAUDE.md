@@ -1629,8 +1629,8 @@ Settings shows. → [ADR: permissions are classes, modes and rules decided at th
 `tools` or `clustersvc`: `kubeproxy.go` the grant and the handler, `policy.go` the path parse
 and the read policy, `redact.go` and `redact_helm.go` the Secret rewriter, `status.go` the
 `Status` every refusal writes, `server.go` the server a run serves a grant on, `write.go` the
-write path. **A `Grant`** (`NewGrant(up, sess, asker, refusal, qps, burst, maxInFlight)`) holds the
-session of the run it serves, answered by `Session()` (what the token maps to), a 256-bit
+write path, `classify.go` the classifier. **A `Grant`** (`NewGrant(up, sess, kubeContext, asker, refusal, qps, burst, maxInFlight)`) holds the
+session of the run it serves, the kube-context its writes are decided in (the chat's cluster record's `KubeContext()`, uncut), answered by `Session()` (what the token maps to), a 256-bit
 token, an `Upstream` (`Endpoint(ctx)`: an `Endpoint` per request, the connection's base URL and client
 and a `Done` that closes when they no longer reach the chat's cluster, which cancels the request
 still open, a watch or a follow included), a
@@ -1674,13 +1674,19 @@ with a `Content-Encoding`, not valid UTF-8, or whose media type, parameters asid
 or apply YAML (a `DELETE` may carry none), one that does not decode as its media type says
 (`decodeBody`: an apply patch through `sigs.k8s.io/yaml`, as the API server reads one, anything
 else as one JSON value), one repeating a key in one object (`uniqueKeys`), since `decodeBody`
-keeps the last where the API server's typed decoder merges, so the body would be shown as
-other than it runs, one with `[redacted]` or its base64 in any decoded string, a key
+keeps the last where the API server's typed decoder merges, so the body would be classified and
+shown as other than it runs, one with `[redacted]` or its base64 in any decoded string, a key
 included, so an escape that spells the mark differently does not hide it, and a `POST`
 to `secrets` that is not a JSON object or is typed `helm.sh/release.v1`, read by exact key;
-then `Ask`s with a `Write` — the method, the path and raw query, the policy's subresource, the
-media type, the body, and `DryRun`, set only for a `POST`, `PUT` or `PATCH` whose every `dryRun`
-is `All`, since the API server reads a `DELETE`'s options from its body when it has one. A
+then, still under the lock, so writes reach the cluster in the order they were decided,
+classifies it (`classify`, below) into a `Write` — the method, the path and raw query, the
+policy's subresource, the media type, the body, `DryRun`, set only for a `POST`, `PUT` or `PATCH`
+whose every `dryRun` is `All`, since the API server reads a `DELETE`'s options from its body when it
+has one — and asks the session's `Policy` for the grant's context to decide the action (a session
+with no `Policy` is read-only). `Allowed` is recorded through
+`Asker.Record`, then forwarded, and a record that fails forwards nothing (*this change could not be
+recorded*); `Denied` is recorded, a failed record logged, and answered 403 *kstack: <summary> is not
+allowed: <reason>*; `Prompted` is `Ask`ed with the `Write`. A
 denial is a 403 *the user did not approve this change*, a wait that ended a 403 *the user did
 not answer this change*, and an approval forwards the bytes read, taking a slot and the limiter
 only then, so a write waiting on the user holds neither. **A request
@@ -2341,7 +2347,7 @@ since most commands never touch the cluster: a cluster never identified (no UID)
 `kubeproxy.ErrNotIdentified` or `ErrNotConnectable`; `ErrNotFound` is `errClusterGone`, and any
 other error `could not start:`. `sandboxedRunFor` asks the sandbox for a port only for a run
 with a cluster, then `startProxy` listens on the run's `proxy.sock` and serves a
-`kubeproxy.NewGrant(claim, rt.Session, asker, refusal, 20, 50, 32)` on `kubeproxy.NewServer`, and `Run.Socket`
+`kubeproxy.NewGrant(claim, rt.Session, target.scopeContext, asker, refusal, 20, 50, 32)` on `kubeproxy.NewServer`, and `Run.Socket`
 names the socket. `writesFor` picks the grant's writes: a foreground call's asks through its
 runtime's `ClusterWriteAsker` (`runtimeAsker`, which turns a `kubeproxy.Write` into a
 `tools.ClusterWriteRequest` for `Ask` and `Record` alike), or refuses with *this sandbox reads the cluster and changes nothing*
@@ -2353,8 +2359,9 @@ server and its socket close, then the grant's `Wait` joins every handler — aft
 a handler reading a body returns only once its connection closes — the claim is released, and only
 then does the run's directory go. So no write is put to the user once `Run` has returned. A run with no
 cluster has no grant, no socket and no forwarder. `prompts/sandbox.md` says a sandboxed command waits
-for the user only for a change to the cluster, one request at a time, a denial `Forbidden` and the
-wait counting against its `timeout`; that `exec`, `attach`, `port-forward`, a service account
+for the user only for a change to the cluster, which runs at once under the user's rules, waits for
+them, or comes back `Forbidden` because their mode or a rule refuses it — the user's decision, not an
+error to work around — that a dry run of a built-in resource runs at once and one of a custom resource waits, and the wait counts against its `timeout`; that `exec`, `attach`, `port-forward`, a service account
 token, a helm change, a change past 1 MiB and a background command's change come back
 `Forbidden`; that a Secret changes with `kubectl apply --server-side`; that a Secret reads
 `[redacted]`; and that `sudo` does not work, a command's processes are limited, one past its CPU
