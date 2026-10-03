@@ -45,8 +45,8 @@ vi.mock('@/components/widgets/app-dialogs', () => ({
   AppDialogs: () => <div data-testid="app-dialogs" />,
 }));
 // The account control reads the auth provider; this test is about placement.
-vi.mock('@/components/widgets/signin-button', () => ({
-  SignInButton: () => <div data-testid="signin-button" />,
+vi.mock('@/components/widgets/account-avatar', () => ({
+  AccountAvatar: () => <div data-testid="account-avatar" />,
 }));
 vi.mock('@/components/widgets/settings-button', () => ({
   SettingsButton: () => <div data-testid="settings-button" />,
@@ -143,7 +143,7 @@ describe('AppLayout', () => {
 
   it('places the account chrome in the app bar, not the sidebar', async () => {
     const { container } = await renderWithRouter(buildTree(), '/');
-    const account = screen.getByTestId('signin-button');
+    const account = screen.getByTestId('account-avatar');
     expect(screen.getByTestId('app-bar').contains(account)).toBe(true);
     expect(sidebarOf(container).contains(account)).toBe(false);
   });

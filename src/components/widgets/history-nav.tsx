@@ -23,7 +23,7 @@
 // and trusted only on a match, so a new visit in the same tab can't inherit a
 // dead Forward.
 // See docs/adr/2026-08-09-url-params-as-window-state.md
-import { useCallback, useRef, useSyncExternalStore } from 'react';
+import { Fragment, useCallback, useRef, useSyncExternalStore } from 'react';
 
 import { useRouter } from '@tanstack/react-router';
 import type { RouterHistory } from '@tanstack/react-router';
@@ -32,7 +32,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@kubetail/ui/elements/button';
 import { cn } from '@kubetail/ui/lib/utils';
 
-import { APP_BAR_CONTROL_CLASS } from '@/components/widgets/app-bar-button';
+import { APP_BAR_CONTROL_CLASS, APP_BAR_HOVER_CLASS } from '@/components/widgets/app-bar-button';
 
 import { storageKey } from '@/lib/storage-key';
 
@@ -114,18 +114,22 @@ export function HistoryNav() {
     // The outline rides the group and the buttons inside stay ghosts, so the pair
     // reads as one control.
     <div className={cn('flex h-9 shrink-0 items-center border', APP_BAR_CONTROL_CLASS)}>
-      {buttons.map(({ label, Icon, enabled, onClick }) => (
-        <Button
-          key={label}
-          variant="ghost"
-          size="icon"
-          aria-label={label}
-          disabled={!enabled}
-          onClick={onClick}
-          className="rounded-full text-muted-foreground"
-        >
-          <Icon className="h-4 w-4" aria-hidden />
-        </Button>
+      {buttons.map(({ label, Icon, enabled, onClick }, i) => (
+        <Fragment key={label}>
+          {/* Splits the pair the way the grouped notification/settings pill
+              splits its own two buttons, rather than reading as one wide control. */}
+          {i > 0 && <div className="h-4.5 w-px shrink-0 bg-sidebar-border" aria-hidden />}
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label={label}
+            disabled={!enabled}
+            onClick={onClick}
+            className={cn('rounded-full text-muted-foreground', APP_BAR_HOVER_CLASS)}
+          >
+            <Icon className="h-4 w-4" aria-hidden />
+          </Button>
+        </Fragment>
       ))}
     </div>
   );
