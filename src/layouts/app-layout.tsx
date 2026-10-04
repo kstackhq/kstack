@@ -33,11 +33,11 @@ import { ModeNav } from '@/components/widgets/mode-nav';
 import { RightSidebar, RightSidebarToggle } from '@/components/widgets/right-sidebar';
 import type { AppMode } from '@/lib/app-mode';
 import { ChatOutboxProvider } from '@/lib/chat-outbox';
+import { ChatSwitchProvider } from '@/lib/chat-switch';
 import { ConnectionStatus } from '@/lib/connection-status';
 import { DialogProvider } from '@/lib/dialog';
 import { usePersistedFlag } from '@/lib/persisted-flag';
 import { RightSidebarProvider } from '@/lib/right-sidebar';
-import { SandboxSwitchProvider } from '@/lib/sandbox-switch';
 
 export function AppLayout() {
   // Each mode's nav mounts only in that mode. This layout stays mounted across
@@ -57,7 +57,7 @@ export function AppLayout() {
     // the new chat's own route, which unmounts the pane that held the text. A sandbox
     // switch in flight is held beside it for the same reason.
     <ChatOutboxProvider>
-      <SandboxSwitchProvider>
+      <ChatSwitchProvider>
         <DialogProvider>
           <ConnectionStatus />
           {/* The right sidebar's state wraps the bar and the row alike: its toggle is
@@ -99,7 +99,7 @@ export function AppLayout() {
           </RightSidebarProvider>
           <AppDialogs />
         </DialogProvider>
-      </SandboxSwitchProvider>
+      </ChatSwitchProvider>
     </ChatOutboxProvider>
   );
 }
