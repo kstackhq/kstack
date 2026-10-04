@@ -168,6 +168,8 @@ func (j *runJournal) recordAction(ctx context.Context, r tools.ActionRequest, d 
 	default:
 		return errNotRecorded
 	}
+	j.journalMu.Lock()
+	defer j.journalMu.Unlock()
 	call := j.openTool
 	if call == nil {
 		return errNoRunningCall
@@ -182,7 +184,11 @@ func (j *runJournal) recordAction(ctx context.Context, r tools.ActionRequest, d 
 		return err
 	}
 	call.ClusterWrites = append(call.ClusterWrites, a)
-	j.publish(StatusStreaming)
+	if j.asking {
+		j.publish(StatusWaitingApproval)
+	} else {
+		j.publish(StatusStreaming)
+	}
 	return nil
 }
 
@@ -195,39 +201,66 @@ func (j *runJournal) recordAction(ctx context.Context, r tools.ActionRequest, d 
 // answers the command with that error, never the decision: no change goes on a
 // decision the record does not hold.
 //
-// It runs on the proxy's goroutine while the loop waits in the call's Run, which
+// It runs on a proxy's goroutine while the loop waits in the call's Run, which
 // returns only once every request it sent has returned (kubeproxy's Wait), so the
-// journal is never touched by both at once.
+// loop and the proxies never touch the journal at once; journalMu keeps the
+// proxies' requests apart, and askMu keeps one ask before the user at a time.
 func (j *runJournal) askAction(ctx context.Context, r tools.ActionRequest) (tools.Answer, error) {
+	j.askMu.Lock()
+	defer j.askMu.Unlock()
+	a, decision, err := j.openAction(ctx, r)
+	if err != nil {
+		return tools.Answer{}, err
+	}
+	status, waitErr := j.waitDecision(ctx, a.ID, decision)
+	if waitErr != nil {
+		status = ApprovalAbandoned
+	}
+	if err := j.closeAction(ctx, a, status); err != nil {
+		return tools.Answer{}, err
+	}
+	return tools.Answer{Approved: status == ApprovalApproved}, waitErr
+}
+
+// openAction writes r pending under the open call and publishes the request,
+// under journalMu, and answers the approval and the channel its decision
+// arrives on.
+func (j *runJournal) openAction(ctx context.Context, r tools.ActionRequest) (*approval, <-chan bool, error) {
 	s := j.s
+	j.journalMu.Lock()
+	defer j.journalMu.Unlock()
 	call := j.openTool
 	if call == nil {
-		return tools.Answer{}, errNoRunningCall
+		return nil, nil, errNoRunningCall
 	}
 	id := newApprovalID()
 	decision := s.await(id)
 	a := &approval{ID: id, ToolCallID: call.ID, Status: ApprovalPending, CreatedAt: normalizeTime(s.now()), Request: &r}
 	if err := j.writeWaiting(ctx, nil, *a); err != nil {
 		s.forget(id)
-		return tools.Answer{}, err
+		return nil, nil, err
 	}
 	call.ClusterWrites = append(call.ClusterWrites, a)
+	j.asking = true
 	j.publish(StatusWaitingApproval)
 	s.notify(chatsKey)
+	return a, decision, nil
+}
 
-	status, waitErr := j.waitDecision(ctx, id, decision)
-	if waitErr != nil {
-		status = ApprovalAbandoned
-	}
-	if err := j.endApproval(ctx, a, status); err != nil {
-		// The command runs on, so the request must come down now: the journal
-		// takes the end the store refused, and the settle writes it whole.
-		a.Status, a.DecidedAt = status, nullMillis(normalizeTime(s.now()))
+// closeAction writes a's end as status under journalMu. An end the store
+// refuses still comes down, since the command runs on: the journal takes it,
+// and the settle writes it whole.
+func (j *runJournal) closeAction(ctx context.Context, a *approval, status ApprovalStatus) error {
+	j.journalMu.Lock()
+	defer j.journalMu.Unlock()
+	j.asking = false
+	err := j.endApproval(ctx, a, status)
+	if err != nil {
+		a.Status, a.DecidedAt = status, nullMillis(normalizeTime(j.s.now()))
 		j.publish(StatusStreaming)
-		s.notify(chatsKey)
-		return tools.Answer{}, err
+		j.s.notify(chatsKey)
 	}
-	return tools.Answer{Approved: status == ApprovalApproved}, waitErr
+	return err
 }
 
 // errNoRunningCall is an action asked while no call of the run is running.

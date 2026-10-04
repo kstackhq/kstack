@@ -103,6 +103,16 @@ type runJournal struct {
 	toolCalls   []*toolCallEntry
 	openTool    *toolCallEntry
 	toolSeq     int
+
+	// The proxies' requests run on goroutines of their own while the loop waits
+	// in the call's Run. journalMu serializes what they change on the journal,
+	// and is never held across a wait on the user; askMu holds one ask at a
+	// time from its pending row to its end, so a second waits for the first
+	// answer while a record lands at once. asking, under journalMu, is an ask
+	// waiting, which a record publishes as still waiting.
+	journalMu sync.Mutex
+	askMu     sync.Mutex
+	asking    bool
 }
 
 // isTurns reports whether this is the turn's own run rather than a subagent's.

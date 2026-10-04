@@ -31,6 +31,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -1314,4 +1315,100 @@ func TestAnActionIsRecordedWithItsRequest(t *testing.T) {
 	kinds, requests = actionRequests(t, s.db)
 	assert.Equal(t, []string{"action", "action"}, kinds)
 	assert.Equal(t, []tools.ActionRequest{allowedPatch, deleteX}, requests)
+}
+
+// twoRequestsTool is a tool whose run asks deleteX on one goroutine and, once
+// the test closes second, sends allowedPatch on another: asked, or recorded
+// allowed when record is set. Each result goes to done.
+type twoRequestsTool struct {
+	testTool
+	second chan struct{}
+	record bool
+	done   chan error
+}
+
+func (w twoRequestsTool) Run(ctx context.Context, rt tools.Runtime, _ json.RawMessage) (string, bool) {
+	go func() {
+		_, err := rt.ActionAsker.Ask(ctx, deleteX)
+		w.done <- err
+	}()
+	<-w.second
+	go func() {
+		if w.record {
+			w.done <- rt.ActionAsker.Record(ctx, allowedPatch, permissions.Allowed, "auto mode")
+			return
+		}
+		_, err := rt.ActionAsker.Ask(ctx, allowedPatch)
+		w.done <- err
+	}()
+	<-w.done
+	<-w.done
+	return "done", false
+}
+
+// startTwoRequests is a started service whose model calls a twoRequestsTool
+// once, and a channel of the frames of the answer whose call holds n actions.
+func startTwoRequests(t *testing.T, w twoRequestsTool) (*service, ChatMessage, func(n int) <-chan ChatMessage) {
+	t.Helper()
+	w.name = "Twice"
+	s := startServiceWithTool(t, w)
+	fakeOf(s).SetToolCalls(llm.StagedCall("Twice", `{}`))
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	msg := send(t, s, nil, "1", "hi")
+	st, err := s.WatchMessages(ctx, msg.ChatID)
+	require.NoError(t, err)
+	withN := func(n int) <-chan ChatMessage {
+		out := make(chan ChatMessage, 1)
+		go func() {
+			for f := range st.Frames {
+				if f.Message == nil || f.Message.ID != msg.ID {
+					continue
+				}
+				var calls []ToolCall
+				if json.Unmarshal([]byte(f.Message.ToolCalls), &calls) == nil && len(calls) > 0 && len(calls[0].ClusterWrites) == n {
+					out <- *f.Message
+					return
+				}
+			}
+		}()
+		return out
+	}
+	return s, msg, withN
+}
+
+// Two asks of one run reach the journal one at a time: the second's row is
+// written only once the first is answered.
+func TestAsksTakeTheJournalOneAtATime(t *testing.T) {
+	second := make(chan struct{})
+	s, msg, withN := startTwoRequests(t, twoRequestsTool{second: second, done: make(chan error, 2)})
+
+	first := testutil.Recv(t, withN(1), "the first request")
+	two := withN(2)
+	close(second)
+	// A negative assertion: the second ask must not write while the first waits.
+	testutil.NoRecv(t, two, 200*time.Millisecond, "a second request while the first waits")
+
+	approve(t, s, toolCallsOf(t, first)[0].ClusterWrites[0].Approval.ID, false)
+	both := testutil.Recv(t, two, "the second request once the first is answered")
+	approve(t, s, toolCallsOf(t, both)[0].ClusterWrites[1].Approval.ID, false)
+	awaitSettled(t, s, msg.ChatID, msg.ID)
+}
+
+// A record lands while an ask waits on the user, and the answer still says it
+// waits.
+func TestARecordNeverWaitsBehindAnAsk(t *testing.T) {
+	second := make(chan struct{})
+	done := make(chan error, 2)
+	s, msg, withN := startTwoRequests(t, twoRequestsTool{second: second, record: true, done: done})
+
+	first := testutil.Recv(t, withN(1), "the first request")
+	two := withN(2)
+	close(second)
+	got := testutil.Recv(t, two, "the record while the ask waits")
+	assert.Equal(t, StatusWaitingApproval, got.Status)
+	assert.Equal(t, ApprovalAllowed, toolCallsOf(t, got)[0].ClusterWrites[1].Approval.Status)
+
+	approve(t, s, toolCallsOf(t, first)[0].ClusterWrites[0].Approval.ID, false)
+	awaitSettled(t, s, msg.ChatID, msg.ID)
 }
