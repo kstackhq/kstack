@@ -166,7 +166,7 @@ func TestRunShutsDownWhenItsContextEnds(t *testing.T) {
 // and its PATH handed on.
 func TestResolveIsRunOnceAtLaunch(t *testing.T) {
 	runs := 0
-	path, fault := runShell(t.Context(), func(context.Context) (loginshell.Result, *loginshell.Fault) {
+	path, fault := runShell(t.Context(), nil, func(context.Context, loginshell.Start) (loginshell.Result, *loginshell.Fault) {
 		runs++
 		return loginshell.Result{Path: []string{"/opt/bin", "/usr/bin"}}, nil
 	})
@@ -174,7 +174,7 @@ func TestResolveIsRunOnceAtLaunch(t *testing.T) {
 	require.Equal(t, []string{"/opt/bin", "/usr/bin"}, path)
 	require.Empty(t, fault)
 
-	path, fault = runShell(t.Context(), func(context.Context) (loginshell.Result, *loginshell.Fault) {
+	path, fault = runShell(t.Context(), nil, func(context.Context, loginshell.Start) (loginshell.Result, *loginshell.Fault) {
 		return loginshell.Result{}, &loginshell.Fault{Reason: "timeout", ExitCode: -1}
 	})
 	require.Nil(t, path)

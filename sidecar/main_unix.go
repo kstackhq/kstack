@@ -28,19 +28,19 @@ import (
 // set where the platform needs it, and its PATH is what the sandbox's
 // is resolved from.
 func launchShell(ctx context.Context) (path []string, fault string) {
-	return runShell(ctx, loginshell.Resolve)
+	return runShell(ctx, loginshell.In(nil, nil, nil, nil), loginshell.Resolve)
 }
 
-// runShell calls resolve once, under the shell's timeout, and hands its
-// answer to both readers. It logs how long the shell took, so the timeout can
-// be judged against real startup files. A failure is not a startup error: it
-// logs the reason, never a value, and answers no path.
-func runShell(ctx context.Context, resolve func(context.Context) (loginshell.Result, *loginshell.Fault)) ([]string, string) {
+// runShell calls resolve once, through start, under the shell's timeout, and
+// hands its answer to both readers. It logs how long the shell took, so the
+// timeout can be judged against real startup files. A failure is not a startup
+// error: it logs the reason, never a value, and answers no path.
+func runShell(ctx context.Context, start loginshell.Start, resolve func(context.Context, loginshell.Start) (loginshell.Result, *loginshell.Fault)) ([]string, string) {
 	started := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, loginshell.DefaultTimeout)
 	defer cancel()
 
-	res, f := resolve(ctx)
+	res, f := resolve(ctx, start)
 	if f != nil {
 		slog.Warn("login shell not read",
 			"reason", f.Reason,
