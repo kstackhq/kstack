@@ -180,3 +180,4 @@ usually just documentation in the wrong place.
 | 2026-10-04 | [Run the login shell in the sandbox](2026-10-04-the-login-shell-runs-in-the-sandbox.md) | sidecar | Accepted |
 | 2026-10-04 | [A prompt names the action and offers a duration](2026-10-04-a-prompt-names-the-action-and-offers-a-duration.md) | cross-cutting | Accepted |
 | 2026-10-04 | [Network is the user's switch](2026-10-04-network-is-the-users-switch.md) | cross-cutting | Accepted |
+| 2026-10-04 | [Ship Kstack's own pasta, with passt's profile for it](2026-10-04-kstack-ships-its-own-pasta.md) | cross-cutting | Accepted |
