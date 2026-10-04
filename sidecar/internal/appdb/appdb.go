@@ -113,9 +113,8 @@ func (db *DB) Close() error {
 // The keys, named here so a writer in one service and a watcher in another cannot
 // spell one apart. Every service over the file notifies and subscribes through these.
 const (
-	// KeyConversations: the conversation list changed — a row added, removed, or
-	// moved in recency.
-	KeyConversations = "conversations"
+	// KeyChats: the chat list changed — a row added, removed, or moved in recency.
+	KeyChats = "chats"
 	// KeyClusters: a clusters row was inserted, edited, marked, or removed. Re-read
 	// and diff; the mirror and the chat sweeper re-read too.
 	KeyClusters = "clusters"
@@ -124,10 +123,10 @@ const (
 	KeyMemories = "memories"
 )
 
-// MessagesKey: the conversation's message rows changed. Re-read and diff.
+// MessagesKey: the chat's message rows changed. Re-read and diff.
 func MessagesKey(chatID string) string { return "messages/" + chatID }
 
-// StreamKey: the conversation's in-flight answer grew. Nothing in the file changed; the
+// StreamKey: the chat's in-flight answer grew. Nothing in the file changed; the
 // watcher rebuilds the one overlaid message from memory.
 func StreamKey(chatID string) string { return "stream/" + chatID }
 

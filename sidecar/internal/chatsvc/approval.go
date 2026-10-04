@@ -51,7 +51,7 @@ func (j *runJournal) Approve(ctx context.Context, call llm.Block, shown tools.Ap
 	row.Approval = a
 	j.toolCalls, j.openTool = append(j.toolCalls, row), row
 	j.publish(StatusWaitingApproval)
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 
 	status, err := j.waitDecision(ctx, id, decision)
 	if err != nil {
@@ -129,7 +129,7 @@ func (j *runJournal) endApproval(ctx context.Context, a *approval, status Approv
 	}
 	*a = ended
 	j.publish(StatusStreaming)
-	j.s.notify(conversationsKey)
+	j.s.notify(chatsKey)
 	return nil
 }
 
@@ -175,7 +175,7 @@ func (j *runJournal) askClusterWrite(ctx context.Context, w tools.ClusterWriteRe
 	}
 	call.ClusterWrites = append(call.ClusterWrites, a)
 	j.publish(StatusWaitingApproval)
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 
 	status, waitErr := j.waitDecision(ctx, id, decision)
 	if waitErr != nil {
@@ -186,7 +186,7 @@ func (j *runJournal) askClusterWrite(ctx context.Context, w tools.ClusterWriteRe
 		// takes the end the store refused, and the settle writes it whole.
 		a.Status, a.DecidedAt = status, nullMillis(normalizeTime(s.now()))
 		j.publish(StatusStreaming)
-		s.notify(conversationsKey)
+		s.notify(chatsKey)
 		return false, err
 	}
 	return status == ApprovalApproved, waitErr

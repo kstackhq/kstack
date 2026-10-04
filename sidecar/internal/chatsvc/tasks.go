@@ -299,7 +299,7 @@ func (s *service) watchTask(tk *task, f *os.File) {
 	s.unregisterTask(tk)
 	s.notify(messagesKey(tk.chatID))
 	// An agent's run may have ended waiting on the user, which the list marks.
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 	// Before done closes, so whoever waits on the task sees its kick through.
 	// startsTurn decides whether the end starts one.
 	s.kick(tk.chatID)

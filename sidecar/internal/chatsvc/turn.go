@@ -202,7 +202,7 @@ func (s *service) runTurn(t *turn) {
 	s.settleUntilLanded(t)
 	s.releaseTurn(t)
 	s.notify(messagesKey(t.chatID))
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 	// A cancelled or failed turn does not: a Cancel stops the chat.
 	if t.succeeded {
 		s.kick(t.chatID)

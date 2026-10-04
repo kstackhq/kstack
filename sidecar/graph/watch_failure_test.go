@@ -121,7 +121,7 @@ func TestChatWatchReportsItsFailure(t *testing.T) {
 	// The reader alone: closing the database closes the change hub too, which ends
 	// the watch cleanly.
 	require.NoError(t, db.Read.Close())
-	db.Notify(appdb.KeyConversations)
+	db.Notify(appdb.KeyChats)
 
 	var failed []sseEvent
 	for _, ev := range collectSSE(t, events) {

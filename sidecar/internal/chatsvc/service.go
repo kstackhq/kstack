@@ -98,7 +98,7 @@ const (
 )
 
 // The change-bus keys this service notifies and watches, spelled by appdb.
-const conversationsKey = appdb.KeyConversations
+const chatsKey = appdb.KeyChats
 
 func messagesKey(id ChatID) string { return appdb.MessagesKey(string(id)) }
 
@@ -321,7 +321,7 @@ func (s *service) Start(ctx context.Context) (func(context.Context) error, error
 	}
 	// A stranded run may have been waiting on the user, which the list marks.
 	if len(stranded) > 0 {
-		s.notify(conversationsKey)
+		s.notify(chatsKey)
 	}
 	if err := s.startSweeper(); err != nil {
 		return nil, err
@@ -472,7 +472,7 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 
 	s.startTurn(t, assistant)
 	s.notify(messagesKey(assistant.ChatID))
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 	return assistant, nil
 }
 
@@ -640,7 +640,7 @@ func (s *service) Rename(ctx context.Context, chatID ChatID, title string) (Chat
 	if err != nil {
 		return Chat{}, err
 	}
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 	return renamed, nil
 }
 
@@ -664,7 +664,7 @@ func (s *service) SetSandboxDisabled(ctx context.Context, chatID ChatID, disable
 	if err != nil {
 		return Chat{}, err
 	}
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 	return switched, nil
 }
 
@@ -717,7 +717,7 @@ func (s *service) Delete(ctx context.Context, chatID ChatID) error {
 	// sidecar's writes to the directory after.
 	s.removeChatDir(chatID)
 	s.dropStamps(chatID)
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 	s.notify(messagesKey(chatID))
 	// The mirror removes a marked cluster's row only once its chats are gone, and
 	// this may have been the last: a row that went is its signal, whoever asked.
@@ -739,7 +739,7 @@ func (s *service) List(ctx context.Context) ([]Chat, error) {
 func (s *service) WatchList(ctx context.Context) (*Stream[ChatWatchFrame], error) {
 	return newStream(s, ctx, func(ctx context.Context, out chan<- ChatWatchFrame) error {
 		// Subscribe, then read: a snapshot taken first would miss a commit in between.
-		rx := s.db.Subscribe(conversationsKey)
+		rx := s.db.Subscribe(chatsKey)
 		defer rx.Close()
 
 		f := newChatFold()

@@ -99,7 +99,7 @@ func TestAChangeOffTheWireSendsNoFrame(t *testing.T) {
 	expect(t, st, apimeta.DeltaFrameBookmark, "")
 
 	exec(t, h.db, `DELETE FROM chats WHERE id = 'c'`)
-	h.db.Notify(appdb.KeyConversations)
+	h.db.Notify(appdb.KeyChats)
 	exec(t, h.db, `UPDATE memories SET server_uid = 'uid-9'`)
 	h.db.Notify(appdb.KeyMemories)
 	h.save(t, clusterA, "next")

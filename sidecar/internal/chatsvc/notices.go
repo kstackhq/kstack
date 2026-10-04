@@ -244,6 +244,6 @@ func (s *service) startNoticeTurn(chatID ChatID) error {
 	}
 	s.startTurn(t, assistant)
 	s.notify(messagesKey(chatID))
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 	return nil
 }

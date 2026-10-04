@@ -501,7 +501,7 @@ func TestListWatchReportsCreatesAndRenames(t *testing.T) {
 	require.Equal(t, DeltaFrameBookmark, bookmark.Type)
 
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 	added := awaitFrame(t, w.Frames, func(f ChatWatchFrame) bool { return f.Type == DeltaFrameAdded })
 	assert.Equal(t, c.ID, added.Chat.ID)
 
@@ -539,7 +539,7 @@ func TestAWatchWhoseReadFailsReportsWhy(t *testing.T) {
 
 	// A closed pool is how a failing read is produced.
 	require.NoError(t, s.store.Close())
-	s.notify(conversationsKey)
+	s.notify(chatsKey)
 
 	testutil.WaitClosed(t, w.Frames, "the failed watch")
 	assert.ErrorContains(t, w.Err(), "list chats")
@@ -685,14 +685,14 @@ func TestAListChangeTheConsumerNeverReadsEndsThePump(t *testing.T) {
 				_, _, err := renameChat(t.Context(), s.store.Stmts(), id, "renamed", time.UnixMilli(int64(i)))
 				require.NoError(t, err)
 			}
-			s.notify(conversationsKey)
+			s.notify(chatsKey)
 		}},
 		{"the chats going", func(t *testing.T) {
 			for _, id := range ids {
 				_, err := deleteChat(t.Context(), s.store.Stmts(), id)
 				require.NoError(t, err)
 			}
-			s.notify(conversationsKey)
+			s.notify(chatsKey)
 		}},
 	} {
 		t.Run(change.what, func(t *testing.T) {
