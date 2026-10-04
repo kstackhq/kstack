@@ -155,6 +155,19 @@ func TestASetNamespaceSkipsAClusterScopedWrite(t *testing.T) {
 	assert.Equal(t, Allowed, got, "an unset namespace still covers a cluster-scoped write")
 }
 
+func TestAClusterScopeMatchesOnlyAClusterScopedWrite(t *testing.T) {
+	node := Action{Class: UpstreamWrite, Context: "dev", Verb: "patch", Group: "core", Kind: "nodes"}
+	cluster := Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: Allow, Class: UpstreamWrite, Context: "dev", Namespace: ClusterScope}}}
+	got, _ := cluster.Decide(node)
+	assert.Equal(t, Allowed, got)
+	got, _ = cluster.Decide(patch(UpstreamWrite))
+	assert.Equal(t, Prompted, got, "a namespaced write is not cluster-scoped")
+
+	named := Action{Class: UpstreamWrite, Context: "dev", Namespace: ClusterScope, Verb: "patch", Group: "core", Kind: "pods"}
+	got, _ = cluster.Decide(named)
+	assert.Equal(t, Prompted, got, "the word is a scope, never a namespace's name")
+}
+
 func TestARuleRoundTripsThroughJSON(t *testing.T) {
 	rule := Rule{ID: "r1", Effect: Deny, Class: UpstreamWrite, Context: "prod-eu", Namespace: "team-a", Verb: "delete", Group: "core", Kind: "pods"}
 	b, err := json.Marshal(rule)
@@ -178,6 +191,8 @@ func TestARuleReadsAsALine(t *testing.T) {
 		"Deny writes of apps resources everywhere":              {Effect: Deny, Class: UpstreamWrite, Group: "apps"},
 		"Deny writes of deployments everywhere":                 {Effect: Deny, Class: UpstreamWrite, Kind: "deployments"},
 		"Deny destructive writes of deployments everywhere":     {Effect: Deny, Class: Destructive, Kind: "deployments"},
+		"Deny patch of core nodes cluster-wide in prod":         {Effect: Deny, Class: UpstreamWrite, Context: "prod", Namespace: ClusterScope, Verb: "patch", Group: "core", Kind: "nodes"},
+		"Deny cluster writes cluster-wide":                      {Effect: Deny, Class: UpstreamWrite, Namespace: ClusterScope},
 	} {
 		assert.Equal(t, want, rule.Line())
 	}

@@ -22,8 +22,10 @@ Until now every write asked, or was refused when nobody could be asked
   a group exactly, and a resource covers its `scale` and no other subresource, so an `Allow` of
   creating pods is not one of evicting them, even when its pattern is a glob such as `pods*`; a
   bare `*` is every kind, so a `Deny` of `*` reaches an eviction
-  (`TestARuleMatchesByGroupAndSubresource`). A set namespace, `*` included, never matches a
-  cluster-scoped write (`TestASetNamespaceSkipsAClusterScopedWrite`). A rule's line names a class 5 rule *destructive*, so
+  (`TestARuleMatchesByGroupAndSubresource`). A namespace pattern, `*` included, never matches a
+  cluster-scoped write (`TestASetNamespaceSkipsAClusterScopedWrite`); the word `[cluster]`
+  matches a cluster-scoped write alone, never a namespace of that name
+  (`TestAClusterScopeMatchesOnlyAClusterScopedWrite`). A rule's line names a class 5 rule *destructive*, so
   two rules that differ only in class read differently (`TestARuleReadsAsALine`).
   `*` crosses `/` and `:` (`TestMatchCrossesSlashes`), and a value Kstack writes is escaped
   (`TestALiteralMatchesItselfAlone`).
