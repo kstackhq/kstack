@@ -150,7 +150,7 @@ type Service interface {
 
 	// Approve decides a command a turn is waiting on. true when a turn was
 	// waiting on it; a decision nothing waits on returns false and changes nothing.
-	Approve(ctx context.Context, id ApprovalID, approve bool) (bool, error)
+	Approve(ctx context.Context, id ApprovalID, d ApprovalDecision) (bool, error)
 	// StopBackgroundTask is the user's stop of the background task call id
 	// started. false when no task of that call is running.
 	StopBackgroundTask(ctx context.Context, id ToolCallID) (bool, error)
@@ -194,7 +194,10 @@ type service struct {
 	// reserved after that would outlive the rows it writes to.
 	deleting map[ChatID]int
 	// pending is the waiter of each command put to the user, under turnsMu too.
-	pending map[ApprovalID]chan bool
+	pending map[ApprovalID]*waiter
+	// ruleWrite writes the rule a Chat or Always answer adds: writeRule, or a
+	// test's stand-in.
+	ruleWrite func(ctx context.Context, chatID ChatID, rule permissions.Rule, d ApprovalDecision) error
 	// tasks is every background task that holds a slot, by chat, under turnsMu too.
 	tasks map[ChatID]map[TaskID]*task
 
@@ -265,7 +268,7 @@ func newService(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards
 		security:           security,
 		turns:              map[ChatID]*turn{},
 		deleting:           map[ChatID]int{},
-		pending:            map[ApprovalID]chan bool{},
+		pending:            map[ApprovalID]*waiter{},
 		tasks:              map[ChatID]map[TaskID]*task{},
 		stamps:             map[ChatID]map[string]tools.Stamp{},
 		stopped:            make(chan struct{}),
@@ -282,6 +285,7 @@ func newService(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards
 	s.deleteWrite = s.deleteRow
 	s.settleWrite = s.settleRow
 	s.finishWrite = s.finishRow
+	s.ruleWrite = s.writeRule
 	return s, nil
 }
 

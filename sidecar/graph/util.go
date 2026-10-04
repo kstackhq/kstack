@@ -226,6 +226,17 @@ func (r *Resolver) permissionSettings(ctx context.Context) (*model.PermissionSet
 	return out, nil
 }
 
+// approvalErr is what approvalDecide returns an error through: an Always
+// answer refused while the settings hold rules Kstack cannot read names the
+// file, and anything else is a chat refusal.
+func approvalErr(err error) error {
+	if errors.Is(err, securityconfig.ErrHeld) {
+		return gqlerrors.NewValidationError("decision",
+			"security.json holds rules Kstack cannot read, so no rule can be added: fix them in Settings, or approve once")
+	}
+	return chatErr(err)
+}
+
 // permissionsAfter is a permission mutation's answer: its refusal, else the
 // settings it left.
 func (r *Resolver) permissionsAfter(ctx context.Context, err error) (*model.PermissionSettings, error) {

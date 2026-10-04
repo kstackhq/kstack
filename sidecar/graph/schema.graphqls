@@ -1279,6 +1279,25 @@ type EditAction {
 type ToolCallApproval {
   id: ApprovalID!
   status: ApprovalStatus!
+  "How long the approval holds. Null unless the status is `Approved`."
+  duration: ApprovalDuration
+}
+
+"The user's answer to a request. `Once` and `Deny` answer this request alone; `Command` also allows the same change for the rest of the command; `Chat` and `Always` also write an Allow rule for the action's class and scope."
+enum ApprovalDecision {
+  Once
+  Command
+  Chat
+  Always
+  Deny
+}
+
+"How long an approval holds: this request, the rest of the command, the chat, or always."
+enum ApprovalDuration {
+  Once
+  Command
+  Chat
+  Always
 }
 
 """
@@ -1425,6 +1444,12 @@ type PermissionAction {
   verb: String!
   group: String!
   kind: String!
+  "Whether a rule may allow it. False offers Once and Deny alone."
+  grantable: Boolean!
+  "The rule a Command answer adds, in the words Settings uses; empty when not grantable."
+  commandRule: String!
+  "The rule a Chat or Always answer writes, in the same words; empty when not grantable."
+  chatRule: String!
 }
 
 "A context the clusters watch knows, and the mode its sandboxed commands run under."
@@ -1608,8 +1633,8 @@ type Mutation {
   "Stop the in-flight turn, keeping the partial answer. Returns true; a no-op when nothing is running."
   chatCancel(chatID: ChatID!): Boolean!
 
-  "Decide a waiting command. Returns true when a turn was waiting on it; that says the decision reached the turn, not that it was recorded, since a cancel landing in the same moment can still win and leave the approval pending. A decision nothing waits on — the turn cancelled, stranded or already decided — returns false and changes nothing."
-  approvalDecide(id: ApprovalID!, approve: Boolean!): Boolean!
+  "Decide a waiting request. Returns true when a turn was waiting on it; that says the decision reached the turn, not that it was recorded, since a cancel landing in the same moment can still win and leave the approval pending. A decision nothing waits on — the turn cancelled, stranded or already decided — returns false and changes nothing. `Command`, `Chat` and `Always` are refused `KSTACK_VALIDATION_ERROR` on a call's own request and on an action no rule may allow, and the request still waits; so is `Always` while the security settings hold rules Kstack cannot read."
+  approvalDecide(id: ApprovalID!, decision: ApprovalDecision!): Boolean!
 
   "The user's stop of the background task a call started: SIGTERM, then SIGKILL after a grace. Returns true when a task of that call was running; false, changing nothing, when none is."
   backgroundTaskStop(id: ToolCallID!): Boolean!

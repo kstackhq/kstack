@@ -117,11 +117,13 @@ const ChatMessagesWatchSubscription = graphql(`
           approval {
             id
             status
+            duration
           }
           clusterWrites {
             approval {
               id
               status
+              duration
             }
             action {
               summary
@@ -131,6 +133,9 @@ const ChatMessagesWatchSubscription = graphql(`
               verb
               group
               kind
+              grantable
+              commandRule
+              chatRule
             }
             method
             path

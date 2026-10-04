@@ -330,17 +330,22 @@ type ClusterWrite struct {
 	Reason *string `json:"reason"`
 }
 
-// PermissionAction is a classified action as the wire serves it.
+// PermissionAction is a classified action as the wire serves it: the action,
+// whether a rule may allow it, and the rule each allow answer adds, in words.
 type PermissionAction struct {
 	permissions.Action
+	Grantable   bool   `json:"grantable"`
+	CommandRule string `json:"commandRule"`
+	ChatRule    string `json:"chatRule"`
 }
 
 // clusterWriteOf is an action approval as the wire serves it, the request
 // whole.
 func clusterWriteOf(a ToolCallApproval, r tools.ActionRequest) ClusterWrite {
 	w := ClusterWrite{
-		Approval: a, Action: PermissionAction{Action: r.Action},
-		Diff: r.Diff, DiffCut: r.DiffCut, DiffError: r.DiffError,
+		Approval: a,
+		Action:   PermissionAction{Action: r.Action, Grantable: r.Grantable, CommandRule: r.CommandRule, ChatRule: r.ChatRule},
+		Diff:     r.Diff, DiffCut: r.DiffCut, DiffError: r.DiffError,
 	}
 	if r.Write != nil {
 		w.ClusterWrite = *r.Write
@@ -353,7 +358,7 @@ func clusterWriteOf(a ToolCallApproval, r tools.ActionRequest) ClusterWrite {
 func clusterWritesOf(r toolCallEntry) []ClusterWrite {
 	out := make([]ClusterWrite, 0, len(r.ClusterWrites))
 	for _, a := range r.ClusterWrites {
-		w := clusterWriteOf(ToolCallApproval{ID: a.ID, Status: a.Status}, *a.Request)
+		w := clusterWriteOf(toolCallApprovalOf(a), *a.Request)
 		if a.Reason != "" {
 			w.Reason = &a.Reason
 		}
@@ -413,6 +418,18 @@ func backgroundTaskOf(t *taskState) *BackgroundTask {
 type ToolCallApproval struct {
 	ID     ApprovalID     `json:"id"`
 	Status ApprovalStatus `json:"status"`
+	// Duration is how long an approval holds; nil unless approved.
+	Duration *permissions.Duration `json:"duration"`
+}
+
+// toolCallApprovalOf is a's id, status and duration as the wire serves them.
+func toolCallApprovalOf(a *approval) ToolCallApproval {
+	out := ToolCallApproval{ID: a.ID, Status: a.Status}
+	if a.Duration != "" {
+		d := a.Duration
+		out.Duration = &d
+	}
+	return out
 }
 
 // marshalToolCalls is the one spelling of a turn's calls, the live list's and the
@@ -434,7 +451,8 @@ func marshalToolCalls(rows []toolCallEntry, box tools.Box) rawjson.RawJSON {
 			ClusterWrites: clusterWritesOf(r),
 		}
 		if a := r.Approval; a != nil {
-			c.Approval = &ToolCallApproval{ID: a.ID, Status: a.Status}
+			approval := toolCallApprovalOf(a)
+			c.Approval = &approval
 		}
 		if r.AgentCallID != "" {
 			c.AgentCallID = &r.AgentCallID

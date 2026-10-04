@@ -37,6 +37,7 @@ import (
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/time/rate"
 
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
 )
 
@@ -103,6 +104,9 @@ type Grant struct {
 	// forwarded; writeWaiters bounds the writes waiting for it.
 	writeLock    *semaphore.Weighted
 	writeWaiters *semaphore.Weighted
+	// commandRules are the rules the user's command answers added, under the
+	// write lock: the grant lives as long as the command, and so do they.
+	commandRules []permissions.Rule
 	// diffTimeout bounds a preview's two requests together.
 	diffTimeout time.Duration
 	// waitersMoved, when set, is told each write that starts or stops waiting for

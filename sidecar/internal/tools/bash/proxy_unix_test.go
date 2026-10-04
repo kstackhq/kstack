@@ -466,7 +466,7 @@ func TestASandboxedRunReadsASecretRedacted(t *testing.T) {
 }
 
 // fakeActionAsker is a runtime's ActionAsker that keeps each write it is
-// asked or told of and answers with approve.
+// asked or told of and answers with approve, for once.
 type fakeActionAsker struct {
 	mu       sync.Mutex
 	approve  bool
@@ -478,7 +478,7 @@ func (f *fakeActionAsker) Ask(_ context.Context, r tools.ActionRequest) (tools.A
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.asked = append(f.asked, *r.Write)
-	return tools.Answer{Approved: f.approve}, nil
+	return tools.Answer{Approved: f.approve, Duration: permissions.DurationOnce}, nil
 }
 
 func (f *fakeActionAsker) Record(_ context.Context, r tools.ActionRequest, _ permissions.Decision, _ string) error {

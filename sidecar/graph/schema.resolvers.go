@@ -201,10 +201,10 @@ func (r *mutationResolver) ChatCancel(ctx context.Context, chatID apimeta.ChatID
 }
 
 // ApprovalDecide is the resolver for the approvalDecide field.
-func (r *mutationResolver) ApprovalDecide(ctx context.Context, id chatsvc.ApprovalID, approve bool) (bool, error) {
-	ok, err := r.ChatSvc.Approve(ctx, id, approve)
+func (r *mutationResolver) ApprovalDecide(ctx context.Context, id chatsvc.ApprovalID, decision chatsvc.ApprovalDecision) (bool, error) {
+	ok, err := r.ChatSvc.Approve(ctx, id, decision)
 	if err != nil {
-		return false, chatErr(err)
+		return false, approvalErr(err)
 	}
 	return ok, nil
 }

@@ -188,7 +188,7 @@ func TestASandboxedDeleteAsksAndRuns(t *testing.T) {
 	assert.Equal(t, "/api/v1/namespaces/default/pods/x", w.request.Write.Path)
 	assert.Equal(t, "waiting_approval", e.runStatus(t))
 	assert.NotContains(t, e.cluster.requests(), "DELETE /api/v1/namespaces/default/pods/x", "nothing reaches the cluster before the user decides")
-	raw := graphql(t, e.url, `mutation { approvalDecide(id: "`+w.id+`", approve: true) }`)
+	raw := graphql(t, e.url, `mutation { approvalDecide(id: "`+w.id+`", decision: Once) }`)
 	require.Contains(t, raw, `"approvalDecide":true`, raw)
 
 	row := e.bashCall(t, "succeeded", "failed")
@@ -207,7 +207,7 @@ func TestASandboxedDeleteDeniedIsForbidden(t *testing.T) {
 
 	e.ask(t, "delete pod x", llm.StagedCall("Bash", bashInput("kubectl delete pod x --wait=false")))
 	w := e.clusterWrite(t, "pending")
-	raw := graphql(t, e.url, `mutation { approvalDecide(id: "`+w.id+`", approve: false) }`)
+	raw := graphql(t, e.url, `mutation { approvalDecide(id: "`+w.id+`", decision: Deny) }`)
 	require.Contains(t, raw, `"approvalDecide":true`, raw)
 
 	row := e.bashCall(t, "succeeded", "failed")
@@ -249,7 +249,7 @@ func TestASwitchedChatAsks(t *testing.T) {
 	row := e.bashCall(t, "awaiting_approval")
 	assert.False(t, row.sandboxed)
 	assert.Equal(t, "pending", row.approvalStatus)
-	raw = graphql(t, e.url, `mutation { approvalDecide(id: "`+row.approvalID+`", approve: false) }`)
+	raw = graphql(t, e.url, `mutation { approvalDecide(id: "`+row.approvalID+`", decision: Deny) }`)
 	require.Contains(t, raw, `"approvalDecide":true`, raw)
 
 	row = e.bashCall(t, "denied")

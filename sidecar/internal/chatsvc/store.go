@@ -28,6 +28,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/rawjson"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -374,6 +375,9 @@ type approval struct {
 	DecidedAt  sql.NullInt64
 	// Request is the action an action approval holds; nil on a call's own.
 	Request *tools.ActionRequest
+	// Duration is how long an approval holds, what the user chose; "" unless
+	// approved.
+	Duration permissions.Duration
 	// Reason is the mode or rule that decided a write nobody was asked about;
 	// "" for one the user answered.
 	Reason string
@@ -558,7 +562,8 @@ func upsertApproval(ctx context.Context, st stmts, a approval) error {
 		kind, request = approvalAction, sql.NullString{String: string(b), Valid: true}
 	}
 	_, err := st.Exec(ctx, stmtUpsertApproval,
-		string(a.ID), string(a.ToolCallID), kind, request, a.Status, nullString(a.Reason), millis(a.CreatedAt), a.DecidedAt)
+		string(a.ID), string(a.ToolCallID), kind, request, a.Status, nullString(string(a.Duration)), nullString(a.Reason),
+		millis(a.CreatedAt), a.DecidedAt)
 	if err != nil {
 		return fmt.Errorf("upsert approval: %w", err)
 	}
@@ -598,11 +603,12 @@ func toolCallsByRun(ctx context.Context, st stmts, reads callReads, arg string) 
 			contract, status             sql.NullString
 			spawned                      sql.NullString
 			approvalID, approvalStatus   sql.NullString
+			approvalDuration             string
 			taskStatus, report           sql.NullString
 			exitCode                     sql.NullInt64
 		)
 		err := rows.Scan(&run, &c.ID, &runsOn, &useID, &c.Name, &contract, &args, &c.Cwd, &c.Sandboxed, &result, &errText, &status, &c.StartedAt,
-			&spawned, &approvalID, &approvalStatus, &taskStatus, &exitCode, &report)
+			&spawned, &approvalID, &approvalStatus, &approvalDuration, &taskStatus, &exitCode, &report)
 		if err != nil {
 			return nil, fmt.Errorf("tool calls: %w", err)
 		}
@@ -610,7 +616,10 @@ func toolCallsByRun(ctx context.Context, st stmts, reads callReads, arg string) 
 		c.ToolUseID, c.Arguments, c.Result, c.Error = useID.String, args.String, result.String, errText.String
 		c.SpawnedRunID = RunID(spawned.String)
 		if approvalID.Valid {
-			c.Approval = &approval{ID: ApprovalID(approvalID.String), Status: ApprovalStatus(approvalStatus.String)}
+			c.Approval = &approval{
+				ID: ApprovalID(approvalID.String), Status: ApprovalStatus(approvalStatus.String),
+				Duration: permissions.Duration(approvalDuration),
+			}
 		}
 		if taskStatus.Valid {
 			c.Task = &taskState{Status: taskStatus.String, ExitCode: exitCode, Report: report.String}
@@ -640,10 +649,11 @@ func clusterWritesByCall(ctx context.Context, st stmts, stmt stmtID, arg string)
 			request   string
 			createdAt int64
 		)
-		if err := rows.Scan(&a.ToolCallID, &a.ID, &a.Status, &request, &a.Reason, &createdAt, &a.DecidedAt); err != nil {
+		var duration string
+		if err := rows.Scan(&a.ToolCallID, &a.ID, &a.Status, &duration, &request, &a.Reason, &createdAt, &a.DecidedAt); err != nil {
 			return nil, fmt.Errorf("cluster writes: %w", err)
 		}
-		a.CreatedAt = time.UnixMilli(createdAt).UTC()
+		a.CreatedAt, a.Duration = time.UnixMilli(createdAt).UTC(), permissions.Duration(duration)
 		a.Request = &tools.ActionRequest{}
 		if err := json.Unmarshal([]byte(request), a.Request); err != nil {
 			return nil, fmt.Errorf("cluster writes: %w", err)

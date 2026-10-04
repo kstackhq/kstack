@@ -43,9 +43,9 @@ type asked struct {
 	ctx    context.Context
 }
 
-// The two answers tests give.
+// The two answers most tests give.
 var (
-	once   = Answer{Approved: true}
+	once   = Answer{Approved: true, Duration: permissions.DurationOnce}
 	denied = Answer{}
 )
 
@@ -793,7 +793,8 @@ func TestAnAllowedWriteForwardsUnasked(t *testing.T) {
 }
 
 // A write the mode or a rule refuses is a 403 naming why, recorded refused; a
-// record the store refuses changes nothing about the answer.
+// record the store refuses changes nothing about the answer. A session with no
+// policy is read-only.
 func TestADeniedWriteIsAForbiddenStatus(t *testing.T) {
 	deny := permissions.Rule{ID: "d", Effect: permissions.Deny, Class: permissions.UpstreamWrite, Context: "dev"}
 	for _, c := range []struct {
@@ -801,6 +802,7 @@ func TestADeniedWriteIsAForbiddenStatus(t *testing.T) {
 		why  string
 	}{
 		{sessionIn(permissions.ReadOnly), "this context is read-only"},
+		{session.Session{}, "this context is read-only"},
 		{sessionIn(permissions.Auto, deny), "a rule denies it: Deny cluster writes in dev"},
 	} {
 		for _, fail := range []bool{false, true} {
@@ -889,7 +891,8 @@ func TestDecideRunsUnderTheWriteLock(t *testing.T) {
 	assert.Equal(t, []string{"DELETE /api/v1/namespaces/web/pods/x", "PUT /api/v1/namespaces/web/configmaps/c"}, order)
 }
 
-// A request carries the action the classifier read.
+// A request carries the action the classifier read, whether a rule may allow
+// it, and the rules each allow answer adds, in the words Settings uses.
 func TestARequestCarriesTheAction(t *testing.T) {
 	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
 	asker := make(fakeAsker, 1)
@@ -899,6 +902,9 @@ func TestARequestCarriesTheAction(t *testing.T) {
 	a := asker.next(t)
 	assert.Equal(t, "Delete pods/x in web on dev", a.r.Action.Summary)
 	assert.Equal(t, permissions.UpstreamWrite, a.r.Action.Class)
+	assert.True(t, a.r.Grantable)
+	assert.Equal(t, "Allow delete of core pods in dev / web for this command", a.r.CommandRule)
+	assert.Equal(t, "Allow cluster writes inside dev / web", a.r.ChatRule)
 	a.answer <- denied
 	testutil.Recv(t, done, "the write to be answered")
 
@@ -908,4 +914,98 @@ func TestARequestCarriesTheAction(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode, body)
 	r := testutil.Recv(t, (<-chan recorded)(asker2.records), "the write's record")
 	assert.Equal(t, "Delete pods/y in web on dev", r.r.Action.Summary, "an allowed write is recorded with its action")
+}
+
+// A dry run that asks, on a group version that may ignore it, offers no rule:
+// a rule names no dry run, so one written from it would allow the real write.
+func TestADryRunAsksWithNoGrant(t *testing.T) {
+	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
+	asker := make(fakeAsker, 1)
+	s := serveAsking(t, api.upstream(), asker)
+
+	done := s.sendAsync(t, s.writeRequest(t, "PATCH", "/apis/example.com/v1/namespaces/web/widgets/w?dryRun=All", "application/merge-patch+json", `{}`))
+	a := asker.next(t)
+	assert.True(t, a.r.Action.DryRun)
+	assert.False(t, a.r.Grantable)
+	assert.Empty(t, a.r.CommandRule)
+	assert.Empty(t, a.r.ChatRule)
+	a.answer <- denied
+	testutil.Recv(t, done, "the write to be answered")
+	assert.Empty(t, api.requests())
+}
+
+// A class 5 write is a forbid no rule lifts, so it offers none.
+func TestADestructiveWriteOffersNoRule(t *testing.T) {
+	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
+	asker := make(fakeAsker, 1)
+	s := serveAsking(t, api.upstream(), asker)
+
+	done := s.sendAsync(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web", "", ""))
+	a := asker.next(t)
+	assert.Equal(t, permissions.Destructive, a.r.Action.Class)
+	assert.False(t, a.r.Grantable)
+	a.answer <- denied
+	testutil.Recv(t, done, "the write to be answered")
+}
+
+// A command answer allows the same change for the rest of the command: the
+// other pods' deletes run unasked, recorded allowed under the rule's line, and
+// a change of another resource still asks.
+func TestACommandAnswerAllowsTheRestOfTheCommand(t *testing.T) {
+	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
+	asker := newRecordingAsker()
+	s := serveIn(t, api.upstream(), askSession, asker)
+
+	done := s.sendAsync(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/a", "", ""))
+	asker.next(t).answer <- Answer{Approved: true, Duration: permissions.DurationCommand}
+	testutil.Recv(t, done, "the first delete")
+
+	for _, pod := range []string{"b", "c"} {
+		resp, body := s.do(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/"+pod, "", ""))
+		require.Equal(t, http.StatusOK, resp.StatusCode, body)
+		r := testutil.Recv(t, (<-chan recorded)(asker.records), "the delete's record")
+		assert.Equal(t, permissions.Allowed, r.d)
+		assert.Equal(t, "a rule allows it: Allow delete of core pods in dev / web for this command", r.why)
+	}
+
+	done = s.sendAsync(t, s.writeRequest(t, "DELETE", "/apis/apps/v1/namespaces/web/deployments/d", "", ""))
+	asker.next(t).answer <- denied
+	testutil.Recv(t, done, "the deployment's delete")
+}
+
+// A command's rule lives on its grant: the next command asks again.
+func TestACommandRuleEndsWithTheGrant(t *testing.T) {
+	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
+	asker := make(fakeAsker, 1)
+	s := serveAsking(t, api.upstream(), asker)
+	done := s.sendAsync(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/a", "", ""))
+	asker.next(t).answer <- Answer{Approved: true, Duration: permissions.DurationCommand}
+	testutil.Recv(t, done, "the first command's delete")
+
+	next := serveAsking(t, api.upstream(), asker)
+	done = next.sendAsync(t, next.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/b", "", ""))
+	asker.next(t).answer <- denied
+	testutil.Recv(t, done, "the next command's delete")
+}
+
+// The session's rules are read on every write, so one written between two
+// writes of one command allows the second.
+func TestARuleWrittenBetweenTwoWritesAllowsTheSecond(t *testing.T) {
+	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
+	var rules atomic.Pointer[[]permissions.Rule]
+	rules.Store(&[]permissions.Rule{})
+	sess := session.Session{Policy: func(context.Context, string) permissions.Policy {
+		return permissions.Policy{Mode: permissions.Ask, Rules: *rules.Load()}
+	}}
+	asker := newRecordingAsker()
+	s := serveIn(t, api.upstream(), sess, asker)
+
+	done := s.sendAsync(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/a", "", ""))
+	asker.next(t).answer <- once
+	testutil.Recv(t, done, "the first delete")
+	rules.Store(&[]permissions.Rule{permissions.GrantRule(permissions.Action{Class: permissions.UpstreamWrite, Context: "dev", Namespace: "web"})})
+
+	resp, body := s.do(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/b", "", ""))
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+	assert.Equal(t, permissions.Allowed, testutil.Recv(t, (<-chan recorded)(asker.records), "the record").d)
 }

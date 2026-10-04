@@ -918,3 +918,30 @@ func TestACallWithWritesReadsOnce(t *testing.T) {
 	assert.Empty(t, got[0].ClusterWrites[1].ContentType, "an abandoned one carries no media type")
 	assert.Equal(t, `{"n":2}`, got[0].ClusterWrites[2].Body, "a write that waits carries its body")
 }
+
+// The approvals table holds its own shape: a call's row holds no request and
+// an action's one, only an action is abandoned, allowed or refused, and a
+// duration is the user's choice on an approval alone.
+func TestTheApprovalChecksHold(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	st := prepareOn(t, db).Stmts()
+	row := sidecarRow(seedLLMCall(t, db, st))
+	require.NoError(t, upsertToolCall(t.Context(), st, row))
+	insert := func(kind string, request any, status string, duration any) error {
+		_, err := db.Write.Exec(`INSERT INTO approvals (id, tool_call_id, kind, request, status, duration, created_at) VALUES (?, ?, ?, ?, ?, ?, 1)`,
+			string(newApprovalID()), string(row.ID), kind, request, status, duration)
+		return err
+	}
+	for name, err := range map[string]error{
+		"a call with a request":       insert("call", "{}", "pending", nil),
+		"an action without one":       insert("action", nil, "pending", nil),
+		"an allowed call":             insert("call", nil, "allowed", nil),
+		"a duration on a denial":      insert("action", "{}", "denied", "once"),
+		"a kind outside its list":     insert("cluster", "{}", "pending", nil),
+		"a duration outside its list": insert("action", "{}", "approved", "forever"),
+	} {
+		assert.Error(t, err, name)
+	}
+	assert.NoError(t, insert("action", "{}", "approved", "chat"))
+	assert.NoError(t, insert("call", nil, "approved", "once"))
+}

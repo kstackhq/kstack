@@ -35,6 +35,7 @@ import { Markdown } from '@/components/widgets/markdown';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { graphql } from '@/gql';
 import type { AppMode } from '@/lib/app-mode';
+import { chatGrantsContext } from '@/lib/chat-grants';
 import { useChatOutbox } from '@/lib/chat-outbox';
 import {
   actionKindLabel,
@@ -49,6 +50,7 @@ import {
   waitingRequestsOf,
 } from '@/lib/chats';
 import type { ChatClusterWrite, ChatMessage, ChatToolCall, Source, TaskNotice } from '@/lib/chats';
+import type { ApprovalDecision, ApprovalDuration } from '@/gql/graphql';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import { useHeldStill } from '@/lib/held-still';
 import { modelOf, useModels } from '@/lib/models';
@@ -67,8 +69,8 @@ const PIN_SLACK_PX = 32;
 export const APPROVE_ARM_MS = 500;
 
 const ApprovalDecideMutation = graphql(`
-  mutation ApprovalDecide($id: ApprovalID!, $approve: Boolean!) {
-    approvalDecide(id: $id, approve: $approve)
+  mutation ApprovalDecide($id: ApprovalID!, $decision: ApprovalDecision!) {
+    approvalDecide(id: $id, decision: $decision)
   }
 `);
 
@@ -558,12 +560,49 @@ function ClusterWriteLines({ call }: { call: ChatToolCall }) {
   );
 }
 
+// Why an Always answer was refused: the settings hold rules Kstack cannot read,
+// so the rule it adds could not be written. The request still waits.
+const HELD_RULES =
+  'Kstack cannot add a rule while security.json holds rules it cannot read. Fix them in Settings, or approve once.';
+
+// One allow answer and the rule it adds under it, in the words Settings uses.
+function AllowAnswer({
+  label,
+  rule,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  rule: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <div className="flex max-w-56 flex-col gap-0.5">
+      <Button type="button" size="xs" variant="outline" disabled={disabled} onClick={onClick}>
+        {label}
+      </Button>
+      <span className="text-xs break-words text-muted-foreground">
+        <VisibleText text={rule} />
+      </span>
+    </div>
+  );
+}
+
+// How long each approval holds, in the tag's words.
+const DURATION_WORDS: Record<ApprovalDuration, string> = {
+  Once: 'once',
+  Command: 'this command',
+  Chat: 'this chat',
+  Always: 'always',
+};
+
 // What became of a write that no longer waits. A pending one here is one a
 // crash stranded, as an abandoned one's wait ended with nobody's answer.
 function clusterWriteTag(w: ChatClusterWrite): string {
   switch (w.approval.status) {
     case 'Approved':
-      return 'approved';
+      return w.approval.duration ? `approved · ${DURATION_WORDS[w.approval.duration]}` : 'approved';
     case 'Denied':
       return 'denied';
     case 'Allowed':
@@ -686,8 +725,8 @@ function commandHeading(command: CommandAction, sandboxAvailable: boolean | unde
 // The call a turn is stopped on, and the only place it is approved: a command,
 // a file read by its path, a file written by its path and content, a file
 // edited by its path and both strings, or a page fetched by its URL. It shows
-// the id the row carries and sends it back with one boolean; the message
-// changing is what takes the request down. The command and the content wrap
+// the id the row carries and sends it back with the user's decision; the
+// message changing is what takes the request down. The command and the content wrap
 // anywhere and nothing caps their height, so the head reaches the eye whole
 // however narrow the panel.
 // `live` is a pending approval on a turn still waiting: anything else is a
@@ -697,8 +736,9 @@ function commandHeading(command: CommandAction, sandboxAvailable: boolean | unde
 // answer's own: the user is approving a call whose reasoning they cannot see,
 // so the request says whose it is. `change` is a cluster write the call's
 // sandboxed command sent, which is what the request asks about when it is set;
-// the action is its heading, and the call's command is drawn under it as what
-// sent it.
+// the call's command is then drawn under it as what sent it. A change is the
+// one request that offers a rule: an action a rule may allow offers four allow
+// answers beside Deny, each with the rule it adds in the sidecar's words.
 function ApprovalRequest({
   approval,
   action,
@@ -720,7 +760,7 @@ function ApprovalRequest({
   const buttons = useRef<HTMLDivElement>(null);
   const armed = useHeldStill(buttons, armMs);
   const [decided, setDecided] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   const [shown, setShown] = useState(false);
   const [diffShown, setDiffShown] = useState(false);
   const [editShown, setEditShown] = useState({ old: false, new: false });
@@ -746,17 +786,23 @@ function ApprovalRequest({
 
   // Only an error hands the buttons back. A false answer means no turn was
   // waiting — a cancel or a settle is on its way through the watch — so they
-  // stay down.
-  const decide = async (approve: boolean) => {
+  // stay down. An answer that writes a rule names the rules' type, so the
+  // chat's list and Settings ask again.
+  const decide = async (decision: ApprovalDecision) => {
     setDecided(true);
-    setFailed(false);
-    const result = await approvalDecide({ id: approval.id, approve });
+    setFailure(null);
+    const variables = { id: approval.id, decision };
+    const writesRule = decision === 'Chat' || decision === 'Always';
+    const result = writesRule ? await approvalDecide(variables, chatGrantsContext) : await approvalDecide(variables);
     if (result.error) {
       setDecided(false);
-      setFailed(true);
+      const held =
+        decision === 'Always' && result.error.graphQLErrors[0]?.extensions?.code === 'KSTACK_VALIDATION_ERROR';
+      setFailure(held ? HELD_RULES : 'The decision did not reach the sidecar. Try again.');
     }
   };
 
+  const approvable = live && !decided && !folded && armed;
   let label = 'Command awaiting approval';
   // Only a request drawn below offers Approve: what the user cannot see is not
   // approved.
@@ -969,16 +1015,39 @@ function ApprovalRequest({
         </p>
       )}
       {body}
-      {failed && <p className="mt-1 text-xs text-destructive">The decision did not reach the sidecar. Try again.</p>}
-      {/* Approve waits for its place to hold; Deny never does, since refusing the
-          wrong request costs one more question, not a command. */}
-      <div ref={buttons} className="mt-2 flex gap-2">
+      {failure && <p className="mt-1 text-xs text-destructive">{failure}</p>}
+      {/* Approve and the allow answers wait for their place to hold; Deny never
+          does, since refusing the wrong request costs one more question, not a
+          command. */}
+      <div ref={buttons} className="mt-2 flex flex-wrap items-start gap-2">
         {drawn && (
-          <Button type="button" size="xs" disabled={!live || decided || folded || !armed} onClick={() => decide(true)}>
-            Approve
+          <Button type="button" size="xs" disabled={!approvable} onClick={() => decide('Once')}>
+            {change ? 'Approve once' : 'Approve'}
           </Button>
         )}
-        <Button type="button" size="xs" variant="outline" disabled={!live || decided} onClick={() => decide(false)}>
+        {drawn && change?.action.grantable && (
+          <>
+            <AllowAnswer
+              label="Allow for this command"
+              rule={change.action.commandRule}
+              disabled={!approvable}
+              onClick={() => decide('Command')}
+            />
+            <AllowAnswer
+              label="Allow for this chat"
+              rule={change.action.chatRule}
+              disabled={!approvable}
+              onClick={() => decide('Chat')}
+            />
+            <AllowAnswer
+              label="Always allow"
+              rule={change.action.chatRule}
+              disabled={!approvable}
+              onClick={() => decide('Always')}
+            />
+          </>
+        )}
+        <Button type="button" size="xs" variant="outline" disabled={!live || decided} onClick={() => decide('Deny')}>
           Deny
         </Button>
       </div>

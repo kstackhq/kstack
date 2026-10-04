@@ -68,7 +68,7 @@ type runtimeAsker struct{ a tools.ActionAsker }
 
 func (a runtimeAsker) Ask(ctx context.Context, r kubeproxy.Request) (kubeproxy.Answer, error) {
 	answer, err := a.a.Ask(ctx, requestOf(r))
-	return kubeproxy.Answer{Approved: answer.Approved}, err
+	return kubeproxy.Answer{Approved: answer.Approved, Duration: answer.Duration}, err
 }
 
 func (a runtimeAsker) Record(ctx context.Context, r kubeproxy.Request, d permissions.Decision, reason string) error {
@@ -77,7 +77,10 @@ func (a runtimeAsker) Record(ctx context.Context, r kubeproxy.Request, d permiss
 
 // requestOf is a grant's request as the runtime's asker takes it.
 func requestOf(r kubeproxy.Request) tools.ActionRequest {
-	out := tools.ActionRequest{Action: r.Action, Diff: r.Diff, DiffCut: r.DiffCut, DiffError: r.DiffError}
+	out := tools.ActionRequest{
+		Action: r.Action, Grantable: r.Grantable, CommandRule: r.CommandRule, ChatRule: r.ChatRule,
+		Diff: r.Diff, DiffCut: r.DiffCut, DiffError: r.DiffError,
+	}
 	if r.Write != nil {
 		w := writeOf(*r.Write)
 		out.Write = &w

@@ -24,6 +24,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -71,6 +72,12 @@ type Write struct {
 // asked.
 type Request struct {
 	Action permissions.Action
+	// Grantable is whether an answer may write a rule that allows it.
+	Grantable bool
+	// CommandRule and ChatRule are the rules each allow answer adds, as
+	// Rule.Line draws them; empty when the action is not grantable.
+	CommandRule string
+	ChatRule    string
 	// Write is the request as sent; nil for an action with none.
 	Write *Write
 	// Diff is the change as a unified diff of YAML; "" for none.
@@ -81,9 +88,10 @@ type Request struct {
 	DiffError string
 }
 
-// Answer is the user's decision.
+// Answer is the user's decision: approved or not, and for how long.
 type Answer struct {
 	Approved bool
+	Duration permissions.Duration
 }
 
 // Asker puts a request to the user, and records one decided with nobody
@@ -141,8 +149,13 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		Method: r.Method, Path: r.URL.RequestURI(), Subresource: p.subresource,
 		ContentType: r.Header.Get("Content-Type"), Body: body, DryRun: act.DryRun,
 	}
+	v, reason := g.policy(r.Context()).Authorize(act)
 	req := Request{Action: act, Write: &write}
-	switch d, reason := g.policy(r.Context()).Decide(act); d {
+	if permissions.Grantable(v, act) {
+		req.Grantable = true
+		req.CommandRule, req.ChatRule = permissions.CommandRule(act).Line(), permissions.GrantRule(act).Line()
+	}
+	switch d := v.Outcome(); d {
 	case permissions.Allowed:
 		if err := g.asker.Record(r.Context(), req, d, reason); err != nil {
 			writeStatus(w, http.StatusForbidden, string(refusedUnrecorded))
@@ -173,16 +186,22 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		writeStatus(w, http.StatusForbidden, string(refusedDenied))
 		return
 	}
+	if answer.Duration == permissions.DurationCommand && req.Grantable {
+		g.commandRules = append(g.commandRules, permissions.CommandRule(act))
+	}
 	g.forward(w, r, p, body)
 }
 
 // policy is the session's mode and rules for the grant's context, read now, so
-// a change made meanwhile applies. A session with no policy is read-only.
+// a change made meanwhile applies, joined by the command's own rules. A
+// session with no policy is read-only. Called under the write lock.
 func (g *Grant) policy(ctx context.Context) permissions.Policy {
 	if g.session.Policy == nil {
 		return permissions.Policy{Mode: permissions.ReadOnly}
 	}
-	return g.session.Policy(ctx, g.context)
+	p := g.session.Policy(ctx, g.context)
+	p.Rules = append(slices.Clip(p.Rules), g.commandRules...)
+	return p
 }
 
 // takeWriteLock waits for the write lock, as one of at most maxQueuedWrites, and

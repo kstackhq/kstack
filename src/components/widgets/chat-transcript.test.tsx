@@ -144,7 +144,7 @@ function call(over: Partial<ChatToolCall> = {}): ChatToolCall {
       delegate: null,
       kubeQuery: null,
     },
-    approval: { id: 'ap-1', status: 'Pending' },
+    approval: { id: 'ap-1', status: 'Pending', duration: null },
     output: '',
     background: null,
     agentCallID: null,
@@ -173,7 +173,7 @@ const decided = (over: Partial<ChatToolCall>, approval: 'Approved' | 'Denied' = 
       delegate: null,
       kubeQuery: null,
     },
-    approval: { id: 'ap-1', status: approval },
+    approval: { id: 'ap-1', status: approval, duration: null },
     ...over,
   });
 
@@ -690,8 +690,8 @@ describe('ChatTranscript', () => {
           awaitingApproval: true,
           toolCalls: [
             agent({ background: { status: 'Running', exitCode: null, report: '' } }),
-            call({ id: 'cc1', agentCallID: 'ag1', approval: { id: 'ap-1', status: 'Pending' } }),
-            call({ id: 'cc2', agentCallID: 'ag1', approval: { id: 'ap-2', status: 'Pending' } }),
+            call({ id: 'cc1', agentCallID: 'ag1', approval: { id: 'ap-1', status: 'Pending', duration: null } }),
+            call({ id: 'cc2', agentCallID: 'ag1', approval: { id: 'ap-2', status: 'Pending', duration: null } }),
           ],
         }),
       ]);
@@ -701,7 +701,7 @@ describe('ChatTranscript', () => {
       await act(async () => {
         fireEvent.click(within(requests[1]).getByRole('button', { name: 'Approve' }));
       });
-      expect(sendMock).toHaveBeenCalledWith({ id: 'ap-2', approve: true });
+      expect(sendMock).toHaveBeenCalledWith({ id: 'ap-2', decision: 'Once' });
       expect(within(requests[0]).getByRole('button', { name: 'Approve' })).toBeEnabled();
     });
 
@@ -713,7 +713,7 @@ describe('ChatTranscript', () => {
             call({
               id: 'cc2',
               agentCallID: 'ag1',
-              approval: { id: 'ap-2', status: 'Pending' },
+              approval: { id: 'ap-2', status: 'Pending', duration: null },
               action: {
                 ...call().action!,
                 command: { text: 'second', cwd: '', background: false, sandboxed: false },
@@ -722,7 +722,7 @@ describe('ChatTranscript', () => {
             call({
               id: 'cc1',
               agentCallID: 'ag1',
-              approval: { id: 'ap-1', status: 'Pending' },
+              approval: { id: 'ap-1', status: 'Pending', duration: null },
               action: {
                 ...call().action!,
                 command: { text: 'first', cwd: '', background: false, sandboxed: false },
@@ -860,7 +860,7 @@ describe('ChatTranscript', () => {
       await act(async () => {
         fireEvent.click(approve());
       });
-      expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', approve: true });
+      expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', decision: 'Once' });
       expect(approve()).toBeDisabled();
       expect(deny()).toBeDisabled();
     });
@@ -910,7 +910,7 @@ describe('ChatTranscript', () => {
       await act(async () => {
         fireEvent.click(deny());
       });
-      expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', approve: false });
+      expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', decision: 'Deny' });
     });
 
     // A read asks for the file by its path, spelled like a command: the path is
@@ -947,7 +947,7 @@ describe('ChatTranscript', () => {
       await act(async () => {
         fireEvent.click(approve());
       });
-      expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', approve: true });
+      expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', decision: 'Once' });
     });
 
     // A fetch asks for the URL and names, on its own line, the host the
@@ -984,7 +984,7 @@ describe('ChatTranscript', () => {
       await act(async () => {
         fireEvent.click(approve());
       });
-      expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', approve: true });
+      expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', decision: 'Once' });
     });
 
     // A memory call for one cluster never waits on the user, so a request naming
@@ -1053,7 +1053,7 @@ describe('ChatTranscript', () => {
         await act(async () => {
           fireEvent.click(approve());
         });
-        expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', approve: true });
+        expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', decision: 'Once' });
       });
 
       it('spells the whitespace that ends a line', () => {
@@ -1086,7 +1086,7 @@ describe('ChatTranscript', () => {
         await act(async () => {
           fireEvent.click(approve());
         });
-        expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', approve: true });
+        expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', decision: 'Once' });
       });
     });
 
@@ -1126,7 +1126,7 @@ describe('ChatTranscript', () => {
         await act(async () => {
           fireEvent.click(approve());
         });
-        expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', approve: true });
+        expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', decision: 'Once' });
       });
 
       it('folds a long content and holds Approve until the rest is shown', async () => {
@@ -1212,7 +1212,7 @@ describe('ChatTranscript', () => {
                   delegate: null,
                   kubeQuery: null,
                 },
-                approval: { id: 'ap-1', status: 'Approved' },
+                approval: { id: 'ap-1', status: 'Approved', duration: null },
                 output: 'File created successfully at: /Users/ana/values.yaml',
               }),
             ],
@@ -1351,7 +1351,7 @@ describe('ChatTranscript', () => {
               actionKind: 'Edit',
               status: 'Succeeded',
               action: editAction(oldString, newString, replaceAll),
-              approval: { id: 'ap-1', status: 'Approved' },
+              approval: { id: 'ap-1', status: 'Approved', duration: null },
               output: 'The file /Users/ana/values.yaml has been updated successfully.',
             }),
           ],
@@ -1379,7 +1379,7 @@ describe('ChatTranscript', () => {
         await act(async () => {
           fireEvent.click(approve());
         });
-        expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', approve: true });
+        expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', decision: 'Once' });
       });
 
       // Each string is a piece of a file: every \r, and each space or tab that
@@ -1512,7 +1512,7 @@ describe('ChatTranscript', () => {
       await act(async () => {
         fireEvent.click(deny());
       });
-      expect(sendMock).toHaveBeenLastCalledWith({ id: 'ap-1', approve: false });
+      expect(sendMock).toHaveBeenLastCalledWith({ id: 'ap-1', decision: 'Deny' });
       expect(deny()).toBeDisabled();
       expect(screen.queryByText('The decision did not reach the sidecar. Try again.')).toBeNull();
     });
@@ -1553,7 +1553,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
             },
-            approval: { id: 'ap-1', status: 'Approved' },
+            approval: { id: 'ap-1', status: 'Approved', duration: null },
           }),
         ),
       ]);
@@ -1602,7 +1602,7 @@ describe('ChatTranscript', () => {
                       delegate: null,
                       kubeQuery: null,
                     },
-                    approval: { id: 'ap-2', status: 'Pending' },
+                    approval: { id: 'ap-2', status: 'Pending', duration: null },
                   }),
                 ],
               }),
@@ -1644,7 +1644,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
             },
-            approval: { id: 'ap-1', status: 'Pending' },
+            approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
         ),
       ]);
@@ -1672,7 +1672,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
             },
-            approval: { id: 'ap-1', status: 'Pending' },
+            approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
         ),
       ]);
@@ -1710,7 +1710,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
             },
-            approval: { id: 'ap-1', status: 'Pending' },
+            approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
         ),
       ]);
@@ -1720,7 +1720,7 @@ describe('ChatTranscript', () => {
       await act(async () => {
         fireEvent.click(deny());
       });
-      expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', approve: false });
+      expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', decision: 'Deny' });
     });
 
     it('draws a short command whole with no fold', () => {
@@ -1762,7 +1762,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
             },
-            approval: { id: 'ap-1', status: 'Pending' },
+            approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
         ),
       ]);
@@ -1797,7 +1797,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
             },
-            approval: { id: 'ap-1', status: 'Pending' },
+            approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
         ),
       ]);
@@ -1822,7 +1822,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
             },
-            approval: { id: 'ap-1', status: 'Pending' },
+            approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
         ),
       ]);
@@ -1844,7 +1844,7 @@ describe('ChatTranscript', () => {
             delegate: null,
             kubeQuery: null,
           },
-          approval: { id: 'ap-1', status: 'Pending' },
+          approval: { id: 'ap-1', status: 'Pending', duration: null },
         }),
       );
 
@@ -1914,7 +1914,7 @@ describe('ChatTranscript', () => {
                 delegate: null,
                 kubeQuery: null,
               },
-              approval: { id: 'ap-0', status: 'Approved' },
+              approval: { id: 'ap-0', status: 'Approved', duration: null },
               output: 'y'.repeat(500),
             }),
             call(),
@@ -1933,7 +1933,7 @@ describe('ChatTranscript', () => {
       await act(async () => {
         fireEvent.click(deny());
       });
-      expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', approve: false });
+      expect(sendMock).toHaveBeenCalledWith({ id: 'ap-1', decision: 'Deny' });
     });
 
     it('draws a waiting answer with the spinner and no Stopped line', () => {
@@ -2018,7 +2018,7 @@ describe('ChatTranscript', () => {
                 delegate: null,
                 kubeQuery: null,
               },
-              approval: { id: 'ap-2', status: 'Approved' },
+              approval: { id: 'ap-2', status: 'Approved', duration: null },
               output: '{"error":"cancelled"}',
             }),
           ],
@@ -2140,7 +2140,7 @@ describe('ChatTranscript', () => {
           delegate: null,
           kubeQuery: null,
         },
-        approval: { id: 'ap-1', status: 'Approved' },
+        approval: { id: 'ap-1', status: 'Approved', duration: null },
       });
     const onlySummary = () => document.querySelector('details > summary')!;
 
@@ -2195,7 +2195,7 @@ describe('ChatTranscript', () => {
                 delegate: null,
                 kubeQuery: null,
               },
-              approval: { id: 'ap-1', status: 'Approved' },
+              approval: { id: 'ap-1', status: 'Approved', duration: null },
               output: 'Fetched https://kubernetes.io/releases/ (text/html, 12KB)',
             }),
           ],
@@ -2275,7 +2275,7 @@ describe('ChatTranscript', () => {
                 delegate: null,
                 kubeQuery: null,
               },
-              approval: { id: 'ap-1', status: 'Approved' },
+              approval: { id: 'ap-1', status: 'Approved', duration: null },
             }),
           ],
         }),
@@ -2460,7 +2460,7 @@ describe('ChatTranscript', () => {
           toolCalls: [
             memoryCall(everywhere, {
               status: 'Denied',
-              approval: { id: 'ap-1', status: 'Denied' },
+              approval: { id: 'ap-1', status: 'Denied', duration: null },
               output: '{"error":"denied"}',
             }),
           ],
@@ -2486,7 +2486,7 @@ describe('ChatTranscript', () => {
     // A write a sandboxed command sent, as the sidecar serves it: waiting unless a
     // case says otherwise.
     const clusterWrite = (over: Partial<ChatClusterWrite> = {}): ChatClusterWrite => ({
-      approval: { id: 'w-1', status: 'Pending' },
+      approval: { id: 'w-1', status: 'Pending', duration: null },
       action: {
         summary: 'Delete pods/x in web on dev',
         class: 'UpstreamWrite',
@@ -2495,6 +2495,9 @@ describe('ChatTranscript', () => {
         verb: 'delete',
         group: 'core',
         kind: 'pods',
+        grantable: true,
+        commandRule: 'Allow delete of core pods in dev / web for this command',
+        chatRule: 'Allow cluster writes in dev / web',
       },
       method: 'DELETE',
       path: '/api/v1/namespaces/web/pods/x',
@@ -2514,7 +2517,7 @@ describe('ChatTranscript', () => {
     const waitingOn = (writes: ChatClusterWrite[], over: Partial<ChatToolCall> = {}) =>
       msg({ status: 'WaitingApproval', awaitingApproval: true, content: [], toolCalls: [sender(writes, over)] });
     const request = () => screen.getByRole('group', { name: 'Cluster change awaiting approval' });
-    const approve = () => screen.getByRole('button', { name: 'Approve' });
+    const approve = () => screen.getByRole('button', { name: 'Approve once' });
 
     // With no diff the request is the request itself: the action's summary as
     // its heading, then the path and query as sent, and the body, then the
@@ -2538,7 +2541,7 @@ describe('ChatTranscript', () => {
       await act(async () => {
         fireEvent.click(approve());
       });
-      expect(sendMock).toHaveBeenCalledWith({ id: 'w-1', approve: true });
+      expect(sendMock).toHaveBeenCalledWith({ id: 'w-1', decision: 'Once' });
     });
 
     it("ends a dry run's heading with (dry run)", () => {
@@ -2548,7 +2551,7 @@ describe('ChatTranscript', () => {
             method: 'POST',
             path: '/apis/example.com/v1/widgets?dryRun=All',
             dryRun: true,
-            action: { ...clusterWrite().action, summary: 'Create widgets on dev' },
+            action: { ...clusterWrite().action, summary: 'Create widgets on dev', grantable: false },
           }),
         ]),
       ]);
@@ -2619,6 +2622,101 @@ describe('ChatTranscript', () => {
       expect(request()).toHaveTextContent('No preview: The dry run failed: denied');
       expect(request().querySelector('mark')).not.toBeNull();
       expect(approve()).toBeEnabled();
+    });
+
+    // A grantable action offers five answers, each allow with the rule it adds
+    // in the words Settings uses.
+    it('offers five answers, with the rule under each allow', async () => {
+      draw([waitingOn([clusterWrite()])]);
+      const names = within(request())
+        .getAllByRole('button')
+        .map((b) => b.textContent);
+      expect(names).toEqual(['Approve once', 'Allow for this command', 'Allow for this chat', 'Always allow', 'Deny']);
+      expect(screen.getByRole('button', { name: 'Allow for this command' }).parentElement).toHaveTextContent(
+        'Allow delete of core pods in dev / web for this command',
+      );
+      ['Allow for this chat', 'Always allow'].forEach((name) => {
+        expect(screen.getByRole('button', { name }).parentElement).toHaveTextContent(
+          'Allow cluster writes in dev / web',
+        );
+      });
+
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Allow for this command' }));
+      });
+      expect(sendMock).toHaveBeenLastCalledWith({ id: 'w-1', decision: 'Command' });
+    });
+
+    // An answer that writes a rule names the rules' type, so the lists of them
+    // are asked again.
+    it.each([
+      ['Allow for this chat', 'Chat'],
+      ['Always allow', 'Always'],
+    ] as const)('sends %s as %s, naming the rules type', async (name, decision) => {
+      draw([waitingOn([clusterWrite()])]);
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name }));
+      });
+      expect(sendMock).toHaveBeenLastCalledWith({ id: 'w-1', decision }, { additionalTypenames: ['PermissionRule'] });
+    });
+
+    it('sends Deny as Deny', async () => {
+      draw([waitingOn([clusterWrite()])]);
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Deny' }));
+      });
+      expect(sendMock).toHaveBeenLastCalledWith({ id: 'w-1', decision: 'Deny' });
+    });
+
+    it('arms the four allow answers by their place, and Deny at once', () => {
+      draw([waitingOn([clusterWrite()])], { approveArmMs: 500, sandboxAvailable: false });
+      ['Approve once', 'Allow for this command', 'Allow for this chat', 'Always allow'].forEach((name) => {
+        expect(screen.getByRole('button', { name })).toBeDisabled();
+      });
+      expect(screen.getByRole('button', { name: 'Deny' })).toBeEnabled();
+    });
+
+    it('offers Approve once and Deny alone for an action no rule may allow', () => {
+      draw([
+        waitingOn([clusterWrite({ action: { ...clusterWrite().action, class: 'Destructive', grantable: false } })]),
+      ]);
+      const names = within(request())
+        .getAllByRole('button')
+        .map((b) => b.textContent);
+      expect(names).toEqual(['Approve once', 'Deny']);
+    });
+
+    // Always is refused while the settings hold rules Kstack cannot read; the
+    // request says so, and still takes Approve once.
+    it('says why Always was refused, and Approve once still sends', async () => {
+      sendMock.mockResolvedValueOnce({
+        error: { graphQLErrors: [{ message: 'held', extensions: { code: 'KSTACK_VALIDATION_ERROR' } }] },
+      });
+      draw([waitingOn([clusterWrite()])]);
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Always allow' }));
+      });
+      expect(request()).toHaveTextContent(
+        'Kstack cannot add a rule while security.json holds rules it cannot read. Fix them in Settings, or approve once.',
+      );
+      expect(request()).not.toHaveTextContent('The decision did not reach the sidecar.');
+      await act(async () => {
+        fireEvent.click(approve());
+      });
+      expect(sendMock).toHaveBeenLastCalledWith({ id: 'w-1', decision: 'Once' });
+    });
+
+    it("draws a rule's line through VisibleText", () => {
+      draw([
+        waitingOn([
+          clusterWrite({
+            action: { ...clusterWrite().action, chatRule: 'Allow cluster writes in "say \\"hi\\"\u200b"' },
+          }),
+        ]),
+      ]);
+      const line = screen.getByRole('button', { name: 'Allow for this chat' }).parentElement!;
+      expect(line).toHaveTextContent('Allow cluster writes in "say \\"hi\\"');
+      expect(line.querySelector('mark')).not.toBeNull();
     });
 
     // An action with no request of its own and no kind this step draws is not
@@ -2709,23 +2807,23 @@ describe('ChatTranscript', () => {
             sender(
               [
                 clusterWrite({
-                  approval: { id: 'w-1', status: 'Approved' },
+                  approval: { id: 'w-1', status: 'Approved', duration: null },
                   path: '/api/v1/namespaces/web/pods/a',
                   body: '',
                 }),
                 clusterWrite({
-                  approval: { id: 'w-2', status: 'Denied' },
+                  approval: { id: 'w-2', status: 'Denied', duration: null },
                   method: 'PATCH',
                   path: '/api/v1/namespaces/web/pods/b',
                   body: '',
                 }),
                 clusterWrite({
-                  approval: { id: 'w-3', status: 'Abandoned' },
+                  approval: { id: 'w-3', status: 'Abandoned', duration: null },
                   path: '/api/v1/namespaces/web/pods/c',
                   body: '',
                 }),
                 clusterWrite({
-                  approval: { id: 'w-4', status: 'Pending' },
+                  approval: { id: 'w-4', status: 'Pending', duration: null },
                   path: '/api/v1/namespaces/web/pods/d',
                   body: '',
                 }),
@@ -2747,6 +2845,32 @@ describe('ChatTranscript', () => {
       expect(screen.queryByRole('group', { name: 'Cluster change awaiting approval' })).toBeNull();
     });
 
+    // An approval says how long it holds.
+    it('tags an approved write with its duration', () => {
+      draw([
+        msg({
+          content: [],
+          toolCalls: [
+            sender(
+              (['Once', 'Command', 'Chat', 'Always'] as const).map((duration, i) =>
+                clusterWrite({ approval: { id: `w-${i}`, status: 'Approved', duration }, body: '' }),
+              ),
+              { status: 'Succeeded' },
+            ),
+          ],
+        }),
+      ]);
+      const tags = [...screen.getByText('wc -l ~/.kube/config').closest('details')!.querySelectorAll('li')].map(
+        (li) => li.textContent,
+      );
+      expect(tags).toEqual([
+        'DELETE /api/v1/namespaces/web/pods/xapproved · once',
+        'DELETE /api/v1/namespaces/web/pods/xapproved · this command',
+        'DELETE /api/v1/namespaces/web/pods/xapproved · this chat',
+        'DELETE /api/v1/namespaces/web/pods/xapproved · always',
+      ]);
+    });
+
     // A write the engine decided with nobody asked is tagged with what it
     // decided and why; a dry run says so after its path.
     it('tags a write nobody was asked about with its reason', () => {
@@ -2757,19 +2881,19 @@ describe('ChatTranscript', () => {
             sender(
               [
                 clusterWrite({
-                  approval: { id: 'w-1', status: 'Allowed' },
+                  approval: { id: 'w-1', status: 'Allowed', duration: null },
                   path: '/api/v1/namespaces/web/pods/a',
                   body: '',
                   reason: 'auto mode',
                 }),
                 clusterWrite({
-                  approval: { id: 'w-2', status: 'Refused' },
+                  approval: { id: 'w-2', status: 'Refused', duration: null },
                   path: '/api/v1/namespaces/web/pods/b',
                   body: '',
                   reason: 'this context is read-only',
                 }),
                 clusterWrite({
-                  approval: { id: 'w-3', status: 'Allowed' },
+                  approval: { id: 'w-3', status: 'Allowed', duration: null },
                   method: 'PATCH',
                   path: '/api/v1/namespaces/web/pods/c?dryRun=All',
                   body: '',
@@ -2794,8 +2918,8 @@ describe('ChatTranscript', () => {
     it('lists no write that still waits', () => {
       draw([
         waitingOn([
-          clusterWrite({ approval: { id: 'w-1', status: 'Approved' }, body: '' }),
-          clusterWrite({ approval: { id: 'w-2', status: 'Pending' } }),
+          clusterWrite({ approval: { id: 'w-1', status: 'Approved', duration: null }, body: '' }),
+          clusterWrite({ approval: { id: 'w-2', status: 'Pending', duration: null } }),
         ]),
       ]);
       // The command is also under Sent by, so the disclosure is found by its tag.
@@ -2820,7 +2944,7 @@ describe('ChatTranscript', () => {
           delegate: null,
           kubeQuery: null,
         },
-        approval: { id: 'ap-1', status: 'Approved' },
+        approval: { id: 'ap-1', status: 'Approved', duration: null },
         status: 'Succeeded',
         output: 'Command running in background with ID: t1.',
         background: { status: 'Running', exitCode: null, report: '' },
@@ -2853,7 +2977,7 @@ describe('ChatTranscript', () => {
                 delegate: null,
                 kubeQuery: null,
               },
-              approval: { id: 'ap-1', status: 'Pending' },
+              approval: { id: 'ap-1', status: 'Pending', duration: null },
             }),
           ],
         }),

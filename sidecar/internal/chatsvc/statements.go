@@ -91,17 +91,17 @@ const (
 	llmCallColumns  = `id, run_id, seq, provider, model, effort, started_at`
 	toolCallColumns = `id, llm_call_id, seq, runs_on, tool_name, contract_name, tool_use_id, arguments, cwd, sandboxed, result, error,
 	is_mutating, spawned_run_id, status, created_at, started_at, finished_at`
-	approvalColumns = `id, tool_call_id, kind, request, status, reason, created_at, decided_at`
+	approvalColumns = `id, tool_call_id, kind, request, status, duration, reason, created_at, decided_at`
 )
 
 // toolCallReadColumns is what a read of the calls scans, in toolCallsByRun's order:
-// the run, the row with the subagent run it spawned, its approval's id and status,
+// the run, the row with the subagent run it spawned, its approval's id, status and duration,
 // NULL on an ungated call, then the task it started, NULL on every other, with a
 // completed agent's report off the run sr it started. The reads alias tool_calls
 // t, llm_calls c, a call's own approval a and background_tasks b; order is the model's,
 // (c.seq, t.seq).
 const toolCallReadColumns = `c.run_id, t.id, t.runs_on, t.tool_use_id, t.tool_name, t.contract_name, t.arguments, t.cwd, t.sandboxed, t.result, t.error,
-	t.status, t.started_at, t.spawned_run_id, a.id, a.status, b.status, b.exit_code,
+	t.status, t.started_at, t.spawned_run_id, a.id, a.status, COALESCE(a.duration, ''), b.status, b.exit_code,
 	CASE WHEN b.status = 'completed' THEN sr.result END`
 
 const toolCallReadFrom = ` FROM tool_calls t JOIN llm_calls c ON c.id = t.llm_call_id
@@ -112,7 +112,7 @@ const toolCallReadFrom = ` FROM tool_calls t JOIN llm_calls c ON c.id = t.llm_ca
 // clusterWriteReadColumns is what a read of the actions scans, in
 // clusterWritesByCall's order, over approvals a joined up to their run r. Only a
 // pending action's body and diff are read: no other is served.
-const clusterWriteReadColumns = `a.tool_call_id, a.id, a.status,
+const clusterWriteReadColumns = `a.tool_call_id, a.id, a.status, COALESCE(a.duration, ''),
 	CASE a.status WHEN 'pending' THEN a.request
 	ELSE json_remove(a.request, '$.write.body', '$.write.contentType', '$.diff') END,
 	COALESCE(a.reason, ''), a.created_at, a.decided_at`
@@ -214,8 +214,9 @@ var statements = []sqlstmt.Statement{
 	WHERE finished_at IS NULL AND runs_on = 'sidecar'`),
 	// An approval is written whole like its call: pending with the request, then the
 	// decision, then again at the settle.
-	stmtUpsertApproval: sqlstmt.OnWriter(`INSERT INTO approvals (` + approvalColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	ON CONFLICT(id) DO UPDATE SET status = excluded.status, reason = excluded.reason, decided_at = excluded.decided_at`),
+	stmtUpsertApproval: sqlstmt.OnWriter(`INSERT INTO approvals (` + approvalColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET status = excluded.status, duration = excluded.duration, reason = excluded.reason,
+	decided_at = excluded.decided_at`),
 	// A chat's calls, beside its messages. OnBoth, since the repeated send's read
 	// runs inside the send's transaction.
 	stmtSelectToolCalls: sqlstmt.OnBoth(`SELECT ` + toolCallReadColumns + toolCallReadFrom + `

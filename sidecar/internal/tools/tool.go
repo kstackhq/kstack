@@ -405,6 +405,13 @@ type ClusterWrite struct {
 // nobody asked. It is what an action approval's request column holds.
 type ActionRequest struct {
 	Action permissions.Action `json:"action"`
+	// Grantable is whether an answer may write a rule that allows it.
+	Grantable bool `json:"grantable"`
+	// CommandRule and ChatRule are the rules each allow answer adds, in the
+	// words Settings uses: Rule.Line of the rule a command answer adds, and of
+	// the one a chat or always answer writes. Empty when not grantable.
+	CommandRule string `json:"commandRule"`
+	ChatRule    string `json:"chatRule"`
 	// Write is the request as sent; nil for an action with none.
 	Write *ClusterWrite `json:"write,omitempty"`
 	// Diff is the change as a unified diff of YAML; "" for none.
@@ -415,9 +422,11 @@ type ActionRequest struct {
 	DiffError string `json:"diffError"`
 }
 
-// Answer is the user's decision on an action.
+// Answer is the user's decision on an action: approved or not, and for how
+// long.
 type Answer struct {
 	Approved bool
+	Duration permissions.Duration
 }
 
 // ActionAsker puts an action to the user, as a request of the call that is

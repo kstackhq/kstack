@@ -457,7 +457,7 @@ type ComplexityRoot struct {
 	}
 
 	Mutation struct {
-		ApprovalDecide                  func(childComplexity int, id chatsvc.ApprovalID, approve bool) int
+		ApprovalDecide                  func(childComplexity int, id chatsvc.ApprovalID, decision chatsvc.ApprovalDecision) int
 		AuthLoginStart                  func(childComplexity int) int
 		AuthLogout                      func(childComplexity int) int
 		BackgroundTaskStop              func(childComplexity int, id chatsvc.ToolCallID) int
@@ -498,13 +498,16 @@ type ComplexityRoot struct {
 	}
 
 	PermissionAction struct {
-		Class     func(childComplexity int) int
-		Context   func(childComplexity int) int
-		Group     func(childComplexity int) int
-		Kind      func(childComplexity int) int
-		Namespace func(childComplexity int) int
-		Summary   func(childComplexity int) int
-		Verb      func(childComplexity int) int
+		ChatRule    func(childComplexity int) int
+		Class       func(childComplexity int) int
+		CommandRule func(childComplexity int) int
+		Context     func(childComplexity int) int
+		Grantable   func(childComplexity int) int
+		Group       func(childComplexity int) int
+		Kind        func(childComplexity int) int
+		Namespace   func(childComplexity int) int
+		Summary     func(childComplexity int) int
+		Verb        func(childComplexity int) int
 	}
 
 	PermissionContextMode struct {
@@ -661,8 +664,9 @@ type ComplexityRoot struct {
 	}
 
 	ToolCallApproval struct {
-		ID     func(childComplexity int) int
-		Status func(childComplexity int) int
+		Duration func(childComplexity int) int
+		ID       func(childComplexity int) int
+		Status   func(childComplexity int) int
 	}
 
 	WriteAction struct {
@@ -712,7 +716,7 @@ type MutationResolver interface {
 	ClusterCachedKindSyncEnabledSet(ctx context.Context, id apimeta.ObjectID, syncEnabled bool) (*clustersvc.ClusterCachedKind, error)
 	ChatSend(ctx context.Context, chatID *apimeta.ChatID, mode chatsvc.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, providerID string, modelID string, effort string, requestID string, content string) (*chatsvc.ChatMessage, error)
 	ChatCancel(ctx context.Context, chatID apimeta.ChatID) (bool, error)
-	ApprovalDecide(ctx context.Context, id chatsvc.ApprovalID, approve bool) (bool, error)
+	ApprovalDecide(ctx context.Context, id chatsvc.ApprovalID, decision chatsvc.ApprovalDecision) (bool, error)
 	BackgroundTaskStop(ctx context.Context, id chatsvc.ToolCallID) (bool, error)
 	ChatRename(ctx context.Context, id apimeta.ChatID, title string) (*chatsvc.Chat, error)
 	ChatSandboxDisabledSet(ctx context.Context, id apimeta.ChatID, sandboxDisabled bool) (*chatsvc.Chat, error)
@@ -2317,7 +2321,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Mutation.ApprovalDecide(childComplexity, args["id"].(chatsvc.ApprovalID), args["approve"].(bool)), true
+		return e.ComplexityRoot.Mutation.ApprovalDecide(childComplexity, args["id"].(chatsvc.ApprovalID), args["decision"].(chatsvc.ApprovalDecision)), true
 	case "Mutation.authLoginStart":
 		if e.ComplexityRoot.Mutation.AuthLoginStart == nil {
 			break
@@ -2627,18 +2631,36 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ObjectRef.Kind(childComplexity), true
 
+	case "PermissionAction.chatRule":
+		if e.ComplexityRoot.PermissionAction.ChatRule == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PermissionAction.ChatRule(childComplexity), true
 	case "PermissionAction.class":
 		if e.ComplexityRoot.PermissionAction.Class == nil {
 			break
 		}
 
 		return e.ComplexityRoot.PermissionAction.Class(childComplexity), true
+	case "PermissionAction.commandRule":
+		if e.ComplexityRoot.PermissionAction.CommandRule == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PermissionAction.CommandRule(childComplexity), true
 	case "PermissionAction.context":
 		if e.ComplexityRoot.PermissionAction.Context == nil {
 			break
 		}
 
 		return e.ComplexityRoot.PermissionAction.Context(childComplexity), true
+	case "PermissionAction.grantable":
+		if e.ComplexityRoot.PermissionAction.Grantable == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PermissionAction.Grantable(childComplexity), true
 	case "PermissionAction.group":
 		if e.ComplexityRoot.PermissionAction.Group == nil {
 			break
@@ -3385,6 +3407,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.ToolCall.ToolUseID(childComplexity), true
 
+	case "ToolCallApproval.duration":
+		if e.ComplexityRoot.ToolCallApproval.Duration == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolCallApproval.Duration(childComplexity), true
 	case "ToolCallApproval.id":
 		if e.ComplexityRoot.ToolCallApproval.ID == nil {
 			break
@@ -4362,6 +4390,12 @@ func (ec *executionContext) childFields_PermissionAction(ctx context.Context, fi
 		return ec.fieldContext_PermissionAction_group(ctx, field)
 	case "kind":
 		return ec.fieldContext_PermissionAction_kind(ctx, field)
+	case "grantable":
+		return ec.fieldContext_PermissionAction_grantable(ctx, field)
+	case "commandRule":
+		return ec.fieldContext_PermissionAction_commandRule(ctx, field)
+	case "chatRule":
+		return ec.fieldContext_PermissionAction_chatRule(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type PermissionAction", field.Name)
 }
@@ -4604,6 +4638,8 @@ func (ec *executionContext) childFields_ToolCallApproval(ctx context.Context, fi
 		return ec.fieldContext_ToolCallApproval_id(ctx, field)
 	case "status":
 		return ec.fieldContext_ToolCallApproval_status(ctx, field)
+	case "duration":
+		return ec.fieldContext_ToolCallApproval_duration(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ToolCallApproval", field.Name)
 }
@@ -4825,14 +4861,14 @@ func (ec *executionContext) field_Mutation_approvalDecide_args(ctx context.Conte
 		return nil, err
 	}
 	args["id"] = arg0
-	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "approve",
-		func(ctx context.Context, v any) (bool, error) {
-			return ec.unmarshalNBoolean2bool(ctx, v)
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "decision",
+		func(ctx context.Context, v any) (chatsvc.ApprovalDecision, error) {
+			return ec.unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalDecision(ctx, v)
 		})
 	if err != nil {
 		return nil, err
 	}
-	args["approve"] = arg1
+	args["decision"] = arg1
 	return args, nil
 }
 
@@ -12112,7 +12148,7 @@ func (ec *executionContext) _Mutation_approvalDecide(ctx context.Context, field 
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Mutation().ApprovalDecide(ctx, fc.Args["id"].(chatsvc.ApprovalID), fc.Args["approve"].(bool))
+			return ec.Resolvers.Mutation().ApprovalDecide(ctx, fc.Args["id"].(chatsvc.ApprovalID), fc.Args["decision"].(chatsvc.ApprovalDecision))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
@@ -13134,6 +13170,75 @@ func (ec *executionContext) _PermissionAction_kind(ctx context.Context, field gr
 	)
 }
 func (ec *executionContext) fieldContext_PermissionAction_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _PermissionAction_grantable(ctx context.Context, field graphql.CollectedField, obj *chatsvc.PermissionAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PermissionAction_grantable(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Grantable, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PermissionAction_grantable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _PermissionAction_commandRule(ctx context.Context, field graphql.CollectedField, obj *chatsvc.PermissionAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PermissionAction_commandRule(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.CommandRule, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PermissionAction_commandRule(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _PermissionAction_chatRule(ctx context.Context, field graphql.CollectedField, obj *chatsvc.PermissionAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PermissionAction_chatRule(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ChatRule, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PermissionAction_chatRule(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
@@ -16203,6 +16308,29 @@ func (ec *executionContext) _ToolCallApproval_status(ctx context.Context, field 
 }
 func (ec *executionContext) fieldContext_ToolCallApproval_status(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ToolCallApproval", field, false, false, errors.New("field of type ApprovalStatus does not have child fields"))
+}
+
+func (ec *executionContext) _ToolCallApproval_duration(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCallApproval) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ToolCallApproval_duration(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Duration, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *permissions.Duration) graphql.Marshaler {
+			return ec.marshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐDuration(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ToolCallApproval_duration(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ToolCallApproval", field, false, false, errors.New("field of type ApprovalDuration does not have child fields"))
 }
 
 func (ec *executionContext) _WriteAction_path(ctx context.Context, field graphql.CollectedField, obj *tools.WriteAction) (ret graphql.Marshaler) {
@@ -21177,6 +21305,21 @@ func (ec *executionContext) _PermissionAction(ctx context.Context, sel ast.Selec
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "grantable":
+			out.Values[i] = ec._PermissionAction_grantable(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "commandRule":
+			out.Values[i] = ec._PermissionAction_commandRule(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "chatRule":
+			out.Values[i] = ec._PermissionAction_chatRule(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -22538,6 +22681,11 @@ func (ec *executionContext) _ToolCallApproval(ctx context.Context, sel ast.Selec
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "duration":
+			out.Values[i] = ec._ToolCallApproval_duration(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -22993,6 +23141,40 @@ func (ec *executionContext) ___Type(ctx context.Context, sel ast.SelectionSet, o
 // endregion **************************** object.gotpl ****************************
 
 // region    ***************************** type.gotpl *****************************
+
+func (ec *executionContext) unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalDecision(ctx context.Context, v any) (chatsvc.ApprovalDecision, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalDecision[tmp]
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalDecision(ctx context.Context, sel ast.SelectionSet, v chatsvc.ApprovalDecision) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalDecision[v])
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
+var (
+	unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalDecision = map[string]chatsvc.ApprovalDecision{
+		"Once":    chatsvc.DecisionOnce,
+		"Command": chatsvc.DecisionCommand,
+		"Chat":    chatsvc.DecisionChat,
+		"Always":  chatsvc.DecisionAlways,
+		"Deny":    chatsvc.DecisionDeny,
+	}
+	marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalDecision = map[chatsvc.ApprovalDecision]string{
+		chatsvc.DecisionOnce:    "Once",
+		chatsvc.DecisionCommand: "Command",
+		chatsvc.DecisionChat:    "Chat",
+		chatsvc.DecisionAlways:  "Always",
+		chatsvc.DecisionDeny:    "Deny",
+	}
+)
 
 func (ec *executionContext) unmarshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalID(ctx context.Context, v any) (chatsvc.ApprovalID, error) {
 	tmp, err := graphql.UnmarshalString(v)
@@ -24546,6 +24728,40 @@ func (ec *executionContext) marshalN__TypeKind2string(ctx context.Context, sel a
 	}
 	return res
 }
+
+func (ec *executionContext) unmarshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐDuration(ctx context.Context, v any) (*permissions.Duration, error) {
+	if v == nil {
+		return nil, nil
+	}
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐDuration[tmp]
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐDuration(ctx context.Context, sel ast.SelectionSet, v *permissions.Duration) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(marshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐDuration[*v])
+	return res
+}
+
+var (
+	unmarshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐDuration = map[string]permissions.Duration{
+		"Once":    permissions.DurationOnce,
+		"Command": permissions.DurationCommand,
+		"Chat":    permissions.DurationChat,
+		"Always":  permissions.DurationAlways,
+	}
+	marshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐDuration = map[permissions.Duration]string{
+		permissions.DurationOnce:    "Once",
+		permissions.DurationCommand: "Command",
+		permissions.DurationChat:    "Chat",
+		permissions.DurationAlways:  "Always",
+	}
+)
 
 func (ec *executionContext) marshalOBackgroundTask2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐBackgroundTask(ctx context.Context, sel ast.SelectionSet, v *chatsvc.BackgroundTask) graphql.Marshaler {
 	if v == nil {

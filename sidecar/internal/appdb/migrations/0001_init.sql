@@ -299,7 +299,9 @@ CREATE INDEX tool_calls_spawned_idx  ON tool_calls (spawned_run_id);
 -- request is the tools.ActionRequest as JSON, the action and the write's body
 -- as sent. An action left 'pending' is one a crash stranded. An action the
 -- permissions engine decided with nobody asked is 'allowed' or 'refused', and
--- reason names the mode or the rule that decided it.
+-- reason names the mode or the rule that decided it. duration is how long an
+-- approval holds, what the user chose: set on 'approved' alone, and 'once' on
+-- a call's own.
 CREATE TABLE approvals (
   id           TEXT    PRIMARY KEY,
   tool_call_id TEXT    NOT NULL REFERENCES tool_calls(id) ON DELETE CASCADE,
@@ -307,12 +309,14 @@ CREATE TABLE approvals (
   request      TEXT,
   status       TEXT    NOT NULL DEFAULT 'pending'
                        CHECK (status IN ('pending', 'approved', 'denied', 'abandoned', 'allowed', 'refused')),
+  duration     TEXT    CHECK (duration IN ('once', 'command', 'chat', 'always')),
   reason       TEXT,
   created_at   INTEGER NOT NULL,
   decided_at   INTEGER,
 
   CHECK ((kind = 'call') = (request IS NULL)),
-  CHECK (status NOT IN ('abandoned', 'allowed', 'refused') OR kind = 'action')
+  CHECK (status NOT IN ('abandoned', 'allowed', 'refused') OR kind = 'action'),
+  CHECK (duration IS NULL OR status = 'approved')
 ) STRICT, WITHOUT ROWID;
 
 CREATE UNIQUE INDEX approvals_call_idx ON approvals (tool_call_id) WHERE kind = 'call';
