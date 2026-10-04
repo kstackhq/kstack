@@ -263,7 +263,7 @@ func (e *e2e) ask(t *testing.T, question string, calls ...llm.Block) string {
 	t.Helper()
 	e.fake.Route(question).SetToolCalls(calls...)
 	raw := graphql(t, e.url, `mutation { chatSend(mode: Chat, clusterID: "`+e.clusterID+
-		`", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "low", requestID: "`+appdb.NewID()+
+		`", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "low", requestID: "`+appdb.NewID()+
 		`", content: "`+question+`") { chatID } }`)
 	var resp struct {
 		Data struct {
@@ -289,7 +289,7 @@ func (e *e2e) askAgain(t *testing.T, chatID string, disabled bool, first string,
 	}, e2eConverge, 10*time.Millisecond, "the first turn settled")
 	e.fake.Route(first).SetToolCalls(calls...)
 	raw := graphql(t, e.url, `mutation { chatSend(chatID: "`+chatID+`", mode: Chat, clusterID: "`+e.clusterID+
-		`", sandboxDisabled: `+strconv.FormatBool(disabled)+`, providerID: "fake", modelID: "fake", effort: "low", requestID: "`+appdb.NewID()+
+		`", sandboxDisabled: `+strconv.FormatBool(disabled)+`, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "low", requestID: "`+appdb.NewID()+
 		`", content: "again") { chatID } }`)
 	require.Contains(t, raw, `"chatID"`, raw)
 }

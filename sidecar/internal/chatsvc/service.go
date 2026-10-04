@@ -65,6 +65,9 @@ var (
 	// ErrChatSandboxChanged is a send whose sender saw the chat's switch the
 	// other way.
 	ErrChatSandboxChanged = errors.New("chatsvc: the chat's sandbox switch changed")
+	// ErrChatNetworkChanged is a send whose sender saw the chat's network switch
+	// the other way.
+	ErrChatNetworkChanged = errors.New("chatsvc: the chat's network switch changed")
 )
 
 const (
@@ -125,8 +128,10 @@ type Service interface {
 	// the chat, in mode and under clusterID; an existing chat keeps the mode and
 	// cluster it was made with. model and effort are what this turn runs on.
 	// requestID is the client's key for this send, a UUID it minted; a repeat
-	// returns the first attempt's message and starts nothing.
-	Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, providerID, modelID, effort, requestID, content string) (ChatMessage, error)
+	// returns the first attempt's message and starts nothing. sandboxDisabled
+	// and networkEnabled are the chat's switches as the sender saw them, and
+	// networkThisTurn gives this turn's commands the internet.
+	Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID apimeta.ClusterID, sandboxDisabled, networkEnabled, networkThisTurn bool, providerID, modelID, effort, requestID, content string) (ChatMessage, error)
 	// Cancel stops the in-flight turn, keeping the partial answer. A no-op when
 	// nothing is running.
 	Cancel(ctx context.Context, chatID ChatID) error
@@ -134,9 +139,16 @@ type Service interface {
 	// maxTitleLen is refused.
 	Rename(ctx context.Context, chatID ChatID, title string) (Chat, error)
 	// SetSandboxDisabled is the user's switch: the chat's commands from its next
-	// turn run outside the sandbox, or back in it. It is not activity, so
-	// UpdatedAt stays. ErrBadRequest on a machine with no sandbox.
+	// turn run outside the sandbox, or back in it. Leaving the sandbox turns
+	// the network switch off. It is not activity, so UpdatedAt stays.
+	// ErrBadRequest on a machine with no sandbox.
 	SetSandboxDisabled(ctx context.Context, chatID ChatID, disabled bool) (Chat, error)
+	// SetNetworkEnabled is the user's network switch: the chat's sandboxed
+	// commands reach the internet from their next start, a running turn's
+	// included. It is not activity, so UpdatedAt stays. ErrBadRequest turning
+	// it on where network is unavailable or while the chat is outside the
+	// sandbox.
+	SetNetworkEnabled(ctx context.Context, chatID ChatID, enabled bool) (Chat, error)
 	// Delete removes a chat, its messages and its directory. Deleting one already gone
 	// is not an error; an id that is not a UUID is ErrBadRequest.
 	Delete(ctx context.Context, chatID ChatID) error
@@ -385,7 +397,7 @@ func (s *service) notify(key string) { s.db.Notify(key) }
 // Send saves the question and starts its answer. The key is looked up before every
 // other check, so a retry of the send that started the running turn is answered
 // rather than refused as a second one; on a hit the key is the whole identity.
-func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, providerID, modelID, effort, requestID, content string) (ChatMessage, error) {
+func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID apimeta.ClusterID, sandboxDisabled, networkEnabled, networkThisTurn bool, providerID, modelID, effort, requestID, content string) (ChatMessage, error) {
 	if err := s.enter(); err != nil {
 		return ChatMessage{}, err
 	}
@@ -413,6 +425,11 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 	if content == "" {
 		return ChatMessage{}, ErrBadRequest
 	}
+	// After the lookup: a replay is answered by its key whatever the machine
+	// offers now.
+	if networkThisTurn && !s.sandboxStatus.NetworkAvailable {
+		return ChatMessage{}, ErrBadRequest
+	}
 	// After the lookup, never before: a check ahead of it would refuse a retry of
 	// a send that already ran because the catalog moved in between.
 	target, err := s.llmSvc.Resolve(providerID, modelID, effort)
@@ -438,14 +455,18 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 			return err
 		}
 		// Inside the transaction, so a send and a cluster's mark are serialized.
-		disabled, err := s.checkChat(ctx, st, chatID, clusterID)
+		c, err := s.checkChat(ctx, st, chatID, clusterID)
 		if err != nil {
 			return err
 		}
-		// Read in the transaction that pins it to the turn, so the turn runs where
-		// the sender saw it would, whichever window switched it meanwhile.
+		// Read in the transaction that pins them to the turn, so the turn runs
+		// where and with what the sender saw, whichever window switched meanwhile.
+		disabled := c.SandboxDisabled
 		if disabled != sandboxDisabled {
 			return ErrChatSandboxChanged
+		}
+		if c.NetworkEnabled != networkEnabled {
+			return ErrChatNetworkChanged
 		}
 		// Before anything is written.
 		if chatID != nil {
@@ -463,10 +484,12 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 			return err
 		}
 		// Pinned here, beside the context block that tells the model.
-		t.outsideSandbox = disabled
+		t.outsideSandbox, t.networkThisTurn = disabled, networkThisTurn
 		// The chat's id is known only now: a new chat has none when the card is
 		// rendered.
-		question, err := questionBlocks(ctx, st, id, s.withSandbox(s.withWorkspace(contextText, id), disabled), content)
+		question, err := questionBlocks(ctx, st, id, s.withSandbox(s.withWorkspace(contextText, id), sandboxState{
+			outside: disabled, networkEnabled: c.NetworkEnabled, networkThisTurn: networkThisTurn,
+		}), content)
 		if err != nil {
 			return err
 		}
@@ -542,28 +565,29 @@ func (s *service) seenBefore(ctx context.Context, st stmts, requestID string) (C
 }
 
 // checkChat refuses a send into a chat nobody has and a cluster that is missing or
-// marked, and answers the chat's switch: false for a chat the send creates, which
-// starts sandboxed. An existing chat's cluster is the chat's own, never the
-// argument's.
-func (s *service) checkChat(ctx context.Context, st stmts, chatID *ChatID, clusterID apimeta.ClusterID) (disabled bool, err error) {
+// marked, and answers the chat: the zero Chat for one the send creates, which
+// starts sandboxed with no network. An existing chat's cluster is the chat's own,
+// never the argument's.
+func (s *service) checkChat(ctx context.Context, st stmts, chatID *ChatID, clusterID apimeta.ClusterID) (Chat, error) {
+	var c Chat
 	if chatID != nil {
-		c, ok, err := getChat(ctx, st, *chatID)
+		found, ok, err := getChat(ctx, st, *chatID)
 		if err != nil {
-			return false, err
+			return Chat{}, err
 		}
 		if !ok {
-			return false, ErrChatGone
+			return Chat{}, ErrChatGone
 		}
-		clusterID, disabled = c.ClusterID, c.SandboxDisabled
+		c, clusterID = found, found.ClusterID
 	}
 	ok, err := clusterAccepts(ctx, st, clusterID)
 	if err != nil {
-		return false, err
+		return Chat{}, err
 	}
 	if !ok {
-		return false, ErrClusterGone
+		return Chat{}, ErrClusterGone
 	}
-	return disabled, nil
+	return c, nil
 }
 
 // resolveChat creates the chat a nil chatID asks for, else touches the one named:
@@ -668,6 +692,47 @@ func (s *service) SetSandboxDisabled(ctx context.Context, chatID ChatID, disable
 	var switched Chat
 	err := s.store.InTx(ctx, func(st stmts) error {
 		c, ok, err := setSandboxDisabled(ctx, st, chatID, disabled)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return ErrChatGone
+		}
+		switched = c
+		return nil
+	})
+	if err != nil {
+		return Chat{}, err
+	}
+	s.notify(chatsKey)
+	return switched, nil
+}
+
+// SetNetworkEnabled writes the chat's network switch and returns the record it
+// committed. Where network is unavailable nothing turns it on, and neither does
+// a chat outside the sandbox, so the switch is on only where it applies and a
+// chat back in the sandbox starts without it; turning it off is always accepted.
+func (s *service) SetNetworkEnabled(ctx context.Context, chatID ChatID, enabled bool) (Chat, error) {
+	if enabled && !s.sandboxStatus.NetworkAvailable {
+		return Chat{}, ErrBadRequest
+	}
+	var switched Chat
+	err := s.store.InTx(ctx, func(st stmts) error {
+		if enabled {
+			// In the transaction, so a sandbox switch cannot land between the read
+			// and the write.
+			c, ok, err := getChat(ctx, st, chatID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return ErrChatGone
+			}
+			if c.SandboxDisabled {
+				return ErrBadRequest
+			}
+		}
+		c, ok, err := setNetworkEnabled(ctx, st, chatID, enabled)
 		if err != nil {
 			return err
 		}

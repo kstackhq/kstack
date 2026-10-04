@@ -72,9 +72,10 @@ type turn struct {
 	// outsideSandbox its switch, read in the transaction that reserved the turn,
 	// so a send's runtime matches the context block it wrote: what its tools, and
 	// the subagents it spawns, run with. A switch flipped meanwhile changes the
-	// next turn.
-	clusterID      apimeta.ClusterID
-	outsideSandbox bool
+	// next turn. networkThisTurn is the send's toggle, pinned beside it.
+	clusterID       apimeta.ClusterID
+	outsideSandbox  bool
+	networkThisTurn bool
 }
 
 // runJournal is one run's journal: the loop's Recorder and Approver, which
@@ -252,7 +253,7 @@ func (s *service) run(t *turn) (res agent.Result, err error) {
 
 // session is the turn's session, fixed for the turn.
 func (t *turn) session() session.Session {
-	return t.s.sessionFor(t.chatID, t.outsideSandbox)
+	return t.s.sessionFor(t.chatID, t.outsideSandbox, t.networkThisTurn)
 }
 
 // chatOf is the turn's chat as stored: its cluster, the one its tools reach, since
@@ -426,7 +427,9 @@ func (j *runJournal) ServerCallSeen(call llm.Block, tool tools.Native) {
 // ToolCallStarted commits the call's running row before the tool runs, so a command
 // that touched the cluster is never absent from the record. A gated call's row is
 // the one Approve opened; any other is minted here, with where and how the call
-// runs off its approval, which a call that skipped the question still has. The row takes running and
+// runs off its approval, which a call that skipped the question still has. Either
+// row takes the network the call runs with only now, so a call that asked and
+// never ran keeps none. The row takes running and
 // started_at only once the write has landed, so a refusal after a failed write
 // still says the call never started.
 func (j *runJournal) ToolCallStarted(ctx context.Context, call llm.Block, approval tools.Approval) error {
@@ -437,6 +440,7 @@ func (j *runJournal) ToolCallStarted(ctx context.Context, call llm.Block, approv
 	}
 	started := *row
 	started.Status, started.StartedAt = toolRunning, nullMillis(normalizeTime(j.s.now()))
+	started.Network = approval.Network
 	if err := j.writeToolCall(ctx, &started); err != nil {
 		return err
 	}

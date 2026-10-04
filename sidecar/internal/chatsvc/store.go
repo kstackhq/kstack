@@ -30,6 +30,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/rawjson"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -173,6 +174,19 @@ func setSandboxDisabled(ctx context.Context, st stmts, id ChatID, disabled bool)
 	return c, true, nil
 }
 
+// setNetworkEnabled writes a chat's network switch and returns the row it
+// wrote. No row means no chat.
+func setNetworkEnabled(ctx context.Context, st stmts, id ChatID, enabled bool) (Chat, bool, error) {
+	c, err := scanChat(st.QueryRow(ctx, stmtSetNetworkEnabled, enabled, string(id)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Chat{}, false, nil
+	}
+	if err != nil {
+		return Chat{}, false, fmt.Errorf("set network enabled: %w", err)
+	}
+	return c, true, nil
+}
+
 func getChat(ctx context.Context, st stmts, id ChatID) (Chat, bool, error) {
 	c, err := scanChat(st.QueryRow(ctx, stmtSelectChat, string(id)))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -230,7 +244,7 @@ func scanChat(s scanner) (Chat, error) {
 		c                    Chat
 		createdAt, updatedAt int64
 	)
-	if err := s.Scan(&c.ID, &c.Title, &c.Mode, &c.ClusterID, &c.SandboxDisabled, &createdAt, &updatedAt, &c.AwaitingApproval); err != nil {
+	if err := s.Scan(&c.ID, &c.Title, &c.Mode, &c.ClusterID, &c.SandboxDisabled, &c.NetworkEnabled, &createdAt, &updatedAt, &c.AwaitingApproval); err != nil {
 		return Chat{}, err
 	}
 	c.CreatedAt, c.UpdatedAt = fromMillis(createdAt), fromMillis(updatedAt)
@@ -332,7 +346,9 @@ type toolCallEntry struct {
 	// Cwd is where a gated call starts, set at the gate; '' on every other call.
 	Cwd string
 	// Sandboxed is whether a sandbox confined the call, set at the gate.
-	Sandboxed  bool
+	Sandboxed bool
+	// Network is the network the call ran with, set when it starts running.
+	Network    session.Network
 	Result     string
 	Error      string
 	Status     string
@@ -542,7 +558,7 @@ func upsertToolCall(ctx context.Context, st stmts, c toolCallEntry) error {
 	}
 	_, err := st.Exec(ctx, stmtUpsertToolCall,
 		string(c.ID), string(c.LLMCallID), c.Seq, runsOn, c.Name, nullString(c.Contract), nullString(c.ToolUseID), nullString(c.Arguments), c.Cwd, c.Sandboxed,
-		nullString(c.Result), nullString(c.Error), c.IsMutating, nullString(string(c.SpawnedRunID)), nullString(c.Status),
+		nullString(string(c.Network)), nullString(c.Result), nullString(c.Error), c.IsMutating, nullString(string(c.SpawnedRunID)), nullString(c.Status),
 		millis(c.CreatedAt), c.StartedAt, c.FinishedAt)
 	if err != nil {
 		return fmt.Errorf("upsert tool call: %w", err)
@@ -601,20 +617,20 @@ func toolCallsByRun(ctx context.Context, st stmts, reads callReads, arg string) 
 			runsOn                       string
 			useID, args, result, errText sql.NullString
 			contract, status             sql.NullString
-			spawned                      sql.NullString
+			spawned, network             sql.NullString
 			approvalID, approvalStatus   sql.NullString
 			approvalDuration             string
 			taskStatus, report           sql.NullString
 			exitCode                     sql.NullInt64
 		)
-		err := rows.Scan(&run, &c.ID, &runsOn, &useID, &c.Name, &contract, &args, &c.Cwd, &c.Sandboxed, &result, &errText, &status, &c.StartedAt,
+		err := rows.Scan(&run, &c.ID, &runsOn, &useID, &c.Name, &contract, &args, &c.Cwd, &c.Sandboxed, &network, &result, &errText, &status, &c.StartedAt,
 			&spawned, &approvalID, &approvalStatus, &approvalDuration, &taskStatus, &exitCode, &report)
 		if err != nil {
 			return nil, fmt.Errorf("tool calls: %w", err)
 		}
 		c.ByProvider, c.Contract, c.Status = runsOn == runsOnProvider, contract.String, status.String
 		c.ToolUseID, c.Arguments, c.Result, c.Error = useID.String, args.String, result.String, errText.String
-		c.SpawnedRunID = RunID(spawned.String)
+		c.SpawnedRunID, c.Network = RunID(spawned.String), session.Network(network.String)
 		if approvalID.Valid {
 			c.Approval = &approval{
 				ID: ApprovalID(approvalID.String), Status: ApprovalStatus(approvalStatus.String),

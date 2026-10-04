@@ -145,7 +145,7 @@ type refusingChat struct {
 	err error
 }
 
-func (c refusingChat) Send(context.Context, *chatsvc.ChatID, chatsvc.Mode, apimeta.ClusterID, bool, string, string, string, string, string) (chatsvc.ChatMessage, error) {
+func (c refusingChat) Send(context.Context, *chatsvc.ChatID, chatsvc.Mode, apimeta.ClusterID, bool, bool, bool, string, string, string, string, string) (chatsvc.ChatMessage, error) {
 	return chatsvc.ChatMessage{}, c.err
 }
 

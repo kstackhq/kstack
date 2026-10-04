@@ -98,6 +98,7 @@ var chatRefusals = []struct {
 	// running the turn where the user did not look.
 	{chatsvc.ErrChatSandboxChanged, gqlerrors.ErrChatSandboxChanged},
 	{chatsvc.ErrGrantGone, gqlerrors.ErrRecordNotFound},
+	{chatsvc.ErrChatNetworkChanged, gqlerrors.ErrChatNetworkChanged},
 }
 
 // clusterRefusals maps the cluster service's named errors onto wire codes: an id
