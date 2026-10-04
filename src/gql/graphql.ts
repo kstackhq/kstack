@@ -141,7 +141,7 @@ export type PermissionModeSource =
   | 'Entry'
   | 'Refused';
 
-/** A rule to add; every string is a pattern but `group`, and empty matches anything. */
+/** A rule to add; every string is a pattern but `group`, and empty matches anything. A `namespace` of `[cluster]` is cluster-scoped objects alone. */
 export type PermissionRuleInput = {
   class: PermissionClass;
   context?: string;

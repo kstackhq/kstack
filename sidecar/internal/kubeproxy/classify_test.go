@@ -72,6 +72,8 @@ func TestEveryRequestIsClassified(t *testing.T) {
 		{"a pv delete", "DELETE", "/api/v1/persistentvolumes/pv", "", "", permissions.Destructive, "delete", "core", "persistentvolumes"},
 		{"a pvc delete", "DELETE", "/api/v1/namespaces/team-a/persistentvolumeclaims/c", "", "", permissions.Destructive, "delete", "core", "persistentvolumeclaims"},
 		{"a crd delete", "DELETE", "/apis/apiextensions.k8s.io/v1/customresourcedefinitions/w.example.com", "", "", permissions.Destructive, "delete", "apiextensions.k8s.io", "customresourcedefinitions"},
+		{"a namespace finalize", "PUT", "/api/v1/namespaces/team-a/finalize", jsonType, `{}`, permissions.Destructive, "update", "core", "namespaces/finalize"},
+		{"a namespace status", "PUT", "/api/v1/namespaces/team-a/status", jsonType, `{}`, permissions.UpstreamWrite, "update", "core", "namespaces/status"},
 		{"a custom namespaces delete", "DELETE", "/apis/example.com/v1/namespaces/team-a/namespaces/x", "", "", permissions.UpstreamWrite, "delete", "example.com", "namespaces"},
 		{"an rbac write", "POST", "/apis/rbac.authorization.k8s.io/v1/namespaces/team-a/rolebindings", jsonType, `{}`, permissions.Destructive, "create", "rbac.authorization.k8s.io", "rolebindings"},
 		{"a cluster role patch", "PATCH", "/apis/rbac.authorization.k8s.io/v1/clusterroles/x", mergeType, `{}`, permissions.Destructive, "patch", "rbac.authorization.k8s.io", "clusterroles"},
