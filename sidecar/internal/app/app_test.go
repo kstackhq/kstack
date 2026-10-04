@@ -670,7 +670,7 @@ func TestTheSandboxStatusIsTheShellAndTheProbe(t *testing.T) {
 func TestASecurityServiceWithNoSandboxSyncsNothing(t *testing.T) {
 	store, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
 	require.NoError(t, err)
-	svc := newSecurityService(store, nil, nil, sandbox.Status{}, nil, "timeout")
+	svc := newSecurityService(store, nil, nil, sandbox.Status{}, nil, "timeout", "")
 	assert.Empty(t, svc.PathFault())
 	assert.False(t, svc.Get().RunPath().Resolved)
 

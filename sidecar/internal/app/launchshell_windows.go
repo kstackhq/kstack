@@ -18,4 +18,4 @@ import "context"
 
 // launchShell runs nothing: Windows has no sandbox to resolve a PATH for, and
 // a Windows launch inherits the environment the user's session builds.
-func launchShell(context.Context) ([]string, string) { return nil, "" }
+func launchShell(context.Context, sandboxer, []string, string) ([]string, string) { return nil, "" }

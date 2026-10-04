@@ -18,7 +18,7 @@ import "testing"
 
 // Windows has no sandbox, so no login shell is run for its PATH.
 func TestLaunchShellRunsNothingOnWindows(t *testing.T) {
-	path, fault := launchShell(t.Context())
+	path, fault := launchShell(t.Context(), nil, nil, "")
 	if path != nil || fault != "" {
 		t.Errorf("launchShell = %v, %q; want nothing", path, fault)
 	}

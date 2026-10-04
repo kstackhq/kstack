@@ -15,6 +15,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"time"
@@ -134,13 +135,18 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		return nil, err
 	}
 	slog.Info("sandbox probed", "available", probed.Available, "reason", probed.Reason)
+	// A nil pointer in an interface is not a nil interface.
+	var boxer sandboxer
+	if sb != nil {
+		boxer = sb
+	}
 	// Before anything that reads the environment: on macOS the login shell's
 	// sets it process-wide, credential plugins resolve against it, and net/http
 	// and WebFetch read the proxy variables from it.
 	p := pathsOf(cfg)
 	launchPath, launchFault := cfg.launchPath, ""
 	if cfg.RunLoginShell {
-		launchPath, launchFault = launchShell(ctx)
+		launchPath, launchFault = launchShell(ctx, boxer, p.Bash.DeniedDirs, p.Bash.TmpDir)
 	}
 
 	// Shared cross-subsystem poke bus (wall-clock gap detector + host pokes via
@@ -208,14 +214,14 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	pathList := func() securityconfig.RunPath { return securityStore.Get().RunPath() }
 	shell, found := bash.New(p.Bash, cfg.HostPID, sb, clusterSvc, pathList)
 	sandboxStatus := sandboxStatusOf(found, probed)
-	securityCfg := newSecurityService(securityStore, sb, shell, sandboxStatus, p.Bash.DeniedDirs, launchFault)
+	securityCfg := newSecurityService(securityStore, boxer, shell, sandboxStatus, p.Bash.DeniedDirs, launchFault, p.Bash.TmpDir)
 	memorySvc, err := memorysvc.New(db, serverUIDLookup{clusters: clusterSvc.Clusters()})
 	if err != nil {
 		return fail(err)
 	}
 	built = append(built, memorySvc)
 	// The file tools are fenced out of all three directories.
-	box, err := chatTools(shell, []string{cfg.DataDir, cfg.CacheDir, cfg.RuntimeDir}, cfg.UserUmask, memorySvc, clusterSvc)
+	box, err := chatTools(shell, p.Bash.DeniedDirs, cfg.UserUmask, memorySvc, clusterSvc)
 	if err != nil {
 		return fail(fmt.Errorf("fence Kstack's directories: %w", err))
 	}
@@ -363,11 +369,23 @@ func newCatalog(cfg Config) catalog.Catalog {
 // probeSandbox is sandbox.Probe, which a test replaces to count its calls.
 var probeSandbox = sandbox.Probe
 
+// sandboxer is what the login shell and the security settings need of the
+// sandbox: *sandbox.Sandbox, or a test's fake.
+type sandboxer interface {
+	Command(ctx context.Context, r sandbox.Run) (*exec.Cmd, error)
+	System(home, shell string) sandbox.System
+	Never(home string) []string
+}
+
 // newSecurityService is the security settings and the frozen PATH kept in
 // them. The sync judges an entry by what a sandboxed run of the bash tool's
-// shell reads, and by the paths no rule opens, Kstack's directories among
-// them. On a machine with no sandbox it syncs nothing and keeps no fault.
-func newSecurityService(store *securityconfig.Store, sb *sandbox.Sandbox, shell *bash.Tool, status sandbox.Status, denied []string, fault string) *securityconfig.Service {
+// shell reads, and by the paths no rule opens, Kstack's directories (denied)
+// among them. Refresh PATH runs the login shell in sb as the launch does, its
+// TMPDIR under tmpDir. Both read the denied-always list afresh each time, as a
+// run does: it lists the other users' homes, which can appear while the
+// sidecar runs. On a machine with no sandbox it syncs nothing and keeps no
+// fault.
+func newSecurityService(store *securityconfig.Store, sb sandboxer, shell *bash.Tool, status sandbox.Status, denied []string, fault, tmpDir string) *securityconfig.Service {
 	if !status.Available {
 		return securityconfig.NewService(store, nil, nil, "")
 	}
@@ -375,7 +393,7 @@ func newSecurityService(store *securityconfig.Store, sb *sandbox.Sandbox, shell 
 	zones := func() securityconfig.Zones {
 		return securityconfig.Zones{Never: slices.Concat(sb.Never(home), denied), Open: sb.System(home, shell.Shell()).Files, Home: home}
 	}
-	return securityconfig.NewService(store, zones, resolveShellPath, fault)
+	return securityconfig.NewService(store, zones, shellPathResolver(sb, home, denied, tmpDir), fault)
 }
 
 // syncPath folds the launch's PATH into the stored list. A sync that fails

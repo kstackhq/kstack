@@ -18,6 +18,7 @@ package app
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 
 	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
@@ -41,6 +42,26 @@ func TestResolveIsRunOnceAtLaunch(t *testing.T) {
 	})
 	require.Nil(t, path)
 	require.Equal(t, "timeout", fault)
+}
+
+// The launch resolution runs in the sandbox, its output leaving it, so the
+// denied-always list is shut to it; a refused policy runs no shell.
+func TestTheLaunchResolutionRunsInTheSandbox(t *testing.T) {
+	sb := &refusingSandbox{never: []string{"/never"}}
+	kstackDirs := []string{t.TempDir(), t.TempDir(), t.TempDir()}
+	tmpDir := filepath.Join(kstackDirs[1], "tmp")
+
+	path, fault := launchShell(t.Context(), sb, kstackDirs, tmpDir)
+
+	require.Nil(t, path)
+	require.Equal(t, "sandbox refused", fault)
+	require.Len(t, sb.runs, 1)
+	p := sb.runs[0].Policy
+	require.Equal(t, []string{"/never"}, p.Always.Deny)
+	require.Equal(t, kstackDirs, p.Always.Kstack)
+	require.Len(t, p.Always.Write, 1)
+	require.Equal(t, tmpDir, filepath.Dir(p.Always.Write[0]))
+	require.Zero(t, p.Network)
 }
 
 // stubLaunch makes the login shell's run answer res and f, and counts the
