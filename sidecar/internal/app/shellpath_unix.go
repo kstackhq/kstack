@@ -16,7 +16,18 @@
 
 package app
 
-import "github.com/kstackhq/kstack/sidecar/internal/loginshell"
+import (
+	"context"
 
-// resolveShellPath runs the login shell again for Refresh PATH.
-var resolveShellPath = loginshell.Path
+	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
+)
+
+// shellPathResolver is Refresh PATH's resolver: the login shell run again in
+// sb, with the denied-always list, read at each call, and Kstack's directories
+// shut to it, its TMPDIR under tmpDir.
+func shellPathResolver(sb sandboxer, home string, kstackDirs []string, tmpDir string) func(context.Context) ([]string, error) {
+	return func(ctx context.Context) ([]string, error) {
+		return loginshell.Path(ctx, loginshell.In(sb, sb.Never(home), kstackDirs, bash.TempDir(tmpDir)))
+	}
+}

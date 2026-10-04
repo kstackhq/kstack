@@ -22,13 +22,14 @@ import (
 )
 
 func TestWindowsHasNoSandbox(t *testing.T) {
-	s, v := Probe(context.Background())
+	s, v, err := Probe(context.Background())
+	assert.NoError(t, err)
 	assert.Nil(t, s)
 	assert.Equal(t, Status{Available: false, Reason: "no sandbox on native Windows; run Kstack in WSL2"}, v)
 
 	var none *Sandbox
 	assert.False(t, none.Confines())
-	_, err := none.Port()
+	_, err = none.Port()
 	assert.ErrorIs(t, err, errNone)
 }
 

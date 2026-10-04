@@ -18,6 +18,7 @@ package bash
 
 import (
 	"context"
+	"log/slog"
 
 	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
 )
@@ -86,10 +87,20 @@ pkill() {
 `
 
 // launchDump runs the dump in the login shell, in the process's environment,
-// since a command outside the sandbox sources what it finds. reason is "" when
-// the dump arrived whole.
+// since a command outside the sandbox sources what it finds. On a machine with
+// a sandbox the shell runs in it, reading the whole home but Kstack's
+// directories, since only commands that read the home themselves source what
+// it builds, and writing a TMPDIR of its own under the tool's. reason is ""
+// when the dump arrived whole.
 func (t *Tool) launchDump(ctx context.Context) (out []byte, reason string, code int) {
-	out, f := loginshell.Launch(ctx, t.shell, loginshell.InteractiveLogin(dumpCommand(t.kind)), loginshell.ProcessEnv(), t.snapLimit, snapshotDone)
+	var sb loginshell.Commander
+	if t.sandboxer != nil {
+		sb = t.sandboxer
+	} else {
+		slog.Warn("shell snapshot taken unconfined: this machine has no sandbox")
+	}
+	start := loginshell.In(sb, nil, t.denied, TempDir(t.tmpDir))
+	out, f := loginshell.Launch(ctx, start, t.shell, loginshell.InteractiveLogin(dumpCommand(t.kind)), loginshell.ProcessEnv(), t.snapLimit, snapshotDone)
 	if f != nil {
 		return nil, f.Reason, f.ExitCode
 	}

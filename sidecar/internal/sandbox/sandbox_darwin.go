@@ -36,9 +36,13 @@ import (
 const probeTimeout = 5 * time.Second
 
 // Probe answers Seatbelt, available when sandbox-exec runs true under the
-// profile a run with no cluster gets.
-func Probe(ctx context.Context) (*Sandbox, Status) {
-	return probe(ctx, "/usr/bin/sandbox-exec", probeTimeout)
+// profile a run with no cluster gets, or ctx's error when it ended first.
+func Probe(ctx context.Context) (*Sandbox, Status, error) {
+	s, status := probe(ctx, "/usr/bin/sandbox-exec", probeTimeout)
+	if err := ctx.Err(); err != nil {
+		return nil, Status{}, err
+	}
+	return s, status, nil
 }
 
 // probe is Probe with the launcher at path, bounded by timeout. A probe that

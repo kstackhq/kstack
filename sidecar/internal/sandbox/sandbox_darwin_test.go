@@ -1439,3 +1439,15 @@ func TestARunWithAnUnpassableVariableIsRefused(t *testing.T) {
 		assert.ErrorContains(t, err, "may not pass", kv)
 	}
 }
+
+// A probe whose context ended before it answered is the context's error, not
+// a verdict: read as one it would say there is no sandbox.
+func TestAProbeCutShortIsAnError(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	s, _, err := Probe(ctx)
+
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, s)
+}
