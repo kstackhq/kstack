@@ -1617,7 +1617,7 @@ not read.
 **`kubeproxy/classify.go` classifies a request**: a `GET` of core `secrets` is class 6, any other
 read, a self review and a dry run on a group version in `honorsDryRun` (the stable ones the API server
 serves itself; an aggregated API, routed by group and version, may ignore `dryRun`) class 1, a write on the class 5 list class 5 (`destructive`: a
-delete of a namespace, node, PV, PVC or CRD; any `deletecollection`; any write of RBAC, of the
+delete of a namespace, node, PV, PVC or CRD, or a namespace's `finalize`, which completes one; any `deletecollection`; any write of RBAC, of the
 admission webhooks and policies, of a CSR's `approval` or of `ephemeralcontainers`; and a replica
 write — a `PUT` or `PATCH` of a `scale` subresource, of an `apps` deployment, stateful set or
 replica set, or of a core replication controller — in any form but the plain ones `keepsReplicas` reads whole: an object body with no `$`

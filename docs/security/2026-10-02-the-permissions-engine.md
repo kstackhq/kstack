@@ -35,7 +35,8 @@ Until now every write asked, or was refused when nobody could be asked
   exactly, that only sets `/spec/replicas` to a positive count or, on a workload, touches paths
   beside it. Every other form is class 5, so a shape the classifier does not know asks rather than
   passes (`TestAScaleIsClassFourOnlyInAPlainForm`). A write of a mutating admission policy or its
-  binding is class 5, as a validating one's is (`TestEveryRequestIsClassified`). A body that
+  binding is class 5, as a validating one's is, and so is a namespace's `finalize`, which clears
+  what holds a terminating namespace and so completes a delete (`TestEveryRequestIsClassified`). A body that
   repeats a key in one object is refused before it is classified, since the API server's typed
   decoder merges what the proxy keeps only the last of: a Namespace's name or a zero replicas
   could otherwise hide in the repeat (`TestAWriteThatCannotBeShownIsRefused`). A write to a core
