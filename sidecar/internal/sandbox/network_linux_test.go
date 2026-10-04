@@ -139,6 +139,8 @@ func TestAPastaProbeWithNoTempDirFails(t *testing.T) {
 // passing pastas run bwrap in the sidecar's own network.
 func TestKstacksOwnPastaStandsInForTheSystems(t *testing.T) {
 	s := *confining(t)
+	// Each case probes from scratch, as Probe does, whatever pasta this machine has.
+	s.pasta, s.pastaOwnUserNS, s.networkReason = "", false, ""
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "own-ran")
 	failing := fakeBwrap(t, filepath.Join(dir, "system-failing"), `echo "system failed" >&2; exit 1`)
