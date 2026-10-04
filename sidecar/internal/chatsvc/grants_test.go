@@ -97,3 +97,49 @@ func TestAGrantsReadThatFailsRefuses(t *testing.T) {
 
 	assert.Equal(t, []permissions.Rule{permissions.Refused}, s.grantsFor(t.Context(), c.ID))
 }
+
+// A chat's rules are written, listed, changed in place and removed by id, and
+// the command's next decision reads each change.
+func TestAChatsGrantsAreListedAndRemoved(t *testing.T) {
+	s := newTestService(t)
+	ctx := t.Context()
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	rule := permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, Context: "dev", Namespace: "web"}
+
+	added, err := s.addGrant(ctx, c.ID, rule)
+	require.NoError(t, err)
+	require.NotEmpty(t, added.ID)
+	var rowID string
+	require.NoError(t, s.db.Read.QueryRow(`SELECT id FROM chat_grants`).Scan(&rowID))
+	assert.Equal(t, rowID, added.ID, "the row's id is the rule's")
+	assert.Equal(t, []permissions.Rule{added}, s.grantsFor(ctx, c.ID))
+
+	again, err := s.addGrant(ctx, c.ID, rule)
+	require.NoError(t, err)
+	assert.Equal(t, added, again, "a rule the chat holds is not written twice")
+	assert.Len(t, s.grantsFor(ctx, c.ID), 1)
+
+	changed := added
+	changed.Namespace = "api"
+	_, err = s.addGrant(ctx, c.ID, changed)
+	require.NoError(t, err)
+	assert.Equal(t, []permissions.Rule{changed}, s.grantsFor(ctx, c.ID), "a rule under its id replaces that row's")
+	stranger := changed
+	stranger.ID = appdb.NewID()
+	_, err = s.addGrant(ctx, c.ID, stranger)
+	assert.ErrorIs(t, err, ErrGrantGone)
+
+	left, err := s.RemoveChatGrant(ctx, c.ID, changed.ID)
+	require.NoError(t, err)
+	assert.Empty(t, left)
+	assert.Empty(t, s.grantsFor(ctx, c.ID), "the command's next decision no longer finds it")
+	_, err = s.RemoveChatGrant(ctx, c.ID, changed.ID)
+	assert.ErrorIs(t, err, ErrGrantGone)
+
+	_, err = s.db.Write.Exec(`DELETE FROM chats WHERE id = ?`, string(c.ID))
+	require.NoError(t, err)
+	_, err = s.RemoveChatGrant(ctx, c.ID, appdb.NewID())
+	assert.ErrorIs(t, err, ErrChatGone)
+	_, err = s.addGrant(ctx, c.ID, rule)
+	assert.ErrorIs(t, err, ErrChatGone)
+}

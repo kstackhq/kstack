@@ -16,6 +16,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 )
 
@@ -96,6 +97,7 @@ var chatRefusals = []struct {
 	// The sender saw the other switch, so the composer says it changed rather than
 	// running the turn where the user did not look.
 	{chatsvc.ErrChatSandboxChanged, gqlerrors.ErrChatSandboxChanged},
+	{chatsvc.ErrGrantGone, gqlerrors.ErrRecordNotFound},
 }
 
 // clusterRefusals maps the cluster service's named errors onto wire codes: an id
@@ -224,6 +226,17 @@ func (r *Resolver) permissionSettings(ctx context.Context) (*model.PermissionSet
 	return out, nil
 }
 
+// approvalErr is what approvalDecide returns an error through: an Always
+// answer refused while the settings hold rules Kstack cannot read names the
+// file, and anything else is a chat refusal.
+func approvalErr(err error) error {
+	if errors.Is(err, securityconfig.ErrHeld) {
+		return gqlerrors.NewValidationError("decision",
+			"security.json holds rules Kstack cannot read, so no rule can be added: fix them in Settings, or approve once")
+	}
+	return chatErr(err)
+}
+
 // permissionsAfter is a permission mutation's answer: its refusal, else the
 // settings it left.
 func (r *Resolver) permissionsAfter(ctx context.Context, err error) (*model.PermissionSettings, error) {
@@ -239,4 +252,13 @@ func (r *Resolver) permissionsAfter(ctx context.Context, err error) (*model.Perm
 		return nil, err
 	}
 	return r.permissionSettings(ctx)
+}
+
+// rulePointers is rules as gqlgen serves a list of them: never null.
+func rulePointers(rules []permissions.Rule) []*permissions.Rule {
+	out := make([]*permissions.Rule, 0, len(rules))
+	for i := range rules {
+		out = append(out, &rules[i])
+	}
+	return out
 }

@@ -445,3 +445,15 @@ func (c *closeRecorder) Close() error {
 	c.closed = true
 	return nil
 }
+
+// redactLastApplied blanks the last-applied annotation and leaves everything
+// else, a ConfigMap's data included.
+func TestRedactLastAppliedBlanksTheAnnotationAlone(t *testing.T) {
+	var v any
+	require.NoError(t, json.Unmarshal([]byte(`{"kind":"ConfigMap","metadata":{"name":"c","annotations":{
+		"`+lastApplied+`":"{\"kind\":\"Secret\",\"data\":{\"p\":\"aHVudGVyMg==\"}}","team":"web"}},"data":{"k":"v"}}`), &v))
+	redactLastApplied(v)
+	b, err := json.Marshal(v)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"kind":"ConfigMap","metadata":{"name":"c","annotations":{"`+lastApplied+`":"[redacted]","team":"web"}},"data":{"k":"v"}}`, string(b))
+}

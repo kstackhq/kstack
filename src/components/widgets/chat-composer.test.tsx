@@ -179,6 +179,19 @@ describe('ChatComposer', () => {
     expect(sandboxButton()).toBeNull();
   });
 
+  // The chat's own rules sit beside the switch, for an open chat holding any.
+  it("draws the chat's rules for an open chat that holds any", () => {
+    catalog.current = {
+      ...answered,
+      data: { ...answered.data, chatGrants: [{ id: 'r1', line: 'Allow cluster writes in dev / web' }] },
+    };
+    const view = renderComposer();
+    expect(screen.getByRole('button', { name: /1 allowed/ })).toBeInTheDocument();
+
+    view.rerender({ chatID: null });
+    expect(screen.queryByRole('button', { name: /allowed/ })).toBeNull();
+  });
+
   it('sends the draft and clears the box', async () => {
     renderComposer();
     type('hello');

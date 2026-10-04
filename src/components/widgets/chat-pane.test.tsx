@@ -246,7 +246,7 @@ describe('ChatPane', () => {
     const waitingCall = (id: string) => ({
       id,
       status: 'AwaitingApproval',
-      approval: { id, status: 'Pending' },
+      approval: { id, status: 'Pending', duration: null },
       clusterWrites: [],
     });
     renderPanes().open('c1', {
