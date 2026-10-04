@@ -351,7 +351,7 @@ func newCatalog(cfg Config) catalog.Catalog {
 // it. It answers the tool, false when none is offered, the sandbox, nil for
 // none, and the probe's status. A sandboxed run searches pathList.
 func newBashTool(paths bash.Paths, hostPID int, clusterSvc clustersvc.Service, pathList func() securityconfig.RunPath) (shell *bash.Tool, ok bool, sb *sandbox.Sandbox, status sandbox.Status) {
-	sb, status = sandbox.Probe(context.Background())
+	sb, status, _ = sandbox.Probe(context.Background())
 	slog.Info("sandbox probed", "available", status.Available, "reason", status.Reason)
 	shell, ok = bash.New(paths, hostPID, sb, clusterSvc, pathList)
 	return shell, ok, sb, status

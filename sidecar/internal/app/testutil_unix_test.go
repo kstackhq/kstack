@@ -202,7 +202,7 @@ func toolsFolder(t *testing.T, names ...string) string {
 // kubectl or jq, testutil.RequireSandbox decides.
 func startE2E(t *testing.T) *e2e {
 	t.Helper()
-	if _, v := sandbox.Probe(t.Context()); !v.Available {
+	if _, v, _ := sandbox.Probe(t.Context()); !v.Available {
 		testutil.RequireSandbox(t, "no sandbox: "+v.Reason)
 	}
 	bin := toolsFolder(t, "kubectl", "jq")
