@@ -12,10 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package app
 
-import "context"
+import (
+	"os"
+	"testing"
 
-// launchShell runs nothing: Windows has no sandbox to resolve a PATH for, and
-// a Windows launch inherits the environment the user's session builds.
-func launchShell(context.Context) ([]string, string) { return nil, "" }
+	"github.com/stretchr/testify/require"
+)
+
+func TestSetShellEnvSetsWhatItIsHanded(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("AWS_PROFILE", "")
+
+	setShellEnv(map[string]string{"PATH": "/opt/bin:/usr/bin", "AWS_PROFILE": "work"})
+
+	require.Equal(t, "/opt/bin:/usr/bin", os.Getenv("PATH"))
+	require.Equal(t, "work", os.Getenv("AWS_PROFILE"))
+}

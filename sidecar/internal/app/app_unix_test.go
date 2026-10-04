@@ -17,11 +17,13 @@
 package app
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -29,6 +31,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
@@ -37,7 +40,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools/webfetch"
 )
 
-// TestMain answers sandbox-init and sandbox-shell: newBashTool's probe starts
+// TestMain answers sandbox-init and sandbox-shell: New's probe starts
 // this test binary as both, through the machine's sandbox.
 func TestMain(m *testing.M) {
 	if code, ok := sandbox.Main(os.Args); ok {
@@ -49,14 +52,16 @@ func TestMain(m *testing.M) {
 // Where the probe passes, Bash is offered through the sandbox, and its schema
 // has no way out of it. Without one, testutil.RequireSandbox decides.
 func TestBashIsOfferedWithTheSandbox(t *testing.T) {
-	if _, v, _ := sandbox.Probe(t.Context()); !v.Available {
+	sb, v, err := sandbox.Probe(t.Context())
+	require.NoError(t, err)
+	if !v.Available {
 		testutil.RequireSandbox(t, "no sandbox: "+v.Reason)
 	}
 	t.Setenv("SHELL", "")
 	withBash := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(withBash, "bash"), []byte("#!/bin/sh\n"), 0o755))
 	t.Setenv("PATH", withBash)
-	shell, found, _, _ := newBashTool(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil)
+	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, sb, nil, nil)
 	require.True(t, found)
 
 	var schema struct {
@@ -123,12 +128,13 @@ func TestAppTakesTheSnapshotOnlyWhenAsked(t *testing.T) {
 	t.Setenv("SHELL", "")
 	t.Setenv("PATH", withBash)
 
-	a, err := New(withDirs(t, Config{DataDir: t.TempDir()}))
+	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	assert.False(t, slices.ContainsFunc(a.parts, func(p lifecycle.Part) bool { return p.Name == "shell snapshot" }))
 
-	a, err = New(withDirs(t, Config{DataDir: t.TempDir(), ShellSnapshot: true}))
+	stubLaunch(t, loginshell.Result{}, &loginshell.Fault{Reason: "no shell", ExitCode: -1})
+	a, err = New(t.Context(), withDirs(t, Config{DataDir: t.TempDir(), RunLoginShell: true}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	assert.Equal(t, len(a.parts)-1, partIndex(t, a, "shell snapshot"))
@@ -143,7 +149,7 @@ func TestNewMakesAMissingDirectoryOwnerOnly(t *testing.T) {
 		CacheDir:   filepath.Join(base, "cache"),
 		RuntimeDir: filepath.Join(base, "run"),
 	}
-	a, err := New(cfg)
+	a, err := New(t.Context(), cfg)
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	for _, dir := range []string{cfg.DataDir, cfg.CacheDir, cfg.RuntimeDir} {
@@ -278,7 +284,7 @@ func TestStartSyncsTheLaunchPath(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(withBash, "bash"), []byte("#!/bin/sh\n"), 0o755))
 	t.Setenv("PATH", withBash)
 
-	a, err := New(withDirs(t, Config{DataDir: t.TempDir()}))
+	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	assert.False(t, slices.ContainsFunc(a.parts, func(p lifecycle.Part) bool { return p.Name == "PATH sync" }))
@@ -286,7 +292,8 @@ func TestStartSyncsTheLaunchPath(t *testing.T) {
 	data := t.TempDir()
 	usrBin, err := filepath.EvalSymlinks("/usr/bin")
 	require.NoError(t, err)
-	a, err = New(withDirs(t, Config{DataDir: data, ShellPath: []string{"/usr/bin", "bin"}, ShellSnapshot: true}))
+	stubLaunch(t, loginshell.Result{Path: []string{"/usr/bin", "bin"}}, nil)
+	a, err = New(t.Context(), withDirs(t, Config{DataDir: data, RunLoginShell: true}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	assert.Equal(t, partIndex(t, a, "shell snapshot")-1, partIndex(t, a, "PATH sync"))
@@ -297,4 +304,45 @@ func TestStartSyncsTheLaunchPath(t *testing.T) {
 	assert.Equal(t, []securityconfig.PathEntry{
 		{Dir: "/usr/bin", Target: usrBin, State: securityconfig.PathAdopted, Source: securityconfig.SourceShell},
 	}, store.Get().Path)
+}
+
+// countProbes replaces probeSandbox with one that counts its calls.
+func countProbes(t *testing.T) *atomic.Int32 {
+	t.Helper()
+	count := new(atomic.Int32)
+	probe := probeSandbox
+	t.Cleanup(func() { probeSandbox = probe })
+	probeSandbox = func(ctx context.Context) (*sandbox.Sandbox, sandbox.Status, error) {
+		count.Add(1)
+		return probe(ctx)
+	}
+	return count
+}
+
+// New probes the sandbox once, for the login shell and the bash tool alike,
+// and runs the login shell once.
+func TestTheSandboxIsProbedOnce(t *testing.T) {
+	probes := countProbes(t)
+	launches := stubLaunch(t, loginshell.Result{Path: []string{"/usr/bin"}}, nil)
+
+	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir(), RunLoginShell: true}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+
+	assert.Equal(t, int32(1), probes.Load())
+	assert.Equal(t, 1, *launches)
+}
+
+// A context that ends during startup stops New before the login shell runs,
+// so a probe a quit cut short never stands for no sandbox.
+func TestNewStopsWhenItsContextEnds(t *testing.T) {
+	launches := stubLaunch(t, loginshell.Result{Path: []string{"/usr/bin"}}, nil)
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	a, err := New(ctx, withDirs(t, Config{DataDir: t.TempDir(), RunLoginShell: true}))
+
+	require.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, a)
+	assert.Zero(t, *launches)
 }

@@ -14,7 +14,7 @@
 
 //go:build unix && !darwin
 
-package main
+package app
 
 // setShellEnv does nothing off macOS. Only a macOS GUI launch is handed an
 // environment that lacks what the user's shell builds; everywhere else the

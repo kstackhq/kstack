@@ -214,7 +214,7 @@ func startE2E(t *testing.T) *e2e {
 	data := filepath.Join(dir, "data")
 	fake := llm.NewFake(0)
 	shellPath := append([]string{bin}, filepath.SplitList(loginshell.DefaultPath)...)
-	a, err := New(withDirs(t, Config{KubeconfigPath: kubeconfig, DataDir: data, RuntimeDir: shortTemp(t), ShellPath: shellPath, fake: fake}))
+	a, err := New(t.Context(), withDirs(t, Config{KubeconfigPath: kubeconfig, DataDir: data, RuntimeDir: shortTemp(t), launchPath: shellPath, fake: fake}))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = a.Close() })
 	startApp(t, a)
