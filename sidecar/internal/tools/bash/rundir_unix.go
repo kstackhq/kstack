@@ -28,8 +28,35 @@ import (
 	"sync"
 	"syscall"
 
+	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
 	"github.com/kstackhq/kstack/sidecar/internal/rootdir"
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 )
+
+// TempDir makes a login shell's TMPDIR as a sandboxed run's is made: a <pid>-*
+// folder under tmpDir, taken under the sidecar's lock so a sweep never removes
+// it mid-run, seeded, and removed by the cleanup it answers.
+func TempDir(tmpDir string) loginshell.TempDir {
+	return func() (string, func(), error) {
+		pid := os.Getpid()
+		if err := os.MkdirAll(tmpDir, 0o700); err != nil {
+			return "", nil, err
+		}
+		if err := holdRunLock(tmpDir, pid); err != nil {
+			return "", nil, err
+		}
+		dir, err := os.MkdirTemp(tmpDir, strconv.Itoa(pid)+"-*")
+		if err != nil {
+			return "", nil, err
+		}
+		sandbox.SeedTmpDir(dir)
+		return dir, func() {
+			if err := removeUnder(dir); err != nil {
+				slog.Warn("could not remove the login shell's TMPDIR; the next start sweeps it", "err", err)
+			}
+		}, nil
+	}
+}
 
 // A sidecar holds a lock, <pid>.lock in each directory it makes its runs'
 // directories in, for as long as it lives. A lock dies with its process, while
