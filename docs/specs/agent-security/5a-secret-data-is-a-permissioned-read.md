@@ -6,8 +6,8 @@ status: Planned
 
 # Secret data is a permissioned read
 
-**Needs:** step 3B, whose classifier tags a Secret read class 6 and whose `Decide` answers it,
-and step 4B, whose request and four answers this step's prompt rides. **Unblocks:** step 6B,
+**Needs:** step 3B, whose classifier tags a Secret read class 6, step 3C, whose `Authorize`
+gives it a verdict, and step 4B, whose request and five answers this step's prompt rides. **Unblocks:** step 6B,
 whose monitor session this step's `NoSecretData` policy is written for.
 
 Go paths below are under `sidecar/internal/` unless they say otherwise.
@@ -22,15 +22,16 @@ to read a Secret's values but to ask the user to run the command outside the san
 The note's class 6: a read of Secret data is a read that carries write-like risk, so the proxy
 redacts by default and treats showing the data as a permissioned action. After this step:
 
-- **The proxy asks `Decide` for every read of core `secrets`** — a get, a list, a table read,
-  a watch. `Allowed` passes the response unredacted. `Prompted` holds the read while the user
-  decides, with step 4B's request: *Show Secret data from `team-a` on `dev-eks`?*, and the four
-  answers. `Denied`, and a denial or an abandoned wait, pass the response **redacted**, as
-  today, with a 200: the note says "redacted unless permitted", never refused.
-- **A rule for this chat or always is `Allow` class 6 `k8s`**, scoped to the context and
+- **The proxy asks `Authorize` for every read of core `secrets`** — a get, a list, a table
+  read, a watch — and acts on the verdict's `Outcome`. `Allowed` passes the response
+  unredacted. `Prompted` holds the read while the user decides, with step 4B's request: *Show
+  Secret data from `team-a` on `dev-eks`?*, and the five answers. `Denied`, and a denial or an
+  abandoned wait, pass the response **redacted**, as today, with a 200: the note says
+  "redacted unless permitted", never refused.
+- **A rule for this chat or always is `GrantRule`'s**: `Allow` class 6 in the context and
   namespace the request names.
-- **The helm release write refusal is lifted** for a session `Decide` lets read real values in
-  the release's namespace, since such a session rebuilds a release from what it read.
+- **The helm release write refusal is lifted** for a session whose policy permits reading real
+  values in the release's namespace, since such a session rebuilds a release from what it read.
 - **A session can be one that never reads Secret data**, whatever its rules: the policy the
   monitor session (step 6B) runs under. That is how the note's "the monitoring session must
   never receive Secret data" is pinned here, ahead of the session that needs it.
@@ -51,53 +52,62 @@ value to show. Nothing changes on Windows: no command there reaches the proxy.
 
 ## Design
 
-### 1. The read asks `Decide`
+### 1. The read asks `Authorize`
 
 `kubeproxy/secretread.go`: `(g *Grant) serveSecretRead(w, r, p)`, which `ServeHTTP` calls in
 place of `forward` for a request the policy passed that is not a write and where `p.onSecrets()`:
 
-1. `act := classify(...)`: class 6 (step 3B), `Scope{Context, Namespace: p.namespace}`, `Verb`
-   `get`, `list` or `watch` as the API server reads it, `Kind` `secrets`, `Name` off the path.
+1. `act := classify(...)`: class 6 (step 3B), `Context` the grant's, `Namespace` off the path
+   (empty for a cluster-wide read), `Verb` `get`, `list` or `watch` as the API server reads it,
+   `Group` `core`, `Kind` `secrets`, `Name` off the path.
    `Summary` is this step's: *Show Secret `db-creds` from `team-a` on `dev-eks`?* for a get,
    *Show Secret data from `team-a` on `dev-eks`?* for a namespaced list or watch, *Show Secret
    data from `dev-eks`?* for a cluster-wide one, whose scope is the context alone. A table
    read (`as=Table` in `Accept`) and a watch are class 6 like any read: a table row's
    metadata carries a Secret's whole, and a watch streams it.
-2. `d, why := permissions.Decide(policy, rules, act)`, `policy` as the write path builds it
-   (step 3B §6), plus `NoSecretData` (§4).
+2. `v, why := g.policy(ctx).Authorize(act)`, the policy the write path reads (step 4B), which
+   carries `NoSecretData` (§4). The verdict is taken once, and `v.Outcome()` and
+   `permissions.Grantable(v, act)` are both read from it.
 3. `Allowed`: `forward` with no `rewriteSecrets`, recorded `allowed` with its reason.
-4. `Prompted`: `Ask` with `ActionRequest{Action: act, Grantable: ...}` and no `Write`; the
-   answer decides whether `forward` rewrites: approved passes unredacted, recorded `approved`
-   with its duration; denied and abandoned pass redacted, recorded as a write's are. A wait
-   that ends because the run ended passes nothing: the request is cancelled with it.
+4. `Prompted`: `Ask` with `ActionRequest{Action: act, Grantable: permissions.Grantable(v, act),
+   Rules: ...}` and no `Write`; the answer decides whether `forward` rewrites: approved passes
+   unredacted, recorded `approved` with its duration; denied and abandoned pass redacted,
+   recorded as a write's are. A `Command` answer appends `CommandRule(act)` to the grant, so
+   the same read again in that command passes. A wait that ends because the run ended passes
+   nothing: the request is cancelled with it.
 5. `Denied`: `forward` redacted, recorded `refused` with the reason — the rule, `NoPrompts`,
    or `NoSecretData`.
 
 The response is redacted or not as a whole: the Secret rewriter and the helm release rewriter
 are one `rewriteSecrets`, skipped together. A watch that waits holds its connection through
 the wait; its status line goes once the decision is in. The read holds no write lock and
-waits beside a write: a Secret read and a write can be on screen at once, and `askAction`
-serializes its own callers with `askMu`, so the journal sees them one at a time.
+waits beside a write: a Secret read and a write can both be waiting, and `askAction` puts them
+to the user one at a time under `askMu` (step 4B).
 `maxQueuedReads` (8), a `readWaiters` semaphore beside `writeWaiters`, bounds the Secret
 reads waiting on the user; one more is a 429 with no `Retry-After`, *too many Secret reads
 are waiting on the user*. A `LIST` across all namespaces asks once, for the context; a rule
-written from that answer has no namespace and covers every namespace of the context, and the
-request's scope line says so.
+written from that answer has no namespace and covers the Secrets of every namespace of the
+context, and the request's rule line says so.
 
 ### 2. The rule
 
-A `Chat` or `Always` answer writes `Allow`, class 6, provider `k8s`, `Scope{Context,
-Namespace}` off the action — the namespace unset for a cluster-wide read — verb and kind unset,
-through step 4B's `service.Approve`. The note's example: `k8s:secret-read context=dev-*`, which
-Settings can write by hand. `Decide`'s mode table for class 6 is step 3B's: `ReadOnly` and `Ask`
-prompt, `Auto` allows, and a shipped or user `Deny` rule refuses.
+A `Chat` or `Always` answer writes `permissions.GrantRule(act)` through step 4B's
+`service.Approve`. For a namespaced read that is `Allow`, class 6, the action's `Context` and
+`Namespace`, each literal, and nothing else: every Secret read in that namespace. A
+cluster-wide read has no `Namespace`, so it falls under step 4B's cluster-scoped exception and
+also names `Group` `core` and `Kind` `secrets`: every Secret read in the context, and no other
+resource. A `Command` answer adds `CommandRule(act)`, which also names the verb, for the rest of
+the command alone. The note's example, `k8s:secret-read context=dev-*`, is a rule Settings can
+write by hand. Class 6 under `Authorize` is step 3B's mode table: under `ReadOnly` and `Ask` it
+is `Unmatched` and asks, under `Auto` it is `Permit`, and a shipped or user `Deny` rule makes it
+`Refuse`.
 
 ### 3. The helm release write
 
 `serveWrite`'s two refusals of a helm release — `namesRelease` on a `PUT`, `PATCH` or `DELETE`,
-and `notARelease` on a `POST` to `secrets` — are conditioned on `Decide`: a class 6 action for
-the release's namespace, under the session's policy and rules, that answers `Allowed` lifts
-both, and the write then goes on to its own class 4 or 5 decision like any other. Any other
+and `notARelease` on a `POST` to `secrets` — are conditioned on `Authorize`: a class 6 action
+for the release's namespace, under the session's policy and rules, whose verdict is `Permit`
+lifts both, and the write then goes on to its own class 4 or 5 decision like any other. Any other
 answer keeps the refusal, whose text becomes *kstack: helm changes a release from the Secret
 data it read. Allow Secret data for this namespace, always or for this chat, then run it
 again.* A body carrying `[redacted]` or its base64 is refused before either check, as today:
@@ -107,7 +117,7 @@ redacted. This is the decision below.
 ### 4. A session that never reads Secret data
 
 `session.Session` gains `NoSecretData bool`, and `permissions.Policy` gains the same field.
-`Decide` reads it first for a class 6 action: `Denied`, with a reason that says the session
+`Authorize` reads it first for a class 6 action: `Refuse`, with a reason that says the session
 never reads Secret data, ahead of every rule. `chatsvc` sets it false for a chat's session;
 `Narrow` copies the parent's, since step 2C classes it as identity; step 6B sets it true for the monitor. So no rule the user writes
 in Settings, and no `Auto` mode, opens Secret data to a session built with it: the invariant
@@ -116,7 +126,7 @@ is the policy's, not a filter step 6B has to remember.
 ### 5. The prompt
 
 `tools/bash/prompts/sandbox.md`: a Secret's values read `[redacted]` unless the user allows
-showing them, which a read of Secrets asks for, once, for the chat, or always; do not ask the
+showing them, which a read of Secrets asks for, once, for the command, for the chat, or always; do not ask the
 user to run the command outside the sandbox for that. A `helm upgrade` needs Secret data
 allowed for the release's namespace, and its refusal says so. The line saying a helm change
 comes back `Forbidden` goes.
@@ -125,9 +135,10 @@ comes back `Forbidden` goes.
 
 The request rides `ToolCall.clusterWrites` as a `ClusterWrite` whose `write` fields are empty
 (the decision below renames it). `ApprovalRequest` draws, for a change whose `action.class` is
-6 and which has no body: the heading through `VisibleText`, the buttons of step 4B with the
-scope line *Secret data in `dev-eks` / `team-a`* (or *Secret data in `dev-eks`* for the
-context alone) from `scopeLine`, and nothing else. The group's `aria-label` reads *Secret read
+6 and which has no body: the heading through `VisibleText`, the buttons of step 4B with its
+rule lines, `chatRule` and `commandRule` off the action (`Rule.Line()` of `GrantRule` and
+`CommandRule`), naming the namespace, or the context alone for a cluster-wide read, and nothing
+else. The group's `aria-label` reads *Secret read
 awaiting approval*. In the call's disclosure the read is a line as a settled write is —
 `GET /api/v1/namespaces/team-a/secrets/db-creds`, tagged `approved · this chat`, `denied`,
 `allowed` or `refused` with its reason — so a read that ran unredacted is on screen. The model
@@ -152,12 +163,12 @@ is hygiene and not the boundary.
 
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
-| 1 | `NoSecretData` on the session and the policy; `Decide` reads it | `session/session.go`, `permissions/permissions.go`, `chatsvc/turn.go`, their tests | — | Planned |
+| 1 | `NoSecretData` on the session and the policy; `Authorize` reads it | `session/session.go`, `permissions/permissions.go`, `chatsvc/turn.go`, their tests | — | Planned |
 | 2 | The class 6 summary; `serveSecretRead`; `readWaiters` | `kubeproxy/classify.go`, `kubeproxy/secretread.go`, `kubeproxy/kubeproxy.go`, their tests | 1 | Planned |
-| 3 | The helm refusal under `Decide`; the new text | `kubeproxy/write.go`, `kubeproxy/policy.go`, their tests | 2 | Planned |
-| 4 | `askMu`; the read recorded on the call | `chatsvc/approval.go`, `chatsvc/store.go`, their tests | 2 | Planned |
+| 3 | The helm refusal under `Authorize`; the new text | `kubeproxy/write.go`, `kubeproxy/policy.go`, their tests | 2 | Planned |
+| 4 | The read asked under `askMu` and recorded on the call | `chatsvc/approval.go`, `chatsvc/store.go`, their tests | 2 | Planned |
 | 5 | The wire rename and codegen | `sidecar/graph/schema.graphqls`, `graph/`, generated code, `src/gql/` | 4 | Planned |
-| 6 | The request, its label, the scope line, the disclosure line | `src/components/widgets/chat-transcript.tsx`, `src/lib/chats.tsx`, `src/lib/permissions.ts`, their tests | 5 | Planned |
+| 6 | The request, its label, its rule lines, the disclosure line | `src/components/widgets/chat-transcript.tsx`, `src/lib/chats.tsx`, `src/lib/permissions.ts`, their tests | 5 | Planned |
 | 7 | The prompt | `tools/bash/prompts/sandbox.md`, its test | 3 | Planned |
 | 8 | Docs, per *When it lands* | see there | 1–7 | Planned |
 
@@ -168,8 +179,11 @@ then 8.
 
 **`permissions`**
 
-- `TestNoSecretDataDeniesClassSixAheadOfEveryRule`: with the flag, class 6 is `Denied` under
+- `TestNoSecretDataRefusesClassSixAheadOfEveryRule`: with the flag, class 6 is `Refuse` under
   each mode and under an `Allow` rule; class 4 is unchanged.
+- `TestASecretReadGrantNamesItsScope`: `GrantRule` of a namespaced Secret read names class 6,
+  the context and the namespace alone; of a cluster-wide list, the context, `core` and
+  `secrets`.
 
 **`session`**
 
@@ -185,8 +199,8 @@ then 8.
   the values are `[redacted]`, the status 200, the record `refused` naming the reason.
 - `TestATableAndAWatchAreClassSix`: an `as=Table` read and a watch each ask, and each passes
   unredacted once allowed.
-- `TestAClusterWideListAsksForTheContext`: the summary names the context alone and the rule
-  the answer writes has no namespace.
+- `TestAClusterWideListAsksForTheContext`: the summary names the context alone, and the rule
+  the answer writes has no namespace and names `core` `secrets`.
 - `TestSecretReadsWaitBesideAWrite`: a read and a write on one grant both wait at once, and
   the ninth waiting read is a 429.
 - `TestSecretDataIsRedactedWithoutTheGrant`: under `ReadOnly` and `Ask` with `NoPrompts` and no
@@ -203,24 +217,25 @@ then 8.
 
 **`chatsvc`**
 
-- `TestAChatAnswerWritesAClassSixGrant`: `Chat` on a Secret read's request writes `Allow`
-  class 6 `k8s` with the context and namespace, and `Always` writes it into the settings.
+- `TestAChatAnswerWritesAClassSixGrant`: `Chat` on a Secret read's request writes
+  `GrantRule`'s `Allow` class 6 with the context and namespace, and `Always` writes it into the
+  settings.
 - `TestAReadAndAWriteAskAtOnce`: two asks on one journal from two goroutines both land, one
   after the other.
 - `TestATurnsSessionReadsSecretData`: a chat's and a subagent's `NoSecretData` is false.
 
 **Webview** (`chat-transcript.test.tsx`, `permissions.test.ts`)
 
-- The heading for a get, a namespaced list and a cluster-wide list, the four buttons, the scope
-  line for a namespace and for a context alone, the `aria-label`, and no body, path or *Sent
+- The heading for a get, a namespaced list and a cluster-wide list, the five buttons, the rule
+  lines for a namespace and for a context alone, the `aria-label`, and no body, path or *Sent
   by* fold beyond the command.
 - A settled read's line in the disclosure with each tag.
 
 ## Security
 
 This step widens what leaves the machine: a Secret's values reach the model, and so the
-provider, once the user allows it — for one read, for the chat, or always for a context and
-namespace. What holds it: the default is redacted, in every mode but `Auto`, and a denial is a
+provider, once the user allows it — for one read, for the rest of the command, for the chat, or
+always for a context and namespace. What holds it: the default is redacted, in every mode but `Auto`, and a denial is a
 redacted 200, so a hijacked command gets nothing by asking twice; the request names the Secret
 or the namespace and the scope every rule covers; an always rule is on screen in Settings; a
 session marked `NoSecretData` is refused ahead of every rule, which is what the monitor will
@@ -242,14 +257,15 @@ The record, `docs/security/<date>-secret-data-is-a-permissioned-read.md`, argues
   session's policy and rules allow it; a monitor session never reads it; the helm release
   refusal is lifted under the grant.
 - **`security-model.md`**: the row *A sandboxed read of a Secret reads its values …
-  `[redacted]`* becomes *… unless `Decide` allows it for the session, per read*, with this
+  `[redacted]`* becomes *… unless `Authorize` permits it for the session, per read*, with this
   step's tests, `TestSecretDataIsRedactedWithoutTheGrant` first; the helm release row says
   its writes run under the grant; the *Cluster reads leave the machine* row names Secret data
   as the exception the user grants; a row for `NoSecretData`.
 - **`sidecar/CLAUDE.md`**: `serveSecretRead`, the class 6 summary, `readWaiters`, the helm
-  refusal's condition, `NoSecretData` on the session and the policy, `askMu`.
+  refusal's condition, `NoSecretData` on the session and the policy, a Secret read asking under
+  `askMu`.
 - **Root `CLAUDE.md`**, *Chat* and the security invariants: the Secret read's request, its
-  label and scope line, the disclosure line; the wire rename.
+  label and rule lines, the disclosure line; the wire rename.
 - **`docs/TODO.md`**: *Check Secret redaction by hand* gains the allowed read.
 - **The sequence's README**: this row's status.
 
