@@ -127,40 +127,40 @@ func nullMillis(t time.Time) sql.NullInt64 {
 // count is a known token count.
 func count(n int) sql.NullInt64 { return sql.NullInt64{Int64: int64(n), Valid: true} }
 
-// --- conversations ---
+// --- chats ---
 
-func insertConversation(ctx context.Context, st stmts, c Chat) error {
-	_, err := st.Exec(ctx, stmtInsertConversation,
+func insertChat(ctx context.Context, st stmts, c Chat) error {
+	_, err := st.Exec(ctx, stmtInsertChat,
 		string(c.ID), nullString(c.Title), string(c.Mode), string(c.ClusterID), millis(c.CreatedAt), millis(c.UpdatedAt))
 	if err != nil {
-		return fmt.Errorf("insert conversation: %w", err)
+		return fmt.Errorf("insert chat: %w", err)
 	}
 	return nil
 }
 
-// touchConversation moves the conversation to the top of the list.
-func touchConversation(ctx context.Context, st stmts, id ChatID, at time.Time) error {
-	if _, err := st.Exec(ctx, stmtTouchConversation, millis(at), string(id)); err != nil {
-		return fmt.Errorf("touch conversation: %w", err)
+// touchChat moves the chat to the top of the list.
+func touchChat(ctx context.Context, st stmts, id ChatID, at time.Time) error {
+	if _, err := st.Exec(ctx, stmtTouchChat, millis(at), string(id)); err != nil {
+		return fmt.Errorf("touch chat: %w", err)
 	}
 	return nil
 }
 
-// renameConversation retitles a conversation and returns the row it wrote. No row
-// means no conversation.
-func renameConversation(ctx context.Context, st stmts, id ChatID, title string, at time.Time) (Chat, bool, error) {
-	c, err := scanChat(st.QueryRow(ctx, stmtRenameConversation, title, millis(at), string(id)))
+// renameChat retitles a chat and returns the row it wrote. No row
+// means no chat.
+func renameChat(ctx context.Context, st stmts, id ChatID, title string, at time.Time) (Chat, bool, error) {
+	c, err := scanChat(st.QueryRow(ctx, stmtRenameChat, title, millis(at), string(id)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Chat{}, false, nil
 	}
 	if err != nil {
-		return Chat{}, false, fmt.Errorf("rename conversation: %w", err)
+		return Chat{}, false, fmt.Errorf("rename chat: %w", err)
 	}
 	return c, true, nil
 }
 
-// setSandboxDisabled writes a conversation's switch and returns the row it wrote.
-// No row means no conversation.
+// setSandboxDisabled writes a chat's switch and returns the row it wrote.
+// No row means no chat.
 func setSandboxDisabled(ctx context.Context, st stmts, id ChatID, disabled bool) (Chat, bool, error) {
 	c, err := scanChat(st.QueryRow(ctx, stmtSetSandboxDisabled, disabled, string(id)))
 	if errors.Is(err, sql.ErrNoRows) {
@@ -172,21 +172,21 @@ func setSandboxDisabled(ctx context.Context, st stmts, id ChatID, disabled bool)
 	return c, true, nil
 }
 
-func getConversation(ctx context.Context, st stmts, id ChatID) (Chat, bool, error) {
-	c, err := scanChat(st.QueryRow(ctx, stmtSelectConversation, string(id)))
+func getChat(ctx context.Context, st stmts, id ChatID) (Chat, bool, error) {
+	c, err := scanChat(st.QueryRow(ctx, stmtSelectChat, string(id)))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Chat{}, false, nil
 	}
 	if err != nil {
-		return Chat{}, false, fmt.Errorf("get conversation: %w", err)
+		return Chat{}, false, fmt.Errorf("get chat: %w", err)
 	}
 	return c, true, nil
 }
 
-func listConversations(ctx context.Context, st stmts) ([]Chat, error) {
-	rows, err := st.Query(ctx, stmtSelectConversations)
+func listChats(ctx context.Context, st stmts) ([]Chat, error) {
+	rows, err := st.Query(ctx, stmtSelectChats)
 	if err != nil {
-		return nil, fmt.Errorf("list conversations: %w", err)
+		return nil, fmt.Errorf("list chats: %w", err)
 	}
 	defer rows.Close()
 
@@ -194,32 +194,32 @@ func listConversations(ctx context.Context, st stmts) ([]Chat, error) {
 	for rows.Next() {
 		c, err := scanChat(rows)
 		if err != nil {
-			return nil, fmt.Errorf("list conversations: %w", err)
+			return nil, fmt.Errorf("list chats: %w", err)
 		}
 		out = append(out, c)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("list conversations: %w", err)
+		return nil, fmt.Errorf("list chats: %w", err)
 	}
 	return out, nil
 }
 
-// conversationIDsByCluster lists the conversations filed under one cluster: what
+// chatIDsByCluster lists the chats filed under one cluster: what
 // its sweep deletes.
-func conversationIDsByCluster(ctx context.Context, st stmts, clusterID apimeta.ClusterID) ([]ChatID, error) {
-	return collectIDs[ChatID](ctx, st, stmtSelectConversationIDsByCluster, "conversation ids by cluster", string(clusterID))
+func chatIDsByCluster(ctx context.Context, st stmts, clusterID apimeta.ClusterID) ([]ChatID, error) {
+	return collectIDs[ChatID](ctx, st, stmtSelectChatIDsByCluster, "chat ids by cluster", string(clusterID))
 }
 
-// deleteConversation removes the conversation's row, and reports whether there was
+// deleteChat removes the chat's row, and reports whether there was
 // one to remove.
-func deleteConversation(ctx context.Context, st stmts, id ChatID) (bool, error) {
-	res, err := st.Exec(ctx, stmtDeleteConversation, string(id))
+func deleteChat(ctx context.Context, st stmts, id ChatID) (bool, error) {
+	res, err := st.Exec(ctx, stmtDeleteChat, string(id))
 	if err != nil {
-		return false, fmt.Errorf("delete conversation: %w", err)
+		return false, fmt.Errorf("delete chat: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
-		return false, fmt.Errorf("delete conversation: %w", err)
+		return false, fmt.Errorf("delete chat: %w", err)
 	}
 	return n > 0, nil
 }
@@ -246,7 +246,7 @@ type agentRun struct {
 	ID               RunID
 	ParentID         RunID
 	AgentType        string
-	ConversationID   ChatID
+	ChatID           ChatID
 	TriggerMessageID MessageID
 	ProviderID       string
 	ModelID          string
@@ -376,7 +376,7 @@ type approval struct {
 	Request *tools.ClusterWriteRequest
 }
 
-// nextSeq is the seq the conversation's next message takes.
+// nextSeq is the seq the chat's next message takes.
 func nextSeq(ctx context.Context, st stmts, id ChatID) (int64, error) {
 	var seq int64
 	if err := st.QueryRow(ctx, stmtNextSeq, string(id)).Scan(&seq); err != nil {
@@ -398,7 +398,7 @@ func insertMessage(ctx context.Context, st stmts, m ChatMessage, requestKey stri
 
 func insertRun(ctx context.Context, st stmts, r agentRun) error {
 	_, err := st.Exec(ctx, stmtInsertRun,
-		string(r.ID), r.AppVersion, string(r.ConversationID), string(r.TriggerMessageID),
+		string(r.ID), r.AppVersion, string(r.ChatID), string(r.TriggerMessageID),
 		r.ProviderID, r.ModelID, nullString(r.Effort), string(r.Dialect), millis(r.CreatedAt))
 	if err != nil {
 		return fmt.Errorf("insert run: %w", err)
@@ -409,7 +409,7 @@ func insertRun(ctx context.Context, st stmts, r agentRun) error {
 // insertSubagentRun inserts a subagent's run, running from the insert.
 func insertSubagentRun(ctx context.Context, st stmts, r agentRun) error {
 	_, err := st.Exec(ctx, stmtInsertSubagentRun,
-		string(r.ID), string(r.ParentID), r.AgentType, r.AppVersion, string(r.ConversationID),
+		string(r.ID), string(r.ParentID), r.AgentType, r.AppVersion, string(r.ChatID),
 		r.ProviderID, r.ModelID, nullString(r.Effort), string(r.Dialect), r.Task, millis(r.CreatedAt), millis(r.CreatedAt))
 	if err != nil {
 		return fmt.Errorf("insert subagent run: %w", err)
@@ -879,7 +879,7 @@ func closeStrandedLLMCalls(ctx context.Context, st stmts, at time.Time) (int64, 
 }
 
 // failStrandedRuns fails every run a previous process left unfinished and returns
-// the chats they belong to, one entry per run under a chat. Their conversations are
+// the chats they belong to, one entry per run under a chat. Their chats are
 // not moved: the sends that stranded them did. chat_id is nullable, since a
 // monitor's run has no chat.
 func failStrandedRuns(ctx context.Context, st stmts, reason string, at time.Time) ([]ChatID, error) {
@@ -980,7 +980,7 @@ func clusterAccepts(ctx context.Context, st stmts, clusterID apimeta.ClusterID) 
 	return true, nil
 }
 
-// markedClusterIDs lists the clusters marked for deletion: whose conversations the
+// markedClusterIDs lists the clusters marked for deletion: whose chats the
 // sweeper deletes.
 func markedClusterIDs(ctx context.Context, st stmts) ([]apimeta.ClusterID, error) {
 	return collectIDs[apimeta.ClusterID](ctx, st, stmtSelectMarkedClusterIDs, "marked clusters")

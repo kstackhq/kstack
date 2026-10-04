@@ -57,7 +57,7 @@ var statements = []sqlstmt.Statement{
 	// A repeat is a no-op that keeps the first stamp.
 	stmtMarkCluster: sqlstmt.OnWriter(`UPDATE clusters SET delete_requested_at = ?, updated_at = ?
 	WHERE id = ? AND delete_requested_at IS NULL RETURNING id`),
-	// Only a marked row goes, and only once no conversation is filed under it: the
+	// Only a marked row goes, and only once no chat is filed under it: the
 	// chat sweeper empties the cluster first, and the FK cascade is the backstop.
 	stmtDeleteMarkedCluster: sqlstmt.OnWriter(`DELETE FROM clusters WHERE id = ? AND delete_requested_at IS NOT NULL
 	AND NOT EXISTS (SELECT 1 FROM chats c WHERE c.cluster_id = clusters.id) RETURNING id`),

@@ -2012,7 +2012,7 @@ func TestAChatWatchOverAFailedStoreEndsWithItsReason(t *testing.T) {
 	require.NoError(t, db.Close())
 
 	for _, tc := range []struct{ query, read string }{
-		{`subscription { chatsWatch { type } }`, "list conversations"},
+		{`subscription { chatsWatch { type } }`, "list chats"},
 		{`subscription { chatMessagesWatch(chatID: "` + appdb.NewID() + `") { type } }`, "list messages"},
 	} {
 		resp, events := chatFrames(t, srv, tc.query)

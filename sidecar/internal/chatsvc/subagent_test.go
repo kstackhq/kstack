@@ -882,7 +882,7 @@ type subagentRun struct {
 	task, result, errText      string
 	started, finished          bool
 	parent                     RunID
-	conversation               ChatID
+	chat                       ChatID
 }
 
 // subagentRuns is every run under parent, in the order they were created.
@@ -901,7 +901,7 @@ func subagentRuns(t *testing.T, db *appdb.DB, parent RunID) []subagentRun {
 			started, finished             sql.NullInt64
 		)
 		require.NoError(t, rows.Scan(&r.id, &r.trigger, &r.agentType, &r.status, &r.provider, &r.model, &effort, &task, &result, &errText,
-			&started, &finished, &r.parent, &r.conversation))
+			&started, &finished, &r.parent, &r.chat))
 		r.effort, r.task, r.result, r.errText = effort.String, task.String, result.String, errText.String
 		r.started, r.finished = started.Valid, finished.Valid
 		out = append(out, r)
@@ -939,7 +939,7 @@ func TestAnAgentCallRunsASubagentAndAnswersWithItsReport(t *testing.T) {
 	assert.Equal(t, subagentRun{
 		id: runs[0].id, trigger: "agent", agentType: agenttool.GeneralPurpose, status: string(runSucceeded),
 		provider: "fake", model: "fake", effort: "high", task: "Count the pods.", result: fakeSentence,
-		started: true, finished: true, parent: msg.RunID, conversation: msg.ChatID,
+		started: true, finished: true, parent: msg.RunID, chat: msg.ChatID,
 	}, runs[0])
 	assert.Len(t, llmCallRows(t, s.db, runs[0].id), 1, "the subagent's model call is its own run's")
 	assert.Len(t, llmCallRows(t, s.db, msg.RunID), 2, "the parent asked, then answered")

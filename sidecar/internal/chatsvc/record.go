@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package chatsvc is the chat service: conversations, their messages and the
+// Package chatsvc is the chat service: chats, their messages and the
 // answers a model gives, as the GraphQL layer serves them.
 package chatsvc
 
@@ -30,7 +30,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
-// ChatID identifies a conversation: the transcript's order is seq, and the list's
+// ChatID identifies a chat: the transcript's order is seq, and the list's
 // is updated_at.
 type ChatID = apimeta.ChatID
 
@@ -114,7 +114,7 @@ const (
 	ModeDashboard Mode = "dashboard"
 )
 
-// Chat mirrors a conversations row.
+// Chat mirrors a chats row.
 type Chat struct {
 	ID    ChatID
 	Title string

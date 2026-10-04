@@ -187,7 +187,7 @@ func TestDeleteByClusterReportsAReadThatFailed(t *testing.T) {
 	require.NoError(t, s.store.Close())
 
 	_, err := s.deleteByCluster(t.Context(), "1")
-	assert.ErrorContains(t, err, "conversation ids by cluster")
+	assert.ErrorContains(t, err, "chat ids by cluster")
 }
 
 // A chats' directory the sweep cannot list is left for the next start.

@@ -275,7 +275,7 @@ func newService(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards
 
 func (s *service) deleteRow(ctx context.Context, id ChatID) (deleted bool, err error) {
 	err = s.store.InTx(ctx, func(st stmts) (err error) {
-		deleted, err = deleteConversation(ctx, st, id)
+		deleted, err = deleteChat(ctx, st, id)
 		return err
 	})
 	return deleted, err
@@ -289,7 +289,7 @@ func (s *service) Start(ctx context.Context) (func(context.Context) error, error
 	now := normalizeTime(s.now())
 	var stranded, lost []ChatID
 	err := s.store.InTx(ctx, func(st stmts) (err error) {
-		// The stranded runs settle without moving their conversations: the sends
+		// The stranded runs settle without moving their chats: the sends
 		// that stranded them already did, and moving them again would put every
 		// interrupted chat above ones the user touched since.
 		if stranded, err = failStrandedRuns(ctx, st, strandedReason, now); err != nil {
@@ -483,7 +483,7 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 // timeout is the render's alone: the rows go on the send's own context.
 func (s *service) contextText(ctx context.Context, chatID *ChatID, clusterID apimeta.ClusterID) (string, error) {
 	if chatID != nil {
-		c, ok, err := getConversation(ctx, s.store.Stmts(), *chatID)
+		c, ok, err := getChat(ctx, s.store.Stmts(), *chatID)
 		if err != nil {
 			return "", err
 		}
@@ -531,7 +531,7 @@ func (s *service) seenBefore(ctx context.Context, st stmts, requestID string) (C
 // argument's.
 func (s *service) checkChat(ctx context.Context, st stmts, chatID *ChatID, clusterID apimeta.ClusterID) (disabled bool, err error) {
 	if chatID != nil {
-		c, ok, err := getConversation(ctx, st, *chatID)
+		c, ok, err := getChat(ctx, st, *chatID)
 		if err != nil {
 			return false, err
 		}
@@ -555,9 +555,9 @@ func (s *service) checkChat(ctx context.Context, st stmts, chatID *ChatID, clust
 func (s *service) resolveChat(ctx context.Context, st stmts, chatID *ChatID, mode Mode, clusterID apimeta.ClusterID, content string, at time.Time) (ChatID, error) {
 	if chatID == nil {
 		c := Chat{ID: newChatID(), Title: titleFrom(content), Mode: mode, ClusterID: clusterID, CreatedAt: at, UpdatedAt: at}
-		return c.ID, insertConversation(ctx, st, c)
+		return c.ID, insertChat(ctx, st, c)
 	}
-	return *chatID, touchConversation(ctx, st, *chatID, at)
+	return *chatID, touchChat(ctx, st, *chatID, at)
 }
 
 // writeTurnRows writes what one accepted send owes, in the order their references
@@ -578,7 +578,7 @@ func (s *service) writeTurnRows(ctx context.Context, st stmts, t *turn, requestI
 		return ChatMessage{}, err
 	}
 	run := agentRun{
-		ID: t.runID, ConversationID: t.chatID, TriggerMessageID: user.ID,
+		ID: t.runID, ChatID: t.chatID, TriggerMessageID: user.ID,
 		ProviderID: providerID, ModelID: modelID, Effort: effort, Dialect: t.target.Provider.Dialect,
 		AppVersion: version.Version, CreatedAt: at,
 	}
@@ -627,7 +627,7 @@ func (s *service) Rename(ctx context.Context, chatID ChatID, title string) (Chat
 	at := normalizeTime(s.now())
 	var renamed Chat
 	err := s.store.InTx(ctx, func(st stmts) error {
-		c, ok, err := renameConversation(ctx, st, chatID, title, at)
+		c, ok, err := renameChat(ctx, st, chatID, title, at)
 		if err != nil {
 			return err
 		}
@@ -728,11 +728,11 @@ func (s *service) Delete(ctx context.Context, chatID ChatID) error {
 }
 
 func (s *service) Get(ctx context.Context, chatID ChatID) (Chat, bool, error) {
-	return getConversation(ctx, s.store.Stmts(), chatID)
+	return getChat(ctx, s.store.Stmts(), chatID)
 }
 
 func (s *service) List(ctx context.Context) ([]Chat, error) {
-	return listConversations(ctx, s.store.Stmts())
+	return listChats(ctx, s.store.Stmts())
 }
 
 // WatchList streams every chat, newest activity first, then every change to the list.
@@ -743,7 +743,7 @@ func (s *service) WatchList(ctx context.Context) (*Stream[ChatWatchFrame], error
 		defer rx.Close()
 
 		f := newChatFold()
-		chats, err := listConversations(ctx, s.store.Stmts())
+		chats, err := listChats(ctx, s.store.Stmts())
 		if err != nil {
 			return err
 		}
@@ -756,7 +756,7 @@ func (s *service) WatchList(ctx context.Context) (*Stream[ChatWatchFrame], error
 			if _, err := rx.RecvContext(ctx); err != nil {
 				return nil
 			}
-			chats, err := listConversations(ctx, s.store.Stmts())
+			chats, err := listChats(ctx, s.store.Stmts())
 			if err != nil {
 				return err
 			}

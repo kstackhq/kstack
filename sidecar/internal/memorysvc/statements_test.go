@@ -47,7 +47,7 @@ func TestEveryStatementDeclaresWhatItDoes(t *testing.T) {
 
 // A text at a call site is a text nothing prepared, so it is compiled on every call
 // however constant it looks. The match is case-sensitive: every statement in the
-// table is upper-case, and the helpers' error wraps ("delete conversation: %w") open
+// table is upper-case, and the helpers' error wraps ("delete chat: %w") open
 // with the same verbs in lower case.
 func TestNoSQLTextLivesOutsideTheTable(t *testing.T) {
 	fset := token.NewFileSet()

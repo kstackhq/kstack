@@ -94,7 +94,7 @@ func prepareOn(t *testing.T, db *appdb.DB) *sqlstmt.Set[stmtID] {
 // The rows a send writes, seeded by hand, for the tests of what reads and removes
 // them.
 
-// aChat is a conversation row to seed, filed under clusterID at now.
+// aChat is a chat row to seed, filed under clusterID at now.
 func aChat(clusterID apimeta.ClusterID, at time.Time) Chat {
 	return Chat{ID: ChatID(appdb.NewID()), Title: "t", Mode: ModeChat, ClusterID: clusterID, CreatedAt: at, UpdatedAt: at}
 }

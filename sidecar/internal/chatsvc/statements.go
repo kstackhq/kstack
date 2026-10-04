@@ -22,14 +22,14 @@ import "github.com/kstackhq/kstack/sidecar/internal/sqlstmt"
 type stmtID int
 
 const (
-	stmtInsertConversation stmtID = iota
-	stmtTouchConversation
-	stmtRenameConversation
+	stmtInsertChat stmtID = iota
+	stmtTouchChat
+	stmtRenameChat
 	stmtSetSandboxDisabled
-	stmtDeleteConversation
-	stmtSelectConversation
-	stmtSelectConversations
-	stmtSelectConversationIDsByCluster
+	stmtDeleteChat
+	stmtSelectChat
+	stmtSelectChats
+	stmtSelectChatIDsByCluster
 
 	stmtNextSeq
 	stmtInsertMessage
@@ -73,10 +73,10 @@ const (
 	numStmts int = iota
 )
 
-// conversationColumns is the projection every conversation read scans, in the
+// chatColumns is the projection every chat read scans, in the
 // order scanChat scans it. title is nullable in the table and a string in Go.
 // The last is whether any run of the chat waits on the user.
-const conversationColumns = `id, COALESCE(title, ''), mode, cluster_id, sandbox_disabled, created_at, updated_at,
+const chatColumns = `id, COALESCE(title, ''), mode, cluster_id, sandbox_disabled, created_at, updated_at,
 	EXISTS (SELECT 1 FROM agent_runs w WHERE w.chat_id = chats.id AND w.status = 'waiting_approval')`
 
 // The insert projections, in the order the helpers bind them.
@@ -134,19 +134,19 @@ const messageReadFrom = ` FROM messages m LEFT JOIN agent_runs r ON r.id = m.run
 // miss the transaction's own writes. statements_test.go refuses a write filed as a
 // read.
 var statements = []sqlstmt.Statement{
-	stmtInsertConversation: sqlstmt.OnWriter(`INSERT INTO chats (id, title, mode, cluster_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`),
-	stmtTouchConversation:  sqlstmt.OnWriter(`UPDATE chats SET updated_at = ? WHERE id = ?`),
+	stmtInsertChat: sqlstmt.OnWriter(`INSERT INTO chats (id, title, mode, cluster_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`),
+	stmtTouchChat:  sqlstmt.OnWriter(`UPDATE chats SET updated_at = ? WHERE id = ?`),
 	// RETURNING, so the renamed row comes back from the write itself: a read beside it
 	// is a second statement a concurrent delete can land between.
-	stmtRenameConversation: sqlstmt.OnWriter(`UPDATE chats SET title = ?, updated_at = ? WHERE id = ? RETURNING ` + conversationColumns),
-	stmtSetSandboxDisabled: sqlstmt.OnWriter(`UPDATE chats SET sandbox_disabled = ? WHERE id = ? RETURNING ` + conversationColumns),
-	// The messages and runs go with the conversation: ON DELETE CASCADE, and
+	stmtRenameChat:         sqlstmt.OnWriter(`UPDATE chats SET title = ?, updated_at = ? WHERE id = ? RETURNING ` + chatColumns),
+	stmtSetSandboxDisabled: sqlstmt.OnWriter(`UPDATE chats SET sandbox_disabled = ? WHERE id = ? RETURNING ` + chatColumns),
+	// The messages and runs go with the chat: ON DELETE CASCADE, and
 	// foreign_keys(on) is in the writer's DSN. One statement, so the two tables'
 	// references to each other are checked once both are gone.
-	stmtDeleteConversation:             sqlstmt.OnWriter(`DELETE FROM chats WHERE id = ?`),
-	stmtSelectConversation:             sqlstmt.OnBoth(`SELECT ` + conversationColumns + ` FROM chats WHERE id = ?`),
-	stmtSelectConversations:            sqlstmt.OnReader(`SELECT ` + conversationColumns + ` FROM chats ORDER BY updated_at DESC, id DESC`),
-	stmtSelectConversationIDsByCluster: sqlstmt.OnReader(`SELECT id FROM chats WHERE cluster_id = ?`),
+	stmtDeleteChat:             sqlstmt.OnWriter(`DELETE FROM chats WHERE id = ?`),
+	stmtSelectChat:             sqlstmt.OnBoth(`SELECT ` + chatColumns + ` FROM chats WHERE id = ?`),
+	stmtSelectChats:            sqlstmt.OnReader(`SELECT ` + chatColumns + ` FROM chats ORDER BY updated_at DESC, id DESC`),
+	stmtSelectChatIDsByCluster: sqlstmt.OnReader(`SELECT id FROM chats WHERE cluster_id = ?`),
 
 	// Inside the send's transaction, so two sends cannot take one seq.
 	stmtNextSeq:       sqlstmt.OnBoth(`SELECT COALESCE(MAX(seq), -1) + 1 FROM messages WHERE chat_id = ?`),
@@ -167,7 +167,7 @@ var statements = []sqlstmt.Statement{
 	// result is a subagent's final text, whole, before the call cuts it to fit; NULL
 	// on a chat run.
 	stmtSettleRun: sqlstmt.OnWriter(`UPDATE agent_runs SET status = ?, result = ?, error = ?, finished_at = ? WHERE id = ?`),
-	// RETURNING the conversation, so the watchers of each stranded chat can be told.
+	// RETURNING the chat, so the watchers of each stranded chat can be told.
 	stmtFailStrandedRuns: sqlstmt.OnWriter(`UPDATE agent_runs SET status = 'failed', error = ?, finished_at = ?
 	WHERE status IN ('queued', 'running', 'waiting_approval') RETURNING chat_id`),
 	stmtSelectMessages: sqlstmt.OnReader(`SELECT ` + messageReadColumns + messageReadFrom + ` WHERE m.chat_id = ? ORDER BY m.seq`),
@@ -232,7 +232,7 @@ var statements = []sqlstmt.Statement{
 	stmtFinishTask: sqlstmt.OnWriter(`UPDATE background_tasks SET status = ?, stopped_by = ?, exit_code = ?, finished_at = ?, notified_at = ?
 	WHERE id = ?`),
 	// A task still running at startup belongs to a process that is gone. RETURNING the
-	// conversation, so the watchers of each chat can be told.
+	// chat, so the watchers of each chat can be told.
 	stmtMarkLostTasks: sqlstmt.OnWriter(`UPDATE background_tasks SET status = 'lost', finished_at = ?
 	WHERE status = 'running' RETURNING chat_id`),
 	// A chat's finished tasks whose notices have not reached the model, with the
@@ -280,7 +280,7 @@ var statements = []sqlstmt.Statement{
 	// transaction, so a mark cannot commit between the check and the rows.
 	stmtSelectClusterAccepts: sqlstmt.OnBoth(`SELECT 1 FROM clusters WHERE id = ? AND delete_requested_at IS NULL`),
 
-	// The clusters whose conversations the sweeper deletes.
+	// The clusters whose chats the sweeper deletes.
 	stmtSelectMarkedClusterIDs: sqlstmt.OnReader(`SELECT id FROM clusters WHERE delete_requested_at IS NOT NULL ORDER BY id`),
 }
 

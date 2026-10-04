@@ -48,40 +48,40 @@ func TestEveryRowHelperNamesItsFailure(t *testing.T) {
 	id := ChatID(appdb.NewID())
 
 	calls := map[string]func() error{
-		"rename conversation":         func() error { _, _, err := renameConversation(ctx, st, id, "t", now); return err },
-		"get conversation":            func() error { _, _, err := getConversation(ctx, st, id); return err },
-		"list conversations":          func() error { _, err := listConversations(ctx, st); return err },
-		"conversation ids by cluster": func() error { _, err := conversationIDsByCluster(ctx, st, "1"); return err },
-		"delete conversation":         func() error { _, err := deleteConversation(ctx, st, id); return err },
-		"fail stranded runs":          func() error { _, err := failStrandedRuns(ctx, st, "reason", now); return err },
-		"list messages":               func() error { _, err := listMessages(ctx, st, id, testReaders); return err },
-		"marked clusters":             func() error { _, err := markedClusterIDs(ctx, st); return err },
-		"insert conversation":         func() error { return insertConversation(ctx, st, aChat("1", now)) },
-		"touch conversation":          func() error { return touchConversation(ctx, st, id, now) },
-		"next seq":                    func() error { _, err := nextSeq(ctx, st, id); return err },
-		"insert message":              func() error { return insertMessage(ctx, st, ChatMessage{}, "") },
-		"insert run":                  func() error { return insertRun(ctx, st, agentRun{}) },
-		"claim run":                   func() error { return claimRun(ctx, st, "r", now) },
-		"write content":               func() error { return writeContent(ctx, st, "m", emptyContent) },
-		"settle run":                  func() error { return settleRun(ctx, st, "r", runFailed, "", "", now) },
-		"answer by request key":       func() error { _, _, err := answerByRequestKey(ctx, st, "k", testReaders); return err },
-		"insert llm call":             func() error { return insertLLMCall(ctx, st, llmCallEntry{}) },
-		"close llm call":              func() error { return closeLLMCall(ctx, st, llmCallEntry{ID: "c", FinishedAt: now}) },
-		"close stranded llm calls":    func() error { _, err := closeStrandedLLMCalls(ctx, st, now); return err },
-		"upsert tool call":            func() error { return upsertToolCall(ctx, st, toolCallEntry{}) },
-		"close stranded tool calls":   func() error { return closeStrandedToolCalls(ctx, st, now) },
-		"upsert approval":             func() error { return upsertApproval(ctx, st, approval{}) },
-		"flip run":                    func() error { return flipRun(ctx, st, "r", runRunning) },
-		"cluster accepts":             func() error { _, err := clusterAccepts(ctx, st, "1"); return err },
-		"insert task":                 func() error { return insertTask(ctx, st, "t", id, "c", "/p", now) },
-		"delete task":                 func() error { return deleteTask(ctx, st, "t") },
-		"finish task":                 func() error { return finishTask(ctx, st, "t", taskEnd{Status: taskExited, At: now}) },
-		"mark lost tasks":             func() error { _, err := markLostTasks(ctx, st, now); return err },
-		"waiting notices":             func() error { _, err := waitingNotices(ctx, st, id, testReaders); return err },
-		"mark notified":               func() error { return markNotified(ctx, st, id, now) },
-		"last answer run":             func() error { _, _, _, err := lastAnswerRun(ctx, st, id); return err },
-		"newest run":                  func() error { _, _, err := newestRun(ctx, st, id); return err },
-		"last context use":            func() error { _, err := lastContextUse(ctx, st, id, "fake"); return err },
+		"rename chat":               func() error { _, _, err := renameChat(ctx, st, id, "t", now); return err },
+		"get chat":                  func() error { _, _, err := getChat(ctx, st, id); return err },
+		"list chats":                func() error { _, err := listChats(ctx, st); return err },
+		"chat ids by cluster":       func() error { _, err := chatIDsByCluster(ctx, st, "1"); return err },
+		"delete chat":               func() error { _, err := deleteChat(ctx, st, id); return err },
+		"fail stranded runs":        func() error { _, err := failStrandedRuns(ctx, st, "reason", now); return err },
+		"list messages":             func() error { _, err := listMessages(ctx, st, id, testReaders); return err },
+		"marked clusters":           func() error { _, err := markedClusterIDs(ctx, st); return err },
+		"insert chat":               func() error { return insertChat(ctx, st, aChat("1", now)) },
+		"touch chat":                func() error { return touchChat(ctx, st, id, now) },
+		"next seq":                  func() error { _, err := nextSeq(ctx, st, id); return err },
+		"insert message":            func() error { return insertMessage(ctx, st, ChatMessage{}, "") },
+		"insert run":                func() error { return insertRun(ctx, st, agentRun{}) },
+		"claim run":                 func() error { return claimRun(ctx, st, "r", now) },
+		"write content":             func() error { return writeContent(ctx, st, "m", emptyContent) },
+		"settle run":                func() error { return settleRun(ctx, st, "r", runFailed, "", "", now) },
+		"answer by request key":     func() error { _, _, err := answerByRequestKey(ctx, st, "k", testReaders); return err },
+		"insert llm call":           func() error { return insertLLMCall(ctx, st, llmCallEntry{}) },
+		"close llm call":            func() error { return closeLLMCall(ctx, st, llmCallEntry{ID: "c", FinishedAt: now}) },
+		"close stranded llm calls":  func() error { _, err := closeStrandedLLMCalls(ctx, st, now); return err },
+		"upsert tool call":          func() error { return upsertToolCall(ctx, st, toolCallEntry{}) },
+		"close stranded tool calls": func() error { return closeStrandedToolCalls(ctx, st, now) },
+		"upsert approval":           func() error { return upsertApproval(ctx, st, approval{}) },
+		"flip run":                  func() error { return flipRun(ctx, st, "r", runRunning) },
+		"cluster accepts":           func() error { _, err := clusterAccepts(ctx, st, "1"); return err },
+		"insert task":               func() error { return insertTask(ctx, st, "t", id, "c", "/p", now) },
+		"delete task":               func() error { return deleteTask(ctx, st, "t") },
+		"finish task":               func() error { return finishTask(ctx, st, "t", taskEnd{Status: taskExited, At: now}) },
+		"mark lost tasks":           func() error { _, err := markLostTasks(ctx, st, now); return err },
+		"waiting notices":           func() error { _, err := waitingNotices(ctx, st, id, testReaders); return err },
+		"mark notified":             func() error { return markNotified(ctx, st, id, now) },
+		"last answer run":           func() error { _, _, _, err := lastAnswerRun(ctx, st, id); return err },
+		"newest run":                func() error { _, _, err := newestRun(ctx, st, id); return err },
+		"last context use":          func() error { _, err := lastContextUse(ctx, st, id, "fake"); return err },
 	}
 	for want, call := range calls {
 		assert.ErrorContains(t, call(), want)
@@ -100,12 +100,12 @@ func TestAReadWithTheWrongShapeIsReported(t *testing.T) {
 	}
 	st := newTestSet(t).Stmts()
 
-	_, err := listConversations(ctx, st)
-	assert.ErrorContains(t, err, "list conversations")
+	_, err := listChats(ctx, st)
+	assert.ErrorContains(t, err, "list chats")
 	_, err = listMessages(ctx, st, ChatID(appdb.NewID()), testReaders)
 	assert.ErrorContains(t, err, "list messages")
-	_, err = conversationIDsByCluster(ctx, st, "1")
-	assert.ErrorContains(t, err, "conversation ids by cluster")
+	_, err = chatIDsByCluster(ctx, st, "1")
+	assert.ErrorContains(t, err, "chat ids by cluster")
 	_, err = failStrandedRuns(ctx, st, "reason", time.UnixMilli(1_000).UTC())
 	assert.ErrorContains(t, err, "fail stranded runs")
 }
@@ -113,7 +113,7 @@ func TestAReadWithTheWrongShapeIsReported(t *testing.T) {
 // multiRowReads is every helper that scans a loop of rows: the reads whose failures
 // the two tests around this swap the statement to provoke.
 var multiRowReads = []stmtID{
-	stmtSelectConversations, stmtSelectMessages, stmtSelectConversationIDsByCluster, stmtFailStrandedRuns,
+	stmtSelectChats, stmtSelectMessages, stmtSelectChatIDsByCluster, stmtFailStrandedRuns,
 }
 
 // A read that fails partway through its rows is reported, never taken as the rows
@@ -138,12 +138,12 @@ func TestAReadThatFailsPartwayIsReported(t *testing.T) {
 	c := seedChat(t, db, aChat("1", time.UnixMilli(1_000).UTC()))
 	seedTurn(t, db, c.ID, time.UnixMilli(1_000).UTC())
 
-	_, err := listConversations(ctx, st)
-	assert.ErrorContains(t, err, "list conversations")
+	_, err := listChats(ctx, st)
+	assert.ErrorContains(t, err, "list chats")
 	_, err = listMessages(ctx, st, c.ID, testReaders)
 	assert.ErrorContains(t, err, "list messages")
-	_, err = conversationIDsByCluster(ctx, st, "1")
-	assert.ErrorContains(t, err, "conversation ids by cluster")
+	_, err = chatIDsByCluster(ctx, st, "1")
+	assert.ErrorContains(t, err, "chat ids by cluster")
 	_, err = failStrandedRuns(ctx, st, "reason", time.UnixMilli(1_000).UTC())
 	assert.ErrorContains(t, err, "fail stranded runs")
 }
@@ -161,13 +161,13 @@ func TestAReadDoesNotWaitForAHeldWriteTransaction(t *testing.T) {
 
 	errRollBack := errors.New("roll back")
 	err := s.InTx(t.Context(), func(st stmts) error {
-		_, ok, err := renameConversation(t.Context(), st, c.ID, "renamed", time.UnixMilli(2_000).UTC())
+		_, ok, err := renameChat(t.Context(), st, c.ID, "renamed", time.UnixMilli(2_000).UTC())
 		require.NoError(t, err)
 		require.True(t, ok)
 
 		ctx, cancel := context.WithTimeout(t.Context(), testutil.Timeout)
 		defer cancel()
-		chats, err := listConversations(ctx, s.Stmts())
+		chats, err := listChats(ctx, s.Stmts())
 		require.NoError(t, err, "the read waited for the writer")
 		require.Len(t, chats, 1)
 		assert.Equal(t, "t", chats[0].Title, "the read saw an uncommitted write")
@@ -176,41 +176,41 @@ func TestAReadDoesNotWaitForAHeldWriteTransaction(t *testing.T) {
 	require.ErrorIs(t, err, errRollBack)
 }
 
-// --- conversations ---
+// --- chats ---
 
 // The row carries its mode, its cluster and its title, and both reads see them: the
 // list is what the client filters by cluster and mode.
-func TestAConversationRoundTrips(t *testing.T) {
+func TestAChatRoundTrips(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	c := aChat("7", time.UnixMilli(1_000).UTC())
 	c.Title, c.Mode = "pods?", ModeDashboard
 	seedChat(t, db, c)
 
-	got, ok, err := getConversation(t.Context(), st, c.ID)
+	got, ok, err := getChat(t.Context(), st, c.ID)
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, c, got)
 
-	chats, err := listConversations(t.Context(), st)
+	chats, err := listChats(t.Context(), st)
 	require.NoError(t, err)
 	assert.Equal(t, []Chat{c}, chats)
 }
 
 // title is nullable in the table; the service reads a NULL as "".
-func TestAConversationWithNoTitleReadsAsEmpty(t *testing.T) {
+func TestAChatWithNoTitleReadsAsEmpty(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	_, err := db.Write.Exec(`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', '1', 'chat', 0, 0)`)
 	require.NoError(t, err)
 
-	got, ok, err := getConversation(t.Context(), st, "c")
+	got, ok, err := getChat(t.Context(), st, "c")
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, "", got.Title)
 }
 
-func TestConversationModeIsCheckedByTheColumn(t *testing.T) {
+func TestChatModeIsCheckedByTheColumn(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
 	_, err := db.Write.Exec(`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', '1', 'sideways', 0, 0)`)
 	assert.ErrorContains(t, err, "CHECK")
@@ -225,63 +225,63 @@ func TestARunDialectIsCheckedByTheColumn(t *testing.T) {
 }
 
 // The list sorts by updated_at: a chat moves to the top when its row is touched.
-func TestListConversationsIsNewestActivityFirst(t *testing.T) {
+func TestListChatsIsNewestActivityFirst(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	older := seedChat(t, db, aChat("1", time.UnixMilli(1_000).UTC()))
 	newer := seedChat(t, db, aChat("1", time.UnixMilli(2_000).UTC()))
 
-	chats, err := listConversations(t.Context(), st)
+	chats, err := listChats(t.Context(), st)
 	require.NoError(t, err)
 	require.Len(t, chats, 2)
 	assert.Equal(t, newer.ID, chats[0].ID)
 
 	_, err = db.Write.Exec(`UPDATE chats SET updated_at = 3000 WHERE id = ?`, string(older.ID))
 	require.NoError(t, err)
-	chats, err = listConversations(t.Context(), st)
+	chats, err = listChats(t.Context(), st)
 	require.NoError(t, err)
 	assert.Equal(t, older.ID, chats[0].ID)
 }
 
-func TestRenameConversationReturnsTheRowItWroteOrNothing(t *testing.T) {
+func TestRenameChatReturnsTheRowItWroteOrNothing(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	c := seedChat(t, db, aChat("1", time.UnixMilli(1_000).UTC()))
 
-	got, ok, err := renameConversation(t.Context(), st, c.ID, "renamed", time.UnixMilli(2_000).UTC())
+	got, ok, err := renameChat(t.Context(), st, c.ID, "renamed", time.UnixMilli(2_000).UTC())
 	require.NoError(t, err)
 	require.True(t, ok)
 	assert.Equal(t, "renamed", got.Title)
 	assert.Equal(t, time.UnixMilli(2_000).UTC(), got.UpdatedAt)
 
-	_, ok, err = renameConversation(t.Context(), st, "nope", "renamed", time.UnixMilli(2_000).UTC())
+	_, ok, err = renameChat(t.Context(), st, "nope", "renamed", time.UnixMilli(2_000).UTC())
 	require.NoError(t, err)
 	assert.False(t, ok)
 }
 
-// What the cluster sweep reads: the ids of one cluster's conversations and nobody else's.
-func TestConversationIDsByClusterNamesOnlyThatClusters(t *testing.T) {
+// What the cluster sweep reads: the ids of one cluster's chats and nobody else's.
+func TestChatIDsByClusterNamesOnlyThatClusters(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()
 	mine := seedChat(t, db, aChat("7", now))
 	seedChat(t, db, aChat("8", now))
 
-	ids, err := conversationIDsByCluster(t.Context(), st, "7")
+	ids, err := chatIDsByCluster(t.Context(), st, "7")
 	require.NoError(t, err)
 	assert.Equal(t, []ChatID{mine.ID}, ids)
 
-	deleted, err := deleteConversation(t.Context(), st, mine.ID)
+	deleted, err := deleteChat(t.Context(), st, mine.ID)
 	require.NoError(t, err)
 	assert.True(t, deleted)
-	ids, err = conversationIDsByCluster(t.Context(), st, "7")
+	ids, err = chatIDsByCluster(t.Context(), st, "7")
 	require.NoError(t, err)
 	assert.Empty(t, ids)
 }
 
-// The messages, the runs and their call rows go with the conversation: ON DELETE
+// The messages, the runs and their call rows go with the chat: ON DELETE
 // CASCADE, with foreign keys on in the writer's DSN.
-func TestDeletingAConversationRemovesItsCalls(t *testing.T) {
+func TestDeletingAChatRemovesItsCalls(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
 	s := prepareOn(t, db)
 	now := time.UnixMilli(1_000).UTC()
@@ -292,7 +292,7 @@ func TestDeletingAConversationRemovesItsCalls(t *testing.T) {
 	_, err = db.Write.Exec(`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, created_at) VALUES ('t', 'l', 0, 'list_objects', 0)`)
 	require.NoError(t, err)
 
-	require.NoError(t, s.InTx(t.Context(), func(st stmts) error { _, err := deleteConversation(t.Context(), st, c.ID); return err }))
+	require.NoError(t, s.InTx(t.Context(), func(st stmts) error { _, err := deleteChat(t.Context(), st, c.ID); return err }))
 
 	for _, table := range []string{"messages", "agent_runs", "llm_calls", "tool_calls"} {
 		assert.Zero(t, tableCount(t, db, table), table)
@@ -461,7 +461,7 @@ func TestUsageIsStoredUncachedAndReadInclusive(t *testing.T) {
 
 // --- the send's rows ---
 
-func TestNextSeqCountsFromZeroPerConversation(t *testing.T) {
+func TestNextSeqCountsFromZeroPerChat(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()

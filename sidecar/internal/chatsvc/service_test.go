@@ -66,7 +66,7 @@ func TestStartFailsAStrandedRun(t *testing.T) {
 }
 
 // A stranded run under no chat — a monitor's — is failed like the rest, and the
-// reconcile survives its NULL conversation.
+// reconcile survives its NULL chat.
 func TestStartFailsAStrandedRunWithNoChat(t *testing.T) {
 	dir := t.TempDir()
 	db := openTestDB(t, dir)
@@ -125,7 +125,7 @@ func TestAFailedStartEndsThePreStartWatches(t *testing.T) {
 	require.NoError(t, s.Close())
 }
 
-// The stranded runs settle without moving their conversations: the sends that
+// The stranded runs settle without moving their chats: the sends that
 // stranded them already did, and moving them again would put every interrupted
 // chat above ones the user touched since.
 func TestTheStartupReconcileLeavesTheListOrderAlone(t *testing.T) {
@@ -542,7 +542,7 @@ func TestAWatchWhoseReadFailsReportsWhy(t *testing.T) {
 	s.notify(conversationsKey)
 
 	testutil.WaitClosed(t, w.Frames, "the failed watch")
-	assert.ErrorContains(t, w.Err(), "list conversations")
+	assert.ErrorContains(t, w.Err(), "list chats")
 }
 
 func TestAMessagesWatchReportsAFailedReRead(t *testing.T) {
@@ -570,7 +570,7 @@ func TestAWatchThatCannotReadItsSnapshotFails(t *testing.T) {
 	list, err := s.WatchList(t.Context())
 	require.NoError(t, err)
 	testutil.WaitClosed(t, list.Frames, "the failed list watch")
-	assert.ErrorContains(t, list.Err(), "list conversations")
+	assert.ErrorContains(t, list.Err(), "list chats")
 
 	msgs, err := s.WatchMessages(t.Context(), ChatID(appdb.NewID()))
 	require.NoError(t, err)
@@ -646,7 +646,7 @@ func TestAChangeTheConsumerNeverReadsEndsThePump(t *testing.T) {
 	}{
 		{"rows appearing", addRows},
 		{"the chat going", func(t *testing.T) {
-			_, err := deleteConversation(t.Context(), s.store.Stmts(), c.ID)
+			_, err := deleteChat(t.Context(), s.store.Stmts(), c.ID)
 			require.NoError(t, err)
 			s.notify(messagesKey(c.ID))
 		}},
@@ -682,14 +682,14 @@ func TestAListChangeTheConsumerNeverReadsEndsThePump(t *testing.T) {
 	}{
 		{"the chats renamed", func(t *testing.T) {
 			for i, id := range ids {
-				_, _, err := renameConversation(t.Context(), s.store.Stmts(), id, "renamed", time.UnixMilli(int64(i)))
+				_, _, err := renameChat(t.Context(), s.store.Stmts(), id, "renamed", time.UnixMilli(int64(i)))
 				require.NoError(t, err)
 			}
 			s.notify(conversationsKey)
 		}},
 		{"the chats going", func(t *testing.T) {
 			for _, id := range ids {
-				_, err := deleteConversation(t.Context(), s.store.Stmts(), id)
+				_, err := deleteChat(t.Context(), s.store.Stmts(), id)
 				require.NoError(t, err)
 			}
 			s.notify(conversationsKey)
@@ -1381,7 +1381,7 @@ func TestASendWhoseStoreFailsWritesNothingAndLeavesTheChatFree(t *testing.T) {
 		swap    string
 		trigger string
 	}{
-		{name: "the chat read", id: stmtSelectConversation, swap: `SELECT 1, 2`},
+		{name: "the chat read", id: stmtSelectChat, swap: `SELECT 1, 2`},
 		{name: "the cluster check", id: stmtSelectClusterAccepts, swap: `SELECT 1, 2`},
 		{name: "the next seq", id: stmtNextSeq, swap: `SELECT 1, 2`},
 		{name: "the run insert", trigger: `CREATE TRIGGER refuse BEFORE INSERT ON agent_runs BEGIN SELECT RAISE(ABORT, 'refused'); END`},

@@ -103,7 +103,7 @@ func (s *service) sweep() error {
 // and reports how many went. The first error stops it: the chats already deleted
 // stay deleted, and the sweeper's retry takes the rest.
 func (s *service) deleteByCluster(ctx context.Context, clusterID apimeta.ClusterID) (int, error) {
-	ids, err := conversationIDsByCluster(ctx, s.store.Stmts(), clusterID)
+	ids, err := chatIDsByCluster(ctx, s.store.Stmts(), clusterID)
 	if err != nil {
 		return 0, err
 	}
@@ -126,7 +126,7 @@ func (s *service) sweepChatDirs() {
 		slog.Warn("could not list the chats' directory", "err", err)
 		return
 	}
-	chats, err := listConversations(s.ctx, s.store.Stmts())
+	chats, err := listChats(s.ctx, s.store.Stmts())
 	if err != nil {
 		if s.ctx.Err() == nil {
 			slog.Warn("could not read the chats to sweep their directories", "err", err)
