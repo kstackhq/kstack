@@ -632,8 +632,8 @@ func TestAChangeTheConsumerNeverReadsEndsThePump(t *testing.T) {
 	c := seedChat(t, s.db, aChat("1", now))
 	addRows := func(t *testing.T) {
 		for range 3 {
-			_, err := s.db.Write.Exec(`INSERT INTO messages (id, conversation_id, seq, role, content, created_at)
-			VALUES (?, ?, (SELECT COALESCE(MAX(seq), -1) + 1 FROM messages WHERE conversation_id = ?), 'user', '[]', ?)`,
+			_, err := s.db.Write.Exec(`INSERT INTO messages (id, chat_id, seq, role, content, created_at)
+			VALUES (?, ?, (SELECT COALESCE(MAX(seq), -1) + 1 FROM messages WHERE chat_id = ?), 'user', '[]', ?)`,
 				appdb.NewID(), string(c.ID), string(c.ID), millis(now))
 			require.NoError(t, err)
 		}
@@ -765,7 +765,7 @@ func TestSendRejectsAModeThatIsNeitherConstant(t *testing.T) {
 	s := newTestService(t)
 	_, err := s.Send(t.Context(), nil, Mode("panel"), "1", false, "fake", "fake", "high", reqID("1"), "hi")
 	assert.ErrorIs(t, err, ErrBadRequest)
-	assert.Zero(t, tableCount(t, s.db, "conversations"))
+	assert.Zero(t, tableCount(t, s.db, "chats"))
 }
 
 func TestSendCapsTheTitleItDerives(t *testing.T) {
@@ -823,7 +823,7 @@ func TestSendRefusesAProviderTheServiceDoesNotHold(t *testing.T) {
 	s := newTestService(t)
 	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, "nobody", "fake", "high", reqID("1"), "hi")
 	assert.ErrorIs(t, err, ErrBadRequest)
-	assert.Zero(t, tableCount(t, s.db, "conversations"))
+	assert.Zero(t, tableCount(t, s.db, "chats"))
 }
 
 func TestSendIntoAnUnknownChatIsChatGone(t *testing.T) {
@@ -841,7 +841,7 @@ func TestSendIntoAMarkedClusterIsClusterGone(t *testing.T) {
 	assert.ErrorIs(t, err, ErrClusterGone)
 	_, err = s.Send(t.Context(), nil, ModeChat, "no-such-cluster", false, "fake", "fake", "high", reqID("2"), "hi")
 	assert.ErrorIs(t, err, ErrClusterGone)
-	assert.Zero(t, tableCount(t, s.db, "conversations"))
+	assert.Zero(t, tableCount(t, s.db, "chats"))
 }
 
 // runDialect is a run's stored dialect.
@@ -929,7 +929,7 @@ func TestASendWhoseRowsCannotBeWrittenReleasesItsTurn(t *testing.T) {
 	s := newTestService(t)
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, s.db, aChat("1", now))
-	_, err := s.db.Write.Exec(`INSERT INTO messages (id, conversation_id, seq, role, content, request_key, created_at)
+	_, err := s.db.Write.Exec(`INSERT INTO messages (id, chat_id, seq, role, content, request_key, created_at)
 		VALUES (?, ?, 0, 'user', '[]', ?, 0)`, appdb.NewID(), string(c.ID), reqID("1"))
 	require.NoError(t, err)
 
@@ -1066,7 +1066,7 @@ func TestARetryIgnoresItsOtherArguments(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, first.ID, again.ID)
-	assert.Equal(t, 1, tableCount(t, s.db, "conversations"))
+	assert.Equal(t, 1, tableCount(t, s.db, "chats"))
 }
 
 // A read mid-answer, the fake gated inside its thought, sees the thinking so far
@@ -1129,7 +1129,7 @@ func TestARetryAfterADeleteIsAFreshSend(t *testing.T) {
 	again := send(t, s, nil, "1", "hi")
 	assert.NotEqual(t, first.ChatID, again.ChatID)
 	awaitSettled(t, s, again.ChatID, again.ID)
-	assert.Equal(t, 1, tableCount(t, s.db, "conversations"))
+	assert.Equal(t, 1, tableCount(t, s.db, "chats"))
 }
 
 func TestCancelKeepsThePartialAnswer(t *testing.T) {
@@ -1415,7 +1415,7 @@ func TestASendWhoseStoreFailsWritesNothingAndLeavesTheChatFree(t *testing.T) {
 func TestARenameTheStoreRefusesIsNotAMissingChat(t *testing.T) {
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
-	_, err := s.db.Write.Exec(`CREATE TRIGGER refuse BEFORE UPDATE ON conversations BEGIN SELECT RAISE(ABORT, 'refused'); END`)
+	_, err := s.db.Write.Exec(`CREATE TRIGGER refuse BEFORE UPDATE ON chats BEGIN SELECT RAISE(ABORT, 'refused'); END`)
 	require.NoError(t, err)
 
 	_, err = s.Rename(t.Context(), c.ID, "renamed")
@@ -1865,7 +1865,7 @@ func TestSendRefusesAModelTheRegistryDoesNotHold(t *testing.T) {
 	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, "fake", "nonesuch", "high", reqID("1"), "hello")
 
 	assert.ErrorIs(t, err, ErrBadRequest)
-	assert.Zero(t, tableCount(t, s.db, "conversations"))
+	assert.Zero(t, tableCount(t, s.db, "chats"))
 }
 
 // A follow-up is checked against its chat's cluster, never the one its argument

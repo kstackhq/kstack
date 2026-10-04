@@ -128,7 +128,7 @@ func TestAReadThatFailsPartwayIsReported(t *testing.T) {
 		saved := statements[id]
 		text := `WITH q AS (` + saved.Text + `) SELECT * FROM q UNION ALL SELECT * FROM q WHERE ` + overflow
 		if id == stmtFailStrandedRuns {
-			text = `SELECT conversation_id FROM agent_runs UNION ALL SELECT '' WHERE ` + overflow
+			text = `SELECT chat_id FROM agent_runs UNION ALL SELECT '' WHERE ` + overflow
 		}
 		statements[id] = sqlstmt.Statement{Text: text, On: saved.On}
 		t.Cleanup(func() { statements[id] = saved })
@@ -201,7 +201,7 @@ func TestAConversationRoundTrips(t *testing.T) {
 func TestAConversationWithNoTitleReadsAsEmpty(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
-	_, err := db.Write.Exec(`INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c', '1', 'chat', 0, 0)`)
+	_, err := db.Write.Exec(`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', '1', 'chat', 0, 0)`)
 	require.NoError(t, err)
 
 	got, ok, err := getConversation(t.Context(), st, "c")
@@ -212,7 +212,7 @@ func TestAConversationWithNoTitleReadsAsEmpty(t *testing.T) {
 
 func TestConversationModeIsCheckedByTheColumn(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
-	_, err := db.Write.Exec(`INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c', '1', 'sideways', 0, 0)`)
+	_, err := db.Write.Exec(`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', '1', 'sideways', 0, 0)`)
 	assert.ErrorContains(t, err, "CHECK")
 }
 
@@ -236,7 +236,7 @@ func TestListConversationsIsNewestActivityFirst(t *testing.T) {
 	require.Len(t, chats, 2)
 	assert.Equal(t, newer.ID, chats[0].ID)
 
-	_, err = db.Write.Exec(`UPDATE conversations SET updated_at = 3000 WHERE id = ?`, string(older.ID))
+	_, err = db.Write.Exec(`UPDATE chats SET updated_at = 3000 WHERE id = ?`, string(older.ID))
 	require.NoError(t, err)
 	chats, err = listConversations(t.Context(), st)
 	require.NoError(t, err)
@@ -799,7 +799,7 @@ func TestTheActionCarriesTheRowsFlag(t *testing.T) {
 		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at, finished_at) VALUES ('l', '` + string(turn.Run) + `', 0, 'fake', 'fake', 0, 0)`,
 		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, cwd, sandboxed, status, created_at, started_at, finished_at)
 		 VALUES ('t', 'l', 0, 'Bash', 'call-1', '{"command":"make serve","run_in_background":true}', '/work', 1, 'succeeded', 0, 0, 0)`,
-		`INSERT INTO background_tasks (id, conversation_id, tool_call_id, output_path, status, exit_code, started_at, finished_at)
+		`INSERT INTO background_tasks (id, chat_id, tool_call_id, output_path, status, exit_code, started_at, finished_at)
 		 VALUES ('task-1', '` + string(c.ID) + `', 't', '/r/task-1.output', 'exited', 0, 0, 1)`,
 	} {
 		_, err := db.Write.Exec(q)

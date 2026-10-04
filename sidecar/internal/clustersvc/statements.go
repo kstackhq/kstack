@@ -60,7 +60,7 @@ var statements = []sqlstmt.Statement{
 	// Only a marked row goes, and only once no conversation is filed under it: the
 	// chat sweeper empties the cluster first, and the FK cascade is the backstop.
 	stmtDeleteMarkedCluster: sqlstmt.OnWriter(`DELETE FROM clusters WHERE id = ? AND delete_requested_at IS NOT NULL
-	AND NOT EXISTS (SELECT 1 FROM conversations c WHERE c.cluster_id = clusters.id) RETURNING id`),
+	AND NOT EXISTS (SELECT 1 FROM chats c WHERE c.cluster_id = clusters.id) RETURNING id`),
 
 	stmtSelectCluster: sqlstmt.OnBoth(`SELECT ` + clusterColumns + ` FROM clusters WHERE id = ?`),
 	// Ordered by id for a stable listing, nothing more: a cloud row keeps the id

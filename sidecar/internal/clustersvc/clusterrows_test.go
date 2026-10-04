@@ -200,13 +200,13 @@ func TestDeleteClusterIsGuarded(t *testing.T) {
 
 	_, err = markCluster(ctx, st.Stmts(), row.ID, t0)
 	require.NoError(t, err)
-	_, err = db.Write.Exec(`INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c', ?, 'chat', 0, 0)`, string(row.ID))
+	_, err = db.Write.Exec(`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', ?, 'chat', 0, 0)`, string(row.ID))
 	require.NoError(t, err)
 	deleted, err = deleteMarkedCluster(ctx, st.Stmts(), row.ID)
 	require.NoError(t, err)
 	require.False(t, deleted)
 
-	_, err = db.Write.Exec(`DELETE FROM conversations`)
+	_, err = db.Write.Exec(`DELETE FROM chats`)
 	require.NoError(t, err)
 	deleted, err = deleteMarkedCluster(ctx, st.Stmts(), row.ID)
 	require.NoError(t, err)

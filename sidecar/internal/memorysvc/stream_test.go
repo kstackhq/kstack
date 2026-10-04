@@ -92,13 +92,13 @@ func TestAClustersDeleteLeavesItsWatchAsDeleted(t *testing.T) {
 // nothing: the next frame is the save that follows.
 func TestAChangeOffTheWireSendsNoFrame(t *testing.T) {
 	h := newHarness(t)
-	exec(t, h.db, `INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c', ?, 'chat', 0, 0)`, string(clusterA))
+	exec(t, h.db, `INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', ?, 'chat', 0, 0)`, string(clusterA))
 	require.NoError(t, h.svc.Save(t.Context(), clusterA, "n", "b", "c"))
 	st := h.watch(t, clusterA)
 	expect(t, st, apimeta.DeltaFrameAdded, "n")
 	expect(t, st, apimeta.DeltaFrameBookmark, "")
 
-	exec(t, h.db, `DELETE FROM conversations WHERE id = 'c'`)
+	exec(t, h.db, `DELETE FROM chats WHERE id = 'c'`)
 	h.db.Notify(appdb.KeyConversations)
 	exec(t, h.db, `UPDATE memories SET server_uid = 'uid-9'`)
 	h.db.Notify(appdb.KeyMemories)

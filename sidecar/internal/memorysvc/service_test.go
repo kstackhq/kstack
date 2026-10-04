@@ -32,7 +32,7 @@ import (
 func TestASaveReplacesByName(t *testing.T) {
 	h := newHarness(t)
 	for _, id := range []string{"c1", "c2"} {
-		exec(t, h.db, `INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES (?, ?, 'chat', 0, 0)`, id, string(clusterA))
+		exec(t, h.db, `INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES (?, ?, 'chat', 0, 0)`, id, string(clusterA))
 	}
 	require.NoError(t, h.svc.Save(t.Context(), clusterA, "pages", "first", "c1"))
 	first := h.get(t, clusterA, "pages")
@@ -86,10 +86,10 @@ func TestAClustersMemoriesGoWithItsRow(t *testing.T) {
 
 func TestADeletedChatLeavesItsMemories(t *testing.T) {
 	h := newHarness(t)
-	exec(t, h.db, `INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c', ?, 'chat', 0, 0)`, string(clusterA))
+	exec(t, h.db, `INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', ?, 'chat', 0, 0)`, string(clusterA))
 	require.NoError(t, h.svc.Save(t.Context(), clusterA, "n", "b", "c"))
 
-	exec(t, h.db, `DELETE FROM conversations WHERE id = 'c'`)
+	exec(t, h.db, `DELETE FROM chats WHERE id = 'c'`)
 
 	assert.Nil(t, h.get(t, clusterA, "n").ChatID)
 }
@@ -139,7 +139,7 @@ func TestACallForTheClusterNeverReachesANoteForEveryCluster(t *testing.T) {
 func TestASaveForEveryClusterIsTheModels(t *testing.T) {
 	h := newHarness(t)
 	ctx := t.Context()
-	exec(t, h.db, `INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c', ?, 'chat', 0, 0)`, string(clusterA))
+	exec(t, h.db, `INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', ?, 'chat', 0, 0)`, string(clusterA))
 
 	require.NoError(t, h.svc.SaveEverywhere(ctx, "prefs", "the body of prefs", "c"))
 

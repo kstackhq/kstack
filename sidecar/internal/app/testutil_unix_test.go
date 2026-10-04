@@ -262,7 +262,7 @@ func (e *e2e) askAgain(t *testing.T, chatID string, disabled bool, first string,
 	t.Helper()
 	require.Eventually(t, func() bool {
 		var n int
-		err := e.db.QueryRow(`SELECT COUNT(*) FROM agent_runs WHERE conversation_id = ? AND status IN ('queued', 'running')`, chatID).Scan(&n)
+		err := e.db.QueryRow(`SELECT COUNT(*) FROM agent_runs WHERE chat_id = ? AND status IN ('queued', 'running')`, chatID).Scan(&n)
 		return err == nil && n == 0
 	}, e2eConverge, 10*time.Millisecond, "the first turn settled")
 	e.fake.Route(first).SetToolCalls(calls...)

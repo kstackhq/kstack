@@ -93,9 +93,9 @@ func TestRunClosesTheAppWhenStartFails(t *testing.T) {
 	}
 	for _, q := range []string{
 		`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES ('k', 'kubeconfig', 'dev', 0, 0)`,
-		`INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c', 'k', 'chat', 0, 0)`,
-		`INSERT INTO messages (id, conversation_id, seq, role, content, created_at) VALUES ('u', 'c', 0, 'user', '[]', 0)`,
-		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, conversation_id, trigger_message_id, provider, model, dialect, created_at)
+		`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', 'k', 'chat', 0, 0)`,
+		`INSERT INTO messages (id, chat_id, seq, role, content, created_at) VALUES ('u', 'c', 0, 'user', '[]', 0)`,
+		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, chat_id, trigger_message_id, provider, model, dialect, created_at)
 		 VALUES ('r', 'chat', 'dev', 'chat', 'c', 'u', 'p', 'm', 'fake', 0)`,
 		`CREATE TRIGGER refuse_start BEFORE UPDATE ON agent_runs BEGIN SELECT RAISE(ABORT, 'refused by the test'); END`,
 	} {

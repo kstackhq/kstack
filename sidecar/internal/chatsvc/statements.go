@@ -77,12 +77,12 @@ const (
 // order scanChat scans it. title is nullable in the table and a string in Go.
 // The last is whether any run of the chat waits on the user.
 const conversationColumns = `id, COALESCE(title, ''), mode, cluster_id, sandbox_disabled, created_at, updated_at,
-	EXISTS (SELECT 1 FROM agent_runs w WHERE w.conversation_id = conversations.id AND w.status = 'waiting_approval')`
+	EXISTS (SELECT 1 FROM agent_runs w WHERE w.chat_id = chats.id AND w.status = 'waiting_approval')`
 
 // The insert projections, in the order the helpers bind them.
 const (
-	messageColumns = `id, conversation_id, seq, role, content, request_key, run_id, created_at`
-	runColumns     = `id, agent_type, app_version, trigger, conversation_id, trigger_message_id,
+	messageColumns = `id, chat_id, seq, role, content, request_key, run_id, created_at`
+	runColumns     = `id, agent_type, app_version, trigger, chat_id, trigger_message_id,
 	provider, model, effort, dialect, status, created_at`
 	llmCallColumns  = `id, run_id, seq, provider, model, effort, started_at`
 	toolCallColumns = `id, llm_call_id, seq, runs_on, tool_name, contract_name, tool_use_id, arguments, cwd, sandboxed, result, error,
@@ -121,7 +121,7 @@ const clusterWriteReadFrom = ` FROM approvals a JOIN tool_calls t ON t.id = a.to
 // subselect over its llm_calls; then the run's dialect, which reads the content's
 // citations; then whether its run or a subagent's under it waits on the user. The
 // reads alias messages as m and agent_runs as r.
-const messageReadColumns = `m.id, m.conversation_id, m.seq, m.role, m.content, m.run_id,
+const messageReadColumns = `m.id, m.chat_id, m.seq, m.role, m.content, m.run_id,
 	r.status, r.error, r.provider, r.model, r.effort, r.finished_at, m.created_at,
 	(SELECT c.stop_reason FROM llm_calls c WHERE c.run_id = m.run_id AND c.stop_reason IS NOT NULL ORDER BY c.seq DESC LIMIT 1),
 	r.dialect,
@@ -134,29 +134,29 @@ const messageReadFrom = ` FROM messages m LEFT JOIN agent_runs r ON r.id = m.run
 // miss the transaction's own writes. statements_test.go refuses a write filed as a
 // read.
 var statements = []sqlstmt.Statement{
-	stmtInsertConversation: sqlstmt.OnWriter(`INSERT INTO conversations (id, title, mode, cluster_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`),
-	stmtTouchConversation:  sqlstmt.OnWriter(`UPDATE conversations SET updated_at = ? WHERE id = ?`),
+	stmtInsertConversation: sqlstmt.OnWriter(`INSERT INTO chats (id, title, mode, cluster_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`),
+	stmtTouchConversation:  sqlstmt.OnWriter(`UPDATE chats SET updated_at = ? WHERE id = ?`),
 	// RETURNING, so the renamed row comes back from the write itself: a read beside it
 	// is a second statement a concurrent delete can land between.
-	stmtRenameConversation: sqlstmt.OnWriter(`UPDATE conversations SET title = ?, updated_at = ? WHERE id = ? RETURNING ` + conversationColumns),
-	stmtSetSandboxDisabled: sqlstmt.OnWriter(`UPDATE conversations SET sandbox_disabled = ? WHERE id = ? RETURNING ` + conversationColumns),
+	stmtRenameConversation: sqlstmt.OnWriter(`UPDATE chats SET title = ?, updated_at = ? WHERE id = ? RETURNING ` + conversationColumns),
+	stmtSetSandboxDisabled: sqlstmt.OnWriter(`UPDATE chats SET sandbox_disabled = ? WHERE id = ? RETURNING ` + conversationColumns),
 	// The messages and runs go with the conversation: ON DELETE CASCADE, and
 	// foreign_keys(on) is in the writer's DSN. One statement, so the two tables'
 	// references to each other are checked once both are gone.
-	stmtDeleteConversation:             sqlstmt.OnWriter(`DELETE FROM conversations WHERE id = ?`),
-	stmtSelectConversation:             sqlstmt.OnBoth(`SELECT ` + conversationColumns + ` FROM conversations WHERE id = ?`),
-	stmtSelectConversations:            sqlstmt.OnReader(`SELECT ` + conversationColumns + ` FROM conversations ORDER BY updated_at DESC, id DESC`),
-	stmtSelectConversationIDsByCluster: sqlstmt.OnReader(`SELECT id FROM conversations WHERE cluster_id = ?`),
+	stmtDeleteConversation:             sqlstmt.OnWriter(`DELETE FROM chats WHERE id = ?`),
+	stmtSelectConversation:             sqlstmt.OnBoth(`SELECT ` + conversationColumns + ` FROM chats WHERE id = ?`),
+	stmtSelectConversations:            sqlstmt.OnReader(`SELECT ` + conversationColumns + ` FROM chats ORDER BY updated_at DESC, id DESC`),
+	stmtSelectConversationIDsByCluster: sqlstmt.OnReader(`SELECT id FROM chats WHERE cluster_id = ?`),
 
 	// Inside the send's transaction, so two sends cannot take one seq.
-	stmtNextSeq:       sqlstmt.OnBoth(`SELECT COALESCE(MAX(seq), -1) + 1 FROM messages WHERE conversation_id = ?`),
+	stmtNextSeq:       sqlstmt.OnBoth(`SELECT COALESCE(MAX(seq), -1) + 1 FROM messages WHERE chat_id = ?`),
 	stmtInsertMessage: sqlstmt.OnWriter(`INSERT INTO messages (` + messageColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`),
 	stmtInsertRun: sqlstmt.OnWriter(`INSERT INTO agent_runs (` + runColumns + `)
 	VALUES (?, 'chat', ?, 'chat', ?, ?, ?, ?, ?, ?, 'queued', ?)`),
 	// A subagent's run goes in running: the goroutine that runs it is the one
 	// inserting it, so there is nothing to claim.
 	stmtInsertSubagentRun: sqlstmt.OnWriter(`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger,
-	conversation_id, provider, model, effort, dialect, task, status, created_at, started_at)
+	chat_id, provider, model, effort, dialect, task, status, created_at, started_at)
 	VALUES (?, ?, ?, ?, 'agent', ?, ?, ?, ?, ?, ?, 'running', ?, ?)`),
 	stmtDeleteRun: sqlstmt.OnWriter(`DELETE FROM agent_runs WHERE id = ?`),
 	// Guarded on queued, so a run a cancel settled first is not restarted.
@@ -169,8 +169,8 @@ var statements = []sqlstmt.Statement{
 	stmtSettleRun: sqlstmt.OnWriter(`UPDATE agent_runs SET status = ?, result = ?, error = ?, finished_at = ? WHERE id = ?`),
 	// RETURNING the conversation, so the watchers of each stranded chat can be told.
 	stmtFailStrandedRuns: sqlstmt.OnWriter(`UPDATE agent_runs SET status = 'failed', error = ?, finished_at = ?
-	WHERE status IN ('queued', 'running', 'waiting_approval') RETURNING conversation_id`),
-	stmtSelectMessages: sqlstmt.OnReader(`SELECT ` + messageReadColumns + messageReadFrom + ` WHERE m.conversation_id = ? ORDER BY m.seq`),
+	WHERE status IN ('queued', 'running', 'waiting_approval') RETURNING chat_id`),
+	stmtSelectMessages: sqlstmt.OnReader(`SELECT ` + messageReadColumns + messageReadFrom + ` WHERE m.chat_id = ? ORDER BY m.seq`),
 	// The message carrying the key, the run it triggered, and that run's answer — one
 	// statement, so a delete committing between them cannot show a message with no
 	// answer. The answer is aliased m so the projection is the transcript read's.
@@ -181,7 +181,7 @@ var statements = []sqlstmt.Statement{
 	WHERE u.request_key = ?`),
 	// The context block is always its question's first: that is where it is read.
 	stmtSelectNewestContext: sqlstmt.OnBoth(`SELECT json_extract(content, '$[0].text') FROM messages
-	WHERE conversation_id = ? AND role = 'user' AND json_extract(content, '$[0].type') = 'context'
+	WHERE chat_id = ? AND role = 'user' AND json_extract(content, '$[0].type') = 'context'
 	ORDER BY seq DESC LIMIT 1`),
 
 	stmtInsertLLMCall: sqlstmt.OnWriter(`INSERT INTO llm_calls (` + llmCallColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?)`),
@@ -214,19 +214,19 @@ var statements = []sqlstmt.Statement{
 	// A chat's calls, beside its messages. OnBoth, since the repeated send's read
 	// runs inside the send's transaction.
 	stmtSelectToolCalls: sqlstmt.OnBoth(`SELECT ` + toolCallReadColumns + toolCallReadFrom + `
-	JOIN agent_runs r ON r.id = c.run_id WHERE r.conversation_id = ? ORDER BY c.run_id, c.seq, t.seq`),
+	JOIN agent_runs r ON r.id = c.run_id WHERE r.chat_id = ? ORDER BY c.run_id, c.seq, t.seq`),
 	// A run's calls and its subagents', which its answer lists too.
 	stmtSelectRunToolCalls: sqlstmt.OnBoth(`SELECT ` + toolCallReadColumns + toolCallReadFrom + `
 	JOIN agent_runs r ON r.id = c.run_id WHERE r.id = ?1 OR r.parent_run_id = ?1 ORDER BY c.run_id, c.seq, t.seq`),
 	// The cluster writes of the same calls, in the order asked.
 	stmtSelectClusterWrites: sqlstmt.OnBoth(`SELECT ` + clusterWriteReadColumns + clusterWriteReadFrom + `
-	WHERE a.kind = 'cluster' AND r.conversation_id = ? ORDER BY a.created_at, a.id`),
+	WHERE a.kind = 'cluster' AND r.chat_id = ? ORDER BY a.created_at, a.id`),
 	stmtSelectRunClusterWrites: sqlstmt.OnBoth(`SELECT ` + clusterWriteReadColumns + clusterWriteReadFrom + `
 	WHERE a.kind = 'cluster' AND (r.id = ?1 OR r.parent_run_id = ?1) ORDER BY a.created_at, a.id`),
 
 	// A task's row goes in running before its process starts, and is deleted when
 	// the start fails, so no row stands for a process that never ran.
-	stmtInsertTask: sqlstmt.OnWriter(`INSERT INTO background_tasks (id, conversation_id, tool_call_id, output_path, status, started_at)
+	stmtInsertTask: sqlstmt.OnWriter(`INSERT INTO background_tasks (id, chat_id, tool_call_id, output_path, status, started_at)
 	VALUES (?, ?, ?, ?, 'running', ?)`),
 	stmtDeleteTask: sqlstmt.OnWriter(`DELETE FROM background_tasks WHERE id = ?`),
 	stmtFinishTask: sqlstmt.OnWriter(`UPDATE background_tasks SET status = ?, stopped_by = ?, exit_code = ?, finished_at = ?, notified_at = ?
@@ -234,7 +234,7 @@ var statements = []sqlstmt.Statement{
 	// A task still running at startup belongs to a process that is gone. RETURNING the
 	// conversation, so the watchers of each chat can be told.
 	stmtMarkLostTasks: sqlstmt.OnWriter(`UPDATE background_tasks SET status = 'lost', finished_at = ?
-	WHERE status = 'running' RETURNING conversation_id`),
+	WHERE status = 'running' RETURNING chat_id`),
 	// A chat's finished tasks whose notices have not reached the model, with the
 	// call that started each, for what it ran, the Agent call a that ran it when
 	// a subagent's call did, the run r an Agent call started, which marks the task
@@ -250,21 +250,21 @@ var statements = []sqlstmt.Statement{
 	JOIN llm_calls c ON c.id = t.llm_call_id
 	LEFT JOIN tool_calls a ON a.spawned_run_id = c.run_id
 	LEFT JOIN agent_runs r ON r.id = t.spawned_run_id
-	WHERE b.conversation_id = ? AND b.status <> 'running' AND b.notified_at IS NULL
+	WHERE b.chat_id = ? AND b.status <> 'running' AND b.notified_at IS NULL
 	ORDER BY b.finished_at, b.id`),
 	stmtMarkNotified: sqlstmt.OnWriter(`UPDATE background_tasks SET notified_at = ?
-	WHERE conversation_id = ? AND status <> 'running' AND notified_at IS NULL`),
+	WHERE chat_id = ? AND status <> 'running' AND notified_at IS NULL`),
 	// What the chat's last answer ran on, which a turn the sidecar starts runs on too.
 	stmtSelectLastAnswerRun: sqlstmt.OnBoth(`SELECT r.provider, r.model, r.effort
 	FROM messages m JOIN agent_runs r ON r.id = m.run_id
-	WHERE m.conversation_id = ? ORDER BY m.seq DESC LIMIT 1`),
+	WHERE m.chat_id = ? ORDER BY m.seq DESC LIMIT 1`),
 
 	// The chat's newest turn, and whether its first model call ended on an error. The join
 	// through messages reaches the chat's own runs alone.
 	stmtSelectNewestRun: sqlstmt.OnBoth(`SELECT r.status, COALESCE(r.error, ''), r.provider, r.model,
 	EXISTS (SELECT 1 FROM llm_calls c WHERE c.run_id = r.id AND c.seq = 0 AND c.error IS NOT NULL)
 	FROM agent_runs r JOIN messages m ON m.run_id = r.id
-	WHERE m.conversation_id = ? ORDER BY m.seq DESC LIMIT 1`),
+	WHERE m.chat_id = ? ORDER BY m.seq DESC LIMIT 1`),
 	// The newest reported call among the chat's succeeded turns on a provider that
 	// ran no server tool: inside one request the provider samples again after each
 	// server call, and whether its usage counts the chat once or once per sampling
@@ -272,7 +272,7 @@ var statements = []sqlstmt.Statement{
 	// subagent's has no message.
 	stmtSelectLastContextUse: sqlstmt.OnBoth(`SELECT c.input_tokens, c.cache_read_tokens, c.cache_write_tokens, c.output_tokens
 	FROM llm_calls c JOIN agent_runs r ON r.id = c.run_id JOIN messages m ON m.run_id = r.id
-	WHERE m.conversation_id = ? AND r.provider = ? AND r.status = 'succeeded' AND c.input_tokens IS NOT NULL
+	WHERE m.chat_id = ? AND r.provider = ? AND r.status = 'succeeded' AND c.input_tokens IS NOT NULL
 	AND NOT EXISTS (SELECT 1 FROM json_each(c.server_uses) WHERE value > 0)
 	ORDER BY m.seq DESC, c.seq DESC LIMIT 1`),
 

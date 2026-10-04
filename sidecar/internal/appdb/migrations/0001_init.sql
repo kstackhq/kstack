@@ -56,7 +56,7 @@ CREATE TABLE clusters (
   UNIQUE (source, source_key)
 ) STRICT, WITHOUT ROWID;
 
--- conversations: a thread of messages and the runs they triggered. mode is which of
+-- chats: a thread of messages and the runs they triggered. mode is which of
 -- the app's two modes lists it, fixed at creation and checked by the column; cluster_id
 -- is the clusters row it was started under, fixed at creation too. The cascade is the
 -- backstop: the sweeper empties a marked cluster before its row goes. A chat has no
@@ -64,7 +64,7 @@ CREATE TABLE clusters (
 -- something sets one; the service reads it as ''. sandbox_disabled is the user's switch:
 -- 1 runs the chat's commands outside the sandbox, each asking first. updated_at moves
 -- when a message is posted or a run settles, never on a reconcile or a switch.
-CREATE TABLE conversations (
+CREATE TABLE chats (
   id               TEXT    PRIMARY KEY,
   cluster_id       TEXT    NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
   mode             TEXT    NOT NULL CHECK (mode IN ('chat', 'dashboard')),
@@ -78,7 +78,7 @@ CREATE TABLE conversations (
 -- by trigger_message_id — UNIQUE, so a message starts at most one run however many
 -- times its request is replayed; the request's own idempotency is messages.request_key.
 -- Plain REFERENCES both ways between messages and runs: the pair goes with its
--- conversation and neither is deleted alone.
+-- chat and neither is deleted alone.
 --
 -- provider / model / effort are what was requested; effort is NULL where the model
 -- has no such knob. dialect is the llm.Dialect of the provider the run was sent to,
@@ -95,7 +95,7 @@ CREATE TABLE conversations (
 -- from queued. On startup every run still queued, running or waiting_approval is
 -- failed: the process that owned it is gone and nothing resumes a queued run.
 -- A child agent's run (trigger 'agent') is inserted running under its parent_run_id
--- and the parent's conversation, with the task it was handed; result is its final
+-- and the parent's chat, with the task it was handed; result is its final
 -- text. The monitor's runs are to come.
 CREATE TABLE agent_runs (
   id              TEXT    PRIMARY KEY,
@@ -103,7 +103,7 @@ CREATE TABLE agent_runs (
   agent_type      TEXT    NOT NULL,
   app_version     TEXT    NOT NULL,
   trigger         TEXT    NOT NULL CHECK (trigger IN ('chat', 'monitor', 'agent')),
-  conversation_id TEXT    REFERENCES conversations(id) ON DELETE CASCADE,
+  chat_id TEXT    REFERENCES chats(id) ON DELETE CASCADE,
   trigger_message_id
                   TEXT    UNIQUE REFERENCES messages(id),
 
@@ -125,17 +125,17 @@ CREATE TABLE agent_runs (
 ) STRICT;
 
 CREATE INDEX agent_runs_parent_idx ON agent_runs (parent_run_id);
-CREATE INDEX agent_runs_conv_idx   ON agent_runs (conversation_id);
+CREATE INDEX agent_runs_chat_idx   ON agent_runs (chat_id);
 CREATE INDEX agent_runs_queued_idx ON agent_runs (id) WHERE status = 'queued';
 -- The chat list marks a chat with a run waiting on the user, on every read.
-CREATE INDEX agent_runs_waiting_idx ON agent_runs (conversation_id) WHERE status = 'waiting_approval';
+CREATE INDEX agent_runs_waiting_idx ON agent_runs (chat_id) WHERE status = 'waiting_approval';
 
 -- messages: the transcript. A message is what a client posts; a run is what the
 -- server does about it, so a message's streaming/failed state is its run's status
 -- and there is no status column here.
 --
 -- content is the content blocks exactly as they went over the wire, as JSON.
--- seq is the transcript order: a per-conversation counter the posting transaction
+-- seq is the transcript order: a per-chat counter the posting transaction
 -- assigns from MAX(seq). The single writer serializes it, so it needs no clock; ids
 -- are identity alone. request_key is the client's idempotency key on every message a
 -- client posts — a UUID the client minted, so a retry finds its first attempt — and
@@ -147,14 +147,14 @@ CREATE INDEX agent_runs_waiting_idx ON agent_runs (conversation_id) WHERE status
 -- '[]' in one transaction, so a replayed key never finds half of them.
 CREATE TABLE messages (
   id              TEXT    PRIMARY KEY,
-  conversation_id TEXT    NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  chat_id TEXT    NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
   seq             INTEGER NOT NULL,
   role            TEXT    NOT NULL CHECK (role IN ('user', 'assistant')),
   content         TEXT    NOT NULL,
   request_key     TEXT    UNIQUE,
   run_id          TEXT    REFERENCES agent_runs(id),
   created_at      INTEGER NOT NULL,
-  UNIQUE (conversation_id, seq)
+  UNIQUE (chat_id, seq)
 ) STRICT;
 CREATE INDEX messages_run_idx ON messages (run_id);
 
@@ -325,7 +325,7 @@ CREATE TABLE memories (
   name        TEXT    NOT NULL,
   body        TEXT    NOT NULL,
   written_by  TEXT    NOT NULL CHECK (written_by IN ('model', 'user')),
-  chat_id     TEXT    REFERENCES conversations(id) ON DELETE SET NULL,
+  chat_id     TEXT    REFERENCES chats(id) ON DELETE SET NULL,
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL,
   CHECK (cluster_id IS NOT NULL OR server_uid IS NULL)
@@ -347,7 +347,7 @@ CREATE UNIQUE INDEX memories_name ON memories (ifnull(cluster_id, ''), name);
 -- notified, since its TaskStop result told it.
 CREATE TABLE background_tasks (
   id              TEXT    PRIMARY KEY,
-  conversation_id TEXT    NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  chat_id TEXT    NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
   tool_call_id    TEXT    NOT NULL UNIQUE REFERENCES tool_calls(id) ON DELETE CASCADE,
   output_path     TEXT    NOT NULL,
   status          TEXT    NOT NULL CHECK (status IN ('running', 'exited', 'completed', 'failed', 'stopped', 'lost')),
@@ -358,4 +358,4 @@ CREATE TABLE background_tasks (
   notified_at     INTEGER
 ) STRICT, WITHOUT ROWID;
 
-CREATE INDEX background_tasks_conv_idx ON background_tasks (conversation_id);
+CREATE INDEX background_tasks_chat_idx ON background_tasks (chat_id);

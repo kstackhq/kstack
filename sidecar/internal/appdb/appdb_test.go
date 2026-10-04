@@ -51,40 +51,40 @@ func TestOpenReturnsAWriterAndAReader(t *testing.T) {
 
 	_, err = db.Write.Exec(`INSERT INTO clusters (id, source, created_at, updated_at) VALUES ('c', 'cloud', 0, 0)`)
 	require.NoError(t, err)
-	const insert = `INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES (?, 'c', 'chat', 0, 0)`
+	const insert = `INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES (?, 'c', 'chat', 0, 0)`
 	_, err = db.Read.Exec(insert, "r")
 	require.ErrorContains(t, err, "attempt to write a readonly database")
 	_, err = db.Write.Exec(insert, "w")
 	require.NoError(t, err)
 
 	var id string
-	require.NoError(t, db.Read.QueryRow(`SELECT id FROM conversations`).Scan(&id))
+	require.NoError(t, db.Read.QueryRow(`SELECT id FROM chats`).Scan(&id))
 	require.Equal(t, "w", id)
 }
 
-// A conversation's messages and runs reference each other both ways, and neither
+// A chat's messages and runs reference each other both ways, and neither
 // cascades off the other: the run keeps its message, the answer keeps its run. One
-// DELETE of the conversation takes all of them, because SQLite checks a foreign key
-// at the end of the statement — after the cascade off conversations has removed
+// DELETE of the chat takes all of them, because SQLite checks a foreign key
+// at the end of the statement — after the cascade off chats has removed
 // both sides.
-func TestDeletingAConversationTakesItsMessagesAndRuns(t *testing.T) {
+func TestDeletingAChatTakesItsMessagesAndRuns(t *testing.T) {
 	db, err := Open(filepath.Join(t.TempDir(), "app.db"), 0)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
 	for _, q := range []string{
 		`INSERT INTO clusters (id, source, created_at, updated_at) VALUES ('k', 'cloud', 0, 0)`,
-		`INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c', 'k', 'chat', 0, 0)`,
-		`INSERT INTO messages (id, conversation_id, seq, role, content, request_key, created_at) VALUES ('u', 'c', 0, 'user', '[]', 'key', 0)`,
-		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, conversation_id, trigger_message_id, provider, model, dialect, created_at)
+		`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', 'k', 'chat', 0, 0)`,
+		`INSERT INTO messages (id, chat_id, seq, role, content, request_key, created_at) VALUES ('u', 'c', 0, 'user', '[]', 'key', 0)`,
+		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, chat_id, trigger_message_id, provider, model, dialect, created_at)
 		 VALUES ('r', 'chat', 'dev', 'chat', 'c', 'u', 'p', 'm', 'fake', 0)`,
-		`INSERT INTO messages (id, conversation_id, seq, role, content, run_id, created_at) VALUES ('a', 'c', 1, 'assistant', '[]', 'r', 0)`,
+		`INSERT INTO messages (id, chat_id, seq, role, content, run_id, created_at) VALUES ('a', 'c', 1, 'assistant', '[]', 'r', 0)`,
 	} {
 		_, err := db.Write.Exec(q)
 		require.NoError(t, err, q)
 	}
 
-	_, err = db.Write.Exec(`DELETE FROM conversations WHERE id = 'c'`)
+	_, err = db.Write.Exec(`DELETE FROM chats WHERE id = 'c'`)
 	require.NoError(t, err)
 	for _, table := range []string{"messages", "agent_runs"} {
 		var n int
@@ -94,7 +94,7 @@ func TestDeletingAConversationTakesItsMessagesAndRuns(t *testing.T) {
 }
 
 // The two keys the send transaction relies on: a seq handed out twice in one
-// conversation is refused, and a message starts at most one run.
+// chat is refused, and a message starts at most one run.
 func TestMessagesAndRunsAreKeyedForOneTurn(t *testing.T) {
 	db, err := Open(filepath.Join(t.TempDir(), "app.db"), 0)
 	require.NoError(t, err)
@@ -102,18 +102,18 @@ func TestMessagesAndRunsAreKeyedForOneTurn(t *testing.T) {
 
 	for _, q := range []string{
 		`INSERT INTO clusters (id, source, created_at, updated_at) VALUES ('k', 'cloud', 0, 0)`,
-		`INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c', 'k', 'chat', 0, 0)`,
-		`INSERT INTO messages (id, conversation_id, seq, role, content, created_at) VALUES ('u', 'c', 0, 'user', '[]', 0)`,
-		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, conversation_id, trigger_message_id, provider, model, dialect, created_at)
+		`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', 'k', 'chat', 0, 0)`,
+		`INSERT INTO messages (id, chat_id, seq, role, content, created_at) VALUES ('u', 'c', 0, 'user', '[]', 0)`,
+		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, chat_id, trigger_message_id, provider, model, dialect, created_at)
 		 VALUES ('r', 'chat', 'dev', 'chat', 'c', 'u', 'p', 'm', 'fake', 0)`,
 	} {
 		_, err := db.Write.Exec(q)
 		require.NoError(t, err, q)
 	}
 
-	_, err = db.Write.Exec(`INSERT INTO messages (id, conversation_id, seq, role, content, created_at) VALUES ('u2', 'c', 0, 'user', '[]', 0)`)
+	_, err = db.Write.Exec(`INSERT INTO messages (id, chat_id, seq, role, content, created_at) VALUES ('u2', 'c', 0, 'user', '[]', 0)`)
 	require.ErrorContains(t, err, "UNIQUE")
-	_, err = db.Write.Exec(`INSERT INTO agent_runs (id, agent_type, app_version, trigger, conversation_id, trigger_message_id, provider, model, dialect, created_at)
+	_, err = db.Write.Exec(`INSERT INTO agent_runs (id, agent_type, app_version, trigger, chat_id, trigger_message_id, provider, model, dialect, created_at)
 		 VALUES ('r2', 'chat', 'dev', 'chat', 'c', 'u', 'p', 'm', 'fake', 0)`)
 	require.ErrorContains(t, err, "UNIQUE")
 }
@@ -140,8 +140,8 @@ func requireTables(t *testing.T, db *sql.DB) {
 		"agent_runs wr=0 strict=1",
 		"approvals wr=1 strict=1",
 		"background_tasks wr=1 strict=1",
+		"chats wr=1 strict=1",
 		"clusters wr=1 strict=1",
-		"conversations wr=1 strict=1",
 		"llm_calls wr=0 strict=1",
 		"memories wr=0 strict=1",
 		"messages wr=0 strict=1",
@@ -159,14 +159,14 @@ func requireTables(t *testing.T, db *sql.DB) {
 	}
 	require.NoError(t, idx.Err())
 	require.Equal(t, []string{
-		"CREATE INDEX agent_runs_conv_idx ON agent_runs (conversation_id)",
+		"CREATE INDEX agent_runs_chat_idx ON agent_runs (chat_id)",
 		"CREATE INDEX agent_runs_parent_idx ON agent_runs (parent_run_id)",
 		"CREATE INDEX agent_runs_queued_idx ON agent_runs (id) WHERE status = 'queued'",
-		"CREATE INDEX agent_runs_waiting_idx ON agent_runs (conversation_id) WHERE status = 'waiting_approval'",
+		"CREATE INDEX agent_runs_waiting_idx ON agent_runs (chat_id) WHERE status = 'waiting_approval'",
 		"CREATE UNIQUE INDEX approvals_call_idx ON approvals (tool_call_id) WHERE kind = 'call'",
 		"CREATE INDEX approvals_pending_idx ON approvals (id) WHERE status = 'pending'",
 		"CREATE INDEX approvals_writes_idx ON approvals (tool_call_id) WHERE kind = 'cluster'",
-		"CREATE INDEX background_tasks_conv_idx ON background_tasks (conversation_id)",
+		"CREATE INDEX background_tasks_chat_idx ON background_tasks (chat_id)",
 		"CREATE UNIQUE INDEX llm_calls_run_idx ON llm_calls (run_id, seq)",
 		"CREATE UNIQUE INDEX memories_name ON memories (ifnull(cluster_id, ''), name)",
 		"CREATE INDEX messages_run_idx ON messages (run_id)",
@@ -193,7 +193,7 @@ func foreignKeys(t *testing.T, db *sql.DB, table string) []string {
 
 // The call tables hang off the runs: a model call cascades off its run, a tool
 // call off its model call, an approval off its tool call, and a spawned run's
-// deletion nulls the tool call that spawned it. One DELETE of the conversation
+// deletion nulls the tool call that spawned it. One DELETE of the chat
 // takes every row of the turn, and the foreign keys check clean before and after.
 func TestTheCallTablesCascadeOffTheRun(t *testing.T) {
 	db, err := Open(filepath.Join(t.TempDir(), "app.db"), 0)
@@ -203,21 +203,21 @@ func TestTheCallTablesCascadeOffTheRun(t *testing.T) {
 	require.Equal(t, []string{"run_id -> agent_runs.id CASCADE"}, foreignKeys(t, db.Read, "llm_calls"))
 	require.Equal(t, []string{"spawned_run_id -> agent_runs.id SET NULL", "llm_call_id -> llm_calls.id CASCADE"}, foreignKeys(t, db.Read, "tool_calls"))
 	require.Equal(t, []string{"tool_call_id -> tool_calls.id CASCADE"}, foreignKeys(t, db.Read, "approvals"))
-	require.Equal(t, []string{"tool_call_id -> tool_calls.id CASCADE", "conversation_id -> conversations.id CASCADE"},
+	require.Equal(t, []string{"tool_call_id -> tool_calls.id CASCADE", "chat_id -> chats.id CASCADE"},
 		foreignKeys(t, db.Read, "background_tasks"))
 
 	for _, q := range []string{
 		`INSERT INTO clusters (id, source, created_at, updated_at) VALUES ('k', 'cloud', 0, 0)`,
-		`INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c', 'k', 'chat', 0, 0)`,
-		`INSERT INTO messages (id, conversation_id, seq, role, content, request_key, created_at) VALUES ('u', 'c', 0, 'user', '[]', 'key', 0)`,
-		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, conversation_id, trigger_message_id, provider, model, dialect, created_at)
+		`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', 'k', 'chat', 0, 0)`,
+		`INSERT INTO messages (id, chat_id, seq, role, content, request_key, created_at) VALUES ('u', 'c', 0, 'user', '[]', 'key', 0)`,
+		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, chat_id, trigger_message_id, provider, model, dialect, created_at)
 		 VALUES ('r', 'chat', 'dev', 'chat', 'c', 'u', 'p', 'm', 'fake', 0)`,
-		`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, conversation_id, provider, model, dialect, created_at)
+		`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, chat_id, provider, model, dialect, created_at)
 		 VALUES ('child', 'r', 'chat', 'dev', 'agent', 'c', 'p', 'm', 'fake', 0)`,
 		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES ('l', 'r', 0, 'p', 'm', 0)`,
 		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, status, spawned_run_id, created_at) VALUES ('t', 'l', 0, 'spawn', 'running', 'child', 0)`,
 		`INSERT INTO approvals (id, tool_call_id, created_at) VALUES ('a', 't', 0)`,
-		`INSERT INTO background_tasks (id, conversation_id, tool_call_id, output_path, status, started_at) VALUES ('b', 'c', 't', '/o', 'running', 0)`,
+		`INSERT INTO background_tasks (id, chat_id, tool_call_id, output_path, status, started_at) VALUES ('b', 'c', 't', '/o', 'running', 0)`,
 	} {
 		_, err := db.Write.Exec(q)
 		require.NoError(t, err, q)
@@ -230,7 +230,7 @@ func TestTheCallTablesCascadeOffTheRun(t *testing.T) {
 	require.NoError(t, db.Read.QueryRow(`SELECT spawned_run_id FROM tool_calls WHERE id = 't'`).Scan(&spawned))
 	require.Nil(t, spawned, "the spawned run's deletion nulls the pointer")
 
-	_, err = db.Write.Exec(`DELETE FROM conversations WHERE id = 'c'`)
+	_, err = db.Write.Exec(`DELETE FROM chats WHERE id = 'c'`)
 	require.NoError(t, err)
 	for _, table := range []string{"messages", "agent_runs", "llm_calls", "tool_calls", "approvals", "background_tasks"} {
 		var n int
@@ -248,12 +248,12 @@ func TestMemoriesHangOffTheirClusterAndOutliveTheirChat(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
 
-	require.Equal(t, []string{"chat_id -> conversations.id SET NULL", "cluster_id -> clusters.id CASCADE"},
+	require.Equal(t, []string{"chat_id -> chats.id SET NULL", "cluster_id -> clusters.id CASCADE"},
 		foreignKeys(t, db.Read, "memories"))
 
 	for _, q := range []string{
 		`INSERT INTO clusters (id, source, created_at, updated_at) VALUES ('k', 'cloud', 0, 0)`,
-		`INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c', 'k', 'chat', 0, 0)`,
+		`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', 'k', 'chat', 0, 0)`,
 		`INSERT INTO memories (id, cluster_id, name, body, written_by, chat_id, created_at, updated_at)
 		 VALUES ('m1', 'k', 'n', 'b', 'model', 'c', 0, 0)`,
 		`INSERT INTO memories (id, cluster_id, name, body, written_by, created_at, updated_at)
@@ -271,7 +271,7 @@ func TestMemoriesHangOffTheirClusterAndOutliveTheirChat(t *testing.T) {
 		VALUES ('m5', NULL, 'uid', 'h', 'b', 'user', 0, 0)`)
 	require.Error(t, err, "a global memory with a server UID")
 
-	_, err = db.Write.Exec(`DELETE FROM conversations WHERE id = 'c'`)
+	_, err = db.Write.Exec(`DELETE FROM chats WHERE id = 'c'`)
 	require.NoError(t, err)
 	var chatID *string
 	require.NoError(t, db.Read.QueryRow(`SELECT chat_id FROM memories WHERE id = 'm1'`).Scan(&chatID))
@@ -309,8 +309,8 @@ func TestTheChecksRefuseValuesOutsideTheirLists(t *testing.T) {
 	t.Cleanup(func() { _ = db.Close() })
 	for _, q := range []string{
 		`INSERT INTO clusters (id, source, created_at, updated_at) VALUES ('k', 'cloud', 0, 0)`,
-		`INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c', 'k', 'chat', 0, 0)`,
-		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, conversation_id, provider, model, dialect, created_at) VALUES ('r', 'chat', 'dev', 'chat', 'c', 'p', 'm', 'fake', 0)`,
+		`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', 'k', 'chat', 0, 0)`,
+		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, chat_id, provider, model, dialect, created_at) VALUES ('r', 'chat', 'dev', 'chat', 'c', 'p', 'm', 'fake', 0)`,
 		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES ('l', 'r', 0, 'p', 'm', 0)`,
 		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, created_at) VALUES ('t', 'l', 0, 'list', 0)`,
 	} {
@@ -320,9 +320,9 @@ func TestTheChecksRefuseValuesOutsideTheirLists(t *testing.T) {
 	for _, q := range []string{
 		`INSERT INTO clusters (id, source, created_at, updated_at) VALUES ('k2', 'file', 0, 0)`,
 		`INSERT INTO clusters (id, source, enabled, created_at, updated_at) VALUES ('k2', 'cloud', 2, 0, 0)`,
-		`INSERT INTO conversations (id, cluster_id, mode, created_at, updated_at) VALUES ('c2', 'k', 'monitor', 0, 0)`,
-		`INSERT INTO messages (id, conversation_id, seq, role, content, created_at) VALUES ('m', 'c', 0, 'system', '[]', 0)`,
-		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, conversation_id, provider, model, dialect, created_at) VALUES ('r2', 'chat', 'dev', 'cron', 'c', 'p', 'm', 'fake', 0)`,
+		`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c2', 'k', 'monitor', 0, 0)`,
+		`INSERT INTO messages (id, chat_id, seq, role, content, created_at) VALUES ('m', 'c', 0, 'system', '[]', 0)`,
+		`INSERT INTO agent_runs (id, agent_type, app_version, trigger, chat_id, provider, model, dialect, created_at) VALUES ('r2', 'chat', 'dev', 'cron', 'c', 'p', 'm', 'fake', 0)`,
 		`UPDATE agent_runs SET status = 'done' WHERE id = 'r'`,
 		`UPDATE tool_calls SET status = 'ok' WHERE id = 't'`,
 		`UPDATE tool_calls SET is_mutating = 2 WHERE id = 't'`,

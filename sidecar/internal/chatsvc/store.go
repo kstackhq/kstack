@@ -880,7 +880,7 @@ func closeStrandedLLMCalls(ctx context.Context, st stmts, at time.Time) (int64, 
 
 // failStrandedRuns fails every run a previous process left unfinished and returns
 // the chats they belong to, one entry per run under a chat. Their conversations are
-// not moved: the sends that stranded them did. conversation_id is nullable, since a
+// not moved: the sends that stranded them did. chat_id is nullable, since a
 // monitor's run has no chat.
 func failStrandedRuns(ctx context.Context, st stmts, reason string, at time.Time) ([]ChatID, error) {
 	rows, err := st.Query(ctx, stmtFailStrandedRuns, reason, millis(at))
