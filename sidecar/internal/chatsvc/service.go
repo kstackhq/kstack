@@ -31,6 +31,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/drain"
 	"github.com/kstackhq/kstack/sidecar/internal/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/sqlstmt"
@@ -153,6 +154,12 @@ type Service interface {
 	// StopBackgroundTask is the user's stop of the background task call id
 	// started. false when no task of that call is running.
 	StopBackgroundTask(ctx context.Context, id ToolCallID) (bool, error)
+
+	// ChatGrants is the chat's own rules; none for a chat with none.
+	ChatGrants(ctx context.Context, chatID ChatID) ([]permissions.Rule, error)
+	// RemoveChatGrant removes one of the chat's rules by id and answers the
+	// rules left: ErrChatGone or ErrGrantGone for a chat or an id gone.
+	RemoveChatGrant(ctx context.Context, chatID ChatID, id string) ([]permissions.Rule, error)
 }
 
 var _ Service = (*service)(nil)

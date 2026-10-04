@@ -1548,6 +1548,9 @@ type Query {
   "The permission modes and rules, as Settings shows them."
   permissionSettings: PermissionSettings!
 
+  "The chat's own rules, each as Settings spells a rule. Empty for a chat with none."
+  chatGrants(chatID: ChatID!): [PermissionRule!]!
+
   # --- Cloud account ---
   "Current authentication state. Signed-out when no cloud account is configured; live updates via authStateWatch."
   authState: AuthState!
@@ -1632,6 +1635,9 @@ type Mutation {
 
   "Remove an always rule. Refused `KSTACK_VALIDATION_ERROR` for an unknown id, and while the file's rules cannot be read."
   permissionRuleRemove(id: String!): PermissionSettings!
+
+  "Removes one of the chat's rules by id, and answers the rules left. Refused `KSTACK_RECORD_NOT_FOUND` for a chat or an id that is gone."
+  chatGrantRemove(chatID: ChatID!, id: String!): [PermissionRule!]!
 
   "Write `modes` or `rules` as Kstack read it, dropping what it could not read. Refused `KSTACK_VALIDATION_ERROR` for a field that holds nothing unread."
   permissionDiscardRefused(field: String!): PermissionSettings!

@@ -459,6 +459,7 @@ type ComplexityRoot struct {
 		BackgroundTaskStop              func(childComplexity int, id chatsvc.ToolCallID) int
 		ChatCancel                      func(childComplexity int, chatID apimeta.ChatID) int
 		ChatDelete                      func(childComplexity int, id apimeta.ChatID) int
+		ChatGrantRemove                 func(childComplexity int, chatID apimeta.ChatID, id string) int
 		ChatRename                      func(childComplexity int, id apimeta.ChatID, title string) int
 		ChatSandboxDisabledSet          func(childComplexity int, id apimeta.ChatID, sandboxDisabled bool) int
 		ChatSend                        func(childComplexity int, chatID *apimeta.ChatID, mode chatsvc.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, providerID string, modelID string, effort string, requestID string, content string) int
@@ -535,6 +536,7 @@ type ComplexityRoot struct {
 
 	Query struct {
 		AuthState           func(childComplexity int) int
+		ChatGrants          func(childComplexity int, chatID apimeta.ChatID) int
 		Cluster             func(childComplexity int, id apimeta.ClusterID) int
 		ClusterCache        func(childComplexity int, id apimeta.ObjectID) int
 		ClusterCachedKind   func(childComplexity int, id apimeta.ObjectID) int
@@ -711,6 +713,7 @@ type MutationResolver interface {
 	PermissionModeClear(ctx context.Context, context string) (*model.PermissionSettings, error)
 	PermissionRuleAdd(ctx context.Context, input model.PermissionRuleInput) (*model.PermissionSettings, error)
 	PermissionRuleRemove(ctx context.Context, id string) (*model.PermissionSettings, error)
+	ChatGrantRemove(ctx context.Context, chatID apimeta.ChatID, id string) ([]*permissions.Rule, error)
 	PermissionDiscardRefused(ctx context.Context, field string) (*model.PermissionSettings, error)
 	AuthLoginStart(ctx context.Context) (bool, error)
 	AuthLogout(ctx context.Context) (bool, error)
@@ -729,6 +732,7 @@ type QueryResolver interface {
 	SandboxPathFault(ctx context.Context) (*string, error)
 	SandboxPathResolved(ctx context.Context) (bool, error)
 	PermissionSettings(ctx context.Context) (*model.PermissionSettings, error)
+	ChatGrants(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error)
 	AuthState(ctx context.Context) (*auth.State, error)
 }
 type SubscriptionResolver interface {
@@ -2321,6 +2325,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ChatDelete(childComplexity, args["id"].(apimeta.ChatID)), true
+	case "Mutation.chatGrantRemove":
+		if e.ComplexityRoot.Mutation.ChatGrantRemove == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_chatGrantRemove_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ChatGrantRemove(childComplexity, args["chatID"].(apimeta.ChatID), args["id"].(string)), true
 	case "Mutation.chatRename":
 		if e.ComplexityRoot.Mutation.ChatRename == nil {
 			break
@@ -2741,6 +2756,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.AuthState(childComplexity), true
+	case "Query.chatGrants":
+		if e.ComplexityRoot.Query.ChatGrants == nil {
+			break
+		}
+
+		args, err := ec.field_Query_chatGrants_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.ChatGrants(childComplexity, args["chatID"].(apimeta.ChatID)), true
 	case "Query.cluster":
 		if e.ComplexityRoot.Query.Cluster == nil {
 			break
@@ -4743,6 +4769,28 @@ func (ec *executionContext) field_Mutation_chatDelete_args(ctx context.Context, 
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_chatGrantRemove_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "chatID",
+		func(ctx context.Context, v any) (apimeta.ChatID, error) {
+			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["chatID"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_chatRename_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -5162,6 +5210,20 @@ func (ec *executionContext) field_Query___type_args(ctx context.Context, rawArgs
 		return nil, err
 	}
 	args["name"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_chatGrants_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "chatID",
+		func(ctx context.Context, v any) (apimeta.ChatID, error) {
+			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["chatID"] = arg0
 	return args, nil
 }
 
@@ -12478,6 +12540,50 @@ func (ec *executionContext) fieldContext_Mutation_permissionRuleRemove(ctx conte
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_chatGrantRemove(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_chatGrantRemove(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ChatGrantRemove(ctx, fc.Args["chatID"].(apimeta.ChatID), fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*permissions.Rule) graphql.Marshaler {
+			return ec.marshalNPermissionRule2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐRuleᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_chatGrantRemove(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_PermissionRule(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_chatGrantRemove_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_permissionDiscardRefused(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -13730,6 +13836,50 @@ func (ec *executionContext) fieldContext_Query_permissionSettings(_ context.Cont
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_PermissionSettings(ctx, field)
 		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Query_chatGrants(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_chatGrants(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().ChatGrants(ctx, fc.Args["chatID"].(apimeta.ChatID))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*permissions.Rule) graphql.Marshaler {
+			return ec.marshalNPermissionRule2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐRuleᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_chatGrants(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_PermissionRule(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_chatGrants_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
 	}
 	return fc, nil
 }
@@ -20454,6 +20604,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "chatGrantRemove":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_chatGrantRemove(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "permissionDiscardRefused":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_permissionDiscardRefused(ctx, field)
@@ -21171,6 +21328,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_permissionSettings(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "chatGrants":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_chatGrants(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}

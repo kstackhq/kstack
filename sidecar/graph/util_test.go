@@ -12,7 +12,7 @@ import (
 // since its package cannot see the table. A new entry fails here until it has a case
 // there.
 func TestTheChatRefusalTableIsPinned(t *testing.T) {
-	if got := len(chatRefusals); got != 7 {
+	if got := len(chatRefusals); got != 8 {
 		t.Fatalf("chatRefusals has %d entries; give TestChatRefusalsCarryTheirCode a case for each, then pin the count", got)
 	}
 }

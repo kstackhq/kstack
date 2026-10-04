@@ -1954,6 +1954,7 @@ func TestChatRefusalsCarryTheirCode(t *testing.T) {
 		{chatsvc.ErrStopping, "KSTACK_SERVICE_UNAVAILABLE"},
 		{chatsvc.ErrChatContextFull, "KSTACK_CHAT_CONTEXT_FULL"},
 		{chatsvc.ErrChatSandboxChanged, "KSTACK_CHAT_SANDBOX_CHANGED"},
+		{chatsvc.ErrGrantGone, "KSTACK_RECORD_NOT_FOUND"},
 	} {
 		t.Run(tc.err.Error(), func(t *testing.T) {
 			srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ChatSvc: refusingChat{err: tc.err}}))
@@ -2833,4 +2834,29 @@ func TestARuleNothingDecidesIsRefused(t *testing.T) {
 	}
 	data := mutate(t, srv, `{ permissionSettings { rules { id } } }`)
 	assert.Empty(t, data["permissionSettings"].(map[string]any)["rules"], "nothing was written")
+}
+
+// chatGrants lists a chat's rules by their lines, and chatGrantRemove answers
+// the list without the one removed; an id the chat does not hold and a chat
+// that is gone are each not found.
+func TestChatGrantsListAndRemove(t *testing.T) {
+	srv, db, _ := newChatServerOver(t)
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
+		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
+	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
+	id := appdb.NewID()
+	_, err := db.Write.Exec(`INSERT INTO chat_grants (id, chat_id, rule, created_at) VALUES (?, ?, ?, 1)`,
+		id, chatID, `{"id":"`+id+`","effect":"allow","class":4,"context":"dev","namespace":"web"}`)
+	require.NoError(t, err)
+
+	data := mutate(t, srv, `query { chatGrants(chatID: "`+chatID+`") { id line } }`)
+	assert.Equal(t, []any{map[string]any{"id": id, "line": "Allow cluster writes in dev / web"}}, data["chatGrants"])
+
+	_, code := refusalOf(t, srv, `mutation { chatGrantRemove(chatID: "`+chatID+`", id: "`+appdb.NewID()+`") { id } }`)
+	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", code)
+	data = mutate(t, srv, `mutation { chatGrantRemove(chatID: "`+chatID+`", id: "`+id+`") { id } }`)
+	assert.Equal(t, []any{}, data["chatGrantRemove"])
+
+	_, code = refusalOf(t, srv, `mutation { chatGrantRemove(chatID: "`+appdb.NewID()+`", id: "`+id+`") { id } }`)
+	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", code)
 }

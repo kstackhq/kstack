@@ -72,6 +72,8 @@ const (
 	stmtSelectMarkedClusterIDs
 
 	stmtSelectChatGrants
+	stmtUpsertChatGrant
+	stmtDeleteChatGrant
 	numStmts int = iota
 )
 
@@ -285,7 +287,12 @@ var statements = []sqlstmt.Statement{
 	// The clusters whose chats the sweeper deletes.
 	stmtSelectMarkedClusterIDs: sqlstmt.OnReader(`SELECT id FROM clusters WHERE delete_requested_at IS NOT NULL ORDER BY id`),
 
-	stmtSelectChatGrants: sqlstmt.OnReader(`SELECT rule FROM chat_grants WHERE chat_id = ? ORDER BY created_at, id`),
+	// OnBoth, since a grant's write reads the chat's rules in its transaction.
+	stmtSelectChatGrants: sqlstmt.OnBoth(`SELECT rule FROM chat_grants WHERE chat_id = ? ORDER BY created_at, id`),
+	// A rule keeps its row's id and created_at when it changes.
+	stmtUpsertChatGrant: sqlstmt.OnWriter(`INSERT INTO chat_grants (id, chat_id, rule, created_at) VALUES (?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET rule = excluded.rule`),
+	stmtDeleteChatGrant: sqlstmt.OnWriter(`DELETE FROM chat_grants WHERE chat_id = ? AND id = ?`),
 }
 
 // stmts issues the set's statements, on the pools or inside a transaction.
