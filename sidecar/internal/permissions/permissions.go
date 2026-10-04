@@ -20,10 +20,7 @@
 // imports it, and it imports nothing of ours.
 package permissions
 
-import (
-	"cmp"
-	"strings"
-)
+import "strings"
 
 // Class is how much an action can do, numbered as the agent-security note
 // numbers them. Only 1, 4, 5 and 6 are classified today; 2 and 3 arrive with
@@ -77,18 +74,28 @@ type Rule struct {
 	Verb      string `json:"verb,omitempty"`
 	Group     string `json:"group,omitempty"`
 	Kind      string `json:"kind,omitempty"`
+	// Inside narrows Namespace to what is in the namespace, leaving out the
+	// Namespace object, which carries its own name as its namespace.
+	Inside bool `json:"inside,omitempty"`
+	// Command is a rule one command's answer added, kept in memory for that
+	// command alone and never stored.
+	Command bool `json:"-"`
 }
 
-// Action is one classified request, as the proxy read it.
+// Action is one classified request, as the proxy read it. It is stored with
+// the approval that records it.
 type Action struct {
-	Class     Class
-	Context   string // the kube-context the grant was made for; "" for a record naming none
-	Namespace string // "" for a cluster-scoped request
-	Verb      string // get, create, update, patch, delete, deletecollection
-	Group     string // the API group, "core" for the core group
-	Kind      string // the resource, "deployments/scale" for a subresource
-	Name      string // the object's name, when it has one
-	Summary   string // one line for a refusal, written by the classifier
+	Class     Class  `json:"class"`
+	Context   string `json:"context"`   // the kube-context the grant was made for; "" for a record naming none
+	Namespace string `json:"namespace"` // "" for a cluster-scoped request
+	Verb      string `json:"verb"`      // get, create, update, patch, delete, deletecollection
+	Group     string `json:"group"`     // the API group, "core" for the core group
+	Kind      string `json:"kind"`      // the resource, "deployments/scale" for a subresource
+	Name      string `json:"name"`      // the object's name, when it has one
+	Summary   string `json:"summary"`   // one line for a request or a refusal, written by the classifier
+	// DryRun is a request for a dry run. No rule names one, so a rule written
+	// from it would allow the real write.
+	DryRun bool `json:"dryRun"`
 }
 
 // Decision is what Decide answers.
@@ -98,6 +105,17 @@ const (
 	Allowed  Decision = "allowed"
 	Prompted Decision = "prompted"
 	Denied   Decision = "denied"
+)
+
+// Duration is how long the user's approval of an action holds: this request,
+// the rest of the command that sent it, the chat, or always.
+type Duration string
+
+const (
+	DurationOnce    Duration = "once"
+	DurationCommand Duration = "command"
+	DurationChat    Duration = "chat"
+	DurationAlways  Duration = "always"
 )
 
 // Verdict is what the policy says of an action before anyone is asked:
@@ -130,6 +148,47 @@ func (v Verdict) Outcome() Decision {
 		return Denied
 	}
 	return Prompted
+}
+
+// Grantable is whether an answer to act may write a rule that allows it. Only
+// an Unmatched verdict is lifted by an Allow. A dry run is not, since no rule
+// names one and a rule written from it would allow the real write; nor is an
+// action with no context, since an unset rule field matches every context.
+func Grantable(v Verdict, act Action) bool {
+	return v == Unmatched && !act.DryRun && act.Context != ""
+}
+
+// GrantRule is the rule a chat or always answer to act writes: an Allow of
+// its class in its context and namespace, each a literal. A cluster-scoped
+// action, and a Namespace object, also name the group and resource: an unset
+// namespace matches every namespace, and a Namespace carries its own name as
+// its namespace, so naming that alone would allow every write inside it. Any
+// other action's rule is Inside, so allowing what is in a namespace never
+// allows changing the Namespace itself. The writer sets the ID.
+func GrantRule(act Action) Rule {
+	r := Rule{Effect: Allow, Class: act.Class, Context: Literal(act.Context), Namespace: Literal(act.Namespace)}
+	if act.Namespace == "" || isNamespace(act) {
+		r.Group, r.Kind = act.Group, Literal(act.Kind)
+	} else {
+		r.Inside = true
+	}
+	return r
+}
+
+// isNamespace is whether act writes a Namespace object or its subresource.
+func isNamespace(act Action) bool {
+	resource, _, _ := strings.Cut(act.Kind, "/")
+	return act.Group == "core" && resource == "namespaces"
+}
+
+// CommandRule is the rule a command answer to act adds for the rest of the
+// command: GrantRule's, naming the verb and the resource as well, since the
+// user saw one change and allows its repeats. Naming the resource leaves the
+// Namespace out unless act wrote one, so it is never Inside.
+func CommandRule(act Action) Rule {
+	r := GrantRule(act)
+	r.Verb, r.Group, r.Kind, r.Command, r.Inside = Literal(act.Verb), act.Group, Literal(act.Kind), true, false
+	return r
 }
 
 // Policy is what a session brings to a decision: the context's mode and the
@@ -191,11 +250,12 @@ var Refused = Rule{ID: "refused", Effect: Deny, Class: UpstreamWrite}
 
 // Matches is whether r applies to act: a class that covers act's, and every
 // set field matching. Class 4 covers class 5, since a destructive write is a
-// cluster write.
+// cluster write. An Inside rule never matches a Namespace object.
 func (r Rule) Matches(act Action) bool {
 	return (r.Class == act.Class || r.Class == UpstreamWrite && act.Class == Destructive) &&
 		matchSet(r.Context, act.Context) &&
 		matchNamespace(r.Namespace, act.Namespace) &&
+		!(r.Inside && isNamespace(act)) &&
 		matchSet(r.Verb, act.Verb) &&
 		(r.Group == "" || r.Group == act.Group) &&
 		matchKind(r.Kind, act.Kind)
@@ -247,11 +307,23 @@ var (
 
 // Line is the rule in the user's words: "Allow cluster writes in dev-eks /
 // team-a", "Deny destructive delete of core namespaces everywhere", or "Deny
-// patch of core nodes cluster-wide in prod".
+// patch of core nodes cluster-wide in prod". An Inside rule reads "inside" for
+// "in". Each pattern field is drawn by field, so a line reads one way whatever
+// a value holds.
 func (r Rule) Line() string {
+	if r.Command {
+		return r.scopeLine() + " for this command"
+	}
+	return r.scopeLine()
+}
+
+func (r Rule) scopeLine() string {
 	what := classNouns[r.Class]
 	if r.Verb != "" || r.Group != "" || r.Kind != "" {
-		parts := []string{cmp.Or(r.Verb, "writes"), "of"}
+		parts := []string{"writes", "of"}
+		if r.Verb != "" {
+			parts[0] = fieldWords(r.Verb)
+		}
 		if r.Class == Destructive {
 			parts = append([]string{"destructive"}, parts...)
 		}
@@ -260,7 +332,7 @@ func (r Rule) Line() string {
 		}
 		switch {
 		case r.Kind != "":
-			parts = append(parts, r.Kind)
+			parts = append(parts, fieldWords(r.Kind))
 		case r.Group != "":
 			parts = append(parts, "resources")
 		default:
@@ -273,13 +345,61 @@ func (r Rule) Line() string {
 	case r.Namespace == ClusterScope:
 		line += " cluster-wide"
 		if r.Context != "" {
-			line += " in " + r.Context
+			line += " in " + fieldWords(r.Context)
 		}
 		return line
 	case r.Context == "" && r.Namespace == "":
 		return line + " everywhere"
 	case r.Namespace == "":
-		return line + " in " + r.Context
+		return line + " in " + fieldWords(r.Context)
 	}
-	return line + " in " + cmp.Or(r.Context, "any context") + " / " + r.Namespace
+	context := "any context"
+	if r.Context != "" {
+		context = fieldWords(r.Context)
+	}
+	in := " in "
+	if r.Inside {
+		in = " inside "
+	}
+	return line + in + context + " / " + fieldWords(r.Namespace)
+}
+
+// fieldWords draws one pattern field of a line. Name characters alone are
+// drawn bare, a * or ? in them a glob. A literal holding a glob character, a
+// space, a " or a \ is drawn unescaped in quotes. Anything else is drawn as
+// written, in quotes, after "matching". So " / " outside quotes always
+// separates the context from the namespace.
+func fieldWords(v string) string {
+	if !strings.ContainsAny(v, ` "\`) {
+		return v
+	}
+	if plain, ok := unescapeLiteral(v); ok {
+		return quote(plain)
+	}
+	return "matching " + quote(v)
+}
+
+// unescapeLiteral is the value pattern matches alone, false for a pattern
+// Literal would not have written.
+func unescapeLiteral(pattern string) (string, bool) {
+	var b strings.Builder
+	escaped := false
+	for _, r := range pattern {
+		switch {
+		case escaped:
+			escaped = false
+		case r == '\\':
+			escaped = true
+			continue
+		case r == '*' || r == '?':
+			return "", false
+		}
+		b.WriteRune(r)
+	}
+	return b.String(), !escaped && Literal(b.String()) == pattern
+}
+
+// quote is s in double quotes, each " and \ inside preceded by \.
+func quote(s string) string {
+	return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(s) + `"`
 }

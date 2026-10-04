@@ -29,11 +29,13 @@ import { Spinner } from '@kubetail/ui/elements/spinner';
 import { useMutation } from 'urql';
 
 import { AppLogo } from '@/components/widgets/app-logo';
+import { DiffBlock } from '@/components/widgets/diff-block';
 import { approvalAnchor } from '@/lib/approval-anchor';
 import { Markdown } from '@/components/widgets/markdown';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { graphql } from '@/gql';
 import type { AppMode } from '@/lib/app-mode';
+import { chatGrantsContext } from '@/lib/chat-grants';
 import { useChatOutbox } from '@/lib/chat-outbox';
 import {
   actionKindLabel,
@@ -48,6 +50,7 @@ import {
   waitingRequestsOf,
 } from '@/lib/chats';
 import type { ChatClusterWrite, ChatMessage, ChatToolCall, Source, TaskNotice } from '@/lib/chats';
+import type { ApprovalDecision, ApprovalDuration } from '@/gql/graphql';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 import { useHeldStill } from '@/lib/held-still';
 import { modelOf, useModels } from '@/lib/models';
@@ -66,8 +69,8 @@ const PIN_SLACK_PX = 32;
 export const APPROVE_ARM_MS = 500;
 
 const ApprovalDecideMutation = graphql(`
-  mutation ApprovalDecide($id: ApprovalID!, $approve: Boolean!) {
-    approvalDecide(id: $id, approve: $approve)
+  mutation ApprovalDecide($id: ApprovalID!, $decision: ApprovalDecision!) {
+    approvalDecide(id: $id, decision: $decision)
   }
 `);
 
@@ -557,12 +560,49 @@ function ClusterWriteLines({ call }: { call: ChatToolCall }) {
   );
 }
 
+// Why an Always answer was refused: the settings hold rules Kstack cannot read,
+// so the rule it adds could not be written. The request still waits.
+const HELD_RULES =
+  'Kstack cannot add a rule while security.json holds rules it cannot read. Fix them in Settings, or approve once.';
+
+// One allow answer and the rule it adds under it, in the words Settings uses.
+function AllowAnswer({
+  label,
+  rule,
+  disabled,
+  onClick,
+}: {
+  label: string;
+  rule: string;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <div className="flex max-w-56 flex-col gap-0.5">
+      <Button type="button" size="xs" variant="outline" disabled={disabled} onClick={onClick}>
+        {label}
+      </Button>
+      <span className="text-xs break-words text-muted-foreground">
+        <VisibleText text={rule} />
+      </span>
+    </div>
+  );
+}
+
+// How long each approval holds, in the tag's words.
+const DURATION_WORDS: Record<ApprovalDuration, string> = {
+  Once: 'once',
+  Command: 'this command',
+  Chat: 'this chat',
+  Always: 'always',
+};
+
 // What became of a write that no longer waits. A pending one here is one a
 // crash stranded, as an abandoned one's wait ended with nobody's answer.
 function clusterWriteTag(w: ChatClusterWrite): string {
   switch (w.approval.status) {
     case 'Approved':
-      return 'approved';
+      return w.approval.duration ? `approved · ${DURATION_WORDS[w.approval.duration]}` : 'approved';
     case 'Denied':
       return 'denied';
     case 'Allowed':
@@ -682,31 +722,11 @@ function commandHeading(command: CommandAction, sandboxAvailable: boolean | unde
   return command.background ? 'Run this command in the background?' : 'Run this command?';
 }
 
-// What each method does to the cluster, for a write to a resource itself.
-const CLUSTER_WRITE_HEADINGS: Record<string, string> = {
-  POST: 'Create in the cluster?',
-  PUT: 'Replace in the cluster?',
-  PATCH: 'Patch in the cluster?',
-  DELETE: 'Delete from the cluster?',
-};
-
-// What a cluster write's request asks. A write to a subresource names no method,
-// since a POST to pods/x/eviction creates nothing: the path says what it does.
-// The subresource is the proxy's parse, never read off the path here. A dry run
-// on a group the proxy cannot trust to honor it asks too, and says so.
-function clusterWriteHeading(change: ChatClusterWrite): string {
-  const heading =
-    change.subresource === ''
-      ? (CLUSTER_WRITE_HEADINGS[change.method] ?? 'Change in the cluster?')
-      : 'Change in the cluster?';
-  return change.dryRun ? `${heading} (dry run)` : heading;
-}
-
 // The call a turn is stopped on, and the only place it is approved: a command,
 // a file read by its path, a file written by its path and content, a file
 // edited by its path and both strings, or a page fetched by its URL. It shows
-// the id the row carries and sends it back with one boolean; the message
-// changing is what takes the request down. The command and the content wrap
+// the id the row carries and sends it back with the user's decision; the
+// message changing is what takes the request down. The command and the content wrap
 // anywhere and nothing caps their height, so the head reaches the eye whole
 // however narrow the panel.
 // `live` is a pending approval on a turn still waiting: anything else is a
@@ -716,7 +736,9 @@ function clusterWriteHeading(change: ChatClusterWrite): string {
 // answer's own: the user is approving a call whose reasoning they cannot see,
 // so the request says whose it is. `change` is a cluster write the call's
 // sandboxed command sent, which is what the request asks about when it is set;
-// the call's command is then drawn under it as what sent it.
+// the call's command is then drawn under it as what sent it. A change is the
+// one request that offers a rule: an action a rule may allow offers four allow
+// answers beside Deny, each with the rule it adds in the sidecar's words.
 function ApprovalRequest({
   approval,
   action,
@@ -738,8 +760,9 @@ function ApprovalRequest({
   const buttons = useRef<HTMLDivElement>(null);
   const armed = useHeldStill(buttons, armMs);
   const [decided, setDecided] = useState(false);
-  const [failed, setFailed] = useState(false);
+  const [failure, setFailure] = useState<string | null>(null);
   const [shown, setShown] = useState(false);
+  const [diffShown, setDiffShown] = useState(false);
   const [editShown, setEditShown] = useState({ old: false, new: false });
   const command = action?.command ?? null;
   const read = action?.read ?? null;
@@ -750,37 +773,56 @@ function ApprovalRequest({
   const memory = action?.memory?.scope === 'everywhere' ? action.memory : null;
   const folding = change ? change.body : (command?.text ?? write?.content ?? memory?.body ?? '');
   const { head, rest } = useCut(folding);
+  const diff = useCut(change?.diff ?? '');
   const line = descriptionLine(action?.description ?? '');
-  const folded = (rest !== '' && !shown) || (edit !== null && editFolded(edit, editShown));
+  // A whole diff is what a change's user reads, so the request behind it is a
+  // fold Approve does not wait on; with no diff, or one cut short, the request
+  // is drawn open and Approve waits on its body.
+  const requestOpen = change === null || change.diff === '' || change.diffCut;
+  const folded =
+    (rest !== '' && !shown && requestOpen) ||
+    (diff.rest !== '' && !diffShown) ||
+    (edit !== null && editFolded(edit, editShown));
 
   // Only an error hands the buttons back. A false answer means no turn was
   // waiting — a cancel or a settle is on its way through the watch — so they
-  // stay down.
-  const decide = async (approve: boolean) => {
+  // stay down. An answer that writes a rule names the rules' type, so the
+  // chat's list and Settings ask again.
+  const decide = async (decision: ApprovalDecision) => {
     setDecided(true);
-    setFailed(false);
-    const result = await approvalDecide({ id: approval.id, approve });
+    setFailure(null);
+    const variables = { id: approval.id, decision };
+    const writesRule = decision === 'Chat' || decision === 'Always';
+    const result = writesRule ? await approvalDecide(variables, chatGrantsContext) : await approvalDecide(variables);
     if (result.error) {
       setDecided(false);
-      setFailed(true);
+      const held =
+        decision === 'Always' && result.error.graphQLErrors[0]?.extensions?.code === 'KSTACK_VALIDATION_ERROR';
+      setFailure(held ? HELD_RULES : 'The decision did not reach the sidecar. Try again.');
     }
   };
 
+  const approvable = live && !decided && !folded && armed;
   let label = 'Command awaiting approval';
   // Only a request drawn below offers Approve: what the user cannot see is not
   // approved.
   let drawn = true;
   let body: ReactNode;
-  if (change) {
-    // The request itself, never a reading of it: the path and query as sent, one
-    // line the proxy bounds; the method, which a subresource's heading does not
-    // name, and the media type, which decides what a patch's body does; then the
-    // body as a file's content is. The command
-    // under Sent by is context, so Approve does not wait on its fold.
+  if (change && change.method === '') {
+    // An action with no request of its own is a kind a later step draws.
     label = 'Cluster change awaiting approval';
-    body = (
+    drawn = false;
+    body = <p className="text-xs text-muted-foreground">This request can&apos;t be shown.</p>;
+  } else if (change) {
+    // The action is the heading, the sidecar's summary, so nothing here parses
+    // a path; the diff a dry run computed is what changes. The request itself
+    // is never a reading of it: the path and query as sent, one line the proxy
+    // bounds; the method, and the media type, which decides what a patch's body
+    // does; then the body as a file's content is. The command under Sent by is
+    // context, so Approve does not wait on its fold.
+    label = 'Cluster change awaiting approval';
+    const sent = (
       <>
-        <p className="text-xs text-muted-foreground">{clusterWriteHeading(change)}</p>
         <p className="mt-1 font-mono text-xs break-all whitespace-pre-wrap">
           <VisibleText text={change.path} />
         </p>
@@ -802,6 +844,30 @@ function ApprovalRequest({
             className={REQUEST_TEXT}
             file
           />
+        )}
+      </>
+    );
+    body = (
+      <>
+        <p className="text-xs text-muted-foreground">
+          <VisibleText text={change.action.summary} />
+          {change.dryRun && ' (dry run)'}
+        </p>
+        {change.diff !== '' && (
+          <DiffBlock head={diff.head} rest={diff.rest} shown={diffShown} onShow={() => setDiffShown(true)} />
+        )}
+        {change.diffError !== '' && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            No preview: <VisibleText text={change.diffError} />
+          </p>
+        )}
+        {requestOpen ? (
+          sent
+        ) : (
+          <details className="mt-1">
+            <summary className="cursor-pointer text-xs text-muted-foreground">Show the request</summary>
+            {sent}
+          </details>
         )}
         {command && (
           <>
@@ -949,16 +1015,39 @@ function ApprovalRequest({
         </p>
       )}
       {body}
-      {failed && <p className="mt-1 text-xs text-destructive">The decision did not reach the sidecar. Try again.</p>}
-      {/* Approve waits for its place to hold; Deny never does, since refusing the
-          wrong request costs one more question, not a command. */}
-      <div ref={buttons} className="mt-2 flex gap-2">
+      {failure && <p className="mt-1 text-xs text-destructive">{failure}</p>}
+      {/* Approve and the allow answers wait for their place to hold; Deny never
+          does, since refusing the wrong request costs one more question, not a
+          command. */}
+      <div ref={buttons} className="mt-2 flex flex-wrap items-start gap-2">
         {drawn && (
-          <Button type="button" size="xs" disabled={!live || decided || folded || !armed} onClick={() => decide(true)}>
-            Approve
+          <Button type="button" size="xs" disabled={!approvable} onClick={() => decide('Once')}>
+            {change ? 'Approve once' : 'Approve'}
           </Button>
         )}
-        <Button type="button" size="xs" variant="outline" disabled={!live || decided} onClick={() => decide(false)}>
+        {drawn && change?.action.grantable && (
+          <>
+            <AllowAnswer
+              label="Allow for this command"
+              rule={change.action.commandRule}
+              disabled={!approvable}
+              onClick={() => decide('Command')}
+            />
+            <AllowAnswer
+              label="Allow for this chat"
+              rule={change.action.chatRule}
+              disabled={!approvable}
+              onClick={() => decide('Chat')}
+            />
+            <AllowAnswer
+              label="Always allow"
+              rule={change.action.chatRule}
+              disabled={!approvable}
+              onClick={() => decide('Always')}
+            />
+          </>
+        )}
+        <Button type="button" size="xs" variant="outline" disabled={!live || decided} onClick={() => decide('Deny')}>
           Deny
         </Button>
       </div>

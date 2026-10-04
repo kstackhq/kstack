@@ -72,6 +72,8 @@ const (
 	stmtSelectMarkedClusterIDs
 
 	stmtSelectChatGrants
+	stmtUpsertChatGrant
+	stmtDeleteChatGrant
 	numStmts int = iota
 )
 
@@ -89,17 +91,17 @@ const (
 	llmCallColumns  = `id, run_id, seq, provider, model, effort, started_at`
 	toolCallColumns = `id, llm_call_id, seq, runs_on, tool_name, contract_name, tool_use_id, arguments, cwd, sandboxed, result, error,
 	is_mutating, spawned_run_id, status, created_at, started_at, finished_at`
-	approvalColumns = `id, tool_call_id, kind, request, status, reason, created_at, decided_at`
+	approvalColumns = `id, tool_call_id, kind, request, status, duration, reason, created_at, decided_at`
 )
 
 // toolCallReadColumns is what a read of the calls scans, in toolCallsByRun's order:
-// the run, the row with the subagent run it spawned, its approval's id and status,
+// the run, the row with the subagent run it spawned, its approval's id, status and duration,
 // NULL on an ungated call, then the task it started, NULL on every other, with a
 // completed agent's report off the run sr it started. The reads alias tool_calls
 // t, llm_calls c, a call's own approval a and background_tasks b; order is the model's,
 // (c.seq, t.seq).
 const toolCallReadColumns = `c.run_id, t.id, t.runs_on, t.tool_use_id, t.tool_name, t.contract_name, t.arguments, t.cwd, t.sandboxed, t.result, t.error,
-	t.status, t.started_at, t.spawned_run_id, a.id, a.status, b.status, b.exit_code,
+	t.status, t.started_at, t.spawned_run_id, a.id, a.status, COALESCE(a.duration, ''), b.status, b.exit_code,
 	CASE WHEN b.status = 'completed' THEN sr.result END`
 
 const toolCallReadFrom = ` FROM tool_calls t JOIN llm_calls c ON c.id = t.llm_call_id
@@ -107,11 +109,12 @@ const toolCallReadFrom = ` FROM tool_calls t JOIN llm_calls c ON c.id = t.llm_ca
 	LEFT JOIN background_tasks b ON b.tool_call_id = t.id
 	LEFT JOIN agent_runs sr ON sr.id = t.spawned_run_id`
 
-// clusterWriteReadColumns is what a read of the cluster writes scans, in
+// clusterWriteReadColumns is what a read of the actions scans, in
 // clusterWritesByCall's order, over approvals a joined up to their run r. Only a
-// pending write's body is read: no other is served.
-const clusterWriteReadColumns = `a.tool_call_id, a.id, a.status,
-	CASE a.status WHEN 'pending' THEN a.request ELSE json_remove(a.request, '$.body', '$.contentType') END,
+// pending action's body and diff are read: no other is served.
+const clusterWriteReadColumns = `a.tool_call_id, a.id, a.status, COALESCE(a.duration, ''),
+	CASE a.status WHEN 'pending' THEN a.request
+	ELSE json_remove(a.request, '$.write.body', '$.write.contentType', '$.diff') END,
 	COALESCE(a.reason, ''), a.created_at, a.decided_at`
 
 const clusterWriteReadFrom = ` FROM approvals a JOIN tool_calls t ON t.id = a.tool_call_id
@@ -211,8 +214,9 @@ var statements = []sqlstmt.Statement{
 	WHERE finished_at IS NULL AND runs_on = 'sidecar'`),
 	// An approval is written whole like its call: pending with the request, then the
 	// decision, then again at the settle.
-	stmtUpsertApproval: sqlstmt.OnWriter(`INSERT INTO approvals (` + approvalColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-	ON CONFLICT(id) DO UPDATE SET status = excluded.status, reason = excluded.reason, decided_at = excluded.decided_at`),
+	stmtUpsertApproval: sqlstmt.OnWriter(`INSERT INTO approvals (` + approvalColumns + `) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET status = excluded.status, duration = excluded.duration, reason = excluded.reason,
+	decided_at = excluded.decided_at`),
 	// A chat's calls, beside its messages. OnBoth, since the repeated send's read
 	// runs inside the send's transaction.
 	stmtSelectToolCalls: sqlstmt.OnBoth(`SELECT ` + toolCallReadColumns + toolCallReadFrom + `
@@ -222,9 +226,9 @@ var statements = []sqlstmt.Statement{
 	JOIN agent_runs r ON r.id = c.run_id WHERE r.id = ?1 OR r.parent_run_id = ?1 ORDER BY c.run_id, c.seq, t.seq`),
 	// The cluster writes of the same calls, in the order asked.
 	stmtSelectClusterWrites: sqlstmt.OnBoth(`SELECT ` + clusterWriteReadColumns + clusterWriteReadFrom + `
-	WHERE a.kind = 'cluster' AND r.chat_id = ? ORDER BY a.created_at, a.id`),
+	WHERE a.kind = 'action' AND r.chat_id = ? ORDER BY a.created_at, a.id`),
 	stmtSelectRunClusterWrites: sqlstmt.OnBoth(`SELECT ` + clusterWriteReadColumns + clusterWriteReadFrom + `
-	WHERE a.kind = 'cluster' AND (r.id = ?1 OR r.parent_run_id = ?1) ORDER BY a.created_at, a.id`),
+	WHERE a.kind = 'action' AND (r.id = ?1 OR r.parent_run_id = ?1) ORDER BY a.created_at, a.id`),
 
 	// A task's row goes in running before its process starts, and is deleted when
 	// the start fails, so no row stands for a process that never ran.
@@ -285,7 +289,12 @@ var statements = []sqlstmt.Statement{
 	// The clusters whose chats the sweeper deletes.
 	stmtSelectMarkedClusterIDs: sqlstmt.OnReader(`SELECT id FROM clusters WHERE delete_requested_at IS NOT NULL ORDER BY id`),
 
-	stmtSelectChatGrants: sqlstmt.OnReader(`SELECT rule FROM chat_grants WHERE chat_id = ? ORDER BY created_at, id`),
+	// OnBoth, since a grant's write reads the chat's rules in its transaction.
+	stmtSelectChatGrants: sqlstmt.OnBoth(`SELECT rule FROM chat_grants WHERE chat_id = ? ORDER BY created_at, id`),
+	// A rule keeps its row's id and created_at when it changes.
+	stmtUpsertChatGrant: sqlstmt.OnWriter(`INSERT INTO chat_grants (id, chat_id, rule, created_at) VALUES (?, ?, ?, ?)
+	ON CONFLICT(id) DO UPDATE SET rule = excluded.rule`),
+	stmtDeleteChatGrant: sqlstmt.OnWriter(`DELETE FROM chat_grants WHERE chat_id = ? AND id = ?`),
 }
 
 // stmts issues the set's statements, on the pools or inside a transaction.

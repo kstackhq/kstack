@@ -1168,11 +1168,10 @@ func TestAPublicNameDoesNotResolve(t *testing.T) {
 		t.Skip("example.com does not resolve outside the sandbox: ", err)
 	}
 
-	// A negative assertion bounded at a second: a lookup that left the machine
-	// would take longer, or answer.
-	out, ok, late := shWithin(t, s, m.on(s), time.Second, "curl -sS --max-time 5 http://example.com/")
+	// curl tells the outcomes apart itself: a lookup that left the machine
+	// would answer, or end in "Resolving timed out" at --max-time.
+	out, ok := sh(t, s, m.on(s), "curl -sS --max-time 5 http://example.com/")
 
-	assert.False(t, late, "the lookup did not fail within a second")
 	assert.False(t, ok, out)
 	assert.Contains(t, out, "Could not resolve host")
 }

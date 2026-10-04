@@ -250,6 +250,8 @@ models:
     model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallApproval
   ClusterWrite:
     model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ClusterWrite
+  PermissionAction:
+    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.PermissionAction
 
   # --- Memory ---
   # The memory types bind 1:1 into internal/memorysvc, like the chat ones.
@@ -334,6 +336,32 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallRunsOnSidecar
       Provider:
         value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallRunsOnProvider
+
+  ApprovalDecision:
+    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalDecision
+    enum_values:
+      Once:
+        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.DecisionOnce
+      Command:
+        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.DecisionCommand
+      Chat:
+        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.DecisionChat
+      Always:
+        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.DecisionAlways
+      Deny:
+        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.DecisionDeny
+
+  ApprovalDuration:
+    model: github.com/kstackhq/kstack/sidecar/internal/permissions.Duration
+    enum_values:
+      Once:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.DurationOnce
+      Command:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.DurationCommand
+      Chat:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.DurationChat
+      Always:
+        value: github.com/kstackhq/kstack/sidecar/internal/permissions.DurationAlways
 
   ApprovalStatus:
     model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalStatus
