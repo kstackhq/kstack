@@ -177,9 +177,9 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   its `ToolAction`, one of `command`, `read`, `write` and the rest, while a cluster write is a
   `ClusterWrite` of its own with its own branch in the request. When a second target asks too (a
   host the egress proxy holds, a folder), make each target's request an action in that family
-  (`ClusterAction`, `HostAction`), carrying what `tools.ClusterWriteRequest` carries for the
+  (`ClusterAction`, `HostAction`), carrying what `tools.ActionRequest` carries for the
   cluster, so one request draws whatever is asked. The table stays as it is: `approvals.kind` says what the
-  row holds, `call` or a target, and the read maps a target's row to its action as the box maps a
+  row holds, `call` or `action`, and the read maps a target's row to its action as the box maps a
   call's arguments to its own. In the same change, fold `toolCallEntry`'s `ClusterWrites` into one
   list with `Approval`, so a new target adds no field.
 
@@ -678,11 +678,19 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   `[redacted]` for every value. Run the helm commands with a Helm 3 and a Helm 4 binary, since the
   rewriter assumes they share the release Secret's encoding.
 
-- **Check cluster writes by hand (medium; sandbox owner).** On `pnpm tauri dev` against a cluster,
-  on Linux or macOS, ask "delete pod x" and see the request *Delete from the cluster?* with its
-  path and the command under *Sent by*; deny it and see the model read the `Forbidden`; ask again,
-  approve it, and see the pod go. Then ask for a `kubectl scale` with a short `timeout`, leave the
-  request unanswered, and see it drawn `not answered` in the call's disclosure once the call ends.
+- **Check cluster writes by hand (medium; sandbox owner).** On `pnpm tauri dev` against a kind
+  cluster, on Linux or macOS, ask "delete pod x" and see the request *Delete pods/x in default on
+  kind-kind* with its path and the command under *Sent by*; deny it and see the model read the
+  `Forbidden`; ask again, approve it once, and see the pod go. Ask for `kubectl scale deploy x
+  --replicas=2` and read a diff whose `replicas` line changes, the patch under *Show the
+  request*; press *Allow for this chat*, ask to scale it back, and see it run unasked, the calls
+  tagged `approved · this chat` and `allowed`; remove the rule from the composer's *Allowed for
+  this chat* and see the next scale ask. Ask for `kubectl delete ns test` and see Approve once and
+  Deny alone. Apply a Secret with one value changed (`kubectl apply --server-side`) and read
+  `[redacted: changed]` on its key. Create three pods, ask for `kubectl delete pods --all`, press
+  *Allow for this command*, and see the other two go unasked. Then ask for a `kubectl scale` with
+  a short `timeout`, leave the request unanswered, and see it drawn `not answered` once the call
+  ends.
 
 - **Check the Linux sandbox by hand (medium; sandbox owner).** On `pnpm tauri dev` on Linux,
   approve `cat ~/.kube/config`, `curl -sI https://example.com` and `ls ~`, and read each refused
