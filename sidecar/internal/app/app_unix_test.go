@@ -19,7 +19,9 @@ package app
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -306,23 +308,26 @@ func TestStartSyncsTheLaunchPath(t *testing.T) {
 	}, store.Get().Path)
 }
 
-// countProbes replaces probeSandbox with one that counts its calls.
-func countProbes(t *testing.T) *atomic.Int32 {
+// countProbes replaces probeSandbox with one that counts its calls and keeps
+// the sandbox the machine's probe answered.
+func countProbes(t *testing.T) (count *atomic.Int32, probed **sandbox.Sandbox) {
 	t.Helper()
-	count := new(atomic.Int32)
+	count, probed = new(atomic.Int32), new(*sandbox.Sandbox)
 	probe := probeSandbox
 	t.Cleanup(func() { probeSandbox = probe })
 	probeSandbox = func(ctx context.Context) (*sandbox.Sandbox, sandbox.Status, error) {
 		count.Add(1)
-		return probe(ctx)
+		sb, status, err := probe(ctx)
+		*probed = sb
+		return sb, status, err
 	}
-	return count
+	return count, probed
 }
 
 // New probes the sandbox once, for the login shell and the bash tool alike,
-// and runs the login shell once.
+// and runs the login shell once wherever the platform reads its answer.
 func TestTheSandboxIsProbedOnce(t *testing.T) {
-	probes := countProbes(t)
+	probes, probed := countProbes(t)
 	launches := stubLaunch(t, loginshell.Result{Path: []string{"/usr/bin"}}, nil)
 
 	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir(), RunLoginShell: true}))
@@ -330,7 +335,53 @@ func TestTheSandboxIsProbedOnce(t *testing.T) {
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 
 	assert.Equal(t, int32(1), probes.Load())
-	assert.Equal(t, 1, *launches)
+	var sb sandboxer
+	if *probed != nil {
+		sb = *probed
+	}
+	want := 1
+	if skipResolution(sb) {
+		want = 0
+	}
+	assert.Equal(t, want, *launches)
+}
+
+// refusingSandbox records each Run it is handed and refuses it; its Never
+// list is never, and it reads nothing.
+type refusingSandbox struct {
+	never []string
+	runs  []sandbox.Run
+}
+
+func (s *refusingSandbox) Command(_ context.Context, r sandbox.Run) (*exec.Cmd, error) {
+	s.runs = append(s.runs, r)
+	return nil, errors.New("refused")
+}
+
+func (s *refusingSandbox) Never(string) []string { return s.never }
+
+func (s *refusingSandbox) System(string, string) sandbox.System { return sandbox.System{} }
+
+// Refresh PATH runs the login shell in the sandbox, under the launch's
+// policy: the denied-always list, as it stands at each refresh, and Kstack's
+// directories shut.
+func TestTheRefreshRunsInTheSandbox(t *testing.T) {
+	store, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	require.NoError(t, err)
+	sb := &refusingSandbox{never: []string{"/never"}}
+	kstackDirs := []string{t.TempDir(), t.TempDir(), t.TempDir()}
+	svc := newSecurityService(store, sb, nil, sandbox.Status{Available: true}, kstackDirs, "", filepath.Join(kstackDirs[1], "tmp"))
+
+	_, err = svc.RefreshPath(t.Context())
+	require.ErrorContains(t, err, "sandbox refused")
+	sb.never = []string{"/never", "/home/new"}
+	_, err = svc.RefreshPath(t.Context())
+	require.ErrorContains(t, err, "sandbox refused")
+
+	require.Len(t, sb.runs, 2)
+	assert.Equal(t, []string{"/never"}, sb.runs[0].Policy.Always.Deny)
+	assert.Equal(t, kstackDirs, sb.runs[0].Policy.Always.Kstack)
+	assert.Equal(t, []string{"/never", "/home/new"}, sb.runs[1].Policy.Always.Deny)
 }
 
 // A context that ends during startup stops New before the login shell runs,

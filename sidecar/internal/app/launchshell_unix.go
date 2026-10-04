@@ -19,20 +19,36 @@ package app
 import (
 	"context"
 	"log/slog"
+	"os"
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
 // resolveShell is loginshell.Resolve, which a test replaces.
 var resolveShell = loginshell.Resolve
 
-// launchShell runs the account's login shell once: its environment is set
-// where the platform needs it, and its PATH is what the sandbox's is resolved
-// from. It answers the shell's PATH, nil when it was not read, and why not, ""
-// when it was.
-func launchShell(ctx context.Context) (path []string, fault string) {
-	return runShell(ctx, loginshell.In(nil, nil, nil, nil), resolveShell)
+// launchShell runs the account's login shell once, in sb: its environment is
+// set where the platform needs it, and its PATH is what the sandbox's is
+// resolved from. Its output leaves the sandbox, so it reads nothing on the
+// denied-always list, and nothing of Kstack's directories (kstackDirs); its
+// TMPDIR is a run's, under tmpDir. sb is nil for no sandbox, where the shell
+// runs unconfined, or not at all where nothing reads its answer
+// (skipResolution). It answers the shell's PATH, nil when it was not read, and
+// why not, "" when it was.
+func launchShell(ctx context.Context, sb sandboxer, kstackDirs []string, tmpDir string) (path []string, fault string) {
+	if skipResolution(sb) {
+		return nil, ""
+	}
+	var deny []string
+	if sb == nil {
+		slog.Warn("login shell runs unconfined: this machine has no sandbox")
+	} else {
+		home, _ := os.UserHomeDir()
+		deny = sb.Never(home)
+	}
+	return runShell(ctx, loginshell.In(sb, deny, kstackDirs, bash.TempDir(tmpDir)), resolveShell)
 }
 
 // runShell calls resolve once, through start, under the shell's timeout, and

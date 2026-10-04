@@ -20,3 +20,7 @@ package app
 // environment that lacks what the user's shell builds; everywhere else the
 // inherited one is already right.
 func setShellEnv(map[string]string) {}
+
+// skipResolution reports whether the launch resolution is skipped: with no
+// sandbox, nothing reads its PATH, and setShellEnv sets nothing here.
+func skipResolution(sb sandboxer) bool { return sb == nil }

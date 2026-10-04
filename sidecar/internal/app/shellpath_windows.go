@@ -16,6 +16,8 @@ package app
 
 import "context"
 
-// resolveShellPath is nil: Windows has no sandbox, so no PATH is resolved
+// shellPathResolver is nil: Windows has no sandbox, so no PATH is resolved
 // for one.
-var resolveShellPath func(context.Context) ([]string, error)
+func shellPathResolver(sandboxer, string, []string, string) func(context.Context) ([]string, error) {
+	return nil
+}

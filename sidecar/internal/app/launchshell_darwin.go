@@ -41,3 +41,7 @@ func setShellEnv(env map[string]string) {
 		"variables", strings.Join(names, ","),
 	)
 }
+
+// skipResolution is false: the environment import needs the login shell
+// whether or not there is a sandbox to run it in.
+func skipResolution(sandboxer) bool { return false }
