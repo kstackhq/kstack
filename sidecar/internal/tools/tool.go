@@ -407,6 +407,12 @@ type ActionRequest struct {
 	Action permissions.Action `json:"action"`
 	// Write is the request as sent; nil for an action with none.
 	Write *ClusterWrite `json:"write,omitempty"`
+	// Diff is the change as a unified diff of YAML; "" for none.
+	Diff string `json:"diff"`
+	// DiffCut is a diff that stops short of the whole change.
+	DiffCut bool `json:"diffCut"`
+	// DiffError is why there is no diff, when one was looked for.
+	DiffError string `json:"diffError"`
 }
 
 // Answer is the user's decision on an action.

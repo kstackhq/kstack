@@ -29,6 +29,7 @@ import { Spinner } from '@kubetail/ui/elements/spinner';
 import { useMutation } from 'urql';
 
 import { AppLogo } from '@/components/widgets/app-logo';
+import { DiffBlock } from '@/components/widgets/diff-block';
 import { approvalAnchor } from '@/lib/approval-anchor';
 import { Markdown } from '@/components/widgets/markdown';
 import { VisibleText } from '@/components/widgets/visible-text';
@@ -721,6 +722,7 @@ function ApprovalRequest({
   const [decided, setDecided] = useState(false);
   const [failed, setFailed] = useState(false);
   const [shown, setShown] = useState(false);
+  const [diffShown, setDiffShown] = useState(false);
   const [editShown, setEditShown] = useState({ old: false, new: false });
   const command = action?.command ?? null;
   const read = action?.read ?? null;
@@ -731,8 +733,16 @@ function ApprovalRequest({
   const memory = action?.memory?.scope === 'everywhere' ? action.memory : null;
   const folding = change ? change.body : (command?.text ?? write?.content ?? memory?.body ?? '');
   const { head, rest } = useCut(folding);
+  const diff = useCut(change?.diff ?? '');
   const line = descriptionLine(action?.description ?? '');
-  const folded = (rest !== '' && !shown) || (edit !== null && editFolded(edit, editShown));
+  // A whole diff is what a change's user reads, so the request behind it is a
+  // fold Approve does not wait on; with no diff, or one cut short, the request
+  // is drawn open and Approve waits on its body.
+  const requestOpen = change === null || change.diff === '' || change.diffCut;
+  const folded =
+    (rest !== '' && !shown && requestOpen) ||
+    (diff.rest !== '' && !diffShown) ||
+    (edit !== null && editFolded(edit, editShown));
 
   // Only an error hands the buttons back. A false answer means no turn was
   // waiting — a cancel or a settle is on its way through the watch — so they
@@ -759,18 +769,14 @@ function ApprovalRequest({
     body = <p className="text-xs text-muted-foreground">This request can&apos;t be shown.</p>;
   } else if (change) {
     // The action is the heading, the sidecar's summary, so nothing here parses
-    // a path. The request itself is never a reading of it: the path and query
-    // as sent, one line the proxy bounds; the method, and the media type, which
-    // decides what a patch's body does; then the body as a file's content is.
-    // The command under Sent by is context, so Approve does not wait on its
-    // fold.
+    // a path; the diff a dry run computed is what changes. The request itself
+    // is never a reading of it: the path and query as sent, one line the proxy
+    // bounds; the method, and the media type, which decides what a patch's body
+    // does; then the body as a file's content is. The command under Sent by is
+    // context, so Approve does not wait on its fold.
     label = 'Cluster change awaiting approval';
-    body = (
+    const sent = (
       <>
-        <p className="text-xs text-muted-foreground">
-          <VisibleText text={change.action.summary} />
-          {change.dryRun && ' (dry run)'}
-        </p>
         <p className="mt-1 font-mono text-xs break-all whitespace-pre-wrap">
           <VisibleText text={change.path} />
         </p>
@@ -792,6 +798,30 @@ function ApprovalRequest({
             className={REQUEST_TEXT}
             file
           />
+        )}
+      </>
+    );
+    body = (
+      <>
+        <p className="text-xs text-muted-foreground">
+          <VisibleText text={change.action.summary} />
+          {change.dryRun && ' (dry run)'}
+        </p>
+        {change.diff !== '' && (
+          <DiffBlock head={diff.head} rest={diff.rest} shown={diffShown} onShow={() => setDiffShown(true)} />
+        )}
+        {change.diffError !== '' && (
+          <p className="mt-1 text-xs text-muted-foreground">
+            No preview: <VisibleText text={change.diffError} />
+          </p>
+        )}
+        {requestOpen ? (
+          sent
+        ) : (
+          <details className="mt-1">
+            <summary className="cursor-pointer text-xs text-muted-foreground">Show the request</summary>
+            {sent}
+          </details>
         )}
         {command && (
           <>

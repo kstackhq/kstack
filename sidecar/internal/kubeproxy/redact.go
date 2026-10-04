@@ -343,6 +343,18 @@ func walk(v any, fn func(map[string]any) error) error {
 	return nil
 }
 
+// redactLastApplied blanks every last-applied-configuration in v, which holds
+// a whole manifest whatever the kind, and leaves the rest. It never touches
+// data, so a ConfigMap's change still shows.
+func redactLastApplied(v any) {
+	_ = walk(v, func(m map[string]any) error {
+		if _, ok := m[lastApplied]; ok {
+			m[lastApplied] = safe.Redacted
+		}
+		return nil
+	})
+}
+
 // redact redacts v in place, a value decoded with UseNumber: every map holding
 // metadata is a Secret's shape, and every last-applied-configuration goes,
 // whatever the kind, since a table row's metadata carries a Secret's whole.

@@ -200,13 +200,25 @@ func TestAWriteWaitsOnTheAsker(t *testing.T) {
 
 	assert.Equal(t, "PATCH", a.w.Method)
 	assert.Equal(t, patchBody, string(a.w.Body))
-	assert.Empty(t, api.requests(), "nothing reaches the cluster while the user decides")
+	assert.Empty(t, changes(api.requests()), "nothing changes the cluster while the user decides")
 	a.answer <- once
 	r := testutil.Recv(t, done, "the write to be answered")
 	require.NotNil(t, r.resp)
 	assert.Equal(t, http.StatusOK, r.resp.StatusCode)
 	assert.Equal(t, patchBody, string(got))
 	assert.Equal(t, int64(len(patchBody)), length)
+}
+
+// changes are the requests that change the cluster: every one but a read and
+// a dry run, which is how a preview reaches it.
+func changes(reqs []*http.Request) []*http.Request {
+	var out []*http.Request
+	for _, r := range reqs {
+		if r.Method != http.MethodGet && r.URL.Query().Get("dryRun") != "All" {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // A denied write answers 403, and the cluster never sees it.

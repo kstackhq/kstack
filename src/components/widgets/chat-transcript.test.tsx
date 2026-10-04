@@ -2502,6 +2502,9 @@ describe('ChatTranscript', () => {
       contentType: 'application/json',
       body: '{"propagationPolicy":"Background"}',
       dryRun: false,
+      diff: '',
+      diffCut: false,
+      diffError: '',
       reason: null,
       ...over,
     });
@@ -2513,9 +2516,9 @@ describe('ChatTranscript', () => {
     const request = () => screen.getByRole('group', { name: 'Cluster change awaiting approval' });
     const approve = () => screen.getByRole('button', { name: 'Approve' });
 
-    // What is approved is the request itself: the action's summary as its
-    // heading, then the path and query as sent, and the body, then the command
-    // that sent it.
+    // With no diff the request is the request itself: the action's summary as
+    // its heading, then the path and query as sent, and the body, then the
+    // command that sent it.
     it('draws the summary, the path, the body and the command under Sent by', async () => {
       draw([waitingOn([clusterWrite({ path: '/api/v1/namespaces/web/pods/x\u{202E}' })])]);
 
@@ -2551,6 +2554,71 @@ describe('ChatTranscript', () => {
       ]);
 
       expect(request()).toHaveTextContent('Create widgets on dev (dry run)');
+    });
+
+    // A change to an object that exists is read as a diff, with the request
+    // itself one fold away, which Approve does not wait on.
+    it('draws a diff over the request, folded under Show the request', async () => {
+      draw([
+        waitingOn([
+          clusterWrite({
+            method: 'PATCH',
+            diff: '@@ -1 +1 @@\n-  k: old\n+  k: new\n',
+            body: `${'a: 1\n'.repeat(30)}x`,
+          }),
+        ]),
+      ]);
+
+      const diff = request().querySelector('pre')!;
+      expect(diff.querySelector('.diff-del')?.textContent).toBe('-  k: old\n');
+      expect(diff.querySelector('.diff-add')?.textContent).toBe('+  k: new\n');
+      const raw = screen.getByText('Show the request').closest('details')!;
+      expect(raw.open).toBe(false);
+      expect(raw).toHaveTextContent('/api/v1/namespaces/web/pods/x');
+      expect(approve()).toBeEnabled();
+    });
+
+    it('holds Approve until a long diff is shown', async () => {
+      draw([waitingOn([clusterWrite({ method: 'PATCH', diff: '+ a\n'.repeat(40) })])]);
+      expect(approve()).toBeDisabled();
+      await act(async () => {
+        fireEvent.click(within(request()).getAllByRole('button', { name: /^Show the rest/ })[0]);
+      });
+      expect(approve()).toBeEnabled();
+    });
+
+    // A diff cut short is not the whole change: the request is drawn open
+    // under it, and Approve waits on both folds.
+    it('draws the request open under a cut diff, and waits on both', async () => {
+      draw([
+        waitingOn([
+          clusterWrite({
+            method: 'PATCH',
+            diff: `${'+ a\n'.repeat(40)}… 3 more lines not shown\n`,
+            diffCut: true,
+            body: `${'a: 1\n'.repeat(30)}x`,
+          }),
+        ]),
+      ]);
+      expect(screen.queryByText('Show the request')).toBeNull();
+      expect(screen.getByLabelText('Method and media type')).toBeInTheDocument();
+      const shows = () => within(request()).queryAllByRole('button', { name: /^Show the rest/ });
+      expect(shows()).toHaveLength(2);
+      await act(async () => {
+        fireEvent.click(shows()[0]);
+      });
+      expect(approve()).toBeDisabled();
+      await act(async () => {
+        fireEvent.click(shows()[0]);
+      });
+      expect(approve()).toBeEnabled();
+    });
+
+    it('says why there is no preview, and stays approvable', () => {
+      draw([waitingOn([clusterWrite({ method: 'PATCH', diffError: 'The dry run failed: denied \u200b' })])]);
+      expect(request()).toHaveTextContent('No preview: The dry run failed: denied');
+      expect(request().querySelector('mark')).not.toBeNull();
+      expect(approve()).toBeEnabled();
     });
 
     // An action with no request of its own and no kind this step draws is not

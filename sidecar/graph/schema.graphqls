@@ -1113,6 +1113,12 @@ type ClusterWrite {
   approval: ToolCallApproval!
   "The action the request is, as the sidecar's classifier read it."
   action: PermissionAction!
+  "The change as YAML, a unified diff of the object now against the dry run's answer, while the write waits; empty otherwise, and for a create or a delete."
+  diff: String!
+  "Whether the diff was cut short of the whole change. The request then draws the raw request open, and Approve waits on it."
+  diffCut: Boolean!
+  "Why there is no diff, while the write waits and one was looked for; empty otherwise."
+  diffError: String!
   "The HTTP method: POST, PUT, PATCH or DELETE."
   method: String!
   "The path and query, exactly as sent."

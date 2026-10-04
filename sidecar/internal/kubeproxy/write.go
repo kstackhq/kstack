@@ -73,6 +73,12 @@ type Request struct {
 	Action permissions.Action
 	// Write is the request as sent; nil for an action with none.
 	Write *Write
+	// Diff is the change as a unified diff of YAML; "" for none.
+	Diff string
+	// DiffCut is a diff that stops short of the whole change.
+	DiffCut bool
+	// DiffError is why there is no diff, when one was looked for.
+	DiffError string
 }
 
 // Answer is the user's decision.
@@ -152,6 +158,8 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		writeStatus(w, http.StatusForbidden, "kstack: "+act.Summary+" is not allowed: "+reason)
 		return
 	}
+	pv := g.previewChange(r, p, act, body)
+	req.Diff, req.DiffCut, req.DiffError = pv.diff, pv.cut, pv.err
 	answer, err := g.asker.Ask(r.Context(), req)
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		writeStatus(w, http.StatusForbidden, string(refusedUnanswered))

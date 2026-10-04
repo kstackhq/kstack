@@ -111,9 +111,10 @@ const toolCallReadFrom = ` FROM tool_calls t JOIN llm_calls c ON c.id = t.llm_ca
 
 // clusterWriteReadColumns is what a read of the actions scans, in
 // clusterWritesByCall's order, over approvals a joined up to their run r. Only a
-// pending action's body is read: no other is served.
+// pending action's body and diff are read: no other is served.
 const clusterWriteReadColumns = `a.tool_call_id, a.id, a.status,
-	CASE a.status WHEN 'pending' THEN a.request ELSE json_remove(a.request, '$.write.body', '$.write.contentType') END,
+	CASE a.status WHEN 'pending' THEN a.request
+	ELSE json_remove(a.request, '$.write.body', '$.write.contentType', '$.diff') END,
 	COALESCE(a.reason, ''), a.created_at, a.decided_at`
 
 const clusterWriteReadFrom = ` FROM approvals a JOIN tool_calls t ON t.id = a.tool_call_id

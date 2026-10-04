@@ -32,6 +32,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"sync"
+	"time"
 
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/time/rate"
@@ -102,6 +103,8 @@ type Grant struct {
 	// forwarded; writeWaiters bounds the writes waiting for it.
 	writeLock    *semaphore.Weighted
 	writeWaiters *semaphore.Weighted
+	// diffTimeout bounds a preview's two requests together.
+	diffTimeout time.Duration
 	// waitersMoved, when set, is told each write that starts or stops waiting for
 	// writeLock, so a test can count them.
 	waitersMoved func(delta int)
@@ -129,7 +132,8 @@ func NewGrant(up Upstream, sess session.Session, kubeContext string, asker Asker
 		limiter:      rate.NewLimiter(qps, burst),
 		openRequests: semaphore.NewWeighted(int64(maxInFlight)),
 		writeLock:    semaphore.NewWeighted(1), writeWaiters: semaphore.NewWeighted(maxQueuedWrites),
-		ctx: ctx, end: end,
+		diffTimeout: defaultDiffTimeout,
+		ctx:         ctx, end: end,
 	}
 }
 

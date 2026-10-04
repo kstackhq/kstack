@@ -77,7 +77,7 @@ func (a runtimeAsker) Record(ctx context.Context, r kubeproxy.Request, d permiss
 
 // requestOf is a grant's request as the runtime's asker takes it.
 func requestOf(r kubeproxy.Request) tools.ActionRequest {
-	out := tools.ActionRequest{Action: r.Action}
+	out := tools.ActionRequest{Action: r.Action, Diff: r.Diff, DiffCut: r.DiffCut, DiffError: r.DiffError}
 	if r.Write != nil {
 		w := writeOf(*r.Write)
 		out.Write = &w

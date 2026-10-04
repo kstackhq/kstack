@@ -354,6 +354,9 @@ type ComplexityRoot struct {
 		Approval    func(childComplexity int) int
 		Body        func(childComplexity int) int
 		ContentType func(childComplexity int) int
+		Diff        func(childComplexity int) int
+		DiffCut     func(childComplexity int) int
+		DiffError   func(childComplexity int) int
 		DryRun      func(childComplexity int) int
 		Method      func(childComplexity int) int
 		Path        func(childComplexity int) int
@@ -1924,6 +1927,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ClusterWrite.ContentType(childComplexity), true
+	case "ClusterWrite.diff":
+		if e.ComplexityRoot.ClusterWrite.Diff == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ClusterWrite.Diff(childComplexity), true
+	case "ClusterWrite.diffCut":
+		if e.ComplexityRoot.ClusterWrite.DiffCut == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ClusterWrite.DiffCut(childComplexity), true
+	case "ClusterWrite.diffError":
+		if e.ComplexityRoot.ClusterWrite.DiffError == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ClusterWrite.DiffError(childComplexity), true
 	case "ClusterWrite.dryRun":
 		if e.ComplexityRoot.ClusterWrite.DryRun == nil {
 			break
@@ -4097,6 +4118,12 @@ func (ec *executionContext) childFields_ClusterWrite(ctx context.Context, field 
 		return ec.fieldContext_ClusterWrite_approval(ctx, field)
 	case "action":
 		return ec.fieldContext_ClusterWrite_action(ctx, field)
+	case "diff":
+		return ec.fieldContext_ClusterWrite_diff(ctx, field)
+	case "diffCut":
+		return ec.fieldContext_ClusterWrite_diffCut(ctx, field)
+	case "diffError":
+		return ec.fieldContext_ClusterWrite_diffError(ctx, field)
 	case "method":
 		return ec.fieldContext_ClusterWrite_method(ctx, field)
 	case "path":
@@ -10201,6 +10228,75 @@ func (ec *executionContext) fieldContext_ClusterWrite_action(_ context.Context, 
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _ClusterWrite_diff(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ClusterWrite_diff(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Diff, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ClusterWrite_diff(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ClusterWrite", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _ClusterWrite_diffCut(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ClusterWrite_diffCut(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.DiffCut, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ClusterWrite_diffCut(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ClusterWrite", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _ClusterWrite_diffError(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ClusterWrite_diffError(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.DiffError, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_ClusterWrite_diffError(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ClusterWrite", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _ClusterWrite_method(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
@@ -19943,6 +20039,21 @@ func (ec *executionContext) _ClusterWrite(ctx context.Context, sel ast.Selection
 			}
 		case "action":
 			out.Values[i] = ec._ClusterWrite_action(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "diff":
+			out.Values[i] = ec._ClusterWrite_diff(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "diffCut":
+			out.Values[i] = ec._ClusterWrite_diffCut(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "diffError":
+			out.Values[i] = ec._ClusterWrite_diffError(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

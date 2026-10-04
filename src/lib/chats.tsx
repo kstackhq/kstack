@@ -138,6 +138,9 @@ const ChatMessagesWatchSubscription = graphql(`
             contentType
             body
             dryRun
+            diff
+            diffCut
+            diffError
             reason
           }
           output

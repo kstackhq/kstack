@@ -2896,3 +2896,44 @@ func TestAClusterWriteCarriesItsAction(t *testing.T) {
 		"verb": "delete", "group": "core", "kind": "pods",
 	}}}, writes)
 }
+
+// A write carries its diff while it waits; one that no longer waits carries
+// none.
+func TestAClusterWriteCarriesItsDiff(t *testing.T) {
+	srv, db, fake := newChatServerOver(t)
+	fake.SetToolCalls(llm.StagedCall("Bash", `{"command":"kubectl delete pod x"}`))
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
+		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
+	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
+	query := `subscription { chatMessagesWatch(chatID: "` + chatID + `") {
+		message { seq status toolCalls { clusterWrites { approval { status } diff diffCut diffError } } } } }`
+	settled := func(f map[string]any) bool {
+		msg, ok := f["message"].(map[string]any)
+		return ok && msg["seq"] == float64(1) && msg["status"] == "Complete"
+	}
+	resp, events := chatFrames(t, srv, query)
+	awaitChatFrame(t, events, settled)
+	resp.Body.Close()
+
+	var callID string
+	require.NoError(t, db.Read.QueryRow(`SELECT id FROM tool_calls`).Scan(&callID))
+	_, err := db.Write.Exec(`UPDATE tool_calls SET status = 'running', started_at = 1, finished_at = NULL WHERE id = ?`, callID)
+	require.NoError(t, err)
+	request := `{"write":{"method":"PATCH","path":"/api/v1/namespaces/web/configmaps/c"},"diff":"-a\n+b\n","diffCut":true,"diffError":""}`
+	for i, status := range []string{"approved", "pending"} {
+		_, err := db.Write.Exec(`INSERT INTO approvals (id, tool_call_id, kind, request, status, created_at) VALUES (?, ?, 'action', ?, ?, ?)`,
+			appdb.NewID(), callID, request, status, 10+i)
+		require.NoError(t, err)
+	}
+
+	resp, events = chatFrames(t, srv, query)
+	defer resp.Body.Close()
+	f := awaitChatFrame(t, events, func(f map[string]any) bool {
+		msg, ok := f["message"].(map[string]any)
+		return ok && msg["seq"] == float64(1)
+	})
+	assert.Equal(t, []any{
+		map[string]any{"approval": map[string]any{"status": "Approved"}, "diff": "", "diffCut": false, "diffError": ""},
+		map[string]any{"approval": map[string]any{"status": "Pending"}, "diff": "-a\n+b\n", "diffCut": true, "diffError": ""},
+	}, f["message"].(map[string]any)["toolCalls"].([]any)[0].(map[string]any)["clusterWrites"])
+}

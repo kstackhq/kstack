@@ -320,6 +320,11 @@ type ClusterWrite struct {
 	Approval ToolCallApproval `json:"approval"`
 	tools.ClusterWrite
 	Action PermissionAction `json:"action"`
+	// Diff is the change as YAML while the write waits; DiffCut says it stops
+	// short of the whole change, and DiffError why there is none.
+	Diff      string `json:"diff"`
+	DiffCut   bool   `json:"diffCut"`
+	DiffError string `json:"diffError"`
 	// Reason is the mode or rule that decided a write nobody was asked about;
 	// nil for one the user answered.
 	Reason *string `json:"reason"`
@@ -333,7 +338,10 @@ type PermissionAction struct {
 // clusterWriteOf is an action approval as the wire serves it, the request
 // whole.
 func clusterWriteOf(a ToolCallApproval, r tools.ActionRequest) ClusterWrite {
-	w := ClusterWrite{Approval: a, Action: PermissionAction{Action: r.Action}}
+	w := ClusterWrite{
+		Approval: a, Action: PermissionAction{Action: r.Action},
+		Diff: r.Diff, DiffCut: r.DiffCut, DiffError: r.DiffError,
+	}
 	if r.Write != nil {
 		w.ClusterWrite = *r.Write
 	}
@@ -351,6 +359,7 @@ func clusterWritesOf(r toolCallEntry) []ClusterWrite {
 		}
 		if a.Status != ApprovalPending || r.Status != toolRunning {
 			w.ContentType, w.Body = "", ""
+			w.Diff, w.DiffCut, w.DiffError = "", false, ""
 		}
 		out = append(out, w)
 	}
