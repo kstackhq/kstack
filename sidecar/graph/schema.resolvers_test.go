@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -1954,6 +1955,7 @@ func TestChatRefusalsCarryTheirCode(t *testing.T) {
 		{chatsvc.ErrStopping, "KSTACK_SERVICE_UNAVAILABLE"},
 		{chatsvc.ErrChatContextFull, "KSTACK_CHAT_CONTEXT_FULL"},
 		{chatsvc.ErrChatSandboxChanged, "KSTACK_CHAT_SANDBOX_CHANGED"},
+		{chatsvc.ErrGrantGone, "KSTACK_RECORD_NOT_FOUND"},
 	} {
 		t.Run(tc.err.Error(), func(t *testing.T) {
 			srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ChatSvc: refusingChat{err: tc.err}}))
@@ -2057,9 +2059,30 @@ func TestSecurityRefusedIsWhatOpenLeftOut(t *testing.T) {
 func TestApprovalDecideReachesTheService(t *testing.T) {
 	srv := newChatServer(t)
 
-	data := mutate(t, srv, `mutation { approvalDecide(id: "`+appdb.NewID()+`", approve: true) }`)
+	for _, d := range []string{"Once", "Command", "Chat", "Always", "Deny"} {
+		data := mutate(t, srv, `mutation { approvalDecide(id: "`+appdb.NewID()+`", decision: `+d+`) }`)
+		assert.Equal(t, false, data["approvalDecide"], d)
+	}
+}
 
-	assert.Equal(t, false, data["approvalDecide"])
+// heldChat answers every decision as the service does while the settings hold
+// rules Kstack cannot read.
+type heldChat struct{ chatsvc.Service }
+
+func (heldChat) Approve(context.Context, chatsvc.ApprovalID, chatsvc.ApprovalDecision) (bool, error) {
+	return false, fmt.Errorf("write the rule: %w", securityconfig.ErrHeld)
+}
+
+// Always while the settings hold rules Kstack cannot read is a validation
+// error naming the file.
+func TestApprovalDecideMapsHeldToValidation(t *testing.T) {
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ChatSvc: heldChat{}}))
+	defer srv.Close()
+
+	message, code := refusalOf(t, srv, `mutation { approvalDecide(id: "`+appdb.NewID()+`", decision: Always) }`)
+
+	assert.Equal(t, "KSTACK_VALIDATION_ERROR", code)
+	assert.Contains(t, message, "security.json")
 }
 
 // An answer carries its turn's tool calls off their rows: a call of a tool the turn
@@ -2123,11 +2146,11 @@ func TestToolCallCarriesItsClusterWrites(t *testing.T) {
 	require.NoError(t, err)
 	ids := []string{appdb.NewID(), appdb.NewID(), appdb.NewID()}
 	for i, row := range []struct{ status, request string }{
-		{"approved", `{"method":"DELETE","path":"/api/v1/namespaces/web/pods/a","subresource":"","contentType":"","body":"","dryRun":false}`},
-		{"abandoned", `{"method":"PATCH","path":"/apis/apps/v1/namespaces/web/deployments/b?dryRun=All","subresource":"","contentType":"application/merge-patch+json","body":"{}","dryRun":true}`},
-		{"pending", `{"method":"POST","path":"/api/v1/namespaces/web/pods/c/eviction","subresource":"eviction","contentType":"application/json","body":"{\"kind\":\"Eviction\"}","dryRun":false}`},
+		{"approved", `{"write":{"method":"DELETE","path":"/api/v1/namespaces/web/pods/a","subresource":"","contentType":"","body":"","dryRun":false}}`},
+		{"abandoned", `{"write":{"method":"PATCH","path":"/apis/apps/v1/namespaces/web/deployments/b?dryRun=All","subresource":"","contentType":"application/merge-patch+json","body":"{}","dryRun":true}}`},
+		{"pending", `{"write":{"method":"POST","path":"/api/v1/namespaces/web/pods/c/eviction","subresource":"eviction","contentType":"application/json","body":"{\"kind\":\"Eviction\"}","dryRun":false}}`},
 	} {
-		_, err := db.Write.Exec(`INSERT INTO approvals (id, tool_call_id, kind, request, status, created_at) VALUES (?, ?, 'cluster', ?, ?, ?)`,
+		_, err := db.Write.Exec(`INSERT INTO approvals (id, tool_call_id, kind, request, status, created_at) VALUES (?, ?, 'action', ?, ?, ?)`,
 			ids[i], callID, row.request, row.status, 10+i)
 		require.NoError(t, err)
 	}
@@ -2833,4 +2856,108 @@ func TestARuleNothingDecidesIsRefused(t *testing.T) {
 	}
 	data := mutate(t, srv, `{ permissionSettings { rules { id } } }`)
 	assert.Empty(t, data["permissionSettings"].(map[string]any)["rules"], "nothing was written")
+}
+
+// A cluster write carries the action the proxy classified it as: its summary
+// and scope, whether a rule may allow it, and the rule each allow answer adds.
+func TestAClusterWriteCarriesItsAction(t *testing.T) {
+	srv, db, fake := newChatServerOver(t)
+	fake.SetToolCalls(llm.StagedCall("Bash", `{"command":"kubectl delete pod x"}`))
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
+		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
+	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
+	query := `subscription { chatMessagesWatch(chatID: "` + chatID + `") {
+		message { seq status toolCalls { clusterWrites { action { summary class context namespace verb group kind grantable commandRule chatRule } } } } } }`
+	settled := func(f map[string]any) bool {
+		msg, ok := f["message"].(map[string]any)
+		return ok && msg["seq"] == float64(1) && msg["status"] == "Complete"
+	}
+	resp, events := chatFrames(t, srv, query)
+	awaitChatFrame(t, events, settled)
+	resp.Body.Close()
+
+	var callID string
+	require.NoError(t, db.Read.QueryRow(`SELECT id FROM tool_calls`).Scan(&callID))
+	_, err := db.Write.Exec(`INSERT INTO approvals (id, tool_call_id, kind, request, status, created_at) VALUES (?, ?, 'action', ?, 'denied', 1)`,
+		appdb.NewID(), callID, `{"action":{"class":4,"context":"dev","namespace":"web","verb":"delete","group":"core","kind":"pods","name":"x",
+		"summary":"Delete pods/x in web on dev","dryRun":false},"grantable":true,
+		"commandRule":"Allow delete of core pods in dev / web for this command","chatRule":"Allow cluster writes in dev / web",
+		"write":{"method":"DELETE","path":"/api/v1/namespaces/web/pods/x"}}`)
+	require.NoError(t, err)
+
+	resp, events = chatFrames(t, srv, query)
+	defer resp.Body.Close()
+	f := awaitChatFrame(t, events, settled)
+	writes := f["message"].(map[string]any)["toolCalls"].([]any)[0].(map[string]any)["clusterWrites"].([]any)
+	assert.Equal(t, []any{map[string]any{"action": map[string]any{
+		"summary": "Delete pods/x in web on dev", "class": "UpstreamWrite", "context": "dev", "namespace": "web",
+		"verb": "delete", "group": "core", "kind": "pods", "grantable": true,
+		"commandRule": "Allow delete of core pods in dev / web for this command", "chatRule": "Allow cluster writes in dev / web",
+	}}}, writes)
+}
+
+// chatGrants lists a chat's rules by their lines, and chatGrantRemove answers
+// the list without the one removed; an id the chat does not hold and a chat
+// that is gone are each not found.
+func TestChatGrantsListAndRemove(t *testing.T) {
+	srv, db, _ := newChatServerOver(t)
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
+		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
+	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
+	id := appdb.NewID()
+	_, err := db.Write.Exec(`INSERT INTO chat_grants (id, chat_id, rule, created_at) VALUES (?, ?, ?, 1)`,
+		id, chatID, `{"id":"`+id+`","effect":"allow","class":4,"context":"dev","namespace":"web"}`)
+	require.NoError(t, err)
+
+	data := mutate(t, srv, `query { chatGrants(chatID: "`+chatID+`") { id line } }`)
+	assert.Equal(t, []any{map[string]any{"id": id, "line": "Allow cluster writes in dev / web"}}, data["chatGrants"])
+
+	_, code := refusalOf(t, srv, `mutation { chatGrantRemove(chatID: "`+chatID+`", id: "`+appdb.NewID()+`") { id } }`)
+	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", code)
+	data = mutate(t, srv, `mutation { chatGrantRemove(chatID: "`+chatID+`", id: "`+id+`") { id } }`)
+	assert.Equal(t, []any{}, data["chatGrantRemove"])
+
+	_, code = refusalOf(t, srv, `mutation { chatGrantRemove(chatID: "`+appdb.NewID()+`", id: "`+id+`") { id } }`)
+	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", code)
+}
+
+// A write carries how long its approval holds, and while it waits its diff;
+// one that no longer waits carries none.
+func TestAClusterWriteCarriesItsDurationAndDiff(t *testing.T) {
+	srv, db, fake := newChatServerOver(t)
+	fake.SetToolCalls(llm.StagedCall("Bash", `{"command":"kubectl delete pod x"}`))
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
+		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
+	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
+	query := `subscription { chatMessagesWatch(chatID: "` + chatID + `") {
+		message { seq status toolCalls { clusterWrites { approval { status duration } diff diffCut diffError } } } } }`
+	settled := func(f map[string]any) bool {
+		msg, ok := f["message"].(map[string]any)
+		return ok && msg["seq"] == float64(1) && msg["status"] == "Complete"
+	}
+	resp, events := chatFrames(t, srv, query)
+	awaitChatFrame(t, events, settled)
+	resp.Body.Close()
+
+	var callID string
+	require.NoError(t, db.Read.QueryRow(`SELECT id FROM tool_calls`).Scan(&callID))
+	_, err := db.Write.Exec(`UPDATE tool_calls SET status = 'running', started_at = 1, finished_at = NULL WHERE id = ?`, callID)
+	require.NoError(t, err)
+	request := `{"write":{"method":"PATCH","path":"/api/v1/namespaces/web/configmaps/c"},"diff":"-a\n+b\n","diffCut":true,"diffError":""}`
+	for i, row := range []struct{ status, duration any }{{"approved", "chat"}, {"pending", nil}} {
+		_, err := db.Write.Exec(`INSERT INTO approvals (id, tool_call_id, kind, request, status, duration, created_at) VALUES (?, ?, 'action', ?, ?, ?, ?)`,
+			appdb.NewID(), callID, request, row.status, row.duration, 10+i)
+		require.NoError(t, err)
+	}
+
+	resp, events = chatFrames(t, srv, query)
+	defer resp.Body.Close()
+	f := awaitChatFrame(t, events, func(f map[string]any) bool {
+		msg, ok := f["message"].(map[string]any)
+		return ok && msg["seq"] == float64(1)
+	})
+	assert.Equal(t, []any{
+		map[string]any{"approval": map[string]any{"status": "Approved", "duration": "Chat"}, "diff": "", "diffCut": false, "diffError": ""},
+		map[string]any{"approval": map[string]any{"status": "Pending", "duration": nil}, "diff": "-a\n+b\n", "diffCut": true, "diffError": ""},
+	}, f["message"].(map[string]any)["toolCalls"].([]any)[0].(map[string]any)["clusterWrites"])
 }

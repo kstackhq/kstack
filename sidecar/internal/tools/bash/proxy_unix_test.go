@@ -465,26 +465,26 @@ func TestASandboxedRunReadsASecretRedacted(t *testing.T) {
 	assert.Equal(t, "note=[redacted]\n", text)
 }
 
-// fakeClusterWriteAsker is a runtime's ClusterWriteAsker that records each
-// write and answers with approve.
-type fakeClusterWriteAsker struct {
+// fakeActionAsker is a runtime's ActionAsker that keeps each write it is
+// asked or told of and answers with approve, for once.
+type fakeActionAsker struct {
 	mu       sync.Mutex
 	approve  bool
-	asked    []tools.ClusterWriteRequest
-	recorded []tools.ClusterWriteRequest
+	asked    []tools.ClusterWrite
+	recorded []tools.ClusterWrite
 }
 
-func (f *fakeClusterWriteAsker) Ask(_ context.Context, w tools.ClusterWriteRequest) (bool, error) {
+func (f *fakeActionAsker) Ask(_ context.Context, r tools.ActionRequest) (tools.Answer, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.asked = append(f.asked, w)
-	return f.approve, nil
+	f.asked = append(f.asked, *r.Write)
+	return tools.Answer{Approved: f.approve, Duration: permissions.DurationOnce}, nil
 }
 
-func (f *fakeClusterWriteAsker) Record(_ context.Context, w tools.ClusterWriteRequest, _ permissions.Decision, _ string) error {
+func (f *fakeActionAsker) Record(_ context.Context, r tools.ActionRequest, _ permissions.Decision, _ string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.recorded = append(f.recorded, w)
+	f.recorded = append(f.recorded, *r.Write)
 	return nil
 }
 
@@ -499,8 +499,8 @@ func TestTheGrantDecidesInTheRecordsContext(t *testing.T) {
 		contexts = append(contexts, c)
 		return permissions.Policy{Mode: permissions.Auto}
 	}
-	asker := &fakeClusterWriteAsker{}
-	rt.ClusterWriteAsker = asker
+	asker := &fakeActionAsker{}
+	rt.ActionAsker = asker
 
 	text, isError := tl.Run(t.Context(), rt, command(clientLine("delete")))
 
@@ -517,8 +517,8 @@ func TestAForegroundGrantAsksThroughTheRuntime(t *testing.T) {
 	api := newFakeAPI(t)
 	tl := proxyTool(t, &fakeLease{serverUID: "uid-1", conn: api.connection()})
 	rt := clusterRuntime(t)
-	asker := &fakeClusterWriteAsker{approve: true}
-	rt.ClusterWriteAsker = asker
+	asker := &fakeActionAsker{approve: true}
+	rt.ActionAsker = asker
 
 	text, isError := tl.Run(t.Context(), rt, command(clientLine("delete")))
 
@@ -539,8 +539,8 @@ func TestABackgroundGrantRefusesWrites(t *testing.T) {
 	api := newFakeAPI(t)
 	tl := proxyTool(t, &fakeLease{serverUID: "uid-1", conn: api.connection()})
 	rt := clusterRuntime(t)
-	asker := &fakeClusterWriteAsker{approve: true}
-	rt.ClusterWriteAsker = asker
+	asker := &fakeActionAsker{approve: true}
+	rt.ActionAsker = asker
 	tasks := newFakeTasks(t)
 	rt.Tasks = tasks
 
@@ -561,7 +561,7 @@ func TestABackgroundGrantRefusesWrites(t *testing.T) {
 // answers 100 Continue, which Go's server sends on the handler's first read.
 func TestTheProxyClosesBeforeItWaits(t *testing.T) {
 	socket := filepath.Join(shortTemp(t), socketName)
-	p, err := startProxy(refused{}, session.Session{}, "prod", socket, runtimeAsker{&fakeClusterWriteAsker{approve: true}}, "")
+	p, err := startProxy(refused{}, session.Session{}, "prod", socket, runtimeAsker{&fakeActionAsker{approve: true}}, "")
 	require.NoError(t, err)
 	conn, err := net.Dial("unix", socket)
 	require.NoError(t, err)

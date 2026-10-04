@@ -33,6 +33,7 @@ import {
   DropdownMenuTrigger,
 } from '@kubetail/ui/elements/dropdown-menu';
 
+import { ChatGrants } from '@/components/widgets/chat-grants';
 import { SandboxSwitch } from '@/components/widgets/sandbox-switch';
 import { graphql } from '@/gql';
 import type { AppMode } from '@/lib/app-mode';
@@ -336,6 +337,7 @@ export function ChatComposer({
           {chatID !== null && sandboxAvailable === true && (
             <SandboxSwitch sandboxDisabled={sandboxDisabled} switching={switching} onSwitch={onSwitchSandbox} />
           )}
+          {chatID !== null && <ChatGrants chatID={chatID} />}
           {pick && picked && (
             <>
               <Segment

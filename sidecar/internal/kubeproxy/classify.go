@@ -49,6 +49,7 @@ func classify(r *http.Request, p apiPath, body []byte, context string) permissio
 	act := permissions.Action{
 		Context: context, Namespace: p.namespace,
 		Verb: verbs[r.Method], Group: p.group, Kind: p.resource, Name: p.name,
+		DryRun: isDryRun(r),
 	}
 	if p.kind == resourcePath && act.Group == "" {
 		act.Group = "core"
@@ -70,7 +71,7 @@ func classify(r *http.Request, p apiPath, body []byte, context string) permissio
 	switch {
 	case r.Method == http.MethodGet && p.onSecrets():
 		act.Class = permissions.SecretRead
-	case !isWrite(r, p) || isDryRun(r) && honorsDryRun[act.Group+"/"+p.version]:
+	case !isWrite(r, p) || act.DryRun && honorsDryRun[act.Group+"/"+p.version]:
 		act.Class = permissions.ReadInside
 	case destructive(r, p, act, body):
 		act.Class = permissions.Destructive

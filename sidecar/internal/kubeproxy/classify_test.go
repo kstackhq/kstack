@@ -208,3 +208,15 @@ func TestTheDestructiveListIsInWords(t *testing.T) {
 		assert.NotEmpty(t, line)
 	}
 }
+
+func TestClassifyMarksADryRun(t *testing.T) {
+	act := classifyOf("PATCH", "/apis/example.com/v1/namespaces/team-a/widgets/w?dryRun=All", mergeType, `{}`)
+	assert.True(t, act.DryRun)
+	assert.Equal(t, permissions.UpstreamWrite, act.Class, "a dry run an API may ignore stays class 4")
+	assert.False(t, permissions.Grantable(permissions.Unmatched, act))
+
+	act = classifyOf("PATCH", "/apis/example.com/v1/namespaces/team-a/widgets/w", mergeType, `{}`)
+	assert.False(t, act.DryRun)
+	act = classifyOf("DELETE", "/api/v1/namespaces/team-a/pods/api?dryRun=All", "", "")
+	assert.False(t, act.DryRun, "a DELETE's dry run is in a body the proxy does not read")
+}
