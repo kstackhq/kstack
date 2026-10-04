@@ -95,14 +95,13 @@ type Config struct {
 	// HostPID is the host's process, which a command's kill is refused against;
 	// 0 when the sidecar was not told it.
 	HostPID int
-	// ShellPath is the login shell's PATH as main read it at launch, nil when
-	// it was not read; ShellFault is why not, "" when it was. main alone sets
-	// them, so no test spawns the developer's login shell.
-	ShellPath  []string
-	ShellFault string
-	// ShellSnapshot takes the login shell's snapshot after Start. main alone sets
+	// RunLoginShell runs the user's login shell: once in New, for its PATH and on
+	// macOS its environment, and for the snapshot after Start. main alone sets
 	// it, so no test spawns the developer's login shell.
-	ShellSnapshot bool
+	RunLoginShell bool
+	// launchPath is a test's stand-in for the PATH the login shell answers,
+	// used while RunLoginShell is false.
+	launchPath []string
 	// UserUmask is the umask the process started with, before main made it
 	// owner-only: a file Write makes for the user takes it. Zero on Windows.
 	UserUmask fs.FileMode
@@ -124,9 +123,24 @@ type App struct {
 
 // New builds the composition root, wiring the beehive control-plane, auth, and
 // cloud subsystems into the GraphQL and gRPC servers that share one h2c socket.
-func New(cfg Config) (*App, error) {
+// ctx is startup's: once it has ended, New stops and answers its error.
+func New(ctx context.Context, cfg Config) (*App, error) {
 	if err := makeDirs(cfg); err != nil {
 		return nil, err
+	}
+
+	sb, probed, err := probeSandbox(ctx)
+	if err != nil {
+		return nil, err
+	}
+	slog.Info("sandbox probed", "available", probed.Available, "reason", probed.Reason)
+	// Before anything that reads the environment: on macOS the login shell's
+	// sets it process-wide, credential plugins resolve against it, and net/http
+	// and WebFetch read the proxy variables from it.
+	p := pathsOf(cfg)
+	launchPath, launchFault := cfg.launchPath, ""
+	if cfg.RunLoginShell {
+		launchPath, launchFault = launchShell(ctx)
 	}
 
 	// Shared cross-subsystem poke bus (wall-clock gap detector + host pokes via
@@ -140,7 +154,6 @@ func New(cfg Config) (*App, error) {
 	// context. Closing it ends every subscription, so it is the app's alone.
 	kubeconfigSvc := kubeconfig.New(cfg.KubeconfigPath, pokeSvc)
 
-	p := pathsOf(cfg)
 	// The security settings hold no handle, so a failure leaves nothing to close.
 	securityStore, err := securityconfig.Open(p.SecurityFile)
 	if err != nil {
@@ -193,9 +206,9 @@ func New(cfg Config) (*App, error) {
 	cat := newCatalog(cfg)
 	llmSvc := llm.New(cat.Providers()...)
 	pathList := func() securityconfig.RunPath { return securityStore.Get().RunPath() }
-	shell, found, sb, probed := newBashTool(p.Bash, cfg.HostPID, clusterSvc, pathList)
+	shell, found := bash.New(p.Bash, cfg.HostPID, sb, clusterSvc, pathList)
 	sandboxStatus := sandboxStatusOf(found, probed)
-	securityCfg := newSecurityService(securityStore, sb, shell, sandboxStatus, p.Bash.DeniedDirs, cfg.ShellFault)
+	securityCfg := newSecurityService(securityStore, sb, shell, sandboxStatus, p.Bash.DeniedDirs, launchFault)
 	memorySvc, err := memorysvc.New(db, serverUIDLookup{clusters: clusterSvc.Clusters()})
 	if err != nil {
 		return fail(err)
@@ -247,14 +260,14 @@ func New(cfg Config) (*App, error) {
 		{Name: "chat service", StartCloser: chatSvc},
 	}
 	// Before the snapshot, so the first sandboxed run reads the synced list.
-	if cfg.ShellPath != nil && sandboxStatus.Available {
+	if launchPath != nil && sandboxStatus.Available {
 		parts = append(parts, lifecycle.Part{Name: "PATH sync", StartCloser: lifecycle.StartFunc(func(ctx context.Context) (func(context.Context) error, error) {
-			syncPath(ctx, securityCfg, cfg.ShellPath)
+			syncPath(ctx, securityCfg, launchPath)
 			return func(context.Context) error { return nil }, nil
 		})})
 	}
 	// Started after READY and before Serve, so no command can run ahead of it.
-	if cfg.ShellSnapshot && shell != nil {
+	if cfg.RunLoginShell && shell != nil {
 		parts = append(parts, lifecycle.Part{Name: "shell snapshot", StartCloser: lifecycle.StartFunc(shell.StartSnapshot)})
 	}
 	return &App{
@@ -347,15 +360,8 @@ func newCatalog(cfg Config) catalog.Catalog {
 	return catalog.New(catalog.Config{APIKeys: cfg.LLMKeys, BaseURLs: cfg.LLMBaseURLs, Fake: fake})
 }
 
-// newBashTool probes the machine's sandbox once and builds the bash tool over
-// it. It answers the tool, false when none is offered, the sandbox, nil for
-// none, and the probe's status. A sandboxed run searches pathList.
-func newBashTool(paths bash.Paths, hostPID int, clusterSvc clustersvc.Service, pathList func() securityconfig.RunPath) (shell *bash.Tool, ok bool, sb *sandbox.Sandbox, status sandbox.Status) {
-	sb, status, _ = sandbox.Probe(context.Background())
-	slog.Info("sandbox probed", "available", status.Available, "reason", status.Reason)
-	shell, ok = bash.New(paths, hostPID, sb, clusterSvc, pathList)
-	return shell, ok, sb, status
-}
+// probeSandbox is sandbox.Probe, which a test replaces to count its calls.
+var probeSandbox = sandbox.Probe
 
 // newSecurityService is the security settings and the frozen PATH kept in
 // them. The sync judges an entry by what a sandboxed run of the bash tool's

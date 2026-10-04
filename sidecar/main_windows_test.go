@@ -29,11 +29,3 @@ func unbindableEndpoint(t *testing.T) string {
 	t.Cleanup(func() { _ = ln.Close() })
 	return path
 }
-
-// Windows has no sandbox, so no login shell is run for its PATH.
-func TestLaunchShellRunsNothingOnWindows(t *testing.T) {
-	path, fault := launchShell(t.Context())
-	if path != nil || fault != "" {
-		t.Errorf("launchShell = %v, %q; want nothing", path, fault)
-	}
-}

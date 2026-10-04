@@ -204,7 +204,7 @@ func newTestApp(t *testing.T) (*App, string) {
 	kubeconfig := filepath.Join(dir, "kubeconfig")
 	writeKubeconfig(t, kubeconfig, "context-A", "context-B")
 
-	a, err := New(withDirs(t, Config{
+	a, err := New(t.Context(), withDirs(t, Config{
 		KubeconfigPath: kubeconfig,
 		// A real data dir so app.db lands in the per-test temp dir — with an
 		// empty DataDir New would create app.db relative to the test's
@@ -246,7 +246,7 @@ func TestNewRefusesAnEmptyOrRelativeDirectory(t *testing.T) {
 				case "--runtime-dir":
 					cfg.RuntimeDir = dir
 				}
-				_, err := New(cfg)
+				_, err := New(t.Context(), cfg)
 				require.ErrorContains(t, err, flag)
 				assert.NoDirExists(t, "relative")
 			})
@@ -298,7 +298,7 @@ func startApp(t *testing.T, a *App) {
 // one place the resolver's chat service is set, and an unwired one panics rather
 // than refusing. The id is well-formed, so the refusal is the lookup's.
 func TestAppServesTheChatSurface(t *testing.T) {
-	a, err := New(withDirs(t, Config{DataDir: t.TempDir()}))
+	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	srv := httptest.NewServer(a)
@@ -316,7 +316,7 @@ func TestAppTearsDownADeletedCluster(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "kubeconfig")
 	writeKubeconfig(t, path, "context-A", "context-B")
-	a, err := New(withDirs(t, Config{KubeconfigPath: path, DataDir: dir, AddFake: true}))
+	a, err := New(t.Context(), withDirs(t, Config{KubeconfigPath: path, DataDir: dir, AddFake: true}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 	startApp(t, a)
@@ -409,7 +409,7 @@ func TestAppTearsDownADeletedCluster(t *testing.T) {
 // pause — and the guards in clustersvc are the only thing that would stand between the
 // reordering and that.
 func TestAppStartsKubeconfigBeforeTheClusterService(t *testing.T) {
-	a, err := New(withDirs(t, Config{DataDir: t.TempDir()}))
+	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 
@@ -419,7 +419,7 @@ func TestAppStartsKubeconfigBeforeTheClusterService(t *testing.T) {
 // The chat service is a part like the others: built by New, started and stopped
 // with the app.
 func TestAppStartsAndStopsWithTheChatService(t *testing.T) {
-	a, err := New(withDirs(t, Config{DataDir: t.TempDir()}))
+	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 
@@ -433,7 +433,7 @@ func TestAppStartsAndStopsWithTheChatService(t *testing.T) {
 // The memory service starts before the chat service and so stops after it: a
 // turn reads the index and saves through it until the chat service has stopped.
 func TestTheMemoryServiceOutlivesTheChatService(t *testing.T) {
-	a, err := New(withDirs(t, Config{DataDir: t.TempDir()}))
+	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 
@@ -537,7 +537,7 @@ func TestAppRejectsAnUnusableDataDir(t *testing.T) {
 	notADir := filepath.Join(t.TempDir(), "file")
 	require.NoError(t, os.WriteFile(notADir, []byte("x"), 0o600))
 
-	_, err := New(withDirs(t, Config{DataDir: notADir}))
+	_, err := New(t.Context(), withDirs(t, Config{DataDir: notADir}))
 	require.Error(t, err)
 }
 
@@ -546,7 +546,7 @@ func TestAppRejectsAnUnusableDataDir(t *testing.T) {
 // connection closes, so the sibling's absence shows the file was released.
 func TestAppOwnsTheDatabase(t *testing.T) {
 	dir := t.TempDir()
-	a, err := New(withDirs(t, Config{DataDir: dir}))
+	a, err := New(t.Context(), withDirs(t, Config{DataDir: dir}))
 	require.NoError(t, err)
 	assert.Equal(t, 0, partIndex(t, a, "app.db"))
 
@@ -562,7 +562,7 @@ func TestAppClosesTheDatabaseWhenADirectoryFails(t *testing.T) {
 	cfg := withDirs(t, Config{})
 	require.NoError(t, os.WriteFile(filepath.Join(cfg.DataDir, "chats"), nil, 0o600))
 
-	_, err := New(cfg)
+	_, err := New(t.Context(), cfg)
 	require.ErrorContains(t, err, "open the chats' directory")
 	assert.NoFileExists(t, filepath.Join(cfg.DataDir, "app.db-wal"))
 }
@@ -580,7 +580,7 @@ func TestAppClosesTheDatabaseWhenAConstructorFails(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, db.Close())
 
-			_, err = New(withDirs(t, Config{DataDir: dir}))
+			_, err = New(t.Context(), withDirs(t, Config{DataDir: dir}))
 			require.ErrorContains(t, err, table)
 			assert.NoFileExists(t, path+"-wal")
 		})
@@ -593,7 +593,7 @@ func TestAppClosesTheDatabaseWhenTheCloudServiceFails(t *testing.T) {
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "settings.json"), []byte("{"), 0o600))
 
-	_, err := New(withDirs(t, Config{DataDir: dir, CloudURL: "http://127.0.0.1:1"}))
+	_, err := New(t.Context(), withDirs(t, Config{DataDir: dir, CloudURL: "http://127.0.0.1:1"}))
 	require.Error(t, err)
 	assert.NoFileExists(t, filepath.Join(dir, "app.db-wal"))
 }
@@ -605,7 +605,7 @@ func TestABadSecurityFileFailsNew(t *testing.T) {
 	file := filepath.Join(dir, "security.json")
 	require.NoError(t, os.WriteFile(file, []byte("{"), 0o600))
 
-	_, err := New(withDirs(t, Config{DataDir: dir}))
+	_, err := New(t.Context(), withDirs(t, Config{DataDir: dir}))
 	require.ErrorContains(t, err, file)
 	assert.NoFileExists(t, filepath.Join(dir, "app.db"))
 }
@@ -631,7 +631,7 @@ func TestTheFakeIsListedOnlyWhenAsked(t *testing.T) {
 	// The models are the catalogs flattened, so the providers are read off them in
 	// order, each named once however many models it lists.
 	providers := func(addFake bool) []string {
-		a, err := New(withDirs(t, Config{DataDir: t.TempDir(), LLMKeys: map[string]string{"anthropic": "sk-ant-test"}, AddFake: addFake}))
+		a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir(), LLMKeys: map[string]string{"anthropic": "sk-ant-test"}, AddFake: addFake}))
 		require.NoError(t, err)
 		t.Cleanup(func() { assert.NoError(t, a.Close()) })
 		ts := serveApp(t, a)

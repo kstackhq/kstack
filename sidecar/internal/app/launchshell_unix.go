@@ -14,7 +14,7 @@
 
 //go:build unix
 
-package main
+package app
 
 import (
 	"context"
@@ -24,11 +24,15 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
 )
 
-// launchShell runs the account's login shell once: its environment is
-// set where the platform needs it, and its PATH is what the sandbox's
-// is resolved from.
+// resolveShell is loginshell.Resolve, which a test replaces.
+var resolveShell = loginshell.Resolve
+
+// launchShell runs the account's login shell once: its environment is set
+// where the platform needs it, and its PATH is what the sandbox's is resolved
+// from. It answers the shell's PATH, nil when it was not read, and why not, ""
+// when it was.
 func launchShell(ctx context.Context) (path []string, fault string) {
-	return runShell(ctx, loginshell.In(nil, nil, nil, nil), loginshell.Resolve)
+	return runShell(ctx, loginshell.In(nil, nil, nil, nil), resolveShell)
 }
 
 // runShell calls resolve once, through start, under the shell's timeout, and

@@ -14,7 +14,7 @@
 
 //go:build unix && !darwin
 
-package main
+package app
 
 import (
 	"os"
