@@ -188,6 +188,25 @@ describe('PermissionSettings', () => {
     });
   });
 
+  it('sends the cluster-scope word for a Cluster-scoped rule and shuts the pattern', async () => {
+    const user = userEvent.setup();
+    render(<PermissionSettings />);
+    const form = screen.getByRole('form', { name: 'Add a rule' });
+
+    await user.type(within(form).getByLabelText('Namespace'), 'team-*');
+    await user.click(within(form).getByLabelText('Cluster-scoped'));
+    expect(within(form).getByLabelText('Namespace')).toBeDisabled();
+    expect(within(form).getByLabelText('Namespace')).toHaveValue('');
+    await user.click(within(form).getByRole('button', { name: 'Add' }));
+    expect(mutateMock).toHaveBeenCalledWith('permissionRuleAdd', {
+      input: expect.objectContaining({ namespace: '[cluster]' }),
+    });
+
+    await user.click(within(form).getByLabelText('Cluster-scoped'));
+    expect(within(form).getByLabelText('Namespace')).toBeEnabled();
+    expect(within(form).getByLabelText('Namespace')).toHaveValue('');
+  });
+
   it('offers no destructive class to an Allow', async () => {
     const user = userEvent.setup();
     render(<PermissionSettings />);

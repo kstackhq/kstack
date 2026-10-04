@@ -378,6 +378,9 @@ type RuleInput = {
   kind: string;
 };
 
+// The namespace that is cluster-scoped objects alone: permissions.ClusterScope.
+const CLUSTER_SCOPE = '[cluster]';
+
 const EMPTY_RULE: RuleInput = {
   effect: 'Allow',
   class: 'UpstreamWrite',
@@ -415,6 +418,30 @@ function RuleForm({ disabled, onAdd }: { disabled: boolean; onAdd: (input: RuleI
       label,
       <Input id={`${id}-${name}`} value={draft[name]} onChange={(e) => set({ [name]: e.target.value })} />,
     );
+  // The namespace is a pattern over namespaced objects, or the one word for
+  // cluster-scoped ones; the checkbox holds the word and shuts the pattern.
+  const clusterScoped = draft.namespace === CLUSTER_SCOPE;
+  const namespace = field(
+    'namespace',
+    'Namespace',
+    <>
+      <Input
+        id={`${id}-namespace`}
+        value={clusterScoped ? '' : draft.namespace}
+        disabled={clusterScoped}
+        onChange={(e) => set({ namespace: e.target.value })}
+      />
+      <label htmlFor={`${id}-cluster-scoped`} className="flex items-center gap-1">
+        <input
+          id={`${id}-cluster-scoped`}
+          type="checkbox"
+          checked={clusterScoped}
+          onChange={(e) => set({ namespace: e.target.checked ? CLUSTER_SCOPE : '' })}
+        />
+        Cluster-scoped
+      </label>
+    </>,
+  );
 
   return (
     <form aria-label="Add a rule" className="flex flex-col gap-2" onSubmit={submit}>
@@ -451,14 +478,14 @@ function RuleForm({ disabled, onAdd }: { disabled: boolean; onAdd: (input: RuleI
           </select>,
         )}
         {text('context', 'Context')}
-        {text('namespace', 'Namespace')}
+        {namespace}
         {text('verb', 'Verb')}
         {text('group', 'API group')}
         {text('kind', 'Resource')}
       </div>
       <p className="text-muted-foreground">
         Each field matches anything when empty. Every field but the API group is a pattern: * matches any run of
-        characters.
+        characters. A namespace pattern matches objects in a namespace alone; Cluster-scoped matches the rest.
       </p>
       <div>
         <Button type="submit" size="sm" disabled={disabled}>
