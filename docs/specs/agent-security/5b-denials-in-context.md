@@ -6,8 +6,7 @@ status: Planned
 
 # Denials in context
 
-**Needs:** step 4C, whose refused hosts this step draws and whose `networkHostGrant` it calls;
-step 4D, whose `folderGrant` it calls; step 1A, whose `Policy` answers what it hid. **Unblocks:**
+**Needs:** step 4D, whose `folderGrant` it calls; step 1A, whose `Policy` answers what it hid. **Unblocks:**
 steps 6A and 7A, which reuse the grant popover.
 
 Go paths below are under `sidecar/internal/` unless they say otherwise.
@@ -24,27 +23,28 @@ shown in plain terms with the action that resolves it.
 After this step, on macOS and Linux:
 
 - **A denial is found per command**: a path the run tried and the policy hid, found from
-  Seatbelt's report on macOS and from the command's error output on Linux; a host the egress
-  proxy refused and a write or Secret read the engine refused, which steps 3B, 4C and 5A already
-  record.
+  Seatbelt's report on macOS and from the command's error output on Linux; a write or Secret
+  read the engine refused, which steps 3B and 5A already record.
 - **`Policy.Explain(path)`** answers what the policy says of a path and which rule decided.
 - **The record**: `tool_calls.denials`, written when the call settles, on the wire as
   `ToolCall.denials`.
 - **The model reads one line per denial** after the output, in place of the sandbox line.
   Nothing is retried on its behalf.
 - **The user sees one line per denial under the call**, with the grant that resolves it: *Grant…*
-  for a folder, *Allow for this chat* / *Always allow* for a host, and the reason alone for a
-  refused write. A grant never re-runs the command.
+  for a folder, and the reason alone for a refused write. A grant never re-runs the command.
 - **One popover** draws every grant offer, step 3A's pending `PATH` entries included.
 
 ## What is not in this step
 
-- **No new grant.** The mutations are steps 4C's and 4D's; this step calls them.
+- **No new grant.** The mutation is step 4D's; this step calls it.
+- **No network denial.** A sandboxed command with no network fails with its tool's own error,
+  and nothing names a host it tried. Step 4C's prompt tells the model it can run the command
+  again with `network: true`, which asks the user.
 - **No probe.** Step 6A runs the curated tools and reads their denials through this step's
   finder.
 - **No denial for a command outside the sandbox** (step 1B): it runs as the user and nothing hides
   anything from it.
-- **No change to what a denial is on the wire for hosts and writes** beyond joining them into one
+- **No change to what a denial is on the wire for writes** beyond joining them into one
   list: their rows are step 4B's.
 - Nothing changes on Windows, which has no sandbox.
 
@@ -55,7 +55,6 @@ After this step, on macOS and Linux:
 | Kind | Found by | Verdict |
 | --- | --- | --- |
 | `path` | Seatbelt's report (macOS), the error output (Linux), against `Explain` | `hidden` (no rule opens it: a grant resolves it), `never` (an Always path: nothing does) |
-| `host` | the egress handler's refusal (step 4C) | `refused` (a deny rule, the mode, or the user's no) |
 | `write` | the cluster proxy's refusal (step 3B) | `refused` |
 | `secret` | the redaction the session did not hold the grant for (step 5A) | `refused` |
 
@@ -66,8 +65,8 @@ directory's ancestors, and nothing the user can grant opens one. A path a `Noise
 ```go
 // Denial is one thing a run asked for and did not get.
 type Denial struct {
-	Kind    Kind    // path, host, write, secret
-	Subject string  // the path with the home as ~, the host, or the action's summary
+	Kind    Kind    // path, write, secret
+	Subject string  // the path with the home as ~, or the action's summary
 	Verdict Verdict // hidden, never, refused
 	Reason  string  // the rule or mode, in the engine's words; "" for hidden
 }
@@ -161,17 +160,17 @@ together. A `path` denial's `Subject` is the path with the home spelled `~`. A `
 `tool_calls` gains `denials TEXT` (a JSON list of `Denial`, NULL for none), in
 `appdb/migrations/0001_init.sql` under the
 [pre-release schema policy](../../adr/2026-08-29-schema-edit-not-migration.md), written at the
-call's settle from what `Note` kept, path denials alone: a host, a write and a Secret read are
+call's settle from what `Note` kept, path denials alone: a write and a Secret read are
 `approvals` rows already. On the wire:
 
 ```graphql
-enum DenialKind { Path Host Write Secret }
+enum DenialKind { Path Write Secret }
 enum DenialVerdict { Hidden Never Refused }
 
 "One thing a call's command asked for and did not get."
 type Denial {
   kind: DenialKind!
-  "The path with the home as ~, the host, or the action's summary. Cluster or command text: draw it through VisibleText."
+  "The path with the home as ~, or the action's summary. Cluster or command text: draw it through VisibleText."
   subject: String!
   verdict: DenialVerdict!
   "The rule or mode that refused it; empty for a hidden path."
@@ -179,13 +178,13 @@ type Denial {
 }
 
 extend type ToolCall {
-  "Every denial of the call, paths off its row and hosts, writes and Secret reads off its refused approvals, in the order found."
+  "Every denial of the call, paths off its row and writes and Secret reads off its refused approvals, in the order found."
   denials: [Denial!]!
 }
 ```
 
 The resolver joins the row's list with the call's `approvals` of status `refused` and `denied`
-whose action is `net`, `k8s` class 4 or 5, or class 6, each as a `Denial` of its kind with the
+whose action is class 4, 5 or 6, each as a `Denial` of its kind with the
 action's `Summary` as `subject` and the row's `reason`.
 
 ### 4. What the model reads
@@ -197,14 +196,13 @@ one line per denial, in the order found, and nothing for none:
 | --- | --- |
 | path, `hidden` | `The sandbox blocked reading ~/code/foo; the user can grant it.` (`writing` for a `file-write*` report) |
 | path, `never` | `~/.ssh is never readable in the sandbox.` |
-| host | `The sandbox blocked reaching charts.example.com; the user can allow it.` |
 | write | `The user's settings refused: Delete pod api-7f9c in team-a on dev-eks (this context is read-only).` |
 | secret | `Secret values are redacted until the user allows reading them.` |
 
 The lines follow the output so nothing a command prints can pass for one, and they are the
 sidecar's, so a subject goes through `safe.String`. Nothing is retried on the model's behalf; the
 prompt (`prompts/sandbox.md`) says a blocked line names something the user can grant, that the
-model should say what it needs the folder or host for, and that it must not work around the
+model should say what it needs the folder for, and that it must not work around the
 sandbox.
 
 ### 5. What the user sees
@@ -217,7 +215,6 @@ through `VisibleText`, with `denialsOf(call)` in `chats.tsx` the one reader of t
 | --- | --- | --- |
 | path, `hidden` | *Blocked: reading `~/code/foo`* | **Grant…**, opening the popover: *Read* or *Read and write*, *For this chat* or *Always*, then Grant → `folderGrant(chatID, path, write, duration)` with the folder of the path (the path itself when it is a directory, else its parent) |
 | path, `never` | *Blocked: reading `~/.ssh/config` — never allowed* | none |
-| host | *Blocked: reaching `charts.example.com`* | **Allow for this chat** → `networkHostGrant(chatID, host, port, Chat)`; **Always allow** → the same with `Always` |
 | write, secret | *Blocked: Delete pod `api-7f9c` in `team-a` on `dev-eks` — this context is read-only* | none: the user changes Settings |
 
 A press is disabled in flight and handed back on an error, which `errorReportExchange` reports.
@@ -227,7 +224,7 @@ user asks again. A subagent's call draws its lines inside its `Agent` call's dis
 calls are drawn.
 
 The lines are cluster data at one remove, since a command chose what to print: every subject is
-spelled through `VisibleText`, no `title`, and the popover shows the folder or host verbatim
+spelled through `VisibleText`, no `title`, and the popover shows the folder verbatim
 above its buttons so the user grants what they read, not what the line implied.
 
 ### 6. One popover
@@ -238,7 +235,6 @@ above its buttons so the user grants what they read, not what the line implied.
 | `kind` | Subject | Choices | Calls |
 | --- | --- | --- | --- |
 | `folder` | the folder | read / read and write; this chat / always | `folderGrant` |
-| `host` | the host and port | this chat / always | `networkHostGrant` |
 | `path-entry` | a `PATH` entry step 3A left *waiting for you* | include | `sandboxPathInclude(dir)` |
 
 Step 3A's Sandbox section moves its *Include* onto this popover with the note's wording, *your
@@ -303,7 +299,7 @@ segmented pickers, one Grant button, and a Cancel; Escape closes it; it is disab
 - `TestABackgroundRunNotesItsDenials`, at its `Wait`.
 
 **`chatsvc`**: `TestTheSettleWritesTheDenials`, and `TestDenialsJoinTheRefusedApprovals` on the
-wire: a refused host and a refused write appear beside a hidden path, in order.
+wire: a refused write and a refused Secret read appear beside a hidden path, in order.
 
 **Webview** (`chat-transcript.test.tsx`, `chats.test.tsx`, `grant-popover.test.tsx`,
 `sandbox-settings.test.tsx`)
@@ -317,12 +313,12 @@ wire: a refused host and a refused write appear beside a hidden path, in order.
 
 ## Security
 
-Nothing widens: no grant is made but by the user's click on a popover that shows the folder or
-host it grants, spelled through `VisibleText`, and the mutations are steps 4C's and 4D's with
-their checks. The model reads one line per denial, which names a path or host the command
+Nothing widens: no grant is made but by the user's click on a popover that shows the folder
+it grants, spelled through `VisibleText`, and the mutation is step 4D's with its checks. The
+model reads one line per denial, which names a path the command
 already named, and the lines follow the output so a command cannot forge one.
 
-The residual is a command that prints a misleading path or host to lure a grant: `cat: ~/.aws
+The residual is a command that prints a misleading path to lure a grant: `cat: ~/.aws
 /credentials: Permission denied` printed by a hijacked script draws no button, since `~/.aws` is
 `Never`; `cat: ~/code: Permission denied` printed by one draws *Grant…* for a folder the user
 must still read and choose to grant, and the popover shows it verbatim. A `Never` path is never
@@ -351,7 +347,6 @@ with the sandbox's tests on Linux and in CI's macOS job.
 By hand, `pnpm tauri dev` on macOS and on Linux: ask for `cat ~/code/my-service/README.md` and
 read the call fail with *Blocked: reading `~/code/my-service`* under it and the model's line in
 its answer; press *Grant…*, choose read and this chat, and read *Granted*; ask again and read the
-file. Ask for `cat ~/.ssh/config` and read *never allowed* with no button. Ask for `curl
-https://charts.example.com`, deny the request, and read *Blocked: reaching `charts.example.com`*
-with its two buttons. On macOS, `log stream --predicate 'sender == "Sandbox"'` in a terminal
+file. Ask for `cat ~/.ssh/config` and read *never allowed* with no button. In a chat with network
+off, ask for `curl https://example.com` and read curl's own error with no blocked line under it. On macOS, `log stream --predicate 'sender == "Sandbox"'` in a terminal
 shows each report with the run's tag while the command runs.
