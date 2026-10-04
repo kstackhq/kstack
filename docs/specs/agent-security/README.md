@@ -11,15 +11,16 @@ in the note's [Where this meets the code](../../notes/sandbox-credentials-and-pe
 - every command the model runs is confined by the OS sandbox, unless the user switched that chat
   to run outside it, and then every command asks;
 - the sandbox reads the system and the user's tools, writes the workspace and the folders the
-  user granted, and reaches the network only through Kstack's proxy;
+  user granted, and reaches no network unless the user turned it on — for the chat, for one
+  turn, or for one command they approved — and never the machine's own loopback;
 - the cluster proxy holds the cluster's credentials, read from the kubeconfig, and no command
-  ever holds one; every other host a command reaches, it reaches with no credential;
+  ever holds one; any other host a command with network reaches, it reaches with no credential;
 - every cluster write the proxy forwards is classified, and the user's approval mode and rules
   decide whether it runs, asks or is refused;
-- a prompt names the action, not the shell string, and the user can answer once, for this chat,
-  or always;
+- a prompt names the action, not the shell string, and the user can answer once, for this
+  command, for this chat, or always;
 - a monitoring session can read everything and change nothing, and never asks;
-- the user sees the sandbox in their own terms: folders, hosts, contexts.
+- the user sees the sandbox in their own terms: folders, the network switch, contexts.
 
 ## The shape of the work
 
@@ -67,11 +68,10 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 | Package | Holds | First in |
 | --- | --- | --- |
 | `sandbox` | the OS sandbox: `Policy`, the zone `Lists`, `Limits`, and reading a run's denials | landed; 1A, 2A, 2B, 5B |
-| `securityconfig` | the settings file `<data>/security.json`: the store, and the fields later steps add — the frozen `PATH`, the permission rules and modes, the host rules, the folders granted always, the registered tools, the monitor's switch, the onboarding flag | 1C |
-| `session` | a `Session`: one agent run's kind and sandbox switch, then its approval mode, host allowlist, folder grants and rules; and how a subagent's is narrowed from its parent's | 2C |
+| `securityconfig` | the settings file `<data>/security.json`: the store, and the fields later steps add — the frozen `PATH`, the permission rules and modes, the folders granted always, the registered tools, the monitor's switch, the onboarding flag | 1C |
+| `session` | a `Session`: one agent run's kind and sandbox switch, then its approval mode, network, folder grants and rules; and how a subagent's is narrowed from its parent's | 2C |
 | `permissions` | the action classes, the approval modes, the rules, and `Decide` | 3B, 3C |
 | `kubeproxy` | the cluster proxy | landed; 3B, 5A |
-| `egress` | the egress proxy: the host allowlist | 4C |
 | `monitor` | the monitoring session and its proposal cards | 6B |
 | `tools/bash` | the Bash tool, which builds each run from its session | landed; every wave |
 
@@ -79,27 +79,28 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 
 - **`sandbox.Policy`**: everything the OS sandbox enforces for one run. `Files` (Read, Write and
   Deny rules), `Always` (the denied-always list, which nothing opens, and Kstack's directories,
-  which no rule and no grant opens, and the run's own paths inside those), `Network` (the relays), `Limits`.
+  which no rule and no grant opens, and the run's own paths inside those), `Network` (the relays, and `Internet`, 4C), `Limits`.
 - **`sandbox.Lists`**: the zones on a platform. `System` (readable by default), `Toolchain`
   (readable under the home by default), `Never` (denied always), `Closed` (denied, but a grant
   inside one opens what it names). One shared file and one per platform.
 - **`session.Session`**: `Kind` (`chat`, `monitor` or `subagent`) and `Outside` (2C); `Policy`,
   a function answering the `permissions.Policy` for a kube context, read live on every decision
-  (3B); `Hosts` (4C); `Folders` (4D); `NoPrompts` and `NoSecretData` (5A). The chat, the cluster
+  (3B); `Network`, why a command has the internet — `chat`, `turn` or `""` — nil for never (4C); `Folders` (4D); `NoPrompts` and `NoSecretData` (5A). The chat, the cluster
   and the workspace are not on it: they are the runtime's `ChatID`, `ClusterID` and
   `tools.WorkspacePath(rt.Dir)`. `Narrow` copies the whole session and sets `Kind`, so a subagent
   holds its parent's switch and reads its parent's functions (step 2C); a later field that must
   differ for a subagent says so. `tools.Runtime.Session` carries it to every tool.
 - **`permissions.Class`**: 1 to 6 as the note numbers them. **The class names the provider**:
-  1 and 2 are folders, 3 hosts, 4 to 6 the cluster. There is no separate provider field.
+  1 and 2 are folders, 4 to 6 the cluster. Class 3 (a new host) stays defined and is unused:
+  the network is a switch, not a list of hosts (4C). There is no separate provider field.
   **`permissions.Mode`**: `ReadOnly`, `Ask`, `Auto` (step 3B says why the note's *Trusted
   scopes* is `Ask` with rules).
 - **`permissions.Rule`**: flat, one field per thing it can name. `ID`, `Effect` (`Allow`, `Deny`
   or `AskFor`) and `Class`; for the cluster `Context`, `Namespace`, `Verb`, `Group` and `Kind`
-  (3B); for a host `Host` and `Port` (4C); for a folder `Folder` (4D); and `Command`, never
+  (3B); for a folder `Folder` (4D); and `Command`, never
   stored (4B). Each new field is `omitempty`, so a row written before it decodes unchanged.
   A chat's rules are `chat_grants` rows. **Every always rule is in `securityconfig`'s `Rules`**:
-  cluster writes, hosts and folders alike. A class is accepted once its step adds it to
+  cluster writes and folders alike. A class is accepted once its step adds it to
   `ruleClasses`, and shape-checked by the case it adds to `ruleRefusal`. `Rule.Line()` is the rule in the
   user's words.
 - **`permissions.Policy`**: `Mode` and `Rules` (3B), then `NoPrompts` and `NoSecretData` (5A).
@@ -111,20 +112,22 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
   the `Decision`: a permit runs, a refusal is refused, either other denial is put to the user.
   A prompt is a denial the user may lift, and an approval that outlasts the request is a grant.
 - **`permissions.Action`**: one classified action: `Class`, `Context`, `Namespace`, `Verb`,
-  `Group`, `Kind`, `Name` and a one-line `Summary` (3B); `Host` and `Port` for a host (4C). A
+  `Group`, `Kind`, `Name` and a one-line `Summary` (3B);
+  `DryRun`, set by `classify`, since a dry run is never grantable (4B). A
   folder grant is never an action: it is decided by the user in Settings or on a denial, and no
   command asks for one (4D).
-- **The run's token**: one per run, as today, mapped to the run's `Session`. Both proxies served
-  on the run's socket read the session through the token, and one server on that socket serves
-  both: the cluster proxy by its `Host`, the egress proxy by `CONNECT` and the absolute-form
-  requests the proxy variables send.
+- **The run's token**: one per run, as today, mapped to the run's `Session`. The cluster proxy,
+  the one proxy on the run's socket, reads the session through it. A run with network reaches
+  the internet directly, never through a Kstack proxy (4C).
 
 **The record.** `approvals` is the one table a prompt writes: a call's own (`kind: call`) and,
 from step 4B, any classified action (`kind: action`, carried to the user as a
 `tools.ActionRequest` through the runtime's `ActionAsker`), with the decision's duration.
-Every ask and every record of one run goes through the journal one at a time (`askMu`, the
-record task steps 4B and 4C share), since two proxies can ask at once.
-`tool_calls.sandboxed` stays what it is. `chats.sandbox_disabled` is step 1B's switch.
+A run's asks go to the user one at a time under the journal's `askMu`, held across the wait,
+since a write and a Secret read (5A) can ask at once; a record never takes it, and `journalMu` serializes every
+journal write, an ask's and a record's (step 4B's record task).
+`tool_calls.sandboxed` stays what it is, and `tool_calls.network` says whether a command had the
+internet and why (4C). `chats.sandbox_disabled` is step 1B's switch, `chats.network_enabled` 4C's.
 
 **The wire.** `approvalDecide` takes the decision. Settings are read and written through
 queries and mutations named `sandbox…`, `permission…`, `network…`, `folder…`, `monitor…` and
@@ -177,40 +180,61 @@ the step that lands first adds it, the other uses it.
 
 | Spec | Step | After it |
 | --- | --- | --- |
-| [4A](4a-the-login-shell-runs-in-the-sandbox.md) | **The login shell runs in the sandbox.** The `PATH` resolution and the shell snapshot run confined: everything but Kstack's folders readable, nothing writable but a scratch folder, no network. Needs 1A and 3A. | A startup file cannot read `app.db` or reach the network while Kstack runs it. |
-| [4B](4b-the-prompt-names-the-action.md) | **The prompt names the action.** A request draws the classified action, a diff for an apply or a patch, and five answers: once, this command, this chat, always, deny. "Always" writes a rule. Needs 3B. | The user reads "Delete pods/api-7f9c in team-a on dev-eks" and decides for the scope they see. |
-| [4C](4c-the-egress-proxy.md) | **The egress proxy and the host allowlist.** One server on every run's socket; an HTTP proxy that lets a command reach the listed hosts and asks for an unlisted one (class 3), resolving names outside the sandbox; the list's sources; `trustd` allowed on macOS; the Settings section. Needs 2B, 2C and 3B. | `helm repo update` reaches the registries the user listed, and a hijacked command reaches nothing else. |
-| [4D](4d-path-grants.md) | **Path grants.** The user grants a folder, read or read-write, for a chat or always; the denied-always list still wins; the Settings section. Needs 1A, 2C, 3A and 3B. | The agent can see `~/code/my-service` because the user said so, and `~/.ssh` under a granted `~` stays hidden. |
+| [4A](4a-the-login-shell-runs-in-the-sandbox.md) | **The login shell runs in the sandbox.** The `PATH` resolution and the shell snapshot run confined: everything but Kstack's folders readable, and for the resolution, whose answer leaves the sandbox, the denied-always list shut too; nothing writable but a scratch folder, no network. Needs 1A and 3A. | A startup file cannot read `app.db` or reach the network while Kstack runs it. |
+| [4B](4b-the-prompt-names-the-action.md) | **The prompt names the action.** A request draws the classified action, a diff for an apply or a patch, and five answers: once, this command, this chat, always, deny. "Always" writes a rule. Needs 3B and 3C. | The user reads "Delete pods/api-7f9c in team-a on dev-eks" and decides for the scope they see. |
+| [4C](4c-network-is-the-users-switch.md) | **Network is the user's switch.** A sandboxed command has no network unless the user turned it on: a per-chat switch, a toggle for one turn, or an approval of one command that asks for it. On, it reaches the internet with nothing blocked but the machine's loopback; `trustd` and DNS on macOS only then; `pasta` on Linux. Every call records whether it had network and why. Needs 1B, 2B, 2C and 3B. | `helm repo update` works in a chat the user opened to the network, and a chat they did not reaches nothing. |
+| [4D](4d-path-grants.md) | **Path grants.** The user grants a folder, read or read-write, for a chat or always; the denied-always list still wins; the Settings section. Needs 1A, 2C, 3A, 3B and 3C. | The agent can see `~/code/my-service` because the user said so, and `~/.ssh` under a granted `~` stays hidden. |
 
 Seams, each said in both specs' own text:
 
-- 4B and 4C share 4B's task 1: the record of kind `action`, the action on every request, the
-  journal's `askMu`, and `Grantable`, `GrantRule` and `CommandRule`. Whichever lands first does
-  it; 4C says what its host request offers in each order.
-- 4B, 4C and 4D each write a `chat_grants` row: whichever lands first adds `addGrant` and its
-  statement, and 4D adds `removeGrant` beside it.
-- 4B, 4C and 4D each add fields to `permissions.Rule` (4B `Command`, 4C `Host` and `Port`, 4D
-  `Folder`), 4C and 4D to the wire's `PermissionRule`, and 4C and 4D each add their classes to
-  `ruleClasses` and a case to `ruleRefusal`; the step that lands second adds its fields and its
-  case beside the first's.
-- 4C and 4D both change `sandboxedRunFor` and `workspacePolicy`: 4C the relay every run gets, 4D
+- 4B and 4D each write a `chat_grants` row: whichever lands first adds `addGrant`,
+  `removeGrant` and their statements, the `chatGrants` query and `chatGrantRemove` mutation, and
+  the composer's *Allowed for this chat* list, where every chat rule is seen and removed.
+  `addGrant` inserts a rule with no id and replaces the rule under an id the chat holds, which
+  is how 4D changes a folder's mode in place. 4D's folder rows in that list add a refused
+  folder's reason.
+- 4B and 4D each add fields to `permissions.Rule` (4B `Command`, 4D `Folder`); 4D adds its
+  classes to `ruleClasses` and a case to `ruleRefusal`. The step that lands second adds its
+  fields beside the first's.
+- 4C and 4D both change `sandboxedRunFor` and `workspacePolicy`: 4C the policy's `Internet`, 4D
   the Files rules a grant adds. They touch different parts of the policy, and the second keeps
   the first's.
-- 4C and 4D both take a grant's duration: whichever lands first adds `GrantDuration`.
+- 4B and 4C both change the request: 4B the cluster write's, 4C a command's when it asks for
+  network (*Run this command with network access?*), a call's own request with Once and Deny
+  alone. Neither changes what the other draws.
+- 4C and 4D both draw beside the composer's sandbox switch: 4C the network switch and the
+  turn's toggle, 4D (through the chat grants list) the chat's folders. The second keeps the
+  first's place.
+- 4C and 4D both hand the gate's decision to the run: 4C `Approval.Network`, 4D
+  `Approval.Folder`. Whichever lands first adds `tools.ApprovedRunner` and the agent loop's call
+  to it; the second adds its field.
+- 4C and 4D both widen the question's `Sandbox` context section: 4C its `network`, 4D the
+  chat's folders. Whichever lands first makes `withSection` take a `map[string]any` and
+  `withSandboxReplaced` find the section by its heading; the second adds its keys.
+- 4A and 4C both touch `trustd`: 4C allows it only under `sandbox.NetworkPolicy.Internet`, and
+  4A's login shell leaves that false. Whichever lands second sets or leaves the field.
+- 4A and 4D both edit the denied-always row of `security-model.md`, 4A for the snapshot's run
+  and 4D for grants; the second keeps the first's words. 4D refuses a read-write grant over the
+  startup files 4A's shell reads, so no grant lets a command write what runs outside the sandbox.
+- 4D makes Kstack's log directory one of its directories (`app.Config.LogDir`); 4A's `main`
+  reads Kstack's directories from `cfg.App`, and whichever lands second adds `LogDir` there.
 
 **Wave 5** — needs waves 1 to 4.
 
 | Spec | Step | After it |
 | --- | --- | --- |
 | [5A](5a-secret-data-is-a-permissioned-read.md) | **Secret data is a permissioned read.** Class 6: a read of Secret data asks, and the proxy redacts unless the session holds the grant; a session can be one that never reads it. Needs 3B and 4B. | A Secret's values reach the model only after the user says so, and never in a monitoring session. |
-| [5B](5b-denials-in-context.md) | **Denials in context.** A path, host or write a run was refused is found per command and drawn under the call in plain words, with the grant that resolves it. Needs 4C and 4D. | A blocked command explains itself, and the closed home becomes how users find the permission system. |
+| [5B](5b-denials-in-context.md) | **Denials in context.** A path or a write a run was refused is found per command and drawn under the call in plain words, with the grant that resolves it. Needs 4D. | A blocked command explains itself, and the closed home becomes how users find the permission system. |
 
 **Wave 6** — needs waves 1 to 5.
 
 | Spec | Step | After it |
 | --- | --- | --- |
 | [6A](6a-tool-probing.md) | **Tool probing.** The curated tools are probed in the real sandbox at onboarding and after a `PATH` refresh; each reports the binary it resolved to and the paths it was denied, with a grant button; the user registers more tools; a missing `kubectl` is said plainly. Needs 3A and 5B. | A `helm` plugin works in the sandbox after one click, and the user knows which `kubectl` the agent runs. |
-| [6B](6b-the-monitoring-session.md) | **The monitoring session.** A `monitor` session: read-only at both proxies, Secret data never, no prompts, its own workspace, no folder grants; a proposal card into chat, whose "Do it" runs the action in a chat session. Needs 4C and 5A. | A monitoring agent can plug in and change nothing without a human. |
+| [6B](6b-the-monitoring-session.md) | **The monitoring session.** A `monitor` session: read-only at the cluster proxy, no network, Secret data never, no prompts, its own workspace, no folder grants; a proposal card into chat, whose "Do it" runs the action in a chat session. Needs 4C and 5A. | A monitoring agent can plug in and change nothing without a human. |
+
+6A meets 4D across waves: the probe has no chat, so its run reads `foldersFor(ctx, "")`, the folders
+granted always alone, and a folder granted from its report reaches the next probe.
 
 **Wave 7** — needs waves 1 to 6.
 
@@ -237,9 +261,9 @@ neither and says so. A risk a step accepts on purpose is a **By decision** row i
 | 3A | yes | yes | the shell-import and sandboxed-command rows say the frozen list |
 | 3B | yes | yes | the cluster-write rows say `Decide`; the bash tool record's consent line amended |
 | 3C | no | yes | the cluster-write rows cite the verdict's tests |
-| 4A | yes | no | the snapshot and shell-import rows; a **By decision** row for what the shell's output shapes outside the sandbox |
+| 4A | yes | yes | the snapshot and shell-import rows; the denied-always row names the snapshot's run; **By decision** rows for what the shell's output shapes outside the sandbox and the `-c` startup files; the note's denied-always paragraph |
 | 4B | yes | yes | the request row; the rules row |
-| 4C | yes | yes | the network row; rows for the allowlist, the address refusal and no credential for any host; the Mach services row |
+| 4C | yes | yes | the network row says the user's switch, with the tests; a **By decision** row: a command with network can send what it read to any server; rows for the loopback refusal and no credential for any host; the Mach services row (`trustd.agent` and DNS only with network); a **By decision** row for the trust daemon's GET to the loopback under network |
 | 4D | yes | yes | the file row; the denied-always row; the file tools' rows; a row for the monitor holding no folder |
 | 5A | yes | yes | the Secret redaction row; the helm release row; the cluster-reads **By decision** row; a row for `NoSecretData` |
 | 5B | no | no | a row: a denial is drawn and offered, never granted |

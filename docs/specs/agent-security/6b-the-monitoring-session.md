@@ -6,8 +6,8 @@ status: Planned
 
 # The monitoring session
 
-**Needs:** step 5A, whose `NoPrompts` keeps Secret data redacted; step 4C, whose egress proxy
-holds the host allowlist. **Unblocks:** nothing.
+**Needs:** step 5A, whose `NoPrompts` keeps Secret data redacted; step 4C, whose
+`Session.Network` and `Internet` a monitor leaves off. **Unblocks:** nothing.
 
 Go paths below are under `sidecar/internal/` unless they say otherwise.
 
@@ -21,8 +21,8 @@ agent's **plumbing** exists, driven by a stand-in until an agent is designed, as
 *Where this meets the code* decides (decision 3):
 
 - **`monitor`** is one package that builds a **monitor session** per watched cluster: read-only
-  at every proxy, Secret data never, no prompts, its own workspace under `<data>/monitor/`, no
-  folder grants and none of the user's hosts.
+  at the cluster proxy, no network, Secret data never, no prompts, its own workspace under
+  `<data>/monitor/`, and no folder grants.
 - **A proposal** is how the monitor asks for a change: a title, a reason and the question a chat
   is started with. `proposals` is a table, `proposalsWatch` a delta watch, and the **proposal
   card** draws it over the chat list. **Do it** starts a chat on the cluster whose first
@@ -63,19 +63,22 @@ package, inside the data directory every chat's `Always` part hides.
 func Session() session.Session {
 	return session.Session{
 		Kind:      session.Monitor,
-		Mode:      func(context.Context, string) permissions.Mode { return permissions.ReadOnly },
+		Policy: func(context.Context, string) permissions.Policy {
+			return permissions.Policy{Mode: permissions.ReadOnly, Rules: permissions.Shipped(), NoPrompts: true}
+		},
 		NoPrompts: true,
-		Rules:     func(context.Context, string) []permissions.Rule { return permissions.Shipped() },
-		Hosts:     monitorHosts, // §2: the kubeconfig's servers alone
+		Network:   nil, // §2: no network, ever
 		Folders:   nil,
 	}
 }
 ```
 
-The runtime's `ChatID` is empty, and `Outside` is false: a monitor never runs outside the sandbox. `Mode` is
-`ReadOnly` whatever the store's `ModeFor` says of the cluster's context, and `Rules` is the
-shipped rules alone, whatever mode Settings sets for the context: no `chat_grants` row and no
+The runtime's `ChatID` is empty, and `Outside` is false: a monitor never runs outside the sandbox. Its `Policy`
+is `ReadOnly` whatever the store's `ModeFor` says of the cluster's context, with the shipped
+rules alone, whatever mode Settings sets for the context: no `chat_grants` row and no
 always rule of the user's reaches it, since a grant the user wrote for a chat means that chat.
+`Network` is nil, so no run of the monitor's has the internet, whatever any chat's switch says,
+and it reaches its cluster through the cluster proxy alone.
 
 **The runner** builds a runtime and hands it to a caller:
 
@@ -95,7 +98,7 @@ is), so `tools.WorkspacePath(rt.Dir)` is the session's workspace; `Tasks` a `tas
 calls through it (`bashTool.Run(ctx, rt, raw)`); the future agent will run an `agent.Turn`
 over it with an `Approver` that denies everything, offered the chat's box
 `Without(tools.ActionDelegate, tools.ActionMemory, tools.ActionFetch)`: no subagent, no note a
-chat would read, and no fetch, which dials from the sidecar and not through the egress proxy.
+chat would read, and no fetch, which dials from the sidecar and so outside the run's sandbox.
 
 A run whose sandbox does not confine (`Confines()` false, Windows included) is refused before
 anything is made: a monitor is never asked about and never runs unconfined.
@@ -103,16 +106,18 @@ anything is made: a monitor is never asked about and never runs unconfined.
 ### 2. What the token policy gives it
 
 Each row is one of the note's invariants and the test that pins it, through the real proxies
-with a fake upstream. The policy is `{Mode: ReadOnly, NoPrompts: true}`, so step 3B's `Decide`
-answers `Denied` for class 3, 4 and 5, and for class 6, since a `Prompted` under `NoPrompts` is a denial.
+with a fake upstream. The policy is `{Mode: ReadOnly, NoPrompts: true}`, so `Authorize`
+answers `Refuse` for class 4 and 5, and `Outcome` refuses a denial the user could lift, class
+6 included, under `NoPrompts`. Its `Network` is nil, so its runs' policy leaves `Internet`
+false (step 4C), and a call asking for network is refused, since the monitor asks nobody.
 
 | Invariant | What holds it | Test |
 | --- | --- | --- |
-| A `POST`, `PUT`, `PATCH`, `DELETE` or `DELETECOLLECTION` from a monitor token is refused (the note's fifth) | the cluster proxy's write path: `Decide` under `ReadOnly` refuses class 4 and 5 with a 403 naming the mode, and `writesFor` has no asker to fall back to | `TestAMonitorWriteIsRejected`, a table over the five methods and over `scale`, `status`, `ephemeralcontainers` and `binding`; each reaches nothing upstream |
+| A `POST`, `PUT`, `PATCH`, `DELETE` or `DELETECOLLECTION` from a monitor token is refused (the note's fifth) | the cluster proxy's write path: `Authorize` under `ReadOnly` answers `Refuse` for class 4 and 5, a 403 naming the mode, and `writesFor` has no asker to fall back to | `TestAMonitorWriteIsRejected`, a table over the five methods and over `scale`, `status`, `ephemeralcontainers` and `binding`; each reaches nothing upstream |
 | `exec`, `attach`, `portforward` and `proxy` are refused whatever the verb | the policy's refusals, before classification, as for any session | the same test's last rows |
 | Secret `data` and `stringData` are always redacted (the note's sixth) | step 5A: a class 6 read under `NoPrompts` never holds the grant, so the rewriter runs | `TestAMonitorReadsASecretRedacted`, a `GET` of `secrets` and a list, values `[redacted]` |
-| An unlisted host is refused with no prompt | the egress proxy: a monitor session's `Hosts` answers step 4C's `kubeconfig` source alone, never one the user added, never a chat's rule; class 3 under `NoPrompts` is `Denied` | `TestAMonitorNeverAsksForAHost`: a `CONNECT` to a user-added host is refused, the asker is never called, and the API server's host passes |
-| No chat's folder grant reaches it (the note's ninth) | `Folders` is nil and nothing fills it; the policy's Files rules are `System` and the run's own | `TestAChatsFoldersNeverReachTheMonitor`: a folder granted always and one granted to a chat are absent from the monitor run's policy and unreadable in it (step 4D keeps the same test) |
+| No network, and none asked for | `Network` is nil, so `sandboxedRunFor` leaves `Internet` false (step 4C); a `network: true` call has no asker and is refused | `TestAMonitorHasNoNetwork`: a monitor run's policy leaves `Internet` false while a chat's switch and a turn's toggle are on, a listener outside gets no connection, and a `network: true` call is refused with the asker never called |
+| No chat's folder grant reaches it (the note's ninth) | `Folders` is nil and nothing fills it; the policy's Files rules are `System` and the run's own | `TestAChatsFoldersNeverReachTheMonitor`: a folder granted always and one granted to a chat are absent from the monitor run's policy and unreadable in it. The test is this step's: step 4D has no monitor to test |
 
 The run's token is one per run, as today: `sandboxedRunFor` makes the grant with the session,
 and the proxies read the policy off it. Nothing in this step changes the proxies; they read
@@ -270,7 +275,7 @@ and never written in this step: the switch's home. The wire: `monitorSettings: M
 | # | Task | Files | Needs | Status |
 | --- | --- | --- | --- | --- |
 | 1 | `monitor`: `Session`, `Runner`, `monitorDir`, `tasks`, the folder, the sweep | `monitor/monitor.go`, `monitor/dir.go`, `app/paths.go`, `app/app.go`, their tests | — | Planned |
-| 2 | The invariants through the real proxies | `monitor/policy_test.go`, `kubeproxy/`, `egress/` tests | 1 | Planned |
+| 2 | The invariants through the real proxy and sandbox | `monitor/policy_test.go`, `kubeproxy/` tests | 1 | Planned |
 | 3 | `proposals` and `Proposals`: add, start, recover, dismiss, watch, cascade; `chatsvc.ChatForRequest` | `appdb/migrations/0001_init.sql`, `appdb/appdb.go`, `monitor/proposals.go`, `chatsvc/`, `app/app.go`, their tests | — | Planned |
 | 4 | The wire and codegen | `sidecar/graph/schema.graphqls`, `graph/`, generated code, `src/gql/` | 3 | Planned |
 | 5 | `useProposals`, the card, its two homes | `src/lib/proposals.tsx`, `src/components/widgets/proposal-card.tsx`, `dashboard-chat.tsx`, `src/layouts/app-layout.tsx`, their tests | 4 | Planned |
@@ -291,8 +296,8 @@ and never written in this step: the switch's home. The wire: `monitorSettings: M
 - `TestAMonitorRunsOnlyInASandbox`: a sandbox that does not confine, and none, is `ErrNoSandbox`
   and nothing is made.
 - `TestAMonitorWriteIsRejected`, `TestAMonitorReadsASecretRedacted`,
-  `TestAMonitorNeverAsksForAHost`, `TestAChatsFoldersNeverReachTheMonitor`: §2's table, each
-  through the real proxy with a fake upstream, in `policy_test.go`.
+  `TestAMonitorHasNoNetwork`, `TestAChatsFoldersNeverReachTheMonitor`: §2's table, each
+  through the real proxy with a fake upstream, or the real sandbox, in `policy_test.go`.
 - `TestAChatCannotReadTheMonitorsFolder` and `TestTheMonitorCannotReadAChatsFolder`, in
   `monitor_unix_test.go`, through the real sandbox.
 - `TestTheFolderGoesWithTheCluster`: a marked cluster's folder is removed, and a start sweep
@@ -327,8 +332,9 @@ and never written in this step: the switch's home. The wire: `monitorSettings: M
 This step adds a session that holds less than any chat's: no prompt can widen it, no grant
 reaches it, and its writes are refused at the proxy by its mode before any asker is looked for.
 What a hijacked monitor can do: read everything its cluster serves but Secret data, and write
-its own workspace. What it cannot: change the cluster; reach a host the kubeconfig did not name;
-reach a chat's files or a credential; run outside the sandbox; or ask anyone. The proposal is
+its own workspace. What it cannot: change the cluster; reach the network, the cluster's API server included,
+which it reads through the cluster proxy alone; reach a
+chat's files or a credential; run outside the sandbox; or ask anyone. The proposal is
 text the user reads before a chat runs it, and the chat asks as any chat does.
 
 Residuals: a hijacked monitor can propose in persuasive words, and the user's guard is reading
