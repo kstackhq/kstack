@@ -1151,3 +1151,12 @@ func defaultEntries() securityconfig.RunPath {
 	}
 	return securityconfig.RunPath{Entries: entries, Resolved: true}
 }
+
+// The prompt says what an allow keeps: a change allowed for the chat or always
+// runs at once next time, one allowed for the command for the rest of it and
+// asks again in the next, and a background command changes nothing.
+func TestThePromptSaysWhatAnAllowKeeps(t *testing.T) {
+	assert.Contains(t, sandboxPrompt, "A change the user allowed for this chat, or always, runs at once the next time a foreground command sends it")
+	assert.Contains(t, sandboxPrompt, "A change allowed for the command runs at once for the rest of that command, and asks again in the next one.")
+	assert.Contains(t, sandboxPrompt, "so does a change from a background command")
+}

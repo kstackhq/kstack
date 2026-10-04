@@ -70,7 +70,7 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 | `sandbox` | the OS sandbox: `Policy`, the zone `Lists`, `Limits`, and reading a run's denials | landed; 1A, 2A, 2B, 5B |
 | `securityconfig` | the settings file `<data>/security.json`: the store, and the fields later steps add — the frozen `PATH`, the permission rules and modes, the folders granted always, the registered tools, the monitor's switch, the onboarding flag | 1C |
 | `session` | a `Session`: one agent run's kind and sandbox switch, then its approval mode, network, folder grants and rules; and how a subagent's is narrowed from its parent's | 2C |
-| `permissions` | the action classes, the approval modes, the rules, and `Decide` | 3B, 3C |
+| `permissions` | the action classes, the approval modes, the rules, and `Decide` | 3B, 3C, 4B |
 | `kubeproxy` | the cluster proxy | landed; 3B, 5A |
 | `monitor` | the monitoring session and its proposal cards | 6B |
 | `tools/bash` | the Bash tool, which builds each run from its session | landed; every wave |
@@ -181,21 +181,19 @@ the step that lands first adds it, the other uses it.
 | Spec | Step | After it |
 | --- | --- | --- |
 | 4A | **The login shell runs in the sandbox.** The `PATH` resolution and the shell snapshot run confined: everything but Kstack's folders readable, and for the resolution, whose answer leaves the sandbox, the denied-always list shut too; nothing writable but a scratch folder, no network. Needs 1A and 3A. **Landed**; `sidecar/CLAUDE.md` describes it. | A startup file cannot read `app.db` or reach the network while Kstack runs it. |
-| [4B](4b-the-prompt-names-the-action.md) | **The prompt names the action.** A request draws the classified action, a diff for an apply or a patch, and five answers: once, this command, this chat, always, deny. "Always" writes a rule. Needs 3B and 3C. | The user reads "Delete pods/api-7f9c in team-a on dev-eks" and decides for the scope they see. |
+| 4B | **The prompt names the action.** A request draws the classified action, a diff for an apply or a patch, and five answers: once, this command, this chat, always, deny. "Always" writes a rule. Needs 3B and 3C. **Landed**; the root and `sidecar/` `CLAUDE.md` describe it. | The user reads "Delete pods/api-7f9c in team-a on dev-eks" and decides for the scope they see. |
 | [4C](4c-network-is-the-users-switch.md) | **Network is the user's switch.** A sandboxed command has no network unless the user turned it on: a per-chat switch, a toggle for one turn, or an approval of one command that asks for it. On, it reaches the internet with nothing blocked but the machine's loopback; `trustd` and DNS on macOS only then; `pasta` on Linux. Every call records whether it had network and why. Needs 1B, 2B, 2C and 3B. | `helm repo update` works in a chat the user opened to the network, and a chat they did not reaches nothing. |
 | [4D](4d-path-grants.md) | **Path grants.** The user grants a folder, read or read-write, for a chat or always; the denied-always list still wins; the Settings section. Needs 1A, 2C, 3A, 3B and 3C. | The agent can see `~/code/my-service` because the user said so, and `~/.ssh` under a granted `~` stays hidden. |
 
 Seams, each said in both specs' own text:
 
-- 4B and 4D each write a `chat_grants` row: whichever lands first adds `addGrant`,
-  `removeGrant` and their statements, the `chatGrants` query and `chatGrantRemove` mutation, and
-  the composer's *Allowed for this chat* list, where every chat rule is seen and removed.
-  `addGrant` inserts a rule with no id and replaces the rule under an id the chat holds, which
-  is how 4D changes a folder's mode in place. 4D's folder rows in that list add a refused
-  folder's reason.
-- 4B and 4D each add fields to `permissions.Rule` (4B `Command`, 4D `Folder`); 4D adds its
-  classes to `ruleClasses` and a case to `ruleRefusal`. The step that lands second adds its
-  fields beside the first's.
+- 4B and 4D each write a `chat_grants` row: 4B landed `addGrant`, `removeGrant` and their
+  statements, the `chatGrants` query and `chatGrantRemove` mutation, and the composer's
+  *Allowed for this chat* list, where every chat rule is seen and removed. `addGrant` inserts a
+  rule with no id and replaces the rule under an id the chat holds, which is how 4D changes a
+  folder's mode in place. 4D's folder rows in that list add a refused folder's reason.
+- 4B and 4D each add fields to `permissions.Rule`: 4B landed `Command`, and 4D adds `Folder`
+  beside it, its classes to `ruleClasses` and a case to `ruleRefusal`.
 - 4C and 4D both change `sandboxedRunFor` and `workspacePolicy`: 4C the policy's `Internet`, 4D
   the Files rules a grant adds. They touch different parts of the policy, and the second keeps
   the first's.

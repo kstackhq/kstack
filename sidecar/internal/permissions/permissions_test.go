@@ -355,3 +355,144 @@ func TestReadOnlyRefusesClassesThreeToFive(t *testing.T) {
 		assert.Equal(t, want, got, "class %d", class)
 	}
 }
+
+func TestAnActionRoundTripsAsJSON(t *testing.T) {
+	act := patch(UpstreamWrite)
+	act.Summary, act.DryRun = "Patch deployments/api in team-a on dev", true
+	b, err := json.Marshal(act)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"class":4,"context":"dev","namespace":"team-a","verb":"patch","group":"apps","kind":"deployments",
+		"name":"api","summary":"Patch deployments/api in team-a on dev","dryRun":true}`, string(b))
+
+	var back Action
+	require.NoError(t, json.Unmarshal(b, &back))
+	assert.Equal(t, act, back)
+}
+
+func TestALiteralFieldReadsQuoted(t *testing.T) {
+	literal := Rule{Effect: Allow, Class: UpstreamWrite, Context: Literal("dev*")}
+	assert.Equal(t, `Allow cluster writes in "dev*"`, literal.Line())
+	glob := Rule{Effect: Allow, Class: UpstreamWrite, Context: "dev-*"}
+	assert.Equal(t, `Allow cluster writes in dev-*`, glob.Line())
+}
+
+func TestALineReadsOneWay(t *testing.T) {
+	rules := map[string]Rule{
+		`Allow cluster writes in "a / b"`:               {Effect: Allow, Class: UpstreamWrite, Context: Literal("a / b")},
+		`Allow cluster writes in a / b`:                 {Effect: Allow, Class: UpstreamWrite, Context: "a", Namespace: "b"},
+		`Allow cluster writes in matching "a b*"`:       {Effect: Allow, Class: UpstreamWrite, Context: "a b*"},
+		`Allow cluster writes in "say \"hi\""`:          {Effect: Allow, Class: UpstreamWrite, Context: Literal(`say "hi"`)},
+		`Allow cluster writes in "back\\slash"`:         {Effect: Allow, Class: UpstreamWrite, Context: Literal(`back\slash`)},
+		`Allow delete of core "my pods" in dev / web`:   {Effect: Allow, Class: UpstreamWrite, Context: "dev", Namespace: "web", Verb: "delete", Group: "core", Kind: Literal("my pods")},
+		`Allow cluster writes in dev / matching "a b?"`: {Effect: Allow, Class: UpstreamWrite, Context: "dev", Namespace: "a b?"},
+	}
+	seen := map[string]bool{}
+	for want, rule := range rules {
+		line := rule.Line()
+		assert.Equal(t, want, line)
+		assert.False(t, seen[line], "two rules share %q", line)
+		seen[line] = true
+	}
+}
+
+func TestGrantableIsUnmatched(t *testing.T) {
+	write := patch(UpstreamWrite)
+	for v, want := range map[Verdict]bool{Unmatched: true, Permit: false, Forbid: false, Refuse: false} {
+		assert.Equal(t, want, Grantable(v, write), "verdict %d", v)
+	}
+	forbid, _ := Policy{Mode: Ask}.Authorize(patch(Destructive))
+	assert.False(t, Grantable(forbid, patch(Destructive)), "class 5 is a forbid")
+	askFor := Policy{Mode: Ask, Rules: []Rule{{ID: "r", Effect: AskFor, Class: UpstreamWrite}}}
+	v, _ := askFor.Authorize(write)
+	assert.False(t, Grantable(v, write), "an AskFor rule is a forbid")
+	v, _ = Policy{Mode: ReadOnly}.Authorize(write)
+	assert.False(t, Grantable(v, write), "read-only refuses")
+
+	v, _ = Policy{Mode: Ask}.Authorize(write)
+	assert.True(t, Grantable(v, write), "a class 4 write nothing names")
+	noContext := write
+	noContext.Context = ""
+	assert.False(t, Grantable(Unmatched, noContext), "a rule from an action with no context reaches every context")
+}
+
+func TestADryRunIsNotGrantable(t *testing.T) {
+	write := patch(UpstreamWrite)
+	assert.True(t, Grantable(Unmatched, write))
+	write.DryRun = true
+	assert.False(t, Grantable(Unmatched, write))
+}
+
+// allows is whether r, as the one rule of an Ask policy, lets act run.
+func allows(r Rule, act Action) bool {
+	v, _ := Policy{Mode: Ask, Rules: []Rule{r}}.Authorize(act)
+	return v == Permit
+}
+
+func TestAGrantRuleKeepsTheLiteralScope(t *testing.T) {
+	act := patch(UpstreamWrite)
+	act.Context = "dev*"
+	r := GrantRule(act)
+	assert.Equal(t, Rule{Effect: Allow, Class: UpstreamWrite, Context: `dev\*`, Namespace: "team-a", Inside: true}, r)
+	assert.True(t, allows(r, act))
+	other := act
+	other.Context = "dev-eks"
+	assert.False(t, allows(r, other), "a context named dev* grants that context alone")
+
+	inside := GrantRule(patch(UpstreamWrite))
+	assert.Equal(t, "Allow cluster writes inside dev / team-a", inside.Line())
+	label := Action{Class: UpstreamWrite, Context: "dev", Namespace: "team-a", Verb: "patch", Group: "core", Kind: "namespaces", Name: "team-a"}
+	assert.False(t, allows(inside, label), "a grant for what is in team-a leaves the Namespace out")
+	label.Kind = "namespaces/finalize"
+	assert.False(t, allows(inside, label), "and its subresources")
+
+	ns := Action{Class: UpstreamWrite, Context: "dev-eks", Namespace: "team-a", Verb: "patch", Group: "core", Kind: "namespaces", Name: "team-a"}
+	r = GrantRule(ns)
+	assert.Equal(t, "core", r.Group)
+	assert.Equal(t, "namespaces", r.Kind)
+	assert.True(t, allows(r, ns))
+	pod := Action{Class: UpstreamWrite, Context: "dev-eks", Namespace: "team-a", Verb: "delete", Group: "core", Kind: "pods", Name: "api"}
+	assert.False(t, allows(r, pod), "a Namespace's grant is the object, not what is in it")
+	assert.Equal(t, "Allow writes of core namespaces in dev-eks / team-a", r.Line())
+	finalize := ns
+	finalize.Kind = "namespaces/finalize"
+	assert.Equal(t, "namespaces/finalize", GrantRule(finalize).Kind, "a Namespace's subresource names it too")
+}
+
+func TestAClusterScopedGrantNamesTheResource(t *testing.T) {
+	node := Action{Class: UpstreamWrite, Context: "dev-eks", Verb: "patch", Group: "core", Kind: "nodes", Name: "n1"}
+	r := GrantRule(node)
+	assert.Equal(t, Rule{Effect: Allow, Class: UpstreamWrite, Context: "dev-eks", Group: "core", Kind: "nodes"}, r)
+	other := node
+	other.Name = "n2"
+	assert.True(t, allows(r, other))
+	for _, ns := range []string{"", "team-a"} {
+		pod := Action{Class: UpstreamWrite, Context: "dev-eks", Namespace: ns, Verb: "patch", Group: "core", Kind: "pods"}
+		assert.False(t, allows(r, pod), "a pod write in %q", ns)
+	}
+	role := Action{Class: UpstreamWrite, Context: "dev-eks", Verb: "patch", Group: "rbac.authorization.k8s.io", Kind: "clusterroles"}
+	assert.False(t, allows(r, role))
+}
+
+func TestACommandRuleNamesTheChange(t *testing.T) {
+	del := Action{Class: UpstreamWrite, Context: "dev*", Namespace: "web", Verb: "delete", Group: "core", Kind: "pods", Name: "a"}
+	r := CommandRule(del)
+	assert.True(t, r.Command)
+	other := del
+	other.Name = "b"
+	assert.True(t, allows(r, other), "another pod's delete")
+	for name, act := range map[string]Action{
+		"a deployment's delete":   {Class: UpstreamWrite, Context: "dev*", Namespace: "web", Verb: "delete", Group: "apps", Kind: "deployments"},
+		"a patch of a pod":        {Class: UpstreamWrite, Context: "dev*", Namespace: "web", Verb: "patch", Group: "core", Kind: "pods"},
+		"a pod delete in dev-eks": {Class: UpstreamWrite, Context: "dev-eks", Namespace: "web", Verb: "delete", Group: "core", Kind: "pods"},
+	} {
+		assert.False(t, allows(r, act), name)
+	}
+	assert.Equal(t, `Allow delete of core pods in "dev*" / web for this command`, r.Line())
+
+	b, err := json.Marshal(r)
+	require.NoError(t, err)
+	assert.NotContains(t, string(b), "ommand")
+	var back Rule
+	require.NoError(t, json.Unmarshal([]byte(`{"id":"r","effect":"allow","class":4,"command":true,"Command":true}`), &back))
+	assert.False(t, back.Command, "a stored rule is never a command's")
+}

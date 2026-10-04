@@ -26,6 +26,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/rawjson"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -310,29 +311,60 @@ type ToolCall struct {
 	ClusterWrites []ClusterWrite `json:"clusterWrites"`
 }
 
-// ClusterWrite is a request a sandboxed command sent to change the cluster and
-// the user's decision on it, as the wire serves them. ContentType and Body are
-// empty once it no longer waits, since each publish sends the call list whole;
-// the record keeps them.
+// ClusterWrite is an action a sandboxed command's request asked for and the
+// user's decision on it, as the wire serves them: the request as sent, and the
+// action the proxy classified it as. ContentType and Body are empty once it
+// no longer waits, since each publish sends the call list whole; the record
+// keeps them. An action with no write serves an empty request.
 type ClusterWrite struct {
 	Approval ToolCallApproval `json:"approval"`
-	tools.ClusterWriteRequest
+	tools.ClusterWrite
+	Action PermissionAction `json:"action"`
+	// Diff is the change as YAML while the write waits; DiffCut says it stops
+	// short of the whole change, and DiffError why there is none.
+	Diff      string `json:"diff"`
+	DiffCut   bool   `json:"diffCut"`
+	DiffError string `json:"diffError"`
 	// Reason is the mode or rule that decided a write nobody was asked about;
 	// nil for one the user answered.
 	Reason *string `json:"reason"`
 }
 
-// clusterWritesOf is a call's writes as the wire serves them. A write waits
+// PermissionAction is a classified action as the wire serves it: the action,
+// whether a rule may allow it, and the rule each allow answer adds, in words.
+type PermissionAction struct {
+	permissions.Action
+	Grantable   bool   `json:"grantable"`
+	CommandRule string `json:"commandRule"`
+	ChatRule    string `json:"chatRule"`
+}
+
+// clusterWriteOf is an action approval as the wire serves it, the request
+// whole.
+func clusterWriteOf(a ToolCallApproval, r tools.ActionRequest) ClusterWrite {
+	w := ClusterWrite{
+		Approval: a,
+		Action:   PermissionAction{Action: r.Action, Grantable: r.Grantable, CommandRule: r.CommandRule, ChatRule: r.ChatRule},
+		Diff:     r.Diff, DiffCut: r.DiffCut, DiffError: r.DiffError,
+	}
+	if r.Write != nil {
+		w.ClusterWrite = *r.Write
+	}
+	return w
+}
+
+// clusterWritesOf is a call's actions as the wire serves them. An action waits
 // while its approval is pending and its call running.
 func clusterWritesOf(r toolCallEntry) []ClusterWrite {
 	out := make([]ClusterWrite, 0, len(r.ClusterWrites))
 	for _, a := range r.ClusterWrites {
-		w := ClusterWrite{Approval: ToolCallApproval{ID: a.ID, Status: a.Status}, ClusterWriteRequest: *a.Request}
+		w := clusterWriteOf(toolCallApprovalOf(a), *a.Request)
 		if a.Reason != "" {
 			w.Reason = &a.Reason
 		}
 		if a.Status != ApprovalPending || r.Status != toolRunning {
 			w.ContentType, w.Body = "", ""
+			w.Diff, w.DiffCut, w.DiffError = "", false, ""
 		}
 		out = append(out, w)
 	}
@@ -386,6 +418,18 @@ func backgroundTaskOf(t *taskState) *BackgroundTask {
 type ToolCallApproval struct {
 	ID     ApprovalID     `json:"id"`
 	Status ApprovalStatus `json:"status"`
+	// Duration is how long an approval holds; nil unless approved.
+	Duration *permissions.Duration `json:"duration"`
+}
+
+// toolCallApprovalOf is a's id, status and duration as the wire serves them.
+func toolCallApprovalOf(a *approval) ToolCallApproval {
+	out := ToolCallApproval{ID: a.ID, Status: a.Status}
+	if a.Duration != "" {
+		d := a.Duration
+		out.Duration = &d
+	}
+	return out
 }
 
 // marshalToolCalls is the one spelling of a turn's calls, the live list's and the
@@ -407,7 +451,8 @@ func marshalToolCalls(rows []toolCallEntry, box tools.Box) rawjson.RawJSON {
 			ClusterWrites: clusterWritesOf(r),
 		}
 		if a := r.Approval; a != nil {
-			c.Approval = &ToolCallApproval{ID: a.ID, Status: a.Status}
+			approval := toolCallApprovalOf(a)
+			c.Approval = &approval
 		}
 		if r.AgentCallID != "" {
 			c.AgentCallID = &r.AgentCallID
