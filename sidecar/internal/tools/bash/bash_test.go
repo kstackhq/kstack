@@ -496,7 +496,7 @@ func (f *fakeSandboxer) Never(string) []string { return f.never }
 
 func (f *fakeSandboxer) Confines() bool { return f.confines }
 
-func (f *fakeSandboxer) CountedProcesses() (int, error) { return f.counted, f.countErr }
+func (f *fakeSandboxer) CountedProcesses(bool) (int, error) { return f.counted, f.countErr }
 
 func (f *fakeSandboxer) Port() (int, error) {
 	f.mu.Lock()

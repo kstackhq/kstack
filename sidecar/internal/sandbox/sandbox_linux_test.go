@@ -891,6 +891,57 @@ func TestTheCompiledArgumentsMatchTheGolden(t *testing.T) {
 	}
 }
 
+// withIDs is args with the user's ids spelled $UID and $GID, which differ
+// from one machine to the next.
+func withIDs(args []string) []string {
+	out := slices.Clone(args)
+	for i := 1; i < len(out); i++ {
+		switch out[i-1] {
+		case "--uid":
+			out[i] = "$UID"
+		case "--gid":
+			out[i] = "$GID"
+		}
+	}
+	return out
+}
+
+// A run with the internet is pasta over bwrap, and its resolver is bound
+// after every rule and fixed mount and before the closing remounts, where the
+// host's link leads, so the link the run reads at /etc/resolv.conf reaches
+// it; a host with no resolv.conf gets the bind at the path itself.
+func TestTheResolverBindsWhereTheHostsLinkLeads(t *testing.T) {
+	f := newFixture(t)
+	stub := mkdirs(t, f.base, "sys/run/systemd/resolve")[0]
+	require.NoError(t, os.WriteFile(filepath.Join(stub, "stub-resolv.conf"), nil, 0o600))
+	link := filepath.Join(f.base, "sys", "etc", "resolv.conf")
+	require.NoError(t, os.Symlink("../run/systemd/resolve/stub-resolv.conf", link))
+	old := hostResolvConf
+	t.Cleanup(func() { hostResolvConf = old })
+	s := &Sandbox{self: f.self, bwrap: "/usr/bin/bwrap", pasta: "/usr/bin/pasta"}
+	r := f.withInternet(s, f.run(s, true))
+
+	hostResolvConf = link
+	cmd := command(t, s, context.Background(), r)
+	f.golden(t, "args_linux_internet.golden", withIDs(cmd.Args[1:]))
+
+	hostResolvConf = filepath.Join(f.base, "sys", "etc", "missing.conf")
+	args := command(t, s, context.Background(), r).Args
+	i := slices.Index(args, hostResolvConf)
+	require.Positive(t, i, "bound at the path itself")
+	assert.Equal(t, []string{"--ro-bind", r.Policy.Network.Resolver}, args[i-2:i])
+
+	for name, at := range map[string]string{
+		"under /proc":    "/proc/self/resolv.conf",
+		"under a denial": filepath.Join(f.home, ".ssh", "resolv.conf"),
+		"under Kstack's": filepath.Join(f.data, "resolv.conf"),
+	} {
+		hostResolvConf = at
+		_, err := s.Command(context.Background(), r)
+		assert.ErrorContains(t, err, "cannot be bound", name)
+	}
+}
+
 // A shell on /tmp or /dev, or on or under /proc, makes no rule, since a rule
 // there would replace a fixed mount; one under /tmp does.
 func TestSystemLeavesOutTheFixedMounts(t *testing.T) {

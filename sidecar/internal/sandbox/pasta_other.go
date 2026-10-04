@@ -12,27 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !windows
+//go:build !linux
 
 package sandbox
 
 import (
-	"os/exec"
-	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"errors"
+	"os"
+	"runtime"
 )
 
-// The user's count holds this test and its child, through the scan on Linux
-// and the sysctl on macOS.
-func TestTheUsersProcessesAreCounted(t *testing.T) {
-	child := exec.Command("sleep", "60")
-	require.NoError(t, child.Start())
-	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
-
-	n, err := (&Sandbox{}).CountedProcesses(false)
-
-	require.NoError(t, err)
-	assert.GreaterOrEqual(t, n, 2)
+// PastaMain refuses: pasta is Linux's.
+func PastaMain([]string) int {
+	return fail(os.Stderr, PastaCommand, "no pasta on this platform", errors.New(runtime.GOOS))
 }

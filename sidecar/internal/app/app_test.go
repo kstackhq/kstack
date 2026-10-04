@@ -665,6 +665,16 @@ func TestTheSandboxStatusIsTheShellAndTheProbe(t *testing.T) {
 	assert.Equal(t, sandbox.Status{Reason: "no shell was found"}, sandboxStatusOf(false, found))
 }
 
+// A sandbox with no shell confines no command, so it offers no network either.
+func TestNoShellOffersNoNetwork(t *testing.T) {
+	found := sandbox.Status{Available: true, Reason: "bwrap at /usr/bin/bwrap", NetworkAvailable: true}
+
+	assert.Equal(t, found, sandboxStatusOf(true, found))
+	got := sandboxStatusOf(false, found)
+	assert.False(t, got.NetworkAvailable)
+	assert.Empty(t, got.NetworkReason)
+}
+
 // On a machine with no sandbox the service syncs nothing and keeps no fault,
 // and a sync that fails at Start is a warning, not a startup error.
 func TestASecurityServiceWithNoSandboxSyncsNothing(t *testing.T) {

@@ -15,4 +15,4 @@
 package sandbox
 
 // CountedProcesses answers errNone, since no command runs sandboxed.
-func (s *Sandbox) CountedProcesses() (int, error) { return 0, errNone }
+func (s *Sandbox) CountedProcesses(bool) (int, error) { return 0, errNone }

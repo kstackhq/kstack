@@ -57,6 +57,11 @@ type AlwaysPolicy struct {
 // network at all.
 type NetworkPolicy struct {
 	Relays []Relay
+	// Internet lets the run reach the internet. The host's loopback stays shut.
+	Internet bool
+	// Resolver is a resolv.conf the caller wrote for a run with Internet, bound
+	// over the system's on Linux; "" on macOS and for a run without Internet.
+	Resolver string
 }
 
 // Relay is a loopback port inside the run that the forwarder connects to a
@@ -119,7 +124,10 @@ func (p Policy) Check() error {
 			return fmt.Errorf("%s lies on or inside a path no rule opens", path)
 		}
 	}
-	for _, path := range slices.Concat(p.Always.Read, p.Always.Write) {
+	if p.Network.Resolver != "" && !p.Network.Internet {
+		return errors.New("a resolver for a run without the internet")
+	}
+	for _, path := range slices.Concat(p.Always.Read, p.Always.Write, p.ownResolver()) {
 		if err := notLink(path); err != nil {
 			return err
 		}
@@ -154,6 +162,15 @@ func notLink(path string) error {
 	return nil
 }
 
+// ownResolver is p's Resolver as one of the run's own paths, checked as they
+// are, or none.
+func (p Policy) ownResolver() []string {
+	if p.Network.Resolver == "" {
+		return nil
+	}
+	return []string{p.Network.Resolver}
+}
+
 // rulePaths is every path a file rule of p names, Files and Always.
 func (p Policy) rulePaths() []string {
 	return slices.Concat(p.Files.Read, p.Files.Write, p.Files.Deny, p.Always.Deny, p.Always.Kstack, p.Always.Read, p.Always.Write)
@@ -161,7 +178,7 @@ func (p Policy) rulePaths() []string {
 
 // paths is every path p names.
 func (p Policy) paths() []string {
-	paths := p.rulePaths()
+	paths := append(p.rulePaths(), p.ownResolver()...)
 	for _, r := range p.Network.Relays {
 		paths = append(paths, r.Socket)
 	}

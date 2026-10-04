@@ -83,11 +83,11 @@ func probe(ctx context.Context, path string, timeout time.Duration) (*Sandbox, S
 	}
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
-		return s, Status{Available: true, Reason: "Seatbelt, unconfirmed: the probe did not finish within " + timeout.String()}
+		return s, Status{Available: true, Reason: "Seatbelt, unconfirmed: the probe did not finish within " + timeout.String(), NetworkAvailable: true}
 	case err != nil:
 		return nil, Status{Reason: probeFailure(stderr.String(), err)}
 	}
-	return s, Status{Available: true, Reason: "Seatbelt"}
+	return s, Status{Available: true, Reason: "Seatbelt", NetworkAvailable: true}
 }
 
 // probeFailure is why the probe's run failed: the first line of its stderr,
@@ -112,6 +112,9 @@ func probeFailure(stderr string, err error) string {
 func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 	if r.Policy.Limits.MemoryBytes > 0 {
 		return nil, errNoMemoryLimit
+	}
+	if r.Policy.Network.Resolver != "" {
+		return nil, errNoResolver
 	}
 	type built struct {
 		text   string
@@ -144,8 +147,16 @@ func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 	return cmd, nil
 }
 
+// errNoResolver is a run naming a resolv.conf, which a Seatbelt run has no
+// mount to put in place: it resolves through mDNSResponder.
+var errNoResolver = errors.New("a macOS run takes no resolver")
+
 // Confines reports whether a command run through s is confined: always, here.
 func (s *Sandbox) Confines() bool { return true }
+
+// NeedsResolver reports whether a run with the internet needs a resolv.conf
+// of its own: never, here, since it resolves through mDNSResponder.
+func (s *Sandbox) NeedsResolver() bool { return false }
 
 // Port is a free loopback port for a run's forwarder. Seatbelt has no private
 // loopback, so it is the host's. The forwarder listens on it before the
@@ -199,6 +210,26 @@ var refusedServices = []string{
 	"com.apple.trustd", "com.apple.trustd.agent", "com.apple.nsurlsessiond",
 }
 
+// internetRules is a run's internet: IPv4 to every address but the host's
+// own, and the resolver and the trust daemon, which refusedServices names and
+// a run without it never reaches. Seatbelt's localhost under ip4 matches every
+// address the host holds, loopback and the unspecified address included, but
+// only with the deny of all IPv6 after it: without that deny, or with it
+// before, the localhost deny shuts nothing. IPv6 is denied whole because Seatbelt names
+// no host but localhost and *, and an IPv4-mapped address such as
+// ::ffff:0.0.0.0 reaches the host past any deny it can write. A later rule
+// wins, so the relay's own loopback port, which follows these, stays open.
+// The darwin tests pin each of those. Other hosts on the local network stay
+// open with the internet.
+const internetRules = `(allow network-outbound (remote ip4 "*:*"))
+(deny network-outbound (remote ip4 "localhost:*"))
+(deny network-outbound (remote ip6 "*:*"))
+(allow network-outbound (literal "/private/var/run/mDNSResponder"))
+(allow mach-lookup
+  (global-name "com.apple.dnssd.service")
+  (global-name "com.apple.trustd.agent"))
+`
+
 // refused reports whether refusedServices names service.
 func refused(service string) bool {
 	return slices.ContainsFunc(refusedServices, func(r string) bool {
@@ -250,9 +281,12 @@ func (s *Sandbox) profile(r Run) (text string, params []string) {
 	}
 
 	var network string
+	if r.Policy.Network.Internet {
+		network = internetRules
+	}
 	if relay := r.Policy.Network.relay(); relay.Socket != "" {
 		params = append(params, "-D", "SOCKET="+relay.Socket, "-D", "SOCKET_RESOLVED="+resolved(relay.Socket))
-		network = fmt.Sprintf(relayRules, relay.Port)
+		network += fmt.Sprintf(relayRules, relay.Port)
 	}
 	var up strings.Builder
 	for i, p := range ancestors(reached) {
@@ -285,3 +319,7 @@ func ancestors(paths []string) []string {
 // overFixedMount reports whether a rule on p would replace a mount every run
 // has: never, since a Seatbelt run has no mounts of its own.
 func overFixedMount(string) bool { return false }
+
+// NetworkStatus is whether a run here can be given the internet: wherever the
+// sandbox is, here.
+func (s *Sandbox) NetworkStatus() (bool, string) { return true, "" }

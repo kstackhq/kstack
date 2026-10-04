@@ -114,7 +114,7 @@ type sandboxer interface {
 	Never(home string) []string
 	Confines() bool
 	Port() (int, error)
-	CountedProcesses() (int, error)
+	CountedProcesses(internet bool) (int, error)
 }
 
 // Tool is a shell found on the machine. It is the tools.Gated a turn is offered.
@@ -635,7 +635,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 	if !background {
 		// Read before anything is made, so a run never starts under a limit
 		// other than its policy's.
-		base, err := boxer.CountedProcesses()
+		base, err := boxer.CountedProcesses(false)
 		if err != nil {
 			return nil, err
 		}
