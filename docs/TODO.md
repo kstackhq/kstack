@@ -478,6 +478,23 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   - **Trigger:** the grouping before step 4C adds the host rules; the sync before the first
     setting that has to sync.
 
+- **Explore refactoring the login shell code.** Its three runs are spread over two packages and
+  six platform files: `app` runs the launch resolution (`launchshell_*.go`) and builds Refresh
+  PATH's resolver (`shellpath_*.go`), and `bash` takes the snapshot (`snapshot_unix.go`), all
+  through `loginshell`. The launch and the refresh each build the same `loginshell.In` by hand,
+  the scratch folder comes from `bash.TempDir`, and `setShellEnv` sits in `app`. Look for a
+  shape where `loginshell` owns the runs and their policies and its callers ask for an answer:
+  one place that knows the resolution shuts the denied-always list and the snapshot does not,
+  and fewer platform files.
+
+- **Explore moving the sandbox into a library of its own.** `internal/sandbox` imports nothing
+  else of Kstack's: it confines a command under bubblewrap or Seatbelt from a `Policy`, with the
+  lists, the probe and the forwarder. A Go module of its own would give it a public API, its own
+  tests and releases, and a use outside Kstack. What ties it to Kstack today: the
+  `AlwaysPolicy.Kstack` field, the forwarder and init running as the sidecar's own binary
+  (`sandbox.Main`), and the bwrap Kstack ships beside it on Linux. Decide whether those become
+  options, and whether the API is settled enough to publish before steps 4C and 4D change it.
+
 ## Host (Tauri/Rust)
 
 - **The log level can only be set by an environment variable.** The host reads `KSTACK_LOG_LEVEL` in

@@ -153,6 +153,12 @@ session or persistently, as read or read-write. The denied-always list must stil
 granting `~` wholesale cannot expose `~/.ssh`. This ordering is the single most important
 invariant in the sandbox and must have a test.
 
+One sandboxed run Kstack starts reads the list: the login shell that builds the shell snapshot
+(step 4A). Its output reaches only commands run outside the sandbox, which read the home
+themselves, and hiding `~/.ssh/config` or `~/.kube/config` would change what it builds. It still
+writes nothing but its scratch folder and reaches no network. The `PATH` resolution's shell,
+whose output leaves the sandbox, has the list shut like any other run.
+
 ### Write policy
 
 Writable: the session workspace, a private per-session temp directory (`TMPDIR` pointed at it),
