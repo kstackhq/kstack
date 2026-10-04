@@ -95,6 +95,15 @@
     color: var(--hl-addition);
   }
 
+  /* A cluster change's diff, drawn by DiffBlock. */
+  .diff-del {
+    color: var(--hl-deletion);
+  }
+
+  .diff-add {
+    color: var(--hl-addition);
+  }
+
   .hljs-emphasis {
     font-style: italic;
   }

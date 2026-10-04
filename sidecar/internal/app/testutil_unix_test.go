@@ -332,7 +332,7 @@ func (e *e2e) bashCall(t *testing.T, want ...string) bashRow {
 // status and the request it holds.
 type writeRow struct {
 	id, status string
-	request    tools.ClusterWriteRequest
+	request    tools.ActionRequest
 }
 
 // clusterWrite waits for the app's one cluster write to reach a status in
@@ -342,7 +342,7 @@ func (e *e2e) clusterWrite(t *testing.T, want ...string) writeRow {
 	var row writeRow
 	require.Eventually(t, func() bool {
 		var request string
-		err := e.db.QueryRow(`SELECT id, status, request FROM approvals WHERE kind = 'cluster'`).Scan(&row.id, &row.status, &request)
+		err := e.db.QueryRow(`SELECT id, status, request FROM approvals WHERE kind = 'action'`).Scan(&row.id, &row.status, &request)
 		return err == nil && json.Unmarshal([]byte(request), &row.request) == nil && slices.Contains(want, row.status)
 	}, e2eConverge, 10*time.Millisecond, "a cluster write in %v", want)
 	return row

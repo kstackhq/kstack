@@ -151,7 +151,7 @@ func startAgentTask(c *subagent, spec agent.Turn, f *os.File) *agentTask {
 	ctx, cancel := context.WithCancel(context.Background())
 	a := &agentTask{sub: c, cancel: cancel, done: make(chan struct{})}
 	// Its writes ask as its own, under its run, bounded by its unansweredLimit.
-	spec.Runtime.ClusterWriteAsker = clusterWriteAsker{j: c.runJournal, run: ctx}
+	spec.Runtime.ActionAsker = actionAsker{j: c.runJournal, run: ctx}
 	go a.run(ctx, spec, f)
 	return a
 }

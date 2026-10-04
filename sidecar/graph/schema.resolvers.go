@@ -201,10 +201,10 @@ func (r *mutationResolver) ChatCancel(ctx context.Context, chatID apimeta.ChatID
 }
 
 // ApprovalDecide is the resolver for the approvalDecide field.
-func (r *mutationResolver) ApprovalDecide(ctx context.Context, id chatsvc.ApprovalID, approve bool) (bool, error) {
-	ok, err := r.ChatSvc.Approve(ctx, id, approve)
+func (r *mutationResolver) ApprovalDecide(ctx context.Context, id chatsvc.ApprovalID, decision chatsvc.ApprovalDecision) (bool, error) {
+	ok, err := r.ChatSvc.Approve(ctx, id, decision)
 	if err != nil {
-		return false, chatErr(err)
+		return false, approvalErr(err)
 	}
 	return ok, nil
 }
@@ -320,6 +320,15 @@ func (r *mutationResolver) PermissionRuleAdd(ctx context.Context, input model.Pe
 // PermissionRuleRemove is the resolver for the permissionRuleRemove field.
 func (r *mutationResolver) PermissionRuleRemove(ctx context.Context, id string) (*model.PermissionSettings, error) {
 	return r.permissionsAfter(ctx, r.SecurityCfg.RemoveRule(id))
+}
+
+// ChatGrantRemove is the resolver for the chatGrantRemove field.
+func (r *mutationResolver) ChatGrantRemove(ctx context.Context, chatID apimeta.ChatID, id string) ([]*permissions.Rule, error) {
+	rules, err := r.ChatSvc.RemoveChatGrant(ctx, chatID, id)
+	if err != nil {
+		return nil, chatErr(err)
+	}
+	return rulePointers(rules), nil
 }
 
 // PermissionDiscardRefused is the resolver for the permissionDiscardRefused field.
@@ -439,6 +448,15 @@ func (r *queryResolver) SandboxPathResolved(ctx context.Context) (bool, error) {
 // PermissionSettings is the resolver for the permissionSettings field.
 func (r *queryResolver) PermissionSettings(ctx context.Context) (*model.PermissionSettings, error) {
 	return r.permissionSettings(ctx)
+}
+
+// ChatGrants is the resolver for the chatGrants field.
+func (r *queryResolver) ChatGrants(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error) {
+	rules, err := r.ChatSvc.ChatGrants(ctx, chatID)
+	if err != nil {
+		return nil, chatErr(err)
+	}
+	return rulePointers(rules), nil
 }
 
 // AuthState is the resolver for the authState field. auth.State binds directly to the

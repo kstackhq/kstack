@@ -19,10 +19,13 @@ package chatsvc
 import (
 	"context"
 	"errors"
+	"slices"
 	"time"
 
+	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -40,13 +43,12 @@ import (
 // is stopped, as the user's Stop would, and the wait ends on that stop's cancel.
 func (j *runJournal) Approve(ctx context.Context, call llm.Block, shown tools.Approval) (bool, error) {
 	s := j.s
-	id := newApprovalID()
-	decision := s.await(id)
+	w := s.await(newApprovalID(), j.chatID, nil)
 	row := j.newToolCall(call)
 	row.Status, row.IsMutating, row.Cwd, row.Sandboxed = toolAwaitingApproval, true, shown.Cwd, shown.Sandboxed
-	a := &approval{ID: id, ToolCallID: row.ID, Status: ApprovalPending, CreatedAt: row.CreatedAt}
+	a := &approval{ID: w.id, ToolCallID: row.ID, Status: ApprovalPending, CreatedAt: row.CreatedAt}
 	if err := j.writeWaiting(ctx, row, *a); err != nil {
-		s.forget(id)
+		s.forget(w)
 		return false, err
 	}
 	row.Approval = a
@@ -54,14 +56,14 @@ func (j *runJournal) Approve(ctx context.Context, call llm.Block, shown tools.Ap
 	j.publish(StatusWaitingApproval)
 	s.notify(chatsKey)
 
-	status, err := j.waitDecision(ctx, id, decision)
+	d, err := j.waitDecision(ctx, w)
 	if err != nil {
 		return false, err
 	}
-	if err := j.endApproval(ctx, a, status); err != nil {
+	if err := j.endApproval(ctx, a, d); err != nil {
 		return false, err
 	}
-	return status == ApprovalApproved, nil
+	return d.status == ApprovalApproved, nil
 }
 
 // writeWaiting writes a pending, with row when it is a call's own first row,
@@ -82,12 +84,13 @@ func (j *runJournal) writeWaiting(ctx context.Context, row *toolCallEntry, a app
 	})
 }
 
-// waitDecision waits for the user's answer to id: approved or denied, or
-// pending with the error that ended the wait first. Past the run's
-// unansweredLimit the agent is stopped, as the user's Stop would, and the wait
-// ends on that stop's cancel.
-func (j *runJournal) waitDecision(ctx context.Context, id ApprovalID, decision <-chan bool) (ApprovalStatus, error) {
+// waitDecision waits for the user's answer to w, or the error that ended the
+// wait first, and stops waiting either way. Past the run's unansweredLimit the
+// agent is stopped, as the user's Stop would, and the wait ends on that stop's
+// cancel.
+func (j *runJournal) waitDecision(ctx context.Context, w *waiter) (decision, error) {
 	s := j.s
+	defer s.forget(w)
 	var unanswered <-chan time.Time
 	if j.unansweredLimit > 0 {
 		timer := time.NewTimer(j.unansweredLimit)
@@ -95,29 +98,25 @@ func (j *runJournal) waitDecision(ctx context.Context, id ApprovalID, decision <
 		unanswered = timer.C
 	}
 	select {
-	case approved := <-decision:
-		if approved {
-			return ApprovalApproved, nil
-		}
-		return ApprovalDenied, nil
+	case d := <-w.decided:
+		return d, nil
 	case <-ctx.Done():
-		s.forget(id)
-		return ApprovalPending, ctx.Err()
+		return decision{}, ctx.Err()
 	case <-unanswered:
-		s.forget(id)
+		s.forget(w)
 		if s.stopTaskOf(j.agentCallID, stoppedByUnanswered) {
 			<-ctx.Done()
 		}
-		return ApprovalPending, context.Canceled
+		return decision{}, context.Canceled
 	}
 }
 
-// endApproval writes a's end as status and flips the run back to running, in
-// one transaction on ctx without its cancel, then publishes. a takes the end
-// only once it has landed.
-func (j *runJournal) endApproval(ctx context.Context, a *approval, status ApprovalStatus) error {
+// endApproval writes a's end as d and flips the run back to running, in one
+// transaction on ctx without its cancel, then publishes. a takes the end only
+// once it has landed.
+func (j *runJournal) endApproval(ctx context.Context, a *approval, d decision) error {
 	ended := *a
-	ended.Status, ended.DecidedAt = status, nullMillis(normalizeTime(j.s.now()))
+	ended.Status, ended.Duration, ended.DecidedAt = d.status, d.duration, nullMillis(normalizeTime(j.s.now()))
 	wctx := context.WithoutCancel(ctx)
 	err := j.s.store.InTx(wctx, func(st stmts) error {
 		if err := upsertApproval(wctx, st, ended); err != nil {
@@ -134,30 +133,30 @@ func (j *runJournal) endApproval(ctx context.Context, a *approval, status Approv
 	return nil
 }
 
-// clusterWriteAsker is a run's journal as the tools.ClusterWriteAsker its calls
-// get, bound to the run's context, so a wait ends with the run as well as with
-// the request.
-type clusterWriteAsker struct {
+// actionAsker is a run's journal as the tools.ActionAsker its calls get, bound
+// to the run's context, so a wait ends with the run as well as with the
+// request.
+type actionAsker struct {
 	j   *runJournal
 	run context.Context
 }
 
-func (w clusterWriteAsker) Ask(ctx context.Context, cw tools.ClusterWriteRequest) (bool, error) {
+func (a actionAsker) Ask(ctx context.Context, r tools.ActionRequest) (tools.Answer, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	defer context.AfterFunc(w.run, cancel)()
-	return w.j.askClusterWrite(ctx, cw)
+	defer context.AfterFunc(a.run, cancel)()
+	return a.j.askAction(ctx, r)
 }
 
-func (w clusterWriteAsker) Record(ctx context.Context, cw tools.ClusterWriteRequest, d permissions.Decision, reason string) error {
-	return w.j.recordClusterWrite(ctx, cw, d, reason)
+func (a actionAsker) Record(ctx context.Context, r tools.ActionRequest, d permissions.Decision, reason string) error {
+	return a.j.recordAction(ctx, r, d, reason)
 }
 
-// recordClusterWrite records a sandboxed command's cluster write the policy
-// decided with nobody asked, against the call the run has open, as
-// askClusterWrite records one the user decided: written already decided, so
-// nothing waits and the run stays running.
-func (j *runJournal) recordClusterWrite(ctx context.Context, w tools.ClusterWriteRequest, d permissions.Decision, reason string) error {
+// recordAction records an action of a sandboxed command the policy decided
+// with nobody asked, against the call the run has open, as askAction records
+// one the user decided: written already decided, so nothing waits and the run
+// stays running.
+func (j *runJournal) recordAction(ctx context.Context, r tools.ActionRequest, d permissions.Decision, reason string) error {
 	s := j.s
 	var status ApprovalStatus
 	switch d {
@@ -168,6 +167,8 @@ func (j *runJournal) recordClusterWrite(ctx context.Context, w tools.ClusterWrit
 	default:
 		return errNotRecorded
 	}
+	j.journalMu.Lock()
+	defer j.journalMu.Unlock()
 	call := j.openTool
 	if call == nil {
 		return errNoRunningCall
@@ -175,98 +176,233 @@ func (j *runJournal) recordClusterWrite(ctx context.Context, w tools.ClusterWrit
 	now := normalizeTime(s.now())
 	a := &approval{
 		ID: newApprovalID(), ToolCallID: call.ID, Status: status, CreatedAt: now,
-		DecidedAt: nullMillis(now), Request: &w, Reason: reason,
+		DecidedAt: nullMillis(now), Request: &r, Reason: reason,
 	}
 	wctx := context.WithoutCancel(ctx)
 	if err := s.store.InTx(wctx, func(st stmts) error { return upsertApproval(wctx, st, *a) }); err != nil {
 		return err
 	}
 	call.ClusterWrites = append(call.ClusterWrites, a)
-	j.publish(StatusStreaming)
+	if j.asking {
+		j.publish(StatusWaitingApproval)
+	} else {
+		j.publish(StatusStreaming)
+	}
 	return nil
 }
 
-// askClusterWrite puts a sandboxed command's cluster write to the user as a
-// request of the call the run has open: calls run one at a time, so it is the
-// one whose command sent the write. Unlike Approve, every end of the wait writes
-// the approval and flips the run back, since the command runs on after it and
-// the run must not stay waiting behind it: a wait that ends without a decision
-// writes abandoned. The call's row keeps running throughout. An end the store
-// refuses answers the command with that error, never the decision: no change
-// goes on a decision the record does not hold.
+// askAction puts an action of a sandboxed command to the user as a request of
+// the call the run has open: calls run one at a time, so it is the one whose
+// command sent it. Unlike Approve, every end of the wait writes the approval
+// and flips the run back, since the command runs on after it and the run must
+// not stay waiting behind it: a wait that ends without a decision writes
+// abandoned. The call's row keeps running throughout. An end the store refuses
+// answers the command with that error, never the decision: no change goes on a
+// decision the record does not hold.
 //
-// It runs on the proxy's goroutine while the loop waits in the call's Run, which
-// returns only once every write it sent has returned (kubeproxy's Wait), so the
-// journal is never touched by both at once.
-func (j *runJournal) askClusterWrite(ctx context.Context, w tools.ClusterWriteRequest) (bool, error) {
-	s := j.s
-	call := j.openTool
-	if call == nil {
-		return false, errNoRunningCall
+// It runs on a proxy's goroutine while the loop waits in the call's Run, which
+// returns only once every request it sent has returned (kubeproxy's Wait), so the
+// loop and the proxies never touch the journal at once; journalMu keeps the
+// proxies' requests apart, and askMu keeps one ask before the user at a time.
+func (j *runJournal) askAction(ctx context.Context, r tools.ActionRequest) (tools.Answer, error) {
+	j.askMu.Lock()
+	defer j.askMu.Unlock()
+	a, w, err := j.openAction(ctx, r)
+	if err != nil {
+		return tools.Answer{}, err
 	}
-	id := newApprovalID()
-	decision := s.await(id)
-	a := &approval{ID: id, ToolCallID: call.ID, Status: ApprovalPending, CreatedAt: normalizeTime(s.now()), Request: &w}
-	if err := j.writeWaiting(ctx, nil, *a); err != nil {
-		s.forget(id)
-		return false, err
-	}
-	call.ClusterWrites = append(call.ClusterWrites, a)
-	j.publish(StatusWaitingApproval)
-	s.notify(chatsKey)
-
-	status, waitErr := j.waitDecision(ctx, id, decision)
+	d, waitErr := j.waitDecision(ctx, w)
 	if waitErr != nil {
-		status = ApprovalAbandoned
+		d = decision{status: ApprovalAbandoned}
 	}
-	if err := j.endApproval(ctx, a, status); err != nil {
-		// The command runs on, so the request must come down now: the journal
-		// takes the end the store refused, and the settle writes it whole.
-		a.Status, a.DecidedAt = status, nullMillis(normalizeTime(s.now()))
-		j.publish(StatusStreaming)
-		s.notify(chatsKey)
-		return false, err
+	if err := j.closeAction(ctx, a, d); err != nil {
+		return tools.Answer{}, err
 	}
-	return status == ApprovalApproved, waitErr
+	return tools.Answer{Approved: d.status == ApprovalApproved, Duration: d.duration}, waitErr
 }
 
-// errNoRunningCall is a write asked while no call of the run is running.
-var errNoRunningCall = errors.New("chatsvc: a cluster write with no call running")
+// openAction writes r pending under the open call and publishes the request,
+// under journalMu, and answers the approval and the waiter its decision
+// arrives on.
+func (j *runJournal) openAction(ctx context.Context, r tools.ActionRequest) (*approval, *waiter, error) {
+	s := j.s
+	j.journalMu.Lock()
+	defer j.journalMu.Unlock()
+	call := j.openTool
+	if call == nil {
+		return nil, nil, errNoRunningCall
+	}
+	w := s.await(newApprovalID(), j.chatID, &r)
+	a := &approval{ID: w.id, ToolCallID: call.ID, Status: ApprovalPending, CreatedAt: normalizeTime(s.now()), Request: &r}
+	if err := j.writeWaiting(ctx, nil, *a); err != nil {
+		s.forget(w)
+		return nil, nil, err
+	}
+	call.ClusterWrites = append(call.ClusterWrites, a)
+	j.asking = true
+	j.publish(StatusWaitingApproval)
+	s.notify(chatsKey)
+	return a, w, nil
+}
+
+// closeAction writes a's end as d under journalMu. An end the store refuses
+// still comes down, since the command runs on: the journal takes it, and the
+// settle writes it whole.
+func (j *runJournal) closeAction(ctx context.Context, a *approval, d decision) error {
+	j.journalMu.Lock()
+	defer j.journalMu.Unlock()
+	j.asking = false
+	err := j.endApproval(ctx, a, d)
+	if err != nil {
+		a.Status, a.Duration, a.DecidedAt = d.status, d.duration, nullMillis(normalizeTime(j.s.now()))
+		j.publish(StatusStreaming)
+		j.s.notify(chatsKey)
+	}
+	return err
+}
+
+// errNoRunningCall is an action asked while no call of the run is running.
+var errNoRunningCall = errors.New("chatsvc: an action with no call running")
 
 // errNotRecorded is a record of a decision that is not Allowed or Denied: a
 // prompt is asked, never recorded.
-var errNotRecorded = errors.New("chatsvc: only an allowed or denied cluster write is recorded")
+var errNotRecorded = errors.New("chatsvc: only an allowed or denied action is recorded")
 
-// await registers a waiter for id: a channel of one, buffered, so a decision
-// delivered before the turn reaches its select is kept for it.
-func (s *service) await(id ApprovalID) chan bool {
-	ch := make(chan bool, 1)
-	s.turnsMu.Lock()
-	s.pending[id] = ch
-	s.turnsMu.Unlock()
-	return ch
+// ApprovalDecision is the user's answer to a request: Once and Deny answer it
+// alone; Command also allows the same change for the rest of the command; Chat
+// and Always also write an Allow rule for the action's class and scope.
+type ApprovalDecision string
+
+const (
+	DecisionOnce    ApprovalDecision = "once"
+	DecisionCommand ApprovalDecision = "command"
+	DecisionChat    ApprovalDecision = "chat"
+	DecisionAlways  ApprovalDecision = "always"
+	DecisionDeny    ApprovalDecision = "deny"
+)
+
+// decision is how a wait ended: the status the approval records, and for an
+// approval how long it holds.
+type decision struct {
+	status   ApprovalStatus
+	duration permissions.Duration
 }
 
-// forget takes a waiter back: its request was never shown, or its turn stopped waiting.
-func (s *service) forget(id ApprovalID) {
-	s.turnsMu.Lock()
-	delete(s.pending, id)
-	s.turnsMu.Unlock()
+// durationOf is how long each approving answer holds.
+var durationOf = map[ApprovalDecision]permissions.Duration{
+	DecisionOnce:    permissions.DurationOnce,
+	DecisionCommand: permissions.DurationCommand,
+	DecisionChat:    permissions.DurationChat,
+	DecisionAlways:  permissions.DurationAlways,
 }
 
-// Approve delivers a decision to the turn waiting on id and removes the waiter, so
-// each approval has one writer and a second decision changes nothing. false is an
-// id nothing waits on: already decided, cancelled, or stranded across a restart.
-// true says the decision reached a waiting turn, not that it was recorded: a
-// cancel ready in the same moment can still win the turn's select.
-func (s *service) Approve(_ context.Context, id ApprovalID, approve bool) (bool, error) {
+// waiter is one request a turn waits on: its channel of one, buffered, so a
+// decision delivered before the turn reaches its select is kept for it; the
+// chat it is in; and the action it asks about, nil for a call's own.
+// forgotten is set once the turn stops waiting, so a decision claimed
+// meanwhile never puts it back.
+type waiter struct {
+	id        ApprovalID
+	decided   chan decision
+	chatID    ChatID
+	request   *tools.ActionRequest
+	forgotten bool
+}
+
+// decide is the decision d is on w, or ErrBadRequest for one w does not take:
+// a call's own, and an action no rule may allow, take Once and Deny alone.
+func (w *waiter) decide(d ApprovalDecision) (decision, error) {
+	grantable := w.request != nil && w.request.Grantable
+	switch d {
+	case DecisionDeny:
+		return decision{status: ApprovalDenied}, nil
+	case DecisionOnce:
+	case DecisionCommand, DecisionChat, DecisionAlways:
+		if !grantable {
+			return decision{}, ErrBadRequest
+		}
+	default:
+		return decision{}, ErrBadRequest
+	}
+	return decision{status: ApprovalApproved, duration: durationOf[d]}, nil
+}
+
+// await registers a waiter for id.
+func (s *service) await(id ApprovalID, chatID ChatID, request *tools.ActionRequest) *waiter {
+	w := &waiter{id: id, decided: make(chan decision, 1), chatID: chatID, request: request}
 	s.turnsMu.Lock()
-	ch, ok := s.pending[id]
-	delete(s.pending, id)
+	s.pending[id] = w
 	s.turnsMu.Unlock()
+	return w
+}
+
+// forget is the one way a turn stops waiting on w: its request was never
+// shown, or its wait ended. It takes w out if it is still there, and marks it
+// forgotten either way.
+func (s *service) forget(w *waiter) {
+	s.turnsMu.Lock()
+	defer s.turnsMu.Unlock()
+	if s.pending[w.id] == w {
+		delete(s.pending, w.id)
+	}
+	w.forgotten = true
+}
+
+// Approve delivers d to the turn waiting on id, having claimed the waiter
+// first, so each approval has one writer and a second answer finds none.
+// false is an id nothing waits on: already decided, cancelled, or stranded
+// across a restart. true says the decision reached a waiting turn, not that
+// it was recorded: a cancel ready in the same moment can still win the turn's
+// select. A decision the waiter does not take is ErrBadRequest, and the
+// waiter stays. A Chat or Always answer writes its rule once the waiter is
+// claimed; a write that fails puts the waiter back unless its turn stopped
+// waiting meanwhile, and answers the error, so the user can answer again.
+func (s *service) Approve(ctx context.Context, id ApprovalID, d ApprovalDecision) (bool, error) {
+	s.turnsMu.Lock()
+	w, ok := s.pending[id]
 	if !ok {
+		s.turnsMu.Unlock()
 		return false, nil
 	}
-	ch <- approve // buffered, and the entry is gone: this send is the only one
+	out, err := w.decide(d)
+	if err != nil {
+		s.turnsMu.Unlock()
+		return false, err
+	}
+	delete(s.pending, id)
+	s.turnsMu.Unlock()
+
+	// The rule lands before the decision, so the command's next write finds it,
+	// and never under turnsMu, which no file or database write may hold. A
+	// Command answer writes none: the proxy keeps the command's rule.
+	if d == DecisionChat || d == DecisionAlways {
+		if err := s.ruleWrite(ctx, w.chatID, permissions.GrantRule(w.request.Action), d); err != nil {
+			s.turnsMu.Lock()
+			if !w.forgotten {
+				s.pending[id] = w
+			}
+			s.turnsMu.Unlock()
+			return false, err
+		}
+	}
+	w.decided <- out // buffered, and the entry is gone: this send is the only one
 	return true, nil
+}
+
+// writeRule writes rule as chatID's for Chat, or into the settings for
+// Always, unless the same rule is held there already. While the settings hold
+// rules Kstack cannot read, an Always write is securityconfig.ErrHeld.
+func (s *service) writeRule(ctx context.Context, chatID ChatID, rule permissions.Rule, d ApprovalDecision) error {
+	if d == DecisionChat {
+		_, err := s.addGrant(ctx, chatID, rule)
+		return err
+	}
+	return s.security.Update(func(v *securityconfig.Settings) error {
+		if slices.ContainsFunc(v.Rules, func(r permissions.Rule) bool { return sameRule(r, rule) }) {
+			return nil
+		}
+		rule.ID = appdb.NewID()
+		v.Rules = append(v.Rules, rule)
+		return nil
+	})
 }

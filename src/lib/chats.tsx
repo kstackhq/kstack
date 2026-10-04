@@ -117,11 +117,25 @@ const ChatMessagesWatchSubscription = graphql(`
           approval {
             id
             status
+            duration
           }
           clusterWrites {
             approval {
               id
               status
+              duration
+            }
+            action {
+              summary
+              class
+              context
+              namespace
+              verb
+              group
+              kind
+              grantable
+              commandRule
+              chatRule
             }
             method
             path
@@ -129,6 +143,9 @@ const ChatMessagesWatchSubscription = graphql(`
             contentType
             body
             dryRun
+            diff
+            diffCut
+            diffError
             reason
           }
           output

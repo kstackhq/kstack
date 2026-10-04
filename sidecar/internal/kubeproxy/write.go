@@ -24,6 +24,7 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -67,14 +68,40 @@ type Write struct {
 	DryRun      bool   // a POST, PUT or PATCH whose every dryRun is All
 }
 
-// Asker puts a write to the user, and records one decided with nobody asked.
-// From Ask, false is a denial; a context error is a wait that ended without a
-// decision, which the asker records as abandoned; any other error is a request
-// or decision the asker could not record. From Record, an error is a record
-// the asker could not write; reason is the decision in the user's words.
+// Request is one classified action held for the user, or decided with nobody
+// asked.
+type Request struct {
+	Action permissions.Action
+	// Grantable is whether an answer may write a rule that allows it.
+	Grantable bool
+	// CommandRule and ChatRule are the rules each allow answer adds, as
+	// Rule.Line draws them; empty when the action is not grantable.
+	CommandRule string
+	ChatRule    string
+	// Write is the request as sent; nil for an action with none.
+	Write *Write
+	// Diff is the change as a unified diff of YAML; "" for none.
+	Diff string
+	// DiffCut is a diff that stops short of the whole change.
+	DiffCut bool
+	// DiffError is why there is no diff, when one was looked for.
+	DiffError string
+}
+
+// Answer is the user's decision: approved or not, and for how long.
+type Answer struct {
+	Approved bool
+	Duration permissions.Duration
+}
+
+// Asker puts a request to the user, and records one decided with nobody
+// asked. From Ask, a context error is a wait that ended without a decision,
+// which the asker records as abandoned; any other error is a request or
+// decision the asker could not record. From Record, an error is a record the
+// asker could not write; reason is the decision in the user's words.
 type Asker interface {
-	Ask(ctx context.Context, w Write) (bool, error)
-	Record(ctx context.Context, w Write, d permissions.Decision, reason string) error
+	Ask(ctx context.Context, r Request) (Answer, error)
+	Record(ctx context.Context, r Request, d permissions.Decision, reason string) error
 }
 
 // serveWrite decides a write the policy passed: forwards it when the policy
@@ -120,11 +147,17 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 	act := classify(r, p, body, g.context)
 	write := Write{
 		Method: r.Method, Path: r.URL.RequestURI(), Subresource: p.subresource,
-		ContentType: r.Header.Get("Content-Type"), Body: body, DryRun: isDryRun(r),
+		ContentType: r.Header.Get("Content-Type"), Body: body, DryRun: act.DryRun,
 	}
-	switch d, reason := g.policy(r.Context()).Decide(act); d {
+	v, reason := g.policy(r.Context()).Authorize(act)
+	req := Request{Action: act, Write: &write}
+	if permissions.Grantable(v, act) {
+		req.Grantable = true
+		req.CommandRule, req.ChatRule = permissions.CommandRule(act).Line(), permissions.GrantRule(act).Line()
+	}
+	switch d := v.Outcome(); d {
 	case permissions.Allowed:
-		if err := g.asker.Record(r.Context(), write, d, reason); err != nil {
+		if err := g.asker.Record(r.Context(), req, d, reason); err != nil {
 			writeStatus(w, http.StatusForbidden, string(refusedUnrecorded))
 			return
 		}
@@ -132,13 +165,15 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		return
 	case permissions.Denied:
 		// Nothing runs either way, so the refusal does not wait on the record.
-		if err := g.asker.Record(r.Context(), write, d, reason); err != nil {
+		if err := g.asker.Record(r.Context(), req, d, reason); err != nil {
 			slog.Warn("a refused cluster write was not recorded", "err", err)
 		}
 		writeStatus(w, http.StatusForbidden, "kstack: "+act.Summary+" is not allowed: "+reason)
 		return
 	}
-	approved, err := g.asker.Ask(r.Context(), write)
+	pv := g.previewChange(r, p, act, body)
+	req.Diff, req.DiffCut, req.DiffError = pv.diff, pv.cut, pv.err
+	answer, err := g.asker.Ask(r.Context(), req)
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		writeStatus(w, http.StatusForbidden, string(refusedUnanswered))
 		return
@@ -147,20 +182,26 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		writeStatus(w, http.StatusForbidden, string(refusedUnrecorded))
 		return
 	}
-	if !approved {
+	if !answer.Approved {
 		writeStatus(w, http.StatusForbidden, string(refusedDenied))
 		return
+	}
+	if answer.Duration == permissions.DurationCommand && req.Grantable {
+		g.commandRules = append(g.commandRules, permissions.CommandRule(act))
 	}
 	g.forward(w, r, p, body)
 }
 
 // policy is the session's mode and rules for the grant's context, read now, so
-// a change made meanwhile applies. A session with no policy is read-only.
+// a change made meanwhile applies, joined by the command's own rules. A
+// session with no policy is read-only. Called under the write lock.
 func (g *Grant) policy(ctx context.Context) permissions.Policy {
 	if g.session.Policy == nil {
 		return permissions.Policy{Mode: permissions.ReadOnly}
 	}
-	return g.session.Policy(ctx, g.context)
+	p := g.session.Policy(ctx, g.context)
+	p.Rules = append(slices.Clip(p.Rules), g.commandRules...)
+	return p
 }
 
 // takeWriteLock waits for the write lock, as one of at most maxQueuedWrites, and

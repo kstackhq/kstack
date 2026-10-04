@@ -233,7 +233,7 @@ describe('useChatMessages', () => {
   it("carries a message's tool calls off the frame", () => {
     const { result, rerender } = renderMessages();
     expect(print(lastArgs!.query!)).toMatch(
-      /toolCalls \{\s+id\s+name\s+actionKind\s+status\s+runsOn\s+action \{\s+description\s+command \{\s+text\s+cwd\s+background\s+sandboxed\s+\}\s+read \{\s+path\s+\}\s+write \{\s+path\s+content\s+\}\s+edit \{\s+path\s+oldString\s+newString\s+replaceAll\s+\}\s+search \{\s+query\s+\}\s+fetch \{\s+url\s+host\s+\}\s+memory \{\s+op\s+name\s+body\s+scope\s+\}\s+delegate \{\s+prompt\s+agentType\s+model\s+\}\s+kubeQuery \{\s+sql\s+limit\s+\}\s+\}\s+agentCallID\s+approval \{\s+id\s+status\s+\}\s+clusterWrites \{\s+approval \{\s+id\s+status\s+\}\s+method\s+path\s+subresource\s+contentType\s+body\s+dryRun\s+reason\s+\}\s+output\s+background \{\s+status\s+exitCode\s+report\s+\}\s+\}/,
+      /toolCalls \{\s+id\s+name\s+actionKind\s+status\s+runsOn\s+action \{\s+description\s+command \{\s+text\s+cwd\s+background\s+sandboxed\s+\}\s+read \{\s+path\s+\}\s+write \{\s+path\s+content\s+\}\s+edit \{\s+path\s+oldString\s+newString\s+replaceAll\s+\}\s+search \{\s+query\s+\}\s+fetch \{\s+url\s+host\s+\}\s+memory \{\s+op\s+name\s+body\s+scope\s+\}\s+delegate \{\s+prompt\s+agentType\s+model\s+\}\s+kubeQuery \{\s+sql\s+limit\s+\}\s+\}\s+agentCallID\s+approval \{\s+id\s+status\s+duration\s+\}\s+clusterWrites \{\s+approval \{\s+id\s+status\s+duration\s+\}\s+action \{\s+summary\s+class\s+context\s+namespace\s+verb\s+group\s+kind\s+grantable\s+commandRule\s+chatRule\s+\}\s+method\s+path\s+subresource\s+contentType\s+body\s+dryRun\s+diff\s+diffCut\s+diffError\s+reason\s+\}\s+output\s+background \{\s+status\s+exitCode\s+report\s+\}\s+\}/,
     );
     expect(print(lastArgs!.query!)).toMatch(/citations \{\s+type\s+url\s+title\s+citedText\s+\}/);
     const call = {
@@ -251,7 +251,7 @@ describe('useChatMessages', () => {
         fetch: null,
         memory: null,
       },
-      approval: { id: 'ap1', status: 'Pending' },
+      approval: { id: 'ap1', status: 'Pending', duration: null },
       output: '',
     };
     pushMessages(
@@ -595,13 +595,28 @@ describe('textOf across a server call', () => {
 /** A cluster write of approval id and status, as the sidecar serves it. */
 function clusterWrite(id: string, status: ChatClusterWrite['approval']['status']): ChatClusterWrite {
   return {
-    approval: { id, status },
+    approval: { id, status, duration: null },
+    action: {
+      summary: 'Delete pods/x in web on dev',
+      class: 'UpstreamWrite',
+      context: 'dev',
+      namespace: 'web',
+      verb: 'delete',
+      group: 'core',
+      kind: 'pods',
+      grantable: true,
+      commandRule: '',
+      chatRule: '',
+    },
     method: 'DELETE',
     path: '/api/v1/namespaces/web/pods/x',
     subresource: '',
     contentType: '',
     body: '',
     dryRun: false,
+    diff: '',
+    diffCut: false,
+    diffError: '',
     reason: null,
   };
 }
@@ -633,7 +648,7 @@ describe('waitingRequestsOf', () => {
   // call's request and a write's sort together in the order asked.
   it("orders a call's and a write's requests together by approval id", () => {
     const running = callWith('c1', 'Running', [clusterWrite('a3', 'Approved'), clusterWrite('a4', 'Pending')]);
-    const asking = callWith('c2', 'AwaitingApproval', [], { id: 'a2', status: 'Pending' });
+    const asking = callWith('c2', 'AwaitingApproval', [], { id: 'a2', status: 'Pending', duration: null });
 
     const got = waitingRequestsOf([running, asking]);
 

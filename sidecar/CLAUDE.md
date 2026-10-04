@@ -1285,9 +1285,12 @@ have seen of the files they read: `Stamp(path)` and `SetStamp(path, s)`, keyed b
 model was shown every byte as it is — from line 1 to the end, nothing cut, redacted or stripped —
 so Write can tell a file seen whole from one seen in part. A `Runtime` is what a tool gets of the chat its call
 runs in: `ClusterID`, the chat's stored cluster, and `ChatID`, which a model names neither of,
-`Session`, then `Dir`, `Tasks`, `Files`, `Agent` and `ClusterWriteAsker`, which puts a sandboxed command's cluster
-write (`ClusterWriteRequest`) to the user, or records one the proxy decided with nobody asked
-(`Record`, with the reason in the user's words), nil where nobody can be asked. `chatsvc` sets every
+`Session`, then `Dir`, `Tasks`, `Files`, `Agent` and `ActionAsker`, which puts a sandboxed command's
+classified action (`ActionRequest`: the `permissions.Action`, whether a rule may allow it, the
+`CommandRule` and `ChatRule` lines each allow answer adds, the `ClusterWrite` as sent, and the diff) to the user and
+answers an `Answer` (approved, and the `permissions.Duration` the user chose), or records one the
+proxy decided with nobody asked (`Record`, with the reason in the user's words), nil where nobody
+can be asked. `chatsvc` sets every
 field; a test sets the ones its tool
 reads. **A `session.Session`** is one agent run's policy: its `Kind` (`Chat`, `Subagent` or
 `Monitor`, the last built by nothing yet), `Outside`, the chat's switch as its turn read it, and
@@ -1620,8 +1623,10 @@ runs the child; `forward_windows.go` answers 125 with *no sandbox on this platfo
 **`internal/permissions` is the decision** (`permissions.go`, `match.go`), a leaf that
 imports nothing of ours: the six `Class`es, numbered as the note numbers them, the `Mode`s
 (`ReadOnly`, `Ask`, `Auto`), a `Rule` (an `Effect`, a class, and the patterns `Context`,
-`Namespace`, `Verb` and `Kind` with an exact `Group`, each unset matching anything), an `Action` (a
-classified request: its class, context, namespace, verb, group, kind, name and one-line `Summary`),
+`Namespace`, `Verb` and `Kind` with an exact `Group`, each unset matching anything, and `Command`, a
+rule one command's answer added, never stored), an `Action` (a classified request: its class,
+context, namespace, verb, group, kind, name, one-line `Summary` and `DryRun`, stored with its
+approval under camelCase JSON keys),
 and a `Policy` — a mode and the rules — whose `Decide(act)` answers a `Decision` and the reason in
 the user's words. **`Decide` is `Authorize` then `Outcome`.** `Authorize(act)` is a `Verdict`, the
 strongest of what matched: `Refuse` (a matching `Deny`, or a read-only mode on class 3, 4 or 5),
@@ -1635,7 +1640,18 @@ class 5; a bare `*` `Kind` matches every kind, and any other `Kind` with no `/` 
 matcher, a glob compiled to a regexp: `*` crosses `/` and `:`, `?` is one character, `\` escapes.
 `Literal` escapes a value into the pattern that matches it alone, and every mode Kstack writes from
 a value goes through it. `Rule.Line` is the rule in the user's words, a class 5 rule's naming it *destructive*, which
-Settings shows and a reason names. `Refused` is the `Deny` of every cluster write that stands in for a rule Kstack could
+Settings shows, a reason names and a request draws under its allow answers, and a command rule's
+ending *for this command*. **It draws each pattern field one way**: name characters alone bare, a
+`*` or `?` in them a glob; a literal holding a glob character, a space, a `"` or a `\` unescaped in
+quotes; anything else in quotes after *matching*; inside quotes a `"` or a `\` follows a `\`. So a
+` / ` outside quotes always separates the context from the namespace. **`Grantable(v, act)`** is
+whether an answer may write a rule: an `Unmatched` verdict, an action that is not a `DryRun`, with
+a `Context`. **`GrantRule(act)`** is the rule a chat or always answer writes: an `Allow` of the
+action's class in its context and namespace, each through `Literal`, and for an action in no
+namespace or on a core Namespace the group and the resource too; any other is `Inside`, which
+never matches a Namespace object and whose line reads *inside*. **`CommandRule(act)`** adds the
+verb and the resource, sets `Command` and clears `Inside`. Neither sets an `ID`; the writer does. A **`Duration`**
+is how long an approval holds: `once`, `command`, `chat` or `always`. `Refused` is the `Deny` of every cluster write that stands in for a rule Kstack could
 not read.
 
 **`kubeproxy/classify.go` classifies a request**: a `GET` of core `secrets` is class 6, any other
@@ -1711,14 +1727,30 @@ then, still under the lock, so writes reach the cluster in the order they were d
 classifies it (`classify`, below) into a `Write` — the method, the path and raw query, the
 policy's subresource, the media type, the body, `DryRun`, set only for a `POST`, `PUT` or `PATCH`
 whose every `dryRun` is `All`, since the API server reads a `DELETE`'s options from its body when it
-has one — and asks the session's `Policy` for the grant's context to decide the action (a session
-with no `Policy` is read-only). `Allowed` is recorded through
-`Asker.Record`, then forwarded, and a record that fails forwards nothing (*this change could not be
-recorded*); `Denied` is recorded, a failed record logged, and answered 403 *kstack: <summary> is not
-allowed: <reason>*; `Prompted` is `Ask`ed with the `Write`. A
+has one — and takes the verdict once: `Authorize` over the session's `Policy` for the grant's
+context, joined by the grant's own `commandRules` (a session with no `Policy` is read-only). Every
+`Asker` call carries a `Request`: the `Action`, `Grantable`, the `CommandRule` and `ChatRule` lines
+each allow answer adds (`CommandRule(act).Line()` and `GrantRule(act).Line()`, empty when not
+grantable), the `Write`, and the diff. `Allowed` is recorded through `Asker.Record`, then forwarded, and a record that fails
+forwards nothing (*this change could not be recorded*); `Denied` is recorded, a failed record
+logged, and answered 403 *kstack: <summary> is not allowed: <reason>*; `Prompted` is previewed
+(below), then `Ask`ed, which answers an `Answer`: approved, and the `Duration` the user chose. A
 denial is a 403 *the user did not approve this change*, a wait that ended a 403 *the user did
 not answer this change*, and an approval forwards the bytes read, taking a slot and the limiter
-only then, so a write waiting on the user holds neither. **A request
+only then, so a write waiting on the user holds neither. **An approval for the command adds
+`CommandRule(act)` to the grant's `commandRules`**, under the write lock, so the rest of the
+command's same change is allowed, recorded `allowed` with the rule's line; it ends with the grant.
+**The preview** (`diff.go`) runs for a write that asks alone, a `PUT` or `PATCH` of a named object on
+a group version in `honorsDryRun` (else its `DiffError` says so): a `GET` of the path through the
+endpoint's client, a 404 no preview, then the same request with `dryRun=All` appended to the query,
+each in a slot taken with `TryAcquire`, through the limiter, ended by the endpoint's `Done`, the
+grant, or `diffTimeout` (10s, a field), and read to `maxDiffObject` (3 MiB). Both answers lose
+`managedFields`, `resourceVersion` and `generation`; on core `secrets` each `data` and
+`stringData` value is compared, then `redact`ed and marked `[redacted]` or `[redacted: changed]`;
+on every kind each last-applied annotation is compared by its location, a pod template's included, and blanked (`redactLastApplied`). Then
+`sigs.k8s.io/yaml` and `go-difflib`'s unified diff, three lines of context and no header, cut past
+`maxDiffLines` (2,000) with `DiffCut` set, or *No change.* A failure is a `DiffError` in the
+user's words, a status message through `safe.String`. **A request
 on core `secrets` is rewritten both ways** (`rewriteSecrets`, set on that request's proxy): its
 `Accept` keeps only the `application/json` types and its `Accept-Encoding` goes, so the transport
 hands back plain JSON; a response of any other type or with a `Content-Encoding` is a 502 in its
@@ -2379,8 +2411,8 @@ other error `could not start:`. `sandboxedRunFor` asks the sandbox for a port on
 with a cluster, then `startProxy` listens on the run's `proxy.sock` and serves a
 `kubeproxy.NewGrant(claim, rt.Session, target.scopeContext, asker, refusal, 20, 50, 32)` on `kubeproxy.NewServer`, and `Run.Socket`
 names the socket. `writesFor` picks the grant's writes: a foreground call's asks through its
-runtime's `ClusterWriteAsker` (`runtimeAsker`, which turns a `kubeproxy.Write` into a
-`tools.ClusterWriteRequest` for `Ask` and `Record` alike), or refuses with *this sandbox reads the cluster and changes nothing*
+runtime's `ActionAsker` (`runtimeAsker`, which turns a `kubeproxy.Request` into a
+`tools.ActionRequest` for `Ask` and `Record` alike, and its `tools.Answer` back), or refuses with *this sandbox reads the cluster and changes nothing*
 when it has none; a background task's refuses every write with *a background command cannot change
 the cluster*. The `sandboxedRun` owns the claim, the proxy and the directory, so every failure while
 it is made is its `end`. **The run ends in order** (`sandboxedRun.end`), at the reap for a call
@@ -2391,7 +2423,7 @@ then does the run's directory go. So no write is put to the user once `Run` has 
 cluster has no grant, no socket and no forwarder. `prompts/sandbox.md` says a sandboxed command waits
 for the user only for a change to the cluster, which runs at once under the user's rules, waits for
 them, or comes back `Forbidden` because their mode or a rule refuses it — the user's decision, not an
-error to work around — that a dry run of a built-in resource runs at once and one of a custom resource waits, and the wait counts against its `timeout`; that `exec`, `attach`, `port-forward`, a service account
+error to work around — that a change the user allowed for the chat or always runs at once the next time, and one allowed for the command for the rest of that command alone; that a dry run of a built-in resource runs at once and one of a custom resource waits, and the wait counts against its `timeout`; that `exec`, `attach`, `port-forward`, a service account
 token, a helm change, a change past 1 MiB and a background command's change come back
 `Forbidden`; that a Secret changes with `kubectl apply --server-side`; that a Secret reads
 `[redacted]`; and that `sudo` does not work, a command's processes are limited, one past its CPU
@@ -2767,36 +2799,64 @@ The sweep closes a stranded
 `awaiting_approval` row like a `running` one and leaves its approval `pending`: the record of a
 question nobody answered.
 
-**A sandboxed command's cluster write is asked under the call that sent it** (`approval.go`). The
-turn and a subagent set `Runtime.ClusterWriteAsker` to `clusterWriteAsker`, their journal bound to
-their run's context, so a wait ends with the request or the run, whichever ends first.
-`askClusterWrite` runs on the proxy's goroutine while the loop waits in the call's `Run`, which
-returns only once the grant's `Wait` has joined it, so the journal is never touched by both at once.
-It is `Approve`'s sequence over the call `openTool` names — the waiter registered, the approval
-written `pending` with the run flipped to `waiting_approval` in one transaction, published — with
-the write's approval in place of the call's: an `approvals` row of `kind` `cluster` whose
-`request` is the write as JSON (`tools.ClusterWriteRequest`, the body as sent). **Every end of the
-wait writes the approval and flips the run back**, in one transaction without the cancel, then
-publishes: a decision writes `approved` or `denied`, and a wait that ends without one — the
-request's context, the run's, or past a subagent's `unansweredLimit`, which also stops its agent —
-forgets the waiter and writes `abandoned`, a status only a write takes. The call's row keeps
-`running` throughout. An end the store refuses still comes down: the journal takes it for the settle
-to write, and the command reads a 403 *this change could not be recorded, so it was not sent* — as
-it does when the request itself cannot be written — never the decision. A call keeps at most one
-approval of its own (`approvals_call_idx`, partial on `kind = 'call'`), and the call reads join only
-that one; its writes, `toolCallEntry.ClusterWrites`, are read by statements of their own over the
-same scope (`callReads`), in `created_at, id` order, and `writeCalls` writes them again at the
-settle. On the wire each is a `ClusterWrite` in `ToolCall.clusterWrites`, carrying its body and
-media type only while it waits — pending on a running call — since each publish sends the list
-whole, and its `reason`. **A write the policy decided is recorded with no wait**
-(`recordClusterWrite`, `clusterWriteAsker.Record`): one approval of `kind` `cluster`, written
-already decided, `allowed` or `refused` — statuses only such a write takes — with its `reason` in
-the user's words, against the open call; the run stays `running`.
+**A sandboxed command's action is asked under the call that sent it** (`approval.go`). The
+turn and a subagent set `Runtime.ActionAsker` to `actionAsker`, their journal bound to their run's
+context, so a wait ends with the request or the run, whichever ends first. `askAction` runs on a
+proxy's goroutine while the loop waits in the call's `Run`, which returns only once the grant's
+`Wait` has joined it, so the loop and the proxies never touch the journal at once. **Two locks
+keep the proxies' requests apart**: `journalMu` serializes every journal write an ask or a record
+makes and is never held across a wait; `askMu` holds one ask from its pending row to its end, so a
+run puts one request to the user at a time, and a record never takes it, so a write a rule allows
+lands while a request waits. `asking`, under `journalMu`, makes a record publish
+`StatusWaitingApproval` while an ask waits. An ask is `Approve`'s sequence over the call `openTool`
+names — the waiter registered, the approval written `pending` with the run flipped to
+`waiting_approval` in one transaction, published — with the action's approval in place of the
+call's: an `approvals` row of `kind` `action` whose `request` is the `tools.ActionRequest` as JSON,
+the action and the body as sent. **Every end of the wait writes the approval and flips the run
+back**, in one transaction without the cancel, then publishes: a decision writes `approved` with
+its `duration` or `denied`, and a wait that ends without one — the request's context, the run's, or
+past a subagent's `unansweredLimit`, which also stops its agent — writes `abandoned`, a status only
+an action takes. The call's row keeps `running` throughout. An end the store refuses still comes
+down: the journal takes it for the settle to write, and the command reads a 403 *this change could
+not be recorded, so it was not sent* — as it does when the request itself cannot be written —
+never the decision. A call keeps at most one approval of its own (`approvals_call_idx`, partial on
+`kind = 'call'`), and the call reads join only that one; its actions, `toolCallEntry.ClusterWrites`,
+are read by statements of their own over the same scope (`callReads`), in `created_at, id` order,
+and `writeCalls` writes them again at the settle. On the wire each is a `ClusterWrite` in
+`ToolCall.clusterWrites` with its `PermissionAction`, carrying its body, media type and diff only
+while it waits — pending on a running call — since each publish sends the list whole, and its
+`reason`. **An action the policy decided is recorded with no wait** (`recordAction`,
+`actionAsker.Record`): one approval of `kind` `action`, written already decided, `allowed` or
+`refused` — statuses only an action takes — with its `reason` in the user's words, against the
+open call; the run stays `running`. **`approvals.duration`** is how long an approval holds, what the
+user chose — `once`, `command`, `chat` or `always` — on `approved` alone, and `once` on a call's own.
 
-**A chat's rules are `chat_grants` rows** (`grants.go`), each a `permissions.Rule` as JSON,
-cascading with the chat. `grantsFor` reads them on every decision, never cached; a row that does not
-decode, one with a key `Rule` does not name included, or a read that fails, is logged and read as `permissions.Refused`. Nothing writes the table
-yet.
+**A decision claims its waiter first** (`service.Approve`). `pending[id]` holds a `*waiter`: its
+channel, the chat, the `ActionRequest` it waits for (nil for a call's own) and `forgotten`, which
+the turn sets when it stops waiting — `forget(w)` is the one way it does, deleting `pending[id]`
+only if it is still `w`. Under `turnsMu`, `Approve` reads the waiter and asks it for the
+`decision` (`waiter.decide`: a call's own, and an action whose `Grantable` is false, take `Once`
+and `Deny` alone, anything else `ErrBadRequest` with the waiter left in place), removes it, then
+lets go:
+`Command` delivers approved with `command`, the proxy keeping the rule; `Chat` writes
+`permissions.GrantRule(act)` through `addGrant`, and `Always` into `securityconfig`'s rules under a
+fresh `appdb.NewID()`, each unless the same rule is held there already (`sameRule`: equal once the
+ids are cleared), then delivers. The rule lands before the decision, outside `turnsMu`, through
+`ruleWrite` (`writeRule`, a test's seam). A write that fails takes `turnsMu` again and puts the
+waiter back unless it is `forgotten`, then answers the error; `Always` while the settings hold
+rules Kstack cannot read is `securityconfig.ErrHeld`, which `approvalErr` (`graph/util.go`) maps to
+`KSTACK_VALIDATION_ERROR` naming `security.json`.
+
+**A chat's rules are `chat_grants` rows** (`grants.go`), each a `permissions.Rule` as JSON whose
+`ID` is the row's, cascading with the chat. `grantsFor` reads them on every decision, never cached;
+a row that does not decode, one with a key `Rule` does not name included, or a read that fails, is
+logged and read as `permissions.Refused`. `addGrant(ctx, chatID, rule)` writes one in a
+transaction that refuses a chat that is gone (`ErrChatGone`): a rule with no `ID` under a fresh one,
+the rule the chat already holds answered instead; a rule with an `ID` replaces the chat's rule under
+it, so the id outlives the change, and an `ID` the chat does not hold is `ErrGrantGone`.
+`RemoveChatGrant` deletes one by id, `ErrGrantGone` for an id the chat does not hold. On the wire they are
+the `chatGrants(chatID)` query and the `chatGrantRemove(chatID, id)` mutation, which answers the
+rules left; `ErrGrantGone` is `KSTACK_RECORD_NOT_FOUND`.
 
 **The live message lists every call, off its rows.** `ChatMessage.ToolCalls` is the turn's
 calls as one JSON string of `ToolCall` (`id`, `toolUseID`, `name`, `arguments`, `status`,
@@ -3182,10 +3242,11 @@ transaction**; the resolver forwards the send and maps the refusal, so `ErrClust
 the client as `KSTACK_RECORD_NOT_FOUND`. A repeat is answered ahead of that check, by its key.
 `clusterDelete` marks the cluster and nothing more; the sweeper deletes its chats.
 
-**The wire surface is six mutations, one query and two watches**: `chatSend`, `chatCancel`, `chatRename`,
+**The wire surface is seven mutations, two queries and two watches**: `chatSend`, `chatCancel`, `chatRename`,
 `chatSandboxDisabledSet` (the switch, spelled as `clusterEnabledSet` is), `chatDelete`,
-`approvalDecide` (an `ApprovalID` and the decision; true when the decision reached
-a waiting turn), `sandbox` (the `sandbox.Status` the app built, fixed for the sidecar's life, which
+`approvalDecide` (an `ApprovalID` and the `ApprovalDecision` — `Once`, `Command`, `Chat`, `Always`
+or `Deny`; true when the decision reached a waiting turn), `chatGrantRemove` (one of a chat's rules,
+with the `chatGrants` query), `sandbox` (the `sandbox.Status` the app built, fixed for the sidecar's life, which
 `graph.Resolver.SandboxStatus` holds), `chatsWatch` and `chatMessagesWatch(chatID)`. A mutation is named for what it
 acts on, so the decision is the approval's, not the chat's, though chat's turns are what wait on
 one today. A cluster's deletion reaches here
