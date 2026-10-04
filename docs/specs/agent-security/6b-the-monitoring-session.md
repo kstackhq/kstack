@@ -149,7 +149,7 @@ CREATE TABLE proposals (
   reason      TEXT    NOT NULL,
   prompt      TEXT    NOT NULL,
   status      TEXT    NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'started', 'dismissed')),
-  chat_id     TEXT    REFERENCES conversations(id) ON DELETE SET NULL,
+  chat_id     TEXT    REFERENCES chats(id) ON DELETE SET NULL,
   request_key TEXT,
   created_at  INTEGER NOT NULL,
   updated_at  INTEGER NOT NULL

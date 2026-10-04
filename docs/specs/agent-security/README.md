@@ -105,7 +105,7 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 **The record.** `approvals` is the one table a prompt writes: a call's own (`kind: call`) and,
 from step 4B, any classified action (`kind: action`, carried to the user as a
 `tools.ActionRequest` through the runtime's `ActionAsker`), with the decision's duration.
-`tool_calls.sandboxed` stays what it is. `conversations.sandbox_disabled` is step 1B's switch.
+`tool_calls.sandboxed` stays what it is. `chats.sandbox_disabled` is step 1B's switch.
 
 **The wire.** `approvalDecide` takes the decision. Settings are read and written through
 queries and mutations named `sandbox…`, `permission…`, `network…`, `folder…`, `monitor…` and

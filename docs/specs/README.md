@@ -94,8 +94,8 @@ so the cloud stores client-minted ids unchanged and scopes their uniqueness per 
 Clusters are rows in `app.db` (`clusters`, owned by `clustersvc`), addressed by the `ClusterID`
 scalar; beehive holds one runtime object per row, named by its id, that the mirror keeps. A
 cluster's deletion is a mark: the mirror tears the runtime down, the chat sweeper deletes the
-conversations, and the row goes last. Every send checks its cluster's mark inside its transaction
-(`ErrClusterGone` → `KSTACK_RECORD_NOT_FOUND`). `conversations.cluster_id` references `clusters(id)`.
+chats, and the row goes last. Every send checks its cluster's mark inside its transaction
+(`ErrClusterGone` → `KSTACK_RECORD_NOT_FOUND`). `chats.cluster_id` references `clusters(id)`.
 
 Conversations, messages, agent runs, model calls, tool calls and approvals are the seven
 application tables of `appdb/migrations/0001_init.sql`, the only schema authority; `chatsvc`

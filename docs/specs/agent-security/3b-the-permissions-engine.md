@@ -217,7 +217,7 @@ reason. The shipped rules are never in the file.
 ```sql
 CREATE TABLE chat_grants (
   id         TEXT    PRIMARY KEY,
-  chat_id    TEXT    NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+  chat_id    TEXT    NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
   rule       TEXT    NOT NULL, -- a permissions.Rule as JSON
   created_at INTEGER NOT NULL
 ) STRICT, WITHOUT ROWID;
