@@ -184,8 +184,8 @@ func TestASandboxedDeleteAsksAndRuns(t *testing.T) {
 	e.ask(t, "delete pod x", llm.StagedCall("Bash", bashInput("kubectl delete pod x --wait=false")))
 
 	w := e.clusterWrite(t, "pending")
-	assert.Equal(t, "DELETE", w.request.Method)
-	assert.Equal(t, "/api/v1/namespaces/default/pods/x", w.request.Path)
+	assert.Equal(t, "DELETE", w.request.Write.Method)
+	assert.Equal(t, "/api/v1/namespaces/default/pods/x", w.request.Write.Path)
 	assert.Equal(t, "waiting_approval", e.runStatus(t))
 	assert.NotContains(t, e.cluster.requests(), "DELETE /api/v1/namespaces/default/pods/x", "nothing reaches the cluster before the user decides")
 	raw := graphql(t, e.url, `mutation { approvalDecide(id: "`+w.id+`", approve: true) }`)

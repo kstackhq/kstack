@@ -1106,11 +1106,13 @@ type ToolCall {
 }
 
 """
-A request a sandboxed command sent to change the cluster, held for the user. It waits while its
-approval is `Pending` and its call `Running`.
+A request a sandboxed command sent to change the cluster, held for the user, and the action the
+proxy classified it as. It waits while its approval is `Pending` and its call `Running`.
 """
 type ClusterWrite {
   approval: ToolCallApproval!
+  "The action the request is, as the sidecar's classifier read it."
+  action: PermissionAction!
   "The HTTP method: POST, PUT, PATCH or DELETE."
   method: String!
   "The path and query, exactly as sent."
@@ -1405,6 +1407,18 @@ type PermissionRule {
   kind: String!
   "The rule in the user's words."
   line: String!
+}
+
+"A classified action, as the sidecar's classifier wrote it. Every string is cluster or user text: draw it through VisibleText."
+type PermissionAction {
+  "The action in one line, naming its target as kubectl does: `Delete pods/api-7f9c in team-a on dev-eks`."
+  summary: String!
+  class: PermissionClass!
+  context: String!
+  namespace: String!
+  verb: String!
+  group: String!
+  kind: String!
 }
 
 "A context the clusters watch knows, and the mode its sandboxed commands run under."

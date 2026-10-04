@@ -250,6 +250,8 @@ models:
     model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallApproval
   ClusterWrite:
     model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ClusterWrite
+  PermissionAction:
+    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.PermissionAction
 
   # --- Memory ---
   # The memory types bind 1:1 into internal/memorysvc, like the chat ones.

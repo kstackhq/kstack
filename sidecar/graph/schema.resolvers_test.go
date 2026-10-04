@@ -2124,11 +2124,11 @@ func TestToolCallCarriesItsClusterWrites(t *testing.T) {
 	require.NoError(t, err)
 	ids := []string{appdb.NewID(), appdb.NewID(), appdb.NewID()}
 	for i, row := range []struct{ status, request string }{
-		{"approved", `{"method":"DELETE","path":"/api/v1/namespaces/web/pods/a","subresource":"","contentType":"","body":"","dryRun":false}`},
-		{"abandoned", `{"method":"PATCH","path":"/apis/apps/v1/namespaces/web/deployments/b?dryRun=All","subresource":"","contentType":"application/merge-patch+json","body":"{}","dryRun":true}`},
-		{"pending", `{"method":"POST","path":"/api/v1/namespaces/web/pods/c/eviction","subresource":"eviction","contentType":"application/json","body":"{\"kind\":\"Eviction\"}","dryRun":false}`},
+		{"approved", `{"write":{"method":"DELETE","path":"/api/v1/namespaces/web/pods/a","subresource":"","contentType":"","body":"","dryRun":false}}`},
+		{"abandoned", `{"write":{"method":"PATCH","path":"/apis/apps/v1/namespaces/web/deployments/b?dryRun=All","subresource":"","contentType":"application/merge-patch+json","body":"{}","dryRun":true}}`},
+		{"pending", `{"write":{"method":"POST","path":"/api/v1/namespaces/web/pods/c/eviction","subresource":"eviction","contentType":"application/json","body":"{\"kind\":\"Eviction\"}","dryRun":false}}`},
 	} {
-		_, err := db.Write.Exec(`INSERT INTO approvals (id, tool_call_id, kind, request, status, created_at) VALUES (?, ?, 'cluster', ?, ?, ?)`,
+		_, err := db.Write.Exec(`INSERT INTO approvals (id, tool_call_id, kind, request, status, created_at) VALUES (?, ?, 'action', ?, ?, ?)`,
 			ids[i], callID, row.request, row.status, 10+i)
 		require.NoError(t, err)
 	}
@@ -2859,4 +2859,40 @@ func TestChatGrantsListAndRemove(t *testing.T) {
 
 	_, code = refusalOf(t, srv, `mutation { chatGrantRemove(chatID: "`+appdb.NewID()+`", id: "`+id+`") { id } }`)
 	assert.Equal(t, "KSTACK_RECORD_NOT_FOUND", code)
+}
+
+// A cluster write carries the action the proxy classified it as: its summary
+// and scope.
+func TestAClusterWriteCarriesItsAction(t *testing.T) {
+	srv, db, fake := newChatServerOver(t)
+	fake.SetToolCalls(llm.StagedCall("Bash", `{"command":"kubectl delete pod x"}`))
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, providerID: "fake", modelID: "fake", effort: "high",
+		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
+	chatID := sent["chatSend"].(map[string]any)["chatID"].(string)
+	query := `subscription { chatMessagesWatch(chatID: "` + chatID + `") {
+		message { seq status toolCalls { clusterWrites { action { summary class context namespace verb group kind } } } } } }`
+	settled := func(f map[string]any) bool {
+		msg, ok := f["message"].(map[string]any)
+		return ok && msg["seq"] == float64(1) && msg["status"] == "Complete"
+	}
+	resp, events := chatFrames(t, srv, query)
+	awaitChatFrame(t, events, settled)
+	resp.Body.Close()
+
+	var callID string
+	require.NoError(t, db.Read.QueryRow(`SELECT id FROM tool_calls`).Scan(&callID))
+	_, err := db.Write.Exec(`INSERT INTO approvals (id, tool_call_id, kind, request, status, created_at) VALUES (?, ?, 'action', ?, 'denied', 1)`,
+		appdb.NewID(), callID, `{"action":{"class":4,"context":"dev","namespace":"web","verb":"delete","group":"core","kind":"pods","name":"x",
+		"summary":"Delete pods/x in web on dev","dryRun":false},
+		"write":{"method":"DELETE","path":"/api/v1/namespaces/web/pods/x"}}`)
+	require.NoError(t, err)
+
+	resp, events = chatFrames(t, srv, query)
+	defer resp.Body.Close()
+	f := awaitChatFrame(t, events, settled)
+	writes := f["message"].(map[string]any)["toolCalls"].([]any)[0].(map[string]any)["clusterWrites"].([]any)
+	assert.Equal(t, []any{map[string]any{"action": map[string]any{
+		"summary": "Delete pods/x in web on dev", "class": "UpstreamWrite", "context": "dev", "namespace": "web",
+		"verb": "delete", "group": "core", "kind": "pods",
+	}}}, writes)
 }

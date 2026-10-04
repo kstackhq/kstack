@@ -34,39 +34,48 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
 
-// asked is one write put to a fakeAsker, and where its answer goes.
+// asked is one request put to a fakeAsker, its write, and where its answer
+// goes.
 type asked struct {
+	r      Request
 	w      Write
-	answer chan<- bool
+	answer chan<- Answer
 	ctx    context.Context
 }
+
+// The two answers tests give.
+var (
+	once   = Answer{Approved: true}
+	denied = Answer{}
+)
 
 // fakeAsker hands each write it is asked to the test, and waits for the
 // test's answer or the write's context.
 type fakeAsker chan asked
 
-func (a fakeAsker) Ask(ctx context.Context, w Write) (bool, error) {
-	answer := make(chan bool, 1)
+func (a fakeAsker) Ask(ctx context.Context, r Request) (Answer, error) {
+	answer := make(chan Answer, 1)
 	select {
-	case a <- asked{w: w, answer: answer, ctx: ctx}:
+	case a <- asked{r: r, w: *r.Write, answer: answer, ctx: ctx}:
 	case <-ctx.Done():
-		return false, ctx.Err()
+		return Answer{}, ctx.Err()
 	}
 	select {
 	case ok := <-answer:
 		return ok, nil
 	case <-ctx.Done():
-		return false, ctx.Err()
+		return Answer{}, ctx.Err()
 	}
 }
 
 // Record records nothing: a fakeAsker's tests read what is asked.
-func (a fakeAsker) Record(context.Context, Write, permissions.Decision, string) error {
+func (a fakeAsker) Record(context.Context, Request, permissions.Decision, string) error {
 	return nil
 }
 
-// recorded is one write a recordingAsker was told was decided.
+// recorded is one request a recordingAsker was told was decided, and its write.
 type recorded struct {
+	r   Request
 	w   Write
 	d   permissions.Decision
 	why string
@@ -84,8 +93,8 @@ func newRecordingAsker() *recordingAsker {
 	return &recordingAsker{fakeAsker: make(fakeAsker, 1), records: make(chan recorded, 16)}
 }
 
-func (a *recordingAsker) Record(_ context.Context, w Write, d permissions.Decision, why string) error {
-	a.records <- recorded{w: w, d: d, why: why}
+func (a *recordingAsker) Record(_ context.Context, r Request, d permissions.Decision, why string) error {
+	a.records <- recorded{r: r, w: *r.Write, d: d, why: why}
 	return a.err
 }
 
@@ -192,7 +201,7 @@ func TestAWriteWaitsOnTheAsker(t *testing.T) {
 	assert.Equal(t, "PATCH", a.w.Method)
 	assert.Equal(t, patchBody, string(a.w.Body))
 	assert.Empty(t, api.requests(), "nothing reaches the cluster while the user decides")
-	a.answer <- true
+	a.answer <- once
 	r := testutil.Recv(t, done, "the write to be answered")
 	require.NotNil(t, r.resp)
 	assert.Equal(t, http.StatusOK, r.resp.StatusCode)
@@ -207,7 +216,7 @@ func TestADeniedWriteIsForbidden(t *testing.T) {
 	s := serveAsking(t, api.upstream(), asker)
 
 	done := s.sendAsync(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/x", "", ""))
-	asker.next(t).answer <- false
+	asker.next(t).answer <- denied
 	r := testutil.Recv(t, done, "the write to be answered")
 
 	require.NotNil(t, r.resp)
@@ -218,9 +227,9 @@ func TestADeniedWriteIsForbidden(t *testing.T) {
 // errAsker fails every write it is asked with err.
 type errAsker struct{ err error }
 
-func (a errAsker) Ask(context.Context, Write) (bool, error) { return false, a.err }
+func (a errAsker) Ask(context.Context, Request) (Answer, error) { return Answer{}, a.err }
 
-func (a errAsker) Record(context.Context, Write, permissions.Decision, string) error {
+func (a errAsker) Record(context.Context, Request, permissions.Decision, string) error {
 	return a.err
 }
 
@@ -287,11 +296,11 @@ func TestWritesAskOneAtATime(t *testing.T) {
 	require.Eventually(t, func() bool { return waiting.Load() == 1 }, testutil.Timeout, time.Millisecond, "its place to free")
 
 	testutil.NoRecv(t, (<-chan asked)(asker), quietWindow, "a second write asked while the first waits")
-	a.answer <- true
+	a.answer <- once
 	testutil.Recv(t, first, "the first write to be answered")
 	b := asker.next(t)
 	assert.Equal(t, "/api/v1/namespaces/web/pods/c", b.w.Path)
-	b.answer <- true
+	b.answer <- once
 	testutil.Recv(t, second, "the second write to be answered")
 	require.Len(t, api.requests(), 2)
 	assert.Equal(t, "/api/v1/namespaces/web/pods/a", api.requests()[0].URL.Path)
@@ -335,13 +344,13 @@ func TestQueuedWritesAreBounded(t *testing.T) {
 
 	// The queued writes race each other into the lock's line, so any that took
 	// the lock ahead of the PATCH are asked first: deny them until it holds it.
-	held.answer <- true
+	held.answer <- once
 	for {
 		select {
 		case <-body.read.Chan():
 			return
 		case a := <-asker:
-			a.answer <- false
+			a.answer <- denied
 		case <-time.After(testutil.Timeout):
 			t.Fatal("timed out waiting for the queued write's body to be read once it holds the lock")
 		}
@@ -379,7 +388,7 @@ func (s *served) sendWrite(t *testing.T, asker fakeAsker, c writeCase) (reply, *
 	done := s.sendAsync(t, req)
 	select {
 	case a := <-asker:
-		a.answer <- false
+		a.answer <- denied
 		return testutil.Recv(t, done, "the write to be answered"), &a.w
 	case r := <-done:
 		return r, nil
@@ -612,7 +621,7 @@ func TestAWritesAnswerOnSecretsIsRedacted(t *testing.T) {
 	s := serveAsking(t, api.upstream(), asker)
 
 	done := s.sendAsync(t, s.writeRequest(t, "PATCH", "/api/v1/namespaces/web/secrets/db", "application/merge-patch+json", `{"metadata":{"labels":{"a":"b"}}}`))
-	asker.next(t).answer <- true
+	asker.next(t).answer <- once
 	r := testutil.Recv(t, done, "the write to be answered")
 
 	require.NotNil(t, r.resp)
@@ -648,14 +657,14 @@ type holdingAsker struct {
 	release chan struct{}
 }
 
-func (a holdingAsker) Ask(ctx context.Context, _ Write) (bool, error) {
+func (a holdingAsker) Ask(ctx context.Context, _ Request) (Answer, error) {
 	close(a.asked)
 	<-ctx.Done()
 	<-a.release
-	return false, ctx.Err()
+	return Answer{}, ctx.Err()
 }
 
-func (holdingAsker) Record(context.Context, Write, permissions.Decision, string) error {
+func (holdingAsker) Record(context.Context, Request, permissions.Decision, string) error {
 	return nil
 }
 
@@ -862,8 +871,29 @@ func TestDecideRunsUnderTheWriteLock(t *testing.T) {
 	require.Eventually(t, func() bool { return waiters.Load() == 1 }, time.Second, time.Millisecond, "the allowed write waits for the lock")
 	assert.Empty(t, api.requests())
 
-	pending.answer <- true
+	pending.answer <- once
 	testutil.Recv(t, first, "the first write")
 	testutil.Recv(t, second, "the second write")
 	assert.Equal(t, []string{"DELETE /api/v1/namespaces/web/pods/x", "PUT /api/v1/namespaces/web/configmaps/c"}, order)
+}
+
+// A request carries the action the classifier read.
+func TestARequestCarriesTheAction(t *testing.T) {
+	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
+	asker := make(fakeAsker, 1)
+	s := serveAsking(t, api.upstream(), asker)
+
+	done := s.sendAsync(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/x", "", ""))
+	a := asker.next(t)
+	assert.Equal(t, "Delete pods/x in web on dev", a.r.Action.Summary)
+	assert.Equal(t, permissions.UpstreamWrite, a.r.Action.Class)
+	a.answer <- denied
+	testutil.Recv(t, done, "the write to be answered")
+
+	asker2 := newRecordingAsker()
+	s = serveIn(t, api.upstream(), sessionIn(permissions.Auto), asker2)
+	resp, body := s.do(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/y", "", ""))
+	require.Equal(t, http.StatusOK, resp.StatusCode, body)
+	r := testutil.Recv(t, (<-chan recorded)(asker2.records), "the write's record")
+	assert.Equal(t, "Delete pods/y in web on dev", r.r.Action.Summary, "an allowed write is recorded with its action")
 }

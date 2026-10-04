@@ -26,6 +26,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/rawjson"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -310,24 +311,41 @@ type ToolCall struct {
 	ClusterWrites []ClusterWrite `json:"clusterWrites"`
 }
 
-// ClusterWrite is a request a sandboxed command sent to change the cluster and
-// the user's decision on it, as the wire serves them. ContentType and Body are
-// empty once it no longer waits, since each publish sends the call list whole;
-// the record keeps them.
+// ClusterWrite is an action a sandboxed command's request asked for and the
+// user's decision on it, as the wire serves them: the request as sent, and the
+// action the proxy classified it as. ContentType and Body are empty once it
+// no longer waits, since each publish sends the call list whole; the record
+// keeps them. An action with no write serves an empty request.
 type ClusterWrite struct {
 	Approval ToolCallApproval `json:"approval"`
-	tools.ClusterWriteRequest
+	tools.ClusterWrite
+	Action PermissionAction `json:"action"`
 	// Reason is the mode or rule that decided a write nobody was asked about;
 	// nil for one the user answered.
 	Reason *string `json:"reason"`
 }
 
-// clusterWritesOf is a call's writes as the wire serves them. A write waits
+// PermissionAction is a classified action as the wire serves it.
+type PermissionAction struct {
+	permissions.Action
+}
+
+// clusterWriteOf is an action approval as the wire serves it, the request
+// whole.
+func clusterWriteOf(a ToolCallApproval, r tools.ActionRequest) ClusterWrite {
+	w := ClusterWrite{Approval: a, Action: PermissionAction{Action: r.Action}}
+	if r.Write != nil {
+		w.ClusterWrite = *r.Write
+	}
+	return w
+}
+
+// clusterWritesOf is a call's actions as the wire serves them. An action waits
 // while its approval is pending and its call running.
 func clusterWritesOf(r toolCallEntry) []ClusterWrite {
 	out := make([]ClusterWrite, 0, len(r.ClusterWrites))
 	for _, a := range r.ClusterWrites {
-		w := ClusterWrite{Approval: ToolCallApproval{ID: a.ID, Status: a.Status}, ClusterWriteRequest: *a.Request}
+		w := clusterWriteOf(ToolCallApproval{ID: a.ID, Status: a.Status}, *a.Request)
 		if a.Reason != "" {
 			w.Reason = &a.Reason
 		}

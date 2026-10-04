@@ -293,16 +293,17 @@ CREATE INDEX tool_calls_spawned_idx  ON tool_calls (spawned_run_id);
 -- first row, before the approval request is shown; what the call does is its
 -- tool_calls row's. The turn that waits on it writes the decision; a wait that
 -- was cancelled or stranded leaves the row 'pending', the record of a question
--- nobody answered. A 'cluster' approval is a request a sandboxed command sent
--- to the cluster while its call ran, held until the user decided, or
--- 'abandoned' when its wait ended first; request is the write as JSON, its body
--- as sent. A write left 'pending' is one a crash stranded. A cluster write the
+-- nobody answered. An 'action' approval is a classified action a sandboxed
+-- command's request asked for while its call ran — a change to the cluster —
+-- held until the user decided, or 'abandoned' when its wait ended first;
+-- request is the tools.ActionRequest as JSON, the action and the write's body
+-- as sent. An action left 'pending' is one a crash stranded. An action the
 -- permissions engine decided with nobody asked is 'allowed' or 'refused', and
 -- reason names the mode or the rule that decided it.
 CREATE TABLE approvals (
   id           TEXT    PRIMARY KEY,
   tool_call_id TEXT    NOT NULL REFERENCES tool_calls(id) ON DELETE CASCADE,
-  kind         TEXT    NOT NULL DEFAULT 'call' CHECK (kind IN ('call', 'cluster')),
+  kind         TEXT    NOT NULL DEFAULT 'call' CHECK (kind IN ('call', 'action')),
   request      TEXT,
   status       TEXT    NOT NULL DEFAULT 'pending'
                        CHECK (status IN ('pending', 'approved', 'denied', 'abandoned', 'allowed', 'refused')),
@@ -311,11 +312,11 @@ CREATE TABLE approvals (
   decided_at   INTEGER,
 
   CHECK ((kind = 'call') = (request IS NULL)),
-  CHECK (status NOT IN ('abandoned', 'allowed', 'refused') OR kind = 'cluster')
+  CHECK (status NOT IN ('abandoned', 'allowed', 'refused') OR kind = 'action')
 ) STRICT, WITHOUT ROWID;
 
 CREATE UNIQUE INDEX approvals_call_idx ON approvals (tool_call_id) WHERE kind = 'call';
-CREATE INDEX approvals_writes_idx ON approvals (tool_call_id) WHERE kind = 'cluster';
+CREATE INDEX approvals_actions_idx ON approvals (tool_call_id) WHERE kind = 'action';
 CREATE INDEX approvals_pending_idx ON approvals (id) WHERE status = 'pending';
 
 -- chat_grants: the rules that last for one chat, each a permissions.Rule as

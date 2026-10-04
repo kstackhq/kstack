@@ -63,10 +63,10 @@ const (
 )
 
 // What an approval is of, as approvals.kind stores it: a call's own question, or
-// a request its sandboxed command sent to change the cluster.
+// an action its sandboxed command's request asked for.
 const (
-	approvalCall         = "call"
-	approvalClusterWrite = "cluster"
+	approvalCall   = "call"
+	approvalAction = "action"
 )
 
 // Who ran a tool call, as tool_calls.runs_on stores it.
@@ -348,7 +348,7 @@ type toolCallEntry struct {
 	AgentCallID ToolCallID
 	// Approval is the call's own approvals row, nil on an ungated call.
 	Approval *approval
-	// ClusterWrites are the call's cluster approvals, in the order asked.
+	// ClusterWrites are the call's action approvals, in the order asked.
 	ClusterWrites []*approval
 	// Task is the background task the call started, off its row; nil on every
 	// other call. Only the reads set it: the turn's own entries carry none.
@@ -372,8 +372,8 @@ type approval struct {
 	Status     ApprovalStatus
 	CreatedAt  time.Time
 	DecidedAt  sql.NullInt64
-	// Request is the write a cluster approval holds; nil on a call's own.
-	Request *tools.ClusterWriteRequest
+	// Request is the action an action approval holds; nil on a call's own.
+	Request *tools.ActionRequest
 	// Reason is the mode or rule that decided a write nobody was asked about;
 	// "" for one the user answered.
 	Reason string
@@ -555,7 +555,7 @@ func upsertApproval(ctx context.Context, st stmts, a approval) error {
 		if err != nil {
 			return fmt.Errorf("upsert approval: %w", err)
 		}
-		kind, request = approvalClusterWrite, sql.NullString{String: string(b), Valid: true}
+		kind, request = approvalAction, sql.NullString{String: string(b), Valid: true}
 	}
 	_, err := st.Exec(ctx, stmtUpsertApproval,
 		string(a.ID), string(a.ToolCallID), kind, request, a.Status, nullString(a.Reason), millis(a.CreatedAt), a.DecidedAt)
@@ -644,7 +644,7 @@ func clusterWritesByCall(ctx context.Context, st stmts, stmt stmtID, arg string)
 			return nil, fmt.Errorf("cluster writes: %w", err)
 		}
 		a.CreatedAt = time.UnixMilli(createdAt).UTC()
-		a.Request = &tools.ClusterWriteRequest{}
+		a.Request = &tools.ActionRequest{}
 		if err := json.Unmarshal([]byte(request), a.Request); err != nil {
 			return nil, fmt.Errorf("cluster writes: %w", err)
 		}

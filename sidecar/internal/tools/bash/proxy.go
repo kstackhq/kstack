@@ -51,32 +51,43 @@ const (
 
 // writesFor is what a run's grant does with a write: the asker to put it to,
 // or, with none, the refusal to answer it with. A foreground call asks through
-// its runtime's ClusterWriteAsker; a background command asks no one.
+// its runtime's ActionAsker; a background command asks no one.
 func writesFor(rt tools.Runtime, background bool) (kubeproxy.Asker, string) {
 	switch {
 	case background:
 		return nil, refusedBackground
-	case rt.ClusterWriteAsker == nil:
+	case rt.ActionAsker == nil:
 		return nil, refusedNoAsker
 	}
-	return runtimeAsker{rt.ClusterWriteAsker}, ""
+	return runtimeAsker{rt.ActionAsker}, ""
 }
 
-// runtimeAsker is a runtime's ClusterWriteAsker as a grant's Asker, so
-// neither package imports the other.
-type runtimeAsker struct{ w tools.ClusterWriteAsker }
+// runtimeAsker is a runtime's ActionAsker as a grant's Asker, so neither
+// package imports the other.
+type runtimeAsker struct{ a tools.ActionAsker }
 
-func (a runtimeAsker) Ask(ctx context.Context, w kubeproxy.Write) (bool, error) {
-	return a.w.Ask(ctx, requestOf(w))
+func (a runtimeAsker) Ask(ctx context.Context, r kubeproxy.Request) (kubeproxy.Answer, error) {
+	answer, err := a.a.Ask(ctx, requestOf(r))
+	return kubeproxy.Answer{Approved: answer.Approved}, err
 }
 
-func (a runtimeAsker) Record(ctx context.Context, w kubeproxy.Write, d permissions.Decision, reason string) error {
-	return a.w.Record(ctx, requestOf(w), d, reason)
+func (a runtimeAsker) Record(ctx context.Context, r kubeproxy.Request, d permissions.Decision, reason string) error {
+	return a.a.Record(ctx, requestOf(r), d, reason)
 }
 
-// requestOf is a grant's write as the runtime's asker takes it.
-func requestOf(w kubeproxy.Write) tools.ClusterWriteRequest {
-	return tools.ClusterWriteRequest{
+// requestOf is a grant's request as the runtime's asker takes it.
+func requestOf(r kubeproxy.Request) tools.ActionRequest {
+	out := tools.ActionRequest{Action: r.Action}
+	if r.Write != nil {
+		w := writeOf(*r.Write)
+		out.Write = &w
+	}
+	return out
+}
+
+// writeOf is a grant's write as the runtime's asker takes it.
+func writeOf(w kubeproxy.Write) tools.ClusterWrite {
+	return tools.ClusterWrite{
 		Method: w.Method, Path: w.Path, Subresource: w.Subresource,
 		ContentType: w.ContentType, Body: string(w.Body), DryRun: w.DryRun,
 	}

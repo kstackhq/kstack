@@ -67,14 +67,27 @@ type Write struct {
 	DryRun      bool   // a POST, PUT or PATCH whose every dryRun is All
 }
 
-// Asker puts a write to the user, and records one decided with nobody asked.
-// From Ask, false is a denial; a context error is a wait that ended without a
-// decision, which the asker records as abandoned; any other error is a request
-// or decision the asker could not record. From Record, an error is a record
-// the asker could not write; reason is the decision in the user's words.
+// Request is one classified action held for the user, or decided with nobody
+// asked.
+type Request struct {
+	Action permissions.Action
+	// Write is the request as sent; nil for an action with none.
+	Write *Write
+}
+
+// Answer is the user's decision.
+type Answer struct {
+	Approved bool
+}
+
+// Asker puts a request to the user, and records one decided with nobody
+// asked. From Ask, a context error is a wait that ended without a decision,
+// which the asker records as abandoned; any other error is a request or
+// decision the asker could not record. From Record, an error is a record the
+// asker could not write; reason is the decision in the user's words.
 type Asker interface {
-	Ask(ctx context.Context, w Write) (bool, error)
-	Record(ctx context.Context, w Write, d permissions.Decision, reason string) error
+	Ask(ctx context.Context, r Request) (Answer, error)
+	Record(ctx context.Context, r Request, d permissions.Decision, reason string) error
 }
 
 // serveWrite decides a write the policy passed: forwards it when the policy
@@ -120,11 +133,12 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 	act := classify(r, p, body, g.context)
 	write := Write{
 		Method: r.Method, Path: r.URL.RequestURI(), Subresource: p.subresource,
-		ContentType: r.Header.Get("Content-Type"), Body: body, DryRun: isDryRun(r),
+		ContentType: r.Header.Get("Content-Type"), Body: body, DryRun: act.DryRun,
 	}
+	req := Request{Action: act, Write: &write}
 	switch d, reason := g.policy(r.Context()).Decide(act); d {
 	case permissions.Allowed:
-		if err := g.asker.Record(r.Context(), write, d, reason); err != nil {
+		if err := g.asker.Record(r.Context(), req, d, reason); err != nil {
 			writeStatus(w, http.StatusForbidden, string(refusedUnrecorded))
 			return
 		}
@@ -132,13 +146,13 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		return
 	case permissions.Denied:
 		// Nothing runs either way, so the refusal does not wait on the record.
-		if err := g.asker.Record(r.Context(), write, d, reason); err != nil {
+		if err := g.asker.Record(r.Context(), req, d, reason); err != nil {
 			slog.Warn("a refused cluster write was not recorded", "err", err)
 		}
 		writeStatus(w, http.StatusForbidden, "kstack: "+act.Summary+" is not allowed: "+reason)
 		return
 	}
-	approved, err := g.asker.Ask(r.Context(), write)
+	answer, err := g.asker.Ask(r.Context(), req)
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		writeStatus(w, http.StatusForbidden, string(refusedUnanswered))
 		return
@@ -147,7 +161,7 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		writeStatus(w, http.StatusForbidden, string(refusedUnrecorded))
 		return
 	}
-	if !approved {
+	if !answer.Approved {
 		writeStatus(w, http.StatusForbidden, string(refusedDenied))
 		return
 	}

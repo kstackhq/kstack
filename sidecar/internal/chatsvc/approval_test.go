@@ -940,10 +940,16 @@ func TestAStrandedWaitClearsTheChatsMark(t *testing.T) {
 	})
 }
 
-// deleteX is the write the chat tests' writer sends.
-var deleteX = tools.ClusterWriteRequest{
-	Method: "DELETE", Path: "/api/v1/namespaces/web/pods/x?dryRun=All", ContentType: "application/json",
-	Body: `{"propagationPolicy":"Background"}`,
+// deleteX is the action the chat tests' writer asks.
+var deleteX = tools.ActionRequest{
+	Action: permissions.Action{
+		Class: permissions.UpstreamWrite, Context: "dev", Namespace: "web", Verb: "delete", Group: "core", Kind: "pods", Name: "x",
+		Summary: "Delete pods/x in web on dev",
+	},
+	Write: &tools.ClusterWrite{
+		Method: "DELETE", Path: "/api/v1/namespaces/web/pods/x?dryRun=All", ContentType: "application/json",
+		Body: `{"propagationPolicy":"Background"}`,
+	},
 }
 
 // writerTool is a tool whose run puts one cluster write to the user through its
@@ -957,20 +963,20 @@ type writerTool struct {
 }
 
 func (w writerTool) Run(ctx context.Context, rt tools.Runtime, _ json.RawMessage) (string, bool) {
-	if rt.ClusterWriteAsker == nil {
+	if rt.ActionAsker == nil {
 		return "nobody to ask", true
 	}
 	if w.ctx != nil {
 		ctx = w.ctx
 	}
-	ok, err := rt.ClusterWriteAsker.Ask(ctx, deleteX)
+	answer, err := rt.ActionAsker.Ask(ctx, deleteX)
 	if w.hold != nil {
 		<-w.hold
 	}
 	if err != nil {
 		return "unanswered", true
 	}
-	return fmt.Sprint(ok), false
+	return fmt.Sprint(answer.Approved), false
 }
 
 // startWriter is a started service offering w as Writer, and the model calling
@@ -1023,7 +1029,7 @@ func TestAWriteIsAskedUnderTheRunningCall(t *testing.T) {
 	assert.Nil(t, calls[0].Approval, "the call itself was not asked about")
 	require.Len(t, calls[0].ClusterWrites, 1)
 	w := calls[0].ClusterWrites[0]
-	assert.Equal(t, ClusterWrite{Approval: ToolCallApproval{ID: w.Approval.ID, Status: ApprovalPending}, ClusterWriteRequest: deleteX}, w)
+	assert.Equal(t, clusterWriteOf(ToolCallApproval{ID: w.Approval.ID, Status: ApprovalPending}, deleteX), w)
 	assert.Equal(t, runWaitingApproval, runStatusOf(t, s.db, msg.RunID))
 	assert.Equal(t, []approvalRow{{status: ApprovalPending}}, approvalRows(t, s.db))
 
@@ -1032,9 +1038,9 @@ func TestAWriteIsAskedUnderTheRunningCall(t *testing.T) {
 	assert.Equal(t, runRunning, runStatusOf(t, s.db, msg.RunID))
 	assert.Equal(t, StatusStreaming, got.Status)
 	w = toolCallsOf(t, got)[0].ClusterWrites[0]
-	decided := deleteX
+	decided := clusterWriteOf(ToolCallApproval{ID: w.Approval.ID, Status: ApprovalApproved}, deleteX)
 	decided.ContentType, decided.Body = "", ""
-	assert.Equal(t, ClusterWrite{Approval: ToolCallApproval{ID: w.Approval.ID, Status: ApprovalApproved}, ClusterWriteRequest: decided}, w)
+	assert.Equal(t, decided, w)
 	assert.Equal(t, []approvalRow{{status: ApprovalApproved, decided: true}}, approvalRows(t, s.db))
 
 	close(hold)
@@ -1182,9 +1188,9 @@ func TestADecisionThatCannotBeRecordedForwardsNothing(t *testing.T) {
 func TestAWriteWithNoRunningCallIsRefused(t *testing.T) {
 	j := &runJournal{s: newTestService(t)}
 
-	ok, err := j.askClusterWrite(t.Context(), deleteX)
+	answer, err := j.askAction(t.Context(), deleteX)
 
-	assert.False(t, ok)
+	assert.False(t, answer.Approved)
 	assert.ErrorIs(t, err, errNoRunningCall)
 }
 
@@ -1196,15 +1202,21 @@ type recorderTool struct {
 	hold chan struct{}
 }
 
-// allowedPatch is the write a recorderTool records allowed.
-var allowedPatch = tools.ClusterWriteRequest{
-	Method: "PATCH", Path: "/api/v1/namespaces/web/configmaps/c", ContentType: "application/merge-patch+json", Body: `{}`,
+// allowedPatch is the action a recorderTool records allowed.
+var allowedPatch = tools.ActionRequest{
+	Action: permissions.Action{
+		Class: permissions.UpstreamWrite, Context: "dev", Namespace: "web", Verb: "patch", Group: "core", Kind: "configmaps", Name: "c",
+		Summary: "Patch configmaps/c in web on dev",
+	},
+	Write: &tools.ClusterWrite{
+		Method: "PATCH", Path: "/api/v1/namespaces/web/configmaps/c", ContentType: "application/merge-patch+json", Body: `{}`,
+	},
 }
 
 func (r recorderTool) Run(ctx context.Context, rt tools.Runtime, _ json.RawMessage) (string, bool) {
-	err := rt.ClusterWriteAsker.Record(ctx, allowedPatch, permissions.Allowed, "auto mode")
+	err := rt.ActionAsker.Record(ctx, allowedPatch, permissions.Allowed, "auto mode")
 	if err == nil {
-		err = rt.ClusterWriteAsker.Record(ctx, deleteX, permissions.Denied, "this context is read-only")
+		err = rt.ActionAsker.Record(ctx, deleteX, permissions.Denied, "this context is read-only")
 	}
 	<-r.hold
 	if err != nil {
@@ -1244,7 +1256,7 @@ func TestARecordedWriteNeedsNoWait(t *testing.T) {
 func TestARecordWithNoRunningCallIsRefused(t *testing.T) {
 	j := &runJournal{s: newTestService(t)}
 
-	err := j.recordClusterWrite(t.Context(), deleteX, permissions.Allowed, "auto mode")
+	err := j.recordAction(t.Context(), deleteX, permissions.Allowed, "auto mode")
 
 	assert.ErrorIs(t, err, errNoRunningCall)
 }
@@ -1254,8 +1266,52 @@ func TestARecordWithNoRunningCallIsRefused(t *testing.T) {
 func TestARecordOfAPromptIsRefused(t *testing.T) {
 	j := &runJournal{s: newTestService(t), openTool: &toolCallEntry{}}
 
-	err := j.recordClusterWrite(t.Context(), deleteX, permissions.Prompted, "ask mode")
+	err := j.recordAction(t.Context(), deleteX, permissions.Prompted, "ask mode")
 
 	assert.ErrorIs(t, err, errNotRecorded)
 	assert.Empty(t, approvalRows(t, j.s.db))
+}
+
+// actionRequests are the kind and the stored request of every approval, in
+// the order written.
+func actionRequests(t *testing.T, db *appdb.DB) (kinds []string, requests []tools.ActionRequest) {
+	t.Helper()
+	rows, err := db.Read.Query(`SELECT kind, request FROM approvals ORDER BY created_at, id`)
+	require.NoError(t, err)
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			kind    string
+			request sql.NullString
+			r       tools.ActionRequest
+		)
+		require.NoError(t, rows.Scan(&kind, &request))
+		require.NoError(t, json.Unmarshal([]byte(request.String), &r))
+		kinds, requests = append(kinds, kind), append(requests, r)
+	}
+	require.NoError(t, rows.Err())
+	return kinds, requests
+}
+
+// An asked action's row holds its request, the action included, and so do an
+// allowed and a refused one's.
+func TestAnActionIsRecordedWithItsRequest(t *testing.T) {
+	s := startWriter(t, writerTool{})
+	msg := send(t, s, nil, "1", "hi")
+	approve(t, s, toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].ClusterWrites[0].Approval.ID, false)
+	awaitSettled(t, s, msg.ChatID, msg.ID)
+	kinds, requests := actionRequests(t, s.db)
+	assert.Equal(t, []string{"action"}, kinds)
+	assert.Equal(t, []tools.ActionRequest{deleteX}, requests)
+
+	hold := make(chan struct{})
+	s = startServiceWithTool(t, recorderTool{testTool: testTool{name: "Recorder"}, hold: hold})
+	fakeOf(s).SetToolCalls(llm.StagedCall("Recorder", `{}`))
+	msg = send(t, s, nil, "1", "hi")
+	awaitWrite(t, s, msg, ApprovalRefused)
+	close(hold)
+	awaitSettled(t, s, msg.ChatID, msg.ID)
+	kinds, requests = actionRequests(t, s.db)
+	assert.Equal(t, []string{"action", "action"}, kinds)
+	assert.Equal(t, []tools.ActionRequest{allowedPatch, deleteX}, requests)
 }

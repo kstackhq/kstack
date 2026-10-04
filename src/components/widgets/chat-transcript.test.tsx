@@ -2487,6 +2487,15 @@ describe('ChatTranscript', () => {
     // case says otherwise.
     const clusterWrite = (over: Partial<ChatClusterWrite> = {}): ChatClusterWrite => ({
       approval: { id: 'w-1', status: 'Pending' },
+      action: {
+        summary: 'Delete pods/x in web on dev',
+        class: 'UpstreamWrite',
+        context: 'dev',
+        namespace: 'web',
+        verb: 'delete',
+        group: 'core',
+        kind: 'pods',
+      },
       method: 'DELETE',
       path: '/api/v1/namespaces/web/pods/x',
       subresource: '',
@@ -2504,12 +2513,14 @@ describe('ChatTranscript', () => {
     const request = () => screen.getByRole('group', { name: 'Cluster change awaiting approval' });
     const approve = () => screen.getByRole('button', { name: 'Approve' });
 
-    // What is approved is the request itself: its method's heading, the path and
-    // query as sent, and the body, then the command that sent it.
-    it('draws the heading, the path, the body and the command under Sent by', async () => {
+    // What is approved is the request itself: the action's summary as its
+    // heading, then the path and query as sent, and the body, then the command
+    // that sent it.
+    it('draws the summary, the path, the body and the command under Sent by', async () => {
       draw([waitingOn([clusterWrite({ path: '/api/v1/namespaces/web/pods/x\u{202E}' })])]);
 
-      expect(request()).toHaveTextContent('Delete from the cluster?');
+      expect(request()).toHaveTextContent('Delete pods/x in web on dev');
+      expect(request()).not.toHaveTextContent('DELETE from');
       expect(request()).not.toHaveTextContent('(dry run)');
       expect(request().querySelector('mark')).toHaveTextContent('\\u{202E}');
       const [path, method, body, command] = request().querySelectorAll('pre, p.font-mono');
@@ -2527,43 +2538,35 @@ describe('ChatTranscript', () => {
       expect(sendMock).toHaveBeenCalledWith({ id: 'w-1', approve: true });
     });
 
-    it('says a dry run is one', () => {
-      draw([
-        waitingOn([clusterWrite({ method: 'POST', path: '/apis/example.com/v1/widgets?dryRun=All', dryRun: true })]),
-      ]);
-
-      expect(request()).toHaveTextContent('Create in the cluster? (dry run)');
-    });
-
-    it('names what each method does', () => {
-      (
-        [
-          ['POST', 'Create in the cluster?'],
-          ['PUT', 'Replace in the cluster?'],
-          ['PATCH', 'Patch in the cluster?'],
-          ['DELETE', 'Delete from the cluster?'],
-        ] as const
-      ).forEach(([method, heading]) => {
-        const { unmount } = draw([waitingOn([clusterWrite({ method })])]);
-        expect(request()).toHaveTextContent(heading);
-        unmount();
-      });
-    });
-
-    // An eviction is a POST that creates nothing: a subresource's heading names
-    // no method, and the path says what it does.
-    it('reads a subresource off the proxy, never the path', () => {
+    it("ends a dry run's heading with (dry run)", () => {
       draw([
         waitingOn([
-          clusterWrite({ method: 'POST', path: '/api/v1/namespaces/web/pods/x/eviction', subresource: 'eviction' }),
+          clusterWrite({
+            method: 'POST',
+            path: '/apis/example.com/v1/widgets?dryRun=All',
+            dryRun: true,
+            action: { ...clusterWrite().action, summary: 'Create widgets on dev' },
+          }),
         ]),
       ]);
-      expect(request()).toHaveTextContent('Change in the cluster?');
-      expect(request()).not.toHaveTextContent('Create in the cluster?');
+
+      expect(request()).toHaveTextContent('Create widgets on dev (dry run)');
+    });
+
+    // An action with no request of its own and no kind this step draws is not
+    // approved: what the user cannot see is not.
+    it('offers Deny alone for an action with no write', () => {
+      draw([waitingOn([clusterWrite({ method: '', path: '', body: '', contentType: '' })])]);
+      expect(request()).toHaveTextContent("This request can't be shown.");
+      expect(
+        within(request())
+          .getAllByRole('button')
+          .map((b) => b.textContent),
+      ).toEqual(['Deny']);
     });
 
     // The same body means different things as a merge patch and a strategic
-    // one, and a subresource's heading names no method: the request says both.
+    // one: the request says the method and the media type.
     it('draws the method and the media type under the path', () => {
       draw([
         waitingOn([
@@ -2576,7 +2579,6 @@ describe('ChatTranscript', () => {
           }),
         ]),
       ]);
-      expect(request()).toHaveTextContent('Change in the cluster?');
       expect(screen.getByLabelText('Method and media type')).toHaveTextContent(
         'PUT application/strategic-merge-patch+json',
       );

@@ -134,30 +134,30 @@ func (j *runJournal) endApproval(ctx context.Context, a *approval, status Approv
 	return nil
 }
 
-// clusterWriteAsker is a run's journal as the tools.ClusterWriteAsker its calls
-// get, bound to the run's context, so a wait ends with the run as well as with
-// the request.
-type clusterWriteAsker struct {
+// actionAsker is a run's journal as the tools.ActionAsker its calls get, bound
+// to the run's context, so a wait ends with the run as well as with the
+// request.
+type actionAsker struct {
 	j   *runJournal
 	run context.Context
 }
 
-func (w clusterWriteAsker) Ask(ctx context.Context, cw tools.ClusterWriteRequest) (bool, error) {
+func (a actionAsker) Ask(ctx context.Context, r tools.ActionRequest) (tools.Answer, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	defer context.AfterFunc(w.run, cancel)()
-	return w.j.askClusterWrite(ctx, cw)
+	defer context.AfterFunc(a.run, cancel)()
+	return a.j.askAction(ctx, r)
 }
 
-func (w clusterWriteAsker) Record(ctx context.Context, cw tools.ClusterWriteRequest, d permissions.Decision, reason string) error {
-	return w.j.recordClusterWrite(ctx, cw, d, reason)
+func (a actionAsker) Record(ctx context.Context, r tools.ActionRequest, d permissions.Decision, reason string) error {
+	return a.j.recordAction(ctx, r, d, reason)
 }
 
-// recordClusterWrite records a sandboxed command's cluster write the policy
-// decided with nobody asked, against the call the run has open, as
-// askClusterWrite records one the user decided: written already decided, so
-// nothing waits and the run stays running.
-func (j *runJournal) recordClusterWrite(ctx context.Context, w tools.ClusterWriteRequest, d permissions.Decision, reason string) error {
+// recordAction records an action of a sandboxed command the policy decided
+// with nobody asked, against the call the run has open, as askAction records
+// one the user decided: written already decided, so nothing waits and the run
+// stays running.
+func (j *runJournal) recordAction(ctx context.Context, r tools.ActionRequest, d permissions.Decision, reason string) error {
 	s := j.s
 	var status ApprovalStatus
 	switch d {
@@ -175,7 +175,7 @@ func (j *runJournal) recordClusterWrite(ctx context.Context, w tools.ClusterWrit
 	now := normalizeTime(s.now())
 	a := &approval{
 		ID: newApprovalID(), ToolCallID: call.ID, Status: status, CreatedAt: now,
-		DecidedAt: nullMillis(now), Request: &w, Reason: reason,
+		DecidedAt: nullMillis(now), Request: &r, Reason: reason,
 	}
 	wctx := context.WithoutCancel(ctx)
 	if err := s.store.InTx(wctx, func(st stmts) error { return upsertApproval(wctx, st, *a) }); err != nil {
@@ -186,30 +186,30 @@ func (j *runJournal) recordClusterWrite(ctx context.Context, w tools.ClusterWrit
 	return nil
 }
 
-// askClusterWrite puts a sandboxed command's cluster write to the user as a
-// request of the call the run has open: calls run one at a time, so it is the
-// one whose command sent the write. Unlike Approve, every end of the wait writes
-// the approval and flips the run back, since the command runs on after it and
-// the run must not stay waiting behind it: a wait that ends without a decision
-// writes abandoned. The call's row keeps running throughout. An end the store
-// refuses answers the command with that error, never the decision: no change
-// goes on a decision the record does not hold.
+// askAction puts an action of a sandboxed command to the user as a request of
+// the call the run has open: calls run one at a time, so it is the one whose
+// command sent it. Unlike Approve, every end of the wait writes the approval
+// and flips the run back, since the command runs on after it and the run must
+// not stay waiting behind it: a wait that ends without a decision writes
+// abandoned. The call's row keeps running throughout. An end the store refuses
+// answers the command with that error, never the decision: no change goes on a
+// decision the record does not hold.
 //
 // It runs on the proxy's goroutine while the loop waits in the call's Run, which
-// returns only once every write it sent has returned (kubeproxy's Wait), so the
+// returns only once every request it sent has returned (kubeproxy's Wait), so the
 // journal is never touched by both at once.
-func (j *runJournal) askClusterWrite(ctx context.Context, w tools.ClusterWriteRequest) (bool, error) {
+func (j *runJournal) askAction(ctx context.Context, r tools.ActionRequest) (tools.Answer, error) {
 	s := j.s
 	call := j.openTool
 	if call == nil {
-		return false, errNoRunningCall
+		return tools.Answer{}, errNoRunningCall
 	}
 	id := newApprovalID()
 	decision := s.await(id)
-	a := &approval{ID: id, ToolCallID: call.ID, Status: ApprovalPending, CreatedAt: normalizeTime(s.now()), Request: &w}
+	a := &approval{ID: id, ToolCallID: call.ID, Status: ApprovalPending, CreatedAt: normalizeTime(s.now()), Request: &r}
 	if err := j.writeWaiting(ctx, nil, *a); err != nil {
 		s.forget(id)
-		return false, err
+		return tools.Answer{}, err
 	}
 	call.ClusterWrites = append(call.ClusterWrites, a)
 	j.publish(StatusWaitingApproval)
@@ -225,17 +225,17 @@ func (j *runJournal) askClusterWrite(ctx context.Context, w tools.ClusterWriteRe
 		a.Status, a.DecidedAt = status, nullMillis(normalizeTime(s.now()))
 		j.publish(StatusStreaming)
 		s.notify(chatsKey)
-		return false, err
+		return tools.Answer{}, err
 	}
-	return status == ApprovalApproved, waitErr
+	return tools.Answer{Approved: status == ApprovalApproved}, waitErr
 }
 
-// errNoRunningCall is a write asked while no call of the run is running.
-var errNoRunningCall = errors.New("chatsvc: a cluster write with no call running")
+// errNoRunningCall is an action asked while no call of the run is running.
+var errNoRunningCall = errors.New("chatsvc: an action with no call running")
 
 // errNotRecorded is a record of a decision that is not Allowed or Denied: a
 // prompt is asked, never recorded.
-var errNotRecorded = errors.New("chatsvc: only an allowed or denied cluster write is recorded")
+var errNotRecorded = errors.New("chatsvc: only an allowed or denied action is recorded")
 
 // await registers a waiter for id: a channel of one, buffered, so a decision
 // delivered before the turn reaches its select is kept for it.

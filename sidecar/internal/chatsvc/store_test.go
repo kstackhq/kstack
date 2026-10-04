@@ -834,7 +834,7 @@ func sidecarRow(callID LLMCallID) toolCallEntry {
 func aWrite(call ToolCallID, millis int64) approval {
 	return approval{
 		ID: newApprovalID(), ToolCallID: call, Status: ApprovalPending, CreatedAt: time.UnixMilli(millis).UTC(),
-		Request: &tools.ClusterWriteRequest{Method: "DELETE", Path: "/api/v1/namespaces/web/pods/x"},
+		Request: &tools.ActionRequest{Write: &tools.ClusterWrite{Method: "DELETE", Path: "/api/v1/namespaces/web/pods/x"}},
 	}
 }
 
@@ -884,7 +884,7 @@ func TestACallWithWritesReadsOnce(t *testing.T) {
 	for i, status := range []ApprovalStatus{ApprovalDenied, ApprovalAbandoned, ApprovalPending} {
 		w := aWrite(row.ID, int64(3_000+i))
 		w.Status = status
-		w.Request.ContentType, w.Request.Body = "application/json", `{"n":`+fmt.Sprint(i)+`}`
+		w.Request.Write.ContentType, w.Request.Write.Body = "application/json", `{"n":`+fmt.Sprint(i)+`}`
 		row.ClusterWrites = append(row.ClusterWrites, &w)
 	}
 	require.NoError(t, set.InTx(ctx, func(st stmts) error {

@@ -387,9 +387,9 @@ type Spawner interface {
 	Start(ctx context.Context, d Delegation) (id string, err error)
 }
 
-// ClusterWriteRequest is what a sandboxed command sent to change the cluster,
-// as the user is shown it.
-type ClusterWriteRequest struct {
+// ClusterWrite is what a sandboxed command sent to change the cluster, as the
+// user is shown it.
+type ClusterWrite struct {
 	Method string `json:"method"`
 	// Path is the path and raw query, as forwarded.
 	Path string `json:"path"`
@@ -401,12 +401,25 @@ type ClusterWriteRequest struct {
 	DryRun bool   `json:"dryRun"`
 }
 
-// ClusterWriteAsker puts a sandboxed command's cluster write to the user, as
-// a request of the call that is running, and records one the proxy decided
-// with nobody asked against that call, with the reason in the user's words.
-type ClusterWriteAsker interface {
-	Ask(ctx context.Context, w ClusterWriteRequest) (bool, error)
-	Record(ctx context.Context, w ClusterWriteRequest, d permissions.Decision, reason string) error
+// ActionRequest is one classified action held for the user, or decided with
+// nobody asked. It is what an action approval's request column holds.
+type ActionRequest struct {
+	Action permissions.Action `json:"action"`
+	// Write is the request as sent; nil for an action with none.
+	Write *ClusterWrite `json:"write,omitempty"`
+}
+
+// Answer is the user's decision on an action.
+type Answer struct {
+	Approved bool
+}
+
+// ActionAsker puts an action to the user, as a request of the call that is
+// running, and records one the proxy decided with nobody asked against that
+// call, with the reason in the user's words.
+type ActionAsker interface {
+	Ask(ctx context.Context, r ActionRequest) (Answer, error)
+	Record(ctx context.Context, r ActionRequest, d permissions.Decision, reason string) error
 }
 
 // Runtime is what a tool gets of the chat its call runs in. chatsvc sets every
@@ -414,14 +427,14 @@ type ClusterWriteAsker interface {
 // cluster, the one a tool acting on a cluster reaches, and ChatID the chat; a model
 // names neither. Session is the run's policy, the chat's switch as its turn read
 // it included. Agent is nil in a subagent's runtime, so a subagent spawns
-// nothing. ClusterWriteAsker is nil where nobody can be asked.
+// nothing. ActionAsker is nil where nobody can be asked.
 type Runtime struct {
-	ClusterID         apimeta.ClusterID
-	ChatID            apimeta.ChatID
-	Session           session.Session
-	Dir               ChatDir
-	Tasks             Tasks
-	Files             FileStamps
-	Agent             Spawner
-	ClusterWriteAsker ClusterWriteAsker
+	ClusterID   apimeta.ClusterID
+	ChatID      apimeta.ChatID
+	Session     session.Session
+	Dir         ChatDir
+	Tasks       Tasks
+	Files       FileStamps
+	Agent       Spawner
+	ActionAsker ActionAsker
 }

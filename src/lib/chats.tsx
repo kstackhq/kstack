@@ -123,6 +123,15 @@ const ChatMessagesWatchSubscription = graphql(`
               id
               status
             }
+            action {
+              summary
+              class
+              context
+              namespace
+              verb
+              group
+              kind
+            }
             method
             path
             subresource

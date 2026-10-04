@@ -109,11 +109,11 @@ const toolCallReadFrom = ` FROM tool_calls t JOIN llm_calls c ON c.id = t.llm_ca
 	LEFT JOIN background_tasks b ON b.tool_call_id = t.id
 	LEFT JOIN agent_runs sr ON sr.id = t.spawned_run_id`
 
-// clusterWriteReadColumns is what a read of the cluster writes scans, in
+// clusterWriteReadColumns is what a read of the actions scans, in
 // clusterWritesByCall's order, over approvals a joined up to their run r. Only a
-// pending write's body is read: no other is served.
+// pending action's body is read: no other is served.
 const clusterWriteReadColumns = `a.tool_call_id, a.id, a.status,
-	CASE a.status WHEN 'pending' THEN a.request ELSE json_remove(a.request, '$.body', '$.contentType') END,
+	CASE a.status WHEN 'pending' THEN a.request ELSE json_remove(a.request, '$.write.body', '$.write.contentType') END,
 	COALESCE(a.reason, ''), a.created_at, a.decided_at`
 
 const clusterWriteReadFrom = ` FROM approvals a JOIN tool_calls t ON t.id = a.tool_call_id
@@ -224,9 +224,9 @@ var statements = []sqlstmt.Statement{
 	JOIN agent_runs r ON r.id = c.run_id WHERE r.id = ?1 OR r.parent_run_id = ?1 ORDER BY c.run_id, c.seq, t.seq`),
 	// The cluster writes of the same calls, in the order asked.
 	stmtSelectClusterWrites: sqlstmt.OnBoth(`SELECT ` + clusterWriteReadColumns + clusterWriteReadFrom + `
-	WHERE a.kind = 'cluster' AND r.chat_id = ? ORDER BY a.created_at, a.id`),
+	WHERE a.kind = 'action' AND r.chat_id = ? ORDER BY a.created_at, a.id`),
 	stmtSelectRunClusterWrites: sqlstmt.OnBoth(`SELECT ` + clusterWriteReadColumns + clusterWriteReadFrom + `
-	WHERE a.kind = 'cluster' AND (r.id = ?1 OR r.parent_run_id = ?1) ORDER BY a.created_at, a.id`),
+	WHERE a.kind = 'action' AND (r.id = ?1 OR r.parent_run_id = ?1) ORDER BY a.created_at, a.id`),
 
 	// A task's row goes in running before its process starts, and is deleted when
 	// the start fails, so no row stands for a process that never ran.

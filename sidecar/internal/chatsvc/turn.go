@@ -233,7 +233,7 @@ func (s *service) run(t *turn) (res agent.Result, err error) {
 		Runtime: tools.Runtime{
 			ClusterID: t.clusterID, ChatID: t.chatID, Session: t.session(),
 			Dir: s.chatDir(t.chatID), Tasks: s.chatTasks(t.chatID, t.runJournal), Files: s.chatFiles(t.chatID),
-			Agent: t, ClusterWriteAsker: clusterWriteAsker{j: t.runJournal, run: t.ctx},
+			Agent: t, ActionAsker: actionAsker{j: t.runJournal, run: t.ctx},
 		},
 		MaxToolCalls: maxToolCalls, DefaultToolTimeout: defaultToolTimeout,
 	}

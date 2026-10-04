@@ -682,26 +682,6 @@ function commandHeading(command: CommandAction, sandboxAvailable: boolean | unde
   return command.background ? 'Run this command in the background?' : 'Run this command?';
 }
 
-// What each method does to the cluster, for a write to a resource itself.
-const CLUSTER_WRITE_HEADINGS: Record<string, string> = {
-  POST: 'Create in the cluster?',
-  PUT: 'Replace in the cluster?',
-  PATCH: 'Patch in the cluster?',
-  DELETE: 'Delete from the cluster?',
-};
-
-// What a cluster write's request asks. A write to a subresource names no method,
-// since a POST to pods/x/eviction creates nothing: the path says what it does.
-// The subresource is the proxy's parse, never read off the path here. A dry run
-// on a group the proxy cannot trust to honor it asks too, and says so.
-function clusterWriteHeading(change: ChatClusterWrite): string {
-  const heading =
-    change.subresource === ''
-      ? (CLUSTER_WRITE_HEADINGS[change.method] ?? 'Change in the cluster?')
-      : 'Change in the cluster?';
-  return change.dryRun ? `${heading} (dry run)` : heading;
-}
-
 // The call a turn is stopped on, and the only place it is approved: a command,
 // a file read by its path, a file written by its path and content, a file
 // edited by its path and both strings, or a page fetched by its URL. It shows
@@ -716,7 +696,8 @@ function clusterWriteHeading(change: ChatClusterWrite): string {
 // answer's own: the user is approving a call whose reasoning they cannot see,
 // so the request says whose it is. `change` is a cluster write the call's
 // sandboxed command sent, which is what the request asks about when it is set;
-// the call's command is then drawn under it as what sent it.
+// the action is its heading, and the call's command is drawn under it as what
+// sent it.
 function ApprovalRequest({
   approval,
   action,
@@ -771,16 +752,25 @@ function ApprovalRequest({
   // approved.
   let drawn = true;
   let body: ReactNode;
-  if (change) {
-    // The request itself, never a reading of it: the path and query as sent, one
-    // line the proxy bounds; the method, which a subresource's heading does not
-    // name, and the media type, which decides what a patch's body does; then the
-    // body as a file's content is. The command
-    // under Sent by is context, so Approve does not wait on its fold.
+  if (change && change.method === '') {
+    // An action with no request of its own is a kind a later step draws.
+    label = 'Cluster change awaiting approval';
+    drawn = false;
+    body = <p className="text-xs text-muted-foreground">This request can&apos;t be shown.</p>;
+  } else if (change) {
+    // The action is the heading, the sidecar's summary, so nothing here parses
+    // a path. The request itself is never a reading of it: the path and query
+    // as sent, one line the proxy bounds; the method, and the media type, which
+    // decides what a patch's body does; then the body as a file's content is.
+    // The command under Sent by is context, so Approve does not wait on its
+    // fold.
     label = 'Cluster change awaiting approval';
     body = (
       <>
-        <p className="text-xs text-muted-foreground">{clusterWriteHeading(change)}</p>
+        <p className="text-xs text-muted-foreground">
+          <VisibleText text={change.action.summary} />
+          {change.dryRun && ' (dry run)'}
+        </p>
         <p className="mt-1 font-mono text-xs break-all whitespace-pre-wrap">
           <VisibleText text={change.path} />
         </p>
