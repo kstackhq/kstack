@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// A chat's switch in flight, by key. A send says which switches its sender saw
-// and the sidecar refuses one that differs, so Send and Ask again hold off from
-// the press until the list watch shows the value the mutation committed: the
-// mutation's answer and the watch's frame are separate streams, and a send
-// between them would pass the old value.
+// A chat's switch in flight: the sandbox switch and the network switch alike. A
+// send says which switches its sender saw and the sidecar refuses one that
+// differs, so Send and Ask again hold off from the press until the list watch
+// shows the value the mutation committed: the mutation's answer and the watch's
+// frame are separate streams, and a send between them would pass the old value.
 // The provider sits above the routes, like the outbox, so a pane that remounts
 // meanwhile still waits.
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';

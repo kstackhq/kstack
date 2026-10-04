@@ -55,7 +55,7 @@ export function AppLayout() {
     // them only request an open.
     // The chat outbox lives here, above the routes: the first send moves chat mode to
     // the new chat's own route, which unmounts the pane that held the text. A sandbox
-    // switch in flight is held beside it for the same reason.
+    // or network switch in flight is held beside it for the same reason.
     <ChatOutboxProvider>
       <ChatSwitchProvider>
         <DialogProvider>

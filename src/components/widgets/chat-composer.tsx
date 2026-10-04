@@ -34,6 +34,7 @@ import {
 } from '@kubetail/ui/elements/dropdown-menu';
 
 import { ChatGrants } from '@/components/widgets/chat-grants';
+import { NetworkSwitch } from '@/components/widgets/network-switch';
 import { SandboxSwitch } from '@/components/widgets/sandbox-switch';
 import { graphql } from '@/gql';
 import type { AppMode } from '@/lib/app-mode';
@@ -85,9 +86,16 @@ type ChatComposerProps = {
   sandboxAvailable?: boolean;
   /** The open chat's switch. Undefined until the list watch delivers the chat. */
   sandboxDisabled?: boolean;
+  /** Whether the machine can give a sandboxed command the internet. Undefined until the sidecar says. */
+  networkAvailable?: boolean;
+  /** Why it cannot, in the sidecar's words. */
+  networkReason?: string;
+  /** The open chat's network switch. Undefined until the list watch delivers the chat. */
+  networkEnabled?: boolean;
   /** A switch is in flight. Send waits for it rather than send a switch about to change. */
   switching?: boolean;
   onSwitchSandbox?: (disabled: boolean) => void;
+  onSwitchNetwork?: (enabled: boolean) => void;
 };
 
 type Option = { value: string; label: string };
@@ -164,8 +172,12 @@ export function ChatComposer({
   onCreated,
   sandboxAvailable,
   sandboxDisabled,
+  networkAvailable,
+  networkReason = '',
+  networkEnabled,
   switching = false,
   onSwitchSandbox = () => {},
+  onSwitchNetwork = () => {},
 }: ChatComposerProps) {
   const { models, loaded, failed, retry: askAgainForModels } = useModels();
   // Without a catalog there is no pick and nothing can be sent.
@@ -182,12 +194,20 @@ export function ChatComposer({
             : null,
         )
       : undefined;
-  const { draft, send, refusal, pick, setDraft, setPick, submit, retry, discard, settle } = useChatOutbox(
-    mode,
-    chatID,
-    clusterID,
-    seed,
-  );
+  const {
+    draft,
+    send,
+    refusal,
+    pick,
+    networkThisTurn,
+    setDraft,
+    setPick,
+    setNetworkThisTurn,
+    submit,
+    retry,
+    discard,
+    settle,
+  } = useChatOutbox(mode, chatID, clusterID, seed);
   const picked = modelOf(models, pick?.model ?? null);
   // A stored pick the catalog lacks is moved to the seed: a model can leave the
   // catalog, and the outbox outlives the composer. With nothing to seed it leaves
@@ -225,8 +245,13 @@ export function ChatComposer({
   const streaming = last !== null && inFlight(last.status);
   const settled = send.status === 'idle';
   // What a send says the user saw. A chat that has not started has no row, and
-  // starts sandboxed.
+  // starts sandboxed with no network.
   const shownDisabled = chatID === null ? false : sandboxDisabled;
+  const shownNetwork = chatID === null ? false : networkEnabled;
+  // The network switch and the toggle change nothing outside the sandbox, and the
+  // toggle adds nothing to a chat whose switch is on.
+  const inSandbox = sandboxAvailable === true && shownDisabled !== true;
+  const showsToggle = inSandbox && shownNetwork !== true;
   // `streaming` is checked here as well as behind the Cancel button, so Enter refuses
   // for the same reason the button is not a Send: one turn per chat.
   // `picked` is the entry's own pick checked against the list, never a fallback
@@ -239,6 +264,7 @@ export function ChatComposer({
     !streaming &&
     !switching &&
     shownDisabled !== undefined &&
+    shownNetwork !== undefined &&
     draft.trim() !== '';
   // All only once the watch they wait on has answered: a window at startup has not
   // failed to pick anything, and a catalog still in flight is not an empty one.
@@ -259,7 +285,9 @@ export function ChatComposer({
   };
 
   const onSend = () => {
-    if (canSend && shownDisabled !== undefined) follow(submit(shownDisabled));
+    if (canSend && shownDisabled !== undefined && shownNetwork !== undefined) {
+      follow(submit({ sandboxDisabled: shownDisabled, networkEnabled: shownNetwork }));
+    }
   };
 
   let action;
@@ -308,6 +336,9 @@ export function ChatComposer({
       {refusal?.kind === 'sandbox-changed' && (
         <p className="text-xs text-destructive">This chat&apos;s sandbox switch changed. Check it, then send again.</p>
       )}
+      {refusal?.kind === 'network-changed' && (
+        <p className="text-xs text-destructive">This chat&apos;s network switch changed. Check it, then send again.</p>
+      )}
       {onShowWaiting && (
         <p className="flex items-center gap-2 text-xs text-muted-foreground">
           <span>An agent is waiting on you.</span>
@@ -337,7 +368,28 @@ export function ChatComposer({
           {chatID !== null && sandboxAvailable === true && (
             <SandboxSwitch sandboxDisabled={sandboxDisabled} switching={switching} onSwitch={onSwitchSandbox} />
           )}
+          {chatID !== null && inSandbox && (
+            <NetworkSwitch
+              networkEnabled={networkEnabled}
+              available={networkAvailable}
+              switching={switching}
+              onSwitch={onSwitchNetwork}
+            />
+          )}
           {chatID !== null && <ChatGrants chatID={chatID} />}
+          {showsToggle && (
+            <Button
+              type="button"
+              variant={networkThisTurn ? 'secondary' : 'ghost'}
+              size="xs"
+              className="shrink-0 rounded-full text-xs font-normal"
+              aria-pressed={networkThisTurn}
+              disabled={networkAvailable !== true}
+              onClick={() => setNetworkThisTurn(!networkThisTurn)}
+            >
+              Network for this message
+            </Button>
+          )}
           {pick && picked && (
             <>
               <Segment
@@ -360,6 +412,9 @@ export function ChatComposer({
         </div>
         <div className="flex shrink-0 gap-2">{action}</div>
       </div>
+      {inSandbox && networkAvailable === false && (
+        <p className="text-xs text-muted-foreground">No network on this machine: {networkReason}</p>
+      )}
     </form>
   );
 }

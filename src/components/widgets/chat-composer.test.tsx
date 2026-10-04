@@ -58,6 +58,7 @@ function Harness({ replaced = false, ...props }: Props & { replaced?: boolean })
         last={null}
         onCreated={onCreated}
         sandboxDisabled={false}
+        networkEnabled={false}
         {...props}
       />
       {/* The entry the composer writes into, which the transcript's Ask again reads. */}
@@ -190,6 +191,101 @@ describe('ChatComposer', () => {
 
     view.rerender({ chatID: null });
     expect(screen.queryByRole('button', { name: /allowed/ })).toBeNull();
+  });
+
+  const networkButton = () => screen.queryByRole('button', { name: /^(no network|network on)$/i });
+  const toggle = () => screen.queryByRole('button', { name: 'Network for this message' });
+
+  // The network switch sits beside the sandbox switch, for the open chat in it:
+  // outside the sandbox it changes nothing.
+  it('draws the network switch for an open chat in the sandbox', () => {
+    const view = renderComposer({ sandboxAvailable: true, networkAvailable: true });
+    expect(networkButton()).toHaveTextContent('No network');
+
+    view.rerender({ sandboxAvailable: true, networkAvailable: true, networkEnabled: true });
+    expect(networkButton()).toHaveTextContent('Network on');
+    view.rerender({ sandboxAvailable: true, networkAvailable: true, networkEnabled: undefined });
+    expect(networkButton()).toBeDisabled();
+
+    view.rerender({ sandboxAvailable: true, networkAvailable: true, sandboxDisabled: true });
+    expect(networkButton()).toBeNull();
+    view.rerender({ sandboxAvailable: false, networkAvailable: true });
+    expect(networkButton()).toBeNull();
+    view.rerender({ chatID: null, sandboxAvailable: true, networkAvailable: true });
+    expect(networkButton()).toBeNull();
+  });
+
+  it('hands a press of the network switch to the pane', async () => {
+    const onSwitchNetwork = vi.fn();
+    renderComposer({ sandboxAvailable: true, networkAvailable: true, networkEnabled: true, onSwitchNetwork });
+    await act(async () => {
+      fireEvent.click(networkButton()!);
+    });
+    expect(onSwitchNetwork).toHaveBeenCalledWith(false);
+  });
+
+  // The sidecar refuses a send whose network switch differs from the chat's too.
+  it('sends the network switch it shows, and holds Send until the list delivers it', async () => {
+    const view = renderComposer({ sandboxAvailable: true, networkAvailable: true, networkEnabled: undefined });
+    type('hello');
+    expect(button('Send')).toBeDisabled();
+
+    view.rerender({ sandboxAvailable: true, networkAvailable: true, networkEnabled: true });
+    await click('Send');
+    expect(sendMock.mock.calls[0][0]).toMatchObject({ networkEnabled: true, networkThisTurn: false });
+  });
+
+  // The toggle is the entry's: pressed, it rides the next send, which clears it.
+  it('sends the toggle for this message, and clears it once accepted', async () => {
+    renderComposer({ sandboxAvailable: true, networkAvailable: true });
+    expect(toggle()).toHaveAttribute('aria-pressed', 'false');
+    await act(async () => {
+      fireEvent.click(toggle()!);
+    });
+    expect(toggle()).toHaveAttribute('aria-pressed', 'true');
+
+    type('hello');
+    await click('Send');
+    expect(sendMock.mock.calls[0][0]).toMatchObject({ networkThisTurn: true });
+    expect(toggle()).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  // A chat that has not started has the toggle too, and starts with no network.
+  it('draws the toggle for a chat that has not started', async () => {
+    renderComposer({ chatID: null, sandboxAvailable: true, networkAvailable: true, networkEnabled: undefined });
+    await act(async () => {
+      fireEvent.click(toggle()!);
+    });
+    type('hello');
+    await click('Send');
+    expect(sendMock.mock.calls[0][0]).toMatchObject({ networkEnabled: false, networkThisTurn: true });
+  });
+
+  // The toggle adds nothing where the chat's switch is on, and nothing outside the
+  // sandbox or on a machine with none.
+  it('hides the toggle where it changes nothing', () => {
+    const view = renderComposer({ sandboxAvailable: true, networkAvailable: true, networkEnabled: true });
+    expect(toggle()).toBeNull();
+    view.rerender({ sandboxAvailable: true, networkAvailable: true, sandboxDisabled: true });
+    expect(toggle()).toBeNull();
+    view.rerender({ sandboxAvailable: false, networkAvailable: true });
+    expect(toggle()).toBeNull();
+  });
+
+  it('disables the switch and the toggle where network is unavailable, saying why', () => {
+    renderComposer({ sandboxAvailable: true, networkAvailable: false, networkReason: 'pasta not found' });
+    expect(networkButton()).toBeDisabled();
+    expect(toggle()).toBeDisabled();
+    expect(screen.getByText('No network on this machine: pasta not found')).toBeInTheDocument();
+  });
+
+  it('says when the network switch changed under a send, and keeps the draft', async () => {
+    sendMock.mockResolvedValue(refused('KSTACK_CHAT_NETWORK_CHANGED'));
+    renderComposer({ sandboxAvailable: true, networkAvailable: true });
+    type('hello');
+    await click('Send');
+    expect(screen.getByText("This chat's network switch changed. Check it, then send again.")).toBeInTheDocument();
+    expect(box()).toHaveValue('hello');
   });
 
   it('sends the draft and clears the box', async () => {
