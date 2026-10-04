@@ -33,7 +33,8 @@ import (
 // it, or testutil.RequireSandbox's verdict where there is none.
 func sandboxed(t *testing.T) *sandbox.Sandbox {
 	t.Helper()
-	s, v := sandbox.Probe(t.Context())
+	s, v, err := sandbox.Probe(t.Context())
+	require.NoError(t, err)
 	if v.Available {
 		return s
 	}
@@ -45,7 +46,8 @@ func sandboxed(t *testing.T) *sandbox.Sandbox {
 // or testutil.RequireSandbox's verdict where there is none.
 func confining(t *testing.T) *sandbox.Sandbox {
 	t.Helper()
-	s, v := sandbox.Probe(t.Context())
+	s, v, err := sandbox.Probe(t.Context())
+	require.NoError(t, err)
 	if s != nil && s.Confines() {
 		return s
 	}

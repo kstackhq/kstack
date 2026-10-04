@@ -43,13 +43,18 @@ const forwarderPort = 6443
 var systemBwraps = []string{"/usr/bin/bwrap", "/bin/bwrap", "/usr/local/bin/bwrap", "/run/current-system/sw/bin/bwrap"}
 
 // Probe answers this machine's sandbox: the first bwrap that runs a command
-// through the whole chain, the system's before Kstack's own.
-func Probe(ctx context.Context) (*Sandbox, Status) {
+// through the whole chain, the system's before Kstack's own. It answers ctx's
+// error when ctx ended first.
+func Probe(ctx context.Context) (*Sandbox, Status, error) {
 	self, err := os.Executable()
 	if err != nil {
-		return nil, Status{Reason: "cannot find its own executable"}
+		return nil, Status{Reason: "cannot find its own executable"}, nil
 	}
-	return probe(ctx, self, bwrapPaths(filepath.Dir(self), systemBwraps), probeBound)
+	s, status := probe(ctx, self, bwrapPaths(filepath.Dir(self), systemBwraps), probeBound)
+	if err := ctx.Err(); err != nil {
+		return nil, Status{}, err
+	}
+	return s, status, nil
 }
 
 // probe tries each of bwraps in order and answers the first that passes, or

@@ -30,7 +30,8 @@ import (
 // or testutil.RequireSandbox's verdict where there is none.
 func confining(t *testing.T) *Sandbox {
 	t.Helper()
-	s, v := Probe(t.Context())
+	s, v, err := Probe(t.Context())
+	require.NoError(t, err)
 	if s != nil && s.Confines() {
 		return s
 	}

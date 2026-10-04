@@ -12,7 +12,8 @@
 //go:build unix
 
 // Package loginshell runs the user's login shell. Launch runs one command in it,
-// and the bash tool's profile snapshot uses it on every Unix. Resolve runs the
+// through a Start that confines it where the machine has a sandbox (In), and
+// the bash tool's profile snapshot uses it on every Unix. Resolve runs the
 // account's login shell once, in a scrubbed environment, and reads two things
 // from it: the PATH the sandbox finds programs on, and an allowlisted set of the
 // environment, which a macOS GUI launch does not inherit from launchd: without
@@ -178,6 +179,9 @@ const (
 	reasonBadOutput   = "bad output"
 	reasonOutputLimit = "output limit"
 	reasonTimeout     = "timeout"
+	// A Start that failed: the TMPDIR, or the sandbox's policy.
+	reasonNoScratch      = "no scratch"
+	reasonSandboxRefused = "sandbox refused"
 )
 
 // Fault is a resolution failure, carrying exactly what the caller may log.
@@ -209,19 +213,19 @@ type outcome struct {
 // Result is what one run of the login shell answered.
 type Result struct {
 	Path []string          // PATH as the shell exported it, split on ":", unfiltered
-	Env  map[string]string // the imported allowlist, resolved; what main sets on macOS
+	Env  map[string]string // the imported allowlist, resolved; what the app sets on macOS
 }
 
-// Resolve runs the account's login shell once and reads both. The deadline is
-// ctx's. Resolve never touches the process's environment, so a failure leaves
-// the inherited one exactly as it was.
-func Resolve(ctx context.Context) (Result, *Fault) {
+// Resolve runs the account's login shell once, through start, and reads both.
+// The deadline is ctx's. Resolve never touches the process's environment, so a
+// failure leaves the inherited one exactly as it was.
+func Resolve(ctx context.Context, start Start) (Result, *Fault) {
 	shell, f := findShellOrTimeout(ctx)
 	if f != nil {
 		return Result{}, f
 	}
 	kind := kindOf(shell)
-	out, f := Launch(ctx, shell, kind.args, scrubbedEnv(shell), maxOutputBytes, func(buf []byte, _ int) bool {
+	out, f := Launch(ctx, start, shell, kind.args, scrubbedEnv(shell), maxOutputBytes, func(buf []byte, _ int) bool {
 		_, ok := parse(buf, kind.frames)
 		return ok
 	})
@@ -265,10 +269,10 @@ func findShellOrTimeout(ctx context.Context) (string, *Fault) {
 
 // Path is Resolve's Path alone, bounded by DefaultTimeout, for a caller that
 // has no use for the environment. Its error is a *Fault.
-func Path(ctx context.Context) ([]string, error) {
+func Path(ctx context.Context, start Start) ([]string, error) {
 	ctx, cancel := context.WithTimeout(ctx, DefaultTimeout)
 	defer cancel()
-	res, f := Resolve(ctx)
+	res, f := Resolve(ctx, start)
 	if f != nil {
 		return nil, f
 	}
@@ -307,21 +311,25 @@ func ProcessEnv() []string {
 	return append(os.Environ(), "DISABLE_AUTO_UPDATE=true")
 }
 
-// Launch runs shell with args in env, and nothing else of the process's, and
-// returns its stdout as read up to the moment done says it is complete. done is
-// handed the whole read so far and where the latest read began. Each of the
-// shell's two streams is capped at limit. The deadline is ctx's, and the
-// shell's session is killed and reaped before Launch returns, whatever happened.
-func Launch(ctx context.Context, shell string, args, env []string, limit int, done func(buf []byte, from int) bool) ([]byte, *Fault) {
-	cmd := exec.Command(shell, args...)
+// Start builds the command that runs the login shell, and a cleanup Launch
+// calls once the shell has exited. The command's Env is never nil, and its
+// SysProcAttr is unset: Launch sets it.
+type Start func(ctx context.Context, name string, args, env []string) (cmd *exec.Cmd, cleanup func(), err error)
+
+// Launch runs shell with args in env, through start, and returns its stdout as
+// read up to the moment done says it is complete. done is handed the whole read
+// so far and where the latest read began. Each of the shell's two streams is
+// capped at limit. The deadline is ctx's, and the shell's session is killed and
+// reaped before Launch returns, whatever happened.
+func Launch(ctx context.Context, start Start, shell string, args, env []string, limit int, done func(buf []byte, from int) bool) ([]byte, *Fault) {
+	cmd, cleanup, err := start(ctx, shell, args, env)
+	if err != nil {
+		return nil, startFault(ctx, err)
+	}
+	defer cleanup()
 	// nil stdin is /dev/null: a startup file that reads it gets EOF, not a hang.
 	cmd.Stdin = nil
 	cmd.SysProcAttr = shellProcAttr()
-	if home, err := os.UserHomeDir(); err == nil {
-		cmd.Dir = home
-	}
-	// Never nil, which exec reads as the process's environment.
-	cmd.Env = append([]string{}, env...)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -381,6 +389,19 @@ func Launch(ctx context.Context, shell string, args, env []string, limit int, do
 		res.reason = reasonShellExited
 	}
 	return nil, &Fault{Reason: res.reason, ExitCode: code}
+}
+
+// startFault is the Fault of a Start that failed. Any failure once ctx has
+// ended is a shell that ran out of time: a sandbox answers ctx's error when the
+// deadline passes while it builds the run.
+func startFault(ctx context.Context, err error) *Fault {
+	switch {
+	case ctx.Err() != nil:
+		return fault(reasonTimeout)
+	case errors.Is(err, errNoScratch):
+		return fault(reasonNoScratch)
+	}
+	return fault(reasonSandboxRefused)
 }
 
 // shellProcAttr puts the shell in a session of its own. One kill then reaches

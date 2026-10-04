@@ -14,12 +14,14 @@
 
 //go:build unix && !darwin
 
-package main
+package app
 
 import (
+	"context"
 	"os"
 	"testing"
 
+	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
 	"github.com/stretchr/testify/require"
 )
 
@@ -31,4 +33,20 @@ func TestSetShellEnvIsANoOpOffDarwin(t *testing.T) {
 	setShellEnv(map[string]string{"PATH": "/opt/bin"})
 
 	require.Equal(t, "/usr/bin:/bin", os.Getenv("PATH"))
+}
+
+// On Linux with no sandbox nothing reads the launch's PATH, so the login shell
+// is not run.
+func TestLinuxSkipsTheResolutionWithNoSandbox(t *testing.T) {
+	resolve := resolveShell
+	t.Cleanup(func() { resolveShell = resolve })
+	resolveShell = func(context.Context, loginshell.Start) (loginshell.Result, *loginshell.Fault) {
+		t.Fatal("the login shell ran")
+		return loginshell.Result{}, nil
+	}
+
+	path, fault := launchShell(t.Context(), nil, []string{t.TempDir()}, t.TempDir())
+
+	require.Nil(t, path)
+	require.Empty(t, fault)
 }

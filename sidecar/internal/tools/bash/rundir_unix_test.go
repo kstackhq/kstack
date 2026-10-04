@@ -382,3 +382,20 @@ func TestTheSweepLeavesWhatItCannotRemove(t *testing.T) {
 	sweepRunDirs(runs)
 	assert.DirExists(t, dead)
 }
+
+// A login shell's TMPDIR is a run's: under the tmp directory, behind the
+// sidecar's lock, and gone with the cleanup.
+func TestTheLoginShellsTempDirIsARuns(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "tmp")
+
+	dir, cleanup, err := TempDir(tmp)()
+
+	require.NoError(t, err)
+	assert.Equal(t, tmp, filepath.Dir(dir))
+	assert.True(t, strings.HasPrefix(filepath.Base(dir), strconv.Itoa(os.Getpid())+"-"))
+	assert.FileExists(t, filepath.Join(tmp, lockName(os.Getpid())))
+	sweepRunDirs(tmp)
+	assert.DirExists(t, dir, "the lock keeps a sweep off it")
+	cleanup()
+	assert.NoDirExists(t, dir)
+}
