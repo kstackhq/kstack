@@ -49,7 +49,7 @@ func TestMain(m *testing.M) {
 // Where the probe passes, Bash is offered through the sandbox, and its schema
 // has no way out of it. Without one, testutil.RequireSandbox decides.
 func TestBashIsOfferedWithTheSandbox(t *testing.T) {
-	if _, v := sandbox.Probe(t.Context()); !v.Available {
+	if _, v, _ := sandbox.Probe(t.Context()); !v.Available {
 		testutil.RequireSandbox(t, "no sandbox: "+v.Reason)
 	}
 	t.Setenv("SHELL", "")
@@ -270,7 +270,7 @@ func TestASubagentsSandboxedCallRunsUnasked(t *testing.T) {
 // The PATH main read at launch is synced at Start, before the snapshot, on a
 // machine with a sandbox; with none read there is nothing to sync.
 func TestStartSyncsTheLaunchPath(t *testing.T) {
-	if _, v := sandbox.Probe(t.Context()); !v.Available {
+	if _, v, _ := sandbox.Probe(t.Context()); !v.Available {
 		testutil.RequireSandbox(t, "no sandbox: "+v.Reason)
 	}
 	t.Setenv("SHELL", "")
