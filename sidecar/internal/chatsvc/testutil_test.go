@@ -635,6 +635,12 @@ func (b *fakeBash) Run(ctx context.Context, _ tools.Runtime, input json.RawMessa
 	return "ran: " + command, false
 }
 
+// RunApproved is Run, since the loop runs a call by its approval: the
+// embedded tool's would run the real shell.
+func (b *fakeBash) RunApproved(ctx context.Context, rt tools.Runtime, input json.RawMessage, _ tools.Approval) (string, bool) {
+	return b.Run(ctx, rt, input)
+}
+
 // commands is what Run was given, in order.
 func (b *fakeBash) commands() []string {
 	b.mu.Lock()

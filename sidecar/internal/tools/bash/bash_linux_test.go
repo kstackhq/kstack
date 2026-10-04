@@ -17,7 +17,13 @@ package bash
 import (
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
+	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
 // node reserves about 10 GiB of address space for a WebAssembly memory, which
@@ -30,4 +36,22 @@ func TestNodeRunsUnderTheMemoryLimit(t *testing.T) {
 	text, isError := tl.Run(t.Context(), testRuntime(t), command(`node -e 'new WebAssembly.Memory({initial: 1})'`))
 
 	require.False(t, isError, text)
+}
+
+// A call with the internet runs through the real sandbox under pasta: it
+// reads the resolver its run wrote at /etc/resolv.conf, holds no capability,
+// and answers as any call does.
+func TestANetworkCallRunsUnderPasta(t *testing.T) {
+	tl := proxyTool(t, &fakeLease{})
+	s := confining(t)
+	if available, reason := s.NetworkStatus(); !available {
+		testutil.RequireSandbox(t, "no network for a run: "+reason)
+	}
+	tl.sandboxer = s
+
+	text, isError := tl.RunApproved(t.Context(), testRuntime(t), command(`cat /etc/resolv.conf; grep CapEff /proc/self/status`),
+		tools.Approval{Sandboxed: true, Network: session.NetworkApproved})
+
+	require.False(t, isError, text)
+	assert.Equal(t, "nameserver "+sandbox.ResolverAddress+"\nCapEff:\t0000000000000000\n", text)
 }

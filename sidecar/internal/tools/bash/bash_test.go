@@ -17,6 +17,7 @@ package bash
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +33,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -155,6 +157,64 @@ func assertSandboxedCallsAskNoOne(t *testing.T, raw string) {
 	}
 }
 
+// sessionNetwork is a session's Network that always answers network.
+func sessionNetwork(network session.Network) func(context.Context) session.Network {
+	return func(context.Context) session.Network { return network }
+}
+
+// A sandboxed call's network is decided by the first row that matches: the
+// machine's network, then a session that never has it, then the chat's
+// switch and the turn's toggle, and a call that asks for it alone asks the
+// user. Outside the sandbox the argument changes nothing.
+func TestTheApprovalNamesTheNetwork(t *testing.T) {
+	rt := testRuntime(t)
+	ws := tools.WorkspacePath(rt.Dir)
+	skip := func(network session.Network) tools.Approval {
+		return tools.Approval{Cwd: ws, Sandboxed: true, Skip: true, Network: network}
+	}
+	none := &fakeSandboxer{confines: true, networkReason: "pasta not found"}
+	box := &fakeSandboxer{confines: true}
+	for _, c := range []struct {
+		name    string
+		boxer   *fakeSandboxer
+		session func(context.Context) session.Network
+		asked   bool
+		want    tools.Approval
+		refusal string
+	}{
+		{"unavailable, not asked", none, sessionNetwork(session.NetworkChat), false, skip(session.NoNetwork), ""},
+		{"unavailable, asked", none, sessionNetwork(session.NetworkChat), true, tools.Approval{}, "This machine cannot give a sandboxed command the internet: pasta not found."},
+		{"unavailable, asked by a monitor", none, nil, true, tools.Approval{}, "This machine cannot give a sandboxed command the internet: pasta not found."},
+		{"a monitor, not asked", box, nil, false, skip(session.NoNetwork), ""},
+		{"a monitor, asked", box, nil, true, tools.Approval{}, "This session never has network."},
+		{"the chat's switch", box, sessionNetwork(session.NetworkChat), false, skip(session.NetworkChat), ""},
+		{"the chat's switch, asked", box, sessionNetwork(session.NetworkChat), true, skip(session.NetworkChat), ""},
+		{"the turn's toggle", box, sessionNetwork(session.NetworkTurn), false, skip(session.NetworkTurn), ""},
+		{"the turn's toggle, asked", box, sessionNetwork(session.NetworkTurn), true, skip(session.NetworkTurn), ""},
+		{"neither", box, sessionNetwork(session.NoNetwork), false, skip(session.NoNetwork), ""},
+		{"neither, asked", box, sessionNetwork(session.NoNetwork), true, tools.Approval{Cwd: ws, Sandboxed: true, Network: session.NetworkApproved}, ""},
+	} {
+		r := rt
+		r.Session.Network = c.session
+		tl := &Tool{home: "/home/ana", sandboxer: c.boxer}
+		got, err := tl.Approval(t.Context(), r, json.RawMessage(fmt.Sprintf(`{"command":"curl -sI https://example.com","network":%t}`, c.asked)))
+		if c.refusal != "" {
+			var refusal *tools.Refusal
+			require.ErrorAs(t, err, &refusal, c.name)
+			assert.Equal(t, c.refusal, refusal.Result, c.name)
+			continue
+		}
+		require.NoError(t, err, c.name)
+		assert.Equal(t, c.want, got, c.name)
+	}
+
+	outside := rt
+	outside.Session.Outside, outside.Session.Network = true, sessionNetwork(session.NetworkChat)
+	got, err := (&Tool{home: "/home/ana", sandboxer: box}).Approval(t.Context(), outside, json.RawMessage(`{"command":"curl x","network":true}`))
+	require.NoError(t, err)
+	assert.Equal(t, tools.Approval{Cwd: ws}, got, "outside the sandbox a call asks, and its network is not this switch's")
+}
+
 // A workdir is a string of up to 4,096 bytes with no control character: each
 // would make the line on the approval request harder to read.
 func TestWorkdirIsParsed(t *testing.T) {
@@ -208,6 +268,32 @@ func TestBashReadsRunInBackground(t *testing.T) {
 	got, err := ActionOf(json.RawMessage(`{"command":"make serve","run_in_background":true}`), "", false)
 	require.NoError(t, err)
 	assert.True(t, got.Command.Background)
+}
+
+// network is a boolean, spelled exactly and once, and the action says the
+// call asked for the internet.
+func TestBashReadsNetwork(t *testing.T) {
+	in, err := parse(json.RawMessage(`{"command":"helm repo update","network":true}`))
+	require.NoError(t, err)
+	assert.True(t, in.Network)
+
+	in, err = parse(json.RawMessage(`{"command":"ls","network":false}`))
+	require.NoError(t, err)
+	assert.False(t, in.Network)
+
+	for _, raw := range []string{
+		`{"command":"ls","network":"true"}`,
+		`{"command":"ls","network":null}`,
+		`{"command":"ls","network":true,"network":false}`,
+		`{"command":"ls","Network":true}`,
+	} {
+		_, err := parse(json.RawMessage(raw))
+		assert.ErrorIs(t, err, errInput, raw)
+	}
+
+	got, err := ActionOf(json.RawMessage(`{"command":"helm repo update","network":true}`), "", true)
+	require.NoError(t, err)
+	assert.True(t, got.Command.Network)
 }
 
 // The approval keeps where the command will start: the workspace for a call
@@ -293,10 +379,10 @@ func TestAnEmptyCommandIsBadInput(t *testing.T) {
 func TestOutputUpToTheInlineLimitIsWhole(t *testing.T) {
 	const header = "Exit code 2\n"
 	fits := result{Output: strings.Repeat("x", tools.InlineLimit-len(header)), ExitCode: 2}
-	assert.Equal(t, header+fits.Output, resultText(fits, time.Minute, nil, false))
+	assert.Equal(t, header+fits.Output, resultText(fits, time.Minute, nil, unconfined))
 
 	over := result{Output: fits.Output + "x", ExitCode: 2}
-	got := resultText(over, time.Minute, failedSave, false)
+	got := resultText(over, time.Minute, failedSave, unconfined)
 	assert.NotEqual(t, header+over.Output, got)
 	assert.LessOrEqual(t, len(got), tools.InlineLimit)
 	assert.True(t, strings.HasPrefix(got, header+"xxx"), "the header leads the cut")
@@ -307,7 +393,7 @@ func TestOutputUpToTheInlineLimitIsWhole(t *testing.T) {
 func TestACommandResultIsRedactedThenCut(t *testing.T) {
 	token := "Authorization: Bearer " + strings.Repeat("a", 40)
 	res := result{Output: strings.Repeat("x", tools.InlineLimit-20) + token}
-	got := resultText(res, time.Minute, failedSave, false)
+	got := resultText(res, time.Minute, failedSave, unconfined)
 	assert.NotContains(t, got, "aaaa")
 	assert.LessOrEqual(t, len(got), tools.InlineLimit)
 }
@@ -316,7 +402,7 @@ func TestACommandResultIsRedactedThenCut(t *testing.T) {
 // that says so and names the exit it made after the signal.
 func TestATimeoutIsAResult(t *testing.T) {
 	r := result{Output: "partial\n", ExitCode: 143, Stop: stopTimeout}
-	assert.Equal(t, "Command timed out after 120s (exit code 143)\npartial\n", resultText(r, 2*time.Minute, nil, false))
+	assert.Equal(t, "Command timed out after 120s (exit code 143)\npartial\n", resultText(r, 2*time.Minute, nil, unconfined))
 	assert.True(t, r.failed())
 	assert.True(t, result{Stop: stopTimeout}.failed(), "a stopped command is an error even at exit 0")
 	assert.True(t, result{Stop: stopCancel}.failed(), "a cancelled command is an error even at exit 0")
@@ -325,7 +411,7 @@ func TestATimeoutIsAResult(t *testing.T) {
 // A cancelled command keeps what it printed, under a first line that says so.
 func TestACancelIsAResult(t *testing.T) {
 	r := result{Output: "partial\n", ExitCode: 137, Stop: stopCancel}
-	assert.Equal(t, "Command cancelled (exit code 137)\npartial\n", resultText(r, time.Minute, nil, false))
+	assert.Equal(t, "Command cancelled (exit code 137)\npartial\n", resultText(r, time.Minute, nil, unconfined))
 }
 
 // Once bash is reaped a stop is refused and recorded nowhere, so a reaped exit
@@ -342,16 +428,16 @@ func TestAStopAfterTheReapIsRefused(t *testing.T) {
 // subsecond one never reads 0s.
 func TestASubsecondTimeoutReadsInMilliseconds(t *testing.T) {
 	r := result{ExitCode: 137, Stop: stopTimeout}
-	assert.Equal(t, "Command timed out after 300ms (exit code 137)\n", resultText(r, 300*time.Millisecond, nil, false))
-	assert.Equal(t, "Command timed out after 1500ms (exit code 137)\n", resultText(r, 1500*time.Millisecond, nil, false))
-	assert.Equal(t, "Command timed out after 600s (exit code 137)\n", resultText(r, 10*time.Minute, nil, false))
+	assert.Equal(t, "Command timed out after 300ms (exit code 137)\n", resultText(r, 300*time.Millisecond, nil, unconfined))
+	assert.Equal(t, "Command timed out after 1500ms (exit code 137)\n", resultText(r, 1500*time.Millisecond, nil, unconfined))
+	assert.Equal(t, "Command timed out after 600s (exit code 137)\n", resultText(r, 10*time.Minute, nil, unconfined))
 }
 
 // A bash whose end could not be read did start, and may have changed things, so
 // it never reads as could not start.
 func TestAnUnreadExitIsNotCouldNotStart(t *testing.T) {
 	r := result{Output: "partial\n", CodeUnknown: true}
-	assert.Equal(t, "Command ended; its exit code could not be read\npartial\n", resultText(r, time.Minute, nil, false))
+	assert.Equal(t, "Command ended; its exit code could not be read\npartial\n", resultText(r, time.Minute, nil, unconfined))
 	assert.True(t, r.failed())
 }
 
@@ -450,19 +536,24 @@ func shortTemp(t *testing.T) string {
 // or answers cmdErr and runs nothing. Its port is 6443, or portErr, and the
 // processes it counts are counted, or countErr.
 type fakeSandboxer struct {
-	confines  bool
-	cmdErr    error
-	portErr   error
-	counted   int
-	countErr  error
-	system    sandbox.System   // what System answers
-	never     []string         // what Never answers
-	hold      *testutil.Signal // when set, Command fires it and waits for ctx to end
-	onSystem  func()           // when set, System calls it, then waits for holdSys to close
-	holdSys   chan struct{}
-	mu        sync.Mutex
-	runs      []sandbox.Run
-	portsSeen int
+	confines bool
+	// networkReason is why the machine cannot give a run the internet; "" gives it.
+	networkReason string
+	// needsResolver is whether a run with the internet needs a resolv.conf.
+	needsResolver bool
+	cmdErr        error
+	portErr       error
+	counted       int
+	countErr      error
+	system        sandbox.System   // what System answers
+	never         []string         // what Never answers
+	hold          *testutil.Signal // when set, Command fires it and waits for ctx to end
+	onSystem      func()           // when set, System calls it, then waits for holdSys to close
+	holdSys       chan struct{}
+	mu            sync.Mutex
+	runs          []sandbox.Run
+	resolvers     []string // each run's resolver as it read when the command was made
+	portsSeen     int
 }
 
 func (f *fakeSandboxer) Command(ctx context.Context, r sandbox.Run) (*exec.Cmd, error) {
@@ -472,6 +563,13 @@ func (f *fakeSandboxer) Command(ctx context.Context, r sandbox.Run) (*exec.Cmd, 
 	}
 	f.mu.Lock()
 	f.runs = append(f.runs, r)
+	if r.Policy.Network.Resolver != "" {
+		b, err := os.ReadFile(r.Policy.Network.Resolver)
+		if err != nil {
+			b = []byte(err.Error())
+		}
+		f.resolvers = append(f.resolvers, string(b))
+	}
 	f.mu.Unlock()
 	if f.hold != nil {
 		return nil, ctx.Err()
@@ -483,6 +581,10 @@ func (f *fakeSandboxer) Command(ctx context.Context, r sandbox.Run) (*exec.Cmd, 
 	cmd.Dir, cmd.Env = r.Dir, r.Env
 	return cmd, nil
 }
+
+func (f *fakeSandboxer) NetworkStatus() (bool, string) { return f.networkReason == "", f.networkReason }
+
+func (f *fakeSandboxer) NeedsResolver() bool { return f.needsResolver }
 
 func (f *fakeSandboxer) System(string, string) sandbox.System {
 	if f.onSystem != nil {
@@ -755,7 +857,9 @@ func TestTheDefinitionIsTheReferences(t *testing.T) {
 	assert.NotContains(t, desc, "\"risk\"")
 	assert.Equal(t, property{"string", workdirDescription}, schema.Properties["workdir"])
 	assert.Equal(t, property{"boolean", "Set to true to run this command in the background."}, schema.Properties["run_in_background"])
-	assert.Len(t, schema.Properties, 5)
+	assert.Equal(t, property{"boolean", "Set to true to ask the user to give this one command the internet, in a chat whose question's context says the sandbox has none. It changes nothing outside the sandbox."},
+		schema.Properties["network"])
+	assert.Len(t, schema.Properties, 6)
 
 	assert.True(t, strings.HasPrefix(def.Description, "Executes a bash command and returns its output.\n"), def.Description)
 	assert.Contains(t, def.Description, "`timeout` is in milliseconds: default 120000, max 600000.")
@@ -765,6 +869,8 @@ func TestTheDefinitionIsTheReferences(t *testing.T) {
 		"Shell state (env vars, functions) does not persist; outside the sandbox, the shell is initialized from the user's profile.\n")
 	assert.Contains(t, def.Description, "- `run_in_background` runs the command detached: it keeps running across turns and re-invokes you when it exits. "+
 		"No `&` needed. Check on it with `Read` on its output file; stop it with `TaskStop`.\n")
+	assert.Contains(t, def.Description, "- `network` asks the user to give one sandboxed command the internet. "+
+		"Set it only for a command that needs the internet in a chat whose question's context says the sandbox has none.\n")
 	assert.NotContains(t, def.Description, "Monitor")
 	assert.NotContains(t, string(def.InputSchema), "dangerouslyDisableSandbox")
 
@@ -922,7 +1028,7 @@ func TestTheSavedFileIsRedactedWhole(t *testing.T) {
 	r := result{Output: strings.Repeat("x", tools.PreviewLen-40) + pem + strings.Repeat("y", tools.InlineLimit)}
 	var k keep
 
-	got := resultText(r, time.Minute, k.save, false)
+	got := resultText(r, time.Minute, k.save, unconfined)
 
 	assert.Contains(t, got, "<persisted-output>")
 	assert.NotContains(t, got, "MIIEowIBAAKCAQEA")
@@ -936,7 +1042,7 @@ func TestOutputPastTheFileLimitSaysWhatWasNotKept(t *testing.T) {
 	r := result{Output: strings.Repeat("x", tools.FileLimit), Discarded: 100}
 	var k keep
 
-	got := resultText(r, time.Minute, k.save, false)
+	got := resultText(r, time.Minute, k.save, unconfined)
 
 	assert.Len(t, k.saved, tools.FileLimit)
 	assert.Contains(t, got, "Output too large (8MB). Full output saved to: /results/c1/X.txt; 100 bytes past the limit were not kept\n")
@@ -946,7 +1052,7 @@ func TestOutputPastTheFileLimitSaysWhatWasNotKept(t *testing.T) {
 // sidecar's own and never a Go error.
 func TestAFailedSaveFallsBackToACut(t *testing.T) {
 	r := result{Output: strings.Repeat("x", tools.InlineLimit+100)}
-	got := resultText(r, time.Minute, failedSave, false)
+	got := resultText(r, time.Minute, failedSave, unconfined)
 	assert.LessOrEqual(t, len(got), tools.InlineLimit)
 	assert.Regexp(t, `\n… \[\d+ bytes cut; the output could not be saved\]$`, got)
 }
@@ -985,7 +1091,7 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 		assert.Contains(t, p, "say what it will change before you run it")
 		assert.NotContains(t, p, "before you ask")
 	}
-	assert.Contains(t, sandboxPrompt, "If a command needs what the sandbox lacks — the user's files or credentials, the network, "+
+	assert.Contains(t, sandboxPrompt, "If a command needs what the sandbox lacks — the user's files or credentials, "+
 		"a helm change, a service account token, or a Secret's values — say so and what for. "+
 		"The user can switch this chat to run commands outside the sandbox; the question's context says whether they have. "+
 		"Do not work around the sandbox.")
@@ -997,7 +1103,12 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 	assert.Contains(t, sandboxPrompt, "give a command that changes the cluster one that leaves the user time to read each request", "the wait counts against the timeout")
 	assert.Contains(t, sandboxPrompt, "a service account token, a helm change and a change past 1 MiB come back `Forbidden`, and so does a change from a background command")
 	assert.Contains(t, sandboxPrompt, "`kubectl apply --server-side`")
-	assert.Contains(t, sandboxPrompt, "the network, a helm change, a service account token, or a Secret's values")
+	assert.NotContains(t, sandboxPrompt, "reaches no network")
+	assert.Contains(t, sandboxPrompt, "The sandbox reaches the internet only when the question's context says its `network` is on.")
+	assert.Contains(t, sandboxPrompt, "A command that needs the internet otherwise can set `network: true`, which asks the user to approve that command; "+
+		"a refused request is the user's decision.")
+	assert.Contains(t, sandboxPrompt, "With the internet a command still holds no credential, so `gh`, `aws` and a private registry have no login in the sandbox.")
+	assert.Contains(t, sandboxPrompt, "The cluster is reached through its proxy either way.")
 	assert.Contains(t, sandboxPrompt, "What follows about the user's own credentials, `kubectl diff` and `--dry-run=server` is for a command run outside the sandbox.")
 	assert.Contains(t, sandboxPrompt, "A Secret's values read `[redacted]`", "a sandboxed run reads Secrets redacted")
 	assert.Contains(t, sandboxPrompt, "The sandbox has the user's tools and none of their shell's functions, aliases or variables. "+
@@ -1059,6 +1170,9 @@ func TestActionOfReadsOldRowsTheSame(t *testing.T) {
 			Command: &tools.CommandAction{Text: "make serve", Cwd: "/home/ana", Background: true},
 		},
 		`{"command":"printf '\u00e9'"}`: {Command: &tools.CommandAction{Text: `printf 'é'`, Cwd: "/home/ana"}},
+		`{"command":"helm repo update","network":true}`: {
+			Command: &tools.CommandAction{Text: "helm repo update", Cwd: "/home/ana", Network: true},
+		},
 	} {
 		got, err := ActionOf(json.RawMessage(raw), "/home/ana", false)
 		require.NoError(t, err, raw)
@@ -1092,20 +1206,36 @@ func TestBashNamesItsKind(t *testing.T) {
 	}
 }
 
+// The trailer says the network the run had, so a run with the internet that
+// failed never tells the model it had none, and never says every cluster
+// change is approved: the user's permissions decide.
+func TestTheTrailerSaysTheRunsNetwork(t *testing.T) {
+	r := result{Output: "boom\n", ExitCode: 6}
+
+	offline := resultText(r, time.Minute, nil, confined)
+	online := resultText(r, time.Minute, nil, confinedWithInternet)
+
+	assert.True(t, strings.HasSuffix(offline, "(Ran in the sandbox: no network, no files outside the workspace and the system; cluster changes go as the user's permissions decide.)"), offline)
+	assert.True(t, strings.HasSuffix(online, "(Ran in the sandbox: with network, no files outside the workspace and the system; cluster changes go as the user's permissions decide.)"), online)
+	for _, got := range []string{offline, online} {
+		assert.NotContains(t, got, "approves each one")
+	}
+}
+
 // A confined run that ran, was not stopped, and failed ends with one line saying
 // where it ran, saved output included; nothing else carries it.
 func TestAFailedConfinedRunSaysWhereItRan(t *testing.T) {
 	rt := testRuntime(t)
-	const line = "\n(Ran in the sandbox: no network, no files outside the workspace and the system, cluster changes only once the user approves each one.)"
+	const line = "\n(Ran in the sandbox: no network, no files outside the workspace and the system; cluster changes go as the user's permissions decide.)"
 	for want, r := range map[string]result{
 		"Exit code 2\nboom\n": {Output: "boom\n", ExitCode: 2},
 		"Command ended; its exit code could not be read\npartial\n": {Output: "partial\n", CodeUnknown: true},
 	} {
-		assert.Equal(t, want+line, resultText(r, time.Minute, nil, true))
-		assert.Equal(t, want, resultText(r, time.Minute, nil, false), "unconfined")
+		assert.Equal(t, want+line, resultText(r, time.Minute, nil, confined))
+		assert.Equal(t, want, resultText(r, time.Minute, nil, unconfined), "unconfined")
 	}
 	var k keep
-	saved := resultText(result{Output: strings.Repeat("x", tools.InlineLimit), ExitCode: 1}, time.Minute, k.save, true)
+	saved := resultText(result{Output: strings.Repeat("x", tools.InlineLimit), ExitCode: 1}, time.Minute, k.save, confined)
 	assert.True(t, strings.HasSuffix(saved, "</persisted-output>"+line), "after the saved-output block")
 
 	for _, r := range []result{
@@ -1114,7 +1244,7 @@ func TestAFailedConfinedRunSaysWhereItRan(t *testing.T) {
 		{Output: "partial\n", ExitCode: 137, Stop: stopCancel},
 		{Error: "fork/exec: no such file"},
 	} {
-		assert.NotContains(t, resultText(r, time.Minute, nil, true), "Ran in the sandbox", r)
+		assert.NotContains(t, resultText(r, time.Minute, nil, confined), "Ran in the sandbox", r)
 	}
 
 	tl := tool(t)

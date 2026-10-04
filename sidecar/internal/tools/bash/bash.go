@@ -45,12 +45,13 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
 var (
-	_ tools.Gated   = (*Tool)(nil)
-	_ tools.Bounded = (*Tool)(nil)
+	_ tools.ApprovedRunner = (*Tool)(nil)
+	_ tools.Bounded        = (*Tool)(nil)
 )
 
 //go:embed prompts/bash.md
@@ -110,6 +111,8 @@ var _ interface {
 // Command's contract is sandbox.Sandbox.Command's, exec.CommandContext included.
 type sandboxer interface {
 	Command(ctx context.Context, r sandbox.Run) (*exec.Cmd, error)
+	NetworkStatus() (available bool, reason string)
+	NeedsResolver() bool
 	System(home, shell string) sandbox.System
 	Never(home string) []string
 	Confines() bool
@@ -289,7 +292,7 @@ func parseVersion(out string) string {
 }
 
 // errInput is an input parse refuses.
-var errInput = errors.New(`bash input is not {"command": <non-empty string>, "description"?: <string>, "timeout"?: <positive number>, "workdir"?: <directory>, "run_in_background"?: <boolean>}`)
+var errInput = errors.New(`bash input is not {"command": <non-empty string>, "description"?: <string>, "timeout"?: <positive number>, "workdir"?: <directory>, "run_in_background"?: <boolean>, "network"?: <boolean>}`)
 
 // errOutsideWorkspace is a sandboxed call whose workdir resolves outside the
 // chat's workspace.
@@ -305,10 +308,11 @@ type input struct {
 	Timeout     time.Duration // DefaultTimeout when the call names none
 	Workdir     string        // "" when the call names none
 	Background  bool          // the call's run_in_background
+	Network     bool          // the call asked for the internet
 }
 
-// parse reads an object whose keys are command, description, timeout, workdir
-// and run_in_background, each spelled exactly and at most once, with nothing after it, and a
+// parse reads an object whose keys are command, description, timeout, workdir,
+// run_in_background and network, each spelled exactly and at most once, with nothing after it, and a
 // command that is not empty. It walks the tokens itself because a struct decode
 // matches a key without regard to case and lets a duplicate win, and the command
 // that runs must be the one approved. Each value's type is checked off its token, since a typed
@@ -351,6 +355,8 @@ func parse(raw json.RawMessage) (input, error) {
 			ok = ok && validWorkdir(in.Workdir)
 		case "run_in_background":
 			in.Background, ok = val.(bool)
+		case "network":
+			in.Network, ok = val.(bool)
 		}
 		if !ok {
 			return input{}, errInput
@@ -455,11 +461,13 @@ func (t *Tool) Prompt() string {
 }
 
 // Approval is the directory the command starts in, resolved against the chat's
-// workspace and the home the tool has now, and whether a sandbox confines it.
-// Run resolves both the same way. A sandboxed call whose workdir leaves the
-// workspace is refused in words the model reads. A call a sandbox confines runs
-// unasked; every other call asks.
-func (t *Tool) Approval(_ context.Context, rt tools.Runtime, raw json.RawMessage) (tools.Approval, error) {
+// workspace and the home the tool has now, whether a sandbox confines it, and
+// the network it runs with. Run resolves the directory the same way and takes
+// the network from here. A sandboxed call whose workdir leaves the workspace
+// is refused in words the model reads. A call a sandbox confines runs unasked
+// unless it asks for the internet the session does not give it; every other
+// call asks.
+func (t *Tool) Approval(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (tools.Approval, error) {
 	in, err := parse(raw)
 	if err != nil {
 		return tools.Approval{}, err
@@ -473,7 +481,37 @@ func (t *Tool) Approval(_ context.Context, rt tools.Runtime, raw json.RawMessage
 	}
 	boxer := t.sandboxerFor(rt)
 	sandboxed := boxer != nil && boxer.Confines()
-	return tools.Approval{Cwd: cwd, Sandboxed: sandboxed, Skip: sandboxed}, nil
+	if !sandboxed {
+		return tools.Approval{Cwd: cwd}, nil
+	}
+	network, err := networkFor(ctx, boxer, rt.Session.Network, in.Network)
+	if err != nil {
+		return tools.Approval{}, err
+	}
+	return tools.Approval{Cwd: cwd, Sandboxed: true, Skip: network != session.NetworkApproved, Network: network}, nil
+}
+
+// networkFor is the network a sandboxed call runs with, decided in order: the
+// machine's network, read first, so a switch left on where it is gone gives
+// none; a session that never has it; the chat's switch and the turn's toggle;
+// then a call that asks for it alone asks the user.
+func networkFor(ctx context.Context, boxer sandboxer, sessionNetwork func(context.Context) session.Network, asked bool) (session.Network, error) {
+	if available, reason := boxer.NetworkStatus(); !available {
+		if asked {
+			return session.NoNetwork, &tools.Refusal{Result: "This machine cannot give a sandboxed command the internet: " + reason + "."}
+		}
+		return session.NoNetwork, nil
+	}
+	if sessionNetwork == nil {
+		if asked {
+			return session.NoNetwork, &tools.Refusal{Result: "This session never has network."}
+		}
+		return session.NoNetwork, nil
+	}
+	if network := sessionNetwork(ctx); network != session.NoNetwork || !asked {
+		return network, nil
+	}
+	return session.NetworkApproved, nil
 }
 
 // startDir is the directory a call starts in. A call is sandboxed when it runs
@@ -533,50 +571,57 @@ func ActionOf(raw json.RawMessage, cwd string, sandboxed bool) (tools.Action, er
 	return tools.Action{
 		Description: in.Description,
 		Command: &tools.CommandAction{
-			Text: in.Command, Cwd: cwd, Background: in.Background,
+			Text: in.Command, Cwd: cwd, Background: in.Background, Network: in.Network,
 			Sandboxed: sandboxed,
 		},
 	}, nil
 }
 
-// Run runs one command, saving output too large to come back whole in the
-// chat's results. A background command is started as the chat's task
-// instead, and the call answers at once.
+// Run runs one command no gate decided, so a sandboxed one has no network.
 func (t *Tool) Run(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (string, bool) {
+	return t.RunApproved(ctx, rt, raw, tools.Approval{})
+}
+
+// RunApproved runs one command with the network its approval decided, never
+// read again from the session, saving output too large to come back whole in
+// the chat's results. A background command is started as the chat's task
+// instead, and the call answers at once.
+func (t *Tool) RunApproved(ctx context.Context, rt tools.Runtime, raw json.RawMessage, a tools.Approval) (string, bool) {
 	in, err := parse(raw)
 	if err != nil {
 		return badInput, true
 	}
 	if in.Background {
-		return t.runTask(ctx, rt, in)
+		return t.runTask(ctx, rt, in, a.Network)
 	}
-	return t.runCall(ctx, in, rt)
+	return t.runCall(ctx, in, rt, a.Network)
 }
 
 // badInput answers a call whose input parse or startDir refused. The loop
 // asks Approval first, so a gated call never gets this far with one.
 const badInput = `{"error":"bad-input"}`
 
-// runCall runs one command and answers with its output as resultText renders it,
-// saving it in results when it is too large to come back whole.
-func (t *Tool) runCall(ctx context.Context, in input, rt tools.Runtime) (string, bool) {
+// runCall runs one command, with the internet when network is set, and
+// answers with its output as resultText renders it, saving it in results when
+// it is too large to come back whole.
+func (t *Tool) runCall(ctx context.Context, in input, rt tools.Runtime, network session.Network) (string, bool) {
 	dir := rt.Dir
 	cwd, err := t.startDir(in, rt)
 	if err != nil {
 		return badInput, true
 	}
 	if err := makeWorkspace(dir); err != nil {
-		return resultText(result{Error: err.Error()}, in.Timeout, nil, false), true
+		return resultText(result{Error: err.Error()}, in.Timeout, nil, unconfined), true
 	}
 	// Checked here, not at the approval, since the user can take minutes to
 	// decide; and before the snapshot wait, which can take seconds.
 	if err := t.checkDir(ctx, cwd); err != nil {
-		return resultText(result{Error: err.Error()}, in.Timeout, nil, false), true
+		return resultText(result{Error: err.Error()}, in.Timeout, nil, unconfined), true
 	}
 	boxer := t.sandboxerFor(rt)
 	snapshot, err := t.snapshotFor(ctx, boxer != nil)
 	if err != nil {
-		return resultText(result{Error: err.Error()}, in.Timeout, nil, false), true
+		return resultText(result{Error: err.Error()}, in.Timeout, nil, unconfined), true
 	}
 	s := spec{
 		shell: t.shell, dir: cwd, scripts: t.scripts, env: t.env,
@@ -584,16 +629,16 @@ func (t *Tool) runCall(ctx context.Context, in input, rt tools.Runtime) (string,
 		capture: tools.FileLimit, timeout: in.Timeout, killGrace: killGrace, pipeGrace: pipeGrace,
 	}
 	if boxer != nil {
-		sandboxedRun, err := t.sandboxedRunFor(ctx, boxer, rt, cwd, false)
+		sandboxedRun, err := t.sandboxedRunFor(ctx, boxer, rt, cwd, false, network)
 		if err != nil {
-			return resultText(result{Error: err.Error()}, in.Timeout, nil, false), true
+			return resultText(result{Error: err.Error()}, in.Timeout, nil, unconfined), true
 		}
 		// After the reap: nothing of the run's is left to use it.
 		defer sandboxedRun.end()
 		s.sandboxedRun = sandboxedRun
 	}
 	r := run(ctx, s)
-	return resultText(r, in.Timeout, tools.SaveTo(dir), boxer != nil && boxer.Confines()), r.failed()
+	return resultText(r, in.Timeout, tools.SaveTo(dir), confinementOf(boxer, network)), r.failed()
 }
 
 // sandboxedRun is what a sandboxed run carries beyond an unconfined one: the
@@ -624,10 +669,12 @@ func (r *sandboxedRun) end() {
 // sandboxedRunFor makes a sandboxed run's directory and builds its environment,
 // for a call of rt's chat starting in cwd: with the chat's cluster, its claim,
 // its proxy, whose writes go as writesFor says, its kubeconfig and its kubectl
-// cache. A cluster that is gone fails it before anything is made, since a
-// sandboxed kubectl aimed at nothing would read as the cluster being down. The
-// caller calls end when the run ends.
-func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Runtime, cwd string, background bool) (*sandboxedRun, error) {
+// cache; with the internet when network is set, and the resolv.conf the
+// sandbox needs for it. A cluster that is gone fails it before anything is
+// made, since a sandboxed kubectl aimed at nothing would read as the cluster
+// being down. The caller calls end when the run ends.
+func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Runtime, cwd string, background bool, network session.Network) (*sandboxedRun, error) {
+	internet := network != session.NoNetwork
 	limits := sandbox.Limits{MemoryBytes: limitMemory, OpenFiles: limitOpenFiles}
 	// A background run has no clock, so a long one must not die of CPU, nor of
 	// the process count: where the kernel counts the user's whole machine, other
@@ -635,7 +682,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 	if !background {
 		// Read before anything is made, so a run never starts under a limit
 		// other than its policy's.
-		base, err := boxer.CountedProcesses(false)
+		base, err := boxer.CountedProcesses(internet)
 		if err != nil {
 			return nil, err
 		}
@@ -665,13 +712,20 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		return nil, err
 	}
 	reads := []string{r.dir.path}
+	net := sandbox.NetworkPolicy{Internet: internet}
+	if internet && boxer.NeedsResolver() {
+		net.Resolver = r.dir.resolver()
+		if err := os.WriteFile(net.Resolver, []byte("nameserver "+sandbox.ResolverAddress+"\n"), 0o600); err != nil {
+			r.end()
+			return nil, err
+		}
+	}
 	if err := makeToolHome(rt.Dir); err != nil {
 		r.end()
 		return nil, errors.New("the tool home " + tools.ToolHomePath(rt.Dir) + " could not be made: " + err.Error())
 	}
 	ws, toolHome := tools.WorkspacePath(rt.Dir), tools.ToolHomePath(rt.Dir)
 	writes := []string{ws, toolHome, r.dir.tmp}
-	var relays []sandbox.Relay
 	if cluster != nil {
 		socket := r.dir.socket()
 		asker, refusal := writesFor(rt, background)
@@ -684,7 +738,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 			return nil, err
 		}
 		writes = append(writes, cluster.cacheDir)
-		relays = []sandbox.Relay{{Port: port, Socket: socket}}
+		net.Relays = []sandbox.Relay{{Port: port, Socket: socket}}
 	}
 	// Read once, here: nothing the store changes while the run lives reaches it.
 	var list securityconfig.RunPath
@@ -706,7 +760,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		}
 		env := sandboxedRunEnv(os.Environ(), t.env, joinPath(folders), ws, cwd, r.dir, cluster, toolHome, toolchain)
 		files := sys.Files.WithSearch(pathReads)
-		built <- sandbox.Run{Env: env, Policy: t.workspacePolicy(files, never, reads, writes, relays, limits)}
+		built <- sandbox.Run{Env: env, Policy: t.workspacePolicy(files, never, reads, writes, net, limits)}
 	}()
 	select {
 	case r.run = <-built:
@@ -720,15 +774,15 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 // workspacePolicy is a sandboxed run's policy: system, the sandbox's System
 // and the PATH's folders, less what lies in Kstack's directories, and the
 // extra writable, which lies in none; never and Kstack's directories denied
-// but for the run's own reads and writes, which lie inside them; relays; and
-// limits.
-func (t *Tool) workspacePolicy(system sandbox.FilePolicy, never, reads, writes []string, relays []sandbox.Relay, limits sandbox.Limits) sandbox.Policy {
+// but for the run's own reads and writes, which lie inside them; its network;
+// and limits.
+func (t *Tool) workspacePolicy(system sandbox.FilePolicy, never, reads, writes []string, net sandbox.NetworkPolicy, limits sandbox.Limits) sandbox.Policy {
 	files := system.Outside(t.denied...)
 	files.Write = append(files.Write, t.extraWritable...)
 	return sandbox.Policy{
 		Files:   files,
 		Always:  sandbox.AlwaysPolicy{Deny: never, Kstack: t.denied, Read: reads, Write: writes},
-		Network: sandbox.NetworkPolicy{Relays: relays},
+		Network: net,
 		Limits:  limits,
 	}
 }
@@ -951,29 +1005,62 @@ func (r result) failed() bool {
 // the reason alone, so the model can tell a command that never began from one
 // that failed. A confined run that failed on its own ends with sandboxLine, so
 // the model knows the sandbox may be why.
-func resultText(r result, timeout time.Duration, save tools.Saver, confined bool) string {
+func resultText(r result, timeout time.Duration, save tools.Saver, c confinement) string {
 	if r.Error != "" {
 		return tools.Cut("could not start: "+safe.String(r.Error), 0, tools.InlineLimit, "")
 	}
 	trailer := ""
-	if confined && r.Stop == stopNone && (r.ExitCode != 0 || r.CodeUnknown) {
-		trailer = sandboxLine
+	if c != unconfined && r.Stop == stopNone && (r.ExitCode != 0 || r.CodeUnknown) {
+		trailer = sandboxLine(c == confinedWithInternet)
 	}
-	return tools.Fit(save, headerOf(r, timeout), safe.Redact(r.Output), trailer, r.Discarded, "output")
+	return tools.Fit(save, headerOf(r, timeout, c == confinedWithInternet), safe.Redact(r.Output), trailer, r.Discarded, "output")
 }
 
-// sandboxLine follows the output of a confined run that failed.
-const sandboxLine = "\n(Ran in the sandbox: no network, no files outside the workspace and the system, cluster changes only once the user approves each one.)"
+// confinement is how a run was confined, which its result says.
+type confinement int
+
+const (
+	unconfined           confinement = iota
+	confined                         // a sandbox confined it, with no network
+	confinedWithInternet             // a sandbox confined it, with the internet
+)
+
+// confinementOf is a run's confinement through boxer, nil for none, with the
+// network it started with.
+func confinementOf(boxer sandboxer, network session.Network) confinement {
+	switch {
+	case boxer == nil || !boxer.Confines():
+		return unconfined
+	case network != session.NoNetwork:
+		return confinedWithInternet
+	}
+	return confined
+}
+
+// sandboxLine follows the output of a confined run that failed, saying the
+// network it had.
+func sandboxLine(internet bool) string {
+	network := "no network"
+	if internet {
+		network = "with network"
+	}
+	return "\n(Ran in the sandbox: " + network + ", no files outside the workspace and the system; cluster changes go as the user's permissions decide.)"
+}
 
 // headerOf is the sidecar's first line on a result, newline included, or "" for
-// a command that exited 0 unstopped.
-func headerOf(r result, timeout time.Duration) string {
+// a command that exited 0 unstopped. A stopped run with the internet has no code
+// where stopHidesNetworkExitCode says its exit code is not the command's.
+func headerOf(r result, timeout time.Duration, internet bool) string {
 	code := strconv.Itoa(r.ExitCode)
+	stopped := " (exit code " + code + ")"
+	if internet && stopHidesNetworkExitCode {
+		stopped = ""
+	}
 	switch {
 	case r.Stop == stopTimeout:
-		return "Command timed out after " + formatTimeout(timeout) + " (exit code " + code + ")\n"
+		return "Command timed out after " + formatTimeout(timeout) + stopped + "\n"
 	case r.Stop == stopCancel:
-		return "Command cancelled (exit code " + code + ")\n"
+		return "Command cancelled" + stopped + "\n"
 	case r.CodeUnknown:
 		return "Command ended; its exit code could not be read\n"
 	case r.ExitCode != 0:
