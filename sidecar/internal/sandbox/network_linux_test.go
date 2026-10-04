@@ -95,6 +95,32 @@ func TestAPastaThatFailsTheProbeSaysWhy(t *testing.T) {
 	assert.Equal(t, pasta+": Failed to open() /dev/net/tun", reason)
 }
 
+// A probe past its bound ends pasta's child too. Killed during setup, pasta
+// leaves the child it made for the run's namespaces holding the probe's pipes,
+// so the probe would wait on them forever.
+func TestAProbePastItsBoundEndsPastasChild(t *testing.T) {
+	token := runToken(t)
+	pasta := fakeBwrap(t, filepath.Join(t.TempDir(), "pasta"), token+` sleep 600 & exec sleep 600`)
+	t.Cleanup(func() {
+		for pid := range processesOf(token) {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
+	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		s.probePasta(t.Context(), []string{pasta}, 500*time.Millisecond)
+	}()
+
+	testutil.Wait(t, done, "the probe")
+	_, reason := s.NetworkStatus()
+	assert.Equal(t, pasta+": no answer in 500ms", reason)
+	assert.Eventually(t, func() bool { return len(processesOf(token)) == 0 }, testutil.Timeout, 10*time.Millisecond,
+		"processes left: %v", processesOf(token))
+}
+
 // With no temporary directory to run in, the pasta probe fails, saying why.
 func TestAPastaProbeWithNoTempDirFails(t *testing.T) {
 	pasta := fakeBwrap(t, filepath.Join(t.TempDir(), "pasta"), "exit 0")

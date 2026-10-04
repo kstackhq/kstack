@@ -86,7 +86,7 @@ func (s *Sandbox) tryPasta(ctx context.Context, pasta string, bound time.Duratio
 	}, "", false)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err = cmd.Run()
+	err = runProbe(cmd)
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return false, fmt.Errorf("no answer in %s", bound)

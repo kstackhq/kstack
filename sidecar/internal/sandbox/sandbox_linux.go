@@ -25,6 +25,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -112,7 +113,7 @@ func (s *Sandbox) try(ctx context.Context, bound time.Duration) (string, error) 
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err = cmd.Run()
+	err = runProbe(cmd)
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return "", fmt.Errorf("no answer in %s", bound)
@@ -123,6 +124,21 @@ func (s *Sandbox) try(ctx context.Context, bound time.Duration) (string, error) 
 		return "", errors.New(line)
 	}
 	return "", err
+}
+
+// probeWaitDelay bounds the wait for a probe's output once its group is gone,
+// for a process that left the group holding a pipe.
+const probeWaitDelay = time.Second
+
+// runProbe runs a probe's cmd in a process group of its own and, past its
+// context, kills the group rather than cmd alone. pasta killed during setup
+// leaves the child it made for the run's namespaces spinning in the group,
+// holding cmd's pipes, and nothing else ends it.
+func runProbe(cmd *exec.Cmd) error {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return unix.Kill(-cmd.Process.Pid, unix.SIGKILL) }
+	cmd.WaitDelay = probeWaitDelay
+	return cmd.Run()
 }
 
 // bwrapPaths is the bwraps the probe tries, in order: the first of system

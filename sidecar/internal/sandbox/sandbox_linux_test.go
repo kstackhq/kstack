@@ -31,6 +31,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
 
 // The first system bwrap that exists, in the list's order, comes first; then
@@ -173,15 +175,31 @@ func TestAProbeThatFailsSaysWhy(t *testing.T) {
 	assert.Equal(t, Status{Reason: bwrap + ": bwrap: setting up uid map: Permission denied"}, v)
 }
 
-// A probe past its bound fails, saying so.
+// A probe past its bound fails, saying so, and ends what the fake started.
 func TestAProbePastItsBoundFails(t *testing.T) {
-	// Latency injected into the code under test: the fake outlasts the bound.
-	bwrap := fakeBwrap(t, filepath.Join(t.TempDir(), "bwrap"), "exec sleep 60")
+	// Latency injected into the code under test: the fake outlasts the bound,
+	// and its child holds the probe's pipes as it does.
+	token := runToken(t)
+	bwrap := fakeBwrap(t, filepath.Join(t.TempDir(), "bwrap"), token+" sleep 600 & exec sleep 600")
+	t.Cleanup(func() {
+		for pid := range processesOf(token) {
+			_ = syscall.Kill(pid, syscall.SIGKILL)
+		}
+	})
+	var s *Sandbox
+	var v Status
+	done := make(chan struct{})
 
-	s, v := probe(t.Context(), os.Args[0], []string{bwrap}, 10*time.Millisecond)
+	go func() {
+		defer close(done)
+		s, v = probe(t.Context(), os.Args[0], []string{bwrap}, 500*time.Millisecond)
+	}()
 
+	testutil.Wait(t, done, "the probe")
 	assert.Nil(t, s)
-	assert.Equal(t, Status{Reason: bwrap + ": no answer in 10ms"}, v)
+	assert.Equal(t, Status{Reason: bwrap + ": no answer in 500ms"}, v)
+	assert.Eventually(t, func() bool { return len(processesOf(token)) == 0 }, testutil.Timeout, 10*time.Millisecond,
+		"processes left: %v", processesOf(token))
 }
 
 // When the system's bwrap fails, Kstack's own is probed in its place, and
