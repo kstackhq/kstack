@@ -150,10 +150,12 @@ Each invocation is one Workspace run with no cluster:
 - **Its policy is `sandboxedRunFor`'s** (`workspacePolicy`, as steps 2A, 2B, 3A and 4D leave it), built
   for a throwaway workspace `<cache>/tmp/<pid>-probe-*/workspace` and a `TMPDIR` beside it,
   both under the cache directory so `Check` accepts them, removed after the run through
-  `rootdir.RemoveAll`. It names no relay: no cluster, no egress, so a tool's update check gets
-  nothing by the policy, not by the tool's manners.
+  `rootdir.RemoveAll`. It names no relay and leaves `Internet` false (step 4C): no cluster and no
+  network, so a tool's update check gets nothing by the policy, not by the tool's manners.
+- **Its folders are `foldersFor(ctx, "")`** (step 4D): the folders granted always, and no chat's,
+  since a probe has no chat. So a folder granted from a report reaches the next probe.
 - **Its environment is `sandboxedRunEnv`'s** with no cluster, `HOME` the throwaway workspace, the
-  frozen `PATH`, and none of step 4C's variables, since the run has no relay.
+  frozen `PATH`, and no cluster variables, since the run has no relay.
 - **Its argv** is the resolved binary and the invocation's remaining fields, bounded by
   `probeTimeout` (15 s) and step 2B's limits.
 - **Denials are read** as step 5B reads them for a command, so `Denied` is what a chat would

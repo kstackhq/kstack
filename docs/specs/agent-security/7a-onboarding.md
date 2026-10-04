@@ -27,7 +27,7 @@ nothing typed and nothing signed into, as [the note](../../notes/sandbox-credent
 3. **Permissions**: the default mode, Ask, and the contexts.
 
 Finish writes `securityconfig.Settings.Onboarded`, and the flow can be opened again from
-Settings. **Nothing widens by default**: every grant in the flow is a click on one path or host,
+Settings. **Nothing widens by default**: every grant in the flow is a click on one path, no chat starts with network,
 and the mode is what step 3B ships.
 
 ## What is not in this step
@@ -106,8 +106,9 @@ fails, is one line under the spinner's place with **Try again**.
 **Permissions.** Step 3B's default-mode picker and contexts list, the same components its
 Settings section draws (`permission-settings.tsx` exports them), Ask selected, and an override
 made here writes `permissionModeSet` as it does there. Under the picker: *Ask means a change to a
-cluster, a new host or a Secret's values waits for you. Read-only refuses the changes instead.
-Set a production context to read-only here.*
+cluster or a Secret's values waits for you. Read-only refuses the changes instead. Set a
+production context to read-only here. Sandboxed commands have no network until you turn it on
+in a chat.*
 
 **Finish** calls `sandboxOnboarded(true)`, then `closeDialog()`; a refused write leaves the
 dialog open with the error on one line and Finish handed back. The close button and Escape
