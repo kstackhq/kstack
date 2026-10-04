@@ -12,21 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package app
 
-import (
-	"os"
-	"testing"
+import "testing"
 
-	"github.com/stretchr/testify/require"
-)
-
-func TestSetShellEnvSetsWhatItIsHanded(t *testing.T) {
-	t.Setenv("PATH", "/usr/bin:/bin")
-	t.Setenv("AWS_PROFILE", "")
-
-	setShellEnv(map[string]string{"PATH": "/opt/bin:/usr/bin", "AWS_PROFILE": "work"})
-
-	require.Equal(t, "/opt/bin:/usr/bin", os.Getenv("PATH"))
-	require.Equal(t, "work", os.Getenv("AWS_PROFILE"))
+// Windows has no sandbox, so no login shell is run for its PATH.
+func TestLaunchShellRunsNothingOnWindows(t *testing.T) {
+	path, fault := launchShell(t.Context(), nil, nil, "")
+	if path != nil || fault != "" {
+		t.Errorf("launchShell = %v, %q; want nothing", path, fault)
+	}
 }
