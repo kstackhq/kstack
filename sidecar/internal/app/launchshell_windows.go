@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build unix && !darwin
+package app
 
-package main
+import "context"
 
-// setShellEnv does nothing off macOS. Only a macOS GUI launch is handed an
-// environment that lacks what the user's shell builds; everywhere else the
-// inherited one is already right.
-func setShellEnv(map[string]string) {}
+// launchShell runs nothing: Windows has no sandbox to resolve a PATH for, and
+// a Windows launch inherits the environment the user's session builds.
+func launchShell(context.Context, sandboxer, []string, string) ([]string, string) { return nil, "" }

@@ -48,7 +48,7 @@ func TestResolveImportsThePathTheShellBuilds(t *testing.T) {
 	_, err := exec.LookPath(plugin)
 	require.Error(t, err, "fixture must be off the inherited PATH")
 
-	got, f := Resolve(context.Background())
+	got, f := Resolve(context.Background(), plainStart)
 	require.Nil(t, f)
 	require.Contains(t, got.Env["PATH"], dir)
 
@@ -71,7 +71,7 @@ func TestResolveStopsAtTheLastMarker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Resolve(ctx)
+	got, f := Resolve(ctx, plainStart)
 	require.Nil(t, f, "an answer in hand must not wait on the pipe closing")
 	require.Contains(t, got.Env["PATH"], dir)
 
@@ -101,7 +101,7 @@ func TestResolveImportsTheVariablesTheShellExports(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Resolve(ctx)
+	got, f := Resolve(ctx, plainStart)
 	require.Nil(t, f)
 	require.Contains(t, got.Env["PATH"], dir)
 	require.Equal(t, "/etc/k.yaml:"+filepath.Join(home, ".kube/work.yaml"), got.Env["KUBECONFIG"])
@@ -123,7 +123,7 @@ func TestResolveResolvesAgainstTheDirectoryTheShellEndedIn(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Resolve(ctx)
+	got, f := Resolve(ctx, plainStart)
 	require.Nil(t, f)
 	require.Equal(t, filepath.Join(home, "work", "config"), got.Env["KUBECONFIG"])
 }
@@ -137,7 +137,7 @@ func TestResolveRefusesAPathThatFindsNothing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	_, f := Resolve(ctx)
+	_, f := Resolve(ctx, plainStart)
 	require.NotNil(t, f)
 	require.Equal(t, reasonBadOutput, f.Reason)
 }
@@ -153,7 +153,7 @@ func TestResolveOmitsWhatTheShellDoesNotSet(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Resolve(ctx)
+	got, f := Resolve(ctx, plainStart)
 	require.Nil(t, f)
 	require.NotContains(t, got.Env, "KUBECONFIG")
 	require.NotContains(t, got.Env, "AWS_PROFILE")
@@ -181,7 +181,7 @@ func TestResolveFallsBackWhenTheShellCannotAnswer(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 			defer cancel()
 
-			_, f := Resolve(ctx)
+			_, f := Resolve(ctx, plainStart)
 			require.NotNil(t, f)
 			require.Equal(t, tc.reason, f.Reason)
 			if tc.code >= 0 {
@@ -223,7 +223,7 @@ func TestResolveFallsBackWhenTheShellNeverAnswers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
 
-	_, f := Resolve(ctx)
+	_, f := Resolve(ctx, plainStart)
 	require.NotNil(t, f)
 	require.Equal(t, reasonTimeout, f.Reason)
 }
@@ -235,13 +235,13 @@ func TestResolveLeavesTheEnvironmentAloneOnFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	_, f := Resolve(ctx)
+	_, f := Resolve(ctx, plainStart)
 	require.NotNil(t, f)
 	require.Equal(t, "/usr/bin:/bin", os.Getenv("PATH"), "a fallback must keep the inherited PATH")
 }
 
 func TestLaunchReportsAShellThatWillNotStart(t *testing.T) {
-	_, f := Launch(t.Context(), filepath.Join(t.TempDir(), "gone"), nil, nil, maxOutputBytes, func([]byte, int) bool { return true })
+	_, f := Launch(t.Context(), plainStart, filepath.Join(t.TempDir(), "gone"), nil, nil, maxOutputBytes, func([]byte, int) bool { return true })
 	require.NotNil(t, f)
 	require.Equal(t, reasonNoShell, f.Reason)
 	require.Equal(t, -1, f.ExitCode)
@@ -502,7 +502,7 @@ func TestLaunchHandsDoneWhereTheLatestReadBegan(t *testing.T) {
 	defer cancel()
 
 	var seen int
-	out, f := Launch(ctx, shell, nil, nil, maxOutputBytes, func(buf []byte, from int) bool {
+	out, f := Launch(ctx, plainStart, shell, nil, nil, maxOutputBytes, func(buf []byte, from int) bool {
 		require.Equal(t, seen, from)
 		seen = len(buf)
 		return bytes.HasSuffix(buf, []byte("END"))
@@ -516,7 +516,7 @@ func TestLaunchKeepsItsCap(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	_, f := Launch(ctx, shell, nil, nil, 1000, func([]byte, int) bool { return false })
+	_, f := Launch(ctx, plainStart, shell, nil, nil, 1000, func([]byte, int) bool { return false })
 	require.NotNil(t, f)
 	require.Equal(t, reasonOutputLimit, f.Reason)
 }
@@ -535,7 +535,7 @@ func TestLaunchRunsWithWhatItIsGiven(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	out, f := Launch(ctx, shell, []string{"-l", "-c", "cmd"}, []string{"GIVEN=yes"}, maxOutputBytes, func(buf []byte, _ int) bool {
+	out, f := Launch(ctx, plainStart, shell, []string{"-l", "-c", "cmd"}, []string{"GIVEN=yes"}, maxOutputBytes, func(buf []byte, _ int) bool {
 		return bytes.HasSuffix(buf, []byte("END"))
 	})
 	require.Nil(t, f)
@@ -551,7 +551,7 @@ func TestResolveRunsTheAccountShell(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Resolve(ctx)
+	got, f := Resolve(ctx, plainStart)
 	require.Nil(t, f)
 	require.Contains(t, got.Path, dir)
 }
@@ -564,7 +564,7 @@ func TestResolveAnswersThePathAsExported(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Resolve(ctx)
+	got, f := Resolve(ctx, plainStart)
 	require.Nil(t, f)
 	want := append(append([]string{dir}, filepath.SplitList(DefaultPath)...), "bin", "", "~/x")
 	require.Equal(t, want, got.Path)
@@ -590,7 +590,7 @@ func TestTheShellsEnvironmentIsScrubbed(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
-	_, f := Resolve(ctx)
+	_, f := Resolve(ctx, plainStart)
 	require.Nil(t, f)
 
 	out, err := os.ReadFile(seen)
@@ -618,7 +618,7 @@ func TestResolveFallsBackWhenThereIsNoShell(t *testing.T) {
 	defer func(shells []string) { defaultShells = shells }(defaultShells)
 	defaultShells = []string{filepath.Join(t.TempDir(), "zsh")}
 
-	_, f := Resolve(t.Context())
+	_, f := Resolve(t.Context(), plainStart)
 	require.NotNil(t, f)
 	require.Equal(t, reasonNoShell, f.Reason)
 	require.Equal(t, -1, f.ExitCode)
@@ -656,7 +656,7 @@ func TestResolveReadsEachShellKind(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 			defer cancel()
-			got, f := Resolve(ctx)
+			got, f := Resolve(ctx, plainStart)
 			require.Nil(t, f)
 			require.Equal(t, []string{"/a", "/b"}, got.Path)
 			require.Equal(t, tc.env, got.Env)
@@ -670,7 +670,7 @@ func TestAFaultAnswersNoPath(t *testing.T) {
 	useAccountShell(t, fakeShell(t, dir, "", ""))
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
-	path, err := Path(ctx)
+	path, err := Path(ctx, plainStart)
 	require.NoError(t, err)
 	require.Equal(t, dir, path[0])
 
@@ -679,7 +679,7 @@ func TestAFaultAnswersNoPath(t *testing.T) {
 		"#!/bin/sh\necho 'command not found'\n": reasonBadOutput,
 	} {
 		useAccountShell(t, writeScript(t, "shell", script))
-		path, err := Path(ctx)
+		path, err := Path(ctx, plainStart)
 		require.Nil(t, path)
 		var f *Fault
 		require.ErrorAs(t, err, &f)
@@ -696,7 +696,7 @@ func TestResolveRefusesAnEmptyNuPath(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
-	_, f := Resolve(ctx)
+	_, f := Resolve(ctx, plainStart)
 	require.NotNil(t, f)
 	require.Equal(t, reasonBadOutput, f.Reason)
 }

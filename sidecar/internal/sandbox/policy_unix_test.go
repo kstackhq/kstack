@@ -142,6 +142,32 @@ func TestEveryPairOfRulesAnswersAlike(t *testing.T) {
 	})
 }
 
+// The login shell's shape answers alike: a Read on / reads the home and
+// nothing in Kstack's directories, and the run's own write inside one of them
+// is the one place it writes. The base is outside /tmp, which a Linux run
+// mounts privately.
+func TestTheLoginShellsPolicyAnswersAlike(t *testing.T) {
+	s := confining(t)
+	require.NoError(t, os.MkdirAll("testdata", 0o700))
+	rel, err := os.MkdirTemp("testdata", "tmp-")
+	require.NoError(t, err)
+	base, err := filepath.Abs(rel)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(base) })
+	base = resolved(base)
+	kstack := mkdirs(t, base, "data", "cache", "runtime")
+	scratch := mkdirs(t, base, "cache/tmp/1-1")[0]
+	always := AlwaysPolicy{Kstack: kstack, Write: []string{scratch}}
+
+	got := accessOf(t, s, base, FilePolicy{Read: []string{"/"}}, always,
+		"data/f", "cache/f", "runtime/f", "cache/tmp/1-1/f", "home/f")
+
+	assert.Equal(t, map[string]access{
+		"data/f": none, "cache/f": none, "runtime/f": none,
+		"cache/tmp/1-1/f": readWrite, "home/f": readOnly,
+	}, got)
+}
+
 // A Read on the home reads ~/.zshrc and not ~/.ssh, a denied-always path;
 // and a Read inside ~/.ssh is refused by Check. Step 4D's grants rest on this.
 func TestTheDeniedAlwaysListWinsOverARead(t *testing.T) {

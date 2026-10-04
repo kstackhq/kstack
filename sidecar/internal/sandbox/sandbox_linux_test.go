@@ -980,8 +980,9 @@ func TestAProbeWithNoHomeFindsTheSandbox(t *testing.T) {
 	confining(t)
 	t.Setenv("HOME", "")
 
-	s, v := Probe(t.Context())
+	s, v, err := Probe(t.Context())
 
+	require.NoError(t, err)
 	require.NotNil(t, s, v.Reason)
 	assert.True(t, v.Available)
 }
@@ -1177,4 +1178,16 @@ func TestTheShellCannotTraceItsOwnChild(t *testing.T) {
 
 	assert.Equal(t, 1, code)
 	assert.Equal(t, "operation not permitted", out)
+}
+
+// A probe whose context ended before it answered is the context's error, not
+// a verdict: read as one it would say there is no sandbox.
+func TestAProbeCutShortIsAnError(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	s, _, err := Probe(ctx)
+
+	assert.ErrorIs(t, err, context.Canceled)
+	assert.Nil(t, s)
 }
