@@ -22,8 +22,10 @@ Until now every write asked, or was refused when nobody could be asked
   a group exactly, and a resource covers its `scale` and no other subresource, so an `Allow` of
   creating pods is not one of evicting them, even when its pattern is a glob such as `pods*`; a
   bare `*` is every kind, so a `Deny` of `*` reaches an eviction
-  (`TestARuleMatchesByGroupAndSubresource`). A set namespace, `*` included, never matches a
-  cluster-scoped write (`TestASetNamespaceSkipsAClusterScopedWrite`). A rule's line names a class 5 rule *destructive*, so
+  (`TestARuleMatchesByGroupAndSubresource`). A namespace pattern, `*` included, never matches a
+  cluster-scoped write (`TestASetNamespaceSkipsAClusterScopedWrite`); the word `[cluster]`
+  matches a cluster-scoped write alone, never a namespace of that name
+  (`TestAClusterScopeMatchesOnlyAClusterScopedWrite`). A rule's line names a class 5 rule *destructive*, so
   two rules that differ only in class read differently (`TestARuleReadsAsALine`).
   `*` crosses `/` and `:` (`TestMatchCrossesSlashes`), and a value Kstack writes is escaped
   (`TestALiteralMatchesItselfAlone`).
@@ -35,7 +37,8 @@ Until now every write asked, or was refused when nobody could be asked
   exactly, that only sets `/spec/replicas` to a positive count or, on a workload, touches paths
   beside it. Every other form is class 5, so a shape the classifier does not know asks rather than
   passes (`TestAScaleIsClassFourOnlyInAPlainForm`). A write of a mutating admission policy or its
-  binding is class 5, as a validating one's is (`TestEveryRequestIsClassified`). A body that
+  binding is class 5, as a validating one's is, and so is a namespace's `finalize`, which clears
+  what holds a terminating namespace and so completes a delete (`TestEveryRequestIsClassified`). A body that
   repeats a key in one object is refused before it is classified, since the API server's typed
   decoder merges what the proxy keeps only the last of: a Namespace's name or a zero replicas
   could otherwise hide in the repeat (`TestAWriteThatCannotBeShownIsRefused`). A write to a core

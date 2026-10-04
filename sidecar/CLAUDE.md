@@ -1607,7 +1607,7 @@ that verdict in that order, a rule's line when a rule decided it. **The verdict 
 order-independent**: the rules' order picks the reason alone, so adding a rule never changes what
 another means. `Verdict.Outcome()` is the `Decision`: `Permit` runs, `Refuse` is denied, and
 `Unmatched` and `Forbid` prompt — a prompt is a denial the user may lift. A rule's class covers its own, and class 4 covers
-class 5; a bare `*` `Kind` matches every kind, and any other `Kind` with no `/` matches the resource alone, though `*` crosses `/`, and covers its `scale` and no other subresource; a set `Namespace` never matches a cluster-scoped action. `Match` is the one
+class 5; a bare `*` `Kind` matches every kind, and any other `Kind` with no `/` matches the resource alone, though `*` crosses `/`, and covers its `scale` and no other subresource; a `Namespace` pattern never matches a cluster-scoped action, and `ClusterScope` (`[cluster]`, a word no namespace name can be) matches nothing else. `Match` is the one
 matcher, a glob compiled to a regexp: `*` crosses `/` and `:`, `?` is one character, `\` escapes.
 `Literal` escapes a value into the pattern that matches it alone, and every mode Kstack writes from
 a value goes through it. `Rule.Line` is the rule in the user's words, a class 5 rule's naming it *destructive*, which
@@ -1617,7 +1617,7 @@ not read.
 **`kubeproxy/classify.go` classifies a request**: a `GET` of core `secrets` is class 6, any other
 read, a self review and a dry run on a group version in `honorsDryRun` (the stable ones the API server
 serves itself; an aggregated API, routed by group and version, may ignore `dryRun`) class 1, a write on the class 5 list class 5 (`destructive`: a
-delete of a namespace, node, PV, PVC or CRD; any `deletecollection`; any write of RBAC, of the
+delete of a namespace, node, PV, PVC or CRD, or a namespace's `finalize`, which completes one; any `deletecollection`; any write of RBAC, of the
 admission webhooks and policies, of a CSR's `approval` or of `ephemeralcontainers`; and a replica
 write — a `PUT` or `PATCH` of a `scale` subresource, of an `apps` deployment, stateful set or
 replica set, or of a core replication controller — in any form but the plain ones `keepsReplicas` reads whole: an object body with no `$`

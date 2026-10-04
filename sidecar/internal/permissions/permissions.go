@@ -59,10 +59,15 @@ const (
 	AskFor Effect = "ask" // always prompt, unless the mode refuses first
 )
 
+// ClusterScope is the Namespace of a rule over cluster-scoped objects alone.
+// No namespace name holds a bracket and no pattern character is one, so it is
+// a word of its own in a field a pattern otherwise fills.
+const ClusterScope = "[cluster]"
+
 // Rule is one line of policy. Every field but ID, Effect, Class and Group is a
 // pattern (Match), and an unset one matches anything. Group is exact: "" is
 // unset, "core" the core group. Kind is the resource, or "deployments/scale"
-// for a subresource.
+// for a subresource. Namespace is ClusterScope for cluster-scoped objects.
 type Rule struct {
 	ID        string `json:"id"`
 	Effect    Effect `json:"effect"`
@@ -186,12 +191,11 @@ var Refused = Rule{ID: "refused", Effect: Deny, Class: UpstreamWrite}
 
 // Matches is whether r applies to act: a class that covers act's, and every
 // set field matching. Class 4 covers class 5, since a destructive write is a
-// cluster write. A set Namespace never matches an action in none, so a rule
-// for "*" covers every namespace and nothing cluster-scoped.
+// cluster write.
 func (r Rule) Matches(act Action) bool {
 	return (r.Class == act.Class || r.Class == UpstreamWrite && act.Class == Destructive) &&
 		matchSet(r.Context, act.Context) &&
-		(r.Namespace == "" || act.Namespace != "" && Match(r.Namespace, act.Namespace)) &&
+		matchNamespace(r.Namespace, act.Namespace) &&
 		matchSet(r.Verb, act.Verb) &&
 		(r.Group == "" || r.Group == act.Group) &&
 		matchKind(r.Kind, act.Kind)
@@ -200,6 +204,19 @@ func (r Rule) Matches(act Action) bool {
 // matchSet is whether a rule field matches: unset matches anything.
 func matchSet(pattern, value string) bool {
 	return pattern == "" || Match(pattern, value)
+}
+
+// matchNamespace is whether a rule's Namespace matches: unset matches
+// anything, ClusterScope an action in no namespace, and a pattern an action in
+// one, so a rule for "*" covers every namespace and nothing cluster-scoped.
+func matchNamespace(pattern, namespace string) bool {
+	switch {
+	case pattern == "":
+		return true
+	case pattern == ClusterScope:
+		return namespace == ""
+	}
+	return namespace != "" && Match(pattern, namespace)
 }
 
 // matchKind is whether a rule's Kind matches. A bare * matches every kind,
@@ -229,7 +246,8 @@ var (
 )
 
 // Line is the rule in the user's words: "Allow cluster writes in dev-eks /
-// team-a", or "Deny destructive delete of core namespaces everywhere".
+// team-a", "Deny destructive delete of core namespaces everywhere", or "Deny
+// patch of core nodes cluster-wide in prod".
 func (r Rule) Line() string {
 	what := classNouns[r.Class]
 	if r.Verb != "" || r.Group != "" || r.Kind != "" {
@@ -250,11 +268,18 @@ func (r Rule) Line() string {
 		}
 		what = strings.Join(parts, " ")
 	}
+	line := effectWords[r.Effect] + " " + what
 	switch {
+	case r.Namespace == ClusterScope:
+		line += " cluster-wide"
+		if r.Context != "" {
+			line += " in " + r.Context
+		}
+		return line
 	case r.Context == "" && r.Namespace == "":
-		return effectWords[r.Effect] + " " + what + " everywhere"
+		return line + " everywhere"
 	case r.Namespace == "":
-		return effectWords[r.Effect] + " " + what + " in " + r.Context
+		return line + " in " + r.Context
 	}
-	return effectWords[r.Effect] + " " + what + " in " + cmp.Or(r.Context, "any context") + " / " + r.Namespace
+	return line + " in " + cmp.Or(r.Context, "any context") + " / " + r.Namespace
 }

@@ -26,7 +26,7 @@ import (
 // Destructive is the class 5 list in words, as Settings shows it under
 // Always asks: one line per item destructive decides on.
 var Destructive = []string{
-	"Deleting a namespace, node, persistent volume, persistent volume claim or custom resource definition",
+	"Deleting a namespace, node, persistent volume, persistent volume claim or custom resource definition, or finalizing a namespace",
 	"Deleting a whole collection in one request (kubectl deletes one object at a time, so its --all and -l are decided object by object)",
 	"Any change to roles, cluster roles or their bindings",
 	"Any change to admission webhooks or admission policies",
@@ -127,6 +127,10 @@ func destructive(r *http.Request, p apiPath, act permissions.Action, body []byte
 	case act.Verb == "deletecollection":
 		return true
 	case act.Verb == "delete" && p.subresource == "" && deletedHard[act.Group][p.resource]:
+		return true
+	// Finalize clears what holds a terminating namespace, so it completes the
+	// delete above.
+	case act.Group == "core" && p.resource == "namespaces" && p.subresource == "finalize":
 		return true
 	case writtenHard[act.Group][p.resource]:
 		return true

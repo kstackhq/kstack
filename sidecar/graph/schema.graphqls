@@ -1393,7 +1393,7 @@ enum PermissionModeSource {
   Default
 }
 
-"One rule over cluster writes. Every string but `group` is a pattern: `*` matches any run of characters, `?` one, `\\` escapes the next. An empty field matches anything. Every string is user text: draw it through VisibleText."
+"One rule over cluster writes. Every string but `group` is a pattern: `*` matches any run of characters, `?` one, `\\` escapes the next. An empty field matches anything. A `namespace` pattern matches objects in a namespace alone; `[cluster]` matches cluster-scoped objects alone. Every string is user text: draw it through VisibleText."
 type PermissionRule {
   id: String!
   effect: PermissionEffect!
@@ -1432,7 +1432,7 @@ type PermissionSettings {
   held: [String!]!
 }
 
-"A rule to add; every string is a pattern but `group`, and empty matches anything."
+"A rule to add; every string is a pattern but `group`, and empty matches anything. A `namespace` of `[cluster]` is cluster-scoped objects alone."
 input PermissionRuleInput {
   effect: PermissionEffect!
   class: PermissionClass!
