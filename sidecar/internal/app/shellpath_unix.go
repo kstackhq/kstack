@@ -16,7 +16,13 @@
 
 package app
 
-import "github.com/kstackhq/kstack/sidecar/internal/loginshell"
+import (
+	"context"
+
+	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
+)
 
 // resolveShellPath runs the login shell again for Refresh PATH.
-var resolveShellPath = loginshell.Path
+func resolveShellPath(ctx context.Context) ([]string, error) {
+	return loginshell.Path(ctx, loginshell.In(nil, nil, nil, nil))
+}

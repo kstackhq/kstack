@@ -89,7 +89,7 @@ pkill() {
 // since a command outside the sandbox sources what it finds. reason is "" when
 // the dump arrived whole.
 func (t *Tool) launchDump(ctx context.Context) (out []byte, reason string, code int) {
-	out, f := loginshell.Launch(ctx, t.shell, loginshell.InteractiveLogin(dumpCommand(t.kind)), loginshell.ProcessEnv(), t.snapLimit, snapshotDone)
+	out, f := loginshell.Launch(ctx, loginshell.In(nil, nil, nil, nil), t.shell, loginshell.InteractiveLogin(dumpCommand(t.kind)), loginshell.ProcessEnv(), t.snapLimit, snapshotDone)
 	if f != nil {
 		return nil, f.Reason, f.ExitCode
 	}
