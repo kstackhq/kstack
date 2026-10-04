@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package main
+package app
 
 import (
 	"log/slog"
@@ -41,3 +41,7 @@ func setShellEnv(env map[string]string) {
 		"variables", strings.Join(names, ","),
 	)
 }
+
+// skipResolution is false: the environment import needs the login shell
+// whether or not there is a sandbox to run it in.
+func skipResolution(sandboxer) bool { return false }

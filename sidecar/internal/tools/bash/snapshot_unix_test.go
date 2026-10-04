@@ -32,6 +32,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -60,7 +61,7 @@ func profileTool(t *testing.T, kind, rc string) *Tool {
 	case "zsh":
 		require.NoError(t, os.WriteFile(filepath.Join(home, ".zshrc"), []byte(rc), 0o600))
 	}
-	tl, ok := New(Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
+	tl, ok := New(Paths{ShellDir: t.TempDir(), TmpDir: t.TempDir()}, 0, nil, nil, nil)
 	require.True(t, ok)
 	require.Equal(t, kind, tl.kind)
 	tl.home = t.TempDir()
@@ -94,6 +95,35 @@ func TestTheSnapshotHoldsTheProfile(t *testing.T) {
 			assert.True(t, strings.Contains(snap, "/opt/kstack-test/bin"), "missing %q", "/opt/kstack-test/bin")
 			assert.False(t, strings.Contains(snap, "welcome"), "holds %q", "welcome")
 		})
+	}
+}
+
+// The snapshot's login shell runs in the sandbox: it reads the whole home, the
+// denied-always list included, writes nothing but a TMPDIR under the tool's,
+// reaches no network, and holds nothing the sandbox refuses to pass.
+func TestTheSnapshotIsTakenInTheSandbox(t *testing.T) {
+	tl := profileTool(t, "bash", profile)
+	sb := &fakeSandboxer{never: []string{"/never"}}
+	tl.sandboxer = sb
+	tl.denied = []string{t.TempDir(), t.TempDir(), t.TempDir()}
+	t.Setenv("SSH_AUTH_SOCK", "/tmp/agent.sock")
+	t.Setenv("AWS_PROFILE", "work")
+
+	assert.Contains(t, snapshotOf(t, tl), "greet")
+
+	runs := sb.seen()
+	require.Len(t, runs, 1)
+	p := runs[0].Policy
+	assert.Empty(t, p.Always.Deny)
+	assert.Equal(t, tl.denied, p.Always.Kstack)
+	assert.Equal(t, "/", p.Files.Read[0])
+	require.Len(t, p.Always.Write, 1)
+	assert.Equal(t, tl.tmpDir, filepath.Dir(p.Always.Write[0]))
+	assert.Zero(t, p.Network)
+	assert.Contains(t, runs[0].Env, "TMPDIR="+p.Always.Write[0])
+	for _, kv := range runs[0].Env {
+		name, _, _ := strings.Cut(kv, "=")
+		assert.False(t, sandbox.Unpassable(name), name)
 	}
 }
 

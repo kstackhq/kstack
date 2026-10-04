@@ -24,7 +24,7 @@ sweeps it and removes it:
 <cache>/                               what Kstack rebuilds
   kubestore/<cache id>.db              clustersvc: the mirror
   kubectl/<cluster id>/<server>/       bash: the kubectl cache
-  tmp/<pid>-*/, tmp/<pid>.lock         bash: a sandboxed run's TMPDIR, the sidecar's lock
+  tmp/<pid>-*/, tmp/<pid>.lock         bash: a sandboxed run's or the login shell's TMPDIR, the sidecar's lock
 <runtime>/                             what lives for a session
   kstack-sidecar-<host pid>-<n>.sock   the host
   shell/                               bash: the snapshot, and Windows' scripts
@@ -43,21 +43,16 @@ This file states what is true now. Why it is that way lives in `docs/adr/`; ever
 `main.go` is lifecycle only; `internal/app` is the composition root and routing; GraphQL lives in `graph/`. No `server` package.
 
 `main()` first hands `os.Args` to `sandbox.Main`, which runs a `sandbox-init` or `sandbox-shell`
-command line (*Tools*, below), and exits with its code. Otherwise it does four things before `run`, in this order: tighten the
-umask, parse the command line,
-install the logger, and run the login shell once (`launchShell`, below), which sets the
-shell environment on macOS and hands its `PATH` to the app as `app.Config.ShellPath`, or why it
-failed as `ShellFault`. Parsing comes first
-because `--log-file`/`--log-stderr` decide where records go; the shell comes after the logger
-because it writes a line through it, and before `run` because everything that reads the
-environment — `KUBECONFIG`, the proxy variables, `OLLAMA_HOST` — runs inside it. The shutdown
-signals are listened for before the shell runs, and the one context reaches both it and `run`: a
-quit during it cancels it, so `loginshell.Resolve` kills and reaps the login shell's
-session, and `run` shuts down on the context it was handed. Tightening the umask returns the one
+command line (*Tools*, below), and exits with its code. Otherwise it does three things before `run`, in this order: tighten the
+umask, parse the command line, and
+install the logger. Parsing comes first
+because `--log-file`/`--log-stderr` decide where records go. The shutdown signals are listened for
+before `run`, and their context reaches `app.New` too, which runs the login shell under it: a quit
+during it cancels it, so `loginshell.Resolve` kills and reaps the login shell's session, and `run`
+exits cleanly before `READY`. Tightening the umask returns the one
 the process started with, which `main` sets as `app.Config.UserUmask`: a file Write makes for the
-user takes it, not the sidecar's owner-only one. Beside the shell's run, and for the same
-reason, `main` sets `app.Config.ShellSnapshot`: a test's `run` never spawns the developer's login
-shell.
+user takes it, not the sidecar's owner-only one. `main` also sets `app.Config.RunLoginShell`, outside
+`run`: a test's `run` never spawns the developer's login shell.
 `run(ctx, cfg, …)` is the tested seam and takes the parsed config;
 a bad flag exits 2 from `main`. `main` also calls the logger's `Close` by hand — `os.Exit` runs no
 deferred call.
@@ -83,9 +78,9 @@ that is what keeps cluster-controlled text from forging a line (`TestInitWritesO
 host](../docs/adr/2026-09-08-json-logs-rendered-by-the-host.md), [ADR: two processes, two log
 files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
 
-- `internal/app/` builds `poke`, `kubeconfig`, opens the security settings (`securityconfig.Open`, before `app.db`, since the store holds no handle) and `app.db`, builds `clustersvc`, `memorysvc` and `chatsvc` over it, `auth`, `cloud`, wires `graph.NewServer` + `grpcserver.NewServer`, and multiplexes both onto one h2c handler. `App.parts` is start order (app.db → poke → kubeconfig → cluster → cloud → memory → chat, then the `PATH` sync when `ShellPath` is set on a machine with a sandbox, then the shell snapshot when `ShellSnapshot` is set); stop and close reverse it. The sync folds the launch's `PATH` into the stored list, and one that fails is a warning, not a startup error. **kubeconfig before cluster is load-bearing** (`app_test.go` pins it). The transports stay out of the slice; `grpcServer.Stop()` runs first in `Close`.
+- `internal/app/` probes the sandbox once (`probeSandbox`, a test's seam, under the context `New` is handed, the shutdown signal's; a probe that context cut short answers its error, which `New` returns, and `run` exits cleanly on it), then, with `RunLoginShell`, runs the login shell in it (`launchShell`, *The login shell*, below), **before anything that reads the environment**: on macOS it sets the environment process-wide, and `chatTools` reads the proxy variables. Then it builds `poke`, `kubeconfig`, opens the security settings (`securityconfig.Open`, before `app.db`, since the store holds no handle) and `app.db`, builds `clustersvc`, `memorysvc` and `chatsvc` over it, `auth`, `cloud`, wires `graph.NewServer` + `grpcserver.NewServer`, and multiplexes both onto one h2c handler. `App.parts` is start order (app.db → poke → kubeconfig → cluster → cloud → memory → chat, then the `PATH` sync when the launch read a `PATH` on a machine with a sandbox, then the shell snapshot with `RunLoginShell`); stop and close reverse it. The sync folds the launch's `PATH` into the stored list, and one that fails is a warning, not a startup error. **kubeconfig before cluster is load-bearing** (`app_test.go` pins it). The transports stay out of the slice; `grpcServer.Stop()` runs first in `Close`.
 
-  **`READY` promises a socket, not a finished startup.** `run` prints it after the bind and before `Start`; the first request is answered after `Start`, and every part completes its startup work inside `Start`. Everything that reads the environment does so after `main`'s shell import, which finishes before `run` — nothing sends before it, and `net/http` reads the proxy variables once per process on the first request.
+  **`READY` promises a socket, not a finished startup.** `run` prints it after the bind and before `Start`; the first request is answered after `Start`, and every part completes its startup work inside `Start`. Everything that reads the environment does so after the shell import at the top of `app.New`, which finishes before `READY` — nothing sends before it, and `net/http` reads the proxy variables once per process on the first request.
 - `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.SecurityCfg` is `securityconfig.Service`, the settings store with the frozen `PATH` kept in it; its resolvers are `securityRefused`, and `sandboxPath`, `sandboxPathFault` and the three `sandboxPath*` mutations, which answer an empty list, no fault and a refusal on a machine with no sandbox. A `securityconfig.PathRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxPathErr`). Its permission resolvers are `permissionSettings` and the six `permission*` mutations, each answering the settings it left (`permissionSettings` in `util.go`, the known contexts read off `Clusters().List`), and a refused one `KSTACK_VALIDATION_ERROR` with the reason (`permissionsAfter`); a rule's id is `appdb.NewID()`.
 - `grpc/` — `AuthService`, `PokeService`, committed protoc output in `authpb/`, `pokepb/`. Regenerate with `make proto`; **never hand-edit `*.pb.go`**. `IsGRPCRequest` lives here.
 - `internal/` — `ipc`, `atomicjson`, `logging`, `safe` (an error rendered for a log line, and a command's output redacted: `Redact` line by line, `RedactJSON` a JSON text by its structure, for text that is one line with its newlines escaped; the field and flag rules read a credential's name off `credentialNames`, with or without the separator inside it, so camelCase keys match), `sqlitemigrate` (the migration runner, `Apply`), `sqlitepool` (the one home of the SQLite open contract: `OpenWriter` a store's one writer connection, `OpenReader` a reader pool, `OpenQuery` read-only connections through a caller's driver with none kept idle), `sqlstmt` (a store's statement table, prepared once on a file's writer and reader pools and routed per call: a `[]sqlstmt.Statement` indexed by the store's own id type, each entry its text and pool — `OnWriter`, `OnReader`, or `OnBoth` for a read some caller runs inside a write transaction; `Prepare[ID]` compiles it at open, since modernc caches nothing and a text handed to a pool at a call site is compiled every time; `Set.Stmts()` issues on the pools, `Set.InTx` inside one write transaction, `Set.InReadTx` inside one read-only transaction on the reader, always rolled back; inside a transaction the copy rebound, once per id, is the one prepared on that transaction's pool, and an id its pool does not hold panics; `Set.Close` finalizes the statements alone, and a closed set refuses `InTx`/`InReadTx` with `ErrClosed`, since `Tx.StmtContext` would quietly re-prepare a closed statement; imports nothing of ours; → [ADR: one statement set](../docs/adr/2026-09-16-sqlstmt-prepares-a-services-statements.md)), `appdb`, `rawjson`, `apimeta` (wire vocabulary no service owns — the delta-frame type, `ObjectID`, `ClusterID`, which `clustersvc` aliases, and `ChatID`, which `chatsvc` aliases and `memorysvc` and `tools.Runtime` name), `deltafold` (a watch's memory: `Snapshot`/`Diff`/`Upsert`/`Has` over a caller's key, equality and frame, plus `Send`; imports `apimeta` alone), `version` (`Version` is `dev` unless the linker stamped it: `scripts/build-sidecar.go` passes `-X …/internal/version.Version=$SIDECAR_VERSION` when set, `release.yml` sets it to the release version, and `main` logs it on the `sidecar starting` line; nothing reads a version from the environment or a file), `poke`, `kubeconfig`, `drain`, `lifecycle`, `loginshell`, `workqueue`, `supervisor`, `clustercard` (the cluster card a chat send will carry), `rootdir` (a directory opened and removed through an `os.Root`, under *Tools*), `sandbox` (the machine's sandbox and a run's forwarder, under *Tools*), `kubeproxy` (the cluster proxy a sandboxed run reaches its cluster through, under *Tools*), `permissions` (the classes, modes and rules a cluster write is decided by, under *Tools*), `session` (one agent run's identity and policy, under *Tools*), `memorysvc` (the notes a chat's cluster sees, below), `securityconfig` (the security settings, below), `catalog` (the providers and the tools each is offered, below), `testutil` (test-only, imported by no production code), plus the subsystems below.
@@ -112,18 +107,21 @@ Full picture: [`docs/security-model.md`](../docs/security-model.md). The sidecar
 
 ## The login shell (`internal/loginshell`)
 
-`main()` runs the user's login shell **once per launch**, on macOS and Linux (`launchShell` in
-`main_unix.go`; `main_windows.go`'s runs nothing). `loginshell.Resolve` answers a `Result` with
+`app.New` runs the user's login shell **once per launch**, on macOS and Linux (`launchShell` in
+`app/launchshell_unix.go`; `launchshell_windows.go`'s runs nothing), **in the sandbox** (below). On
+Linux with no sandbox it is not run at all (`skipResolution` in `launchshell_other.go`), since
+nothing reads its answer there; on macOS with none it runs unconfined and logs that once. `loginshell.Resolve` answers a `Result` with
 two readers: `Path`, the shell's `PATH` split and unfiltered, which the app hands to the sync
 (*Security settings*, below), and `Env`, the allowlisted environment, which `setShellEnv`
-sets process-wide on macOS (`main_darwin.go`; a no-op in `main_default.go`). A GUI launch
+sets process-wide on macOS (`launchshell_darwin.go`; a no-op in `launchshell_other.go`). A GUI launch
 inherits launchd's minimal environment, so without it a kubeconfig `exec` credential plugin
 (`aws`, `gke-gcloud-auth-plugin`) is not found even though the same kubeconfig works in a
 terminal — and an exported `KUBECONFIG` or `AWS_PROFILE` is invisible. It is installed
 process-wide because Go resolves a command name against the process PATH. `loginshell.Path` is
 `Resolve`'s `Path` alone, the refresh's reader, its error the `*Fault`, which is an `error`
 naming its reason. The package is `//go:build unix` throughout, so nothing outside a Unix file
-imports it: the app takes the refresh's resolver from `app/shellpath_unix.go`.
+imports it: the app takes the refresh's resolver from `app/shellpath_unix.go`
+(`shellPathResolver`, over `In` with the sandbox's `Never` list).
 
 **The shell is the account record's** (`accountShell`), never `$SHELL`: `dscl /Search -read
 /Users/<name> UserShell` on macOS, `getent passwd <name>` then the user's line in `/etc/passwd`
@@ -140,6 +138,29 @@ environment is scrubbed**: `HOME`, `USER`, `LOGNAME`, `TMPDIR`, `LANG` and `TZ` 
 resolve the same list. `Launch` takes its arguments and environment from its caller; the bash
 tool's snapshot passes `InteractiveLogin` and `ProcessEnv`, the process's environment, as before.
 `Find()` stays for the bash tool, which picks the shell a command runs in.
+
+**Every run of the login shell goes through a `Start`**, which builds the command: `Launch`,
+`Resolve` and `Path` all take one, and `Launch` sets the pipes, `Setsid` and the kill on what it
+returns, then calls its cleanup once the shell has exited. `Launch` never sets the command's
+`Env` or `Dir`. **`loginshell.In(sb, deny, kstackDirs, tmp)`** (`sandboxed.go`) is the one place
+that builds the login shell's policy, over a `Commander` (`*sandbox.Sandbox` or a test's fake;
+every caller converts a nil pointer to a nil interface first): a Read of `/` and of this
+executable (a run's private `/tmp` would hide one there), Kstack's three directories closed,
+`deny` as the denied-always list, one write — the `TMPDIR` `tmp` makes for the run, removed by
+the cleanup — and no network. **`deny` follows where the output goes**: the launch resolution
+and Refresh PATH pass `sb.Never(home)`, since their answer leaves the sandbox; the snapshot
+passes nil, since its answer reaches only commands that read the home themselves. The
+environment loses every name `sandbox.Unpassable` matches, `SSH_AUTH_SOCK` included, and
+`TMPDIR` is replaced. **The `TMPDIR` is a sandboxed run's** (`bash.TempDir`, a
+`loginshell.TempDir`): a `<pid>-*` folder under `<cache>/tmp` (`Paths.TmpDir`), taken under the
+sidecar's lock so the sweep never removes it mid-run, seeded by `sandbox.SeedTmpDir`, removed
+through `rootdir.RemoveAll`, and swept with the bash runs' when a sidecar is gone. With a nil
+`sb` the `Start` is a plain `exec.Command` in the home with the environment as given. **A failed
+start is a `Fault`**: `timeout` when the context has ended, whatever the error (Darwin's
+`Command` answers `ctx.Err()` while it builds the profile), `no scratch` when the `TMPDIR` could
+not be made, and `sandbox refused` otherwise, so the shell never runs unconfined on a machine
+whose sandbox answered the probe. → [ADR: the login shell runs in the sandbox](../docs/adr/2026-10-04-the-login-shell-runs-in-the-sandbox.md),
+[security record](../docs/security/2026-10-04-the-login-shell-in-the-sandbox.md).
 
 **The allowlist is the security boundary.** `imported` names every variable and its kind, the shell
 command is built from that list, and adding a row is a security change: we spawn credential plugins
@@ -205,7 +226,7 @@ Traps worth knowing:
 Ten seconds bounds the whole thing (`loginshell.DefaultTimeout`), after which the group is killed
 and reaped. Any failure keeps the inherited environment and the stored `PATH` list, and logs one
 warning naming a fixed reason —
-`no shell`, `shell exited`, `bad output`, `output limit`, `timeout` — and never a value, the
+`no shell`, `shell exited`, `bad output`, `output limit`, `timeout`, `no scratch`, `sandbox refused` — and never a value, the
 shell's output, or anything else the user's environment holds; the reason reaches Settings as
 `sandboxPathFault`. A success logs at `Info` how long the shell took, so the timeout can be
 judged against real startup files, and on macOS the names it set. Falling back is not a
@@ -1332,7 +1353,8 @@ failed save is a render of whole rows, where `Fit`'s would cut one.
 
 **`internal/sandbox` is the machine's sandbox**, a leaf that knows no tool and no cluster.
 `Probe(ctx)` answers a `*Sandbox`, nil for none, and a `Status` (`Available`, `Reason`), which
-`app` logs. `(*Sandbox).Command(ctx, Run)` is the process that runs a `Run` (`Shell`, `Args`,
+`app` logs, or `ctx`'s error when `ctx` ended first: a probe cut short is no verdict, and read as
+one it would say there is no sandbox. `(*Sandbox).Command(ctx, Run)` is the process that runs a `Run` (`Shell`, `Args`,
 `Dir`, `Env`, the whole environment, and `Policy`) sandboxed, made by `exec.CommandContext` and
 not yet started, or an error and no command. `Confines()` is whether that confines it, and
 `Port()` the port a run's relay listens on. Whether a sandbox confined a call is its row's
@@ -1550,10 +1572,12 @@ past the address-space limit is a runtime crash; a failed exec writes `sandbox-s
 <argv0>: errno <n>` with raw `write`s and exits 125. Its tests run it on `bpf.VM` over a
 `seccomp_data` laid out big-endian word by word, and `ShellMain` in a child.
 
-**Tests that start the chain call `sandbox.Main` from their `TestMain`**: `sandbox`, `bash`
+**Tests that start the chain call `sandbox.Main` from their `TestMain`**: `sandbox`, `loginshell`
+(whose tests run the login shell through the machine's sandbox, over a fixture under the package's
+own `testdata/`, since a Linux run's private `/tmp` would hide one under `t.TempDir()`), `bash`
 (whose proxy tests run on the machine's sandbox, through `sandboxed` in
 `testutil_unix_test.go`, and write their coverage through `Tool.extraWritable`, a test's seam)
-and `app` (whose tests reach the real probe through `newBashTool`). A test binary that did not would
+and `app` (whose tests reach the real probe through `New`). A test binary that did not would
 run its own suite inside the probe until its bound. A test that needs a sandbox, or a confining
 one, and finds none calls `testutil.RequireSandbox`, which fails under `KSTACK_REQUIRE_SANDBOX=1` and skips otherwise,
 saying why; CI's Linux Go jobs set it through `setup-environment`'s `setup-sandbox`, with
@@ -2215,8 +2239,7 @@ chat. → [ADR: every tool is in the box](../docs/adr/2026-09-24-every-tool-is-i
 
 **A turn can run a command, once the user says so.** Bash is one tool in the box `chatsvc.New`
 takes, like any other, and every turn on a model that takes tools is offered the same `bash.Tool`,
-given its chat. **`app.go` offers it wherever `bash.New` finds a shell** (`newBashTool`, which
-probes the sandbox once, logs the status first and returns it beside the tool; `sandboxStatusOf`
+given its chat. **`app.go` offers it wherever `bash.New` finds a shell** (over the sandbox `New` probed, which it logs; `sandboxStatusOf`
 builds the one `sandbox.Status` from both, available only with a shell and a sandbox, which
 `chatsvc.New` and `graph.Resolver` take; `chatTools`, the one
 `tools.NewBox`), then Read, Memory, Write, Edit, WebFetch, TaskStop, the provider's web search and KubeQuery; a machine with none is
@@ -2231,7 +2254,7 @@ call's own timeout plus `killGrace` (5s) plus `callMargin` (5s), so a command st
 timeout answers with its own result rather than the loop's `timeout`, while every other tool
 keeps chat's 2s `defaultToolTimeout`. → [security records: the bash tool](../docs/security/2026-09-18-bash-tool.md), [bash offered to every turn](../docs/security/2026-09-22-bash-offered-to-every-turn.md).
 
-**`internal/tools/bash` is the tool.** `New(Paths{ShellDir, RunsDir, TmpDir, KubectlDir, DeniedDirs, Path}, hostPID, sandbox, clusterSvc)` finds the shell — on Unix
+**`internal/tools/bash` is the tool.** `New(Paths{ShellDir, RunsDir, TmpDir, KubectlDir, DeniedDirs}, hostPID, sandbox, clusterSvc, pathList)` finds the shell — on Unix
 `loginshell.Find()` when its base name is `zsh` or `bash` (`Tool.kind`), else bash on `PATH`;
 on Windows only Git for Windows', through Git's own install record (`SOFTWARE\GitForWindows`,
 both `HKLM` registry views then `HKCU`, `readInstallPath` the test seam) and never off `PATH`,
@@ -2443,7 +2466,7 @@ left behind.
 **The snapshot is the user's profile, taken at most once per start, for commands outside the
 sandbox alone** (`snapshot.go`). A sandboxed run neither sources nor waits for it: `snapshotFor`
 answers none for it. It is the `shell snapshot`
-`lifecycle.Part`, which `app.New` adds last when `Config.ShellSnapshot` is set. `StartSnapshot`
+`lifecycle.Part`, which `app.New` adds last when `Config.RunLoginShell` is set. `StartSnapshot`
 makes the context the login shell runs under, since Start's bounds startup only, and starts it
 only on a machine with no sandbox; with one, `snapshotFor` starts it on the first run outside the
 sandbox (`startSnapshot`, under a mutex, so concurrent first runs share one). Its stop is final:
@@ -2465,7 +2488,9 @@ expand anywhere in a line. Options come before functions because a body is parse
 options in force (bash reads `+(...)` only with `extglob` on), and a line that fails to parse
 stops the `source` there, shims included. zsh's options are read with `kshoptionprint` off,
 since under it `setopt` lists every option beside on or off. `Tool.launch` runs the shell —
-`launchDump`, or a test's stand-in: on Unix through `loginshell.Launch`, capped at `snapshotLimit`
+`launchDump`, or a test's stand-in: on Unix through `loginshell.Launch` over `loginshell.In` — the
+tool's sandbox, no denied-always list, `Paths.DeniedDirs` closed and its `TMPDIR` a run's under
+`Paths.TmpDir`, or unconfined on a machine with none, which it logs — capped at `snapshotLimit`
 (4 MiB) with the end marker looked for in the new bytes alone; on Windows through the same
 `start` as a command, with the dump in a file (removed after) and only its path on the command
 line. **The file** is `<runtime>/shell/snapshot.sh`, 0400 (read-only on Windows) in a 0700
@@ -3305,7 +3330,7 @@ has moved the entry since and `ErrPathHeld` while the field is held;
 `DropPath` (Remove) sets an `adopted` or `pending` entry `gone`. Each refusal is a `PathRefusal`
 in the user's words; each path method, and `Path`, answers `ErrNoSandbox` or nothing on a machine
 with no sandbox, so the resolvers ask the service alone. The refresh's resolver,
-`loginshell.Path`, is bounded by `DefaultTimeout` itself. `RunCheck` (`checkrun.go`) is `filterDir` and the
+`loginshell.Path` in the sandbox (`app/shellpath_unix.go`), is bounded by `DefaultTimeout` itself. `RunCheck` (`checkrun.go`) is `filterDir` and the
 adoption rule over one folder for a run, and says whether the run's open folders read it already.
 → [ADR: `PATH` is the login shell's, filtered and frozen](../docs/adr/2026-10-02-path-is-the-login-shells-filtered-and-frozen.md),
 [security record](../docs/security/2026-10-02-path-from-the-login-shell.md).
@@ -3324,7 +3349,7 @@ An edit applies to a local JSON file immediately and queues durably for the clou
 
 ## Kubeconfig (`internal/kubeconfig`)
 
-**The one reader of the user's kubeconfig.** Nothing else watches the file, calls `clientcmd`, or builds a `rest.Config`. `New` reads nothing, not even `KUBECONFIG`: `Start` builds the loading rules, the watchers and the poke subscription and reads once, and `main`'s shell import has finished by then, so a GUI launch reads the file list the login shell exports. `Get()` returns the last snapshot plus whether a read has happened; `Subscribe()` is current-on-subscribe; `Close()` ends every subscription in the process, so only the app calls it.
+**The one reader of the user's kubeconfig.** Nothing else watches the file, calls `clientcmd`, or builds a `rest.Config`. `New` reads nothing, not even `KUBECONFIG`: `Start` builds the loading rules, the watchers and the poke subscription and reads once, and `app.New`'s shell import has finished by then, so a GUI launch reads the file list the login shell exports. `Get()` returns the last snapshot plus whether a read has happened; `Subscribe()` is current-on-subscribe; `Close()` ends every subscription in the process, so only the app calls it.
 
 `RESTConfig(contextName)` resolves one context to credentials and the pool's cache key. Three rules: one snapshot per call; only a config the loading rules produced (a hand-built `api.Config` yields CA paths that cannot open); the key excludes the context name, covers the static exec/auth-provider config and `proxy-url`, and length-prefixes every value. Two sentinels acted on, not logged: `ErrContextNotFound` (also for an empty name) and `ErrNotRead`. Resolution is not memoized.
 
