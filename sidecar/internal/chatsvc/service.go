@@ -258,8 +258,9 @@ type service struct {
 	clusterCardTimeout time.Duration
 
 	// Hooks a test sets to see or step into a moment; nil in production.
-	onSwept    chan struct{} // receives after every sweep
-	onRecorded func()        // runs once a task's rows land, before it starts
+	onSwept       chan struct{} // receives after every sweep
+	onRecorded    func()        // runs once a task's rows land, before it starts
+	onFoldersRead func()        // runs once a notice turn has read the folders, before its transaction
 }
 
 // New builds the service over the app's DB, the directory each chat's files go

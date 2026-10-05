@@ -16,6 +16,7 @@ package chatsvc
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -95,14 +96,39 @@ func TestTheSessionCarriesTheContextsMode(t *testing.T) {
 }
 
 // A read of the grants that fails may have hidden a Deny, so it refuses the
-// chat's cluster writes.
+// chat's cluster writes, and a grant that cannot read them is not written.
 func TestAGrantsReadThatFailsRefuses(t *testing.T) {
 	s := newTestService(t)
+	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	_, err := s.db.Write.Exec(`DROP TABLE chat_grants`)
 	require.NoError(t, err)
 
 	assert.Equal(t, []permissions.Rule{permissions.Refused}, s.grantsFor(t.Context(), c.ID))
+	_, err = s.addGrant(t.Context(), c.ID, folderRule(home, false))
+	assert.Error(t, err)
+	assert.Error(t, s.GrantFolder(t.Context(), c.ID, home, false))
+}
+
+// A grant's write or removal that fails reaches the caller.
+func TestAGrantsWriteThatFailsRefuses(t *testing.T) {
+	s := newTestService(t)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	rule := permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, Context: "dev"}
+	added, err := s.addGrant(t.Context(), c.ID, rule)
+	require.NoError(t, err)
+	for _, kind := range []string{"INSERT", "DELETE"} {
+		_, err := s.db.Write.Exec(`CREATE TRIGGER refuse_` + kind + ` BEFORE ` + kind + ` ON chat_grants
+			BEGIN SELECT RAISE(ABORT, 'refused'); END`)
+		require.NoError(t, err)
+	}
+
+	rule.Context = "prod"
+	_, err = s.addGrant(t.Context(), c.ID, rule)
+	assert.ErrorContains(t, err, "refused")
+	_, err = s.RemoveChatGrant(t.Context(), c.ID, added.ID)
+	assert.ErrorContains(t, err, "refused")
+	assert.Equal(t, []permissions.Rule{added}, s.grantsFor(t.Context(), c.ID))
 }
 
 // A chat's rules are written, listed, changed in place and removed by id, and
@@ -216,6 +242,9 @@ func TestNoFolderAppliesWithoutASandbox(t *testing.T) {
 	s.sandboxStatus = sandbox.Status{Reason: "no bwrap"}
 	assert.Empty(t, s.FoldersFor(t.Context(), c.ID))
 	assert.Empty(t, s.sessionFor(c.ID, false, false).GrantedFolders(t.Context()))
+	listed, chat := s.FolderGrants(t.Context(), c.ID)
+	assert.Empty(t, listed, "nor is one listed")
+	assert.Empty(t, chat)
 }
 
 func TestFoldersForAnswersNoneWithNoSnapshot(t *testing.T) {
@@ -308,6 +337,16 @@ func TestAGrantIsCheckedWhenWritten(t *testing.T) {
 	always, chat := s.FolderGrants(t.Context(), c.ID)
 	assert.Empty(t, always)
 	assert.Empty(t, chat)
+
+	// And again when listed: a row the check would refuse is listed refused.
+	stored := folderRule(home, true)
+	stored.ID = "stored"
+	b, err := json.Marshal(stored)
+	require.NoError(t, err)
+	seedGrant(t, s.db, c.ID, string(b))
+	_, chat = s.FolderGrants(t.Context(), c.ID)
+	require.Len(t, chat, 1)
+	assert.NotEmpty(t, chat[0].Refused)
 }
 
 func TestAGrantGoesWithTheChat(t *testing.T) {
