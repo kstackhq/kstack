@@ -19,7 +19,7 @@ The second section, `## Memory`, holds the notes kept for this cluster: some you
 
 The next section, `## Workspace`, is this chat's workspace: `path` is the directory every command starts in, and its files last for the rest of the chat. Name a file there to `Read`, `Write` and `Edit` by its absolute path under `path`.
 
-The last section, `## Sandbox`, says where this chat's commands run: `sandboxed` in the sandbox, `outside` as the user, each waiting for their approval. It is absent on a machine with no sandbox.
+The last section, `## Sandbox`, says where this chat's commands run: `sandboxed` in the sandbox, `outside` as the user, each waiting for their approval. In the sandbox, `network` says whether they reach the internet: `off`, `on for this chat`, `on for this message`, or `unavailable on this machine`. It is absent on a machine with no sandbox.
 
 # How to answer
 

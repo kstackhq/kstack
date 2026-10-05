@@ -72,6 +72,7 @@ const draw = (
     approveArmMs?: number;
     sandboxAvailable?: boolean;
     sandboxDisabled?: boolean;
+    networkEnabled?: boolean;
     switching?: boolean;
   } = {
     sandboxAvailable: false,
@@ -89,6 +90,7 @@ const draw = (
           approveArmMs={props.approveArmMs ?? 0}
           sandboxAvailable={'sandboxAvailable' in props ? props.sandboxAvailable : false}
           sandboxDisabled={'sandboxDisabled' in props ? props.sandboxDisabled : false}
+          networkEnabled={'networkEnabled' in props ? props.networkEnabled : false}
           switching={props.switching}
         />
       </ChatOutboxProvider>
@@ -134,6 +136,7 @@ function call(over: Partial<ChatToolCall> = {}): ChatToolCall {
         cwd: '/Users/ana',
         background: false,
         sandboxed: false,
+        network: false,
       },
       read: null,
       write: null,
@@ -145,6 +148,7 @@ function call(over: Partial<ChatToolCall> = {}): ChatToolCall {
       kubeQuery: null,
     },
     approval: { id: 'ap-1', status: 'Pending', duration: null },
+    network: null,
     output: '',
     background: null,
     agentCallID: null,
@@ -163,6 +167,7 @@ const decided = (over: Partial<ChatToolCall>, approval: 'Approved' | 'Denied' = 
         cwd: '/Users/ana',
         background: false,
         sandboxed: false,
+        network: false,
       },
       read: null,
       write: null,
@@ -552,6 +557,19 @@ describe('ChatTranscript', () => {
       expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ sandboxDisabled: true }));
     });
 
+    it('asks again with the network switch the chat has', async () => {
+      draw(failed, { sandboxAvailable: true, networkEnabled: true });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Ask again' }));
+      });
+      expect(sendMock).toHaveBeenCalledWith(expect.objectContaining({ networkEnabled: true, networkThisTurn: false }));
+    });
+
+    it('is not offered before the list delivers the network switch', () => {
+      draw(failed, { sandboxAvailable: true, networkEnabled: undefined });
+      expect(screen.queryByRole('button', { name: 'Ask again' })).toBeNull();
+    });
+
     it('is not offered before the list delivers the switch', () => {
       draw(failed, { sandboxAvailable: true, sandboxDisabled: undefined });
       expect(screen.queryByRole('button', { name: 'Ask again' })).toBeNull();
@@ -716,7 +734,7 @@ describe('ChatTranscript', () => {
               approval: { id: 'ap-2', status: 'Pending', duration: null },
               action: {
                 ...call().action!,
-                command: { text: 'second', cwd: '', background: false, sandboxed: false },
+                command: { text: 'second', cwd: '', background: false, sandboxed: false, network: false },
               },
             }),
             call({
@@ -725,7 +743,7 @@ describe('ChatTranscript', () => {
               approval: { id: 'ap-1', status: 'Pending', duration: null },
               action: {
                 ...call().action!,
-                command: { text: 'first', cwd: '', background: false, sandboxed: false },
+                command: { text: 'first', cwd: '', background: false, sandboxed: false, network: false },
               },
             }),
             agent(),
@@ -865,12 +883,41 @@ describe('ChatTranscript', () => {
       expect(deny()).toBeDisabled();
     });
 
-    // The user decides on the command, so the request never says sandboxed.
-    it("draws today's request whatever the call's sandboxed", () => {
+    // A sandboxed command asks only for the internet, so its request says so,
+    // read off the call before anything else.
+    it.each([true, false, undefined])('asks a sandboxed command for the network (sandbox %s)', (available) => {
+      const sandboxed = call();
+      sandboxed.action!.command!.sandboxed = true;
+      sandboxed.action!.command!.network = true;
+      draw([waiting(sandboxed)], { sandboxAvailable: available });
+      expect(request()).toHaveTextContent('Run this command with network access?');
+      expect(request()).not.toHaveTextContent('outside');
+    });
+
+    it('asks a sandboxed background command for the network', () => {
+      const sandboxed = call();
+      sandboxed.action!.command!.sandboxed = true;
+      sandboxed.action!.command!.background = true;
+      draw([waiting(sandboxed)], { sandboxAvailable: true });
+      expect(request()).toHaveTextContent('Run this command in the background, with network access?');
+    });
+
+    // Outside the sandbox the argument changes nothing, so the heading is the
+    // outside one whatever the call asked for.
+    it('keeps the outside heading for a call outside the sandbox that asked for the network', () => {
+      const outside = call();
+      outside.action!.command!.network = true;
+      draw([waiting(outside)], { sandboxAvailable: true });
+      expect(request()).toHaveTextContent('Run this command outside the sandbox?');
+      expect(request()).not.toHaveTextContent('network');
+    });
+
+    // The user decides on the command and its network, so the request never says
+    // sandboxed.
+    it('never says sandboxed on a sandboxed request', () => {
       const sandboxed = call();
       sandboxed.action!.command!.sandboxed = true;
       draw([waiting(sandboxed)]);
-      expect(request()).toHaveTextContent('Run this command?');
       expect(request()).not.toHaveTextContent('sandbox');
     });
 
@@ -1543,6 +1590,7 @@ describe('ChatTranscript', () => {
                 cwd: '/Users/ana',
                 background: false,
                 sandboxed: false,
+                network: false,
               },
               read: null,
               write: null,
@@ -1592,6 +1640,7 @@ describe('ChatTranscript', () => {
                         cwd: '/Users/ana',
                         background: false,
                         sandboxed: false,
+                        network: false,
                       },
                       read: null,
                       write: null,
@@ -1634,6 +1683,7 @@ describe('ChatTranscript', () => {
                 cwd: '/Users/ana',
                 background: false,
                 sandboxed: false,
+                network: false,
               },
               read: null,
               write: null,
@@ -1662,7 +1712,7 @@ describe('ChatTranscript', () => {
           call({
             action: {
               description: '',
-              command: { text: long, cwd: '/Users/ana', background: false, sandboxed: false },
+              command: { text: long, cwd: '/Users/ana', background: false, sandboxed: false, network: false },
               read: null,
               write: null,
               edit: null,
@@ -1700,6 +1750,7 @@ describe('ChatTranscript', () => {
                 cwd: '/Users/ana',
                 background: false,
                 sandboxed: false,
+                network: false,
               },
               read: null,
               write: null,
@@ -1752,7 +1803,7 @@ describe('ChatTranscript', () => {
           call({
             action: {
               description: '',
-              command: { text: long, cwd: '/Users/ana', background: false, sandboxed: false },
+              command: { text: long, cwd: '/Users/ana', background: false, sandboxed: false, network: false },
               read: null,
               write: null,
               edit: null,
@@ -1787,6 +1838,7 @@ describe('ChatTranscript', () => {
                 cwd: '/tmp/\u{202E}x',
                 background: false,
                 sandboxed: false,
+                network: false,
               },
               read: null,
               write: null,
@@ -1812,7 +1864,7 @@ describe('ChatTranscript', () => {
           call({
             action: {
               description: '',
-              command: { text: 'ls', cwd: '', background: false, sandboxed: false },
+              command: { text: 'ls', cwd: '', background: false, sandboxed: false, network: false },
               read: null,
               write: null,
               edit: null,
@@ -1834,7 +1886,7 @@ describe('ChatTranscript', () => {
         call({
           action: {
             description,
-            command: { text, cwd: '/Users/ana', background: false, sandboxed: false },
+            command: { text, cwd: '/Users/ana', background: false, sandboxed: false, network: false },
             read: null,
             write: null,
             edit: null,
@@ -1904,7 +1956,7 @@ describe('ChatTranscript', () => {
               status: 'Succeeded',
               action: {
                 description: '',
-                command: { text: 'yes', cwd: '/Users/ana', background: false, sandboxed: false },
+                command: { text: 'yes', cwd: '/Users/ana', background: false, sandboxed: false, network: false },
                 read: null,
                 write: null,
                 edit: null,
@@ -2008,6 +2060,7 @@ describe('ChatTranscript', () => {
                   cwd: '/Users/ana',
                   background: false,
                   sandboxed: false,
+                  network: false,
                 },
                 read: null,
                 write: null,
@@ -2102,7 +2155,7 @@ describe('ChatTranscript', () => {
               status: 'NotRun',
               action: {
                 description: 'Clear the scratch',
-                command: { text: 'rm -rf /tmp/x', cwd: '', background: false, sandboxed: false },
+                command: { text: 'rm -rf /tmp/x', cwd: '', background: false, sandboxed: false, network: false },
                 read: null,
                 write: null,
                 edit: null,
@@ -2130,7 +2183,7 @@ describe('ChatTranscript', () => {
         output: 'Exit code 1\n',
         action: {
           description,
-          command: { text, cwd: '/Users/ana', background: false, sandboxed: false },
+          command: { text, cwd: '/Users/ana', background: false, sandboxed: false, network: false },
           read: null,
           write: null,
           edit: null,
@@ -2252,6 +2305,16 @@ describe('ChatTranscript', () => {
       expect(screen.getByText('/Users/ana')).not.toHaveTextContent('sandboxed');
     });
 
+    // A call that had the internet says so after sandboxed, muted, off its row.
+    it("says a sandboxed command's directory had network", () => {
+      const networked = settled('curl -sI https://example.com', '');
+      networked.action!.command!.sandboxed = true;
+      networked.network = 'Approved';
+      draw([msg({ toolCalls: [networked] })]);
+      expect(dirLine()).toHaveTextContent(/^in\s*\/Users\/ana, sandboxed, with network$/);
+      expect(screen.getByText(', sandboxed, with network')).toHaveClass('text-muted-foreground');
+    });
+
     it("says nothing of a sandbox on an unconfined command's directory", () => {
       draw([msg({ toolCalls: [settled('wc -l ~/.kube/config', '')] })]);
       expect(dirLine()).toHaveTextContent(/^in\s*\/Users\/ana$/);
@@ -2265,7 +2328,7 @@ describe('ChatTranscript', () => {
               status: 'Failed',
               action: {
                 description: '',
-                command: { text: 'ls', cwd: '', background: false, sandboxed: false },
+                command: { text: 'ls', cwd: '', background: false, sandboxed: false, network: false },
                 read: null,
                 write: null,
                 edit: null,
@@ -2934,7 +2997,7 @@ describe('ChatTranscript', () => {
       call({
         action: {
           description: '',
-          command: { text: 'make serve', cwd: '/Users/ana', background: true, sandboxed: false },
+          command: { text: 'make serve', cwd: '/Users/ana', background: true, sandboxed: false, network: false },
           read: null,
           write: null,
           edit: null,
@@ -2967,6 +3030,7 @@ describe('ChatTranscript', () => {
                   cwd: '/Users/ana',
                   background: true,
                   sandboxed: false,
+                  network: false,
                 },
                 read: null,
                 write: null,

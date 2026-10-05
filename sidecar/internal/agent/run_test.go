@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -985,6 +986,28 @@ func TestASkippedCallReportsItsApproval(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []tools.Approval{{}}, rec.startApprovals)
+}
+
+// A tool that runs by its approval is handed the one its gate decided, asked
+// or skipped, so what runs is what was decided whatever its session says by
+// then.
+func TestTheRunTakesTheGatesApproval(t *testing.T) {
+	for _, approval := range []tools.Approval{
+		{Cwd: "/work", Sandboxed: true, Skip: true, Network: session.NetworkTurn},
+		{Cwd: "/work", Sandboxed: true, Network: session.NetworkApproved},
+	} {
+		tool := &approvedTool{gatedTool: gatedTool{approval: func(json.RawMessage) (tools.Approval, error) { return approval, nil }}}
+		tool.name = "bash"
+		f, turn := echoTurn(tool)
+		f.SetToolCalls(llm.StagedCall("bash", `{"command":"curl"}`))
+		rec := &recording{}
+
+		_, err := Run(t.Context(), turn, rec, rec)
+
+		require.NoError(t, err)
+		assert.Equal(t, []tools.Approval{approval}, tool.ran)
+		assert.Equal(t, []string{`{"command":"curl"}`}, answeredTexts(rec))
+	}
 }
 
 // The zero Approval asks, so a gated tool that forgets to decide is asked.

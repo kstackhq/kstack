@@ -31,6 +31,17 @@ const (
 	Monitor  Kind = "monitor"
 )
 
+// Network is why a sandboxed command reaches the internet. It is stored on the
+// call's row as it is spelled here.
+type Network string
+
+const (
+	NoNetwork       Network = ""
+	NetworkChat     Network = "chat"     // the chat's switch
+	NetworkTurn     Network = "turn"     // the turn's toggle
+	NetworkApproved Network = "approved" // the user approved the call's own request
+)
+
 // Session is one agent run's policy: what its tools and the proxies its runs
 // serve read to decide what it may do. The chat and cluster it runs in are the
 // runtime's. chatsvc builds a chat's at the start of each turn; a subagent's is
@@ -42,11 +53,16 @@ type Session struct {
 	// the run's grant was made for, is decided by. It is read live on every
 	// write, so a mode or rule changed meanwhile applies to the next one.
 	Policy func(ctx context.Context, kubeContext string) permissions.Policy
+	// Network is the network a sandboxed command starting now has: NetworkChat
+	// while the chat's switch is on, read live, else NetworkTurn for the turn's
+	// toggle, else NoNetwork. Nil is a session that never has network.
+	Network func(context.Context) Network
 }
 
 // Narrow is a subagent's session under parent: the parent's, as Kind Subagent.
 // The switch is copied at spawn, so a subagent started outside the sandbox
-// stays outside, and it decides by its parent's Policy.
+// stays outside, and it decides by its parent's Policy and Network: one
+// spawned in a turn with the toggle keeps it for its whole life.
 func Narrow(parent Session) Session {
 	parent.Kind = Subagent
 	return parent

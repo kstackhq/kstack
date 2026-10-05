@@ -22,12 +22,17 @@ import (
 )
 
 // CountedProcesses is how many tasks the kernel already counts against a run
-// that starts now: none in a user namespace of the run's own on a kernel that
-// counts per namespace, else every thread of the user's that this process's
-// /proc shows. Any doubt scans, since a base too high loosens the limit while
-// 0 under a machine-wide count would refuse the shell.
-func (s *Sandbox) CountedProcesses() (int, error) {
-	if s.perNamespace && s.ownUserNS {
+// that starts now, with the internet or without: none in a user namespace of
+// the run's own on a kernel that counts per namespace, else every thread of
+// the user's that this process's /proc shows. Any doubt scans, since a base
+// too high loosens the limit while 0 under a machine-wide count would refuse
+// the shell.
+func (s *Sandbox) CountedProcesses(internet bool) (int, error) {
+	own := s.ownUserNS
+	if internet {
+		own = s.pastaOwnUserNS
+	}
+	if s.perNamespace && own {
 		return 0, nil
 	}
 	proc, err := os.Open("/proc")

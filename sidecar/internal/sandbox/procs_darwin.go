@@ -21,8 +21,9 @@ import (
 )
 
 // CountedProcesses is how many processes the kernel already counts against a
-// run that starts now: every process of the user's real uid on the machine.
-func (s *Sandbox) CountedProcesses() (int, error) {
+// run that starts now, with the internet or without: every process of the
+// user's real uid on the machine.
+func (s *Sandbox) CountedProcesses(bool) (int, error) {
 	procs, err := unix.SysctlKinfoProcSlice("kern.proc.ruid", os.Getuid())
 	return len(procs), err
 }

@@ -31,6 +31,13 @@ func TestInitArgsAreTheSocketThePortAndTheCommand(t *testing.T) {
 	assert.Equal(t, initArgs{socket: "s", port: 1, argv: []string{"x"}}, got)
 }
 
+// Under sandbox-pasta the forwarder takes the run's stderr from stdin.
+func TestInitArgsTakeTheStderrOnStdin(t *testing.T) {
+	got, err := parseInitArgs([]string{stderrOnStdinFlag, "--", "/bin/sh"})
+	require.NoError(t, err)
+	assert.Equal(t, initArgs{stderrOnStdin: true, argv: []string{"/bin/sh"}}, got)
+}
+
 // A run with no cluster names neither flag, and its forwarder listens on
 // nothing.
 func TestInitArgsTakeNeitherFlag(t *testing.T) {

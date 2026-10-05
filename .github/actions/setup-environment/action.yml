@@ -109,15 +109,16 @@ runs:
         cache-dependency-path: |
           sidecar/go.sum
 
-    # bubblewrap for the sandbox's tests, which fail rather than skip under
-    # KSTACK_REQUIRE_SANDBOX; AppArmor restricts unprivileged user namespaces
-    # on 24.04 by default.
+    # bubblewrap and passt (pasta, a run's internet) for the sandbox's tests,
+    # which fail rather than skip under KSTACK_REQUIRE_SANDBOX, and iproute2,
+    # which a resolver test sets up a namespace with; AppArmor restricts
+    # unprivileged user namespaces on 24.04 by default.
     - name: Set up the sandbox
       if: inputs.setup-sandbox == 'true' && runner.os == 'Linux'
       shell: bash
       run: |
         sudo apt-get update
-        sudo apt-get install -y bubblewrap
+        sudo apt-get install -y bubblewrap passt iproute2
         sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
         echo KSTACK_REQUIRE_SANDBOX=1 >> "$GITHUB_ENV"
 

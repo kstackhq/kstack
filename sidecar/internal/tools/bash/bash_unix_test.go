@@ -39,6 +39,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -442,7 +443,7 @@ func TestAnExitOf143IsNotATimeout(t *testing.T) {
 	r := run(t.Context(), tl.spec("kill -TERM $$", 1024))
 	assert.Equal(t, stopNone, r.Stop)
 	assert.Equal(t, 143, r.ExitCode)
-	assert.Equal(t, "Exit code 143\n", resultText(r, time.Minute, nil, false))
+	assert.Equal(t, "Exit code 143\n", resultText(r, time.Minute, nil, unconfined))
 }
 
 // A deadline after the reap sends nothing and records nothing.
@@ -457,7 +458,7 @@ func TestAnExitReapedBeforeTheDeadlineIsNotRelabelled(t *testing.T) {
 	r := run(t.Context(), s)
 	assert.Equal(t, stopNone, r.Stop)
 	assert.False(t, r.failed())
-	assert.Equal(t, "", resultText(r, time.Minute, nil, false))
+	assert.Equal(t, "", resultText(r, time.Minute, nil, unconfined))
 }
 
 // Bash that exited but was not yet reaped when the deadline fired reads as
@@ -1241,4 +1242,107 @@ func TestASandboxedCommandRunsUnderTheLimits(t *testing.T) {
 	processes, err := strconv.Atoi(lines[3])
 	require.NoError(t, err, text)
 	assert.GreaterOrEqual(t, processes, processMargin(runtime.NumCPU()))
+}
+
+// networkRuns runs each call through tl's fake sandboxer by the approval
+// given, and answers the runs it was handed.
+func networkRuns(t *testing.T, tl *Tool, fake *fakeSandboxer, rt tools.Runtime, calls map[string]tools.Approval) map[string]sandbox.Run {
+	t.Helper()
+	got := map[string]sandbox.Run{}
+	for name, a := range calls {
+		before := len(fake.seen())
+		text, isError := tl.RunApproved(t.Context(), rt, command("true"), a)
+		require.False(t, isError, text)
+		require.Len(t, fake.seen(), before+1, name)
+		got[name] = fake.seen()[before]
+	}
+	return got
+}
+
+// A run starts with the network its approval decided and never reads the
+// session again: a switch turned off since still runs an approved call with
+// network, and one turned on gives an unasked call none.
+func TestTheRunTakesTheApprovalsNetwork(t *testing.T) {
+	tl := tool(t)
+	fake := &fakeSandboxer{confines: true}
+	tl.sandboxer = fake
+	rt := testRuntime(t)
+
+	rt.Session.Network = sessionNetwork(session.NoNetwork)
+	runs := networkRuns(t, tl, fake, rt, map[string]tools.Approval{"approved": {Sandboxed: true, Network: session.NetworkApproved}})
+	assert.True(t, runs["approved"].Policy.Network.Internet)
+
+	rt.Session.Network = sessionNetwork(session.NetworkChat)
+	runs = networkRuns(t, tl, fake, rt, map[string]tools.Approval{"unasked": {Sandboxed: true, Skip: true}})
+	assert.False(t, runs["unasked"].Policy.Network.Internet)
+}
+
+// A run with the internet reads a resolv.conf in its own directory where the
+// sandbox needs one, naming the address pasta forwards; where it needs none
+// the run names none.
+func TestTheRunWritesItsResolver(t *testing.T) {
+	tl := tool(t)
+	fake := &fakeSandboxer{confines: true, needsResolver: true}
+	tl.sandboxer = fake
+	rt := testRuntime(t)
+
+	runs := networkRuns(t, tl, fake, rt, map[string]tools.Approval{"net": {Network: session.NetworkTurn}, "none": {}})
+
+	resolver := runs["net"].Policy.Network.Resolver
+	assert.Equal(t, "resolv.conf", filepath.Base(resolver))
+	assert.Contains(t, runs["net"].Policy.Always.Read, filepath.Dir(resolver), "in the run's own directory")
+	assert.Equal(t, []string{"nameserver " + sandbox.ResolverAddress + "\n"}, fake.resolvers)
+	assert.NoError(t, runs["net"].Policy.Check())
+	assert.Empty(t, runs["none"].Policy.Network.Resolver)
+
+	fake.needsResolver = false
+	runs = networkRuns(t, tl, fake, rt, map[string]tools.Approval{"net": {Network: session.NetworkTurn}})
+	assert.True(t, runs["net"].Policy.Network.Internet)
+	assert.Empty(t, runs["net"].Policy.Network.Resolver)
+}
+
+// A background command keeps the network it started with for its whole life,
+// whatever the switch says after.
+func TestABackgroundCommandKeepsItsNetwork(t *testing.T) {
+	tl := tool(t)
+	fake := &fakeSandboxer{confines: true}
+	tl.sandboxer = fake
+	rt := testRuntime(t)
+	tasks := newFakeTasks(t)
+	rt.Tasks = tasks
+	rt.Session.Network = sessionNetwork(session.NoNetwork)
+
+	text, isError := tl.RunApproved(t.Context(), rt, background("true"), tools.Approval{Sandboxed: true, Skip: true, Network: session.NetworkChat})
+	require.False(t, isError, text)
+	for _, tk := range tasks.started {
+		tk.Wait()
+	}
+
+	require.Len(t, fake.seen(), 1)
+	assert.True(t, fake.seen()[0].Policy.Network.Internet)
+}
+
+// A session that never has network gives its runs none, and its call that asks
+// is refused without asking; a run no gate decided has none either.
+func TestAMonitorNeverHasNetwork(t *testing.T) {
+	tl := tool(t)
+	fake := &fakeSandboxer{confines: true}
+	tl.sandboxer = fake
+	rt := testRuntime(t)
+	rt.Session.Kind = session.Monitor
+
+	a, err := tl.Approval(t.Context(), rt, command("true"))
+	require.NoError(t, err)
+	runs := networkRuns(t, tl, fake, rt, map[string]tools.Approval{"monitor": a})
+	assert.False(t, runs["monitor"].Policy.Network.Internet)
+
+	_, err = tl.Approval(t.Context(), rt, json.RawMessage(`{"command":"curl x","network":true}`))
+	var refusal *tools.Refusal
+	require.ErrorAs(t, err, &refusal)
+	assert.Equal(t, "This session never has network.", refusal.Result)
+
+	rt.Session.Network = sessionNetwork(session.NetworkChat)
+	text, isError := tl.Run(t.Context(), rt, command("true"))
+	require.False(t, isError, text)
+	assert.False(t, fake.seen()[len(fake.seen())-1].Policy.Network.Internet, "Run decides nothing")
 }

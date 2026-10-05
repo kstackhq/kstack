@@ -139,3 +139,17 @@ func TestClampedFailsOnAnUnknownResource(t *testing.T) {
 
 	assert.ErrorIs(t, err, unix.EINVAL)
 }
+
+// The open-files limit is set soft and hard. At the soft limit the process
+// runs under, nothing it can open changes.
+func TestSetTimeAndFilesSetsTheOpenFilesLimit(t *testing.T) {
+	var own unix.Rlimit
+	require.NoError(t, unix.Getrlimit(unix.RLIMIT_NOFILE, &own))
+	t.Cleanup(func() { _ = unix.Setrlimit(unix.RLIMIT_NOFILE, &own) })
+
+	require.NoError(t, setTimeAndFiles(shellArgs{files: int(own.Cur)}))
+
+	var got unix.Rlimit
+	require.NoError(t, unix.Getrlimit(unix.RLIMIT_NOFILE, &got))
+	assert.Equal(t, unix.Rlimit{Cur: own.Cur, Max: own.Cur}, got)
+}
