@@ -94,8 +94,10 @@ func (t *turn) Start(ctx context.Context, d tools.Delegation) (string, error) {
 	id, _, err := s.startTask(s.chatDir(chatID), t.runID, linked.ID, rec, func(f *os.File) (tools.Task, error) {
 		// The last moment before the subagent starts: a Cancel during the row
 		// write starts nothing, rather than an agent under a call that answered
-		// cancelled, whose id the model never saw.
-		if err := ctx.Err(); err != nil {
+		// cancelled, whose id the model never saw. It reads the turn's context,
+		// not the call's: the call's deadline passing once the rows have landed
+		// is no reason to refuse an agent they already record.
+		if err := t.ctx.Err(); err != nil {
 			return nil, err
 		}
 		return startAgentTask(c, spec, f), nil

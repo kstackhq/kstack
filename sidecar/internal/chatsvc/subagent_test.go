@@ -737,6 +737,49 @@ func TestASubagentsBackgroundCommandIsItsCallsTask(t *testing.T) {
 	assert.Equal(t, "running", command.status)
 }
 
+// expiringAgent is the Agent tool handing the test a way to end each call's
+// context, as the call's deadline does, without the turn's cancel.
+type expiringAgent struct {
+	*agenttool.Tool
+	expire chan context.CancelFunc
+}
+
+func (a expiringAgent) For(target llm.Target) tools.Custom {
+	return expiringAgent{Tool: a.Tool.For(target).(*agenttool.Tool), expire: a.expire}
+}
+
+func (a expiringAgent) Run(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (string, bool) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	a.expire <- cancel
+	return a.Tool.Run(ctx, rt, raw)
+}
+
+// The call's context ending once the start's rows have landed, as its deadline
+// does on a slow store, still starts the agent they record.
+func TestAnAgentStartsAfterItsCallsDeadline(t *testing.T) {
+	tt := newTaskTool()
+	ag := expiringAgent{Tool: agenttool.New(), expire: make(chan context.CancelFunc, 1)}
+	s := startServiceWithTool(t, ag, tt)
+	// The Agent call's start ends its context; the subagent's own task start
+	// finds nothing to end.
+	s.onRecorded = func() {
+		select {
+		case expire := <-ag.expire:
+			expire()
+		default:
+		}
+	}
+	fakeOf(s).SetToolCalls(agentCall("Start the build."))
+	subagentFake(s, "Start the build.").SetToolCalls(taskCall())
+
+	msg := send(t, s, nil, "k", "build it")
+	testutil.Recv(t, tt.ready, "the task to start")
+	awaitSettled(t, s, msg.ChatID, msg.ID)
+
+	require.Len(t, subagentRuns(t, s.db, msg.RunID), 1)
+}
+
 // commandTaskOf is the row of the task the subagent run's one call started.
 func commandTaskOf(t *testing.T, s *service, run RunID) taskRow {
 	t.Helper()

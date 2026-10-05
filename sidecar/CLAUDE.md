@@ -2083,7 +2083,9 @@ that model of the parent's provider at its default effort, when it takes tools),
 newest card (`newestContext`), then starts a task through `startTask` with a `taskRecord` that
 writes the subagent's run `running` (`stmtInsertSubagentRun`: `trigger 'agent'`, `parent_run_id`,
 `task` the prompt) and the open `Agent` row's `spawned_run_id` in the task row's transaction. Its
-start checks the call's context first, so a Cancel during the row write starts nothing, and a start
+start checks the turn's context first, so a Cancel during the row write starts nothing, while the
+call's deadline passing once the rows have landed does not refuse the agent they record
+(`TestAnAgentStartsAfterItsCallsDeadline`); a start
 that fails takes the run back (`deleteRun`; the link goes with it, `ON DELETE SET NULL`) with the
 task row; the turn goes on. The link lands on the parent's `openTool` only once the start
 succeeded, since the parent writes that row again when the call finishes. **The subagent is
