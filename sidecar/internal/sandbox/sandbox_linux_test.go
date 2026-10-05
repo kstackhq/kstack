@@ -1261,3 +1261,13 @@ func TestAProbeCutShortIsAnError(t *testing.T) {
 	assert.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, s)
 }
+
+func TestFixedMountIsEveryRunsOwnMount(t *testing.T) {
+	for _, p := range []string{"/proc", "/proc/1/root", "/dev", "/dev/pts", "/tmp", "/tmp/x"} {
+		assert.True(t, FixedMount(p), p)
+	}
+	for _, p := range []string{"/", "/home/me", "/procs", "/var/tmp", "/devices"} {
+		assert.False(t, FixedMount(p), p)
+	}
+	assert.False(t, overFixedMount("/tmp/kstack-1000"), "a run's own runtime directory under /tmp is no rule over a mount")
+}

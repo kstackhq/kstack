@@ -1609,6 +1609,12 @@ func newChatServerOver(t *testing.T) (*httptest.Server, *appdb.DB, *llm.Fake) {
 // newChatServerWith is newChatServerOver on a machine whose sandbox is status.
 func newChatServerWith(t *testing.T, status sandbox.Status) (*httptest.Server, *appdb.DB, *llm.Fake) {
 	t.Helper()
+	return newChatServerOn(t, status, testSecurity(t))
+}
+
+// newChatServerOn is newChatServerWith over the security settings security.
+func newChatServerOn(t *testing.T, status sandbox.Status, security *securityconfig.Service) (*httptest.Server, *appdb.DB, *llm.Fake) {
+	t.Helper()
 	db, err := appdb.Open(filepath.Join(t.TempDir(), "app.db"), 0)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -1620,7 +1626,7 @@ func newChatServerWith(t *testing.T, status sandbox.Status) (*httptest.Server, *
 	// The search is offered, since a test stages a turn that searched; the rest
 	// is read alone, so no call runs while stored calls still show.
 	box := tools.NewBox([]tools.Tool{agenttool.New(), anthropicwebsearch.New(time.Now)}, bash.Reader{}, &read.Tool{}, &write.Tool{}, &edit.Tool{}, &webfetch.Tool{}, taskstop.New(), memory.New(nil), kubequery.New(nil))
-	chatSvc, err := chatsvc.New(db, filepath.Join(t.TempDir(), "chats"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status, testSecurity(t))
+	chatSvc, err := chatsvc.New(db, filepath.Join(t.TempDir(), "chats"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status, security)
 	require.NoError(t, err)
 	stop, err := chatSvc.Start(t.Context())
 	require.NoError(t, err)
@@ -1630,7 +1636,7 @@ func newChatServerWith(t *testing.T, status sandbox.Status) (*httptest.Server, *
 	})
 	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
 		ClusterSvc: newFakeClusterService(nil), ChatSvc: chatSvc, LLMSvc: llmSvc, Auth: newFakeAuth(auth.Identity{}),
-		SandboxStatus: status,
+		SandboxStatus: status, SecurityCfg: security,
 	}))
 	t.Cleanup(srv.Close)
 	return srv, db, fake
@@ -1974,6 +1980,21 @@ func TestChatRefusalsCarryTheirCode(t *testing.T) {
 
 		assert.Contains(t, string(raw), `"code":"KSTACK_VALIDATION_ERROR"`)
 	})
+}
+
+// The chat's other mutations map their refusals through the same table.
+func TestChatMutationRefusalsCarryTheirCode(t *testing.T) {
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ChatSvc: refusingChat{err: chatsvc.ErrChatGone}}))
+	defer srv.Close()
+	for _, mutation := range []string{
+		`chatCancel(chatID: \"` + appdb.NewID() + `\")`,
+		`approvalDecide(id: \"` + appdb.NewID() + `\", decision: Once)`,
+		`backgroundTaskStop(id: \"` + appdb.NewID() + `\")`,
+	} {
+		raw := postGQL(t, srv.URL, `{"query":"mutation { `+mutation+` }"}`)
+
+		assert.Contains(t, string(raw), `"code":"KSTACK_RECORD_NOT_FOUND"`, mutation)
+	}
 }
 
 // Two refusals in one request are two errors: gqlgen stamps a path onto the error a

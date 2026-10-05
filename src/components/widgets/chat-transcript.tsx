@@ -474,8 +474,9 @@ function ToolCalls({
         const edit = call.action?.edit ?? null;
         const delegate = call.action?.delegate ?? null;
         const tag = toolCallTag(call);
-        // A write that ran unasked is one in the chat's workspace: what it wrote
-        // is drawn open, since a later command may run it.
+        // A write that ran unasked is one in the chat's workspace or a folder
+        // granted read-write: what it wrote is drawn open, since a later command
+        // may run it.
         const open = call.approval === null && call.status === 'Succeeded';
         const changed = (
           <>

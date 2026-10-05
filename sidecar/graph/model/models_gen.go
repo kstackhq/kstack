@@ -105,6 +105,31 @@ type ResourceRule struct {
 	ResourceNames []string `json:"resourceNames"`
 }
 
+// One folder a sandboxed command may read, or read and write.
+type SandboxFolder struct {
+	// The rule's id.
+	ID string `json:"id"`
+	// The folder, absolute and resolved. User text: draw it through VisibleText.
+	Path  string `json:"path"`
+	Write bool   `json:"write"`
+	// Why the folder fails its check now, so no run takes it; null when it passes.
+	Refused *string `json:"refused,omitempty"`
+}
+
+// The folders granted, and what no grant opens.
+type SandboxFolders struct {
+	// The always grants.
+	Always []*SandboxFolder `json:"always"`
+	// The chat's own grants, for their refused reasons; empty when no chat was named.
+	Chat []*SandboxFolder `json:"chat"`
+	// The denied-always list for this machine, with ~ expanded, read-only.
+	Never []string `json:"never"`
+	// The folders a read grant of which draws the wide warning, resolved: the home, each folder over it, and /Volumes on macOS.
+	Wide []string `json:"wide"`
+	// Whether the file's rules cannot be read, which refuses every always grant and revoke until the file is fixed or what Kstack cannot read is discarded.
+	RulesHeld bool `json:"rulesHeld"`
+}
+
 // One folder of the user's PATH, and what the sandbox does with it.
 type SandboxPathEntry struct {
 	// The folder as the shell gave it.
@@ -118,6 +143,64 @@ type SandboxPathEntry struct {
 }
 
 type Subscription struct {
+}
+
+// How long a folder grant lasts.
+type GrantDuration string
+
+const (
+	// For one chat: a rule of the chat's, gone with it.
+	GrantDurationChat GrantDuration = "Chat"
+	// For every chat: a rule in the security settings file.
+	GrantDurationAlways GrantDuration = "Always"
+)
+
+var AllGrantDuration = []GrantDuration{
+	GrantDurationChat,
+	GrantDurationAlways,
+}
+
+func (e GrantDuration) IsValid() bool {
+	switch e {
+	case GrantDurationChat, GrantDurationAlways:
+		return true
+	}
+	return false
+}
+
+func (e GrantDuration) String() string {
+	return string(e)
+}
+
+func (e *GrantDuration) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = GrantDuration(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid GrantDuration", str)
+	}
+	return nil
+}
+
+func (e GrantDuration) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *GrantDuration) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e GrantDuration) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
 }
 
 // Whose decision a PATH entry's state is.

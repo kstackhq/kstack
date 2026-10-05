@@ -54,6 +54,12 @@ func overFixedMount(string) bool     { return false }
 func worldWritable(os.FileInfo) bool { return false }
 func broadDirs(string) []string      { return nil }
 
+// NoWrite answers nothing, since no command runs sandboxed.
+func NoWrite(string) []string { return nil }
+
+// FixedMount answers false, since no command runs sandboxed.
+func FixedMount(string) bool { return false }
+
 // System answers the zero System, since no command runs sandboxed.
 func (s *Sandbox) System(string, string) System { return System{} }
 

@@ -84,7 +84,7 @@ func TestBashIsOfferedWhenItIsFound(t *testing.T) {
 	t.Setenv("PATH", withBash)
 	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 	require.True(t, found)
-	box, err := chatTools(shell, []string{t.TempDir()}, 0o022, nil, nil)
+	box, err := chatTools(shell, []string{t.TempDir()}, nil, 0o022, nil, nil)
 	require.NoError(t, err)
 	defs, _ := box.Offer()
 	assert.Equal(t, []string{"Bash", "Read", "Memory", "Write", "Edit", "WebFetch", "TaskStop", "Agent", "KubeQuery"}, definitionNames(defs))
@@ -103,7 +103,7 @@ func TestEveryGatedToolCanBeShown(t *testing.T) {
 	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 	require.True(t, found)
 
-	box, err := chatTools(shell, []string{t.TempDir()}, 0o022, nil, nil)
+	box, err := chatTools(shell, []string{t.TempDir()}, nil, 0o022, nil, nil)
 	require.NoError(t, err)
 	defs, _ := box.Offer()
 	gated := 0
