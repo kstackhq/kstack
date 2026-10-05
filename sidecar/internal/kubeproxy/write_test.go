@@ -351,7 +351,7 @@ func TestQueuedWritesAreBounded(t *testing.T) {
 	resp, reply := s.do(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/c", "", ""))
 	assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
 	assert.Empty(t, resp.Header.Values("Retry-After"))
-	assert.Equal(t, "kstack: too many changes are waiting on the user. Send one at a time.", statusOf(t, reply).Message)
+	assert.Equal(t, "kstack: too many requests are waiting on the user. Send one at a time.", statusOf(t, reply).Message)
 	testutil.NoRecv(t, body.read.Chan(), quietWindow, "a queued write's body read")
 
 	// The queued writes race each other into the lock's line, so any that took
@@ -527,37 +527,134 @@ func TestAWriteThatDoesNotDecodeIsRefused(t *testing.T) {
 	assert.Empty(t, api.requests())
 }
 
-// Any write of a helm release is refused unasked: a POST typed as one or not
-// readable as an object, and a PUT, PATCH or DELETE of one by name, a patch
-// carrying no type. A DELETE of the secrets collection names no release, and asks.
-func TestAHelmReleaseWriteIsRefused(t *testing.T) {
-	api := newAPIServer(t, func(http.ResponseWriter, *http.Request) {})
+// readSecrets lists path's Secrets through s and gives the read answer.
+func (s *served) readSecrets(t *testing.T, asker fakeAsker, path string, answer Answer) {
+	t.Helper()
+	done := s.sendAsync(t, s.request(t, "GET", path, s.g.Token()))
+	asker.next(t).answer <- answer
+	testutil.Recv(t, done, "the read of "+path)
+}
+
+// A helm release write follows what its command read: after a read of the
+// namespace's Secret data the user approved, each write of a release goes on
+// to its own decision; after one that passed redacted, in the namespace or
+// across the cluster, each is refused unasked. A read elsewhere, or none at
+// all, leaves it to its own decision. A DELETE of the collection names no
+// release.
+func TestAHelmReleaseWriteFollowsWhatTheCommandRead(t *testing.T) {
+	api := answering(t, `{"kind":"SecretList","apiVersion":"v1","items":[]}`)
+	asker := make(fakeAsker, 1)
+	const secrets = "/api/v1/namespaces/web/secrets"
+	const release = secrets + "/sh.helm.release.v1.x.v1"
+	writes := map[string]writeCase{
+		"a put":                     {method: "PUT", path: release, contentType: "application/json", body: `{"kind":"Secret","type":"helm.sh/release.v1"}`},
+		"a patch":                   {method: "PATCH", path: release, contentType: "application/merge-patch+json", body: `{"metadata":{"labels":{"status":"superseded"}}}`},
+		"a delete":                  {method: "DELETE", path: release},
+		"a post typed as a release": {method: "POST", path: secrets, contentType: "application/json", body: `{"kind":"Secret","type":"helm.sh/release.v1"}`},
+		"a post typed twice":        {method: "POST", path: secrets, contentType: "application/json", body: `{"type":"helm.sh/release.v1","Type":"Opaque"}`},
+		"a post of no object":       {method: "POST", path: secrets, contentType: "application/json", body: `[]`},
+		"a post typed by a number":  {method: "POST", path: secrets, contentType: "application/json", body: `{"type":5}`},
+	}
+
+	s := serveAsking(t, api.upstream(), asker)
+	s.readSecrets(t, asker, secrets, once)
+	for name, c := range writes {
+		_, write := s.sendWrite(t, asker, c)
+		assert.NotNil(t, write, "after an approved read, %s", name)
+	}
+
+	for _, read := range []string{secrets, "/api/v1/secrets"} {
+		s = serveAsking(t, api.upstream(), asker)
+		s.readSecrets(t, asker, read, denied)
+		for name, c := range writes {
+			r, write := s.sendWrite(t, asker, c)
+			assert.Nil(t, write, "after %s read redacted, %s", read, name)
+			assertForbidden(t, r.resp, r.body, refusedHelm)
+		}
+		// helm reuses the stored values, so its release carries the marks it
+		// read; the gate's refusal names the fix, the mark check's does not.
+		r, write := s.sendWrite(t, asker, writeCase{method: "PUT", path: release, contentType: "application/json",
+			body: releaseBody(t, `{"name":"x","config":{"password":"[redacted]"}}`)})
+		assert.Nil(t, write, "a release carrying the mark")
+		assertForbidden(t, r.resp, r.body, refusedHelm)
+		_, write = s.sendWrite(t, asker, writeCase{method: "DELETE", path: secrets})
+		assert.NotNil(t, write, "a delete of the collection")
+		_, write = s.sendWrite(t, asker, writeCase{method: "POST", path: secrets, contentType: "application/json", body: `{"kind":"Secret","type":"Opaque"}`})
+		assert.NotNil(t, write, "a post of another type")
+	}
+
+	s = serveAsking(t, api.upstream(), asker)
+	s.readSecrets(t, asker, "/api/v1/namespaces/api/secrets", denied)
+	for name, c := range writes {
+		_, write := s.sendWrite(t, asker, c)
+		assert.NotNil(t, write, "after a read elsewhere, %s", name)
+	}
+
+	s = serveIn(t, api.upstream(), sessionIn(permissions.Auto), asker)
+	for name, c := range writes {
+		resp, body := s.do(t, s.writeRequest(t, c.method, c.path, c.contentType, c.body))
+		assert.Equal(t, http.StatusOK, resp.StatusCode, "with no read before, %s: %s", name, body)
+	}
+}
+
+// releaseBody is a release Secret's body carrying release, as helm writes it.
+func releaseBody(t *testing.T, release string) string {
+	t.Helper()
+	return `{"kind":"Secret","type":"helm.sh/release.v1","data":{"release":` + marshaled(releaseValue(t, release, true)) + `}}`
+}
+
+// A release is read inside: after an approved read, one whose config or
+// manifest Secret holds [redacted] is refused; one that does not decode, one
+// under stringData, and a JSON patch are refused as unshowable; a release with
+// no mark, a delete and a patch of its labels go on to their own decision.
+func TestARedactedReleaseIsRefusedUnderTheGrant(t *testing.T) {
+	api := answering(t, `{"kind":"SecretList","apiVersion":"v1","items":[]}`)
 	asker := make(fakeAsker, 1)
 	s := serveAsking(t, api.upstream(), asker)
 	const secrets = "/api/v1/namespaces/web/secrets"
 	const release = secrets + "/sh.helm.release.v1.x.v1"
+	s.readSecrets(t, asker, secrets, once)
+
+	inConfig := releaseBody(t, `{"name":"x","config":{"password":"[redacted]"}}`)
+	inManifest := releaseBody(t, `{"name":"x","manifest":"kind: Secret\ndata:\n  password: W3JlZGFjdGVkXQ==\n"}`)
+	for name, c := range map[string]struct {
+		write writeCase
+		why   refusal
+	}{
+		"a put, config":        {writeCase{method: "PUT", path: release, contentType: "application/json", body: inConfig}, refusedRedacted},
+		"a post, config":       {writeCase{method: "POST", path: secrets, contentType: "application/json", body: inConfig}, refusedRedacted},
+		"a put, manifest":      {writeCase{method: "PUT", path: release, contentType: "application/json", body: inManifest}, refusedRedacted},
+		"a post, manifest":     {writeCase{method: "POST", path: secrets, contentType: "application/json", body: inManifest}, refusedRedacted},
+		"one not decoding":     {writeCase{method: "PUT", path: release, contentType: "application/json", body: `{"type":"helm.sh/release.v1","data":{"release":"bm90IGEgcmVsZWFzZQ=="}}`}, refusedUnshowable},
+		"one under stringData": {writeCase{method: "PUT", path: release, contentType: "application/json", body: `{"type":"helm.sh/release.v1","stringData":{"release":"x"}}`}, refusedUnshowable},
+		"a json patch":         {writeCase{method: "PATCH", path: release, contentType: "application/json-patch+json", body: `[{"op":"replace","path":"/data/release","value":"x"}]`}, refusedUnshowable},
+	} {
+		r, write := s.sendWrite(t, asker, c.write)
+		assert.Nil(t, write, name)
+		assertForbidden(t, r.resp, r.body, c.why)
+	}
 
 	for name, c := range map[string]writeCase{
-		"a post typed as a release": {method: "POST", path: secrets, contentType: "application/json", body: `{"kind":"Secret","type":"helm.sh/release.v1"}`},
-		"a post of no object":       {method: "POST", path: secrets, contentType: "application/json", body: `[]`},
-		"a post typed twice":        {method: "POST", path: secrets, contentType: "application/json", body: `{"type":"helm.sh/release.v1","Type":"Opaque"}`},
-		"a post typed by a number":  {method: "POST", path: secrets, contentType: "application/json", body: `{"type":5}`},
-		"a put":                     {method: "PUT", path: release, contentType: "application/json", body: `{"kind":"Secret"}`},
-		"a patch":                   {method: "PATCH", path: release, contentType: "application/merge-patch+json", body: `{"data":{"release":"x"}}`},
-		"a delete":                  {method: "DELETE", path: release},
+		"a release with no mark": {method: "PUT", path: release, contentType: "application/json", body: releaseBody(t, `{"name":"x","config":{"password":"hunter2"}}`)},
+		"a delete":               {method: "DELETE", path: release},
+		"a patch of its labels":  {method: "PATCH", path: release, contentType: "application/merge-patch+json", body: `{"metadata":{"labels":{"status":"superseded"}}}`},
 	} {
-		r, write := s.sendWrite(t, asker, c)
-		t.Run(name, func(t *testing.T) {
-			assert.Nil(t, write)
-			assertForbidden(t, r.resp, r.body, refusedHelm)
-		})
+		_, write := s.sendWrite(t, asker, c)
+		assert.NotNil(t, write, name)
 	}
-	assert.Empty(t, api.requests())
+}
 
-	_, write := s.sendWrite(t, asker, writeCase{method: "DELETE", path: secrets})
-	assert.NotNil(t, write, "a delete of the collection")
-	_, write = s.sendWrite(t, asker, writeCase{method: "POST", path: secrets, contentType: "application/json", body: `{"kind":"Secret","type":"Opaque"}`})
-	assert.NotNil(t, write, "a post of another type")
+// A body carrying the mark is refused whatever the command read.
+func TestAWriteCarryingRedactedIsStillRefused(t *testing.T) {
+	api := answering(t, `{"kind":"SecretList","apiVersion":"v1","items":[]}`)
+	asker := make(fakeAsker, 1)
+	s := serveAsking(t, api.upstream(), asker)
+	s.readSecrets(t, asker, "/api/v1/namespaces/web/secrets", once)
+
+	r, write := s.sendWrite(t, asker, writeCase{method: "PATCH", path: "/api/v1/namespaces/web/secrets/x",
+		contentType: "application/merge-patch+json", body: `{"data":{"a":"W3JlZGFjdGVkXQ=="}}`})
+	assert.Nil(t, write)
+	assertForbidden(t, r.resp, r.body, refusedRedacted)
 }
 
 // A write carries its path and query as sent, its media type as sent, and its
@@ -825,10 +922,12 @@ func TestADeniedWriteIsAForbiddenStatus(t *testing.T) {
 }
 
 // A read-only context refuses every write, a destructive one and an RBAC one
-// included, and still answers a Secret read redacted.
+// included, and asks before a Secret read shows its data, answering it
+// redacted once denied.
 func TestAReadOnlyContextRefusesEveryWrite(t *testing.T) {
 	api := answering(t, secretJSON)
-	s := serveIn(t, api.upstream(), sessionIn(permissions.ReadOnly), newRecordingAsker())
+	asker := newRecordingAsker()
+	s := serveIn(t, api.upstream(), sessionIn(permissions.ReadOnly), asker)
 	for _, c := range []writeCase{
 		{method: "DELETE", path: "/api/v1/namespaces/web"},
 		{method: "POST", path: "/apis/rbac.authorization.k8s.io/v1/namespaces/web/rolebindings", contentType: "application/json", body: `{}`},
@@ -841,9 +940,12 @@ func TestAReadOnlyContextRefusesEveryWrite(t *testing.T) {
 	}
 	assert.Empty(t, api.requests())
 
-	resp, body := s.send(t, "GET", "/api/v1/namespaces/web/secrets/db", s.g.Token())
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.JSONEq(t, redactedSecretJSON, body)
+	done := s.sendAsync(t, s.request(t, "GET", "/api/v1/namespaces/web/secrets/db", s.g.Token()))
+	asker.next(t).answer <- denied
+	r := testutil.Recv(t, done, "the read")
+	require.NotNil(t, r.resp)
+	require.Equal(t, http.StatusOK, r.resp.StatusCode)
+	assert.JSONEq(t, redactedSecretJSON, r.body)
 }
 
 // The proxy asks the session for the mode of the context its grant was made

@@ -222,7 +222,7 @@ Seams, each said in both specs' own text:
 
 | Spec | Step | After it |
 | --- | --- | --- |
-| [5A](5a-secret-data-is-a-permissioned-read.md) | **Secret data is a permissioned read.** Class 6: a read of Secret data asks, and the proxy redacts unless the session holds the grant; a session can be one that never reads it. Needs 3B, 3C and 4B. | A Secret's values reach the model only after the user says so, and never in a monitoring session. |
+| 5A | **Secret data is a permissioned read.** Class 6: a read of Secret data asks, and the proxy redacts unless the session holds the grant; a session can be one that never reads it. Needs 3B, 3C and 4B. **Landed**; the root and `sidecar/` `CLAUDE.md` describe it. | A Secret's values reach the model only after the user says so, and never in a monitoring session. |
 | [5B](5b-grant-from-a-failed-command.md) | **Grant a folder from a failed command.** A failed sandboxed command offers *Grant a folder…* under the call: the user types the folder, for the chat or always, in the form Settings' Add row becomes. Nothing parses the output, and the model's result is unchanged. Needs 4D. | A user who reads a blocked command's error can open the folder where it failed, and the closed home becomes how users find the permission system. |
 
 Seam: 5A and 5B both edit `chat-transcript.tsx` and `prompts/sandbox.md`, in different

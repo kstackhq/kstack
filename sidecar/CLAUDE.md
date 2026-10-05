@@ -1307,7 +1307,10 @@ changed in Settings applies to the next write, a running subagent's included; `N
 `NoNetwork`, a read that fails answering `NoNetwork` — nil for a session that never has it, which
 `sessionFor` alone sets, so a session built any other way (the monitor's) has none; and `Folders`, a
 function answering the session's folder grants (`session.Folder`: `Path`, `Write`), read live,
-whose one builder is `chatsvc`'s `foldersFor` (*Chat*, below). A nil `Folders` reads none:
+whose one builder is `chatsvc`'s `foldersFor` (*Chat*, below); and `NoPrompts` and `NoSecretData`,
+a session that never asks and one that never reads Secret data, the one source of the policy's two
+flags, which `chatsvc` never sets and `Narrow` copies (step 6B's monitor will set both). A nil
+`Folders` reads none:
 `Session.GrantedFolders(ctx)` is the reader that says so, and every reader of the folders goes
 through it (`TestASessionWithNoFoldersReadsNone`).
 The chat, the cluster and the workspace are not on it: the runtime's `ChatID`, `ClusterID` and
@@ -1709,8 +1712,12 @@ imports nothing of ours: the six `Class`es, numbered as the note numbers them, t
 rule one command's answer added, never stored), an `Action` (a classified request: its class,
 context, namespace, verb, group, kind, name, one-line `Summary` and `DryRun`, stored with its
 approval under camelCase JSON keys),
-and a `Policy` — a mode and the rules — whose `Decide(act)` answers a `Decision` and the reason in
-the user's words. **`Decide` is `Authorize` then `Outcome`.** `Authorize(act)` is a `Verdict`, the
+and a `Policy` — a mode, the rules, and the session's `NoPrompts` and `NoSecretData`, which the
+proxy copies on (`Grant.policy`) — whose `Decide(act)` answers a `Decision` and the reason in
+the user's words. **`Decide` is `Authorize` then `Outcome`.** `Authorize(act)` refuses a class 6
+action first under `NoSecretData` (*this session never reads Secret data*), ahead of every rule,
+and under `NoPrompts` turns a verdict that would ask into `Refuse` last (*this session never asks:*
+then the reason). Between them it is a `Verdict`, the
 strongest of what matched: `Refuse` (a matching `Deny`, or a read-only mode on class 3, 4 or 5),
 then `Forbid` (a matching `AskFor`, or class 5), then `Permit` (class 1 or 2, a matching `Allow`, or
 `Auto`), else `Unmatched`, the default denial and the zero value. Its reason is the first source of
@@ -1721,7 +1728,7 @@ another means. `Verdict.Outcome()` is the `Decision`: `Permit` runs, `Refuse` is
 class 5; a bare `*` `Kind` matches every kind, and any other `Kind` with no `/` matches the resource alone, though `*` crosses `/`, and covers its `scale` and no other subresource; a `Namespace` pattern never matches a cluster-scoped action, and `ClusterScope` (`[cluster]`, a word no namespace name can be) matches nothing else. `Match` is the one
 matcher, a glob compiled to a regexp: `*` crosses `/` and `:`, `?` is one character, `\` escapes.
 `Literal` escapes a value into the pattern that matches it alone, and every mode Kstack writes from
-a value goes through it. `Rule.Line` is the rule in the user's words, a class 5 rule's naming it *destructive*, which
+a value goes through it. `Rule.Line` is the rule in the user's words, a class 5 rule's naming it *destructive* and a class 6 rule naming a group or kind *reads of*, where the others read *writes of*, which
 Settings shows, a reason names and a request draws under its allow answers, and a command rule's
 ending *for this command*. **It draws each pattern field one way**: name characters alone bare, a
 `*` or `?` in them a glob; a literal holding a glob character, a space, a `"` or a `\` unescaped in
@@ -1731,12 +1738,18 @@ whether an answer may write a rule: an `Unmatched` verdict, an action that is no
 a `Context`. **`GrantRule(act)`** is the rule a chat or always answer writes: an `Allow` of the
 action's class in its context and namespace, each through `Literal`, and for an action in no
 namespace or on a core Namespace the group and the resource too; any other is `Inside`, which
-never matches a Namespace object and whose line reads *inside*. **`CommandRule(act)`** adds the
+never matches a Namespace object and whose line reads *inside*. A class 6 action's names the
+context and namespace alone, never `Inside` (*Allow Secret reads in dev-eks / team-a*, or *… in
+dev-eks* for a read across the cluster), since no Secret is a Namespace object. **`CommandRule(act)`** adds the
 verb and the resource, sets `Command` and clears `Inside`. Neither sets an `ID`; the writer does. A **`Duration`**
 is how long an approval holds: `once`, `command`, `chat` or `always`. `Refused` is the `Deny` of every cluster write that stands in for a rule Kstack could
-not read.
+not read, and `RefusedSecrets` the `Deny` of every Secret read beside it, since a class 4 rule does
+not cover class 6. Class 6 asks under `ReadOnly` and `Ask` and is `Permit` under `Auto`.
 
-**`kubeproxy/classify.go` classifies a request**: a `GET` of core `secrets` is class 6, any other
+**`kubeproxy/classify.go` classifies a request**: a `GET`'s verb is the API server's — `watch`
+for a watch, else `get` with a name, else `list` — and a `GET` of core `secrets` is class 6, its
+summary naming what it shows (*Show Secret db-creds in team-a on dev-eks*, *Show Secret data on
+dev-eks*, *Watch Secret data in team-a on dev-eks*); any other
 read, a self review and a dry run on a group version in `honorsDryRun` (the stable ones the API server
 serves itself; an aggregated API, routed by group and version, may ignore `dryRun`) class 1, a write on the class 5 list class 5 (`destructive`: a
 delete of a namespace, node, PV, PVC or CRD, or a namespace's `finalize`, which completes one; any `deletecollection`; any write of RBAC, of the
@@ -1785,27 +1798,35 @@ segment anywhere in the path. `GET` of a resource, a discovery path, `/api`, `/a
 `/version`, `/openapi/…` and the health paths pass, and so does a `POST`, `PUT`, `PATCH` or
 `DELETE` of a resource, which `isWrite` sends to the write path unless it is a `POST` of a self
 review (`selfsubjectaccessreviews`, `selfsubjectrulesreviews`, `selfsubjectreviews`,
-cluster-scoped, unnamed), which passes unasked; a core `secrets` request is redacted (below);
+cluster-scoped, unnamed), which passes unasked; a core `secrets` request is redacted (below),
+and a read of one that can carry data is decided first (*The Secret read*, below);
 refused are `exec`, `attach`, `portforward`, every `proxy` path and an `Upgrade`, `Connection:
 upgrade` or `Impersonate-*` header, the `token` subresource of core `serviceaccounts` whatever
 the method (its answer is a credential the model would read), any other method on a resource,
 and any other path — each refusal a `Status` whose message says which. **The write path**
-(`write.go`) refuses unasked, before any queue, a grant with no asker, a `PUT`, `PATCH` or
-`DELETE` of a Secret named `sh.helm.release.v1.*`, and a query `url.ParseQuery` refuses, since
+(`write.go`) refuses unasked, before any queue, a grant with no asker, and a query `url.ParseQuery` refuses, since
 a pair that does not parse is dropped on its way to the API server and a selector shown on the
 request would not run; then takes the write lock, an `x/sync/semaphore` of one
 taken on the request's context and held until the forward returns, with at most
-`maxQueuedWrites` (8) waiting for it and one more a 429 with no `Retry-After`; reads the body
-only then, under `maxWriteBody` (1 MiB, else a 403); refuses (`checkBody`, each a 403) a body
+`maxQueuedWrites` (8) writes and Secret reads waiting for it and one more a 429 with no
+`Retry-After` (*too many requests are waiting on the user*); reads the body
+only then, under `maxWriteBody` (1 MiB, else a 403); then **the helm gate** refuses a helm
+release write (`writesRelease`: a `PUT`, `PATCH` or `DELETE` of a Secret named
+`sh.helm.release.v1.*`, or a `POST` to `secrets` that `mayBeRelease` — anything but a JSON object
+typed, by exact key, as something else) when the grant's `redactedReads` holds its namespace or
+`""`, since helm rebuilds a release from the Secrets it read (`refusedHelm`) — ahead of the body
+check, whose refusal of the marks such a release carries would not say what allows them; refuses
+(`checkBody`, each a 403) a body
 with a `Content-Encoding`, not valid UTF-8, or whose media type, parameters aside, is not JSON
 or apply YAML (a `DELETE` may carry none), one that does not decode as its media type says
 (`decodeBody`: an apply patch through `sigs.k8s.io/yaml`, as the API server reads one, anything
 else as one JSON value), one repeating a key in one object (`uniqueKeys`), since `decodeBody`
 keeps the last where the API server's typed decoder merges, so the body would be classified and
 shown as other than it runs, one with `[redacted]` or its base64 in any decoded string, a key
-included, so an escape that spells the mark differently does not hide it, and a `POST`
-to `secrets` that is not a JSON object or is typed `helm.sh/release.v1`, read by exact key;
-then, still under the lock, so writes reach the cluster in the order they were decided,
+included, so an escape that spells the mark differently does not hide it, and for a helm
+release write a body read inside (`checkRelease`): a JSON patch, and one
+setting `stringData`, refused as unshowable, and a `data.release` decoded with `decodeRelease` and
+refused when it does not decode or carries the mark; then, still under the lock, so writes reach the cluster in the order they were decided,
 classifies it (`classify`, below) into a `Write` — the method, the path and raw query, the
 policy's subresource, the media type, the body, `DryRun`, set only for a `POST`, `PUT` or `PATCH`
 whose every `dryRun` is `All`, since the API server reads a `DELETE`'s options from its body when it
@@ -1820,7 +1841,7 @@ logged, and answered 403 *kstack: <summary> is not allowed: <reason>*; `Prompted
 denial is a 403 *the user did not approve this change*, a wait that ended a 403 *the user did
 not answer this change*, and an approval forwards the bytes read, taking a slot and the limiter
 only then, so a write waiting on the user holds neither. **An approval for the command adds
-`CommandRule(act)` to the grant's `commandRules`**, under the write lock, so the rest of the
+`CommandRule(act)` to the grant's `commandRules`**, so the rest of the
 command's same change is allowed, recorded `allowed` with the rule's line; it ends with the grant.
 **The preview** (`diff.go`) runs for a write that asks alone, a `PUT` or `PATCH` of a named object on
 a group version in `honorsDryRun` (else its `DiffError` says so): a `GET` of the path through the
@@ -1832,8 +1853,22 @@ grant, or `diffTimeout` (10s, a field), and read to `maxDiffObject` (3 MiB). Bot
 on every kind each last-applied annotation is compared by its location, a pod template's included, and blanked (`redactLastApplied`). Then
 `sigs.k8s.io/yaml` and `go-difflib`'s unified diff, three lines of context and no header, cut past
 `maxDiffLines` (2,000) with `DiffCut` set, or *No change.* A failure is a `DiffError` in the
-user's words, a status message through `safe.String`. **A request
-on core `secrets` is rewritten both ways** (`rewriteSecrets`, set on that request's proxy): its
+user's words, a status message through `safe.String`. **The Secret read** (`secretread.go`): a
+read of core `secrets` that is not `metadataOnly` — the first JSON type its `Accept` names a Table
+or `PartialObjectMetadata` of `meta.k8s.io`, with no `includeObject=Object`, as kubectl's `get`
+sends with no `-o` — goes to `serveSecretRead`; a metadata-only read is forwarded redacted and asks
+no one. With no asker it is forwarded redacted and records nothing. Otherwise it takes the write
+lock through `takeWriteLock`, as a write does, and `decideSecretRead` classifies it, takes the
+verdict and builds the `Request` as a write's is, its `Write` the method and the path with no body;
+`Allowed` is recorded and shows the data, a record that fails keeps it redacted; `Denied` is
+recorded and redacted; `Prompted` is asked, and only an approval shows the data, a `Command` answer
+adding `CommandRule(act)`. A read that passes redacted marks its namespace (`""` across the
+cluster) in the grant's `redactedReads`, which the helm gate reads under the same lock. The lock is
+released before the forward, so an allowed watch never holds it, and every answer is a 200. **`forward` takes `redact`**: every
+caller passes `p.onSecrets()` but an allowed Secret read, so a write's answer on `secrets` stays
+redacted. **A request
+on core `secrets` is rewritten both ways** (`rewriteSecrets`, set on that request's proxy when it
+is redacted): its
 `Accept` keeps only the `application/json` types and its `Accept-Encoding` goes, so the transport
 hands back plain JSON; a response of any other type or with a `Content-Encoding` is a 502 in its
 place, its body closed unread. The body is rewritten as a stream through a pipe, a `json.Decoder`
@@ -2573,9 +2608,12 @@ cluster has no grant, no socket and no forwarder. `prompts/sandbox.md` says a sa
 for the user only for a change to the cluster, which runs at once under the user's rules, waits for
 them, or comes back `Forbidden` because their mode or a rule refuses it — the user's decision, not an
 error to work around — that a change the user allowed for the chat or always runs at once the next time, and one allowed for the command for the rest of that command alone; that a dry run of a built-in resource runs at once and one of a custom resource waits, and the wait counts against its `timeout`; that `exec`, `attach`, `port-forward`, a service account
-token, a helm change, a change past 1 MiB and a background command's change come back
+token, a change past 1 MiB and a background command's change come back
 `Forbidden`; that a Secret changes with `kubectl apply --server-side`; that a Secret reads
-`[redacted]`; and that `sudo` does not work, a command's processes are limited, one past its CPU
+`[redacted]` unless the user allows showing it, which a read of Secret data asks for, that
+listing names asks for nothing, that a background command reads it redacted and that
+`[redacted]` after a request is the user's answer; that every helm command asks, and a helm change
+is refused when the command read Secret data redacted; and that `sudo` does not work, a command's processes are limited, one past its CPU
 time is killed with exit 152, and a crash that cannot create a thread hit the count.
 **A `Tool` is the `tools.Gated` a turn is offered**, matched to Claude Code's `Bash`: `Definition` is a function named `Bash` whose
 schema (`prompts/schema.json`), one with a sandbox or without, takes `command`, `description`, `timeout` (milliseconds), `run_in_background`, `network` (a sandboxed command asking for the internet, which `CommandAction.Network` carries) and `workdir` —
@@ -2985,7 +3023,7 @@ never the decision. A call keeps at most one approval of its own (`approvals_cal
 `kind = 'call'`), and the call reads join only that one; its actions, `toolCallEntry.ClusterWrites`,
 are read by statements of their own over the same scope (`callReads`), in `created_at, id` order,
 and `writeCalls` writes them again at the settle. On the wire each is a `ClusterWrite` in
-`ToolCall.clusterWrites` with its `PermissionAction`, carrying its body, media type and diff only
+`ToolCall.clusterWrites` — a Secret read too, a `GET` with no body — with its `PermissionAction`, carrying its body, media type and diff only
 while it waits — pending on a running call — since each publish sends the list whole, and its
 `reason`. **An action the policy decided is recorded with no wait** (`recordAction`,
 `actionAsker.Record`): one approval of `kind` `action`, written already decided, `allowed` or
@@ -3536,17 +3574,20 @@ directory no sandboxed command reads, and never synced. `app.New` opens it on ev
   whose pattern matches (`entry`, with the entry's pattern and whether it is the context's own,
   `Own`, what `ClearMode` removes), else the default (`default`); `DefaultMode()` is the default,
   `Ask` when unset. `Rules()` is the always rules, or while `rules` is held those less every
-  `Allow`, plus `permissions.Refused`, which a session reads per write. `FieldDefaultMode`,
+  `Allow`, plus `permissions.Refused` and `permissions.RefusedSecrets`, which a session reads per
+  write. `FieldDefaultMode`,
   `FieldModes` and `FieldRules` are the fields' keys. The mutations: `SetDefaultMode` (names
   `defaultMode`, its fix), `SetMode` (the context's literal, first, replacing one already there),
   `ClearMode`, `AddRule`, `PutRule` (the first rule a predicate passes swapped in place under its
   id, else appended), `RemoveRule` (`ErrNoRule`) and `DiscardRefused` (`modes` or `rules`,
   naming it; `ErrNotHeld` otherwise). The checks refuse a mode that is not one of the three, an
   entry with no context, and a rule with an unknown effect, a class other than 1, 2 (a folder
-  grant) or 4, 5 (the two a cluster write is decided as), an `Allow` of class 5, a cluster rule
+  grant), 4, 5 (the two a cluster write is decided as) or 6 (a Secret read), an `Allow` of class 5, a cluster rule
   naming a `Folder`, a folder rule that does not allow, names no folder or one not absolute and
-  clean or `/`, or names a cluster field (`folderRuleRefusal`, the value alone, never the disk), or
-  an empty, repeated or `refused` id; a
+  clean or `/`, or names a cluster field (`folderRuleRefusal`, the value alone, never the disk), a
+  class 6 rule marked `Inside`, naming `[cluster]`, or a verb, group or kind other than `get`,
+  `list` or `watch`, `core` and `secrets` (`secretRuleRefusal`), or
+  an empty, repeated, `refused` or `refused-secrets` id; a
   list element with a key its type does not name is refused before them, since a misspelled
   narrowing field dropped would widen the rule. `defaultMode`'s strictest line sets `ReadOnly`;
   `modes`' and `rules`' leave what passed and only hold the field, whose strict state `ModeFor`

@@ -182,3 +182,4 @@ usually just documentation in the wrong place.
 | 2026-10-04 | [Network is the user's switch](2026-10-04-network-is-the-users-switch.md) | cross-cutting | Accepted |
 | 2026-10-04 | [Ship Kstack's own pasta, with passt's profile for it](2026-10-04-kstack-ships-its-own-pasta.md) | cross-cutting | Accepted |
 | 2026-10-04 | [A folder grant is a rule, and the file tools walk it by handle](2026-10-04-a-folder-grant-is-a-rule.md) | cross-cutting | Accepted |
+| 2026-10-05 | [Secret data is a permissioned read](2026-10-05-secret-data-is-a-permissioned-read.md) | cross-cutting | Accepted |

@@ -520,3 +520,63 @@ func TestACommandRuleNamesTheChange(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(`{"id":"r","effect":"allow","class":4,"command":true,"Command":true}`), &back))
 	assert.False(t, back.Command, "a stored rule is never a command's")
 }
+
+func TestNoSecretDataRefusesClassSixAheadOfEveryRule(t *testing.T) {
+	allow := []Rule{{ID: "a", Effect: Allow, Class: SecretRead}}
+	for _, mode := range []Mode{ReadOnly, Ask, Auto} {
+		for _, rules := range [][]Rule{nil, allow} {
+			got, why := Policy{Mode: mode, Rules: rules, NoSecretData: true}.Authorize(patch(SecretRead))
+			assert.Equal(t, Refuse, got, "%s, %d rules", mode, len(rules))
+			assert.Equal(t, "this session never reads Secret data", why)
+		}
+	}
+	got, _ := Policy{Mode: Auto, NoSecretData: true}.Authorize(patch(UpstreamWrite))
+	assert.Equal(t, Permit, got, "class 4 is unchanged")
+}
+
+func TestNoPromptsRefusesWhatWouldAsk(t *testing.T) {
+	got, why := Policy{Mode: Ask, NoPrompts: true}.Authorize(patch(UpstreamWrite))
+	assert.Equal(t, Refuse, got)
+	assert.Equal(t, "this session never asks: ask mode", why)
+	assert.False(t, Grantable(got, patch(UpstreamWrite)))
+
+	got, why = Policy{Mode: Auto, NoPrompts: true}.Authorize(patch(Destructive))
+	assert.Equal(t, Refuse, got)
+	assert.Equal(t, "this session never asks: it always asks", why)
+	assert.False(t, Grantable(got, patch(Destructive)))
+
+	got, why = Policy{Mode: Auto, NoPrompts: true}.Authorize(patch(UpstreamWrite))
+	assert.Equal(t, Permit, got)
+	assert.Equal(t, "auto mode", why)
+}
+
+func TestASecretReadGrantNamesItsScope(t *testing.T) {
+	get := Action{Class: SecretRead, Context: "dev-eks", Namespace: "team-a", Verb: "get", Group: "core", Kind: "secrets", Name: "db"}
+	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, Context: "dev-eks", Namespace: "team-a"}, GrantRule(get))
+	list := Action{Class: SecretRead, Context: "dev-eks", Verb: "list", Group: "core", Kind: "secrets"}
+	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, Context: "dev-eks"}, GrantRule(list))
+
+	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, Context: "dev-eks", Namespace: "team-a", Verb: "get", Group: "core", Kind: "secrets", Command: true}, CommandRule(get))
+	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, Context: "dev-eks", Verb: "list", Group: "core", Kind: "secrets", Command: true}, CommandRule(list))
+
+	other := get
+	other.Name, other.Verb = "api", "list"
+	assert.True(t, allows(GrantRule(get), other), "a namespace's grant is every Secret read in it")
+	other.Namespace = "team-b"
+	assert.False(t, allows(GrantRule(get), other))
+	assert.True(t, allows(GrantRule(list), other), "a cluster-wide read's grant is every Secret read in the context")
+}
+
+func TestAClassSixRuleReadsAsReads(t *testing.T) {
+	list := Action{Class: SecretRead, Context: "dev-eks", Namespace: "team-a", Verb: "list", Group: "core", Kind: "secrets"}
+	wide := Action{Class: SecretRead, Context: "dev-eks", Verb: "list", Group: "core", Kind: "secrets"}
+	for want, rule := range map[string]Rule{
+		"Allow Secret reads in dev-eks / team-a":                          GrantRule(list),
+		"Allow Secret reads in dev-eks":                                   GrantRule(wide),
+		"Allow list of core secrets in dev-eks / team-a for this command": CommandRule(list),
+		"Allow reads of core secrets in dev-eks":                          {Effect: Allow, Class: SecretRead, Context: "dev-eks", Group: "core", Kind: "secrets"},
+	} {
+		assert.Equal(t, want, rule.Line())
+		assert.NotContains(t, rule.Line(), "writes")
+	}
+}

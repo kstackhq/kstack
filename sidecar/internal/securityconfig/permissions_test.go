@@ -99,7 +99,8 @@ func TestABadRuleRefusesEveryClusterWrite(t *testing.T) {
 		"the id refused":   `{"id": "refused", "effect": "deny", "class": 4}`,
 		"empty id":         `{"effect": "deny", "class": 4}`,
 		"class 1":          `{"id": "b", "effect": "deny", "class": 1}`,
-		"class 6":          `{"id": "b", "effect": "deny", "class": 6}`,
+		"class 6 by verb":  `{"id": "b", "effect": "deny", "class": 6, "verb": "delete"}`,
+		"the id kept":      `{"id": "refused-secrets", "effect": "deny", "class": 6}`,
 		"allow of class 5": `{"id": "b", "effect": "allow", "class": 5}`,
 		"misspelled field": `{"id": "b", "effect": "allow", "class": 4, "namepsace": "team-a"}`,
 	} {
@@ -110,7 +111,7 @@ func TestABadRuleRefusesEveryClusterWrite(t *testing.T) {
 			for _, r := range s.Rules() {
 				ids = append(ids, r.ID)
 			}
-			assert.Equal(t, []string{"d", "refused"}, ids, "the Deny, no Allow, and the class 4 Deny")
+			assert.Equal(t, []string{"d", "refused", "refused-secrets"}, ids, "the Deny, no Allow, and the class 4 and 6 Denies")
 			assert.Equal(t, permissions.Refused, s.Rules()[1])
 			assert.Len(t, s.Get().Rules, 2, "Get still holds the Allow")
 			require.Len(t, s.Refused(), 1)
@@ -196,7 +197,7 @@ func TestHeldRulesGrantNoFolder(t *testing.T) {
 	s, _ := openFile(t, `{"rules": [{"id": "r", "effect": "allow", "class": 1, "folder": "/Users/me/code"},
 		{"id": "b", "effect": "deny", "class": 9}]}`)
 	require.True(t, s.Held("rules"))
-	assert.Equal(t, []permissions.Rule{permissions.Refused}, s.Rules(), "a file Kstack cannot read grants no folder")
+	assert.Equal(t, []permissions.Rule{permissions.Refused, permissions.RefusedSecrets}, s.Rules(), "a file Kstack cannot read grants no folder")
 }
 
 func TestPutRuleKeepsItsPlace(t *testing.T) {
@@ -221,4 +222,38 @@ func TestPutRuleKeepsItsPlace(t *testing.T) {
 	var r Refusal
 	require.ErrorAs(t, s.PutRule(permissions.Rule{ID: "x", Effect: permissions.Allow, Class: permissions.Destructive}, byID("a")), &r,
 		"the replacement is checked as any rule is")
+}
+
+func TestAClassSixRuleIsRead(t *testing.T) {
+	kept := `{"id": "k", "effect": "allow", "class": 6, "context": "dev-*", "namespace": "team-a"}`
+	s, _ := openFile(t, `{"rules": [`+kept+`, {"id": "c", "effect": "deny", "class": 6, "verb": "list", "group": "core", "kind": "secrets"}]}`)
+	assert.False(t, s.Held("rules"))
+	assert.Len(t, s.Rules(), 2)
+
+	for name, c := range map[string]struct {
+		rule   permissions.Rule
+		reason string
+	}{
+		"a folder":       {permissions.Rule{ID: "b", Effect: permissions.Allow, Class: permissions.SecretRead, Folder: "/Users/me"}, "names a folder, which only a folder grant does"},
+		"inside":         {permissions.Rule{ID: "b", Effect: permissions.Allow, Class: permissions.SecretRead, Namespace: "team-a", Inside: true}, "is a Secret read rule marked inside, which only a cluster write rule may be"},
+		"cluster-scoped": {permissions.Rule{ID: "b", Effect: permissions.Allow, Class: permissions.SecretRead, Namespace: permissions.ClusterScope}, "is a Secret read rule naming [cluster], though every Secret is in a namespace"},
+		"a write verb":   {permissions.Rule{ID: "b", Effect: permissions.Allow, Class: permissions.SecretRead, Verb: "delete"}, "is a Secret read rule naming a verb other than get, list or watch"},
+		"another group":  {permissions.Rule{ID: "b", Effect: permissions.Allow, Class: permissions.SecretRead, Group: "apps"}, "is a Secret read rule naming a group other than core"},
+		"another kind":   {permissions.Rule{ID: "b", Effect: permissions.Allow, Class: permissions.SecretRead, Kind: "configmaps"}, "is a Secret read rule naming a resource other than secrets"},
+		"the id refused": {permissions.Rule{ID: "refused-secrets", Effect: permissions.Deny, Class: permissions.SecretRead}, "has the id Kstack keeps for its own rule"},
+	} {
+		var r Refusal
+		require.ErrorAs(t, s.AddRule(c.rule), &r, name)
+		assert.Equal(t, c.reason, r.Reason, name)
+	}
+}
+
+func TestHeldRulesKeepSecretDataRedacted(t *testing.T) {
+	s, _ := openFile(t, `{"rules": [{"id": "a", "effect": "allow", "class": 6}, {"id": "b", "effect": "deny", "class": 9}]}`)
+	require.True(t, s.Held("rules"))
+	assert.Equal(t, []permissions.Rule{permissions.Refused, permissions.RefusedSecrets}, s.Rules())
+
+	read := permissions.Action{Class: permissions.SecretRead, Context: "dev", Namespace: "team-a", Verb: "get", Group: "core", Kind: "secrets"}
+	v, _ := permissions.Policy{Mode: permissions.Auto, Rules: s.Rules()}.Authorize(read)
+	assert.Equal(t, permissions.Refuse, v)
 }

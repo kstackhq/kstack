@@ -537,11 +537,11 @@ function ToolCalls({
   );
 }
 
-// A call's cluster writes that no longer wait, one line each: the method and
-// the path, tagged with what the user or the permissions engine decided, and
-// for the engine's, the mode or rule that decided it. `approved` and `allowed`
-// are the decision, not that the cluster received it; the output says what the
-// command read back.
+// A call's cluster writes and Secret reads that no longer wait, one line each:
+// the method and the path, tagged with what the user or the permissions
+// engine decided, and for the engine's, the mode or rule that decided it.
+// `approved` and `allowed` are the decision, not that the cluster received it;
+// the output says what the command read back.
 function ClusterWriteLines({ call }: { call: ChatToolCall }) {
   const settled = call.clusterWrites.filter((w) => !isWaitingWrite(call, w));
   if (settled.length === 0) return null;
@@ -829,8 +829,9 @@ function ApprovalRequest({
     // is never a reading of it: the path and query as sent, one line the proxy
     // bounds; the method, and the media type, which decides what a patch's body
     // does; then the body as a file's content is. The command under Sent by is
-    // context, so Approve does not wait on its fold.
-    label = 'Cluster change awaiting approval';
+    // context, so Approve does not wait on its fold. A read of Secret data is
+    // drawn the same way: a GET with no body and no diff.
+    label = change.action.class === 'SecretRead' ? 'Secret read awaiting approval' : 'Cluster change awaiting approval';
     const sent = (
       <>
         <p className="mt-1 font-mono text-xs break-all whitespace-pre-wrap">

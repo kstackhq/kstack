@@ -38,7 +38,7 @@ const (
 	refusedUnshowable  refusal = "kstack: a change must be sent as JSON or YAML text to be shown. Run the command outside the sandbox."
 	refusedTooLarge    refusal = "kstack: this change is too large to show. Run the command outside the sandbox."
 	refusedRedacted    refusal = "kstack: this change carries a value the sandbox read redacted. Run the command outside the sandbox."
-	refusedHelm        refusal = "kstack: helm changes run outside the sandbox, since the sandbox reads releases redacted."
+	refusedHelm        refusal = "kstack: helm rebuilds a release from Secret data this command read redacted. Allow Secret data for this namespace, then run it again."
 	refusedRepeatedKey refusal = "kstack: this change repeats a key in one object, so it cannot be shown as it would be read. Run the command outside the sandbox."
 	refusedQuery       refusal = "kstack: this change's query does not parse, so it cannot be shown as it would be sent."
 )
