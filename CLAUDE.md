@@ -95,7 +95,7 @@ pull request and issue in this repo, all three languages.
   🐋 new feature, 📜 documentation, ✨ general improvement. Titles must be natural
   titles with first letter capitalized, not conventional commit headings.
 - **A spec never reaches `main`.** It is proposed as a
-  draft PR labelled `spec` and titled `📜 Spec: …`; once accepted it merges
+  PR labelled `spec` and titled `📜 Spec: …`; once accepted it merges
   into a `wip/<topic>` branch, implementation PRs target that branch, and a PR
   from it lands the work on `main` and deletes the spec. The proposal uses
   [`.github/PULL_REQUEST_TEMPLATE/spec.md`](.github/PULL_REQUEST_TEMPLATE/spec.md)
