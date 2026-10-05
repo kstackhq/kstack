@@ -69,6 +69,9 @@ type Config struct {
 	DataDir    string
 	CacheDir   string
 	RuntimeDir string
+	// LogDir is where the host logs, which is Kstack's own too: a grant of the
+	// home must not open it. Empty when the sidecar logs to stderr alone.
+	LogDir string
 	// CloudURL is the kstack-cloud API base URL. Empty disables the cloud
 	// subsystem (signed-out, no network).
 	CloudURL string

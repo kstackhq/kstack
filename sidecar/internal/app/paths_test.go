@@ -43,3 +43,14 @@ func TestEveryPathIsUnderItsKind(t *testing.T) {
 	}
 	assert.Equal(t, []string{data, cache, runtime}, p.Bash.DeniedDirs, "a sandboxed run reads none of the three")
 }
+
+func TestTheLogDirectoryIsKstacks(t *testing.T) {
+	data, cache, runtime := filepath.FromSlash("/d"), filepath.FromSlash("/c"), filepath.FromSlash("/r")
+	logs := filepath.FromSlash("/u/Library/Logs/Kstack")
+	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, LogDir: logs})
+	assert.Equal(t, []string{data, cache, runtime, logs}, p.Bash.DeniedDirs,
+		"a log directory outside the three is one of Kstack's directories, which the file tools are fenced out of too")
+
+	p = pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime, LogDir: filepath.Join(data, "logs")})
+	assert.Equal(t, []string{data, cache, runtime}, p.Bash.DeniedDirs, "one inside the data directory adds nothing")
+}
