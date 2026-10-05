@@ -493,6 +493,18 @@ func TestReconcileReportsAFailedConditionWrite(t *testing.T) {
 	assert.ErrorIs(t, res.Err(), boom)
 }
 
+// A verdict the timeline refuses is this pass's failure too: settling would leave the
+// timeline without the transition the conditions just reported.
+func TestReconcileReportsAFailedVerdictWrite(t *testing.T) {
+	boom := errors.New("boom")
+	c := identityControllerOver(t, answering(kubeconn.Identity{ServerUID: "uid-1"}, nil))
+	obj := createCluster(t, c.deps, "prod")
+
+	res := c.Reconcile(context.Background(), &stubControllerClient{eventErr: boom}, obj)
+
+	assert.ErrorIs(t, res.Err(), boom)
+}
+
 // The identity comes from the probe, not from the record: this is the write that turns
 // a tracked context into one with a mirror.
 func TestReconcileWritesTheProbedUID(t *testing.T) {

@@ -85,6 +85,31 @@ func TestAFullChatStartsNoNoticeTurn(t *testing.T) {
 	assert.False(t, taskRows(t, s.db)[0].notified, "the notice waits")
 }
 
+// A notice turn whose read fails starts nothing, and its notice waits for the
+// next question.
+func TestANoticeTurnWhoseReadFailsStartsNothing(t *testing.T) {
+	for _, tc := range []struct{ name, corrupt string }{
+		{name: "no answer names a run", corrupt: `UPDATE messages SET run_id = NULL WHERE chat_id = ?`},
+		{name: "the newest context does not parse", corrupt: `UPDATE messages SET content = '[' WHERE chat_id = ? AND role = 'user'`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			tt := newTaskTool()
+			s := startServiceWithTool(t, tt)
+			first, ft := startTaskTurn(t, s, tt, nil, "1")
+			done := taskDoneOf(t, s, first.ChatID, ft)
+			_, err := s.db.Write.Exec(tc.corrupt, string(first.ChatID))
+			require.NoError(t, err)
+
+			ft.exit(0)
+			// The task's end kicks before done closes.
+			testutil.Wait(t, done, "the row")
+
+			assert.Nil(t, s.turnOf(first.ChatID), "no turn started")
+			assert.False(t, taskRows(t, s.db)[0].notified, "the notice waits")
+		})
+	}
+}
+
 // A notice names its task in one short line, whatever the model wrote: the first
 // line with anything on it, cut to 200 characters, the transcript's rule.
 func TestANoticeHoldsOneLine(t *testing.T) {
