@@ -125,6 +125,13 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   workspace's path. Fix when the layout next changes: let the owner name every entry, keeping the
   link-safe opening in `tools`.
 
+- **A report per path the sandbox refused a probed executable.** The executable probe draws a failed executable's
+  own error and nothing more; which path the sandbox refused is the user's to read off it. Both
+  platforms can say: Seatbelt logs every denial, and a profile can tag each deny with a message
+  read back off `log stream`, while on Linux the forwarder sits above the seccomp filter and
+  could trace the run's path syscalls. A line per denied path with a grant beside it is the shape,
+  whether as the default or as an option the user turns on.
+
 - **Explore a janitor for the Bash tool's caches.** Bash sweeps `<cache>/kubectl` only at start,
   removing the cache of a cluster that is gone, so a deleted cluster's cache lasts until the next
   start, and a live cluster's grows unbounded: each new server identity adds a directory, and
@@ -451,7 +458,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **Rename `chatsvc` to the agent-run service it is, once the agent-security sequence has
   landed.** The package owns every agent run: a chat's turns, the subagents, the background tasks,
-  the permissions askers, the folder grants the tool probe reads, and from step 6B the monitor
+  the permissions askers, the folder grants the executable probe reads, and from step 6B the monitor
   run, which has no chat at all. "chat" names the one run it started with. A name such as
   `agentsvc` or `runsvc`; the chats, their messages and their watches stay inside it.
   - **Scope.** `git mv` the package, fix its importers and the gqlgen binding, regenerate, and
@@ -471,7 +478,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **Group `security.json`'s keys by area, and rethink how settings sync (design first).** The
   file's keys are flat, and later steps add more of them (host rules, folders granted always,
-  registered tools, the monitor's switch, the onboarding flag).
+  registered executables, the monitor's switch, the onboarding flag).
   - **Grouping.** One object per area: `sandbox` (`path`, `pathResolved`, `pathStrict`),
     `permissions` (`defaultMode`, `modes`, `rules`), and later `network` and `folders`. The store
     refuses and holds a value per top-level key and per list element, so the decode has to recurse
