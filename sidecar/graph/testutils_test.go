@@ -150,9 +150,9 @@ func (c refusingChat) Send(context.Context, *chatsvc.ChatID, chatsvc.Mode, apime
 }
 
 // testSecurity is a security store over a file not yet written: every default.
-func testSecurity(t *testing.T) *securityconfig.Store {
+func testSecurity(t *testing.T) *securityconfig.Service {
 	t.Helper()
 	s, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
 	require.NoError(t, err)
-	return s
+	return securityconfig.NewService(s, nil, nil, "")
 }
