@@ -1467,7 +1467,7 @@ the sandbox, the setuid programs that escalate refused, no `/dev/tty` and the on
 **On Linux it is bubblewrap** (`sandbox_linux.go`). `Probe` tries the system's bwrap first, the
 first of `/usr/bin/bwrap`, `/bin/bwrap`, `/usr/local/bin/bwrap` and NixOS's
 `/run/current-system/sw/bin/bwrap` that exists, then Kstack's own, `../lib/kstack/bwrap` beside the
-executable (`src-tauri/CLAUDE.md`) (`bwrapPaths`; never off `PATH`), and answers the
+executable (`src-tauri/CLAUDE.md`) (`programPaths`; never off `PATH`), and answers the
 first that runs a shell through `Command` within five seconds (`probeBound`: it starts
 this executable twice). Each probe, bwrap's and pasta's, runs in a process group of its own,
 killed whole at the bound (`runProbe`): pasta killed during setup leaves the child it made for
@@ -1522,15 +1522,19 @@ when that never came. It exits with pasta's code, catches and drops the stop sig
 forwarder does, and takes pasta with it when killed alone (`Pdeathsig`). A group stop ends
 pasta, bwrap and the command, and pasta killed alone takes the rest with it; pasta passes the
 command's exit on, but a group SIGTERM leaves it exiting 0.
-**The probe finds `pasta`** as it finds bwrap (`systemPastas`: `/usr/bin/pasta`, `/bin/pasta`,
-`/usr/local/bin/pasta`, `/run/current-system/sw/bin/pasta`, never off `PATH`), once bwrap has
-passed, and runs a shell through it under `probeBound` with every flag a run passes but
+**The probe finds `pasta`** as it finds bwrap (`programPaths`): the first of `systemPastas`
+(`/usr/bin/pasta`, `/bin/pasta`, `/usr/local/bin/pasta`, `/run/current-system/sw/bin/pasta`) that
+exists, then Kstack's own, `../lib/kstack/pasta` beside the executable (`src-tauri/CLAUDE.md`),
+never off `PATH`, once bwrap has passed. It runs a shell through each in turn, and the first that
+passes is the run's: a system pasta whose AppArmor profile lets it start nothing outside
+`/usr/bin`, as Ubuntu's does, fails wherever the run's bwrap is Kstack's own. Each runs the shell
+under `probeBound` with every flag a run passes but
 `--config-net`, and `probeNet` in its place — an interface, addresses and a MAC of its own — so
 it reads no route, on a pasta that will not start without one too, and a Kstack started offline
 still offers network (`probePasta`, `tryPasta`). The shell prints its `uid_map`, `Uid`, `Gid` and `CapEff` with
 builtins alone, and the probe fails unless they are the user's and zero; its `uid_map` is
 `pastaOwnUserNS`, which `CountedProcesses(true)` reads. A failure is `NetworkReason`, the first line
-pasta wrote (`pasta not found` with none). pasta forwards a run's queries to the host's first
+each pasta wrote, joined (`pasta not found` with none). pasta forwards a run's queries to the host's first
 resolver, loopback included (systemd-resolved's stub), read from `/etc/resolv.conf`.
 
 **On macOS it is Seatbelt** (`sandbox_darwin.go`): `Probe` finds `/usr/bin/sandbox-exec` and runs
