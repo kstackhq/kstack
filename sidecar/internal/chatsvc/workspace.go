@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/clustercard"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -31,33 +32,51 @@ const workspaceShare = 512
 // The path is fixed for the chat, so the section changes the context block on
 // the chat's first send alone.
 func (s *service) withWorkspace(card string, id ChatID) string {
-	return withSection(card, "Workspace", map[string]string{"path": tools.WorkspacePath(s.chatDir(id))})
+	return withSection(card, "Workspace", map[string]any{"path": tools.WorkspacePath(s.chatDir(id))})
 }
 
 // sandboxState is what the Sandbox section tells the model: whether the
 // chat's commands run outside the sandbox, and, in it, whether the chat's
-// switch or the turn's toggle gives them the internet.
+// switch or the turn's toggle gives them the internet, and the folders they
+// read and write.
 type sandboxState struct {
 	outside         bool
 	networkEnabled  bool
 	networkThisTurn bool
+	folders         []session.Folder
 }
 
-// sandboxHeading opens the Sandbox section, as withSection writes it.
-const sandboxHeading = "## Sandbox\n\n```json\n"
+// maxListedFolders is how many folders the Sandbox section names; past it, a
+// count says how many it left out.
+const maxListedFolders = 20
 
 // withSandbox is card with where the chat's commands run appended as its own
-// section, on a machine with a sandbox: in it, with the network they have, or
-// outside it once the user switched the chat, where the network switch
-// changes nothing. The block goes again when what it says changes.
+// section, on a machine with a sandbox: in it, with the network they have and
+// the folders they read and write, or outside it once the user switched the
+// chat, where neither applies. The block goes again when what it says changes.
 func (s *service) withSandbox(card string, state sandboxState) string {
 	if !s.sandboxStatus.Available {
 		return card
 	}
 	if state.outside {
-		return withSection(card, "Sandbox", map[string]string{"commands": "outside"})
+		return withSection(card, "Sandbox", map[string]any{"commands": "outside"})
 	}
-	return withSection(card, "Sandbox", map[string]string{"commands": "sandboxed", "network": s.networkValue(state)})
+	fields := map[string]any{"commands": "sandboxed", "network": s.networkValue(state)}
+	if folders := state.folders; len(folders) > 0 {
+		read, readWrite := []string{}, []string{}
+		for _, f := range folders[:min(len(folders), maxListedFolders)] {
+			if f.Write {
+				readWrite = append(readWrite, f.Path)
+			} else {
+				read = append(read, f.Path)
+			}
+		}
+		fields["read"], fields["readWrite"] = read, readWrite
+		if more := len(folders) - maxListedFolders; more > 0 {
+			fields["more"] = more
+		}
+	}
+	return withSection(card, "Sandbox", fields)
 }
 
 // networkValue is the section's network key: the network a sandboxed chat's
@@ -74,26 +93,34 @@ func (s *service) networkValue(state sandboxState) string {
 	return "off"
 }
 
+// sandboxHeading opens the Sandbox section. JSON escapes every newline in a
+// value, so no value can spell it.
+const sandboxHeading = "## Sandbox\n\n```json\n"
+
 // withSandboxReplaced is newest with its Sandbox section saying state. The
-// section is always the block's last, so everything from its heading on is
-// replaced; newest comes back unchanged when it already says so or has no such
-// section.
+// section is always the block's last, found by its heading; newest comes back
+// unchanged when it already says so or has no such section.
 func (s *service) withSandboxReplaced(newest string, state sandboxState) string {
 	i := strings.LastIndex(newest, sandboxHeading)
-	if !s.sandboxStatus.Available || i < 0 {
+	if !s.sandboxStatus.Available || i < 0 || i > 0 && !strings.HasSuffix(newest[:i], "\n\n") {
 		return newest
 	}
-	return newest[:i] + s.withSandbox("", state)
+	if i == 0 {
+		return s.withSandbox("", state)
+	}
+	// The card's seam between two sections ends the one before with its fence.
+	return s.withSandbox(strings.TrimSuffix(newest[:i], "\n\n"), state)
 }
 
 // withSection is card with fields appended as the section heading.
-func withSection(card, heading string, fields map[string]string) string {
+func withSection(card, heading string, fields map[string]any) string {
 	raw, err := json.Marshal(fields)
 	if err == nil {
 		card, err = clustercard.WithSection(card, heading, raw)
 	}
 	if err != nil {
-		// A string map always marshals, and WithSection takes any one value.
+		// Strings, lists of strings and counts always marshal, and WithSection
+		// takes any one value.
 		panic(err)
 	}
 	return card

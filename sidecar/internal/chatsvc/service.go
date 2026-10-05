@@ -459,6 +459,12 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 	if err != nil {
 		return ChatMessage{}, err
 	}
+	// Read outside the transaction too, since checking each reads the disk.
+	var existing ChatID
+	if chatID != nil {
+		existing = *chatID
+	}
+	folders := s.foldersFor(ctx, existing)
 	at := normalizeTime(s.now())
 
 	var (
@@ -505,7 +511,7 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 		// The chat's id is known only now: a new chat has none when the card is
 		// rendered.
 		question, err := questionBlocks(ctx, st, id, s.withSandbox(s.withWorkspace(contextText, id), sandboxState{
-			outside: disabled, networkEnabled: c.NetworkEnabled, networkThisTurn: networkThisTurn,
+			outside: disabled, networkEnabled: c.NetworkEnabled, networkThisTurn: networkThisTurn, folders: folders,
 		}), content)
 		if err != nil {
 			return err

@@ -16,6 +16,8 @@ package chatsvc
 
 import (
 	"encoding/json"
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -24,6 +26,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -82,6 +85,11 @@ func TestWithSandboxReplacedSwapsTheLastSection(t *testing.T) {
 	assert.Equal(t, s.withSandbox("", off), s.withSandboxReplaced(s.withSandbox("", chat), off), "the block's only section")
 	assert.Equal(t, card, s.withSandboxReplaced(card, outside), "no section to swap")
 
+	code := sandboxState{folders: []session.Folder{{Path: "/home/me/code"}}}
+	assert.Equal(t, s.withSandbox(card, code), s.withSandboxReplaced(s.withSandbox(card, off), code), "the folders changed")
+	assert.Equal(t, s.withSandbox(card, off), s.withSandboxReplaced(s.withSandbox(card, code), off))
+	assert.Equal(t, s.withSandbox("", off), s.withSandboxReplaced(s.withSandbox("", code), off), "a block of the section alone")
+
 	none := &service{}
 	assert.Equal(t, card, none.withSandboxReplaced(card, outside), "no sandbox on this machine")
 }
@@ -135,4 +143,51 @@ func TestTheContextSaysTheNetwork(t *testing.T) {
 	none.sandboxStatus = sandbox.Status{Available: true, NetworkReason: "pasta not found"}
 	msg := sendAndSettle(t, none, nil, "1", "1", "one")
 	assert.Equal(t, "unavailable on this machine", sandboxSectionOf(t, none, msg.ChatID)["network"])
+}
+
+func TestTheSandboxSectionListsAtMostTwentyFolders(t *testing.T) {
+	s := &service{sandboxStatus: sandbox.Status{Available: true}}
+	var folders []session.Folder
+	for i := range 22 {
+		folders = append(folders, session.Folder{Path: fmt.Sprintf("/f/%02d", i), Write: i%2 == 1})
+	}
+	section := sectionOf(t, s.withSandbox("", sandboxState{folders: folders}))
+	assert.Len(t, section["read"], 10)
+	assert.Len(t, section["readWrite"], 10)
+	assert.EqualValues(t, 2, section["more"])
+	assert.Equal(t, map[string]any{"commands": "outside"}, sectionOf(t, s.withSandbox("", sandboxState{outside: true, folders: folders})),
+		"a chat outside the sandbox lists none")
+	assert.Equal(t, map[string]any{"commands": "sandboxed", "network": "unavailable on this machine"}, sectionOf(t, s.withSandbox("", sandboxState{})))
+}
+
+// sectionOf is the one section block holds, decoded.
+func sectionOf(t *testing.T, block string) map[string]any {
+	t.Helper()
+	_, body, ok := strings.Cut(block, "```json\n")
+	require.True(t, ok, block)
+	var v map[string]any
+	require.NoError(t, json.Unmarshal([]byte(strings.TrimSuffix(body, "\n```")), &v))
+	return v
+}
+
+func TestTheContextListsTheGrants(t *testing.T) {
+	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
+	home := grantable(t, s)
+	code, svc := filepath.Join(home, "code"), filepath.Join(home, "code", "svc")
+	require.NoError(t, s.GrantFolder(t.Context(), "", code, false))
+	gone := folderRule(filepath.Join(home, "gone"), false)
+	gone.ID = "gone"
+	require.NoError(t, s.security.AddRule(gone))
+
+	first := sendAndSettle(t, s, nil, "1", "1", "one")
+	context := newestContextOf(t, s, first.ChatID)
+	_, last, _ := strings.Cut(context, "## Sandbox")
+	assert.Equal(t, map[string]any{"commands": "sandboxed", "network": "unavailable on this machine", "read": []any{code}, "readWrite": []any{}}, sectionOf(t, last),
+		"a refused folder is left out")
+
+	require.NoError(t, s.GrantFolder(t.Context(), first.ChatID, svc, true))
+	sendAndSettle(t, s, &first.ChatID, "1", "2", "two")
+	_, last, _ = strings.Cut(newestContextOf(t, s, first.ChatID), "## Sandbox")
+	assert.Equal(t, map[string]any{"commands": "sandboxed", "network": "unavailable on this machine", "read": []any{code}, "readWrite": []any{svc}}, sectionOf(t, last),
+		"the next question carries the grants as they are now")
 }
