@@ -71,6 +71,8 @@ func TestMapStreamStopsOnContextCancelDuringSend(t *testing.T) {
 	sub <- 1
 	cancel()
 
-	testutil.RecvClosed(t, out, "the output channel")
+	// Wait on unsub before reading out: a reader would make the blocked send
+	// ready beside ctx.Done, and select would pick between them at random.
 	testutil.RecvClosed(t, unsubbed, "the unsub channel")
+	testutil.RecvClosed(t, out, "the output channel")
 }
