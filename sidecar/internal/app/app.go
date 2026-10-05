@@ -381,20 +381,22 @@ type sandboxer interface {
 }
 
 // newSecurityService is the security settings and the frozen PATH kept in
-// them. The sync judges an entry by what a sandboxed run of the bash tool's
-// shell reads, and by the paths no rule opens, Kstack's directories (denied)
-// among them. Refresh PATH runs the login shell in sb as the launch does, its
-// TMPDIR under tmpDir. Both read the denied-always list afresh each time, as a
-// run does: it lists the other users' homes, which can appear while the
-// sidecar runs. On a machine with no sandbox it syncs nothing and keeps no
-// fault.
+// them. The sync judges an entry, and a grant a folder, by what a sandboxed run
+// of the bash tool's shell reads, and by the paths no rule opens, Kstack's
+// directories (denied) among them. Refresh PATH runs the login shell in sb as
+// the launch does, its TMPDIR under tmpDir. Each reads the denied-always list
+// afresh, as a run does: it lists the other users' homes, which can appear
+// while the sidecar runs. On a machine with no sandbox it syncs nothing, keeps
+// no fault and refuses every folder.
 func newSecurityService(store *securityconfig.Store, sb sandboxer, shell *bash.Tool, status sandbox.Status, denied []string, fault, tmpDir string) *securityconfig.Service {
 	if !status.Available {
 		return securityconfig.NewService(store, nil, nil, "")
 	}
 	home, _ := os.UserHomeDir()
 	zones := func() securityconfig.Zones {
-		return securityconfig.Zones{Never: slices.Concat(sb.Never(home), denied), Open: sb.System(home, shell.Shell()).Files, Home: home}
+		return securityconfig.Zones{
+			Never: slices.Concat(sb.Never(home), denied), Open: sb.System(home, shell.Shell()).Files, Home: home, NoWrite: sandbox.NoWrite(home),
+		}
 	}
 	return securityconfig.NewService(store, zones, shellPathResolver(sb, home, denied, tmpDir), fault)
 }

@@ -29,14 +29,16 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 )
 
-// Zones is what the sync judges an entry by: Never, the paths no rule opens;
-// Open, what every run reads, whose Read paths are the open folders and whose
-// Deny paths close what lies under them again; and Home, which with its
-// app-data folders no entry may be or hold.
+// Zones is what the sync judges an entry, and a grant a folder, by: Never,
+// the paths no rule opens; Open, what every run reads, whose Read paths are
+// the open folders and whose Deny paths close what lies under them again;
+// Home, which with its app-data folders no entry may be or hold; and NoWrite,
+// what something outside the sandbox runs, which no grant may write.
 type Zones struct {
-	Never []string
-	Open  sandbox.FilePolicy
-	Home  string
+	Never   []string
+	Open    sandbox.FilePolicy
+	Home    string
+	NoWrite []string
 }
 
 // Service is the store, and the frozen PATH kept in it.
@@ -53,6 +55,12 @@ type Service struct {
 	// syncTimeout bounds a sync's reading of the disk: SyncTimeout, or a
 	// test's shorter one.
 	syncTimeout time.Duration
+
+	// snapMu guards snap, the zones as the folder checks read them.
+	snapMu sync.Mutex
+	snap   *snapshot
+	// checkFolder is the package's checkFolder, or a test's stand-in.
+	checkFolder func(path string, write bool, z zones, pathEntries []string, stored bool) error
 }
 
 // SyncTimeout bounds a sync's reading of the disk, as the login shell's run is
@@ -64,7 +72,7 @@ const SyncTimeout = 5 * time.Second
 // resolve runs the login shell for a refresh; fault is why the launch's
 // resolution failed, "" when it answered.
 func NewService(store *Store, zones func() Zones, resolve func(context.Context) ([]string, error), fault string) *Service {
-	return &Service{Store: store, zones: zones, resolve: resolve, fault: fault, syncTimeout: SyncTimeout}
+	return &Service{Store: store, zones: zones, resolve: resolve, fault: fault, syncTimeout: SyncTimeout, checkFolder: checkFolder}
 }
 
 // A PathRefusal is a change to the list the user asked for and cannot have,
@@ -92,10 +100,11 @@ type freshDir struct {
 	Open bool // adopting it adds no readable surface
 }
 
-// pathView is what one sync read off the disk.
+// pathView is what one sync read off the disk, and the snapshot it took.
 type pathView struct {
 	fresh   []freshDir
 	dropped map[string]int
+	snap    *snapshot
 }
 
 // SyncPath filters resolved and folds it into the stored list. The disk is
@@ -122,6 +131,9 @@ func (s *Service) SyncPath(ctx context.Context, resolved []string) error {
 	if len(v.dropped) > 0 {
 		slog.Info("PATH entries left out", "rules", countsOf(v.dropped))
 	}
+	s.snapMu.Lock()
+	s.snap = v.snap
+	s.snapMu.Unlock()
 
 	s.pathMu.Lock()
 	defer s.pathMu.Unlock()
@@ -261,11 +273,12 @@ func (s *Service) setState(dir, target string, state PathState, already error, s
 }
 
 // view reads the disk for a sync: the filter over resolved, whether each kept
-// folder is open.
+// folder is open, and the snapshot the folder checks read until the next.
 func (s *Service) view(resolved []string) pathView {
-	z := resolveZones(s.zones())
+	snap := takeSnapshot(s.zones(), resolved)
+	z := resolveZones(snap.zones)
 	kept, dropped := filterPath(resolved, z)
-	v := pathView{dropped: dropped}
+	v := pathView{dropped: dropped, snap: snap}
 	for _, d := range kept {
 		v.fresh = append(v.fresh, freshDir{pathDir: d, Open: z.open(d.Target)})
 	}
