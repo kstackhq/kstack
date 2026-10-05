@@ -3668,6 +3668,15 @@ and each folder over it, and `/Volumes` on macOS; nil past the bound) are what S
 → [ADR: a folder grant is a rule](../docs/adr/2026-10-04-a-folder-grant-is-a-rule.md),
 [security record](../docs/security/2026-10-04-path-grants.md).
 
+**`Executables` is the user's registered executables** (`executables.go`), in the order added, each an `Executable{Name,
+Invocation}` the probe checks beside `CuratedExecutables`. `CheckExecutable(name, invocation)` is the one
+shape check, run on register and on read-back: a name is 1 to 64 bytes of `[A-Za-z0-9._+-]`, not
+starting with `-`, not `.` or `..`, and no curated name; an invocation is 1 to 8 whitespace-split
+fields, each under 256 bytes with no control character, its first the name. Its refusals are
+`ExecutableRefusal`s, in the user's words. `RegisterExecutable` defaults the invocation to `<name> --version`
+and refuses a name listed already; `RemoveExecutable` refuses one not registered. An executable only widens
+what is probed, so the read-back drops a refused one, or a name listed twice, and holds nothing.
+
 ## Auth / identity (`internal/auth`)
 
 Local-first accounts against kstack-cloud's Hydra: system browser (auth-code + PKCE, loopback redirect), verification via go-oidc, refresh token in the OS keyring. Signed-in ⇔ refresh token present; works offline; degrades to signed-out when unconfigured. → [ADR: local-first auth & settings](../docs/adr/2026-08-09-local-first-auth-settings.md).
