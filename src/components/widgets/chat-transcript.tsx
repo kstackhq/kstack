@@ -30,6 +30,7 @@ import { useMutation } from 'urql';
 
 import { AppLogo } from '@/components/widgets/app-logo';
 import { DiffBlock } from '@/components/widgets/diff-block';
+import { FolderGrantForm } from '@/components/widgets/folder-grant-form';
 import { approvalAnchor } from '@/lib/approval-anchor';
 import { Markdown } from '@/components/widgets/markdown';
 import { VisibleText } from '@/components/widgets/visible-text';
@@ -40,6 +41,7 @@ import { useChatOutbox } from '@/lib/chat-outbox';
 import {
   actionKindLabel,
   contextOf,
+  grantOffered,
   inFlight,
   isWaitingWrite,
   noticesOf,
@@ -257,6 +259,38 @@ function StopTask({ id }: { id: string }) {
   );
 }
 
+// Grant a folder… under a sandboxed command that failed, opening the grant
+// form in place: the user reads the error in the call's output and types the
+// folder, so nothing may float over the call. Granted holds until the pane
+// unmounts; the grant never runs the command again.
+function GrantOffer({ chatID }: { chatID: string }) {
+  const [state, setState] = useState<'closed' | 'open' | 'granted'>('closed');
+  if (state === 'granted') return <p className="mt-1 text-muted-foreground">Granted</p>;
+  return (
+    <>
+      <Button
+        type="button"
+        size="xs"
+        variant="link"
+        className="px-0 text-muted-foreground"
+        aria-expanded={state === 'open'}
+        onClick={() => setState(state === 'open' ? 'closed' : 'open')}
+      >
+        Grant a folder…
+      </Button>
+      {state === 'open' && (
+        <FolderGrantForm
+          chatID={chatID}
+          durations={['Chat', 'Always']}
+          submitLabel="Grant"
+          onGranted={() => setState('granted')}
+          onCancel={() => setState('closed')}
+        />
+      )}
+    </>
+  );
+}
+
 // The one reader of a call's summary: the command its action runs, the path it
 // reads or writes, the query it searched, else its kind, else the tool's name.
 // The sidecar reads the action off the arguments, so nothing here parses them.
@@ -456,10 +490,12 @@ function ToolCalls({
   calls,
   byAgent,
   modelLabel,
+  chatID,
 }: {
   calls: ChatToolCall[];
   byAgent: SubagentCalls;
   modelLabel: ModelLabel;
+  chatID: string;
 }) {
   return (
     <div className="mt-1 text-xs text-muted-foreground">
@@ -520,6 +556,7 @@ function ToolCalls({
                   calls={byAgent.get(call.id) ?? NO_CALLS}
                   report={call.background?.report ?? ''}
                   modelLabel={modelLabel}
+                  chatID={chatID}
                 />
               ) : (
                 <pre className="mt-1 border-l-2 border-muted pl-3 font-mono break-all whitespace-pre-wrap">
@@ -530,6 +567,7 @@ function ToolCalls({
             </details>
             {open && changed}
             {call.background?.status === 'Running' && <StopTask id={call.id} />}
+            {grantOffered(call) && <GrantOffer chatID={chatID} />}
           </Fragment>
         );
       })}
@@ -656,11 +694,13 @@ function AgentBody({
   calls,
   report,
   modelLabel,
+  chatID,
 }: {
   delegate: DelegateAction;
   calls: ChatToolCall[];
   report: string;
   modelLabel: ModelLabel;
+  chatID: string;
 }) {
   const kind = delegate.model === '' ? delegate.agentType : `${delegate.agentType} · ${modelLabel(delegate.model)}`;
   return (
@@ -669,7 +709,9 @@ function AgentBody({
         <VisibleText text={kind} />
       </p>
       <FoldedBlock text={delegate.prompt} className="mt-1 border-l-2 border-muted pl-3 break-all whitespace-pre-wrap" />
-      {calls.length > 0 && <ToolCalls calls={calls} byAgent={NO_SUBAGENT_CALLS} modelLabel={modelLabel} />}
+      {calls.length > 0 && (
+        <ToolCalls calls={calls} byAgent={NO_SUBAGENT_CALLS} modelLabel={modelLabel} chatID={chatID} />
+      )}
       {report !== '' && (
         <div className="mt-1 border-l-2 border-muted pl-3 text-foreground">
           <Markdown text={report} />
@@ -1124,6 +1166,7 @@ function Notices({ notices }: { notices: TaskNotice[] }) {
 
 function Message({
   message,
+  chatID,
   label,
   labelOf,
   onAskAgain,
@@ -1131,6 +1174,7 @@ function Message({
   sandboxAvailable,
 }: {
   message: ChatMessage;
+  chatID: string;
   approveArmMs: number;
   sandboxAvailable: boolean | undefined;
   /** The model this answer ran on, when it differs from the answer before it. */
@@ -1192,7 +1236,7 @@ function Message({
             <Spinner size="sm" />
           </span>
         )}
-        {done.length > 0 && <ToolCalls calls={done} byAgent={byAgent} modelLabel={modelLabel} />}
+        {done.length > 0 && <ToolCalls calls={done} byAgent={byAgent} modelLabel={modelLabel} chatID={chatID} />}
         {waiting.map(({ call, approval, change }) => (
           // Keyed on the approval, never the call or the message, so a decided
           // request's pressed state never reaches the next. Live while a run of
@@ -1328,6 +1372,7 @@ export function ChatTranscript({
       <Message
         key={message.id}
         message={message}
+        chatID={chatID}
         label={label}
         labelOf={labelOf}
         onAskAgain={message.id === last?.id ? onAskAgain : undefined}

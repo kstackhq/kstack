@@ -31,6 +31,7 @@ const {
   actionKindLabel,
   chatModeOf,
   contextOf,
+  grantOffered,
   noticesOf,
   ranSearch,
   searchesOf,
@@ -664,5 +665,49 @@ describe('waitingRequestsOf', () => {
     const stranded = callWith('c2', 'Interrupted', [clusterWrite('a2', 'Pending')]);
 
     expect(waitingRequestsOf([abandoned, stranded])).toEqual([]);
+  });
+});
+
+/** A sandboxed bash call of status. */
+function command(status: ChatToolCall['status']): ChatToolCall {
+  return {
+    ...callWith('c1', status, []),
+    action: {
+      description: '',
+      command: { text: 'cat ~/code/README.md', cwd: '/ws', background: false, sandboxed: true, network: false },
+    } as ChatToolCall['action'],
+  };
+}
+
+describe('grantOffered', () => {
+  it('offers a grant under a sandboxed command that failed', () => {
+    expect(grantOffered(command('Failed'))).toBe(true);
+  });
+
+  it('offers none under one that has not failed, one outside the sandbox, or another tool', () => {
+    (['Running', 'Succeeded', 'AwaitingApproval', 'Denied', 'NotRun'] as const).forEach((status) => {
+      expect(grantOffered(command(status)), status).toBe(false);
+    });
+    const outside = command('Failed');
+    outside.action!.command!.sandboxed = false;
+    expect(grantOffered(outside)).toBe(false);
+    expect(
+      grantOffered({ ...command('Failed'), action: { description: '', read: { path: '/etc/x' } } } as ChatToolCall),
+    ).toBe(false);
+    expect(grantOffered({ ...command('Failed'), action: null })).toBe(false);
+  });
+
+  it('offers one under a background command that exited non-zero or with no code', () => {
+    const exited = (exitCode: number | null): ChatToolCall => ({
+      ...command('Succeeded'),
+      background: { status: 'Exited', exitCode, report: '' },
+    });
+    expect(grantOffered(exited(1))).toBe(true);
+    expect(grantOffered(exited(null))).toBe(true);
+    expect(grantOffered(exited(0))).toBe(false);
+    (['Running', 'Stopped', 'Lost'] as const).forEach((status) => {
+      const task = { ...command('Succeeded'), background: { status, exitCode: null, report: '' } };
+      expect(grantOffered(task), status).toBe(false);
+    });
   });
 });
