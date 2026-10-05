@@ -167,9 +167,14 @@ func Grantable(v Verdict, act Action) bool {
 // namespace matches every namespace, and a Namespace carries its own name as
 // its namespace, so naming that alone would allow every write inside it. Any
 // other action's rule is Inside, so allowing what is in a namespace never
-// allows changing the Namespace itself. The writer sets the ID.
+// allows changing the Namespace itself. A Secret read's names neither: class 6
+// is Secret reads alone and no Secret is a Namespace object. The writer sets
+// the ID.
 func GrantRule(act Action) Rule {
 	r := Rule{Effect: Allow, Class: act.Class, Context: Literal(act.Context), Namespace: Literal(act.Namespace)}
+	if act.Class == SecretRead {
+		return r
+	}
 	if act.Namespace == "" || isNamespace(act) {
 		r.Group, r.Kind = act.Group, Literal(act.Kind)
 	} else {
@@ -272,6 +277,10 @@ func (p Policy) first(effect Effect, act Action) (Rule, bool) {
 // Deny: every cluster write refused.
 var Refused = Rule{ID: "refused", Effect: Deny, Class: UpstreamWrite}
 
+// RefusedSecrets stands beside Refused, since a class 4 rule does not cover
+// class 6: every Secret read refused, so its data stays redacted.
+var RefusedSecrets = Rule{ID: "refused-secrets", Effect: Deny, Class: SecretRead}
+
 // Matches is whether r applies to act: a class that covers act's, and every
 // set field matching. Class 4 covers class 5, since a destructive write is a
 // cluster write. An Inside rule never matches a Namespace object, and a folder
@@ -362,6 +371,9 @@ func (r Rule) scopeLine() string {
 	what := classNouns[r.Class]
 	if r.Verb != "" || r.Group != "" || r.Kind != "" {
 		parts := []string{"writes", "of"}
+		if r.Class == SecretRead {
+			parts[0] = "reads"
+		}
 		if r.Verb != "" {
 			parts[0] = fieldWords(r.Verb)
 		}

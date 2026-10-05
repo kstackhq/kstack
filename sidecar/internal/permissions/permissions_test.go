@@ -549,3 +549,34 @@ func TestNoPromptsRefusesWhatWouldAsk(t *testing.T) {
 	assert.Equal(t, Permit, got)
 	assert.Equal(t, "auto mode", why)
 }
+
+func TestASecretReadGrantNamesItsScope(t *testing.T) {
+	get := Action{Class: SecretRead, Context: "dev-eks", Namespace: "team-a", Verb: "get", Group: "core", Kind: "secrets", Name: "db"}
+	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, Context: "dev-eks", Namespace: "team-a"}, GrantRule(get))
+	list := Action{Class: SecretRead, Context: "dev-eks", Verb: "list", Group: "core", Kind: "secrets"}
+	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, Context: "dev-eks"}, GrantRule(list))
+
+	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, Context: "dev-eks", Namespace: "team-a", Verb: "get", Group: "core", Kind: "secrets", Command: true}, CommandRule(get))
+	assert.Equal(t, Rule{Effect: Allow, Class: SecretRead, Context: "dev-eks", Verb: "list", Group: "core", Kind: "secrets", Command: true}, CommandRule(list))
+
+	other := get
+	other.Name, other.Verb = "api", "list"
+	assert.True(t, allows(GrantRule(get), other), "a namespace's grant is every Secret read in it")
+	other.Namespace = "team-b"
+	assert.False(t, allows(GrantRule(get), other))
+	assert.True(t, allows(GrantRule(list), other), "a cluster-wide read's grant is every Secret read in the context")
+}
+
+func TestAClassSixRuleReadsAsReads(t *testing.T) {
+	list := Action{Class: SecretRead, Context: "dev-eks", Namespace: "team-a", Verb: "list", Group: "core", Kind: "secrets"}
+	wide := Action{Class: SecretRead, Context: "dev-eks", Verb: "list", Group: "core", Kind: "secrets"}
+	for want, rule := range map[string]Rule{
+		"Allow Secret reads in dev-eks / team-a":                          GrantRule(list),
+		"Allow Secret reads in dev-eks":                                   GrantRule(wide),
+		"Allow list of core secrets in dev-eks / team-a for this command": CommandRule(list),
+		"Allow reads of core secrets in dev-eks":                          {Effect: Allow, Class: SecretRead, Context: "dev-eks", Group: "core", Kind: "secrets"},
+	} {
+		assert.Equal(t, want, rule.Line())
+		assert.NotContains(t, rule.Line(), "writes")
+	}
+}

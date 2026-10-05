@@ -91,15 +91,16 @@ func defaultMode(v Settings) permissions.Mode {
 }
 
 // Rules is the always rules as a decision reads them. While rules is held,
-// the rules that passed less every Allow, plus permissions.Refused, which is
-// never written to the file and whose id the rules check refuses there.
+// the rules that passed less every Allow, plus permissions.Refused and
+// permissions.RefusedSecrets, which are never written to the file and whose
+// ids the rules check refuses there.
 func (s *Store) Rules() []permissions.Rule {
 	rules := s.Get().Rules
 	if !s.Held(FieldRules) {
 		return rules
 	}
 	rules = slices.DeleteFunc(rules, func(r permissions.Rule) bool { return r.Effect == permissions.Allow })
-	return append(rules, permissions.Refused)
+	return append(rules, permissions.Refused, permissions.RefusedSecrets)
 }
 
 // SetDefaultMode sets the default mode, which also fixes a refused one.
@@ -214,12 +215,17 @@ func checkModes(v *Settings) []Refusal {
 
 var validEffects = map[permissions.Effect]bool{permissions.Allow: true, permissions.Deny: true, permissions.AskFor: true}
 
-// ruleClasses are the classes a rule may name: a folder grant's, and the ones
-// a cluster write is classified as. Nothing decides a rule of another class.
+// ruleClasses are the classes a rule may name: a folder grant's, the ones a
+// cluster write is classified as, and a Secret read's. Nothing decides a rule
+// of another class.
 var ruleClasses = map[permissions.Class]bool{
 	permissions.ReadInside: true, permissions.WriteInside: true,
 	permissions.UpstreamWrite: true, permissions.Destructive: true,
+	permissions.SecretRead: true,
 }
+
+// secretReadVerbs are the verbs a Secret read is classified with.
+var secretReadVerbs = map[string]bool{"": true, "get": true, "list": true, "watch": true}
 
 func checkRules(v *Settings) []Refusal {
 	var refused []Refusal
@@ -241,7 +247,7 @@ func ruleRefusal(r permissions.Rule, seen map[string]bool) string {
 	switch {
 	case r.ID == "":
 		return "has no id"
-	case r.ID == permissions.Refused.ID:
+	case r.ID == permissions.Refused.ID || r.ID == permissions.RefusedSecrets.ID:
 		return "has the id Kstack keeps for its own rule"
 	case seen[r.ID]:
 		return "repeats another rule's id"
@@ -249,13 +255,33 @@ func ruleRefusal(r permissions.Rule, seen map[string]bool) string {
 		return "has an effect other than allow, deny or ask"
 	case !ruleClasses[r.Class]:
 		return "names a class no rule decides: only 1 (folder reads), 2 (folder reads and writes), " +
-			"4 (cluster writes) and 5 (destructive cluster writes)"
+			"4 (cluster writes), 5 (destructive cluster writes) and 6 (Secret reads)"
 	case r.Class == permissions.ReadInside || r.Class == permissions.WriteInside:
 		return folderRuleRefusal(r)
 	case r.Folder != "":
 		return "names a folder, which only a folder grant does"
+	case r.Class == permissions.SecretRead:
+		return secretRuleRefusal(r)
 	case r.Effect == permissions.Allow && r.Class == permissions.Destructive:
 		return "allows a destructive write, which always asks"
+	}
+	return ""
+}
+
+// secretRuleRefusal is why a Secret read rule cannot be read, or "": it may
+// name what a Secret read is classified with, and nothing else.
+func secretRuleRefusal(r permissions.Rule) string {
+	switch {
+	case r.Inside:
+		return "is a Secret read rule marked inside, which only a cluster write rule may be"
+	case r.Namespace == permissions.ClusterScope:
+		return "is a Secret read rule naming [cluster], though every Secret is in a namespace"
+	case !secretReadVerbs[r.Verb]:
+		return "is a Secret read rule naming a verb other than get, list or watch"
+	case r.Group != "" && r.Group != "core":
+		return "is a Secret read rule naming a group other than core"
+	case r.Kind != "" && r.Kind != "secrets":
+		return "is a Secret read rule naming a resource other than secrets"
 	}
 	return ""
 }

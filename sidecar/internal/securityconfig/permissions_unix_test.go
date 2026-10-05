@@ -49,9 +49,9 @@ func TestAFolderRuleIsShapeChecked(t *testing.T) {
 	}
 	assert.Len(t, s.Get().Rules, 2, "a refused add writes nothing")
 
-	err := s.AddRule(permissions.Rule{ID: "b", Effect: permissions.Deny, Class: permissions.SecretRead})
+	err := s.AddRule(permissions.Rule{ID: "b", Effect: permissions.Deny, Class: permissions.NewHost})
 	var r Refusal
 	require.ErrorAs(t, err, &r)
 	assert.Equal(t, "names a class no rule decides: only 1 (folder reads), 2 (folder reads and writes), "+
-		"4 (cluster writes) and 5 (destructive cluster writes)", r.Reason)
+		"4 (cluster writes), 5 (destructive cluster writes) and 6 (Secret reads)", r.Reason)
 }

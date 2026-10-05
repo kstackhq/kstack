@@ -1784,3 +1784,36 @@ func TestTheRecordSaysTheNetworkOnceTheCallRuns(t *testing.T) {
 	assert.False(t, networkOf(t, s).Valid, "a denied call never had any")
 	assert.Nil(t, toolCallsOf(t, got)[0].Network)
 }
+
+// readDB is a Secret read's request, as the proxy asks it.
+var readDB = tools.ActionRequest{
+	Action: permissions.Action{
+		Class: permissions.SecretRead, Context: "dev", Namespace: "web", Verb: "get", Group: "core", Kind: "secrets", Name: "db",
+		Summary: "Show Secret db in web on dev",
+	},
+	Grantable:   true,
+	CommandRule: "Allow get of core secrets in dev / web for this command",
+	ChatRule:    "Allow Secret reads in dev / web",
+	Write:       &tools.ClusterWrite{Method: "GET", Path: "/api/v1/namespaces/web/secrets/db"},
+}
+
+// A Secret read's request is answered as any other: Chat writes the class 6
+// grant for its context and namespace as one of the chat's, and Always writes
+// it into the settings.
+func TestAChatAnswerWritesAClassSixGrant(t *testing.T) {
+	want := permissions.Rule{Effect: permissions.Allow, Class: permissions.SecretRead, Context: "dev", Namespace: "web"}
+
+	s := startWriter(t, writerTool{request: &readDB})
+	s, msg := askWith(t, s, DecisionChat)
+	got := s.grantsFor(t.Context(), msg.ChatID)
+	require.Len(t, got, 1)
+	want.ID = got[0].ID
+	assert.Equal(t, want, got[0])
+
+	s = startWriter(t, writerTool{request: &readDB})
+	_, _ = askWith(t, s, DecisionAlways)
+	rules := s.security.Get().Rules
+	require.Len(t, rules, 1)
+	want.ID = rules[0].ID
+	assert.Equal(t, want, rules[0])
+}
