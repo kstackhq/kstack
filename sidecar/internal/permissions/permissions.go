@@ -196,9 +196,15 @@ func CommandRule(act Action) Rule {
 
 // Policy is what a session brings to a decision: the context's mode and the
 // rules that apply. Their order picks the reason alone, never the verdict.
+// NoPrompts and NoSecretData are the session's, copied on by the proxy that
+// reads the policy, so no rule or mode can lift them.
 type Policy struct {
 	Mode  Mode
 	Rules []Rule
+	// NoPrompts refuses what would otherwise ask.
+	NoPrompts bool
+	// NoSecretData refuses every class 6 read, ahead of every rule.
+	NoSecretData bool
 }
 
 // Decide answers what happens to act under p, and why, in the user's words:
@@ -210,9 +216,24 @@ func (p Policy) Decide(act Action) (Decision, string) {
 
 // Authorize is the policy's verdict on act, and the reason in the user's
 // words: the strongest of what matched, a rule's line when a rule decided it.
-// The checks run strongest first, so the first that applies is the verdict,
-// and which rules match decides it whatever their order.
+// A session that never reads Secret data refuses class 6 first, and one that
+// never asks refuses what would have asked, so neither puts anything to the
+// user.
 func (p Policy) Authorize(act Action) (Verdict, string) {
+	if p.NoSecretData && act.Class == SecretRead {
+		return Refuse, "this session never reads Secret data"
+	}
+	v, why := p.verdict(act)
+	if p.NoPrompts && (v == Unmatched || v == Forbid) {
+		return Refuse, "this session never asks: " + why
+	}
+	return v, why
+}
+
+// verdict is Authorize's verdict before the session's two flags. The checks
+// run strongest first, so the first that applies is the verdict, and which
+// rules match decides it whatever their order.
+func (p Policy) verdict(act Action) (Verdict, string) {
 	if r, ok := p.first(Deny, act); ok {
 		return Refuse, "a rule denies it: " + r.Line()
 	}

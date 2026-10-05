@@ -520,3 +520,32 @@ func TestACommandRuleNamesTheChange(t *testing.T) {
 	require.NoError(t, json.Unmarshal([]byte(`{"id":"r","effect":"allow","class":4,"command":true,"Command":true}`), &back))
 	assert.False(t, back.Command, "a stored rule is never a command's")
 }
+
+func TestNoSecretDataRefusesClassSixAheadOfEveryRule(t *testing.T) {
+	allow := []Rule{{ID: "a", Effect: Allow, Class: SecretRead}}
+	for _, mode := range []Mode{ReadOnly, Ask, Auto} {
+		for _, rules := range [][]Rule{nil, allow} {
+			got, why := Policy{Mode: mode, Rules: rules, NoSecretData: true}.Authorize(patch(SecretRead))
+			assert.Equal(t, Refuse, got, "%s, %d rules", mode, len(rules))
+			assert.Equal(t, "this session never reads Secret data", why)
+		}
+	}
+	got, _ := Policy{Mode: Auto, NoSecretData: true}.Authorize(patch(UpstreamWrite))
+	assert.Equal(t, Permit, got, "class 4 is unchanged")
+}
+
+func TestNoPromptsRefusesWhatWouldAsk(t *testing.T) {
+	got, why := Policy{Mode: Ask, NoPrompts: true}.Authorize(patch(UpstreamWrite))
+	assert.Equal(t, Refuse, got)
+	assert.Equal(t, "this session never asks: ask mode", why)
+	assert.False(t, Grantable(got, patch(UpstreamWrite)))
+
+	got, why = Policy{Mode: Auto, NoPrompts: true}.Authorize(patch(Destructive))
+	assert.Equal(t, Refuse, got)
+	assert.Equal(t, "this session never asks: it always asks", why)
+	assert.False(t, Grantable(got, patch(Destructive)))
+
+	got, why = Policy{Mode: Auto, NoPrompts: true}.Authorize(patch(UpstreamWrite))
+	assert.Equal(t, Permit, got)
+	assert.Equal(t, "auto mode", why)
+}

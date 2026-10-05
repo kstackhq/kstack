@@ -193,14 +193,16 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 }
 
 // policy is the session's mode and rules for the grant's context, read now, so
-// a change made meanwhile applies, joined by the command's own rules. A
-// session with no policy is read-only. Called under the write lock.
+// a change made meanwhile applies, joined by the command's own rules and
+// carrying the session's two flags. A session with no policy is read-only.
+// Called under the write lock.
 func (g *Grant) policy(ctx context.Context) permissions.Policy {
-	if g.session.Policy == nil {
-		return permissions.Policy{Mode: permissions.ReadOnly}
+	p := permissions.Policy{Mode: permissions.ReadOnly}
+	if g.session.Policy != nil {
+		p = g.session.Policy(ctx, g.context)
+		p.Rules = append(slices.Clip(p.Rules), g.commandRules...)
 	}
-	p := g.session.Policy(ctx, g.context)
-	p.Rules = append(slices.Clip(p.Rules), g.commandRules...)
+	p.NoPrompts, p.NoSecretData = g.session.NoPrompts, g.session.NoSecretData
 	return p
 }
 

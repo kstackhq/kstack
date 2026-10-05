@@ -61,6 +61,11 @@ type Session struct {
 	// ones, each checked when read. Nil reads none: only the chat's builder
 	// sets it, and every reader goes through GrantedFolders.
 	Folders func(context.Context) []Folder
+	// NoPrompts and NoSecretData are the one source of the policy's two flags:
+	// a proxy copies them onto the Policy it reads, so a session that never
+	// asks, or never reads Secret data, stays so whatever its rules and mode.
+	NoPrompts    bool
+	NoSecretData bool
 }
 
 // Folder is one folder a session's commands may read, or read and write.
