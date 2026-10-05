@@ -34,8 +34,8 @@ and the mode is what step 3B ships.
 
 - **No new setting but the flag.** Every list, probe and mode is the query and mutation its
   step introduced; this step mounts them in one dialog.
-- **No monitor.** Step 6B's Monitoring section is a setting the user finds later; a flow that
-  asked about a monitor with no agent behind it would ask about nothing.
+- **No monitor.** Step 6B builds its plumbing and no setting; a flow that asked about a
+  monitor with no agent behind it would ask about nothing.
 - **Windows** gets one screen (§5) and no probe.
 
 ## Design
