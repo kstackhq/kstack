@@ -150,18 +150,14 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		ContentType: r.Header.Get("Content-Type"), Body: body, DryRun: act.DryRun,
 	}
 	v, reason := g.policy(r.Context()).Authorize(act)
-	req := Request{Action: act, Write: &write}
-	if permissions.Grantable(v, act) {
-		req.Grantable = true
-		req.CommandRule, req.ChatRule = permissions.CommandRule(act).Line(), permissions.GrantRule(act).Line()
-	}
+	req := newRequest(act, v, &write)
 	switch d := v.Outcome(); d {
 	case permissions.Allowed:
 		if err := g.asker.Record(r.Context(), req, d, reason); err != nil {
 			writeStatus(w, http.StatusForbidden, string(refusedUnrecorded))
 			return
 		}
-		g.forward(w, r, p, body)
+		g.forward(w, r, p, body, p.onSecrets())
 		return
 	case permissions.Denied:
 		// Nothing runs either way, so the refusal does not wait on the record.
@@ -173,7 +169,7 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 	}
 	pv := g.previewChange(r, p, act, body)
 	req.Diff, req.DiffCut, req.DiffError = pv.diff, pv.cut, pv.err
-	answer, err := g.asker.Ask(r.Context(), req)
+	answer, err := g.ask(r.Context(), req)
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		writeStatus(w, http.StatusForbidden, string(refusedUnanswered))
 		return
@@ -186,10 +182,29 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		writeStatus(w, http.StatusForbidden, string(refusedDenied))
 		return
 	}
-	if answer.Duration == permissions.DurationCommand && req.Grantable {
-		g.commandRules = append(g.commandRules, permissions.CommandRule(act))
+	g.forward(w, r, p, body, p.onSecrets())
+}
+
+// ask puts req to the user, and an approval for the command adds its rule for
+// the rest of the command. Called under the write lock, which guards the
+// command's rules.
+func (g *Grant) ask(ctx context.Context, req Request) (Answer, error) {
+	answer, err := g.asker.Ask(ctx, req)
+	if err == nil && answer.Approved && answer.Duration == permissions.DurationCommand && req.Grantable {
+		g.commandRules = append(g.commandRules, permissions.CommandRule(req.Action))
 	}
-	g.forward(w, r, p, body)
+	return answer, err
+}
+
+// newRequest is act held for the user under verdict v, with the rule each
+// allow answer adds when an answer may add one.
+func newRequest(act permissions.Action, v permissions.Verdict, write *Write) Request {
+	req := Request{Action: act, Write: write}
+	if permissions.Grantable(v, act) {
+		req.Grantable = true
+		req.CommandRule, req.ChatRule = permissions.CommandRule(act).Line(), permissions.GrantRule(act).Line()
+	}
+	return req
 }
 
 // policy is the session's mode and rules for the grant's context, read now, so

@@ -199,12 +199,13 @@ func (g *Grant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeStatus(w, http.StatusRequestEntityTooLarge, "kstack: the request body is too large")
 		return
 	}
-	g.forward(w, r, p, body)
+	g.forward(w, r, p, body, p.onSecrets())
 }
 
 // forward sends r, carrying body, to the cluster: in a slot, through the
-// limiter, and with the grant's end cutting it short.
-func (g *Grant) forward(w http.ResponseWriter, r *http.Request, p apiPath, body []byte) {
+// limiter, and with the grant's end cutting it short. With redact, the answer
+// is rewritten so no Secret's data passes.
+func (g *Grant) forward(w http.ResponseWriter, r *http.Request, p apiPath, body []byte, redact bool) {
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength, r.TransferEncoding = int64(len(body)), nil
 	// A slot is held until the request ends, a watch for as long as it is open,
@@ -241,7 +242,7 @@ func (g *Grant) forward(w http.ResponseWriter, r *http.Request, p apiPath, body 
 		}
 	}()
 	proxy := forward(conn.Base, conn.Client)
-	if p.onSecrets() {
+	if redact {
 		rewriteSecrets(proxy, isWatch(p, r.URL.Query()))
 	}
 	proxy.ServeHTTP(w, r)

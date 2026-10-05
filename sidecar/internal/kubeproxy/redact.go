@@ -299,12 +299,9 @@ func valueFrom(dec *json.Decoder, tok json.Token) (any, error) {
 // the transport asks for gzip itself and hands back plain bytes.
 func askForJSON(h http.Header) {
 	var kept []string
-	for _, v := range h.Values("Accept") {
-		for _, t := range strings.Split(v, ",") {
-			t = strings.TrimSpace(t)
-			if isJSON(t) {
-				kept = append(kept, t)
-			}
+	for _, t := range acceptedTypes(h) {
+		if isJSON(t) {
+			kept = append(kept, t)
 		}
 	}
 	accept := strings.Join(kept, ",")
@@ -313,6 +310,17 @@ func askForJSON(h http.Header) {
 	}
 	h.Set("Accept", accept)
 	h.Del("Accept-Encoding")
+}
+
+// acceptedTypes is every media type h's Accept names, in order.
+func acceptedTypes(h http.Header) []string {
+	var types []string
+	for _, v := range h.Values("Accept") {
+		for _, t := range strings.Split(v, ",") {
+			types = append(types, strings.TrimSpace(t))
+		}
+	}
+	return types
 }
 
 // isJSON is whether a media type, its parameters aside, is application/json.
