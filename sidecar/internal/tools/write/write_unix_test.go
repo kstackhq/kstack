@@ -17,6 +17,8 @@
 package write
 
 import (
+	"context"
+	"crypto/sha256"
 	"io"
 	"os"
 	"path/filepath"
@@ -26,7 +28,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/session"
+	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/fileguard"
 )
 
 // Under the sidecar's owner-only umask, a new file is 0o666 and each directory
@@ -228,4 +233,157 @@ func TestWriteIsARename(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "old\n", string(b))
 	assert.Equal(t, []string{"x.txt"}, names(t, filepath.Dir(path)))
+}
+
+// granted is a home of the test's own, with a key under a never-readable
+// .ssh, notes in a closed Documents, and a code folder holding a file the
+// chat has read; Write knowing both closed paths; and a runtime whose session
+// grants folders.
+type granted struct {
+	home string
+	tl   *Tool
+	rt   tools.Runtime
+}
+
+func newGranted(t *testing.T, folders func(home string) []session.Folder) granted {
+	t.Helper()
+	home := filepath.Join(testutil.GrantableDir(t), "home")
+	for rel, body := range map[string]string{".ssh/id_ed25519": "key", "Documents/notes.txt": "notes", "code/x.txt": "old"} {
+		p := filepath.Join(home, rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte(body), 0o600))
+	}
+	data := filepath.Join(t.TempDir(), "data")
+	require.NoError(t, os.Mkdir(data, 0o700))
+	tl, err := New(0o022, func() (never, closed []string) {
+		return []string{filepath.Join(home, ".ssh")}, []string{filepath.Join(home, "Documents")}
+	}, data)
+	require.NoError(t, err)
+	st := stamps{filepath.Join(home, "code/x.txt"): {Sum: sha256.Sum256([]byte("old")), Whole: true}}
+	rt := tools.Runtime{Files: st, Dir: chatDirIn(data)}
+	given := folders(home)
+	rt.Session.Folders = func(context.Context) []session.Folder { return given }
+	return granted{home: home, tl: tl, rt: rt}
+}
+
+func (g granted) in(rel string) string { return filepath.Join(g.home, rel) }
+
+// write is a call writing content at path, run with approval a.
+func (g granted) write(t *testing.T, path, content string, a tools.Approval) (string, bool) {
+	t.Helper()
+	return g.tl.RunApproved(t.Context(), g.rt, call(path, content), a)
+}
+
+func readWritten(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return string(b)
+}
+
+func TestAWriteInAGrantedFolderAsksNoOne(t *testing.T) {
+	g := newGranted(t, func(home string) []session.Folder {
+		return []session.Folder{{Path: filepath.Join(home, "code"), Write: true}}
+	})
+	code := session.Folder{Path: g.in("code"), Write: true}
+	for _, rel := range []string{"code/x.txt", "code/new.txt"} {
+		a := approval(t, g.tl, g.rt, call(g.in(rel), "new"))
+		assert.Equal(t, tools.Approval{Skip: true, Folder: &code}, a, rel)
+		text, isError := g.write(t, g.in(rel), "new", a)
+		require.False(t, isError, text)
+		assert.Equal(t, "new", readWritten(t, g.in(rel)))
+	}
+}
+
+func TestAWriteInAReadGrantStillAsks(t *testing.T) {
+	g := newGranted(t, func(home string) []session.Folder { return []session.Folder{{Path: home}} })
+	assert.Equal(t, tools.Approval{}, approval(t, g.tl, g.rt, call(g.in("code/x.txt"), "new")))
+}
+
+func TestAWriteInAGrantedFolderMakesItsParents(t *testing.T) {
+	g := newGranted(t, func(home string) []session.Folder {
+		return []session.Folder{{Path: filepath.Join(home, "code"), Write: true}}
+	})
+	path := g.in("code/a/b/c.txt")
+	a := approval(t, g.tl, g.rt, call(path, "c"))
+	require.NotNil(t, a.Folder)
+	text, isError := g.write(t, path, "c", a)
+	require.False(t, isError, text)
+	assert.Equal(t, "c", readWritten(t, path))
+
+	// A file put at the name between the approval and the write is not
+	// replaced: the new file is placed without clobbering.
+	taken := g.in("code/taken.txt")
+	a = approval(t, g.tl, g.rt, call(taken, "mine"))
+	require.NoError(t, os.WriteFile(taken, []byte("theirs"), 0o644))
+	g.tl.write = func(ctx context.Context, rt tools.Runtime, path string, folder *session.Folder, content []byte) (bool, error) {
+		file, err := g.tl.fence.Walk(*folder, path)
+		require.NoError(t, err)
+		defer file.Close()
+		return true, g.tl.create(ctx, file, content)
+	}
+	_, isError = g.write(t, taken, "mine", a)
+	assert.True(t, isError)
+	assert.Equal(t, "theirs", readWritten(t, taken))
+}
+
+func TestAGrantedWriteStaysInTheFolder(t *testing.T) {
+	g := newGranted(t, func(home string) []session.Folder {
+		return []session.Folder{{Path: filepath.Join(home, "code"), Write: true}}
+	})
+	code := session.Folder{Path: g.in("code"), Write: true}
+	outside := filepath.Join(filepath.Dir(g.home), "outside")
+	require.NoError(t, os.MkdirAll(outside, 0o755))
+	require.NoError(t, os.Symlink(outside, g.in("code/out")))
+	require.NoError(t, os.Symlink("../.ssh", g.in("code/ssh")))
+
+	for _, rel := range []string{"code/out/x.txt", "code/ssh/id_ed25519", "code/ssh/new"} {
+		text, isError := g.write(t, g.in(rel), "planted", tools.Approval{Skip: true, Folder: &code})
+		assert.True(t, isError, rel)
+		assert.Equal(t, refusal(fileguard.ErrLeaves), text, rel)
+	}
+	entries, err := os.ReadDir(outside)
+	require.NoError(t, err)
+	assert.Empty(t, entries, "nothing outside changes")
+	assert.Equal(t, "key", readWritten(t, g.in(".ssh/id_ed25519")))
+}
+
+func TestARevokeBetweenApprovalAndRunChangesNothing(t *testing.T) {
+	g := newGranted(t, func(home string) []session.Folder {
+		return []session.Folder{{Path: filepath.Join(home, "code"), Write: true}}
+	})
+	a := approval(t, g.tl, g.rt, call(g.in("code/x.txt"), "new"))
+	require.NotNil(t, a.Folder)
+	g.rt.Session.Folders = func(context.Context) []session.Folder { panic("the run read the folders again") }
+	text, isError := g.write(t, g.in("code/x.txt"), "new", a)
+	require.False(t, isError, text)
+	assert.Equal(t, "new", readWritten(t, g.in("code/x.txt")))
+}
+
+func TestAGrantedCallAnswersAtItsEnd(t *testing.T) {
+	g := newGranted(t, func(home string) []session.Folder {
+		return []session.Folder{{Path: filepath.Join(home, "code"), Write: true}}
+	})
+	a := approval(t, g.tl, g.rt, call(g.in("code/y.txt"), "y"))
+	real := g.tl.write
+	release := make(chan struct{})
+	returned := make(chan struct{})
+	g.tl.write = func(ctx context.Context, rt tools.Runtime, path string, folder *session.Folder, content []byte) (bool, error) {
+		defer close(returned)
+		<-release
+		return real(ctx, rt, path, folder, content)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	ran := make(chan struct{})
+	var text string
+	go func() {
+		defer close(ran)
+		text, _ = g.tl.RunApproved(ctx, g.rt, call(g.in("code/y.txt"), "y"), a)
+	}()
+	cancel()
+	testutil.Wait(t, ran, "the cancel's answer")
+	assert.Equal(t, cancelled, text)
+	close(release)
+	testutil.Wait(t, returned, "the walk")
+	assert.NoFileExists(t, g.in("code/y.txt"))
 }

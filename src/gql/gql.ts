@@ -59,6 +59,9 @@ type Documents = {
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": typeof types.MemoriesWatchDocument,
     "\n  query Models {\n    models {\n      provider {\n        id\n        label\n      }\n      id\n      label\n      efforts\n      defaultEffort\n    }\n  }\n": typeof types.ModelsDocument,
     "\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n": typeof types.ChatNetworkEnabledSetDocument,
+    "\n  query SandboxFolders($chatID: ChatID) {\n    sandboxFolders(chatID: $chatID) {\n      always {\n        id\n        path\n        write\n        refused\n      }\n      chat {\n        id\n        path\n        write\n        refused\n      }\n      never\n      wide\n      rulesHeld\n    }\n  }\n": typeof types.SandboxFoldersDocument,
+    "\n  mutation FolderGrant($chatID: ChatID, $path: String!, $write: Boolean!, $duration: GrantDuration!) {\n    folderGrant(chatID: $chatID, path: $path, write: $write, duration: $duration) {\n      wide\n    }\n  }\n": typeof types.FolderGrantDocument,
+    "\n  mutation FolderRevoke($id: String!) {\n    folderRevoke(id: $id) {\n      wide\n    }\n  }\n": typeof types.FolderRevokeDocument,
     "\n  query SandboxPath {\n    sandboxPath {\n      dir\n      target\n      state\n      source\n      shared\n    }\n    sandboxPathFault\n    sandboxPathResolved\n  }\n": typeof types.SandboxPathDocument,
     "\n  mutation SandboxPathInclude($dir: String!, $target: String!) {\n    sandboxPathInclude(dir: $dir, target: $target) {\n      dir\n    }\n  }\n": typeof types.SandboxPathIncludeDocument,
     "\n  mutation SandboxPathRemove($dir: String!) {\n    sandboxPathRemove(dir: $dir) {\n      dir\n    }\n  }\n": typeof types.SandboxPathRemoveDocument,
@@ -112,6 +115,9 @@ const documents: Documents = {
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": types.MemoriesWatchDocument,
     "\n  query Models {\n    models {\n      provider {\n        id\n        label\n      }\n      id\n      label\n      efforts\n      defaultEffort\n    }\n  }\n": types.ModelsDocument,
     "\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n": types.ChatNetworkEnabledSetDocument,
+    "\n  query SandboxFolders($chatID: ChatID) {\n    sandboxFolders(chatID: $chatID) {\n      always {\n        id\n        path\n        write\n        refused\n      }\n      chat {\n        id\n        path\n        write\n        refused\n      }\n      never\n      wide\n      rulesHeld\n    }\n  }\n": types.SandboxFoldersDocument,
+    "\n  mutation FolderGrant($chatID: ChatID, $path: String!, $write: Boolean!, $duration: GrantDuration!) {\n    folderGrant(chatID: $chatID, path: $path, write: $write, duration: $duration) {\n      wide\n    }\n  }\n": types.FolderGrantDocument,
+    "\n  mutation FolderRevoke($id: String!) {\n    folderRevoke(id: $id) {\n      wide\n    }\n  }\n": types.FolderRevokeDocument,
     "\n  query SandboxPath {\n    sandboxPath {\n      dir\n      target\n      state\n      source\n      shared\n    }\n    sandboxPathFault\n    sandboxPathResolved\n  }\n": types.SandboxPathDocument,
     "\n  mutation SandboxPathInclude($dir: String!, $target: String!) {\n    sandboxPathInclude(dir: $dir, target: $target) {\n      dir\n    }\n  }\n": types.SandboxPathIncludeDocument,
     "\n  mutation SandboxPathRemove($dir: String!) {\n    sandboxPathRemove(dir: $dir) {\n      dir\n    }\n  }\n": types.SandboxPathRemoveDocument,
@@ -314,6 +320,18 @@ export function graphql(source: "\n  query Models {\n    models {\n      provide
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n"): (typeof documents)["\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  query SandboxFolders($chatID: ChatID) {\n    sandboxFolders(chatID: $chatID) {\n      always {\n        id\n        path\n        write\n        refused\n      }\n      chat {\n        id\n        path\n        write\n        refused\n      }\n      never\n      wide\n      rulesHeld\n    }\n  }\n"): (typeof documents)["\n  query SandboxFolders($chatID: ChatID) {\n    sandboxFolders(chatID: $chatID) {\n      always {\n        id\n        path\n        write\n        refused\n      }\n      chat {\n        id\n        path\n        write\n        refused\n      }\n      never\n      wide\n      rulesHeld\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation FolderGrant($chatID: ChatID, $path: String!, $write: Boolean!, $duration: GrantDuration!) {\n    folderGrant(chatID: $chatID, path: $path, write: $write, duration: $duration) {\n      wide\n    }\n  }\n"): (typeof documents)["\n  mutation FolderGrant($chatID: ChatID, $path: String!, $write: Boolean!, $duration: GrantDuration!) {\n    folderGrant(chatID: $chatID, path: $path, write: $write, duration: $duration) {\n      wide\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation FolderRevoke($id: String!) {\n    folderRevoke(id: $id) {\n      wide\n    }\n  }\n"): (typeof documents)["\n  mutation FolderRevoke($id: String!) {\n    folderRevoke(id: $id) {\n      wide\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

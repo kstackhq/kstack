@@ -12,14 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ChatGrants as Grants } from '@/lib/chat-grants';
+import type { SandboxFolders } from '@/lib/sandbox-folders';
 
-const { grants } = vi.hoisted(() => ({ grants: { current: undefined as unknown as Grants } }));
+const { grants, folders } = vi.hoisted(() => ({
+  grants: { current: undefined as unknown as Grants },
+  folders: { current: {} as Pick<SandboxFolders, 'chat'> },
+}));
 vi.mock('@/lib/chat-grants', () => ({ useChatGrants: () => grants.current }));
+vi.mock('@/lib/sandbox-folders', () => ({ useSandboxFolders: () => folders.current }));
 
 const { ChatGrants } = await import('./chat-grants');
 
@@ -38,6 +43,7 @@ const held = (over: Partial<Grants> = {}): Grants => ({
 beforeEach(() => {
   vi.clearAllMocks();
   grants.current = held();
+  folders.current = { chat: [] };
 });
 
 describe('ChatGrants', () => {
@@ -69,5 +75,22 @@ describe('ChatGrants', () => {
     const buttons = screen.getAllByRole('button', { name: 'Remove' });
     expect(buttons.at(-2)).toBeDisabled();
     expect(screen.getByRole('alert')).toHaveTextContent('not found');
+  });
+
+  it("draws a folder grant's refused reason under its line", async () => {
+    grants.current = held({
+      rules: [
+        { id: 'r1', line: 'Allow cluster writes in dev / web' },
+        { id: 'f1', line: 'Allow reads of /Users/ren/code' },
+      ],
+    });
+    folders.current = {
+      chat: [{ id: 'f1', path: '/Users/ren/code', write: false, refused: 'This folder does not exist.' }],
+    };
+    render(<ChatGrants chatID="c1" />);
+    await userEvent.click(screen.getByRole('button', { name: /2 allowed/ }));
+    const rows = within(screen.getByRole('list', { name: 'Allowed for this chat' })).getAllByRole('listitem');
+    expect(within(rows[0]).queryByText('This folder does not exist.')).toBeNull();
+    expect(within(rows[1]).getByText('This folder does not exist.')).toBeInTheDocument();
   });
 });

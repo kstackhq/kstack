@@ -15,6 +15,7 @@
 package sandbox
 
 import (
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -65,4 +66,64 @@ func Resolved(paths []string) []string {
 // alone: both must already be resolved.
 func Under(p string, dirs []string) bool {
 	return inAny(p, dirs)
+}
+
+// Spelled is each of paths as the disk spells it: every component replaced by
+// the name its directory lists for the same file, so on a case-insensitive
+// filesystem two spellings of one folder compare equal by text. Each path
+// should be resolved first. A component not found, or whose directory cannot
+// be listed, is kept as given with the rest of its path. It reads the disk,
+// each directory once.
+func Spelled(paths []string) []string {
+	listings := map[string][]os.DirEntry{}
+	out := make([]string, len(paths))
+	for i, p := range paths {
+		out[i] = spelled(p, listings)
+	}
+	return out
+}
+
+func spelled(p string, listings map[string][]os.DirEntry) string {
+	p = filepath.Clean(p)
+	vol := filepath.VolumeName(p)
+	parts := strings.Split(p[len(vol):], string(filepath.Separator))
+	dir := vol + string(filepath.Separator)
+	for i, name := range parts {
+		if name == "" {
+			continue
+		}
+		listed, ok := listedName(dir, name, listings)
+		if !ok {
+			return filepath.Join(append([]string{dir}, parts[i:]...)...)
+		}
+		dir = filepath.Join(dir, listed)
+	}
+	return dir
+}
+
+// listedName is the name dir lists for the file name names in it.
+func listedName(dir, name string, listings map[string][]os.DirEntry) (string, bool) {
+	info, err := os.Lstat(filepath.Join(dir, name))
+	if err != nil {
+		return "", false
+	}
+	entries, ok := listings[dir]
+	if !ok {
+		entries, err = os.ReadDir(dir)
+		if err != nil {
+			return "", false
+		}
+		listings[dir] = entries
+	}
+	for _, e := range entries {
+		if e.Name() == name {
+			return name, true
+		}
+	}
+	for _, e := range entries {
+		if other, err := e.Info(); err == nil && os.SameFile(info, other) {
+			return e.Name(), true
+		}
+	}
+	return "", false
 }

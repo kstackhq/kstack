@@ -16,14 +16,19 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { SandboxFolder, SandboxFolders } from '@/lib/sandbox-folders';
 import type { SandboxPath, SandboxPathEntry } from '@/lib/sandbox-path';
 
-const { sandbox, path } = vi.hoisted(() => ({
+const { sandbox, path, folders, mac } = vi.hoisted(() => ({
   sandbox: { current: {} as { available: boolean | undefined } },
   path: { current: {} as SandboxPath },
+  folders: { current: {} as SandboxFolders },
+  mac: { current: false },
 }));
 vi.mock('@/lib/sandbox', () => ({ useSandbox: () => sandbox.current }));
 vi.mock('@/lib/sandbox-path', () => ({ useSandboxPath: () => path.current }));
+vi.mock('@/lib/sandbox-folders', () => ({ useSandboxFolders: () => folders.current }));
+vi.mock('@/lib/platform', () => ({ isMacOS: () => mac.current }));
 
 const { SandboxSettings } = await import('./sandbox-settings');
 
@@ -56,9 +61,36 @@ function withPath(over: Partial<SandboxPath>) {
   };
 }
 
+function withFolders(over: Partial<SandboxFolders>) {
+  folders.current = {
+    always: [],
+    chat: [],
+    never: [],
+    wide: ['/Users/ren', '/Users'],
+    rulesHeld: false,
+    granting: false,
+    revoking: new Set(),
+    grantError: null,
+    revokeError: null,
+    grant: vi.fn(async () => true),
+    revoke: vi.fn(async () => {}),
+    ...over,
+  };
+}
+
+const folder = (dir: string, extra: Partial<SandboxFolder> = {}): SandboxFolder => ({
+  id: dir,
+  path: dir,
+  write: false,
+  refused: null,
+  ...extra,
+});
+
 beforeEach(() => {
   sandbox.current = { available: true };
+  mac.current = false;
   withPath({});
+  withFolders({});
 });
 
 describe('SandboxSettings', () => {
@@ -184,5 +216,131 @@ describe('SandboxSettings', () => {
         "Kstack could not read your shell's PATH: bad output. Sandboxed commands use the system's default PATH.",
       ),
     ).toBeInTheDocument();
+  });
+});
+
+describe('SandboxSettings: Folders', () => {
+  const folderRows = () => within(screen.getByRole('list', { name: 'Folders' })).queryAllByRole('listitem');
+
+  it('draws each always grant with its tag, Remove and a refused reason', async () => {
+    withFolders({
+      always: [
+        folder('/Users/ren/code'),
+        folder('/Users/ren/svc', { write: true }),
+        folder('/Users/ren/gone', { refused: 'This folder does not exist.' }),
+      ],
+    });
+    render(<SandboxSettings />);
+    const rows = folderRows();
+    expect(rows.map((r) => within(r).getByTestId('folder').textContent)).toEqual([
+      '/Users/ren/code',
+      '/Users/ren/svc',
+      '/Users/ren/gone',
+    ]);
+    expect(within(rows[0]).getByText('read')).toBeInTheDocument();
+    expect(within(rows[1]).getByText('read and write')).toBeInTheDocument();
+    expect(within(rows[2]).getByText('This folder does not exist.')).toBeInTheDocument();
+    await userEvent.click(within(rows[1]).getByRole('button', { name: 'Remove' }));
+    expect(folders.current.revoke).toHaveBeenCalledWith('/Users/ren/svc');
+  });
+
+  it('holds a Remove in flight and draws a refused one', () => {
+    withFolders({
+      always: [folder('/Users/ren/code')],
+      revoking: new Set(['/Users/ren/code']),
+      revokeError: 'Record not found',
+    });
+    render(<SandboxSettings />);
+    expect(within(folderRows()[0]).getByRole('button', { name: 'Remove' })).toBeDisabled();
+    expect(screen.getByText('Record not found')).toBeInTheDocument();
+  });
+
+  it('draws Remove disabled while the rules are held, since the sidecar refuses it', () => {
+    withFolders({ always: [folder('/Users/ren/code')], rulesHeld: true });
+    render(<SandboxSettings />);
+    expect(within(folderRows()[0]).getByRole('button', { name: 'Remove' })).toBeDisabled();
+  });
+
+  it('adds a folder, read or read and write, and clears the field once it is taken', async () => {
+    render(<SandboxSettings />);
+    const field = screen.getByRole('textbox', { name: 'Folder to grant' });
+    expect(screen.getByRole('button', { name: 'Add' })).toBeDisabled();
+    await userEvent.type(field, '/Users/ren/code');
+    await userEvent.click(screen.getByRole('checkbox', { name: 'read and write' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(folders.current.grant).toHaveBeenCalledWith('/Users/ren/code', true, 'Always');
+    expect(field).toHaveValue('');
+    expect(screen.getByRole('checkbox', { name: 'read and write' })).not.toBeChecked();
+  });
+
+  it('sends the folder as typed, whitespace included', async () => {
+    render(<SandboxSettings />);
+    await userEvent.type(screen.getByRole('textbox', { name: 'Folder to grant' }), ' /Users/ren/code  ');
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(folders.current.grant).toHaveBeenCalledWith(' /Users/ren/code  ', false, 'Always');
+  });
+
+  it("keeps the field on a refusal, draws its reason, and offers a link's target", async () => {
+    withFolders({
+      grant: vi.fn(async () => false),
+      grantError: {
+        message: '/Users/ren/src is a link to /Users/ren/code; grant /Users/ren/code instead.',
+        target: '/Users/ren/code',
+      },
+    });
+    render(<SandboxSettings />);
+    const field = screen.getByRole('textbox', { name: 'Folder to grant' });
+    await userEvent.type(field, '/Users/ren/src');
+    await userEvent.click(screen.getByRole('button', { name: 'Add' }));
+    expect(field).toHaveValue('/Users/ren/src');
+    expect(
+      screen.getByText('/Users/ren/src is a link to /Users/ren/code; grant /Users/ren/code instead.'),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Grant /Users/ren/code' }));
+    expect(field).toHaveValue('/Users/ren/code');
+  });
+
+  it('warns of a wide folder before Add is pressed', async () => {
+    withFolders({ wide: ['/Users/ren', '/Users', '/Volumes'] });
+    render(<SandboxSettings />);
+    const field = screen.getByRole('textbox', { name: 'Folder to grant' });
+    const home = /This lets commands read everything in your home folder except the credential folders Kstack knows of/;
+    const typeIn = async (typed: string) => {
+      await userEvent.clear(field);
+      await userEvent.type(field, typed);
+    };
+    await typeIn('/Users/ren/');
+    expect(screen.getByText(home)).toBeInTheDocument();
+    await typeIn('/Users');
+    expect(screen.getByText(home)).toBeInTheDocument();
+    await typeIn('/Users/ren/code');
+    expect(screen.queryByText(home)).toBeNull();
+    await typeIn('/Volumes');
+    expect(screen.getByText(/This lets commands read every disk mounted on this Mac\./)).toBeInTheDocument();
+  });
+
+  it('says a grant inside a closed folder may meet a macOS prompt, on macOS alone', () => {
+    withFolders({ always: [folder('/Users/ren/Documents/project'), folder('/Users/ren/code')] });
+    const { unmount } = render(<SandboxSettings />);
+    expect(screen.queryByText('macOS may ask you to let Kstack reach this folder.')).toBeNull();
+    unmount();
+
+    mac.current = true;
+    render(<SandboxSettings />);
+    const rows = folderRows();
+    expect(within(rows[0]).getByText('macOS may ask you to let Kstack reach this folder.')).toBeInTheDocument();
+    expect(within(rows[1]).queryByText('macOS may ask you to let Kstack reach this folder.')).toBeNull();
+  });
+
+  it('lists what is never readable', () => {
+    withFolders({ never: ['/Users/ren/.ssh', '/Users/ren/Library/Application Support/Kstack'] });
+    render(<SandboxSettings />);
+    const list = screen.getByRole('list', { name: 'Never readable' });
+    expect(
+      within(list)
+        .getAllByRole('listitem')
+        .map((r) => r.textContent),
+    ).toEqual(['/Users/ren/.ssh', '/Users/ren/Library/Application Support/Kstack']);
+    expect(screen.getByText(/A sandboxed command never reads these, whatever you grant/)).toBeInTheDocument();
   });
 });

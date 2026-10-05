@@ -42,3 +42,7 @@ func TestCommandAnswersErrNone(t *testing.T) {
 	assert.Nil(t, cmd)
 	assert.ErrorIs(t, err, errNone)
 }
+
+func TestFixedMountIsNothing(t *testing.T) {
+	assert.False(t, FixedMount(`C:\`))
+}

@@ -15,6 +15,7 @@
 package chatsvc
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -23,6 +24,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
 
@@ -163,4 +165,25 @@ func TestAStoppedAgentsNoticeNamesNoFile(t *testing.T) {
 		assert.Empty(t, n.OutputFile, status)
 		assert.Empty(t, n.Error, status)
 	}
+}
+
+// A notice turn also carries the context when the chat's folders changed
+// since the newest one, so the model learns what its commands now read.
+func TestANoticeTurnListsTheGrantsWhenTheyChanged(t *testing.T) {
+	tt := newTaskTool()
+	s := startServiceWithTool(t, tt)
+	home := grantable(t, s)
+	first, ft := startTaskTurn(t, s, tt, nil, "1")
+	before := newestContextOf(t, s, first.ChatID)
+	code := filepath.Join(home, "code")
+
+	require.NoError(t, s.GrantFolder(t.Context(), first.ChatID, code, false))
+	ft.exit(0)
+	answer := awaitNoticeTurn(t, s, first.ChatID, first.ID)
+
+	q := questionOf(t, s, answer)
+	require.Equal(t, []llm.BlockType{llm.BlockContext, llm.BlockTaskNotification}, []llm.BlockType{q[0].Type, q[1].Type})
+	after := newestContextOf(t, s, first.ChatID)
+	assert.Equal(t, s.withSandboxReplaced(before, sandboxState{folders: []session.Folder{{Path: code}}}), after)
+	assert.Contains(t, after, `"read":[`)
 }

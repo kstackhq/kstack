@@ -34,6 +34,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/fileguard"
 )
@@ -76,17 +77,20 @@ const Name = "Read"
 
 var _ interface {
 	tools.Custom
-	tools.Gated
+	tools.ApprovedRunner
 	tools.Bounded
 } = (*Tool)(nil)
 
-// Tool reads the files of the chat a call runs in, and any other file the user
-// approves outside fence.
+// Tool reads the files of the chat a call runs in, any in a folder the
+// session was granted, and any other file the user approves outside fence.
 type Tool struct {
 	fence fileguard.Fence
 	// fetch is the file work of a read outside the chat's directory: the fence's check
 	// on disk, the open and the read. A test swaps in one that blocks.
 	fetch func(path string) ([]byte, error)
+	// fetchGranted is the file work of a read in a granted folder: the walk,
+	// the open and the read. A test swaps in one that blocks.
+	fetchGranted func(folder session.Folder, path string) ([]byte, error)
 }
 
 var (
@@ -95,13 +99,19 @@ var (
 )
 
 // New is the tool, which opens nothing under fenced, Kstack's directories, but
-// a chat's directory. None is fileguard.ErrNoFence.
-func New(fenced ...string) (*Tool, error) {
+// a chat's directory, and reads a granted folder unasked but for what hidden
+// answers the sandbox keeps shut there. None is fileguard.ErrNoFence.
+func New(hidden func() (never, closed []string), fenced ...string) (*Tool, error) {
 	fence, err := fileguard.NewFence(fenced...)
 	if err != nil {
 		return nil, err
 	}
-	return &Tool{fence: fence, fetch: func(path string) ([]byte, error) { return readFile(fence, path) }}, nil
+	fence = fence.WithHidden(hidden)
+	return &Tool{
+		fence:        fence,
+		fetch:        func(path string) ([]byte, error) { return readFile(fence, path) },
+		fetchGranted: func(folder session.Folder, path string) ([]byte, error) { return readGranted(fence, folder, path) },
+	}, nil
 }
 
 // Definition is the offer: a function named Read, run by the sidecar.
@@ -133,10 +143,11 @@ func ActionOf(raw json.RawMessage, _ string) (tools.Action, error) {
 	return tools.Action{Read: &tools.ReadAction{Path: in.Path}}, nil
 }
 
-// Approval classifies the path by its name alone, touching nothing on disk:
-// the user is asked about any path but one Run refuses by its name and one in
-// the chat's directory. Read runs nowhere, so no Cwd.
-func (t *Tool) Approval(_ context.Context, rt tools.Runtime, raw json.RawMessage) (tools.Approval, error) {
+// Approval classifies the path: the user is asked about any path but one Run
+// refuses by its name, one in the chat's directory, and one in a folder the
+// session was granted that the sandbox does not keep shut there, which names
+// the folder Run walks. Read runs nowhere, so no Cwd.
+func (t *Tool) Approval(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (tools.Approval, error) {
 	in, err := parse(raw)
 	if err != nil {
 		return tools.Approval{}, err
@@ -148,6 +159,9 @@ func (t *Tool) Approval(_ context.Context, rt tools.Runtime, raw json.RawMessage
 	if _, ok := inChatDir(rt.Dir, path); ok {
 		return tools.Approval{Skip: true}, nil
 	}
+	if folder, ok := t.fence.Granted(ctx, rt.Session.GrantedFolders(ctx), path); ok {
+		return tools.Approval{Skip: true, Folder: &folder}, nil
+	}
 	return tools.Approval{}, nil
 }
 
@@ -157,9 +171,16 @@ func inChatDir(dir tools.ChatDir, path string) (string, bool) {
 	return fileguard.Under(dir.Path(), path)
 }
 
-// Run reads the range a call asks for: of a file in the chat's directory, or of
-// one outside Kstack's directories.
+// Run reads the range a call asks for, once approved.
 func (t *Tool) Run(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (string, bool) {
+	return t.RunApproved(ctx, rt, raw, tools.Approval{})
+}
+
+// RunApproved reads the range a call asks for: for a call its gate skipped for
+// a granted folder, through the walk of that folder alone, whatever the
+// session's folders say now; else of a file in the chat's directory, or of one
+// outside Kstack's directories.
+func (t *Tool) RunApproved(ctx context.Context, rt tools.Runtime, raw json.RawMessage, a tools.Approval) (string, bool) {
 	in, err := parse(raw)
 	if err != nil {
 		return `{"error":"bad-input"}`, true
@@ -167,6 +188,10 @@ func (t *Tool) Run(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (
 	path, err := fileguard.Abs(in.Path)
 	if err != nil {
 		return refusal(err), true
+	}
+	if a.Folder != nil {
+		folder := *a.Folder
+		return t.readOutside(ctx, rt, in, path, func() ([]byte, error) { return t.fetchGranted(folder, path) })
 	}
 	if rel, ok := inChatDir(rt.Dir, path); ok {
 		b, err := load(rt.Dir, rel)
@@ -183,7 +208,13 @@ func (t *Tool) Run(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (
 	if t.fence.Named(path) {
 		return notHere, true
 	}
-	b, err := t.fetchWithin(ctx, path)
+	return t.readOutside(ctx, rt, in, path, func() ([]byte, error) { return t.fetch(path) })
+}
+
+// readOutside is the range in asks for of the file fetch reads, outside the
+// chat's directory, stamped for Write and Edit.
+func (t *Tool) readOutside(ctx context.Context, rt tools.Runtime, in input, path string, fetch func() ([]byte, error)) (string, bool) {
+	b, err := fetchWithin(ctx, fetch)
 	switch {
 	case ctx.Err() != nil:
 		return cancelled, true
@@ -234,14 +265,14 @@ func present(ctx context.Context, b []byte, in input) (out string, whole, ok boo
 // context reaches. On the context's end it answers at once and the goroutine
 // is left to return whenever the filesystem does, closing what it opened; what
 // it hands back then is dropped.
-func (t *Tool) fetchWithin(ctx context.Context, path string) ([]byte, error) {
+func fetchWithin(ctx context.Context, fetch func() ([]byte, error)) ([]byte, error) {
 	type result struct {
 		b   []byte
 		err error
 	}
 	done := make(chan result, 1)
 	go func() {
-		b, err := t.fetch(path)
+		b, err := fetch()
 		done <- result{b, err}
 	}()
 	select {
@@ -263,6 +294,21 @@ func readFile(fence fileguard.Fence, path string) ([]byte, error) {
 		return nil, errNotHere
 	}
 	f, err := fileguard.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return fileguard.ReadAll(f)
+}
+
+// readGranted is the file at path in folder, reached by the walk.
+func readGranted(fence fileguard.Fence, folder session.Folder, path string) ([]byte, error) {
+	file, err := fence.Walk(folder, path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	f, err := file.Open()
 	if err != nil {
 		return nil, err
 	}
@@ -322,6 +368,9 @@ func refusal(err error) string {
 		return "This is not a regular file."
 	case errors.Is(err, fileguard.ErrTooLarge):
 		return "The file is larger than 8 MiB, which Read does not open."
+	}
+	if text, ok := fileguard.WalkRefusal(err); ok {
+		return text
 	}
 	return "Kstack cannot read this file."
 }

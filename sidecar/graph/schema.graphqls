@@ -1437,7 +1437,7 @@ enum PermissionModeSource {
   Default
 }
 
-"One rule over cluster writes. Every string but `group` is a pattern: `*` matches any run of characters, `?` one, `\\` escapes the next. An empty field matches anything. A `namespace` pattern matches objects in a namespace alone; `[cluster]` matches cluster-scoped objects alone. Every string is user text: draw it through VisibleText."
+"One rule: over cluster writes, or a folder grant. Every string but `group` and `folder` is a pattern: `*` matches any run of characters, `?` one, `\\` escapes the next. An empty field matches anything. A `namespace` pattern matches objects in a namespace alone; `[cluster]` matches cluster-scoped objects alone. Every string is user text: draw it through VisibleText."
 type PermissionRule {
   id: String!
   effect: PermissionEffect!
@@ -1447,6 +1447,8 @@ type PermissionRule {
   verb: String!
   group: String!
   kind: String!
+  "The folder a class `ReadInside` or `WriteInside` rule grants; empty on every other rule."
+  folder: String!
   "The rule in the user's words."
   line: String!
 }
@@ -1552,6 +1554,39 @@ type SandboxPathEntry {
   shared: Boolean!
 }
 
+"How long a folder grant lasts."
+enum GrantDuration {
+  "For one chat: a rule of the chat's, gone with it."
+  Chat
+  "For every chat: a rule in the security settings file."
+  Always
+}
+
+"One folder a sandboxed command may read, or read and write."
+type SandboxFolder {
+  "The rule's id."
+  id: String!
+  "The folder, absolute and resolved. User text: draw it through VisibleText."
+  path: String!
+  write: Boolean!
+  "Why the folder fails its check now, so no run takes it; null when it passes."
+  refused: String
+}
+
+"The folders granted, and what no grant opens."
+type SandboxFolders {
+  "The always grants."
+  always: [SandboxFolder!]!
+  "The chat's own grants, for their refused reasons; empty when no chat was named."
+  chat: [SandboxFolder!]!
+  "The denied-always list for this machine, with ~ expanded, read-only."
+  never: [String!]!
+  "The folders a read grant of which draws the wide warning, resolved: the home, each folder over it, and /Volumes on macOS."
+  wide: [String!]!
+  "Whether the file's rules cannot be read, which refuses every always grant and revoke until the file is fixed or what Kstack cannot read is discarded."
+  rulesHeld: Boolean!
+}
+
 "One value the security settings file held and the sidecar left out."
 type SecurityRefusal {
   "The setting's JSON key in the file."
@@ -1609,6 +1644,9 @@ type Query {
 
   "The permission modes and rules, as Settings shows them."
   permissionSettings: PermissionSettings!
+
+  "The folders granted, always and for `chatID`, each with why it fails its check now. Empty lists on a machine with no sandbox."
+  sandboxFolders(chatID: ChatID): SandboxFolders!
 
   "The chat's own rules, each as Settings spells a rule. Empty for a chat with none."
   chatGrants(chatID: ChatID!): [PermissionRule!]!
@@ -1706,6 +1744,12 @@ type Mutation {
 
   "Write `modes` or `rules` as Kstack read it, dropping what it could not read. Refused `KSTACK_VALIDATION_ERROR` for a field that holds nothing unread."
   permissionDiscardRefused(field: String!): PermissionSettings!
+
+  "Grant a folder, or change the mode of one granted in the same place. `Chat` writes a rule of the chat's and needs `chatID`; `Always` a rule in the security settings file, and ignores it. Refused `KSTACK_VALIDATION_ERROR` with the reason the folder cannot be granted, whose `rule` is `link` and whose `target` extension is the resolved path for a link; also while the file's rules cannot be read, and on a machine with no sandbox. Refused `KSTACK_RECORD_NOT_FOUND` for a chat that is gone."
+  folderGrant(chatID: ChatID, path: String!, write: Boolean!, duration: GrantDuration!): SandboxFolders!
+
+  "Revoke an always folder grant by id. A chat's grant is removed with `chatGrantRemove`. Refused `KSTACK_RECORD_NOT_FOUND` for an id that is not one, and `KSTACK_VALIDATION_ERROR` while the file's rules cannot be read."
+  folderRevoke(id: String!): SandboxFolders!
 
   # --- Cloud account ---
   "Start the sidecar-owned browser sign-in (OAuth). Setup (loopback bind + browser open) runs synchronously, so a setup failure — or no cloud account — returns an error. Returns true once the browser opens; the token exchange then completes in the background, with the signed-in state delivered via authStateWatch."

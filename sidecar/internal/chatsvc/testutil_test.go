@@ -21,8 +21,10 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -670,9 +672,41 @@ func offered(req llm.Request) []string {
 }
 
 // testSecurity is a security store over a file not yet written: every default.
-func testSecurity(t *testing.T) *securityconfig.Store {
+// grantable makes s a machine with a sandbox whose home is a fresh folder
+// holding a never-readable .ssh and a code/svc, and answers the home.
+func grantable(t *testing.T, s *service) string {
+	t.Helper()
+	return grantableWith(t, s, "")
+}
+
+// grantableWith is grantable over a security.json holding securityJSON, with
+// <home> in it spelled as the home and a / after it as the separator; "" for a
+// file not yet written.
+func grantableWith(t *testing.T, s *service, securityJSON string) string {
+	t.Helper()
+	home := testutil.GrantableDir(t)
+	for _, d := range []string{".ssh", "code/svc"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(home, d), 0o755))
+	}
+	file := filepath.Join(t.TempDir(), "security.json")
+	if securityJSON != "" {
+		// Marshalled, since a Windows path's backslashes are escapes in JSON.
+		inJSON := func(s string) string { b, _ := json.Marshal(s); return string(b[1 : len(b)-1]) }
+		r := strings.NewReplacer("<home>/", inJSON(home+string(filepath.Separator)), "<home>", inJSON(home))
+		require.NoError(t, os.WriteFile(file, []byte(r.Replace(securityJSON)), 0o600))
+	}
+	store, err := securityconfig.Open(file)
+	require.NoError(t, err)
+	s.security = securityconfig.NewService(store, func() securityconfig.Zones {
+		return securityconfig.Zones{Never: []string{filepath.Join(home, ".ssh")}, Home: home, NoWrite: sandbox.NoWrite(home)}
+	}, nil, "")
+	s.sandboxStatus = sandbox.Status{Available: true}
+	return home
+}
+
+func testSecurity(t *testing.T) *securityconfig.Service {
 	t.Helper()
 	s, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
 	require.NoError(t, err)
-	return s
+	return securityconfig.NewService(s, nil, nil, "")
 }

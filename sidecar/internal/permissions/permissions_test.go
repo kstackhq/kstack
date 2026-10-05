@@ -198,6 +198,30 @@ func TestARuleReadsAsALine(t *testing.T) {
 	}
 }
 
+func TestAFolderRuleLine(t *testing.T) {
+	for want, rule := range map[string]Rule{
+		"Allow reads of /Users/me/code":              {Effect: Allow, Class: ReadInside, Folder: "/Users/me/code"},
+		"Allow reads and writes of /Users/me/code":   {Effect: Allow, Class: WriteInside, Folder: "/Users/me/code"},
+		`Allow reads of "/Users/me/My Code"`:         {Effect: Allow, Class: ReadInside, Folder: "/Users/me/My Code"},
+		`Allow reads of "/Users/me/a\"b"`:            {Effect: Allow, Class: ReadInside, Folder: `/Users/me/a"b`},
+		`Allow reads and writes of "/Users/me/a\\b"`: {Effect: Allow, Class: WriteInside, Folder: `/Users/me/a\b`},
+	} {
+		assert.Equal(t, want, rule.Line())
+	}
+}
+
+func TestAFolderRuleMatchesNoAction(t *testing.T) {
+	read := Action{Class: ReadInside}
+	for _, class := range []Class{ReadInside, WriteInside} {
+		for _, effect := range []Effect{Allow, Deny, AskFor} {
+			r := Rule{ID: "f", Effect: effect, Class: class, Folder: "/Users/me/code"}
+			assert.False(t, r.Matches(read), "%s %d", effect, class)
+			got, _ := Policy{Mode: Ask, Rules: []Rule{r}}.Authorize(read)
+			assert.Equal(t, Permit, got, "a folder rule never reaches a verdict: %s %d", effect, class)
+		}
+	}
+}
+
 func TestAReasonSaysWhatDecided(t *testing.T) {
 	for want, c := range map[string]struct {
 		policy Policy
@@ -289,8 +313,8 @@ func TestTheVerdictMatchesTheOrderedTable(t *testing.T) {
 }
 
 func TestAForbidOnAFolderClassRefuses(t *testing.T) {
-	// No rule Kstack reads today has class 1: the shape checks refuse one.
-	// Should one reach the engine anyway, a forbid still wins.
+	// The shape checks refuse a class 1 rule naming no folder. Should one
+	// reach the engine anyway, a forbid still wins.
 	for _, c := range []struct {
 		effect Effect
 		want   Verdict
