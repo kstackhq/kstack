@@ -175,7 +175,7 @@ func (a *agentTask) run(ctx context.Context, spec agent.Turn, f *os.File) {
 		defer func() {
 			if p := recover(); p != nil {
 				c.streamErr = fmt.Errorf("panic: %v", p)
-				c.status, c.report, c.errText = runFailed, "", c.streamErr.Error()
+				c.status, c.report, c.errText = RunFailed, "", c.streamErr.Error()
 			}
 		}()
 		// agent.Run's error also carries the writes that are not fatal; Settled
@@ -196,7 +196,7 @@ func (a *agentTask) run(ctx context.Context, spec agent.Turn, f *os.File) {
 // that succeeded.
 type subagent struct {
 	*runJournal
-	status    runStatus
+	status    RunStatus
 	report    string
 	errText   string
 	streamErr error
@@ -211,7 +211,7 @@ func (c *subagent) Progress([]llm.Block) {}
 func (c *subagent) Settled(_ context.Context, res agent.Result, err error) error {
 	c.streamErr = err
 	c.status, c.errText = runOutcome(err)
-	if c.status == runSucceeded {
+	if c.status == RunSucceeded {
 		c.report = lastReplyText(res.Blocks)
 	}
 	return nil
@@ -233,9 +233,9 @@ func (c *subagent) end(by string, at time.Time) taskEnd {
 		return c.writeCalls(ctx, st)
 	}
 	switch {
-	case c.status == runCancelled:
+	case c.status == RunCancelled:
 		end.Status, end.StoppedBy, end.Notified = taskStopped, by, by == stoppedByModel
-	case c.status == runSucceeded && c.report != "":
+	case c.status == RunSucceeded && c.report != "":
 		end.Status = taskCompleted
 	}
 	return end

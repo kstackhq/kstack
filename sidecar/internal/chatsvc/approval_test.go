@@ -176,7 +176,7 @@ func TestACommandWaitsOnTheUser(t *testing.T) {
 	assert.False(t, rows[0].hasStarted)
 	assert.True(t, isMutating(t, s.db, "call-1"))
 	assert.Equal(t, []approvalRow{{status: ApprovalPending}}, approvalRows(t, s.db))
-	assert.Equal(t, runWaitingApproval, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunWaitingApproval, runStatusOf(t, s.db, msg.RunID))
 }
 
 // A background command's request says so, on the live list and the stored read
@@ -311,7 +311,7 @@ func TestTheRunFlipsBackOnTheDecision(t *testing.T) {
 	running := awaitToolCall(t, s, msg.ChatID, msg.ID, ToolCallRunning)
 
 	assert.Equal(t, StatusStreaming, running.Status)
-	assert.Equal(t, runRunning, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunRunning, runStatusOf(t, s.db, msg.RunID))
 	close(release)
 	awaitSettled(t, s, msg.ChatID, msg.ID)
 }
@@ -402,7 +402,7 @@ func TestACancelBeforeTheDecisionCommitsLeavesItPending(t *testing.T) {
 	rows := toolCallRows(t, s.db, msg.RunID)
 	assert.Equal(t, toolFailed, rows[0].status)
 	assert.False(t, rows[0].hasStarted)
-	assert.Equal(t, runCancelled, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunCancelled, runStatusOf(t, s.db, msg.RunID))
 	s.turnsMu.Lock()
 	assert.Empty(t, s.pending, "the waiter was taken back")
 	s.turnsMu.Unlock()
@@ -595,7 +595,7 @@ func seedWait(t *testing.T, db *appdb.DB, chatID ChatID, command, content string
 	t.Helper()
 	now := time.UnixMilli(1_000).UTC()
 	turn := seedTurn(t, db, chatID, now)
-	setRunStatus(t, db, turn.Run, runWaitingApproval)
+	setRunStatus(t, db, turn.Run, RunWaitingApproval)
 	_, err := db.Write.Exec(`UPDATE messages SET content = ? WHERE id = ?`, content, string(turn.Assistant))
 	require.NoError(t, err)
 	call, row, id := appdb.NewID(), appdb.NewID(), newApprovalID()
@@ -725,7 +725,7 @@ func TestStartupFailsAStrandedWait(t *testing.T) {
 
 	s := startService(t, dir)
 
-	assert.Equal(t, runFailed, runStatusOf(t, s.db, turn.Run))
+	assert.Equal(t, RunFailed, runStatusOf(t, s.db, turn.Run))
 	rows := toolCallRows(t, s.db, turn.Run)
 	require.Len(t, rows, 1)
 	assert.Equal(t, toolCallStranded, rows[0].errText)
@@ -833,7 +833,7 @@ func TestASubagentWaitingMarksItsSettledAnswer(t *testing.T) {
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", now))
 	turn := seedTurn(t, s.db, c.ID, now)
-	settleSeededRun(t, s.db, turn.Run, runSucceeded, now)
+	settleSeededRun(t, s.db, turn.Run, RunSucceeded, now)
 	sub := appdb.NewID()
 	_, err := s.db.Write.Exec(`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, chat_id, provider, model, dialect, task, status, created_at)
 		VALUES (?, ?, 'general-purpose', 'test', 'agent', ?, 'fake', 'fake', 'fake', 'p', 'waiting_approval', 0)`, sub, string(turn.Run), string(c.ID))
@@ -846,7 +846,7 @@ func TestASubagentWaitingMarksItsSettledAnswer(t *testing.T) {
 	assert.True(t, msgs[1].AwaitingApproval)
 	assert.Equal(t, StatusComplete, msgs[1].Status, "the answer's status stays its own run's")
 
-	setRunStatus(t, s.db, RunID(sub), runRunning)
+	setRunStatus(t, s.db, RunID(sub), RunRunning)
 	msgs, err = s.readMessages(t.Context(), c.ID)
 	require.NoError(t, err)
 	assert.False(t, msgs[1].AwaitingApproval)
@@ -932,7 +932,7 @@ func TestAStrandedWaitClearsTheChatsMark(t *testing.T) {
 	db := openTestDB(t, dir)
 	c := seedChat(t, db, aChat("1", time.UnixMilli(1_000).UTC()))
 	turn := seedTurn(t, db, c.ID, time.UnixMilli(1_000).UTC())
-	setRunStatus(t, db, turn.Run, runWaitingApproval)
+	setRunStatus(t, db, turn.Run, RunWaitingApproval)
 	require.NoError(t, db.Close())
 
 	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
@@ -1052,12 +1052,12 @@ func TestAWriteIsAskedUnderTheRunningCall(t *testing.T) {
 	require.Len(t, calls[0].ClusterWrites, 1)
 	w := calls[0].ClusterWrites[0]
 	assert.Equal(t, clusterWriteOf(ToolCallApproval{ID: w.Approval.ID, Status: ApprovalPending}, deleteX), w)
-	assert.Equal(t, runWaitingApproval, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunWaitingApproval, runStatusOf(t, s.db, msg.RunID))
 	assert.Equal(t, []approvalRow{{status: ApprovalPending}}, approvalRows(t, s.db))
 
 	approve(t, s, w.Approval.ID, true)
 	got = awaitWrite(t, s, msg, ApprovalApproved)
-	assert.Equal(t, runRunning, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunRunning, runStatusOf(t, s.db, msg.RunID))
 	assert.Equal(t, StatusStreaming, got.Status)
 	w = toolCallsOf(t, got)[0].ClusterWrites[0]
 	once := permissions.DurationOnce
@@ -1102,7 +1102,7 @@ func TestAWriteWaitEndsWithTheRequest(t *testing.T) {
 	got := awaitWrite(t, s, msg, ApprovalAbandoned)
 
 	assert.Equal(t, StatusStreaming, got.Status)
-	assert.Equal(t, runRunning, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunRunning, runStatusOf(t, s.db, msg.RunID))
 	assert.Equal(t, []approvalRow{{status: ApprovalAbandoned, decided: true}}, approvalRows(t, s.db))
 	ok, err := s.Approve(t.Context(), id, DecisionOnce)
 	require.NoError(t, err)
@@ -1204,7 +1204,7 @@ func TestADecisionThatCannotBeRecordedForwardsNothing(t *testing.T) {
 
 	assert.Equal(t, "unanswered", toolCallsOf(t, settled)[0].Output)
 	assert.Equal(t, []approvalRow{{status: ApprovalApproved, decided: true}}, approvalRows(t, s.db))
-	assert.Equal(t, runSucceeded, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunSucceeded, runStatusOf(t, s.db, msg.RunID))
 }
 
 // A write asked while no call of the run is running is refused.
@@ -1267,7 +1267,7 @@ func TestARecordedWriteNeedsNoWait(t *testing.T) {
 	assert.Equal(t, ApprovalRefused, writes[1].Approval.Status)
 	assert.Equal(t, "this context is read-only", *writes[1].Reason)
 	assert.Equal(t, []approvalRow{{status: ApprovalAllowed, decided: true}, {status: ApprovalRefused, decided: true}}, approvalRows(t, s.db))
-	assert.Equal(t, runRunning, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunRunning, runStatusOf(t, s.db, msg.RunID))
 
 	close(hold)
 	settled := awaitSettled(t, s, msg.ChatID, msg.ID)

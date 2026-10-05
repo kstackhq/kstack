@@ -138,23 +138,23 @@ func seedTurn(t *testing.T, db *appdb.DB, chatID ChatID, at time.Time) seededTur
 }
 
 // setRunStatus moves a seeded run, the way a turn would.
-func setRunStatus(t *testing.T, db *appdb.DB, id RunID, status runStatus) {
+func setRunStatus(t *testing.T, db *appdb.DB, id RunID, status RunStatus) {
 	t.Helper()
 	_, err := db.Write.Exec(`UPDATE agent_runs SET status = ? WHERE id = ?`, string(status), string(id))
 	require.NoError(t, err)
 }
 
 // settleSeededRun settles a seeded run at finishedAt.
-func settleSeededRun(t *testing.T, db *appdb.DB, id RunID, status runStatus, finishedAt time.Time) {
+func settleSeededRun(t *testing.T, db *appdb.DB, id RunID, status RunStatus, finishedAt time.Time) {
 	t.Helper()
 	_, err := db.Write.Exec(`UPDATE agent_runs SET status = ?, finished_at = ? WHERE id = ?`, string(status), millis(finishedAt), string(id))
 	require.NoError(t, err)
 }
 
 // runStatusOf reads a run's stored status.
-func runStatusOf(t *testing.T, db *appdb.DB, id RunID) runStatus {
+func runStatusOf(t *testing.T, db *appdb.DB, id RunID) RunStatus {
 	t.Helper()
-	var status runStatus
+	var status RunStatus
 	require.NoError(t, db.Read.QueryRow(`SELECT status FROM agent_runs WHERE id = ?`, string(id)).Scan(&status))
 	return status
 }

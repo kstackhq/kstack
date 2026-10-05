@@ -63,7 +63,7 @@ func TestEveryRowHelperNamesItsFailure(t *testing.T) {
 		"insert run":                func() error { return insertRun(ctx, st, agentRun{}) },
 		"claim run":                 func() error { return claimRun(ctx, st, "r", now) },
 		"write content":             func() error { return writeContent(ctx, st, "m", emptyContent) },
-		"settle run":                func() error { return settleRun(ctx, st, "r", runFailed, "", "", now) },
+		"settle run":                func() error { return settleRun(ctx, st, "r", RunFailed, "", "", now) },
 		"answer by request key":     func() error { _, _, err := answerByRequestKey(ctx, st, "k", testReaders); return err },
 		"insert llm call":           func() error { return insertLLMCall(ctx, st, llmCallEntry{}) },
 		"close llm call":            func() error { return closeLLMCall(ctx, st, llmCallEntry{ID: "c", FinishedAt: now}) },
@@ -71,7 +71,7 @@ func TestEveryRowHelperNamesItsFailure(t *testing.T) {
 		"upsert tool call":          func() error { return upsertToolCall(ctx, st, toolCallEntry{}) },
 		"close stranded tool calls": func() error { return closeStrandedToolCalls(ctx, st, now) },
 		"upsert approval":           func() error { return upsertApproval(ctx, st, approval{}) },
-		"flip run":                  func() error { return flipRun(ctx, st, "r", runRunning) },
+		"flip run":                  func() error { return flipRun(ctx, st, "r", RunRunning) },
 		"cluster accepts":           func() error { _, err := clusterAccepts(ctx, st, "1"); return err },
 		"insert task":               func() error { return insertTask(ctx, st, "t", id, "c", "/p", now) },
 		"delete task":               func() error { return deleteTask(ctx, st, "t") },
@@ -356,13 +356,13 @@ func TestAMessagesStatusIsItsRuns(t *testing.T) {
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, db, aChat("1", now))
-	turns := map[runStatus]seededTurn{}
-	for _, status := range []runStatus{runQueued, runRunning, runWaitingApproval, runSucceeded, runFailed, runCancelled} {
+	turns := map[RunStatus]seededTurn{}
+	for _, status := range []RunStatus{RunQueued, RunRunning, RunWaitingApproval, RunSucceeded, RunFailed, RunCancelled} {
 		turn := seedTurn(t, db, c.ID, now)
 		setRunStatus(t, db, turn.Run, status)
 		turns[status] = turn
 	}
-	settleSeededRun(t, db, turns[runSucceeded].Run, runSucceeded, time.UnixMilli(5_000).UTC())
+	settleSeededRun(t, db, turns[RunSucceeded].Run, RunSucceeded, time.UnixMilli(5_000).UTC())
 
 	msgs, err := listMessages(t.Context(), st, c.ID, testReaders)
 	require.NoError(t, err)
@@ -370,15 +370,15 @@ func TestAMessagesStatusIsItsRuns(t *testing.T) {
 	for _, m := range msgs {
 		byID[m.ID] = m
 	}
-	want := map[runStatus]MessageStatus{
-		runQueued: StatusStreaming, runRunning: StatusStreaming, runWaitingApproval: StatusWaitingApproval,
-		runSucceeded: StatusComplete, runFailed: StatusFailed, runCancelled: StatusCancelled,
+	want := map[RunStatus]MessageStatus{
+		RunQueued: StatusStreaming, RunRunning: StatusStreaming, RunWaitingApproval: StatusWaitingApproval,
+		RunSucceeded: StatusComplete, RunFailed: StatusFailed, RunCancelled: StatusCancelled,
 	}
 	for status, turn := range turns {
 		assert.Equal(t, want[status], byID[turn.Assistant].Status, string(status))
 	}
-	assert.Equal(t, sql.NullTime{Time: time.UnixMilli(5_000).UTC(), Valid: true}, byID[turns[runSucceeded].Assistant].FinishedAt)
-	assert.Equal(t, sql.NullTime{}, byID[turns[runFailed].Assistant].FinishedAt)
+	assert.Equal(t, sql.NullTime{Time: time.UnixMilli(5_000).UTC(), Valid: true}, byID[turns[RunSucceeded].Assistant].FinishedAt)
+	assert.Equal(t, sql.NullTime{}, byID[turns[RunFailed].Assistant].FinishedAt)
 }
 
 func TestFailStrandedRunsFailsEveryUnfinishedRun(t *testing.T) {
@@ -388,11 +388,11 @@ func TestFailStrandedRunsFailsEveryUnfinishedRun(t *testing.T) {
 	c := seedChat(t, db, aChat("1", now))
 	queued := seedTurn(t, db, c.ID, now)
 	running := seedTurn(t, db, c.ID, now)
-	setRunStatus(t, db, running.Run, runRunning)
+	setRunStatus(t, db, running.Run, RunRunning)
 	waiting := seedTurn(t, db, c.ID, now)
-	setRunStatus(t, db, waiting.Run, runWaitingApproval)
+	setRunStatus(t, db, waiting.Run, RunWaitingApproval)
 	done := seedTurn(t, db, c.ID, now)
-	settleSeededRun(t, db, done.Run, runSucceeded, now)
+	settleSeededRun(t, db, done.Run, RunSucceeded, now)
 
 	stranded, err := failStrandedRuns(t.Context(), st, "stranded", time.UnixMilli(9_000).UTC())
 	require.NoError(t, err)
@@ -485,7 +485,7 @@ func TestClaimRunTakesOnlyAQueuedRun(t *testing.T) {
 	turn := seedTurn(t, db, c.ID, now)
 
 	require.NoError(t, claimRun(t.Context(), st, turn.Run, now))
-	assert.Equal(t, runRunning, runStatusOf(t, db, turn.Run))
+	assert.Equal(t, RunRunning, runStatusOf(t, db, turn.Run))
 	assert.ErrorIs(t, claimRun(t.Context(), st, turn.Run, now), errRunNotQueued, "claimed twice")
 	assert.ErrorIs(t, claimRun(t.Context(), st, RunID(appdb.NewID()), now), errRunNotQueued, "no such run")
 }
@@ -541,7 +541,7 @@ func TestASettledTurnEqualsItsOwnRoundTrip(t *testing.T) {
 	done := time.UnixMilli(3_000).UTC()
 	answer := marshalBlocks([]llm.Block{llm.TextBlock("Twelve pods.")})
 	require.NoError(t, writeContent(t.Context(), st, turn.Assistant, answer))
-	require.NoError(t, settleRun(t.Context(), st, turn.Run, runSucceeded, "", "", done))
+	require.NoError(t, settleRun(t.Context(), st, turn.Run, RunSucceeded, "", "", done))
 	call.StopReason, call.FinishedAt = "end_turn", done
 	require.NoError(t, closeLLMCall(t.Context(), st, call))
 
@@ -794,7 +794,7 @@ func TestTheActionCarriesTheRowsFlag(t *testing.T) {
 	set := prepareOn(t, db)
 	c := seedChat(t, db, aChat("1", now))
 	turn := seedTurn(t, db, c.ID, now)
-	settleSeededRun(t, db, turn.Run, runSucceeded, now)
+	settleSeededRun(t, db, turn.Run, RunSucceeded, now)
 	for _, q := range []string{
 		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at, finished_at) VALUES ('l', '` + string(turn.Run) + `', 0, 'fake', 'fake', 0, 0)`,
 		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, cwd, sandboxed, status, created_at, started_at, finished_at)

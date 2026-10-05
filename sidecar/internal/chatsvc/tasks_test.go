@@ -916,7 +916,7 @@ func TestTheStartSweepMarksRunningTasksLost(t *testing.T) {
 	db := openTestDB(t, dir)
 	c := seedChat(t, db, aChat("1", now))
 	turn := seedTurn(t, db, c.ID, now)
-	settleSeededRun(t, db, turn.Run, runSucceeded, now)
+	settleSeededRun(t, db, turn.Run, RunSucceeded, now)
 	for _, q := range []string{
 		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at, finished_at) VALUES ('l', '` + string(turn.Run) + `', 0, 'fake', 'fake', 0, 0)`,
 		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, cwd, status, created_at, started_at, finished_at)

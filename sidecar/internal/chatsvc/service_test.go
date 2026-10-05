@@ -49,7 +49,7 @@ func TestStartFailsAStrandedRun(t *testing.T) {
 	db := openTestDB(t, dir)
 	c := seedChat(t, db, aChat("1", now))
 	stranded := seedTurn(t, db, c.ID, now)
-	setRunStatus(t, db, stranded.Run, runRunning)
+	setRunStatus(t, db, stranded.Run, RunRunning)
 	_, err := db.Write.Exec(`UPDATE messages SET content = ? WHERE id = ?`, `[{"type":"text","text":"half an answer"}]`, string(stranded.Assistant))
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
@@ -62,7 +62,7 @@ func TestStartFailsAStrandedRun(t *testing.T) {
 	assert.Equal(t, StatusFailed, msgs[1].Status)
 	assert.Equal(t, strandedReason, msgs[1].Error)
 	assert.Contains(t, string(msgs[1].Content), "half an answer")
-	assert.Equal(t, runFailed, runStatusOf(t, s.db, stranded.Run))
+	assert.Equal(t, RunFailed, runStatusOf(t, s.db, stranded.Run))
 }
 
 // A stranded run under no chat — a monitor's — is failed like the rest, and the
@@ -78,7 +78,7 @@ func TestStartFailsAStrandedRunWithNoChat(t *testing.T) {
 
 	s := startService(t, dir)
 
-	assert.Equal(t, runFailed, runStatusOf(t, s.db, run))
+	assert.Equal(t, RunFailed, runStatusOf(t, s.db, run))
 }
 
 // A watch opened before Start read the stranded answer as it was; the reconcile
@@ -88,7 +88,7 @@ func TestStartTellsAPreStartWatchOfAStrandedRun(t *testing.T) {
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, db, aChat("1", now))
 	stranded := seedTurn(t, db, c.ID, now)
-	setRunStatus(t, db, stranded.Run, runRunning)
+	setRunStatus(t, db, stranded.Run, RunRunning)
 	s, err := newService(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 
@@ -434,7 +434,7 @@ func TestMessagesWatchOpensWithASnapshotAndItsBookmark(t *testing.T) {
 	assert.Equal(t, DeltaFrameBookmark, bookmark.Type)
 	assert.Nil(t, bookmark.Message)
 
-	settleSeededRun(t, s.db, turn.Run, runSucceeded, time.UnixMilli(2_000).UTC())
+	settleSeededRun(t, s.db, turn.Run, RunSucceeded, time.UnixMilli(2_000).UTC())
 	s.notify(messagesKey(c.ID))
 	settled := awaitFrame(t, w.Frames, func(f ChatMessageWatchFrame) bool {
 		return f.Message != nil && f.Message.ID == turn.Assistant && f.Message.Status == StatusComplete
@@ -905,7 +905,7 @@ func TestAChatMovesAcrossDialects(t *testing.T) {
 	answer := marshalBlocks([]llm.Block{thinking, llm.TextBlock("Two pods.")})
 	_, err = s.db.Write.Exec(`UPDATE messages SET content = ? WHERE id = ?`, string(answer), string(turn.Assistant))
 	require.NoError(t, err)
-	settleSeededRun(t, s.db, turn.Run, runSucceeded, now)
+	settleSeededRun(t, s.db, turn.Run, RunSucceeded, now)
 
 	sent, err := s.Send(t.Context(), &c.ID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "and nodes?")
 	require.NoError(t, err)
@@ -1144,7 +1144,7 @@ func TestCancelKeepsThePartialAnswer(t *testing.T) {
 	assert.Equal(t, StatusCancelled, got.Status)
 	assert.Equal(t, marshalBlocks([]llm.Block{llm.ThinkingBlock(fakeFirstWord)}), got.Content)
 	assert.Empty(t, got.FinishReason)
-	assert.Equal(t, runCancelled, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunCancelled, runStatusOf(t, s.db, msg.RunID))
 	assert.Equal(t, llmCallRow{err: callCancelled, finished: true}, llmCallOf(t, s.db, msg.RunID))
 }
 
@@ -1169,7 +1169,7 @@ func TestACancelBeforeTheClaimRunsNothing(t *testing.T) {
 	s.startTurn(tr, msgs[1])
 	testutil.Wait(t, tr.done, "the turn to end")
 
-	assert.Equal(t, runCancelled, runStatusOf(t, s.db, turn.Run))
+	assert.Equal(t, RunCancelled, runStatusOf(t, s.db, turn.Run))
 	assert.Zero(t, fakeOf(s).Asked())
 	assert.Zero(t, tableCount(t, s.db, "llm_calls"), "no call was opened")
 }
@@ -1208,7 +1208,7 @@ func TestARefusedClaimAsksNoModel(t *testing.T) {
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 	turn := seedTurn(t, s.db, c.ID, time.UnixMilli(1_000).UTC())
-	setRunStatus(t, s.db, turn.Run, runRunning)
+	setRunStatus(t, s.db, turn.Run, RunRunning)
 	tr, err := s.reserveTurn(c.ID, turn.Run, fakeTarget(s))
 	require.NoError(t, err)
 	msgs, err := listMessages(t.Context(), s.store.Stmts(), c.ID, testReaders)
@@ -1217,7 +1217,7 @@ func TestARefusedClaimAsksNoModel(t *testing.T) {
 	s.startTurn(tr, msgs[1])
 	testutil.Wait(t, tr.done, "the turn to end")
 
-	assert.Equal(t, runFailed, runStatusOf(t, s.db, turn.Run))
+	assert.Equal(t, RunFailed, runStatusOf(t, s.db, turn.Run))
 	assert.Zero(t, fakeOf(s).Asked())
 	msgs, err = listMessages(t.Context(), s.store.Stmts(), c.ID, testReaders)
 	require.NoError(t, err)
@@ -1326,7 +1326,7 @@ func TestStartClosesTheCallsAPreviousRunLeftOpen(t *testing.T) {
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, db, aChat("1", now))
 	turn := seedTurn(t, db, c.ID, now)
-	setRunStatus(t, db, turn.Run, runRunning)
+	setRunStatus(t, db, turn.Run, RunRunning)
 	_, err := db.Write.Exec(`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES (?, ?, 0, 'fake', 'fake', 0)`, appdb.NewID(), string(turn.Run))
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
@@ -1601,7 +1601,7 @@ func TestAnUnsettledRowsPayloadsGoWithItsRounds(t *testing.T) {
 	}
 	_, err := s.db.Write.Exec(`UPDATE messages SET content = ? WHERE id = ?`, string(marshalBlocks(row)), string(turn.Assistant))
 	require.NoError(t, err)
-	setRunStatus(t, s.db, turn.Run, runCancelled)
+	setRunStatus(t, s.db, turn.Run, RunCancelled)
 
 	next := send(t, s, &chat.ID, "2", "and?")
 	awaitSettled(t, s, chat.ID, next.ID)
@@ -1670,7 +1670,7 @@ func TestStrandedToolCallsAreClosedOnStart(t *testing.T) {
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, db, aChat("1", now))
 	turn := seedTurn(t, db, c.ID, now)
-	setRunStatus(t, db, turn.Run, runRunning)
+	setRunStatus(t, db, turn.Run, RunRunning)
 	call := appdb.NewID()
 	_, err := db.Write.Exec(`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES (?, ?, 0, 'fake', 'fake', 0)`, call, string(turn.Run))
 	require.NoError(t, err)

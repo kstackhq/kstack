@@ -77,30 +77,30 @@ const (
 	runsOnProvider = "provider"
 )
 
-// runStatus is where an agent run is in its lifecycle: queued, then running, then
+// RunStatus is where an agent run is in its lifecycle: queued, then running, then
 // one of the three terminal states. waiting_approval is running with a command
 // waiting on the user.
-type runStatus string
+type RunStatus string
 
 const (
-	runQueued          runStatus = "queued"
-	runRunning         runStatus = "running"
-	runWaitingApproval runStatus = "waiting_approval"
-	runSucceeded       runStatus = "succeeded"
-	runFailed          runStatus = "failed"
-	runCancelled       runStatus = "cancelled"
+	RunQueued          RunStatus = "queued"
+	RunRunning         RunStatus = "running"
+	RunWaitingApproval RunStatus = "waiting_approval"
+	RunSucceeded       RunStatus = "succeeded"
+	RunFailed          RunStatus = "failed"
+	RunCancelled       RunStatus = "cancelled"
 )
 
 // messageStatusOf is the public status of an assistant message, off its run's.
-func messageStatusOf(s runStatus) MessageStatus {
+func messageStatusOf(s RunStatus) MessageStatus {
 	switch s {
-	case runSucceeded:
+	case RunSucceeded:
 		return StatusComplete
-	case runFailed:
+	case RunFailed:
 		return StatusFailed
-	case runCancelled:
+	case RunCancelled:
 		return StatusCancelled
-	case runWaitingApproval:
+	case RunWaitingApproval:
 		return StatusWaitingApproval
 	default:
 		return StatusStreaming
@@ -472,7 +472,7 @@ func writeContent(ctx context.Context, st stmts, id MessageID, c rawjson.RawJSON
 }
 
 // flipRun moves a live run between running and waiting_approval.
-func flipRun(ctx context.Context, st stmts, id RunID, status runStatus) error {
+func flipRun(ctx context.Context, st stmts, id RunID, status RunStatus) error {
 	if _, err := st.Exec(ctx, stmtFlipRun, string(status), string(id)); err != nil {
 		return fmt.Errorf("flip run: %w", err)
 	}
@@ -481,7 +481,7 @@ func flipRun(ctx context.Context, st stmts, id RunID, status runStatus) error {
 
 // settleRun ends a run: a terminal status, a subagent's final text, its error (""
 // is NULL for both), when.
-func settleRun(ctx context.Context, st stmts, id RunID, status runStatus, result, errText string, at time.Time) error {
+func settleRun(ctx context.Context, st stmts, id RunID, status RunStatus, result, errText string, at time.Time) error {
 	_, err := st.Exec(ctx, stmtSettleRun, string(status), nullString(result), nullString(errText), millis(at), string(id))
 	if err != nil {
 		return fmt.Errorf("settle run: %w", err)
@@ -841,7 +841,7 @@ func lastAnswerRun(ctx context.Context, st stmts, chatID ChatID) (providerID, mo
 
 // runSummary is what the length check reads of a chat's newest turn.
 type runSummary struct {
-	status              runStatus
+	status              RunStatus
 	errText             string
 	providerID, modelID string
 	// firstCallErred says the turn's first model call ended on an error, a
@@ -984,7 +984,7 @@ func scanMessage(s scanner) (ChatMessage, error) {
 	m.FinishReason = finishReason.String
 	m.Status = StatusComplete
 	if status.Valid {
-		m.Status = messageStatusOf(runStatus(status.String))
+		m.Status = messageStatusOf(RunStatus(status.String))
 	}
 	m.CreatedAt = fromMillis(createdAt)
 	if finishedAt.Valid {
