@@ -122,7 +122,7 @@ func windowed(t *testing.T, window, maxOutput, wide int, offered ...tools.Tool) 
 // ask sends question into chatID (nil starts a chat) on providerID's model.
 func ask(t *testing.T, s *service, chatID *ChatID, providerID, modelID, question string) (ChatMessage, error) {
 	t.Helper()
-	return s.Send(t.Context(), chatID, ModeChat, "1", false, providerID, modelID, "", uuid.NewString(), question)
+	return s.Send(t.Context(), chatID, ModeChat, "1", false, false, false, providerID, modelID, "", uuid.NewString(), question)
 }
 
 // converse asks and waits for the answer to settle.

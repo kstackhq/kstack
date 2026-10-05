@@ -45,3 +45,18 @@ func TestNarrowKeepsThePolicy(t *testing.T) {
 
 	assert.Equal(t, policy, got.Policy(t.Context(), "dev"))
 }
+
+// A subagent has its parent's network, the turn's toggle included, for its
+// whole life.
+func TestNarrowKeepsTheNetwork(t *testing.T) {
+	parent := Session{Kind: Chat, Network: func(context.Context) Network { return NetworkTurn }}
+
+	got := Narrow(parent)
+
+	assert.Equal(t, NetworkTurn, got.Network(t.Context()))
+}
+
+// A session made without sessionFor has no network, ever.
+func TestTheZeroSessionHasNoNetwork(t *testing.T) {
+	assert.Nil(t, Session{Kind: Monitor}.Network)
+}

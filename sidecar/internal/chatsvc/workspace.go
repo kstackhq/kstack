@@ -34,29 +34,56 @@ func (s *service) withWorkspace(card string, id ChatID) string {
 	return withSection(card, "Workspace", map[string]string{"path": tools.WorkspacePath(s.chatDir(id))})
 }
 
+// sandboxState is what the Sandbox section tells the model: whether the
+// chat's commands run outside the sandbox, and, in it, whether the chat's
+// switch or the turn's toggle gives them the internet.
+type sandboxState struct {
+	outside         bool
+	networkEnabled  bool
+	networkThisTurn bool
+}
+
+// sandboxHeading opens the Sandbox section, as withSection writes it.
+const sandboxHeading = "## Sandbox\n\n```json\n"
+
 // withSandbox is card with where the chat's commands run appended as its own
-// section, on a machine with a sandbox: in it, or outside it once the user
-// switched the chat. The block goes again when the switch changes it.
-func (s *service) withSandbox(card string, outside bool) string {
+// section, on a machine with a sandbox: in it, with the network they have, or
+// outside it once the user switched the chat, where the network switch
+// changes nothing. The block goes again when what it says changes.
+func (s *service) withSandbox(card string, state sandboxState) string {
 	if !s.sandboxStatus.Available {
 		return card
 	}
-	commands := "sandboxed"
-	if outside {
-		commands = "outside"
+	if state.outside {
+		return withSection(card, "Sandbox", map[string]string{"commands": "outside"})
 	}
-	return withSection(card, "Sandbox", map[string]string{"commands": commands})
+	return withSection(card, "Sandbox", map[string]string{"commands": "sandboxed", "network": s.networkValue(state)})
 }
 
-// withSandboxReplaced is newest with its Sandbox section saying where commands
-// run now. The section is always the block's last, so it is swapped as a suffix;
-// newest comes back unchanged when it already says so or has no such section.
-func (s *service) withSandboxReplaced(newest string, outside bool) string {
-	stale := s.withSandbox("", !outside)
-	if !s.sandboxStatus.Available || !strings.HasSuffix(newest, stale) {
+// networkValue is the section's network key: the network a sandboxed chat's
+// commands have, the chat's switch over the turn's toggle.
+func (s *service) networkValue(state sandboxState) string {
+	switch {
+	case !s.sandboxStatus.NetworkAvailable:
+		return "unavailable on this machine"
+	case state.networkEnabled:
+		return "on for this chat"
+	case state.networkThisTurn:
+		return "on for this message"
+	}
+	return "off"
+}
+
+// withSandboxReplaced is newest with its Sandbox section saying state. The
+// section is always the block's last, so everything from its heading on is
+// replaced; newest comes back unchanged when it already says so or has no such
+// section.
+func (s *service) withSandboxReplaced(newest string, state sandboxState) string {
+	i := strings.LastIndex(newest, sandboxHeading)
+	if !s.sandboxStatus.Available || i < 0 {
 		return newest
 	}
-	return strings.TrimSuffix(newest, stale) + s.withSandbox("", outside)
+	return newest[:i] + s.withSandbox("", state)
 }
 
 // withSection is card with fields appended as the section heading.

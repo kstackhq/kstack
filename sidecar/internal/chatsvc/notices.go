@@ -206,7 +206,7 @@ func (s *service) startNoticeTurn(chatID ChatID) error {
 		if err != nil {
 			return fmt.Errorf("%w: %w", ErrBadRequest, err)
 		}
-		disabled, err := s.checkChat(ctx, st, &chatID, "")
+		c, err := s.checkChat(ctx, st, &chatID, "")
 		if err != nil {
 			return err
 		}
@@ -215,9 +215,10 @@ func (s *service) startNoticeTurn(chatID ChatID) error {
 			return err
 		}
 		// A notice turn renders no card, so a moved switch reaches the model by
-		// re-sending the newest context with its Sandbox section replaced.
+		// re-sending the newest context with its Sandbox section replaced. Its
+		// turn has no toggle.
 		var question []llm.Block
-		if replaced := s.withSandboxReplaced(newest, disabled); replaced != newest {
+		if replaced := s.withSandboxReplaced(newest, sandboxState{outside: c.SandboxDisabled, networkEnabled: c.NetworkEnabled}); replaced != newest {
 			question = []llm.Block{llm.ContextBlock(replaced)}
 		}
 		if err := roomFor(ctx, st, chatID, target, s.boxFor(target)); err != nil {
@@ -226,7 +227,7 @@ func (s *service) startNoticeTurn(chatID ChatID) error {
 		if t, err = s.reserveTurn(chatID, newRunID(), target); err != nil {
 			return err
 		}
-		t.outsideSandbox = disabled
+		t.outsideSandbox = c.SandboxDisabled
 		if err := markNotified(ctx, st, chatID, at); err != nil {
 			return err
 		}

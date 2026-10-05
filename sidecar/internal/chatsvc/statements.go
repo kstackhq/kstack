@@ -26,6 +26,7 @@ const (
 	stmtTouchChat
 	stmtRenameChat
 	stmtSetSandboxDisabled
+	stmtSetNetworkEnabled
 	stmtDeleteChat
 	stmtSelectChat
 	stmtSelectChats
@@ -80,7 +81,7 @@ const (
 // chatColumns is the projection every chat read scans, in the
 // order scanChat scans it. title is nullable in the table and a string in Go.
 // The last is whether any run of the chat waits on the user.
-const chatColumns = `id, COALESCE(title, ''), mode, cluster_id, sandbox_disabled, created_at, updated_at,
+const chatColumns = `id, COALESCE(title, ''), mode, cluster_id, sandbox_disabled, network_enabled, created_at, updated_at,
 	EXISTS (SELECT 1 FROM agent_runs w WHERE w.chat_id = chats.id AND w.status = 'waiting_approval')`
 
 // The insert projections, in the order the helpers bind them.
@@ -89,7 +90,7 @@ const (
 	runColumns     = `id, agent_type, app_version, trigger, chat_id, trigger_message_id,
 	provider, model, effort, dialect, status, created_at`
 	llmCallColumns  = `id, run_id, seq, provider, model, effort, started_at`
-	toolCallColumns = `id, llm_call_id, seq, runs_on, tool_name, contract_name, tool_use_id, arguments, cwd, sandboxed, result, error,
+	toolCallColumns = `id, llm_call_id, seq, runs_on, tool_name, contract_name, tool_use_id, arguments, cwd, sandboxed, network, result, error,
 	is_mutating, spawned_run_id, status, created_at, started_at, finished_at`
 	approvalColumns = `id, tool_call_id, kind, request, status, duration, reason, created_at, decided_at`
 )
@@ -100,7 +101,7 @@ const (
 // completed agent's report off the run sr it started. The reads alias tool_calls
 // t, llm_calls c, a call's own approval a and background_tasks b; order is the model's,
 // (c.seq, t.seq).
-const toolCallReadColumns = `c.run_id, t.id, t.runs_on, t.tool_use_id, t.tool_name, t.contract_name, t.arguments, t.cwd, t.sandboxed, t.result, t.error,
+const toolCallReadColumns = `c.run_id, t.id, t.runs_on, t.tool_use_id, t.tool_name, t.contract_name, t.arguments, t.cwd, t.sandboxed, t.network, t.result, t.error,
 	t.status, t.started_at, t.spawned_run_id, a.id, a.status, COALESCE(a.duration, ''), b.status, b.exit_code,
 	CASE WHEN b.status = 'completed' THEN sr.result END`
 
@@ -143,8 +144,10 @@ var statements = []sqlstmt.Statement{
 	stmtTouchChat:  sqlstmt.OnWriter(`UPDATE chats SET updated_at = ? WHERE id = ?`),
 	// RETURNING, so the renamed row comes back from the write itself: a read beside it
 	// is a second statement a concurrent delete can land between.
-	stmtRenameChat:         sqlstmt.OnWriter(`UPDATE chats SET title = ?, updated_at = ? WHERE id = ? RETURNING ` + chatColumns),
-	stmtSetSandboxDisabled: sqlstmt.OnWriter(`UPDATE chats SET sandbox_disabled = ? WHERE id = ? RETURNING ` + chatColumns),
+	stmtRenameChat: sqlstmt.OnWriter(`UPDATE chats SET title = ?, updated_at = ? WHERE id = ? RETURNING ` + chatColumns),
+	// Leaving the sandbox turns the network switch off: it is on only in the sandbox.
+	stmtSetSandboxDisabled: sqlstmt.OnWriter(`UPDATE chats SET sandbox_disabled = ?1, network_enabled = network_enabled AND NOT ?1 WHERE id = ?2 RETURNING ` + chatColumns),
+	stmtSetNetworkEnabled:  sqlstmt.OnWriter(`UPDATE chats SET network_enabled = ? WHERE id = ? RETURNING ` + chatColumns),
 	// The messages and runs go with the chat: ON DELETE CASCADE, and
 	// foreign_keys(on) is in the writer's DSN. One statement, so the two tables'
 	// references to each other are checked once both are gone.
@@ -200,13 +203,14 @@ var statements = []sqlstmt.Statement{
 	// runs, the outcome after, and again at settlement, which heals a write that was
 	// lost. A call the loop refused without running has no earlier row, and the same
 	// statement writes its first. cwd and sandboxed are written with the first row
-	// and never after.
+	// and never after; network with the row that marks the call running, which
+	// can be the second.
 	// spawned_run_id is the entry's, which carries the link from the subagent's
 	// insert on, so every later write keeps it.
 	stmtUpsertToolCall: sqlstmt.OnWriter(`INSERT INTO tool_calls (` + toolCallColumns + `)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
-	tool_name = excluded.tool_name, tool_use_id = excluded.tool_use_id, arguments = excluded.arguments,
+	tool_name = excluded.tool_name, tool_use_id = excluded.tool_use_id, arguments = excluded.arguments, network = excluded.network,
 	result = excluded.result, error = excluded.error, is_mutating = excluded.is_mutating,
 	spawned_run_id = excluded.spawned_run_id, status = excluded.status,
 	started_at = excluded.started_at, finished_at = excluded.finished_at`),

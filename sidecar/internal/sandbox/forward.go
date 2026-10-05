@@ -49,19 +49,32 @@ const initFailed = 125
 
 // initArgs is sandbox-init's command line.
 type initArgs struct {
-	socket string   // the run's proxy socket, empty for a run with no cluster
-	port   int      // the loopback port to listen on, beside socket
-	argv   []string // the command to run as the child
+	socket string // the run's proxy socket, empty for a run with no cluster
+	port   int    // the loopback port to listen on, beside socket
+	// stderrOnStdin is set under sandbox-pasta, which passes the run's stderr
+	// on stdin.
+	stderrOnStdin bool
+	argv          []string // the command to run as the child
 }
 
-// parseInitArgs reads [--socket <path> --port <n>] -- <argv…>, both flags or
-// neither; flag stops at the --, so argv is never read as flags.
+// stderrOnStdinFlag is the flag that sets initArgs.stderrOnStdin.
+const stderrOnStdinFlag = "--stderr-on-stdin"
+
+// runStarted is what sandbox-init writes on the stderr sandbox-pasta gave
+// pasta once it holds the run's own: pasta's and bwrap's output before it is
+// theirs, and the run has started.
+const runStarted = "\x00sandbox-init: started\x00"
+
+// parseInitArgs reads [--stderr-on-stdin] [--socket <path> --port <n>] --
+// <argv…>, both of the last two flags or neither; flag stops at the --, so
+// argv is never read as flags.
 func parseInitArgs(args []string) (initArgs, error) {
 	var a initArgs
 	fs := flag.NewFlagSet(InitCommand, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&a.socket, "socket", "", "")
 	fs.IntVar(&a.port, "port", 0, "")
+	fs.BoolVar(&a.stderrOnStdin, stderrOnStdinFlag[2:], false, "")
 	if err := fs.Parse(args); err != nil {
 		return initArgs{}, err
 	}

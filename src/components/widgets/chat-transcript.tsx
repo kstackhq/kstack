@@ -94,7 +94,9 @@ type ChatTranscriptProps = {
   sandboxAvailable?: boolean;
   /** The chat's switch, which Ask again sends as what the user saw. Undefined until the list watch delivers the chat. */
   sandboxDisabled?: boolean;
-  /** The chat's sandbox switch is in flight, which Ask again waits for. */
+  /** The chat's network switch, which Ask again sends the same way. */
+  networkEnabled?: boolean;
+  /** One of the chat's switches is in flight, which Ask again waits for. */
   switching?: boolean;
 };
 
@@ -466,6 +468,8 @@ function ToolCalls({
         const line = descriptionLine(call.action?.description ?? '');
         const cwd = call.action?.command?.cwd ?? '';
         const sandboxed = call.action?.command?.sandboxed ?? false;
+        let confined: string | undefined;
+        if (sandboxed) confined = call.network ? ', sandboxed, with network' : ', sandboxed';
         const written = writeOf(call.action);
         const edit = call.action?.edit ?? null;
         const delegate = call.action?.delegate ?? null;
@@ -498,7 +502,7 @@ function ToolCalls({
                 {tag !== '' && <span className="ml-2 opacity-70">{tag}</span>}
                 {line !== '' && <ModelDescription line={line} />}
               </summary>
-              {cwd !== '' && <LabelledLine label="in" text={cwd} after={sandboxed ? ', sandboxed' : undefined} />}
+              {cwd !== '' && <LabelledLine label="in" text={cwd} after={confined} />}
               {!open && changed}
               {call.action?.kubeQuery && (
                 <FoldedBlock
@@ -709,11 +713,16 @@ function ModelDescription({ line }: { line: string }) {
 
 type CommandAction = NonNullable<NonNullable<ChatToolCall['action']>['command']>;
 
-// What a command's request asks. On a machine with a sandbox a sandboxed command
-// runs unasked, so every command that asks runs outside it, whichever way the
-// chat is switched now: the turn read the switch when it started. Unknown reads
-// as outside, which a machine with no sandbox is too.
+// What a command's request asks, off the call, never the chat's switch now: the
+// turn read it when it started. A sandboxed command asks only for the internet.
+// On a machine with a sandbox every other command that asks runs outside it;
+// unknown reads as outside, which a machine with no sandbox is too.
 function commandHeading(command: CommandAction, sandboxAvailable: boolean | undefined): string {
+  if (command.sandboxed) {
+    return command.background
+      ? 'Run this command in the background, with network access?'
+      : 'Run this command with network access?';
+  }
   if (sandboxAvailable !== false) {
     return command.background
       ? 'Run this command in the background, outside the sandbox?'
@@ -1239,6 +1248,7 @@ export function ChatTranscript({
   approveArmMs = APPROVE_ARM_MS,
   sandboxAvailable,
   sandboxDisabled,
+  networkEnabled,
   switching = false,
 }: ChatTranscriptProps) {
   const { models } = useModels();
@@ -1287,12 +1297,17 @@ export function ChatTranscript({
   const failed = last?.role === 'Assistant' && last.status === 'Failed' && last.provider !== null;
   const question = failed ? questionBefore(messages, messages.indexOf(last)) : null;
   const onAskAgain =
-    failed && question !== null && send.status === 'idle' && !switching && sandboxDisabled !== undefined
+    failed &&
+    question !== null &&
+    send.status === 'idle' &&
+    !switching &&
+    sandboxDisabled !== undefined &&
+    networkEnabled !== undefined
       ? () =>
           askAgain(
             question,
             { model: { providerID: last.provider!.id, id: last.model }, effort: last.effort },
-            sandboxDisabled,
+            { sandboxDisabled, networkEnabled },
           )
       : undefined;
 

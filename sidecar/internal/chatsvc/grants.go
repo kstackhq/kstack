@@ -153,8 +153,9 @@ func sameRule(a, b permissions.Rule) bool {
 // sessionFor is a chat's session: its policy read live on every write, so a
 // mode or rule changed in Settings applies to the next one, a running turn's
 // and a running subagent's included. The chat's grants come before the always
-// rules.
-func (s *service) sessionFor(chatID ChatID, outside bool) session.Session {
+// rules. Its network is the chat's switch, read at each command the same way,
+// else the turn's toggle.
+func (s *service) sessionFor(chatID ChatID, outside, networkThisTurn bool) session.Session {
 	return session.Session{
 		Kind:    session.Chat,
 		Outside: outside,
@@ -164,5 +165,26 @@ func (s *service) sessionFor(chatID ChatID, outside bool) session.Session {
 				Rules: append(s.grantsFor(ctx, chatID), s.security.Rules()...),
 			}
 		},
+		Network: func(ctx context.Context) session.Network {
+			switch {
+			case s.networkEnabled(ctx, chatID):
+				return session.NetworkChat
+			case networkThisTurn:
+				return session.NetworkTurn
+			}
+			return session.NoNetwork
+		},
 	}
+}
+
+// networkEnabled is the chat's network switch as stored now. A read that
+// fails, or a chat that is gone, answers false, so a broken read gives no
+// network.
+func (s *service) networkEnabled(ctx context.Context, chatID ChatID) bool {
+	c, ok, err := getChat(ctx, s.store.Stmts(), chatID)
+	if err != nil {
+		slog.Warn("chat network switch not read", "chat", chatID, "err", err)
+		return false
+	}
+	return ok && c.NetworkEnabled
 }

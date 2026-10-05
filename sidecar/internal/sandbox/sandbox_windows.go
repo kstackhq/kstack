@@ -39,6 +39,9 @@ func (s *Sandbox) Command(context.Context, Run) (*exec.Cmd, error) {
 // Confines reports whether a command run through s is confined: never, here.
 func (s *Sandbox) Confines() bool { return false }
 
+// NeedsResolver answers false, since no command runs sandboxed.
+func (s *Sandbox) NeedsResolver() bool { return false }
+
 // Port answers no port, since no command runs sandboxed.
 func (s *Sandbox) Port() (int, error) { return 0, errNone }
 
@@ -53,3 +56,6 @@ func broadDirs(string) []string      { return nil }
 
 // System answers the zero System, since no command runs sandboxed.
 func (s *Sandbox) System(string, string) System { return System{} }
+
+// NetworkStatus answers no network, since no command runs sandboxed.
+func (s *Sandbox) NetworkStatus() (bool, string) { return false, errNone.Error() }
