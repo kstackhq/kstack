@@ -548,7 +548,9 @@ type fakeSandboxer struct {
 	system        sandbox.System   // what System answers
 	never         []string         // what Never answers
 	hold          *testutil.Signal // when set, Command fires it and waits for ctx to end
-	onSystem      func()           // when set, System calls it, then waits for holdSys to close
+	entered       chan struct{}    // when gate is set, Command sends on it, then waits for gate to close
+	gate          chan struct{}
+	onSystem      func() // when set, System calls it, then waits for holdSys to close
 	holdSys       chan struct{}
 	mu            sync.Mutex
 	runs          []sandbox.Run
@@ -557,6 +559,10 @@ type fakeSandboxer struct {
 }
 
 func (f *fakeSandboxer) Command(ctx context.Context, r sandbox.Run) (*exec.Cmd, error) {
+	if f.gate != nil {
+		f.entered <- struct{}{}
+		<-f.gate
+	}
 	if f.hold != nil {
 		f.hold.Fire()
 		<-ctx.Done()

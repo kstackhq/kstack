@@ -2615,6 +2615,39 @@ listing names asks for nothing, that a background command reads it redacted and 
 `[redacted]` after a request is the user's answer; that every helm command asks, and a helm change
 is refused when the command read Secret data redacted; and that `sudo` does not work, a command's processes are limited, one past its CPU
 time is killed with exit 152, and a crash that cannot create a thread hit the count.
+**The executable probe runs the executables a command would, before any chat does** (`executableprobe.go`).
+`executableList(registered)` is the list: `securityconfig.CuratedExecutables` (`kubectl`, `helm`, `kustomize`,
+`git`, `jq`, `yq`), then the user's, each an `ExecutableReport` not probed yet. **`ProbeExecutables(ctx,
+registered)` runs each in the sandbox, one after another**: the executable's name resolved on the run's
+`PATH` (`resolveExecutable`: the first regular, executable `<entry>/<name>`, no entry listed) and the
+rest of its invocation as its arguments, never through a shell, so nothing runs but a listed
+executable. A binary under `~/.asdf/shims` or `~/.local/share/mise/shims` is a shim (`shimManager`, the
+folder resolved and the file not, since a mise shim is a link to mise itself), and its
+manager's `which <name>` runs first, the same way, for `Target`. Each is a Workspace run
+through `sandboxedRunFor` with a `probeDir` (a throwaway chat directory,
+`<cache>/tmp/<pid>-probe-*`, removed after it), no cluster, `NoNetwork`, and a session holding
+only `SetProbeFolders`' folders, the always ones; bounded by `probeTimeout` (15s). Its
+`ExecutableReport` carries the resolved binary, `OK`, the first output line redacted and cut to 200
+characters as `Version`, and Bash's first line or `could not start: …` as `Error`. The executable's own
+error is all the report says of a path the sandbox refused it: the user reads the path off it and
+grants the folder in Settings. **Every read of the disk outside Kstack's directories runs under a
+bound** (`onDisk`): the PATH built from `System`, `Never` and `runPath`, and an executable's resolution,
+each run on a goroutine abandoned past `diskTimeout` (5s, a field a test shrinks) or when the probe's context ends, and the
+run's build through `sandboxedRunFor` gets the same deadline as its context, so a dead
+network mount fails that probe — *could not start: the disk did not answer in time* — and
+holds neither the probes queued behind it nor `Close` (`TestAProbesDiskReadIsBounded`,
+`TestAProbesRunBuildIsBounded`, `TestCloseEndsAProbeReadingTheDisk`). A report the PATH build
+or the resolution failed is **not probed**, since the executable never ran, and its `Error` says why;
+one the run's build failed ran the executable as far as its start, so it is probed with that error.
+**One probe runs at once**, and `StartProbe` asks for one without
+waiting: a call while one runs waits, then every call that waited shares the next run, on the
+last caller's registered executables, all on the executable's own context, which `Close` ends. `LastProbe` is the last report, in memory alone; `Report(registered)` is `ReportOver` it,
+which lays a report over the list, an executable it did not run with that invocation answering `not
+probed yet`. **`WatchProbe` is a current-on-subscribe receiver of `ProbeState`** — `Probing`, `Probes`,
+how many have started, since the hub keeps its latest value alone and a start and its end can
+arrive as one, and `Last` — published under the probe's lock at each start and each end, and
+ended by `Close`. A probe's report reaches the user alone, never a model.
+
 **A `Tool` is the `tools.Gated` a turn is offered**, matched to Claude Code's `Bash`: `Definition` is a function named `Bash` whose
 schema (`prompts/schema.json`), one with a sandbox or without, takes `command`, `description`, `timeout` (milliseconds), `run_in_background`, `network` (a sandboxed command asking for the internet, which `CommandAction.Network` carries) and `workdir` —
 never the reference's `dangerouslyDisableSandbox`, so leaving the sandbox is the user's switch — and whose description is `prompts/description.md`. The schema's `description` property is Kstack's
