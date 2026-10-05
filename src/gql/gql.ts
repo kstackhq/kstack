@@ -59,6 +59,10 @@ type Documents = {
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": typeof types.MemoriesWatchDocument,
     "\n  query Models {\n    models {\n      provider {\n        id\n        label\n      }\n      id\n      label\n      efforts\n      defaultEffort\n    }\n  }\n": typeof types.ModelsDocument,
     "\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n": typeof types.ChatNetworkEnabledSetDocument,
+    "\n  subscription SandboxExecutablesWatch {\n    sandboxExecutablesWatch {\n      probing\n      probes\n      executables {\n        name\n        invocation\n        registered\n        probed\n        resolved\n        shim\n        target\n        ok\n        version\n        error\n      }\n    }\n  }\n": typeof types.SandboxExecutablesWatchDocument,
+    "\n  mutation SandboxExecutablesProbe {\n    sandboxExecutablesProbe {\n      name\n    }\n  }\n": typeof types.SandboxExecutablesProbeDocument,
+    "\n  mutation SandboxExecutableRegister($name: String!, $invocation: String) {\n    sandboxExecutableRegister(name: $name, invocation: $invocation) {\n      name\n    }\n  }\n": typeof types.SandboxExecutableRegisterDocument,
+    "\n  mutation SandboxExecutableRemove($name: String!) {\n    sandboxExecutableRemove(name: $name) {\n      name\n    }\n  }\n": typeof types.SandboxExecutableRemoveDocument,
     "\n  query SandboxFolders($chatID: ChatID) {\n    sandboxFolders(chatID: $chatID) {\n      always {\n        id\n        path\n        write\n        refused\n      }\n      chat {\n        id\n        path\n        write\n        refused\n      }\n      never\n      wide\n      rulesHeld\n    }\n  }\n": typeof types.SandboxFoldersDocument,
     "\n  mutation FolderGrant($chatID: ChatID, $path: String!, $write: Boolean!, $duration: GrantDuration!) {\n    folderGrant(chatID: $chatID, path: $path, write: $write, duration: $duration) {\n      wide\n    }\n  }\n": typeof types.FolderGrantDocument,
     "\n  mutation FolderRevoke($id: String!) {\n    folderRevoke(id: $id) {\n      wide\n    }\n  }\n": typeof types.FolderRevokeDocument,
@@ -115,6 +119,10 @@ const documents: Documents = {
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": types.MemoriesWatchDocument,
     "\n  query Models {\n    models {\n      provider {\n        id\n        label\n      }\n      id\n      label\n      efforts\n      defaultEffort\n    }\n  }\n": types.ModelsDocument,
     "\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n": types.ChatNetworkEnabledSetDocument,
+    "\n  subscription SandboxExecutablesWatch {\n    sandboxExecutablesWatch {\n      probing\n      probes\n      executables {\n        name\n        invocation\n        registered\n        probed\n        resolved\n        shim\n        target\n        ok\n        version\n        error\n      }\n    }\n  }\n": types.SandboxExecutablesWatchDocument,
+    "\n  mutation SandboxExecutablesProbe {\n    sandboxExecutablesProbe {\n      name\n    }\n  }\n": types.SandboxExecutablesProbeDocument,
+    "\n  mutation SandboxExecutableRegister($name: String!, $invocation: String) {\n    sandboxExecutableRegister(name: $name, invocation: $invocation) {\n      name\n    }\n  }\n": types.SandboxExecutableRegisterDocument,
+    "\n  mutation SandboxExecutableRemove($name: String!) {\n    sandboxExecutableRemove(name: $name) {\n      name\n    }\n  }\n": types.SandboxExecutableRemoveDocument,
     "\n  query SandboxFolders($chatID: ChatID) {\n    sandboxFolders(chatID: $chatID) {\n      always {\n        id\n        path\n        write\n        refused\n      }\n      chat {\n        id\n        path\n        write\n        refused\n      }\n      never\n      wide\n      rulesHeld\n    }\n  }\n": types.SandboxFoldersDocument,
     "\n  mutation FolderGrant($chatID: ChatID, $path: String!, $write: Boolean!, $duration: GrantDuration!) {\n    folderGrant(chatID: $chatID, path: $path, write: $write, duration: $duration) {\n      wide\n    }\n  }\n": types.FolderGrantDocument,
     "\n  mutation FolderRevoke($id: String!) {\n    folderRevoke(id: $id) {\n      wide\n    }\n  }\n": types.FolderRevokeDocument,
@@ -320,6 +328,22 @@ export function graphql(source: "\n  query Models {\n    models {\n      provide
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n"): (typeof documents)["\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  subscription SandboxExecutablesWatch {\n    sandboxExecutablesWatch {\n      probing\n      probes\n      executables {\n        name\n        invocation\n        registered\n        probed\n        resolved\n        shim\n        target\n        ok\n        version\n        error\n      }\n    }\n  }\n"): (typeof documents)["\n  subscription SandboxExecutablesWatch {\n    sandboxExecutablesWatch {\n      probing\n      probes\n      executables {\n        name\n        invocation\n        registered\n        probed\n        resolved\n        shim\n        target\n        ok\n        version\n        error\n      }\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation SandboxExecutablesProbe {\n    sandboxExecutablesProbe {\n      name\n    }\n  }\n"): (typeof documents)["\n  mutation SandboxExecutablesProbe {\n    sandboxExecutablesProbe {\n      name\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation SandboxExecutableRegister($name: String!, $invocation: String) {\n    sandboxExecutableRegister(name: $name, invocation: $invocation) {\n      name\n    }\n  }\n"): (typeof documents)["\n  mutation SandboxExecutableRegister($name: String!, $invocation: String) {\n    sandboxExecutableRegister(name: $name, invocation: $invocation) {\n      name\n    }\n  }\n"];
+/**
+ * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
+ */
+export function graphql(source: "\n  mutation SandboxExecutableRemove($name: String!) {\n    sandboxExecutableRemove(name: $name) {\n      name\n    }\n  }\n"): (typeof documents)["\n  mutation SandboxExecutableRemove($name: String!) {\n    sandboxExecutableRemove(name: $name) {\n      name\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

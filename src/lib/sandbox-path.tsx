@@ -84,7 +84,8 @@ export type SandboxPath = {
   /** Includes dir for target, the folder the user was shown. */
   include: (dir: string, target: string) => Promise<void>;
   remove: (dir: string) => Promise<void>;
-  refresh: () => Promise<void>;
+  /** True once the shell answered and the list was synced. */
+  refresh: () => Promise<boolean>;
 };
 
 export function useSandboxPath(): SandboxPath {
@@ -132,6 +133,7 @@ export function useSandboxPath(): SandboxPath {
     setRefreshing(false);
     setRefreshError(refusalOf(error));
     askAgain();
+    return !error;
   }, [refreshMutation, askAgain]);
 
   return {
