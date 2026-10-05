@@ -1803,3 +1803,12 @@ func TestTrustFetchesNothingWithoutTheInternet(t *testing.T) {
 	assert.True(t, ok, out)
 	assert.Equal(t, "verified", firstLine(out))
 }
+
+func TestFixedMountIsEveryRunsOwnMount(t *testing.T) {
+	for _, p := range []string{"/dev", "/dev/fd"} {
+		assert.True(t, FixedMount(p), p)
+	}
+	for _, p := range []string{"/", "/tmp", "/proc", "/Users/me", "/devices"} {
+		assert.False(t, FixedMount(p), p)
+	}
+}

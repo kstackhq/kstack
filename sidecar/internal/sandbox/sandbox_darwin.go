@@ -323,3 +323,7 @@ func overFixedMount(string) bool { return false }
 // NetworkStatus is whether a run here can be given the internet: wherever the
 // sandbox is, here.
 func (s *Sandbox) NetworkStatus() (bool, string) { return true, "" }
+
+// FixedMount reports whether p is on or under /dev, a device filesystem a
+// folder grant has no business opening.
+func FixedMount(p string) bool { return within(filepath.Clean(p), "/dev") }

@@ -49,3 +49,13 @@ func TestUnderComparesResolvedPaths(t *testing.T) {
 	assert.False(t, Under(link, denied), "an unresolved link is compared as written")
 	assert.False(t, Under(base, denied))
 }
+
+func TestSpelledKeepsAPathUnderAFolderItCannotList(t *testing.T) {
+	base := resolved(t.TempDir())
+	svc := mkdirs(t, base, "locked/svc")[0]
+	locked := filepath.Dir(svc)
+	require.NoError(t, os.Chmod(locked, 0o311))
+	t.Cleanup(func() { os.Chmod(locked, 0o755) })
+
+	assert.Equal(t, []string{svc}, Spelled([]string{svc}))
+}

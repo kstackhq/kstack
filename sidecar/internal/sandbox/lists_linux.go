@@ -32,6 +32,8 @@ var platformLists = Lists{
 		"/etc/ssh", "/etc/sudoers", "/etc/sudoers.d", "/etc/shadow", "/etc/gshadow", "/etc/krb5.conf", "/etc/krb5.keytab",
 		"~/.local/share/keyrings", "~/.config/google-chrome", "~/.config/chromium", "~/.mozilla",
 	},
+	// The user's services, their environment, and the desktop's autostart.
+	NoWrite: []string{"~/.config/systemd", "~/.local/share/systemd/user", "~/.config/environment.d", "~/.config/autostart"},
 }
 
 // brewVar is Linuxbrew's var, which the System folders take in and which

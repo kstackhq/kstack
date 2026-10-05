@@ -39,6 +39,12 @@ func (s *Sandbox) Never(home string) []string {
 	return slices.DeleteFunc(paths, func(p string) bool { return within(h, resolved(p)) })
 }
 
+// NoWrite is the NoWrite lists with ~/ under home: what something outside
+// the sandbox runs, which no folder grant may write.
+func NoWrite(home string) []string {
+	return inHome(home, slices.Concat(sharedLists.NoWrite, platformLists.NoWrite))
+}
+
 // neverPaths is the Never lists with ~/ under home.
 func neverPaths(home string) []string {
 	return inHome(home, slices.Concat(sharedLists.Never, platformLists.Never))
