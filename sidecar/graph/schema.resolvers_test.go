@@ -1609,6 +1609,12 @@ func newChatServerOver(t *testing.T) (*httptest.Server, *appdb.DB, *llm.Fake) {
 // newChatServerWith is newChatServerOver on a machine whose sandbox is status.
 func newChatServerWith(t *testing.T, status sandbox.Status) (*httptest.Server, *appdb.DB, *llm.Fake) {
 	t.Helper()
+	return newChatServerOn(t, status, testSecurity(t))
+}
+
+// newChatServerOn is newChatServerWith over the security settings security.
+func newChatServerOn(t *testing.T, status sandbox.Status, security *securityconfig.Service) (*httptest.Server, *appdb.DB, *llm.Fake) {
+	t.Helper()
 	db, err := appdb.Open(filepath.Join(t.TempDir(), "app.db"), 0)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = db.Close() })
@@ -1620,7 +1626,7 @@ func newChatServerWith(t *testing.T, status sandbox.Status) (*httptest.Server, *
 	// The search is offered, since a test stages a turn that searched; the rest
 	// is read alone, so no call runs while stored calls still show.
 	box := tools.NewBox([]tools.Tool{agenttool.New(), anthropicwebsearch.New(time.Now)}, bash.Reader{}, &read.Tool{}, &write.Tool{}, &edit.Tool{}, &webfetch.Tool{}, taskstop.New(), memory.New(nil), kubequery.New(nil))
-	chatSvc, err := chatsvc.New(db, filepath.Join(t.TempDir(), "chats"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status, testSecurity(t))
+	chatSvc, err := chatsvc.New(db, filepath.Join(t.TempDir(), "chats"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status, security)
 	require.NoError(t, err)
 	stop, err := chatSvc.Start(t.Context())
 	require.NoError(t, err)
@@ -1630,7 +1636,7 @@ func newChatServerWith(t *testing.T, status sandbox.Status) (*httptest.Server, *
 	})
 	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
 		ClusterSvc: newFakeClusterService(nil), ChatSvc: chatSvc, LLMSvc: llmSvc, Auth: newFakeAuth(auth.Identity{}),
-		SandboxStatus: status,
+		SandboxStatus: status, SecurityCfg: security,
 	}))
 	t.Cleanup(srv.Close)
 	return srv, db, fake
