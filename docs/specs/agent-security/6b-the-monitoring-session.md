@@ -6,7 +6,7 @@ status: Planned
 
 # The monitoring session
 
-**Needs:** step 5A, whose `NoPrompts` keeps Secret data redacted; step 4C, whose
+**Needs:** step 5A, whose `NoPrompts` and `NoSecretData` keep Secret data redacted; step 4C, whose
 `Session.Network` and `Internet` a monitor leaves off. **Unblocks:** nothing.
 
 Go paths below are under `sidecar/internal/` unless they say otherwise.
@@ -64,10 +64,12 @@ func Session() session.Session {
 	return session.Session{
 		Kind:      session.Monitor,
 		Policy: func(context.Context, string) permissions.Policy {
-			return permissions.Policy{Mode: permissions.ReadOnly, Rules: permissions.Shipped(), NoPrompts: true}
+			return permissions.Policy{Mode: permissions.ReadOnly, Rules: permissions.Shipped()}
 		},
-		NoPrompts: true,
-		Network:   nil, // §2: no network, ever
+		// Step 5A: the grant copies both onto the policy it reads.
+		NoPrompts:    true,
+		NoSecretData: true,
+		Network:      nil, // §2: no network, ever
 		Folders:   nil,
 	}
 }
@@ -106,22 +108,23 @@ anything is made: a monitor is never asked about and never runs unconfined.
 ### 2. What the token policy gives it
 
 Each row is one of the note's invariants and the test that pins it, through the real proxies
-with a fake upstream. The policy is `{Mode: ReadOnly, NoPrompts: true}`, so `Authorize`
-answers `Refuse` for class 4 and 5, and `Outcome` refuses a denial the user could lift, class
-6 included, under `NoPrompts`. Its `Network` is nil, so its runs' policy leaves `Internet`
+with a fake upstream. The policy the grant reads is `{Mode: ReadOnly, NoPrompts: true,
+NoSecretData: true}`, so `Authorize` answers `Refuse` for class 4 and 5 by the mode, for class
+6 by `NoSecretData` ahead of every rule, and under `NoPrompts` for anything the user could
+otherwise lift. Its `Network` is nil, so its runs' policy leaves `Internet`
 false (step 4C), and a call asking for network is refused, since the monitor asks nobody.
 
 | Invariant | What holds it | Test |
 | --- | --- | --- |
 | A `POST`, `PUT`, `PATCH`, `DELETE` or `DELETECOLLECTION` from a monitor token is refused (the note's fifth) | the cluster proxy's write path: `Authorize` under `ReadOnly` answers `Refuse` for class 4 and 5, a 403 naming the mode, and `writesFor` has no asker to fall back to | `TestAMonitorWriteIsRejected`, a table over the five methods and over `scale`, `status`, `ephemeralcontainers` and `binding`; each reaches nothing upstream |
 | `exec`, `attach`, `portforward` and `proxy` are refused whatever the verb | the policy's refusals, before classification, as for any session | the same test's last rows |
-| Secret `data` and `stringData` are always redacted (the note's sixth) | step 5A: a class 6 read under `NoPrompts` never holds the grant, so the rewriter runs | `TestAMonitorReadsASecretRedacted`, a `GET` of `secrets` and a list, values `[redacted]` |
+| Secret `data` and `stringData` are always redacted (the note's sixth) | step 5A: `NoSecretData` refuses a class 6 read ahead of every rule and mode, so the rewriter runs; a monitor also has no asker, which redacts on its own | `TestAMonitorReadsASecretRedacted`, a `GET` of `secrets` and a list, values `[redacted]` |
 | No network, and none asked for | `Network` is nil, so `sandboxedRunFor` leaves `Internet` false (step 4C); a `network: true` call has no asker and is refused | `TestAMonitorHasNoNetwork`: a monitor run's policy leaves `Internet` false while a chat's switch and a turn's toggle are on, a listener outside gets no connection, and a `network: true` call is refused with the asker never called |
 | No chat's folder grant reaches it (the note's ninth) | `Folders` is nil and nothing fills it; the policy's Files rules are `System` and the run's own | `TestAChatsFoldersNeverReachTheMonitor`: a folder granted always and one granted to a chat are absent from the monitor run's policy and unreadable in it. The test is this step's: step 4D has no monitor to test |
 
 The run's token is one per run, as today: `sandboxedRunFor` makes the grant with the session,
 and the proxies read the policy off it. Nothing in this step changes the proxies; they read
-`Kind` nowhere. A monitor is refused by its mode and its `NoPrompts`, so a proxy that forgot
+`Kind` nowhere. A monitor is refused by its mode, its `NoSecretData` and its `NoPrompts`, so a proxy that forgot
 about monitors would still refuse it.
 
 ### 3. The workspace and handoffs

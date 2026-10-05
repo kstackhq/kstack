@@ -67,7 +67,7 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 
 | Package | Holds | First in |
 | --- | --- | --- |
-| `sandbox` | the OS sandbox: `Policy`, the zone `Lists`, `Limits`, and reading a run's denials | landed; 1A, 2A, 2B, 5B |
+| `sandbox` | the OS sandbox: `Policy`, the zone `Lists`, `Limits`, and reading a probe's denials | landed; 1A, 2A, 2B, 6A |
 | `securityconfig` | the settings file `<data>/security.json`: the store, and the fields later steps add — the frozen `PATH`, the permission rules and modes, the folders granted always, the registered tools, the monitor's switch, the onboarding flag | 1C |
 | `session` | a `Session`: one agent run's kind and sandbox switch, then its approval mode, network, folder grants and rules; and how a subagent's is narrowed from its parent's | 2C |
 | `permissions` | the action classes, the approval modes, the rules, and `Decide` | 3B, 3C, 4B |
@@ -124,8 +124,9 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 from step 4B, any classified action (`kind: action`, carried to the user as a
 `tools.ActionRequest` through the runtime's `ActionAsker`), with the decision's duration.
 A run's asks go to the user one at a time under the journal's `askMu`, held across the wait,
-since a write and a Secret read (5A) can ask at once; a record never takes it, and `journalMu` serializes every
-journal write, an ask's and a record's (step 4B's record task).
+since the proxy asks from its own goroutines; a record never takes it, and `journalMu` serializes every
+journal write, an ask's and a record's (step 4B's record task). A Secret read (5A) is one more
+ask, decided under the proxy's write lock like a write.
 `tool_calls.sandboxed` stays what it is, and `tool_calls.network` says whether a command had the
 internet and why (4C). `chats.sandbox_disabled` is step 1B's switch, `chats.network_enabled` 4C's.
 
@@ -221,14 +222,18 @@ Seams, each said in both specs' own text:
 
 | Spec | Step | After it |
 | --- | --- | --- |
-| [5A](5a-secret-data-is-a-permissioned-read.md) | **Secret data is a permissioned read.** Class 6: a read of Secret data asks, and the proxy redacts unless the session holds the grant; a session can be one that never reads it. Needs 3B and 4B. | A Secret's values reach the model only after the user says so, and never in a monitoring session. |
-| [5B](5b-denials-in-context.md) | **Denials in context.** A path or a write a run was refused is found per command and drawn under the call in plain words, with the grant that resolves it. Needs 4D. | A blocked command explains itself, and the closed home becomes how users find the permission system. |
+| [5A](5a-secret-data-is-a-permissioned-read.md) | **Secret data is a permissioned read.** Class 6: a read of Secret data asks, and the proxy redacts unless the session holds the grant; a session can be one that never reads it. Needs 3B, 3C and 4B. | A Secret's values reach the model only after the user says so, and never in a monitoring session. |
+| [5B](5b-grant-from-a-failed-command.md) | **Grant a folder from a failed command.** A failed sandboxed command offers *Grant a folder…* under the call: the user types the folder, for the chat or always, in the form Settings' Add row becomes. Nothing parses the output, and the model's result is unchanged. Needs 4D. | A user who reads a blocked command's error can open the folder where it failed, and the closed home becomes how users find the permission system. |
+
+Seam: 5A and 5B both edit `chat-transcript.tsx` and `prompts/sandbox.md`, in different
+places — 5A the cluster-change request's label and the prompt's Secret lines, 5B the offer
+after a call's disclosure and the prompt's folder line; the second keeps the first's lines.
 
 **Wave 6** — needs waves 1 to 5.
 
 | Spec | Step | After it |
 | --- | --- | --- |
-| [6A](6a-tool-probing.md) | **Tool probing.** The curated tools are probed in the real sandbox at onboarding and after a `PATH` refresh; each reports the binary it resolved to and the paths it was denied, with a grant button; the user registers more tools; a missing `kubectl` is said plainly. Needs 3A and 5B. | A `helm` plugin works in the sandbox after one click, and the user knows which `kubectl` the agent runs. |
+| [6A](6a-tool-probing.md) | **Tool probing.** The curated tools are probed in the real sandbox at onboarding and after a `PATH` refresh; each reports the binary it resolved to and the paths it was denied — found from Seatbelt's reports on macOS and the output on both, through a new `Policy.Explain` — with a grant button; the user registers more tools; a missing `kubectl` is said plainly. Needs 3A, 4D and 5B. | A `helm` plugin works in the sandbox after one click, and the user knows which `kubectl` the agent runs. |
 | [6B](6b-the-monitoring-session.md) | **The monitoring session.** A `monitor` session: read-only at the cluster proxy, no network, Secret data never, no prompts, its own workspace, no folder grants; a proposal card into chat, whose "Do it" runs the action in a chat session. Needs 4C and 5A. | A monitoring agent can plug in and change nothing without a human. |
 
 6A meets 4D across waves: the probe has no chat, so its run reads `foldersFor(ctx, "")`, the folders
@@ -264,8 +269,8 @@ neither and says so. A risk a step accepts on purpose is a **By decision** row i
 | 4C | yes | yes | the network row says the user's switch, with the tests; a **By decision** row: a command with network can send what it read to any server; rows for the loopback refusal and no credential for any host; the Mach services row (`trustd.agent` and DNS only with network); a **By decision** row for the trust daemon's GET to the loopback under network |
 | 4D | yes | yes | the file row; the denied-always row; the file tools' rows; a row for the monitor holding no folder |
 | 5A | yes | yes | the Secret redaction row; the helm release row; the cluster-reads **By decision** row; a row for `NoSecretData` |
-| 5B | no | no | a row: a denial is drawn and offered, never granted |
-| 6A | no | no | a row: the probe runs only the listed invocations |
+| 5B | no | no | the path-grants row names the transcript's offer |
+| 6A | no | no | a row: the probe runs only the listed invocations, and its denials reach the user alone |
 | 6B | yes | yes | rows for the monitor session, its folder and the proposal |
 | 7A | no | no | one line under the sandbox rows |
 
