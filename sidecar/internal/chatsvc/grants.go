@@ -182,9 +182,6 @@ func (s *service) foldersFor(ctx context.Context, chatID ChatID) []session.Folde
 
 // foldersFrom is foldersFor over rules already read.
 func (s *service) foldersFrom(ctx context.Context, chatID ChatID, rules []permissions.Rule) []session.Folder {
-	if !s.sandboxStatus.Available {
-		return nil
-	}
 	var folders []session.Folder
 	for _, r := range rules {
 		write := r.Class == permissions.WriteInside
@@ -198,9 +195,12 @@ func (s *service) foldersFrom(ctx context.Context, chatID ChatID, rules []permis
 }
 
 // folderRules is the folder grants a run of chatID reads: the chat's, then the
-// always ones, the chat's read through st. A held rules field holds no Allow,
-// so it grants no folder.
+// always ones, the chat's read through st. None without a sandbox. A held
+// rules field holds no Allow, so it grants no folder.
 func (s *service) folderRules(ctx context.Context, st stmts, chatID ChatID) []permissions.Rule {
+	if !s.sandboxStatus.Available {
+		return nil
+	}
 	var rules []permissions.Rule
 	if chatID != "" {
 		rules = grantsIn(ctx, st, chatID)
