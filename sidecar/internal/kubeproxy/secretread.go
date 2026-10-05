@@ -60,6 +60,9 @@ func (g *Grant) serveSecretRead(w http.ResponseWriter, r *http.Request, p apiPat
 		return
 	}
 	allowed := g.decideSecretRead(r, p)
+	if !allowed {
+		g.redactedReads[p.namespace] = true
+	}
 	g.writeLock.Release(1)
 	g.forward(w, r, p, body, !allowed)
 }

@@ -115,10 +115,6 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 		writeStatus(w, http.StatusForbidden, g.refusal)
 		return
 	}
-	if r.Method != http.MethodPost && namesRelease(p) {
-		writeStatus(w, http.StatusForbidden, string(refusedHelm))
-		return
-	}
 	// A pair that does not parse is dropped on its way to the API server, so the
 	// query shown would not be the query that runs: a selector could vanish.
 	if _, err := url.ParseQuery(r.URL.RawQuery); err != nil {
@@ -140,7 +136,16 @@ func (g *Grant) serveWrite(w http.ResponseWriter, r *http.Request, p apiPath) {
 	if err != nil {
 		return
 	}
-	if why := checkBody(r, p, body); why != pass {
+	// helm rebuilds a release from the Secrets it read, so one this command
+	// read redacted, in the namespace or across the cluster, would be written
+	// back as [redacted]. Ahead of the body check, which would refuse the marks
+	// inside such a release without saying what allows them.
+	release := writesRelease(r, p, body)
+	if release && (g.redactedReads[p.namespace] || g.redactedReads[""]) {
+		writeStatus(w, http.StatusForbidden, string(refusedHelm))
+		return
+	}
+	if why := checkBody(r, body, release); why != pass {
 		writeStatus(w, http.StatusForbidden, string(why))
 		return
 	}
@@ -247,7 +252,7 @@ func (g *Grant) waiting(delta int) {
 
 // checkBody is why a write's body cannot be put to the user, or pass. A DELETE
 // may carry none, and then has no type to check.
-func checkBody(r *http.Request, p apiPath, body []byte) refusal {
+func checkBody(r *http.Request, body []byte, release bool) refusal {
 	if r.Header.Get("Content-Encoding") != "" || !utf8.Valid(body) {
 		return refusedUnshowable
 	}
@@ -272,9 +277,42 @@ func checkBody(r *http.Request, p apiPath, body []byte) refusal {
 		if holdsMark(value) {
 			return refusedRedacted
 		}
+		if release {
+			return checkRelease(mediaType, value)
+		}
 	}
-	if r.Method == http.MethodPost && p.onSecrets() && !notARelease(body) {
-		return refusedHelm
+	return pass
+}
+
+// checkRelease is why a release write's body cannot be sent, or pass. helm's
+// encoding hides a mark from holdsMark, so the release is decoded and read
+// inside; a body that could set it any other way is refused.
+func checkRelease(mediaType string, value any) refusal {
+	if mediaType == "application/json-patch+json" {
+		return refusedUnshowable
+	}
+	obj, _ := value.(map[string]any)
+	if _, ok := obj["stringData"]; ok {
+		return refusedUnshowable
+	}
+	data, _ := obj["data"].(map[string]any)
+	raw, ok := data["release"]
+	if !ok {
+		return pass
+	}
+	encoded, _ := raw.(string)
+	release, err := decodeRelease(encoded)
+	if err != nil {
+		return refusedUnshowable
+	}
+	for _, field := range release {
+		v, err := decodeBody("application/json", field)
+		if err != nil {
+			return refusedUnshowable
+		}
+		if holdsMark(v) {
+			return refusedRedacted
+		}
 	}
 	return pass
 }
@@ -371,23 +409,31 @@ func holdsMark(value any) bool {
 	return false
 }
 
-// namesRelease is whether p names a helm release Secret.
-func namesRelease(p apiPath) bool {
-	return p.onSecrets() && strings.HasPrefix(p.name, releasePrefix)
+// writesRelease is whether r writes a helm release Secret: a PUT, PATCH or
+// DELETE of one by name, or a POST to secrets of one.
+func writesRelease(r *http.Request, p apiPath, body []byte) bool {
+	if !p.onSecrets() {
+		return false
+	}
+	if r.Method == http.MethodPost {
+		return mayBeRelease(body)
+	}
+	return strings.HasPrefix(p.name, releasePrefix)
 }
 
-// notARelease is whether body is a JSON object whose type is not a helm
-// release's. The keys are matched exactly, as the API server matches them.
-func notARelease(body []byte) bool {
+// mayBeRelease is whether body may be a helm release: anything but a JSON
+// object whose type is a string other than a release's. The keys are matched
+// exactly, as the API server matches them.
+func mayBeRelease(body []byte) bool {
 	var obj map[string]json.RawMessage
 	if err := json.Unmarshal(body, &obj); err != nil || obj == nil {
-		return false
+		return true
 	}
 	var typ string
 	if raw, ok := obj["type"]; ok && json.Unmarshal(raw, &typ) != nil {
-		return false
+		return true
 	}
-	return typ != helmReleaseType
+	return typ == helmReleaseType
 }
 
 // isDryRun is whether r asks the API server for a dry run, read strictly since

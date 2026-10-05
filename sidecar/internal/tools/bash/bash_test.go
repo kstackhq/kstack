@@ -1092,7 +1092,7 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 		assert.NotContains(t, p, "before you ask")
 	}
 	assert.Contains(t, sandboxPrompt, "If a command needs what the sandbox lacks — the user's files or credentials, "+
-		"a helm change, or a service account token — say so and what for. "+
+		"or a service account token — say so and what for. "+
 		"A path a command could not read is one the user can grant, in Settings or from the chat: "+
 		"say which path and what for, rather than work around it. "+
 		"The user can switch this chat to run commands outside the sandbox; the question's context says whether they have. "+
@@ -1103,13 +1103,16 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 	assert.Contains(t, sandboxPrompt, "A `Forbidden` that names the mode or a rule is the user's decision, not an error to work around", "a refusal is the user's")
 	assert.Contains(t, sandboxPrompt, "A dry run of a built-in resource runs at once, so `kubectl diff` and `--dry-run=server` preview such a change without asking; a dry run of a custom resource waits like the change.", "a dry run is a read")
 	assert.Contains(t, sandboxPrompt, "give a command that changes the cluster one that leaves the user time to read each request", "the wait counts against the timeout")
-	assert.Contains(t, sandboxPrompt, "a service account token, a helm change and a change past 1 MiB come back `Forbidden`, and so does a change from a background command")
+	assert.Contains(t, sandboxPrompt, "a service account token and a change past 1 MiB come back `Forbidden`, and so does a change from a background command")
 	assert.Contains(t, sandboxPrompt, "Change a Secret with `kubectl apply --server-side`: a client-side apply first reads the Secret, which asks, "+
 		"and fails on `[redacted]` if the read is not allowed.")
 	assert.Contains(t, sandboxPrompt, "A Secret's values, and a helm release's, read `[redacted]` unless the user allows showing them: "+
 		"a read of Secret data asks, and the user can allow it once, for the command, for this chat, or always.", "a Secret read asks")
 	assert.Contains(t, sandboxPrompt, "Listing Secrets' names asks for nothing, and a background command reads them `[redacted]`.")
 	assert.Contains(t, sandboxPrompt, "`[redacted]` after such a request is the user's answer: do not ask them to run the command outside the sandbox for it.")
+	assert.Contains(t, sandboxPrompt, "helm keeps each release in a Secret, so every helm command asks, and `helm upgrade` more than once; "+
+		"allowing it for this chat stops the asking. A helm change is refused when the command read Secret data `[redacted]`, and its refusal says so.")
+	assert.NotContains(t, sandboxPrompt, "a helm change and", "a helm change is not refused outright")
 	assert.NotContains(t, sandboxPrompt, "reaches no network")
 	assert.Contains(t, sandboxPrompt, "The sandbox reaches the internet only when the question's context says its `network` is on.")
 	assert.Contains(t, sandboxPrompt, "A command that needs the internet otherwise can set `network: true`, which asks the user to approve that command; "+

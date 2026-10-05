@@ -109,6 +109,10 @@ type Grant struct {
 	// commandRules are the rules the user's command answers added, under the
 	// write lock: the grant lives as long as the command, and so do they.
 	commandRules []permissions.Rule
+	// redactedReads are the namespaces this command read Secret data redacted
+	// in, "" for a read across the cluster, under the write lock: helm
+	// rebuilds a release from the Secrets it read.
+	redactedReads map[string]bool
 	// diffTimeout bounds a preview's two requests together.
 	diffTimeout time.Duration
 	// waitersMoved, when set, is told each write that starts or stops waiting for
@@ -138,8 +142,9 @@ func NewGrant(up Upstream, sess session.Session, kubeContext string, asker Asker
 		limiter:      rate.NewLimiter(qps, burst),
 		openRequests: semaphore.NewWeighted(int64(maxInFlight)),
 		writeLock:    semaphore.NewWeighted(1), writeWaiters: semaphore.NewWeighted(maxQueuedWrites),
-		diffTimeout: defaultDiffTimeout,
-		ctx:         ctx, end: end,
+		redactedReads: map[string]bool{},
+		diffTimeout:   defaultDiffTimeout,
+		ctx:           ctx, end: end,
 	}
 }
 
