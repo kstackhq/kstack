@@ -2622,7 +2622,7 @@ own: the user reads the description *above the command* on the approval request,
 what the command changes and where, and never calls a command safe — the model's claim is never
 the app's. `Prompt` is `prompts/bash.md`, Kstack's own lines, where the tool has no sandbox. Where it has
 one, `prompts/sandbox.md` takes the place of bash.md's first paragraph, which says every command
-waits (what the sandbox reaches, that the user can switch the chat outside it, which the context says, and that only a command outside it waits for
+waits (what the sandbox reaches, that a tool which cannot find its files under the home needs a folder the user grants from under the command that failed or in Settings, so the model says which and why and runs it again once they have, that the user can switch the chat outside it, which the context says, and that only a command outside it waits for
 the user), then on Linux `prompts/sandbox_linux.md` (a snap's program needs the chat run outside the sandbox),
 then the rest of bash.md; then `- Platform:` (`runtime.GOOS`) and `- Shell:`, and on Windows a line on Git Bash's paths.
 `Approval`, `Run`, `CallTimeout` and `ActionOf` read the input through one `parse` that walks the

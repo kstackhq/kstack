@@ -326,6 +326,19 @@ export function actionKindLabel(kind: ToolActionKind): string {
 }
 
 /**
+ * Whether a call draws Grant a folder… under it: a sandboxed command that
+ * failed. Nothing tells a hidden path from any other failure, so every one
+ * offers it.
+ */
+export function grantOffered(call: Pick<ChatToolCall, 'action' | 'status' | 'background'>): boolean {
+  if (!call.action?.command?.sandboxed) return false;
+  // A background call answers at once, so its end is the task's; a code the
+  // sidecar could not read may be a failure.
+  if (call.background) return call.background.status === 'Exited' && call.background.exitCode !== 0;
+  return call.status === 'Failed';
+}
+
+/**
  * Whether a call is a search that ran: the provider's, which has no status, or
  * the sidecar's once it has succeeded. The kind is the tool's, so a search
  * whose arguments did not parse still counts.
