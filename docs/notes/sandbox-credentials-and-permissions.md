@@ -644,10 +644,12 @@ above, that is most of 1, 2 and 6.
    file cannot reach Kstack's data or the network while it runs.
 7. **`kubectl port-forward` stays refused.** The proxy refuses every upgrade, so loopback need not
    stay open for it. A later step may classify it as the class-4 write the note names.
-8. **Linux has no readable denial log for an unprivileged process**, so a denial there is found
-   from the command's error output checked against the policy. On macOS it is found from
+8. **Only the tool probe finds denials** (step 6A), since its report reaches the user alone. A
+   chat's failed command offers a grant the user types (step 5B), and its model reads the tool's
+   own error. Linux has no readable denial log for an unprivileged process, so a probe's denial
+   there is found from its output checked against the policy; on macOS it is found from
    Seatbelt's reports as well, read from a `log stream` and attributed to the run by a tag on
-   each of its deny rules (step 5B).
+   each of its deny rules.
 9. **A subagent shares its parent's workspace.** Its privilege is its parent's, so a folder of
    its own would separate nothing, and its `Write` and `Edit` are drawn open under the chat as
    the parent's are. The chat and the monitor keep separate workspaces, as the note says.
