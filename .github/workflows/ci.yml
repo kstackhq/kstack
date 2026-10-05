@@ -232,6 +232,51 @@ jobs:
         working-directory: ./sidecar
         run: go run scripts/coverage.go -report
 
+  # Builds Kstack's own bwrap and pasta, loads their AppArmor profiles through
+  # the .deb's postinst on a stock 24.04, where user namespaces are restricted,
+  # and runs the sandbox's chains through them as an ordinary user.
+  sandbox-apparmor:
+    name: Sandbox · AppArmor · Ubuntu 24.04
+    needs:
+      - go-lint
+      - go-vet
+    strategy:
+      fail-fast: false
+      matrix:
+        runner:
+          - ubuntu-24.04
+          - ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-environment
+        with:
+          setup-go: "true"
+      # Unrestricted, the check proves nothing about the profiles.
+      - name: Assert user namespaces are restricted
+        run: test "$(sysctl -n kernel.apparmor_restrict_unprivileged_userns)" = 1
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build libcap-dev
+      - name: Build bwrap and pasta
+        run: make bwrap pasta
+      - name: Build the sidecar
+        working-directory: ./sidecar
+        run: go build -o kstack-sidecar .
+      # Where the .deb puts them, since each profile attaches by path.
+      - name: Install as the .deb does
+        run: |
+          sudo install -D -m 0755 sidecar/kstack-sidecar /usr/bin/kstack-sidecar
+          sudo install -D -m 0755 src-tauri/linux/bwrap /usr/lib/kstack/bwrap
+          sudo install -D -m 0755 src-tauri/linux/pasta /usr/lib/kstack/pasta
+          sudo install -D -m 0644 src-tauri/linux/kstack-bwrap /usr/lib/kstack/apparmor/kstack-bwrap
+          sudo install -D -m 0644 src-tauri/linux/kstack-pasta /usr/lib/kstack/apparmor/kstack-pasta
+          sudo sh src-tauri/linux/postinst.sh configure
+          sudo aa-status | grep -E 'kstack_(bwrap|pasta)'
+      - name: Run the sandbox's chains
+        run: scripts/check-sandbox-chain.sh
+
   typescript-coverage:
     name: TypeScript · Coverage
     needs:

@@ -1,11 +1,14 @@
 #!/bin/sh
-# Unloads and deletes the profile postinst.sh installed, on removal alone: an
-# upgrade's postinst puts the new one in its place.
+# Unloads and deletes the profiles postinst.sh installed, on removal alone: an
+# upgrade's postinst puts the new ones in their place.
 set -e
 
-if [ "$1" = remove ] && [ -e /etc/apparmor.d/kstack-bwrap ]; then
-  if command -v apparmor_parser >/dev/null 2>&1 && [ -d /sys/kernel/security/apparmor ]; then
-    apparmor_parser --remove /etc/apparmor.d/kstack-bwrap || true
-  fi
-  rm -f /etc/apparmor.d/kstack-bwrap
+if [ "$1" = remove ]; then
+  for profile in kstack-pasta kstack-bwrap; do
+    [ -e "/etc/apparmor.d/$profile" ] || continue
+    if command -v apparmor_parser >/dev/null 2>&1 && [ -d /sys/kernel/security/apparmor ]; then
+      apparmor_parser --remove "/etc/apparmor.d/$profile" || true
+    fi
+    rm -f "/etc/apparmor.d/$profile"
+  done
 fi
