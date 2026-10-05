@@ -25,6 +25,7 @@ vi.mock('urql', () => ({ useQuery: useQueryMock, useMutation: useMutationMock })
 // Each document is its name, so the mock can tell the mutations apart.
 vi.mock('@/gql', () => ({ graphql: (source: string) => /(?:query|mutation) (\w+)/.exec(source)![1] }));
 
+const { chatGrantsContext } = await import('./chat-grants');
 const { useSandboxFolders } = await import('./sandbox-folders');
 
 const code = { id: 'a', path: '/Users/ren/code', write: false, refused: null };
@@ -83,12 +84,10 @@ describe('useSandboxFolders', () => {
     act(() => {
       granted = result.current.grant('/Users/ren/code', true, 'Always');
     });
-    expect(mutations.FolderGrant).toHaveBeenCalledWith({
-      chatID: null,
-      path: '/Users/ren/code',
-      write: true,
-      duration: 'Always',
-    });
+    expect(mutations.FolderGrant).toHaveBeenCalledWith(
+      { chatID: null, path: '/Users/ren/code', write: true, duration: 'Always' },
+      chatGrantsContext,
+    );
     expect(result.current.granting).toBe(true);
 
     await act(async () => answer({ data: { folderGrant: {} } }));
@@ -97,13 +96,17 @@ describe('useSandboxFolders', () => {
     expect(reexecute).toHaveBeenCalledWith({ requestPolicy: 'network-only' });
   });
 
-  it('names the chat on a grant for it', async () => {
+  // A chat grant is a chat rule, so the chat's list of them is asked again.
+  it("names the chat on a grant for it, under the chat rules' context", async () => {
     mutations.FolderGrant.mockResolvedValue({ data: { folderGrant: {} } });
     const { result } = renderHook(() => useSandboxFolders('c1'));
     await act(async () => {
       await result.current.grant('/Users/ren/code', false, 'Chat');
     });
-    expect(mutations.FolderGrant).toHaveBeenCalledWith(expect.objectContaining({ chatID: 'c1', duration: 'Chat' }));
+    expect(mutations.FolderGrant).toHaveBeenCalledWith(
+      expect.objectContaining({ chatID: 'c1', duration: 'Chat' }),
+      chatGrantsContext,
+    );
   });
 
   it("keeps a refused grant's reason, and a link's target", async () => {

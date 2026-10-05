@@ -25,6 +25,7 @@ const { sendMock, catalog } = vi.hoisted(() => ({ sendMock: vi.fn(), catalog: { 
 vi.mock('urql', () => ({ useMutation: () => [{}, sendMock], useQuery: () => [catalog.current, vi.fn()] }));
 
 const { ChatOutboxProvider } = await import('@/lib/chat-outbox');
+const { chatGrantsContext } = await import('@/lib/chat-grants');
 const { APPROVE_ARM_MS, ChatTranscript } = await import('./chat-transcript');
 
 const opus = {
@@ -3276,6 +3277,95 @@ describe('ChatTranscript', () => {
     it('offers no Ask again on a failed answer to a notice-only message', () => {
       draw([noticeOnly(), msg({ id: 'm4', seq: 4, status: 'Failed', content: [], error: '429 rate_limit_error' })]);
       expect(screen.queryByRole('button', { name: 'Ask again' })).toBeNull();
+    });
+  });
+
+  describe('the grant offer', () => {
+    // A sandboxed command that ran unasked, failed unless a case says otherwise.
+    const sandboxedCall = (over: Partial<ChatToolCall> = {}) =>
+      call({
+        action: {
+          ...call().action!,
+          command: { ...call().action!.command!, text: 'cat /Users/ana/code/README.md', cwd: '/ws', sandboxed: true },
+        },
+        approval: null,
+        status: 'Failed',
+        output: 'Exit code 1\ncat: /Users/ana/code/README.md: No such file or directory',
+        ...over,
+      });
+    const offer = () => screen.getByRole('button', { name: 'Grant a folder…' });
+
+    it('draws the offer after a failed sandboxed call, outside its disclosure', () => {
+      draw([msg({ toolCalls: [sandboxedCall()] })]);
+      const disclosure = screen.getByText('cat /Users/ana/code/README.md').closest('details')!;
+      expect(disclosure.nextElementSibling).toBe(offer());
+    });
+
+    it('draws none under one that succeeded or ran outside the sandbox', () => {
+      draw([
+        msg({
+          toolCalls: [
+            sandboxedCall({ status: 'Succeeded' }),
+            decided({ id: 'tc2', status: 'Failed', output: 'Exit code 1' }),
+          ],
+        }),
+      ]);
+      expect(screen.queryByRole('button', { name: 'Grant a folder…' })).toBeNull();
+    });
+
+    it('opens the form in place, empty and with both durations, and Cancel closes it', () => {
+      draw([msg({ toolCalls: [sandboxedCall()] })]);
+      expect(offer()).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('textbox', { name: 'Folder to grant' })).toBeNull();
+
+      fireEvent.click(offer());
+      expect(offer()).toHaveAttribute('aria-expanded', 'true');
+      expect(screen.getByRole('textbox', { name: 'Folder to grant' })).toHaveValue('');
+      expect(screen.getByRole('tab', { name: 'For this chat', selected: true })).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: 'Always' })).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+      expect(offer()).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.queryByRole('textbox', { name: 'Folder to grant' })).toBeNull();
+    });
+
+    it("grants the typed folder for the chat, then says Granted in the offer's place", async () => {
+      sendMock.mockResolvedValue({ data: { folderGrant: { wide: [] } } });
+      draw([msg({ toolCalls: [sandboxedCall()] })]);
+      fireEvent.click(offer());
+      fireEvent.change(screen.getByRole('textbox', { name: 'Folder to grant' }), {
+        target: { value: '/Users/ana/code' },
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole('button', { name: 'Grant' }));
+      });
+
+      expect(sendMock).toHaveBeenCalledWith(
+        { chatID: 'c1', path: '/Users/ana/code', write: false, duration: 'Chat' },
+        chatGrantsContext,
+      );
+      expect(screen.queryByRole('textbox', { name: 'Folder to grant' })).toBeNull();
+      expect(screen.queryByRole('button', { name: 'Grant a folder…' })).toBeNull();
+      expect(screen.getByText('Granted')).toBeInTheDocument();
+    });
+
+    it("draws a subagent's offer inside its Agent call's disclosure", () => {
+      const agent = call({
+        id: 'ag1',
+        name: 'Agent',
+        actionKind: 'Delegate',
+        status: 'Succeeded',
+        approval: null,
+        action: {
+          ...call().action!,
+          command: null,
+          delegate: { prompt: 'Read the README.', agentType: 'general-purpose', model: '' },
+        },
+        background: { status: 'Completed', exitCode: null, report: '' },
+      });
+      draw([msg({ toolCalls: [agent, sandboxedCall({ id: 'cc1', agentCallID: 'ag1' })] })]);
+      const disclosure = screen.getByText('Agent').closest('details')!;
+      expect(disclosure).toContainElement(offer());
     });
   });
 });

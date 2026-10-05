@@ -19,13 +19,10 @@
 // through VisibleText with its whitespace kept and the trailing spelled: a
 // change approves the folder drawn, and two that differ only in whitespace
 // must not look alike.
-import { useState } from 'react';
-
 import { Button } from '@kubetail/ui/elements/button';
-import { Checkbox } from '@kubetail/ui/elements/checkbox';
 import { Field, FieldContent, FieldDescription, FieldLabel } from '@kubetail/ui/elements/field';
-import { Input } from '@kubetail/ui/elements/input';
 
+import { FolderGrantForm } from '@/components/widgets/folder-grant-form';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { isMacOS } from '@/lib/platform';
 import { useSandbox } from '@/lib/sandbox';
@@ -133,18 +130,6 @@ function SandboxPathList() {
   );
 }
 
-// cleanPath is path as the sidecar compares it: repeated and trailing slashes
-// dropped, and each . and .. taken by name. The sidecar refuses a path that
-// is not resolved, so this is exact for every path Add can take.
-function cleanPath(path: string): string {
-  const parts: string[] = [];
-  path.split('/').forEach((part) => {
-    if (part === '..') parts.pop();
-    else if (part !== '' && part !== '.') parts.push(part);
-  });
-  return path.startsWith('/') ? `/${parts.join('/')}` : parts.join('/');
-}
-
 // The folders macOS's privacy control guards for the app, under the home.
 const PRIVATE_FOLDERS = ['Documents', 'Desktop', 'Downloads'];
 
@@ -154,14 +139,6 @@ function guardedByMacOS(path: string, home: string | undefined): boolean {
   return (
     home !== undefined &&
     PRIVATE_FOLDERS.some((name) => path.startsWith(`${home}/${name}/`) || path === `${home}/${name}`)
-  );
-}
-
-function wideWarning(path: string): string {
-  if (path === '/Volumes') return 'This lets commands read every disk mounted on this Mac.';
-  return (
-    'This lets commands read everything in your home folder except the credential folders Kstack knows of, ' +
-    "listed under Never readable, and Kstack's own files. Any other secret kept in your home becomes readable."
   );
 }
 
@@ -198,20 +175,8 @@ function FolderRow({
 }
 
 function SandboxFolderList() {
-  const { always, never, wide, rulesHeld, granting, revoking, grantError, revokeError, grant, revoke } =
-    useSandboxFolders();
-  const [path, setPath] = useState('');
-  const [write, setWrite] = useState(false);
+  const { always, never, wide, rulesHeld, revoking, revokeError, revoke } = useSandboxFolders();
   const home = wide?.[0];
-  const typed = cleanPath(path);
-
-  // Sent as typed, whitespace included: the folder drawn is the folder granted.
-  const add = async () => {
-    if (await grant(path, write, 'Always')) {
-      setPath('');
-      setWrite(false);
-    }
-  };
 
   return (
     <>
@@ -235,34 +200,7 @@ function SandboxFolderList() {
           ))}
         </ul>
         {revokeError && <p className="text-xs text-destructive">{revokeError}</p>}
-        <div className="flex items-center gap-2">
-          <Input
-            aria-label="Folder to grant"
-            className="font-mono text-xs"
-            placeholder="/path/to/folder"
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-          />
-          {/* eslint-disable-next-line jsx-a11y/label-has-associated-control -- Checkbox renders its control inside */}
-          <label className="flex shrink-0 items-center gap-1.5 text-xs">
-            <Checkbox checked={write} onCheckedChange={(checked) => setWrite(checked === true)} />
-            read and write
-          </label>
-          <Button size="sm" variant="outline" disabled={granting || path === ''} onClick={add}>
-            Add
-          </Button>
-        </div>
-        {wide?.includes(typed) && <p className="text-xs text-muted-foreground">{wideWarning(typed)}</p>}
-        {grantError && (
-          <div className="text-xs text-destructive">
-            <p>{grantError.message}</p>
-            {grantError.target && (
-              <Button size="sm" variant="link" className="px-0" onClick={() => setPath(grantError.target ?? '')}>
-                {`Grant ${grantError.target}`}
-              </Button>
-            )}
-          </div>
-        )}
+        <FolderGrantForm durations={['Always']} submitLabel="Add" />
       </Field>
       <Field>
         <FieldContent>

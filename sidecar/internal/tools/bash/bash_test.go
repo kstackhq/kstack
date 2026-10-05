@@ -1122,7 +1122,9 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 	assert.Contains(t, sandboxPrompt, "What follows about the user's own credentials, `kubectl diff` and `--dry-run=server` is for a command run outside the sandbox.")
 	assert.Contains(t, sandboxPrompt, "The sandbox has the user's tools and none of their shell's functions, aliases or variables. "+
 		"`HOME` is the workspace. A tool that cannot find its own files under the home needs a folder the user grants, "+
-		"or this chat switched outside the sandbox.", "what a sandboxed run starts from")
+		"which they can do from under the command that failed or in Settings: say which folder and why, "+
+		"and run the command again once they have.", "what a sandboxed run starts from")
+	assert.NotContains(t, sandboxPrompt, "or this chat switched outside the sandbox", "one folder is never a reason to leave the sandbox")
 	assert.Contains(t, sandboxPrompt, "The sandbox reaches none of the user's credentials, and of the user's files the folders "+
 		"they granted alone, which the question's context lists: it reads each, and writes those granted read and write.", "the grants")
 	assert.Contains(t, sandboxPrompt, "`Read`, `Write` and `Edit` reach a granted folder as they reach the workspace.")
