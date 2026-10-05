@@ -454,7 +454,9 @@ func TestASandboxedRunReachesTheClusterThroughTheProxy(t *testing.T) {
 	assert.Equal(t, int32(1), lease.released.Load(), "the claim is released with the run")
 }
 
-// A sandboxed run reads a Secret through the proxy, and reads it redacted.
+// A sandboxed run reads a Secret through the proxy: redacted with no one to
+// record the read, unredacted under a rule allowing it, and redacted again in
+// the background, where nobody sees the read.
 func TestASandboxedRunReadsASecretRedacted(t *testing.T) {
 	api := newFakeAPI(t)
 	tl := proxyTool(t, &fakeLease{serverUID: "uid-1", conn: api.connection()})
@@ -463,6 +465,29 @@ func TestASandboxedRunReadsASecretRedacted(t *testing.T) {
 
 	require.False(t, isError, text)
 	assert.Equal(t, "note=[redacted]\n", text)
+
+	rt := clusterRuntime(t)
+	allow := permissions.GrantRule(permissions.Action{Class: permissions.SecretRead, Context: "prod", Namespace: "web"})
+	rt.Session.Policy = func(context.Context, string) permissions.Policy {
+		return permissions.Policy{Mode: permissions.Ask, Rules: []permissions.Rule{allow}}
+	}
+	asker := &fakeActionAsker{}
+	rt.ActionAsker = asker
+	text, isError = tl.Run(t.Context(), rt, command(clientLine("secret")))
+	require.False(t, isError, text)
+	assert.Equal(t, "note=hunter2\n", text, "a rule allowing Secret reads shows the values")
+	require.Len(t, asker.recorded, 1)
+	assert.Equal(t, "GET", asker.recorded[0].Method)
+
+	tasks := newFakeTasks(t)
+	rt.Tasks = tasks
+	text, isError = tl.Run(t.Context(), rt, background(clientLine("secret")))
+	require.False(t, isError, text)
+	require.Len(t, tasks.started, 1)
+	tasks.started[0].Wait()
+	out, err := os.ReadFile(filepath.Join(string(tasks.dir), "t1.output"))
+	require.NoError(t, err)
+	assert.Contains(t, string(out), "note=[redacted]", "a background command reads Secret data redacted")
 }
 
 // fakeActionAsker is a runtime's ActionAsker that keeps each write it is

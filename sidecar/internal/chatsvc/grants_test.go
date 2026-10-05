@@ -364,3 +364,14 @@ func TestConcurrentGrantsOfOneFolderLeaveOneRule(t *testing.T) {
 	assert.Len(t, always, 1)
 	assert.Len(t, chat, 1)
 }
+
+// A chat's session asks and reads Secret data under its rules, and so does a
+// subagent's under it: only a monitor's session is built with either flag.
+func TestAChatsSessionAsksAndReadsSecretData(t *testing.T) {
+	s := newTestService(t)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	for _, sess := range []session.Session{s.sessionFor(c.ID, false, false), session.Narrow(s.sessionFor(c.ID, false, false))} {
+		assert.False(t, sess.NoPrompts)
+		assert.False(t, sess.NoSecretData)
+	}
+}

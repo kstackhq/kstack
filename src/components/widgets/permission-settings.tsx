@@ -115,9 +115,17 @@ const SELECT = 'h-9 rounded-md border bg-transparent px-3 text-sm';
 
 // Each mode with what it asks, in the picker's order.
 const MODES: { value: PermissionMode; label: string; line: string }[] = [
-  { value: 'ReadOnly', label: 'Read-only', line: 'Every change to the cluster is refused.' },
-  { value: 'Ask', label: 'Ask', line: 'Every change to the cluster asks you first.' },
-  { value: 'Auto', label: 'Auto', line: 'Changes run without asking, except the ones that always ask.' },
+  {
+    value: 'ReadOnly',
+    label: 'Read-only',
+    line: 'Every change to the cluster is refused. Showing Secret data asks you first.',
+  },
+  { value: 'Ask', label: 'Ask', line: 'Every change to the cluster, and showing Secret data, asks you first.' },
+  {
+    value: 'Auto',
+    label: 'Auto',
+    line: 'Changes run and Secret data is shown without asking, except what always asks.',
+  },
 ];
 
 // Where a mode comes from; an entry's is drawn as its pattern.
@@ -131,12 +139,16 @@ const SOURCES: Record<Exclude<PermissionModeSource, 'Entry'>, string> = {
 const CLASSES: { value: PermissionClass; label: string }[] = [
   { value: 'UpstreamWrite', label: 'Cluster writes' },
   { value: 'Destructive', label: 'Destructive cluster writes' },
+  { value: 'SecretRead', label: 'Secret reads' },
 ];
 
 // What Kstack does while a field it cannot read is held.
 const HELD: Record<string, { title: string; meanwhile: string }> = {
   modes: { title: 'Modes Kstack cannot read', meanwhile: 'Every context is read-only until the file is fixed.' },
-  rules: { title: 'Rules Kstack cannot read', meanwhile: 'Every cluster write is refused until the file is fixed.' },
+  rules: {
+    title: 'Rules Kstack cannot read',
+    meanwhile: 'Every cluster write is refused, and Secret data stays redacted, until the file is fixed.',
+  },
 };
 
 type Refusal = { field: string; value: string; reason: string };
@@ -401,6 +413,20 @@ function RuleForm({ disabled, onAdd }: { disabled: boolean; onAdd: (input: RuleI
   // A class the effect no longer offers falls back to the first.
   const klass = classes.some((c) => c.value === draft.class) ? draft.class : classes[0].value;
 
+  // A Secret read rule names a context and a namespace alone, and every Secret
+  // is in a namespace, so picking it clears the fields it draws none of.
+  const secretRead = klass === 'SecretRead';
+  const pickClass = (value: PermissionClass) =>
+    value === 'SecretRead'
+      ? set({
+          class: value,
+          verb: '',
+          group: '',
+          kind: '',
+          namespace: draft.namespace === CLUSTER_SCOPE ? '' : draft.namespace,
+        })
+      : set({ class: value });
+
   const submit = (e: FormEvent) => {
     e.preventDefault();
     onAdd({ ...draft, class: klass });
@@ -431,15 +457,17 @@ function RuleForm({ disabled, onAdd }: { disabled: boolean; onAdd: (input: RuleI
         disabled={clusterScoped}
         onChange={(e) => set({ namespace: e.target.value })}
       />
-      <label htmlFor={`${id}-cluster-scoped`} className="flex items-center gap-1">
-        <input
-          id={`${id}-cluster-scoped`}
-          type="checkbox"
-          checked={clusterScoped}
-          onChange={(e) => set({ namespace: e.target.checked ? CLUSTER_SCOPE : '' })}
-        />
-        Cluster-scoped
-      </label>
+      {!secretRead && (
+        <label htmlFor={`${id}-cluster-scoped`} className="flex items-center gap-1">
+          <input
+            id={`${id}-cluster-scoped`}
+            type="checkbox"
+            checked={clusterScoped}
+            onChange={(e) => set({ namespace: e.target.checked ? CLUSTER_SCOPE : '' })}
+          />
+          Cluster-scoped
+        </label>
+      )}
     </>,
   );
 
@@ -468,7 +496,7 @@ function RuleForm({ disabled, onAdd }: { disabled: boolean; onAdd: (input: RuleI
             id={`${id}-class`}
             className={SELECT}
             value={klass}
-            onChange={(e) => set({ class: e.target.value as PermissionClass })}
+            onChange={(e) => pickClass(e.target.value as PermissionClass)}
           >
             {classes.map((c) => (
               <option key={c.value} value={c.value}>
@@ -479,9 +507,13 @@ function RuleForm({ disabled, onAdd }: { disabled: boolean; onAdd: (input: RuleI
         )}
         {text('context', 'Context')}
         {namespace}
-        {text('verb', 'Verb')}
-        {text('group', 'API group')}
-        {text('kind', 'Resource')}
+        {!secretRead && (
+          <>
+            {text('verb', 'Verb')}
+            {text('group', 'API group')}
+            {text('kind', 'Resource')}
+          </>
+        )}
       </div>
       <p className="text-muted-foreground">
         Each field matches anything when empty. Every field but the API group is a pattern: * matches any run of

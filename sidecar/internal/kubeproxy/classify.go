@@ -15,6 +15,7 @@
 package kubeproxy
 
 import (
+	"cmp"
 	"encoding/json"
 	"mime"
 	"net/http"
@@ -67,6 +68,15 @@ func classify(r *http.Request, p apiPath, body []byte, context string) permissio
 	}
 	if r.Method == http.MethodDelete && p.name == "" {
 		act.Verb = "deletecollection"
+	}
+	// A read's verb is the API server's, which a Secret read's rule can name.
+	if r.Method == http.MethodGet && p.kind == resourcePath {
+		switch {
+		case isWatch(p, r.URL.Query()):
+			act.Verb = "watch"
+		case p.name == "":
+			act.Verb = "list"
+		}
 	}
 	switch {
 	case r.Method == http.MethodGet && p.onSecrets():
@@ -281,16 +291,24 @@ var verbWords = map[string]string{
 }
 
 // summary is act in one line, naming the target as kubectl does: "Delete
-// pods/api-7f9c in team-a on dev-eks".
+// pods/api-7f9c in team-a on dev-eks". A Secret read names what it shows:
+// "Show Secret db-creds in team-a on dev-eks", "Watch Secret data on dev-eks".
 func summary(p apiPath, act permissions.Action) string {
-	target := p.resource
-	if act.Name != "" {
-		target += "/" + act.Name
+	var line string
+	switch {
+	case act.Class == permissions.SecretRead && act.Verb == "watch":
+		line = "Watch Secret " + cmp.Or(act.Name, "data")
+	case act.Class == permissions.SecretRead:
+		line = "Show Secret " + cmp.Or(act.Name, "data")
+	default:
+		line = verbWords[act.Verb] + " " + p.resource
+		if act.Name != "" {
+			line += "/" + act.Name
+		}
+		if p.subresource != "" {
+			line += "/" + p.subresource
+		}
 	}
-	if p.subresource != "" {
-		target += "/" + p.subresource
-	}
-	line := verbWords[act.Verb] + " " + target
 	if p.namespace != "" {
 		line += " in " + p.namespace
 	}

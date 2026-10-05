@@ -672,11 +672,14 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   the refusal's row in `security-model.md` and is a security record.
 
 - **Check Secret redaction by hand against a real cluster (medium; sandbox owner).** On `pnpm
-  tauri dev` against a cluster with a helm release, approve `kubectl get secret <any> -o yaml`,
-  `kubectl get secrets -A | head` and `helm list -A`, and read `[redacted]` in the first, a table
-  in the second, the releases in the third; approve `helm get values <release>` and read
-  `[redacted]` for every value. Run the helm commands with a Helm 3 and a Helm 4 binary, since the
-  rewriter assumes they share the release Secret's encoding.
+  tauri dev` against a cluster with a helm release, in `Ask` mode: run `kubectl get secret <any>
+  -o yaml`, deny its *Show Secret* request and read `[redacted]`; run `kubectl get secrets -A |
+  head` and read a table with no request; run `helm list -A`, deny each request, and read the
+  releases; run `helm get values <release>`, deny, and read `[redacted]` for every value. Then
+  allow the `-o yaml` read for this chat and read the values, and run `helm upgrade` with its
+  reads allowed for the command and read its writes ask as cluster writes. Run the helm commands
+  with a Helm 3 and a Helm 4 binary, since the rewriter assumes they share the release Secret's
+  encoding.
 
 - **Check cluster writes by hand (medium; sandbox owner).** On `pnpm tauri dev` against a kind
   cluster, on Linux or macOS, ask "delete pod x" and see the request *Delete pods/x in default on

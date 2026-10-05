@@ -55,7 +55,7 @@ func TestEveryRequestIsClassified(t *testing.T) {
 		{"discovery", "GET", "/apis/apps/v1", "", "", permissions.ReadInside, "get", "apps", ""},
 		{"a log", "GET", "/api/v1/namespaces/team-a/pods/api/log", "", "", permissions.ReadInside, "get", "core", "pods/log"},
 		{"a secret read", "GET", "/api/v1/namespaces/team-a/secrets/x", "", "", permissions.SecretRead, "get", "core", "secrets"},
-		{"a secret list", "GET", "/api/v1/secrets", "", "", permissions.SecretRead, "get", "core", "secrets"},
+		{"a secret list", "GET", "/api/v1/secrets", "", "", permissions.SecretRead, "list", "core", "secrets"},
 		{"a self review", "POST", "/apis/authorization.k8s.io/v1/selfsubjectaccessreviews", jsonType, `{}`, permissions.ReadInside, "create", "authorization.k8s.io", "selfsubjectaccessreviews"},
 		{"a dry run on a deployment", "PATCH", deployPath + "?dryRun=All", mergeType, replicasZero, permissions.ReadInside, "patch", "apps", "deployments"},
 		{"a dry run on a secret", "POST", "/api/v1/namespaces/team-a/secrets?dryRun=All", jsonType, `{}`, permissions.ReadInside, "create", "core", "secrets"},
@@ -194,7 +194,6 @@ func TestASummaryNamesTheTargetAsKubectlDoes(t *testing.T) {
 		"Patch deployments/api/scale in team-a on dev-eks": classifyOf("PATCH", scalePath, mergeType, `{}`),
 		"Replace widgets/w1 in team-a on dev-eks":          classifyOf("PUT", "/apis/example.com/v1/namespaces/team-a/widgets/w1", jsonType, `{}`),
 		"Delete namespaces/team-a on dev-eks":              classifyOf("DELETE", "/api/v1/namespaces/team-a", "", ""),
-		"Read secrets/x in team-a on dev-eks":              classifyOf("GET", "/api/v1/namespaces/team-a/secrets/x", "", ""),
 	} {
 		assert.Equal(t, want, act.Summary)
 	}
@@ -219,4 +218,23 @@ func TestClassifyMarksADryRun(t *testing.T) {
 	assert.False(t, act.DryRun)
 	act = classifyOf("DELETE", "/api/v1/namespaces/team-a/pods/api?dryRun=All", "", "")
 	assert.False(t, act.DryRun, "a DELETE's dry run is in a body the proxy does not read")
+}
+
+func TestAClassSixVerbIsTheServers(t *testing.T) {
+	for _, c := range []struct {
+		target, verb, summary string
+	}{
+		{"/api/v1/namespaces/team-a/secrets/db-creds", "get", "Show Secret db-creds in team-a on dev-eks"},
+		{"/api/v1/namespaces/team-a/secrets", "list", "Show Secret data in team-a on dev-eks"},
+		{"/api/v1/namespaces/team-a/secrets?watch=1", "watch", "Watch Secret data in team-a on dev-eks"},
+		{"/api/v1/watch/namespaces/team-a/secrets", "watch", "Watch Secret data in team-a on dev-eks"},
+		{"/api/v1/watch/namespaces/team-a/secrets/db-creds", "watch", "Watch Secret db-creds in team-a on dev-eks"},
+		{"/api/v1/secrets", "list", "Show Secret data on dev-eks"},
+	} {
+		act := classifyOf("GET", c.target, "", "")
+		assert.Equal(t, permissions.SecretRead, act.Class, c.target)
+		assert.Equal(t, c.verb, act.Verb, c.target)
+		assert.Equal(t, c.summary, act.Summary, c.target)
+	}
+	assert.Equal(t, "update", classifyOf("PUT", "/api/v1/namespaces/team-a/secrets/x", jsonType, `{}`).Verb, "a write's verb is unchanged")
 }
