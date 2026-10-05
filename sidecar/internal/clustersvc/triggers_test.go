@@ -137,6 +137,22 @@ func TestTriggerSkipsAValueThatNamesNoRecord(t *testing.T) {
 	assert.Equal(t, "mapped/known", testutil.Recv(t, tr.Wakes(), "the poke"))
 }
 
+// Stopping ends a wake nobody is reading, so a stalled reader cannot hold the stop.
+func TestTriggerStopEndsAnUnreadWake(t *testing.T) {
+	ch := make(chan string)
+	tr := newTrigger(
+		func() feed[string] { return stringFeed{ch: ch, closed: testutil.NewSignal()} },
+		always(func(v string) string { return v }),
+	)
+	stop, err := tr.Start(context.Background())
+	require.NoError(t, err)
+	// Unbuffered, so the loop holds the value once the send returns, and nothing reads
+	// the wake it owes.
+	ch <- "changed"
+
+	require.NoError(t, stop(context.Background()))
+}
+
 // The loop owns the subscription, so stopping it is what releases the feed.
 func TestTriggerReleasesItsFeedOnExit(t *testing.T) {
 	closed := testutil.NewSignal()

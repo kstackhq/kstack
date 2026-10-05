@@ -959,6 +959,17 @@ func TestAPassThatMovedNothingWakesNoRecord(t *testing.T) {
 	testutil.NoRecv(t, news.Chan(), quietWindow, "a pass that moved nothing woke the record")
 }
 
+// A pass for a kind under a cache nobody armed is no news: no record stands behind it to wake.
+func TestAPassUnderAnUnarmedCacheIsNoNews(t *testing.T) {
+	svc, _ := newTestService(t)
+	cacheID, id, ok := parseKindSubject(kindSubject(7, podKind))
+	require.True(t, ok)
+
+	_, moved := svc.recordKindReason(cacheID, id, supervisor.Snapshot{})
+
+	assert.False(t, moved)
+}
+
 // A worker holds a start slot only until its STARTING phase is over, and for a stream that is the
 // watch being open — never its first frame. Bookmarks are advisory and a quiet collection may send
 // nothing for hours, so slots held until a frame would be taken indefinitely by whichever kinds

@@ -1993,6 +1993,26 @@ func TestAJobDependingOnAWorkerRunsOnceItIsReady(t *testing.T) {
 		"the dependent to run once its worker was up")
 }
 
+// A worker that is down is a failing dependency, not a starting one: its dependent records
+// DependencyFailed rather than waiting on it.
+func TestAJobDependingOnADownWorkerRecordsTheFailingDependency(t *testing.T) {
+	e := New()
+	t.Cleanup(func() { assert.NoError(t, e.Close()) })
+	w := newSteeredWorker()
+	RegisterWorker(e, "sync", w, WithBackoff(time.Hour, 2, time.Hour))
+	dependent := &steered{res: Succeeded()}
+	RegisterJob(e, "reader", dependent, WithDependencies("sync"), WithInterval(time.Hour))
+	startSupervisor(t, e)
+
+	e.Add(subj)
+	w.started.Await(t, "the worker's run")
+	w.exit(t, Fail("Unreachable", assert.AnError))
+
+	a := awaitAttempts(t, e, "reader", "the dependent to record its failing dependency", hasRecorded)
+	assert.Equal(t, ReasonDependencyFailed, a.LastAttempt.Reason)
+	assert.Zero(t, dependent.count())
+}
+
 // The watch edge is a Restart for a worker where it is a Wake for a job: a worker's input moving
 // means the one it is running on is stale. **The restart is made from inside commit**, under the
 // supervisor's own lock, which is why it must not be the kind of call that waits.

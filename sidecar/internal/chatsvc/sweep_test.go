@@ -29,6 +29,22 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
 
+// Stopping ends a sweep's report nobody reads, so the hook cannot hold the stop.
+func TestStopEndsAnUnreadSweepReport(t *testing.T) {
+	dir := t.TempDir()
+	box, lists := testBox()
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), &stubClusterCards{}, nil, box, lists, sandbox.Status{})
+	require.NoError(t, err)
+	s.onSwept = make(chan struct{})
+	stop, err := s.Start(t.Context())
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), testutil.Timeout)
+	defer cancel()
+	require.NoError(t, stop(ctx))
+	require.NoError(t, s.Close())
+}
+
 // The sweeper subscribes before its startup sweep and runs on every clusters signal:
 // a marked cluster's chats go, and another cluster's stay.
 func TestTheSweeperDeletesAMarkedClustersChats(t *testing.T) {
