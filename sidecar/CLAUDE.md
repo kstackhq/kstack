@@ -1297,7 +1297,7 @@ proxy decided with nobody asked (`Record`, with the reason in the user's words),
 can be asked. `chatsvc` sets every
 field; a test sets the ones its tool
 reads. **A `session.Session`** is one agent run's policy: its `Kind` (`Chat`, `Subagent` or
-`Monitor`, the last built by nothing yet), `Outside`, the chat's switch as its turn read it, and
+`Monitor`, built by `chatsvc`'s `monitorSession`), `Outside`, the chat's switch as its turn read it, and
 `Policy`, a function of a kube-context answering a `permissions.Policy` — the context's mode and the
 rules — read live on every write, which `chatsvc` sets to the security store's `ModeFor` and the
 chat's grants joined with the store's `Rules()` (`sessionFor`, `grants.go`), so a mode or rule
@@ -1309,7 +1309,7 @@ changed in Settings applies to the next write, a running subagent's included; `N
 function answering the session's folder grants (`session.Folder`: `Path`, `Write`), read live,
 whose one builder is `chatsvc`'s `foldersFor` (*Chat*, below); and `NoPrompts` and `NoSecretData`,
 a session that never asks and one that never reads Secret data, the one source of the policy's two
-flags, which `chatsvc` never sets and `Narrow` copies (step 6B's monitor will set both). A nil
+flags, which a chat's session never sets, the monitor's sets both, and `Narrow` copies. A nil
 `Folders` reads none:
 `Session.GrantedFolders(ctx)` is the reader that says so, and every reader of the folders goes
 through it (`TestASessionWithNoFoldersReadsNone`).
@@ -2230,7 +2230,8 @@ internal/chatsvc/
   subagent.go    the subagent an Agent call starts as a task: the turn as its
                  tools.Spawner, the agentTask that runs it, its recorder and its end
   approval.go    the gate: the agent.Approver a run is, the waiters, Approve
-  prompt.go      the system prompt, embedded from prompts/system.md
+  prompt.go      the system prompts, embedded from prompts/: system.md,
+                 general_purpose.md, monitor.md
   store.go       one function per statement over a stmts (sqlstmt.Stmts) that reads
                  or writes the records, the scanners, the run-status mapping
   statements.go  the table: every statement's text and the pool it is prepared on
