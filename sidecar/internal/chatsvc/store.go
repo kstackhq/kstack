@@ -256,12 +256,14 @@ func scanChat(s scanner) (Chat, error) {
 // agentRun is a run's row as it is inserted. A chat run is queued, answering
 // the question TriggerMessageID, with the three names the send asked for. A
 // subagent's run is running, under ParentID, with the AgentType that ran and the
-// Task it was handed.
+// Task it was handed. A monitor's run is queued under ClusterID, with no chat,
+// its Task the brief.
 type agentRun struct {
 	ID               RunID
 	ParentID         RunID
 	AgentType        string
 	ChatID           ChatID
+	ClusterID        apimeta.ClusterID
 	TriggerMessageID MessageID
 	ProviderID       string
 	ModelID          string
@@ -436,6 +438,17 @@ func insertSubagentRun(ctx context.Context, st stmts, r agentRun) error {
 		r.ProviderID, r.ModelID, nullString(r.Effort), string(r.Dialect), r.Task, millis(r.CreatedAt), millis(r.CreatedAt))
 	if err != nil {
 		return fmt.Errorf("insert subagent run: %w", err)
+	}
+	return nil
+}
+
+// insertMonitorRun inserts a monitor's run, queued under its cluster.
+func insertMonitorRun(ctx context.Context, st stmts, r agentRun) error {
+	_, err := st.Exec(ctx, stmtInsertMonitorRun,
+		string(r.ID), r.AppVersion, string(r.ClusterID),
+		r.ProviderID, r.ModelID, nullString(r.Effort), string(r.Dialect), r.Task, millis(r.CreatedAt))
+	if err != nil {
+		return fmt.Errorf("insert monitor run: %w", err)
 	}
 	return nil
 }
@@ -1013,6 +1026,19 @@ func clusterAccepts(ctx context.Context, st stmts, clusterID apimeta.ClusterID) 
 // sweeper deletes.
 func markedClusterIDs(ctx context.Context, st stmts) ([]apimeta.ClusterID, error) {
 	return collectIDs[apimeta.ClusterID](ctx, st, stmtSelectMarkedClusterIDs, "marked clusters")
+}
+
+// clusterMonitoring is whether the cluster is there and unmarked, and whether
+// its monitoring switch is on.
+func clusterMonitoring(ctx context.Context, st stmts, clusterID apimeta.ClusterID) (found, enabled bool, err error) {
+	err = st.QueryRow(ctx, stmtSelectClusterMonitoring, string(clusterID)).Scan(&enabled)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, fmt.Errorf("cluster monitoring: %w", err)
+	}
+	return true, enabled, nil
 }
 
 // collectIDs runs a statement whose rows are one id each.

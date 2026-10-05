@@ -2295,7 +2295,8 @@ chat — stamping it again would jump every interrupted chat to the top of the s
 work the user did not do.
 
 **A message is what a client posts; a run is what the server does about it.** `agent_runs` is
-one row per execution: for a chat turn, `trigger = 'chat'`, `trigger_message_id` the user message
+one row per execution — `cluster_id` set on a monitor's alone, `chat_id` NULL on it alone, two
+`CHECK`s holding the pair, so a cluster's delete cascades its monitor's runs — and for a chat turn, `trigger = 'chat'`, `trigger_message_id` the user message
 it answers (unique, so a message starts at most one run), and the assistant message's `run_id`
 pointing back at it — plain references both ways, cascaded off the chat alone, so a
 chat goes with **one `DELETE`** (`stmtDeleteChat`), which is what lets SQLite check

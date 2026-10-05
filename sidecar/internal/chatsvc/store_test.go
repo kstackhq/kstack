@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/rawjson"
@@ -61,6 +62,8 @@ func TestEveryRowHelperNamesItsFailure(t *testing.T) {
 		"next seq":                  func() error { _, err := nextSeq(ctx, st, id); return err },
 		"insert message":            func() error { return insertMessage(ctx, st, ChatMessage{}, "") },
 		"insert run":                func() error { return insertRun(ctx, st, agentRun{}) },
+		"insert monitor run":        func() error { return insertMonitorRun(ctx, st, agentRun{}) },
+		"cluster monitoring":        func() error { _, _, err := clusterMonitoring(ctx, st, "1"); return err },
 		"claim run":                 func() error { return claimRun(ctx, st, "r", now) },
 		"write content":             func() error { return writeContent(ctx, st, "m", emptyContent) },
 		"settle run":                func() error { return settleRun(ctx, st, "r", RunFailed, "", "", now) },
@@ -219,9 +222,83 @@ func TestChatModeIsCheckedByTheColumn(t *testing.T) {
 // A run's dialect is checked non-empty alone: the set is llm.Dialects' to list.
 func TestARunDialectIsCheckedByTheColumn(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
-	_, err := db.Write.Exec(`INSERT INTO agent_runs (id, agent_type, app_version, trigger, provider, model, dialect, created_at)
-		VALUES ('r', 'chat', 'test', 'chat', 'fake', 'fake', '', 0)`)
+	_, err := db.Write.Exec(`INSERT INTO agent_runs (id, agent_type, app_version, trigger, cluster_id, provider, model, dialect, created_at)
+		VALUES ('r', 'monitor', 'test', 'monitor', '1', 'fake', 'fake', '', 0)`)
 	assert.ErrorContains(t, err, "CHECK")
+}
+
+// A monitor's run is filed under its cluster and no chat, queued, its task the
+// brief; the CHECKs keep a cluster on a monitor's run alone.
+func TestAMonitorRunIsFiledUnderItsClusterWithNoChat(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	st := prepareOn(t, db).Stmts()
+	run := agentRun{
+		ID: newRunID(), ClusterID: "7", ProviderID: "fake", ModelID: "fake", Effort: "low",
+		Dialect: "fake", Task: "look", AppVersion: "test", CreatedAt: time.UnixMilli(1_000).UTC(),
+	}
+
+	require.NoError(t, insertMonitorRun(t.Context(), st, run))
+
+	var (
+		agentType, trigger, task, status string
+		chatID, clusterID                sql.NullString
+	)
+	require.NoError(t, db.Read.QueryRow(`SELECT agent_type, trigger, chat_id, cluster_id, task, status FROM agent_runs WHERE id = ?`,
+		string(run.ID)).Scan(&agentType, &trigger, &chatID, &clusterID, &task, &status))
+	assert.Equal(t, "monitor", agentType)
+	assert.Equal(t, "monitor", trigger)
+	assert.False(t, chatID.Valid)
+	assert.Equal(t, "7", clusterID.String)
+	assert.Equal(t, "look", task)
+	assert.Equal(t, string(RunQueued), status)
+
+	c := seedChat(t, db, aChat("7", time.UnixMilli(1_000).UTC()))
+	for _, row := range []struct {
+		name, trigger string
+		chat, cluster any
+	}{
+		{"a monitor's run with a chat", "monitor", string(c.ID), "7"},
+		{"a monitor's run with no cluster", "monitor", nil, nil},
+		{"a chat's run with a cluster", "chat", string(c.ID), "7"},
+	} {
+		_, err := db.Write.Exec(`INSERT INTO agent_runs (id, agent_type, app_version, trigger, chat_id, cluster_id, provider, model, dialect, created_at)
+			VALUES (?, 'x', 'test', ?, ?, ?, 'fake', 'fake', 'fake', 0)`, appdb.NewID(), row.trigger, row.chat, row.cluster)
+		assert.ErrorContains(t, err, "CHECK", row.name)
+	}
+}
+
+// A cluster's delete takes its monitor's runs and their rows.
+func TestAClustersDeleteTakesItsMonitorRuns(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	st := prepareOn(t, db).Stmts()
+	run := agentRun{ID: newRunID(), ClusterID: "7", ProviderID: "fake", ModelID: "fake", Dialect: "fake", Task: "look", AppVersion: "test"}
+	require.NoError(t, insertMonitorRun(t.Context(), st, run))
+	_, err := db.Write.Exec(`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES ('l', ?, 0, 'fake', 'fake', 0)`, string(run.ID))
+	require.NoError(t, err)
+
+	_, err = db.Write.Exec(`DELETE FROM clusters WHERE id = '7'`)
+	require.NoError(t, err)
+
+	assert.Zero(t, tableCount(t, db, "agent_runs"))
+	assert.Zero(t, tableCount(t, db, "llm_calls"))
+}
+
+// Whether a monitor may run on a cluster: a row that is there and unmarked,
+// and whose switch is on.
+func TestClusterMonitoring(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	st := prepareOn(t, db).Stmts()
+	setMonitoring(t, db, "7", true)
+	setMonitoring(t, db, "8", true)
+	markCluster(t, db, "8")
+
+	for id, want := range map[apimeta.ClusterID][2]bool{
+		"7": {true, true}, "1": {true, false}, "8": {false, false}, "nope": {false, false},
+	} {
+		found, enabled, err := clusterMonitoring(t.Context(), st, id)
+		require.NoError(t, err)
+		assert.Equal(t, want, [2]bool{found, enabled}, id)
+	}
 }
 
 // The list sorts by updated_at: a chat moves to the top when its row is touched.

@@ -65,20 +65,28 @@ func TestStartFailsAStrandedRun(t *testing.T) {
 	assert.Equal(t, RunFailed, runStatusOf(t, s.db, stranded.Run))
 }
 
-// A stranded run under no chat — a monitor's — is failed like the rest, and the
-// reconcile survives its NULL chat.
-func TestStartFailsAStrandedRunWithNoChat(t *testing.T) {
+// A monitor run a previous process left running is failed at the next start, as
+// any run is, its open calls closed: the reconcile survives its NULL chat.
+func TestAStrandedMonitorRunIsFailed(t *testing.T) {
 	dir := t.TempDir()
 	db := openTestDB(t, dir)
-	run := RunID(appdb.NewID())
-	_, err := db.Write.Exec(`INSERT INTO agent_runs (id, agent_type, app_version, trigger, provider, model, dialect, status, created_at)
-		VALUES (?, 'monitor', 'test', 'monitor', 'fake', 'fake', 'fake', 'running', 0)`, string(run))
+	run := agentRun{ID: newRunID(), ClusterID: "7", ProviderID: "fake", ModelID: "fake", Dialect: "fake", Task: "look", AppVersion: "test"}
+	require.NoError(t, prepareOn(t, db).InTx(t.Context(), func(st stmts) error { return insertMonitorRun(t.Context(), st, run) }))
+	setRunStatus(t, db, run.ID, RunRunning)
+	_, err := db.Write.Exec(`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES ('l', ?, 0, 'fake', 'fake', 0)`, string(run.ID))
+	require.NoError(t, err)
+	_, err = db.Write.Exec(`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, status, created_at, started_at) VALUES ('t', 'l', 0, 'Bash', 'running', 0, 0)`)
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
 	s := startService(t, dir)
 
-	assert.Equal(t, RunFailed, runStatusOf(t, s.db, run))
+	assert.Equal(t, RunFailed, runStatusOf(t, s.db, run.ID))
+	assert.True(t, llmCallOf(t, s.db, run.ID).finished)
+	calls := toolCallRows(t, s.db, run.ID)
+	require.Len(t, calls, 1)
+	assert.Equal(t, "failed", calls[0].status)
+	assert.Equal(t, `{"error":"stranded"}`, calls[0].errText)
 }
 
 // A watch opened before Start read the stranded answer as it was; the reconcile

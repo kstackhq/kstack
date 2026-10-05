@@ -36,6 +36,7 @@ const (
 	stmtInsertMessage
 	stmtInsertRun
 	stmtInsertSubagentRun
+	stmtInsertMonitorRun
 	stmtDeleteRun
 	stmtClaimRun
 	stmtWriteContent
@@ -71,6 +72,7 @@ const (
 
 	stmtSelectClusterAccepts
 	stmtSelectMarkedClusterIDs
+	stmtSelectClusterMonitoring
 
 	stmtSelectChatGrants
 	stmtUpsertChatGrant
@@ -166,6 +168,11 @@ var statements = []sqlstmt.Statement{
 	stmtInsertSubagentRun: sqlstmt.OnWriter(`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger,
 	chat_id, provider, model, effort, dialect, task, status, created_at, started_at)
 	VALUES (?, ?, ?, ?, 'agent', ?, ?, ?, ?, ?, ?, 'running', ?, ?)`),
+	// A monitor's run goes in queued under its cluster, with no chat, and its
+	// first round claims it as a turn's does.
+	stmtInsertMonitorRun: sqlstmt.OnWriter(`INSERT INTO agent_runs (id, agent_type, app_version, trigger,
+	cluster_id, provider, model, effort, dialect, task, status, created_at)
+	VALUES (?, 'monitor', ?, 'monitor', ?, ?, ?, ?, ?, ?, 'queued', ?)`),
 	stmtDeleteRun: sqlstmt.OnWriter(`DELETE FROM agent_runs WHERE id = ?`),
 	// Guarded on queued, so a run a cancel settled first is not restarted.
 	stmtClaimRun:     sqlstmt.OnWriter(`UPDATE agent_runs SET status = 'running', started_at = ? WHERE id = ? AND status = 'queued'`),
@@ -292,6 +299,9 @@ var statements = []sqlstmt.Statement{
 
 	// The clusters whose chats the sweeper deletes.
 	stmtSelectMarkedClusterIDs: sqlstmt.OnReader(`SELECT id FROM clusters WHERE delete_requested_at IS NOT NULL ORDER BY id`),
+	// A monitor's run checks its cluster inside the transaction that inserts it,
+	// as a send does.
+	stmtSelectClusterMonitoring: sqlstmt.OnBoth(`SELECT monitoring_enabled FROM clusters WHERE id = ? AND delete_requested_at IS NULL`),
 
 	// OnBoth, since a grant's write reads the chat's rules in its transaction.
 	stmtSelectChatGrants: sqlstmt.OnBoth(`SELECT rule FROM chat_grants WHERE chat_id = ? ORDER BY created_at, id`),
