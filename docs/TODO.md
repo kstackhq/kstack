@@ -449,6 +449,15 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     records a resolution: the fault when it failed, else a sync of its path. The launch's PATH
     sync part and `RefreshPath` both call it, and `NewService` loses its `fault` argument.
 
+- **Rename `chatsvc` to the agent-run service it is, once the agent-security sequence has
+  landed.** The package owns every agent run: a chat's turns, the subagents, the background tasks,
+  the permissions askers, the folder grants the tool probe reads, and from step 6B the monitor
+  run, which has no chat at all. "chat" names the one run it started with. A name such as
+  `agentsvc` or `runsvc`; the chats, their messages and their watches stay inside it.
+  - **Scope.** `git mv` the package, fix its importers and the gqlgen binding, regenerate, and
+    update both `CLAUDE.md`s, the specs and the security records' code references. Leave the
+    ADRs. No table or wire name changes.
+
 - **Rename `securityconfig` to `securitysvc`, once 3A and 3B have merged.** The package is a
   service like `chatsvc` and `memorysvc`: a `Service` with operations, runtime state and a watch,
   which the resolvers call. "config" reads as a file loaded once. Do it before a step-4 branch
