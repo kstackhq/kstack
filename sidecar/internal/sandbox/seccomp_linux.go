@@ -77,12 +77,25 @@ func execLimited(path string, a shellArgs) int {
 	prefix := "sandbox-shell: cannot start " + a.argv[0] + ": errno "
 	line := append(make([]byte, 0, len(prefix)+24), prefix...)
 
-	// The address space last: it is the limit a stray mapping trips.
-	for _, l := range []struct{ resource, value int }{{unix.RLIMIT_NPROC, a.processes}, {unix.RLIMIT_AS, a.memory}} {
-		if l.value > 0 {
-			if err := setClamped(l.resource, l.value, 0); err != nil {
-				return fail(os.Stderr, ShellCommand, "cannot set limits", err)
-			}
+	if a.processes > 0 {
+		if err := setClamped(unix.RLIMIT_NPROC, a.processes, 0); err != nil {
+			return fail(os.Stderr, ShellCommand, "cannot set limits", err)
+		}
+	}
+	if a.memory > 0 {
+		as, err := clamped(unix.RLIMIT_AS, a.memory, 0)
+		if err != nil {
+			return fail(os.Stderr, ShellCommand, "cannot set limits", err)
+		}
+		// The scheduler allocates when it starts a thread, which it can do on
+		// preempting this goroutine, or to look for work for an idle
+		// processor. With one processor there is no idle one, and the yield
+		// restarts the time slice and leaves an idle thread for a preemption
+		// to reuse; the raw syscall is not one the scheduler sees.
+		runtime.GOMAXPROCS(1)
+		runtime.Gosched()
+		if _, _, errno := unix.RawSyscall6(unix.SYS_PRLIMIT64, 0, unix.RLIMIT_AS, uintptr(unsafe.Pointer(&as)), 0, 0, 0); errno != 0 {
+			return fail(os.Stderr, ShellCommand, "cannot set limits", errno)
 		}
 	}
 	_, _, errno := unix.RawSyscall(unix.SYS_EXECVE,

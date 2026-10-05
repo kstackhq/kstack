@@ -38,9 +38,18 @@ func setTimeAndFiles(a shellArgs) error {
 // unprivileged process cannot raise: a machine whose limit is stricter stays
 // stricter.
 func setClamped(resource, value, grace int) error {
-	var own unix.Rlimit
-	if err := unix.Getrlimit(resource, &own); err != nil {
+	l, err := clamped(resource, value, grace)
+	if err != nil {
 		return err
 	}
-	return unix.Setrlimit(resource, &unix.Rlimit{Cur: min(uint64(value), own.Max), Max: min(uint64(value+grace), own.Max)})
+	return unix.Setrlimit(resource, &l)
+}
+
+// clamped is the limit setClamped sets.
+func clamped(resource, value, grace int) (unix.Rlimit, error) {
+	var own unix.Rlimit
+	if err := unix.Getrlimit(resource, &own); err != nil {
+		return unix.Rlimit{}, err
+	}
+	return unix.Rlimit{Cur: min(uint64(value), own.Max), Max: min(uint64(value+grace), own.Max)}, nil
 }

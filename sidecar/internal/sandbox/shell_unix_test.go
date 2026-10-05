@@ -110,3 +110,32 @@ func TestTheCPULimitWithNoRoomHasNoGrace(t *testing.T) {
 
 	assert.Contains(t, got, "cpu=7/7")
 }
+
+func TestClampedAddsTheGraceUnderItsOwnHardLimit(t *testing.T) {
+	var own unix.Rlimit
+	require.NoError(t, unix.Getrlimit(unix.RLIMIT_CPU, &own))
+
+	got, err := clamped(unix.RLIMIT_CPU, 7, cpuGrace)
+
+	require.NoError(t, err)
+	assert.Equal(t, unix.Rlimit{Cur: min(7, own.Max), Max: min(7+cpuGrace, own.Max)}, got)
+}
+
+func TestClampedLowersAValueToItsOwnHardLimit(t *testing.T) {
+	var own unix.Rlimit
+	require.NoError(t, unix.Getrlimit(unix.RLIMIT_NOFILE, &own))
+	if own.Max == unix.RLIM_INFINITY {
+		t.Skip("the open-files hard limit is unlimited")
+	}
+
+	got, err := clamped(unix.RLIMIT_NOFILE, int(own.Max)+1, 0)
+
+	require.NoError(t, err)
+	assert.Equal(t, unix.Rlimit{Cur: own.Max, Max: own.Max}, got)
+}
+
+func TestClampedFailsOnAnUnknownResource(t *testing.T) {
+	_, err := clamped(-1, 7, 0)
+
+	assert.ErrorIs(t, err, unix.EINVAL)
+}
