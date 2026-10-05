@@ -2678,7 +2678,8 @@ func sandboxPathServer(t *testing.T, available bool, resolve func(context.Contex
 			return securityconfig.Zones{Open: sandbox.FilePolicy{Read: []string{open}}}
 		}
 		svc = securityconfig.NewService(store, zones, resolve, "timeout")
-		require.NoError(t, svc.SyncPath(t.Context(), []string{open, pending}))
+		_, err := svc.SyncPath(t.Context(), []string{open, pending})
+		require.NoError(t, err)
 	}
 	srv = httptest.NewServer(graph.NewServer(&graph.Resolver{SecurityCfg: svc, SandboxStatus: sandbox.Status{Available: available}}))
 	t.Cleanup(srv.Close)

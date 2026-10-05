@@ -236,7 +236,7 @@ func TestTheZonesAreASnapshot(t *testing.T) {
 		return f.zones
 	}, func(context.Context) ([]string, error) { return []string{filtered}, nil }, "")
 
-	require.NoError(t, s.SyncPath(t.Context(), []string{filtered}))
+	synced(t, s, []string{filtered})
 	assert.Empty(t, s.Get().Path, "the sync filters the project's folder out")
 	assert.Equal(t, int32(1), calls.Load())
 	for range 3 {

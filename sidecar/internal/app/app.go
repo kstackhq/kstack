@@ -401,12 +401,15 @@ func newSecurityService(store *securityconfig.Store, sb sandboxer, shell *bash.T
 	return securityconfig.NewService(store, zones, shellPathResolver(sb, home, denied, tmpDir), fault)
 }
 
-// syncPath folds the launch's PATH into the stored list. A sync that fails
-// changes nothing and is not a startup error.
-func syncPath(ctx context.Context, svc *securityconfig.Service, path []string) {
-	if err := svc.SyncPath(ctx, path); err != nil {
+// syncPath folds the launch's PATH into the stored list, and answers whether
+// it changed it. A sync that fails changes nothing and is not a startup
+// error.
+func syncPath(ctx context.Context, svc *securityconfig.Service, path []string) bool {
+	changed, err := svc.SyncPath(ctx, path)
+	if err != nil {
 		slog.Warn("PATH not synced", "err", err)
 	}
+	return changed
 }
 
 // sandboxStatusOf is whether sandboxed Bash is offered: a sandbox with no shell

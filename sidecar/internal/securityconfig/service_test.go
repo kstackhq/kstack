@@ -30,7 +30,8 @@ func TestAServiceWithNoSandboxChangesNothing(t *testing.T) {
 
 	assert.Nil(t, s.Path())
 	assert.Empty(t, s.PathFault())
-	assert.ErrorIs(t, s.SyncPath(t.Context(), []string{t.TempDir()}), ErrNoSandbox)
+	_, err = s.SyncPath(t.Context(), []string{t.TempDir()})
+	assert.ErrorIs(t, err, ErrNoSandbox)
 	_, err = s.RefreshPath(t.Context())
 	assert.ErrorIs(t, err, ErrNoSandbox)
 	_, err = s.AdoptPath(t.TempDir(), t.TempDir())

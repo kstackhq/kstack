@@ -3645,7 +3645,8 @@ resolver and the launch's fault; on a machine with no sandbox it has neither and
 `Target` is under one of `Open`'s Read paths and none of its Deny paths, every list resolved once
 per sync (`sandbox.Resolved`) and compared by text (`sandbox.Under`). `SyncPath`
 reads the disk on a goroutine abandoned when its context ends or `SyncTimeout` (5s) passes, at
-launch and on refresh alike, then diffs in one `Update` naming
+launch and on refresh alike, answers whether the list it wrote differs from the one it read, and
+diffs in one `Update` naming
 `path`: a new entry open and not shared is `adopted`, any other new one `pending`; an entry whose
 `Target` changed is filed again as new; every entry whose `Target` held takes the folder's
 `Shared` as it is now; a shell-adopted entry now shared or no longer open goes

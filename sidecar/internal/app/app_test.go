@@ -696,7 +696,7 @@ func TestASecurityServiceWithNoSandboxSyncsNothing(t *testing.T) {
 	assert.False(t, svc.Get().RunPath().Resolved)
 
 	log := testutil.CaptureLogs(t)
-	syncPath(t.Context(), svc, []string{t.TempDir()})
+	assert.False(t, syncPath(t.Context(), svc, []string{t.TempDir()}), "nothing changed")
 	assert.Contains(t, log.String(), "PATH not synced")
 	assert.Empty(t, store.Get().Path)
 }
