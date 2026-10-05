@@ -1976,6 +1976,21 @@ func TestChatRefusalsCarryTheirCode(t *testing.T) {
 	})
 }
 
+// The chat's other mutations map their refusals through the same table.
+func TestChatMutationRefusalsCarryTheirCode(t *testing.T) {
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ChatSvc: refusingChat{err: chatsvc.ErrChatGone}}))
+	defer srv.Close()
+	for _, mutation := range []string{
+		`chatCancel(chatID: \"` + appdb.NewID() + `\")`,
+		`approvalDecide(id: \"` + appdb.NewID() + `\", decision: Once)`,
+		`backgroundTaskStop(id: \"` + appdb.NewID() + `\")`,
+	} {
+		raw := postGQL(t, srv.URL, `{"query":"mutation { `+mutation+` }"}`)
+
+		assert.Contains(t, string(raw), `"code":"KSTACK_RECORD_NOT_FOUND"`, mutation)
+	}
+}
+
 // Two refusals in one request are two errors: gqlgen stamps a path onto the error a
 // resolver returns, so a shared value would report the first field for both.
 func TestChatRefusalsDoNotShareErrorState(t *testing.T) {
