@@ -64,6 +64,7 @@ func TestEveryRowHelperNamesItsFailure(t *testing.T) {
 		"insert run":                func() error { return insertRun(ctx, st, agentRun{}) },
 		"insert monitor run":        func() error { return insertMonitorRun(ctx, st, agentRun{}) },
 		"cluster monitoring":        func() error { _, _, err := clusterMonitoring(ctx, st, "1"); return err },
+		"live clusters":             func() error { _, err := liveClusterIDs(ctx, st); return err },
 		"claim run":                 func() error { return claimRun(ctx, st, "r", now) },
 		"write content":             func() error { return writeContent(ctx, st, "m", emptyContent) },
 		"settle run":                func() error { return settleRun(ctx, st, "r", RunFailed, "", "", now) },
@@ -299,6 +300,17 @@ func TestClusterMonitoring(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, want, [2]bool{found, enabled}, id)
 	}
+}
+
+// The clusters a monitor may be kept under are the unmarked rows.
+func TestLiveClusterIDsAreTheUnmarkedRows(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	st := prepareOn(t, db).Stmts()
+	markCluster(t, db, "8")
+
+	ids, err := liveClusterIDs(t.Context(), st)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []apimeta.ClusterID{"1", "2", "7", "9", "42"}, ids)
 }
 
 // The list sorts by updated_at: a chat moves to the top when its row is touched.

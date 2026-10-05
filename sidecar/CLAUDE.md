@@ -2239,8 +2239,9 @@ internal/chatsvc/
                  or writes the records, the scanners, the run-status mapping
   statements.go  the table: every statement's text and the pool it is prepared on
   stream.go      Stream[T], the frame types, the two deltafold folds
-  sweep.go       the chat sweeper: a marked cluster's chats go, on the clusters signal
-                 and on its own retry; the chats' directory's start sweep
+  sweep.go       the chat sweeper: a marked cluster's chats go, and a monitor whose
+                 cluster is not a live row, on the clusters signal and on its own
+                 retry; the chats' directory's start sweep
   chatdir.go     the chats' and the monitor's directories: their roots, a chat's
                  `entryDir` (`chatDir`, `monitorDir`), its removal
   files.go       each chat's file stamps, in memory, dropped with the chat

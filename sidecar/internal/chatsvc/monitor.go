@@ -127,7 +127,7 @@ func (s *service) RunMonitor(ctx context.Context, clusterID apimeta.ClusterID, t
 
 // monitor is a cluster's monitor run: the agent.Recorder and Approver of one
 // run, and the slot the service holds it in. ctx is the caller's, ended by
-// cancel: the service's stop calls it. done closes once the run
+// cancel: the service's stop and the sweeper call it. done closes once the run
 // has settled and released.
 type monitor struct {
 	briefedRun

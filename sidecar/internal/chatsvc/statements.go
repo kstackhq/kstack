@@ -73,6 +73,7 @@ const (
 	stmtSelectClusterAccepts
 	stmtSelectMarkedClusterIDs
 	stmtSelectClusterMonitoring
+	stmtSelectLiveClusterIDs
 
 	stmtSelectChatGrants
 	stmtUpsertChatGrant
@@ -302,6 +303,8 @@ var statements = []sqlstmt.Statement{
 	// A monitor's run checks its cluster inside the transaction that inserts it,
 	// as a send does.
 	stmtSelectClusterMonitoring: sqlstmt.OnBoth(`SELECT monitoring_enabled FROM clusters WHERE id = ? AND delete_requested_at IS NULL`),
+	// The clusters a monitor may be kept under: the sweeper ends every other.
+	stmtSelectLiveClusterIDs: sqlstmt.OnReader(`SELECT id FROM clusters WHERE delete_requested_at IS NULL`),
 
 	// OnBoth, since a grant's write reads the chat's rules in its transaction.
 	stmtSelectChatGrants: sqlstmt.OnBoth(`SELECT rule FROM chat_grants WHERE chat_id = ? ORDER BY created_at, id`),

@@ -276,6 +276,8 @@ type service struct {
 	onSwept       chan struct{} // receives after every sweep
 	onRecorded    func()        // runs once a task's rows land, before it starts
 	onFoldersRead func()        // runs once a notice turn has read the folders, before its transaction
+	onSlotsCopied func()        // runs once a monitor sweep has copied the slots, before it reads the live clusters
+	onLiveRead    func()        // runs once a monitor sweep has read the live clusters
 }
 
 // New builds the service over the app's DB, the directory each chat's files go

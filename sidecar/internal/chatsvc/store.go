@@ -1041,6 +1041,11 @@ func clusterMonitoring(ctx context.Context, st stmts, clusterID apimeta.ClusterI
 	return true, enabled, nil
 }
 
+// liveClusterIDs lists the clusters not marked for deletion.
+func liveClusterIDs(ctx context.Context, st stmts) ([]apimeta.ClusterID, error) {
+	return collectIDs[apimeta.ClusterID](ctx, st, stmtSelectLiveClusterIDs, "live clusters")
+}
+
 // collectIDs runs a statement whose rows are one id each.
 func collectIDs[ID ~string](ctx context.Context, st stmts, stmt stmtID, what string, args ...any) ([]ID, error) {
 	rows, err := st.Query(ctx, stmt, args...)

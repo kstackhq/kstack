@@ -14,7 +14,8 @@
 
 // Each chat's own directory: its saved results, its background tasks' output and
 // its workspace, under the chats' directory and deleted with the chat. Each
-// cluster's monitor directory is the same shape under the monitor's directory.
+// cluster's monitor directory is the same shape under the monitor's directory,
+// deleted with the cluster.
 package chatsvc
 
 import (
