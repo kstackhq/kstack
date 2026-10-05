@@ -19,6 +19,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
 // mapStream maps a latest-value source onto the returned channel until ctx ends or sub
@@ -190,6 +191,35 @@ func sandboxPathOf(entries []securityconfig.PathEntry) []*model.SandboxPathEntry
 	for i, e := range entries {
 		out[i] = &model.SandboxPathEntry{
 			Dir: e.Dir, Target: e.Target, State: sandboxPathStates[e.State], Source: sandboxPathSources[e.Source], Shared: e.Shared,
+		}
+	}
+	return out
+}
+
+// noSandboxExecutables refuses a probe or a register on a machine with no sandbox.
+func noSandboxExecutables() error {
+	return gqlerrors.NewValidationError("sandbox-executable", securityconfig.ErrNoSandbox.Error())
+}
+
+// sandboxExecutableErr is what the executable resolvers return an error through: a
+// refusal in the user's words is a validation error carrying them, and
+// anything else stays opaque.
+func sandboxExecutableErr(err error) error {
+	var refusal securityconfig.ExecutableRefusal
+	if errors.As(err, &refusal) {
+		return gqlerrors.NewValidationError("sandbox-executable", refusal.Error())
+	}
+	return err
+}
+
+// sandboxExecutablesOf is reports on the wire, in order.
+func sandboxExecutablesOf(reports []bash.ExecutableReport) []*model.SandboxExecutable {
+	out := make([]*model.SandboxExecutable, len(reports))
+	for i, r := range reports {
+		out[i] = &model.SandboxExecutable{
+			Name: r.Name, Invocation: r.Invocation, Registered: r.Registered, Probed: r.Probed,
+			Resolved: r.Resolved, Shim: r.Shim, Target: r.Target, Ok: r.OK, Version: r.Version,
+			Error: r.Error,
 		}
 	}
 	return out

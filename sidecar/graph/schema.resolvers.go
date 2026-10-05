@@ -22,6 +22,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
 // Thinking is the resolver for the thinking field: what the message's blocks hold
@@ -272,6 +273,41 @@ func (r *mutationResolver) SandboxPathRefresh(ctx context.Context) ([]*model.San
 	return sandboxPathOf(entries), sandboxPathErr(err)
 }
 
+// SandboxExecutablesProbe is the resolver for the sandboxExecutablesProbe field.
+func (r *mutationResolver) SandboxExecutablesProbe(ctx context.Context) ([]*model.SandboxExecutable, error) {
+	if !r.probes() {
+		return nil, noSandboxExecutables()
+	}
+	r.Executables.StartProbe(r.registeredExecutables())
+	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
+}
+
+// SandboxExecutableRegister is the resolver for the sandboxExecutableRegister field.
+func (r *mutationResolver) SandboxExecutableRegister(ctx context.Context, name string, invocation *string) ([]*model.SandboxExecutable, error) {
+	if !r.probes() {
+		return nil, noSandboxExecutables()
+	}
+	var given string
+	if invocation != nil {
+		given = *invocation
+	}
+	if err := r.SecurityCfg.RegisterExecutable(name, given); err != nil {
+		return nil, sandboxExecutableErr(err)
+	}
+	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
+}
+
+// SandboxExecutableRemove is the resolver for the sandboxExecutableRemove field.
+func (r *mutationResolver) SandboxExecutableRemove(ctx context.Context, name string) ([]*model.SandboxExecutable, error) {
+	if err := r.SecurityCfg.RemoveExecutable(name); err != nil {
+		return nil, sandboxExecutableErr(err)
+	}
+	if !r.probes() {
+		return []*model.SandboxExecutable{}, nil
+	}
+	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
+}
+
 // MemorySave is the resolver for the memorySave field: an update with an id, a
 // create without one.
 func (r *mutationResolver) MemorySave(ctx context.Context, input model.MemorySaveInput) (*memorysvc.Memory, error) {
@@ -479,6 +515,14 @@ func (r *queryResolver) SandboxPathResolved(ctx context.Context) (bool, error) {
 	return r.SecurityCfg.PathResolved(), nil
 }
 
+// SandboxExecutables is the resolver for the sandboxExecutables field.
+func (r *queryResolver) SandboxExecutables(ctx context.Context) ([]*model.SandboxExecutable, error) {
+	if !r.probes() {
+		return []*model.SandboxExecutable{}, nil
+	}
+	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
+}
+
 // PermissionSettings is the resolver for the permissionSettings field.
 func (r *queryResolver) PermissionSettings(ctx context.Context) (*model.PermissionSettings, error) {
 	return r.permissionSettings(ctx)
@@ -664,6 +708,60 @@ func (r *subscriptionResolver) MemoriesWatch(ctx context.Context, clusterID apim
 		return nil, memoryErr(err)
 	}
 	return watchStream(ctx, st.Frames, st.Err), nil
+}
+
+// SandboxExecutablesWatch is the resolver for the sandboxExecutablesWatch field: the
+// probe's state and the settings' registered tools, each a current-on-subscribe
+// receiver, folded into one report on either's change. A machine with no
+// sandbox answers one empty report.
+func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error) {
+	out := make(chan *model.SandboxExecutablesReport)
+	send := func(report *model.SandboxExecutablesReport) bool {
+		select {
+		case out <- report:
+			return true
+		case <-ctx.Done():
+			return false
+		}
+	}
+	if !r.probes() {
+		go func() {
+			defer close(out)
+			send(&model.SandboxExecutablesReport{Executables: []*model.SandboxExecutable{}})
+			<-ctx.Done()
+		}()
+		return out, nil
+	}
+	probe, settings := r.Executables.WatchProbe(), r.SecurityCfg.Subscribe()
+	go func() {
+		defer close(out)
+		defer probe.Close()
+		defer settings.Close()
+		var state bash.ProbeState
+		registered := r.registeredExecutables()
+		probeC, settingsC := probe.Chan(), settings.Chan()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case st, ok := <-probeC:
+				if !ok {
+					return
+				}
+				state = st
+			case s, ok := <-settingsC:
+				if !ok {
+					return
+				}
+				registered = s.Executables
+			}
+			report := &model.SandboxExecutablesReport{Probing: state.Probing, Probes: state.Probes, Executables: sandboxExecutablesOf(bash.ReportOver(state.Last, registered))}
+			if !send(report) {
+				return
+			}
+		}
+	}()
+	return out, nil
 }
 
 // AuthStateWatch is the resolver for the authStateWatch field; the stream is
