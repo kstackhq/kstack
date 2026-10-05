@@ -984,14 +984,14 @@ func TestAStartWhoseFileOrRowFailsLeavesNothing(t *testing.T) {
 	require.Error(t, err, "the row refers to a call that is not there")
 	assert.Empty(t, taskFiles(t, s, c.ID))
 
-	tasks := filepath.Join(tc.Path(), taskDirName)
+	tasks := filepath.Join(s.chatDir(c.ID).Path(), taskDirName)
 	require.NoError(t, os.RemoveAll(tasks))
 	require.NoError(t, os.WriteFile(tasks, nil, 0o600))
 	_, _, err = tc.Start(never)
 	require.Error(t, err, "the tasks directory is a file")
 
-	require.NoError(t, os.RemoveAll(tc.Path()))
-	require.NoError(t, os.WriteFile(tc.Path(), nil, 0o600))
+	require.NoError(t, os.RemoveAll(s.chatDir(c.ID).Path()))
+	require.NoError(t, os.WriteFile(s.chatDir(c.ID).Path(), nil, 0o600))
 	_, _, err = tc.Start(never)
 	assert.ErrorIs(t, err, rootdir.ErrNotADirectory, "the chat's entry is a file")
 

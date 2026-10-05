@@ -820,7 +820,7 @@ func (s *service) Delete(ctx context.Context, chatID ChatID) error {
 	}
 	// The run has ended, and a settle's retry writes rows alone, so nothing of the
 	// sidecar's writes to the directory after.
-	s.removeChatDir(chatID)
+	s.chatDir(chatID).remove()
 	s.dropStamps(chatID)
 	s.notify(chatsKey)
 	s.notify(messagesKey(chatID))

@@ -91,7 +91,7 @@ func (t *turn) Start(ctx context.Context, d tools.Delegation) (string, error) {
 		takeBack: func(ctx context.Context, st stmts) error { return deleteRun(ctx, st, run.ID) },
 		end:      c.end,
 	}
-	id, _, err := s.startTask(s.chatDir(chatID), t.runID, linked.ID, rec, func(f *os.File) (tools.Task, error) {
+	id, _, err := s.startTask(chatID, t.runID, linked.ID, rec, func(f *os.File) (tools.Task, error) {
 		// The last moment before the subagent starts: a Cancel during the row
 		// write starts nothing, rather than an agent under a call that answered
 		// cancelled, whose id the model never saw. It reads the turn's context,

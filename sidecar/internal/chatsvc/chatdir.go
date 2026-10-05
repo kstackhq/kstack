@@ -37,29 +37,28 @@ func openChats(dir string) (*os.Root, error) {
 	return root, nil
 }
 
-// chatDir is one chat's entry in the chats' directory.
-type chatDir struct {
-	s  *service
-	id ChatID
+// entryDir is one entry of a root the service holds open: a chat's directory
+// in the chats' root.
+type entryDir struct {
+	root *os.Root
+	name string
 }
 
-var _ tools.ChatDir = chatDir{}
+var _ tools.ChatDir = entryDir{}
 
-func (s *service) chatDir(id ChatID) chatDir { return chatDir{s: s, id: id} }
+func (s *service) chatDir(id ChatID) entryDir { return entryDir{root: s.chatsRoot, name: string(id)} }
 
-func (d chatDir) Path() string { return filepath.Join(d.s.chatsRoot.Name(), string(d.id)) }
+func (d entryDir) Path() string { return filepath.Join(d.root.Name(), d.name) }
 
-// Root reaches the chat's entry through the chats' root, so a link swapped in
-// for it is refused rather than followed.
-func (d chatDir) Root(create bool) (*os.Root, error) {
-	return rootdir.Open(d.s.chatsRoot, string(d.id), create)
-}
+// Root reaches the entry through its root, so a link swapped in for it is
+// refused rather than followed.
+func (d entryDir) Root(create bool) (*os.Root, error) { return rootdir.Open(d.root, d.name, create) }
 
-// removeChatDir removes the chat's entry, a link rather than its target. An
-// entry already gone is a removal done. A failure is logged, and the next
-// start sweeps what it left.
-func (s *service) removeChatDir(id ChatID) {
-	if err := rootdir.RemoveAll(s.chatsRoot, string(id)); err != nil {
-		slog.Warn("could not remove a chat's directory; the next start sweeps it", "chat", id, "err", err)
+// remove removes the entry, a link rather than its target. An entry already
+// gone is a removal done. A failure is logged, and the next sweep removes what
+// it left.
+func (d entryDir) remove() {
+	if err := rootdir.RemoveAll(d.root, d.name); err != nil {
+		slog.Warn("could not remove a directory; the next sweep removes it", "dir", d.Path(), "err", err)
 	}
 }

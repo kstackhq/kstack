@@ -169,7 +169,7 @@ func TestAChatEntryThatIsALinkIsNeverWalked(t *testing.T) {
 	require.NoError(t, os.Chmod(results, 0o500))
 	t.Cleanup(func() { _ = os.Chmod(results, 0o700) })
 
-	s.removeChatDir("c1")
+	s.chatDir("c1").remove()
 
 	info, err := os.Stat(locked)
 	require.NoError(t, err)

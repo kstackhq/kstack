@@ -2237,7 +2237,7 @@ internal/chatsvc/
   stream.go      Stream[T], the frame types, the two deltafold folds
   sweep.go       the chat sweeper: a marked cluster's chats go, on the clusters signal
                  and on its own retry; the chats' directory's start sweep
-  chatdir.go     the chats' directory: its root, a chat's `chatDir`, its removal
+  chatdir.go     the chats' directory: its root, a chat's `entryDir` (`chatDir`), its removal
   files.go       each chat's file stamps, in memory, dropped with the chat
   tasks.go       background tasks: their slots, start, watcher and stops
   notices.go     how a task ended, told to the model: on a question, or a turn of its own
@@ -2247,7 +2247,7 @@ internal/chatsvc/
 `workspace/` and `toolhome/` (*Tools*, above), so all of them go with the chat, and none names the chat's
 cluster. `New` makes the chats' directory 0700 and opens it as an `os.Root` (`openChats`), closed on
 `Close`; its path is absolute, since a result names its file under the root's name and `Read` takes
-only an absolute path. `chatDir` is a chat's `tools.ChatDir`, built from its id: `Root` is
+only an absolute path. `chatDir(id)` is a chat's `tools.ChatDir`, an `entryDir` of the chats' root: `Root` is
 `rootdir.Open` of the chat's entry, so a link a command swaps in reaches no other directory. The
 turn's box is `s.boxFor(t.target)`, and its runtime is `tools.Runtime{ClusterID: t.clusterID, ChatID: chatID, Session: t.session(), Dir: s.chatDir(chatID), Tasks: s.chatTasks(chatID, t.runJournal), Files: s.chatFiles(chatID), Agent: t}`, `t.clusterID` read once as the run starts (`chatOf`) and `t.outsideSandbox` once in the transaction that reserves the turn, beside the context block that tells the model, so a switch flipped mid-turn changes the next turn; a subagent and a task take both from the turn that started them, a subagent's session being `session.Narrow(t.session())`.
 **A chat's file stamps** (`files.go`) are one map per chat under `stampsMu`, never persisted:
@@ -2255,7 +2255,7 @@ turn's box is `s.boxFor(t.target)`, and its runtime is `tools.Runtime{ClusterID:
 **`Delete` refuses an id that is not a UUID** (`ErrBadRequest`) before touching anything: the id
 names the directory to remove, and `<chat>/out.txt` would reach into a live chat's files. It reads
 nothing before its write, and **removes the entry once the row's write succeeds**
-(`removeChatDir`, `rootdir.RemoveAll` under the chats' root); the turn is already joined, so
+(`entryDir.remove`, `rootdir.RemoveAll` under the chats' root); the turn is already joined, so
 nothing of the sidecar's writes there after. An entry already gone is a removal done, and a
 removal that fails is logged. **The start sweep** (`sweepChatDirs`, in the sweeper's loop after its
 first sweep, so neither `Start`, which the first request waits on, nor that sweep waits on a gone
