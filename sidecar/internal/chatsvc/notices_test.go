@@ -17,6 +17,7 @@ package chatsvc
 import (
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -161,4 +162,30 @@ func TestANoticeTurnListsTheGrantsWhenTheyChanged(t *testing.T) {
 	after := newestContextOf(t, s, first.ChatID)
 	assert.Equal(t, s.withSandboxReplaced(before, sandboxState{folders: []session.Folder{{Path: code}}}), after)
 	assert.Contains(t, after, `"read":[`)
+}
+
+// A grant made between a notice turn's folder read and its transaction still
+// reaches the turn's context.
+func TestANoticeTurnListsAGrantMadeAsItStarts(t *testing.T) {
+	tt := newTaskTool()
+	s := startServiceWithTool(t, tt)
+	home := grantable(t, s)
+	first, ft := startTaskTurn(t, s, tt, nil, "1")
+	awaitTurnDone(t, s, first.ChatID)
+	before := newestContextOf(t, s, first.ChatID)
+	code := filepath.Join(home, "code")
+
+	var once sync.Once
+	granted := make(chan error, 1)
+	s.onFoldersRead = func() {
+		once.Do(func() { granted <- s.GrantFolder(t.Context(), first.ChatID, code, false) })
+	}
+	ft.exit(0)
+	require.NoError(t, testutil.Recv(t, granted, "the grant"))
+	answer := awaitNoticeTurn(t, s, first.ChatID, first.ID)
+
+	q := questionOf(t, s, answer)
+	require.Len(t, q, 2, "a context block, then the notice")
+	require.Equal(t, []llm.BlockType{llm.BlockContext, llm.BlockTaskNotification}, []llm.BlockType{q[0].Type, q[1].Type})
+	assert.Equal(t, s.withSandboxReplaced(before, sandboxState{folders: []session.Folder{{Path: code}}}), newestContextOf(t, s, first.ChatID))
 }

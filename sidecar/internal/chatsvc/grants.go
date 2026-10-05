@@ -35,7 +35,12 @@ import (
 // Deny, so it reads as permissions.Refused: the chat's cluster writes are
 // refused until it is fixed.
 func (s *service) grantsFor(ctx context.Context, chatID ChatID) []permissions.Rule {
-	rules, refused, err := readGrants(ctx, s.store.Stmts(), chatID)
+	return grantsIn(ctx, s.store.Stmts(), chatID)
+}
+
+// grantsIn is grantsFor, read through st.
+func grantsIn(ctx context.Context, st stmts, chatID ChatID) []permissions.Rule {
+	rules, refused, err := readGrants(ctx, st, chatID)
 	if err != nil {
 		slog.Warn("chat grants not read", "chat", chatID, "err", err)
 		return []permissions.Rule{permissions.Refused}
@@ -172,11 +177,16 @@ func (s *service) FoldersFor(ctx context.Context, chatID ChatID) []session.Folde
 // grant would open a folder to the file tools with nothing keeping the
 // denied-always list out.
 func (s *service) foldersFor(ctx context.Context, chatID ChatID) []session.Folder {
+	return s.foldersFrom(ctx, chatID, s.folderRules(ctx, s.store.Stmts(), chatID))
+}
+
+// foldersFrom is foldersFor over rules already read.
+func (s *service) foldersFrom(ctx context.Context, chatID ChatID, rules []permissions.Rule) []session.Folder {
 	if !s.sandboxStatus.Available {
 		return nil
 	}
 	var folders []session.Folder
-	for _, r := range s.folderRules(ctx, chatID) {
+	for _, r := range rules {
 		write := r.Class == permissions.WriteInside
 		if err := s.security.CheckStoredFolder(ctx, r.Folder, write); err != nil {
 			slog.Info("folder grant left out", "chat", chatID, "folder", r.Folder, "reason", err)
@@ -188,11 +198,12 @@ func (s *service) foldersFor(ctx context.Context, chatID ChatID) []session.Folde
 }
 
 // folderRules is the folder grants a run of chatID reads: the chat's, then the
-// always ones. A held rules field holds no Allow, so it grants no folder.
-func (s *service) folderRules(ctx context.Context, chatID ChatID) []permissions.Rule {
+// always ones, the chat's read through st. A held rules field holds no Allow,
+// so it grants no folder.
+func (s *service) folderRules(ctx context.Context, st stmts, chatID ChatID) []permissions.Rule {
 	var rules []permissions.Rule
 	if chatID != "" {
-		rules = s.grantsFor(ctx, chatID)
+		rules = grantsIn(ctx, st, chatID)
 	}
 	rules = append(rules, s.security.Rules()...)
 	return slices.DeleteFunc(rules, func(r permissions.Rule) bool { return r.Folder == "" || r.Effect != permissions.Allow })
