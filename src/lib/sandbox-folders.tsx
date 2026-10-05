@@ -16,8 +16,10 @@
 // grants, a chat's own, and what no grant opens. The one reader of the
 // sandboxFolders query and the folderGrant and folderRevoke mutations. After
 // each change the query is asked again, since each folder's refused reason is
-// the query's alone; another window can change the grants and each window
-// caches its own, so it is also asked again whenever the window takes focus.
+// the query's alone. A grant runs under `chatGrantsContext`, since a chat grant
+// is a chat rule and the composer's list of them must ask again too. Another
+// window can change the grants and each window caches its own, so the query is
+// also asked again whenever the window takes focus.
 import { useCallback, useEffect, useState } from 'react';
 
 import { useMutation, useQuery } from 'urql';
@@ -25,6 +27,7 @@ import type { CombinedError } from 'urql';
 
 import { graphql } from '@/gql';
 import type { GrantDuration, SandboxFoldersQuery } from '@/gql/graphql';
+import { chatGrantsContext } from '@/lib/chat-grants';
 
 const SandboxFoldersDocument = graphql(`
   query SandboxFolders($chatID: ChatID) {
@@ -120,7 +123,7 @@ export function useSandboxFolders(chatID?: string): SandboxFolders {
     async (path: string, write: boolean, duration: GrantDuration) => {
       setGranting(true);
       setGrantError(null);
-      const { error } = await grantMutation({ chatID: chat, path, write, duration });
+      const { error } = await grantMutation({ chatID: chat, path, write, duration }, chatGrantsContext);
       setGranting(false);
       if (error) setGrantError(refusalOf(error));
       askAgain();
