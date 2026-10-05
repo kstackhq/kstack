@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -35,6 +36,10 @@ import (
 // errNothingToTell is a kick that finds no notice that starts a turn: it starts
 // nothing.
 var errNothingToTell = errors.New("chatsvc: no notice that starts a turn is waiting")
+
+// errFoldersMoved is a notice turn whose folder grants changed between their
+// read and its transaction: it reads them again.
+var errFoldersMoved = errors.New("chatsvc: the chat's folder grants changed")
 
 // noticeLineMax is how many characters of a line a notice keeps.
 const noticeLineMax = 200
@@ -185,10 +190,25 @@ func (s *service) startNoticeTurn(chatID ChatID) error {
 	}
 	defer s.wg.Done()
 	ctx := s.ctx
-	at := normalizeTime(s.now())
+	for {
+		err := s.tryNoticeTurn(ctx, chatID)
+		if !errors.Is(err, errFoldersMoved) {
+			return err
+		}
+	}
+}
 
-	// Read outside the transaction, since checking each reads the disk.
-	folders := s.foldersFor(ctx, chatID)
+// tryNoticeTurn is one attempt at startNoticeTurn. The folders are checked
+// outside the transaction, since checking each reads the disk, and their rules
+// read again inside it, so the context names every grant made before the
+// notices it carries.
+func (s *service) tryNoticeTurn(ctx context.Context, chatID ChatID) error {
+	at := normalizeTime(s.now())
+	rules := s.folderRules(ctx, s.store.Stmts(), chatID)
+	folders := s.foldersFrom(ctx, chatID, rules)
+	if s.onFoldersRead != nil {
+		s.onFoldersRead()
+	}
 
 	var (
 		t         *turn
@@ -201,6 +221,9 @@ func (s *service) startNoticeTurn(chatID ChatID) error {
 		}
 		if !startsTurn(waiting) {
 			return errNothingToTell
+		}
+		if !slices.Equal(s.folderRules(ctx, st, chatID), rules) {
+			return errFoldersMoved
 		}
 		providerID, modelID, effort, err := lastAnswerRun(ctx, st, chatID)
 		if err != nil {

@@ -1074,17 +1074,21 @@ func refuse(t *testing.T, s *service, kind, table string) {
 // A notice turn whose writes fail files nothing, frees the slot it reserved,
 // and leaves the notices waiting.
 func TestANoticeTurnThatCannotWriteStartsNothing(t *testing.T) {
-	for _, table := range []string{"background_tasks", "chats"} {
+	// Each trigger is armed before the task ends, since the first turn's own kick
+	// can start the notice turn the moment the row lands, and refuses only the
+	// turn's writes: the row's end leaves notified_at null and chats alone.
+	for table, when := range map[string]string{
+		"background_tasks": "NEW.notified_at IS NOT NULL",
+		"chats":            "1",
+	} {
 		t.Run(table, func(t *testing.T) {
 			tt := newTaskTool()
 			s := startServiceWithTool(t, tt)
 			first, ft := startTaskTurn(t, s, tt, nil, "1")
 			done := taskDoneOf(t, s, first.ChatID, ft)
-			s.finishWrite = func(ctx context.Context, id TaskID, end taskEnd) error {
-				err := s.finishRow(ctx, id, end)
-				refuse(t, s, "UPDATE", table) // after the row: what fails is the turn's own writes
-				return err
-			}
+			_, err := s.db.Write.Exec(`CREATE TRIGGER refuse_` + table + ` BEFORE UPDATE ON ` + table +
+				` WHEN ` + when + ` BEGIN SELECT RAISE(ABORT, 'refused'); END`)
+			require.NoError(t, err)
 			ft.exit(0)
 			testutil.Wait(t, done, "the row")
 
