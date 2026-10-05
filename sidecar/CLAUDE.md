@@ -32,8 +32,12 @@ sweeps it and removes it:
 ```
 
 The app makes the three directories and nothing under them. `beehive.db` stays with the data: it
-names each mirror file by cache id, so it outlives a cleared cache. Read, Write and Edit fence all
-three (`chatTools`). → [ADR: each file in the platform's directory for its
+names each mirror file by cache id, so it outlives a cleared cache. **The host's log directory is
+Kstack's too**: `main` sets `app.Config.LogDir` to the directory of `--log-file`, and `pathsOf` adds
+it to `bash.Paths.DeniedDirs` when it lies outside the three (macOS's `~/Library/Logs/Kstack`;
+Linux's `<data>/logs` adds nothing), so a grant of the home does not open it
+(`TestTheLogDirectoryIsKstacks`). Read, Write and Edit fence every one of Kstack's directories, the
+same list (`chatTools`). → [ADR: each file in the platform's directory for its
 kind](../docs/adr/2026-09-27-kstacks-files-follow-the-platforms-directory-kinds.md).
 
 This file states what is true now. Why it is that way lives in `docs/adr/`; every section links its ADRs. Rationale goes there, not here.
@@ -81,7 +85,7 @@ files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
 - `internal/app/` probes the sandbox once (`probeSandbox`, a test's seam, under the context `New` is handed, the shutdown signal's; a probe that context cut short answers its error, which `New` returns, and `run` exits cleanly on it), then, with `RunLoginShell`, runs the login shell in it (`launchShell`, *The login shell*, below), **before anything that reads the environment**: on macOS it sets the environment process-wide, and `chatTools` reads the proxy variables. Then it builds `poke`, `kubeconfig`, opens the security settings (`securityconfig.Open`, before `app.db`, since the store holds no handle) and `app.db`, builds `clustersvc`, `memorysvc` and `chatsvc` over it, `auth`, `cloud`, wires `graph.NewServer` + `grpcserver.NewServer`, and multiplexes both onto one h2c handler. `App.parts` is start order (app.db → poke → kubeconfig → cluster → cloud → memory → chat, then the `PATH` sync when the launch read a `PATH` on a machine with a sandbox, then the shell snapshot with `RunLoginShell`); stop and close reverse it. The sync folds the launch's `PATH` into the stored list, and one that fails is a warning, not a startup error. **kubeconfig before cluster is load-bearing** (`app_test.go` pins it). The transports stay out of the slice; `grpcServer.Stop()` runs first in `Close`.
 
   **`READY` promises a socket, not a finished startup.** `run` prints it after the bind and before `Start`; the first request is answered after `Start`, and every part completes its startup work inside `Start`. Everything that reads the environment does so after the shell import at the top of `app.New`, which finishes before `READY` — nothing sends before it, and `net/http` reads the proxy variables once per process on the first request.
-- `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.SecurityCfg` is `securityconfig.Service`, the settings store with the frozen `PATH` kept in it; its resolvers are `securityRefused`, and `sandboxPath`, `sandboxPathFault` and the three `sandboxPath*` mutations, which answer an empty list, no fault and a refusal on a machine with no sandbox. A `securityconfig.PathRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxPathErr`). Its permission resolvers are `permissionSettings` and the six `permission*` mutations, each answering the settings it left (`permissionSettings` in `util.go`, the known contexts read off `Clusters().List`), and a refused one `KSTACK_VALIDATION_ERROR` with the reason (`permissionsAfter`); a rule's id is `appdb.NewID()`.
+- `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.SecurityCfg` is `securityconfig.Service`, the settings store with the frozen `PATH` kept in it; its resolvers are `securityRefused`, and `sandboxPath`, `sandboxPathFault` and the three `sandboxPath*` mutations, which answer an empty list, no fault and a refusal on a machine with no sandbox. A `securityconfig.PathRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxPathErr`). Its permission resolvers are `permissionSettings` and the six `permission*` mutations, each answering the settings it left (`permissionSettings` in `util.go`, the known contexts read off `Clusters().List`), and a refused one `KSTACK_VALIDATION_ERROR` with the reason (`permissionsAfter`); a rule's id is `appdb.NewID()`. The folder resolvers are `sandboxFolders(chatID)` and `folderGrant` and `folderRevoke`, each answering the whole `SandboxFolders` (the always grants and the chat's with each `refused` reason, the never-readable list and the wide folders; empty lists on a machine with no sandbox), through `chatsvc`, where an empty chat id is no chat: a `Chat` grant with no `chatID`, or an empty one, is `KSTACK_VALIDATION_ERROR`, so it never widens to every chat, and an `Always` one ignores it. A `FolderRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` whose `rule` is the check's, with a link's `target` beside it (`folderErr`).
 - `grpc/` — `AuthService`, `PokeService`, committed protoc output in `authpb/`, `pokepb/`. Regenerate with `make proto`; **never hand-edit `*.pb.go`**. `IsGRPCRequest` lives here.
 - `internal/` — `ipc`, `atomicjson`, `logging`, `safe` (an error rendered for a log line, and a command's output redacted: `Redact` line by line, `RedactJSON` a JSON text by its structure, for text that is one line with its newlines escaped; the field and flag rules read a credential's name off `credentialNames`, with or without the separator inside it, so camelCase keys match), `sqlitemigrate` (the migration runner, `Apply`), `sqlitepool` (the one home of the SQLite open contract: `OpenWriter` a store's one writer connection, `OpenReader` a reader pool, `OpenQuery` read-only connections through a caller's driver with none kept idle), `sqlstmt` (a store's statement table, prepared once on a file's writer and reader pools and routed per call: a `[]sqlstmt.Statement` indexed by the store's own id type, each entry its text and pool — `OnWriter`, `OnReader`, or `OnBoth` for a read some caller runs inside a write transaction; `Prepare[ID]` compiles it at open, since modernc caches nothing and a text handed to a pool at a call site is compiled every time; `Set.Stmts()` issues on the pools, `Set.InTx` inside one write transaction, `Set.InReadTx` inside one read-only transaction on the reader, always rolled back; inside a transaction the copy rebound, once per id, is the one prepared on that transaction's pool, and an id its pool does not hold panics; `Set.Close` finalizes the statements alone, and a closed set refuses `InTx`/`InReadTx` with `ErrClosed`, since `Tx.StmtContext` would quietly re-prepare a closed statement; imports nothing of ours; → [ADR: one statement set](../docs/adr/2026-09-16-sqlstmt-prepares-a-services-statements.md)), `appdb`, `rawjson`, `apimeta` (wire vocabulary no service owns — the delta-frame type, `ObjectID`, `ClusterID`, which `clustersvc` aliases, and `ChatID`, which `chatsvc` aliases and `memorysvc` and `tools.Runtime` name), `deltafold` (a watch's memory: `Snapshot`/`Diff`/`Upsert`/`Has` over a caller's key, equality and frame, plus `Send`; imports `apimeta` alone), `version` (`Version` is `dev` unless the linker stamped it: `scripts/build-sidecar.go` passes `-X …/internal/version.Version=$SIDECAR_VERSION` when set, `release.yml` sets it to the release version, and `main` logs it on the `sidecar starting` line; nothing reads a version from the environment or a file), `poke`, `kubeconfig`, `drain`, `lifecycle`, `loginshell`, `workqueue`, `supervisor`, `clustercard` (the cluster card a chat send will carry), `rootdir` (a directory opened and removed through an `os.Root`, under *Tools*), `sandbox` (the machine's sandbox and a run's forwarder, under *Tools*), `kubeproxy` (the cluster proxy a sandboxed run reaches its cluster through, under *Tools*), `permissions` (the classes, modes and rules a cluster write is decided by, under *Tools*), `session` (one agent run's identity and policy, under *Tools*), `memorysvc` (the notes a chat's cluster sees, below), `securityconfig` (the security settings, below), `catalog` (the providers and the tools each is offered, below), `testutil` (test-only, imported by no production code), plus the subsystems below.
 
@@ -1297,11 +1301,15 @@ reads. **A `session.Session`** is one agent run's policy: its `Kind` (`Chat`, `S
 `Policy`, a function of a kube-context answering a `permissions.Policy` — the context's mode and the
 rules — read live on every write, which `chatsvc` sets to the security store's `ModeFor` and the
 chat's grants joined with the store's `Rules()` (`sessionFor`, `grants.go`), so a mode or rule
-changed in Settings applies to the next write, a running subagent's included; and `Network`, the
+changed in Settings applies to the next write, a running subagent's included; `Network`, the
 `session.Network` a sandboxed command starting now has — `NetworkChat` while the chat's
 `network_enabled` is set, read at each call, else `NetworkTurn` for the turn's toggle, else
 `NoNetwork`, a read that fails answering `NoNetwork` — nil for a session that never has it, which
-`sessionFor` alone sets, so a session built any other way (the monitor's) has none.
+`sessionFor` alone sets, so a session built any other way (the monitor's) has none; and `Folders`, a
+function answering the session's folder grants (`session.Folder`: `Path`, `Write`), read live,
+whose one builder is `chatsvc`'s `foldersFor` (*Chat*, below). A nil `Folders` reads none:
+`Session.GrantedFolders(ctx)` is the reader that says so, and every reader of the folders goes
+through it (`TestASessionWithNoFoldersReadsNone`).
 The chat, the cluster and the workspace are not on it: the runtime's `ChatID`, `ClusterID` and
 `tools.WorkspacePath(rt.Dir)` are their one source, and policy that depends on the cluster is a
 function `chatsvc` builds knowing it. A turn builds its session (`turn.session()`); a
@@ -1453,7 +1461,14 @@ macOS answers false). **`Sandbox.Never(home)`** is the Never lists under the hom
 other entry of `homesParent` (`/home` or `/Users`, but `notHomes`: `linuxbrew`, `Shared`, and an
 entry holding the home, so a nested home is not another user's) and on
 Linux the rootless container sockets in `/run/user/<uid>`, less any path on or above the home.
-It and `System` stat and list folders, which can hang on a network mount, so both run under a
+**`NoWrite(home)`** is the `NoWrite` lists under the home: what something outside the sandbox
+runs — the shells' startup files and folders on both platforms, `~/Library/LaunchAgents` on macOS,
+the user's systemd units, environment and autostart on Linux — which a read grant may name and a
+read-write one may not. **`FixedMount(p)`** is whether `p` is on or under a mount every run has its
+own of (`/proc`, `/dev` and `/tmp` on Linux, `/dev` on macOS, nothing on Windows), which no grant
+may name; `overFixedMount` stays the narrower test a rule is refused by, since a run's own paths
+may lie under `/tmp`.
+`Never` and `System` stat and list folders, which can hang on a network mount, so both run under a
 bound: bash's policy goroutine, and the probe's (`probePolicy`, `probe.go`: `System`, its folder
 written, `Never` denied, built through `probePolicyWithin` and `buildProbePolicy`, a test's
 seam).
@@ -1864,7 +1879,37 @@ is a name under `OpenWorkspace`'s root, made first with `create`, a missing work
 any other path is the path, once `Holds` finds it outside (`ErrFenced` when not). A path that
 reaches the workspace by another spelling is not under it by name, so `Holds` refuses it. A
 `File`'s `Lstat`, `Open`, `Replaceable`, `Replace`, `Creatable` and `Create` are the path forms, or
-the root forms under the workspace, and `Close` closes the root.
+the root forms under the workspace or a walked folder, and `Close` closes the root.
+
+**A granted folder is reached by handle** (`grant.go`, `walk.go`). `Fence.WithHidden(hidden)` gives
+a fence what the sandbox keeps shut under a grant: `hidden` answers `Hidden`'s `Never` (the
+denied-always list with Kstack's directories) and `Closed` (the closed folders), as the zones list
+them, from `securityconfig`'s snapshot, so asking touches no disk; a fence with none skips nothing.
+**Both are resolved each time they are compared** (`Hidden.resolved`), never kept resolved, so a
+never path that is a link retargeted after the sync is caught at its target of now
+(`TestARetargetedNeverPathStaysHidden`, `TestACheckResolvesTheZonesNow`).
+**`Granted(ctx, folders, path)`** is the folder a path is under, compared resolved — the path through
+its deepest folder that exists, as `sandbox.Resolved` does — the deepest folder answering, a
+read-write one first; false for a path under a `Never` path, or under a `Closed` folder that lies
+inside the grant (one over it is the folder the grant opens). The gate calls it before the loop's
+bound on the call, and a stat on a dead network mount blocks in a syscall no context reaches, so
+the resolving runs on a goroutine abandoned when `ctx` ends and the call then answers false, so
+the tool asks; with no folder granted nothing is resolved
+(`TestGrantedAnswersTheCancelWhileResolvingBlocks`). **`Walk(folder, path)`** is the
+`File` a tool changes there: `/` opened as an `os.Root`, then each folder down to the grant
+`Lstat`ed and opened without following a link — a link on the way, the grant's own included, is
+`ErrMoved` — then inside the grant each folder the same way, a link read and walked again from the
+grant's handle as a folder-relative path (one that leaves is `ErrLeaves`, past `maxLinks`, 40,
+`ErrTooManyLinks`). Each opened handle is `Stat`ed and compared with the closed paths' info, read
+once as the walk starts, by `os.SameFile`, so a path through a closed folder is `ErrHidden`
+wherever a link pointed; a `Closed` folder counts only below the grant. A missing part is left to
+the `File`, whose `Create` makes it on the deepest handle and refuses a link in its way; a `File`
+whose folder was missing (`ancestorMissing`) answers `ErrMissing` to `Lstat` and `Open` without
+opening anything, since the root would follow a link made there since, past the walk's checks
+(`TestAnAncestorMadeAfterTheWalkIsNotFollowed`). The `File` checks what `Lstat` and `Open` find
+against the same infos, since a `Never` path can be a file (`~/.netrc`).
+`walkHook` is the walk's test seam. `WalkRefusal` is the one wording of the walk's errors for the
+model.
 `Open` refuses anything but a regular file of at most `FileLimit` (`Check`) by `Lstat` before
 opening and again by the open file's `Stat` after; a link in the last component is `ErrLink` with its target,
 absolute and plain (on Windows a symbolic-link or junction reparse tag; any other tag is judged by
@@ -1983,9 +2028,10 @@ lookup and before `ToolCallStarted`: an error is answered `bad-input` with nothi
 or, for a `*tools.Refusal`, with the result it carries — and otherwise `Approver.Approve(ctx, call, approval)` decides. A `tools.Approval` is what the gate
 records on the call's row: `Cwd`, where it will start (`''` for a tool that runs nowhere),
 `Sandboxed`, whether a sandbox confines it, `Skip`, which runs the call with nothing put to the approver, so its row is an ungated call's —
-no approval, `is_mutating` 0 — and `Network`, the `session.Network` a sandboxed call runs with
+no approval, `is_mutating` 0 — `Network`, the `session.Network` a sandboxed call runs with
 (`NetworkChat`, `NetworkTurn`, or `NetworkApproved`, which holds once the user approves; `NoNetwork`
-for none). `gate` hands the approval on to `ToolCallStarted`, asked or
+for none), and `Folder`, the granted folder a skip rests on, nil for any other, so a file tool
+reaches the folder its approval named and never reads the session's folders again. `gate` hands the approval on to `ToolCallStarted`, asked or
 skipped (the zero value for an ungated tool), so a skipped call's row still says where and how it
 ran, and to the run: **a `tools.ApprovedRunner`** (`RunApproved(ctx, rt, input, approval)`) is run
 by it in place of `Run`, so what runs is what the gate decided whatever the session says by then;
@@ -2356,8 +2402,9 @@ builds the one `sandbox.Status` from both, available only with a shell and a san
 with no shell clears the network answer with it (`TestNoShellOffersNoNetwork`) — which
 `chatsvc.New` and `graph.Resolver` take; `chatTools`, the one
 `tools.NewBox`), then Read, Memory, Write, Edit, WebFetch, TaskStop, the provider's web search and KubeQuery; a machine with none is
-offered Read, Memory, Write, Edit, WebFetch, the search and KubeQuery, and reads bash's stored calls through `bash.Reader`. Read, Write and Edit take Kstack's three
-directories and build their own fence around them; `chatTools` runs once `makeDirs` has made them, and
+offered Read, Memory, Write, Edit, WebFetch, the search and KubeQuery, and reads bash's stored calls through `bash.Reader`. Read, Write and Edit take Kstack's
+directories (`Paths.DeniedDirs`) and build their own fence around them, with the security service's
+`Hidden` as what the sandbox keeps shut under a grant; `chatTools` runs once `makeDirs` has made them, and
 `app.New` fails to start without them. For bash, `New` reads the version once with `bash --version` (never
 `-c`, which sources `BASH_ENV`), and the prompt's `- Shell:` line names it — on a bash older than
 4, macOS's own 3.2, followed by what it lacks; a version that cannot be read reads `bash` alone and
@@ -2471,12 +2518,23 @@ cache stays warm while the port moves, and never resolved, since client-go sends
 grant's token as the proxy's password, and a user holding nothing, since clientcmd applies a
 user's credentials only over TLS. `safe.Redact` blanks the token wherever a command prints the
 kubeconfig. **The `Run`'s policy is the Workspace policy** (`workspacePolicy`): its Files are the
-sandbox's `System` `Files`, less every rule on or inside Kstack's directories (`Outside`), and
-`extraWritable` as a Files Write; its Always part is `Never` as its Deny, `Paths.DeniedDirs`
-(`app` passes the data, cache and runtime directories) as its Kstack paths, the run's directory
+sandbox's `System` `Files`, less every rule on or inside Kstack's directories (`Outside`), then
+the session's folders (`grantRules`, `grants.go`) and `extraWritable` as a Files Write; its Always part is `Never` as its Deny, `Paths.DeniedDirs`
+(`app` passes Kstack's directories, the log directory among them) as its Kstack paths, the run's directory
 as its own Read, and the workspace, the tool home, its `TMPDIR` and the kubectl cache as its own
 Write; and a run with a cluster has one
-relay, from `Port()` to its proxy socket. **Its `Limits`** are `limitCPU` (`MaxTimeout` plus
+relay, from `Port()` to its proxy socket. **A grant is a Files rule**: `grantRules` reads the
+session's folders once, as the run is built, and checks each again with
+`securityconfig.CheckStoredFolder`
+against what this run enforces — its `System` files, `Never` with Kstack's directories, the home,
+`sandbox.NoWrite` and the stored `PATH` (`securityconfig.PathEntryFolders`) — so a folder that moved or
+became a link since `foldersFor` read it is left out, and logged (`TestAGrantThatFailsTheCheckIsLeftOut`).
+A folder granted twice keeps the wider grant, and one under a read-write folder is dropped, since
+`Check` refuses any rule beneath a Write rule; a read-write folder under a read one stays
+(`TestNestedGrantsResolveToTheWider`). A read grant is a Read rule, a read-write one a Write rule,
+and the Always part is untouched (`TestAGrantIsAFilesRule`, and through the real sandbox
+`TestADeniedAlwaysPathStaysHiddenUnderAGrantedHome`, `TestAReadWriteGrantIsWritten`). A grant
+revoked mid-run holds for a command already running, since a sandbox is per command. **Its `Limits`** are `limitCPU` (`MaxTimeout` plus
 `killGrace`) in seconds times `runtime.NumCPU()` on a foreground run and none on a background one,
 which has no clock; `limitMemory` (`limits_linux.go`: 16 GiB; `limits_other.go`: 0, since macOS
 sets none); `limitOpenFiles` (4096); and the sandbox's `CountedProcesses` plus
@@ -2674,14 +2732,19 @@ over 8 MiB takes seconds (`docs/TODO.md`), inside `callMargin` and the snapshot'
 **`internal/tools/read` is `Read`**, the reference's: any regular text file the user approves,
 by its plain absolute path, and the chat's own files without asking. `fileguard.Abs` takes a path
 of one line — no control character, at most `MaxPath` (4,096) bytes — since the request draws
-it whole and unfolded. `read.New(fenced...)` is
+it whole and unfolded. `read.New(hidden, fenced...)` is
 `Gated` and `Bounded` (`callTimeout`, 30s, above the turn's 2s, which reading and
 redacting 8 MiB can pass). `parse` is bash's strict walk over `file_path`, `offset` and `limit`,
 the numbers whole and at least 1, and it and `ActionOf` are unchanged for stored rows.
 **`Approval` classifies the path by name alone**, touching nothing on disk: `Skip` for a path
 `fileguard.Abs` refuses, one in the chat's directory, and one elsewhere in Kstack's directories
-(`Fence.Named`); ask, with no `Cwd`, for anything else. So the user is never asked about a read
-`Run` would refuse by its name. **`Run` takes one of three branches** after `Abs`: the chat's
+(`Fence.Named`); `Skip` with its `Folder` for a path in a folder the session was granted that
+the sandbox does not keep shut there (`Fence.Granted` over `Session.GrantedFolders`); ask, with no `Cwd`,
+for anything else. So the user is never asked about a read `Run` would refuse by its name.
+**`RunApproved` with a `Folder` reads through `Fence.Walk`** of that folder alone (`fetchGranted`,
+a field a test swaps), on a goroutine as `fetch` is, and stamps as a read outside does; with none it
+is `Run`. A hidden path under a granted folder asks, and once approved is read as any approved
+path is. **`Run` takes one of three branches** after `Abs`: the chat's
 directory, through `Dir.Root(false)` and `OpenFile(rel, fileguard.OpenFlags)` with a `Stat` of the open file,
 every refusal `notHere`; Kstack's directories, by name or on disk (`Fence.Holds`), `notHere` — one
 sentence naming nothing about the path; anywhere else, `fileguard.Open`, `fileguard.ReadAll` and
@@ -2705,14 +2768,15 @@ A call whose context ended stamps nothing.
 **`internal/tools/write` is `Write`**, the reference's: a new file, with any missing directories,
 or an existing one replaced whole: in the chat's workspace unasked, anywhere else once the user
 approves the path and the content.
-`write.New(umask, fenced...)` is `Gated` and `Bounded` (`callTimeout`, 30s), shares
+`write.New(umask, hidden, fenced...)` is `Gated` and `Bounded` (`callTimeout`, 30s), shares
 Read's fence, and takes `Config.UserUmask`. `parse` is Read's strict walk over `file_path` and
 `content`, both strings, the content at most `FileLimit` bytes and possibly empty. **`Approval`
 reads the path by name alone**: `Skip` for a path `fileguard.Abs` refuses, one under Kstack's
 directories by name but the chat's workspace (`Fence.NamedOutsideWorkspace`), and content holding a NUL, which `Run` refuses before touching anything;
 `Skip` too for a path under the workspace by name (`fileguard.Under`), the test `Fence.File` opens
-the workspace's root by, so an unasked write cannot leave it; ask, with no `Cwd`, for anything
-else. So a Write over a file the chat has not read is asked, then
+the workspace's root by, so an unasked write cannot leave it; `Skip` with its `Folder` for a path in
+a folder granted read-write that `Fence.Granted` passes, which `RunApproved` reaches through
+`Fence.Walk` alone; ask, with no `Cwd`, for anything else. So a Write over a file the chat has not read is asked, then
 refused, and the description and prompt tell the model to Read first. **`Run`** does the string
 checks, then the file work on a goroutine (`write`, a field a test swaps), answering the context
 without it: `Fence.File(results, path, true)` — the workspace's root, made if missing, or the path
@@ -2727,13 +2791,13 @@ rest map from `fileguard`'s errors, never a Go error's text.
 
 **`internal/tools/edit` is `Edit`**, the reference's: one exact occurrence of `old_string` replaced
 with `new_string`, or every one with `replace_all`: in the chat's workspace unasked, anywhere
-else once the user approves the path and both strings. `edit.New(fenced...)` is `Gated` and `Bounded` (`callTimeout`, 30s) and builds its own
+else once the user approves the path and both strings. `edit.New(hidden, fenced...)` is `Gated` and `Bounded` (`callTimeout`, 30s) and builds its own
 fence. `parse` is the strict walk over `file_path`, `old_string`, `new_string` and an optional
 boolean `replace_all`, each string at most `FileLimit` bytes. **`check` is Write's plus three**:
 `fileguard.Abs`, `Fence.NamedOutsideWorkspace`, then an empty `old_string`, one equal to `new_string`, and a
 `new_string` holding a NUL or `safe.Redacted` — the mark Read shows in place of a secret, which
-Edit would write as text. `Approval` answers `Skip` for any call `check` refuses and for one in the
-workspace, as Write's does, and asks, with no
+Edit would write as text. `Approval` answers `Skip` for any call `check` refuses, for one in the
+workspace, and with its `Folder` for one in a folder granted read-write, as Write's does, and asks, with no
 `Cwd`, for the rest. **`Run`** does `check`, then the file work on a goroutine (`edit`, a field a
 test swaps): `Fence.File(results, path, false)` — an edit makes no workspace, and a missing one is
 a missing file — then `Lstat`, `Replaceable`, `Open`, `ReadAll`, `Binary`, and the chat's
@@ -2856,10 +2920,10 @@ question instead: no chain runs past the turn an agent's end starts. That is `st
 without a sender: one transaction that reads the notices, resolves the last answer's provider,
 model and effort, makes every check a send makes, reserves the turn, files a user message of
 the notices alone (no request key, no card), marks them told and touches the chat. It carries a
-context block only when the chat's switches moved since the newest one: that block with its
-`## Sandbox` section replaced (`withSandboxReplaced`, `workspace.go`, which finds the section by its
-heading), so the model knows where the turn's commands run and what they reach; a
-notice turn has no toggle. A cancelled
+context block only when the chat's switches moved or its folders changed since the newest one:
+that block with its `## Sandbox` section replaced (`withSandboxReplaced`, `workspace.go`, which
+finds the section by its heading), so the model knows where the turn's commands run and what they
+reach and read; a notice turn has no toggle. A cancelled
 or failed turn kicks nothing, and nothing kicks at startup.
 
 **`internal/tools/taskstop` is `TaskStop`**: ungated, reading `rt.Tasks`, `task_id` read by a strict
@@ -2955,6 +3019,27 @@ it, so the id outlives the change, and an `ID` the chat does not hold is `ErrGra
 `RemoveChatGrant` deletes one by id, `ErrGrantGone` for an id the chat does not hold. On the wire they are
 the `chatGrants(chatID)` query and the `chatGrantRemove(chatID, id)` mutation, which answers the
 rules left; `ErrGrantGone` is `KSTACK_RECORD_NOT_FOUND`.
+
+**`foldersFor(ctx, chatID)` is the one builder of a session's folders** (`grants.go`): the chat's
+folder grants, then the always ones (`folderRules`, over `security.Rules()`, so a held `rules`
+grants none), each checked again by `securityconfig.Service.CheckStoredFolder` — a folder that
+fails is left out and logged with its reason — and none at all where `sandboxStatus` is not
+`Available`.
+`sessionFor` sets `Folders` to it, and to none for a chat switched outside the sandbox, so `bash`
+and the file tools read one checked list (`TestFoldersForAnswersOnlyCheckedFolders`,
+`TestNoFolderAppliesWithoutASandbox`). `FoldersFor(ctx, "")` is the always folders alone, for a run
+with no chat. **`GrantFolder(ctx, chatID, path, write)`** checks the path as a new grant
+(`CheckFolder`, a `securityconfig.FolderRefusal` on refusal), then writes a `Rule{Allow,
+ReadInside|WriteInside, Folder}`: a chat's through `putGrant` in one transaction with the lookup
+(`readGrants`, the chat's rules read on the transaction's own statements), and with no chat (`""`)
+an always one through the store's `PutRule`, one update; a folder already granted in the same
+place takes that grant's id, so its mode changes in place, and two grants of one folder at once
+leave one rule (`TestAGrantInTheSamePlaceChangesItsMode`,
+`TestConcurrentGrantsOfOneFolderLeaveOneRule`). `RevokeFolder(id)` removes an always folder grant,
+`ErrGrantGone` for an id that is not one. `FolderGrants(ctx, chatID)` is the always grants and the
+chat's, each a `FolderGrant` with `Refused`, its check's reason now, for Settings and the composer;
+while the rules field is held every always grant is refused with `RulesHeldReason`, since `Rules()`
+grants none then, and stays listed for Remove (`TestAHeldRulesFieldRefusesEveryAlwaysGrant`).
 
 **The live message lists every call, off its rows.** `ChatMessage.ToolCalls` is the turn's
 calls as one JSON string of `ToolCall` (`id`, `toolUseID`, `name`, `arguments`, `status`,
@@ -3221,8 +3306,8 @@ llmSvc, clusterCards, memories, box, lists, sandbox, security)` takes a `Cluster
 string`, the one thing this package asks about a cluster — which `internal/clustercard` implements
 over `clustersvc.Service`, and a `Memories` — `Section(ctx, clusterID)`, every note the cluster
 sees — which `memorysvc` implements. `sandbox` is whether the machine offers sandboxed Bash, which
-the switch and the `## Sandbox` section need, and `security` the store each session's modes and
-rules are read from. The
+the switch and the `## Sandbox` section need, and `security` the service each session's modes,
+rules and folders are read from, and a folder checked against. The
 question's `context` block is the card, then the notes as its `## Memory` section
 (`withMemory`, through `clustercard.WithSection`; a section that is not one JSON value is sent
 `{"unavailable":true}`), then the chat's workspace as its `## Workspace` section, `{"path": …}`
@@ -3231,7 +3316,9 @@ machine with a sandbox, where its commands run as its `## Sandbox` section,
 `{"commands":"sandboxed","network":…}` or `{"commands":"outside"}` (`withSandbox`, beside it, over a
 `sandboxState`), `network` being `off`, `on for this chat`, `on for this message` or `unavailable on
 this machine` (`networkValue`, the switch over the toggle) and absent outside the sandbox, where the
-switch changes nothing. Those two are
+switch changes nothing; while it is sandboxed the section also lists the folders `foldersFor`
+answered as the send began: `read` and `readWrite`, at most `maxListedFolders` (20) in all, then
+`more`, how many it left out (`TestTheContextListsTheGrants`). Those two are
 appended inside the transaction, once `resolveChat` has answered the chat's id, under the cluster
 `checkChat` answers the chat is filed under, never the send's argument, with the switches it read off
 the same row (off for a chat the send creates) and the send's toggle; the path is fixed
@@ -3452,10 +3539,14 @@ directory no sandboxed command reads, and never synced. `app.New` opens it on ev
   `Allow`, plus `permissions.Refused`, which a session reads per write. `FieldDefaultMode`,
   `FieldModes` and `FieldRules` are the fields' keys. The mutations: `SetDefaultMode` (names
   `defaultMode`, its fix), `SetMode` (the context's literal, first, replacing one already there),
-  `ClearMode`, `AddRule`, `RemoveRule` (`ErrNoRule`) and `DiscardRefused` (`modes` or `rules`,
+  `ClearMode`, `AddRule`, `PutRule` (the first rule a predicate passes swapped in place under its
+  id, else appended), `RemoveRule` (`ErrNoRule`) and `DiscardRefused` (`modes` or `rules`,
   naming it; `ErrNotHeld` otherwise). The checks refuse a mode that is not one of the three, an
-  entry with no context, and a rule with an unknown effect, a class other than 4 or 5 (the two a
-  cluster write is decided as), an `Allow` of class 5, or an empty, repeated or `refused` id; a
+  entry with no context, and a rule with an unknown effect, a class other than 1, 2 (a folder
+  grant) or 4, 5 (the two a cluster write is decided as), an `Allow` of class 5, a cluster rule
+  naming a `Folder`, a folder rule that does not allow, names no folder or one not absolute and
+  clean or `/`, or names a cluster field (`folderRuleRefusal`, the value alone, never the disk), or
+  an empty, repeated or `refused` id; a
   list element with a key its type does not name is refused before them, since a misspelled
   narrowing field dropped would widen the rule. `defaultMode`'s strictest line sets `ReadOnly`;
   `modes`' and `rules`' leave what passed and only hold the field, whose strict state `ModeFor`
@@ -3502,6 +3593,39 @@ with no sandbox, so the resolvers ask the service alone. The refresh's resolver,
 adoption rule over one folder for a run, and says whether the run's open folders read it already.
 → [ADR: `PATH` is the login shell's, filtered and frozen](../docs/adr/2026-10-02-path-is-the-login-shells-filtered-and-frozen.md),
 [security record](../docs/security/2026-10-02-path-from-the-login-shell.md).
+
+**A folder grant is checked against the zones** (`folders.go`). A grant is a rule
+(`permissions.Rule.Folder`, class 1 read or 2 read-write; it matches no action, so it never
+reaches a verdict, and its `Line` is *Allow reads of …* or *Allow reads and writes of …*, the
+folder quoted when it holds a space, `"` or `\`). `CheckFolder(path, write, z, pathEntries)` is
+nil or a `FolderRefusal` (`Rule`, `Reason` in the user's words, and for `link` and `spelling` the
+canonical `Target`): not absolute or clean, `/`, on or under a fixed mount (`sandbox.FixedMount`),
+not a folder, a link on it or its way (`link`), or spelled otherwise than the disk lists it
+(`spelling`: a case-insensitive filesystem opens `/Users/ME` as `/Users/me`, and the zones are
+compared by text; `TestAFolderSpelledInAnotherCaseIsRefused`, on macOS) — for a stored grant,
+`CheckStoredFolder`, either is `moved` — under a
+never path (`Zones.Never`, resolved, so a never path that is a link is caught at its target), or
+exactly a closed folder; read-write also not the home, nor on, under or over a `Zones.Open` Read
+path or a `PATH` entry (`tool`), nor over a closed folder, nor on, under or over a `NoWrite` path
+(`code`), nor over a never path (`TestCheckFolderRefusesEachRule`, `TestALinkIsRefusedWithItsTarget`,
+`TestAMovedGrantIsRefused`, `TestAFixedMountCannotBeGranted`, `TestAWriteGrantOnCodeThatRunsIsRefused`).
+**Every path compared is canonical** (`canonical`, `filter.go`): its links followed
+(`sandbox.Resolved`), then each component spelled as its directory lists it (`sandbox.Spelled`,
+by `os.SameFile` against the listing), so two names of one folder compare equal by text.
+**The service holds the zones as a snapshot, as the zones function listed them**: `SyncPath` takes
+it with each read of the disk, the login shell's `PATH` unfiltered beside it, and the first check
+takes one when no sync has (`TestTheZonesAreASnapshot`), so no check runs the zones function's own
+reads again. `Service.CheckFolder` and `Service.CheckStoredFolder` resolve the snapshot's zones
+again on every check (`TestACheckResolvesTheZonesNow`) and check against them and every stored
+entry's `Dir` and `Target` with the login `PATH` (`PathEntryFolders` is the stored half), and
+refuse every folder on a machine with no sandbox (`TestNoSnapshotRefusesEveryFolder`). **Every
+disk read of theirs goes through `readWithin`**, bounded by `SyncTimeout` and the caller's context
+(*Kstack could not check this folder in time.* for a check): taking the snapshot, a check, and
+resolving the home for `WideFolders`. `Hidden()` is the snapshot's never and closed folders for
+the file tools, as listed and never taking a snapshot; `NeverReadable` and `WideFolders` (the home
+and each folder over it, and `/Volumes` on macOS; nil past the bound) are what Settings draws.
+→ [ADR: a folder grant is a rule](../docs/adr/2026-10-04-a-folder-grant-is-a-rule.md),
+[security record](../docs/security/2026-10-04-path-grants.md).
 
 ## Auth / identity (`internal/auth`)
 

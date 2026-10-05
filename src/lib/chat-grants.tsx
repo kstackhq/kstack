@@ -13,7 +13,8 @@
 // limitations under the License.
 
 // A chat's own rules: the ones an approval answered "Allow for this chat"
-// wrote, which the composer lists and removes. The one reader of the query
+// wrote, and the folders granted for the chat, which the composer lists and
+// removes. The one reader of the query
 // and the mutation. Another window can add or remove one, so the query is
 // asked again on focus and after a removal; an approval in this window names
 // the rule's type (`chatGrantsContext`), which asks it again too.

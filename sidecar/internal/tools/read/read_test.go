@@ -55,6 +55,8 @@ var badInputs = []string{
 	`{"file_path":"/a","limit":99999999999999999999999}`,
 	`{"file_path":"/a"} 1`,
 	`{"file_path":"/a"`,
+	`{"file_path"`,
+	`{1}`,
 	`[]`,
 	`not json`,
 }
@@ -160,14 +162,14 @@ func (s stamps) SetStamp(path string, st tools.Stamp)  { s[path] = st }
 // tool is Read fenced around dirs, which must exist.
 func tool(t *testing.T, dirs ...string) *Tool {
 	t.Helper()
-	tl, err := New(dirs...)
+	tl, err := New(nil, dirs...)
 	require.NoError(t, err)
 	return tl
 }
 
 // A tool fenced out of no directory could open Kstack's files, so New needs one.
 func TestNewNeedsAFencedDirectory(t *testing.T) {
-	_, err := New()
+	_, err := New(nil)
 	assert.ErrorIs(t, err, fileguard.ErrNoFence)
 }
 

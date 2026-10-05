@@ -17,6 +17,7 @@
 package read
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -25,8 +26,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/fileguard"
 )
 
 // A FIFO in the directory is refused at once, with no writer: opening one for
@@ -102,4 +105,170 @@ func TestReadRefusesALinkOut(t *testing.T) {
 	text, isError := tl.Run(t.Context(), rt, call(filepath.Join(dir, "link.txt")))
 	assert.True(t, isError)
 	assert.Equal(t, notHere, text)
+}
+
+// granted is a home of the test's own, with a key under a never-readable
+// .ssh, notes in a closed Documents and a project inside it, and code; Read
+// knowing both closed paths; and a runtime whose session grants folders.
+type granted struct {
+	home string
+	tl   *Tool
+	rt   tools.Runtime
+}
+
+func newGranted(t *testing.T) granted {
+	t.Helper()
+	home := filepath.Join(testutil.GrantableDir(t), "home")
+	for rel, body := range map[string]string{
+		".ssh/id_ed25519": "key", ".ssh/config": "Host x", "Documents/notes.txt": "notes",
+		"Documents/project/a.txt": "project", "code/x.txt": "code",
+	} {
+		p := filepath.Join(home, rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte(body), 0o600))
+	}
+	data := filepath.Join(t.TempDir(), "data")
+	dir := filepath.Join(data, "chats", "c1")
+	require.NoError(t, os.MkdirAll(dir, 0o700))
+	tl, err := New(func() (never, closed []string) {
+		return []string{filepath.Join(home, ".ssh")}, []string{filepath.Join(home, "Documents")}
+	}, data)
+	require.NoError(t, err)
+	return granted{home: home, tl: tl, rt: tools.Runtime{Dir: chatDir(dir), Files: stamps{}}}
+}
+
+func (g granted) in(rel string) string { return filepath.Join(g.home, rel) }
+
+// read is a call of path run with approval a.
+func (g granted) read(t *testing.T, path string, a tools.Approval) (string, bool) {
+	t.Helper()
+	return g.tl.RunApproved(t.Context(), g.rt, call(path), a)
+}
+
+func TestAReadInAGrantedFolderAsksNoOne(t *testing.T) {
+	g := newGranted(t)
+	code := session.Folder{Path: g.in("code")}
+	g = newGrantedAt(t, g, code)
+
+	a := approval(t, g.tl, g.rt, g.in("code/x.txt"))
+	assert.Equal(t, tools.Approval{Skip: true, Folder: &code}, a)
+	text, isError := g.read(t, g.in("code/x.txt"), a)
+	require.False(t, isError, text)
+	assert.Contains(t, text, "code")
+	assert.Equal(t, tools.Approval{}, approval(t, g.tl, g.rt, g.in("Documents/project/a.txt")), "a path under no grant asks")
+}
+
+func TestAMissingFileInAGrantedFolderIsRefused(t *testing.T) {
+	g := newGranted(t)
+	code := session.Folder{Path: g.in("code")}
+	g = newGrantedAt(t, g, code)
+	text, isError := g.read(t, g.in("code/missing.txt"), tools.Approval{Skip: true, Folder: &code})
+	assert.True(t, isError)
+	assert.Equal(t, refusal(fileguard.ErrMissing), text)
+}
+
+// newGrantedAt is g with its session granting folders.
+func newGrantedAt(t *testing.T, g granted, folders ...session.Folder) granted {
+	t.Helper()
+	g.rt.Session.Folders = func(context.Context) []session.Folder { return folders }
+	return g
+}
+
+func TestARevokeBetweenApprovalAndRunChangesNothing(t *testing.T) {
+	g := newGranted(t)
+	home := session.Folder{Path: g.home}
+	g = newGrantedAt(t, g, home)
+	require.NoError(t, os.Symlink(g.in(".ssh/id_ed25519"), g.in("code/key")))
+	a := approval(t, g.tl, g.rt, g.in("code/x.txt"))
+	require.Equal(t, &home, a.Folder)
+
+	for name, folders := range map[string]func(context.Context) []session.Folder{
+		"emptied":         func(context.Context) []session.Folder { return nil },
+		"failing to read": func(context.Context) []session.Folder { panic("the run read the folders again") },
+	} {
+		g.rt.Session.Folders = folders
+		text, isError := g.read(t, g.in("code/x.txt"), a)
+		require.False(t, isError, "%s: %s", name, text)
+		assert.Contains(t, text, "code", name)
+		text, isError = g.read(t, g.in("code/key"), a)
+		assert.True(t, isError, name)
+		assert.Equal(t, refusal(fileguard.ErrHidden), text, "%s: through the walk of the folder the approval named, never by path", name)
+	}
+}
+
+func TestAHiddenPathUnderAGrantedHomeStillAsks(t *testing.T) {
+	g := newGranted(t)
+	g = newGrantedAt(t, g, session.Folder{Path: g.home})
+	for path, want := range map[string]string{g.in(".ssh/config"): "Host x", g.in("Documents/notes.txt"): "notes"} {
+		a := approval(t, g.tl, g.rt, path)
+		assert.Equal(t, tools.Approval{}, a, "%s is not skipped", path)
+		text, isError := g.read(t, path, a)
+		require.False(t, isError, "%s, approved, is read as today: %s", path, text)
+		assert.Contains(t, text, want)
+	}
+
+	project := session.Folder{Path: g.in("Documents/project")}
+	g = newGrantedAt(t, g, project)
+	assert.Equal(t, tools.Approval{Skip: true, Folder: &project}, approval(t, g.tl, g.rt, g.in("Documents/project/a.txt")))
+}
+
+func TestALinkToAHiddenPathUnderAGrantedHomeIsRefused(t *testing.T) {
+	g := newGranted(t)
+	home := session.Folder{Path: g.home}
+	g = newGrantedAt(t, g, home)
+	require.NoError(t, os.MkdirAll(g.in(".ssh/keys"), 0o700))
+	require.NoError(t, os.WriteFile(g.in(".ssh/keys/k"), []byte("key"), 0o600))
+	require.NoError(t, os.Symlink(".ssh", g.in("alias")))
+	require.NoError(t, os.Symlink("alias", g.in("deep")))
+	require.NoError(t, os.Symlink(".ssh/keys", g.in("sub")))
+	require.NoError(t, os.Symlink("code/x.txt", g.in("beside")))
+
+	skipped := tools.Approval{Skip: true, Folder: &home}
+	for _, path := range []string{g.in("alias/id_ed25519"), g.in("deep/id_ed25519"), g.in("sub/k")} {
+		assert.Equal(t, tools.Approval{}, approval(t, g.tl, g.rt, path), "%s asks", path)
+		text, isError := g.read(t, path, skipped)
+		assert.True(t, isError, path)
+		assert.Equal(t, refusal(fileguard.ErrHidden), text, path)
+	}
+	a := approval(t, g.tl, g.rt, g.in("beside"))
+	assert.Equal(t, skipped, a)
+	text, isError := g.read(t, g.in("beside"), a)
+	require.False(t, isError, text)
+	assert.Contains(t, text, "code", "a link to a file beside them is followed")
+}
+
+func TestAWalkThroughAClosedFolderIsRefused(t *testing.T) {
+	g := newGranted(t)
+	home := session.Folder{Path: g.home}
+	g = newGrantedAt(t, g, home)
+	require.NoError(t, os.Symlink("Documents/notes.txt", g.in("notes")))
+	text, isError := g.read(t, g.in("notes"), tools.Approval{Skip: true, Folder: &home})
+	assert.True(t, isError)
+	assert.Equal(t, refusal(fileguard.ErrHidden), text)
+}
+
+func TestAGrantedCallAnswersAtItsEnd(t *testing.T) {
+	g := newGranted(t)
+	code := session.Folder{Path: g.in("code")}
+	g = newGrantedAt(t, g, code)
+	real := g.tl.fetchGranted
+	release := make(chan struct{})
+	returned := make(chan struct{})
+	g.tl.fetchGranted = func(folder session.Folder, path string) ([]byte, error) {
+		defer close(returned)
+		<-release
+		return real(folder, path)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	ran := make(chan struct{})
+	var text string
+	go func() {
+		defer close(ran)
+		text, _ = g.tl.RunApproved(ctx, g.rt, call(g.in("code/x.txt")), tools.Approval{Skip: true, Folder: &code})
+	}()
+	cancel()
+	testutil.Wait(t, ran, "the cancel's answer")
+	assert.Equal(t, cancelled, text)
+	close(release)
+	testutil.Wait(t, returned, "the walk")
 }

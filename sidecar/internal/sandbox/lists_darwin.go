@@ -29,6 +29,7 @@ var platformLists = Lists{
 		"~/Library/Keychains", "~/Library/Cookies", "~/Library/Application Support/Google/Chrome",
 		"~/Library/Application Support/Firefox", "~/Library/Safari",
 	},
+	NoWrite: []string{"~/Library/LaunchAgents"},
 }
 
 // brewVar is Homebrew's var, which the System folders take in and which holds

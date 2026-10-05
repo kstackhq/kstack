@@ -2,10 +2,13 @@ package graph
 
 import (
 	"context"
+	"errors"
 	"strconv"
 	"testing"
 
+	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
 // TestChatRefusalsCarryTheirCode lists one case per entry of chatRefusals by hand,
@@ -75,4 +78,17 @@ func TestMapStreamStopsOnContextCancelDuringSend(t *testing.T) {
 	// ready beside ctx.Done, and select would pick between them at random.
 	testutil.RecvClosed(t, unsubbed, "the unsub channel")
 	testutil.RecvClosed(t, out, "the output channel")
+}
+
+// A grant the settings refuse by its shape is a validation error under the
+// folder rule, carrying the settings' own reason.
+func TestFolderErrNamesARefusedShape(t *testing.T) {
+	refusal := securityconfig.Refusal{Field: "rules", Value: "x", Reason: "is not a rule"}
+	var e *gqlerror.Error
+	if !errors.As(folderErr(refusal), &e) {
+		t.Fatalf("folderErr(%v) is not a GraphQL error", refusal)
+	}
+	if e.Extensions["code"] != "KSTACK_VALIDATION_ERROR" || e.Extensions["rule"] != "folder" || e.Message != refusal.Error() {
+		t.Errorf("folderErr(%v) = %q %v", refusal, e.Message, e.Extensions)
+	}
 }

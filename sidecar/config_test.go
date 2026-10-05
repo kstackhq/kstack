@@ -16,6 +16,7 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -104,6 +105,7 @@ func TestConfigFromArgsReadsFlags(t *testing.T) {
 			KeychainService: "Kstack-dev",
 			AddFake:         debugBuild,
 			HostPID:         42,
+			LogDir:          filepath.Dir("/tmp/logs/sidecar.log"),
 		},
 		Socket:    "/tmp/sock",
 		HostPID:   42,
@@ -131,8 +133,8 @@ func TestConfigFromArgsReadsFlags(t *testing.T) {
 // whole log and nothing writes a file the caller did not ask for.
 func TestConfigFromArgsLogsToStderrByDefault(t *testing.T) {
 	cfg := mustConfigFromArgs(t, nil, noEnv)
-	if cfg.LogFile != "" || cfg.LogStderr {
-		t.Errorf("log flags = (%q, %v), want empty and false", cfg.LogFile, cfg.LogStderr)
+	if cfg.LogFile != "" || cfg.LogStderr || cfg.App.LogDir != "" {
+		t.Errorf("log flags = (%q, %v, %q), want empty, false and empty", cfg.LogFile, cfg.LogStderr, cfg.App.LogDir)
 	}
 }
 

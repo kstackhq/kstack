@@ -477,6 +477,8 @@ type ComplexityRoot struct {
 		ClusterEnabledSet               func(childComplexity int, id apimeta.ClusterID, enabled bool) int
 		ClusterMonitoringEnabledSet     func(childComplexity int, id apimeta.ClusterID, monitoringEnabled bool) int
 		ClusterSyncEnabledSet           func(childComplexity int, id apimeta.ClusterID, syncEnabled bool) int
+		FolderGrant                     func(childComplexity int, chatID *apimeta.ChatID, path string, write bool, duration model.GrantDuration) int
+		FolderRevoke                    func(childComplexity int, id string) int
 		MemoryDelete                    func(childComplexity int, id memorysvc.MemoryID) int
 		MemorySave                      func(childComplexity int, input model.MemorySaveInput) int
 		PermissionDefaultModeSet        func(childComplexity int, mode permissions.Mode) int
@@ -525,6 +527,7 @@ type ComplexityRoot struct {
 		Class     func(childComplexity int) int
 		Context   func(childComplexity int) int
 		Effect    func(childComplexity int) int
+		Folder    func(childComplexity int) int
 		Group     func(childComplexity int) int
 		ID        func(childComplexity int) int
 		Kind      func(childComplexity int) int
@@ -566,6 +569,7 @@ type ComplexityRoot struct {
 		Models              func(childComplexity int) int
 		PermissionSettings  func(childComplexity int) int
 		Sandbox             func(childComplexity int) int
+		SandboxFolders      func(childComplexity int, chatID *apimeta.ChatID) int
 		SandboxPath         func(childComplexity int) int
 		SandboxPathFault    func(childComplexity int) int
 		SandboxPathResolved func(childComplexity int) int
@@ -581,6 +585,21 @@ type ComplexityRoot struct {
 		ResourceNames func(childComplexity int) int
 		Resources     func(childComplexity int) int
 		Verbs         func(childComplexity int) int
+	}
+
+	SandboxFolder struct {
+		ID      func(childComplexity int) int
+		Path    func(childComplexity int) int
+		Refused func(childComplexity int) int
+		Write   func(childComplexity int) int
+	}
+
+	SandboxFolders struct {
+		Always    func(childComplexity int) int
+		Chat      func(childComplexity int) int
+		Never     func(childComplexity int) int
+		RulesHeld func(childComplexity int) int
+		Wide      func(childComplexity int) int
 	}
 
 	SandboxPathEntry struct {
@@ -740,6 +759,8 @@ type MutationResolver interface {
 	PermissionRuleRemove(ctx context.Context, id string) (*model.PermissionSettings, error)
 	ChatGrantRemove(ctx context.Context, chatID apimeta.ChatID, id string) ([]*permissions.Rule, error)
 	PermissionDiscardRefused(ctx context.Context, field string) (*model.PermissionSettings, error)
+	FolderGrant(ctx context.Context, chatID *apimeta.ChatID, path string, write bool, duration model.GrantDuration) (*model.SandboxFolders, error)
+	FolderRevoke(ctx context.Context, id string) (*model.SandboxFolders, error)
 	AuthLoginStart(ctx context.Context) (bool, error)
 	AuthLogout(ctx context.Context) (bool, error)
 }
@@ -757,6 +778,7 @@ type QueryResolver interface {
 	SandboxPathFault(ctx context.Context) (*string, error)
 	SandboxPathResolved(ctx context.Context) (bool, error)
 	PermissionSettings(ctx context.Context) (*model.PermissionSettings, error)
+	SandboxFolders(ctx context.Context, chatID *apimeta.ChatID) (*model.SandboxFolders, error)
 	ChatGrants(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error)
 	AuthState(ctx context.Context) (*auth.State, error)
 }
@@ -2518,6 +2540,28 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ClusterSyncEnabledSet(childComplexity, args["id"].(apimeta.ClusterID), args["syncEnabled"].(bool)), true
+	case "Mutation.folderGrant":
+		if e.ComplexityRoot.Mutation.FolderGrant == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_folderGrant_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.FolderGrant(childComplexity, args["chatID"].(*apimeta.ChatID), args["path"].(string), args["write"].(bool), args["duration"].(model.GrantDuration)), true
+	case "Mutation.folderRevoke":
+		if e.ComplexityRoot.Mutation.FolderRevoke == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_folderRevoke_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.FolderRevoke(childComplexity, args["id"].(string)), true
 	case "Mutation.memoryDelete":
 		if e.ComplexityRoot.Mutation.MemoryDelete == nil {
 			break
@@ -2771,6 +2815,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.PermissionRule.Effect(childComplexity), true
+	case "PermissionRule.folder":
+		if e.ComplexityRoot.PermissionRule.Folder == nil {
+			break
+		}
+
+		return e.ComplexityRoot.PermissionRule.Folder(childComplexity), true
 	case "PermissionRule.group":
 		if e.ComplexityRoot.PermissionRule.Group == nil {
 			break
@@ -2980,6 +3030,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Sandbox(childComplexity), true
+	case "Query.sandboxFolders":
+		if e.ComplexityRoot.Query.SandboxFolders == nil {
+			break
+		}
+
+		args, err := ec.field_Query_sandboxFolders_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Query.SandboxFolders(childComplexity, args["chatID"].(*apimeta.ChatID)), true
 	case "Query.sandboxPath":
 		if e.ComplexityRoot.Query.SandboxPath == nil {
 			break
@@ -3036,6 +3097,62 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ResourceRule.Verbs(childComplexity), true
+
+	case "SandboxFolder.id":
+		if e.ComplexityRoot.SandboxFolder.ID == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxFolder.ID(childComplexity), true
+	case "SandboxFolder.path":
+		if e.ComplexityRoot.SandboxFolder.Path == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxFolder.Path(childComplexity), true
+	case "SandboxFolder.refused":
+		if e.ComplexityRoot.SandboxFolder.Refused == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxFolder.Refused(childComplexity), true
+	case "SandboxFolder.write":
+		if e.ComplexityRoot.SandboxFolder.Write == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxFolder.Write(childComplexity), true
+
+	case "SandboxFolders.always":
+		if e.ComplexityRoot.SandboxFolders.Always == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxFolders.Always(childComplexity), true
+	case "SandboxFolders.chat":
+		if e.ComplexityRoot.SandboxFolders.Chat == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxFolders.Chat(childComplexity), true
+	case "SandboxFolders.never":
+		if e.ComplexityRoot.SandboxFolders.Never == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxFolders.Never(childComplexity), true
+	case "SandboxFolders.rulesHeld":
+		if e.ComplexityRoot.SandboxFolders.RulesHeld == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxFolders.RulesHeld(childComplexity), true
+	case "SandboxFolders.wide":
+		if e.ComplexityRoot.SandboxFolders.Wide == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxFolders.Wide(childComplexity), true
 
 	case "SandboxPathEntry.dir":
 		if e.ComplexityRoot.SandboxPathEntry.Dir == nil {
@@ -4486,6 +4603,8 @@ func (ec *executionContext) childFields_PermissionRule(ctx context.Context, fiel
 		return ec.fieldContext_PermissionRule_group(ctx, field)
 	case "kind":
 		return ec.fieldContext_PermissionRule_kind(ctx, field)
+	case "folder":
+		return ec.fieldContext_PermissionRule_folder(ctx, field)
 	case "line":
 		return ec.fieldContext_PermissionRule_line(ctx, field)
 	}
@@ -4554,6 +4673,36 @@ func (ec *executionContext) childFields_ResourceRule(ctx context.Context, field 
 		return ec.fieldContext_ResourceRule_resourceNames(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ResourceRule", field.Name)
+}
+
+func (ec *executionContext) childFields_SandboxFolder(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "id":
+		return ec.fieldContext_SandboxFolder_id(ctx, field)
+	case "path":
+		return ec.fieldContext_SandboxFolder_path(ctx, field)
+	case "write":
+		return ec.fieldContext_SandboxFolder_write(ctx, field)
+	case "refused":
+		return ec.fieldContext_SandboxFolder_refused(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SandboxFolder", field.Name)
+}
+
+func (ec *executionContext) childFields_SandboxFolders(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "always":
+		return ec.fieldContext_SandboxFolders_always(ctx, field)
+	case "chat":
+		return ec.fieldContext_SandboxFolders_chat(ctx, field)
+	case "never":
+		return ec.fieldContext_SandboxFolders_never(ctx, field)
+	case "wide":
+		return ec.fieldContext_SandboxFolders_wide(ctx, field)
+	case "rulesHeld":
+		return ec.fieldContext_SandboxFolders_rulesHeld(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SandboxFolders", field.Name)
 }
 
 func (ec *executionContext) childFields_SandboxPathEntry(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -5284,6 +5433,58 @@ func (ec *executionContext) field_Mutation_clusterSyncEnabledSet_args(ctx contex
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_folderGrant_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "chatID",
+		func(ctx context.Context, v any) (*apimeta.ChatID, error) {
+			return ec.unmarshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["chatID"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "path",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["path"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "write",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["write"] = arg2
+	arg3, err := graphql.ProcessArgField(ctx, rawArgs, "duration",
+		func(ctx context.Context, v any) (model.GrantDuration, error) {
+			return ec.unmarshalNGrantDuration2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐGrantDuration(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["duration"] = arg3
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_folderRevoke_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_memoryDelete_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -5535,6 +5736,20 @@ func (ec *executionContext) field_Query_cluster_args(ctx context.Context, rawArg
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Query_sandboxFolders_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "chatID",
+		func(ctx context.Context, v any) (*apimeta.ChatID, error) {
+			return ec.unmarshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["chatID"] = arg0
 	return args, nil
 }
 
@@ -13060,6 +13275,94 @@ func (ec *executionContext) fieldContext_Mutation_permissionDiscardRefused(ctx c
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_folderGrant(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_folderGrant(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().FolderGrant(ctx, fc.Args["chatID"].(*apimeta.ChatID), fc.Args["path"].(string), fc.Args["write"].(bool), fc.Args["duration"].(model.GrantDuration))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.SandboxFolders) graphql.Marshaler {
+			return ec.marshalNSandboxFolders2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxFolders(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_folderGrant(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SandboxFolders(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_folderGrant_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_folderRevoke(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_folderRevoke(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().FolderRevoke(ctx, fc.Args["id"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.SandboxFolders) graphql.Marshaler {
+			return ec.marshalNSandboxFolders2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxFolders(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_folderRevoke(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SandboxFolders(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_folderRevoke_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_authLoginStart(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -13724,6 +14027,29 @@ func (ec *executionContext) _PermissionRule_kind(ctx context.Context, field grap
 	)
 }
 func (ec *executionContext) fieldContext_PermissionRule_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("PermissionRule", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _PermissionRule_folder(ctx context.Context, field graphql.CollectedField, obj *permissions.Rule) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_PermissionRule_folder(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Folder, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_PermissionRule_folder(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("PermissionRule", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
@@ -14502,6 +14828,50 @@ func (ec *executionContext) fieldContext_Query_permissionSettings(_ context.Cont
 	return fc, nil
 }
 
+func (ec *executionContext) _Query_sandboxFolders(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_sandboxFolders(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Query().SandboxFolders(ctx, fc.Args["chatID"].(*apimeta.ChatID))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.SandboxFolders) graphql.Marshaler {
+			return ec.marshalNSandboxFolders2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxFolders(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_sandboxFolders(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SandboxFolders(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Query_sandboxFolders_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_chatGrants(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -14767,6 +15137,231 @@ func (ec *executionContext) _ResourceRule_resourceNames(ctx context.Context, fie
 }
 func (ec *executionContext) fieldContext_ResourceRule_resourceNames(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ResourceRule", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxFolder_id(ctx context.Context, field graphql.CollectedField, obj *model.SandboxFolder) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxFolder_id(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ID, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxFolder_id(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxFolder", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxFolder_path(ctx context.Context, field graphql.CollectedField, obj *model.SandboxFolder) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxFolder_path(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Path, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxFolder_path(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxFolder", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxFolder_write(ctx context.Context, field graphql.CollectedField, obj *model.SandboxFolder) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxFolder_write(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Write, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxFolder_write(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxFolder", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxFolder_refused(ctx context.Context, field graphql.CollectedField, obj *model.SandboxFolder) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxFolder_refused(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Refused, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxFolder_refused(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxFolder", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxFolders_always(ctx context.Context, field graphql.CollectedField, obj *model.SandboxFolders) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxFolders_always(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Always, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.SandboxFolder) graphql.Marshaler {
+			return ec.marshalNSandboxFolder2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxFolderᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxFolders_always(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SandboxFolders",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SandboxFolder(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SandboxFolders_chat(ctx context.Context, field graphql.CollectedField, obj *model.SandboxFolders) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxFolders_chat(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Chat, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.SandboxFolder) graphql.Marshaler {
+			return ec.marshalNSandboxFolder2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxFolderᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxFolders_chat(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SandboxFolders",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SandboxFolder(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _SandboxFolders_never(ctx context.Context, field graphql.CollectedField, obj *model.SandboxFolders) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxFolders_never(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Never, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
+			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxFolders_never(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxFolders", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxFolders_wide(ctx context.Context, field graphql.CollectedField, obj *model.SandboxFolders) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxFolders_wide(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Wide, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []string) graphql.Marshaler {
+			return ec.marshalNString2ᚕstringᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxFolders_wide(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxFolders", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxFolders_rulesHeld(ctx context.Context, field graphql.CollectedField, obj *model.SandboxFolders) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxFolders_rulesHeld(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.RulesHeld, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxFolders_rulesHeld(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxFolders", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
 func (ec *executionContext) _SandboxPathEntry_dir(ctx context.Context, field graphql.CollectedField, obj *model.SandboxPathEntry) (ret graphql.Marshaler) {
@@ -21409,6 +22004,20 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "folderGrant":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_folderGrant(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "folderRevoke":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_folderRevoke(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "authLoginStart":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_authLoginStart(ctx, field)
@@ -21720,6 +22329,11 @@ func (ec *executionContext) _PermissionRule(ctx context.Context, sel ast.Selecti
 			}
 		case "kind":
 			out.Values[i] = ec._PermissionRule_kind(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "folder":
+			out.Values[i] = ec._PermissionRule_folder(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -22214,6 +22828,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "sandboxFolders":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_sandboxFolders(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "chatGrants":
 			field := field
 
@@ -22360,6 +22996,117 @@ func (ec *executionContext) _ResourceRule(ctx context.Context, sel ast.Selection
 			}
 		case "resourceNames":
 			out.Values[i] = ec._ResourceRule_resourceNames(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var sandboxFolderImplementors = []string{"SandboxFolder"}
+
+func (ec *executionContext) _SandboxFolder(ctx context.Context, sel ast.SelectionSet, obj *model.SandboxFolder) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, sandboxFolderImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SandboxFolder")
+		case "id":
+			out.Values[i] = ec._SandboxFolder_id(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "path":
+			out.Values[i] = ec._SandboxFolder_path(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "write":
+			out.Values[i] = ec._SandboxFolder_write(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "refused":
+			out.Values[i] = ec._SandboxFolder_refused(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var sandboxFoldersImplementors = []string{"SandboxFolders"}
+
+func (ec *executionContext) _SandboxFolders(ctx context.Context, sel ast.SelectionSet, obj *model.SandboxFolders) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, sandboxFoldersImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SandboxFolders")
+		case "always":
+			out.Values[i] = ec._SandboxFolders_always(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "chat":
+			out.Values[i] = ec._SandboxFolders_chat(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "never":
+			out.Values[i] = ec._SandboxFolders_never(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "wide":
+			out.Values[i] = ec._SandboxFolders_wide(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "rulesHeld":
+			out.Values[i] = ec._SandboxFolders_rulesHeld(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -24180,6 +24927,16 @@ func (ec *executionContext) marshalNEventWatchFrame2ᚖgithubᚗcomᚋkstackhq�
 	return ec._EventWatchFrame(ctx, sel, v)
 }
 
+func (ec *executionContext) unmarshalNGrantDuration2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐGrantDuration(ctx context.Context, v any) (model.GrantDuration, error) {
+	var res model.GrantDuration
+	err := res.UnmarshalGQL(v)
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNGrantDuration2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐGrantDuration(ctx context.Context, sel ast.SelectionSet, v model.GrantDuration) graphql.Marshaler {
+	return v
+}
+
 func (ec *executionContext) unmarshalNInt2int(ctx context.Context, v any) (int, error) {
 	res, err := graphql.UnmarshalInt(v)
 	return res, graphql.ErrorOnPath(ctx, err)
@@ -24626,6 +25383,42 @@ func (ec *executionContext) marshalNResourceRule2ᚖgithubᚗcomᚋkstackhqᚋks
 		return graphql.Null
 	}
 	return ec._ResourceRule(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNSandboxFolder2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxFolderᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.SandboxFolder) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSandboxFolder2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxFolder(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNSandboxFolder2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxFolder(ctx context.Context, sel ast.SelectionSet, v *model.SandboxFolder) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SandboxFolder(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNSandboxFolders2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxFolders(ctx context.Context, sel ast.SelectionSet, v *model.SandboxFolders) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SandboxFolders(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNSandboxPathEntry2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxPathEntryᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.SandboxPathEntry) graphql.Marshaler {

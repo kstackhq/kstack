@@ -13,9 +13,10 @@
 // limitations under the License.
 
 // The composer's "Allowed for this chat" list: the chat's own rules, each in
-// the words Settings uses, with Remove. It draws nothing while the chat holds
-// none. A rule's line is the sidecar's, drawn through VisibleText, since its
-// context and namespace are cluster text.
+// the words Settings uses, with Remove, and under a folder grant no run takes
+// the reason. It draws nothing while the chat holds none. A rule's line is the
+// sidecar's, drawn through VisibleText, since its context and namespace are
+// cluster text.
 import { useState } from 'react';
 
 import { ShieldCheck } from 'lucide-react';
@@ -24,11 +25,14 @@ import { Button } from '@kubetail/ui/elements/button';
 
 import { VisibleText } from '@/components/widgets/visible-text';
 import { useChatGrants } from '@/lib/chat-grants';
+import { useSandboxFolders } from '@/lib/sandbox-folders';
 
 export function ChatGrants({ chatID }: { chatID: string }) {
   const { rules, removing, error, remove } = useChatGrants(chatID);
+  const { chat } = useSandboxFolders(chatID);
   const [open, setOpen] = useState(false);
   if (!rules || rules.length === 0) return null;
+  const refused = new Map(chat?.map((f) => [f.id, f.refused]));
 
   return (
     <div className="relative shrink-0">
@@ -51,6 +55,7 @@ export function ChatGrants({ chatID }: { chatID: string }) {
               <li key={rule.id} className="flex items-start justify-between gap-2">
                 <span className="min-w-0 break-words">
                   <VisibleText text={rule.line} />
+                  {refused.get(rule.id) && <span className="block text-muted-foreground">{refused.get(rule.id)}</span>}
                 </span>
                 <Button
                   type="button"

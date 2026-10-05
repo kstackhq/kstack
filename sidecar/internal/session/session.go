@@ -57,12 +57,31 @@ type Session struct {
 	// while the chat's switch is on, read live, else NetworkTurn for the turn's
 	// toggle, else NoNetwork. Nil is a session that never has network.
 	Network func(context.Context) Network
+	// Folders is the session's folder grants, the chat's joined with the always
+	// ones, each checked when read. Nil reads none: only the chat's builder
+	// sets it, and every reader goes through GrantedFolders.
+	Folders func(context.Context) []Folder
+}
+
+// Folder is one folder a session's commands may read, or read and write.
+type Folder struct {
+	Path  string
+	Write bool
+}
+
+// GrantedFolders is the session's folders, none when it has no Folders.
+func (s Session) GrantedFolders(ctx context.Context) []Folder {
+	if s.Folders == nil {
+		return nil
+	}
+	return s.Folders(ctx)
 }
 
 // Narrow is a subagent's session under parent: the parent's, as Kind Subagent.
 // The switch is copied at spawn, so a subagent started outside the sandbox
-// stays outside, and it decides by its parent's Policy and Network: one
-// spawned in a turn with the toggle keeps it for its whole life.
+// stays outside, and it decides by its parent's Policy and Network, and reads
+// its parent's Folders: one spawned in a turn with the toggle keeps it for its
+// whole life.
 func Narrow(parent Session) Session {
 	parent.Kind = Subagent
 	return parent

@@ -176,7 +176,8 @@ func (s *service) kick(chatID ChatID) {
 // startNoticeTurn is a send without a sender: a question of the waiting notices
 // alone, no request key and no cluster card, on what the chat's last answer ran
 // on, with every check a send makes. It carries a context block only when the
-// switch moved since the newest one, so the model knows where its commands run. One transaction reserves the turn, files
+// switch moved or the folders changed since the newest one, so the model knows
+// where its commands run and what they read. One transaction reserves the turn, files
 // the message, marks the notices told and moves the chat up its list.
 func (s *service) startNoticeTurn(chatID ChatID) error {
 	if err := s.enter(); err != nil {
@@ -185,6 +186,9 @@ func (s *service) startNoticeTurn(chatID ChatID) error {
 	defer s.wg.Done()
 	ctx := s.ctx
 	at := normalizeTime(s.now())
+
+	// Read outside the transaction, since checking each reads the disk.
+	folders := s.foldersFor(ctx, chatID)
 
 	var (
 		t         *turn
@@ -214,11 +218,12 @@ func (s *service) startNoticeTurn(chatID ChatID) error {
 		if err != nil {
 			return err
 		}
-		// A notice turn renders no card, so a moved switch reaches the model by
-		// re-sending the newest context with its Sandbox section replaced. Its
-		// turn has no toggle.
+		// A notice turn renders no card, so a moved switch or a changed grant
+		// reaches the model by re-sending the newest context with its Sandbox
+		// section replaced. Its turn has no toggle.
 		var question []llm.Block
-		if replaced := s.withSandboxReplaced(newest, sandboxState{outside: c.SandboxDisabled, networkEnabled: c.NetworkEnabled}); replaced != newest {
+		state := sandboxState{outside: c.SandboxDisabled, networkEnabled: c.NetworkEnabled, folders: folders}
+		if replaced := s.withSandboxReplaced(newest, state); replaced != newest {
 			question = []llm.Block{llm.ContextBlock(replaced)}
 		}
 		if err := roomFor(ctx, st, chatID, target, s.boxFor(target)); err != nil {

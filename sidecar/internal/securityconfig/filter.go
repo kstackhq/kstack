@@ -29,19 +29,32 @@ type pathDir struct {
 	Shared bool   // writable by a group other than an administrators' one
 }
 
-// zones is Zones with every path resolved once, so each folder is compared
+// zones is Zones with every path canonical once, so each folder is compared
 // with them by text.
 type zones struct {
-	never, broad, read, deny []string
+	never, broad, read, deny, noWrite []string
+	home                              string // "" for none
 }
 
 func resolveZones(z Zones) zones {
-	return zones{
-		never: sandbox.Resolved(z.Never),
-		broad: sandbox.Broad(z.Home),
-		read:  sandbox.Resolved(z.Open.Read),
-		deny:  sandbox.Resolved(z.Open.Deny),
+	rz := zones{
+		never:   canonical(z.Never),
+		broad:   sandbox.Broad(z.Home),
+		read:    canonical(z.Open.Read),
+		deny:    canonical(z.Open.Deny),
+		noWrite: canonical(z.NoWrite),
 	}
+	if z.Home != "" {
+		rz.home = canonical([]string{z.Home})[0]
+	}
+	return rz
+}
+
+// canonical is each of paths with its links followed and then spelled as the
+// disk spells it, so two names of one folder compare equal by text: a path
+// through a link, and on a case-insensitive filesystem a path in another case.
+func canonical(paths []string) []string {
+	return sandbox.Spelled(sandbox.Resolved(paths))
 }
 
 // open reports whether target, resolved, is under a Read path and no Deny

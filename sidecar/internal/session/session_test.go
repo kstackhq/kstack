@@ -26,14 +26,20 @@ import (
 // A subagent's session is its parent's under Kind Subagent, compared field by
 // field.
 func TestNarrowKeepsTheParentsIdentity(t *testing.T) {
+	folders := []Folder{{Path: "/Users/me/code", Write: true}}
 	for _, outside := range []bool{false, true} {
-		parent := Session{Kind: Chat, Outside: outside}
+		parent := Session{Kind: Chat, Outside: outside, Folders: func(context.Context) []Folder { return folders }}
 
 		got := Narrow(parent)
 
 		assert.Equal(t, Subagent, got.Kind)
 		assert.Equal(t, parent.Outside, got.Outside)
+		assert.Equal(t, folders, got.Folders(t.Context()), "a subagent reads its parent's folders")
 	}
+}
+
+func TestASessionWithNoFoldersReadsNone(t *testing.T) {
+	assert.Nil(t, Session{Kind: Chat}.GrantedFolders(t.Context()))
 }
 
 // A subagent decides by its parent's mode and rules.

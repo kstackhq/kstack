@@ -16,6 +16,8 @@ package chatsvc
 
 import (
 	"context"
+	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,7 +27,9 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
+	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
 
 // seedGrant writes a chat_grants row holding rule as given.
@@ -171,4 +175,192 @@ func TestTheSwitchIsReadLive(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, sess.Network(t.Context()))
 	assert.Equal(t, session.NetworkTurn, s.sessionFor(c.ID, false, true).Network(t.Context()))
+}
+
+// folderRule is an always or chat grant of path.
+func folderRule(path string, write bool) permissions.Rule {
+	class := permissions.ReadInside
+	if write {
+		class = permissions.WriteInside
+	}
+	return permissions.Rule{Effect: permissions.Allow, Class: class, Folder: path}
+}
+
+func TestFoldersForNoChatIsTheAlwaysOnes(t *testing.T) {
+	s := newTestService(t)
+	home := grantable(t, s)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	code, svc := filepath.Join(home, "code"), filepath.Join(home, "code", "svc")
+	always := folderRule(svc, true)
+	always.ID = "always"
+	require.NoError(t, s.security.AddRule(always))
+	_, err := s.addGrant(t.Context(), c.ID, folderRule(code, false))
+	require.NoError(t, err)
+
+	assert.Equal(t, []session.Folder{{Path: svc, Write: true}}, s.FoldersFor(t.Context(), ""), "the always folders alone")
+	assert.Equal(t, []session.Folder{{Path: code}, {Path: svc, Write: true}}, s.FoldersFor(t.Context(), c.ID),
+		"the chat's, then the always ones")
+	assert.Equal(t, s.FoldersFor(t.Context(), c.ID), s.sessionFor(c.ID, false, false).GrantedFolders(t.Context()))
+}
+
+func TestNoFolderAppliesWithoutASandbox(t *testing.T) {
+	s := newTestService(t)
+	home := grantable(t, s)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	always := folderRule(home, false)
+	always.ID = "home"
+	require.NoError(t, s.security.AddRule(always))
+	require.NotEmpty(t, s.sessionFor(c.ID, false, false).GrantedFolders(t.Context()))
+
+	assert.Empty(t, s.sessionFor(c.ID, true, false).GrantedFolders(t.Context()), "a chat switched outside the sandbox gets none")
+	s.sandboxStatus = sandbox.Status{Reason: "no bwrap"}
+	assert.Empty(t, s.FoldersFor(t.Context(), c.ID))
+	assert.Empty(t, s.sessionFor(c.ID, false, false).GrantedFolders(t.Context()))
+}
+
+func TestFoldersForAnswersNoneWithNoSnapshot(t *testing.T) {
+	s := newTestService(t)
+	s.sandboxStatus = sandbox.Status{Available: true}
+	dir := testutil.GrantableDir(t)
+	always := folderRule(dir, false)
+	always.ID = "a"
+	require.NoError(t, s.security.AddRule(always))
+	assert.Empty(t, s.FoldersFor(t.Context(), ""), "a service with no zones checks no folder")
+}
+
+func TestAChatsFoldersJoinTheAlwaysOnes(t *testing.T) {
+	s := newTestService(t)
+	home := grantable(t, s)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	code, svc := filepath.Join(home, "code"), filepath.Join(home, "code", "svc")
+	sess := s.sessionFor(c.ID, false, false)
+
+	require.NoError(t, s.GrantFolder(t.Context(), c.ID, code, false))
+	assert.Equal(t, []session.Folder{{Path: code}}, sess.GrantedFolders(t.Context()), "a chat's grant is read live")
+	require.NoError(t, s.GrantFolder(t.Context(), "", svc, true))
+	assert.Equal(t, []session.Folder{{Path: code}, {Path: svc, Write: true}}, sess.GrantedFolders(t.Context()))
+
+	always, chat := s.FolderGrants(t.Context(), c.ID)
+	require.Len(t, always, 1)
+	require.Len(t, chat, 1)
+	assert.Equal(t, FolderGrant{ID: always[0].ID, Path: svc, Write: true}, always[0])
+	assert.Equal(t, FolderGrant{ID: chat[0].ID, Path: code}, chat[0])
+
+	assert.ErrorIs(t, s.RevokeFolder(chat[0].ID), ErrGrantGone, "a chat's grant is removed through the chat")
+	require.NoError(t, s.RevokeFolder(always[0].ID))
+	assert.Equal(t, []session.Folder{{Path: code}}, sess.GrantedFolders(t.Context()))
+	assert.ErrorIs(t, s.RevokeFolder(always[0].ID), ErrGrantGone)
+
+	rules, err := s.ChatGrants(t.Context(), c.ID)
+	require.NoError(t, err)
+	require.Len(t, rules, 1)
+	assert.Equal(t, permissions.Rule{ID: rules[0].ID, Effect: permissions.Allow, Class: permissions.ReadInside, Folder: code}, rules[0])
+	rules, err = s.RemoveChatGrant(t.Context(), c.ID, chat[0].ID)
+	require.NoError(t, err)
+	assert.Empty(t, rules)
+	assert.Empty(t, sess.GrantedFolders(t.Context()))
+
+	cluster := permissions.Rule{ID: "c", Effect: permissions.Allow, Class: permissions.UpstreamWrite}
+	require.NoError(t, s.security.AddRule(cluster))
+	assert.ErrorIs(t, s.RevokeFolder("c"), ErrGrantGone, "a rule that is not a folder's")
+	always, _ = s.FolderGrants(t.Context(), c.ID)
+	assert.Empty(t, always, "nor is it listed among them")
+}
+
+func TestAGrantInTheSamePlaceChangesItsMode(t *testing.T) {
+	s := newTestService(t)
+	home := grantable(t, s)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	svc := filepath.Join(home, "code", "svc")
+
+	// The chat's grants first, then the always ones, which "" names.
+	for _, grantee := range []ChatID{c.ID, ""} {
+		require.NoError(t, s.GrantFolder(t.Context(), grantee, svc, false))
+		beforeAlways, beforeChat := s.FolderGrants(t.Context(), c.ID)
+		require.NoError(t, s.GrantFolder(t.Context(), grantee, svc, true))
+		afterAlways, afterChat := s.FolderGrants(t.Context(), c.ID)
+		before, after := beforeChat, afterChat
+		if grantee == "" {
+			before, after = beforeAlways, afterAlways
+		}
+		require.Len(t, after, 1, "%q: one rule", grantee)
+		assert.Equal(t, before[0].ID, after[0].ID, "%q: the first id", grantee)
+		assert.True(t, after[0].Write, "%q: read-write", grantee)
+	}
+	always, chat := s.FolderGrants(t.Context(), c.ID)
+	assert.Len(t, always, 1, "a chat grant beside an always one on the same folder")
+	assert.Len(t, chat, 1)
+}
+
+func TestAGrantIsCheckedWhenWritten(t *testing.T) {
+	s := newTestService(t)
+	home := grantable(t, s)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+
+	var r securityconfig.FolderRefusal
+	require.ErrorAs(t, s.GrantFolder(t.Context(), c.ID, home, true), &r)
+	assert.Equal(t, "home", r.Rule)
+	require.ErrorAs(t, s.GrantFolder(t.Context(), "", filepath.Join(home, ".ssh"), false), &r)
+	assert.Equal(t, "never", r.Rule)
+	gone := ChatID(appdb.NewID())
+	assert.ErrorIs(t, s.GrantFolder(t.Context(), gone, home, false), ErrChatGone)
+
+	always, chat := s.FolderGrants(t.Context(), c.ID)
+	assert.Empty(t, always)
+	assert.Empty(t, chat)
+}
+
+func TestAGrantGoesWithTheChat(t *testing.T) {
+	s := newTestService(t)
+	home := grantable(t, s)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	svc := filepath.Join(home, "code", "svc")
+
+	require.NoError(t, s.GrantFolder(t.Context(), c.ID, svc, true))
+	assert.Equal(t, []session.Folder{{Path: svc, Write: true}}, s.sessionFor(c.ID, false, false).GrantedFolders(t.Context()),
+		"the chat's next command reads it")
+
+	_, err := s.db.Write.Exec(`DELETE FROM chats WHERE id = ?`, string(c.ID))
+	require.NoError(t, err)
+	var n int
+	require.NoError(t, s.db.Read.QueryRow(`SELECT COUNT(*) FROM chat_grants`).Scan(&n))
+	assert.Zero(t, n)
+}
+
+// While the rules field is held, Rules holds no Allow, so no always grant
+// reaches a run; Settings lists each as refused for that reason rather than as
+// a folder commands can read, and none can be revoked until the hold ends.
+func TestAHeldRulesFieldRefusesEveryAlwaysGrant(t *testing.T) {
+	s := newTestService(t)
+	home := grantableWith(t, s, `{"rules": [{"id": "r", "effect": "allow", "class": 1, "folder": "<home>/code"},
+		{"id": "b", "effect": "deny", "class": 9}]}`)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	require.True(t, s.security.Held(securityconfig.FieldRules))
+
+	assert.Empty(t, s.FoldersFor(t.Context(), c.ID))
+	always, _ := s.FolderGrants(t.Context(), c.ID)
+	require.Len(t, always, 1, "the grant stays listed, with its reason")
+	assert.Equal(t, filepath.Join(home, "code"), always[0].Path)
+	assert.Equal(t, RulesHeldReason, always[0].Refused)
+	assert.ErrorIs(t, s.RevokeFolder("r"), securityconfig.ErrHeld)
+}
+
+// Two grants of one folder at once, in one place, leave one rule: the lookup
+// and the write are one transaction for a chat's, one update for an always
+// one.
+func TestConcurrentGrantsOfOneFolderLeaveOneRule(t *testing.T) {
+	s := newTestService(t)
+	home := grantable(t, s)
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	svc := filepath.Join(home, "code", "svc")
+	for _, grantee := range []ChatID{c.ID, ""} {
+		var wg sync.WaitGroup
+		for i := range 8 {
+			wg.Go(func() { assert.NoError(t, s.GrantFolder(t.Context(), grantee, svc, i%2 == 1)) })
+		}
+		wg.Wait()
+	}
+	always, chat := s.FolderGrants(t.Context(), c.ID)
+	assert.Len(t, always, 1)
+	assert.Len(t, chat, 1)
 }

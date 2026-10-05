@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"time"
 
+	gqlerrors "github.com/kstackhq/kstack/sidecar/graph/errors"
 	"github.com/kstackhq/kstack/sidecar/graph/model"
 	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
@@ -345,6 +346,30 @@ func (r *mutationResolver) PermissionDiscardRefused(ctx context.Context, field s
 	return r.permissionsAfter(ctx, r.SecurityCfg.DiscardRefused(field))
 }
 
+// FolderGrant is the resolver for the folderGrant field.
+func (r *mutationResolver) FolderGrant(ctx context.Context, chatID *apimeta.ChatID, path string, write bool, duration model.GrantDuration) (*model.SandboxFolders, error) {
+	// An always grant belongs to no chat, and a chat's grant names its chat.
+	var chat apimeta.ChatID
+	if duration == model.GrantDurationChat {
+		if chatID == nil || *chatID == "" {
+			return nil, gqlerrors.NewValidationError("chatID", "a grant for a chat names the chat")
+		}
+		chat = *chatID
+	}
+	if err := r.ChatSvc.GrantFolder(ctx, chat, path, write); err != nil {
+		return nil, folderErr(err)
+	}
+	return r.sandboxFolders(ctx, chat)
+}
+
+// FolderRevoke is the resolver for the folderRevoke field.
+func (r *mutationResolver) FolderRevoke(ctx context.Context, id string) (*model.SandboxFolders, error) {
+	if err := r.ChatSvc.RevokeFolder(id); err != nil {
+		return nil, folderErr(err)
+	}
+	return r.sandboxFolders(ctx, "")
+}
+
 // AuthLoginStart is the resolver for the authLoginStart field: setup runs synchronously
 // (its error surfaces here), the browser round-trip in the background, with the signed-in
 // state arriving via authStateWatch.
@@ -457,6 +482,15 @@ func (r *queryResolver) SandboxPathResolved(ctx context.Context) (bool, error) {
 // PermissionSettings is the resolver for the permissionSettings field.
 func (r *queryResolver) PermissionSettings(ctx context.Context) (*model.PermissionSettings, error) {
 	return r.permissionSettings(ctx)
+}
+
+// SandboxFolders is the resolver for the sandboxFolders field.
+func (r *queryResolver) SandboxFolders(ctx context.Context, chatID *apimeta.ChatID) (*model.SandboxFolders, error) {
+	var chat apimeta.ChatID
+	if chatID != nil {
+		chat = *chatID
+	}
+	return r.sandboxFolders(ctx, chat)
 }
 
 // ChatGrants is the resolver for the chatGrants field.

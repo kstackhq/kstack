@@ -16,6 +16,7 @@ package app
 
 import (
 	"path/filepath"
+	"slices"
 
 	"github.com/kstackhq/kstack/sidecar/internal/cloud"
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
@@ -52,6 +53,11 @@ type paths struct {
 
 func pathsOf(cfg Config) paths {
 	data, cache, runtime := cfg.DataDir, cfg.CacheDir, cfg.RuntimeDir
+	kstack := []string{data, cache, runtime}
+	// On macOS the host logs under ~/Library/Logs, outside the three.
+	if cfg.LogDir != "" && !slices.ContainsFunc(kstack, func(dir string) bool { return under(dir, cfg.LogDir) }) {
+		kstack = append(kstack, cfg.LogDir)
+	}
 	return paths{
 		AppDBFile:    filepath.Join(data, "app.db"),
 		SecurityFile: filepath.Join(data, "security.json"),
@@ -69,7 +75,13 @@ func pathsOf(cfg Config) paths {
 			RunsDir:    filepath.Join(runtime, "runs"),
 			TmpDir:     filepath.Join(cache, "tmp"),
 			KubectlDir: filepath.Join(cache, "kubectl"),
-			DeniedDirs: []string{data, cache, runtime},
+			DeniedDirs: kstack,
 		},
 	}
+}
+
+// under reports whether path is dir or lies under it, by name.
+func under(dir, path string) bool {
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && (rel == "." || filepath.IsLocal(rel))
 }

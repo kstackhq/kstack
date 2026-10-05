@@ -34,3 +34,12 @@ func TestLinuxListsReadTheSystemAndHideItsSecrets(t *testing.T) {
 	}
 	assert.Equal(t, []string{"/home/linuxbrew/.linuxbrew/var"}, brewVar)
 }
+
+func TestLinuxNoWriteHoldsTheUserServices(t *testing.T) {
+	got := NoWrite("/home/me")
+	for _, p := range []string{
+		"/home/me/.config/systemd", "/home/me/.local/share/systemd/user", "/home/me/.config/environment.d", "/home/me/.config/autostart",
+	} {
+		assert.Contains(t, got, p)
+	}
+}

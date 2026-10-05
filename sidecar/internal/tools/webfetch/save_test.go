@@ -94,7 +94,7 @@ func TestAPageThatDecodesPastTheLimitIsSavedAtIt(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, int64(tools.FileLimit), info.Size())
 
-	reader, err := read.New(data)
+	reader, err := read.New(nil, data)
 	require.NoError(t, err)
 	input, _ := json.Marshal(map[string]any{"file_path": m[1], "limit": 1})
 	out, isError := reader.Run(t.Context(), rt, input)

@@ -34,6 +34,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/sqlstmt"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/version"
@@ -167,6 +168,21 @@ type Service interface {
 	// started. false when no task of that call is running.
 	StopBackgroundTask(ctx context.Context, id ToolCallID) (bool, error)
 
+	// FoldersFor is the folders a run of chatID reads, the chat's grants then
+	// the always ones, each checked; with no chat, the always ones alone. None
+	// on a machine where no sandbox confines a run.
+	FoldersFor(ctx context.Context, chatID ChatID) []session.Folder
+	// FolderGrants is the always grants and, with a chat, the chat's, each with
+	// why it fails its check now. Empty on a machine with no sandbox.
+	FolderGrants(ctx context.Context, chatID ChatID) (always, chat []FolderGrant)
+	// GrantFolder grants path, read or with write read and write, for the chat
+	// or with no chat always, once it passes its check, a
+	// securityconfig.FolderRefusal otherwise. A grant of a folder already
+	// granted in the same place changes that grant's mode and keeps its id.
+	GrantFolder(ctx context.Context, chatID ChatID, path string, write bool) error
+	// RevokeFolder removes the always grant with id; ErrGrantGone for an id
+	// that is not one.
+	RevokeFolder(id string) error
 	// ChatGrants is the chat's own rules; none for a chat with none.
 	ChatGrants(ctx context.Context, chatID ChatID) ([]permissions.Rule, error)
 	// RemoveChatGrant removes one of the chat's rules by id and answers the
@@ -185,8 +201,9 @@ type service struct {
 	lists        ToolLists
 	// sandboxStatus is whether sandboxed Bash is offered, which the switch needs.
 	sandboxStatus sandbox.Status
-	// security holds the modes and the always rules each session decides by.
-	security *securityconfig.Store
+	// security holds the modes, the always rules and the folders granted always
+	// each session decides by, and the zones a folder is checked against.
+	security *securityconfig.Service
 	// tools is every tool the app knows, in offer order, and the readers of those
 	// this machine cannot offer: each turn is offered what its list names and its
 	// target takes, and every stored call is read through it, whether or not a
@@ -249,15 +266,15 @@ type service struct {
 // under, the providers a send can name, the card source, the memories each
 // chat's cluster sees, the box: the tools every turn is offered from, which read
 // every stored call, the lists that pick a turn's tools from it, whether the
-// machine offers sandboxed Bash, and the security settings a session's modes
-// and rules come from. Nothing runs until Start.
-func New(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, security *securityconfig.Store) (Service, error) {
+// machine offers sandboxed Bash, and the security settings a session's modes,
+// rules and folders come from. Nothing runs until Start.
+func New(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, security *securityconfig.Service) (Service, error) {
 	return newService(db, chatsDir, llmSvc, clusterCards, memories, box, lists, sandboxStatus, security)
 }
 
 // newService is New returning the concrete type, for tests. A nil memories sends
 // no memory section.
-func newService(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, security *securityconfig.Store) (*service, error) {
+func newService(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, security *securityconfig.Service) (*service, error) {
 	chatsRoot, err := openChats(chatsDir)
 	if err != nil {
 		return nil, err
@@ -442,6 +459,12 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 	if err != nil {
 		return ChatMessage{}, err
 	}
+	// Read outside the transaction too, since checking each reads the disk.
+	var existing ChatID
+	if chatID != nil {
+		existing = *chatID
+	}
+	folders := s.foldersFor(ctx, existing)
 	at := normalizeTime(s.now())
 
 	var (
@@ -488,7 +511,7 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 		// The chat's id is known only now: a new chat has none when the card is
 		// rendered.
 		question, err := questionBlocks(ctx, st, id, s.withSandbox(s.withWorkspace(contextText, id), sandboxState{
-			outside: disabled, networkEnabled: c.NetworkEnabled, networkThisTurn: networkThisTurn,
+			outside: disabled, networkEnabled: c.NetworkEnabled, networkThisTurn: networkThisTurn, folders: folders,
 		}), content)
 		if err != nil {
 			return err
