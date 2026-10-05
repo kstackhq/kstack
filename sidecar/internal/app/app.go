@@ -41,6 +41,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/poke"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	agenttool "github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
@@ -232,7 +233,13 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	if err != nil {
 		return fail(err)
 	}
-
+	// A nil pointer in an interface is not a nil interface.
+	var prober graph.ExecutableProber
+	if shell != nil {
+		// A probe has no chat, so its run reads the folders granted always alone.
+		shell.SetProbeFolders(func(ctx context.Context) []session.Folder { return chatSvc.FoldersFor(ctx, "") })
+		prober = shell
+	}
 	graphqlServer := graph.NewServer(&graph.Resolver{
 		ClusterSvc:    clusterSvc,
 		ChatSvc:       chatSvc,
@@ -241,6 +248,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		SandboxStatus: sandboxStatus,
 		Auth:          authSvc,
 		SecurityCfg:   securityCfg,
+		Executables:   prober,
 	})
 
 	grpcServer := grpcserver.NewServer(authSvc, pokeSvc)
@@ -268,10 +276,18 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		{Name: "memory service", StartCloser: memorySvc},
 		{Name: "chat service", StartCloser: chatSvc},
 	}
+	// Ends a running probe at Close.
+	if shell != nil {
+		parts = append(parts, lifecycle.Part{Name: "executable probe", StartCloser: lifecycle.CloseFunc(shell.Close)})
+	}
 	// Before the snapshot, so the first sandboxed run reads the synced list.
 	if launchPath != nil && sandboxStatus.Available {
 		parts = append(parts, lifecycle.Part{Name: "PATH sync", StartCloser: lifecycle.StartFunc(func(ctx context.Context) (func(context.Context) error, error) {
-			syncPath(ctx, securityCfg, launchPath)
+			// Only when the list moved, so nothing runs unasked on a machine
+			// whose tools did not; the tool probe part's Close ends it.
+			if syncPath(ctx, securityCfg, launchPath) {
+				shell.StartProbe(securityCfg.Get().Executables)
+			}
 			return func(context.Context) error { return nil }, nil
 		})})
 	}
