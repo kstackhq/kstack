@@ -54,7 +54,7 @@ func TestAForkLoopStopsAtTheProcessLimit(t *testing.T) {
 		t.Skip("the kernel holds root to no process limit")
 	}
 	s := confining(t)
-	if n, err := s.CountedProcesses(); err != nil || n != 0 {
+	if n, err := s.CountedProcesses(false); err != nil || n != 0 {
 		t.Skip("the run has no namespace of its own to count")
 	}
 

@@ -15,10 +15,18 @@
 package sandbox
 
 import (
+	"bufio"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
@@ -316,6 +324,17 @@ func TestTheProfileNamesNoRefusedService(t *testing.T) {
 	}
 	assert.NotContains(t, profileText, "user-preference")
 	assert.False(t, slices.ContainsFunc(names, func(n []string) bool { return n[1] == "" }))
+
+	// The one exception: a run with the internet reaches the resolver and the
+	// trust daemon, which every other run is refused.
+	var internet []string
+	for _, n := range regexp.MustCompile(`global-name "([^"]+)"`).FindAllStringSubmatch(internetRules, -1) {
+		internet = append(internet, n[1])
+	}
+	assert.Equal(t, []string{"com.apple.dnssd.service", "com.apple.trustd.agent"}, internet)
+	for _, n := range internet {
+		assert.True(t, refused(n), n)
+	}
 }
 
 // launcher writes a stand-in for sandbox-exec: script, run with the
@@ -350,13 +369,18 @@ func TestAProbeThatFailsSaysWhy(t *testing.T) {
 	assert.Equal(t, Status{Reason: "sandbox_apply: Operation not permitted"}, v)
 }
 
-// A launcher that runs true under the profile is a sandbox that confines.
+// A launcher that runs true under the profile is a sandbox that confines,
+// and gives a run the internet wherever it is.
 func TestAProbeThatRunsIsASandbox(t *testing.T) {
 	s, v := probe(t.Context(), launcher(t, passThrough), testutil.Timeout)
 
 	require.NotNil(t, s)
 	assert.True(t, v.Available)
 	assert.True(t, s.Confines())
+	assert.True(t, v.NetworkAvailable)
+	available, reason := s.NetworkStatus()
+	assert.True(t, available)
+	assert.Empty(t, reason)
 }
 
 // A probe that runs out of time keeps the sandbox, so a slow start leaves no
@@ -366,7 +390,7 @@ func TestAProbeThatTimesOutKeepsTheSandbox(t *testing.T) {
 	s, v := probe(t.Context(), launcher(t, "exec sleep 60\n"), 10*time.Millisecond)
 
 	require.NotNil(t, s)
-	assert.Equal(t, Status{Available: true, Reason: "Seatbelt, unconfirmed: the probe did not finish within 10ms"}, v)
+	assert.Equal(t, Status{Available: true, Reason: "Seatbelt, unconfirmed: the probe did not finish within 10ms", NetworkAvailable: true}, v)
 	assert.True(t, s.Confines())
 }
 
@@ -569,6 +593,7 @@ type machineRun struct {
 	base, home, data, cache, runtime, runDir string
 	ws, snapshot, tmp, kubectl, socket       string
 	port                                     int
+	internet                                 bool
 }
 
 // on is m as it runs on s, its policy the Workspace policy: System less what
@@ -587,6 +612,7 @@ func (m *machineRun) on(s *Sandbox) Run {
 	if m.socket != "" {
 		r.Policy.Network.Relays = []Relay{{Port: m.port, Socket: m.socket}}
 	}
+	r.Policy.Network.Internet = m.internet
 	return r
 }
 
@@ -645,11 +671,6 @@ func sh(t *testing.T, s *Sandbox, r Run, script string, env ...string) (string, 
 	return out, ok
 }
 
-// coverWarning is what this test binary prints as it exits under coverage,
-// as a run's forwarder or a helper a run starts, since its GOCOVERDIR is
-// outside the sandbox.
-const coverWarning = "warning: GOCOVERDIR not set, no coverage data emitted\n"
-
 // shWithin is sh bounded by d, and answers whether d ran out. The output
 // leaves out coverWarning.
 func shWithin(t *testing.T, s *Sandbox, r Run, d time.Duration, script string, env ...string) (string, bool, bool) {
@@ -659,7 +680,7 @@ func shWithin(t *testing.T, s *Sandbox, r Run, d time.Duration, script string, e
 	r.Args = []string{"-c", script}
 	r.Env = slices.Concat(r.Env, env)
 	out, err := command(t, s, ctx, r).CombinedOutput()
-	return strings.ReplaceAll(string(out), coverWarning, ""), err == nil, ctx.Err() != nil
+	return withoutCoverWarning(out), err == nil, ctx.Err() != nil
 }
 
 // write makes a file holding "secret" under dir.
@@ -1361,12 +1382,31 @@ func TestTheCompiledProfileMatchesTheGolden(t *testing.T) {
 	brewVar = f.brewVar
 	t.Cleanup(func() { brewVar = old })
 	s := &Sandbox{self: f.self}
-	for name, cluster := range map[string]bool{"cluster": true, "no-cluster": false} {
+	for name, r := range map[string]Run{
+		"cluster": f.run(s, true), "no-cluster": f.run(s, false), "internet": f.withInternet(s, f.run(s, true)),
+	} {
 		t.Run(name, func(t *testing.T) {
-			text, args := s.profile(f.run(s, cluster))
+			text, args := s.profile(r)
 			f.golden(t, "profile_darwin_"+name+".golden", f.inlined(t, text, args))
 		})
 	}
+}
+
+// A macOS run resolves through mDNSResponder, so one naming a resolv.conf is
+// refused.
+func TestAMacOSRunNamesNoResolver(t *testing.T) {
+	f := newFixture(t)
+	s := &Sandbox{self: f.self, launcher: "/usr/bin/sandbox-exec"}
+	r := f.withInternet(s, f.run(s, false))
+	assert.Empty(t, r.Policy.Network.Resolver)
+	r.Policy.Network.Resolver = filepath.Join(f.runDir, "resolv.conf")
+	// The fixture's memory limit is refused first.
+	r.Policy.Limits.MemoryBytes = 0
+
+	cmd, err := s.Command(t.Context(), r)
+
+	assert.Nil(t, cmd)
+	assert.ErrorIs(t, err, errNoResolver)
 }
 
 // A policy that fails Check answers its error and no command.
@@ -1449,4 +1489,317 @@ func TestAProbeCutShortIsAnError(t *testing.T) {
 
 	assert.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, s)
+}
+
+// hostAddress is an IPv4 address the host holds other than loopback.
+func hostAddress(t *testing.T) string {
+	t.Helper()
+	addrs, err := net.InterfaceAddrs()
+	require.NoError(t, err)
+	for _, a := range addrs {
+		if ip, ok := a.(*net.IPNet); ok && ip.IP.To4() != nil && !ip.IP.IsLoopback() && !ip.IP.IsLinkLocalUnicast() {
+			return ip.IP.String()
+		}
+	}
+	require.FailNow(t, "the host holds no address but loopback")
+	return ""
+}
+
+// curlConnect is a curl that says why a connect failed: -v names the error
+// on a line of its own, which curl words differently across versions.
+const curlConnect = `curl -sS -v --max-time 5 "http://$A/"`
+
+// sandboxRefused reports whether curl -v's output says a connect failed with
+// EPERM, which is what a Seatbelt deny answers.
+func sandboxRefused(out string) bool {
+	for line := range strings.Lines(out) {
+		if strings.Contains(line, "connect") && strings.Contains(line, "Operation not permitted") {
+			return true
+		}
+	}
+	return false
+}
+
+// Without the internet a run reaches neither an address of the host's nor a
+// public one.
+func TestWithoutTheInternetNothingIsReached(t *testing.T) {
+	s := confining(t)
+	m := standIn(t)
+	addr := serveHTTP(t, "tcp", net.JoinHostPort(hostAddress(t), "0"), "reached")
+
+	out, _ := sh(t, s, m.on(s), `curl -sS --max-time 5 "http://$A/"`, "A="+addr)
+	assert.NotContains(t, out, "reached")
+	out, ok := sh(t, s, m.on(s), `curl -sS --max-time 5 http://192.0.2.1/`)
+	assert.False(t, ok, out)
+}
+
+// With the internet a connect leaves the run. Nothing answers a TEST-NET
+// address (RFC 5737), so the connect fails either way, but only the run
+// without the internet is refused by the sandbox.
+func TestTheInternetReachesOut(t *testing.T) {
+	s := confining(t)
+	m := standIn(t)
+	connect := `curl -sS -v --connect-timeout 2 "http://$A/"`
+
+	out, ok := sh(t, s, m.on(s), connect, "A=192.0.2.1")
+	assert.False(t, ok, out)
+	assert.True(t, sandboxRefused(out), "without the internet: %s", out)
+
+	m.internet = true
+	out, ok = sh(t, s, m.on(s), connect, "A=192.0.2.1")
+	assert.False(t, ok, out)
+	assert.False(t, sandboxRefused(out), "with the internet: %s", out)
+}
+
+// With the internet the host's own addresses stay shut, as its loopback does,
+// IPv4-mapped included.
+func TestTheInternetReachesNoHostAddress(t *testing.T) {
+	s := confining(t)
+	m := standIn(t)
+	m.internet = true
+	host := hostAddress(t)
+	addr := serveHTTP(t, "tcp", net.JoinHostPort(host, "0"), "reached")
+	_, port, err := net.SplitHostPort(addr)
+	require.NoError(t, err)
+
+	for _, addr := range []string{addr, net.JoinHostPort("::ffff:"+host, port)} {
+		out, _ := sh(t, s, m.on(s), curlConnect, "A="+addr)
+		assert.NotContains(t, out, "reached", addr)
+		assert.True(t, sandboxRefused(out), "%s: %s", addr, out)
+	}
+}
+
+// With the internet a run still has no IPv6: the sandbox refuses a public
+// address (RFC 3849) as it does the host's loopback.
+func TestTheInternetIsIPv4Only(t *testing.T) {
+	s := confining(t)
+	m := standIn(t)
+	m.internet = true
+
+	for _, addr := range []string{"[2001:db8::1]:80", "[::1]:80"} {
+		out, _ := sh(t, s, m.on(s), curlConnect, "A="+addr)
+		assert.True(t, sandboxRefused(out), "%s: %s", addr, out)
+	}
+}
+
+// With the internet the host's loopback stays shut, IPv4 and IPv6, under every
+// address the kernel connects to it, while the run's relay port still reaches
+// the forwarder.
+func TestTheInternetReachesNoHostLoopback(t *testing.T) {
+	s := confining(t)
+	m := standIn(t)
+	m.withCluster(t)
+	m.internet = true
+	// The kernel takes the unspecified address for loopback, and an
+	// IPv4-mapped one for the IPv4 address it maps.
+	v4 := serveHTTP(t, "tcp", "127.0.0.1:0", "loopback")
+	_, port, err := net.SplitHostPort(v4)
+	require.NoError(t, err)
+	targets := []string{v4}
+	for _, host := range []string{"0.0.0.0", "::ffff:127.0.0.1", "::ffff:0.0.0.0"} {
+		targets = append(targets, net.JoinHostPort(host, port))
+	}
+	if ln, err := net.Listen("tcp", "[::1]:0"); err == nil {
+		_ = ln.Close()
+		v6 := serveHTTP(t, "tcp", "[::1]:0", "loopback")
+		_, port, err := net.SplitHostPort(v6)
+		require.NoError(t, err)
+		targets = append(targets, v6, net.JoinHostPort("::", port))
+	}
+
+	for _, addr := range targets {
+		out, _ := sh(t, s, m.on(s), curlConnect, "A="+addr)
+		assert.NotContains(t, out, "loopback", addr)
+		assert.True(t, sandboxRefused(out), "%s: %s", addr, out)
+	}
+	out, ok := sh(t, s, m.on(s), `curl -sS "http://127.0.0.1:$PORT/" && echo`)
+	assert.True(t, ok, out)
+	assert.Equal(t, "ok", firstLine(out))
+}
+
+// With the internet a run reaches mDNSResponder: its socket connects, and a
+// name only mDNSResponder answers resolves. Without it the socket is refused.
+// A failed lookup says nothing of why: libSystem reports a resolver it cannot
+// reach as a name that does not exist.
+func TestTheInternetResolves(t *testing.T) {
+	s := confining(t)
+	m := standIn(t)
+	name, addr := mdnsName(t)
+	env := []string{"BIN=" + os.Args[0], "NAME=" + name}
+	dial := `KSTACK_SANDBOX_TEST_HELPER=dial-resolver "$BIN"`
+	lookup := `KSTACK_SANDBOX_TEST_HELPER=lookup KSTACK_SANDBOX_TEST_NAME="$NAME" "$BIN"`
+
+	out, _ := sh(t, s, m.on(s), dial, env...)
+	assert.Equal(t, "refused", firstLine(out), "without the internet")
+	out, _ = sh(t, s, m.on(s), lookup, env...)
+	assert.Equal(t, "not-found", firstLine(out), "without the internet")
+
+	m.internet = true
+	out, _ = sh(t, s, m.on(s), dial, env...)
+	assert.Equal(t, "connected", firstLine(out), "with the internet")
+	out, _ = sh(t, s, m.on(s), lookup, env...)
+	first, _, _ := strings.Cut(firstLine(out), ",")
+	assert.Equal(t, addr, first, "with the internet: %s", out)
+}
+
+// mdnsName registers a .local name, at a TEST-NET address, that mDNSResponder
+// alone answers, for the test's life. The host's own name will not do: on
+// GitHub's runners, whose HostName is set, a run without the internet
+// resolves it.
+func mdnsName(t *testing.T) (name, addr string) {
+	t.Helper()
+	name = "kstack-test-" + strings.ToLower(rand.Text()) + ".local"
+	addr = "192.0.2.7"
+	cmd := exec.Command("/usr/bin/dns-sd", "-P", "kstack-test", "_kstack-test._tcp", "local", "9", name, addr)
+	out, err := cmd.StdoutPipe()
+	require.NoError(t, err)
+	require.NoError(t, cmd.Start())
+	t.Cleanup(func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	})
+	registered := make(chan struct{})
+	go func() {
+		lines := bufio.NewScanner(out)
+		for lines.Scan() {
+			if strings.Contains(lines.Text(), name+": Name now registered and active") {
+				close(registered)
+				break
+			}
+		}
+		_, _ = io.Copy(io.Discard, out)
+	}()
+	testutil.Wait(t, registered, name+"'s registration")
+	return name, addr
+}
+
+func init() {
+	// dial-resolver connects to mDNSResponder's socket and prints connected,
+	// refused for EPERM, or the error.
+	helpers["dial-resolver"] = func() int {
+		c, err := net.Dial("unix", "/private/var/run/mDNSResponder")
+		switch {
+		case errors.Is(err, syscall.EPERM):
+			fmt.Print("refused")
+			return 1
+		case err != nil:
+			fmt.Print(err)
+			return 1
+		}
+		_ = c.Close()
+		fmt.Print("connected")
+		return 0
+	}
+
+	// verify verifies the first certificate in KSTACK_SANDBOX_TEST_CERT, the
+	// rest as its intermediates, against the system's roots: at
+	// KSTACK_SANDBOX_TEST_AT when set, for KSTACK_SANDBOX_TEST_HOST when set.
+	// It prints verified, or why not.
+	helpers["verify"] = func() int {
+		raw, err := os.ReadFile(os.Getenv("KSTACK_SANDBOX_TEST_CERT"))
+		if err != nil {
+			fmt.Print(err)
+			return 1
+		}
+		var certs []*x509.Certificate
+		for block, rest := pem.Decode(raw); block != nil; block, rest = pem.Decode(rest) {
+			c, err := x509.ParseCertificate(block.Bytes)
+			if err != nil {
+				fmt.Print(err)
+				return 1
+			}
+			certs = append(certs, c)
+		}
+		opts := x509.VerifyOptions{DNSName: os.Getenv("KSTACK_SANDBOX_TEST_HOST"), Intermediates: x509.NewCertPool()}
+		for _, c := range certs[1:] {
+			opts.Intermediates.AddCert(c)
+		}
+		if at := os.Getenv("KSTACK_SANDBOX_TEST_AT"); at != "" {
+			opts.CurrentTime, _ = time.Parse(time.RFC3339, at)
+		}
+		if _, err := certs[0].Verify(opts); err != nil {
+			fmt.Print(err)
+			return 1
+		}
+		fmt.Print("verified")
+		return 0
+	}
+}
+
+// trustChainCaptured is when testdata/trust_chain.pem was captured, a
+// moment its leaf was valid, so the fixture never expires.
+const trustChainCaptured = "2026-10-04T05:55:13Z"
+
+// aiaLeaf writes a leaf signed by an issuer the system does not hold, whose
+// issuer and OCSP URLs name base, and answers its path.
+func aiaLeaf(t *testing.T, dir, base string) string {
+	t.Helper()
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	ca := &x509.Certificate{
+		SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "kstack test issuer"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		IsCA: true, BasicConstraintsValid: true, KeyUsage: x509.KeyUsageCertSign,
+	}
+	caDER, err := x509.CreateCertificate(rand.Reader, ca, ca, &caKey.PublicKey, caKey)
+	require.NoError(t, err)
+	ca, err = x509.ParseCertificate(caDER)
+	require.NoError(t, err)
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	leaf := &x509.Certificate{
+		SerialNumber: big.NewInt(2), Subject: pkix.Name{CommonName: "kstack.test"}, DNSNames: []string{"kstack.test"},
+		NotBefore: time.Now().Add(-time.Hour), NotAfter: time.Now().Add(time.Hour),
+		IssuingCertificateURL: []string{base + "/issuer.cer"}, OCSPServer: []string{base + "/ocsp"},
+		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+	}
+	der, err := x509.CreateCertificate(rand.Reader, leaf, ca, &key.PublicKey, caKey)
+	require.NoError(t, err)
+	path := filepath.Join(dir, "leaf.pem")
+	require.NoError(t, os.WriteFile(path, pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}), 0o600))
+	return path
+}
+
+// The trust daemon fetches a certificate's issuer and OCSP URLs from outside
+// the sandbox, so a run without the internet is refused it: a leaf whose
+// issuer is missing, and one checked for revocation, make the listener its
+// URLs name see no request. With the internet a chain verifies, the daemon's
+// own work.
+func TestTrustFetchesNothingWithoutTheInternet(t *testing.T) {
+	s := confining(t)
+	m := standIn(t)
+	fetched := make(chan string, 8)
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	srv := &http.Server{
+		Handler:           http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) { fetched <- r.URL.Path }),
+		ReadHeaderTimeout: testutil.Timeout,
+	}
+	go func() { _ = srv.Serve(ln) }()
+	t.Cleanup(func() { _ = srv.Close() })
+	leaf := aiaLeaf(t, m.ws, "http://"+ln.Addr().String())
+
+	out, ok := sh(t, s, m.on(s), `KSTACK_SANDBOX_TEST_HELPER=verify KSTACK_SANDBOX_TEST_CERT="$C" "$BIN"`, "C="+leaf, "BIN="+os.Args[0])
+	assert.False(t, ok, out)
+	out, _ = sh(t, s, m.on(s), `security verify-cert -c "$C" -R ocsp 2>&1`, "C="+leaf)
+	t.Log("security verify-cert: ", out)
+	// A negative assertion: the runs have ended, and a fetch the daemon made
+	// for them would have landed by now; the window covers one still in flight.
+	select {
+	case path := <-fetched:
+		assert.Fail(t, "the trust daemon fetched "+path+" for a run without the internet")
+	case <-time.After(2 * time.Second):
+	}
+
+	chain, err := filepath.Abs(filepath.Join("testdata", "trust_chain.pem"))
+	require.NoError(t, err)
+	copied := filepath.Join(m.ws, "chain.pem")
+	raw, err := os.ReadFile(chain)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(copied, raw, 0o600))
+	m.internet = true
+	out, ok = sh(t, s, m.on(s), `KSTACK_SANDBOX_TEST_HELPER=verify KSTACK_SANDBOX_TEST_CERT="$C" KSTACK_SANDBOX_TEST_HOST=www.google.com KSTACK_SANDBOX_TEST_AT="$AT" "$BIN"`,
+		"C="+copied, "AT="+trustChainCaptured, "BIN="+os.Args[0])
+	assert.True(t, ok, out)
+	assert.Equal(t, "verified", firstLine(out))
 }

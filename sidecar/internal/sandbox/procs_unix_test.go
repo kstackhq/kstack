@@ -31,7 +31,7 @@ func TestTheUsersProcessesAreCounted(t *testing.T) {
 	require.NoError(t, child.Start())
 	t.Cleanup(func() { _ = child.Process.Kill(); _ = child.Wait() })
 
-	n, err := (&Sandbox{}).CountedProcesses()
+	n, err := (&Sandbox{}).CountedProcesses(false)
 
 	require.NoError(t, err)
 	assert.GreaterOrEqual(t, n, 2)

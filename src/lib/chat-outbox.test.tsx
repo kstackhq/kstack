@@ -54,9 +54,12 @@ const renderOutbox = (
     { wrapper, initialProps: [mode, chatID, clusterID, seed] },
   );
 
+/** The switches as a chat that has not started shows them: sandboxed, with no network. */
+const OFF = { sandboxDisabled: false, networkEnabled: false };
+
 const submit = (result: { current: ReturnType<typeof useChatOutbox> }) =>
   act(async () => {
-    await result.current.submit(false);
+    await result.current.submit(OFF);
   });
 
 beforeEach(() => {
@@ -128,6 +131,8 @@ describe('a send', () => {
       mode: 'Dashboard',
       clusterID: '1',
       sandboxDisabled: false,
+      networkEnabled: false,
+      networkThisTurn: false,
       providerID: seeded.model.providerID,
       modelID: seeded.model.id,
       effort: seeded.effort,
@@ -142,9 +147,36 @@ describe('a send', () => {
     const { result } = renderOutbox();
     act(() => result.current.setDraft('hello'));
     await act(async () => {
-      await result.current.submit(true);
+      await result.current.submit({ ...OFF, sandboxDisabled: true });
     });
     expect(sendMock.mock.calls[0][0]).toMatchObject({ sandboxDisabled: true });
+  });
+
+  // The sidecar refuses a send whose network switch differs from the chat's too,
+  // and the toggle is the entry's: it rides the send and goes once one is accepted.
+  it('sends the network switch it is handed and the toggle, and clears the toggle once accepted', async () => {
+    const { result } = renderOutbox();
+    act(() => result.current.setDraft('hello'));
+    act(() => result.current.setNetworkThisTurn(true));
+    expect(result.current.networkThisTurn).toBe(true);
+    await act(async () => {
+      await result.current.submit({ ...OFF, networkEnabled: true });
+    });
+
+    expect(sendMock.mock.calls[0][0]).toMatchObject({ networkEnabled: true, networkThisTurn: true });
+    expect(result.current.networkThisTurn).toBe(false);
+  });
+
+  it('keeps the toggle when a send is refused', async () => {
+    sendMock.mockResolvedValue(refused('KSTACK_CHAT_NETWORK_CHANGED'));
+    const { result } = renderOutbox();
+    act(() => result.current.setDraft('hello'));
+    act(() => result.current.setNetworkThisTurn(true));
+    await submit(result);
+
+    expect(result.current.networkThisTurn).toBe(true);
+    expect(result.current.refusal).toEqual({ kind: 'network-changed' });
+    expect(result.current.draft).toBe('hello');
   });
 
   it('holds the draft read-only while in flight', async () => {
@@ -159,7 +191,7 @@ describe('a send', () => {
 
     let sending!: Promise<unknown>;
     act(() => {
-      sending = result.current.submit(false);
+      sending = result.current.submit(OFF);
     });
     expect(result.current.send).toMatchObject({ status: 'sending', content: 'hello' });
     expect(result.current.draft).toBe('hello');
@@ -187,7 +219,7 @@ describe('a send', () => {
 
     let created;
     await act(async () => {
-      created = await result.current.submit(false);
+      created = await result.current.submit(OFF);
     });
 
     // The cluster rides back with the id, for a caller deciding whether to follow the
@@ -203,7 +235,7 @@ describe('a send', () => {
 
     let created;
     await act(async () => {
-      created = await result.current.submit(false);
+      created = await result.current.submit(OFF);
     });
 
     expect(created).toBeNull();
@@ -337,7 +369,7 @@ describe('a send', () => {
     const { result, rerender } = renderOutbox();
     act(() => result.current.setDraft('hello'));
     act(() => {
-      result.current.submit(false);
+      result.current.submit(OFF);
     });
 
     rerender(['chat', 'c2', '1', seeded]);
@@ -359,7 +391,7 @@ describe('a send', () => {
 
     let created;
     await act(async () => {
-      created = await result.current.submit(false);
+      created = await result.current.submit(OFF);
     });
 
     expect(created).toBeNull();
@@ -447,7 +479,7 @@ describe('a send', () => {
     const { result } = renderOutbox();
     act(() => result.current.setDraft('hello'));
     await act(async () => {
-      await result.current.submit(true);
+      await result.current.submit({ ...OFF, sandboxDisabled: true });
     });
 
     sendMock.mockResolvedValue(accepted());
@@ -455,6 +487,26 @@ describe('a send', () => {
       await result.current.retry();
     });
     expect(sendMock.mock.calls[1][0]).toMatchObject({ sandboxDisabled: true });
+  });
+
+  // A held send keeps the switches and the toggle it left with, and its retry
+  // sends them as held, whatever the entry's toggle says by then.
+  it('retries a held send with the network it was held with', async () => {
+    sendMock.mockResolvedValue(dropped());
+    const { result } = renderOutbox();
+    act(() => result.current.setDraft('hello'));
+    act(() => result.current.setNetworkThisTurn(true));
+    await act(async () => {
+      await result.current.submit({ ...OFF, networkEnabled: true });
+    });
+    expect(result.current.networkThisTurn).toBe(true);
+    act(() => result.current.setNetworkThisTurn(false));
+
+    sendMock.mockResolvedValue(accepted());
+    await act(async () => {
+      await result.current.retry();
+    });
+    expect(sendMock.mock.calls[1][0]).toMatchObject({ networkEnabled: true, networkThisTurn: true });
   });
 
   // An accepted send stays closed until its row reaches the watch; whoever watches
@@ -474,7 +526,7 @@ describe('a send', () => {
     expect(result.current.send).toEqual({ status: 'idle' });
 
     await act(async () => {
-      await result.current.askAgain('what is a pod?', seeded, false);
+      await result.current.askAgain('what is a pod?', seeded, OFF);
     });
     expect(sendMock).toHaveBeenCalledTimes(2);
   });
@@ -495,7 +547,7 @@ describe('a send', () => {
     act(() => result.current.setDraft('a follow-up I have not sent'));
 
     await act(async () => {
-      await result.current.askAgain('what is a pod?', seeded, false);
+      await result.current.askAgain('what is a pod?', seeded, OFF);
     });
 
     expect(sendMock).toHaveBeenCalledWith({
@@ -503,6 +555,8 @@ describe('a send', () => {
       mode: 'Chat',
       clusterID: '1',
       sandboxDisabled: false,
+      networkEnabled: false,
+      networkThisTurn: false,
       providerID: seeded.model.providerID,
       modelID: seeded.model.id,
       effort: seeded.effort,
@@ -525,18 +579,32 @@ describe('a send', () => {
     const pick: Pick = seeded;
 
     act(() => {
-      result.current.askAgain('what is a pod?', pick, false);
+      result.current.askAgain('what is a pod?', pick, OFF);
     });
     expect(result.current.send.status).toBe('sending');
 
     await act(async () => {
-      await result.current.askAgain('what is a pod?', pick, false);
+      await result.current.askAgain('what is a pod?', pick, OFF);
     });
     expect(sendMock).toHaveBeenCalledTimes(1);
 
     await act(async () => {
       resolve(accepted());
     });
+  });
+
+  // The toggle is the draft's: Ask again neither sends it nor clears it, so a
+  // follow-up the user set it for still goes out with it.
+  it('asks again without the toggle and leaves it on', async () => {
+    const { result } = renderOutbox();
+    act(() => result.current.setNetworkThisTurn(true));
+
+    await act(async () => {
+      await result.current.askAgain('what is a pod?', seeded, OFF);
+    });
+
+    expect(sendMock.mock.calls[0][0]).toMatchObject({ networkThisTurn: false });
+    expect(result.current.networkThisTurn).toBe(true);
   });
 
   // A held Ask again is still not the draft's send: what it carries came off the
@@ -546,7 +614,7 @@ describe('a send', () => {
     const { result } = renderOutbox();
 
     await act(async () => {
-      await result.current.askAgain('what is a pod?', seeded, false);
+      await result.current.askAgain('what is a pod?', seeded, OFF);
     });
     act(() => result.current.setDraft('a follow-up I have not sent'));
     expect(result.current.send).toMatchObject({ status: 'held', content: 'what is a pod?' });

@@ -344,7 +344,7 @@ func reqID(name string) string {
 // send is a create-shaped send under cluster "1" on the fake's names.
 func send(t *testing.T, s *service, chatID *ChatID, key, text string) ChatMessage {
 	t.Helper()
-	msg, err := s.Send(t.Context(), chatID, ModeChat, "1", false, "fake", "fake", "high", reqID(key), text)
+	msg, err := s.Send(t.Context(), chatID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID(key), text)
 	require.NoError(t, err)
 	return msg
 }
@@ -633,6 +633,12 @@ func (b *fakeBash) Run(ctx context.Context, _ tools.Runtime, input json.RawMessa
 		return run(ctx, command)
 	}
 	return "ran: " + command, false
+}
+
+// RunApproved is Run, since the loop runs a call by its approval: the
+// embedded tool's would run the real shell.
+func (b *fakeBash) RunApproved(ctx context.Context, rt tools.Runtime, input json.RawMessage, _ tools.Approval) (string, bool) {
+	return b.Run(ctx, rt, input)
 }
 
 // commands is what Run was given, in order.

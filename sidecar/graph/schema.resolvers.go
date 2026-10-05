@@ -184,8 +184,8 @@ func (r *mutationResolver) ClusterCachedKindSyncEnabledSet(ctx context.Context, 
 // ChatSend is the resolver for the chatSend field. The cluster is the chat service's
 // to check, inside the send's transaction, so a send and a cluster delete are
 // serialized where they meet.
-func (r *mutationResolver) ChatSend(ctx context.Context, chatID *apimeta.ChatID, mode chatsvc.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, providerID string, modelID string, effort string, requestID string, content string) (*chatsvc.ChatMessage, error) {
-	msg, err := r.ChatSvc.Send(ctx, chatID, mode, clusterID, sandboxDisabled, providerID, modelID, effort, requestID, content)
+func (r *mutationResolver) ChatSend(ctx context.Context, chatID *apimeta.ChatID, mode chatsvc.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, networkEnabled bool, networkThisTurn bool, providerID string, modelID string, effort string, requestID string, content string) (*chatsvc.ChatMessage, error) {
+	msg, err := r.ChatSvc.Send(ctx, chatID, mode, clusterID, sandboxDisabled, networkEnabled, networkThisTurn, providerID, modelID, effort, requestID, content)
 	if err != nil {
 		return nil, chatErr(err)
 	}
@@ -230,6 +230,15 @@ func (r *mutationResolver) ChatRename(ctx context.Context, id apimeta.ChatID, ti
 // ChatSandboxDisabledSet is the resolver for the chatSandboxDisabledSet field.
 func (r *mutationResolver) ChatSandboxDisabledSet(ctx context.Context, id apimeta.ChatID, sandboxDisabled bool) (*chatsvc.Chat, error) {
 	chat, err := r.ChatSvc.SetSandboxDisabled(ctx, id, sandboxDisabled)
+	if err != nil {
+		return nil, chatErr(err)
+	}
+	return &chat, nil
+}
+
+// ChatNetworkEnabledSet is the resolver for the chatNetworkEnabledSet field.
+func (r *mutationResolver) ChatNetworkEnabledSet(ctx context.Context, id apimeta.ChatID, enabled bool) (*chatsvc.Chat, error) {
+	chat, err := r.ChatSvc.SetNetworkEnabled(ctx, id, enabled)
 	if err != nil {
 		return nil, chatErr(err)
 	}

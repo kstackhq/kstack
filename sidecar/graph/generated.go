@@ -76,6 +76,7 @@ type ComplexityRoot struct {
 		CreatedAt        func(childComplexity int) int
 		ID               func(childComplexity int) int
 		Mode             func(childComplexity int) int
+		NetworkEnabled   func(childComplexity int) int
 		SandboxDisabled  func(childComplexity int) int
 		Title            func(childComplexity int) int
 		UpdatedAt        func(childComplexity int) int
@@ -367,6 +368,7 @@ type ComplexityRoot struct {
 	CommandAction struct {
 		Background func(childComplexity int) int
 		Cwd        func(childComplexity int) int
+		Network    func(childComplexity int) int
 		Sandboxed  func(childComplexity int) int
 		Text       func(childComplexity int) int
 	}
@@ -464,9 +466,10 @@ type ComplexityRoot struct {
 		ChatCancel                      func(childComplexity int, chatID apimeta.ChatID) int
 		ChatDelete                      func(childComplexity int, id apimeta.ChatID) int
 		ChatGrantRemove                 func(childComplexity int, chatID apimeta.ChatID, id string) int
+		ChatNetworkEnabledSet           func(childComplexity int, id apimeta.ChatID, enabled bool) int
 		ChatRename                      func(childComplexity int, id apimeta.ChatID, title string) int
 		ChatSandboxDisabledSet          func(childComplexity int, id apimeta.ChatID, sandboxDisabled bool) int
-		ChatSend                        func(childComplexity int, chatID *apimeta.ChatID, mode chatsvc.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, providerID string, modelID string, effort string, requestID string, content string) int
+		ChatSend                        func(childComplexity int, chatID *apimeta.ChatID, mode chatsvc.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, networkEnabled bool, networkThisTurn bool, providerID string, modelID string, effort string, requestID string, content string) int
 		ClusterCacheClear               func(childComplexity int, id apimeta.ObjectID) int
 		ClusterCachedKindSyncEnabledSet func(childComplexity int, id apimeta.ObjectID, syncEnabled bool) int
 		ClusterConnectionRetry          func(childComplexity int, id apimeta.ClusterID) int
@@ -589,8 +592,10 @@ type ComplexityRoot struct {
 	}
 
 	SandboxStatus struct {
-		Available func(childComplexity int) int
-		Reason    func(childComplexity int) int
+		Available        func(childComplexity int) int
+		NetworkAvailable func(childComplexity int) int
+		NetworkReason    func(childComplexity int) int
+		Reason           func(childComplexity int) int
 	}
 
 	Schedule struct {
@@ -657,6 +662,7 @@ type ComplexityRoot struct {
 		ID            func(childComplexity int) int
 		IsError       func(childComplexity int) int
 		Name          func(childComplexity int) int
+		Network       func(childComplexity int) int
 		Output        func(childComplexity int) int
 		RunsOn        func(childComplexity int) int
 		Status        func(childComplexity int) int
@@ -714,12 +720,13 @@ type MutationResolver interface {
 	ClusterDelete(ctx context.Context, id apimeta.ClusterID) (bool, error)
 	ClusterCacheClear(ctx context.Context, id apimeta.ObjectID) (*clustersvc.ClusterCache, error)
 	ClusterCachedKindSyncEnabledSet(ctx context.Context, id apimeta.ObjectID, syncEnabled bool) (*clustersvc.ClusterCachedKind, error)
-	ChatSend(ctx context.Context, chatID *apimeta.ChatID, mode chatsvc.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, providerID string, modelID string, effort string, requestID string, content string) (*chatsvc.ChatMessage, error)
+	ChatSend(ctx context.Context, chatID *apimeta.ChatID, mode chatsvc.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, networkEnabled bool, networkThisTurn bool, providerID string, modelID string, effort string, requestID string, content string) (*chatsvc.ChatMessage, error)
 	ChatCancel(ctx context.Context, chatID apimeta.ChatID) (bool, error)
 	ApprovalDecide(ctx context.Context, id chatsvc.ApprovalID, decision chatsvc.ApprovalDecision) (bool, error)
 	BackgroundTaskStop(ctx context.Context, id chatsvc.ToolCallID) (bool, error)
 	ChatRename(ctx context.Context, id apimeta.ChatID, title string) (*chatsvc.Chat, error)
 	ChatSandboxDisabledSet(ctx context.Context, id apimeta.ChatID, sandboxDisabled bool) (*chatsvc.Chat, error)
+	ChatNetworkEnabledSet(ctx context.Context, id apimeta.ChatID, enabled bool) (*chatsvc.Chat, error)
 	ChatDelete(ctx context.Context, id apimeta.ChatID) (bool, error)
 	SandboxPathInclude(ctx context.Context, dir string, target string) ([]*model.SandboxPathEntry, error)
 	SandboxPathRemove(ctx context.Context, dir string) ([]*model.SandboxPathEntry, error)
@@ -855,6 +862,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Chat.Mode(childComplexity), true
+	case "Chat.networkEnabled":
+		if e.ComplexityRoot.Chat.NetworkEnabled == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Chat.NetworkEnabled(childComplexity), true
 	case "Chat.sandboxDisabled":
 		if e.ComplexityRoot.Chat.SandboxDisabled == nil {
 			break
@@ -1992,6 +2005,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.CommandAction.Cwd(childComplexity), true
+	case "CommandAction.network":
+		if e.ComplexityRoot.CommandAction.Network == nil {
+			break
+		}
+
+		return e.ComplexityRoot.CommandAction.Network(childComplexity), true
 	case "CommandAction.sandboxed":
 		if e.ComplexityRoot.CommandAction.Sandboxed == nil {
 			break
@@ -2378,6 +2397,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.ChatGrantRemove(childComplexity, args["chatID"].(apimeta.ChatID), args["id"].(string)), true
+	case "Mutation.chatNetworkEnabledSet":
+		if e.ComplexityRoot.Mutation.ChatNetworkEnabledSet == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_chatNetworkEnabledSet_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.ChatNetworkEnabledSet(childComplexity, args["id"].(apimeta.ChatID), args["enabled"].(bool)), true
 	case "Mutation.chatRename":
 		if e.ComplexityRoot.Mutation.ChatRename == nil {
 			break
@@ -2410,7 +2440,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Mutation.ChatSend(childComplexity, args["chatID"].(*apimeta.ChatID), args["mode"].(chatsvc.Mode), args["clusterID"].(apimeta.ClusterID), args["sandboxDisabled"].(bool), args["providerID"].(string), args["modelID"].(string), args["effort"].(string), args["requestID"].(string), args["content"].(string)), true
+		return e.ComplexityRoot.Mutation.ChatSend(childComplexity, args["chatID"].(*apimeta.ChatID), args["mode"].(chatsvc.Mode), args["clusterID"].(apimeta.ClusterID), args["sandboxDisabled"].(bool), args["networkEnabled"].(bool), args["networkThisTurn"].(bool), args["providerID"].(string), args["modelID"].(string), args["effort"].(string), args["requestID"].(string), args["content"].(string)), true
 	case "Mutation.clusterCacheClear":
 		if e.ComplexityRoot.Mutation.ClusterCacheClear == nil {
 			break
@@ -3044,6 +3074,18 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.SandboxStatus.Available(childComplexity), true
+	case "SandboxStatus.networkAvailable":
+		if e.ComplexityRoot.SandboxStatus.NetworkAvailable == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxStatus.NetworkAvailable(childComplexity), true
+	case "SandboxStatus.networkReason":
+		if e.ComplexityRoot.SandboxStatus.NetworkReason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxStatus.NetworkReason(childComplexity), true
 	case "SandboxStatus.reason":
 		if e.ComplexityRoot.SandboxStatus.Reason == nil {
 			break
@@ -3382,6 +3424,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ToolCall.Name(childComplexity), true
+	case "ToolCall.network":
+		if e.ComplexityRoot.ToolCall.Network == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolCall.Network(childComplexity), true
 	case "ToolCall.output":
 		if e.ComplexityRoot.ToolCall.Output == nil {
 			break
@@ -3600,6 +3648,8 @@ func (ec *executionContext) childFields_Chat(ctx context.Context, field graphql.
 		return ec.fieldContext_Chat_awaitingApproval(ctx, field)
 	case "sandboxDisabled":
 		return ec.fieldContext_Chat_sandboxDisabled(ctx, field)
+	case "networkEnabled":
+		return ec.fieldContext_Chat_networkEnabled(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type Chat", field.Name)
 }
@@ -4180,6 +4230,8 @@ func (ec *executionContext) childFields_CommandAction(ctx context.Context, field
 		return ec.fieldContext_CommandAction_background(ctx, field)
 	case "sandboxed":
 		return ec.fieldContext_CommandAction_sandboxed(ctx, field)
+	case "network":
+		return ec.fieldContext_CommandAction_network(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type CommandAction", field.Name)
 }
@@ -4526,6 +4578,10 @@ func (ec *executionContext) childFields_SandboxStatus(ctx context.Context, field
 		return ec.fieldContext_SandboxStatus_available(ctx, field)
 	case "reason":
 		return ec.fieldContext_SandboxStatus_reason(ctx, field)
+	case "networkAvailable":
+		return ec.fieldContext_SandboxStatus_networkAvailable(ctx, field)
+	case "networkReason":
+		return ec.fieldContext_SandboxStatus_networkReason(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type SandboxStatus", field.Name)
 }
@@ -4618,6 +4674,8 @@ func (ec *executionContext) childFields_ToolCall(ctx context.Context, field grap
 		return ec.fieldContext_ToolCall_action(ctx, field)
 	case "approval":
 		return ec.fieldContext_ToolCall_approval(ctx, field)
+	case "network":
+		return ec.fieldContext_ToolCall_network(ctx, field)
 	case "output":
 		return ec.fieldContext_ToolCall_output(ctx, field)
 	case "isError":
@@ -4936,6 +4994,28 @@ func (ec *executionContext) field_Mutation_chatGrantRemove_args(ctx context.Cont
 	return args, nil
 }
 
+func (ec *executionContext) field_Mutation_chatNetworkEnabledSet_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (apimeta.ChatID, error) {
+			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "enabled",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["enabled"] = arg1
+	return args, nil
+}
+
 func (ec *executionContext) field_Mutation_chatRename_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
 	var err error
 	args := map[string]any{}
@@ -5015,46 +5095,62 @@ func (ec *executionContext) field_Mutation_chatSend_args(ctx context.Context, ra
 		return nil, err
 	}
 	args["sandboxDisabled"] = arg3
-	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "providerID",
+	arg4, err := graphql.ProcessArgField(ctx, rawArgs, "networkEnabled",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["networkEnabled"] = arg4
+	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "networkThisTurn",
+		func(ctx context.Context, v any) (bool, error) {
+			return ec.unmarshalNBoolean2bool(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["networkThisTurn"] = arg5
+	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "providerID",
 		func(ctx context.Context, v any) (string, error) {
 			return ec.unmarshalNString2string(ctx, v)
 		})
 	if err != nil {
 		return nil, err
 	}
-	args["providerID"] = arg4
-	arg5, err := graphql.ProcessArgField(ctx, rawArgs, "modelID",
+	args["providerID"] = arg6
+	arg7, err := graphql.ProcessArgField(ctx, rawArgs, "modelID",
 		func(ctx context.Context, v any) (string, error) {
 			return ec.unmarshalNString2string(ctx, v)
 		})
 	if err != nil {
 		return nil, err
 	}
-	args["modelID"] = arg5
-	arg6, err := graphql.ProcessArgField(ctx, rawArgs, "effort",
+	args["modelID"] = arg7
+	arg8, err := graphql.ProcessArgField(ctx, rawArgs, "effort",
 		func(ctx context.Context, v any) (string, error) {
 			return ec.unmarshalNString2string(ctx, v)
 		})
 	if err != nil {
 		return nil, err
 	}
-	args["effort"] = arg6
-	arg7, err := graphql.ProcessArgField(ctx, rawArgs, "requestID",
+	args["effort"] = arg8
+	arg9, err := graphql.ProcessArgField(ctx, rawArgs, "requestID",
 		func(ctx context.Context, v any) (string, error) {
 			return ec.unmarshalNString2string(ctx, v)
 		})
 	if err != nil {
 		return nil, err
 	}
-	args["requestID"] = arg7
-	arg8, err := graphql.ProcessArgField(ctx, rawArgs, "content",
+	args["requestID"] = arg9
+	arg10, err := graphql.ProcessArgField(ctx, rawArgs, "content",
 		func(ctx context.Context, v any) (string, error) {
 			return ec.unmarshalNString2string(ctx, v)
 		})
 	if err != nil {
 		return nil, err
 	}
-	args["content"] = arg8
+	args["content"] = arg10
 	return args, nil
 }
 
@@ -6033,6 +6129,29 @@ func (ec *executionContext) _Chat_sandboxDisabled(ctx context.Context, field gra
 	)
 }
 func (ec *executionContext) fieldContext_Chat_sandboxDisabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("Chat", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _Chat_networkEnabled(ctx context.Context, field graphql.CollectedField, obj *chatsvc.Chat) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Chat_networkEnabled(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.NetworkEnabled, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Chat_networkEnabled(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("Chat", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
@@ -10588,6 +10707,29 @@ func (ec *executionContext) fieldContext_CommandAction_sandboxed(_ context.Conte
 	return graphql.NewScalarFieldContext("CommandAction", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
+func (ec *executionContext) _CommandAction_network(ctx context.Context, field graphql.CollectedField, obj *tools.CommandAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_CommandAction_network(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Network, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_CommandAction_network(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("CommandAction", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
 func (ec *executionContext) _Condition_type(ctx context.Context, field graphql.CollectedField, obj *beehive.Condition) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -12060,7 +12202,7 @@ func (ec *executionContext) _Mutation_chatSend(ctx context.Context, field graphq
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Mutation().ChatSend(ctx, fc.Args["chatID"].(*apimeta.ChatID), fc.Args["mode"].(chatsvc.Mode), fc.Args["clusterID"].(apimeta.ClusterID), fc.Args["sandboxDisabled"].(bool), fc.Args["providerID"].(string), fc.Args["modelID"].(string), fc.Args["effort"].(string), fc.Args["requestID"].(string), fc.Args["content"].(string))
+			return ec.Resolvers.Mutation().ChatSend(ctx, fc.Args["chatID"].(*apimeta.ChatID), fc.Args["mode"].(chatsvc.Mode), fc.Args["clusterID"].(apimeta.ClusterID), fc.Args["sandboxDisabled"].(bool), fc.Args["networkEnabled"].(bool), fc.Args["networkThisTurn"].(bool), fc.Args["providerID"].(string), fc.Args["modelID"].(string), fc.Args["effort"].(string), fc.Args["requestID"].(string), fc.Args["content"].(string))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.ChatMessage) graphql.Marshaler {
@@ -12308,6 +12450,50 @@ func (ec *executionContext) fieldContext_Mutation_chatSandboxDisabledSet(ctx con
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Mutation_chatSandboxDisabledSet_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_chatNetworkEnabledSet(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_chatNetworkEnabledSet(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().ChatNetworkEnabledSet(ctx, fc.Args["id"].(apimeta.ChatID), fc.Args["enabled"].(bool))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.Chat) graphql.Marshaler {
+			return ec.marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐChat(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_chatNetworkEnabledSet(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_Chat(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_chatNetworkEnabledSet_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -14744,6 +14930,52 @@ func (ec *executionContext) fieldContext_SandboxStatus_reason(_ context.Context,
 	return graphql.NewScalarFieldContext("SandboxStatus", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
+func (ec *executionContext) _SandboxStatus_networkAvailable(ctx context.Context, field graphql.CollectedField, obj *sandbox.Status) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxStatus_networkAvailable(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.NetworkAvailable, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxStatus_networkAvailable(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxStatus", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxStatus_networkReason(ctx context.Context, field graphql.CollectedField, obj *sandbox.Status) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxStatus_networkReason(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.NetworkReason, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxStatus_networkReason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxStatus", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
 func (ec *executionContext) _Schedule_nextRequeueAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Schedule) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -16129,6 +16361,29 @@ func (ec *executionContext) fieldContext_ToolCall_approval(_ context.Context, fi
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _ToolCall_network(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ToolCall_network(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Network, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.ToolCallNetwork) graphql.Marshaler {
+			return ec.marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallNetwork(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ToolCall_network(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("ToolCall", field, false, false, errors.New("field of type ToolCallNetwork does not have child fields"))
 }
 
 func (ec *executionContext) _ToolCall_output(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
@@ -17725,6 +17980,11 @@ func (ec *executionContext) _Chat(ctx context.Context, sel ast.SelectionSet, obj
 			}
 		case "sandboxDisabled":
 			out.Values[i] = ec._Chat_sandboxDisabled(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "networkEnabled":
+			out.Values[i] = ec._Chat_networkEnabled(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -20273,6 +20533,11 @@ func (ec *executionContext) _CommandAction(ctx context.Context, sel ast.Selectio
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "network":
+			out.Values[i] = ec._CommandAction_network(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -21042,6 +21307,13 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 		case "chatSandboxDisabledSet":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_chatSandboxDisabledSet(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "chatNetworkEnabledSet":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_chatNetworkEnabledSet(ctx, field)
 			})
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
@@ -22192,6 +22464,16 @@ func (ec *executionContext) _SandboxStatus(ctx context.Context, sel ast.Selectio
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "networkAvailable":
+			out.Values[i] = ec._SandboxStatus_networkAvailable(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "networkReason":
+			out.Values[i] = ec._SandboxStatus_networkReason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -22610,6 +22892,11 @@ func (ec *executionContext) _ToolCall(ctx context.Context, sel ast.SelectionSet,
 			}
 		case "approval":
 			out.Values[i] = ec._ToolCall_approval(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				atomic.AddUint32(&out.Invalids, 1)
+			}
+		case "network":
+			out.Values[i] = ec._ToolCall_network(ctx, field, obj)
 			if out.Values[i] == graphql.RequiredNull {
 				atomic.AddUint32(&out.Invalids, 1)
 			}
@@ -25222,6 +25509,38 @@ func (ec *executionContext) marshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋksta
 	res := graphql.MarshalString(string(*v))
 	return res
 }
+
+func (ec *executionContext) unmarshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallNetwork(ctx context.Context, v any) (*chatsvc.ToolCallNetwork, error) {
+	if v == nil {
+		return nil, nil
+	}
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallNetwork[tmp]
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallNetwork(ctx context.Context, sel ast.SelectionSet, v *chatsvc.ToolCallNetwork) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	_ = sel
+	_ = ctx
+	res := graphql.MarshalString(marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallNetwork[*v])
+	return res
+}
+
+var (
+	unmarshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallNetwork = map[string]chatsvc.ToolCallNetwork{
+		"Chat":     chatsvc.ToolCallNetworkChat,
+		"Turn":     chatsvc.ToolCallNetworkTurn,
+		"Approved": chatsvc.ToolCallNetworkApproved,
+	}
+	marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallNetwork = map[chatsvc.ToolCallNetwork]string{
+		chatsvc.ToolCallNetworkChat:     "Chat",
+		chatsvc.ToolCallNetworkTurn:     "Turn",
+		chatsvc.ToolCallNetworkApproved: "Approved",
+	}
+)
 
 func (ec *executionContext) unmarshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallStatus(ctx context.Context, v any) (*chatsvc.ToolCallStatus, error) {
 	if v == nil {

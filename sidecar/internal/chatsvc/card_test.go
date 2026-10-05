@@ -42,7 +42,7 @@ func sendAndSettle(t *testing.T, s *service, chatID *ChatID, clusterID apimeta.C
 		require.NoError(t, err)
 		disabled = c.SandboxDisabled
 	}
-	msg, err := s.Send(t.Context(), chatID, ModeChat, clusterID, disabled, "fake", "fake", "high", reqID(key), text)
+	msg, err := s.Send(t.Context(), chatID, ModeChat, clusterID, disabled, false, false, "fake", "fake", "high", reqID(key), text)
 	require.NoError(t, err)
 	awaitSettled(t, s, msg.ChatID, msg.ID)
 	return msg
@@ -163,7 +163,7 @@ func TestAReplayRendersNoCard(t *testing.T) {
 	s := serviceWithClusterCards(t, clusterCards)
 
 	first := sendAndSettle(t, s, nil, "1", "1", "one")
-	again, err := s.Send(t.Context(), nil, ModeChat, "1", false, "fake", "fake", "high", reqID("1"), "one")
+	again, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "one")
 	require.NoError(t, err)
 
 	assert.Equal(t, first.ID, again.ID)
@@ -206,7 +206,7 @@ func TestSendRefusedWhileATurnRunsWritesNoCard(t *testing.T) {
 
 	first := send(t, s, nil, "1", "one")
 	clusterCards.set("card two")
-	_, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, "fake", "fake", "high", reqID("2"), "two")
+	_, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("2"), "two")
 	require.ErrorIs(t, err, ErrTurnInFlight)
 
 	assert.Equal(t, s.withWorkspace("card one", first.ChatID), newestContextOf(t, s, first.ChatID))
@@ -250,7 +250,7 @@ func TestSendIntoAChatDeletedWhileItsCardRendersIsGone(t *testing.T) {
 
 	first := sendAndSettle(t, s, nil, "1", "1", "one")
 	clusterCards.chatID = first.ChatID
-	_, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, "fake", "fake", "high", reqID("2"), "two")
+	_, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("2"), "two")
 
 	require.ErrorIs(t, err, ErrChatGone)
 	chats, err := s.List(t.Context())

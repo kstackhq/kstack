@@ -122,6 +122,9 @@ type Approval struct {
 	Sandboxed bool
 	// Skip runs the call without asking. The zero value asks.
 	Skip bool
+	// Network is the network a sandboxed call runs with. NetworkApproved holds
+	// only once the user approves the call.
+	Network session.Network
 }
 
 // Gated is a Runner whose call runs only once the user has approved it, unless
@@ -134,6 +137,15 @@ type Gated interface {
 	// unless the error is a *Refusal. It reads rt and never starts or stops a task,
 	// or writes a stamp.
 	Approval(ctx context.Context, rt Runtime, input json.RawMessage) (Approval, error)
+}
+
+// ApprovedRunner is a Gated tool whose run takes the Approval its gate
+// decided, so what runs is what was decided or approved, whatever the
+// session says by the time it starts. The loop calls RunApproved in place of
+// Run.
+type ApprovedRunner interface {
+	Gated
+	RunApproved(ctx context.Context, rt Runtime, input json.RawMessage, a Approval) (text string, isError bool)
 }
 
 // Refusal is an Approval error carrying the result the model reads, so a call
@@ -212,11 +224,14 @@ func (a Action) Kind() ActionKind {
 
 // CommandAction is a command: Text is what the shell receives, byte for byte;
 // Cwd is where it started, empty when the call never reached the gate;
-// Background is a command that keeps running after its call answers.
+// Background is a command that keeps running after its call answers; Network
+// is a call that asked for the internet, which changes nothing outside the
+// sandbox.
 type CommandAction struct {
 	Text       string `json:"text"`
 	Cwd        string `json:"cwd"`
 	Background bool   `json:"background"`
+	Network    bool   `json:"network"`
 	// Sandboxed is whether a sandbox confined the command, off its row.
 	Sandboxed bool `json:"sandboxed"`
 }

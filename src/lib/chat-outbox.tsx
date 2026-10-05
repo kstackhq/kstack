@@ -33,6 +33,8 @@ const ChatSendMutation = graphql(`
     $mode: ChatMode!
     $clusterID: ClusterID!
     $sandboxDisabled: Boolean!
+    $networkEnabled: Boolean!
+    $networkThisTurn: Boolean!
     $providerID: String!
     $modelID: String!
     $effort: String!
@@ -44,6 +46,8 @@ const ChatSendMutation = graphql(`
       mode: $mode
       clusterID: $clusterID
       sandboxDisabled: $sandboxDisabled
+      networkEnabled: $networkEnabled
+      networkThisTurn: $networkThisTurn
       providerID: $providerID
       modelID: $modelID
       effort: $effort
@@ -58,14 +62,17 @@ const ChatSendMutation = graphql(`
   }
 `);
 
+/** A chat's two switches as the sender sees them, which the sidecar checks a send against. */
+export type Switches = { sandboxDisabled: boolean; networkEnabled: boolean };
+
 /** How far a send has got. One value, so a held send cannot also be settled. */
 export type Send =
   | { status: 'idle' }
   | { status: 'sending'; requestID: string; content: string }
   /**
    * No answer came. It may have committed, so Retry resends the same id, cluster,
-   * pick and switch — and under the same ownership, since a held Ask again is still
-   * not the draft's send.
+   * pick, switches and toggle — and under the same ownership, since a held Ask
+   * again is still not the draft's send.
    */
   | {
       status: 'held';
@@ -73,7 +80,8 @@ export type Send =
       content: string;
       clusterID: string;
       pick: ModelPick;
-      sandboxDisabled: boolean;
+      switches: Switches;
+      networkThisTurn: boolean;
       own: boolean;
     }
   /** Accepted; over once the messages watch delivers the row with this `seq`. */
@@ -85,13 +93,22 @@ const IDLE: Send = { status: 'idle' };
  * Why the last send was refused, when the composer has something to say about it.
  * A full chat carries the model the send named: the composer's pick can move on —
  * or an Ask again can have run on another — and the refusal is still that model's.
- * A changed switch means the chat's sandbox switch was not what the sender saw.
+ * A changed switch means the chat's sandbox or network switch was not what the
+ * sender saw.
  */
-export type Refusal = { kind: 'context-full'; model: ModelRef } | { kind: 'sandbox-changed' };
+export type Refusal =
+  | { kind: 'context-full'; model: ModelRef }
+  | { kind: 'sandbox-changed' }
+  | { kind: 'network-changed' };
 
-type Entry = { draft: string; send: Send; pick: ModelPick | null; refusal: Refusal | null };
+/**
+ * `networkThisTurn` is the toggle that gives the next send's commands the
+ * internet: the entry's, so it survives the composer unmounting, and cleared
+ * once a send is accepted.
+ */
+type Entry = { draft: string; send: Send; pick: ModelPick | null; refusal: Refusal | null; networkThisTurn: boolean };
 
-const EMPTY: Entry = { draft: '', send: IDLE, pick: null, refusal: null };
+const EMPTY: Entry = { draft: '', send: IDLE, pick: null, refusal: null, networkThisTurn: false };
 
 type Entries = Record<string, Entry>;
 
@@ -134,13 +151,15 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
     setEntries((current) => ({ ...current, [key]: { ...(current[key] ?? EMPTY), ...next } }));
 
   // `own` is whether the draft is what is being sent: askAgain sends a question off
-  // a failed row instead, and clearing then would take a follow-up the user typed.
+  // a failed row instead, and clearing the draft or its toggle then would take what
+  // the user set up for a follow-up.
   const run = async (
     requestID: string,
     content: string,
     cluster: string,
     pick: ModelPick,
-    sandboxDisabled: boolean,
+    switches: Switches,
+    networkThisTurn: boolean,
     own = true,
   ): Promise<Created | null> => {
     patch({ send: { status: 'sending', requestID, content }, refusal: null });
@@ -148,7 +167,9 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
       chatID,
       mode: chatModeOf(mode),
       clusterID: cluster,
-      sandboxDisabled,
+      sandboxDisabled: switches.sandboxDisabled,
+      networkEnabled: switches.networkEnabled,
+      networkThisTurn,
       providerID: pick.model.providerID,
       modelID: pick.model.id,
       effort: pick.effort,
@@ -159,7 +180,7 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
     if (result.error?.networkError) {
       // Committed-but-lost looks exactly like never-arrived. Keeping the id lets
       // Retry ask again under it, and the sidecar answers a repeat by its key.
-      patch({ send: { status: 'held', requestID, content, clusterID: cluster, pick, sandboxDisabled, own } });
+      patch({ send: { status: 'held', requestID, content, clusterID: cluster, pick, switches, networkThisTurn, own } });
       return null;
     }
     const message = result.data?.chatSend;
@@ -170,18 +191,19 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
       let refusal: Refusal | null = null;
       if (code === 'KSTACK_CHAT_CONTEXT_FULL') refusal = { kind: 'context-full', model: pick.model };
       else if (code === 'KSTACK_CHAT_SANDBOX_CHANGED') refusal = { kind: 'sandbox-changed' };
+      else if (code === 'KSTACK_CHAT_NETWORK_CHANGED') refusal = { kind: 'network-changed' };
       patch({ send: IDLE, refusal });
       return null;
     }
     if (chatID) {
       // Send stays closed until the row reaches the watch; before that the last
       // message on screen is still the one from before this send.
-      patch({ ...(own ? { draft: '' } : {}), send: { status: 'awaiting', seq: message.seq } });
+      patch({ ...(own ? { draft: '', networkThisTurn: false } : {}), send: { status: 'awaiting', seq: message.seq } });
       return null;
     }
     // A created chat's row arrives with the snapshot its route opens, and the
     // unstarted entry watches no messages that could settle an `awaiting`.
-    patch({ ...(own ? { draft: '' } : {}), send: IDLE });
+    patch({ ...(own ? { draft: '', networkThisTurn: false } : {}), send: IDLE });
     // The cluster rides back with the id: a retry goes under the cluster it was held
     // with, which by then need not be the one the window is on.
     return { chatID: message.chatID, clusterID: cluster };
@@ -197,12 +219,14 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
     send: entry.send,
     refusal: entry.refusal,
     pick,
+    networkThisTurn: entry.networkThisTurn,
     setDraft: (draft: string) => patch({ draft }),
     setPick: (next: ModelPick) => patch({ pick: next }),
-    /** Sends the draft under `sandboxDisabled`, the chat's switch as the composer shows it. */
-    submit: (sandboxDisabled: boolean) =>
+    setNetworkThisTurn: (on: boolean) => patch({ networkThisTurn: on }),
+    /** Sends the draft under `switches`, the chat's switches as the composer shows them, with the toggle. */
+    submit: (switches: Switches) =>
       clusterID && pick
-        ? run(crypto.randomUUID(), entry.draft, clusterID, pick, sandboxDisabled)
+        ? run(crypto.randomUUID(), entry.draft, clusterID, pick, switches, entry.networkThisTurn)
         : Promise.resolve(null),
     retry: () =>
       entry.send.status === 'held'
@@ -211,7 +235,8 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
             entry.send.content,
             entry.send.clusterID,
             entry.send.pick,
-            entry.send.sandboxDisabled,
+            entry.send.switches,
+            entry.send.networkThisTurn,
             entry.send.own,
           )
         : Promise.resolve(null),
@@ -219,11 +244,12 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
      * Asks a failed answer's question again: a fresh send under a new id, carrying
      * what the failed row ran on. It is the user asking twice, which is theirs to
      * do — the sidecar never retries a turn — and it rides the entry's one send, so
-     * a press while anything is in flight sends nothing.
+     * a press while anything is in flight sends nothing. It never sends the toggle:
+     * the toggle is the draft's, and the user gave it for the message they are typing.
      */
-    askAgain: (content: string, ran: ModelPick, sandboxDisabled: boolean) =>
+    askAgain: (content: string, ran: ModelPick, switches: Switches) =>
       clusterID && entry.send.status === 'idle'
-        ? run(crypto.randomUUID(), content, clusterID, ran, sandboxDisabled, false)
+        ? run(crypto.randomUUID(), content, clusterID, ran, switches, false, false)
         : Promise.resolve(null),
     /**
      * Closes an accepted send once the row it is awaiting has reached the watch:

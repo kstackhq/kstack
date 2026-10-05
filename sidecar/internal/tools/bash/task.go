@@ -23,12 +23,14 @@ import (
 	"os"
 
 	"github.com/kstackhq/kstack/sidecar/internal/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
 // runTask starts a background command as the chat's task, checked as a
 // foreground one is, and answers in the reference's words once it is running.
-func (t *Tool) runTask(ctx context.Context, rt tools.Runtime, in input) (string, bool) {
+// It keeps the network it starts with, network, for its whole life.
+func (t *Tool) runTask(ctx context.Context, rt tools.Runtime, in input, network session.Network) (string, bool) {
 	cwd, err := t.startDir(in, rt)
 	if err != nil {
 		return `{"error":"bad-input"}`, true
@@ -61,7 +63,7 @@ func (t *Tool) runTask(ctx context.Context, rt tools.Runtime, in input) (string,
 			return startTask(ctx, s, out)
 		}
 		// Made here, with the process, so a start the chat refuses makes nothing.
-		sandboxedRun, err := t.sandboxedRunFor(ctx, boxer, rt, cwd, true)
+		sandboxedRun, err := t.sandboxedRunFor(ctx, boxer, rt, cwd, true, network)
 		if err != nil {
 			return nil, err
 		}

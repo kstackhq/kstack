@@ -298,7 +298,7 @@ func TestTheGrantKeepsTheSession(t *testing.T) {
 	rt := clusterRuntime(t)
 	rt.Session = session.Session{Kind: session.Subagent}
 
-	r, err := tl.sandboxedRunFor(t.Context(), &fakeSandboxer{}, rt, tools.WorkspacePath(rt.Dir), false)
+	r, err := tl.sandboxedRunFor(t.Context(), &fakeSandboxer{}, rt, tools.WorkspacePath(rt.Dir), false, "")
 	require.NoError(t, err)
 	t.Cleanup(r.end)
 

@@ -40,6 +40,19 @@ describe('useSandbox', () => {
     expect(renderHook(() => useSandbox()).result.current.available).toBe(false);
   });
 
+  // Whether a sandboxed command can be given the internet, and why not, rides the
+  // same answer; unknown until it comes.
+  it('answers whether the machine offers network, and why not', () => {
+    expect(renderHook(() => useSandbox()).result.current.networkAvailable).toBeUndefined();
+    state.current = {
+      fetching: false,
+      data: { sandbox: { available: true, networkAvailable: false, networkReason: 'pasta not found' } },
+    };
+    const { result } = renderHook(() => useSandbox());
+    expect(result.current.networkAvailable).toBe(false);
+    expect(result.current.networkReason).toBe('pasta not found');
+  });
+
   // A sidecar that could not be reached has not said there is no sandbox.
   it('is unknown and failed after a failure', () => {
     state.current = { fetching: false, error: new Error('unreachable') };

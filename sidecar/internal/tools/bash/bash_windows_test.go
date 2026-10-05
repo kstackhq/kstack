@@ -175,7 +175,7 @@ func TestRunKillsTheJobOnTimeout(t *testing.T) {
 	r := run(t.Context(), s)
 	assert.Equal(t, stopTimeout, r.Stop)
 	assert.Equal(t, 143, r.ExitCode)
-	assert.True(t, strings.HasPrefix(resultText(r, time.Minute, nil, false), "Command timed out after 60s (exit code 143)\n"))
+	assert.True(t, strings.HasPrefix(resultText(r, time.Minute, nil, unconfined), "Command timed out after 60s (exit code 143)\n"))
 	h.awaitGone(t)
 }
 

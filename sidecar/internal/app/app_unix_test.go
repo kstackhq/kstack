@@ -70,7 +70,7 @@ func TestBashIsOfferedWithTheSandbox(t *testing.T) {
 		Properties map[string]json.RawMessage `json:"properties"`
 	}
 	require.NoError(t, json.Unmarshal(shell.Definition().InputSchema, &schema))
-	assert.Len(t, schema.Properties, 5)
+	assert.Len(t, schema.Properties, 6)
 	assert.NotContains(t, schema.Properties, "dangerouslyDisableSandbox")
 }
 

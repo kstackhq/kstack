@@ -47,13 +47,15 @@ vi.mock('@/lib/active-kube-context', () => ({
 }));
 // Whether the machine offers a sandbox, which the composer's switch and the
 // transcript's headings both follow.
-const { useSandboxMock, sandboxRetry, switchState } = vi.hoisted(() => ({
+const { useSandboxMock, sandboxRetry, switchState, networkSwitchState } = vi.hoisted(() => ({
   useSandboxMock: vi.fn(),
   sandboxRetry: vi.fn(),
   switchState: { switching: false, setSandboxDisabled: vi.fn() },
+  networkSwitchState: { switching: false, setNetworkEnabled: vi.fn() },
 }));
 vi.mock('@/lib/sandbox', () => ({ useSandbox: useSandboxMock }));
 vi.mock('@/lib/sandbox-switch', () => ({ useSandboxSwitch: () => switchState }));
+vi.mock('@/lib/network-switch', () => ({ useNetworkSwitch: () => networkSwitchState }));
 vi.mock('urql', () => ({ useMutation: () => [{}, vi.fn()] }));
 vi.mock('@/gql', () => ({ graphql: () => ({}) }));
 
@@ -92,12 +94,13 @@ vi.mock('@/components/widgets/chat-transcript', () => ({
 const { ChatOutboxProvider } = await import('@/lib/chat-outbox');
 const { ChatPane, NewChatPane } = await import('./chat-pane');
 
-const chat = (id: string, clusterID = '1', sandboxDisabled = false) => ({
+const chat = (id: string, clusterID = '1', sandboxDisabled = false, networkEnabled = false) => ({
   id,
   title: 'A chat',
   mode: 'Chat',
   clusterID,
   sandboxDisabled,
+  networkEnabled,
   createdAt: '2026-09-01T00:00:00Z',
   updatedAt: '2026-09-01T10:00:00Z',
 });
@@ -170,8 +173,15 @@ beforeEach(() => {
   vi.clearAllMocks();
   useActiveClusterMock.mockReturnValue({ clusterID: '1', phase: 'live' });
   useClustersMock.mockReturnValue({ clusters: [] });
-  useSandboxMock.mockReturnValue({ available: true, failed: false, retry: sandboxRetry });
+  useSandboxMock.mockReturnValue({
+    available: true,
+    networkAvailable: true,
+    networkReason: '',
+    failed: false,
+    retry: sandboxRetry,
+  });
   switchState.switching = false;
+  networkSwitchState.switching = false;
   kubeContexts.current = [{ name: 'prod' }, { name: 'staging' }];
 });
 
@@ -192,6 +202,24 @@ describe('NewChatPane', () => {
     renderPanes().fresh();
 
     expect(props('composer').phase).toBe('connecting');
+  });
+
+  // A chat that has not started has the toggle, which needs the machine's word.
+  it("hands the composer the machine's sandbox and network", () => {
+    useSandboxMock.mockReturnValue({
+      available: true,
+      networkAvailable: false,
+      networkReason: 'pasta not found',
+      failed: false,
+      retry: sandboxRetry,
+    });
+    renderPanes().fresh();
+
+    expect(props('composer')).toMatchObject({
+      sandboxAvailable: true,
+      networkAvailable: false,
+      networkReason: 'pasta not found',
+    });
   });
 });
 
@@ -216,6 +244,20 @@ describe('ChatPane', () => {
     expect(sandboxRetry).not.toHaveBeenCalled();
     panes.open('c1', { chats: [chat('c1')], messagesPhase: 'live' });
     expect(sandboxRetry).toHaveBeenCalledTimes(1);
+  });
+
+  // Either switch in flight holds both ways of sending.
+  it('hands both a network switch in flight', () => {
+    networkSwitchState.switching = true;
+    renderPanes().open('c1', { chats: [chat('c1')] });
+    expect(props('composer')).toMatchObject({ switching: true });
+    expect(props('transcript')).toMatchObject({ switching: true });
+  });
+
+  it("hands the composer the chat's network switch and the machine's network, and Ask again the switch", () => {
+    renderPanes().open('c1', { chats: [chat('c1', '1', false, true)] });
+    expect(props('composer')).toMatchObject({ networkAvailable: true, networkReason: '', networkEnabled: true });
+    expect(props('transcript')).toMatchObject({ networkEnabled: true });
   });
 
   it("hands the composer the chat's switch and both the machine's sandbox", () => {

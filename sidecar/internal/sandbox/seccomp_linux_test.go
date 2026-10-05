@@ -318,3 +318,17 @@ func TestTheShellCannotReadTheKeyring(t *testing.T) {
 	require.Error(t, err)
 	assert.Equal(t, "operation not permitted", string(out))
 }
+
+// mountSyscalls is every syscall that mounts, unmounts or moves a mount.
+var mountSyscalls = []int{
+	unix.SYS_MOUNT, unix.SYS_UMOUNT2, unix.SYS_PIVOT_ROOT, unix.SYS_OPEN_TREE, unix.SYS_MOVE_MOUNT,
+	unix.SYS_FSOPEN, unix.SYS_FSCONFIG, unix.SYS_FSMOUNT, unix.SYS_MOUNT_SETATTR,
+}
+
+// No run mounts anything, so a capability that slipped through unmounts
+// nothing.
+func TestTheFilterRefusesMounts(t *testing.T) {
+	for _, nr := range mountSyscalls {
+		assert.Equal(t, errno(unix.EPERM), verdict(t, auditArch, nr), nr)
+	}
+}

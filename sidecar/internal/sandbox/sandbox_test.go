@@ -20,10 +20,10 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-// sandbox-init or sandbox-shell as the first argument runs that part of a run,
+// sandbox-init, sandbox-shell or sandbox-pasta as the first argument runs that part of a run,
 // whose own arguments come after it; anything else is the caller's.
 func TestMainRunsTheSubcommandItNames(t *testing.T) {
-	for _, command := range []string{InitCommand, ShellCommand} {
+	for _, command := range []string{InitCommand, ShellCommand, PastaCommand} {
 		code, ok := Main([]string{"kstack-sidecar", command})
 		assert.True(t, ok, command)
 		assert.Equal(t, initFailed, code, command)

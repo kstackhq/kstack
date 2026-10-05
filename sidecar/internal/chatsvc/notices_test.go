@@ -43,8 +43,28 @@ func TestANoticeTurnSaysWhereCommandsRunWhenTheSwitchMoved(t *testing.T) {
 
 	q := questionOf(t, s, answer)
 	require.Equal(t, []llm.BlockType{llm.BlockContext, llm.BlockTaskNotification}, []llm.BlockType{q[0].Type, q[1].Type})
-	outside := strings.Replace(sandboxed, `{"commands":"sandboxed"}`, `{"commands":"outside"}`, 1)
+	outside := strings.Replace(sandboxed, `{"commands":"sandboxed","network":"unavailable on this machine"}`, `{"commands":"outside"}`, 1)
 	assert.Equal(t, outside, newestContextOf(t, s, first.ChatID), "the newest block with the switch swapped")
+}
+
+// So does a notice turn whose chat's network switch moved: the model learns
+// what its commands reach before it runs one.
+func TestANoticeTurnSaysTheNetworkWhenTheSwitchMoved(t *testing.T) {
+	tt := newTaskTool()
+	s := startServiceWithTool(t, tt)
+	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	first, ft := startTaskTurn(t, s, tt, nil, "1")
+	off := newestContextOf(t, s, first.ChatID)
+
+	_, err := s.SetNetworkEnabled(t.Context(), first.ChatID, true)
+	require.NoError(t, err)
+	ft.exit(0)
+	answer := awaitNoticeTurn(t, s, first.ChatID, first.ID)
+
+	q := questionOf(t, s, answer)
+	require.Equal(t, llm.BlockContext, q[0].Type)
+	on := strings.Replace(off, `"network":"off"`, `"network":"on for this chat"`, 1)
+	assert.Equal(t, on, newestContextOf(t, s, first.ChatID))
 }
 
 // A notice turn whose switch is where the newest context says carries none.

@@ -200,7 +200,7 @@ func TestWorkArrivingAfterStopIsRefused(t *testing.T) {
 	require.NoError(t, stop(t.Context()))
 
 	assert.ErrorIs(t, s.Delete(t.Context(), c.ID), ErrStopping)
-	_, err = s.Send(t.Context(), nil, ModeChat, "1", false, "fake", "fake", "high", reqID("1"), "hi")
+	_, err = s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
 	assert.ErrorIs(t, err, ErrStopping)
 	// The sweep is Delete per chat, so it is refused where a single delete is — and
 	// reports the first refusal rather than walking the rest.
@@ -272,7 +272,7 @@ func TestEveryEntryPointReportsAFailedStore(t *testing.T) {
 	assert.Error(t, err)
 	_, err = s.List(t.Context())
 	assert.Error(t, err)
-	_, err = s.Send(t.Context(), nil, ModeChat, "1", false, "fake", "fake", "high", reqID("1"), "hi")
+	_, err = s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
 	assert.Error(t, err)
 }
 
@@ -747,23 +747,23 @@ func TestSendWritesTheQuestionItsRunAndTheAnswer(t *testing.T) {
 
 func TestSendRejectsAKeyThatIsNotAUUID(t *testing.T) {
 	s := newTestService(t)
-	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, "fake", "fake", "high", "not-a-uuid", "hi")
+	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake", "high", "not-a-uuid", "hi")
 	assert.ErrorIs(t, err, ErrBadRequest)
 	assert.Zero(t, tableCount(t, s.db, "messages"))
 }
 
 func TestSendRejectsAnEmptyRequestIDOrMessage(t *testing.T) {
 	s := newTestService(t)
-	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, "fake", "fake", "high", "", "hi")
+	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake", "high", "", "hi")
 	assert.ErrorIs(t, err, ErrBadRequest)
-	_, err = s.Send(t.Context(), nil, ModeChat, "1", false, "fake", "fake", "high", reqID("1"), "  \n ")
+	_, err = s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "  \n ")
 	assert.ErrorIs(t, err, ErrBadRequest)
 	assert.Zero(t, tableCount(t, s.db, "messages"))
 }
 
 func TestSendRejectsAModeThatIsNeitherConstant(t *testing.T) {
 	s := newTestService(t)
-	_, err := s.Send(t.Context(), nil, Mode("panel"), "1", false, "fake", "fake", "high", reqID("1"), "hi")
+	_, err := s.Send(t.Context(), nil, Mode("panel"), "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
 	assert.ErrorIs(t, err, ErrBadRequest)
 	assert.Zero(t, tableCount(t, s.db, "chats"))
 }
@@ -791,11 +791,11 @@ func TestSendCapsTheTitleAtACharacterBoundary(t *testing.T) {
 
 func TestSendSetsTheModeOnlyWhenItCreatesTheChat(t *testing.T) {
 	s := newTestService(t)
-	first, err := s.Send(t.Context(), nil, ModeDashboard, "1", false, "fake", "fake", "high", reqID("1"), "hi")
+	first, err := s.Send(t.Context(), nil, ModeDashboard, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
 	require.NoError(t, err)
 	awaitSettled(t, s, first.ChatID, first.ID)
 
-	_, err = s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, "fake", "fake", "high", reqID("2"), "and?")
+	_, err = s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("2"), "and?")
 	require.NoError(t, err)
 
 	c, ok, err := s.Get(t.Context(), first.ChatID)
@@ -806,11 +806,11 @@ func TestSendSetsTheModeOnlyWhenItCreatesTheChat(t *testing.T) {
 
 func TestSendSetsTheClusterOnlyWhenItCreatesTheChat(t *testing.T) {
 	s := newTestService(t)
-	first, err := s.Send(t.Context(), nil, ModeChat, "7", false, "fake", "fake", "high", reqID("1"), "hi")
+	first, err := s.Send(t.Context(), nil, ModeChat, "7", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
 	require.NoError(t, err)
 	awaitSettled(t, s, first.ChatID, first.ID)
 
-	_, err = s.Send(t.Context(), &first.ChatID, ModeChat, "8", false, "fake", "fake", "high", reqID("2"), "and?")
+	_, err = s.Send(t.Context(), &first.ChatID, ModeChat, "8", false, false, false, "fake", "fake", "high", reqID("2"), "and?")
 	require.NoError(t, err)
 
 	c, ok, err := s.Get(t.Context(), first.ChatID)
@@ -821,7 +821,7 @@ func TestSendSetsTheClusterOnlyWhenItCreatesTheChat(t *testing.T) {
 
 func TestSendRefusesAProviderTheServiceDoesNotHold(t *testing.T) {
 	s := newTestService(t)
-	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, "nobody", "fake", "high", reqID("1"), "hi")
+	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "nobody", "fake", "high", reqID("1"), "hi")
 	assert.ErrorIs(t, err, ErrBadRequest)
 	assert.Zero(t, tableCount(t, s.db, "chats"))
 }
@@ -829,7 +829,7 @@ func TestSendRefusesAProviderTheServiceDoesNotHold(t *testing.T) {
 func TestSendIntoAnUnknownChatIsChatGone(t *testing.T) {
 	s := newTestService(t)
 	id := ChatID(appdb.NewID())
-	_, err := s.Send(t.Context(), &id, ModeChat, "1", false, "fake", "fake", "high", reqID("1"), "hi")
+	_, err := s.Send(t.Context(), &id, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
 	assert.ErrorIs(t, err, ErrChatGone)
 	assert.Zero(t, tableCount(t, s.db, "messages"))
 }
@@ -837,9 +837,9 @@ func TestSendIntoAnUnknownChatIsChatGone(t *testing.T) {
 func TestSendIntoAMarkedClusterIsClusterGone(t *testing.T) {
 	s := newTestService(t)
 	markCluster(t, s.db, "9")
-	_, err := s.Send(t.Context(), nil, ModeChat, "9", false, "fake", "fake", "high", reqID("1"), "hi")
+	_, err := s.Send(t.Context(), nil, ModeChat, "9", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
 	assert.ErrorIs(t, err, ErrClusterGone)
-	_, err = s.Send(t.Context(), nil, ModeChat, "no-such-cluster", false, "fake", "fake", "high", reqID("2"), "hi")
+	_, err = s.Send(t.Context(), nil, ModeChat, "no-such-cluster", false, false, false, "fake", "fake", "high", reqID("2"), "hi")
 	assert.ErrorIs(t, err, ErrClusterGone)
 	assert.Zero(t, tableCount(t, s.db, "chats"))
 }
@@ -878,13 +878,13 @@ func TestSendRefusesAnEffortTheModelDoesNotList(t *testing.T) {
 	s := newTestService(t)
 
 	for _, ref := range [][3]string{{"nobody", "fake", "high"}, {"fake", "other", "high"}, {"fake", "fake", "max"}} {
-		_, err := s.Send(t.Context(), nil, ModeChat, "1", false, ref[0], ref[1], ref[2], reqID("1"), "hi")
+		_, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, ref[0], ref[1], ref[2], reqID("1"), "hi")
 		assert.ErrorIs(t, err, ErrBadRequest, ref)
 	}
 	assert.Zero(t, tableCount(t, s.db, "messages"))
 
 	first := send(t, s, nil, "1", "hi")
-	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, "fake", "fake", "max", reqID("1"), "hi")
+	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake", "max", reqID("1"), "hi")
 	require.NoError(t, err)
 	awaitSettled(t, s, first.ChatID, first.ID)
 }
@@ -907,7 +907,7 @@ func TestAChatMovesAcrossDialects(t *testing.T) {
 	require.NoError(t, err)
 	settleSeededRun(t, s.db, turn.Run, runSucceeded, now)
 
-	sent, err := s.Send(t.Context(), &c.ID, ModeChat, "1", false, "fake", "fake", "high", reqID("1"), "and nodes?")
+	sent, err := s.Send(t.Context(), &c.ID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "and nodes?")
 	require.NoError(t, err)
 	got := awaitSettled(t, s, c.ID, sent.ID)
 
@@ -933,7 +933,7 @@ func TestASendWhoseRowsCannotBeWrittenReleasesItsTurn(t *testing.T) {
 		VALUES (?, ?, 0, 'user', '[]', ?, 0)`, appdb.NewID(), string(c.ID), reqID("1"))
 	require.NoError(t, err)
 
-	_, err = s.Send(t.Context(), &c.ID, ModeChat, "1", false, "fake", "fake", "high", reqID("1"), "hi")
+	_, err = s.Send(t.Context(), &c.ID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
 
 	assert.Error(t, err)
 	assert.Nil(t, s.turnOf(c.ID))
@@ -947,7 +947,7 @@ func TestASecondSendIsRefusedWhileATurnIsInFlight(t *testing.T) {
 	fakeOf(s).SetGate(gate)
 	first := send(t, s, nil, "1", "hi")
 
-	_, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, "fake", "fake", "high", reqID("2"), "and?")
+	_, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("2"), "and?")
 
 	assert.ErrorIs(t, err, ErrTurnInFlight)
 	assert.Equal(t, 2, tableCount(t, s.db, "messages"))
@@ -1062,7 +1062,7 @@ func TestARetryIgnoresItsOtherArguments(t *testing.T) {
 	awaitSettled(t, s, first.ChatID, first.ID)
 	other := ChatID(appdb.NewID())
 
-	again, err := s.Send(t.Context(), &other, ModeDashboard, "8", false, "other", "other", "low", reqID("1"), "something else")
+	again, err := s.Send(t.Context(), &other, ModeDashboard, "8", false, false, false, "other", "other", "low", reqID("1"), "something else")
 
 	require.NoError(t, err)
 	assert.Equal(t, first.ID, again.ID)
@@ -1123,7 +1123,7 @@ func TestARetryAfterADeleteIsAFreshSend(t *testing.T) {
 	awaitSettled(t, s, first.ChatID, first.ID)
 	require.NoError(t, s.Delete(t.Context(), first.ChatID))
 
-	_, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, "fake", "fake", "high", reqID("1"), "hi")
+	_, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
 	assert.ErrorIs(t, err, ErrChatGone)
 
 	again := send(t, s, nil, "1", "hi")
@@ -1271,7 +1271,7 @@ func TestASendDuringADeleteIsRefused(t *testing.T) {
 	go func() { deleted <- s.Delete(t.Context(), msg.ChatID) }()
 	testutil.Wait(t, paused, "the delete to reach its write")
 
-	_, err := s.Send(t.Context(), &msg.ChatID, ModeChat, "1", false, "fake", "fake", "high", reqID("2"), "and?")
+	_, err := s.Send(t.Context(), &msg.ChatID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("2"), "and?")
 
 	assert.ErrorIs(t, err, ErrChatGone)
 	close(resume)
@@ -1354,7 +1354,7 @@ func TestARetryRacingTheFirstAttemptIsAnsweredInsideTheTransaction(t *testing.T)
 	}
 	sent := make(chan ChatMessage, 1)
 	go func() {
-		msg, err := s.Send(t.Context(), &c.ID, ModeChat, "1", false, "fake", "fake", "high", reqID("1"), "hi")
+		msg, err := s.Send(t.Context(), &c.ID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
 		assert.NoError(t, err)
 		sent <- msg
 	}()
@@ -1400,7 +1400,7 @@ func TestASendWhoseStoreFailsWritesNothingAndLeavesTheChatFree(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			_, err := s.Send(t.Context(), &c.ID, ModeChat, "1", false, "fake", "fake", "high", reqID("1"), "hi")
+			_, err := s.Send(t.Context(), &c.ID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
 
 			assert.Error(t, err)
 			assert.Nil(t, s.turnOf(c.ID))
@@ -1694,7 +1694,7 @@ func TestStrandedToolCallsAreClosedOnStart(t *testing.T) {
 func TestAModelThatTakesNoToolsIsOfferedNone(t *testing.T) {
 	s := startServiceWithTool(t, testTool{name: "echo"})
 
-	msg, err := s.Send(t.Context(), nil, ModeChat, "1", false, "fake", "fake-no-tools", "", reqID("1"), "hi")
+	msg, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake-no-tools", "", reqID("1"), "hi")
 	require.NoError(t, err)
 	awaitSettled(t, s, msg.ChatID, msg.ID)
 
@@ -1834,7 +1834,7 @@ func TestAChatMovesWithinItsDialect(t *testing.T) {
 	first := send(t, s, nil, "1", "what is a pod?")
 	awaitSettled(t, s, first.ChatID, first.ID)
 
-	second, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, "fake-2", "fake", "high", reqID("2"), "and a node?")
+	second, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, false, false, "fake-2", "fake", "high", reqID("2"), "and a node?")
 	require.NoError(t, err)
 	got := awaitSettled(t, s, second.ChatID, second.ID)
 
@@ -1849,7 +1849,7 @@ func TestARetryWithNoContentIsStillTheSameSend(t *testing.T) {
 	fakeOf(s).SetGate(gate)
 	first := send(t, s, nil, "1", "what is a pod?")
 
-	again, err := s.Send(t.Context(), nil, ModeChat, "1", false, "fake", "fake", "high", reqID("1"), "  ")
+	again, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "  ")
 
 	require.NoError(t, err)
 	assert.Equal(t, first.ID, again.ID)
@@ -1862,7 +1862,7 @@ func TestARetryWithNoContentIsStillTheSameSend(t *testing.T) {
 func TestSendRefusesAModelTheRegistryDoesNotHold(t *testing.T) {
 	s := newTestService(t)
 
-	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, "fake", "nonesuch", "high", reqID("1"), "hello")
+	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "nonesuch", "high", reqID("1"), "hello")
 
 	assert.ErrorIs(t, err, ErrBadRequest)
 	assert.Zero(t, tableCount(t, s.db, "chats"))
@@ -1872,12 +1872,12 @@ func TestSendRefusesAModelTheRegistryDoesNotHold(t *testing.T) {
 // names: a chat whose cluster is marked takes no more sends.
 func TestASendIntoAMarkedClusterIsRefused(t *testing.T) {
 	s := newTestService(t)
-	existing, err := s.Send(t.Context(), nil, ModeChat, "7", false, "fake", "fake", "high", reqID("1"), "hello")
+	existing, err := s.Send(t.Context(), nil, ModeChat, "7", false, false, false, "fake", "fake", "high", reqID("1"), "hello")
 	require.NoError(t, err)
 	awaitSettled(t, s, existing.ChatID, existing.ID)
 	markCluster(t, s.db, "7")
 
-	_, err = s.Send(t.Context(), &existing.ChatID, ModeChat, "1", false, "fake", "fake", "high", reqID("2"), "a follow-up")
+	_, err = s.Send(t.Context(), &existing.ChatID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("2"), "a follow-up")
 
 	assert.ErrorIs(t, err, ErrClusterGone)
 	assert.Equal(t, 2, tableCount(t, s.db, "messages"))
@@ -1887,12 +1887,12 @@ func TestASendIntoAMarkedClusterIsRefused(t *testing.T) {
 // key: the send happened.
 func TestAReplayIsAnsweredAheadOfTheClusterCheck(t *testing.T) {
 	s := newTestService(t)
-	first, err := s.Send(t.Context(), nil, ModeChat, "7", false, "fake", "fake", "high", reqID("1"), "hello")
+	first, err := s.Send(t.Context(), nil, ModeChat, "7", false, false, false, "fake", "fake", "high", reqID("1"), "hello")
 	require.NoError(t, err)
 	awaitSettled(t, s, first.ChatID, first.ID)
 	markCluster(t, s.db, "7")
 
-	again, err := s.Send(t.Context(), nil, ModeChat, "7", false, "fake", "fake", "high", reqID("1"), "hello")
+	again, err := s.Send(t.Context(), nil, ModeChat, "7", false, false, false, "fake", "fake", "high", reqID("1"), "hello")
 
 	require.NoError(t, err)
 	assert.Equal(t, first.ID, again.ID)
@@ -1918,7 +1918,7 @@ func TestTwoSendsOnOneChatStartOneTurn(t *testing.T) {
 	for _, key := range []string{"1", "2"} {
 		wg.Go(func() {
 			<-start
-			msg, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, "fake", "fake", "high", reqID(key), "question")
+			msg, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID(key), "question")
 			mu.Lock()
 			defer mu.Unlock()
 			switch {
@@ -2322,11 +2322,11 @@ func TestASendThatSawTheOtherSwitchIsRefused(t *testing.T) {
 	_, err := s.SetSandboxDisabled(t.Context(), first.ChatID, true)
 	require.NoError(t, err)
 
-	_, err = s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, "fake", "fake", "high", reqID("2"), "and?")
+	_, err = s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("2"), "and?")
 	assert.ErrorIs(t, err, ErrChatSandboxChanged)
 	assert.Len(t, questions(t, s, first.ChatID), 1, "nothing written")
 
-	sent, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", true, "fake", "fake", "high", reqID("3"), "and?")
+	sent, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", true, false, false, "fake", "fake", "high", reqID("3"), "and?")
 	require.NoError(t, err)
 	awaitSettled(t, s, sent.ChatID, sent.ID)
 }
@@ -2336,7 +2336,7 @@ func TestACreateThatSaysOutsideIsRefused(t *testing.T) {
 	s := newTestService(t)
 	s.sandboxStatus = sandbox.Status{Available: true}
 
-	_, err := s.Send(t.Context(), nil, ModeChat, "1", true, "fake", "fake", "high", reqID("1"), "hi")
+	_, err := s.Send(t.Context(), nil, ModeChat, "1", true, false, false, "fake", "fake", "high", reqID("1"), "hi")
 	assert.ErrorIs(t, err, ErrChatSandboxChanged)
 }
 
@@ -2349,7 +2349,7 @@ func TestAReplayIgnoresTheSwitch(t *testing.T) {
 	_, err := s.SetSandboxDisabled(t.Context(), first.ChatID, true)
 	require.NoError(t, err)
 
-	again, err := s.Send(t.Context(), nil, ModeChat, "1", false, "fake", "fake", "high", reqID("1"), "hi")
+	again, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
 	require.NoError(t, err)
 	assert.Equal(t, first.ID, again.ID)
 }
@@ -2365,4 +2365,125 @@ func TestTheSwitchIsRefusedWithoutASandbox(t *testing.T) {
 	stored, _, err := s.Get(t.Context(), c.ID)
 	require.NoError(t, err)
 	assert.False(t, stored.SandboxDisabled)
+}
+
+// The network switch is the chat's row, false for a new chat: it reaches every
+// window through the list watch, and it is not activity, so the list's order
+// stays.
+func TestTheNetworkSwitchIsTheChats(t *testing.T) {
+	s := newTestService(t)
+	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	s.now = func() time.Time { return time.UnixMilli(5_000) }
+	msg := sendAndSettle(t, s, nil, "1", "1", "hi")
+	created, _, err := s.Get(t.Context(), msg.ChatID)
+	require.NoError(t, err)
+	assert.False(t, created.NetworkEnabled)
+	w, err := s.WatchList(t.Context())
+	require.NoError(t, err)
+	require.Len(t, collectChatSnapshot(t, w.Frames), 1)
+
+	switched, err := s.SetNetworkEnabled(t.Context(), msg.ChatID, true)
+	require.NoError(t, err)
+	assert.True(t, switched.NetworkEnabled)
+	assert.Equal(t, created.UpdatedAt, switched.UpdatedAt)
+	stored, _, err := s.Get(t.Context(), msg.ChatID)
+	require.NoError(t, err)
+	assert.Equal(t, stored, switched)
+
+	f := testutil.Recv(t, w.Frames, "the switch")
+	assert.Equal(t, DeltaFrameModified, f.Type)
+	assert.True(t, f.Chat.NetworkEnabled)
+
+	back, err := s.SetNetworkEnabled(t.Context(), msg.ChatID, false)
+	require.NoError(t, err)
+	assert.False(t, back.NetworkEnabled)
+
+	_, err = s.SetNetworkEnabled(t.Context(), ChatID(appdb.NewID()), true)
+	assert.ErrorIs(t, err, ErrChatGone)
+	_, err = s.SetNetworkEnabled(t.Context(), ChatID(appdb.NewID()), false)
+	assert.ErrorIs(t, err, ErrChatGone)
+}
+
+// A send carries the network switch its sender saw: another window can turn it
+// on or off in between, and a turn must not run with network nobody saw. A
+// replay is answered by its key alone, and a create says off.
+func TestASendWithAStaleNetworkSwitchIsRefused(t *testing.T) {
+	s := newTestService(t)
+	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	first := sendAndSettle(t, s, nil, "1", "1", "hi")
+	_, err := s.SetNetworkEnabled(t.Context(), first.ChatID, true)
+	require.NoError(t, err)
+
+	_, err = s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("2"), "and?")
+	assert.ErrorIs(t, err, ErrChatNetworkChanged)
+	assert.Len(t, questions(t, s, first.ChatID), 1, "nothing written")
+
+	again, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
+	require.NoError(t, err)
+	assert.Equal(t, first.ID, again.ID, "a replay ignores the switch")
+
+	sent, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, true, false, "fake", "fake", "high", reqID("3"), "and?")
+	require.NoError(t, err)
+	awaitSettled(t, s, sent.ChatID, sent.ID)
+
+	_, err = s.Send(t.Context(), nil, ModeChat, "1", false, true, false, "fake", "fake", "high", reqID("4"), "hi")
+	assert.ErrorIs(t, err, ErrChatNetworkChanged, "a chat starts with no network")
+}
+
+// The network switch is on only in the sandbox: leaving it turns the switch
+// off in the same write, and turning it on outside is refused, so a chat back
+// in the sandbox starts without network and the confirm is seen again.
+func TestLeavingTheSandboxTurnsNetworkOff(t *testing.T) {
+	s := newTestService(t)
+	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	first := sendAndSettle(t, s, nil, "1", "1", "hi")
+	_, err := s.SetNetworkEnabled(t.Context(), first.ChatID, true)
+	require.NoError(t, err)
+	w, err := s.WatchList(t.Context())
+	require.NoError(t, err)
+	require.Len(t, collectChatSnapshot(t, w.Frames), 1)
+
+	outside, err := s.SetSandboxDisabled(t.Context(), first.ChatID, true)
+	require.NoError(t, err)
+	assert.True(t, outside.SandboxDisabled)
+	assert.False(t, outside.NetworkEnabled)
+	f := testutil.Recv(t, w.Frames, "the switch")
+	assert.Equal(t, DeltaFrameModified, f.Type)
+	assert.False(t, f.Chat.NetworkEnabled, "one frame carries both")
+
+	_, err = s.SetNetworkEnabled(t.Context(), first.ChatID, true)
+	assert.ErrorIs(t, err, ErrBadRequest)
+	stored, _, err := s.Get(t.Context(), first.ChatID)
+	require.NoError(t, err)
+	assert.False(t, stored.NetworkEnabled, "nothing written")
+	_, err = s.SetNetworkEnabled(t.Context(), first.ChatID, false)
+	assert.NoError(t, err, "off is always accepted")
+
+	back, err := s.SetSandboxDisabled(t.Context(), first.ChatID, false)
+	require.NoError(t, err)
+	assert.False(t, back.NetworkEnabled, "a chat back in the sandbox starts without network")
+	on, err := s.SetNetworkEnabled(t.Context(), first.ChatID, true)
+	require.NoError(t, err)
+	assert.True(t, on.NetworkEnabled)
+}
+
+// Where network is unavailable nothing turns it on: the switch and a send
+// with the toggle are refused, nothing written; turning the switch off is
+// always accepted.
+func TestNothingTurnsNetworkOnWhereItIsUnavailable(t *testing.T) {
+	s := newTestService(t)
+	s.sandboxStatus = sandbox.Status{Available: true, NetworkReason: "pasta not found"}
+	first := sendAndSettle(t, s, nil, "1", "1", "hi")
+
+	_, err := s.SetNetworkEnabled(t.Context(), first.ChatID, true)
+	assert.ErrorIs(t, err, ErrBadRequest)
+	stored, _, err := s.Get(t.Context(), first.ChatID)
+	require.NoError(t, err)
+	assert.False(t, stored.NetworkEnabled)
+	_, err = s.SetNetworkEnabled(t.Context(), first.ChatID, false)
+	assert.NoError(t, err)
+
+	_, err = s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, false, true, "fake", "fake", "high", reqID("2"), "and?")
+	assert.ErrorIs(t, err, ErrBadRequest)
+	assert.Len(t, questions(t, s, first.ChatID), 1, "nothing written")
 }

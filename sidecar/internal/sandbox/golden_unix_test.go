@@ -48,7 +48,7 @@ var goldenFiles = []string{
 	"home/apps/bin/tool", "home/tools/cargo/bin/cargo", "home/.docker/bin/docker", "home/.docker/config.json",
 	"home/.netrc", "home/.git-credentials", "home/.cargo/credentials", "home/.cargo/credentials.toml",
 	"home/.pulumi/credentials.json", "home/.fly/config.yml",
-	"app/kstack-sidecar",
+	"app/kstack-sidecar", "private/run/kstack/runs/1-a/resolv.conf",
 }
 
 func newFixture(t *testing.T) fixture {
@@ -120,6 +120,16 @@ func (f fixture) run(s *Sandbox, cluster bool) Run {
 	if cluster {
 		r.Policy.Always.Write = append(r.Policy.Always.Write, f.kubectl)
 		r.Policy.Network.Relays = []Relay{{Port: 6443, Socket: f.socket}}
+	}
+	return r
+}
+
+// withInternet is r with the internet, and the resolver s needs for it in
+// the run's directory.
+func (f fixture) withInternet(s *Sandbox, r Run) Run {
+	r.Policy.Network.Internet = true
+	if s.NeedsResolver() {
+		r.Policy.Network.Resolver = filepath.Join(f.runDir, "resolv.conf")
 	}
 	return r
 }

@@ -15,7 +15,8 @@
 // Package sandbox runs a command in this machine's sandbox, under a Policy
 // (policy.go) each platform compiles. It knows no tool and no cluster. Each
 // platform's file supplies Probe, Command, System, Never, Confines and Port,
-// and InitMain, a run's forwarder (forward.go).
+// and InitMain, a run's forwarder (forward.go); Linux's PastaMain starts pasta
+// for a run with the internet.
 package sandbox
 
 import (
@@ -25,7 +26,7 @@ import (
 )
 
 // Main runs this executable as the part of a run its first argument names,
-// sandbox-init or sandbox-shell, and answers the exit code. ok is false for
+// sandbox-pasta, sandbox-init or sandbox-shell, and answers the exit code. ok is false for
 // any other command line, which is the caller's own. Every binary a run can
 // start calls it first: the sidecar, and each test binary whose tests do.
 func Main(argv []string) (code int, ok bool) {
@@ -40,15 +41,27 @@ func Main(argv []string) (code int, ok bool) {
 		return InitMain(argv[2:]), true
 	case ShellCommand:
 		return ShellMain(argv[2:]), true
+	case PastaCommand:
+		return PastaMain(argv[2:]), true
 	}
 	return 0, false
 }
+
+// PastaCommand is the subcommand that starts pasta for a run with the
+// internet, on Linux (PastaMain).
+const PastaCommand = "sandbox-pasta"
 
 // firstLine is s up to its first newline.
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return line
 }
+
+// ResolverAddress is where a run with the internet sends its DNS queries,
+// named by the resolv.conf its caller writes where NeedsResolver says so:
+// pasta forwards them to the host's first resolver, so a host whose resolver
+// is on its own loopback still resolves.
+const ResolverAddress = "169.254.1.53"
 
 // Run is one command to start sandboxed.
 type Run struct {
@@ -80,6 +93,10 @@ func (r Run) check() error {
 type Status struct {
 	Available bool
 	Reason    string
+	// NetworkAvailable is whether a sandboxed command can be given the
+	// internet here, and NetworkReason why not, empty when it can.
+	NetworkAvailable bool
+	NetworkReason    string
 }
 
 // Sandbox is this machine's sandbox. A nil *Sandbox is none.
@@ -92,6 +109,10 @@ type Sandbox struct {
 	launcher string
 	// perNamespace is whether the kernel counts a process limit per user
 	// namespace, and ownUserNS whether the probe's run had a user namespace
-	// of its own, on Linux.
-	perNamespace, ownUserNS bool
+	// of its own, on Linux; pastaOwnUserNS is the same for the probe's run
+	// under pasta.
+	perNamespace, ownUserNS, pastaOwnUserNS bool
+	// pasta is the pasta a run with the internet starts under, on Linux; ""
+	// where the probe found none that passes, and networkReason says why.
+	pasta, networkReason string
 }
