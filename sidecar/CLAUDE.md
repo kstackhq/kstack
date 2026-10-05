@@ -2406,7 +2406,9 @@ holds its service, chat, run, target, the `Agent` call a subagent's run is under
 turn's own, which `isTurns` reads), the bound on its waits for the user (`unansweredLimit`, zero on
 a turn's own), its model and tool calls, open call and next seq, and a `publish` func — a turn's publishes into its
 live message (`publishLive`), a subagent's notifies the chat's watchers, since every row it writes
-has landed first. The parent and its subagents share no memory. A `subagent` publishes no
+has landed first. The parent and its subagents share no memory. **A `subagent` is a `briefedRun`**, the
+recorder of a run handed a brief and no message of its own, which
+keeps how its loop ended for one write at its end. It publishes no
 `Progress`, and its `Settled` writes nothing: it keeps how the loop ended — the report is the text of
 its last reply, `llm.Text` of the blocks after its last result (`lastReplyText`) — for the task's end. **`watchTask` is the one writer of the end**:
 after `Wait`, `subagent.end` names it off the run's outcome — `stopped` with `stopped_by` for a run

@@ -1345,7 +1345,7 @@ func TestTheAppsStopRecordsItsStopOnAnAgent(t *testing.T) {
 // A stop that lands as the run succeeds leaves the agent completed: the end is
 // the run's, and its notice is owed like any other.
 func TestAStopAsTheAgentSucceedsIsCompleted(t *testing.T) {
-	c := &subagent{status: RunSucceeded, report: "Two pods."}
+	c := &subagent{briefedRun{status: RunSucceeded, report: "Two pods."}}
 
 	end := c.end(stoppedByModel, time.UnixMilli(1_000).UTC())
 
