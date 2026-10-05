@@ -81,8 +81,12 @@ func TestTheServerBoundsItsConnections(t *testing.T) {
 	_, _ = io.Copy(io.Discard, resp.Body)
 	testutil.Wait(t, closed(idle), "an idle connection to close")
 
+	// Its own server with no header deadline: reading 80KiB can outlast the
+	// shrunk bound on a loaded runner, and a timed-out read closes unanswered.
+	sizeOnly := newServer(g, 0, bound)
 	pipes := newPipeListener()
-	go func() { _ = srv.Serve(pipes) }()
+	go func() { _ = sizeOnly.Serve(pipes) }()
+	t.Cleanup(func() { _ = sizeOnly.Close() })
 	big := pipes.dial(t)
 	defer big.Close()
 	// The server answers once it has read past the bound and never reads the
