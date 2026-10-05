@@ -185,17 +185,20 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # On this runner, so bwrap links the same glibc as the app.
+      # On this runner, so bwrap and pasta link the same glibc as the app.
       - name: Build bwrap
         run: make bwrap
+
+      - name: Build pasta
+        run: make pasta
 
       # Sidecar is prebuilt and downloaded above; override
       # beforeBuildCommand to build the frontend but not the sidecar.
       - name: Build bundle
         run: pnpm tauri build -c '{"version":"${{ needs.config.outputs.version }}","build":{"beforeBuildCommand":"pnpm build"}}'
 
-      # bubblewrap is LGPL: the release carries the source bwrap was built
-      # from, once.
+      # bubblewrap is LGPL and passt GPL: the release carries the source bwrap
+      # and pasta were built from, once.
       - name: Collect bundle
         run: |
           mkdir -p assets
@@ -204,6 +207,7 @@ jobs:
           cp src-tauri/target/release/bundle/appimage/*.AppImage assets/
           if [ "${{ matrix.arch }}" = amd64 ]; then
             cp src-tauri/linux/bubblewrap-*.tar.xz assets/
+            cp src-tauri/linux/passt-*.tar.xz assets/
           fi
 
       - name: Upload bundle
@@ -212,11 +216,12 @@ jobs:
           name: assets-bundle-linux-${{ matrix.arch }}
           path: assets/*
 
-  # Only a stock 24.04 proves the AppArmor profile loads and lets Kstack's own
-  # bwrap run what the sandbox asks: the whole chain, as the probe runs it.
+  # Only a stock 24.04 proves the AppArmor profiles load and let Kstack's own
+  # bwrap and pasta run what the sandbox asks: the whole chain, as the probe
+  # runs it.
   check-bundle-linux:
     name: Check bundle · Linux · Ubuntu 24.04
-    needs: [build-bundle-linux]
+    needs: [config, build-bundle-linux]
     strategy:
       fail-fast: false
       matrix:
@@ -230,6 +235,10 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: refs/tags/desktop/v${{ needs.config.outputs.version }}
+
       - name: Download bundle
         uses: actions/download-artifact@v6
         with:
@@ -245,18 +254,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y ./assets/Kstack_*.deb
 
-      # As the runner's own user: root is not restricted. /bin/true is a
-      # program, so the shell execs once more under the child profile.
-      - name: Run the sandbox's chain
-        run: |
-          sidecar=/usr/bin/kstack-sidecar
-          /usr/lib/kstack/bwrap \
-            --unshare-net --unshare-pid --unshare-ipc --unshare-uts --unshare-cgroup-try \
-            --die-with-parent --new-session --as-pid-1 \
-            --proc /proc --dev /dev --tmpfs /tmp \
-            --ro-bind /usr /usr --symlink usr/bin /bin --symlink usr/sbin /sbin \
-            --symlink usr/lib /lib --symlink usr/lib64 /lib64 --ro-bind /etc /etc --remount-ro / \
-            -- "$sidecar" sandbox-init -- "$sidecar" sandbox-shell -- /bin/sh -c /bin/true
+      # As the runner's own user: root is not restricted.
+      - name: Run the sandbox's chains
+        run: scripts/check-sandbox-chain.sh
 
   build-bundle-macos:
     name: Build bundle · macOS

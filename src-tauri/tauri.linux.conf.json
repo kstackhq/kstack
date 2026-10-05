@@ -8,7 +8,11 @@
         "files": {
           "/usr/lib/kstack/bwrap": "linux/bwrap",
           "/usr/share/doc/kstack/bubblewrap-COPYING": "linux/bubblewrap-COPYING",
+          "/usr/lib/kstack/pasta": "linux/pasta",
+          "/usr/share/doc/kstack/passt-GPL-2.0-or-later.txt": "linux/passt-GPL-2.0-or-later.txt",
+          "/usr/share/doc/kstack/passt-BSD-3-Clause.txt": "linux/passt-BSD-3-Clause.txt",
           "/usr/lib/kstack/apparmor/kstack-bwrap": "linux/kstack-bwrap",
+          "/usr/lib/kstack/apparmor/kstack-pasta": "linux/kstack-pasta",
           "/usr/share/doc/kstack/apparmor-COPYING": "linux/apparmor-COPYING"
         },
         "postInstallScript": "linux/postinst.sh",
@@ -20,13 +24,19 @@
         ],
         "files": {
           "/usr/lib/kstack/bwrap": "linux/bwrap",
-          "/usr/share/doc/kstack/bubblewrap-COPYING": "linux/bubblewrap-COPYING"
+          "/usr/share/doc/kstack/bubblewrap-COPYING": "linux/bubblewrap-COPYING",
+          "/usr/lib/kstack/pasta": "linux/pasta",
+          "/usr/share/doc/kstack/passt-GPL-2.0-or-later.txt": "linux/passt-GPL-2.0-or-later.txt",
+          "/usr/share/doc/kstack/passt-BSD-3-Clause.txt": "linux/passt-BSD-3-Clause.txt"
         }
       },
       "appimage": {
         "files": {
           "/usr/lib/kstack/bwrap": "linux/bwrap",
-          "/usr/share/doc/kstack/bubblewrap-COPYING": "linux/bubblewrap-COPYING"
+          "/usr/share/doc/kstack/bubblewrap-COPYING": "linux/bubblewrap-COPYING",
+          "/usr/lib/kstack/pasta": "linux/pasta",
+          "/usr/share/doc/kstack/passt-GPL-2.0-or-later.txt": "linux/passt-GPL-2.0-or-later.txt",
+          "/usr/share/doc/kstack/passt-BSD-3-Clause.txt": "linux/passt-BSD-3-Clause.txt"
         }
       }
     }

@@ -32,9 +32,10 @@ The sidecar's sandbox on Linux is bubblewrap. Its tests and a dev build use the 
 sudo apt-get install -y bubblewrap passt iproute2 meson ninja-build libcap-dev
 ```
 
-A sandboxed command reaches the internet through `pasta`, from the `passt` package: without it the
-chat's network switch is disabled and says so. One of its tests sets up a network namespace with
-`ip`, from `iproute2`.
+A sandboxed command reaches the internet through `pasta`. Its tests and a dev build use the
+system's, from the `passt` package: without it the chat's network switch is disabled and says so.
+`make pasta` builds the one the packages carry, which needs only make and a C compiler. One of its
+tests sets up a network namespace with `ip`, from `iproute2`.
 
 On Ubuntu 23.10 and 24.04, AppArmor keeps the system's bwrap from making a user namespace, and
 the profile the `.deb` installs names the packaged bwrap alone. Lift the restriction for the
