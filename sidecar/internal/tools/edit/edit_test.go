@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/fileguard"
@@ -40,7 +41,7 @@ func tool(t *testing.T) (*Tool, string) {
 	t.Helper()
 	data := filepath.Join(t.TempDir(), "data")
 	require.NoError(t, os.Mkdir(data, 0o700))
-	tl, err := New(data)
+	tl, err := New(nil, data)
 	require.NoError(t, err)
 	return tl, data
 }
@@ -48,7 +49,7 @@ func tool(t *testing.T) (*Tool, string) {
 // A tool fenced out of no directory could change Kstack's files, so New needs
 // one.
 func TestNewNeedsAFencedDirectory(t *testing.T) {
-	_, err := New()
+	_, err := New(nil)
 	assert.ErrorIs(t, err, fileguard.ErrNoFence)
 }
 
@@ -150,7 +151,7 @@ func approval(t *testing.T, tl *Tool, rt tools.Runtime, raw json.RawMessage) too
 // asked alike, whatever is on disk, and nothing on disk is touched.
 func TestEditAsksOnTheNameAlone(t *testing.T) {
 	tl, data := tool(t)
-	tl.edit = func(context.Context, tools.Runtime, string, input) (edited, error) {
+	tl.edit = func(context.Context, tools.Runtime, string, *session.Folder, input) (edited, error) {
 		t.Fatal("the gate touched the disk")
 		return edited{}, nil
 	}
@@ -462,9 +463,9 @@ func TestEditSetsTheStamp(t *testing.T) {
 	// edit still statting the temp tree keeps Windows from removing it.
 	real := tl.edit
 	returned := make(chan struct{})
-	tl.edit = func(ctx context.Context, rt tools.Runtime, path string, in input) (edited, error) {
+	tl.edit = func(ctx context.Context, rt tools.Runtime, path string, folder *session.Folder, in input) (edited, error) {
 		defer close(returned)
-		return real(ctx, rt, path, in)
+		return real(ctx, rt, path, folder, in)
 	}
 	ended, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -523,7 +524,9 @@ func TestEditWordsWhatFileguardRefuses(t *testing.T) {
 		errCannotWrite:                          "Kstack cannot write this file.",
 		errors.New("disk full"):                 "Kstack could not write the file.",
 	} {
-		tl.edit = func(context.Context, tools.Runtime, string, input) (edited, error) { return edited{}, err }
+		tl.edit = func(context.Context, tools.Runtime, string, *session.Folder, input) (edited, error) {
+			return edited{}, err
+		}
 		text, isError := tl.Run(t.Context(), rt, call(filepath.Join(t.TempDir(), "x.txt"), "a", "b"))
 		assert.True(t, isError, err.Error())
 		assert.Equal(t, want, text, err.Error())
@@ -538,10 +541,10 @@ func TestAStuckEditHonoursTheCancel(t *testing.T) {
 	real := tl.edit
 	release := make(chan struct{})
 	returned := make(chan struct{})
-	tl.edit = func(ctx context.Context, rt tools.Runtime, path string, in input) (edited, error) {
+	tl.edit = func(ctx context.Context, rt tools.Runtime, path string, folder *session.Folder, in input) (edited, error) {
 		defer close(returned)
 		<-release
-		return real(ctx, rt, path, in)
+		return real(ctx, rt, path, folder, in)
 	}
 	st := stamps{}
 	rt := tools.Runtime{Files: st, Dir: chatDirIn(data)}
@@ -710,7 +713,7 @@ func TestEditReachesTheWorkspace(t *testing.T) {
 // to decide.
 func TestAWriteInTheWorkspaceAsksNoOne(t *testing.T) {
 	tl, rt, _, _ := chat(t)
-	tl.edit = func(context.Context, tools.Runtime, string, input) (edited, error) {
+	tl.edit = func(context.Context, tools.Runtime, string, *session.Folder, input) (edited, error) {
 		t.Fatal("the gate touched the disk")
 		return edited{}, nil
 	}
@@ -754,7 +757,7 @@ func TestTheRestOfTheDataDirectoryStaysFenced(t *testing.T) {
 func TestEditRefusesTheCacheDir(t *testing.T) {
 	_, rt, _, data := chat(t)
 	cache := t.TempDir()
-	tl, err := New(data, cache)
+	tl, err := New(nil, data, cache)
 	require.NoError(t, err)
 	path := filepath.Join(cache, "x.txt")
 	require.NoError(t, os.WriteFile(path, []byte("a\n"), 0o600))
@@ -786,7 +789,7 @@ func TestTheWorkspaceItselfIsADirectory(t *testing.T) {
 // A file a command left in the workspace is the model's to Read, then Edit.
 func TestEditChangesAFileACommandMade(t *testing.T) {
 	tl, rt, _, data := chat(t)
-	reader, err := read.New(data)
+	reader, err := read.New(nil, data)
 	require.NoError(t, err)
 	ws := tools.WorkspacePath(rt.Dir)
 	require.NoError(t, os.MkdirAll(ws, 0o700))

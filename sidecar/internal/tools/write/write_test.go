@@ -28,6 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/fileguard"
@@ -45,7 +46,7 @@ func tool(t *testing.T) (*Tool, string) {
 	t.Helper()
 	data := filepath.Join(t.TempDir(), "data")
 	require.NoError(t, os.Mkdir(data, 0o700))
-	tl, err := New(0o022, data)
+	tl, err := New(0o022, nil, data)
 	require.NoError(t, err)
 	return tl, data
 }
@@ -53,7 +54,7 @@ func tool(t *testing.T) (*Tool, string) {
 // A tool fenced out of no directory could change Kstack's files, so New needs
 // one.
 func TestNewNeedsAFencedDirectory(t *testing.T) {
-	_, err := New(0o022)
+	_, err := New(0o022, nil)
 	assert.ErrorIs(t, err, fileguard.ErrNoFence)
 }
 
@@ -106,7 +107,7 @@ func approval(t *testing.T, tl *Tool, rt tools.Runtime, raw json.RawMessage) too
 // whatever is on disk, and nothing on disk is touched.
 func TestWriteAsksOnTheNameAlone(t *testing.T) {
 	tl, data := tool(t)
-	tl.write = func(context.Context, tools.Runtime, string, []byte) (bool, error) {
+	tl.write = func(context.Context, tools.Runtime, string, *session.Folder, []byte) (bool, error) {
 		t.Fatal("the gate touched the disk")
 		return false, nil
 	}
@@ -166,7 +167,7 @@ func TestWriteRefusesTheDataDirByName(t *testing.T) {
 func TestWriteRefusesTheCacheDir(t *testing.T) {
 	_, rt, _, data := chat(t)
 	cache := t.TempDir()
-	tl, err := New(0o022, data, cache)
+	tl, err := New(0o022, nil, data, cache)
 	require.NoError(t, err)
 	path := filepath.Join(cache, "x.txt")
 
@@ -341,9 +342,9 @@ func TestWriteSetsTheStamp(t *testing.T) {
 	// write still statting the temp tree keeps Windows from removing it.
 	real := tl.write
 	returned := make(chan struct{})
-	tl.write = func(ctx context.Context, rt tools.Runtime, path string, content []byte) (bool, error) {
+	tl.write = func(ctx context.Context, rt tools.Runtime, path string, folder *session.Folder, content []byte) (bool, error) {
 		defer close(returned)
-		return real(ctx, rt, path, content)
+		return real(ctx, rt, path, folder, content)
 	}
 	ended, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -364,10 +365,10 @@ func TestAStuckWriteHonoursTheCancel(t *testing.T) {
 	real := tl.write
 	release := make(chan struct{})
 	returned := make(chan struct{})
-	tl.write = func(ctx context.Context, rt tools.Runtime, path string, content []byte) (bool, error) {
+	tl.write = func(ctx context.Context, rt tools.Runtime, path string, folder *session.Folder, content []byte) (bool, error) {
 		defer close(returned)
 		<-release
-		return real(ctx, rt, path, content)
+		return real(ctx, rt, path, folder, content)
 	}
 	st := stamps{}
 	rt := tools.Runtime{Files: st, Dir: chatDirIn(data)}
@@ -414,7 +415,7 @@ func TestWriteWordsWhatFileguardRefuses(t *testing.T) {
 		errCannotWrite:                          "Kstack cannot write this file.",
 		errors.New("disk full"):                 "Kstack could not write the file.",
 	} {
-		tl.write = func(context.Context, tools.Runtime, string, []byte) (bool, error) { return false, err }
+		tl.write = func(context.Context, tools.Runtime, string, *session.Folder, []byte) (bool, error) { return false, err }
 		text, isError := tl.Run(t.Context(), rt, call(filepath.Join(t.TempDir(), "x.txt"), "x"))
 		assert.True(t, isError, err.Error())
 		assert.Equal(t, want, text, err.Error())
@@ -578,7 +579,7 @@ func TestWriteReachesTheWorkspace(t *testing.T) {
 // exists yet, and touches nothing on disk to decide.
 func TestAWriteInTheWorkspaceAsksNoOne(t *testing.T) {
 	tl, rt, _, _ := chat(t)
-	tl.write = func(context.Context, tools.Runtime, string, []byte) (bool, error) {
+	tl.write = func(context.Context, tools.Runtime, string, *session.Folder, []byte) (bool, error) {
 		t.Fatal("the gate touched the disk")
 		return false, nil
 	}

@@ -1118,6 +1118,7 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 		"or this chat switched outside the sandbox.", "what a sandboxed run starts from")
 	assert.Contains(t, sandboxPrompt, "The sandbox reaches none of the user's credentials, and of the user's files the folders "+
 		"they granted alone, which the question's context lists: it reads each, and writes those granted read and write.", "the grants")
+	assert.Contains(t, sandboxPrompt, "`Read`, `Write` and `Edit` reach a granted folder as they reach the workspace.")
 	assert.NotContains(t, sandboxPrompt, "and none of the user's files")
 	assert.NotContains(t, sandboxPrompt, "you can leave")
 	assert.Equal(t, 1, strings.Count(got, "## Bash"))

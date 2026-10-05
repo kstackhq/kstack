@@ -223,8 +223,8 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		return fail(err)
 	}
 	built = append(built, memorySvc)
-	// The file tools are fenced out of all three directories.
-	box, err := chatTools(shell, p.Bash.DeniedDirs, cfg.UserUmask, memorySvc, clusterSvc)
+	// The file tools are fenced out of every one of Kstack's directories.
+	box, err := chatTools(shell, p.Bash.DeniedDirs, securityCfg.Hidden, cfg.UserUmask, memorySvc, clusterSvc)
 	if err != nil {
 		return fail(fmt.Errorf("fence Kstack's directories: %w", err))
 	}
@@ -421,20 +421,21 @@ func sandboxStatusOf(shellFound bool, probed sandbox.Status) sandbox.Status {
 // chatTools is the one box: bash where New found a shell, Read, Memory, Write, Edit
 // and WebFetch on every machine, TaskStop for the tasks bash starts, then the
 // provider's web search, then KubeQuery. The file tools are fenced out of fenced,
-// Kstack's directories, and Write's new files take umask; WebFetch dials no local or private address but
+// Kstack's directories, keep out of what hidden answers the sandbox keeps shut
+// under a grant, and Write's new files take umask; WebFetch dials no local or private address but
 // the proxy the environment names. The order is the preference within a kind: the
 // first tool of a kind that a turn's target takes is the one it gets. A machine
 // with no shell still reads the stored calls of bash and TaskStop.
-func chatTools(shell *bash.Tool, fenced []string, umask fs.FileMode, memorySvc memorysvc.Service, clusterSvc clustersvc.Service) (tools.Box, error) {
-	reader, err := read.New(fenced...)
+func chatTools(shell *bash.Tool, fenced []string, hidden func() (never, shut []string), umask fs.FileMode, memorySvc memorysvc.Service, clusterSvc clustersvc.Service) (tools.Box, error) {
+	reader, err := read.New(hidden, fenced...)
 	if err != nil {
 		return tools.Box{}, err
 	}
-	writer, err := write.New(umask, fenced...)
+	writer, err := write.New(umask, hidden, fenced...)
 	if err != nil {
 		return tools.Box{}, err
 	}
-	editor, err := edit.New(fenced...)
+	editor, err := edit.New(hidden, fenced...)
 	if err != nil {
 		return tools.Box{}, err
 	}

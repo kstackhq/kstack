@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/fileguard"
 )
@@ -58,19 +59,19 @@ const Name = "Write"
 
 var _ interface {
 	tools.Custom
-	tools.Gated
+	tools.ApprovedRunner
 	tools.Bounded
 } = (*Tool)(nil)
 
 // Tool writes files for the chat a call runs in, outside fence but for the
-// chat's workspace.
+// chat's workspace, and in a folder granted read-write through a walk.
 type Tool struct {
 	fence fileguard.Fence
 	umask fs.FileMode
-	// write is the file work of a call, from the fence's check on disk to the
-	// rename, answering whether it made a new file. A test swaps in one that
-	// blocks.
-	write func(ctx context.Context, rt tools.Runtime, path string, content []byte) (created bool, err error)
+	// write is the file work of a call, from the fence's check on disk, or
+	// with a folder the walk through it, to the rename, answering whether it
+	// made a new file. A test swaps in one that blocks.
+	write func(ctx context.Context, rt tools.Runtime, path string, folder *session.Folder, content []byte) (created bool, err error)
 }
 
 var (
@@ -79,14 +80,16 @@ var (
 )
 
 // New is the tool, which changes nothing under fenced, Kstack's directories,
-// but a chat's workspace, and makes new files and directories under umask, the
-// one the sidecar started with. None is fileguard.ErrNoFence.
-func New(umask fs.FileMode, fenced ...string) (*Tool, error) {
+// but a chat's workspace, writes a folder granted read-write unasked but for
+// what hidden answers the sandbox keeps shut there, and makes new files and
+// directories under umask, the one the sidecar started with. None is
+// fileguard.ErrNoFence.
+func New(umask fs.FileMode, hidden func() (never, closed []string), fenced ...string) (*Tool, error) {
 	fence, err := fileguard.NewFence(fenced...)
 	if err != nil {
 		return nil, err
 	}
-	t := &Tool{fence: fence, umask: umask}
+	t := &Tool{fence: fence.WithHidden(hidden), umask: umask}
 	t.write = t.writeFile
 	return t, nil
 }
@@ -102,11 +105,12 @@ func (t *Tool) Prompt() string { return prompt }
 // CallTimeout is the loop's bound on one call, whatever it asks for.
 func (t *Tool) CallTimeout(json.RawMessage) time.Duration { return callTimeout }
 
-// Approval reads the path by its name alone, touching nothing on disk: the
-// user is asked about any call but one Run refuses before touching anything
-// and one in the chat's workspace, Kstack's own directory. Write runs nowhere,
-// so no Cwd.
-func (t *Tool) Approval(_ context.Context, rt tools.Runtime, raw json.RawMessage) (tools.Approval, error) {
+// Approval reads the path: the user is asked about any call but one Run
+// refuses before touching anything, one in the chat's workspace, Kstack's own
+// directory, and one in a folder the session was granted read-write that the
+// sandbox does not keep shut there, which names the folder Run walks. Write
+// runs nowhere, so no Cwd.
+func (t *Tool) Approval(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (tools.Approval, error) {
 	in, err := parse(raw)
 	if err != nil {
 		return tools.Approval{}, err
@@ -119,6 +123,9 @@ func (t *Tool) Approval(_ context.Context, rt tools.Runtime, raw json.RawMessage
 	// an unasked write cannot leave it.
 	if _, ok := fileguard.Under(tools.WorkspacePath(rt.Dir), path); ok {
 		return tools.Approval{Skip: true}, nil
+	}
+	if folder, ok := t.fence.Granted(ctx, rt.Session.GrantedFolders(ctx), path); ok && folder.Write {
+		return tools.Approval{Skip: true, Folder: &folder}, nil
 	}
 	return tools.Approval{}, nil
 }
@@ -138,10 +145,16 @@ func (t *Tool) check(in input, rt tools.Runtime) (string, error) {
 	return path, nil
 }
 
-// Run writes the file a call names, once approved. The file work runs where
-// the call can leave it: a stat on a dead network mount blocks in a syscall no
-// context reaches.
+// Run writes the file a call names, once approved.
 func (t *Tool) Run(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (string, bool) {
+	return t.RunApproved(ctx, rt, raw, tools.Approval{})
+}
+
+// RunApproved writes the file a call names: for a call its gate skipped for a
+// granted folder, through the walk of that folder alone, whatever the
+// session's folders say now. The file work runs where the call can leave it:
+// a stat on a dead network mount blocks in a syscall no context reaches.
+func (t *Tool) RunApproved(ctx context.Context, rt tools.Runtime, raw json.RawMessage, a tools.Approval) (string, bool) {
 	in, err := parse(raw)
 	if err != nil {
 		return `{"error":"bad-input"}`, true
@@ -151,7 +164,7 @@ func (t *Tool) Run(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (
 		return refusal(err), true
 	}
 	content := []byte(in.Content)
-	made, err := t.writeWithin(ctx, rt, path, content)
+	made, err := t.writeWithin(ctx, rt, path, a.Folder, content)
 	switch {
 	case err != nil && ctx.Err() != nil:
 		return cancelled, true
@@ -171,14 +184,14 @@ func (t *Tool) Run(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (
 // whenever the filesystem does; fileguard checks the context before each change
 // on disk, so a write that wakes late changes nothing unless its rename was
 // already under way.
-func (t *Tool) writeWithin(ctx context.Context, rt tools.Runtime, path string, content []byte) (bool, error) {
+func (t *Tool) writeWithin(ctx context.Context, rt tools.Runtime, path string, folder *session.Folder, content []byte) (bool, error) {
 	type result struct {
 		made bool
 		err  error
 	}
 	done := make(chan result, 1)
 	go func() {
-		made, err := t.write(ctx, rt, path, content)
+		made, err := t.write(ctx, rt, path, folder, content)
 		done <- result{made, err}
 	}()
 	select {
@@ -189,11 +202,18 @@ func (t *Tool) writeWithin(ctx context.Context, rt tools.Runtime, path string, c
 	}
 }
 
-// writeFile is the file work of a call: the file, through the workspace's root
-// or past the fence's check on disk, then a new file, or an existing one
-// checked against the chat's stamp and replaced.
-func (t *Tool) writeFile(ctx context.Context, rt tools.Runtime, path string, content []byte) (bool, error) {
-	file, err := t.fence.File(rt.Dir, path, true)
+// writeFile is the file work of a call: the file, through the walk of a
+// granted folder, the workspace's root or past the fence's check on disk,
+// then a new file, or an existing one checked against the chat's stamp and
+// replaced.
+func (t *Tool) writeFile(ctx context.Context, rt tools.Runtime, path string, folder *session.Folder, content []byte) (bool, error) {
+	var file fileguard.File
+	var err error
+	if folder != nil {
+		file, err = t.fence.Walk(*folder, path)
+	} else {
+		file, err = t.fence.File(rt.Dir, path, true)
+	}
 	if errors.Is(err, fileguard.ErrFenced) {
 		return false, errFenced
 	}
@@ -347,6 +367,9 @@ func refusal(err error) string {
 		return "A file was created at this path since the request. Read it before replacing it."
 	case errors.Is(err, fileguard.ErrReplace):
 		return "Kstack could not replace the file."
+	}
+	if text, ok := fileguard.WalkRefusal(err); ok {
+		return text
 	}
 	return couldNotWrite
 }

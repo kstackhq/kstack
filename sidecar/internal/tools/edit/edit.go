@@ -33,6 +33,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/fileguard"
 )
@@ -61,27 +62,30 @@ const callTimeout = 30 * time.Second
 
 var _ interface {
 	tools.Custom
-	tools.Gated
+	tools.ApprovedRunner
 	tools.Bounded
 } = (*Tool)(nil)
 
 // Tool replaces text in files for the chat a call runs in, outside fence but
-// for the chat's workspace.
+// for the chat's workspace, and in a folder granted read-write through a walk.
 type Tool struct {
 	fence fileguard.Fence
-	// edit is the file work of a call, from the fence's check on disk to the
-	// rename. A test swaps in one that blocks.
-	edit func(ctx context.Context, rt tools.Runtime, path string, in input) (edited, error)
+	// edit is the file work of a call, from the fence's check on disk, or with
+	// a folder the walk through it, to the rename. A test swaps in one that
+	// blocks.
+	edit func(ctx context.Context, rt tools.Runtime, path string, folder *session.Folder, in input) (edited, error)
 }
 
 // New is the tool, which changes nothing under fenced, Kstack's directories,
-// but a chat's workspace. None is fileguard.ErrNoFence.
-func New(fenced ...string) (*Tool, error) {
+// but a chat's workspace, and edits a folder granted read-write unasked but
+// for what hidden answers the sandbox keeps shut there. None is
+// fileguard.ErrNoFence.
+func New(hidden func() (never, closed []string), fenced ...string) (*Tool, error) {
 	fence, err := fileguard.NewFence(fenced...)
 	if err != nil {
 		return nil, err
 	}
-	t := &Tool{fence: fence}
+	t := &Tool{fence: fence.WithHidden(hidden)}
 	t.edit = t.editFile
 	return t, nil
 }
@@ -97,11 +101,12 @@ func (t *Tool) Prompt() string { return prompt }
 // CallTimeout is the loop's bound on one call, whatever it asks for.
 func (t *Tool) CallTimeout(json.RawMessage) time.Duration { return callTimeout }
 
-// Approval reads the call by its input alone, touching nothing on disk: the
-// user is asked about any call but one Run refuses before touching anything
-// and one in the chat's workspace, Kstack's own directory. Edit runs nowhere,
-// so no Cwd.
-func (t *Tool) Approval(_ context.Context, rt tools.Runtime, raw json.RawMessage) (tools.Approval, error) {
+// Approval reads the call: the user is asked about any call but one Run
+// refuses before touching anything, one in the chat's workspace, Kstack's own
+// directory, and one in a folder the session was granted read-write that the
+// sandbox does not keep shut there, which names the folder Run walks. Edit
+// runs nowhere, so no Cwd.
+func (t *Tool) Approval(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (tools.Approval, error) {
 	in, err := parse(raw)
 	if err != nil {
 		return tools.Approval{}, err
@@ -114,6 +119,9 @@ func (t *Tool) Approval(_ context.Context, rt tools.Runtime, raw json.RawMessage
 	// an unasked edit cannot leave it.
 	if _, ok := fileguard.Under(tools.WorkspacePath(rt.Dir), path); ok {
 		return tools.Approval{Skip: true}, nil
+	}
+	if folder, ok := t.fence.Granted(ctx, rt.Session.GrantedFolders(ctx), path); ok && folder.Write {
+		return tools.Approval{Skip: true, Folder: &folder}, nil
 	}
 	return tools.Approval{}, nil
 }
@@ -139,10 +147,16 @@ func (t *Tool) check(in input, rt tools.Runtime) (string, error) {
 	return path, nil
 }
 
-// Run replaces the text a call names, once approved. The file work runs where
-// the call can leave it: a stat on a dead network mount blocks in a syscall no
-// context reaches.
+// Run replaces the text a call names, once approved.
 func (t *Tool) Run(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (string, bool) {
+	return t.RunApproved(ctx, rt, raw, tools.Approval{})
+}
+
+// RunApproved replaces the text a call names: for a call its gate skipped
+// for a granted folder, through the walk of that folder alone, whatever the
+// session's folders say now. The file work runs where the call can leave it:
+// a stat on a dead network mount blocks in a syscall no context reaches.
+func (t *Tool) RunApproved(ctx context.Context, rt tools.Runtime, raw json.RawMessage, a tools.Approval) (string, bool) {
 	in, err := parse(raw)
 	if err != nil {
 		return `{"error":"bad-input"}`, true
@@ -151,7 +165,7 @@ func (t *Tool) Run(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (
 	if err != nil {
 		return refusal(err), true
 	}
-	e, err := t.editWithin(ctx, rt, path, in)
+	e, err := t.editWithin(ctx, rt, path, a.Folder, in)
 	switch {
 	case err != nil && ctx.Err() != nil:
 		return cancelled, true
@@ -170,14 +184,14 @@ func (t *Tool) Run(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (
 // whenever the filesystem does; fileguard checks the context before the
 // rename, so an edit that wakes late changes nothing unless its rename was
 // already under way.
-func (t *Tool) editWithin(ctx context.Context, rt tools.Runtime, path string, in input) (edited, error) {
+func (t *Tool) editWithin(ctx context.Context, rt tools.Runtime, path string, folder *session.Folder, in input) (edited, error) {
 	type result struct {
 		e   edited
 		err error
 	}
 	done := make(chan result, 1)
 	go func() {
-		e, err := t.edit(ctx, rt, path, in)
+		e, err := t.edit(ctx, rt, path, folder, in)
 		done <- result{e, err}
 	}()
 	select {
@@ -195,11 +209,17 @@ type edited struct {
 	stamp tools.Stamp
 }
 
-// editFile is the file work of a call: the file, through the workspace's root
-// or past the fence's check on disk, checked against the chat's stamp, the text
-// replaced, and the file replaced.
-func (t *Tool) editFile(ctx context.Context, rt tools.Runtime, path string, in input) (edited, error) {
-	file, err := t.fence.File(rt.Dir, path, false)
+// editFile is the file work of a call: the file, through the walk of a
+// granted folder, the workspace's root or past the fence's check on disk,
+// checked against the chat's stamp, the text replaced, and the file replaced.
+func (t *Tool) editFile(ctx context.Context, rt tools.Runtime, path string, folder *session.Folder, in input) (edited, error) {
+	var file fileguard.File
+	var err error
+	if folder != nil {
+		file, err = t.fence.Walk(*folder, path)
+	} else {
+		file, err = t.fence.File(rt.Dir, path, false)
+	}
 	if errors.Is(err, fileguard.ErrFenced) {
 		return edited{}, errFenced
 	}
@@ -452,6 +472,9 @@ func refusal(err error) string {
 		return cancelled
 	case errors.Is(err, fileguard.ErrReplace):
 		return "Kstack could not replace the file."
+	}
+	if text, ok := fileguard.WalkRefusal(err); ok {
+		return text
 	}
 	return "Kstack could not write the file."
 }
