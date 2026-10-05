@@ -69,6 +69,9 @@ type Config struct {
 	DataDir    string
 	CacheDir   string
 	RuntimeDir string
+	// LogDir is where the host logs, which is Kstack's own too: a grant of the
+	// home must not open it. Empty when the sidecar logs to stderr alone.
+	LogDir string
 	// CloudURL is the kstack-cloud API base URL. Empty disables the cloud
 	// subsystem (signed-out, no network).
 	CloudURL string
@@ -220,12 +223,12 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		return fail(err)
 	}
 	built = append(built, memorySvc)
-	// The file tools are fenced out of all three directories.
-	box, err := chatTools(shell, p.Bash.DeniedDirs, cfg.UserUmask, memorySvc, clusterSvc)
+	// The file tools are fenced out of every one of Kstack's directories.
+	box, err := chatTools(shell, p.Bash.DeniedDirs, securityCfg.Hidden, cfg.UserUmask, memorySvc, clusterSvc)
 	if err != nil {
 		return fail(fmt.Errorf("fence Kstack's directories: %w", err))
 	}
-	chatSvc, err := chatsvc.New(db, p.ChatsDir, llmSvc, clustercard.New(clusterSvc), memorySvc, box, cat, sandboxStatus, securityStore)
+	chatSvc, err := chatsvc.New(db, p.ChatsDir, llmSvc, clustercard.New(clusterSvc), memorySvc, box, cat, sandboxStatus, securityCfg)
 	if err != nil {
 		return fail(err)
 	}
@@ -378,20 +381,22 @@ type sandboxer interface {
 }
 
 // newSecurityService is the security settings and the frozen PATH kept in
-// them. The sync judges an entry by what a sandboxed run of the bash tool's
-// shell reads, and by the paths no rule opens, Kstack's directories (denied)
-// among them. Refresh PATH runs the login shell in sb as the launch does, its
-// TMPDIR under tmpDir. Both read the denied-always list afresh each time, as a
-// run does: it lists the other users' homes, which can appear while the
-// sidecar runs. On a machine with no sandbox it syncs nothing and keeps no
-// fault.
+// them. The sync judges an entry, and a grant a folder, by what a sandboxed run
+// of the bash tool's shell reads, and by the paths no rule opens, Kstack's
+// directories (denied) among them. Refresh PATH runs the login shell in sb as
+// the launch does, its TMPDIR under tmpDir. Each reads the denied-always list
+// afresh, as a run does: it lists the other users' homes, which can appear
+// while the sidecar runs. On a machine with no sandbox it syncs nothing, keeps
+// no fault and refuses every folder.
 func newSecurityService(store *securityconfig.Store, sb sandboxer, shell *bash.Tool, status sandbox.Status, denied []string, fault, tmpDir string) *securityconfig.Service {
 	if !status.Available {
 		return securityconfig.NewService(store, nil, nil, "")
 	}
 	home, _ := os.UserHomeDir()
 	zones := func() securityconfig.Zones {
-		return securityconfig.Zones{Never: slices.Concat(sb.Never(home), denied), Open: sb.System(home, shell.Shell()).Files, Home: home}
+		return securityconfig.Zones{
+			Never: slices.Concat(sb.Never(home), denied), Open: sb.System(home, shell.Shell()).Files, Home: home, NoWrite: sandbox.NoWrite(home),
+		}
 	}
 	return securityconfig.NewService(store, zones, shellPathResolver(sb, home, denied, tmpDir), fault)
 }
@@ -416,20 +421,21 @@ func sandboxStatusOf(shellFound bool, probed sandbox.Status) sandbox.Status {
 // chatTools is the one box: bash where New found a shell, Read, Memory, Write, Edit
 // and WebFetch on every machine, TaskStop for the tasks bash starts, then the
 // provider's web search, then KubeQuery. The file tools are fenced out of fenced,
-// Kstack's directories, and Write's new files take umask; WebFetch dials no local or private address but
+// Kstack's directories, keep out of what hidden answers the sandbox keeps shut
+// under a grant, and Write's new files take umask; WebFetch dials no local or private address but
 // the proxy the environment names. The order is the preference within a kind: the
 // first tool of a kind that a turn's target takes is the one it gets. A machine
 // with no shell still reads the stored calls of bash and TaskStop.
-func chatTools(shell *bash.Tool, fenced []string, umask fs.FileMode, memorySvc memorysvc.Service, clusterSvc clustersvc.Service) (tools.Box, error) {
-	reader, err := read.New(fenced...)
+func chatTools(shell *bash.Tool, fenced []string, hidden func() (never, shut []string), umask fs.FileMode, memorySvc memorysvc.Service, clusterSvc clustersvc.Service) (tools.Box, error) {
+	reader, err := read.New(hidden, fenced...)
 	if err != nil {
 		return tools.Box{}, err
 	}
-	writer, err := write.New(umask, fenced...)
+	writer, err := write.New(umask, hidden, fenced...)
 	if err != nil {
 		return tools.Box{}, err
 	}
-	editor, err := edit.New(fenced...)
+	editor, err := edit.New(hidden, fenced...)
 	if err != nil {
 		return tools.Box{}, err
 	}

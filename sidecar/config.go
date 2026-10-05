@@ -17,6 +17,7 @@ package main
 import (
 	"flag"
 	"os"
+	"path/filepath"
 
 	"github.com/kstackhq/kstack/sidecar/internal/app"
 	"github.com/kstackhq/kstack/sidecar/internal/catalog"
@@ -71,6 +72,9 @@ func configFromArgs(args []string, getenv func(string) string) (config, error) {
 		return config{}, err
 	}
 	cfg.App.HostPID = cfg.HostPID
+	if cfg.LogFile != "" {
+		cfg.App.LogDir = filepath.Dir(cfg.LogFile)
+	}
 	readProviders(&cfg, getenv)
 	cfg.App.AddFake = debugBuild
 	applyEnvOverrides(&cfg, getenv)

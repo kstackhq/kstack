@@ -22,6 +22,7 @@ type Lists struct {
 	Toolchain []Location // readable under the home by default, when present
 	Never     []string   // denied always
 	Closed    []string   // denied, but a grant inside one opens what it names
+	NoWrite   []string   // run by something outside the sandbox: a Read rule may name one, a Write rule may not
 }
 
 // Location is a folder the user's tools live in. Env is set only when the
@@ -91,6 +92,12 @@ var sharedLists = Lists{
 		"~/.rd/docker.sock", "~/.orbstack/run", "~/.colima", "~/.lima",
 	},
 	Closed: []string{"~/Documents", "~/Desktop", "~/Downloads"},
+	// The shells' startup folders and files, which the login shell runs and
+	// whose snapshot shapes every command outside the sandbox.
+	NoWrite: []string{
+		"~/.oh-my-zsh", "~/.zsh", "~/.config/zsh", "~/.config/fish", "~/.config/nushell", "~/.bashrc.d", "~/.config/direnv",
+		"~/.zshenv", "~/.zprofile", "~/.zshrc", "~/.zlogin", "~/.bash_profile", "~/.bash_login", "~/.profile", "~/.bashrc",
+	},
 }
 
 // appDataDirs are the folders under the home that hold every app's data. A

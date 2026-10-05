@@ -36,3 +36,7 @@ func TestDarwinListsReadTheSystemAndHideItsSecrets(t *testing.T) {
 	}
 	assert.Equal(t, []string{"/opt/homebrew/var", "/usr/local/var"}, brewVar)
 }
+
+func TestDarwinNoWriteHoldsLaunchAgents(t *testing.T) {
+	assert.Contains(t, NoWrite("/Users/me"), "/Users/me/Library/LaunchAgents")
+}

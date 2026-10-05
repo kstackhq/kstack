@@ -716,18 +716,6 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   `/mnt/c/Users/<you>` and read it refused. In WSL1, read Bash offered without the flag, every
   call asking, and the probe's reason in the sidecar's log.
 
-- **Revisit how little of the home a sandboxed command reads (medium; sandbox owner).** The home
-  is unreadable but for the trees `PATH` opens ([ADR](adr/2026-09-28-the-sandbox-is-the-gate-for-a-sandboxed-command.md)),
-  so a tool that reads its own config under the home fails in the sandbox and runs outside it,
-  asking. So does a tool in a directory the rule opens alone (`~/Library`, `~/.config` on macOS),
-  or one that finds its data through `$HOME`, as asdf's and mise's shims
-  do. **Shape:** a configurable allow-list of directories a sandboxed command may read, set in
-  the Settings dialog and kept in `host.json`, with the credential list and Kstack's directories
-  still denied inside each. **Weigh:** every entry widens what a command the model runs unasked
-  can read and send to the provider, so the change is a security record and a `security-model.md`
-  row.
-  **Trigger:** the first tool users report failing in the sandbox that the `PATH` rule cannot reach.
-
 - **Capture a real helm release for the rewriter's tests (low; sandbox owner).**
   `sidecar/internal/kubeproxy/testdata/helm-release.json` is written by hand in the shape Helm 3
   stores. Replace it with one a real `helm install` wrote, a chart with a Secret and a hook, and

@@ -12,6 +12,7 @@ import (
 	gqlerrors "github.com/kstackhq/kstack/sidecar/graph/errors"
 	"github.com/kstackhq/kstack/sidecar/graph/model"
 
+	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/chatsvc"
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
@@ -189,6 +190,56 @@ func sandboxPathOf(entries []securityconfig.PathEntry) []*model.SandboxPathEntry
 	for i, e := range entries {
 		out[i] = &model.SandboxPathEntry{
 			Dir: e.Dir, Target: e.Target, State: sandboxPathStates[e.State], Source: sandboxPathSources[e.Source], Shared: e.Shared,
+		}
+	}
+	return out
+}
+
+// folderErr is what every folder grant resolver returns an error through: a
+// folder that cannot be granted is a validation error naming the check that
+// refused it, a link's carrying the path it leads to, so the webview can offer
+// that one.
+func folderErr(err error) error {
+	var refusal securityconfig.FolderRefusal
+	var shape securityconfig.Refusal
+	switch {
+	case errors.As(err, &refusal):
+		e := gqlerrors.NewValidationError(refusal.Rule, refusal.Reason)
+		if refusal.Target != "" {
+			e.Extensions["target"] = refusal.Target
+		}
+		return e
+	case errors.As(err, &shape):
+		return gqlerrors.NewValidationError("folder", shape.Error())
+	case errors.Is(err, securityconfig.ErrHeld):
+		return gqlerrors.NewValidationError("folder", chatsvc.RulesHeldReason)
+	}
+	return chatErr(err)
+}
+
+// sandboxFolders is the folders granted, always and for chatID ("" for no
+// chat), with what no grant opens, as Settings and the composer draw them.
+func (r *Resolver) sandboxFolders(ctx context.Context, chatID apimeta.ChatID) (*model.SandboxFolders, error) {
+	always, chat := r.ChatSvc.FolderGrants(ctx, chatID)
+	out := &model.SandboxFolders{
+		Always: sandboxFoldersOf(always), Chat: sandboxFoldersOf(chat),
+		Never: []string{}, Wide: []string{},
+		RulesHeld: r.SecurityCfg.Held(securityconfig.FieldRules),
+	}
+	if r.SandboxStatus.Available {
+		out.Never = append(out.Never, r.SecurityCfg.NeverReadable(ctx)...)
+		out.Wide = append(out.Wide, r.SecurityCfg.WideFolders(ctx)...)
+	}
+	return out, nil
+}
+
+// sandboxFoldersOf is grants on the wire, in order.
+func sandboxFoldersOf(grants []chatsvc.FolderGrant) []*model.SandboxFolder {
+	out := make([]*model.SandboxFolder, len(grants))
+	for i, g := range grants {
+		out[i] = &model.SandboxFolder{ID: g.ID, Path: g.Path, Write: g.Write}
+		if g.Refused != "" {
+			out[i].Refused = &g.Refused
 		}
 	}
 	return out

@@ -125,6 +125,9 @@ type Approval struct {
 	// Network is the network a sandboxed call runs with. NetworkApproved holds
 	// only once the user approves the call.
 	Network session.Network
+	// Folder is the granted folder a skip rests on, nil for any other skip and
+	// for a call that asks. A tool reaches the call's path through it alone.
+	Folder *session.Folder
 }
 
 // Gated is a Runner whose call runs only once the user has approved it, unless

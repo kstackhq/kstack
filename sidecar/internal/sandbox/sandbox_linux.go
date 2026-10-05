@@ -359,6 +359,13 @@ func overFixedMount(p string) bool {
 	return p == "/tmp" || p == "/dev" || within(p, "/proc")
 }
 
+// FixedMount reports whether p is on or under a mount every run has its own
+// of: /proc, /dev or /tmp. The policy's rules are mounted after them, so a
+// rule there would bind the host's over the run's.
+func FixedMount(p string) bool {
+	return slices.ContainsFunc([]string{"/proc", "/dev", "/tmp"}, func(m string) bool { return within(filepath.Clean(p), m) })
+}
+
 // countsPerNamespace reports whether a kernel of release counts a process
 // limit per user namespace, which Linux does from 5.14. A release that does
 // not parse does not.

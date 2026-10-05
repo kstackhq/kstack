@@ -137,7 +137,7 @@ func mutation(t *testing.T, srvURL, mutation string) (map[string]any, []gqlError
 	return resp.Data, resp.Errors
 }
 
-// refusingChat answers every send with err, for the refusals the real service gives
+// refusingChat answers every send, cancel, decision and stop with err, for the refusals the real service gives
 // only under conditions a resolver test cannot set up. The embedded Service is nil,
 // so any other call panics, and a test leaning on it by accident fails on its code.
 type refusingChat struct {
@@ -149,10 +149,20 @@ func (c refusingChat) Send(context.Context, *chatsvc.ChatID, chatsvc.Mode, apime
 	return chatsvc.ChatMessage{}, c.err
 }
 
+func (c refusingChat) Cancel(context.Context, chatsvc.ChatID) error { return c.err }
+
+func (c refusingChat) Approve(context.Context, chatsvc.ApprovalID, chatsvc.ApprovalDecision) (bool, error) {
+	return false, c.err
+}
+
+func (c refusingChat) StopBackgroundTask(context.Context, chatsvc.ToolCallID) (bool, error) {
+	return false, c.err
+}
+
 // testSecurity is a security store over a file not yet written: every default.
-func testSecurity(t *testing.T) *securityconfig.Store {
+func testSecurity(t *testing.T) *securityconfig.Service {
 	t.Helper()
 	s, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
 	require.NoError(t, err)
-	return s
+	return securityconfig.NewService(s, nil, nil, "")
 }

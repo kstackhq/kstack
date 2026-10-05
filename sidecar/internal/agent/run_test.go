@@ -990,11 +990,13 @@ func TestASkippedCallReportsItsApproval(t *testing.T) {
 
 // A tool that runs by its approval is handed the one its gate decided, asked
 // or skipped, so what runs is what was decided whatever its session says by
-// then.
+// then: the network, or the folder a skip rested on. A tool that does not is
+// run as ever.
 func TestTheRunTakesTheGatesApproval(t *testing.T) {
 	for _, approval := range []tools.Approval{
 		{Cwd: "/work", Sandboxed: true, Skip: true, Network: session.NetworkTurn},
 		{Cwd: "/work", Sandboxed: true, Network: session.NetworkApproved},
+		{Skip: true, Folder: &session.Folder{Path: "/home/me/code", Write: true}},
 	} {
 		tool := &approvedTool{gatedTool: gatedTool{approval: func(json.RawMessage) (tools.Approval, error) { return approval, nil }}}
 		tool.name = "bash"
@@ -1008,6 +1010,15 @@ func TestTheRunTakesTheGatesApproval(t *testing.T) {
 		assert.Equal(t, []tools.Approval{approval}, tool.ran)
 		assert.Equal(t, []string{`{"command":"curl"}`}, answeredTexts(rec))
 	}
+
+	f, turn := gatedTurn(gatedTool{approval: func(json.RawMessage) (tools.Approval, error) {
+		return tools.Approval{Skip: true}, nil
+	}})
+	f.SetToolCalls(llm.StagedCall("bash", `{"command":"ls"}`))
+	rec := &recording{}
+	_, err := Run(t.Context(), turn, rec, rec)
+	require.NoError(t, err)
+	assert.Equal(t, []string{`{"command":"ls"}`}, answeredTexts(rec), "Run, for a tool with no RunApproved")
 }
 
 // The zero Approval asks, so a gated tool that forgets to decide is asked.

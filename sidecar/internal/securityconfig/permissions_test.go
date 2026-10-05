@@ -191,3 +191,34 @@ func TestAContextSaysWhetherItsEntryIsItsOwn(t *testing.T) {
 	require.NoError(t, s.SetMode("prod-eu", permissions.Ask))
 	assert.True(t, s.ModeFor("prod-eu").Own)
 }
+
+func TestHeldRulesGrantNoFolder(t *testing.T) {
+	s, _ := openFile(t, `{"rules": [{"id": "r", "effect": "allow", "class": 1, "folder": "/Users/me/code"},
+		{"id": "b", "effect": "deny", "class": 9}]}`)
+	require.True(t, s.Held("rules"))
+	assert.Equal(t, []permissions.Rule{permissions.Refused}, s.Rules(), "a file Kstack cannot read grants no folder")
+}
+
+func TestPutRuleKeepsItsPlace(t *testing.T) {
+	s, _ := openFile(t, `{"rules": [{"id": "a", "effect": "deny", "class": 4}, {"id": "b", "effect": "allow", "class": 4, "context": "dev"},
+		{"id": "c", "effect": "deny", "class": 5}]}`)
+	byID := func(id string) func(permissions.Rule) bool {
+		return func(r permissions.Rule) bool { return r.ID == id }
+	}
+	b := permissions.Rule{ID: "fresh", Effect: permissions.Deny, Class: permissions.UpstreamWrite, Context: "prod"}
+	require.NoError(t, s.PutRule(b, byID("b")))
+	ids := []string{}
+	for _, r := range s.Rules() {
+		ids = append(ids, r.ID)
+	}
+	assert.Equal(t, []string{"a", "b", "c"}, ids, "the rule stays where it stood, under its id")
+	b.ID = "b"
+	assert.Equal(t, b, s.Rules()[1])
+
+	d := permissions.Rule{ID: "d", Effect: permissions.Deny, Class: permissions.UpstreamWrite}
+	require.NoError(t, s.PutRule(d, byID("nope")))
+	assert.Equal(t, d, s.Rules()[3], "appended when none is replaced")
+	var r Refusal
+	require.ErrorAs(t, s.PutRule(permissions.Rule{ID: "x", Effect: permissions.Allow, Class: permissions.Destructive}, byID("a")), &r,
+		"the replacement is checked as any rule is")
+}

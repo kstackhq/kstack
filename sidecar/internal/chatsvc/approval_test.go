@@ -1621,7 +1621,7 @@ func TestAlwaysWaitsWhileTheRulesAreHeld(t *testing.T) {
 	require.NoError(t, os.WriteFile(file, []byte(`{"rules":[{"id":"b","effect":"maybe","class":4}]}`), 0o600))
 	held, err := securityconfig.Open(file)
 	require.NoError(t, err)
-	s.security = held
+	s.security = securityconfig.NewService(held, nil, nil, "")
 	before, err := os.ReadFile(file)
 	require.NoError(t, err)
 

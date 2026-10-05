@@ -25,6 +25,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
 )
 
@@ -76,7 +77,8 @@ func readGrants(ctx context.Context, st stmts, chatID ChatID) ([]permissions.Rul
 	return rules, refused, rows.Err()
 }
 
-// ErrGrantGone is a rule id the chat does not hold.
+// ErrGrantGone is a rule id the chat does not hold, or for RevokeFolder an id
+// that is no always folder grant.
 var ErrGrantGone = errors.New("chatsvc: the chat holds no rule with this id")
 
 // ChatGrants is chatID's rules, each as Settings spells a rule; none for a
@@ -92,32 +94,40 @@ func (s *service) ChatGrants(ctx context.Context, chatID ChatID) ([]permissions.
 // an ID replaces the chat's rule under it, so the id outlives the change.
 func (s *service) addGrant(ctx context.Context, chatID ChatID, rule permissions.Rule) (permissions.Rule, error) {
 	err := s.store.InTx(ctx, func(st stmts) error {
-		if _, ok, err := getChat(ctx, st, chatID); err != nil || !ok {
-			return cmp.Or(err, ErrChatGone)
-		}
-		held, _, err := readGrants(ctx, st, chatID)
-		if err != nil {
-			return err
-		}
-		if rule.ID == "" {
-			for _, h := range held {
-				if sameRule(h, rule) {
-					rule = h
-					return nil
-				}
-			}
-			rule.ID = appdb.NewID()
-		} else if !slices.ContainsFunc(held, func(h permissions.Rule) bool { return h.ID == rule.ID }) {
-			return ErrGrantGone
-		}
-		b, err := json.Marshal(rule)
-		if err != nil {
-			return err
-		}
-		_, err = st.Exec(ctx, stmtUpsertChatGrant, rule.ID, string(chatID), string(b), millis(normalizeTime(s.now())))
+		var err error
+		rule, err = s.putGrant(ctx, st, chatID, rule)
 		return err
 	})
 	if err != nil {
+		return permissions.Rule{}, err
+	}
+	return rule, nil
+}
+
+// putGrant is addGrant inside st.
+func (s *service) putGrant(ctx context.Context, st stmts, chatID ChatID, rule permissions.Rule) (permissions.Rule, error) {
+	if _, ok, err := getChat(ctx, st, chatID); err != nil || !ok {
+		return permissions.Rule{}, cmp.Or(err, ErrChatGone)
+	}
+	held, _, err := readGrants(ctx, st, chatID)
+	if err != nil {
+		return permissions.Rule{}, err
+	}
+	if rule.ID == "" {
+		for _, h := range held {
+			if sameRule(h, rule) {
+				return h, nil
+			}
+		}
+		rule.ID = appdb.NewID()
+	} else if !slices.ContainsFunc(held, func(h permissions.Rule) bool { return h.ID == rule.ID }) {
+		return permissions.Rule{}, ErrGrantGone
+	}
+	b, err := json.Marshal(rule)
+	if err != nil {
+		return permissions.Rule{}, err
+	}
+	if _, err := st.Exec(ctx, stmtUpsertChatGrant, rule.ID, string(chatID), string(b), millis(normalizeTime(s.now()))); err != nil {
 		return permissions.Rule{}, err
 	}
 	return rule, nil
@@ -150,15 +160,151 @@ func sameRule(a, b permissions.Rule) bool {
 	return a == b
 }
 
+// FoldersFor is foldersFor, for a run with no turn of its own.
+func (s *service) FoldersFor(ctx context.Context, chatID ChatID) []session.Folder {
+	return s.foldersFor(ctx, chatID)
+}
+
+// foldersFor is the one builder of a session's folders: chatID's folder
+// grants, then the always ones, less every folder that fails its check now.
+// Each is read and checked live, so a grant written or revoked meanwhile
+// applies to the next read. None where no sandbox confines a run: there a
+// grant would open a folder to the file tools with nothing keeping the
+// denied-always list out.
+func (s *service) foldersFor(ctx context.Context, chatID ChatID) []session.Folder {
+	if !s.sandboxStatus.Available {
+		return nil
+	}
+	var folders []session.Folder
+	for _, r := range s.folderRules(ctx, chatID) {
+		write := r.Class == permissions.WriteInside
+		if err := s.security.CheckStoredFolder(ctx, r.Folder, write); err != nil {
+			slog.Info("folder grant left out", "chat", chatID, "folder", r.Folder, "reason", err)
+			continue
+		}
+		folders = append(folders, session.Folder{Path: r.Folder, Write: write})
+	}
+	return folders
+}
+
+// folderRules is the folder grants a run of chatID reads: the chat's, then the
+// always ones. A held rules field holds no Allow, so it grants no folder.
+func (s *service) folderRules(ctx context.Context, chatID ChatID) []permissions.Rule {
+	var rules []permissions.Rule
+	if chatID != "" {
+		rules = s.grantsFor(ctx, chatID)
+	}
+	rules = append(rules, s.security.Rules()...)
+	return slices.DeleteFunc(rules, func(r permissions.Rule) bool { return r.Folder == "" || r.Effect != permissions.Allow })
+}
+
+// FolderGrant is one folder grant as Settings and the composer draw it:
+// Refused is why it fails its check now, so no run takes it; "" when it
+// passes.
+type FolderGrant struct {
+	ID      string
+	Path    string
+	Write   bool
+	Refused string
+}
+
+// FolderGrants is the always grants and, with a chat, the chat's own, each
+// checked. While the rules field is held no always grant reaches a run
+// (Rules holds no Allow then), so each is listed refused for that reason; it
+// can be removed once the hold ends.
+func (s *service) FolderGrants(ctx context.Context, chatID ChatID) (always, chat []FolderGrant) {
+	if !s.sandboxStatus.Available {
+		return nil, nil
+	}
+	always = s.checkedFolderGrants(ctx, s.security.Get().Rules)
+	if s.security.Held(securityconfig.FieldRules) {
+		for i := range always {
+			always[i].Refused = RulesHeldReason
+		}
+	}
+	if chatID != "" {
+		chat = s.checkedFolderGrants(ctx, s.grantsFor(ctx, chatID))
+	}
+	return always, chat
+}
+
+// RulesHeldReason is why no always grant applies while the rules field is
+// held, in the user's words; the wire gives a refused grant or revoke the same
+// reason.
+const RulesHeldReason = "The security settings file holds a rule Kstack cannot read: fix security.json, or discard what Kstack cannot read in Settings."
+
+// checkedFolderGrants is the folder grants among rules, each checked.
+func (s *service) checkedFolderGrants(ctx context.Context, rules []permissions.Rule) []FolderGrant {
+	var grants []FolderGrant
+	for _, r := range rules {
+		if r.Folder == "" {
+			continue
+		}
+		g := FolderGrant{ID: r.ID, Path: r.Folder, Write: r.Class == permissions.WriteInside}
+		if err := s.security.CheckStoredFolder(ctx, g.Path, g.Write); err != nil {
+			g.Refused = err.Error()
+		}
+		grants = append(grants, g)
+	}
+	return grants
+}
+
+// GrantFolder writes a folder grant, once it passes its check: in chatID's
+// rows, or with no chat in the always rules. A grant of a folder already
+// granted in the same place takes that grant's id, which replaces its mode.
+// The lookup and the write are one transaction, or one update under the
+// store's lock, so two grants of one folder at once leave one rule.
+func (s *service) GrantFolder(ctx context.Context, chatID ChatID, path string, write bool) error {
+	if err := s.security.CheckFolder(ctx, path, write); err != nil {
+		return err
+	}
+	rule := permissions.Rule{Effect: permissions.Allow, Class: permissions.ReadInside, Folder: path}
+	if write {
+		rule.Class = permissions.WriteInside
+	}
+	grantsPath := func(r permissions.Rule) bool { return r.Folder == path }
+	if chatID == "" {
+		rule.ID = appdb.NewID()
+		return s.security.PutRule(rule, grantsPath)
+	}
+	return s.store.InTx(ctx, func(st stmts) error {
+		held, _, err := readGrants(ctx, st, chatID)
+		if err != nil {
+			return err
+		}
+		if i := slices.IndexFunc(held, grantsPath); i >= 0 {
+			rule.ID = held[i].ID
+		}
+		_, err = s.putGrant(ctx, st, chatID, rule)
+		return err
+	})
+}
+
+// RevokeFolder removes an always folder grant by id.
+func (s *service) RevokeFolder(id string) error {
+	for _, r := range s.security.Get().Rules {
+		if r.ID == id && r.Folder != "" {
+			return s.security.RemoveRule(id)
+		}
+	}
+	return ErrGrantGone
+}
+
 // sessionFor is a chat's session: its policy read live on every write, so a
 // mode or rule changed in Settings applies to the next one, a running turn's
 // and a running subagent's included. The chat's grants come before the always
 // rules. Its network is the chat's switch, read at each command the same way,
-// else the turn's toggle.
+// else the turn's toggle. Its folders are read live too, and none applies
+// outside the sandbox.
 func (s *service) sessionFor(chatID ChatID, outside, networkThisTurn bool) session.Session {
+	folders := func(ctx context.Context) []session.Folder { return s.foldersFor(ctx, chatID) }
+	if outside {
+		folders = func(context.Context) []session.Folder { return nil }
+	}
 	return session.Session{
 		Kind:    session.Chat,
 		Outside: outside,
+		Folders: folders,
 		Policy: func(ctx context.Context, kubeContext string) permissions.Policy {
 			return permissions.Policy{
 				Mode:  s.security.ModeFor(kubeContext).Mode,

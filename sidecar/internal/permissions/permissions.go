@@ -23,8 +23,8 @@ package permissions
 import "strings"
 
 // Class is how much an action can do, numbered as the agent-security note
-// numbers them. Only 1, 4, 5 and 6 are classified today; 2 and 3 arrive with
-// the folder and host steps.
+// numbers them. 1 and 2 are also the classes of a folder grant, and 3 is
+// unused: the network is a switch, not a list of hosts.
 type Class int
 
 const (
@@ -61,10 +61,12 @@ const (
 // a word of its own in a field a pattern otherwise fills.
 const ClusterScope = "[cluster]"
 
-// Rule is one line of policy. Every field but ID, Effect, Class and Group is a
-// pattern (Match), and an unset one matches anything. Group is exact: "" is
-// unset, "core" the core group. Kind is the resource, or "deployments/scale"
-// for a subresource. Namespace is ClusterScope for cluster-scoped objects.
+// Rule is one line of policy. Context, Namespace, Verb and Kind are patterns
+// (Match), and an unset one matches anything. Group is exact: "" is unset,
+// "core" the core group. Kind is the resource, or "deployments/scale" for a
+// subresource. Namespace is ClusterScope for
+// cluster-scoped objects. A rule naming a Folder is a folder grant: it matches
+// no action, and only the builder of a session's folders reads it.
 type Rule struct {
 	ID        string `json:"id"`
 	Effect    Effect `json:"effect"`
@@ -79,7 +81,8 @@ type Rule struct {
 	Inside bool `json:"inside,omitempty"`
 	// Command is a rule one command's answer added, kept in memory for that
 	// command alone and never stored.
-	Command bool `json:"-"`
+	Command bool   `json:"-"`
+	Folder  string `json:"folder,omitempty"` // classes 1 and 2: the folder, absolute and resolved
 }
 
 // Action is one classified request, as the proxy read it. It is stored with
@@ -250,9 +253,11 @@ var Refused = Rule{ID: "refused", Effect: Deny, Class: UpstreamWrite}
 
 // Matches is whether r applies to act: a class that covers act's, and every
 // set field matching. Class 4 covers class 5, since a destructive write is a
-// cluster write. An Inside rule never matches a Namespace object.
+// cluster write. An Inside rule never matches a Namespace object, and a folder
+// grant matches nothing, so it never reaches a verdict.
 func (r Rule) Matches(act Action) bool {
-	return (r.Class == act.Class || r.Class == UpstreamWrite && act.Class == Destructive) &&
+	return r.Folder == "" &&
+		(r.Class == act.Class || r.Class == UpstreamWrite && act.Class == Destructive) &&
 		matchSet(r.Context, act.Context) &&
 		matchNamespace(r.Namespace, act.Namespace) &&
 		!(r.Inside && isNamespace(act)) &&
@@ -305,12 +310,27 @@ var (
 	}
 )
 
+// folderNouns is what a folder grant of each class lets a command do there.
+var folderNouns = map[Class]string{ReadInside: "reads", WriteInside: "reads and writes"}
+
+// quoted is s bare when it holds no space, " or \, else in quotes with " and \
+// escaped, so a line names one value however it is spelled.
+func quoted(s string) string {
+	if !strings.ContainsAny(s, ` "\`) {
+		return s
+	}
+	return quote(s)
+}
+
 // Line is the rule in the user's words: "Allow cluster writes in dev-eks /
-// team-a", "Deny destructive delete of core namespaces everywhere", or "Deny
-// patch of core nodes cluster-wide in prod". An Inside rule reads "inside" for
-// "in". Each pattern field is drawn by field, so a line reads one way whatever
-// a value holds.
+// team-a", "Deny destructive delete of core namespaces everywhere", "Deny
+// patch of core nodes cluster-wide in prod", or "Allow reads of /Users/me/code".
+// An Inside rule reads "inside" for "in". Each pattern field is drawn by field,
+// so a line reads one way whatever a value holds.
 func (r Rule) Line() string {
+	if r.Folder != "" {
+		return effectWords[r.Effect] + " " + folderNouns[r.Class] + " of " + quoted(r.Folder)
+	}
 	if r.Command {
 		return r.scopeLine() + " for this command"
 	}

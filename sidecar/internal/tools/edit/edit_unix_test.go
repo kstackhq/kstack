@@ -17,6 +17,7 @@
 package edit
 
 import (
+	"context"
 	"crypto/sha256"
 	"io"
 	"os"
@@ -27,7 +28,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/session"
+	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/fileguard"
 )
 
 // An edited file keeps its permission bits, never setuid, and its group.
@@ -212,4 +216,131 @@ func TestEditIsARename(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "old\n", string(b))
 	assert.Equal(t, []string{"x.txt"}, names(t, filepath.Dir(path)))
+}
+
+// granted is a home of the test's own, with a key under a never-readable
+// .ssh, notes in a closed Documents, and a code folder holding a file the
+// chat has read whole; Edit knowing both closed paths; and a runtime whose
+// session grants folders.
+type granted struct {
+	home string
+	tl   *Tool
+	rt   tools.Runtime
+}
+
+func newGranted(t *testing.T, folders func(home string) []session.Folder) granted {
+	t.Helper()
+	home := filepath.Join(testutil.GrantableDir(t), "home")
+	for rel, body := range map[string]string{".ssh/config": "Host a", "Documents/notes.txt": "a note", "code/x.txt": "old a"} {
+		p := filepath.Join(home, rel)
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o755))
+		require.NoError(t, os.WriteFile(p, []byte(body), 0o600))
+	}
+	data := filepath.Join(t.TempDir(), "data")
+	require.NoError(t, os.Mkdir(data, 0o700))
+	tl, err := New(func() (never, closed []string) {
+		return []string{filepath.Join(home, ".ssh")}, []string{filepath.Join(home, "Documents")}
+	}, data)
+	require.NoError(t, err)
+	st := stamps{}
+	for rel, body := range map[string]string{".ssh/config": "Host a", "Documents/notes.txt": "a note", "code/x.txt": "old a"} {
+		st[filepath.Join(home, rel)] = tools.Stamp{Sum: sha256.Sum256([]byte(body)), Whole: true}
+	}
+	rt := tools.Runtime{Files: st, Dir: chatDirIn(data)}
+	given := folders(home)
+	rt.Session.Folders = func(context.Context) []session.Folder { return given }
+	return granted{home: home, tl: tl, rt: rt}
+}
+
+func (g granted) in(rel string) string { return filepath.Join(g.home, rel) }
+
+func (g granted) edit(t *testing.T, path string, a tools.Approval) (string, bool) {
+	t.Helper()
+	return g.tl.RunApproved(t.Context(), g.rt, call(path, "a", "b"), a)
+}
+
+func readEdited(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	require.NoError(t, err)
+	return string(b)
+}
+
+func TestAnEditInAGrantedFolderAsksNoOne(t *testing.T) {
+	g := newGranted(t, func(home string) []session.Folder {
+		return []session.Folder{{Path: filepath.Join(home, "code"), Write: true}}
+	})
+	code := session.Folder{Path: g.in("code"), Write: true}
+	a := approval(t, g.tl, g.rt, call(g.in("code/x.txt"), "a", "b"))
+	assert.Equal(t, tools.Approval{Skip: true, Folder: &code}, a)
+	text, isError := g.edit(t, g.in("code/x.txt"), a)
+	require.False(t, isError, text)
+	assert.Equal(t, "old b", readEdited(t, g.in("code/x.txt")))
+}
+
+func TestAnEditInAReadGrantStillAsks(t *testing.T) {
+	g := newGranted(t, func(home string) []session.Folder { return []session.Folder{{Path: home}} })
+	assert.Equal(t, tools.Approval{}, approval(t, g.tl, g.rt, call(g.in("code/x.txt"), "a", "b")))
+}
+
+func TestAHiddenPathUnderAGrantedFolderStillAsks(t *testing.T) {
+	g := newGranted(t, func(home string) []session.Folder { return []session.Folder{{Path: home, Write: true}} })
+	for _, rel := range []string{".ssh/config", "Documents/notes.txt"} {
+		a := approval(t, g.tl, g.rt, call(g.in(rel), "a", "b"))
+		assert.Equal(t, tools.Approval{}, a, rel)
+		text, isError := g.edit(t, g.in(rel), a)
+		require.False(t, isError, "%s, approved, is edited as today: %s", rel, text)
+	}
+}
+
+func TestAnEditThroughALinkToAHiddenPathIsRefused(t *testing.T) {
+	g := newGranted(t, func(home string) []session.Folder {
+		return []session.Folder{{Path: filepath.Join(home, "code"), Write: true}}
+	})
+	code := session.Folder{Path: g.in("code"), Write: true}
+	require.NoError(t, os.Symlink("../.ssh", g.in("code/ssh")))
+	text, isError := g.edit(t, g.in("code/ssh/config"), tools.Approval{Skip: true, Folder: &code})
+	assert.True(t, isError)
+	assert.Equal(t, refusal(fileguard.ErrLeaves), text)
+	assert.Equal(t, "Host a", readEdited(t, g.in(".ssh/config")))
+}
+
+func TestARevokeBetweenApprovalAndRunChangesNothing(t *testing.T) {
+	g := newGranted(t, func(home string) []session.Folder {
+		return []session.Folder{{Path: filepath.Join(home, "code"), Write: true}}
+	})
+	a := approval(t, g.tl, g.rt, call(g.in("code/x.txt"), "a", "b"))
+	require.NotNil(t, a.Folder)
+	g.rt.Session.Folders = func(context.Context) []session.Folder { panic("the run read the folders again") }
+	text, isError := g.edit(t, g.in("code/x.txt"), a)
+	require.False(t, isError, text)
+	assert.Equal(t, "old b", readEdited(t, g.in("code/x.txt")))
+}
+
+func TestAGrantedCallAnswersAtItsEnd(t *testing.T) {
+	g := newGranted(t, func(home string) []session.Folder {
+		return []session.Folder{{Path: filepath.Join(home, "code"), Write: true}}
+	})
+	a := approval(t, g.tl, g.rt, call(g.in("code/x.txt"), "a", "b"))
+	real := g.tl.edit
+	release := make(chan struct{})
+	returned := make(chan struct{})
+	g.tl.edit = func(ctx context.Context, rt tools.Runtime, path string, folder *session.Folder, in input) (edited, error) {
+		defer close(returned)
+		<-release
+		return real(ctx, rt, path, folder, in)
+	}
+	ctx, cancel := context.WithCancel(t.Context())
+	ran := make(chan struct{})
+	var text string
+	go func() {
+		defer close(ran)
+		text, _ = g.tl.RunApproved(ctx, g.rt, call(g.in("code/x.txt"), "a", "b"), a)
+	}()
+	cancel()
+	testutil.Wait(t, ran, "the cancel's answer")
+	assert.Equal(t, cancelled, text)
+	close(release)
+	testutil.Wait(t, returned, "the walk")
+	assert.Equal(t, "old a", readEdited(t, g.in("code/x.txt")))
 }

@@ -38,6 +38,7 @@ func listPaths() [][]string {
 		toolchain,
 		slices.Concat(sharedLists.Never, platformLists.Never),
 		slices.Concat(sharedLists.Closed, platformLists.Closed),
+		slices.Concat(sharedLists.NoWrite, platformLists.NoWrite),
 	}
 }
 
@@ -328,4 +329,18 @@ func TestSystemLeavesOutTheNeverPaths(t *testing.T) {
 	assert.NotContains(t, got.Read, d[0])
 	assert.Contains(t, got.Read, d[1])
 	assert.NoError(t, Policy{Files: got, Always: AlwaysPolicy{Deny: s.Never(home)}}.Check())
+}
+
+func TestNoWriteIsUnderTheHome(t *testing.T) {
+	got := NoWrite("/home/me")
+	for _, p := range []string{
+		"/home/me/.zshrc", "/home/me/.bashrc", "/home/me/.profile", "/home/me/.zshenv", "/home/me/.oh-my-zsh",
+		"/home/me/.config/fish", "/home/me/.config/direnv",
+	} {
+		assert.Contains(t, got, p)
+	}
+	for _, p := range got {
+		assert.True(t, strings.HasPrefix(p, "/home/me/"), p)
+	}
+	assert.Empty(t, NoWrite(""), "with no home there is nothing under it")
 }
