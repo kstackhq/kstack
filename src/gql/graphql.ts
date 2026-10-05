@@ -151,7 +151,7 @@ export type PermissionEffect =
   | 'Ask'
   | 'Deny';
 
-/** Which classes ask: `ReadOnly` refuses writes, `Ask` asks for every write, `Auto` asks for destructive ones alone. */
+/** Which classes ask: `ReadOnly` refuses writes, `Ask` asks for every write, `Auto` asks for destructive ones alone. Showing Secret data asks under `ReadOnly` and `Ask`, and runs unasked under `Auto`. */
 export type PermissionMode =
   | 'Ask'
   | 'Auto'

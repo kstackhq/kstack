@@ -37,7 +37,8 @@ const (
 )
 
 // Mode is which classes ask. ReadOnly refuses writes; Ask asks for every
-// write; Auto asks for class 5 alone.
+// write; Auto asks for class 5 alone. Showing Secret data, class 6, asks under
+// ReadOnly and Ask and runs unasked under Auto.
 type Mode string
 
 const (

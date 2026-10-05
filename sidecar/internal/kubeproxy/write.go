@@ -221,14 +221,14 @@ func (g *Grant) policy(ctx context.Context) permissions.Policy {
 	return p
 }
 
-// takeWriteLock waits for the write lock, as one of at most maxQueuedWrites, and
-// answers false, having answered w, when the queue is full or ctx ends first.
-// The body is read only once the lock is held, so a queued write holds nothing
-// but its connection.
+// takeWriteLock waits for the write lock, as one of at most maxQueuedWrites
+// writes and Secret reads, and answers false, having answered w, when the queue
+// is full or ctx ends first. A write's body is read only once the lock is held,
+// so a queued write holds nothing but its connection.
 func (g *Grant) takeWriteLock(ctx context.Context, w http.ResponseWriter) bool {
 	if !g.writeWaiters.TryAcquire(1) {
 		// No Retry-After, so client-go does not retry it.
-		writeStatus(w, http.StatusTooManyRequests, "kstack: too many changes are waiting on the user. Send one at a time.")
+		writeStatus(w, http.StatusTooManyRequests, "kstack: too many requests are waiting on the user. Send one at a time.")
 		return false
 	}
 	defer g.writeWaiters.Release(1)

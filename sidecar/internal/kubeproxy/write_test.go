@@ -351,7 +351,7 @@ func TestQueuedWritesAreBounded(t *testing.T) {
 	resp, reply := s.do(t, s.writeRequest(t, "DELETE", "/api/v1/namespaces/web/pods/c", "", ""))
 	assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
 	assert.Empty(t, resp.Header.Values("Retry-After"))
-	assert.Equal(t, "kstack: too many changes are waiting on the user. Send one at a time.", statusOf(t, reply).Message)
+	assert.Equal(t, "kstack: too many requests are waiting on the user. Send one at a time.", statusOf(t, reply).Message)
 	testutil.NoRecv(t, body.read.Chan(), quietWindow, "a queued write's body read")
 
 	// The queued writes race each other into the lock's line, so any that took
@@ -825,10 +825,12 @@ func TestADeniedWriteIsAForbiddenStatus(t *testing.T) {
 }
 
 // A read-only context refuses every write, a destructive one and an RBAC one
-// included, and still answers a Secret read redacted.
+// included, and asks before a Secret read shows its data, answering it
+// redacted once denied.
 func TestAReadOnlyContextRefusesEveryWrite(t *testing.T) {
 	api := answering(t, secretJSON)
-	s := serveIn(t, api.upstream(), sessionIn(permissions.ReadOnly), newRecordingAsker())
+	asker := newRecordingAsker()
+	s := serveIn(t, api.upstream(), sessionIn(permissions.ReadOnly), asker)
 	for _, c := range []writeCase{
 		{method: "DELETE", path: "/api/v1/namespaces/web"},
 		{method: "POST", path: "/apis/rbac.authorization.k8s.io/v1/namespaces/web/rolebindings", contentType: "application/json", body: `{}`},
@@ -841,9 +843,12 @@ func TestAReadOnlyContextRefusesEveryWrite(t *testing.T) {
 	}
 	assert.Empty(t, api.requests())
 
-	resp, body := s.send(t, "GET", "/api/v1/namespaces/web/secrets/db", s.g.Token())
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	assert.JSONEq(t, redactedSecretJSON, body)
+	done := s.sendAsync(t, s.request(t, "GET", "/api/v1/namespaces/web/secrets/db", s.g.Token()))
+	asker.next(t).answer <- denied
+	r := testutil.Recv(t, done, "the read")
+	require.NotNil(t, r.resp)
+	require.Equal(t, http.StatusOK, r.resp.StatusCode)
+	assert.JSONEq(t, redactedSecretJSON, r.body)
 }
 
 // The proxy asks the session for the mode of the context its grant was made

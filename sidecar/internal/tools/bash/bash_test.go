@@ -1092,7 +1092,7 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 		assert.NotContains(t, p, "before you ask")
 	}
 	assert.Contains(t, sandboxPrompt, "If a command needs what the sandbox lacks — the user's files or credentials, "+
-		"a helm change, a service account token, or a Secret's values — say so and what for. "+
+		"a helm change, or a service account token — say so and what for. "+
 		"A path a command could not read is one the user can grant, in Settings or from the chat: "+
 		"say which path and what for, rather than work around it. "+
 		"The user can switch this chat to run commands outside the sandbox; the question's context says whether they have. "+
@@ -1104,7 +1104,12 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 	assert.Contains(t, sandboxPrompt, "A dry run of a built-in resource runs at once, so `kubectl diff` and `--dry-run=server` preview such a change without asking; a dry run of a custom resource waits like the change.", "a dry run is a read")
 	assert.Contains(t, sandboxPrompt, "give a command that changes the cluster one that leaves the user time to read each request", "the wait counts against the timeout")
 	assert.Contains(t, sandboxPrompt, "a service account token, a helm change and a change past 1 MiB come back `Forbidden`, and so does a change from a background command")
-	assert.Contains(t, sandboxPrompt, "`kubectl apply --server-side`")
+	assert.Contains(t, sandboxPrompt, "Change a Secret with `kubectl apply --server-side`: a client-side apply first reads the Secret, which asks, "+
+		"and fails on `[redacted]` if the read is not allowed.")
+	assert.Contains(t, sandboxPrompt, "A Secret's values, and a helm release's, read `[redacted]` unless the user allows showing them: "+
+		"a read of Secret data asks, and the user can allow it once, for the command, for this chat, or always.", "a Secret read asks")
+	assert.Contains(t, sandboxPrompt, "Listing Secrets' names asks for nothing, and a background command reads them `[redacted]`.")
+	assert.Contains(t, sandboxPrompt, "`[redacted]` after such a request is the user's answer: do not ask them to run the command outside the sandbox for it.")
 	assert.NotContains(t, sandboxPrompt, "reaches no network")
 	assert.Contains(t, sandboxPrompt, "The sandbox reaches the internet only when the question's context says its `network` is on.")
 	assert.Contains(t, sandboxPrompt, "A command that needs the internet otherwise can set `network: true`, which asks the user to approve that command; "+
@@ -1112,7 +1117,6 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 	assert.Contains(t, sandboxPrompt, "With the internet a command still holds no credential, so `gh`, `aws` and a private registry have no login in the sandbox.")
 	assert.Contains(t, sandboxPrompt, "The cluster is reached through its proxy either way.")
 	assert.Contains(t, sandboxPrompt, "What follows about the user's own credentials, `kubectl diff` and `--dry-run=server` is for a command run outside the sandbox.")
-	assert.Contains(t, sandboxPrompt, "A Secret's values read `[redacted]`", "a sandboxed run reads Secrets redacted")
 	assert.Contains(t, sandboxPrompt, "The sandbox has the user's tools and none of their shell's functions, aliases or variables. "+
 		"`HOME` is the workspace. A tool that cannot find its own files under the home needs a folder the user grants, "+
 		"or this chat switched outside the sandbox.", "what a sandboxed run starts from")

@@ -91,7 +91,8 @@ type Grant struct {
 	// context is the kube-context the grant was made for: the scope every
 	// action is classified, and its mode and rules read, in.
 	context string
-	// asker puts a write to the user; nil refuses every write with refusal.
+	// asker puts a write or a Secret read to the user; nil refuses every write
+	// with refusal and reads Secret data redacted.
 	asker   Asker
 	refusal string
 	token   string
@@ -100,8 +101,9 @@ type Grant struct {
 	limiter *rate.Limiter
 	// openRequests bounds the requests forwarded at once.
 	openRequests *semaphore.Weighted
-	// writeLock is held by the one write the user is asked about or that is being
-	// forwarded; writeWaiters bounds the writes waiting for it.
+	// writeLock is held by the one write or Secret read being decided, and by a
+	// write while it is forwarded; writeWaiters bounds the requests waiting for
+	// it.
 	writeLock    *semaphore.Weighted
 	writeWaiters *semaphore.Weighted
 	// commandRules are the rules the user's command answers added, under the
@@ -197,6 +199,10 @@ func (g *Grant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, maxBody))
 	if err != nil {
 		writeStatus(w, http.StatusRequestEntityTooLarge, "kstack: the request body is too large")
+		return
+	}
+	if p.onSecrets() && !metadataOnly(r) {
+		g.serveSecretRead(w, r, p, body)
 		return
 	}
 	g.forward(w, r, p, body, p.onSecrets())

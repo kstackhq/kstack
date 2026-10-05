@@ -1109,13 +1109,14 @@ type ToolCall {
   background: BackgroundTask
   "The `Agent` call a subagent's call ran under; null on the answer's own calls."
   agentCallID: ToolCallID
-  "Every request the call's sandboxed command sent to change the cluster, in the order asked. Empty on every call but a sandboxed command's."
+  "Every request the call's sandboxed command sent that the proxy decided — a change to the cluster, or a read of Secret data — in the order asked. Empty on every call but a sandboxed command's."
   clusterWrites: [ClusterWrite!]!
 }
 
 """
-A request a sandboxed command sent to change the cluster, held for the user, and the action the
-proxy classified it as. It waits while its approval is `Pending` and its call `Running`.
+A request a sandboxed command sent that the proxy decided — a change to the cluster, or a read of
+Secret data — and the action the proxy classified it as. It waits while its approval is `Pending`
+and its call `Running`.
 """
 type ClusterWrite {
   approval: ToolCallApproval!
@@ -1127,7 +1128,7 @@ type ClusterWrite {
   diffCut: Boolean!
   "Why there is no diff, while the write waits and one was looked for; empty otherwise."
   diffError: String!
-  "The HTTP method: POST, PUT, PATCH or DELETE."
+  "The HTTP method: POST, PUT, PATCH or DELETE for a change, GET for a read of Secret data."
   method: String!
   "The path and query, exactly as sent."
   path: String!
@@ -1416,7 +1417,7 @@ enum PermissionClass {
   SecretRead
 }
 
-"Which classes ask: `ReadOnly` refuses writes, `Ask` asks for every write, `Auto` asks for destructive ones alone."
+"Which classes ask: `ReadOnly` refuses writes, `Ask` asks for every write, `Auto` asks for destructive ones alone. Showing Secret data asks under `ReadOnly` and `Ask`, and runs unasked under `Auto`."
 enum PermissionMode {
   ReadOnly
   Ask
