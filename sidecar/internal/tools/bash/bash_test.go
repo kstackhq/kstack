@@ -1093,6 +1093,8 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 	}
 	assert.Contains(t, sandboxPrompt, "If a command needs what the sandbox lacks — the user's files or credentials, "+
 		"a helm change, a service account token, or a Secret's values — say so and what for. "+
+		"A path a command could not read is one the user can grant, in Settings or from the chat: "+
+		"say which path and what for, rather than work around it. "+
 		"The user can switch this chat to run commands outside the sandbox; the question's context says whether they have. "+
 		"Do not work around the sandbox.")
 	assert.Contains(t, sandboxPrompt, "It reaches the chat's cluster alone, with the user's own access.", "a sandboxed run reaches the cluster through the proxy")
@@ -1114,6 +1116,9 @@ func TestThePromptOpensWithTheSandboxWhenThereIsOne(t *testing.T) {
 	assert.Contains(t, sandboxPrompt, "The sandbox has the user's tools and none of their shell's functions, aliases or variables. "+
 		"`HOME` is the workspace. A tool that cannot find its own files under the home needs a folder the user grants, "+
 		"or this chat switched outside the sandbox.", "what a sandboxed run starts from")
+	assert.Contains(t, sandboxPrompt, "The sandbox reaches none of the user's credentials, and of the user's files the folders "+
+		"they granted alone, which the question's context lists: it reads each, and writes those granted read and write.", "the grants")
+	assert.NotContains(t, sandboxPrompt, "and none of the user's files")
 	assert.NotContains(t, sandboxPrompt, "you can leave")
 	assert.Equal(t, 1, strings.Count(got, "## Bash"))
 	assert.NotContains(t, got, "snap")

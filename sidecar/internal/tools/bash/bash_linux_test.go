@@ -15,6 +15,10 @@
 package bash
 
 import (
+	"context"
+	"os"
+	"path/filepath"
+	"strconv"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -54,4 +58,27 @@ func TestANetworkCallRunsUnderPasta(t *testing.T) {
 
 	require.False(t, isError, text)
 	assert.Equal(t, "nameserver "+sandbox.ResolverAddress+"\nCapEff:\t0000000000000000\n", text)
+}
+
+// Without XDG_RUNTIME_DIR Kstack's runtime directory is /tmp/kstack-<uid>: a
+// run's own paths there are inside a fixed mount no grant may name, and the
+// run, with a grant beside them, still starts.
+func TestARunStartsWithItsRuntimeDirUnderTmp(t *testing.T) {
+	tl := confiningTool(t)
+	runtime, err := os.MkdirTemp("/tmp", "kstack-"+strconv.Itoa(os.Getuid())+"-")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = os.RemoveAll(runtime) })
+	tl.runsDir = filepath.Join(runtime, "runs")
+	require.NoError(t, os.MkdirAll(tl.runsDir, 0o700))
+	tl.denied = append(tl.denied, runtime)
+	assert.True(t, sandbox.FixedMount(runtime))
+
+	// Under a home of the test's own: the real one is another user's to it.
+	home, p := folders(t, "code")
+	tl.home = home
+	rt := testRuntime(t)
+	rt.Session.Folders = func(context.Context) []session.Folder { return []session.Folder{{Path: p[0]}} }
+	text, isError := tl.Run(t.Context(), rt, command("ls "+p[0]+" && echo ok"))
+	require.False(t, isError, text)
+	assert.Equal(t, "ok\n", text)
 }

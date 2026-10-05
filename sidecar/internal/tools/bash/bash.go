@@ -760,7 +760,8 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		}
 		env := sandboxedRunEnv(os.Environ(), t.env, joinPath(folders), ws, cwd, r.dir, cluster, toolHome, toolchain)
 		files := sys.Files.WithSearch(pathReads)
-		built <- sandbox.Run{Env: env, Policy: t.workspacePolicy(files, never, reads, writes, net, limits)}
+		grants := t.grantRules(rt.Session.GrantedFolders(ctx), sys.Files, never, list.Entries)
+		built <- sandbox.Run{Env: env, Policy: t.workspacePolicy(files, grants, never, reads, writes, net, limits)}
 	}()
 	select {
 	case r.run = <-built:
@@ -772,13 +773,14 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 }
 
 // workspacePolicy is a sandboxed run's policy: system, the sandbox's System
-// and the PATH's folders, less what lies in Kstack's directories, and the
-// extra writable, which lies in none; never and Kstack's directories denied
-// but for the run's own reads and writes, which lie inside them; its network;
-// and limits.
-func (t *Tool) workspacePolicy(system sandbox.FilePolicy, never, reads, writes []string, net sandbox.NetworkPolicy, limits sandbox.Limits) sandbox.Policy {
+// and the PATH's folders, less what lies in Kstack's directories, then the
+// folders granted and the extra writable, which lie in none; never and
+// Kstack's directories denied but for the run's own reads and writes, which
+// lie inside them; its network; and limits.
+func (t *Tool) workspacePolicy(system, grants sandbox.FilePolicy, never, reads, writes []string, net sandbox.NetworkPolicy, limits sandbox.Limits) sandbox.Policy {
 	files := system.Outside(t.denied...)
-	files.Write = append(files.Write, t.extraWritable...)
+	files.Read = append(files.Read, grants.Read...)
+	files.Write = slices.Concat(files.Write, grants.Write, t.extraWritable)
 	return sandbox.Policy{
 		Files:   files,
 		Always:  sandbox.AlwaysPolicy{Deny: never, Kstack: t.denied, Read: reads, Write: writes},
