@@ -25,6 +25,7 @@ import type { CombinedError } from 'urql';
 
 import { graphql } from '@/gql';
 import type { SandboxPathQuery } from '@/gql/graphql';
+import { refusalOf } from '@/lib/graphql/refusal';
 
 const SandboxPathDocument = graphql(`
   query SandboxPath {
@@ -65,12 +66,6 @@ const SandboxPathRefreshMutation = graphql(`
 `);
 
 export type SandboxPathEntry = SandboxPathQuery['sandboxPath'][number];
-
-/** What a refused mutation said, in the user's words. */
-function refusalOf(error: CombinedError | undefined): string | null {
-  if (!error) return null;
-  return error.graphQLErrors[0]?.message ?? error.message;
-}
 
 export type SandboxPath = {
   /** Undefined until the sidecar has answered. */
