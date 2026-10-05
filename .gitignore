@@ -20,6 +20,9 @@ src-tauri/binaries/
 # Kstack's own bwrap, its license and its source (produced by `make bwrap`).
 src-tauri/linux/bwrap
 src-tauri/linux/bubblewrap-*
+# Kstack's own pasta, its licenses and its source (produced by `make pasta`).
+src-tauri/linux/pasta
+src-tauri/linux/passt-*
 # Editor directories and files. The shared team config is re-included; anything
 # else under .vscode/ is personal.
 .vscode/*

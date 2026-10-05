@@ -37,23 +37,26 @@ var systemPastas = []string{"/usr/bin/pasta", "/bin/pasta", "/usr/local/bin/past
 var hostResolvConf = "/etc/resolv.conf"
 
 // probePasta decides whether a run on s can be given the internet, setting
-// s.pasta or s.networkReason: the first of pastas that exists is run once
-// with s's bwrap inside it. It checks only what holds for the sidecar's life,
-// never a route, so a Kstack started offline still offers network once the
-// machine is online.
+// s.pasta to the first of pastas that runs once with s's bwrap inside it, or
+// s.networkReason to every one's reason. It checks only what holds for the
+// sidecar's life, never a route, so a Kstack started offline still offers
+// network once the machine is online.
 func (s *Sandbox) probePasta(ctx context.Context, pastas []string, bound time.Duration) {
-	i := slices.IndexFunc(pastas, exists)
-	if i < 0 {
+	if len(pastas) == 0 {
 		s.networkReason = "pasta not found"
 		return
 	}
-	pasta := pastas[i]
-	ownUserNS, err := s.tryPasta(ctx, pasta, bound)
-	if err != nil {
-		s.networkReason = pasta + ": " + err.Error()
+	var reasons []string
+	for _, pasta := range pastas {
+		ownUserNS, err := s.tryPasta(ctx, pasta, bound)
+		if err != nil {
+			reasons = append(reasons, pasta+": "+err.Error())
+			continue
+		}
+		s.pasta, s.pastaOwnUserNS = pasta, ownUserNS
 		return
 	}
-	s.pasta, s.pastaOwnUserNS = pasta, ownUserNS
+	s.networkReason = strings.Join(reasons, "; ")
 }
 
 // pastaProbeScript prints the run's first uid_map line, then its uid, gid
