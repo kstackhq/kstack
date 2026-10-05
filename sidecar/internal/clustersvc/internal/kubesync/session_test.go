@@ -82,8 +82,11 @@ func TestASweepWaitingOnItsOwnDocumentsIsNotParked(t *testing.T) {
 	svc.TrackDiscovery(1, testParams)
 	awaitReason(t, svc, 1, ReasonDiscoveryFailed)
 
-	assert.False(t, svc.sessionOf(1).anyWaiting(),
-		"a sweep whose documents will not load waits on its own retries, not on a wake")
+	// A probe is marked from the moment it reaches the gate until the lease answers, so one
+	// passing through it as the reason lands is waited out; a mark that stays fails.
+	sess := svc.sessionOf(1)
+	require.Eventually(t, func() bool { return !sess.anyWaiting() },
+		testutil.Timeout, time.Millisecond, "a sweep whose documents will not load waits on its own retries, not on a wake")
 }
 
 // A run holds a supervisor worker, so a kind whose connection does not vouch records why and
