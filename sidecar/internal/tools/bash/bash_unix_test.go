@@ -124,11 +124,15 @@ func TestNewReadsTheBashVersion(t *testing.T) {
 	}
 }
 
-// holder is a FIFO a command's sleep holds open for writing. A reader opens it
-// before the command runs — a blocking open, so it joins when the writer
-// does — reads "started" once the sleep is up, and then reads to EOF, which
-// arrives exactly when every process holding it is gone. Events, never a
-// duration.
+// holder is a FIFO a command's sleep holds open for writing. The test opens it
+// both ways before the command runs, reads "started" once the sleep is up, then
+// lets go of its own write end and reads to EOF, which arrives exactly when
+// every process holding it is gone. Events, never a duration.
+//
+// The test's write end keeps the read end from waiting on the command's: on
+// macOS a reader blocked in open goes back to sleep if every writer has closed
+// before it wakes, as they have once a command that leaves the sleep behind
+// exits.
 type holder struct {
 	path string
 	line chan string
@@ -139,17 +143,20 @@ func newHolder(t *testing.T) *holder {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "held")
 	require.NoError(t, syscall.Mkfifo(path, 0o600))
+	// O_RDWR never waits for a reader.
+	w, err := os.OpenFile(path, os.O_RDWR, 0)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = w.Close() })
+	r, err := os.OpenFile(path, os.O_RDONLY, 0)
+	require.NoError(t, err)
 	h := &holder{path: path, line: make(chan string, 1), gone: make(chan struct{})}
 	go func() {
 		defer close(h.gone)
-		r, err := os.OpenFile(path, os.O_RDONLY, 0)
-		if err != nil {
-			return
-		}
 		defer r.Close()
 		br := bufio.NewReader(r)
 		l, _ := br.ReadString('\n')
 		h.line <- l
+		_ = w.Close()
 		buf := make([]byte, 64)
 		for {
 			if _, err := br.Read(buf); err != nil {
