@@ -15,6 +15,7 @@
 package chatsvc
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -23,6 +24,8 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 )
 
 // seedGrant writes a chat_grants row holding rule as given.
@@ -68,7 +71,7 @@ func TestAGrantWithAnUnknownKeyRefuses(t *testing.T) {
 func TestTheSessionCarriesTheContextsMode(t *testing.T) {
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
-	sess := s.sessionFor(c.ID, false)
+	sess := s.sessionFor(c.ID, false, false)
 
 	assert.Equal(t, permissions.Ask, sess.Policy(t.Context(), "dev").Mode)
 	require.NoError(t, s.security.SetDefaultMode(permissions.Auto))
@@ -142,4 +145,30 @@ func TestAChatsGrantsAreListedAndRemoved(t *testing.T) {
 	assert.ErrorIs(t, err, ErrChatGone)
 	_, err = s.addGrant(ctx, c.ID, rule)
 	assert.ErrorIs(t, err, ErrChatGone)
+}
+
+// The chat's network switch is read at each command, so one turned on or off
+// mid-turn reaches the next command; a read that fails, or a chat that is gone,
+// gives no network.
+func TestTheSwitchIsReadLive(t *testing.T) {
+	s := newTestService(t)
+	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
+	c := seedChat(t, s.db, aChat("1", time.Now()))
+	sess := s.sessionFor(c.ID, false, false)
+	assert.Empty(t, sess.Network(t.Context()))
+
+	_, err := s.SetNetworkEnabled(t.Context(), c.ID, true)
+	require.NoError(t, err)
+	assert.Equal(t, session.NetworkChat, sess.Network(t.Context()))
+	assert.Equal(t, session.NetworkChat, s.sessionFor(c.ID, false, true).Network(t.Context()), "the switch names itself over the toggle")
+
+	failed, cancel := context.WithCancel(t.Context())
+	cancel()
+	assert.Empty(t, sess.Network(failed))
+	assert.Empty(t, s.sessionFor(ChatID(appdb.NewID()), false, false).Network(t.Context()))
+
+	_, err = s.SetNetworkEnabled(t.Context(), c.ID, false)
+	require.NoError(t, err)
+	assert.Empty(t, sess.Network(t.Context()))
+	assert.Equal(t, session.NetworkTurn, s.sessionFor(c.ID, false, true).Network(t.Context()))
 }

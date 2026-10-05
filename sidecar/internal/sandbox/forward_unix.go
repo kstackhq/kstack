@@ -44,6 +44,11 @@ func InitMain(args []string) int {
 	if err != nil {
 		return fail(os.Stderr, InitCommand, "bad arguments", err)
 	}
+	if a.stderrOnStdin {
+		if err := takeStderr(); err != nil {
+			return fail(os.Stderr, InitCommand, "cannot take the run's stderr", err)
+		}
+	}
 	if a.socket != "" {
 		// Before the child starts, so a command never races it.
 		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(a.port))
@@ -80,6 +85,30 @@ func InitMain(args []string) int {
 		return fail(os.Stderr, InitCommand, "cannot start "+a.argv[0], err)
 	}
 	return waitFor(pid, first)
+}
+
+// takeStderr puts the run's stderr, which sandbox-pasta passed on stdin, back
+// on stderr and the null device on stdin, then writes runStarted on the stderr
+// it replaced, which is sandbox-pasta's.
+func takeStderr() error {
+	pastas, err := unix.Dup(2)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(pastas)
+	if err := unix.Dup2(0, 2); err != nil {
+		return err
+	}
+	null, err := unix.Open(os.DevNull, unix.O_RDONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer unix.Close(null)
+	if err := unix.Dup2(null, 0); err != nil {
+		return err
+	}
+	_, err = unix.Write(pastas, []byte(runStarted))
+	return err
 }
 
 // waitFor waits for the child and answers how it ended. As a PID namespace's

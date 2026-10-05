@@ -42,8 +42,8 @@ This file states what is true now. Why it is that way lives in `docs/adr/`; ever
 
 `main.go` is lifecycle only; `internal/app` is the composition root and routing; GraphQL lives in `graph/`. No `server` package.
 
-`main()` first hands `os.Args` to `sandbox.Main`, which runs a `sandbox-init` or `sandbox-shell`
-command line (*Tools*, below), and exits with its code. Otherwise it does three things before `run`, in this order: tighten the
+`main()` first hands `os.Args` to `sandbox.Main`, which runs a `sandbox-pasta`, `sandbox-init` or
+`sandbox-shell` command line (*Tools*, below), and exits with its code. Otherwise it does three things before `run`, in this order: tighten the
 umask, parse the command line, and
 install the logger. Parsing comes first
 because `--log-file`/`--log-stderr` decide where records go. The shutdown signals are listened for
@@ -1297,7 +1297,11 @@ reads. **A `session.Session`** is one agent run's policy: its `Kind` (`Chat`, `S
 `Policy`, a function of a kube-context answering a `permissions.Policy` — the context's mode and the
 rules — read live on every write, which `chatsvc` sets to the security store's `ModeFor` and the
 chat's grants joined with the store's `Rules()` (`sessionFor`, `grants.go`), so a mode or rule
-changed in Settings applies to the next write, a running subagent's included.
+changed in Settings applies to the next write, a running subagent's included; and `Network`, the
+`session.Network` a sandboxed command starting now has — `NetworkChat` while the chat's
+`network_enabled` is set, read at each call, else `NetworkTurn` for the turn's toggle, else
+`NoNetwork`, a read that fails answering `NoNetwork` — nil for a session that never has it, which
+`sessionFor` alone sets, so a session built any other way (the monitor's) has none.
 The chat, the cluster and the workspace are not on it: the runtime's `ChatID`, `ClusterID` and
 `tools.WorkspacePath(rt.Dir)` are their one source, and policy that depends on the cluster is a
 function `chatsvc` builds knowing it. A turn builds its session (`turn.session()`); a
@@ -1355,12 +1359,16 @@ is the block alone, for a tool that saves on its own: KubeQuery does, since its 
 failed save is a render of whole rows, where `Fit`'s would cut one.
 
 **`internal/sandbox` is the machine's sandbox**, a leaf that knows no tool and no cluster.
-`Probe(ctx)` answers a `*Sandbox`, nil for none, and a `Status` (`Available`, `Reason`), which
-`app` logs, or `ctx`'s error when `ctx` ended first: a probe cut short is no verdict, and read as
+`Probe(ctx)` answers a `*Sandbox`, nil for none, and a `Status` (`Available`, `Reason`, and
+`NetworkAvailable` and `NetworkReason`: whether a sandboxed command can be given the internet,
+true wherever the sandbox is on macOS and only with a `pasta` that passed the probe on Linux),
+which `app` logs, or `ctx`'s error when `ctx` ended first: a probe cut short is no verdict, and read as
 one it would say there is no sandbox. `(*Sandbox).Command(ctx, Run)` is the process that runs a `Run` (`Shell`, `Args`,
 `Dir`, `Env`, the whole environment, and `Policy`) sandboxed, made by `exec.CommandContext` and
 not yet started, or an error and no command. `Confines()` is whether that confines it, and
-`Port()` the port a run's relay listens on. Whether a sandbox confined a call is its row's
+`Port()` the port a run's relay listens on. `NetworkStatus()` is the `Status`'s network pair, and
+`NeedsResolver()` whether a run with the internet needs a `resolv.conf` of its own (Linux), naming
+`ResolverAddress`. Whether a sandbox confined a call is its row's
 `tool_calls.sandboxed`, beside `cwd` and kept the same way, since it is not in the arguments. On
 Windows `Probe` answers none, `Command` answers `errNone`, and `System` and `Never` answer
 nothing: native Windows has no sandbox, and a Windows user who wants one runs the Linux build in
@@ -1379,7 +1387,10 @@ each platform compiles it without knowing what a path or a relay is for:
   paths open. **No Files rule opens an Always path**: it is not a Files Deny, which a deeper rule
   opens. So a Read of `~` never exposes `~/.ssh`.
 - **`Network`** (`NetworkPolicy`): the `Relays`, each a loopback port the forwarder connects to a
-  Unix socket outside the run. No relay is no network; a run has at most one.
+  Unix socket outside the run, a run having at most one; `Internet`, the internet with the host's
+  loopback shut; and `Resolver`, a `resolv.conf` the caller wrote for a run with `Internet`, bound
+  over the system's on Linux, `""` on macOS. The zero value is no network; a run can have the relay
+  and the internet both.
 - **`Limits`**: `CPUSeconds`, `MemoryBytes` (Linux alone; macOS's `Command` refuses one),
   `OpenFiles` and `Processes`, each a resource limit set soft and hard, zero for the platform's
   own. `CPUSeconds` has a hard limit `cpuGrace` (5 s) above its soft one. `Processes` is counted
@@ -1393,7 +1404,8 @@ each platform compiles it without knowing what a path or a relay is for:
 **`Check` refuses** a relative path; any rule or Always path strictly beneath a Write rule, Files
 or Always; a Files rule on or inside an Always path; a run's own path outside every Kstack path,
 on or inside a Deny, holding a Deny (the run's own paths compile last), or that is a link at its last component, since the profile resolves it and
-would open the link's target (`TestARunsOwnPathThatIsALinkIsRefused`); a second relay; a negative
+would open the link's target (`TestARunsOwnPathThatIsALinkIsRefused`); a `Resolver` without
+`Internet`, or one failing a run's own path's checks (`TestTheResolverIsChecked`); a second relay; a negative
 limit; and a memory or process limit with no open-files limit, since `sandbox-shell` execs under
 them without restoring the open-files limit the Go runtime raised. Every path is compared resolved, a missing one through
 its deepest folder that exists (`resolved`), since both sandboxes check a file at its real
@@ -1457,7 +1469,10 @@ first of `/usr/bin/bwrap`, `/bin/bwrap`, `/usr/local/bin/bwrap` and NixOS's
 `/run/current-system/sw/bin/bwrap` that exists, then Kstack's own, `../lib/kstack/bwrap` beside the
 executable (`src-tauri/CLAUDE.md`) (`bwrapPaths`; never off `PATH`), and answers the
 first that runs a shell through `Command` within five seconds (`probeBound`: it starts
-this executable twice). The probe's shell prints the first line of its `/proc/self/uid_map`, with
+this executable twice). Each probe, bwrap's and pasta's, runs in a process group of its own,
+killed whole at the bound (`runProbe`): pasta killed during setup leaves the child it made for
+the run's namespaces spinning and holding the probe's pipes, and the probe would wait on them
+forever. The probe's shell prints the first line of its `/proc/self/uid_map`, with
 builtins alone; a line that differs from the sidecar's means the run had a user namespace of its
 own (`ownUserNS`), and `Probe` keeps whether the kernel's release is 5.14 or later
 (`perNamespace`), the two `CountedProcesses` reads. A failure's reason is the first line it wrote, naming the cause
@@ -1480,10 +1495,43 @@ holds the tree's own link — a denied folder's tmpfs hides that link, so it is 
 tmpfs, whichever of the two is mounted first (`TestALinkInsideADenialLeadsToItsRead`), a Read already readable
 under an earlier Read not bound again (the fixed mounts hide what lies under them, as a denial does), the run's own paths bound as written, a denied folder an
 empty tmpfs and a denied file `/dev/null`; `--remount-ro /`, then each denied folder remounted read-only after the binds
-made inside it; then the chain, `<self> sandbox-init [--socket <S> --port <P>] -- <self>
+made inside it — the resolver's bind just before them for a run with `Internet` — then the chain, `<self> sandbox-init [--socket <S> --port <P>] -- <self>
 sandbox-shell [--cpu <C>] [--files <F>] [--memory <M>] [--processes <N>] -- <Shell> <Args…>`. A Deny whose path is missing when the run starts covers
 nothing, since a mount needs a path. `/run` and `/var` are never mounted, so the runtime
 directory, the host's socket and a sibling run's kubeconfig are out of reach.
+
+**A run with `Internet` starts under `pasta`** (`network_linux.go`): `<self> sandbox-pasta --
+<pasta> --config-net --quiet --no-map-gw -t none -u none -T none -U none --dns-forward
+169.254.1.53 -- <bwrap> …`, its bwrap arguments a run's less `--unshare-user-try` and
+`--unshare-net`, with `--unshare-user --uid <uid> --gid <gid> --cap-drop ALL` in their place and
+`--stderr-on-stdin` on `sandbox-init`: pasta makes a user and network namespace and starts
+bwrap as its uid 0, so bwrap makes the run a user namespace of its own, as the user, holding no
+capability. `--no-map-gw` and `-T none -U none` map and forward nothing to the host's loopback;
+the namespace's own loopback is the run's, as without `Internet`. `Command` refuses `Internet`
+without a pasta that passed the probe, and without a `Resolver`, which it binds read-only
+(`--ro-bind`) after every rule and fixed mount and before `--remount-ro`, at the host's
+`/etc/resolv.conf` as resolved now (`resolverTarget`, `hostResolvConf` the test's seam), so the
+link the run reads leads to it; a target that would replace a fixed mount or lies under a denial
+refuses the run. **`sandbox-pasta` keeps pasta's own output out of the run's**
+(`sandbox.PastaMain`, `pasta_linux.go`), since an older pasta writes notices on stderr whatever
+`--quiet` says: it starts pasta with the run's stderr on stdin, which pasta and bwrap pass on as
+they pass every standard stream (pasta closes any other), and pasta's stderr on a pipe it reads.
+`sandbox-init` puts the run's stderr back on fd 2 and the null device on stdin, then writes
+`runStarted` on the pipe; what pasta and bwrap wrote reaches the run's stderr, up to 64 KiB, only
+when that never came. It exits with pasta's code, catches and drops the stop signals as the
+forwarder does, and takes pasta with it when killed alone (`Pdeathsig`). A group stop ends
+pasta, bwrap and the command, and pasta killed alone takes the rest with it; pasta passes the
+command's exit on, but a group SIGTERM leaves it exiting 0.
+**The probe finds `pasta`** as it finds bwrap (`systemPastas`: `/usr/bin/pasta`, `/bin/pasta`,
+`/usr/local/bin/pasta`, `/run/current-system/sw/bin/pasta`, never off `PATH`), once bwrap has
+passed, and runs a shell through it under `probeBound` with every flag a run passes but
+`--config-net`, and `probeNet` in its place — an interface, addresses and a MAC of its own — so
+it reads no route, on a pasta that will not start without one too, and a Kstack started offline
+still offers network (`probePasta`, `tryPasta`). The shell prints its `uid_map`, `Uid`, `Gid` and `CapEff` with
+builtins alone, and the probe fails unless they are the user's and zero; its `uid_map` is
+`pastaOwnUserNS`, which `CountedProcesses(true)` reads. A failure is `NetworkReason`, the first line
+pasta wrote (`pasta not found` with none). pasta forwards a run's queries to the host's first
+resolver, loopback included (systemd-resolved's stub), read from `/etc/resolv.conf`.
 
 **On macOS it is Seatbelt** (`sandbox_darwin.go`): `Probe` finds `/usr/bin/sandbox-exec` and runs
 `/usr/bin/true` under `probePolicy`, bounded by five seconds (`probeTimeout`: the forwarder
@@ -1519,11 +1567,22 @@ pushed into a terminal (`TIOCSTI`) is run outside the sandbox by whatever reads 
 (`TestATerminalIsUnreachable`), a listing of `/` itself (dyld opens it at launch and aborts every
 program when it cannot), and writes to `/dev/null` and `/dev/fd`; `file-read-metadata` on every
 ancestor of a Read or Write rule, after every Deny, so the workspace resolves under the denied
-data directory; one Mach service (`com.apple.system.opendirectoryd.libinfo`); and for a run with
-a relay, bind, inbound and outbound on `localhost:<port>` over TCP on IPv4 alone (`tcp4`, the
+data directory; one Mach service (`com.apple.system.opendirectoryd.libinfo`); for a run with
+`Internet`, `internetRules`: outbound to every address over `ip4`, then a deny of `localhost`
+under `ip4`, which Seatbelt matches against every address the host holds, then a deny of all of
+`ip6`, since Seatbelt cannot name the IPv4-mapped forms of the host's addresses — so such a run
+has IPv4 alone, and the `localhost` deny holds only with the `ip6` deny after it
+(`TestTheInternetReachesNoHostLoopback`, `TestTheInternetIsIPv4Only`, [the
+record](../docs/security/2026-10-04-a-macos-run-with-the-internet-has-ipv4-only.md)) — then the
+resolver's socket and the two services a run with the internet needs, `com.apple.dnssd.service`
+and `com.apple.trustd.agent`, which fetches a certificate's issuer and OCSP URLs from outside the
+sandbox and so opens with the network alone (`TestTrustFetchesNothingWithoutTheInternet`;
+`Command` refuses a `Resolver`, since the run resolves through mDNSResponder); and for a run with
+a relay, after them, bind, inbound and outbound on `localhost:<port>` over TCP on IPv4 alone (`tcp4`, the
 one endpoint the forwarder holds; `ip` would take in UDP and IPv6 at that number) and outbound to
-the socket (`relayRules`), and no other network. So the per-user temp directories and `/tmp` are unreadable, and a run with no
-relay has no network; xcrun's cache reaches a run as a copy in its `TMPDIR` instead. **`refusedServices` is what no profile names**, by name or by prefix:
+the socket (`relayRules`), and no other network. Seatbelt's remote filters name `localhost` or `*`
+and no other host, so the rest of the local network is open with the internet. So the per-user temp directories and `/tmp` are unreadable, and a run with no
+relay and no internet has no network; xcrun's cache reaches a run as a copy in its `TMPDIR` instead. **`refusedServices` is what no profile names but a run with the internet's**, by name or by prefix:
 lookups, the Keychain, LaunchServices, Apple Events, the pasteboard, Spotlight and the services
 that fetch for their caller; `user-preference-read` and `-write` are never allowed either. A
 process spawned out of its group (`posix_spawn` with `POSIX_SPAWN_SETSID`, which Seatbelt cannot
@@ -1565,7 +1624,10 @@ pathname socket in any directory the run reads; io_uring
 `ENOSYS`, `unshare` and `clone` with `CLONE_NEWUSER` `EPERM`, and `clone3`, whose flags it cannot
 read, `ENOSYS`, on which glibc falls back to `clone`; tracing (`ptrace`, `process_vm_readv`,
 `process_vm_writev`, `pidfd_getfd`, `kcmp`, `process_madvise`) and the kernel keyring (`keyctl`,
-`add_key`, `request_key`), which a run inherits from the user's session, `EPERM`. After the filter
+`add_key`, `request_key`), which a run inherits from the user's session, `EPERM`; and every mount
+syscall (`mount`, `umount2`, `pivot_root`, `open_tree`, `move_mount`, `fsopen`, `fsconfig`,
+`fsmount`, `mount_setattr`) `EPERM`, on every run, since bwrap has made every mount before the
+filter and a capability that slipped through must not unmount a denial. After the filter
 it sets `--cpu` and `--files` (`setTimeAndFiles`, `shell_unix.go`), each clamped to its own hard
 limit (`setClamped`: a stricter machine stays stricter), CPU's hard one `cpuGrace` above. **Given
 `--memory` or `--processes`** it then sets `RLIMIT_NPROC`, then `RLIMIT_AS`, clamped the same way,
@@ -1600,7 +1662,8 @@ goes through `testutil.RequireSandbox`.
 `main` reaches through `sandbox.Main` before it reads a flag of its own; `sandbox.ForwarderArgs`
 is the one writer of its command line. `sandbox.ExitCode` is how a process ended as a shell reports it,
 bash's included. `--socket` and `--port` come together or not at all: a run with no cluster
-passes neither, and its forwarder listens on nothing. It sets the core size to zero before the
+passes neither, and its forwarder listens on nothing. `--stderr-on-stdin`, set under
+`sandbox-pasta`, takes the run's stderr from stdin before anything else (`takeStderr`). It sets the core size to zero before the
 child starts, so no process of a run dumps a core, and no other limit: those are
 `sandbox-shell`'s. `sandbox.Main` gives it one P (`GOMAXPROCS(1)`), which keeps its threads
 within `forwarderTasks`. With a socket it listens on
@@ -1915,10 +1978,14 @@ A name the box lacks is answered `unknown-tool` with no `ToolCallStarted`.
 lookup and before `ToolCallStarted`: an error is answered `bad-input` with nothing started —
 or, for a `*tools.Refusal`, with the result it carries — and otherwise `Approver.Approve(ctx, call, approval)` decides. A `tools.Approval` is what the gate
 records on the call's row: `Cwd`, where it will start (`''` for a tool that runs nowhere),
-`Sandboxed`, whether a sandbox confines it, and `Skip`, which runs the call with nothing put to the approver, so its row is an ungated call's —
-no approval, `is_mutating` 0. `gate` hands the approval on to `ToolCallStarted`, asked or
+`Sandboxed`, whether a sandbox confines it, `Skip`, which runs the call with nothing put to the approver, so its row is an ungated call's —
+no approval, `is_mutating` 0 — and `Network`, the `session.Network` a sandboxed call runs with
+(`NetworkChat`, `NetworkTurn`, or `NetworkApproved`, which holds once the user approves; `NoNetwork`
+for none). `gate` hands the approval on to `ToolCallStarted`, asked or
 skipped (the zero value for an ungated tool), so a skipped call's row still says where and how it
-ran. The zero value asks, so a tool that forgets asks; Bash,
+ran, and to the run: **a `tools.ApprovedRunner`** (`RunApproved(ctx, rt, input, approval)`) is run
+by it in place of `Run`, so what runs is what the gate decided whatever the session says by then;
+Bash is one. The zero value asks, so a tool that forgets asks; Bash,
 `Read`, `Write`, `Edit`, `WebFetch` and `Memory` set it. What the user decides on is the call's action, read
 from its arguments by the tool (*Tools*, above). A
 no is answered `denied` and the next call is asked; a yes checks the turn's cancel once more,
@@ -1977,7 +2044,10 @@ fake, a test tool and a logging recorder.
 >
 > - The record: the types, the statements and row helpers, `Get`, `List`, `Rename` (the
 >   title trimmed, refused empty or over `maxTitleLen`), `SetSandboxDisabled` (the user's
->   switch, `ErrBadRequest` on a machine with no sandbox, `updated_at` left alone), `Delete`,
+>   switch, `ErrBadRequest` on a machine with no sandbox, `updated_at` left alone, and leaving
+>   the sandbox turns the network switch off in the same write), `SetNetworkEnabled` (the
+>   network switch, `ErrBadRequest` turning it on where network is unavailable or while the
+>   chat is outside the sandbox, `updated_at` left alone), `Delete`,
 >   the two watches, and the chat sweeper.
 > - The lifecycle: `Start` fails the stranded runs, closes their model and tool calls
 >   (`{"error":"stranded"}` on a tool call) and starts the sweeper; `stop` cancels the turns and joins them with the pumps and the sweeper.
@@ -2115,7 +2185,11 @@ write its sandboxed command sent (below) — and
 `background_tasks`, one row per command started in the background (*Background commands*, below),
 and `chat_grants`, the rules that last for a chat (below). In Go and on the wire a chat is a `Chat` with a `ChatID`, and a message a
 `ChatMessage` with a `MessageID`. A chat carries `sandbox_disabled`, the user's switch
-(`Chat.SandboxDisabled`, 0 at creation), and a `mode` column — which of the app's two modes lists it, fixed at creation and checked by
+(`Chat.SandboxDisabled`, 0 at creation), `network_enabled`, the user's network switch
+(`Chat.NetworkEnabled`, 0 at creation, written by `SetNetworkEnabled`, which refuses turning it on
+with `ErrBadRequest` where `sandbox.Status.NetworkAvailable` is false or while `sandbox_disabled`
+is set, and always accepts off; `SetSandboxDisabled(true)` clears it in the same statement, so the
+switch is on only while the chat is in the sandbox and a chat back in it starts without network), and a `mode` column — which of the app's two modes lists it, fixed at creation and checked by
 the column, since each mode shows only its own chats — and a `cluster_id`, the `clusters` row it
 was started under, fixed at creation too: each cluster lists only its own chats. It references
 `clusters(id)` with `ON DELETE CASCADE` as a backstop; the sweeper (below) empties a marked cluster
@@ -2156,9 +2230,13 @@ user message. A chat has no dialect of its own. The read is `messages LEFT JOIN 
 same `scanMessage`. **`FinishReason` is the run's latest non-null `llm_calls.stop_reason` by
 `seq`**, a correlated subselect, on every run status.
 
-**A send is one transaction** (`Send` → `writeTurnRows`): after the replay lookup, `checkChat` —
-which reads the chat's switch and refuses a send whose `sandboxDisabled` differs with
-`ErrChatSandboxChanged`, so the turn runs where its sender saw it would — and `resolveChat`, it reserves the turn with a fresh `RunID`, reads `nextSeq`, and inserts the user
+**A send is one transaction** (`Send` → `writeTurnRows`): after the replay lookup — and, outside
+the transaction, `ErrBadRequest` for `networkThisTurn` where network is unavailable — `checkChat`,
+which answers the chat, and the send refuses one whose `sandboxDisabled` differs with
+`ErrChatSandboxChanged` and one whose `networkEnabled` differs with `ErrChatNetworkChanged`, so the
+turn runs where and with what its sender saw — and `resolveChat`, it reserves the turn with a fresh
+`RunID`, pins its switch and its toggle (`turn.outsideSandbox`, `turn.networkThisTurn`), which
+`turn.session()` hands `sessionFor`, reads `nextSeq`, and inserts the user
 message carrying the client's `request_key`, the queued run, and the assistant message with
 `emptyContent` (`[]`) and the run's id — in that order, since each references the last. IDs are
 minted inside the transaction. **The turn is the agent's recorder** (`turn.go` implements
@@ -2270,7 +2348,8 @@ chat. → [ADR: every tool is in the box](../docs/adr/2026-09-24-every-tool-is-i
 **A turn can run a command, once the user says so.** Bash is one tool in the box `chatsvc.New`
 takes, like any other, and every turn on a model that takes tools is offered the same `bash.Tool`,
 given its chat. **`app.go` offers it wherever `bash.New` finds a shell** (over the sandbox `New` probed, which it logs; `sandboxStatusOf`
-builds the one `sandbox.Status` from both, available only with a shell and a sandbox, which
+builds the one `sandbox.Status` from both, available only with a shell and a sandbox — a sandbox
+with no shell clears the network answer with it (`TestNoShellOffersNoNetwork`) — which
 `chatsvc.New` and `graph.Resolver` take; `chatTools`, the one
 `tools.NewBox`), then Read, Memory, Write, Edit, WebFetch, TaskStop, the provider's web search and KubeQuery; a machine with none is
 offered Read, Memory, Write, Edit, WebFetch, the search and KubeQuery, and reads bash's stored calls through `bash.Reader`. Read, Write and Edit take Kstack's three
@@ -2295,7 +2374,17 @@ in for it, set only for a non-nil `*sandbox.Sandbox`. A call is **sandboxed** wh
 and its runtime's `Session.Outside` is false: the model has no say. `sandboxerFor(rt)` is that test, which `Approval`, `startDir`, `runCall` and `runTask` all ask, and a sandboxed
 call's `spec.sandboxedRun` (a `sandboxedRun`: the sandboxer, the run's directory and the `sandbox.Run`) makes
 `shellCmd` build the command through `Command` (foreground and background alike). `Approval`'s `Sandboxed` is true only for a sandboxed call on a sandbox that
-`Confines`, and so is its `Skip`: such a call runs unasked, and every other call asks.
+`Confines`, and so is its `Skip`: such a call runs unasked, and every other call asks — but for
+the network. **`Approval.Network` is decided for a sandboxed call alone** (`networkFor`, first row
+wins): where the sandbox's `NetworkStatus` says none, a call that asks is a `*tools.Refusal`
+naming why and any other skips with none, so a switch left on where network is gone gives none; a
+session with a nil `Network` refuses a call that asks (*This session never has network.*) and skips
+any other; the session's `NetworkChat` or `NetworkTurn` skips with it; and a call that asks with
+neither asks the user, its network `NetworkApproved`. A call outside the sandbox records none. **The run takes the
+approval** (`RunApproved`, the loop's call; `Run` runs as if no gate gave network), and
+`sandboxedRunFor` sets `Policy.Network.Internet` from it, reads `CountedProcesses(internet)`, and
+where `NeedsResolver` says so writes `resolv.conf`, `nameserver <sandbox.ResolverAddress>`, in the
+run's own directory as its `Resolver`. A background command keeps the network it started with.
 → [ADR: the sandbox is the gate for a sandboxed command](../docs/adr/2026-09-28-the-sandbox-is-the-gate-for-a-sandboxed-command.md).
 **A sandboxed run carries its own directory, environment and kubeconfig** (`sandboxedRunFor`; a
 `sandboxedRun` on the `spec`). Its directory (`rundir.go`) is
@@ -2427,7 +2516,7 @@ token, a helm change, a change past 1 MiB and a background command's change come
 `[redacted]`; and that `sudo` does not work, a command's processes are limited, one past its CPU
 time is killed with exit 152, and a crash that cannot create a thread hit the count.
 **A `Tool` is the `tools.Gated` a turn is offered**, matched to Claude Code's `Bash`: `Definition` is a function named `Bash` whose
-schema (`prompts/schema.json`), one with a sandbox or without, takes `command`, `description`, `timeout` (milliseconds), `run_in_background` and `workdir` —
+schema (`prompts/schema.json`), one with a sandbox or without, takes `command`, `description`, `timeout` (milliseconds), `run_in_background`, `network` (a sandboxed command asking for the internet, which `CommandAction.Network` carries) and `workdir` —
 never the reference's `dangerouslyDisableSandbox`, so leaving the sandbox is the user's switch — and whose description is `prompts/description.md`. The schema's `description` property is Kstack's
 own: the user reads the description *above the command* on the approval request, so it names
 what the command changes and where, and never calls a command safe — the model's claim is never
@@ -2569,9 +2658,13 @@ preview's edge is redacted in both. **A failed save, or a `Tool.Run` with no pla
 offered), falls back to the cut, its note ending `; the output could not be saved`. A
 bash that could not start answers `could not start: <reason>` alone, the reason through
 `safe.String`, so the model can tell a command that never began from one that ran. **A confined
-run that ran, was not stopped, and failed** ends with `sandboxLine`, `(Ran in the sandbox: …)`, as
-`Fit`'s trailer, so the model knows the sandbox may be why; a timeout, a cancel and a `could not
-start` carry none. Redaction
+run that ran, was not stopped, and failed** ends with `sandboxLine`, `(Ran in the sandbox: no
+network, …)` or `with network` for a run with the internet, its cluster changes going *as the
+user's permissions decide*, as `Fit`'s trailer, so the model knows the sandbox may be why; a
+timeout, a cancel and a `could not start` carry none. `resultText` reads a `confinement`
+(`unconfined`, `confined`, `confinedWithInternet`): **a stopped run with the internet has no exit
+code in its header** (*Command timed out after 30s*, *Command cancelled*), since it ended as pasta
+did, which a group stop ends with 0. Redaction
 over 8 MiB takes seconds (`docs/TODO.md`), inside `callMargin` and the snapshot's allowance.
 
 **`internal/tools/read` is `Read`**, the reference's: any regular text file the user approves,
@@ -2759,9 +2852,10 @@ question instead: no chain runs past the turn an agent's end starts. That is `st
 without a sender: one transaction that reads the notices, resolves the last answer's provider,
 model and effort, makes every check a send makes, reserves the turn, files a user message of
 the notices alone (no request key, no card), marks them told and touches the chat. It carries a
-context block only when the chat's switch moved since the newest one: that block with its
-`## Sandbox` section replaced (`withSandboxReplaced`, `workspace.go`), so the model knows where the turn's
-commands run. A cancelled
+context block only when the chat's switches moved since the newest one: that block with its
+`## Sandbox` section replaced (`withSandboxReplaced`, `workspace.go`, which finds the section by its
+heading), so the model knows where the turn's commands run and what they reach; a
+notice turn has no toggle. A cancelled
 or failed turn kicks nothing, and nothing kicks at startup.
 
 **`internal/tools/taskstop` is `TaskStop`**: ungated, reading `rt.Tasks`, `task_id` read by a strict
@@ -2790,7 +2884,9 @@ refuses the call `not-run`, and the in-memory approval keeps `pending`, since **
 only what landed** and `Settled` writes every row and approval again from it. **One row per
 call**: `t.openTool` is the row `Approve` or `ToolCallStarted` opened — a row `ToolCallStarted`
 mints takes `cwd` and `sandboxed` off the approval it is handed; `ToolCallStarted` writes
-a copy `running` with `started_at` and takes it only once it lands, so a failed start write
+a copy `running` with `started_at` and the approval's `network` — `tool_calls.network`, `chat`,
+`turn` or `approved`, NULL for none, written on this row alone, so a call that waited and was denied
+keeps NULL, and `stmtUpsertToolCall` updates it — and takes it only once it lands, so a failed start write
 leaves `started_at` NULL; `ToolCallFinished` closes whichever row is open, or mints one for a
 call refused before any row existed, `denied` for the loop's `denied` refusal on a gated row.
 The sweep closes a stranded
@@ -2973,8 +3069,9 @@ turn's status, and the call rows are where usage and timing are read.
   overlaid, so a retry landing mid-answer carries the text so far. **The key goes with its
   message**: a retry after the chat is deleted is a fresh send — a create-shaped one makes a new
   chat, and one naming the deleted chat is `ErrChatGone` from `checkChat`.
-- Six named errors, each mapped to a stable code by the GraphQL layer (below): `ErrBadRequest`,
-  `ErrTurnInFlight`, `ErrChatGone`, `ErrClusterGone`, `ErrStopping`, `ErrChatContextFull`.
+- Eight named errors, each mapped to a stable code by the GraphQL layer (below): `ErrBadRequest`,
+  `ErrTurnInFlight`, `ErrChatGone`, `ErrClusterGone`, `ErrStopping`, `ErrChatContextFull`,
+  `ErrChatSandboxChanged`, `ErrChatNetworkChanged`.
   `Cancel` and `Delete` on an unknown chat are no-ops.
 - **Every send into an existing chat checks the chat fits the model it names** (`roomFor` in
   `context.go`, inside the transaction after `checkChat` and before anything is written), and so
@@ -3127,12 +3224,16 @@ question's `context` block is the card, then the notes as its `## Memory` sectio
 `{"unavailable":true}`), then the chat's workspace as its `## Workspace` section, `{"path": …}`
 (`withWorkspace`, `workspace.go`), since the file tools take absolute paths alone, then, on a
 machine with a sandbox, where its commands run as its `## Sandbox` section,
-`{"commands":"sandboxed"}` or `{"commands":"outside"}` (`withSandbox`, beside it). Those two are
+`{"commands":"sandboxed","network":…}` or `{"commands":"outside"}` (`withSandbox`, beside it, over a
+`sandboxState`), `network` being `off`, `on for this chat`, `on for this message` or `unavailable on
+this machine` (`networkValue`, the switch over the toggle) and absent outside the sandbox, where the
+switch changes nothing. Those two are
 appended inside the transaction, once `resolveChat` has answered the chat's id, under the cluster
-`checkChat` answers the chat is filed under, never the send's argument, with the switch it read off
-the same row (false for a chat the send creates); the path is fixed
-for the chat, so it changes the block on the chat's first send alone, and a switch changes it on the
-next question. A nil `Memories`, which only tests pass, sends the card alone. `Send`
+`checkChat` answers the chat is filed under, never the send's argument, with the switches it read off
+the same row (off for a chat the send creates) and the send's toggle; the path is fixed
+for the chat, so it changes the block on the chat's first send alone, and a switch or a toggle
+changes it on the next question, a question after one sent with the toggle saying `off` again.
+A nil `Memories`, which only tests pass, sends the card alone. `Send`
 renders both before its transaction (`service.contextText`), for the chat's stored cluster,
 which a turn's tools also reach (`Runtime.ClusterID`, from `chatOf`, one read of the
 chat), and which the subagents it spawns reach too
@@ -3240,12 +3341,13 @@ transaction**; the resolver forwards the send and maps the refusal, so `ErrClust
 the client as `KSTACK_RECORD_NOT_FOUND`. A repeat is answered ahead of that check, by its key.
 `clusterDelete` marks the cluster and nothing more; the sweeper deletes its chats.
 
-**The wire surface is seven mutations, two queries and two watches**: `chatSend`, `chatCancel`, `chatRename`,
-`chatSandboxDisabledSet` (the switch, spelled as `clusterEnabledSet` is), `chatDelete`,
+**The wire surface is eight mutations, two queries and two watches**: `chatSend`, `chatCancel`, `chatRename`,
+`chatSandboxDisabledSet` (the switch, spelled as `clusterEnabledSet` is), `chatNetworkEnabledSet`
+(the network switch), `chatDelete`,
 `approvalDecide` (an `ApprovalID` and the `ApprovalDecision` — `Once`, `Command`, `Chat`, `Always`
 or `Deny`; true when the decision reached a waiting turn), `chatGrantRemove` (one of a chat's rules,
 with the `chatGrants` query), `sandbox` (the `sandbox.Status` the app built, fixed for the sidecar's life, which
-`graph.Resolver.SandboxStatus` holds), `chatsWatch` and `chatMessagesWatch(chatID)`. A mutation is named for what it
+`graph.Resolver.SandboxStatus` holds, its `networkAvailable` and `networkReason` the network pair), `chatsWatch` and `chatMessagesWatch(chatID)`. A mutation is named for what it
 acts on, so the decision is the approval's, not the chat's, though chat's turns are what wait on
 one today. A cluster's deletion reaches here
 through the sweeper: the chats filed under a marked cluster go with it. Every window reads the list
@@ -3259,7 +3361,8 @@ reason rides the same `watchFailed` extension the cluster watches use.
 `finishedAt` unwraps the `sql.NullTime` the record holds so a watch can diff with `==`, and
 gqlgen has no marshaler for it; `toolCalls` parses the one string the record carries
 (`ChatMessage.ToolCallList()`) into `ToolCall`s, which bind 1:1, with `ToolCallID` a scalar
-of its own and `ToolCallStatus` bound member by member like the other enums; `thinking` is `llm.Thinking` over the message's content blocks —
+of its own and `ToolCallStatus` and `ToolCallNetwork` (`ToolCall.network`, why a sandboxed call
+reached the internet, null for none) bound member by member like the other enums; `thinking` is `llm.Thinking` over the message's content blocks —
 `ChatMessage.Thinking()`, empty for a question and for content that does not parse — so the
 webview reads a summary without learning a provider's block shape; `provider` is the row's id labelled by itself, the
 stand-in for a provider the catalog lacks, which every provider is until the catalog exists —
@@ -3291,6 +3394,8 @@ it concurrently.
 | `ErrTurnInFlight` | `ErrConflict` | `KSTACK_CONFLICT` |
 | `ErrStopping` | `ErrServiceUnavailable` | `KSTACK_SERVICE_UNAVAILABLE` |
 | `ErrChatContextFull` | `ErrChatContextFull` | `KSTACK_CHAT_CONTEXT_FULL` |
+| `ErrChatSandboxChanged` | `ErrChatSandboxChanged` | `KSTACK_CHAT_SANDBOX_CHANGED` |
+| `ErrChatNetworkChanged` | `ErrChatNetworkChanged` | `KSTACK_CHAT_NETWORK_CHANGED` |
 | `llm.ErrBadRequest` | `ErrValidationError` | `KSTACK_VALIDATION_ERROR` |
 | `llm.ErrModelUnavailable` | `ErrConflict` | `KSTACK_CONFLICT` |
 

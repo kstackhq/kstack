@@ -62,14 +62,16 @@ CREATE TABLE clusters (
 -- backstop: the sweeper empties a marked cluster before its row goes. A chat has no
 -- dialect of its own: each run records the one it ran on. title is NULL until
 -- something sets one; the service reads it as ''. sandbox_disabled is the user's switch:
--- 1 runs the chat's commands outside the sandbox, each asking first. updated_at moves
--- when a message is posted or a run settles, never on a reconcile or a switch.
+-- 1 runs the chat's commands outside the sandbox, each asking first. network_enabled is
+-- the other: 1 gives the chat's sandboxed commands the internet. updated_at moves when a
+-- message is posted or a run settles, never on a reconcile or a switch.
 CREATE TABLE chats (
   id               TEXT    PRIMARY KEY,
   cluster_id       TEXT    NOT NULL REFERENCES clusters(id) ON DELETE CASCADE,
   mode             TEXT    NOT NULL CHECK (mode IN ('chat', 'dashboard')),
   title            TEXT,
   sandbox_disabled INTEGER NOT NULL DEFAULT 0 CHECK (sandbox_disabled IN (0, 1)),
+  network_enabled  INTEGER NOT NULL DEFAULT 0 CHECK (network_enabled IN (0, 1)),
   created_at       INTEGER NOT NULL,
   updated_at       INTEGER NOT NULL
 ) STRICT, WITHOUT ROWID;
@@ -238,8 +240,11 @@ CREATE UNIQUE INDEX llm_calls_run_idx ON llm_calls (run_id, seq);
 -- that did not reach the gate and on a tool that runs nowhere. It is stored
 -- because the home it was resolved against can change between runs. sandboxed
 -- is whether a sandbox confined the call, written and kept the same way: whether
--- the machine had one is not in the arguments. Everything else a call does is
--- read again from arguments by its own tool.
+-- the machine had one is not in the arguments. network is the network a sandboxed
+-- call ran with — 'chat' for the chat's switch, 'turn' for the turn's toggle,
+-- 'approved' for its own request — NULL for none and NULL until it runs: it is written
+-- on the row that marks the call running, so a call that asked and was denied keeps
+-- NULL. Everything else a call does is read again from arguments by its own tool.
 --
 -- tool_name is the tool's name in the box and contract_name whose shapes it
 -- uses: a tool of ours by the name it is offered under, with contract_name NULL,
@@ -268,6 +273,7 @@ CREATE TABLE tool_calls (
   arguments      TEXT,
   cwd            TEXT    NOT NULL DEFAULT '',
   sandboxed      INTEGER NOT NULL DEFAULT 0 CHECK (sandboxed IN (0, 1)),
+  network        TEXT    CHECK (network IN ('chat', 'turn', 'approved')),
   result         TEXT,
   error          TEXT,
 

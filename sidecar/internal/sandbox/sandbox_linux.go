@@ -25,6 +25,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -50,11 +51,15 @@ func Probe(ctx context.Context) (*Sandbox, Status, error) {
 	if err != nil {
 		return nil, Status{Reason: "cannot find its own executable"}, nil
 	}
-	s, status := probe(ctx, self, bwrapPaths(filepath.Dir(self), systemBwraps), probeBound)
+	s, v := probe(ctx, self, bwrapPaths(filepath.Dir(self), systemBwraps), probeBound)
+	if s != nil {
+		s.probePasta(ctx, systemPastas, probeBound)
+		v.NetworkAvailable, v.NetworkReason = s.NetworkStatus()
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, Status{}, err
 	}
-	return s, status, nil
+	return s, v, nil
 }
 
 // probe tries each of bwraps in order and answers the first that passes, or
@@ -108,7 +113,7 @@ func (s *Sandbox) try(ctx context.Context, bound time.Duration) (string, error) 
 	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
-	err = cmd.Run()
+	err = runProbe(cmd)
 	switch {
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return "", fmt.Errorf("no answer in %s", bound)
@@ -119,6 +124,21 @@ func (s *Sandbox) try(ctx context.Context, bound time.Duration) (string, error) 
 		return "", errors.New(line)
 	}
 	return "", err
+}
+
+// probeWaitDelay bounds the wait for a probe's output once its group is gone,
+// for a process that left the group holding a pipe.
+const probeWaitDelay = time.Second
+
+// runProbe runs a probe's cmd in a process group of its own and, past its
+// context, kills the group rather than cmd alone. pasta killed during setup
+// leaves the child it made for the run's namespaces spinning in the group,
+// holding cmd's pipes, and nothing else ends it.
+func runProbe(cmd *exec.Cmd) error {
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return unix.Kill(-cmd.Process.Pid, unix.SIGKILL) }
+	cmd.WaitDelay = probeWaitDelay
+	return cmd.Run()
 }
 
 // bwrapPaths is the bwraps the probe tries, in order: the first of system
@@ -158,19 +178,40 @@ func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 			return nil, fmt.Errorf("a rule on %s would replace a mount every run has", path)
 		}
 	}
-	cmd := exec.CommandContext(ctx, s.bwrap, s.args(r)...)
-	cmd.Env = r.Env
-	return cmd, nil
+	if !p.Network.Internet {
+		cmd := exec.CommandContext(ctx, s.bwrap, s.args(r, "")...)
+		cmd.Env = r.Env
+		return cmd, nil
+	}
+	if s.pasta == "" {
+		return nil, errors.New("this machine cannot give a sandboxed command the internet: " + s.networkReason)
+	}
+	if p.Network.Resolver == "" {
+		return nil, errors.New("a run with the internet names no resolver")
+	}
+	at, err := resolverTarget(p)
+	if err != nil {
+		return nil, err
+	}
+	return s.pastaCommand(ctx, r, at, true), nil
 }
 
 // args is bwrap's arguments for r, in order, since a later mount lies over an
 // earlier one: the namespaces; a rule on / itself, then the fixed mounts over
-// it; the policy's other rules; then the closing remounts and the chain.
-func (s *Sandbox) args(r Run) []string {
-	args := []string{
-		"--unshare-user-try", "--unshare-net", "--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try",
-		"--die-with-parent", "--new-session", "--as-pid-1",
+// it; the policy's other rules; r's resolver at resolverAt, unless that is "";
+// then the closing remounts and the chain.
+func (s *Sandbox) args(r Run, resolverAt string) []string {
+	// A run with the internet is in pasta's network namespace, where bwrap
+	// starts as uid 0 holding every capability: it makes a user namespace of
+	// its own, runs the command as the user, and drops them all.
+	args := []string{"--unshare-user-try", "--unshare-net"}
+	if r.Policy.Network.Internet {
+		args = []string{"--unshare-user", "--uid", strconv.Itoa(os.Getuid()), "--gid", strconv.Itoa(os.Getgid()), "--cap-drop", "ALL"}
 	}
+	args = append(args,
+		"--unshare-pid", "--unshare-ipc", "--unshare-uts", "--unshare-cgroup-try",
+		"--die-with-parent", "--new-session", "--as-pid-1",
+	)
 	// Rules sort shallowest first, so any rule on / leads.
 	rules := r.Policy.rules()
 	var m mounter
@@ -188,6 +229,11 @@ func (s *Sandbox) args(r Run) []string {
 		m.mount(ru)
 	}
 	args = append(args, m.args...)
+	// After every rule and fixed mount, so it lies over whichever holds the
+	// path.
+	if resolverAt != "" {
+		args = append(args, "--ro-bind", r.Policy.Network.Resolver, resolverAt)
+	}
 
 	// A remount is not recursive, so the binds made inside a denial stay
 	// writable; it comes after them, since bwrap makes their mount points in
@@ -197,7 +243,11 @@ func (s *Sandbox) args(r Run) []string {
 		args = append(args, "--remount-ro", d)
 	}
 	args = append(args, "--chdir", r.Dir, "--", s.self)
-	args = append(args, ForwarderArgs(r.Policy.Network.relay())...)
+	init := ForwarderArgs(r.Policy.Network.relay())
+	if r.Policy.Network.Internet {
+		init = slices.Insert(init, 1, stderrOnStdinFlag)
+	}
+	args = append(args, init...)
 	args = append(args, s.self)
 	args = append(args, shellCommand(r.Policy.Limits)...)
 	args = append(args, r.Shell)
@@ -290,6 +340,11 @@ func (m *mounter) link(ru rule) {
 
 // Confines reports whether a command run through s is confined: always, here.
 func (s *Sandbox) Confines() bool { return true }
+
+// NeedsResolver reports whether a run with the internet needs a resolv.conf
+// of its own: always, here, since the system's may name a loopback resolver
+// the run's namespace cannot reach.
+func (s *Sandbox) NeedsResolver() bool { return true }
 
 // Port is where a run's forwarder listens, on the namespace's own loopback.
 func (s *Sandbox) Port() (int, error) { return forwarderPort, nil }

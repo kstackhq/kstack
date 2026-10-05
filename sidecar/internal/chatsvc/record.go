@@ -28,6 +28,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/rawjson"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -129,8 +130,11 @@ type Chat struct {
 	// SandboxDisabled is the user's switch: the chat's commands run outside the
 	// sandbox, each asking first.
 	SandboxDisabled bool
-	CreatedAt       time.Time
-	UpdatedAt       time.Time
+	// NetworkEnabled is the user's other switch: the chat's sandboxed commands
+	// reach the internet.
+	NetworkEnabled bool
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
 	// AwaitingApproval is whether any run of the chat waits on the user. Every
 	// write that moves a run into or out of waiting_approval pings the list.
 	AwaitingApproval bool
@@ -278,6 +282,32 @@ const (
 	ToolCallRunsOnProvider ToolCallRunsOn = "Provider"
 )
 
+// ToolCallNetwork is why a sandboxed call reached the internet. A named type
+// because the GraphQL enum binds onto it value by value.
+type ToolCallNetwork string
+
+const (
+	ToolCallNetworkChat     ToolCallNetwork = "Chat"
+	ToolCallNetworkTurn     ToolCallNetwork = "Turn"
+	ToolCallNetworkApproved ToolCallNetwork = "Approved"
+)
+
+// toolCallNetworkOf is a call's network as the wire serves it, nil for none.
+func toolCallNetworkOf(network session.Network) *ToolCallNetwork {
+	var n ToolCallNetwork
+	switch network {
+	case session.NetworkChat:
+		n = ToolCallNetworkChat
+	case session.NetworkTurn:
+		n = ToolCallNetworkTurn
+	case session.NetworkApproved:
+		n = ToolCallNetworkApproved
+	default:
+		return nil
+	}
+	return &n
+}
+
 // ToolCall is one call of a tool in an answer's turn, off its row, as the wire
 // serves it.
 type ToolCall struct {
@@ -298,6 +328,9 @@ type ToolCall struct {
 	Action *tools.Action `json:"action"`
 	// Approval is the user's decision on the call; nil on a call no one was asked about.
 	Approval *ToolCallApproval `json:"approval"`
+	// Network is why the call reached the internet; nil for none, and for a call
+	// outside the sandbox, whose network is not the switch's.
+	Network *ToolCallNetwork `json:"network"`
 	// Output is what the model read; empty until the call is over.
 	Output  string `json:"output"`
 	IsError bool   `json:"isError"`
@@ -448,7 +481,7 @@ func marshalToolCalls(rows []toolCallEntry, box tools.Box) rawjson.RawJSON {
 			ID: r.ID, ToolUseID: r.ToolUseID, Name: r.Name, Contract: r.Contract, Arguments: argumentsJSON(r.Arguments),
 			Status: status, RunsOn: runsOn, ActionKind: actionKindOf(box, r), Action: actionOf(box, r),
 			Output: r.Result, IsError: r.Error != "", Background: backgroundTaskOf(r.Task),
-			ClusterWrites: clusterWritesOf(r),
+			ClusterWrites: clusterWritesOf(r), Network: toolCallNetworkOf(r.Network),
 		}
 		if a := r.Approval; a != nil {
 			approval := toolCallApprovalOf(a)

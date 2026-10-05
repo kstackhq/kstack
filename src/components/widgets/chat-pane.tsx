@@ -29,6 +29,7 @@ import { useChatOutbox } from '@/lib/chat-outbox';
 import { useChatMessages, useChats, waitingRequestsOf } from '@/lib/chats';
 import type { ChatMessage } from '@/lib/chats';
 import { useClusters } from '@/lib/clusters';
+import { useNetworkSwitch } from '@/lib/network-switch';
 import { useSandbox } from '@/lib/sandbox';
 import { useSandboxSwitch } from '@/lib/sandbox-switch';
 
@@ -45,12 +46,25 @@ export function NewChatPane({ mode, empty, onCreated }: NewChatPaneProps) {
   // The chat is filed under the window's cluster, so the composer waits on the
   // clusters watch: no snapshot yet means no answer to whether there is one.
   const { clusterID, phase } = useActiveCluster();
+  // The toggle needs the machine's word on the sandbox and its network.
+  const sandbox = useSandbox();
+  useAskAgainWhenLive(sandbox.failed, phase === 'live', sandbox.retry);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* A flex container, so an `empty` that scrolls can shrink into it. */}
       <div className="flex min-h-0 flex-1 flex-col">{empty}</div>
-      <ChatComposer chatID={null} mode={mode} clusterID={clusterID} phase={phase} last={null} onCreated={onCreated} />
+      <ChatComposer
+        chatID={null}
+        mode={mode}
+        clusterID={clusterID}
+        phase={phase}
+        last={null}
+        onCreated={onCreated}
+        sandboxAvailable={sandbox.available}
+        networkAvailable={sandbox.networkAvailable}
+        networkReason={sandbox.networkReason}
+      />
     </div>
   );
 }
@@ -116,8 +130,10 @@ function OpenChat({ chatID, mode, onGone }: ChatPaneProps) {
   useAskAgainWhenLive(sandbox.failed, phase === 'live', sandbox.retry);
   const chat = chats.find((c) => c.id === chatID);
   // Held here, since the composer's Send and the transcript's Ask again both wait
-  // for a switch in flight.
-  const { switching, setSandboxDisabled } = useSandboxSwitch(chatID, chat?.sandboxDisabled);
+  // for either switch in flight.
+  const sandboxSwitch = useSandboxSwitch(chatID, chat?.sandboxDisabled);
+  const networkSwitch = useNetworkSwitch(chatID, chat?.networkEnabled);
+  const switching = sandboxSwitch.switching || networkSwitch.switching;
   const waiting = firstWaitingEarlier(messages);
 
   // Absence is gated on the list's Bookmark: before it, an id the map does not hold
@@ -154,6 +170,7 @@ function OpenChat({ chatID, mode, onGone }: ChatPaneProps) {
         clusterID={chat?.clusterID}
         sandboxAvailable={sandbox.available}
         sandboxDisabled={chat?.sandboxDisabled}
+        networkEnabled={chat?.networkEnabled}
         switching={switching}
       />
       {/* The chat's own cluster, so a send into it needs no active one. */}
@@ -166,8 +183,12 @@ function OpenChat({ chatID, mode, onGone }: ChatPaneProps) {
         lastAnswer={messages.filter((m) => m.role === 'Assistant').at(-1) ?? null}
         sandboxAvailable={sandbox.available}
         sandboxDisabled={chat?.sandboxDisabled}
+        networkAvailable={sandbox.networkAvailable}
+        networkReason={sandbox.networkReason}
+        networkEnabled={chat?.networkEnabled}
         switching={switching}
-        onSwitchSandbox={setSandboxDisabled}
+        onSwitchSandbox={sandboxSwitch.setSandboxDisabled}
+        onSwitchNetwork={networkSwitch.setNetworkEnabled}
         onShowWaiting={
           waiting
             ? () => document.getElementById(approvalAnchor(waiting))?.scrollIntoView({ block: 'center' })

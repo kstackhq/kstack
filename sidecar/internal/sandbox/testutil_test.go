@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -60,4 +61,14 @@ func mkdirs(t *testing.T, base string, rels ...string) []string {
 		require.NoError(t, os.MkdirAll(out[i], 0o700))
 	}
 	return out
+}
+
+// coverWarning is what this test binary prints as it exits under coverage,
+// as a run's forwarder or a helper a run starts, since its GOCOVERDIR is
+// outside the sandbox.
+const coverWarning = "warning: GOCOVERDIR not set, no coverage data emitted\n"
+
+// withoutCoverWarning is out less every coverWarning in it.
+func withoutCoverWarning(out []byte) string {
+	return strings.ReplaceAll(string(out), coverWarning, "")
 }

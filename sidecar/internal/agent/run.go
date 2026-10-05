@@ -317,7 +317,7 @@ func (r *runner) runCalls(ctx context.Context, calls []llm.Block) error {
 		if err := r.rec.ToolCallStarted(ctx, call, g.approval); err != nil {
 			return errors.Join(err, r.refuse(ctx, calls[i:], CodeNotRun))
 		}
-		if err := r.answer(ctx, call, r.runOne(ctx, tool, call)); err != nil {
+		if err := r.answer(ctx, call, r.runOne(ctx, tool, call, g.approval)); err != nil {
 			return errors.Join(err, r.refuse(ctx, calls[i+1:], CodeNotRun))
 		}
 	}
@@ -378,13 +378,14 @@ func (r *runner) decide(ctx context.Context, call llm.Block, approval tools.Appr
 	return "", nil
 }
 
-// runOne runs one call under its tool's bound, else the turn's, and reads what it returned against
+// runOne runs one call under its tool's bound, else the turn's, handing a
+// tools.ApprovedRunner the approval its gate decided, and reads what it returned against
 // the context it ran under. A result with no error is kept whatever the clock
 // says, since the read happened. An error after the turn's cancel is the tool
 // answering the cancel, and one after the deadline alone is it answering the
 // deadline; the cancel is checked first, since a deadline under a cancelled turn
 // says nothing about the tool.
-func (r *runner) runOne(ctx context.Context, tool tools.Runner, call llm.Block) llm.Block {
+func (r *runner) runOne(ctx context.Context, tool tools.Runner, call llm.Block, approval tools.Approval) llm.Block {
 	timeout := r.turn.DefaultToolTimeout
 	if b, ok := tool.(tools.Bounded); ok {
 		timeout = b.CallTimeout(call.Input)
@@ -395,7 +396,13 @@ func (r *runner) runOne(ctx context.Context, tool tools.Runner, call llm.Block) 
 		callCtx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
 	}
-	text, isError := tool.Run(callCtx, r.turn.Runtime, call.Input)
+	var text string
+	var isError bool
+	if a, ok := tool.(tools.ApprovedRunner); ok {
+		text, isError = a.RunApproved(callCtx, r.turn.Runtime, call.Input, approval)
+	} else {
+		text, isError = tool.Run(callCtx, r.turn.Runtime, call.Input)
+	}
 	switch {
 	case !isError:
 		return llm.ToolResultBlock(call.ID, text, false)

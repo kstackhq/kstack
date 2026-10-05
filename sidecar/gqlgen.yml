@@ -329,6 +329,16 @@ models:
       KubeQuery:
         value: github.com/kstackhq/kstack/sidecar/internal/tools.ActionKubeQuery
 
+  ToolCallNetwork:
+    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallNetwork
+    enum_values:
+      Chat:
+        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallNetworkChat
+      Turn:
+        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallNetworkTurn
+      Approved:
+        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallNetworkApproved
+
   ToolCallRunsOn:
     model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallRunsOn
     enum_values:
