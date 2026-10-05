@@ -18,6 +18,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"slices"
 
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
@@ -154,6 +155,22 @@ func (s *Store) RemoveRule(id string) error {
 	})
 }
 
+// PutRule swaps the first always rule replaces passes for r, where it stands
+// and under its id, else appends r. One update, so a lookup and its write
+// cannot interleave with another's.
+func (s *Store) PutRule(r permissions.Rule, replaces func(permissions.Rule) bool) error {
+	return s.Update(func(v *Settings) error {
+		i := slices.IndexFunc(v.Rules, replaces)
+		if i < 0 {
+			v.Rules = append(v.Rules, r)
+			return nil
+		}
+		r.ID = v.Rules[i].ID
+		v.Rules[i] = r
+		return nil
+	})
+}
+
 // ErrNotHeld is a discard of a field the store does not hold.
 var ErrNotHeld = errors.New("securityconfig: this setting holds nothing Kstack cannot read")
 
@@ -197,9 +214,12 @@ func checkModes(v *Settings) []Refusal {
 
 var validEffects = map[permissions.Effect]bool{permissions.Allow: true, permissions.Deny: true, permissions.AskFor: true}
 
-// ruleClasses are the classes a rule may name: the ones a cluster write is
-// classified as. Nothing decides a rule of another class yet.
-var ruleClasses = map[permissions.Class]bool{permissions.UpstreamWrite: true, permissions.Destructive: true}
+// ruleClasses are the classes a rule may name: a folder grant's, and the ones
+// a cluster write is classified as. Nothing decides a rule of another class.
+var ruleClasses = map[permissions.Class]bool{
+	permissions.ReadInside: true, permissions.WriteInside: true,
+	permissions.UpstreamWrite: true, permissions.Destructive: true,
+}
 
 func checkRules(v *Settings) []Refusal {
 	var refused []Refusal
@@ -228,9 +248,32 @@ func ruleRefusal(r permissions.Rule, seen map[string]bool) string {
 	case !validEffects[r.Effect]:
 		return "has an effect other than allow, deny or ask"
 	case !ruleClasses[r.Class]:
-		return "names a class no rule decides: only 4 (cluster writes) and 5 (destructive cluster writes)"
+		return "names a class no rule decides: only 1 (folder reads), 2 (folder reads and writes), " +
+			"4 (cluster writes) and 5 (destructive cluster writes)"
+	case r.Class == permissions.ReadInside || r.Class == permissions.WriteInside:
+		return folderRuleRefusal(r)
+	case r.Folder != "":
+		return "names a folder, which only a folder grant does"
 	case r.Effect == permissions.Allow && r.Class == permissions.Destructive:
 		return "allows a destructive write, which always asks"
+	}
+	return ""
+}
+
+// folderRuleRefusal is why a folder grant cannot be read, or "", by its value
+// alone: what needs the disk is CheckFolder's, run whenever a grant is read.
+func folderRuleRefusal(r permissions.Rule) string {
+	switch {
+	case r.Effect != permissions.Allow:
+		return "is a folder rule that does not allow, which no folder rule may"
+	case r.Folder == "":
+		return "is a folder rule that names no folder"
+	case !filepath.IsAbs(r.Folder) || filepath.Clean(r.Folder) != r.Folder:
+		return "names a folder that is not an absolute, clean path"
+	case r.Folder == string(filepath.Separator):
+		return "names the root, which cannot be granted"
+	case r.Context != "" || r.Namespace != "" || r.Verb != "" || r.Group != "" || r.Kind != "":
+		return "is a folder rule that names a cluster field"
 	}
 	return ""
 }
