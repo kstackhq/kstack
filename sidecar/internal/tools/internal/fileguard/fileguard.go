@@ -88,9 +88,12 @@ func Abs(path string) (string, error) {
 }
 
 // Fence is Kstack's directories, which no file tool opens but a chat's
-// workspace.
+// workspace, and what the sandbox keeps shut under a folder grant.
 type Fence struct {
 	dirs []string // each absolute and clean
+	// hidden answers the denied-always list with Kstack's directories, and
+	// the closed folders, each resolved; nil for a fence that knows of none.
+	hidden func() (never, closed []string)
 }
 
 // ErrNoFence is a fence around no directory, which would hold nothing.

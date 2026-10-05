@@ -19,6 +19,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"slices"
 
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -36,11 +37,20 @@ func (f Fence) NamedOutsideWorkspace(dir tools.ChatDir, path string) bool {
 }
 
 // File is a file a tool changes: a name under the chat's workspace, reached
-// through the workspace's root, or a path outside Kstack's directories.
+// through the workspace's root; a name in a granted folder, reached through a
+// walk's handle; or a path outside Kstack's directories.
 type File struct {
 	path string
-	root *os.Root // nil for a path outside the workspace
+	root *os.Root // nil for a path outside the workspace and a granted folder
 	name string   // under root
+	// hidden is the closed paths a walk found, which the file must not be;
+	// none for the workspace's root.
+	hidden []os.FileInfo
+	// ancestorMissing is a walked name whose folder did not exist when the
+	// walk ended: Lstat and Open answer ErrMissing without opening it, since
+	// the root would follow a link made there since, past the walk's checks;
+	// Create makes the folders on the handle and refuses a link in their way.
+	ancestorMissing bool
 }
 
 // File is path as a tool changes it. A path under the workspace by name opens
@@ -77,20 +87,44 @@ func (f File) Close() error {
 	return f.root.Close()
 }
 
-// Lstat is Lstat or LstatIn.
+// Lstat is Lstat or LstatIn, ErrHidden for a closed path.
 func (f File) Lstat() (os.FileInfo, error) {
 	if f.root == nil {
 		return Lstat(f.path)
 	}
-	return LstatIn(f.root, f.name)
+	if f.ancestorMissing {
+		return nil, ErrMissing
+	}
+	info, err := LstatIn(f.root, f.name)
+	if err == nil && f.isHidden(info) {
+		return nil, ErrHidden
+	}
+	return info, err
 }
 
-// Open is Open or OpenIn.
+// Open is Open or OpenIn, ErrHidden for a closed path: a Never path can be a
+// file.
 func (f File) Open() (*os.File, error) {
 	if f.root == nil {
 		return Open(f.path)
 	}
-	return OpenIn(f.root, f.name)
+	if f.ancestorMissing {
+		return nil, ErrMissing
+	}
+	file, err := OpenIn(f.root, f.name)
+	if err != nil {
+		return nil, err
+	}
+	if info, err := file.Stat(); err != nil || f.isHidden(info) {
+		_ = file.Close()
+		return nil, ErrHidden
+	}
+	return file, nil
+}
+
+// isHidden reports whether info is one of the closed paths.
+func (f File) isHidden(info os.FileInfo) bool {
+	return slices.ContainsFunc(f.hidden, func(h os.FileInfo) bool { return os.SameFile(h, info) })
 }
 
 // Replaceable is Replaceable or ReplaceableIn.
