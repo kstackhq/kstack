@@ -173,6 +173,11 @@ func filter() []bpf.Instruction {
 		unix.SYS_PTRACE, unix.SYS_PROCESS_VM_READV, unix.SYS_PROCESS_VM_WRITEV,
 		unix.SYS_PIDFD_GETFD, unix.SYS_KCMP, unix.SYS_PROCESS_MADVISE,
 		unix.SYS_KEYCTL, unix.SYS_ADD_KEY, unix.SYS_REQUEST_KEY,
+		// No run mounts or unmounts anything: bwrap has made every mount
+		// before the filter, and a capability that slipped through must not
+		// unmount the tmpfs over a denied path.
+		unix.SYS_MOUNT, unix.SYS_UMOUNT2, unix.SYS_PIVOT_ROOT, unix.SYS_OPEN_TREE, unix.SYS_MOVE_MOUNT,
+		unix.SYS_FSOPEN, unix.SYS_FSCONFIG, unix.SYS_FSMOUNT, unix.SYS_MOUNT_SETATTR,
 	} {
 		prog = append(prog, bpf.JumpIf{Cond: bpf.JumpEqual, Val: nr, SkipFalse: 1}, eperm)
 	}

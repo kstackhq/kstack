@@ -37,6 +37,7 @@ const ChatsWatchSubscription = graphql(`
         updatedAt
         awaitingApproval
         sandboxDisabled
+        networkEnabled
       }
     }
   }
@@ -76,6 +77,7 @@ const ChatMessagesWatchSubscription = graphql(`
               cwd
               background
               sandboxed
+              network
             }
             read {
               path
@@ -119,6 +121,7 @@ const ChatMessagesWatchSubscription = graphql(`
             status
             duration
           }
+          network
           clusterWrites {
             approval {
               id

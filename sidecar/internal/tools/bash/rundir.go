@@ -101,6 +101,9 @@ func (d *runDir) kubeconfig() string { return filepath.Join(d.path, "kubeconfig"
 
 func (d *runDir) socket() string { return filepath.Join(d.path, socketName) }
 
+// resolver is the run's resolv.conf, for a run with the internet.
+func (d *runDir) resolver() string { return filepath.Join(d.path, "resolv.conf") }
+
 // removeLogged is remove at the end of a run, whose failure is the next
 // start's sweep's.
 func (d *runDir) removeLogged() {

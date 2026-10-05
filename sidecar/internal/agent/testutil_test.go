@@ -201,6 +201,22 @@ func (g gatedTool) Approval(_ context.Context, _ tools.Runtime, input json.RawMe
 	return tools.Approval{Cwd: string(input)}, nil
 }
 
+// approvedTool is a gated tool that runs by the approval its gate decided,
+// recording each, and answers from its plain Run never.
+type approvedTool struct {
+	gatedTool
+	ran []tools.Approval
+}
+
+func (a *approvedTool) Run(context.Context, tools.Runtime, json.RawMessage) (string, bool) {
+	return "ran without its approval", true
+}
+
+func (a *approvedTool) RunApproved(_ context.Context, _ tools.Runtime, input json.RawMessage, approval tools.Approval) (string, bool) {
+	a.ran = append(a.ran, approval)
+	return string(input), false
+}
+
 // runtimeTool is a gated tool that records the runtime each Approval and Run is
 // handed, and skips so no approver is needed.
 type runtimeTool struct {

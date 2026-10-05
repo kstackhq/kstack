@@ -331,11 +331,16 @@ func init() {
 
 // forkLoop runs the forks helper through s under l, at most most children,
 // calls whileFull once it stops, and answers how many children it started,
-// whether it stopped on EAGAIN, and whileFull's error.
-func forkLoop(t *testing.T, s *Sandbox, l Limits, most int, whileFull func() error) (n int, eagain bool, err error) {
+// whether it stopped on EAGAIN, and whileFull's error. Each of with changes
+// the run first.
+func forkLoop(t *testing.T, s *Sandbox, l Limits, most int, whileFull func() error, with ...func(Run) Run) (n int, eagain bool, err error) {
 	t.Helper()
 	env := []string{"KSTACK_SANDBOX_TEST_HELPER=forks", "KSTACK_SANDBOX_TEST_FORKS=" + strconv.Itoa(most)}
-	cmd := command(t, s, t.Context(), limitedRunOf(t, s, l, env, os.Args[0]))
+	r := limitedRunOf(t, s, l, env, os.Args[0])
+	for _, w := range with {
+		r = w(r)
+	}
+	cmd := command(t, s, t.Context(), r)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	in, err := cmd.StdinPipe()
 	require.NoError(t, err)
@@ -361,7 +366,7 @@ func TestAForkLoopStopsUnderAMachineWideCount(t *testing.T) {
 		t.Skip("the kernel holds root to no process limit")
 	}
 	s := confining(t)
-	base, err := s.CountedProcesses()
+	base, err := s.CountedProcesses(false)
 	require.NoError(t, err)
 	if base == 0 {
 		t.Skip("the run counts its own namespace alone")
@@ -385,4 +390,33 @@ func TestSudoCannotGainRoot(t *testing.T) {
 
 	assert.NotEqual(t, 0, code)
 	assert.NotContains(t, out, "0")
+}
+
+// The internet and the relay go together, and a Resolver is checked as a run's
+// own path is: absolute, not a link, inside Kstack's directories, and only with
+// the internet.
+func TestTheResolverIsChecked(t *testing.T) {
+	base := resolved(t.TempDir())
+	d := mkdirs(t, base, "runtime/runs/1-a", "home")
+	resolver := filepath.Join(d[0], "resolv.conf")
+	require.NoError(t, os.WriteFile(resolver, []byte("nameserver 169.254.1.53\n"), 0o600))
+	link := filepath.Join(d[0], "linked.conf")
+	require.NoError(t, os.Symlink(resolver, link))
+	kstack := []string{filepath.Join(base, "data"), filepath.Join(base, "cache"), filepath.Join(base, "runtime")}
+	policy := func(n NetworkPolicy) Policy {
+		return Policy{Always: AlwaysPolicy{Kstack: kstack, Read: []string{d[0]}}, Network: n}
+	}
+	relay := []Relay{{Port: 6443, Socket: filepath.Join(d[0], "proxy.sock")}}
+
+	assert.NoError(t, policy(NetworkPolicy{Internet: true}).Check())
+	assert.NoError(t, policy(NetworkPolicy{Relays: relay, Internet: true, Resolver: resolver}).Check(), "the relay and the internet")
+
+	for name, n := range map[string]NetworkPolicy{
+		"a resolver without the internet": {Resolver: resolver},
+		"a relative resolver":             {Internet: true, Resolver: "resolv.conf"},
+		"a resolver that is a link":       {Internet: true, Resolver: link},
+		"a resolver outside Kstack's":     {Internet: true, Resolver: filepath.Join(d[1], "resolv.conf")},
+	} {
+		assert.Error(t, policy(n).Check(), name)
+	}
 }

@@ -82,10 +82,10 @@ describe('useChats', () => {
 
   // The composer's sandbox button reads the chat's switch off the list, so every
   // window sees a switch another one made.
-  it("selects each chat's switch", () => {
+  it("selects each chat's switches", () => {
     renderChats();
     expect(print(lastArgs!.query!)).toMatch(
-      /chat \{\s+id\s+title\s+mode\s+clusterID\s+createdAt\s+updatedAt\s+awaitingApproval\s+sandboxDisabled\s+\}/,
+      /chat \{\s+id\s+title\s+mode\s+clusterID\s+createdAt\s+updatedAt\s+awaitingApproval\s+sandboxDisabled\s+networkEnabled\s+\}/,
     );
   });
 
@@ -233,7 +233,7 @@ describe('useChatMessages', () => {
   it("carries a message's tool calls off the frame", () => {
     const { result, rerender } = renderMessages();
     expect(print(lastArgs!.query!)).toMatch(
-      /toolCalls \{\s+id\s+name\s+actionKind\s+status\s+runsOn\s+action \{\s+description\s+command \{\s+text\s+cwd\s+background\s+sandboxed\s+\}\s+read \{\s+path\s+\}\s+write \{\s+path\s+content\s+\}\s+edit \{\s+path\s+oldString\s+newString\s+replaceAll\s+\}\s+search \{\s+query\s+\}\s+fetch \{\s+url\s+host\s+\}\s+memory \{\s+op\s+name\s+body\s+scope\s+\}\s+delegate \{\s+prompt\s+agentType\s+model\s+\}\s+kubeQuery \{\s+sql\s+limit\s+\}\s+\}\s+agentCallID\s+approval \{\s+id\s+status\s+duration\s+\}\s+clusterWrites \{\s+approval \{\s+id\s+status\s+duration\s+\}\s+action \{\s+summary\s+class\s+context\s+namespace\s+verb\s+group\s+kind\s+grantable\s+commandRule\s+chatRule\s+\}\s+method\s+path\s+subresource\s+contentType\s+body\s+dryRun\s+diff\s+diffCut\s+diffError\s+reason\s+\}\s+output\s+background \{\s+status\s+exitCode\s+report\s+\}\s+\}/,
+      /toolCalls \{\s+id\s+name\s+actionKind\s+status\s+runsOn\s+action \{\s+description\s+command \{\s+text\s+cwd\s+background\s+sandboxed\s+network\s+\}\s+read \{\s+path\s+\}\s+write \{\s+path\s+content\s+\}\s+edit \{\s+path\s+oldString\s+newString\s+replaceAll\s+\}\s+search \{\s+query\s+\}\s+fetch \{\s+url\s+host\s+\}\s+memory \{\s+op\s+name\s+body\s+scope\s+\}\s+delegate \{\s+prompt\s+agentType\s+model\s+\}\s+kubeQuery \{\s+sql\s+limit\s+\}\s+\}\s+agentCallID\s+approval \{\s+id\s+status\s+duration\s+\}\s+network\s+clusterWrites \{\s+approval \{\s+id\s+status\s+duration\s+\}\s+action \{\s+summary\s+class\s+context\s+namespace\s+verb\s+group\s+kind\s+grantable\s+commandRule\s+chatRule\s+\}\s+method\s+path\s+subresource\s+contentType\s+body\s+dryRun\s+diff\s+diffCut\s+diffError\s+reason\s+\}\s+output\s+background \{\s+status\s+exitCode\s+report\s+\}\s+\}/,
     );
     expect(print(lastArgs!.query!)).toMatch(/citations \{\s+type\s+url\s+title\s+citedText\s+\}/);
     const call = {
@@ -243,7 +243,7 @@ describe('useChatMessages', () => {
       status: 'AwaitingApproval',
       action: {
         description: 'List files',
-        command: { text: 'ls', cwd: '/Users/ana', background: false, sandboxed: false },
+        command: { text: 'ls', cwd: '/Users/ana', background: false, sandboxed: false, network: false },
         read: null,
         write: null,
         edit: null,
@@ -637,6 +637,7 @@ function callWith(
     action: null,
     agentCallID: null,
     approval,
+    network: null,
     output: '',
     background: null,
     clusterWrites: writes,

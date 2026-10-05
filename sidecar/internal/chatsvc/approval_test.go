@@ -34,6 +34,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -1719,4 +1720,67 @@ func TestAFailedRuleWriteAfterTheTurnStoppedLeavesNoWaiter(t *testing.T) {
 	ok, err := s.Approve(t.Context(), id, DecisionOnce)
 	require.NoError(t, err)
 	assert.False(t, ok)
+}
+
+// networkOf is the one tool_calls row's network column.
+func networkOf(t *testing.T, s *service) sql.NullString {
+	t.Helper()
+	var n sql.NullString
+	require.NoError(t, s.db.Read.QueryRow(`SELECT network FROM tool_calls`).Scan(&n))
+	return n
+}
+
+// A call's network is written on the row that marks it running, so a call
+// waiting on the user, or one the user denied, never says it had any; the
+// settle's rewrite keeps it, and the wire serves it.
+func TestTheRecordSaysTheNetworkOnceTheCallRuns(t *testing.T) {
+	for _, c := range []struct {
+		approval tools.Approval
+		stored   string
+		wire     ToolCallNetwork
+	}{
+		{tools.Approval{Cwd: "/work", Sandboxed: true, Network: session.NetworkApproved}, "approved", ToolCallNetworkApproved},
+		{tools.Approval{Cwd: "/work", Sandboxed: true, Skip: true, Network: session.NetworkTurn}, "turn", ToolCallNetworkTurn},
+		{tools.Approval{Cwd: "/work", Sandboxed: true, Skip: true, Network: session.NetworkChat}, "chat", ToolCallNetworkChat},
+	} {
+		var s *service
+		var whileRunning sql.NullString
+		tool := approvingTool{
+			testTool: testTool{name: "sbx", run: func(context.Context, json.RawMessage) (string, bool) {
+				whileRunning = networkOf(t, s)
+				return "ran", false
+			}},
+			approval: c.approval,
+		}
+		s = startServiceWithTool(t, tool)
+		fakeOf(s).SetToolCalls(llm.StagedCall("sbx", `{}`))
+
+		msg := send(t, s, nil, "1", "hi")
+		if !c.approval.Skip {
+			_, id := awaitRequest(t, s, msg)
+			assert.False(t, networkOf(t, s).Valid, "a call waiting on the user has none yet")
+			approve(t, s, id, true)
+		}
+		got := awaitSettled(t, s, msg.ChatID, msg.ID)
+		awaitTurnDone(t, s, msg.ChatID)
+
+		assert.Equal(t, c.stored, whileRunning.String, "the running row")
+		assert.Equal(t, c.stored, networkOf(t, s).String, "the settle's rewrite keeps it")
+		calls := toolCallsOf(t, got)
+		require.NotNil(t, calls[0].Network)
+		assert.Equal(t, c.wire, *calls[0].Network)
+	}
+
+	s := startServiceWithTool(t, approvingTool{
+		testTool: testTool{name: "sbx"},
+		approval: tools.Approval{Cwd: "/work", Sandboxed: true, Network: session.NetworkApproved},
+	})
+	fakeOf(s).SetToolCalls(llm.StagedCall("sbx", `{}`))
+	msg := send(t, s, nil, "1", "hi")
+	_, id := awaitRequest(t, s, msg)
+	approve(t, s, id, false)
+	got := awaitSettled(t, s, msg.ChatID, msg.ID)
+	awaitTurnDone(t, s, msg.ChatID)
+	assert.False(t, networkOf(t, s).Valid, "a denied call never had any")
+	assert.Nil(t, toolCallsOf(t, got)[0].Network)
 }

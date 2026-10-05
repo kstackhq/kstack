@@ -68,10 +68,15 @@ jobs:
           - linux
           - macos-15
           - macos-26
+          - macos-27
           - windows
         arch:
           - amd64
           - arm64
+        exclude:
+          # The macOS 27 image is Apple silicon alone.
+          - os: macos-27
+            arch: amd64
         include:
           - os: linux
             arch: amd64
@@ -91,6 +96,9 @@ jobs:
           - os: macos-26
             arch: amd64
             runner: macos-26-intel
+          - os: macos-27
+            arch: arm64
+            runner: xcode-27
           - os: windows
             arch: amd64
             runner: windows-2025-vs2026

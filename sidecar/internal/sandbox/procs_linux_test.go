@@ -73,12 +73,12 @@ func TestThreadsAreCounted(t *testing.T) {
 // namespace is its own; anything else scans.
 func TestTheBaseIsZeroOnlyInANamespaceOfItsOwn(t *testing.T) {
 	for _, s := range []*Sandbox{{perNamespace: true}, {ownUserNS: true}} {
-		n, err := s.CountedProcesses()
+		n, err := s.CountedProcesses(false)
 		require.NoError(t, err)
 		assert.GreaterOrEqual(t, n, 1, "%+v", *s)
 	}
 
-	n, err := (&Sandbox{perNamespace: true, ownUserNS: true}).CountedProcesses()
+	n, err := (&Sandbox{perNamespace: true, ownUserNS: true}).CountedProcesses(false)
 	require.NoError(t, err)
 	assert.Equal(t, 0, n)
 }
@@ -89,7 +89,7 @@ func TestANewNamespaceCountsNothing(t *testing.T) {
 		t.Skip("the kernel counts the user's whole machine, or the run has no user namespace of its own")
 	}
 
-	n, err := s.CountedProcesses()
+	n, err := s.CountedProcesses(false)
 
 	require.NoError(t, err)
 	assert.Equal(t, 0, n)

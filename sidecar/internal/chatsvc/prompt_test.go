@@ -81,5 +81,7 @@ func TestTheSystemPromptExplainsTheWorkspaceSection(t *testing.T) {
 
 func TestTheSystemPromptExplainsTheSandboxSection(t *testing.T) {
 	assert.Contains(t, promptSystem, "The last section, `## Sandbox`, says where this chat's commands run: "+
-		"`sandboxed` in the sandbox, `outside` as the user, each waiting for their approval. It is absent on a machine with no sandbox.")
+		"`sandboxed` in the sandbox, `outside` as the user, each waiting for their approval. "+
+		"In the sandbox, `network` says whether they reach the internet: `off`, `on for this chat`, `on for this message`, "+
+		"or `unavailable on this machine`. It is absent on a machine with no sandbox.")
 }

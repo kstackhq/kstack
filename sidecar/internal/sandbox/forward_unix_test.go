@@ -35,6 +35,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 )
 
 // helpers are what the test binary can be started as for a test that needs a
@@ -372,4 +373,74 @@ func TestTheCoreSizeIsZero(t *testing.T) {
 
 	require.Equal(t, 0, code, stderr)
 	assert.Contains(t, stdout, "core=0/0")
+}
+
+func init() {
+	// lookup resolves KSTACK_SANDBOX_TEST_NAME and prints its addresses, or
+	// not-found for a name the resolver answered does not exist, or the error.
+	helpers["lookup"] = func() int {
+		addrs, err := net.LookupHost(os.Getenv("KSTACK_SANDBOX_TEST_NAME"))
+		var dnsErr *net.DNSError
+		switch {
+		case errors.As(err, &dnsErr) && dnsErr.IsNotFound:
+			fmt.Print("not-found")
+		case err != nil:
+			fmt.Print(err)
+			return 1
+		default:
+			fmt.Print(strings.Join(addrs, ","))
+		}
+		return 0
+	}
+}
+
+// Under sandbox-pasta the forwarder takes the run's stderr off stdin: the
+// child writes there, reads the null device, and the launcher's stderr gets
+// runStarted alone. In-process it moves the test's own descriptors 0 and 2,
+// so it saves and restores them.
+func TestInitMainInProcessTakesTheStderrOnStdin(t *testing.T) {
+	dir := t.TempDir()
+	runStderr, err := os.Create(filepath.Join(dir, "run"))
+	require.NoError(t, err)
+	defer runStderr.Close()
+	launcher, err := os.Create(filepath.Join(dir, "launcher"))
+	require.NoError(t, err)
+	defer launcher.Close()
+	for _, fd := range []int{0, 2} {
+		saved, err := unix.Dup(fd)
+		require.NoError(t, err)
+		defer func() {
+			_ = unix.Dup2(saved, fd)
+			_ = unix.Close(saved)
+		}()
+	}
+	require.NoError(t, unix.Dup2(int(runStderr.Fd()), 0))
+	require.NoError(t, unix.Dup2(int(launcher.Fd()), 2))
+
+	code := InitMain([]string{stderrOnStdinFlag, "--", "/bin/sh", "-c", `echo err >&2; read -r x; echo "read $?" >&2`})
+
+	assert.Equal(t, 0, code)
+	got, err := os.ReadFile(runStderr.Name())
+	require.NoError(t, err)
+	assert.Equal(t, "err\nread 1\n", string(got))
+	got, err = os.ReadFile(launcher.Name())
+	require.NoError(t, err)
+	assert.Equal(t, runStarted, string(got))
+}
+
+// With no stdin to take the run's stderr from, the forwarder fails before the
+// child starts. In-process it closes the test's own descriptor 0, so it saves
+// and restores it.
+func TestInitMainInProcessFailsWithoutTheStderrOnStdin(t *testing.T) {
+	saved, err := unix.Dup(0)
+	require.NoError(t, err)
+	defer func() {
+		_ = unix.Dup2(saved, 0)
+		_ = unix.Close(saved)
+	}()
+	require.NoError(t, unix.Close(0))
+	marker := filepath.Join(t.TempDir(), "started")
+
+	assert.Equal(t, initFailed, InitMain([]string{stderrOnStdinFlag, "--", "/bin/sh", "-c", "touch " + marker}))
+	assert.NoFileExists(t, marker)
 }
