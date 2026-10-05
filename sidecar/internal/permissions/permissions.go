@@ -37,7 +37,8 @@ const (
 )
 
 // Mode is which classes ask. ReadOnly refuses writes; Ask asks for every
-// write; Auto asks for class 5 alone.
+// write; Auto asks for class 5 alone. Showing Secret data, class 6, asks under
+// ReadOnly and Ask and runs unasked under Auto.
 type Mode string
 
 const (
@@ -167,9 +168,14 @@ func Grantable(v Verdict, act Action) bool {
 // namespace matches every namespace, and a Namespace carries its own name as
 // its namespace, so naming that alone would allow every write inside it. Any
 // other action's rule is Inside, so allowing what is in a namespace never
-// allows changing the Namespace itself. The writer sets the ID.
+// allows changing the Namespace itself. A Secret read's names neither: class 6
+// is Secret reads alone and no Secret is a Namespace object. The writer sets
+// the ID.
 func GrantRule(act Action) Rule {
 	r := Rule{Effect: Allow, Class: act.Class, Context: Literal(act.Context), Namespace: Literal(act.Namespace)}
+	if act.Class == SecretRead {
+		return r
+	}
 	if act.Namespace == "" || isNamespace(act) {
 		r.Group, r.Kind = act.Group, Literal(act.Kind)
 	} else {
@@ -196,9 +202,15 @@ func CommandRule(act Action) Rule {
 
 // Policy is what a session brings to a decision: the context's mode and the
 // rules that apply. Their order picks the reason alone, never the verdict.
+// NoPrompts and NoSecretData are the session's, copied on by the proxy that
+// reads the policy, so no rule or mode can lift them.
 type Policy struct {
 	Mode  Mode
 	Rules []Rule
+	// NoPrompts refuses what would otherwise ask.
+	NoPrompts bool
+	// NoSecretData refuses every class 6 read, ahead of every rule.
+	NoSecretData bool
 }
 
 // Decide answers what happens to act under p, and why, in the user's words:
@@ -210,9 +222,24 @@ func (p Policy) Decide(act Action) (Decision, string) {
 
 // Authorize is the policy's verdict on act, and the reason in the user's
 // words: the strongest of what matched, a rule's line when a rule decided it.
-// The checks run strongest first, so the first that applies is the verdict,
-// and which rules match decides it whatever their order.
+// A session that never reads Secret data refuses class 6 first, and one that
+// never asks refuses what would have asked, so neither puts anything to the
+// user.
 func (p Policy) Authorize(act Action) (Verdict, string) {
+	if p.NoSecretData && act.Class == SecretRead {
+		return Refuse, "this session never reads Secret data"
+	}
+	v, why := p.verdict(act)
+	if p.NoPrompts && (v == Unmatched || v == Forbid) {
+		return Refuse, "this session never asks: " + why
+	}
+	return v, why
+}
+
+// verdict is Authorize's verdict before the session's two flags. The checks
+// run strongest first, so the first that applies is the verdict, and which
+// rules match decides it whatever their order.
+func (p Policy) verdict(act Action) (Verdict, string) {
 	if r, ok := p.first(Deny, act); ok {
 		return Refuse, "a rule denies it: " + r.Line()
 	}
@@ -250,6 +277,10 @@ func (p Policy) first(effect Effect, act Action) (Rule, bool) {
 // Refused stands in for a rule Kstack could not read, which may have been a
 // Deny: every cluster write refused.
 var Refused = Rule{ID: "refused", Effect: Deny, Class: UpstreamWrite}
+
+// RefusedSecrets stands beside Refused, since a class 4 rule does not cover
+// class 6: every Secret read refused, so its data stays redacted.
+var RefusedSecrets = Rule{ID: "refused-secrets", Effect: Deny, Class: SecretRead}
 
 // Matches is whether r applies to act: a class that covers act's, and every
 // set field matching. Class 4 covers class 5, since a destructive write is a
@@ -341,6 +372,9 @@ func (r Rule) scopeLine() string {
 	what := classNouns[r.Class]
 	if r.Verb != "" || r.Group != "" || r.Kind != "" {
 		parts := []string{"writes", "of"}
+		if r.Class == SecretRead {
+			parts[0] = "reads"
+		}
 		if r.Verb != "" {
 			parts[0] = fieldWords(r.Verb)
 		}

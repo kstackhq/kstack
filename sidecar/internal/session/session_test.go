@@ -36,6 +36,11 @@ func TestNarrowKeepsTheParentsIdentity(t *testing.T) {
 		assert.Equal(t, parent.Outside, got.Outside)
 		assert.Equal(t, folders, got.Folders(t.Context()), "a subagent reads its parent's folders")
 	}
+	t.Run("NoPromptsAndNoSecretData", func(t *testing.T) {
+		got := Narrow(Session{Kind: Monitor, NoPrompts: true, NoSecretData: true})
+		assert.True(t, got.NoPrompts)
+		assert.True(t, got.NoSecretData)
+	})
 }
 
 func TestASessionWithNoFoldersReadsNone(t *testing.T) {

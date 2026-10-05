@@ -2908,6 +2908,94 @@ describe('ChatTranscript', () => {
       expect(screen.queryByRole('group', { name: 'Cluster change awaiting approval' })).toBeNull();
     });
 
+    // A read of Secret data the proxy asks about, as the sidecar serves it.
+    const secretRead = (over: Partial<ChatClusterWrite> = {}): ChatClusterWrite =>
+      clusterWrite({
+        action: {
+          summary: 'Show Secret db in web on dev',
+          class: 'SecretRead',
+          context: 'dev',
+          namespace: 'web',
+          verb: 'get',
+          group: 'core',
+          kind: 'secrets',
+          grantable: true,
+          commandRule: 'Allow get of core secrets in dev / web for this command',
+          chatRule: 'Allow Secret reads in dev / web',
+        },
+        method: 'GET',
+        path: '/api/v1/namespaces/web/secrets/db',
+        contentType: '',
+        body: '',
+        ...over,
+      });
+
+    // A Secret read is drawn as a change is: its summary as the heading, the
+    // path and GET, and the five answers with their rules; only its label
+    // differs.
+    it('draws a waiting Secret read under its own label', () => {
+      draw([waitingOn([secretRead()])]);
+      const read = screen.getByRole('group', { name: 'Secret read awaiting approval' });
+      expect(screen.queryByRole('group', { name: 'Cluster change awaiting approval' })).toBeNull();
+      expect(read).toHaveTextContent('Show Secret db in web on dev');
+      const [path, method] = read.querySelectorAll('pre, p.font-mono');
+      expect(path).toHaveTextContent('/api/v1/namespaces/web/secrets/db');
+      expect(method.textContent).toBe('GET');
+      expect(
+        within(read)
+          .getAllByRole('button')
+          .map((b) => b.textContent),
+      ).toEqual(['Approve once', 'Allow for this command', 'Allow for this chat', 'Always allow', 'Deny']);
+      expect(screen.getByRole('button', { name: 'Allow for this chat' }).parentElement).toHaveTextContent(
+        'Allow Secret reads in dev / web',
+      );
+    });
+
+    it('names the context alone for a read across the cluster', () => {
+      draw([
+        waitingOn([
+          secretRead({
+            path: '/api/v1/secrets',
+            action: { ...secretRead().action, namespace: '', verb: 'list', chatRule: 'Allow Secret reads in dev' },
+          }),
+        ]),
+      ]);
+      expect(screen.getByRole('button', { name: 'Always allow' }).parentElement).toHaveTextContent(
+        /^Always allowAllow Secret reads in dev$/,
+      );
+    });
+
+    // A read that ran is on screen with what decided it, so one that showed
+    // Secret data is never silent.
+    it("lists a call's settled Secret reads with their tags", () => {
+      draw([
+        msg({
+          content: [],
+          toolCalls: [
+            sender(
+              [
+                secretRead({ approval: { id: 'r-1', status: 'Approved', duration: 'Chat' } }),
+                secretRead({ approval: { id: 'r-2', status: 'Denied', duration: null } }),
+                secretRead({ approval: { id: 'r-3', status: 'Allowed', duration: null }, reason: 'auto mode' }),
+                secretRead({
+                  approval: { id: 'r-4', status: 'Refused', duration: null },
+                  reason: 'a rule denies it: Deny Secret reads in dev',
+                }),
+              ],
+              { status: 'Succeeded' },
+            ),
+          ],
+        }),
+      ]);
+      const items = [...screen.getByText('wc -l ~/.kube/config').closest('details')!.querySelectorAll('li')];
+      expect(items.map((li) => li.textContent)).toEqual([
+        'GET /api/v1/namespaces/web/secrets/dbapproved · this chat',
+        'GET /api/v1/namespaces/web/secrets/dbdenied',
+        'GET /api/v1/namespaces/web/secrets/dballowedauto mode',
+        'GET /api/v1/namespaces/web/secrets/dbrefuseda rule denies it: Deny Secret reads in dev',
+      ]);
+    });
+
     // An approval says how long it holds.
     it('tags an approved write with its duration', () => {
       draw([

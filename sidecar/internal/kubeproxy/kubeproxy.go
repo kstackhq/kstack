@@ -91,7 +91,8 @@ type Grant struct {
 	// context is the kube-context the grant was made for: the scope every
 	// action is classified, and its mode and rules read, in.
 	context string
-	// asker puts a write to the user; nil refuses every write with refusal.
+	// asker puts a write or a Secret read to the user; nil refuses every write
+	// with refusal and reads Secret data redacted.
 	asker   Asker
 	refusal string
 	token   string
@@ -100,13 +101,18 @@ type Grant struct {
 	limiter *rate.Limiter
 	// openRequests bounds the requests forwarded at once.
 	openRequests *semaphore.Weighted
-	// writeLock is held by the one write the user is asked about or that is being
-	// forwarded; writeWaiters bounds the writes waiting for it.
+	// writeLock is held by the one write or Secret read being decided, and by a
+	// write while it is forwarded; writeWaiters bounds the requests waiting for
+	// it.
 	writeLock    *semaphore.Weighted
 	writeWaiters *semaphore.Weighted
 	// commandRules are the rules the user's command answers added, under the
 	// write lock: the grant lives as long as the command, and so do they.
 	commandRules []permissions.Rule
+	// redactedReads are the namespaces this command read Secret data redacted
+	// in, "" for a read across the cluster, under the write lock: helm
+	// rebuilds a release from the Secrets it read.
+	redactedReads map[string]bool
 	// diffTimeout bounds a preview's two requests together.
 	diffTimeout time.Duration
 	// waitersMoved, when set, is told each write that starts or stops waiting for
@@ -136,8 +142,9 @@ func NewGrant(up Upstream, sess session.Session, kubeContext string, asker Asker
 		limiter:      rate.NewLimiter(qps, burst),
 		openRequests: semaphore.NewWeighted(int64(maxInFlight)),
 		writeLock:    semaphore.NewWeighted(1), writeWaiters: semaphore.NewWeighted(maxQueuedWrites),
-		diffTimeout: defaultDiffTimeout,
-		ctx:         ctx, end: end,
+		redactedReads: map[string]bool{},
+		diffTimeout:   defaultDiffTimeout,
+		ctx:           ctx, end: end,
 	}
 }
 
@@ -199,12 +206,17 @@ func (g *Grant) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeStatus(w, http.StatusRequestEntityTooLarge, "kstack: the request body is too large")
 		return
 	}
-	g.forward(w, r, p, body)
+	if p.onSecrets() && !metadataOnly(r) {
+		g.serveSecretRead(w, r, p, body)
+		return
+	}
+	g.forward(w, r, p, body, p.onSecrets())
 }
 
 // forward sends r, carrying body, to the cluster: in a slot, through the
-// limiter, and with the grant's end cutting it short.
-func (g *Grant) forward(w http.ResponseWriter, r *http.Request, p apiPath, body []byte) {
+// limiter, and with the grant's end cutting it short. With redact, the answer
+// is rewritten so no Secret's data passes.
+func (g *Grant) forward(w http.ResponseWriter, r *http.Request, p apiPath, body []byte, redact bool) {
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	r.ContentLength, r.TransferEncoding = int64(len(body)), nil
 	// A slot is held until the request ends, a watch for as long as it is open,
@@ -241,7 +253,7 @@ func (g *Grant) forward(w http.ResponseWriter, r *http.Request, p apiPath, body 
 		}
 	}()
 	proxy := forward(conn.Base, conn.Client)
-	if p.onSecrets() {
+	if redact {
 		rewriteSecrets(proxy, isWatch(p, r.URL.Query()))
 	}
 	proxy.ServeHTTP(w, r)

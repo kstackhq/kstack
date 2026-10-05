@@ -207,6 +207,52 @@ describe('PermissionSettings', () => {
     expect(within(form).getByLabelText('Namespace')).toHaveValue('');
   });
 
+  // A Secret read rule names a context and a namespace and nothing else, so
+  // the form draws those alone and sends the rest empty, whatever was typed.
+  it('adds a Secret read rule by its context and namespace alone', async () => {
+    const user = userEvent.setup();
+    render(<PermissionSettings />);
+    const form = screen.getByRole('form', { name: 'Add a rule' });
+
+    await user.type(within(form).getByLabelText('Verb'), 'delete');
+    await user.click(within(form).getByLabelText('Cluster-scoped'));
+    await user.selectOptions(within(form).getByLabelText('Class'), 'Secret reads');
+    ['Verb', 'API group', 'Resource', 'Cluster-scoped'].forEach((label) => {
+      expect(within(form).queryByLabelText(label)).toBeNull();
+    });
+    await user.type(within(form).getByLabelText('Context'), 'dev-*');
+    await user.type(within(form).getByLabelText('Namespace'), 'team-a');
+    await user.click(within(form).getByRole('button', { name: 'Add' }));
+    expect(mutateMock).toHaveBeenCalledWith('permissionRuleAdd', {
+      input: {
+        effect: 'Allow',
+        class: 'SecretRead',
+        context: 'dev-*',
+        namespace: 'team-a',
+        verb: '',
+        group: '',
+        kind: '',
+      },
+    });
+  });
+
+  it.each(['Allow', 'Deny', 'Ask'])('offers Secret reads to %s', async (effect) => {
+    const user = userEvent.setup();
+    render(<PermissionSettings />);
+    const form = screen.getByRole('form', { name: 'Add a rule' });
+    await user.selectOptions(within(form).getByLabelText('Effect'), effect);
+    expect(within(form).getByRole('option', { name: 'Secret reads' })).toBeInTheDocument();
+  });
+
+  it('says what each mode does with Secret data', () => {
+    render(<PermissionSettings />);
+    [
+      'Read-only: Every change to the cluster is refused. Showing Secret data asks you first.',
+      'Ask: Every change to the cluster, and showing Secret data, asks you first.',
+      'Auto: Changes run and Secret data is shown without asking, except what always asks.',
+    ].forEach((line) => expect(screen.getByText(line)).toBeInTheDocument());
+  });
+
   it('offers no destructive class to an Allow', async () => {
     const user = userEvent.setup();
     render(<PermissionSettings />);
@@ -241,7 +287,9 @@ describe('PermissionSettings', () => {
     const held = screen.getByRole('region', { name: 'Rules Kstack cannot read' });
     expect(held).toHaveTextContent('{"id":"b","class":9}');
     expect(held).toHaveTextContent('names a class its provider does not have');
-    expect(held).toHaveTextContent('Every cluster write is refused');
+    expect(held).toHaveTextContent(
+      'Every cluster write is refused, and Secret data stays redacted, until the file is fixed.',
+    );
     expect(screen.queryByText('not held, so not drawn')).toBeNull();
     expect(
       within(screen.getByRole('region', { name: 'Rules' })).getByRole('button', { name: 'Remove' }),

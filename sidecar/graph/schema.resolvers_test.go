@@ -2829,6 +2829,9 @@ func TestPermissionMutationsWriteTheSettings(t *testing.T) {
 	data = mutate(t, srv, `mutation { permissionRuleRemove(id: "`+added["id"].(string)+`") { rules { id } } }`)
 	assert.Empty(t, data["permissionRuleRemove"].(map[string]any)["rules"])
 
+	data = mutate(t, srv, `mutation { permissionRuleAdd(input: {effect: Deny, class: SecretRead, context: "dev-*"}) { rules { line } } }`)
+	assert.Equal(t, []any{map[string]any{"line": "Deny Secret reads in dev-*"}}, data["permissionRuleAdd"].(map[string]any)["rules"])
+
 	data = mutate(t, srv, `mutation { permissionModeClear(context: "prod") { contexts { context source } } }`)
 	assert.Equal(t, map[string]any{"context": "prod", "source": "Default"}, data["permissionModeClear"].(map[string]any)["contexts"].([]any)[0])
 
@@ -2888,12 +2891,11 @@ func TestPermissionSettingsFailsWithTheClusterList(t *testing.T) {
 	assert.NotEqual(t, "KSTACK_VALIDATION_ERROR", code)
 }
 
-// A rule of a class nothing decides — a Secret read, a new host — is refused,
-// so a saved rule always acts.
+// A rule of a class nothing decides — a new host — is refused, so a saved
+// rule always acts.
 func TestARuleNothingDecidesIsRefused(t *testing.T) {
 	srv := newPermissionServer(t, "")
 	for _, input := range []string{
-		`{effect: Allow, class: SecretRead}`,
 		`{effect: Allow, class: NewHost, context: "dev"}`,
 	} {
 		message, code := refusalOf(t, srv, `mutation { permissionRuleAdd(input: `+input+`) { held } }`)
