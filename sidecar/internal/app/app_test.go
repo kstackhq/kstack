@@ -268,16 +268,27 @@ func writeKubeconfig(t *testing.T, path string, contexts ...string) {
 // graphql POSTs one query to the app and returns the raw response.
 func graphql(t *testing.T, srvURL, query string) string {
 	t.Helper()
+	raw, err := postGraphQL(srvURL, query)
+	require.NoError(t, err)
+	return raw
+}
+
+// postGraphQL is graphql answering its error, for a condition that runs off
+// the test's goroutine.
+func postGraphQL(srvURL, query string) (string, error) {
 	body, _ := json.Marshal(map[string]string{"query": query})
 	req, err := http.NewRequest(http.MethodPost, srvURL+"/graphql", bytes.NewReader(body))
-	require.NoError(t, err)
+	if err != nil {
+		return "", err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	if err != nil {
+		return "", err
+	}
 	defer resp.Body.Close()
 	raw, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	return string(raw)
+	return string(raw), err
 }
 
 // startApp starts a and registers its stop.

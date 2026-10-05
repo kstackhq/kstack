@@ -266,9 +266,18 @@ func (e *e2e) askAgain(t *testing.T, chatID string, disabled bool, first string,
 		return err == nil && n == 0
 	}, e2eConverge, 10*time.Millisecond, "the first turn settled")
 	e.fake.Route(first).SetToolCalls(calls...)
-	raw := graphql(t, e.url, `mutation { chatSend(chatID: "`+chatID+`", mode: Chat, clusterID: "`+e.clusterID+
-		`", sandboxDisabled: `+strconv.FormatBool(disabled)+`, providerID: "fake", modelID: "fake", effort: "low", requestID: "`+appdb.NewID()+
-		`", content: "again") { chatID } }`)
+	send := `mutation { chatSend(chatID: "` + chatID + `", mode: Chat, clusterID: "` + e.clusterID +
+		`", sandboxDisabled: ` + strconv.FormatBool(disabled) + `, providerID: "fake", modelID: "fake", effort: "low", requestID: "` + appdb.NewID() +
+		`", content: "again") { chatID } }`
+	// A turn settles its row before it lets go of the chat, so a send in
+	// between is refused as a turn in flight, which writes nothing.
+	var raw string
+	var err error
+	require.Eventually(t, func() bool {
+		raw, err = postGraphQL(e.url, send)
+		return err != nil || !strings.Contains(raw, `"KSTACK_CONFLICT"`)
+	}, e2eConverge, 10*time.Millisecond, "the first turn let go of the chat")
+	require.NoError(t, err)
 	require.Contains(t, raw, `"chatID"`, raw)
 }
 
