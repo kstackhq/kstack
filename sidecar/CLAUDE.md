@@ -2208,6 +2208,8 @@ fake, a test tool and a logging recorder.
 > - The subagent: the `Agent` tool (`internal/tools/agent`), the turn as its spawner, the
 >   subagent's rows, approvals and notices (`subagent.go`) — described below under *A turn can hand a
 >   task to a subagent*.
+> - The monitor run: `RunMonitor` (`monitor.go`) — described below under *A monitor run is a run of
+>   the chat service*.
 >
 > Not yet: the native bash and shell contracts, and the prompt sections that describe them. Every paragraph below describes the code as it was
 > before the rewrite, kept as the list of invariants the rebuild has to reproduce and rewritten as each
@@ -2430,6 +2432,34 @@ inside the subagent ends it alone. The stored read attaches a subagent's calls t
 [ADR: an agent runs in the background](../docs/adr/2026-09-25-an-agent-runs-in-the-background.md),
 [security records: the Agent tool](../docs/security/2026-09-25-agent-tool.md),
 [background agents](../docs/security/2026-09-25-background-agents.md).
+
+**A monitor run is a run of the chat service** (`monitor.go`). `RunMonitor(ctx, clusterID, target,
+brief)` takes one `agent.Run` on the calling goroutine, built as a subagent's is, with no chat and
+no task, and answers a `MonitorResult` (the run, its `RunStatus`, the report — the text of its last
+reply — and its error). It refuses, before anything is written, a machine with no sandbox
+(`ErrNoSandbox`), an empty brief or one over `maxMonitorBriefLen` (4,000 bytes) and a target that takes no
+tools (`ErrBadRequest`); then a second run on the cluster (`ErrMonitorInFlight`, `s.monitors` under
+`turnsMu`, one `monitor` per cluster, reserved and released as a turn is); then, inside the insert's
+transaction, a cluster marked or gone (`ErrClusterGone`) or whose `monitoring_enabled` is off
+(`ErrMonitoringOff`). Its context ends with
+the caller's, the service's, and the sweeper's cancel. The run is inserted queued
+(`stmtInsertMonitorRun`: `trigger` and `agent_type` `monitor`, `cluster_id`, `task` the brief) and
+claimed by its first round, as a turn's is. **It runs in `monitorSession()`** (`grants.go`:
+`NoPrompts` and `NoSecretData`, and no `Policy`, `Network` or `Folders`), told `prompts/monitor.md`
+(`monitorSystemPrompt`) and one message of the cluster card — the card alone, never the memory
+notes — then the brief, offered the box less `Agent`, `Memory`, `WebFetch`, `TaskStop` and the
+search, at `maxMonitorToolCalls` (16). Its directory is the cluster's `monitorDir`. Its recorder is
+`monitor`, a `briefedRun` with an `Approve` that answers no and writes nothing; its asker is
+`monitorAsker`, which records what the proxy decided and answers an ask with `errMonitorAsked`; its
+tasks are `monitorTasks`, which start none. It runs through `briefedRun`'s `loop` and settles in
+one transaction through its `writeRun` and `writeRows` (`monitor.settle`); a settle the store refuses
+is left for the next start to fail as stranded.
+**The sweeper ends it** (`sweepMonitors`, on every pass before the chats): it lists the monitor's
+directory, copies the slots, then reads the live rows, cancels and joins every run whose cluster is not a
+live row, then removes its folder and every entry naming neither a live cluster nor a run still in its slot. Nothing calls `RunMonitor`
+but its tests. → [ADR: a monitor run is a run of the chat
+service](../docs/adr/2026-10-05-a-monitor-run-is-a-run-of-the-chat-service.md), [security record:
+the monitoring session](../docs/security/2026-10-05-the-monitoring-session.md).
 
 **A reply's calls run one at a time, in reply order** (`agent`). An `Agent` call only starts its
 subagent, so a subagent's requests wait beside the parent's and each other's.

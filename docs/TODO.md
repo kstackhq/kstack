@@ -465,6 +465,20 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     update both `CLAUDE.md`s, the specs and the security records' code references. Leave the
     ADRs. No table or wire name changes.
 
+- **Build the monitoring agent over `chatsvc.RunMonitor`.** Step 6B built the run, its session, its
+  record, its folder and its teardown; nothing calls it but its tests.
+  - **Schedule and brief.** When a run starts, what it is told, what it keeps between runs (the
+    last run's `task` and `result` are there to read), and how its model is picked.
+  - **Settings.** The per-cluster switch (`clusters.monitoring_enabled`,
+    `clusterMonitoringEnabledSet`), drawn only once something runs behind it, and the note's
+    separate switch for sharing folder grants with the monitor.
+  - **Proposals.** A card for what the monitor proposes, with two fixes from 6B's review. The
+    unstarted chat's draft is keyed `new:<mode>`, not per cluster, and outlives a cluster switch,
+    so a proposal joined onto it must carry its cluster and Send must hold while the window is on
+    another. A proposal is text the monitor wrote from cluster data: drawn through `VisibleText`,
+    and a question only as the user's own draft, never sent on a press.
+  - **Findings.** A view of what the runs found, its reports drawn as text.
+
 - **Rename `securityconfig` to `securitysvc`, once 3A and 3B have merged.** The package is a
   service like `chatsvc` and `memorysvc`: a `Service` with operations, runtime state and a watch,
   which the resolvers call. "config" reads as a file loaded once. Do it before a step-4 branch
