@@ -13,32 +13,24 @@
 // limitations under the License.
 
 // Each chat's own directory: its saved results, its background tasks' output and
-// its workspace, under the chats' directory and deleted with the chat.
+// its workspace, under the chats' directory and deleted with the chat. Each
+// cluster's monitor directory is the same shape under the monitor's directory.
 package chatsvc
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 
+	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/rootdir"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
-// openChats makes the chats' directory owner-only and opens it as the root
-// every chat's directory is reached through. dir is absolute: a result names
-// its file under the root's name, and Read takes only an absolute path.
-func openChats(dir string) (*os.Root, error) {
-	root, err := rootdir.MakeRoot(dir)
-	if err != nil {
-		return nil, fmt.Errorf("open the chats' directory: %w", err)
-	}
-	return root, nil
-}
-
 // entryDir is one entry of a root the service holds open: a chat's directory
-// in the chats' root.
+// in the chats' root, or a cluster's monitor directory in the monitor's. Each
+// root's path is absolute, since a result names its file under it and Read
+// takes only an absolute path.
 type entryDir struct {
 	root *os.Root
 	name string
@@ -47,6 +39,10 @@ type entryDir struct {
 var _ tools.ChatDir = entryDir{}
 
 func (s *service) chatDir(id ChatID) entryDir { return entryDir{root: s.chatsRoot, name: string(id)} }
+
+func (s *service) monitorDir(id apimeta.ClusterID) entryDir {
+	return entryDir{root: s.monitorRoot, name: string(id)}
+}
 
 func (d entryDir) Path() string { return filepath.Join(d.root.Name(), d.name) }
 

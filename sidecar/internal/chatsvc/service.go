@@ -32,6 +32,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/rootdir"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
@@ -209,9 +210,11 @@ type service struct {
 	// target takes, and every stored call is read through it, whether or not a
 	// turn offers its tool.
 	tools tools.Box
-	// chatsRoot is the root every chat's directory is under: held open so no
-	// link a command swaps in leads out of it.
-	chatsRoot *os.Root
+	// chatsRoot is the root every chat's directory is under, and monitorRoot
+	// every cluster's monitor directory: held open so no link a command swaps
+	// in leads out of either.
+	chatsRoot   *os.Root
+	monitorRoot *os.Root
 
 	// turns is the one in-flight turn per chat, under turnsMu. The mutex is never
 	// held across a database call: the writer has one connection, and a holder
@@ -264,31 +267,39 @@ type service struct {
 }
 
 // New builds the service over the app's DB, the directory each chat's files go
-// under, the providers a send can name, the card source, the memories each
-// chat's cluster sees, the box: the tools every turn is offered from, which read
-// every stored call, the lists that pick a turn's tools from it, whether the
-// machine offers sandboxed Bash, and the security settings a session's modes,
-// rules and folders come from. Nothing runs until Start.
-func New(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, security *securityconfig.Service) (Service, error) {
-	return newService(db, chatsDir, llmSvc, clusterCards, memories, box, lists, sandboxStatus, security)
+// under and the one each cluster's monitor's go under, the providers a send can
+// name, the card source, the memories each chat's cluster sees, the box: the
+// tools every turn is offered from, which read every stored call, the lists
+// that pick a turn's tools from it, whether the machine offers sandboxed Bash,
+// and the security settings a session's modes, rules and folders come from.
+// Nothing runs until Start.
+func New(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, security *securityconfig.Service) (Service, error) {
+	return newService(db, chatsDir, monitorDir, llmSvc, clusterCards, memories, box, lists, sandboxStatus, security)
 }
 
 // newService is New returning the concrete type, for tests. A nil memories sends
 // no memory section.
-func newService(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, security *securityconfig.Service) (*service, error) {
-	chatsRoot, err := openChats(chatsDir)
+func newService(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, security *securityconfig.Service) (*service, error) {
+	chatsRoot, err := rootdir.MakeRoot(chatsDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open the chats' directory: %w", err)
+	}
+	monitorRoot, err := rootdir.MakeRoot(monitorDir)
+	if err != nil {
+		_ = chatsRoot.Close()
+		return nil, fmt.Errorf("open the monitor's directory: %w", err)
 	}
 	st, err := sqlstmt.Prepare[stmtID](context.Background(), db.Write, db.Read, statements)
 	if err != nil {
 		_ = chatsRoot.Close()
+		_ = monitorRoot.Close()
 		return nil, fmt.Errorf("prepare chat statements: %w", err)
 	}
 	s := &service{
 		db:                 db,
 		store:              st,
 		chatsRoot:          chatsRoot,
+		monitorRoot:        monitorRoot,
 		llmSvc:             llmSvc,
 		clusterCards:       clusterCards,
 		memories:           memories,
@@ -404,9 +415,11 @@ func (s *service) enter() error {
 	}
 }
 
-// Close releases the prepared statements and the chats' root. It runs after
-// stop has joined every reader.
-func (s *service) Close() error { return errors.Join(s.store.Close(), s.chatsRoot.Close()) }
+// Close releases the prepared statements and the two roots. It runs after stop
+// has joined every reader.
+func (s *service) Close() error {
+	return errors.Join(s.store.Close(), s.chatsRoot.Close(), s.monitorRoot.Close())
+}
 
 // notify tells the watchers of key to re-read. Called after a commit, never inside
 // the transaction.

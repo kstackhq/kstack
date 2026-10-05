@@ -177,6 +177,9 @@ func tableCount(t *testing.T, db *appdb.DB, table string) int {
 // chatsDirIn is the chats' directory under dir.
 func chatsDirIn(dir string) string { return filepath.Join(dir, "chats") }
 
+// monitorDirIn is the monitor's directory under dir.
+func monitorDirIn(dir string) string { return filepath.Join(dir, "monitor") }
+
 // startService opens a service over dir and starts it, on the fake and no card:
 // the stub's empty card is what a fresh chat holds, so no question carries a
 // context block.
@@ -189,7 +192,7 @@ func startService(t *testing.T, dir string) *service {
 // tool box and lists.
 func startServiceWith(t *testing.T, dir string, llmSvc *llm.Service, clusterCards ClusterCards, box tools.Box, lists ToolLists) *service {
 	t.Helper()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), llmSvc, clusterCards, nil, box, lists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), llmSvc, clusterCards, nil, box, lists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	startPrepared(t, s)
 	return s
