@@ -7,7 +7,7 @@ status: Planned
 # Onboarding
 
 **Needs:** step 6A, whose probe the Tools step runs, and steps 3A, 3B and 5B, whose list, mode
-picker and popover the flow mounts. **Unblocks:** nothing.
+picker and grant form the flow mounts. **Unblocks:** nothing.
 
 Go paths below are under `sidecar/internal/` unless they say otherwise.
 
@@ -97,8 +97,9 @@ these folders.* A list with nothing waiting says *Nothing is waiting for you.* u
 your tools…* until it answers; opening the step again does not run it again, since a probe
 runs every tool. Then step 6A's list, the same component its Settings section draws: each
 curated tool with the binary it resolved to and its version, or *not found*; under a tool,
-each path it was denied with step 5B's `grant-popover.tsx`, offering **always** alone, since a
-grant made here is for every chat and there is no chat to grant it for. A missing `kubectl` is
+each path it was denied with *Grant…*, opening step 5B's `FolderGrantForm` on its folder as
+step 6A's section does, offering **always** alone, since a grant made here is for every chat and
+there is no chat to grant it for. A missing `kubectl` is
 a red line above the list, `role="alert"`: *kubectl was not found on your PATH. Install it, or
 include the folder it is in under Programs, then press Refresh.* The probe's error, if it
 fails, is one line under the spinner's place with **Try again**.
@@ -119,7 +120,7 @@ close it without writing, so the launcher opens it again at the next launch.
 | Step | Shared with its Settings section | Drawn for the flow |
 | --- | --- | --- |
 | Programs | `SandboxPathList` and `useSandboxPath` (step 3A) | the heading, the one line, the *nothing waiting* line |
-| Tools | the tools list and `grant-popover.tsx` (steps 5B and 6A) | running the probe on open, the spinner, the `kubectl` alert, Try again |
+| Tools | the tools list (step 6A) and `FolderGrantForm` (step 5B) | running the probe on open, the spinner, the `kubectl` alert, Try again |
 | Permissions | the mode picker and the contexts list (step 3B) | the line on what Ask means |
 
 Each shared component takes its data through its own hook and writes through its own mutation,
@@ -191,7 +192,7 @@ keeps answering empty there, and the `PATH` mutations stay refused.
   not at all when it is true or the query fails.
 - Each step draws its data off its hook: the Programs list with a waiting entry and Include
   calling `sandboxPathInclude`; the Tools step running `sandboxToolsProbe` once on open, the
-  spinner until it answers, the resolved binaries, a denied path with the popover's always
+  spinner until it answers, the resolved binaries, a denied path with the form's always
   grant, the `kubectl` alert when it is missing and Try again on a failed probe; the
   Permissions picker with Ask selected and each context's mode.
 - Skip goes to the next step and calls nothing; Back returns; Finish calls
@@ -208,8 +209,8 @@ or without the flow. The flow adds no mutation but the flag, and the flag gates 
 a machine that never finishes onboarding runs the sandbox as the earlier steps left it.
 
 The residual is a user who clicks through every always-grant the Tools step offers without
-reading them; the popover names the path and the tool that needs it, which is the guard step 5B
-gives every denial.
+reading them; the form shows the folder it grants under the tool that needs it, and the user
+can change it, which is the guard steps 5B and 6A give every grant.
 
 No security record. `security-model.md` gains one line under the sandbox's rows: the onboarding
 flow writes only through the grants' own mutations and a flag that gates nothing.
