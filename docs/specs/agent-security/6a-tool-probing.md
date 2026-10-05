@@ -53,10 +53,13 @@ the settings file: a probe answers the machine as it is now.
 
 ### 1. The list
 
-`tools/bash/probe.go` holds the curated list and the probe. It lives in the Bash tool because a
+`tools/bash/toolprobe.go` holds the curated list and the probe. It lives in the Bash tool because a
 probe is a Workspace run with no cluster: the policy `sandboxedRunFor` builds, the environment
 `sandboxedRunEnv` builds, the frozen `PATH`. A tool that runs in the probe runs in a chat, and
 the reverse; a package of its own would rebuild both, and the two would drift.
+
+"Probe" here is the tool probe. `sandbox/probe.go` is a different one, the probe of whether the
+sandbox works at all; the tool probe's files are `toolprobe*.go` so the two stay apart.
 
 ```go
 // ToolSpec is one tool the probe may run: a plain program name and the one
@@ -119,11 +122,11 @@ in more than one entry reports the one that wins, so a user with several `kubect
 knows which one the agent uses.
 
 A resolved file is a **shim** when it lies under `~/.asdf/shims/` or
-`~/.local/share/mise/shims/`, or when its first two bytes are `#!`. For a shim under a version
-manager's folder the probe runs that manager's resolver inside the sandbox — `asdf which <name>`
+`~/.local/share/mise/shims/`. Many real tools are scripts, so a `#!` line alone makes nothing a
+shim. For a shim the probe runs its manager's resolver inside the sandbox — `asdf which <name>`
 or `mise which <name>`, the manager found on the same frozen `PATH` — and takes the first line of
-its output as `target`, the binary the shim execs. A `#!` script anywhere else is a shim with no
-target. The resolver runs under the probe's policy (§3), so a manager that cannot read its own
+its output as `target`, the binary the shim execs. The resolver runs under the probe's policy
+(§3), so a manager that cannot read its own
 data directory reports a denial like any tool.
 
 ### 3. The probe
@@ -148,17 +151,28 @@ type ToolReport struct {
 func (t *Tool) ProbeTools(ctx context.Context, specs []ToolSpec) []ToolReport
 ```
 
-Each invocation is one Workspace run with no cluster:
+Each invocation is one Workspace run with no cluster, built by `sandboxedRunFor` itself from a
+probe runtime:
 
-- **Its policy is `sandboxedRunFor`'s** (`workspacePolicy`, as steps 2A, 2B, 3A and 4D leave it), built
-  for a throwaway workspace `<cache>/tmp/<pid>-probe-*/workspace` and a `TMPDIR` beside it,
-  both under the cache directory so `Check` accepts them, removed after the run through
-  `rootdir.RemoveAll`. It names no relay and leaves `Internet` false (step 4C): no cluster and no
-  network, so a tool's update check gets nothing by the policy, not by the tool's manners.
-- **Its folders are `foldersFor(ctx, "")`** (step 4D): the folders granted always, and no chat's,
-  since a probe has no chat. So a folder granted from a report reaches the next probe.
-- **Its environment is `sandboxedRunEnv`'s** with no cluster, `HOME` the throwaway workspace, the
-  frozen `PATH`, and no cluster variables, since the run has no relay.
+- **Its runtime** is `tools.Runtime{Session: s, Dir: d}`, with no `ClusterID` and no `ChatID`, and
+  `network` `session.NoNetwork`. `d` is a `probeDir`, a throwaway `tools.ChatDir` at
+  `<cache>/tmp/<pid>-probe-*/`, so `tools.WorkspacePath(d)` and `tools.ToolHomePath(d)` are fresh
+  for each run, as a new chat's are; the run's own `TMPDIR` is its run directory's, as for any
+  run. Both lie under the cache directory, so `Check` accepts them, and the probe removes `d`
+  through `rootdir.RemoveAll` after the run.
+- **Its policy is `sandboxedRunFor`'s** (`workspacePolicy`, as steps 2A, 2B, 3A and 4D leave
+  it). With no cluster it makes no claim, no proxy and no relay, and with `NoNetwork` it leaves
+  `Internet` false (step 4C): a tool's update check gets nothing by the policy, not by the
+  tool's manners.
+- **Its session** `s` is `session.Session{Folders: t.probeFolders}`: no `Policy`, since the run
+  has no cluster, and no `Network`. `probeFolders` is the folders granted always, and no chat's,
+  since a probe has no chat: `chatsvc.AlwaysFolders(ctx)`, which is `foldersFor(ctx, "")` (step
+  4D) exported, handed to the Bash tool by `app` through `SetProbeFolders` once `chatsvc` is
+  built, since the tool is built first. So a folder granted from a report reaches the next
+  probe.
+- **Its environment is `sandboxedRunEnv`'s** with no cluster: `HOME` the throwaway workspace,
+  the tool home's variables, the frozen `PATH`, and no cluster variables, since the run has no
+  relay.
 - **Its argv** is the resolved binary and the invocation's remaining fields, bounded by
   `probeTimeout` (15 s) and step 2B's limits.
 - **Denials are found** as §4 says, each with the folder a grant would open.
@@ -169,8 +183,10 @@ a non-zero exit is `OK` false with the sidecar's first line as Bash writes it (`
 `Command timed out …`); one that could not start is `could not start: <reason>`.
 
 The runs go one at a time, since §4 finds denials per run and a dozen tools take seconds.
-`Tool.probe` (a mutex and the last report) lets one probe run at once: a second `ProbeTools`
-joins the one in flight and answers its result.
+One probe runs at once. A `ProbeTools` asked for while one runs waits for it to end, then every
+caller that waited shares one more run, which starts after all of them asked. So a press after
+a grant or a register never answers a report begun before it, and a burst of presses runs
+twice, not once per press.
 
 **When it runs.** The last report is `Tool.LastProbe()`, nil before the first, and a probe starts:
 
@@ -179,7 +195,10 @@ joins the one in flight and answers its result.
 | at onboarding | step 7A | `sandboxToolsProbe` |
 | after Refresh PATH | the Settings section | `sandboxToolsProbe`, once `sandboxPathRefresh` answers |
 | on demand | the Settings section's *Probe again* | `sandboxToolsProbe` |
-| at launch | `app.Start`, after `SyncPath` | on a goroutine under the app's lifecycle, only when the sync's `PathReport` changed anything |
+| at launch | `app.Start`, after `SyncPath` | on a goroutine under the app's lifecycle, only when the sync changed the stored list |
+
+`SyncPath` answers `(changed bool, err error)`: `changed` is whether the list it wrote differs from
+the one it read, which it already holds as `before` and `after`. `RefreshPath` ignores it.
 
 Nothing is written to `security.json` by a probe. A restart starts with no report, and the launch
 probe runs only when the `PATH` moved, so nothing runs unasked on a machine whose tools did not
@@ -257,10 +276,17 @@ workspace, and a relative path names a directory the line does not say, so neith
 `Never` in `sandbox/lists_darwin.go` and `lists_linux.go` of paths a platform's programs probe on
 every launch, on macOS the real home's `Library/Preferences`, on Linux none.
 
+**A path missing from the disk is never a denial.** The sidecar stats each path outside the
+sandbox, and drops one that is not there: the tool's error is then its own, whatever the
+sandbox would have said, and offering a grant of the nearest folder above it would offer the
+home for a tool looking for an optional `~/.foorc`. Seatbelt reports a lookup of a missing path
+under a deny like any other, so the rule applies to both sources.
+
 **A denial.** Each is `sandbox.Denial{Path, Folder, Never, Write}`, the path absolute; at most
 `maxDenials` (8) per probe, first seen, and a path both sources name is one. `Folder` is the
-folder a grant names: the deepest directory on the path that exists, resolved, `""` for a
-`Never` path. The probe then runs it through `securityconfig.Service.CheckFolder(ctx, folder,
+folder a grant names, resolved: the path itself when it is a directory, else the directory
+holding it; `""` for a `Never` path. The probe then runs it through
+`securityconfig.Service.CheckFolder(ctx, folder,
 write)` and blanks one it refuses; `sandbox` cannot, since `securityconfig` imports it.
 
 ### 5. The grant
@@ -268,7 +294,8 @@ write)` and blanks one it refuses; `sandbox` cannot, since `securityconfig` impo
 A denied path with a folder draws *Grant…*, which opens step 5B's `FolderGrantForm` in a popover
 with the folder filled in, *read and write* checked for a write, and **always** alone: a tool's
 need is the machine's, not a chat's. The user reads the folder and can change it before
-granting. The grant writes step 4D's always rule, and
+granting; a wide one (the home, say, for a hidden file directly under it) draws the form's wide
+warning before Add, as it does in Settings. The grant writes step 4D's always rule, and
 *Probe again* runs the list once more, so the user reads the tool go from denied to `OK` in the
 same section.
 
@@ -314,7 +341,7 @@ extend type Query {
 }
 
 extend type Mutation {
-  "Probe every listed tool in the sandbox and answer the report; joins a probe already running. Refused KSTACK_VALIDATION_ERROR on a machine with no sandbox."
+  "Probe every listed tool in the sandbox and answer the report; waits out a probe already running, then runs. Refused KSTACK_VALIDATION_ERROR on a machine with no sandbox."
   sandboxToolsProbe: [SandboxTool!]!
   "Register a tool. Refused KSTACK_VALIDATION_ERROR for a name or invocation out of shape, one already listed, or on a machine with no sandbox."
   sandboxToolRegister(name: String!, invocation: String): [SandboxTool!]!
@@ -383,9 +410,9 @@ not drawn.
 | 1a | `Explain`, `allRules`, `rule.always`, `sandbox.Denial` | `sandbox/policy.go`, its test | — | Planned |
 | 1b | macOS: the tagged denies, `Reports`, `ParseReport`, `reportDrain` | `sandbox/sandbox_darwin.go`, `sandbox/reports_darwin.go`, their tests, `sandbox/testdata/reports.ndjson` | 1a | Planned |
 | 1c | `ExplainOutput`, the folder a denial names, the fixed mounts and `Noise` left out | `sandbox/denials.go`, `sandbox/lists*.go`, their tests | 1a | Planned |
-| 2 | The list, `resolveTool`, the shim rule, `probeCommands` | `tools/bash/probe.go`, its tests | — | Planned |
-| 3 | `ProbeTools`: the run, its denials and their checked folders, the report, one at a time, `LastProbe` | `tools/bash/probe.go`, `tools/bash/bash.go`, their tests | 1b, 1c, 2 | Planned |
-| 4 | The launch probe after `SyncPath` | `app/app.go`, its test | 3 | Planned |
+| 2 | The list, `resolveTool`, the shim rule, `probeCommands` | `tools/bash/toolprobe.go`, its tests | — | Planned |
+| 3 | `ProbeTools`: `probeDir`, the run, its denials and their checked folders, the report, one at a time, `LastProbe`; `SetProbeFolders` and `chatsvc.AlwaysFolders` | `tools/bash/toolprobe.go`, `tools/bash/bash.go`, `chatsvc/grants.go`, their tests | 1b, 1c, 2 | Planned |
+| 4 | `SyncPath` answers `changed`; the probe's folders wired; the launch probe after the sync | `securityconfig/service.go`, `app/app.go`, their tests | 3 | Planned |
 | 5 | The wire and the resolvers | `sidecar/graph/schema.graphqls`, `graph/`, generated code | 1, 3 | Planned |
 | 6 | Codegen, `useSandboxTools`, the Tools part | `src/gql/`, `src/lib/sandbox-tools.tsx`, `src/components/widgets/sandbox-settings.tsx`, their tests | 5 | Planned |
 | 7 | Docs, per *When it lands* | see there | 1–6 | Planned |
@@ -424,8 +451,10 @@ time, then 6, then 7.
   `https://` URL and a path past the last 256 KiB (none read), and a `Permission denied` line
   with no path.
 - `TestTheRunsOwnMountsAreNotReported` and `TestNoiseIsNotReported`.
-- `TestADenialsFolderIsTheDeepestThatExists`: an existing hidden file's folder is its parent, a
-  missing one's the nearest existing folder above it, a `Never` path's empty.
+- `TestADenialsFolderIsItsDirectory`: a hidden file's folder is its parent, a hidden directory's
+  itself, a `Never` path's empty.
+- `TestAMissingPathIsNotADenial`: an `ENOENT` line, and a Seatbelt report, naming a path absent
+  from the disk report nothing, though `Explain` says the path is denied.
 
 **`bash`**
 
@@ -434,11 +463,11 @@ time, then 6, then 7.
   off the list. A binary planted beside a listed one on the fixture `PATH` is never run.
 - `TestAToolResolvesToTheFirstEntry`: a fixture `PATH` with `kubectl` in two entries reports the
   first; a non-executable file in the first entry is passed over.
-- `TestAShimResolvesToItsTarget` (`probe_unix_test.go`): a fixture home with
+- `TestAShimResolvesToItsTarget` (`toolprobe_unix_test.go`): a fixture home with
   `.asdf/shims/kubectl` and an `asdf` whose `which` prints a path reports `Shim` and that
-  `Target`; a `#!` script elsewhere reports `Shim` with no target.
+  `Target`; a `#!` script elsewhere is no shim.
 - `TestAMissingKubectlIsReported`: a `PATH` with no `kubectl` reports it not found, `OK` false.
-- `TestAProbeReportsWhatItWasDenied` (`probe_unix_test.go`, through the real sandbox,
+- `TestAProbeReportsWhatItWasDenied` (`toolprobe_unix_test.go`, through the real sandbox,
   `testutil.RequireSandbox`): a fake tool registered on a fixture `PATH` that reads a file under
   the home by absolute path is `OK` false with that path in `Denied`, its folder set; granted
   always (step 4D), it is `OK`. On macOS the report source is the real stream, with a drain the
@@ -447,15 +476,21 @@ time, then 6, then 7.
   empty folder.
 - `TestALateReportIsDrained`: over a fake report source, a report delivered after the reap
   within the drain is kept, and one after it is not.
-- `TestTheProbesSandboxHasNoClusterAndNoNetwork` (`probe_unix_test.go`): the run's policy names
+- `TestAProbeReadsTheAlwaysFoldersAlone`: a folder granted always is in the probe run's
+  policy, and one granted to a chat is not.
+- `TestTheProbesSandboxHasNoClusterAndNoNetwork` (`toolprobe_unix_test.go`): the run's policy names
   no relay, its environment holds no `KUBECONFIG` or `HTTP_PROXY`, and a
   listener on loopback outside the sandbox gets no connection from a fake tool that dials it.
 - `TestAProbeIsBounded`: a fake tool that sleeps past `probeTimeout` reports the timeout;
-  `TestOneProbeRunsAtATime`: a second `ProbeTools` during the first answers the first's report;
+  `TestOneProbeRunsAtATime`: a second and a third `ProbeTools` asked during the first share one
+  run after it, which starts after both asked;
   `TestTheProbesWorkspaceIsGone`: the throwaway folders are removed after each run.
 
-**`app`**: `TestTheLaunchProbeFollowsAChangedPath`, a sync whose report changed something
-starts a probe in the background, and one that changed nothing starts none.
+**`securityconfig`**: `TestSyncPathSaysWhetherItChanged`, a sync adding or dropping an entry
+answers `changed`, and one that leaves the list as it was does not.
+
+**`app`**: `TestTheLaunchProbeFollowsAChangedPath`, a sync that changed the list starts a probe in
+the background, and one that changed nothing starts none.
 
 **`graph`**: `TestSandboxToolMutationsAnswerTheReport`, each refusal a `KSTACK_VALIDATION_ERROR`.
 
@@ -484,7 +519,8 @@ Seatbelt's reports carrying `kstack:`, and the tag is not the run's token.
 
 **Residuals.** A registered tool is whatever the user named, and the probe runs it, and its
 output can print a path to lure a grant; the form shows the folder it grants, and the user can
-change it. A path granted from the report is granted always, for every chat; the form says so.
+change it. A path granted from the report is granted always, for every chat; the form says so,
+and draws its wide warning for a wide folder.
 
 No boundary moves, so no security record. `security-model.md` gains a row: the probe runs only
 the listed invocations, in the sandbox, with no cluster and no network, pinned by
@@ -494,7 +530,8 @@ the listed invocations, in the sandbox, with no cluster and no network, pinned b
 
 - **`security-model.md`**: the row above.
 - **`sidecar/CLAUDE.md`**: the probe in the Bash tool's section (the list, `resolveTool`, the
-  shim rule, `ProbeTools`, one at a time, `LastProbe`, its denials and their checked folders),
+  shim rule, `ProbeTools`, its throwaway `probeDir` and always folders, one at a time,
+  `LastProbe`, its denials and their checked folders), `SyncPath`'s `changed`,
   `Explain` over `allRules`, the tagged profile, `Reports`, `reportDrain`, `ExplainOutput` and
   `Noise` under `sandbox`, `Settings.Tools` and `CheckTool` under `securityconfig`, and the launch
   probe in `app`.

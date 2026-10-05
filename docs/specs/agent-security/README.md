@@ -68,11 +68,11 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 | Package | Holds | First in |
 | --- | --- | --- |
 | `sandbox` | the OS sandbox: `Policy`, the zone `Lists`, `Limits`, and reading a probe's denials | landed; 1A, 2A, 2B, 6A |
-| `securityconfig` | the settings file `<data>/security.json`: the store, and the fields later steps add — the frozen `PATH`, the permission rules and modes, the folders granted always, the registered tools, the monitor's switch, the onboarding flag | 1C |
+| `securityconfig` | the settings file `<data>/security.json`: the store, and the fields later steps add — the frozen `PATH`, the permission rules and modes, the folders granted always, the registered tools, the onboarding flag | 1C |
 | `session` | a `Session`: one agent run's kind and sandbox switch, then its approval mode, network, folder grants and rules; and how a subagent's is narrowed from its parent's | 2C |
 | `permissions` | the action classes, the approval modes, the rules, and `Decide` | 3B, 3C, 4B |
 | `kubeproxy` | the cluster proxy | landed; 3B, 5A |
-| `monitor` | the monitoring session and its proposal cards | 6B |
+| `chatsvc` | the chat service, and from 6B the monitor run: `RunMonitor`, its session, its record and its folder | landed; 6B |
 | `tools/bash` | the Bash tool, which builds each run from its session | landed; every wave |
 
 **Types.**
@@ -131,8 +131,8 @@ ask, decided under the proxy's write lock like a write.
 internet and why (4C). `chats.sandbox_disabled` is step 1B's switch, `chats.network_enabled` 4C's.
 
 **The wire.** `approvalDecide` takes the decision. Settings are read and written through
-queries and mutations named `sandbox…`, `permission…`, `network…`, `folder…`, `monitor…` and
-`proposal…`, each introduced by the step that needs it; the chat's
+queries and mutations named `sandbox…`, `permission…`, `network…` and `folder…`, each
+introduced by the step that needs it; the chat's
 switch is `chatSandboxDisabledSet`. An enum's members are spelled as the schema's are, in
 PascalCase (`Pending`, `Bookmark`).
 
@@ -234,9 +234,14 @@ after a call's disclosure and the prompt's folder line; the second keeps the fir
 | Spec | Step | After it |
 | --- | --- | --- |
 | [6A](6a-tool-probing.md) | **Tool probing.** The curated tools are probed in the real sandbox at onboarding and after a `PATH` refresh; each reports the binary it resolved to and the paths it was denied — found from Seatbelt's reports on macOS and the output on both, through a new `Policy.Explain` — with a grant button; the user registers more tools; a missing `kubectl` is said plainly. Needs 3A, 4D and 5B. | A `helm` plugin works in the sandbox after one click, and the user knows which `kubectl` the agent runs. |
-| [6B](6b-the-monitoring-session.md) | **The monitoring session.** A `monitor` session: read-only at the cluster proxy, no network, Secret data never, no prompts, its own workspace, no folder grants; a proposal card into chat, whose "Do it" runs the action in a chat session. Needs 4C and 5A. | A monitoring agent can plug in and change nothing without a human. |
+| [6B](6b-the-monitoring-session.md) | **The monitoring session.** A monitor run of the chat service: read-only at the cluster proxy, no network, Secret data never, no prompts, its own workspace, no folder grants; recorded as a chat's run is, under its cluster and no chat; nothing on the wire. Needs 4C and 5A. | A monitoring agent can plug in and change nothing without a human. |
 
-6A meets 4D across waves: the probe has no chat, so its run reads `foldersFor(ctx, "")`, the folders
+Seam: 6A and 6B both edit `app/app.go` (6A the probe's folders and the launch probe after
+`SyncPath`, 6B the monitor's directory handed to `chatsvc.New`) and `security-model.md`.
+They touch different lines; the second keeps the first's.
+
+6A meets 4D across waves: the probe has no chat, so its run reads `chatsvc.AlwaysFolders`, which
+is `foldersFor(ctx, "")`, the folders
 granted always alone, and a folder granted from its report reaches the next probe.
 
 **Wave 7** — needs waves 1 to 6.
@@ -271,7 +276,7 @@ neither and says so. A risk a step accepts on purpose is a **By decision** row i
 | 5A | yes | yes | the Secret redaction row; the helm release row; the cluster-reads **By decision** row; a row for `NoSecretData` |
 | 5B | no | no | the path-grants row names the transcript's offer |
 | 6A | no | no | a row: the probe runs only the listed invocations, and its denials reach the user alone |
-| 6B | yes | yes | rows for the monitor session, its folder and the proposal |
+| 6B | yes | yes | rows for the monitor session, its folder and its record |
 | 7A | no | no | one line under the sandbox rows |
 
 ## When it lands
