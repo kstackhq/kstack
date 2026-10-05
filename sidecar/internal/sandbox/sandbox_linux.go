@@ -44,16 +44,18 @@ const forwarderPort = 6443
 var systemBwraps = []string{"/usr/bin/bwrap", "/bin/bwrap", "/usr/local/bin/bwrap", "/run/current-system/sw/bin/bwrap"}
 
 // Probe answers this machine's sandbox: the first bwrap that runs a command
-// through the whole chain, the system's before Kstack's own. It answers ctx's
-// error when ctx ended first.
+// through the whole chain, then the first pasta that runs one with the
+// internet, each the system's before Kstack's own. It answers ctx's error when
+// ctx ended first.
 func Probe(ctx context.Context) (*Sandbox, Status, error) {
 	self, err := os.Executable()
 	if err != nil {
 		return nil, Status{Reason: "cannot find its own executable"}, nil
 	}
-	s, v := probe(ctx, self, bwrapPaths(filepath.Dir(self), systemBwraps), probeBound)
+	dir := filepath.Dir(self)
+	s, v := probe(ctx, self, programPaths(dir, "bwrap", systemBwraps), probeBound)
 	if s != nil {
-		s.probePasta(ctx, systemPastas, probeBound)
+		s.probePasta(ctx, programPaths(dir, "pasta", systemPastas), probeBound)
 		v.NetworkAvailable, v.NetworkReason = s.NetworkStatus()
 	}
 	if err := ctx.Err(); err != nil {
@@ -141,11 +143,12 @@ func runProbe(cmd *exec.Cmd) error {
 	return cmd.Run()
 }
 
-// bwrapPaths is the bwraps the probe tries, in order: the first of system
-// that exists, then Kstack's own, beside the executable in dir, where it
-// exists. The system's comes first because the distribution patches it, while
-// Kstack's own changes only when the user installs a new release.
-func bwrapPaths(dir string, system []string) []string {
+// programPaths is the copies of the program name the probe tries, in order:
+// the first of system that exists, then Kstack's own, beside the executable in
+// dir, where it exists. The system's comes first because the distribution
+// patches it, while Kstack's own changes only when the user installs a new
+// release.
+func programPaths(dir, name string, system []string) []string {
 	var paths []string
 	for _, p := range system {
 		if exists(p) {
@@ -153,7 +156,7 @@ func bwrapPaths(dir string, system []string) []string {
 			break
 		}
 	}
-	if own := filepath.Join(dir, "..", "lib", "kstack", "bwrap"); exists(own) {
+	if own := filepath.Join(dir, "..", "lib", "kstack", name); exists(own) {
 		paths = append(paths, own)
 	}
 	return paths

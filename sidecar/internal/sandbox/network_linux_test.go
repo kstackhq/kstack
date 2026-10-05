@@ -134,6 +134,37 @@ func TestAPastaProbeWithNoTempDirFails(t *testing.T) {
 	assert.Contains(t, reason, "no such file or directory")
 }
 
+// When the system's pasta fails, Kstack's own is probed in its place, and both
+// reasons are named when both fail; one that passes is never replaced. The
+// passing pastas run bwrap in the sidecar's own network.
+func TestKstacksOwnPastaStandsInForTheSystems(t *testing.T) {
+	s := *confining(t)
+	// Each case probes from scratch, as Probe does, whatever pasta this machine has.
+	s.pasta, s.pastaOwnUserNS, s.networkReason = "", false, ""
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "own-ran")
+	failing := fakeBwrap(t, filepath.Join(dir, "system-failing"), `echo "system failed" >&2; exit 1`)
+	passing := fakeBwrap(t, filepath.Join(dir, "system-passing"), `while [ "$1" != -- ]; do shift; done; shift; exec "$@"`)
+	own := fakeBwrap(t, filepath.Join(dir, "own"), `touch `+marker+`; while [ "$1" != -- ]; do shift; done; shift; exec "$@"`)
+	ownFailing := fakeBwrap(t, filepath.Join(dir, "own-failing"), `echo "own failed" >&2; exit 1`)
+
+	got := s
+	got.probePasta(t.Context(), []string{failing, own}, time.Minute)
+	assert.Equal(t, own, got.pasta, got.networkReason)
+
+	require.NoError(t, os.Remove(marker))
+	got = s
+	got.probePasta(t.Context(), []string{passing, own}, time.Minute)
+	assert.Equal(t, passing, got.pasta, got.networkReason)
+	assert.NoFileExists(t, marker)
+
+	got = s
+	got.probePasta(t.Context(), []string{failing, ownFailing}, time.Minute)
+	available, reason := got.NetworkStatus()
+	assert.False(t, available)
+	assert.Equal(t, failing+": system failed; "+ownFailing+": own failed", reason)
+}
+
 // pasta that fails a run fails it with its own words, and the command never
 // starts.
 func TestAPastaFailureFailsTheRun(t *testing.T) {

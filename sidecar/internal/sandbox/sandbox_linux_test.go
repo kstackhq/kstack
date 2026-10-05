@@ -35,21 +35,22 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
 
-// The first system bwrap that exists, in the list's order, comes first; then
+// The first system copy that exists, in the list's order, comes first; then
 // Kstack's own, beside its executable; none where none exists.
-func TestTheSystemBwrapIsFoundFirst(t *testing.T) {
+func TestTheSystemCopyIsFoundFirst(t *testing.T) {
 	base := t.TempDir()
 	bin := filepath.Join(base, "usr", "bin")
 	system := []string{filepath.Join(base, "a", "bwrap"), filepath.Join(base, "b", "bwrap"), filepath.Join(base, "c", "bwrap")}
 	write(t, system[1], "")
 	write(t, system[2], "")
 
-	assert.Empty(t, bwrapPaths(bin, system[:1]))
-	assert.Equal(t, []string{system[1]}, bwrapPaths(bin, system))
+	assert.Empty(t, programPaths(bin, "bwrap", system[:1]))
+	assert.Equal(t, []string{system[1]}, programPaths(bin, "bwrap", system))
 
 	own := write(t, filepath.Join(base, "usr", "lib", "kstack", "bwrap"), "")
-	assert.Equal(t, []string{system[1], own}, bwrapPaths(bin, system))
-	assert.Equal(t, []string{own}, bwrapPaths(bin, system[:1]))
+	assert.Equal(t, []string{system[1], own}, programPaths(bin, "bwrap", system))
+	assert.Equal(t, []string{own}, programPaths(bin, "bwrap", system[:1]))
+	assert.Empty(t, programPaths(bin, "pasta", system[:1]), "Kstack's own is found by its name")
 }
 
 // seq reports whether args holds want as a run of consecutive arguments.
