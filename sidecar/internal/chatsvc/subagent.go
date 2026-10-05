@@ -203,7 +203,7 @@ func (c *subagent) end(by string, at time.Time) taskEnd {
 }
 
 // briefedRun is the agent.Recorder of a run handed a brief and no message of its
-// own — a subagent's: its calls are recorded under its own run,
+// own — a subagent's or a monitor's: its calls are recorded under its own run,
 // and its report is the text of its last reply. status, report, errText and
 // streamErr are how the loop settled, kept for one write at the run's end:
 // status is empty until Settled, and report is set only when the run succeeded.

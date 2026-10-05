@@ -2230,6 +2230,8 @@ internal/chatsvc/
                  agent.Run, the agent.Recorder it reports to, the live overlay
   subagent.go    the subagent an Agent call starts as a task: the turn as its
                  tools.Spawner, the agentTask that runs it, its recorder and its end
+  monitor.go     the monitor run: RunMonitor, its slot per cluster, its recorder,
+                 asker and tasks, its settle
   approval.go    the gate: the agent.Approver a run is, the waiters, Approve
   prompt.go      the system prompts, embedded from prompts/: system.md,
                  general_purpose.md, monitor.md
@@ -2411,7 +2413,7 @@ turn's own, which `isTurns` reads), the bound on its waits for the user (`unansw
 a turn's own), its model and tool calls, open call and next seq, and a `publish` func — a turn's publishes into its
 live message (`publishLive`), a subagent's notifies the chat's watchers, since every row it writes
 has landed first. The parent and its subagents share no memory. **A `subagent` is a `briefedRun`**, the
-recorder of a run handed a brief and no message of its own, which
+recorder a subagent and a monitor share — a run handed a brief and no message of its own, which
 keeps how its loop ended for one write at its end. It publishes no
 `Progress`, and its `Settled` writes nothing: it keeps how the loop ended — the report is the text of
 its last reply, `llm.Text` of the blocks after its last result (`lastReplyText`) — for the task's end. **`watchTask` is the one writer of the end**:

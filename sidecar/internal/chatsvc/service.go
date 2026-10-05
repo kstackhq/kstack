@@ -70,6 +70,12 @@ var (
 	// ErrChatNetworkChanged is a send whose sender saw the chat's network switch
 	// the other way.
 	ErrChatNetworkChanged = errors.New("chatsvc: the chat's network switch changed")
+	// ErrNoSandbox is a monitor run on a machine where no sandbox confines one.
+	ErrNoSandbox = errors.New("chatsvc: no sandbox confines a monitor run")
+	// ErrMonitoringOff is a monitor run on a cluster whose monitoring is off.
+	ErrMonitoringOff = errors.New("chatsvc: the cluster is not watched")
+	// ErrMonitorInFlight is a monitor run on a cluster whose run is still going.
+	ErrMonitorInFlight = errors.New("chatsvc: a monitor run is already in flight")
 )
 
 const (
@@ -189,6 +195,10 @@ type Service interface {
 	// RemoveChatGrant removes one of the chat's rules by id and answers the
 	// rules left: ErrChatGone or ErrGrantGone for a chat or an id gone.
 	RemoveChatGrant(ctx context.Context, chatID ChatID, id string) ([]permissions.Rule, error)
+
+	// RunMonitor takes one monitor run on the cluster: a run of target over
+	// brief in the monitor's session, settled when it returns.
+	RunMonitor(ctx context.Context, clusterID apimeta.ClusterID, target llm.Target, brief string) (MonitorResult, error)
 }
 
 var _ Service = (*service)(nil)
@@ -232,6 +242,8 @@ type service struct {
 	ruleWrite func(ctx context.Context, chatID ChatID, rule permissions.Rule, d ApprovalDecision) error
 	// tasks is every background task that holds a slot, by chat, under turnsMu too.
 	tasks map[ChatID]map[TaskID]*task
+	// monitors is the one monitor run per cluster, under turnsMu too.
+	monitors map[apimeta.ClusterID]*monitor
 
 	// stamps is what each chat's turns have seen of the files they read, under
 	// its own mutex (files.go).
@@ -311,6 +323,7 @@ func newService(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, 
 		deleting:           map[ChatID]int{},
 		pending:            map[ApprovalID]*waiter{},
 		tasks:              map[ChatID]map[TaskID]*task{},
+		monitors:           map[apimeta.ClusterID]*monitor{},
 		stamps:             map[ChatID]map[string]tools.Stamp{},
 		stopped:            make(chan struct{}),
 		sweepRetry:         sweepRetry,

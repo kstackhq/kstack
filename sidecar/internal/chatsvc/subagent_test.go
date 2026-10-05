@@ -180,15 +180,10 @@ func TestTheSubagentsMessageIsTheNewestCardThenThePrompt(t *testing.T) {
 	}}}, second.LastRequest().Messages)
 }
 
-// memoryKindTool is a tool of the Memory kind, under its own name.
-type memoryKindTool struct{ testTool }
-
-func (memoryKindTool) ActionKind() tools.ActionKind { return tools.ActionMemory }
-
 // The subagent is offered every tool the parent is but Agent and Memory, the
 // provider's search included.
 func TestTheSubagentIsOfferedEveryToolButAgentAndMemory(t *testing.T) {
-	s := startServiceWithAgent(t, testTool{name: "echo"}, memoryKindTool{testTool{name: "notes"}})
+	s := startServiceWithAgent(t, testTool{name: "echo"}, kindTool{testTool{name: "notes"}, tools.ActionMemory})
 	sub := subagentFake(s, "Count the pods.")
 	fakeOf(s).SetToolCalls(agentCall("Count the pods."))
 
