@@ -195,7 +195,7 @@ func TestAtomicReplaceWakesThePoll(t *testing.T) {
 		t.Helper()
 		tmp := path + ".tmp"
 		writeKubeconfig(t, tmp, contexts...)
-		require.NoError(t, os.Rename(tmp, path))
+		swapIn(t, tmp, path)
 	}
 
 	// Twice, because once proves nothing: the first replace still reaches a
@@ -286,7 +286,7 @@ func TestRepointedSymlinkFollowsToTheNewTarget(t *testing.T) {
 	// and a poll landing in it publishes the empty config ahead of "work".
 	tmp := link + ".tmp"
 	require.NoError(t, os.Symlink(moved, tmp))
-	require.NoError(t, os.Rename(tmp, link))
+	swapIn(t, tmp, link)
 	require.Contains(t, testutil.Recv(t, sub.Chan(), "the config after re-pointing").Contexts, "work")
 
 	// The claim: the new target is followed from here on, not just at the moment of the
@@ -426,7 +426,7 @@ func TestKubeconfigEnvChainIsMergedAndWatched(t *testing.T) {
 	// it that window publishes as a config without "laptop".
 	tmp := personal + ".tmp"
 	writeKubeconfig(t, tmp, "laptop", "staging")
-	require.NoError(t, os.Rename(tmp, personal))
+	swapIn(t, tmp, personal)
 
 	assert.Contains(t, testutil.Recv(t, sub.Chan(), "the config after editing the second file").Contexts, "staging")
 }
