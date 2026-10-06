@@ -1,6 +1,6 @@
 // Package app is the sidecar's composition root and lifecycle owner. It builds
-// the shared instances (the poke bus and the cluster and auth services),
-// wires the GraphQL and gRPC servers, and multiplexes them onto one h2c handler.
+// every service into one Runtime, wires the GraphQL and gRPC servers over it,
+// and multiplexes them onto one h2c handler.
 // main() stays thin: it binds the listener and drives the shutdown surface this
 // package exposes — NotifyShutdown / DrainWithContext / Close.
 package app
@@ -9,7 +9,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -26,21 +25,14 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/graph"
 	grpcserver "github.com/kstackhq/kstack/sidecar/grpc"
-	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/catalog"
-	"github.com/kstackhq/kstack/sidecar/internal/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
-	"github.com/kstackhq/kstack/sidecar/internal/services/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
-	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
-	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
-	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	agenttool "github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
@@ -112,141 +104,25 @@ type Config struct {
 }
 
 // App owns the composed sidecar: one h2c handler fronting the GraphQL and gRPC
-// servers, over the services in parts. It is an http.Handler; main() mounts it on
+// servers, over the services in its runtime. It is an http.Handler; main() mounts it on
 // the listener.
 type App struct {
+	rt            *Runtime
 	handler       http.Handler
 	graphqlServer *graph.Server
 	grpcServer    *grpcserver.Server
-
-	// parts is start order; stop and close run in reverse, which is what keeps poke's
-	// hub open until its subscribers have drained, and app.db open until every
-	// service over it has closed.
-	parts []lifecycle.Part
 }
 
-// New builds the composition root, wiring the beehive control-plane and auth
-// subsystems into the GraphQL and gRPC servers that share one h2c socket.
-// ctx is startup's: once it has ended, New stops and answers its error.
+// New builds the runtime and the GraphQL and gRPC servers over it, which share
+// one h2c socket. ctx is startup's: once it has ended, New stops and answers its
+// error.
 func New(ctx context.Context, cfg Config) (*App, error) {
-	if err := makeDirs(cfg); err != nil {
-		return nil, err
-	}
-
-	sb, probed, err := probeSandbox(ctx)
+	rt, err := build(ctx, cfg)
 	if err != nil {
 		return nil, err
 	}
-	slog.Info("sandbox probed", "available", probed.Available, "reason", probed.Reason)
-	// A nil pointer in an interface is not a nil interface.
-	var boxer sandboxer
-	if sb != nil {
-		boxer = sb
-	}
-	// Before anything that reads the environment: on macOS the login shell's
-	// sets it process-wide, credential plugins resolve against it, and net/http
-	// and WebFetch read the proxy variables from it.
-	p := pathsOf(cfg)
-	launchPath, launchFault := cfg.launchPath, ""
-	if cfg.RunLoginShell {
-		launchPath, launchFault = launchShell(ctx, boxer, p.Bash.DeniedDirs, p.Bash.TmpDir)
-	}
-
-	// Shared cross-subsystem poke bus (wall-clock gap detector + host pokes via
-	// gRPC PokeService); see docs/adr/2026-08-09-poke-resync-fanout.md.
-	pokeSvc := poke.New()
-
-	// The cluster backend behind one boundary. Mid-rebuild: beehive, the four
-	// controllers, and the kubeconfig watcher/notifier are wired and run, but they
-	// reconcile to no-ops and every read panics.
-	// One reader of the user's kubeconfig, shared by everything that resolves a
-	// context. Closing it ends every subscription, so it is the app's alone.
-	kubeconfigSvc := kubeconfig.New(cfg.KubeconfigPath, pokeSvc)
-
-	// The security settings hold no handle, so a failure leaves nothing to close.
-	securityStore, err := securityconfig.Open(p.SecurityFile)
-	if err != nil {
-		return nil, err
-	}
-
-	// The app owns app.db and hands it to every service that writes or watches it.
-	// The file opens right before the first of them, so an earlier constructor
-	// failing leaves nothing to close.
-	db, err := appdb.Open(p.AppDBFile, appdb.DefaultSweepInterval)
-	if err != nil {
-		return nil, fmt.Errorf("open app database: %w", err)
-	}
-	// Every constructor from here on runs over the open file, so a failure closes it
-	// and every service built before it, newest first: the cluster service holds a
-	// file of its own.
-	built := []io.Closer{db}
-	fail := func(err error) (*App, error) {
-		for _, c := range slices.Backward(built) {
-			c.Close()
-		}
-		return nil, err
-	}
-	clusterSvc, err := cluster.New(db, p.Cluster, kubeconfigSvc, pokeSvc)
-	if err != nil {
-		return fail(err)
-	}
-	built = append(built, clusterSvc)
-
-	keychainService := cfg.KeychainService
-	if keychainService == "" {
-		keychainService = defaultKeychainService
-	}
-	authSvc, err := auth.New(auth.Config{
-		IssuerURL:       cfg.OAuthIssuerURL,
-		ClientID:        cfg.OAuthClientID,
-		KeychainService: keychainService,
-	})
-	if err != nil {
-		return fail(err)
-	}
-
-	cat := newCatalog(cfg)
-	llmSvc := llm.New(cat.Providers()...)
-	pathList := func() securityconfig.RunPath { return securityStore.Get().RunPath() }
-	shell, found := bash.New(p.Bash, cfg.HostPID, sb, clusterSvc, pathList)
-	if found && cfg.callDeadline != nil {
-		shell.SetCallDeadline(cfg.callDeadline)
-	}
-	sandboxStatus := sandboxStatusOf(found, probed)
-	securityCfg := newSecurityService(securityStore, boxer, shell, sandboxStatus, p.Bash.DeniedDirs, launchFault, p.Bash.TmpDir)
-	memorySvc, err := memory.New(db, serverUIDLookup{clusters: clusterSvc.Clusters()})
-	if err != nil {
-		return fail(err)
-	}
-	built = append(built, memorySvc)
-	// The file tools are fenced out of every one of Kstack's directories.
-	box, err := chatTools(shell, p.Bash.DeniedDirs, securityCfg.Hidden, cfg.UserUmask, memorySvc, clusterSvc)
-	if err != nil {
-		return fail(fmt.Errorf("fence Kstack's directories: %w", err))
-	}
-	chatSvc, err := chat.New(db, p.ChatsDir, p.MonitorDir, llmSvc, clustercard.New(clusterSvc), memorySvc, box, cat, sandboxStatus, securityCfg)
-	if err != nil {
-		return fail(err)
-	}
-	// A nil pointer in an interface is not a nil interface.
-	var prober graph.ExecutableProber
-	if shell != nil {
-		// A probe has no chat, so its run reads the folders granted always alone.
-		shell.SetProbeFolders(func(ctx context.Context) []session.Folder { return chatSvc.FoldersFor(ctx, "") })
-		prober = shell
-	}
-	graphqlServer := graph.NewServer(&graph.Resolver{
-		ClusterSvc:    clusterSvc,
-		ChatSvc:       chatSvc,
-		MemorySvc:     memorySvc,
-		LLMSvc:        llmSvc,
-		SandboxStatus: sandboxStatus,
-		Auth:          authSvc,
-		SecurityCfg:   securityCfg,
-		Executables:   prober,
-	})
-
-	grpcServer := grpcserver.NewServer(authSvc, pokeSvc)
+	graphqlServer := graph.NewServer(rt.resolver())
+	grpcServer := grpcserver.NewServer(rt.Auth, rt.Poke)
 
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlServer)
@@ -262,38 +138,11 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		mux.ServeHTTP(w, r)
 	}), &http2.Server{})
 
-	parts := []lifecycle.Part{
-		{Name: "app.db", StartCloser: lifecycle.CloseFunc(db.Close)},
-		{Name: "poke service", StartCloser: lifecycle.StartFunc(pokeSvc.Start)},
-		{Name: "kubeconfig service", StartCloser: kubeconfigSvc},
-		{Name: "cluster service", StartCloser: clusterSvc},
-		{Name: "memory service", StartCloser: memorySvc},
-		{Name: "chat service", StartCloser: chatSvc},
-	}
-	// Ends a running probe at Close.
-	if shell != nil {
-		parts = append(parts, lifecycle.Part{Name: "executable probe", StartCloser: lifecycle.CloseFunc(shell.Close)})
-	}
-	// Before the snapshot, so the first sandboxed run reads the synced list.
-	if launchPath != nil && sandboxStatus.Available {
-		parts = append(parts, lifecycle.Part{Name: "PATH sync", StartCloser: lifecycle.StartFunc(func(ctx context.Context) (func(context.Context) error, error) {
-			// Only when the list moved, so nothing runs unasked on a machine
-			// whose tools did not; the tool probe part's Close ends it.
-			if syncPath(ctx, securityCfg, launchPath) {
-				shell.StartProbe(securityCfg.Get().Executables)
-			}
-			return func(context.Context) error { return nil }, nil
-		})})
-	}
-	// Started after READY and before Serve, so no command can run ahead of it.
-	if cfg.RunLoginShell && shell != nil {
-		parts = append(parts, lifecycle.Part{Name: "shell snapshot", StartCloser: lifecycle.StartFunc(shell.StartSnapshot)})
-	}
 	return &App{
+		rt:            rt,
 		handler:       handler,
 		graphqlServer: graphqlServer,
 		grpcServer:    grpcServer,
-		parts:         parts,
 	}, nil
 }
 
@@ -324,7 +173,7 @@ func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // returned stop func accepts a drain-deadline context, blocks until all
 // background work finishes, and must be called before Close.
 func (a *App) Start(ctx context.Context) (func(context.Context) error, error) {
-	return lifecycle.StartAll(ctx, a.parts)
+	return lifecycle.StartAll(ctx, a.rt.parts)
 }
 
 // NotifyShutdown signals both transports' long-lived streams to close cleanly —
@@ -349,7 +198,7 @@ func (a *App) DrainWithContext(ctx context.Context) error {
 // ever runs here, after the drain.
 func (a *App) Close() error {
 	a.grpcServer.Stop()
-	return lifecycle.CloseAll(a.parts)
+	return a.rt.Close()
 }
 
 // serverUIDLookup reads a cluster's last-probed kube-system UID off the cluster
@@ -431,24 +280,36 @@ func sandboxStatusOf(shellFound bool, probed sandbox.Status) sandbox.Status {
 	return probed
 }
 
+// toolDeps is what the tool box is built over.
+type toolDeps struct {
+	// shell is nil on a machine with no shell.
+	shell *bash.Tool
+	// fenced is Kstack's directories, which the file tools stay out of.
+	fenced []string
+	// hidden answers what the sandbox keeps shut under a grant.
+	hidden func() (never, shut []string)
+	// umask is what a file Write makes for the user takes.
+	umask    fs.FileMode
+	memory   memory.Service
+	clusters cluster.Service
+}
+
 // chatTools is the one box: bash where New found a shell, Read, Memory, Write, Edit
 // and WebFetch on every machine, TaskStop for the tasks bash starts, then the
-// provider's web search, then KubeQuery. The file tools are fenced out of fenced,
-// Kstack's directories, keep out of what hidden answers the sandbox keeps shut
-// under a grant, and Write's new files take umask; WebFetch dials no local or private address but
-// the proxy the environment names. The order is the preference within a kind: the
-// first tool of a kind that a turn's target takes is the one it gets. A machine
+// provider's web search, then KubeQuery. WebFetch dials no local or private address
+// but the proxy the environment names. The order is the preference within a kind:
+// the first tool of a kind that a turn's target takes is the one it gets. A machine
 // with no shell still reads the stored calls of bash and TaskStop.
-func chatTools(shell *bash.Tool, fenced []string, hidden func() (never, shut []string), umask fs.FileMode, memorySvc memory.Service, clusterSvc cluster.Service) (tools.Box, error) {
-	reader, err := read.New(hidden, fenced...)
+func chatTools(d toolDeps) (tools.Box, error) {
+	reader, err := read.New(d.hidden, d.fenced...)
 	if err != nil {
 		return tools.Box{}, err
 	}
-	writer, err := write.New(umask, hidden, fenced...)
+	writer, err := write.New(d.umask, d.hidden, d.fenced...)
 	if err != nil {
 		return tools.Box{}, err
 	}
-	editor, err := edit.New(hidden, fenced...)
+	editor, err := edit.New(d.hidden, d.fenced...)
 	if err != nil {
 		return tools.Box{}, err
 	}
@@ -458,10 +319,10 @@ func chatTools(shell *bash.Tool, fenced []string, hidden func() (never, shut []s
 		Proxy:    httpproxy.FromEnvironment(),
 	}), webfetch.FetchTimeout)
 	search := anthropicwebsearch.New(time.Now)
-	notes := memorytool.New(memorySvc)
-	query := kubequery.New(clusterSvc)
-	if shell == nil {
+	notes := memorytool.New(d.memory)
+	query := kubequery.New(d.clusters)
+	if d.shell == nil {
 		return tools.NewBox([]tools.Tool{reader, notes, writer, editor, fetcher, agenttool.New(), search, query}, bash.Reader{}, taskstop.New()), nil
 	}
-	return tools.NewBox([]tools.Tool{shell, reader, notes, writer, editor, fetcher, taskstop.New(), agenttool.New(), search, query}), nil
+	return tools.NewBox([]tools.Tool{d.shell, reader, notes, writer, editor, fetcher, taskstop.New(), agenttool.New(), search, query}), nil
 }

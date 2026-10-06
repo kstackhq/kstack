@@ -40,7 +40,7 @@ import (
 // Read, Memory, Write, Edit and WebFetch work on every machine, so a machine with no shell is
 // offered them alone.
 func TestTheFileToolsAreOfferedWithoutAShell(t *testing.T) {
-	box, err := chatTools(nil, []string{t.TempDir()}, nil, 0o022, nil, nil)
+	box, err := chatTools(toolDeps{fenced: []string{t.TempDir()}, umask: 0o022})
 	require.NoError(t, err)
 
 	defs, native := box.Offer()
@@ -55,7 +55,7 @@ func TestTheFileToolsAreOfferedWithoutAShell(t *testing.T) {
 // A machine with no shell still knows what every stored call did, a TaskStop
 // included.
 func TestAStoredCallsKindIsKnownWithoutAShell(t *testing.T) {
-	box, err := chatTools(nil, []string{t.TempDir()}, nil, 0o022, nil, nil)
+	box, err := chatTools(toolDeps{fenced: []string{t.TempDir()}, umask: 0o022})
 	require.NoError(t, err)
 
 	for name, want := range map[string]tools.ActionKind{taskstop.Name: tools.ActionStop, bash.Name: tools.ActionCommand} {
@@ -125,7 +125,7 @@ func everyToolTarget(cat catalog.Catalog) []llm.Target {
 // everyTool is the box of a machine with a shell: every tool the app builds.
 func everyTool(t *testing.T) tools.Box {
 	t.Helper()
-	box, err := chatTools(&bash.Tool{}, []string{t.TempDir()}, nil, 0o022, nil, nil)
+	box, err := chatTools(toolDeps{shell: &bash.Tool{}, fenced: []string{t.TempDir()}, umask: 0o022})
 	require.NoError(t, err)
 	return box
 }
@@ -471,7 +471,7 @@ func (f fakeClusters) Get(_ context.Context, id apimeta.ClusterID) (*cluster.Clu
 // partIndex returns where the named part sits in start order.
 func partIndex(t *testing.T, a *App, name string) int {
 	t.Helper()
-	i := slices.IndexFunc(a.parts, func(p lifecycle.Part) bool { return p.Name == name })
+	i := slices.IndexFunc(a.rt.parts, func(p lifecycle.Part) bool { return p.Name == name })
 	require.GreaterOrEqual(t, i, 0, "no part named %q", name)
 	return i
 }

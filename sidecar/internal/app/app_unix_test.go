@@ -85,7 +85,7 @@ func TestBashIsOfferedWhenItIsFound(t *testing.T) {
 	t.Setenv("PATH", withBash)
 	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 	require.True(t, found)
-	box, err := chatTools(shell, []string{t.TempDir()}, nil, 0o022, nil, nil)
+	box, err := chatTools(toolDeps{shell: shell, fenced: []string{t.TempDir()}, umask: 0o022})
 	require.NoError(t, err)
 	defs, _ := box.Offer()
 	assert.Equal(t, []string{"Bash", "Read", "Memory", "Write", "Edit", "WebFetch", "TaskStop", "Agent", "KubeQuery"}, definitionNames(defs))
@@ -104,7 +104,7 @@ func TestEveryGatedToolCanBeShown(t *testing.T) {
 	shell, found := bash.New(bash.Paths{ShellDir: t.TempDir()}, 0, nil, nil, nil)
 	require.True(t, found)
 
-	box, err := chatTools(shell, []string{t.TempDir()}, nil, 0o022, nil, nil)
+	box, err := chatTools(toolDeps{shell: shell, fenced: []string{t.TempDir()}, umask: 0o022})
 	require.NoError(t, err)
 	defs, _ := box.Offer()
 	gated := 0
@@ -134,13 +134,13 @@ func TestAppTakesTheSnapshotOnlyWhenAsked(t *testing.T) {
 	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
-	assert.False(t, slices.ContainsFunc(a.parts, func(p lifecycle.Part) bool { return p.Name == "shell snapshot" }))
+	assert.False(t, slices.ContainsFunc(a.rt.parts, func(p lifecycle.Part) bool { return p.Name == "shell snapshot" }))
 
 	stubLaunch(t, loginshell.Result{}, &loginshell.Fault{Reason: "no shell", ExitCode: -1})
 	a, err = New(t.Context(), withDirs(t, Config{DataDir: t.TempDir(), RunLoginShell: true}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
-	assert.Equal(t, len(a.parts)-1, partIndex(t, a, "shell snapshot"))
+	assert.Equal(t, len(a.rt.parts)-1, partIndex(t, a, "shell snapshot"))
 }
 
 // A directory the host did not make, as in a run without it, is made
@@ -297,7 +297,7 @@ func TestStartSyncsTheLaunchPath(t *testing.T) {
 	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
-	assert.False(t, slices.ContainsFunc(a.parts, func(p lifecycle.Part) bool { return p.Name == "PATH sync" }))
+	assert.False(t, slices.ContainsFunc(a.rt.parts, func(p lifecycle.Part) bool { return p.Name == "PATH sync" }))
 
 	data := t.TempDir()
 	usrBin, err := filepath.EvalSymlinks("/usr/bin")
