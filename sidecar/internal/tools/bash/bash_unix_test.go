@@ -125,19 +125,20 @@ func TestNewReadsTheBashVersion(t *testing.T) {
 	}
 }
 
-// holder is a FIFO a command's sleep holds open for writing. The test opens it
-// both ways before the command runs, reads "started" once the sleep is up, then
-// lets go of its own write end and reads to EOF, which arrives exactly when
-// every process holding it is gone. Events, never a duration.
+// holder is a FIFO a command's sleep greets the test through, with the sleep's
+// pid. The test opens it both ways before the command runs and reads the
+// greeting once the sleep is up. The sleep is gone when that pid has exited:
+// EOF on the FIFO is no witness, since on macOS a reader blocked on a FIFO can
+// miss its last writer's close and wait on it forever (#123). The pid is
+// bash's view of it, so the command must run outside the sandbox: on Linux it
+// unshares the pid namespace.
 //
-// The test's write end keeps the read end from waiting on the command's: on
-// macOS a reader blocked in open goes back to sleep if every writer has closed
-// before it wakes, as they have once a command that leaves the sleep behind
-// exits.
+// The test's write end keeps the read end's open from waiting on the
+// command's.
 type holder struct {
 	path string
 	line chan string
-	gone chan struct{}
+	pid  int
 }
 
 func newHolder(t *testing.T) *holder {
@@ -150,41 +151,37 @@ func newHolder(t *testing.T) *holder {
 	t.Cleanup(func() { _ = w.Close() })
 	r, err := os.OpenFile(path, os.O_RDONLY, 0)
 	require.NoError(t, err)
-	h := &holder{path: path, line: make(chan string, 1), gone: make(chan struct{})}
+	h := &holder{path: path, line: make(chan string, 1)}
 	go func() {
-		defer close(h.gone)
 		defer r.Close()
-		br := bufio.NewReader(r)
-		l, _ := br.ReadString('\n')
+		l, _ := bufio.NewReader(r).ReadString('\n')
 		h.line <- l
-		_ = w.Close()
-		buf := make([]byte, 64)
-		for {
-			if _, err := br.Read(buf); err != nil {
-				return
-			}
-		}
 	}()
 	return h
 }
 
-// command opens the FIFO, starts the sleep in the background, then says
-// "started" in the foreground, so the sleep is in bash's group before the
+// command opens the FIFO, starts the sleep in the background, then greets with
+// its pid in the foreground, so the sleep is in bash's group before the
 // greeting and the greeting is written before bash can exit. tail follows.
 func (h *holder) command(tail string) string {
-	return "exec 3>" + h.path + "; sleep 60 & echo started >&3" + tail
+	return "exec 3>" + h.path + "; sleep 60 & echo started $! >&3" + tail
 }
 
-// awaitStarted reads the sleep's greeting.
+// awaitStarted reads the sleep's greeting and keeps its pid.
 func (h *holder) awaitStarted(t *testing.T) {
 	t.Helper()
-	assert.Equal(t, "started\n", testutil.Recv(t, h.line, "the sleep to start"))
+	l := testutil.Recv(t, h.line, "the sleep to start")
+	pid, ok := strings.CutPrefix(strings.TrimSuffix(l, "\n"), "started ")
+	require.True(t, ok, "greeting %q", l)
+	var err error
+	h.pid, err = strconv.Atoi(pid)
+	require.NoError(t, err)
 }
 
-// awaitGone waits for EOF: the sleep has released the FIFO.
+// awaitGone waits for the sleep's pid to exit. Nothing signals that, so it polls.
 func (h *holder) awaitGone(t *testing.T) {
 	t.Helper()
-	testutil.Wait(t, h.gone, "the sleep to be gone")
+	require.Eventually(t, func() bool { return exited(h.pid) }, testutil.Timeout, time.Millisecond, "the sleep to be gone")
 }
 
 // blocked is a tail that holds bash in a read of a FIFO only bash has open, so
