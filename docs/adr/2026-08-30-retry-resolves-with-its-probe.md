@@ -32,7 +32,7 @@ the requested run ended.
 
 `kubeconn.Service.RetryAndWait(ctx, contextName) error` replaces `Retry`. It claims the context,
 subscribes to the state feed, stamps `askedAt`, wakes all five probes, and returns once a
-committed `Connection.LastAttempt` began at or after the ask. `clustersvc.RetryConnection` passes
+committed `Connection.LastAttempt` began at or after the ask. `cluster.RetryConnection` passes
 its request context through and returns the error, so the GraphQL mutation is held open for the
 probe's round trip. The webview binds the button to urql's `fetching` — `ConnectionDetail` owns
 the `useMutation`, since a panel-level hook would spin every open row's button.

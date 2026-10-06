@@ -29,7 +29,7 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 
-	"github.com/kstackhq/kstack/sidecar/internal/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 )
 
 // lastApplied is the annotation kubectl apply keeps an object's whole

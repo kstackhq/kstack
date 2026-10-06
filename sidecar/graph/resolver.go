@@ -7,13 +7,13 @@ package graph
 import (
 	"github.com/amorey/gochan/watch"
 
-	"github.com/kstackhq/kstack/sidecar/internal/auth"
-	"github.com/kstackhq/kstack/sidecar/internal/chatsvc"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/chat"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
+	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
@@ -24,12 +24,12 @@ type Resolver struct {
 	// ClusterSvc is the boundary to the cluster backend, hiding beehive behind the
 	// cluster types. (Named ClusterSvc to avoid shadowing the generated
 	// queryResolver.Clusters method.)
-	ClusterSvc clustersvc.Service
+	ClusterSvc cluster.Service
 	// ChatSvc backs the chat mutations and watches. (Named ChatSvc, like ClusterSvc,
 	// to stay clear of the generated resolver methods named after the schema's types.)
-	ChatSvc chatsvc.Service
+	ChatSvc chat.Service
 	// MemorySvc backs the memory dialog's watch and writes.
-	MemorySvc memorysvc.Service
+	MemorySvc memory.Service
 	// LLMSvc answers the models query, every provider's catalog in picker order, and
 	// labels a message's provider.
 	LLMSvc *llm.Service

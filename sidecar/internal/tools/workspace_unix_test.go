@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/rootdir"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/rootdir"
 )
 
 // The workspace is owner-only whatever the umask, as the results are.

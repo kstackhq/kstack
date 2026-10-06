@@ -21,7 +21,7 @@ import (
 	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 )
 
 // emptyPath is the PATH of a run that searches no folder. An empty PATH would

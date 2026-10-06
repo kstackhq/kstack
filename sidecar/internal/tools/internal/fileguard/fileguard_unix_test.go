@@ -26,7 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
 // A link elsewhere that leads into the data directory is held, and so is the

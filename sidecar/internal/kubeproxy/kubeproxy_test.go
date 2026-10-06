@@ -38,7 +38,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
 // upstreamFunc is an Upstream answering from a function.

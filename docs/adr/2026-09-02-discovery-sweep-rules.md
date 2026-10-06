@@ -9,7 +9,7 @@ status: Accepted
 
 ## Context
 
-Discovery runs on `internal/supervisor` as three jobs per cache: `apiVersions` reads `/api`,
+Discovery runs on `internal/lib/supervisor` as three jobs per cache: `apiVersions` reads `/api`,
 `apiGroups` reads `/apis`, and `resources` fans out over both on a data edge. Its answer is the
 `kind_catalog` table, which the cache controller's pass turns into kind records
 (→ [kind records mirror the catalog](2026-09-02-kind-records-mirror-the-catalog.md)). The table

@@ -18,9 +18,9 @@ import (
 	"context"
 	"errors"
 
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
 
 // claimed is what a run's grant reaches the cluster through, released when
@@ -44,9 +44,9 @@ func (t *Tool) claim(ctx context.Context, id apimeta.ClusterID, serverUID string
 	}
 	lease, err := t.clusterSvc.AcquireConnection(ctx, id)
 	switch {
-	case errors.Is(err, clustersvc.ErrNotConnectable):
+	case errors.Is(err, cluster.ErrNotConnectable):
 		return refused{kubeproxy.ErrNotConnectable}, nil
-	case errors.Is(err, clustersvc.ErrNotFound):
+	case errors.Is(err, cluster.ErrNotFound):
 		return nil, errClusterGone
 	case err != nil:
 		return nil, err
@@ -67,9 +67,9 @@ func (t *Tool) claim(ctx context.Context, id apimeta.ClusterID, serverUID string
 // watchRevoked closes revoked once stream shows the cluster Kstack no longer
 // connects to, or ends before ctx does, since a claim nothing watches could
 // outlive either.
-func watchRevoked(ctx context.Context, stream *clustersvc.Stream[clustersvc.ClusterWatchFrame], revoked chan<- struct{}) {
+func watchRevoked(ctx context.Context, stream *cluster.Stream[cluster.ClusterWatchFrame], revoked chan<- struct{}) {
 	for f := range stream.Frames {
-		if f.Type == clustersvc.DeltaFrameDeleted || f.Cluster != nil && !connectable(f.Cluster) {
+		if f.Type == cluster.DeltaFrameDeleted || f.Cluster != nil && !connectable(f.Cluster) {
 			close(revoked)
 			return
 		}
@@ -81,7 +81,7 @@ func watchRevoked(ctx context.Context, stream *clustersvc.Stream[clustersvc.Clus
 
 // connectable is whether AcquireConnection would claim c: enabled, not marked
 // for deletion, and from the kubeconfig.
-func connectable(c *clustersvc.Cluster) bool {
+func connectable(c *cluster.Cluster) bool {
 	return c.Spec.Enabled && c.DeletionRequestedAt == nil && c.KubeContext() != ""
 }
 
@@ -98,7 +98,7 @@ func (refused) Close() {}
 // kubeproxy.Upstream its grant reaches, vouched for by the server UID the
 // target read, so the cache and the claim name one identity.
 type upstream struct {
-	lease     clustersvc.Lease
+	lease     cluster.Lease
 	serverUID string
 	// revoked closes once the record says Kstack no longer connects to the
 	// cluster.
@@ -118,7 +118,7 @@ func (u upstream) Endpoint(ctx context.Context) (kubeproxy.Endpoint, error) {
 	}
 	conn, err := u.lease.ConnFor(ctx, u.serverUID)
 	switch {
-	case errors.Is(err, clustersvc.ErrIdentityMismatch):
+	case errors.Is(err, cluster.ErrIdentityMismatch):
 		return kubeproxy.Endpoint{}, kubeproxy.ErrIdentityMismatch
 	case err != nil:
 		return kubeproxy.Endpoint{}, err

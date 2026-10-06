@@ -18,8 +18,8 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/kstackhq/kstack/sidecar/internal/cloud"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cloud"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
@@ -31,12 +31,12 @@ import (
 //	<data>/                                what a user would lose
 //	  app.db                               app
 //	  security.json                        app: the security settings
-//	  beehive.db                           clustersvc
+//	  beehive.db                           cluster
 //	  settings.json, settings-queue.json   cloud
-//	  chats/<chat id>/                     chatsvc: results/, tasks/, workspace/
-//	  monitor/<cluster id>/                chatsvc: a monitor's results/, workspace/, toolhome/
+//	  chats/<chat id>/                     chat: results/, tasks/, workspace/
+//	  monitor/<cluster id>/                chat: a monitor's results/, workspace/, toolhome/
 //	<cache>/                               what Kstack rebuilds
-//	  kubestore/<cache id>.db              clustersvc: the mirror
+//	  kubestore/<cache id>.db              cluster: the mirror
 //	  kubectl/<cluster id>/<server>/       bash: the kubectl cache
 //	  tmp/<pid>-*/, tmp/<pid>.lock         bash: a sandboxed run's TMPDIR, the sidecar's lock
 //	<runtime>/                             what lives for a session
@@ -49,7 +49,7 @@ type paths struct {
 	ChatsDir     string
 	MonitorDir   string
 	Cloud        cloud.Paths
-	Cluster      clustersvc.Paths
+	Cluster      cluster.Paths
 	Bash         bash.Paths
 }
 
@@ -69,7 +69,7 @@ func pathsOf(cfg Config) paths {
 			SettingsFile: filepath.Join(data, "settings.json"),
 			QueueFile:    filepath.Join(data, "settings-queue.json"),
 		},
-		Cluster: clustersvc.Paths{
+		Cluster: cluster.Paths{
 			BeehiveDBFile: filepath.Join(data, "beehive.db"),
 			KubestoreDir:  filepath.Join(cache, "kubestore"),
 		},

@@ -71,5 +71,5 @@ on is the call's action.
   stored arguments. Before release a dev database is reset instead.
 - Every publish of a turn's live list parses every call's arguments. That is cheap at one
   publish per status change; per-chunk publishing would keep the actions on the turn's entries.
-- `chatsvc.New` takes the actions beside the box, and `app` passes them whether or not a shell
+- `chat.New` takes the actions beside the box, and `app` passes them whether or not a shell
   was found, so a stored Bash call still shows on a machine that offers none.

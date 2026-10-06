@@ -22,7 +22,7 @@ health, the sync rows, the kind catalog and every namespace name.
 
 ## Decision
 
-**`clustersvc` resolves a cluster, in one place.** `Clusters().ReadActive(ctx, id, read)` reads the
+**`services/cluster` resolves a cluster, in one place.** `Clusters().ReadActive(ctx, id, read)` reads the
 record, finds its active cache with `CacheIsActive` over the runtime objects, runs `read` with
 both as an `ActiveCluster`, then reads the identity again, and runs the whole reading once more
 when it moved. A gone record is `ErrNotFound`, and an identity that moves under both attempts is

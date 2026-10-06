@@ -37,12 +37,12 @@ and absolute:
 `app/paths.go` names every path under them in one place (`pathsOf`). Each service is handed its own
 paths and names nothing else. Each subtree has one owner, which makes it, sweeps it and removes it:
 
-- chatsvc owns `<data>/chats/<chat id>`. A chat's directory no longer names its cluster.
-- clustersvc owns `<cache>/kubestore`.
+- services/chat owns `<data>/chats/<chat id>`. A chat's directory no longer names its cluster.
+- services/cluster owns `<cache>/kubestore`.
 - bash owns `<runtime>/shell`, `<runtime>/runs/<pid>-*` (a run's kubeconfig, socket and `ZDOTDIR`),
   `<cache>/tmp/<pid>-*` (a run's `TMPDIR`, on disk) and `<cache>/kubectl/<cluster id>/<server>`
   (the kubectl cache a sandboxed run's `KUBECACHEDIR` names). A sandboxed run is its one user, so
-  bash reads the record from clustersvc and keeps the directory itself; it sweeps a deleted
+  bash reads the record from services/cluster and keeps the directory itself; it sweeps a deleted
   cluster's cache at the next start.
 
 `beehive.db` stays in the data directory. It names each mirror file by cache id and nothing sweeps

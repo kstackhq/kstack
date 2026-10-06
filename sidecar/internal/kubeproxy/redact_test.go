@@ -28,7 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
 // decoded is s decoded as the rewriter decodes a value.

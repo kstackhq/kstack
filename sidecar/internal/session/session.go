@@ -44,7 +44,7 @@ const (
 
 // Session is one agent run's policy: what its tools and the proxies its runs
 // serve read to decide what it may do. The chat and cluster it runs in are the
-// runtime's. chatsvc builds a chat's at the start of each turn; a subagent's is
+// runtime's. chat builds a chat's at the start of each turn; a subagent's is
 // Narrow of its parent's.
 type Session struct {
 	Kind    Kind

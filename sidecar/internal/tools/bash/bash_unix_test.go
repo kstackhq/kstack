@@ -36,11 +36,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -884,7 +884,7 @@ func TestWithNoClusterThereIsNoKubeconfig(t *testing.T) {
 
 // clusterTool is a tool over a fake sandbox and the clusters given, each
 // claimed through a lease with no connection.
-func clusterTool(t *testing.T, clusters map[apimeta.ClusterID]*clustersvc.Cluster) *Tool {
+func clusterTool(t *testing.T, clusters map[apimeta.ClusterID]*cluster.Cluster) *Tool {
 	t.Helper()
 	tl := tool(t)
 	tl.sandboxer = &fakeSandboxer{}
@@ -904,7 +904,7 @@ func runOn(t *testing.T, tl *Tool, cluster apimeta.ClusterID, line string) strin
 // beside its proxy's socket, naming the card's context and the sandbox's port,
 // and the socket is the Run's.
 func TestTheRunsKubeconfigNamesTheCardsContextAndPort(t *testing.T) {
-	tl := clusterTool(t, map[apimeta.ClusterID]*clustersvc.Cluster{"7": kubeCluster("prod-admin", "uid")})
+	tl := clusterTool(t, map[apimeta.ClusterID]*cluster.Cluster{"7": kubeCluster("prod-admin", "uid")})
 
 	text := runOn(t, tl, "7", `ls "$ZDOTDIR"; stat -c %a "$KUBECONFIG" 2>/dev/null || stat -f %Lp "$KUBECONFIG"; cat "$KUBECONFIG"`)
 
@@ -922,7 +922,7 @@ func TestTheRunsKubeconfigNamesTheCardsContextAndPort(t *testing.T) {
 // Every chat on a cluster shares its kubectl cache, under the cluster's
 // directory; another cluster's, and a new server identity's, is another.
 func TestTwoChatsOnOneClusterShareTheCache(t *testing.T) {
-	clusters := map[apimeta.ClusterID]*clustersvc.Cluster{"7": kubeCluster("prod", "uid-1"), "8": kubeCluster("staging", "uid-2")}
+	clusters := map[apimeta.ClusterID]*cluster.Cluster{"7": kubeCluster("prod", "uid-1"), "8": kubeCluster("staging", "uid-2")}
 	tl := clusterTool(t, clusters)
 	cache := `echo "$KUBECACHEDIR"`
 
@@ -945,7 +945,7 @@ func TestAGoneClusterCouldNotStart(t *testing.T) {
 	marked.DeletionRequestedAt = &at
 	for name, fake := range map[string]fakeService{
 		"nil record": {},
-		"marked":     {clusters: map[apimeta.ClusterID]*clustersvc.Cluster{"7": marked}},
+		"marked":     {clusters: map[apimeta.ClusterID]*cluster.Cluster{"7": marked}},
 		"get error":  {err: errors.New("disk")},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -1130,7 +1130,7 @@ func TestASandboxedRunThatCannotBePreparedCouldNotStart(t *testing.T) {
 			rt := testRuntime(t)
 			if tc.cluster {
 				tl.clusterSvc = fakeService{
-					clusters: map[apimeta.ClusterID]*clustersvc.Cluster{"7": kubeCluster("prod", "uid")},
+					clusters: map[apimeta.ClusterID]*cluster.Cluster{"7": kubeCluster("prod", "uid")},
 					lease:    &fakeLease{serverUID: "uid"},
 				}
 				rt.ClusterID = "7"

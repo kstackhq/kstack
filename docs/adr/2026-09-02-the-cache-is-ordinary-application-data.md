@@ -31,7 +31,7 @@ An attacker who reads the file gets, offline and with no RBAC check, the content
 the user's credentials could list: names, namespaces, labels, annotations, container images and
 env, ConfigMap data, event messages. What they do **not** get is a credential — no kubeconfig, no
 bearer token, no refresh token; the refresh token lives in the OS keyring
-(`internal/auth/keyring.go`) and the cluster credentials live in the user's kubeconfig.
+(`internal/services/auth/keyring.go`) and the cluster credentials live in the user's kubeconfig.
 
 That is the crux. To read the cache an attacker must already be the local user or hold the disk,
 and the local user can read the kubeconfig sitting beside it and simply ask the cluster — a live,

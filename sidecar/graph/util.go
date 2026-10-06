@@ -12,13 +12,13 @@ import (
 	gqlerrors "github.com/kstackhq/kstack/sidecar/graph/errors"
 	"github.com/kstackhq/kstack/sidecar/graph/model"
 
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/chatsvc"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
-	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
-	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/chat"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
+	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
@@ -88,19 +88,19 @@ var chatRefusals = []struct {
 	err  error
 	wire *gqlerror.Error
 }{
-	{chatsvc.ErrBadRequest, gqlerrors.ErrValidationError},
-	{chatsvc.ErrChatGone, gqlerrors.ErrRecordNotFound},
-	{chatsvc.ErrClusterGone, gqlerrors.ErrRecordNotFound},
-	{chatsvc.ErrTurnInFlight, gqlerrors.ErrConflict},
-	{chatsvc.ErrStopping, gqlerrors.ErrServiceUnavailable},
+	{chat.ErrBadRequest, gqlerrors.ErrValidationError},
+	{chat.ErrChatGone, gqlerrors.ErrRecordNotFound},
+	{chat.ErrClusterGone, gqlerrors.ErrRecordNotFound},
+	{chat.ErrTurnInFlight, gqlerrors.ErrConflict},
+	{chat.ErrStopping, gqlerrors.ErrServiceUnavailable},
 	// A chat the model cannot read whole is the model's limit, not the chat's
 	// state: the composer names it so the user can pick another model.
-	{chatsvc.ErrChatContextFull, gqlerrors.ErrChatContextFull},
+	{chat.ErrChatContextFull, gqlerrors.ErrChatContextFull},
 	// The sender saw the other switch, so the composer says it changed rather than
 	// running the turn where the user did not look.
-	{chatsvc.ErrChatSandboxChanged, gqlerrors.ErrChatSandboxChanged},
-	{chatsvc.ErrGrantGone, gqlerrors.ErrRecordNotFound},
-	{chatsvc.ErrChatNetworkChanged, gqlerrors.ErrChatNetworkChanged},
+	{chat.ErrChatSandboxChanged, gqlerrors.ErrChatSandboxChanged},
+	{chat.ErrGrantGone, gqlerrors.ErrRecordNotFound},
+	{chat.ErrChatNetworkChanged, gqlerrors.ErrChatNetworkChanged},
 }
 
 // clusterRefusals maps the cluster service's named errors onto wire codes: an id
@@ -111,9 +111,9 @@ var clusterRefusals = []struct {
 	err  error
 	wire *gqlerror.Error
 }{
-	{clustersvc.ErrNotFound, gqlerrors.ErrRecordNotFound},
-	{clustersvc.ErrDeclaredBySource, gqlerrors.ErrConflict},
-	{clustersvc.ErrNotConnectable, gqlerrors.ErrConflict},
+	{cluster.ErrNotFound, gqlerrors.ErrRecordNotFound},
+	{cluster.ErrDeclaredBySource, gqlerrors.ErrConflict},
+	{cluster.ErrNotConnectable, gqlerrors.ErrConflict},
 }
 
 // clusterErr is what every cluster mutation returns an error through.
@@ -132,13 +132,13 @@ var memoryRefusals = []struct {
 	err  error
 	wire *gqlerror.Error
 }{
-	{memorysvc.ErrBadInput, gqlerrors.ErrValidationError},
-	{memorysvc.ErrNotFound, gqlerrors.ErrRecordNotFound},
-	{memorysvc.ErrClusterGone, gqlerrors.ErrRecordNotFound},
-	{memorysvc.ErrNameTaken, gqlerrors.ErrMemoryNameTaken},
-	{memorysvc.ErrFull, gqlerrors.ErrMemoryFull},
-	{memorysvc.ErrSecret, gqlerrors.ErrMemorySecret},
-	{memorysvc.ErrStopping, gqlerrors.ErrServiceUnavailable},
+	{memory.ErrBadInput, gqlerrors.ErrValidationError},
+	{memory.ErrNotFound, gqlerrors.ErrRecordNotFound},
+	{memory.ErrClusterGone, gqlerrors.ErrRecordNotFound},
+	{memory.ErrNameTaken, gqlerrors.ErrMemoryNameTaken},
+	{memory.ErrFull, gqlerrors.ErrMemoryFull},
+	{memory.ErrSecret, gqlerrors.ErrMemorySecret},
+	{memory.ErrStopping, gqlerrors.ErrServiceUnavailable},
 }
 
 // memoryErr is what every memory resolver returns an error through.
@@ -242,7 +242,7 @@ func folderErr(err error) error {
 	case errors.As(err, &shape):
 		return gqlerrors.NewValidationError("folder", shape.Error())
 	case errors.Is(err, securityconfig.ErrHeld):
-		return gqlerrors.NewValidationError("folder", chatsvc.RulesHeldReason)
+		return gqlerrors.NewValidationError("folder", chat.RulesHeldReason)
 	}
 	return chatErr(err)
 }
@@ -264,7 +264,7 @@ func (r *Resolver) sandboxFolders(ctx context.Context, chatID apimeta.ChatID) (*
 }
 
 // sandboxFoldersOf is grants on the wire, in order.
-func sandboxFoldersOf(grants []chatsvc.FolderGrant) []*model.SandboxFolder {
+func sandboxFoldersOf(grants []chat.FolderGrant) []*model.SandboxFolder {
 	out := make([]*model.SandboxFolder, len(grants))
 	for i, g := range grants {
 		out[i] = &model.SandboxFolder{ID: g.ID, Path: g.Path, Write: g.Write}

@@ -42,8 +42,8 @@ kube-context that produced it: the discovery pass is creation-only, a departed c
 record behind, and a returning one reuses it. So a chat's cluster id stays valid across a context
 that comes and goes, and only an explicit `clusterDelete` ends it.
 
-`ObjectID` moved to `internal/apimeta` for this — gqlgen binds the scalar to exactly one Go type,
-and `chatsvc` must name a cluster without importing `clustersvc`. That is what `apimeta` is for;
+`ObjectID` moved to `internal/lib/apimeta` for this — gqlgen binds the scalar to exactly one Go type,
+and `services/chat` must name a cluster without importing `services/cluster`. That is what `apimeta` is for;
 `DeltaFrameType` was already there for the same reason.
 
 **The list is filtered client-side, like `mode`.** `chatsWatch` stays unscoped: one watch per
@@ -54,7 +54,7 @@ revisiting when a machine holds enough chats for the cold list to cost anything.
 **A cluster delete sweeps its chats, from the resolver.** `clusterDelete` is explicit, confirmed,
 and only offered for a record no source declares. Its chats are about that cluster and nothing
 would list, rename or delete them once the record is gone. The sweep runs in the resolver rather
-than in either service: `chatsvc` does not know clusters and `clustersvc` does not know chats, and
+than in either service: `services/chat` does not know clusters and `services/cluster` does not know chats, and
 the resolver is the one place holding both. The same split checks that a chat's cluster exists
 before a send creates it.
 

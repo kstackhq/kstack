@@ -25,9 +25,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
 
 // grantedRun runs one command through a fake sandbox with folders granted,

@@ -12,30 +12,30 @@ import (
 
 	gqlerrors "github.com/kstackhq/kstack/sidecar/graph/errors"
 	"github.com/kstackhq/kstack/sidecar/graph/model"
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
-	"github.com/kstackhq/kstack/sidecar/internal/auth"
-	"github.com/kstackhq/kstack/sidecar/internal/chatsvc"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/chat"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
+	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
 // Thinking is the resolver for the thinking field: what the message's blocks hold
 // of the model's thinking, so the webview reads a summary without learning a
 // provider's block shape.
-func (r *chatMessageResolver) Thinking(ctx context.Context, obj *chatsvc.ChatMessage) (string, error) {
+func (r *chatMessageResolver) Thinking(ctx context.Context, obj *chat.ChatMessage) (string, error) {
 	return obj.Thinking(), nil
 }
 
 // Provider is the resolver for the provider field: the stored id, labelled through
 // the llm service. A provider it no longer holds is labelled by its id, with no
 // dialect: a message outlives its row. Nil on a user message, which has none.
-func (r *chatMessageResolver) Provider(ctx context.Context, obj *chatsvc.ChatMessage) (*model.Provider, error) {
+func (r *chatMessageResolver) Provider(ctx context.Context, obj *chat.ChatMessage) (*model.Provider, error) {
 	if obj.ProviderID == "" {
 		return nil, nil
 	}
@@ -47,31 +47,31 @@ func (r *chatMessageResolver) Provider(ctx context.Context, obj *chatsvc.ChatMes
 }
 
 // FinishedAt is the resolver for the finishedAt field.
-func (r *chatMessageResolver) FinishedAt(ctx context.Context, obj *chatsvc.ChatMessage) (*time.Time, error) {
+func (r *chatMessageResolver) FinishedAt(ctx context.Context, obj *chat.ChatMessage) (*time.Time, error) {
 	return nullTime(obj.FinishedAt), nil
 }
 
 // ToolCalls is the resolver for the toolCalls field: the list the message carries
 // as one JSON string, parsed.
-func (r *chatMessageResolver) ToolCalls(ctx context.Context, obj *chatsvc.ChatMessage) ([]*chatsvc.ToolCall, error) {
+func (r *chatMessageResolver) ToolCalls(ctx context.Context, obj *chat.ChatMessage) ([]*chat.ToolCall, error) {
 	return obj.ToolCallList()
 }
 
 // Citations is the resolver for the citations field: the list the message
 // carries as one JSON string, parsed.
-func (r *chatMessageResolver) Citations(ctx context.Context, obj *chatsvc.ChatMessage) ([]*llm.Citation, error) {
+func (r *chatMessageResolver) Citations(ctx context.Context, obj *chat.ChatMessage) ([]*llm.Citation, error) {
 	return obj.CitationList()
 }
 
 // Caches is the resolver for the caches field — the caches this cluster owns. A
 // separate beehive read, so it runs only when selected.
-func (r *clusterResolver) Caches(ctx context.Context, obj *clustersvc.Cluster) ([]*clustersvc.ClusterCache, error) {
+func (r *clusterResolver) Caches(ctx context.Context, obj *cluster.Cluster) ([]*cluster.ClusterCache, error) {
 	return r.ClusterSvc.Caches().ListByCluster(ctx, obj.ID)
 }
 
 // Events is the resolver for the events field — this cluster's event timeline. A
 // separate beehive read, so it runs only when selected.
-func (r *clusterResolver) Events(ctx context.Context, obj *clustersvc.Cluster, category *string, limit *int) ([]*clustersvc.Event, error) {
+func (r *clusterResolver) Events(ctx context.Context, obj *cluster.Cluster, category *string, limit *int) ([]*cluster.Event, error) {
 	evs, err := r.ClusterSvc.Clusters().ListEvents(ctx, obj.ID, category, limit)
 	if err != nil {
 		return nil, err
@@ -81,7 +81,7 @@ func (r *clusterResolver) Events(ctx context.Context, obj *clustersvc.Cluster, c
 
 // Kinds is the resolver for the kinds field — this cache's discovered kind catalog.
 // Both ids come off the record, so they cannot name different caches.
-func (r *clusterCacheResolver) Kinds(ctx context.Context, obj *clustersvc.ClusterCache) ([]*clustersvc.ClusterCachedDataKind, error) {
+func (r *clusterCacheResolver) Kinds(ctx context.Context, obj *cluster.ClusterCache) ([]*cluster.ClusterCachedDataKind, error) {
 	kinds, err := r.ClusterSvc.CachedData().ListKinds(ctx, obj.ClusterID, obj.ID)
 	if err != nil {
 		return nil, err
@@ -91,13 +91,13 @@ func (r *clusterCacheResolver) Kinds(ctx context.Context, obj *clustersvc.Cluste
 
 // CachedKinds is the resolver for the cachedKinds field — the kinds this cache
 // mirrors. Keyed by the cache; the catalog between them is resolved in the service.
-func (r *clusterCacheResolver) CachedKinds(ctx context.Context, obj *clustersvc.ClusterCache) ([]*clustersvc.ClusterCachedKind, error) {
+func (r *clusterCacheResolver) CachedKinds(ctx context.Context, obj *cluster.ClusterCache) ([]*cluster.ClusterCachedKind, error) {
 	return r.ClusterSvc.CachedKinds().ListByCache(ctx, obj.ID)
 }
 
 // Events is the resolver for the events field — this cache's own event timeline.
 // A separate beehive read, so it runs only when selected.
-func (r *clusterCacheResolver) Events(ctx context.Context, obj *clustersvc.ClusterCache, category *string, limit *int) ([]*clustersvc.Event, error) {
+func (r *clusterCacheResolver) Events(ctx context.Context, obj *cluster.ClusterCache, category *string, limit *int) ([]*cluster.Event, error) {
 	evs, err := r.ClusterSvc.ListEvents(ctx, obj.ID, category, limit)
 	if err != nil {
 		return nil, err
@@ -107,7 +107,7 @@ func (r *clusterCacheResolver) Events(ctx context.Context, obj *clustersvc.Clust
 
 // Events is the resolver for the events field — this kind's sync-transition
 // history. A separate beehive read, so it runs only when selected.
-func (r *clusterCachedKindResolver) Events(ctx context.Context, obj *clustersvc.ClusterCachedKind, category *string, limit *int) ([]*clustersvc.Event, error) {
+func (r *clusterCachedKindResolver) Events(ctx context.Context, obj *cluster.ClusterCachedKind, category *string, limit *int) ([]*cluster.Event, error) {
 	evs, err := r.ClusterSvc.ListEvents(ctx, obj.ID, category, limit)
 	if err != nil {
 		return nil, err
@@ -118,32 +118,32 @@ func (r *clusterCachedKindResolver) Events(ctx context.Context, obj *clustersvc.
 // SyncEnabled is the resolver for the syncEnabled field: the wire's positive form over the
 // stored Paused. The storage field is inverted so a record written before it decodes as
 // syncing rather than stopping the fleet on the upgrade; this is the one negation.
-func (r *clusterCachedKindSpecResolver) SyncEnabled(ctx context.Context, obj *clustersvc.ClusterCachedKindSpec) (bool, error) {
+func (r *clusterCachedKindSpecResolver) SyncEnabled(ctx context.Context, obj *cluster.ClusterCachedKindSpec) (bool, error) {
 	return !obj.Paused, nil
 }
 
 // Permissions is the resolver for the permissions field — the one live cluster
 // call on the Cluster surface, so it runs only when explicitly selected.
 // TODO: run a SelfSubjectRulesReview; errors until implemented.
-func (r *clusterPrincipalResolver) Permissions(ctx context.Context, obj *clustersvc.ClusterPrincipal, namespace string) (*model.ClusterPermissions, error) {
+func (r *clusterPrincipalResolver) Permissions(ctx context.Context, obj *cluster.ClusterPrincipal, namespace string) (*model.ClusterPermissions, error) {
 	return nil, fmt.Errorf("not implemented: permissions")
 }
 
 // ClusterEnabledSet is the resolver for the clusterEnabledSet field. The change
 // reaches the webview through the cluster watch.
-func (r *mutationResolver) ClusterEnabledSet(ctx context.Context, id apimeta.ClusterID, enabled bool) (*clustersvc.Cluster, error) {
+func (r *mutationResolver) ClusterEnabledSet(ctx context.Context, id apimeta.ClusterID, enabled bool) (*cluster.Cluster, error) {
 	c, err := r.ClusterSvc.Clusters().SetEnabled(ctx, id, enabled)
 	return c, clusterErr(err)
 }
 
 // ClusterSyncEnabledSet is the resolver for the clusterSyncEnabledSet field.
-func (r *mutationResolver) ClusterSyncEnabledSet(ctx context.Context, id apimeta.ClusterID, syncEnabled bool) (*clustersvc.Cluster, error) {
+func (r *mutationResolver) ClusterSyncEnabledSet(ctx context.Context, id apimeta.ClusterID, syncEnabled bool) (*cluster.Cluster, error) {
 	c, err := r.ClusterSvc.Clusters().SetSyncEnabled(ctx, id, syncEnabled)
 	return c, clusterErr(err)
 }
 
 // ClusterMonitoringEnabledSet is the resolver for the clusterMonitoringEnabledSet field.
-func (r *mutationResolver) ClusterMonitoringEnabledSet(ctx context.Context, id apimeta.ClusterID, monitoringEnabled bool) (*clustersvc.Cluster, error) {
+func (r *mutationResolver) ClusterMonitoringEnabledSet(ctx context.Context, id apimeta.ClusterID, monitoringEnabled bool) (*cluster.Cluster, error) {
 	c, err := r.ClusterSvc.Clusters().SetMonitoringEnabled(ctx, id, monitoringEnabled)
 	return c, clusterErr(err)
 }
@@ -172,21 +172,21 @@ func (r *mutationResolver) ClusterDelete(ctx context.Context, id apimeta.Cluster
 // ClusterCacheClear is the resolver for the clusterCacheClear field: delete one cache's
 // on-disk file and restart its workers onto the emptied one — nothing else would rebuild
 // them. The record stays and re-syncs from scratch. The id is the cache's own.
-func (r *mutationResolver) ClusterCacheClear(ctx context.Context, id apimeta.ObjectID) (*clustersvc.ClusterCache, error) {
+func (r *mutationResolver) ClusterCacheClear(ctx context.Context, id apimeta.ObjectID) (*cluster.ClusterCache, error) {
 	return r.ClusterSvc.Caches().Clear(ctx, id)
 }
 
 // ClusterCachedKindSyncEnabledSet is the resolver for the clusterCachedKindSyncEnabledSet
 // field: stop or resume one kind, keeping its cached rows either way. The id is the
 // per-kind record's own.
-func (r *mutationResolver) ClusterCachedKindSyncEnabledSet(ctx context.Context, id apimeta.ObjectID, syncEnabled bool) (*clustersvc.ClusterCachedKind, error) {
+func (r *mutationResolver) ClusterCachedKindSyncEnabledSet(ctx context.Context, id apimeta.ObjectID, syncEnabled bool) (*cluster.ClusterCachedKind, error) {
 	return r.ClusterSvc.CachedKinds().SetSyncEnabled(ctx, id, syncEnabled)
 }
 
 // ChatSend is the resolver for the chatSend field. The cluster is the chat service's
 // to check, inside the send's transaction, so a send and a cluster delete are
 // serialized where they meet.
-func (r *mutationResolver) ChatSend(ctx context.Context, chatID *apimeta.ChatID, mode chatsvc.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, networkEnabled bool, networkThisTurn bool, providerID string, modelID string, effort string, requestID string, content string) (*chatsvc.ChatMessage, error) {
+func (r *mutationResolver) ChatSend(ctx context.Context, chatID *apimeta.ChatID, mode chat.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, networkEnabled bool, networkThisTurn bool, providerID string, modelID string, effort string, requestID string, content string) (*chat.ChatMessage, error) {
 	msg, err := r.ChatSvc.Send(ctx, chatID, mode, clusterID, sandboxDisabled, networkEnabled, networkThisTurn, providerID, modelID, effort, requestID, content)
 	if err != nil {
 		return nil, chatErr(err)
@@ -203,7 +203,7 @@ func (r *mutationResolver) ChatCancel(ctx context.Context, chatID apimeta.ChatID
 }
 
 // ApprovalDecide is the resolver for the approvalDecide field.
-func (r *mutationResolver) ApprovalDecide(ctx context.Context, id chatsvc.ApprovalID, decision chatsvc.ApprovalDecision) (bool, error) {
+func (r *mutationResolver) ApprovalDecide(ctx context.Context, id chat.ApprovalID, decision chat.ApprovalDecision) (bool, error) {
 	ok, err := r.ChatSvc.Approve(ctx, id, decision)
 	if err != nil {
 		return false, approvalErr(err)
@@ -212,7 +212,7 @@ func (r *mutationResolver) ApprovalDecide(ctx context.Context, id chatsvc.Approv
 }
 
 // BackgroundTaskStop is the resolver for the backgroundTaskStop field.
-func (r *mutationResolver) BackgroundTaskStop(ctx context.Context, id chatsvc.ToolCallID) (bool, error) {
+func (r *mutationResolver) BackgroundTaskStop(ctx context.Context, id chat.ToolCallID) (bool, error) {
 	ok, err := r.ChatSvc.StopBackgroundTask(ctx, id)
 	if err != nil {
 		return false, chatErr(err)
@@ -221,7 +221,7 @@ func (r *mutationResolver) BackgroundTaskStop(ctx context.Context, id chatsvc.To
 }
 
 // ChatRename is the resolver for the chatRename field.
-func (r *mutationResolver) ChatRename(ctx context.Context, id apimeta.ChatID, title string) (*chatsvc.Chat, error) {
+func (r *mutationResolver) ChatRename(ctx context.Context, id apimeta.ChatID, title string) (*chat.Chat, error) {
 	chat, err := r.ChatSvc.Rename(ctx, id, title)
 	if err != nil {
 		return nil, chatErr(err)
@@ -230,7 +230,7 @@ func (r *mutationResolver) ChatRename(ctx context.Context, id apimeta.ChatID, ti
 }
 
 // ChatSandboxDisabledSet is the resolver for the chatSandboxDisabledSet field.
-func (r *mutationResolver) ChatSandboxDisabledSet(ctx context.Context, id apimeta.ChatID, sandboxDisabled bool) (*chatsvc.Chat, error) {
+func (r *mutationResolver) ChatSandboxDisabledSet(ctx context.Context, id apimeta.ChatID, sandboxDisabled bool) (*chat.Chat, error) {
 	chat, err := r.ChatSvc.SetSandboxDisabled(ctx, id, sandboxDisabled)
 	if err != nil {
 		return nil, chatErr(err)
@@ -239,7 +239,7 @@ func (r *mutationResolver) ChatSandboxDisabledSet(ctx context.Context, id apimet
 }
 
 // ChatNetworkEnabledSet is the resolver for the chatNetworkEnabledSet field.
-func (r *mutationResolver) ChatNetworkEnabledSet(ctx context.Context, id apimeta.ChatID, enabled bool) (*chatsvc.Chat, error) {
+func (r *mutationResolver) ChatNetworkEnabledSet(ctx context.Context, id apimeta.ChatID, enabled bool) (*chat.Chat, error) {
 	chat, err := r.ChatSvc.SetNetworkEnabled(ctx, id, enabled)
 	if err != nil {
 		return nil, chatErr(err)
@@ -318,14 +318,14 @@ func (r *mutationResolver) OnboardingFinish(ctx context.Context) (*model.Onboard
 
 // MemorySave is the resolver for the memorySave field: an update with an id, a
 // create without one.
-func (r *mutationResolver) MemorySave(ctx context.Context, input model.MemorySaveInput) (*memorysvc.Memory, error) {
-	in := memorysvc.Input{
+func (r *mutationResolver) MemorySave(ctx context.Context, input model.MemorySaveInput) (*memory.Memory, error) {
+	in := memory.Input{
 		ClusterID: input.ClusterID,
 		Name:      input.Name,
 		Body:      input.Body,
 	}
 	var (
-		m   memorysvc.Memory
+		m   memory.Memory
 		err error
 	)
 	if input.ID != nil {
@@ -340,7 +340,7 @@ func (r *mutationResolver) MemorySave(ctx context.Context, input model.MemorySav
 }
 
 // MemoryDelete is the resolver for the memoryDelete field.
-func (r *mutationResolver) MemoryDelete(ctx context.Context, id memorysvc.MemoryID) (bool, error) {
+func (r *mutationResolver) MemoryDelete(ctx context.Context, id memory.MemoryID) (bool, error) {
 	if err := r.MemorySvc.Delete(ctx, id); err != nil {
 		return false, memoryErr(err)
 	}
@@ -455,25 +455,25 @@ func (r *queryResolver) Sandbox(ctx context.Context) (*sandbox.Status, error) {
 // Cluster is the resolver for the cluster field. An id naming nothing is null per the
 // schema, not an error; one still being torn down resolves like any other, carrying
 // its deletionRequestedAt.
-func (r *queryResolver) Cluster(ctx context.Context, id apimeta.ClusterID) (*clustersvc.Cluster, error) {
+func (r *queryResolver) Cluster(ctx context.Context, id apimeta.ClusterID) (*cluster.Cluster, error) {
 	return r.ClusterSvc.Clusters().Get(ctx, id)
 }
 
 // Clusters is the resolver for the clusters field. Nested objects resolve lazily
 // per-selection.
-func (r *queryResolver) Clusters(ctx context.Context) ([]*clustersvc.Cluster, error) {
+func (r *queryResolver) Clusters(ctx context.Context) ([]*cluster.Cluster, error) {
 	return r.ClusterSvc.Clusters().List(ctx)
 }
 
 // ClusterCache is the resolver for the clusterCache field. An id naming nothing is
 // null per the schema, not an error.
-func (r *queryResolver) ClusterCache(ctx context.Context, id apimeta.ObjectID) (*clustersvc.ClusterCache, error) {
+func (r *queryResolver) ClusterCache(ctx context.Context, id apimeta.ObjectID) (*cluster.ClusterCache, error) {
 	return r.ClusterSvc.Caches().Get(ctx, id)
 }
 
 // ClusterCaches is the resolver for the clusterCaches field — every cache, or one
 // cluster's when scoped. A nil clusterID is the unscoped read, not a missing argument.
-func (r *queryResolver) ClusterCaches(ctx context.Context, clusterID *apimeta.ClusterID) ([]*clustersvc.ClusterCache, error) {
+func (r *queryResolver) ClusterCaches(ctx context.Context, clusterID *apimeta.ClusterID) ([]*cluster.ClusterCache, error) {
 	if clusterID != nil {
 		return r.ClusterSvc.Caches().ListByCluster(ctx, *clusterID)
 	}
@@ -482,13 +482,13 @@ func (r *queryResolver) ClusterCaches(ctx context.Context, clusterID *apimeta.Cl
 
 // ClusterCachedKind is the resolver for the clusterCachedKind field. An id
 // naming nothing is null per the schema, not an error.
-func (r *queryResolver) ClusterCachedKind(ctx context.Context, id apimeta.ObjectID) (*clustersvc.ClusterCachedKind, error) {
+func (r *queryResolver) ClusterCachedKind(ctx context.Context, id apimeta.ObjectID) (*cluster.ClusterCachedKind, error) {
 	return r.ClusterSvc.CachedKinds().Get(ctx, id)
 }
 
 // ClusterCachedKinds is the resolver for the clusterCachedKinds field — every
 // per-kind record, or one cache's when scoped.
-func (r *queryResolver) ClusterCachedKinds(ctx context.Context, cacheID *apimeta.ObjectID) ([]*clustersvc.ClusterCachedKind, error) {
+func (r *queryResolver) ClusterCachedKinds(ctx context.Context, cacheID *apimeta.ObjectID) ([]*cluster.ClusterCachedKind, error) {
 	if cacheID != nil {
 		return r.ClusterSvc.CachedKinds().ListByCache(ctx, *cacheID)
 	}
@@ -571,7 +571,7 @@ func (r *queryResolver) AuthState(ctx context.Context) (*auth.State, error) {
 
 // EventsWatch is the resolver for the eventsWatch field — the live event tail for any
 // record with a timeline, decoupled from that record's own watch.
-func (r *subscriptionResolver) EventsWatch(ctx context.Context, id apimeta.ObjectID, category *string) (<-chan *clustersvc.EventWatchFrame, error) {
+func (r *subscriptionResolver) EventsWatch(ctx context.Context, id apimeta.ObjectID, category *string) (<-chan *cluster.EventWatchFrame, error) {
 	st, err := r.ClusterSvc.WatchEvents(ctx, id, category)
 	if err != nil {
 		return nil, err
@@ -582,7 +582,7 @@ func (r *subscriptionResolver) EventsWatch(ctx context.Context, id apimeta.Objec
 // ClustersWatch is the resolver for the clustersWatch field — the cluster list as
 // a delta watch (Added snapshot, then per-cluster Added/Modified/Deleted). Cache
 // sync status rides clusterCachesWatch, joined client-side.
-func (r *subscriptionResolver) ClustersWatch(ctx context.Context) (<-chan *clustersvc.ClusterWatchFrame, error) {
+func (r *subscriptionResolver) ClustersWatch(ctx context.Context) (<-chan *cluster.ClusterWatchFrame, error) {
 	st, err := r.ClusterSvc.Clusters().WatchList(ctx)
 	if err != nil {
 		return nil, err
@@ -592,7 +592,7 @@ func (r *subscriptionResolver) ClustersWatch(ctx context.Context) (<-chan *clust
 
 // ClusterEventsWatch is the resolver for the clusterEventsWatch field — the cluster's
 // own event tail, the same shape as EventsWatch under the cluster's id.
-func (r *subscriptionResolver) ClusterEventsWatch(ctx context.Context, id apimeta.ClusterID, category *string) (<-chan *clustersvc.EventWatchFrame, error) {
+func (r *subscriptionResolver) ClusterEventsWatch(ctx context.Context, id apimeta.ClusterID, category *string) (<-chan *cluster.EventWatchFrame, error) {
 	st, err := r.ClusterSvc.Clusters().WatchEvents(ctx, id, category)
 	if err != nil {
 		return nil, err
@@ -603,7 +603,7 @@ func (r *subscriptionResolver) ClusterEventsWatch(ctx context.Context, id apimet
 // ClusterScheduleWatch is the resolver for the clusterScheduleWatch field — the
 // live reconcile-schedule gauge for one cluster (next-attempt countdown),
 // decoupled from clustersWatch.
-func (r *subscriptionResolver) ClusterScheduleWatch(ctx context.Context, id apimeta.ClusterID) (<-chan *clustersvc.Schedule, error) {
+func (r *subscriptionResolver) ClusterScheduleWatch(ctx context.Context, id apimeta.ClusterID) (<-chan *cluster.Schedule, error) {
 	ch, err := r.ClusterSvc.Clusters().WatchSchedule(ctx, id)
 	if err != nil {
 		return nil, err
@@ -614,7 +614,7 @@ func (r *subscriptionResolver) ClusterScheduleWatch(ctx context.Context, id apim
 // ClusterCachesWatch is the resolver for the clusterCachesWatch field — cache
 // records as a delta watch parallel to clustersWatch, joined to clusters
 // client-side by clusterID.
-func (r *subscriptionResolver) ClusterCachesWatch(ctx context.Context) (<-chan *clustersvc.ClusterCacheWatchFrame, error) {
+func (r *subscriptionResolver) ClusterCachesWatch(ctx context.Context) (<-chan *cluster.ClusterCacheWatchFrame, error) {
 	st, err := r.ClusterSvc.Caches().WatchList(ctx)
 	if err != nil {
 		return nil, err
@@ -623,7 +623,7 @@ func (r *subscriptionResolver) ClusterCachesWatch(ctx context.Context) (<-chan *
 }
 
 // ClusterCacheHealthWatch is the resolver for the clusterCacheHealthWatch field.
-func (r *subscriptionResolver) ClusterCacheHealthWatch(ctx context.Context) (<-chan *clustersvc.ClusterCacheHealth, error) {
+func (r *subscriptionResolver) ClusterCacheHealthWatch(ctx context.Context) (<-chan *cluster.ClusterCacheHealth, error) {
 	st, err := r.ClusterSvc.Caches().WatchHealth(ctx)
 	if err != nil {
 		return nil, err
@@ -634,7 +634,7 @@ func (r *subscriptionResolver) ClusterCacheHealthWatch(ctx context.Context) (<-c
 // ClusterCachedKindsWatch is the resolver for the clusterCachedKindsWatch field —
 // one cache's per-kind sync records as a delta watch. Cache-scoped, unlike the sibling
 // object watches: there is one record per synced kind.
-func (r *subscriptionResolver) ClusterCachedKindsWatch(ctx context.Context, cacheID apimeta.ObjectID) (<-chan *clustersvc.ClusterCachedKindWatchFrame, error) {
+func (r *subscriptionResolver) ClusterCachedKindsWatch(ctx context.Context, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedKindWatchFrame, error) {
 	st, err := r.ClusterSvc.CachedKinds().WatchByCache(ctx, cacheID)
 	if err != nil {
 		return nil, err
@@ -645,7 +645,7 @@ func (r *subscriptionResolver) ClusterCachedKindsWatch(ctx context.Context, cach
 // ClusterCacheStatsWatch is the resolver for the clusterCacheStatsWatch field — one
 // cache's contents as a live gauge, streamed because the ClusterCache.stats field freezes
 // once its record stops changing.
-func (r *subscriptionResolver) ClusterCacheStatsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *clustersvc.ClusterCacheStats, error) {
+func (r *subscriptionResolver) ClusterCacheStatsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCacheStats, error) {
 	stream, err := r.ClusterSvc.Caches().WatchStats(ctx, id, cacheID)
 	if err != nil {
 		return nil, err
@@ -655,7 +655,7 @@ func (r *subscriptionResolver) ClusterCacheStatsWatch(ctx context.Context, id ap
 
 // ClusterCacheSyncStatusWatch is the resolver for the clusterCacheSyncStatusWatch field —
 // one cache's sync detail as a gauge. The only thing on the wire carrying a per-kind verdict.
-func (r *subscriptionResolver) ClusterCacheSyncStatusWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *clustersvc.ClusterCacheSyncStatus, error) {
+func (r *subscriptionResolver) ClusterCacheSyncStatusWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCacheSyncStatus, error) {
 	stream, err := r.ClusterSvc.Caches().WatchSyncStatus(ctx, id, cacheID)
 	if err != nil {
 		return nil, err
@@ -667,7 +667,7 @@ func (r *subscriptionResolver) ClusterCacheSyncStatusWatch(ctx context.Context, 
 // ClusterCache's kind catalog as a delta watch (the live counterpart of
 // clusterCachedDataKinds), so the dashboard nav's kinds + counts track the cluster in
 // real time.
-func (r *subscriptionResolver) ClusterCachedDataKindsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *clustersvc.ClusterCachedDataKindWatchFrame, error) {
+func (r *subscriptionResolver) ClusterCachedDataKindsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedDataKindWatchFrame, error) {
 	stream, err := r.ClusterSvc.CachedData().WatchKinds(ctx, id, cacheID)
 	if err != nil {
 		return nil, err
@@ -678,7 +678,7 @@ func (r *subscriptionResolver) ClusterCachedDataKindsWatch(ctx context.Context, 
 // ClusterCachedDataEventsWatch is the resolver for the clusterCachedDataEventsWatch field — one
 // ClusterCache's cached Kubernetes Events as a delta watch, backing the dashboard's
 // events table.
-func (r *subscriptionResolver) ClusterCachedDataEventsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *clustersvc.ClusterCachedDataEventWatchFrame, error) {
+func (r *subscriptionResolver) ClusterCachedDataEventsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedDataEventWatchFrame, error) {
 	stream, err := r.ClusterSvc.CachedData().WatchEvents(ctx, id, cacheID)
 	if err != nil {
 		return nil, err
@@ -688,7 +688,7 @@ func (r *subscriptionResolver) ClusterCachedDataEventsWatch(ctx context.Context,
 
 // ClusterCachedDataObjectsWatch is the resolver for the clusterCachedDataObjectsWatch field — one
 // kind's cached objects as a delta watch, backing the dashboard's per-kind tables.
-func (r *subscriptionResolver) ClusterCachedDataObjectsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID, apiVersion string, resource string) (<-chan *clustersvc.ClusterCachedDataObjectWatchFrame, error) {
+func (r *subscriptionResolver) ClusterCachedDataObjectsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID, apiVersion string, resource string) (<-chan *cluster.ClusterCachedDataObjectWatchFrame, error) {
 	stream, err := r.ClusterSvc.CachedData().WatchObjects(ctx, id, cacheID, apiVersion, resource)
 	if err != nil {
 		return nil, err
@@ -697,7 +697,7 @@ func (r *subscriptionResolver) ClusterCachedDataObjectsWatch(ctx context.Context
 }
 
 // ChatsWatch is the resolver for the chatsWatch field.
-func (r *subscriptionResolver) ChatsWatch(ctx context.Context) (<-chan *chatsvc.ChatWatchFrame, error) {
+func (r *subscriptionResolver) ChatsWatch(ctx context.Context) (<-chan *chat.ChatWatchFrame, error) {
 	st, err := r.ChatSvc.WatchList(ctx)
 	if err != nil {
 		return nil, chatErr(err)
@@ -706,7 +706,7 @@ func (r *subscriptionResolver) ChatsWatch(ctx context.Context) (<-chan *chatsvc.
 }
 
 // ChatMessagesWatch is the resolver for the chatMessagesWatch field.
-func (r *subscriptionResolver) ChatMessagesWatch(ctx context.Context, chatID apimeta.ChatID) (<-chan *chatsvc.ChatMessageWatchFrame, error) {
+func (r *subscriptionResolver) ChatMessagesWatch(ctx context.Context, chatID apimeta.ChatID) (<-chan *chat.ChatMessageWatchFrame, error) {
 	st, err := r.ChatSvc.WatchMessages(ctx, chatID)
 	if err != nil {
 		return nil, chatErr(err)
@@ -715,7 +715,7 @@ func (r *subscriptionResolver) ChatMessagesWatch(ctx context.Context, chatID api
 }
 
 // MemoriesWatch is the resolver for the memoriesWatch field.
-func (r *subscriptionResolver) MemoriesWatch(ctx context.Context, clusterID apimeta.ClusterID) (<-chan *memorysvc.MemoryWatchFrame, error) {
+func (r *subscriptionResolver) MemoriesWatch(ctx context.Context, clusterID apimeta.ClusterID) (<-chan *memory.MemoryWatchFrame, error) {
 	st, err := r.MemorySvc.Watch(ctx, clusterID)
 	if err != nil {
 		return nil, memoryErr(err)
@@ -786,7 +786,7 @@ func (r *subscriptionResolver) AuthStateWatch(ctx context.Context) (<-chan *auth
 
 // Status is the resolver for the status field: null for a call the provider
 // ran, which the record keeps as "".
-func (r *toolCallResolver) Status(ctx context.Context, obj *chatsvc.ToolCall) (*chatsvc.ToolCallStatus, error) {
+func (r *toolCallResolver) Status(ctx context.Context, obj *chat.ToolCall) (*chat.ToolCallStatus, error) {
 	if obj.Status == "" {
 		return nil, nil
 	}

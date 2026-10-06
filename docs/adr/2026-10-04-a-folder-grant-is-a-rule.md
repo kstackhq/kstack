@@ -28,7 +28,7 @@ target. A grant is checked when written and every time it is read (`securityconf
 and `CheckStoredFolder`): not `/`, not on a mount every run has its own of, not in a never-readable path
 or Kstack's directories, not exactly a closed folder, and, read-write, not the home, nor on, under
 or over anything Kstack knows runs outside the sandbox — a `PATH` entry, a system or toolchain
-Read path, `sandbox.NoWrite`. `chatsvc.foldersFor` is the one builder of a session's folders and
+Read path, `sandbox.NoWrite`. `chat.foldersFor` is the one builder of a session's folders and
 answers only those that pass, and none where no sandbox confines the run. The bash tool checks
 each again at the run's start and adds it to the Workspace policy as a Read or Write rule, the
 wider grant winning where two nest.

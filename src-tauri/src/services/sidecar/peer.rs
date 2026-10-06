@@ -15,7 +15,7 @@
 //! Reads the process on the far end of a connected [`Stream`]. The kernel
 //! stamps that identity at connect time, so a server cannot claim another's —
 //! the same property the sidecar's own listener relies on
-//! (`sidecar/internal/ipc/peer_*.go`), pointed the other way.
+//! (`sidecar/internal/lib/ipc/peer_*.go`), pointed the other way.
 
 #[cfg(not(target_vendor = "apple"))]
 use interprocess::local_socket::traits::StreamCommon;

@@ -225,7 +225,7 @@ grants and test the sequence with channel-controlled fake login completions. Own
 ## Validation and remaining verification
 
 - `go test ./...` passed on Linux/arm64 before and after the code changes. Targeted `./graph`
-  and `./internal/cloud/api` tests also passed, covering the two code mitigations above.
+  and `./internal/services/cloud/api` tests also passed, covering the two code mitigations above.
 - Frontend: `pnpm test run` passed all 40 files / 377 tests; `pnpm lint` passed. Commands used
   `npx --yes pnpm@11.0.8` after a frozen-lockfile install.
 - `go test -race ./...` could not run: this environment disables CGO and has no C compiler.

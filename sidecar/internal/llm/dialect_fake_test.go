@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
 // A reply is a thought a word at a time, then the sentence a word at a time, and

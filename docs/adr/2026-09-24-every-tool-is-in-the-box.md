@@ -14,7 +14,7 @@ The model can call three kinds of tool: the app's own (bash, Read, Write, TaskSt
 tool the sidecar runs (none yet), and a vendor's tool the provider runs (web search). The app's
 tools were each complete in one place, a `tools.Tool` in `tools.Box`. Web search was split across
 four: `llm`'s table of contracts held how the Messages wire spells it and its word; a table in
-`chatsvc` held its budget and its prompt section; `tools/websearch` read a stored call; and
+`services/chat` held its budget and its prompt section; `tools/websearch` read a stored call; and
 `app.chatActions()` linked that reader to the contract's name. A second server tool meant touching
 all four. The agent carried two offers side by side (`Turn.Tools`, `Turn.ServerTools`), and the
 prompt was assembled in two places.
@@ -65,7 +65,7 @@ helpers. Outside it, only a tool's wire file and its test may import one, for it
 `TestNoDialectReadsTheSDKsEnvironmentDefaults` bans the constructors in a wire file.
 
 This replaces, in the 2026-09-19 ADR, "which list a name is in is the whole statement of who
-runs it", the contract table in `llm`, the two `chatsvc` tables, and "the reader writes a client
+runs it", the contract table in `llm`, the two `services/chat` tables, and "the reader writes a client
 call under the wire's own contract", which becomes "under the offered tool's name". It replaces
 the 2026-09-23 ADR's `tools.Actions` map, and the 2026-09-21 ADR's "only a `dialect_*.go` file
 imports a model SDK" with the boundary above.

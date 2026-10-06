@@ -26,7 +26,7 @@ Claude Code's own `Agent` tool answers at once and reports through a notificatio
 **An `Agent` call answers at once with the agent's id, and the subagent is a background task of
 the chat.** `tools.Spawner.Start` writes the subagent's run, its `background_tasks` row and the
 `Agent` row's `spawned_run_id` in one transaction, and the subagent runs on a goroutine of its own
-(`chatsvc`'s `agentTask`), under a context only a stop cancels. A start that fails is the call's
+(`services/chat`'s `agentTask`), under a context only a stop cancels. A start that fails is the call's
 refusal and the turn goes on; a Cancel during the start starts nothing, and the start's rows are
 taken back. `agent.Tool` is no longer `Bounded`. A limit refuses in the words bash's does, naming
 both, since an agent takes one of the chat's four slots.

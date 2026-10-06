@@ -10,7 +10,7 @@ amended_by: [One statement set prepares and routes every store's statements](202
 
 ## Context
 
-`app.db` opened as one `*sql.DB` capped at a single connection, and `chatsvc/store.go` handed
+`app.db` opened as one `*sql.DB` capped at a single connection, and `services/chat/store.go` handed
 SQL text to it on every call. Two costs followed, both invisible with one window open and both
 real past it. Every read waited for the writer: `WatchList` and `WatchMessages` re-read on every
 ping, each window holds one of each, and with one connection those re-reads serialized with each
@@ -21,7 +21,7 @@ and every watch's re-read each paid a full `sqlite3_prepare_v2`.
 The cache files already had the answer (→ [the cache store prepares every statement
 once](2026-09-02-kubestore-sql-discipline.md)), with one gap: that ADR says a read that must run
 inside a write transaction "has no home here, and none exists", and reserves it as a design
-change. `chatsvc`'s send does exactly that, on purpose — the ledger is re-read inside the
+change. `services/chat`'s send does exactly that, on purpose — the ledger is re-read inside the
 inserting transaction, the chat's existence is checked there, `nextSeq` allocates under the
 write lock, and `newestCard` compares the card beside the rows.
 
@@ -32,7 +32,7 @@ write lock, and `newestCard` compares the card beside the rows.
 `query_only` and without `_txlock`, opened after the migration. The reader's size lives in
 `appdb`, since `appdb` opens the file.
 
-**`chatsvc` carries the cache store's discipline over**, in `statements.go`: `stmtID` indexes
+**`services/chat` carries the cache store's discipline over**, in `statements.go`: `stmtID` indexes
 `stmtText`, the set is prepared at open on a `store` (`store.go`) that owns both pools, and
 `TestNoSQLTextLivesOutsideTheTable` keeps text out of the helpers. The scan matches
 case-sensitively: every statement is upper-case and the helpers' error wraps open with the same

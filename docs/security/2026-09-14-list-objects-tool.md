@@ -2,7 +2,7 @@
 
 **Subject:** the model can read the cluster cache on its own request. Chat gains one tool,
 `list_objects` (`sidecar/internal/clustertools`), offered to the Anthropic encoder and the fake;
-the turn becomes a loop that runs the model's calls and answers them (`sidecar/internal/chatsvc`,
+the turn becomes a loop that runs the model's calls and answers them (`sidecar/internal/services/chat`,
 `tools.go`). This answers the [11 September record](2026-09-11-model-provider-egress.md)'s
 condition — "a tool call needs its own authorization decision and its own record" — for the one
 tool that landed. The living model is [security-model.md](../security-model.md); the ADR is

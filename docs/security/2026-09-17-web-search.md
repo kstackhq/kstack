@@ -3,7 +3,7 @@
 **Subject:** the model can search the web where its provider searches for it. A model whose
 catalog entry names a search tool (`llm.Model.WebSearch`) is offered it on every turn: the
 Messages API's `web_search_20260318` and the Responses API's `web_search`, each run on the
-provider's side, capped per reply (`chatsvc.maxWebSearches`, 5). The sidecar runs nothing itself.
+provider's side, capped per reply (`chat.maxWebSearches`, 5). The sidecar runs nothing itself.
 The living model is [security-model.md](../security-model.md); the previous egress records are
 [model provider egress](2026-09-11-model-provider-egress.md) and
 [the general agent](2026-09-17-spawn-agent.md).
@@ -13,7 +13,7 @@ The living model is [security-model.md](../security-model.md); the previous egre
 The model's own words, to the provider's search backend, and from there to whatever the search
 hits. Until now everything that left went to the provider the user picked and stopped there. A
 query is text the model composed after reading the transcript and the card, so cluster text can
-reach a query. The prompt (`chatsvc/prompts/web_search.md`) says not to put a cluster's names in
+reach a query. The prompt (`services/chat/prompts/web_search.md`) says not to put a cluster's names in
 one, and the prompt is not a bound. The bounds are the count and the user's eye: the transcript
 draws every query the client was told of (*Searched the web*), the sources beside it.
 

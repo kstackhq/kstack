@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
-	"github.com/kstackhq/kstack/sidecar/internal/chatsvc"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/chat"
+	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 )
 
 // newFolderServer is a chat server on a machine with a sandbox, whose home is
@@ -187,7 +187,7 @@ func TestSandboxFoldersSayTheRulesAreHeld(t *testing.T) {
 	res := post(t, srv, `mutation { folderGrant(path: "`+filepath.Join(home, "code")+`", write: false, duration: Always) { wide } }`)
 	require.Len(t, res.Errors, 1)
 	assert.Equal(t, "KSTACK_VALIDATION_ERROR", res.Errors[0].Extensions["code"])
-	assert.Equal(t, chatsvc.RulesHeldReason, res.Errors[0].Message)
+	assert.Equal(t, chat.RulesHeldReason, res.Errors[0].Message)
 }
 
 func TestSandboxFoldersWithNoSandbox(t *testing.T) {

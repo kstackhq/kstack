@@ -24,9 +24,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
 
 // A new server identity gets a directory of its own under the cluster's, and
@@ -108,7 +108,7 @@ func TestTheSweepRemovesTheCacheOfAGoneCluster(t *testing.T) {
 	marked := kubeCluster("staging", "uid")
 	at := time.Now()
 	marked.DeletionRequestedAt = &at
-	svc := fakeService{clusters: map[apimeta.ClusterID]*clustersvc.Cluster{"7": kubeCluster("prod", "uid"), "8": marked}}
+	svc := fakeService{clusters: map[apimeta.ClusterID]*cluster.Cluster{"7": kubeCluster("prod", "uid"), "8": marked}}
 	for _, id := range []apimeta.ClusterID{"7", "8", "9"} {
 		_, err := makeKubectlCache(dir, id, "uid")
 		require.NoError(t, err)

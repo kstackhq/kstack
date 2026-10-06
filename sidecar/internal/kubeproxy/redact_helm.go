@@ -28,7 +28,7 @@ import (
 	yamlv2 "go.yaml.in/yaml/v2"
 	"sigs.k8s.io/yaml"
 
-	"github.com/kstackhq/kstack/sidecar/internal/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 )
 
 // helmReleaseType is the type of the Secret helm keeps a release in.

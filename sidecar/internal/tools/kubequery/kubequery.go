@@ -28,9 +28,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -67,10 +67,10 @@ var (
 )
 
 // Tool is KubeQuery, over the cluster service whose caches it reads.
-type Tool struct{ svc clustersvc.Service }
+type Tool struct{ svc cluster.Service }
 
 // New is the tool over svc.
-func New(svc clustersvc.Service) *Tool { return &Tool{svc: svc} }
+func New(svc cluster.Service) *Tool { return &Tool{svc: svc} }
 
 func (t *Tool) Definition() llm.ToolDefinition {
 	return llm.ToolDefinition{Name: Name, Description: description, InputSchema: json.RawMessage(inputSchema)}
@@ -117,7 +117,7 @@ func (t *Tool) Run(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (
 		return refusal(err), true
 	}
 	res, err := t.query(ctx, rt.ClusterID, in.sql, in.limit)
-	var qe *clustersvc.QueryError
+	var qe *cluster.QueryError
 	switch {
 	case errors.Is(err, errNoCache):
 		return noCache, true

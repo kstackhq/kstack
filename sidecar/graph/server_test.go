@@ -32,9 +32,9 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/graph"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
-	"github.com/kstackhq/kstack/sidecar/internal/auth"
-	"github.com/kstackhq/kstack/sidecar/internal/logging"
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/logging"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 )
 
 // TestAuthStateQuery is the canary: a fresh server (signed-out fake auth)

@@ -26,7 +26,7 @@ had just done.
 
 ## Decision
 
-The sidecar writes its own file. `internal/logging`'s `Open(path, stderr, level)` builds the
+The sidecar writes its own file. `internal/lib/logging`'s `Open(path, stderr, level)` builds the
 writers two new flags describe — `--log-file`, `--log-stderr`, both off by default — and hands
 them to `Init`. Rotation is lumberjack, at the host's numbers (2 MB, five archives). The host
 passes `<log_dir>/sidecar.log`, so `main.log` and `sidecar.log` sit side by side, rotate the
@@ -74,7 +74,7 @@ not quote would let cluster-controlled text forge a log line. The cap also moved
 escaping: `safe.String` cuts at 2048 bytes and the handler quotes after, so a string of control
 characters can reach roughly 8 KB on the line.
 
-`Init` stays exported because `internal/testutil`'s `CaptureLogs` builds the default logger over
+`Init` stays exported because `internal/lib/testutil`'s `CaptureLogs` builds the default logger over
 a buffer with it, which is how the redaction sentinels read what the process would have written.
 
 ## Revisit when

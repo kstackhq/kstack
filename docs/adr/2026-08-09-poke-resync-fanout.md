@@ -17,7 +17,7 @@ itself, covering SIGSTOP/VM pause and headless runs).
 
 ## Decision
 
-`internal/poke` is a leaf broadcaster with two jobs: a **wall-clock gap detector** (15s tick,
+`internal/services/poke` is a leaf broadcaster with two jobs: a **wall-clock gap detector** (15s tick,
 2× gap factor — a larger jump means the process was frozen; fires `Poke(SourceWallClock)`)
 and a **fan-out hub** (`gochan/broadcast`). The host drives `Poke(SourceHost)` over gRPC from
 its `wake/` supervisor: platform sources (NSWorkspace/SCNetworkReachability, Windows
@@ -27,9 +27,9 @@ collapses to one poke. Host-side poke is best-effort — failures logged and swa
 wall-clock detector is the backstop.
 
 Consumers subscribe directly: the kubeconfig service re-reads the file
-(`internal/kubeconfig/kubeconfig.go`), `clustersvc`'s `restartSyncsOnResume` restarts every
+(`internal/services/kubeconfig/kubeconfig.go`), `services/cluster`'s `restartSyncsOnResume` restarts every
 sync in place through `kubesync`'s `RestartAll` (each resumes cheaply from its persisted
-resourceVersion), and the settings engine (`internal/cloud/prefsync/engine.go`) reconnects. **A poke is a fan-out,
+resourceVersion), and the settings engine (`internal/services/cloud/prefsync/engine.go`) reconnects. **A poke is a fan-out,
 not a cascade**: an ephemeral "re-establish now" delivered to all consumers in parallel,
 deliberately not routed through a durable spec counter or through connection-status
 conditions.

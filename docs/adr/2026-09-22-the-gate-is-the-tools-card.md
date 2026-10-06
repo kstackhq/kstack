@@ -19,7 +19,7 @@ while *A reply's calls run at the same time*,
 written for the loop before the rewrite, has every call of a reply start at once. Bash returns
 as a custom function on every dialect, the first tool that needs the user's decision.
 Three layers meet at the gate: `tools` knows what a call will do, `agent` knows when a call runs,
-and `chatsvc` owns the rows and the live view.
+and `services/chat` owns the rows and the live view.
 
 ## Decision
 
@@ -33,7 +33,7 @@ not know.
 `runCalls`, after the lookup and before `ToolCallStarted`, a gated call is put to
 `Approver.Approve(ctx, call, card)`. A no is answered `denied` and the next call proceeds; a
 yes checks the turn's cancel once more and then runs as today. A decision stands once made,
-since chat has committed it by the time `Approve` returns. `chatsvc`'s turn implements the
+since chat has committed it by the time `Approve` returns. `services/chat`'s turn implements the
 approver in `approval.go`: the waiter is registered first, the call's row, its approval and the
 run's flip to `waiting_approval` land in one transaction, and the wait ends on the decision
 (delivered by `approvalDecide` through a buffered channel of one) or the turn's cancel.

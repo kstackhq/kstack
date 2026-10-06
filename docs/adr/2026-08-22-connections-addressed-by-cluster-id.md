@@ -24,8 +24,8 @@ built it and drove its lifecycle; nothing acquired a lease.
 
 That reading did not survive being checked. Every one of those consumers knows *which cluster* it
 means, and none of them can turn that into credentials on its own: the `ClusterID` → source →
-context name → `rest.Config` chain lives entirely inside `clustersvc`. Worse, dialing needs policy
-that only `clustersvc` holds — whether the cluster is enabled, whether its record is tombstoned,
+context name → `rest.Config` chain lives entirely inside `services/cluster`. Worse, dialing needs policy
+that only `services/cluster` holds — whether the cluster is enabled, whether its record is tombstoned,
 and whether the server answering is still the one `ClusterActiveUID` identifies. A tail streaming
 from a server the cluster record no longer claims is a bug the pool cannot even describe.
 
@@ -38,9 +38,9 @@ desktop app.
 
 ## Decision
 
-Connections are obtained by `ClusterID`, from `clustersvc`. The pool lives behind that boundary at
-`internal/clustersvc/internal/kubeconn`, alongside `kubeidentity`, and is unimportable from
-anywhere else. `clustersvc.New` constructs it and carries it in the service's own `lifecycle.Part`
+Connections are obtained by `ClusterID`, from `services/cluster`. The pool lives behind that boundary at
+`internal/services/cluster/internal/kubeconn`, alongside `kubeidentity`, and is unimportable from
+anywhere else. `cluster.New` constructs it and carries it in the service's own `lifecycle.Part`
 slice, ahead of beehive, so a connection outlives every reconcile pass that could still be dialing
 on it. The composition root no longer knows the pool exists.
 
@@ -86,7 +86,7 @@ re-derive the `ClusterID` → credentials chain, and each would have to remember
 tombstone, and server-UID checks that make a dial legitimate. Every place that forgot one would be
 a bug the types could not catch.
 
-**Leave it in `internal/`, but make `clustersvc` the only caller.** Consistent, and it preserves
+**Leave it in `internal/`, but make `services/cluster` the only caller.** Consistent, and it preserves
 the composition root's explicit start ordering. Rejected because the ordering guarantee it
 preserves is a comment nobody may reorder, whereas ownership makes it structural — and because
 `internal/` placement would then describe nothing true about the package except that one importer
@@ -99,7 +99,7 @@ key exists to remove.
 ## Consequences
 
 The composition root gets smaller and the pool's lifecycle is enforced by position in
-`clustersvc`'s slice rather than by a comment in `app.go`.
+`services/cluster`'s slice rather than by a comment in `app.go`.
 
 `kubeconn` and `kubeidentity` become siblings, which exposes how much they overlap: the two
 `Identity` types are now the same three comparable fields, both pair a `State` read with a feed of
@@ -120,7 +120,7 @@ The obligation the new location creates: the pool's unit is credentials, shared 
 and nothing in the vocabulary of a cluster record says so. The package doc has to lead with it, or
 a reader will assume one entry per cluster and reason wrongly about probe counts and socket reuse.
 
-Anything genuinely needing a connection without a `ClusterID` now has to go through `clustersvc`
+Anything genuinely needing a connection without a `ClusterID` now has to go through `services/cluster`
 anyway, or get a record first.
 
 ## Revisit when

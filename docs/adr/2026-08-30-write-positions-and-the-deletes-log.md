@@ -9,7 +9,7 @@ status: Accepted
 
 ## Context
 
-The cached-data watches (`clustersvc/cacheddatawatch.go`) learn about changes by re-reading a whole
+The cached-data watches (`services/cluster/cacheddatawatch.go`) learn about changes by re-reading a whole
 collection on every debounced burst of writes and diffing it by uid. The read serves identity only,
 so a row is cheap — but the work is O(collection) per burst however few rows moved, and it is paid
 by every open watch on the cache. A namespace with ten thousand Pods costs ten thousand rows read

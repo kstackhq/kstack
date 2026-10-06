@@ -21,8 +21,8 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/app"
 	"github.com/kstackhq/kstack/sidecar/internal/catalog"
-	"github.com/kstackhq/kstack/sidecar/internal/ipc"
-	"github.com/kstackhq/kstack/sidecar/internal/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 )
 
 // config is everything the command line decides: the app's own configuration

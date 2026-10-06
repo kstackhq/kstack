@@ -14,7 +14,7 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 
-	"github.com/kstackhq/kstack/sidecar/internal/drain"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/drain"
 )
 
 // Server is the GraphQL surface: the gqlgen handler plus the shutdown lifecycle the app

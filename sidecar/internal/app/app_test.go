@@ -18,19 +18,19 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/kstackhq/kstack/sidecar/grpc/authpb"
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/catalog"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
-	"github.com/kstackhq/kstack/sidecar/internal/lifecycle"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
@@ -417,7 +417,7 @@ func TestAppTearsDownADeletedCluster(t *testing.T) {
 // reports unread, which is a state only this ordering keeps them out of: Start reads
 // synchronously, so a service started after it always observes a read. Reversed, every
 // record would observe its context absent and orphan itself — a mass write, not a
-// pause — and the guards in clustersvc are the only thing that would stand between the
+// pause — and the guards in cluster are the only thing that would stand between the
 // reordering and that.
 func TestAppStartsKubeconfigBeforeTheClusterService(t *testing.T) {
 	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
@@ -451,20 +451,20 @@ func TestTheMemoryServiceOutlivesTheChatService(t *testing.T) {
 	assert.Less(t, partIndex(t, a, "memory service"), partIndex(t, a, "chat service"))
 }
 
-// The UIDs memorysvc stamps are the cluster service's last probe; a cluster it
+// The UIDs memory stamps are the cluster service's last probe; a cluster it
 // does not know, or has never probed, has none.
 func TestServerUIDLookupReadsTheClusterService(t *testing.T) {
 	uid := "uid-1"
-	uids := serverUIDLookup{clusters: fakeClusters{"probed": {Status: clustersvc.ClusterStatus{Server: clustersvc.ClusterServer{UID: &uid}}}, "unprobed": {}}}
+	uids := serverUIDLookup{clusters: fakeClusters{"probed": {Status: cluster.ClusterStatus{Server: cluster.ClusterServer{UID: &uid}}}, "unprobed": {}}}
 
 	assert.Equal(t, "uid-1", uids.ServerUID(t.Context(), "probed"))
 	assert.Empty(t, uids.ServerUID(t.Context(), "unprobed"))
 	assert.Empty(t, uids.ServerUID(t.Context(), "unknown"))
 }
 
-type fakeClusters map[apimeta.ClusterID]*clustersvc.Cluster
+type fakeClusters map[apimeta.ClusterID]*cluster.Cluster
 
-func (f fakeClusters) Get(_ context.Context, id apimeta.ClusterID) (*clustersvc.Cluster, error) {
+func (f fakeClusters) Get(_ context.Context, id apimeta.ClusterID) (*cluster.Cluster, error) {
 	return f[id], nil
 }
 

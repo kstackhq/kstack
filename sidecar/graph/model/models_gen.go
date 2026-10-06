@@ -8,11 +8,11 @@ import (
 	"io"
 	"strconv"
 
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
-	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
+	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 )
 
 // The connecting principal's effective RBAC in one namespace (live
@@ -31,7 +31,7 @@ type ClusterPermissions struct {
 
 type MemorySaveInput struct {
 	// The memory to rewrite. Null creates one.
-	ID *memorysvc.MemoryID `json:"id,omitempty"`
+	ID *memory.MemoryID `json:"id,omitempty"`
 	// The cluster it is for. Null is every cluster.
 	ClusterID *apimeta.ClusterID `json:"clusterID,omitempty"`
 	Name      string             `json:"name"`

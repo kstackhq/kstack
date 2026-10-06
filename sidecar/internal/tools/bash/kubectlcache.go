@@ -30,9 +30,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
-	"github.com/kstackhq/kstack/sidecar/internal/rootdir"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/rootdir"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
 
 // unknownServer names the cache of a record whose server has no UID yet.
@@ -84,7 +84,7 @@ func serverKey(uid string) string {
 // clusters, and a cache is made only for a cluster already read, so a new
 // cluster's is never taken. A failure is logged, and the next start tries
 // again.
-func sweepKubectlCache(ctx context.Context, dir string, clusterSvc clustersvc.Service) {
+func sweepKubectlCache(ctx context.Context, dir string, clusterSvc cluster.Service) {
 	root, err := os.OpenRoot(dir)
 	if errors.Is(err, fs.ErrNotExist) {
 		return

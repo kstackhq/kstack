@@ -24,7 +24,7 @@ already groups a chat's requests so that cache hits.
 
 The sidecar renders a **cluster card** (`internal/clustercard`) from what it already holds and
 attaches it to the **user message** as a block of its own, `context` in `llm`'s schema, ahead of
-the text. `chatsvc.Send` renders it before its transaction and, inside the transaction, compares
+the text. `chat.Send` renders it before its transaction and, inside the transaction, compares
 it against the newest context block in the chat's record: an equal card is not sent again, a
 changed one goes, and the first message of a chat always carries one. The record is the whole
 truth — `buildRequest` resends the row as it is, and the compare reads the same rows.

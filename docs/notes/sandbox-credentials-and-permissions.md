@@ -635,7 +635,7 @@ above, that is most of 1, 2 and 6.
    allowlist, no read exempt") for actions the proxy classifies. A raw command outside the
    sandbox still asks every time.
 3. **The monitoring session's plumbing is built ahead of a monitoring agent** (step 6B): a run of
-   the chat service under its cluster and no chat (`chatsvc.RunMonitor`), its session, its record,
+   the chat service under its cluster and no chat (`chat.RunMonitor`), its session, its record,
    its folder and its teardown, called by its tests alone until an agent exists. The proposal card
    goes to the agent's step.
 4. **One token per run, mapped to its session.** A run's token dies with the run, as it does

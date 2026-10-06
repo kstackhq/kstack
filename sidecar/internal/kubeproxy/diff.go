@@ -30,8 +30,8 @@ import (
 	"github.com/pmezard/go-difflib/difflib"
 	"sigs.k8s.io/yaml"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
-	"github.com/kstackhq/kstack/sidecar/internal/safe"
 )
 
 const (

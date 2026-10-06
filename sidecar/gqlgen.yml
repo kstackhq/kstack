@@ -20,13 +20,13 @@ autobind:
 
 models:
   # --- Cluster ---
-  # The GraphQL Cluster types bind 1:1 (same name) into internal/clustersvc —
+  # The GraphQL Cluster types bind 1:1 (same name) into internal/services/cluster —
   # gqlgen autobinds with no wrapper. The schema mirrors beehive's
   # owner chain: Cluster.status is the Cluster kind's stored status, and the
   # ClusterCache child carries the ClusterCache kind's sync status (`status`) plus the
   # cluster ID its resolvers read with.
   Cluster:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.Cluster
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.Cluster
     fields:
       # Both are separate beehive reads, kept off the record and run only when
       # selected: event chatter must not ride the cluster watch, and the owned
@@ -37,37 +37,37 @@ models:
         resolver: true
 
   ClusterSpec:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterSpec
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterSpec
 
   ClusterSpecSource:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterSpecSource
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterSpecSource
 
   ClusterSpecSourceKubeconfig:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterSpecSourceKubeconfig
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterSpecSourceKubeconfig
 
   ClusterStatusSource:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterStatusSource
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterStatusSource
 
   ClusterStatus:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterStatus
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterStatus
 
   ClusterServer:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterServer
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterServer
 
   ClusterStatusSourceKubeconfig:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterStatusSourceKubeconfig
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterStatusSourceKubeconfig
 
   ClusterStatusSourceKubeconfigCluster:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterStatusSourceKubeconfigCluster
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterStatusSourceKubeconfigCluster
 
   ClusterStatusSourceKubeconfigUser:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterStatusSourceKubeconfigUser
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterStatusSourceKubeconfigUser
 
   ClusterStatusSourceKubeconfigClusterEntry:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterStatusSourceKubeconfigClusterEntry
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterStatusSourceKubeconfigClusterEntry
 
   ClusterPrincipal:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterPrincipal
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterPrincipal
     fields:
       permissions:
         resolver: true
@@ -78,35 +78,35 @@ models:
   # it belongs to no single storage provenance.
   #
   # Condition/Event/Schedule are shared, kind-agnostic vocabulary on the wire but
-  # live in `internal/clustersvc` only because it's their sole consumer today. The
+  # live in `internal/services/cluster` only because it's their sole consumer today. The
   # wire-universal (unprefixed) name and the internal package home are orthogonal:
   # the unprefixed name says "not specific to one wire namespace", not "must live
   # package-neutral". When a non-cluster kind/subsystem first needs conditions,
-  # hoist all three together into a shared leaf package (e.g. internal/apimeta),
+  # hoist all three together into a shared leaf package (e.g. internal/lib/apimeta),
   # leaving cluster its ConditionType constants (Connected/Identified/Synced) — see
   # sidecar/CLAUDE.md. Until that second consumer exists, a shared package would be
   # a one-importer abstraction, so they stay here.
   Condition:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.Condition
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.Condition
 
   ObjectRef:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ObjectRef
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ObjectRef
 
   # The generic event surface. Event binds 1:1 to the Go type; its run id
   # rides the shared ObjectID scalar (no dedicated Event id scalar), and EventType
   # binds straight to beehive.EventType (values Normal/Warning match), the same
   # external-enum pattern as ConditionStatus.
   Event:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.Event
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.Event
 
   # The event watches' envelope. Its own two-value enum rather than DeltaFrameType: the
   # log is append-only, so Added/Modified/Deleted would advertise transitions that
   # can never arrive.
   EventWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.EventWatchFrame
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.EventWatchFrame
 
   EventFrameType:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.EventFrameType
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.EventFrameType
 
   EventType:
     model: github.com/amorey/beehive.EventType
@@ -114,26 +114,26 @@ models:
   # The generic reconcile-schedule gauge (next-requeue countdown), decoupled from
   # the cluster/list watch. Binds 1:1 to the Go type.
   Schedule:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.Schedule
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.Schedule
 
   ConditionStatus:
     model: github.com/amorey/beehive.ConditionStatus
 
-  # The delta watches. DeltaFrameType binds to the shared internal/apimeta type — more
+  # The delta watches. DeltaFrameType binds to the shared internal/lib/apimeta type — more
   # than one service streams delta frames, and gqlgen binds one enum to one Go type, so
   # a per-service definition would make every frame wrapper's `type` field a resolver.
   # The frame wrappers bind 1:1 to the types the watch pumps emit.
   DeltaFrameType:
-    model: github.com/kstackhq/kstack/sidecar/internal/apimeta.DeltaFrameType
+    model: github.com/kstackhq/kstack/sidecar/internal/lib/apimeta.DeltaFrameType
 
   ClusterWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterWatchFrame
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterWatchFrame
 
   ClusterCacheWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCacheWatchFrame
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheWatchFrame
 
   ClusterCache:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCache
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCache
     fields:
       # kinds and events are separate reads (the cache's SQLite catalog, the beehive
       # event log), so both stay off the record and run only when selected.
@@ -146,64 +146,64 @@ models:
 
   # The cache subtree's served spec IS the stored beehive type (no projection layer).
   ClusterCacheSpec:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCacheSpec
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheSpec
   ClusterCachedKind:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCachedKind
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedKind
     fields:
       events:
         resolver: true
   ClusterCachedKindSpec:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCachedKindSpec
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedKindSpec
     fields:
       # The wire's positive form over a stored Paused. The storage field is inverted so a
       # record written before it decodes as syncing; this resolver is the one negation.
       syncEnabled:
         resolver: true
   ClusterCachedKindWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCachedKindWatchFrame
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedKindWatchFrame
   ClusterCacheHealth:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCacheHealth
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheHealth
   SyncedKindRef:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.SyncedKindRef
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.SyncedKindRef
 
   ClusterCacheStats:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCacheStats
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheStats
 
   ClusterCacheSyncStatus:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCacheSyncStatus
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheSyncStatus
   ClusterCacheDiscoveryStatus:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCacheDiscoveryStatus
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheDiscoveryStatus
   ClusterCacheKindSyncStatus:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCacheKindSyncStatus
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCacheKindSyncStatus
 
   ClusterCachedDataKind:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCachedDataKind
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedDataKind
 
   ClusterCachedDataKindWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCachedDataKindWatchFrame
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedDataKindWatchFrame
 
   # Mapped like every other cached-data type: an unmapped schema type autobinds into
-  # graph/model, and clustersvc would then import it — the layering this block exists to hold.
+  # graph/model, and cluster would then import it — the layering this block exists to hold.
   PrinterColumn:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.PrinterColumn
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.PrinterColumn
 
   # firstSeen/lastSeen autobind to value time.Time fields: gqlgen's Time marshaler emits null
   # for the zero time, which is exactly the wire's meaning of an absent timestamp.
   ClusterCachedDataEvent:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCachedDataEvent
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedDataEvent
 
   ClusterCachedDataEventWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCachedDataEventWatchFrame
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedDataEventWatchFrame
 
   # creationTimestamp autobinds like the event timestamps above. rawJSON autobinds to the
   # RawJSON field too: the body is already read by the time the record exists — the watch
   # fetches one per frame it sends — so gating its marshal behind a resolver would defer
   # nothing.
   ClusterCachedDataObject:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCachedDataObject
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedDataObject
 
   ClusterCachedDataObjectWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/clustersvc.ClusterCachedDataObjectWatchFrame
+    model: github.com/kstackhq/kstack/sidecar/internal/services/cluster.ClusterCachedDataObjectWatchFrame
 
   # --- Models ---
   # The dialect a provider speaks, named for the API. Every member binds to its
@@ -223,23 +223,23 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/llm.DialectFake
 
   # --- Chat ---
-  # The chat types bind 1:1 into internal/chatsvc, like the cluster ones. ChatID is a
+  # The chat types bind 1:1 into internal/services/chat, like the cluster ones. ChatID is a
   # UUID string, not a beehive object id, so it is its own scalar; it binds to apimeta,
-  # which chatsvc aliases, since memorysvc and tools name a chat too.
+  # which chat aliases, since memory and tools name a chat too.
   ChatID:
-    model: github.com/kstackhq/kstack/sidecar/internal/apimeta.ChatID
+    model: github.com/kstackhq/kstack/sidecar/internal/lib/apimeta.ChatID
 
   MessageID:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.MessageID
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.MessageID
 
   ApprovalID:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalID
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalID
 
   ToolCallID:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallID
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallID
 
   ToolCall:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCall
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCall
     fields:
       # A provider call has no status; the record keeps "" so a call stays
       # comparable, and the resolver serves it as null.
@@ -247,30 +247,30 @@ models:
         resolver: true
 
   ToolCallApproval:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallApproval
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallApproval
   ClusterWrite:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ClusterWrite
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ClusterWrite
   PermissionAction:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.PermissionAction
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.PermissionAction
 
   # --- Memory ---
-  # The memory types bind 1:1 into internal/memorysvc, like the chat ones.
+  # The memory types bind 1:1 into internal/services/memory, like the chat ones.
   MemoryID:
-    model: github.com/kstackhq/kstack/sidecar/internal/memorysvc.MemoryID
+    model: github.com/kstackhq/kstack/sidecar/internal/services/memory.MemoryID
 
   Memory:
-    model: github.com/kstackhq/kstack/sidecar/internal/memorysvc.Memory
+    model: github.com/kstackhq/kstack/sidecar/internal/services/memory.Memory
 
   MemoryWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/memorysvc.MemoryWatchFrame
+    model: github.com/kstackhq/kstack/sidecar/internal/services/memory.MemoryWatchFrame
 
   MemoryAuthor:
-    model: github.com/kstackhq/kstack/sidecar/internal/memorysvc.Author
+    model: github.com/kstackhq/kstack/sidecar/internal/services/memory.Author
     enum_values:
       Model:
-        value: github.com/kstackhq/kstack/sidecar/internal/memorysvc.AuthorModel
+        value: github.com/kstackhq/kstack/sidecar/internal/services/memory.AuthorModel
       User:
-        value: github.com/kstackhq/kstack/sidecar/internal/memorysvc.AuthorUser
+        value: github.com/kstackhq/kstack/sidecar/internal/services/memory.AuthorUser
 
   ToolAction:
     model: github.com/kstackhq/kstack/sidecar/internal/tools.Action
@@ -330,36 +330,36 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/tools.ActionKubeQuery
 
   ToolCallNetwork:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallNetwork
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallNetwork
     enum_values:
       Chat:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallNetworkChat
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallNetworkChat
       Turn:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallNetworkTurn
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallNetworkTurn
       Approved:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallNetworkApproved
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallNetworkApproved
 
   ToolCallRunsOn:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallRunsOn
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallRunsOn
     enum_values:
       Sidecar:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallRunsOnSidecar
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallRunsOnSidecar
       Provider:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallRunsOnProvider
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallRunsOnProvider
 
   ApprovalDecision:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalDecision
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalDecision
     enum_values:
       Once:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.DecisionOnce
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.DecisionOnce
       Command:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.DecisionCommand
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.DecisionCommand
       Chat:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.DecisionChat
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.DecisionChat
       Always:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.DecisionAlways
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.DecisionAlways
       Deny:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.DecisionDeny
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.DecisionDeny
 
   ApprovalDuration:
     model: github.com/kstackhq/kstack/sidecar/internal/permissions.Duration
@@ -374,60 +374,60 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/permissions.DurationAlways
 
   ApprovalStatus:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalStatus
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalStatus
     enum_values:
       Pending:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalPending
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalPending
       Approved:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalApproved
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalApproved
       Denied:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalDenied
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalDenied
       Abandoned:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalAbandoned
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalAbandoned
       Allowed:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalAllowed
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalAllowed
       Refused:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ApprovalRefused
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalRefused
 
   BackgroundTask:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.BackgroundTask
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTask
 
   BackgroundTaskStatus:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.BackgroundTaskStatus
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTaskStatus
     enum_values:
       Running:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.BackgroundTaskRunning
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTaskRunning
       Exited:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.BackgroundTaskExited
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTaskExited
       Completed:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.BackgroundTaskCompleted
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTaskCompleted
       Failed:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.BackgroundTaskFailed
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTaskFailed
       Stopped:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.BackgroundTaskStopped
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTaskStopped
       Lost:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.BackgroundTaskLost
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTaskLost
 
   ToolCallStatus:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallStatus
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallStatus
     enum_values:
       NotRun:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallNotRun
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallNotRun
       AwaitingApproval:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallAwaitingApproval
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallAwaitingApproval
       Denied:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallDenied
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallDenied
       Running:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallRunning
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallRunning
       Succeeded:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallSucceeded
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallSucceeded
       Failed:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallFailed
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallFailed
       Interrupted:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ToolCallInterrupted
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallInterrupted
 
   Chat:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.Chat
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.Chat
 
   SandboxStatus:
     model: github.com/kstackhq/kstack/sidecar/internal/sandbox.Status
@@ -435,43 +435,43 @@ models:
   # The stored vocabulary is lower-case (the Messages API's own), so each enum member
   # binds to the constant that carries it.
   ChatMessageRole:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.Role
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.Role
     enum_values:
       User:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.RoleUser
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.RoleUser
       Assistant:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.RoleAssistant
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.RoleAssistant
 
   ChatMode:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.Mode
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.Mode
     enum_values:
       Chat:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ModeChat
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ModeChat
       Dashboard:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ModeDashboard
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ModeDashboard
 
   ChatMessageStatus:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.MessageStatus
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.MessageStatus
     enum_values:
       Streaming:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.StatusStreaming
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.StatusStreaming
       WaitingApproval:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.StatusWaitingApproval
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.StatusWaitingApproval
       Complete:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.StatusComplete
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.StatusComplete
       Failed:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.StatusFailed
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.StatusFailed
       Cancelled:
-        value: github.com/kstackhq/kstack/sidecar/internal/chatsvc.StatusCancelled
+        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.StatusCancelled
 
   ChatWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ChatWatchFrame
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ChatWatchFrame
 
   ChatMessageWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ChatMessageWatchFrame
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ChatMessageWatchFrame
 
   ChatMessage:
-    model: github.com/kstackhq/kstack/sidecar/internal/chatsvc.ChatMessage
+    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ChatMessage
     fields:
       # The nullable column is sql.NullTime so a watch can diff a message with ==,
       # and gqlgen has no marshaler for it. Declared here rather than inferred, so
@@ -497,7 +497,7 @@ models:
 
   # --- Sandbox ---
   SecurityRefusal:
-    model: github.com/kstackhq/kstack/sidecar/internal/securityconfig.Refusal
+    model: github.com/kstackhq/kstack/sidecar/internal/services/securityconfig.Refusal
 
   # --- Permissions ---
   PermissionClass:
@@ -534,19 +534,19 @@ models:
       Ask:
         value: github.com/kstackhq/kstack/sidecar/internal/permissions.AskFor
   PermissionModeSource:
-    model: github.com/kstackhq/kstack/sidecar/internal/securityconfig.ModeSource
+    model: github.com/kstackhq/kstack/sidecar/internal/services/securityconfig.ModeSource
     enum_values:
       Refused:
-        value: github.com/kstackhq/kstack/sidecar/internal/securityconfig.SourceRefused
+        value: github.com/kstackhq/kstack/sidecar/internal/services/securityconfig.SourceRefused
       Entry:
-        value: github.com/kstackhq/kstack/sidecar/internal/securityconfig.SourceEntry
+        value: github.com/kstackhq/kstack/sidecar/internal/services/securityconfig.SourceEntry
       Default:
-        value: github.com/kstackhq/kstack/sidecar/internal/securityconfig.SourceDefault
+        value: github.com/kstackhq/kstack/sidecar/internal/services/securityconfig.SourceDefault
   # line binds to the rule's Line method.
   PermissionRule:
     model: github.com/kstackhq/kstack/sidecar/internal/permissions.Rule
   PermissionContextMode:
-    model: github.com/kstackhq/kstack/sidecar/internal/securityconfig.ContextModeState
+    model: github.com/kstackhq/kstack/sidecar/internal/services/securityconfig.ContextModeState
 
   # --- Auth ---
   # Bind the GraphQL auth types straight to the auth domain types so the
@@ -554,10 +554,10 @@ models:
   # State.Tokens never reaches the wire — and Identity's `sub` claim maps onto
   # the domain's UserID field.
   AuthState:
-    model: github.com/kstackhq/kstack/sidecar/internal/auth.State
+    model: github.com/kstackhq/kstack/sidecar/internal/services/auth.State
 
   Identity:
-    model: github.com/kstackhq/kstack/sidecar/internal/auth.Identity
+    model: github.com/kstackhq/kstack/sidecar/internal/services/auth.Identity
     fields:
       sub:
         fieldName: UserID
@@ -567,18 +567,18 @@ models:
   # arguments arrive already typed — no per-resolver parsing. ClusterID (and
   # future per-kind ids) are aliases of this one type, sharing its machinery.
   ObjectID:
-    model: github.com/kstackhq/kstack/sidecar/internal/apimeta.ObjectID
+    model: github.com/kstackhq/kstack/sidecar/internal/lib/apimeta.ObjectID
 
   # A cluster's id is text — its clusters row id — bound to its own type so a resolver
   # cannot take one where an object id belongs.
   ClusterID:
-    model: github.com/kstackhq/kstack/sidecar/internal/apimeta.ClusterID
+    model: github.com/kstackhq/kstack/sidecar/internal/lib/apimeta.ClusterID
 
   # The JSON scalar binds to rawjson.RawJSON — a comparable string carrying already-
   # serialized JSON, marshaled verbatim. Its own package because gqlgen binds one scalar
   # to one Go type and more than one service serves a JSON field.
   JSON:
-    model: github.com/kstackhq/kstack/sidecar/internal/rawjson.RawJSON
+    model: github.com/kstackhq/kstack/sidecar/internal/lib/rawjson.RawJSON
 
   # --- gqlgen ---
   ID:
@@ -595,4 +595,4 @@ models:
   String:
     model:
       - github.com/99designs/gqlgen/graphql.String
-      - github.com/kstackhq/kstack/sidecar/internal/clustersvc.ConditionType
+      - github.com/kstackhq/kstack/sidecar/internal/services/cluster.ConditionType

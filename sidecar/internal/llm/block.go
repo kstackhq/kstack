@@ -334,7 +334,7 @@ func withoutServerCalls(blocks []Block) []Block {
 // WithoutPayloads is blocks with every payload removed, and every native block
 // with it, being nothing but its payload: what a reader is shown, since a
 // payload is the provider's alone and can run to kilobytes. A slice with no
-// payload comes back as it is. chatsvc applies it to what it publishes and
+// payload comes back as it is. chat applies it to what it publishes and
 // serves, never to the history it replays.
 func WithoutPayloads(blocks []Block) []Block {
 	if !slices.ContainsFunc(blocks, func(b Block) bool { return b.Payload != nil }) {

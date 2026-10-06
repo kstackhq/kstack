@@ -26,32 +26,32 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/catalog"
-	"github.com/kstackhq/kstack/sidecar/internal/chatsvc"
 	"github.com/kstackhq/kstack/sidecar/internal/clustercard"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/chat"
+	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
+	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	agenttool "github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/edit"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/kubequery"
-	"github.com/kstackhq/kstack/sidecar/internal/tools/memory"
+	memorytool "github.com/kstackhq/kstack/sidecar/internal/tools/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/read"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/taskstop"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/webfetch"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/write"
 
 	"github.com/kstackhq/kstack/sidecar/graph"
-	"github.com/kstackhq/kstack/sidecar/internal/auth"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
-	"github.com/kstackhq/kstack/sidecar/internal/rawjson"
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/rawjson"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
 
 // --- Cluster ---
@@ -122,7 +122,7 @@ func TestClusterEventsResolver(t *testing.T) {
 	svc := newFakeClusterService(fix)
 	id := fix[0].id
 	now := time.Now().UTC()
-	svc.events[id] = []clustersvc.Event{{
+	svc.events[id] = []cluster.Event{{
 		ID: 1, Category: "connection", Type: beehive.EventWarning,
 		Reason: "ProbeFailed", Message: "boom", Count: 3, FirstAt: now, LastAt: now,
 	}}
@@ -395,13 +395,13 @@ func TestClusterEphemeralFields(t *testing.T) {
 func TestConditionsAndSyncStatusOnWire(t *testing.T) {
 	at := time.Date(2026, 6, 1, 9, 0, 0, 0, time.UTC)
 	fixtures := clusterFixtures()
-	fixtures[0].connConds = []clustersvc.Condition{{
-		Type: string(clustersvc.ConditionConnected), Status: clustersvc.ConditionFalse,
+	fixtures[0].connConds = []cluster.Condition{{
+		Type: string(cluster.ConditionConnected), Status: cluster.ConditionFalse,
 		Reason: "ProbeFailed", Message: "connection refused",
 		Liveness: true, TransitionedAt: at, UpdatedAt: at,
 	}}
-	fixtures[0].cacheConds = []clustersvc.Condition{{
-		Type: string(clustersvc.ConditionSynced), Status: clustersvc.ConditionTrue,
+	fixtures[0].cacheConds = []cluster.Condition{{
+		Type: string(cluster.ConditionSynced), Status: cluster.ConditionTrue,
 		Reason: "Watching", Liveness: true, TransitionedAt: at, UpdatedAt: at,
 	}}
 
@@ -589,7 +589,7 @@ func TestClusterCachesResolver(t *testing.T) {
 // record: `ClusterCache.events` reads the cache's own timeline (what the cache layer
 // records, e.g. SyncStopped), `ClusterCachedKind.events` one synced kind's (where
 // each worker report lands). One table because the wire mapping under test —
-// clustersvc.Event → the generic Event shape, enum included — is identical; only the record it
+// cluster.Event → the generic Event shape, enum included — is identical; only the record it
 // hangs off differs. Reaching either also exercises its root lookup, which is the only
 // way into these records by query.
 func TestCacheEventTimelineResolvers(t *testing.T) {
@@ -599,18 +599,18 @@ func TestCacheEventTimelineResolvers(t *testing.T) {
 		// field is the root lookup; lookupID derives the record's own id from its
 		// cluster's, since the two are deliberately different in the fixture.
 		field    string
-		lookupID func(clustersvc.ClusterID) clustersvc.ObjectID
-		seed     func(*fakeClusterService, clustersvc.ClusterID, clustersvc.Event)
-		event    clustersvc.Event
+		lookupID func(cluster.ClusterID) cluster.ObjectID
+		seed     func(*fakeClusterService, cluster.ClusterID, cluster.Event)
+		event    cluster.Event
 		wantEnum string
 	}{{
 		name:     "cache timeline",
 		field:    "clusterCache",
-		lookupID: func(id clustersvc.ClusterID) clustersvc.ObjectID { return clustersvc.ObjectID(fixtureCacheID(id)) },
-		seed: func(f *fakeClusterService, id clustersvc.ClusterID, ev clustersvc.Event) {
-			f.cacheEvents = map[clustersvc.ClusterCacheID][]clustersvc.Event{fixtureCacheID(id): {ev}}
+		lookupID: func(id cluster.ClusterID) cluster.ObjectID { return cluster.ObjectID(fixtureCacheID(id)) },
+		seed: func(f *fakeClusterService, id cluster.ClusterID, ev cluster.Event) {
+			f.cacheEvents = map[cluster.ClusterCacheID][]cluster.Event{fixtureCacheID(id): {ev}}
 		},
-		event: clustersvc.Event{
+		event: cluster.Event{
 			Category: "sync", Type: beehive.EventWarning, Reason: "SyncFailed",
 			Message: "boom", Count: 2, FirstAt: now, LastAt: now,
 		},
@@ -618,11 +618,11 @@ func TestCacheEventTimelineResolvers(t *testing.T) {
 	}, {
 		name:     "per-kind sync timeline",
 		field:    "clusterCachedKind",
-		lookupID: func(id clustersvc.ClusterID) clustersvc.ObjectID { return clustersvc.ObjectID(fixtureKindID(id)) },
-		seed: func(f *fakeClusterService, id clustersvc.ClusterID, ev clustersvc.Event) {
-			f.syncEvents = map[clustersvc.ClusterCachedKindID][]clustersvc.Event{fixtureKindID(id): {ev}}
+		lookupID: func(id cluster.ClusterID) cluster.ObjectID { return cluster.ObjectID(fixtureKindID(id)) },
+		seed: func(f *fakeClusterService, id cluster.ClusterID, ev cluster.Event) {
+			f.syncEvents = map[cluster.ClusterCachedKindID][]cluster.Event{fixtureKindID(id): {ev}}
 		},
-		event: clustersvc.Event{
+		event: cluster.Event{
 			Category: "sync", Type: beehive.EventNormal, Reason: "SyncComplete",
 			Message: "cached 12 events", Count: 2, FirstAt: now, LastAt: now,
 		},
@@ -767,7 +767,7 @@ func TestClusterCachedKindsWatchIsCacheScoped(t *testing.T) {
 			// Detect the snapshot boundary by type, never by a missing entity: an
 			// errored non-null field nulls its parent, so a null entity also rides
 			// ordinary frames.
-			if frame.Data.Watch.Type == string(clustersvc.DeltaFrameBookmark) {
+			if frame.Data.Watch.Type == string(cluster.DeltaFrameBookmark) {
 				continue
 			}
 			seen++
@@ -822,7 +822,7 @@ func TestDeltaWatchClosesSnapshotWithBookmark(t *testing.T) {
 				t.Fatalf("decode cache frame %s: %v", ev.data, err)
 			}
 			switch frame.Data.Watch.Type {
-			case string(clustersvc.DeltaFrameBookmark):
+			case string(cluster.DeltaFrameBookmark):
 				bookmarks++
 				if frame.Data.Watch.Cache != nil {
 					t.Errorf("the bookmark carries no entity, got: %v", frame.Data.Watch.Cache)
@@ -830,7 +830,7 @@ func TestDeltaWatchClosesSnapshotWithBookmark(t *testing.T) {
 				if bookmarks == 1 && added != len(clusterFixtures()) {
 					t.Errorf("bookmark closed the snapshot after %d of %d records", added, len(clusterFixtures()))
 				}
-			case string(clustersvc.DeltaFrameAdded):
+			case string(cluster.DeltaFrameAdded):
 				if bookmarks > 0 {
 					t.Error("an Added frame arrived after the snapshot closed")
 				}
@@ -896,7 +896,7 @@ func TestClusterCachedDataKindsResolver(t *testing.T) {
 	fix := clusterFixtures()
 	svc := newFakeClusterService(fix)
 	id := fix[0].id
-	svc.kinds = map[clustersvc.ClusterID][]clustersvc.ClusterCachedDataKind{
+	svc.kinds = map[cluster.ClusterID][]cluster.ClusterCachedDataKind{
 		id: {
 			{APIVersion: "apps/v1", Kind: "Deployment", Resource: "deployments", Scope: "Namespaced", IsCRD: false},
 			{APIVersion: "example.com/v1", Kind: "Widget", Resource: "widgets", Scope: "Namespaced", IsCRD: true},
@@ -1000,7 +1000,7 @@ func TestClusterCachedDataObjectsWatchServesNativeBody(t *testing.T) {
 	fix := clusterFixtures()
 	svc := newFakeClusterService(fix)
 	id := fix[0].id
-	svc.dataObjects = map[clustersvc.ClusterID][]clustersvc.ClusterCachedDataObject{
+	svc.dataObjects = map[cluster.ClusterID][]cluster.ClusterCachedDataObject{
 		id: {{
 			UID: "d1", APIVersion: "apps/v1", Kind: "Deployment", Namespace: "default", Name: "web",
 			RawJSON: rawjson.RawJSON(`{"kind":"Deployment","spec":{"replicas":3}}`),
@@ -1069,7 +1069,7 @@ func TestClusterCachedDataKindsWatchEmitsSnapshotAndStaysOpen(t *testing.T) {
 	fix := clusterFixtures()
 	svc := newFakeClusterService(fix)
 	id := fix[0].id
-	svc.kinds = map[clustersvc.ClusterID][]clustersvc.ClusterCachedDataKind{
+	svc.kinds = map[cluster.ClusterID][]cluster.ClusterCachedDataKind{
 		id: {
 			{APIVersion: "apps/v1", Kind: "Deployment", Resource: "deployments", Scope: "Namespaced", IsCRD: false, Count: 3},
 			{APIVersion: "example.com/v1", Kind: "Widget", Resource: "widgets", Scope: "Namespaced", IsCRD: true, Count: 0},
@@ -1348,10 +1348,10 @@ func TestClusterCacheSyncStatusWatchServesEveryKind(t *testing.T) {
 // The descriptors reach the wire off the kinds watch, typed — not as the JSON the store holds.
 func TestPrinterColumnsReachTheWire(t *testing.T) {
 	svc := newFakeClusterService(clusterFixtures())
-	svc.kinds = map[clustersvc.ClusterID][]clustersvc.ClusterCachedDataKind{
+	svc.kinds = map[cluster.ClusterID][]cluster.ClusterCachedDataKind{
 		"1": {{
 			APIVersion: "example.com/v1", Kind: "Widget", Resource: "widgets", Scope: "Namespaced", IsCRD: true,
-			PrinterColumns: []clustersvc.PrinterColumn{
+			PrinterColumns: []cluster.PrinterColumn{
 				{Name: "Replicas", Type: "integer", JSONPath: ".spec.replicas", Priority: 1},
 			},
 		}},
@@ -1376,7 +1376,7 @@ func TestPrinterColumnsReachTheWire(t *testing.T) {
 func TestAnAbsentTimestampSerializesAsNull(t *testing.T) {
 	seen := time.Date(2026, 8, 30, 12, 0, 0, 0, time.UTC)
 	svc := newFakeClusterService(clusterFixtures())
-	svc.dataEvents = map[clustersvc.ClusterID][]clustersvc.ClusterCachedDataEvent{
+	svc.dataEvents = map[cluster.ClusterID][]cluster.ClusterCachedDataEvent{
 		"1": {{UID: "e-1", LastSeen: seen}},
 	}
 	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{})}))
@@ -1402,9 +1402,9 @@ func TestClusterRefusalsCarryTheirCode(t *testing.T) {
 		err  error
 		code string
 	}{
-		{clustersvc.ErrNotFound, "KSTACK_RECORD_NOT_FOUND"},
-		{clustersvc.ErrDeclaredBySource, "KSTACK_CONFLICT"},
-		{clustersvc.ErrNotConnectable, "KSTACK_CONFLICT"},
+		{cluster.ErrNotFound, "KSTACK_RECORD_NOT_FOUND"},
+		{cluster.ErrDeclaredBySource, "KSTACK_CONFLICT"},
+		{cluster.ErrNotConnectable, "KSTACK_CONFLICT"},
 	} {
 		t.Run(tc.code, func(t *testing.T) {
 			srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
@@ -1439,20 +1439,20 @@ func TestResolverErrorsReachTheCaller(t *testing.T) {
 		Auth:       errAuth{err: wantErr},
 	}
 	ctx := context.Background()
-	cluster := &clustersvc.Cluster{ID: "1"}
-	cache := &clustersvc.ClusterCache{
-		RecordMeta: clustersvc.RecordMeta{ID: 101},
+	cl := &cluster.Cluster{ID: "1"}
+	cache := &cluster.ClusterCache{
+		RecordMeta: cluster.RecordMeta{ID: 101},
 		ClusterID:  "1",
 	}
-	kind := &clustersvc.ClusterCachedKind{RecordMeta: clustersvc.RecordMeta{ID: 301}}
-	id := clustersvc.ClusterID("1")
-	objID := clustersvc.ObjectID(1)
+	kind := &cluster.ClusterCachedKind{RecordMeta: cluster.RecordMeta{ID: 301}}
+	id := cluster.ClusterID("1")
+	objID := cluster.ObjectID(1)
 
 	// Each case calls one resolver and reports only its error; the values are
 	// asserted by the tests above, on a service that works.
 	calls := map[string]func() error{
-		"Cluster.caches":                     func() error { _, err := r.Cluster().Caches(ctx, cluster); return err },
-		"Cluster.events":                     func() error { _, err := r.Cluster().Events(ctx, cluster, nil, nil); return err },
+		"Cluster.caches":                     func() error { _, err := r.Cluster().Caches(ctx, cl); return err },
+		"Cluster.events":                     func() error { _, err := r.Cluster().Events(ctx, cl, nil, nil); return err },
 		"ClusterCache.kinds":                 func() error { _, err := r.ClusterCache().Kinds(ctx, cache); return err },
 		"ClusterCache.cachedKinds":           func() error { _, err := r.ClusterCache().CachedKinds(ctx, cache); return err },
 		"ClusterCache.events":                func() error { _, err := r.ClusterCache().Events(ctx, cache, nil, nil); return err },
@@ -1522,7 +1522,7 @@ func TestAuthLoginStartSurfacesSetupErrorToTheResolver(t *testing.T) {
 // consumer can't read "no permissions" out of "not built yet".
 func TestClusterPrincipalPermissionsIsNotImplemented(t *testing.T) {
 	r := &graph.Resolver{}
-	perms, err := r.ClusterPrincipal().Permissions(context.Background(), &clustersvc.ClusterPrincipal{}, "default")
+	perms, err := r.ClusterPrincipal().Permissions(context.Background(), &cluster.ClusterPrincipal{}, "default")
 	if err == nil {
 		t.Fatalf("permissions resolved to %+v, want an error", perms)
 	}
@@ -1543,14 +1543,14 @@ func TestGaugeAndTimelineSubscriptionsCarryTheirFirstValue(t *testing.T) {
 		t.Fatalf("eventsWatch: %v", err)
 	}
 	// The fixture logs no events, so the Bookmark alone closes the snapshot.
-	if frame := testutil.Recv(t, events, "eventsWatch frame"); frame.Type != clustersvc.EventFrameBookmark {
+	if frame := testutil.Recv(t, events, "eventsWatch frame"); frame.Type != cluster.EventFrameBookmark {
 		t.Errorf("first frame = %v, want Bookmark", frame.Type)
 	}
 	clusterEvents, err := r.Subscription().ClusterEventsWatch(ctx, "1", nil)
 	if err != nil {
 		t.Fatalf("clusterEventsWatch: %v", err)
 	}
-	if frame := testutil.Recv(t, clusterEvents, "clusterEventsWatch frame"); frame.Type != clustersvc.EventFrameBookmark {
+	if frame := testutil.Recv(t, clusterEvents, "clusterEventsWatch frame"); frame.Type != cluster.EventFrameBookmark {
 		t.Errorf("first frame = %v, want Bookmark", frame.Type)
 	}
 
@@ -1629,8 +1629,8 @@ func newChatServerOn(t *testing.T, status sandbox.Status, security *securityconf
 	llmSvc := llm.New(cat.Providers()...)
 	// The search is offered, since a test stages a turn that searched; the rest
 	// is read alone, so no call runs while stored calls still show.
-	box := tools.NewBox([]tools.Tool{agenttool.New(), anthropicwebsearch.New(time.Now)}, bash.Reader{}, &read.Tool{}, &write.Tool{}, &edit.Tool{}, &webfetch.Tool{}, taskstop.New(), memory.New(nil), kubequery.New(nil))
-	chatSvc, err := chatsvc.New(db, filepath.Join(t.TempDir(), "chats"), filepath.Join(t.TempDir(), "monitor"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status, security)
+	box := tools.NewBox([]tools.Tool{agenttool.New(), anthropicwebsearch.New(time.Now)}, bash.Reader{}, &read.Tool{}, &write.Tool{}, &edit.Tool{}, &webfetch.Tool{}, taskstop.New(), memorytool.New(nil), kubequery.New(nil))
+	chatSvc, err := chat.New(db, filepath.Join(t.TempDir(), "chats"), filepath.Join(t.TempDir(), "monitor"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status, security)
 	require.NoError(t, err)
 	stop, err := chatSvc.Start(t.Context())
 	require.NoError(t, err)
@@ -1958,15 +1958,15 @@ func TestChatRefusalsCarryTheirCode(t *testing.T) {
 		err  error
 		code string
 	}{
-		{chatsvc.ErrBadRequest, "KSTACK_VALIDATION_ERROR"},
-		{chatsvc.ErrChatGone, "KSTACK_RECORD_NOT_FOUND"},
-		{chatsvc.ErrClusterGone, "KSTACK_RECORD_NOT_FOUND"},
-		{chatsvc.ErrTurnInFlight, "KSTACK_CONFLICT"},
-		{chatsvc.ErrStopping, "KSTACK_SERVICE_UNAVAILABLE"},
-		{chatsvc.ErrChatContextFull, "KSTACK_CHAT_CONTEXT_FULL"},
-		{chatsvc.ErrChatSandboxChanged, "KSTACK_CHAT_SANDBOX_CHANGED"},
-		{chatsvc.ErrGrantGone, "KSTACK_RECORD_NOT_FOUND"},
-		{chatsvc.ErrChatNetworkChanged, "KSTACK_CHAT_NETWORK_CHANGED"},
+		{chat.ErrBadRequest, "KSTACK_VALIDATION_ERROR"},
+		{chat.ErrChatGone, "KSTACK_RECORD_NOT_FOUND"},
+		{chat.ErrClusterGone, "KSTACK_RECORD_NOT_FOUND"},
+		{chat.ErrTurnInFlight, "KSTACK_CONFLICT"},
+		{chat.ErrStopping, "KSTACK_SERVICE_UNAVAILABLE"},
+		{chat.ErrChatContextFull, "KSTACK_CHAT_CONTEXT_FULL"},
+		{chat.ErrChatSandboxChanged, "KSTACK_CHAT_SANDBOX_CHANGED"},
+		{chat.ErrGrantGone, "KSTACK_RECORD_NOT_FOUND"},
+		{chat.ErrChatNetworkChanged, "KSTACK_CHAT_NETWORK_CHANGED"},
 	} {
 		t.Run(tc.err.Error(), func(t *testing.T) {
 			srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ChatSvc: refusingChat{err: tc.err}}))
@@ -1988,7 +1988,7 @@ func TestChatRefusalsCarryTheirCode(t *testing.T) {
 
 // The chat's other mutations map their refusals through the same table.
 func TestChatMutationRefusalsCarryTheirCode(t *testing.T) {
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ChatSvc: refusingChat{err: chatsvc.ErrChatGone}}))
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ChatSvc: refusingChat{err: chat.ErrChatGone}}))
 	defer srv.Close()
 	for _, mutation := range []string{
 		`chatCancel(chatID: \"` + appdb.NewID() + `\")`,
@@ -2093,9 +2093,9 @@ func TestApprovalDecideReachesTheService(t *testing.T) {
 
 // heldChat answers every decision as the service does while the settings hold
 // rules Kstack cannot read.
-type heldChat struct{ chatsvc.Service }
+type heldChat struct{ chat.Service }
 
-func (heldChat) Approve(context.Context, chatsvc.ApprovalID, chatsvc.ApprovalDecision) (bool, error) {
+func (heldChat) Approve(context.Context, chat.ApprovalID, chat.ApprovalDecision) (bool, error) {
 	return false, fmt.Errorf("write the rule: %w", securityconfig.ErrHeld)
 }
 
@@ -2262,7 +2262,7 @@ func TestEveryActionKindIsServed(t *testing.T) {
 		llm.StagedCall(edit.Name, `{"file_path":"/a","old_string":"a","new_string":"b"}`),
 		llm.StagedCall(webfetch.Name, `{"url":"https://a.test/"}`),
 		llm.StagedCall(taskstop.Name, `{"task_id":"t"}`),
-		llm.StagedCall(memory.Name, `{"op":"forget","name":"a"}`),
+		llm.StagedCall(memorytool.Name, `{"op":"forget","name":"a"}`),
 		llm.StagedCall(agenttool.Name, `{"description":"d","prompt":"p"}`),
 		llm.StagedCall(kubequery.Name, `{"sql":"SELECT 1"}`),
 	)
@@ -2446,7 +2446,7 @@ func newMemoryServerOver(t *testing.T) (*httptest.Server, *appdb.DB, func(contex
 		_, err = db.Write.Exec(`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES (?, 'kubeconfig', ?, 0, 0)`, id, "ctx-"+id)
 		require.NoError(t, err)
 	}
-	memorySvc, err := memorysvc.New(db, noUIDs{})
+	memorySvc, err := memory.New(db, noUIDs{})
 	require.NoError(t, err)
 	stop, err := memorySvc.Start(t.Context())
 	require.NoError(t, err)
@@ -2518,7 +2518,7 @@ func TestAMemoryRefusalCarriesItsCode(t *testing.T) {
 		})
 	}
 
-	full := strings.Repeat("b", memorysvc.BodyMax)
+	full := strings.Repeat("b", memory.BodyMax)
 	for i := range 20 {
 		body, _ := json.Marshal(map[string]string{"query": memorySave(`clusterID: "1", name: "n` + strconv.Itoa(i) + `", body: "` + full + `"`)})
 		raw := string(postGQL(t, srv.URL, string(body)))

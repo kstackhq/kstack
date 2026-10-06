@@ -24,7 +24,7 @@ burst, one `Bookmark` closing it, then per-object `Added`/`Modified`/`Deleted`
 (`clustersWatch`, `clusterCachesWatch`, and the
 cache-scoped `clusterCachedKindsWatch`; the sync verdict rides `clusterCacheHealthWatch`,
 which is a gauge rather than a delta watch and carries no `Bookmark`). The sidecar
-folds beehive's per-kind `WatchList` into this shape behind `clustersvc`'s family
+folds beehive's per-kind `WatchList` into this shape behind `services/cluster`'s family
 `Watch`/`WatchList` methods; subscription resolvers emit the current snapshot first, then
 deltas (`mapStream` in `graph/util.go` for hub-backed sources).
 

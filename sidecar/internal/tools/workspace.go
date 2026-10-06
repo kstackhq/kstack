@@ -18,7 +18,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/kstackhq/kstack/sidecar/internal/rootdir"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/rootdir"
 )
 
 // workspaceName is the workspace's directory under the chat's, and

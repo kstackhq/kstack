@@ -25,8 +25,8 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
-	"github.com/kstackhq/kstack/sidecar/internal/version"
 )
 
 // accept lets a server that can send markdown send it.

@@ -10,8 +10,8 @@ import (
 
 	grpcserver "github.com/kstackhq/kstack/sidecar/grpc"
 	"github.com/kstackhq/kstack/sidecar/grpc/pokepb"
-	"github.com/kstackhq/kstack/sidecar/internal/poke"
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 
 // A PokeService.Poke RPC must broadcast a SourceHost resync to every in-process

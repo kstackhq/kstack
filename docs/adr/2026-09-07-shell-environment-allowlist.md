@@ -66,7 +66,7 @@ produce — which is also why a rebased entry keeps every component it arrived w
 The list is a maintenance obligation with a security character. A request for a variable we do not
 carry is a review, with its reason recorded beside the row, not a configuration change.
 
-Everything imported is process-wide, so it reaches every child — `internal/auth`'s browser opener
+Everything imported is process-wide, so it reaches every child — `internal/services/auth`'s browser opener
 resolves `open` against the same PATH. That is what makes the deny-by-default posture load-bearing
 rather than tidy.
 

@@ -25,7 +25,7 @@ beehive spec woke a controller pass, for a rename or a monitoring toggle no pass
 cloud's), source and source key, display name, three toggles, two stamps and the deletion
 mark. **Beehive holds one runtime object per row**, named by the row's id, whose spec is the
 four fields the cluster and cache passes act on (source, source key, enabled, sync enabled)
-and nothing else. The mirror (`clustersvc/mirror.go`) is the only writer of that spec. A
+and nothing else. The mirror (`services/cluster/mirror.go`) is the only writer of that spec. A
 read projects the row plus the object's status and conditions; the list watch rereads both
 on either source's signal and diffs with `deltafold`. `ClusterID` is text on the wire, its
 own scalar; `ObjectID` still names a cache or a per-kind record.

@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -33,17 +33,17 @@ var errRead = errors.New("boom")
 // to read, the active cache's health, and a statement's answer. Every other read
 // fails, so a query that reached for the card's facts would fail with it.
 type fakeService struct {
-	clustersvc.Service
+	cluster.Service
 	// active is what ReadActive hands read, attempts times (a retry is two); readErr,
 	// when set, is ReadActive's answer instead.
-	active   clustersvc.ActiveCluster
+	active   cluster.ActiveCluster
 	attempts int
 	readErr  error
 	// health answers the health read, and healthGone finds no cache.
-	health     clustersvc.ClusterCacheHealth
+	health     cluster.ClusterCacheHealth
 	healthGone bool
 	// query answers a statement, queryErr fails it, and queryGone finds no file.
-	query     clustersvc.ClusterCachedDataQueryResult
+	query     cluster.ClusterCachedDataQueryResult
 	queryErr  error
 	queryGone bool
 	// queried is every statement run, with the cache and caps it was given.
@@ -52,31 +52,31 @@ type fakeService struct {
 
 // queried is one statement a fake ran.
 type queried struct {
-	cacheID           clustersvc.ClusterCacheID
+	cacheID           cluster.ClusterCacheID
 	sql               string
 	maxRows, maxBytes int
 }
 
 type (
 	fakeClusters struct {
-		clustersvc.Clusters
+		cluster.Clusters
 		*fakeService
 	}
 	fakeCaches struct {
-		clustersvc.Caches
+		cluster.Caches
 		*fakeService
 	}
 	fakeCachedData struct {
-		clustersvc.CachedData
+		cluster.CachedData
 		*fakeService
 	}
 )
 
-func (f *fakeService) Clusters() clustersvc.Clusters     { return fakeClusters{fakeService: f} }
-func (f *fakeService) Caches() clustersvc.Caches         { return fakeCaches{fakeService: f} }
-func (f *fakeService) CachedData() clustersvc.CachedData { return fakeCachedData{fakeService: f} }
+func (f *fakeService) Clusters() cluster.Clusters     { return fakeClusters{fakeService: f} }
+func (f *fakeService) Caches() cluster.Caches         { return fakeCaches{fakeService: f} }
+func (f *fakeService) CachedData() cluster.CachedData { return fakeCachedData{fakeService: f} }
 
-func (f fakeClusters) ReadActive(ctx context.Context, _ clustersvc.ClusterID, read func(context.Context, clustersvc.ActiveCluster) error) error {
+func (f fakeClusters) ReadActive(ctx context.Context, _ cluster.ClusterID, read func(context.Context, cluster.ActiveCluster) error) error {
 	if f.readErr != nil {
 		return f.readErr
 	}
@@ -88,26 +88,26 @@ func (f fakeClusters) ReadActive(ctx context.Context, _ clustersvc.ClusterID, re
 	return nil
 }
 
-func (f fakeCaches) Health(context.Context, clustersvc.ClusterID, clustersvc.ClusterCacheID) (clustersvc.ClusterCacheHealth, bool, error) {
+func (f fakeCaches) Health(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheHealth, bool, error) {
 	return f.health, !f.healthGone, nil
 }
 
-func (f fakeCaches) SyncStatus(context.Context, clustersvc.ClusterID, clustersvc.ClusterCacheID) (clustersvc.ClusterCacheSyncStatus, bool, error) {
-	return clustersvc.ClusterCacheSyncStatus{}, false, errRead
+func (f fakeCaches) SyncStatus(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheSyncStatus, bool, error) {
+	return cluster.ClusterCacheSyncStatus{}, false, errRead
 }
 
-func (f fakeCachedData) ListKinds(context.Context, clustersvc.ClusterID, clustersvc.ClusterCacheID) ([]clustersvc.ClusterCachedDataKind, error) {
+func (f fakeCachedData) ListKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID) ([]cluster.ClusterCachedDataKind, error) {
 	return nil, errRead
 }
 
-func (f fakeCachedData) ListObjects(context.Context, clustersvc.ClusterID, clustersvc.ClusterCacheID, string, string) ([]clustersvc.ClusterCachedDataObject, bool, error) {
+func (f fakeCachedData) ListObjects(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string, string) ([]cluster.ClusterCachedDataObject, bool, error) {
 	return nil, false, errRead
 }
 
-func (f fakeCachedData) Query(_ context.Context, _ clustersvc.ClusterID, cacheID clustersvc.ClusterCacheID, sql string, maxRows, maxBytes int) (clustersvc.ClusterCachedDataQueryResult, bool, error) {
+func (f fakeCachedData) Query(_ context.Context, _ cluster.ClusterID, cacheID cluster.ClusterCacheID, sql string, maxRows, maxBytes int) (cluster.ClusterCachedDataQueryResult, bool, error) {
 	f.queried = append(f.queried, queried{cacheID, sql, maxRows, maxBytes})
 	if f.queryErr != nil {
-		return clustersvc.ClusterCachedDataQueryResult{}, false, f.queryErr
+		return cluster.ClusterCachedDataQueryResult{}, false, f.queryErr
 	}
 	return f.query, !f.queryGone, nil
 }
@@ -117,14 +117,14 @@ func strp(s string) *string { return &s }
 // healthy is a cluster named prod whose active cache, 11, is watching.
 func healthy() *fakeService {
 	return &fakeService{
-		active: clustersvc.ActiveCluster{
-			Cluster: &clustersvc.Cluster{ID: "7", Spec: clustersvc.ClusterSpec{
+		active: cluster.ActiveCluster{
+			Cluster: &cluster.Cluster{ID: "7", Spec: cluster.ClusterSpec{
 				Name:   strp("prod"),
-				Source: clustersvc.ClusterSpecSource{Kubeconfig: &clustersvc.ClusterSpecSourceKubeconfig{Context: "prod-admin"}},
+				Source: cluster.ClusterSpecSource{Kubeconfig: &cluster.ClusterSpecSourceKubeconfig{Context: "prod-admin"}},
 			}},
-			Cache: &clustersvc.ClusterCache{RecordMeta: clustersvc.RecordMeta{ID: 11}},
+			Cache: &cluster.ClusterCache{RecordMeta: cluster.RecordMeta{ID: 11}},
 		},
-		health: clustersvc.ClusterCacheHealth{Reason: "Watching", TotalKinds: 2},
+		health: cluster.ClusterCacheHealth{Reason: "Watching", TotalKinds: 2},
 	}
 }
 
@@ -137,14 +137,14 @@ func dataQuery(f *fakeService, sql string) (answer, error) {
 // active cache, and a retry of the reading runs it again.
 func TestAQueryReadsInsideOneReading(t *testing.T) {
 	f := healthy()
-	f.query = clustersvc.ClusterCachedDataQueryResult{Columns: []string{"name"}, Rows: [][]any{{"api-0"}}, More: true}
+	f.query = cluster.ClusterCachedDataQueryResult{Columns: []string{"name"}, Rows: [][]any{{"api-0"}}, More: true}
 
 	got, err := dataQuery(f, `SELECT name FROM objects`)
 
 	require.NoError(t, err)
 	assert.Equal(t, answer{
 		cluster: "prod", freshness: []byte(`{"status":"watching"}`),
-		rows: clustersvc.ClusterCachedDataQueryResult{Columns: []string{"name"}, Rows: [][]any{{"api-0"}}, More: true},
+		rows: cluster.ClusterCachedDataQueryResult{Columns: []string{"name"}, Rows: [][]any{{"api-0"}}, More: true},
 	}, got)
 	assert.Equal(t, []queried{{11, `SELECT name FROM objects`, 5, tools.FileLimit}}, f.queried)
 
@@ -158,7 +158,7 @@ func TestAQueryReadsInsideOneReading(t *testing.T) {
 // A query reads the cache's health and nothing else of what the card reads.
 func TestAQueryReadsTheHealthNotTheCardsFacts(t *testing.T) {
 	f := healthy()
-	f.query = clustersvc.ClusterCachedDataQueryResult{Columns: []string{"n"}, Rows: [][]any{{1}}}
+	f.query = cluster.ClusterCachedDataQueryResult{Columns: []string{"n"}, Rows: [][]any{{1}}}
 
 	got, err := dataQuery(f, `SELECT 1 AS n`)
 
@@ -194,8 +194,8 @@ func TestNoCacheWithholdsAndRunsNothing(t *testing.T) {
 func TestLastKnownCarriesSince(t *testing.T) {
 	f := healthy()
 	live := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
-	f.health = clustersvc.ClusterCacheHealth{Reason: "Disconnected", TotalKinds: 2, LastLiveAt: &live,
-		UnhealthyKindRefs: []clustersvc.SyncedKindRef{{APIVersion: "v1", Resource: "namespaces"}, {APIVersion: "v1", Resource: "nodes"}}}
+	f.health = cluster.ClusterCacheHealth{Reason: "Disconnected", TotalKinds: 2, LastLiveAt: &live,
+		UnhealthyKindRefs: []cluster.SyncedKindRef{{APIVersion: "v1", Resource: "namespaces"}, {APIVersion: "v1", Resource: "nodes"}}}
 
 	got, err := dataQuery(f, `SELECT 1`)
 
@@ -207,8 +207,8 @@ func TestLastKnownCarriesSince(t *testing.T) {
 
 func TestAGoneOrMovedClusterHasNoCache(t *testing.T) {
 	for name, f := range map[string]*fakeService{
-		"record gone":     {readErr: clustersvc.ErrNotFound},
-		"identity moved":  {readErr: clustersvc.ErrIdentityMoved},
+		"record gone":     {readErr: cluster.ErrNotFound},
+		"identity moved":  {readErr: cluster.ErrIdentityMoved},
 		"health gone":     func() *fakeService { f := healthy(); f.healthGone = true; return f }(),
 		"cache file gone": func() *fakeService { f := healthy(); f.queryGone = true; return f }(),
 	} {
@@ -219,11 +219,11 @@ func TestAGoneOrMovedClusterHasNoCache(t *testing.T) {
 
 func TestAStatementErrorIsSQLitesRefusal(t *testing.T) {
 	f := healthy()
-	f.queryErr = &clustersvc.QueryError{Message: "no such column: nope"}
+	f.queryErr = &cluster.QueryError{Message: "no such column: nope"}
 
 	_, err := dataQuery(f, `SELECT nope FROM objects`)
 
-	var qe *clustersvc.QueryError
+	var qe *cluster.QueryError
 	require.ErrorAs(t, err, &qe)
 	assert.Equal(t, "no such column: nope", qe.Message)
 }

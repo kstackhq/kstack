@@ -26,7 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
 
 // fullFacts is a healthy cluster with a little of everything.
@@ -38,7 +38,7 @@ func fullFacts() Facts {
 		Connection: "Connected",
 		TLS:        "verified",
 		Cache: &CacheFacts{
-			Health:    clustersvc.ClusterCacheHealth{Reason: "Watching", TotalKinds: 4, PausedKinds: 1},
+			Health:    cluster.ClusterCacheHealth{Reason: "Watching", TotalKinds: 4, PausedKinds: 1},
 			Discovery: "Discovered",
 			Kinds: []Kind{
 				{APIVersion: "v1", Kind: "Pod", Resource: "pods", Reason: "Watching"},
@@ -106,18 +106,18 @@ func inventoryPart(t *testing.T, card, key string) map[string]any {
 }
 
 // refs is each apiVersion/resource as the health reading names a kind behind.
-func refs(names ...string) []clustersvc.SyncedKindRef {
-	var out []clustersvc.SyncedKindRef
+func refs(names ...string) []cluster.SyncedKindRef {
+	var out []cluster.SyncedKindRef
 	for _, name := range names {
 		i := strings.LastIndex(name, "/")
-		out = append(out, clustersvc.SyncedKindRef{APIVersion: name[:i], Resource: name[i+1:]})
+		out = append(out, cluster.SyncedKindRef{APIVersion: name[:i], Resource: name[i+1:]})
 	}
 	return out
 }
 
 // rollup is a health reading that says reason alone.
-func rollup(reason string) clustersvc.ClusterCacheHealth {
-	return clustersvc.ClusterCacheHealth{Reason: reason}
+func rollup(reason string) cluster.ClusterCacheHealth {
+	return cluster.ClusterCacheHealth{Reason: reason}
 }
 
 // setReason sets one kind's sync verdict in f.
@@ -163,7 +163,7 @@ func TestRenderFreshnessFromTheHealthVerdict(t *testing.T) {
 func TestRenderFreshnessTellsLastKnownFromPartialByCount(t *testing.T) {
 	behind := func(n int) Facts {
 		f := fullFacts()
-		f.Cache.Health = clustersvc.ClusterCacheHealth{Reason: "SyncFailed", TotalKinds: 4, PausedKinds: 1}
+		f.Cache.Health = cluster.ClusterCacheHealth{Reason: "SyncFailed", TotalKinds: 4, PausedKinds: 1}
 		for i := range n {
 			f.Cache.Health.UnhealthyKindRefs = append(f.Cache.Health.UnhealthyKindRefs, refs(fmt.Sprintf("v1/kind%d", i))...)
 		}
@@ -179,7 +179,7 @@ func TestRenderFreshnessTellsLastKnownFromPartialByCount(t *testing.T) {
 // kind is behind — the one state in which no kind can move the stamp.
 func TestRenderSinceIsTheLastLiveProofOfALastKnownCache(t *testing.T) {
 	f := fullFacts()
-	f.Cache.Health = clustersvc.ClusterCacheHealth{Reason: "NoConnection", TotalKinds: 2, UnhealthyKindRefs: refs("v1/pods", "v1/nodes")}
+	f.Cache.Health = cluster.ClusterCacheHealth{Reason: "NoConnection", TotalKinds: 2, UnhealthyKindRefs: refs("v1/pods", "v1/nodes")}
 	at := time.Date(2026, 9, 14, 8, 30, 15, 500, time.FixedZone("x", 3600))
 	f.Cache.Health.LastLiveAt = &at
 	assert.Equal(t, map[string]any{"status": "last-known", "reason": "NoConnection", "since": "2026-09-14T07:30:15Z"}, part(t, Render(f), "freshness"))
@@ -381,7 +381,7 @@ func adversarial() Facts {
 			f.Cache.Kinds = append(f.Cache.Kinds, Kind{
 				APIVersion: group + "/v1", Kind: fmt.Sprintf("Kind%03d", k), Resource: resource, Reason: "SyncFailed",
 			})
-			f.Cache.Health.UnhealthyKindRefs = append(f.Cache.Health.UnhealthyKindRefs, clustersvc.SyncedKindRef{APIVersion: group + "/v1", Resource: resource})
+			f.Cache.Health.UnhealthyKindRefs = append(f.Cache.Health.UnhealthyKindRefs, cluster.SyncedKindRef{APIVersion: group + "/v1", Resource: resource})
 		}
 	}
 	f.Cache.Health.TotalKinds, f.Cache.Health.PausedKinds = len(f.Cache.Kinds), 0
@@ -488,7 +488,7 @@ func TestRenderKeepsEveryValueInsideTheShape(t *testing.T) {
 	f.Name, f.Context, f.Version, f.Connection, f.TLS = forged, forged, forged, forged, forged
 	f.Cache.Health.Reason = forged
 	f.Cache.Namespaces = []string{forged}
-	f.Cache.Health.UnhealthyKindRefs = []clustersvc.SyncedKindRef{{APIVersion: forged, Resource: forged}}
+	f.Cache.Health.UnhealthyKindRefs = []cluster.SyncedKindRef{{APIVersion: forged, Resource: forged}}
 	f.Cache.Kinds = append(f.Cache.Kinds, Kind{APIVersion: forged + "/v1", Kind: forged, Resource: forged, Reason: "Watching"})
 
 	got := Render(f)
@@ -615,9 +615,9 @@ func TestSyncingAndUnknownWithhold(t *testing.T) {
 		"Watching":   false,
 		"Paused":     false,
 	} {
-		assert.Equal(t, withholds, Freshness(&clustersvc.ClusterCacheHealth{Reason: health}).Withholds(), health)
+		assert.Equal(t, withholds, Freshness(&cluster.ClusterCacheHealth{Reason: health}).Withholds(), health)
 	}
-	lastKnown := Freshness(&clustersvc.ClusterCacheHealth{Reason: "Disconnected", TotalKinds: 1, UnhealthyKindRefs: refs("v1/pods")})
+	lastKnown := Freshness(&cluster.ClusterCacheHealth{Reason: "Disconnected", TotalKinds: 1, UnhealthyKindRefs: refs("v1/pods")})
 	assert.Equal(t, StatusLastKnown, lastKnown.Status)
 	assert.False(t, lastKnown.Withholds())
 }
@@ -626,25 +626,25 @@ func TestSyncingAndUnknownWithhold(t *testing.T) {
 // reads Paused with no counts, and Paused answers before any count is read.
 func TestTheVerdictIsTheHealthReadings(t *testing.T) {
 	live := time.Date(2026, 9, 27, 10, 0, 0, 0, time.UTC)
-	pods := clustersvc.SyncedKindRef{APIVersion: "v1", Resource: "pods"}
-	nodes := clustersvc.SyncedKindRef{APIVersion: "v1", Resource: "nodes"}
+	pods := cluster.SyncedKindRef{APIVersion: "v1", Resource: "pods"}
+	nodes := cluster.SyncedKindRef{APIVersion: "v1", Resource: "nodes"}
 	tests := map[string]struct {
-		health clustersvc.ClusterCacheHealth
+		health cluster.ClusterCacheHealth
 		want   FreshnessSection
 	}{
-		"no verdict yet":    {clustersvc.ClusterCacheHealth{}, FreshnessSection{Status: StatusSyncing}},
-		"connecting":        {clustersvc.ClusterCacheHealth{Reason: "Connecting"}, FreshnessSection{Status: StatusSyncing}},
-		"watching":          {clustersvc.ClusterCacheHealth{Reason: "Watching", TotalKinds: 3}, FreshnessSection{Status: StatusWatching}},
-		"sync switched off": {clustersvc.ClusterCacheHealth{Reason: "Paused"}, FreshnessSection{Status: StatusPaused}},
-		"size limit":        {clustersvc.ClusterCacheHealth{Reason: "SizeLimit"}, FreshnessSection{Status: StatusUnknown, Reason: "SizeLimit"}},
-		"store failed":      {clustersvc.ClusterCacheHealth{Reason: "StoreFailed"}, FreshnessSection{Status: StatusUnknown, Reason: "StoreFailed"}},
-		"identity mismatch": {clustersvc.ClusterCacheHealth{Reason: "IdentityMismatch"}, FreshnessSection{Status: StatusUnknown, Reason: "IdentityMismatch"}},
+		"no verdict yet":    {cluster.ClusterCacheHealth{}, FreshnessSection{Status: StatusSyncing}},
+		"connecting":        {cluster.ClusterCacheHealth{Reason: "Connecting"}, FreshnessSection{Status: StatusSyncing}},
+		"watching":          {cluster.ClusterCacheHealth{Reason: "Watching", TotalKinds: 3}, FreshnessSection{Status: StatusWatching}},
+		"sync switched off": {cluster.ClusterCacheHealth{Reason: "Paused"}, FreshnessSection{Status: StatusPaused}},
+		"size limit":        {cluster.ClusterCacheHealth{Reason: "SizeLimit"}, FreshnessSection{Status: StatusUnknown, Reason: "SizeLimit"}},
+		"store failed":      {cluster.ClusterCacheHealth{Reason: "StoreFailed"}, FreshnessSection{Status: StatusUnknown, Reason: "StoreFailed"}},
+		"identity mismatch": {cluster.ClusterCacheHealth{Reason: "IdentityMismatch"}, FreshnessSection{Status: StatusUnknown, Reason: "IdentityMismatch"}},
 		"one kind of two behind": {
-			clustersvc.ClusterCacheHealth{Reason: "SyncFailed", TotalKinds: 2, UnhealthyKindRefs: []clustersvc.SyncedKindRef{pods}},
+			cluster.ClusterCacheHealth{Reason: "SyncFailed", TotalKinds: 2, UnhealthyKindRefs: []cluster.SyncedKindRef{pods}},
 			FreshnessSection{Status: statusPartial, NotWatching: &list{Names: []string{"v1/pods"}}},
 		},
 		"every unpaused kind behind": {
-			clustersvc.ClusterCacheHealth{Reason: "SyncFailed", TotalKinds: 3, PausedKinds: 1, UnhealthyKindRefs: []clustersvc.SyncedKindRef{nodes, pods}, LastLiveAt: &live},
+			cluster.ClusterCacheHealth{Reason: "SyncFailed", TotalKinds: 3, PausedKinds: 1, UnhealthyKindRefs: []cluster.SyncedKindRef{nodes, pods}, LastLiveAt: &live},
 			FreshnessSection{Status: StatusLastKnown, Reason: "SyncFailed", Since: "2026-09-27T10:00:00Z"},
 		},
 	}

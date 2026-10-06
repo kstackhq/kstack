@@ -1,7 +1,7 @@
 # Security record — the general agent, 17 September 2026
 
 **Subject:** the model can hand a task to a child agent. Chat gains one tool, `spawn_agent`
-(`sidecar/internal/chatsvc/spawn.go`), offered beside `list_objects` wherever tools are; the child
+(`sidecar/internal/services/chat/spawn.go`), offered beside `list_objects` wherever tools are; the child
 is a second run of the same loop, under the parent's run, offered the general agent's allowlist —
 `list_objects` alone. The living model is [security-model.md](../security-model.md); the ADR is
 *a child agent is a run under its parent's*, since removed.

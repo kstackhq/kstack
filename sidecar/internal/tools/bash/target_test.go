@@ -24,28 +24,28 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/clustercard"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
 
 // fakeService is the cluster service as bash reads it: each record by id, and
 // the list, from a map, or err. Every other method panics on the nil embedded
 // service.
 type fakeService struct {
-	clustersvc.Service
-	clusters map[apimeta.ClusterID]*clustersvc.Cluster
+	cluster.Service
+	clusters map[apimeta.ClusterID]*cluster.Cluster
 	err      error
 	// lease is what AcquireConnection hands out, or acquireErr why it refuses.
 	lease      *fakeLease
 	acquireErr error
 	// frames is what the record's watch sends, the watch failing once it is
 	// closed; nil sends nothing. watchErr is why Watch refuses.
-	frames   chan clustersvc.ClusterWatchFrame
+	frames   chan cluster.ClusterWatchFrame
 	watchErr error
 }
 
-func (f fakeService) AcquireConnection(context.Context, apimeta.ClusterID) (clustersvc.Lease, error) {
+func (f fakeService) AcquireConnection(context.Context, apimeta.ClusterID) (cluster.Lease, error) {
 	if f.acquireErr != nil {
 		return nil, f.acquireErr
 	}
@@ -55,22 +55,22 @@ func (f fakeService) AcquireConnection(context.Context, apimeta.ClusterID) (clus
 	return f.lease, nil
 }
 
-func (f fakeService) Clusters() clustersvc.Clusters { return fakeClusters{f: f} }
+func (f fakeService) Clusters() cluster.Clusters { return fakeClusters{f: f} }
 
 type fakeClusters struct {
-	clustersvc.Clusters
+	cluster.Clusters
 	f fakeService
 }
 
-func (fc fakeClusters) Get(_ context.Context, id apimeta.ClusterID) (*clustersvc.Cluster, error) {
+func (fc fakeClusters) Get(_ context.Context, id apimeta.ClusterID) (*cluster.Cluster, error) {
 	return fc.f.clusters[id], fc.f.err
 }
 
-func (fc fakeClusters) Watch(ctx context.Context, _ apimeta.ClusterID) (*clustersvc.Stream[clustersvc.ClusterWatchFrame], error) {
+func (fc fakeClusters) Watch(ctx context.Context, _ apimeta.ClusterID) (*cluster.Stream[cluster.ClusterWatchFrame], error) {
 	if fc.f.watchErr != nil {
 		return nil, fc.f.watchErr
 	}
-	return clustersvc.NewStream(ctx, func(ctx context.Context, out chan<- clustersvc.ClusterWatchFrame) error {
+	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterWatchFrame) error {
 		for {
 			select {
 			case <-ctx.Done():
@@ -92,8 +92,8 @@ func (fc fakeClusters) Watch(ctx context.Context, _ apimeta.ClusterID) (*cluster
 // errWatch is a record's watch that failed.
 var errWatch = errors.New("watch failed")
 
-func (fc fakeClusters) List(context.Context) ([]*clustersvc.Cluster, error) {
-	var list []*clustersvc.Cluster
+func (fc fakeClusters) List(context.Context) ([]*cluster.Cluster, error) {
+	var list []*cluster.Cluster
 	for id, c := range fc.f.clusters {
 		c.ID = id
 		list = append(list, c)
@@ -102,9 +102,9 @@ func (fc fakeClusters) List(context.Context) ([]*clustersvc.Cluster, error) {
 }
 
 // kubeCluster is a record from the kubeconfig's context, with the server uid.
-func kubeCluster(context, uid string) *clustersvc.Cluster {
-	c := &clustersvc.Cluster{Spec: clustersvc.ClusterSpec{
-		Source: clustersvc.ClusterSpecSource{Kubeconfig: &clustersvc.ClusterSpecSourceKubeconfig{Context: context}},
+func kubeCluster(context, uid string) *cluster.Cluster {
+	c := &cluster.Cluster{Spec: cluster.ClusterSpec{
+		Source: cluster.ClusterSpecSource{Kubeconfig: &cluster.ClusterSpecSourceKubeconfig{Context: context}},
 	}}
 	if uid != "" {
 		c.Status.Server.UID = &uid
@@ -114,7 +114,7 @@ func kubeCluster(context, uid string) *clustersvc.Cluster {
 
 // targetTool is a tool over clusters, their kubectl caches in a directory of
 // the test's own.
-func targetTool(t *testing.T, clusters map[apimeta.ClusterID]*clustersvc.Cluster) *Tool {
+func targetTool(t *testing.T, clusters map[apimeta.ClusterID]*cluster.Cluster) *Tool {
 	t.Helper()
 	return &Tool{clusterSvc: fakeService{clusters: clusters}, kubectlDir: t.TempDir()}
 }
@@ -123,7 +123,7 @@ func targetTool(t *testing.T, clusters map[apimeta.ClusterID]*clustersvc.Cluster
 // kubectl cache of the server the record serves.
 func TestTheTargetIsTheRecordsContextAndServer(t *testing.T) {
 	c := kubeCluster("prod-admin", "uid-1")
-	tl := targetTool(t, map[apimeta.ClusterID]*clustersvc.Cluster{"7": c})
+	tl := targetTool(t, map[apimeta.ClusterID]*cluster.Cluster{"7": c})
 
 	got, err := tl.target(t.Context(), "7")
 	require.NoError(t, err)
@@ -136,7 +136,7 @@ func TestTheTargetIsTheRecordsContextAndServer(t *testing.T) {
 
 // A cluster never identified has no server UID to claim by.
 func TestAnUnidentifiedTargetHasNoServerUID(t *testing.T) {
-	tl := targetTool(t, map[apimeta.ClusterID]*clustersvc.Cluster{"7": kubeCluster("prod", "")})
+	tl := targetTool(t, map[apimeta.ClusterID]*cluster.Cluster{"7": kubeCluster("prod", "")})
 
 	got, err := tl.target(t.Context(), "7")
 	require.NoError(t, err)
@@ -147,8 +147,8 @@ func TestAnUnidentifiedTargetHasNoServerUID(t *testing.T) {
 // A record that names no kube-context has none on its card, and the run's one
 // context still needs a name.
 func TestARecordWithNoContextNamesTheRunsOwn(t *testing.T) {
-	c := &clustersvc.Cluster{}
-	tl := targetTool(t, map[apimeta.ClusterID]*clustersvc.Cluster{"7": c})
+	c := &cluster.Cluster{}
+	tl := targetTool(t, map[apimeta.ClusterID]*cluster.Cluster{"7": c})
 
 	got, err := tl.target(t.Context(), "7")
 	require.NoError(t, err)
@@ -165,12 +165,12 @@ func TestAGoneClusterHasNoTarget(t *testing.T) {
 	at := time.Now()
 	marked.DeletionRequestedAt = &at
 	for name, c := range map[string]struct {
-		clusters map[apimeta.ClusterID]*clustersvc.Cluster
+		clusters map[apimeta.ClusterID]*cluster.Cluster
 		err      error
 		want     error
 	}{
 		"nil record": {want: errClusterGone},
-		"marked":     {clusters: map[apimeta.ClusterID]*clustersvc.Cluster{"7": marked}, want: errClusterGone},
+		"marked":     {clusters: map[apimeta.ClusterID]*cluster.Cluster{"7": marked}, want: errClusterGone},
 		"get error":  {err: errors.New("disk")},
 	} {
 		t.Run(name, func(t *testing.T) {

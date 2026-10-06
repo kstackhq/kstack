@@ -9,7 +9,7 @@ status: Accepted
 
 ## Context
 
-`internal/supervisor` was extracted for bodies that fetch: a run requests, classifies, and returns,
+`internal/lib/supervisor` was extracted for bodies that fetch: a run requests, classifies, and returns,
 and [its `Result` is its schedule](2026-08-24-probe-engine.md). A probe and a discovery sweep fit
 that exactly.
 

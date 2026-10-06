@@ -29,7 +29,7 @@ sends it is bad input on every machine (`bash.parse`).
 button turns it on after a dialog says what it means, through `chatSandboxDisabledSet`, and turns it
 off with no dialog. The mutation is refused on a machine with no sandbox.
 
-**The turn reads the switch once.** `chatsvc` reads it in the transaction that reserves the turn,
+**The turn reads the switch once.** `services/chat` reads it in the transaction that reserves the turn,
 beside the context block that tells the model, into `tools.Runtime.OutsideSandbox`, and a subagent
 takes its parent turn's value. `bash.sandboxerFor(rt)`
 is the one test: no sandboxer for a chat switched outside. So what started under a switch keeps it,

@@ -27,28 +27,28 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
 
 // fakeLease is a claim on a cluster whose connection is conn, reached by
 // serverUID alone; any other UID answers a mismatch. Every other method
 // panics on the nil embedded lease.
 type fakeLease struct {
-	clustersvc.Lease
+	cluster.Lease
 	serverUID string
-	conn      *clustersvc.Connection
+	conn      *cluster.Connection
 	err       error // what ConnFor answers, when set
 	released  atomic.Int32
 }
 
-func (l *fakeLease) ConnFor(_ context.Context, serverUID string) (*clustersvc.Connection, error) {
+func (l *fakeLease) ConnFor(_ context.Context, serverUID string) (*cluster.Connection, error) {
 	switch {
 	case l.err != nil:
 		return nil, l.err
 	case serverUID != l.serverUID:
-		return nil, fmt.Errorf("%w: another cluster", clustersvc.ErrIdentityMismatch)
+		return nil, fmt.Errorf("%w: another cluster", cluster.ErrIdentityMismatch)
 	}
 	return l.conn, nil
 }
@@ -92,20 +92,20 @@ func TestAClaimIsRevoked(t *testing.T) {
 	marked := kubeCluster("ctx", "uid-1")
 	marked.Spec.Enabled = true
 	marked.DeletionRequestedAt = &time.Time{}
-	for name, frame := range map[string]*clustersvc.ClusterWatchFrame{
-		"disabled":         {Type: clustersvc.DeltaFrameModified, Cluster: disabled},
-		"being deleted":    {Type: clustersvc.DeltaFrameModified, Cluster: marked},
-		"deleted":          {Type: clustersvc.DeltaFrameDeleted, Cluster: enabled},
+	for name, frame := range map[string]*cluster.ClusterWatchFrame{
+		"disabled":         {Type: cluster.DeltaFrameModified, Cluster: disabled},
+		"being deleted":    {Type: cluster.DeltaFrameModified, Cluster: marked},
+		"deleted":          {Type: cluster.DeltaFrameDeleted, Cluster: enabled},
 		"the watch failed": nil,
 	} {
 		t.Run(name, func(t *testing.T) {
-			frames := make(chan clustersvc.ClusterWatchFrame)
+			frames := make(chan cluster.ClusterWatchFrame)
 			tl := &Tool{clusterSvc: fakeService{lease: &fakeLease{serverUID: "uid-1"}, frames: frames}}
 			up, err := tl.claim(t.Context(), "7", "uid-1")
 			require.NoError(t, err)
 			defer up.Close()
 
-			frames <- clustersvc.ClusterWatchFrame{Type: clustersvc.DeltaFrameAdded, Cluster: enabled}
+			frames <- cluster.ClusterWatchFrame{Type: cluster.DeltaFrameAdded, Cluster: enabled}
 			if frame == nil {
 				close(frames)
 			} else {
@@ -124,9 +124,9 @@ func TestAConnectableRecordKeepsTheClaim(t *testing.T) {
 	enabled := kubeCluster("ctx", "uid-1")
 	enabled.Spec.Enabled = true
 	ctx, cancel := context.WithCancel(t.Context())
-	stream := clustersvc.NewStream(ctx, func(ctx context.Context, out chan<- clustersvc.ClusterWatchFrame) error {
-		out <- clustersvc.ClusterWatchFrame{Type: clustersvc.DeltaFrameAdded, Cluster: enabled}
-		out <- clustersvc.ClusterWatchFrame{Type: clustersvc.DeltaFrameBookmark}
+	stream := cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterWatchFrame) error {
+		out <- cluster.ClusterWatchFrame{Type: cluster.DeltaFrameAdded, Cluster: enabled}
+		out <- cluster.ClusterWatchFrame{Type: cluster.DeltaFrameBookmark}
 		<-ctx.Done()
 		return nil
 	})
@@ -159,8 +159,8 @@ func TestAClaimThatCannotBeMade(t *testing.T) {
 		fails      error // why the run fails, for one that is not
 	}{
 		"no uid":          {answers: kubeproxy.ErrNotIdentified},
-		"not connectable": {uid: "u", acquireErr: fmt.Errorf("%w: disabled", clustersvc.ErrNotConnectable), answers: kubeproxy.ErrNotConnectable},
-		"gone":            {uid: "u", acquireErr: fmt.Errorf("%w: x", clustersvc.ErrNotFound), fails: errClusterGone},
+		"not connectable": {uid: "u", acquireErr: fmt.Errorf("%w: disabled", cluster.ErrNotConnectable), answers: kubeproxy.ErrNotConnectable},
+		"gone":            {uid: "u", acquireErr: fmt.Errorf("%w: x", cluster.ErrNotFound), fails: errClusterGone},
 		"another":         {uid: "u", acquireErr: errDisk, fails: errDisk},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -188,7 +188,7 @@ var errDisk = errors.New("disk")
 // other error as it is.
 func TestUpstreamIsTheTargetsCluster(t *testing.T) {
 	base, _ := url.Parse("https://api.example")
-	conn := &clustersvc.Connection{BaseURL: base, HTTPClient: &http.Client{}}
+	conn := &cluster.Connection{BaseURL: base, HTTPClient: &http.Client{}}
 	lease := &fakeLease{serverUID: "uid-1", conn: conn}
 
 	got, err := upstream{lease: lease, serverUID: "uid-1"}.Endpoint(t.Context())
@@ -207,7 +207,7 @@ func TestUpstreamIsTheTargetsCluster(t *testing.T) {
 // A connection handed out is done once the claim is revoked, so a watch open
 // through it ends.
 func TestARevokedClaimEndsWhatIsOpen(t *testing.T) {
-	conn := &clustersvc.Connection{HTTPClient: &http.Client{}}
+	conn := &cluster.Connection{HTTPClient: &http.Client{}}
 	revoked := make(chan struct{})
 	u := upstream{lease: &fakeLease{serverUID: "uid-1", conn: conn}, serverUID: "uid-1", revoked: revoked}
 

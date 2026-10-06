@@ -59,7 +59,7 @@ Nothing outside the loop changed shape: `Send`, the overlay, the checkpoint, the
 the ledger are as they were, and the webview's readers already skipped blocks they did not know.
 The costs: a row can be long, since it holds every round; an interrupted turn keeps its rounds
 and sends none of them, so the transcript's record is honest while the request stays well-formed
-(`history` in `chatsvc/turn.go` sends a row's rounds only when it settled `Complete`, and a
+(`history` in `services/chat/turn.go` sends a row's rounds only when it settled `Complete`, and a
 `Complete` row holds a result for every call);
 and a switch between providers on the Anthropic protocol drops the last row's tool blocks with
 its thinking block, since the API refuses a trailing `tool_use` with no thinking ahead of it — the

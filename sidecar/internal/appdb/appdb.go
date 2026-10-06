@@ -6,7 +6,7 @@
 // files here. Nothing has shipped, so a change edits 0001_init.sql rather than adding a
 // file (docs/adr/2026-08-29-schema-edit-not-migration.md). app.db lives outside
 // clusters/, which is reserved for the per-cluster cache files (one each, owned by
-// internal/clustersvc), so a cache scan never mistakes it for one.
+// internal/services/cluster), so a cache scan never mistakes it for one.
 package appdb
 
 import (
@@ -22,8 +22,8 @@ import (
 
 	"github.com/amorey/gobus/conflate"
 
-	"github.com/kstackhq/kstack/sidecar/internal/sqlitemigrate"
-	"github.com/kstackhq/kstack/sidecar/internal/sqlitepool"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitepool"
 )
 
 // DefaultSweepInterval is the janitor's production cadence.

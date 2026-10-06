@@ -11,7 +11,7 @@ amended_by: [An agent runs in the background, as a task of the chat that owns it
 ## Context
 
 *A child agent is a run under its parent's*
-built `spawn_agent` beside the tools: an `agentDef` registry in `chatsvc`, a spawn arm `runCall`
+built `spawn_agent` beside the tools: an `agentDef` registry in `services/chat`, a spawn arm `runCall`
 took by name, an allowlist of cluster tools, a `context` object the sidecar rendered into the
 subagent's `<context>` block, and a result cut to 8 KiB. The rewrite purged it. Since then every tool
 the model can call went into one box ([every tool is in the
@@ -24,7 +24,7 @@ ungated; they no longer are.
 
 **`Agent` is a tool in the box**, modelled on Claude Code's: `description`, `prompt`,
 `subagent_type` (one type, `general-purpose`) and `model`. It is not gated; each call the subagent
-makes is. `chatsvc` is its `Spawner`, and the subagent is one more `agent.Run` on the parent's
+makes is. `services/chat` is its `Spawner`, and the subagent is one more `agent.Run` on the parent's
 goroutine, inside the call, with no deadline but the turn's cancel.
 
 **The subagent holds the parent's tools but `Agent`**, chosen for the subagent's target, and web search

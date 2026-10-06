@@ -37,7 +37,7 @@ folding it a second time — harmless for our id-keyed reducers, but only by luc
 
 ## Decision
 
-The service's failable watches return `*clustersvc.Stream[T]` — `Frames` plus `Err()` — instead of a
+The service's failable watches return `*cluster.Stream[T]` — `Frames` plus `Err()` — instead of a
 bare channel. `Frames` closes on every exit, so `Err` is the only thing separating a failure from
 an ordinary teardown; the reason is recorded *before* the close, which makes "Frames closed" a safe
 cue to read it.

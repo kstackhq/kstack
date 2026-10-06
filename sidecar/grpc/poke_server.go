@@ -7,7 +7,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/kstackhq/kstack/sidecar/grpc/pokepb"
-	"github.com/kstackhq/kstack/sidecar/internal/poke"
+	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 
 // pokeServer implements pokepb.PokeServiceServer; a nil broadcaster degrades to

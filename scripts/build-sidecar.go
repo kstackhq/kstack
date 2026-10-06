@@ -11,7 +11,7 @@
 // Windows, where there is no POSIX shell and `bash` is WSL's.
 //
 // KSTACK_HOST_TRIPLE names the Rust host triple, so CI can skip installing
-// Rust; SIDECAR_VERSION, when set, is stamped into internal/version.
+// Rust; SIDECAR_VERSION, when set, is stamped into internal/lib/version.
 package main
 
 import (
@@ -62,7 +62,7 @@ func build(tags string) error {
 
 	ldflags := "-s -w"
 	if v := os.Getenv("SIDECAR_VERSION"); v != "" {
-		ldflags += " -X github.com/kstackhq/kstack/sidecar/internal/version.Version=" + v
+		ldflags += " -X github.com/kstackhq/kstack/sidecar/internal/lib/version.Version=" + v
 	}
 
 	fmt.Println("→ building", out)

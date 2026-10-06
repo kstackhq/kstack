@@ -25,7 +25,7 @@ being crossed in the other direction: the scheduling function interleaved generi
 → interval, failed → retry) with `ReasonContextNotFound`, `ReasonUnsupported`, and `PhasePending`.
 
 Two neighbours might have absorbed it and could not. `beehive` is the control plane *above*
-`clustersvc` — durable, multi-kind, with conditions and a GC cascade — and this is a handful of
+`services/cluster` — durable, multi-kind, with conditions and a GC cascade — and this is a handful of
 in-memory observations *below* it. Kubernetes' `controller-runtime` needs an apiserver: its
 Manager, its informers, and its `Reconcile` contract all assume one, and there is no server here
 to watch.
@@ -89,7 +89,7 @@ the bodies the extraction just took it out of.
 ## Consequences
 
 `kubeconn`'s public surface is unchanged — `Lease`, `State`, `Observation`, `Reason`, `Phase` —
-and `clustersvc` needed no edit. Two behaviour changes rode the move deliberately: a departed
+and `services/cluster` needed no edit. Two behaviour changes rode the move deliberately: a departed
 context's failure streak now clears, since `Suspend` parks a question rather than failing at one,
 and a context that resolves suspends with `ReasonResolved` (scaffolding, deleted when dialing
 lands).

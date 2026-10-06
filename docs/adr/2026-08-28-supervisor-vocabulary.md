@@ -23,12 +23,12 @@ goroutine, and calling that a probe is wrong in a way a reader has to work aroun
 
 ## Decision
 
-The package is `internal/supervisor`, and the body a caller writes is a `Reconciler[T]` whose
+The package is `internal/lib/supervisor`, and the body a caller writes is a `Reconciler[T]` whose
 method is `Reconcile`.
 
 | Before | After |
 | --- | --- |
-| package `internal/probe` | `internal/supervisor` |
+| package `internal/probe` | `internal/lib/supervisor` |
 | `Engine` | `Supervisor` |
 | `Probe[T]` | `Reconciler[T]` |
 | `Probe.Run` | `Reconciler.Reconcile` |
@@ -69,7 +69,7 @@ Call sites read `supervisor.Register(e, name, r, opts...)`, `supervisor.Result`,
 `kubesync.Service.discoverySupervisor`.
 
 `prefsync.Engine` is a different thing with the same old name and keeps it, as does `CLAUDE.md`'s
-heading *The sync engine (`internal/clustersvc/internal/kubesync`)*, which names a subsystem rather
+heading *The sync engine (`internal/services/cluster/internal/kubesync`)*, which names a subsystem rather
 than the machinery under it. "Engine" was never reserved; it stopped being the right word only for
 this package.
 

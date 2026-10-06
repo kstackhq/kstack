@@ -18,7 +18,7 @@ the drain left.
 Written by hand, each owner grew its own stop closure joining its children's, and start order and
 stop order were encoded separately — in one place, reverse order was a comment about
 left-to-right argument evaluation inside an `errors.Join`. The shape first appeared inside
-`internal/clustersvc` around early August 2026; it was hoisted to `internal/lifecycle` on this
+`internal/services/cluster` around early August 2026; it was hoisted to `internal/lib/lifecycle` on this
 ADR's date, when the composition root and two incoming services needed the same thing.
 
 ## Decision
@@ -43,7 +43,7 @@ wait with `drain.WithContext`, so that a caller's deadline bounds how long *it* 
 abandoning work that is still running.
 
 Two adapters carry things that nearly fit: `lifecycle.StartFunc` wraps a service whose stop func
-releases everything, so it has nothing left to `Close`, and `clustersvc.beehiveRuntime` supplies
+releases everything, so it has nothing left to `Close`, and `cluster.beehiveRuntime` supplies
 the `Close` that belongs to beehive's store rather than to the runtime over it.
 
 ## Alternatives considered

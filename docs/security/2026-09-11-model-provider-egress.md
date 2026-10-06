@@ -62,7 +62,7 @@ That is why `store: false` and `prompt_cache_retention` are written down rather 
   every plugin the kubeconfig names. Only what we take is cleared — `ANTHROPIC_AUTH_TOKEN`,
   `OPENAI_ADMIN_KEY` and the rest stay as the user's own environment.
 - **Never in argv, never in a log line.** A key is inherited, not passed as a flag, and nothing
-  logs it. `internal/safe` grows the two shapes that would carry one: the `x-api-key` / `api-key`
+  logs it. `internal/lib/safe` grows the two shapes that would carry one: the `x-api-key` / `api-key`
   header and a bare `sk-` key.
 - **Not through `shellenv`.** The macOS allowlist carries what selects an identity, not what is one
   ([ADR](../adr/2026-09-07-shell-environment-allowlist.md)), so a GUI launch sees no key; a dev run

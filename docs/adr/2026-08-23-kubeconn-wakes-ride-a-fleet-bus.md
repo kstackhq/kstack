@@ -12,7 +12,7 @@ amended_by:
 ## Context
 
 [Connections are addressed by ClusterID](2026-08-22-connections-addressed-by-cluster-id.md)
-put the pool behind `clustersvc` and gave every holder its news through a `Lease` —
+put the pool behind `services/cluster` and gave every holder its news through a `Lease` —
 `Conn`, `State`, `WatchState`. Its Consequences drew one implication from that: "waking a
 beehive pass per cluster becomes a goroutine per claim rather than one reader over a
 fleet-wide bus."
@@ -58,7 +58,7 @@ released its own wakes a record nobody is managing. The pass drops nothing and s
 this is wasted work rather than a wrong answer, and it does not pay for the machinery.
 
 **Key the bus on the credential key.** What the pool actually pools on, and unusable: the
-trigger must name records, and only `clustersvc` knows that the context "prod" is the record
+trigger must name records, and only `services/cluster` knows that the context "prod" is the record
 "kubeconfig/prod". Keying on credentials would put that mapping — or an index back out to
 the contexts sharing a key — inside a package whose rule is that it never learns what a
 cluster is.

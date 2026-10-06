@@ -9,7 +9,7 @@ status: Accepted
 
 ## Context
 
-`chatsvc` opened `app.db` itself: it was the one service with a table in the file, so it
+`services/chat` opened `app.db` itself: it was the one service with a table in the file, so it
 called `appdb.Open`, closed the file in its own `Close`, and held the change hub its two watches
 subscribed to (→ [chats live in app.db](2026-09-10-chats-live-in-app-db.md)). The schema plan
 (`docs/specs/appdb.sql`, since retired into `sidecar/internal/appdb/migrations/0001_init.sql`) puts cluster records in the same file, with conversations keyed onto
@@ -31,14 +31,14 @@ before the pools release. The keys stay the writer's vocabulary (`chats`, `messa
 
 Two leaves land with it. `appdb.NewID` and `appdb.ValidateUUID` mint and validate the UUID ids the
 target schema uses, in the package that owns the file, so every table's ids come from one
-generator. `internal/deltafold` is the watch fold `chatsvc` had (`Snapshot`/`Diff`/`Upsert`/
+generator. `internal/lib/deltafold` is the watch fold `services/chat` had (`Snapshot`/`Diff`/`Upsert`/
 `Has`), with equality a parameter so a record holding a slice can be folded too.
 
 ## Alternatives considered
 
 **Each service opens the file.** Two `appdb.Open`s on one path is two migration runs, two
 janitors and two hubs, and a cluster watcher would never hear a chat commit. The one-owner rule
-that had `chatsvc` open the file still holds; the owner is now the composition root.
+that had `services/chat` open the file still holds; the owner is now the composition root.
 
 **A repository layer over the DB.** Table-agnostic accessors would put the SQL discipline
 (named statements on `onWriter`/`onReader`/`onBoth`) behind an abstraction that then has to
@@ -58,10 +58,10 @@ clock, so a process's ids increase in minted order without a wrapper of our own.
 
 ## Consequences
 
-`chatsvc` knows no path: a test builds a service over a temporary `appdb.DB` of its own, and
+`services/chat` knows no path: a test builds a service over a temporary `appdb.DB` of its own, and
 simulates a failed store by closing the DB, not the store. A
 service's `Close` releases statements alone, so closing one service never invalidates another's
-pools. The version stamp (`internal/version.Version`, set with `-X` by `scripts/build-sidecar.go`
+pools. The version stamp (`internal/lib/version.Version`, set with `-X` by `scripts/build-sidecar.go`
 under `SIDECAR_VERSION`) lands beside this because the schema plan stores the writing build on a
 run, and nothing may read it from the environment.
 

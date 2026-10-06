@@ -28,8 +28,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/fileguard"
 )
@@ -81,7 +81,7 @@ func (d chatDir) Root(create bool) (*os.Root, error) {
 	return os.OpenRoot(string(d))
 }
 
-// chatDirIn is a chat's directory under the data directory, where chatsvc
+// chatDirIn is a chat's directory under the data directory, where chat
 // keeps them.
 func chatDirIn(data string) chatDir {
 	return chatDir(filepath.Join(data, "chats", "c1"))

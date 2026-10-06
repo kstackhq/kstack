@@ -40,11 +40,11 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -142,7 +142,7 @@ type Tool struct {
 	env []string
 	// clusterSvc is the cluster service, which a sandboxed run reads the chat's
 	// cluster through.
-	clusterSvc clustersvc.Service
+	clusterSvc cluster.Service
 	// runsDir and tmpDir are where a sandboxed run's own directory and its
 	// TMPDIR are made, and kubectlDir where each cluster's kubectl cache is.
 	runsDir, tmpDir, kubectlDir string
@@ -207,7 +207,7 @@ type Paths struct {
 // user's stored PATH list, which a sandboxed run reads at its start and searches
 // the adopted entries of, since a sync, Include or Remove changes it while the
 // tool lives; nil for none.
-func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc clustersvc.Service, pathList func() securityconfig.RunPath) (t *Tool, ok bool) {
+func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Service, pathList func() securityconfig.RunPath) (t *Tool, ok bool) {
 	shell, kind, found := findShell()
 	if !found {
 		return nil, false

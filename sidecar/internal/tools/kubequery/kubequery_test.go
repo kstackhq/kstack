@@ -28,7 +28,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -125,7 +125,7 @@ func TestTheActionIsTheQuery(t *testing.T) {
 // columns and rows.
 func watching(columns []string, rows ...[]any) *fakeService {
 	f := healthy()
-	f.query = clustersvc.ClusterCachedDataQueryResult{Columns: columns, Rows: rows}
+	f.query = cluster.ClusterCachedDataQueryResult{Columns: columns, Rows: rows}
 	return f
 }
 
@@ -148,7 +148,7 @@ func TestARefusalNamesTheFieldNeverTheValue(t *testing.T) {
 }
 
 func TestNoCacheIsARefusal(t *testing.T) {
-	text, isError := run(t, &fakeService{readErr: clustersvc.ErrNotFound}, `{"sql":"SELECT 1"}`)
+	text, isError := run(t, &fakeService{readErr: cluster.ErrNotFound}, `{"sql":"SELECT 1"}`)
 	assert.True(t, isError)
 	assert.JSONEq(t, `{"error":"no-cache"}`, text)
 
@@ -163,7 +163,7 @@ func TestNoCacheIsARefusal(t *testing.T) {
 func TestASQLErrorCarriesItsMessageAlone(t *testing.T) {
 	msg := `near "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln": syntax error`
 	f := healthy()
-	f.queryErr = &clustersvc.QueryError{Message: msg}
+	f.queryErr = &cluster.QueryError{Message: msg}
 	text, isError := run(t, f, `{"sql":"SELECT 1"}`)
 	assert.True(t, isError)
 	assert.JSONEq(t, `{"error":"sql","message":"near \"[redacted]\": syntax error"}`, text)

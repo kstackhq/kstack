@@ -23,8 +23,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/app"
-	"github.com/kstackhq/kstack/sidecar/internal/ipc"
-	"github.com/kstackhq/kstack/sidecar/internal/safe"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 )
 
 // What a bare command line yields: the production endpoints.

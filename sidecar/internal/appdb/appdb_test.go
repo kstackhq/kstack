@@ -12,7 +12,7 @@ import (
 	"github.com/amorey/gobus"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
 // Open creates a missing parent dir, runs the embedded migrations (recording

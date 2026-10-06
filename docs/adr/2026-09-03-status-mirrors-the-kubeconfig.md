@@ -28,7 +28,7 @@ is drawn where it is rendered.** `ClusterStatusSourceKubeconfig` holds a half pe
 `Cluster{Name, Entry}` and `User{Name}` — so an entry name and the entry it resolves to sit
 together and go missing independently: the context always states a name, and `Entry` is nil when
 the file defines none. `ClusterStatusSourceKubeconfigClusterEntry{Server, InsecureSkipTLSVerify}`
-is populated in `observeKubeconfig` (`sidecar/internal/clustersvc/clusters.go`) and cached on
+is populated in `observeKubeconfig` (`sidecar/internal/services/cluster/clusters.go`) and cached on
 absence like the rest of the block. The "is this connection verified?" question is answered once in
 the webview, by `tlsUnverifiedReason` in `src/lib/kube-config.tsx`.
 

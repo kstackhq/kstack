@@ -8,7 +8,7 @@ teardown. This is step 6B of the agent-security sequence. The living model is
 
 ## What widens
 
-A run that nobody watches. `chatsvc.Service.RunMonitor` takes one run of the model over a brief,
+A run that nobody watches. `chat.Service.RunMonitor` takes one run of the model over a brief,
 on a cluster whose `monitoring_enabled` is on, reading injected cluster content with no user to
 see a request. Nothing calls it yet but its tests: the monitoring agent, its schedule and its
 Settings switch are a later step, and until then no cluster is watched.

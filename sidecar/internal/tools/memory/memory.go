@@ -26,7 +26,7 @@ import (
 	"io"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
+	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -64,10 +64,10 @@ var (
 // Tool is the Memory tool, over the memory service. A call for every cluster waits
 // on the user; a call for the cluster runs unasked, since it reaches only chats on
 // the cluster whose data may have shaped it, and the transcript shows every save.
-type Tool struct{ svc memorysvc.Service }
+type Tool struct{ svc memory.Service }
 
 // New is the tool over svc.
-func New(svc memorysvc.Service) *Tool { return &Tool{svc: svc} }
+func New(svc memory.Service) *Tool { return &Tool{svc: svc} }
 
 func (t *Tool) Name() string { return Name }
 
@@ -139,11 +139,11 @@ var codes = []struct {
 	err  error
 	code string
 }{
-	{memorysvc.ErrNotFound, "not-found"},
-	{memorysvc.ErrUserNote, "user-note"},
-	{memorysvc.ErrFull, "full"},
-	{memorysvc.ErrSecret, "secret"},
-	{memorysvc.ErrClusterGone, "cluster-gone"},
+	{memory.ErrNotFound, "not-found"},
+	{memory.ErrUserNote, "user-note"},
+	{memory.ErrFull, "full"},
+	{memory.ErrSecret, "secret"},
+	{memory.ErrClusterGone, "cluster-gone"},
 }
 
 // refusal is err as the result the model reads: a code, and the field for a
@@ -152,7 +152,7 @@ var codes = []struct {
 func refusal(err error) (string, bool) {
 	out := map[string]string{"error": "unavailable"}
 	var ie *inputError
-	var fe *memorysvc.FieldError
+	var fe *memory.FieldError
 	switch {
 	case errors.As(err, &ie):
 		out["error"] = "bad-input"

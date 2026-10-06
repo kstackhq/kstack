@@ -17,7 +17,7 @@ secure storage.
 
 ## Decision
 
-**The whole OAuth flow is sidecar-owned** (`internal/auth`): the sidecar opens the system
+**The whole OAuth flow is sidecar-owned** (`internal/services/auth`): the sidecar opens the system
 browser (auth-code + PKCE, ephemeral 127.0.0.1 loopback redirect), runs the loopback
 listener, exchanges and verifies the code, and persists the refresh token in the OS keyring
 itself (`keyringStore` over `zalando/go-keyring`). Loopback OAuth already pins the browser to
@@ -28,7 +28,7 @@ token offline. The service degrades to signed-out when unconfigured. The OAuth2/
 layer is the one carved-out sub-package (`auth/oauth`, a leaf that must not import `auth`);
 the root package stays flat, organized by file.
 
-**Settings sync (`internal/cloud`) depends on `auth`, never the reverse**: it authenticates
+**Settings sync (`internal/services/cloud`) depends on `auth`, never the reverse**: it authenticates
 from `authSvc.TokenSource` and wakes its engine by observing `authSvc.Subscribe()` — tracking
 only the `Authenticated` bit, so a routine token refresh is a non-event. Edits are
 local-first: applied to a local JSON file immediately, queued durably

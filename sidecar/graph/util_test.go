@@ -6,8 +6,8 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 

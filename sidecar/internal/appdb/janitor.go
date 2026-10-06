@@ -72,7 +72,7 @@ func fileSize(path string) int64 {
 }
 
 // walCheckpoint moves the write-ahead log into the database and truncates it. Not
-// "checkpoint": chatsvc's checkpoint is an answer's progress write, nothing to do with
+// "checkpoint": chat's checkpoint is an answer's progress write, nothing to do with
 // the log. TRUNCATE calls the busy handler until every reader is off the log, so a write
 // can queue behind it for up to the writer's busy_timeout. A reader still on it leaves
 // part behind, which SQLite reports as busy rather than as a failure; the next sweep

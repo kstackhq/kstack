@@ -43,7 +43,7 @@ handshake matters because a condition write bumps `resource_version` but does **
 a generation — a pass whose only output is a condition would otherwise stay owed and be
 re-enqueued forever.
 
-Conditions are beehive's type served as-is (`clustersvc.Condition` aliases `beehive.Condition`;
+Conditions are beehive's type served as-is (`cluster.Condition` aliases `beehive.Condition`;
 gqlgen binds the GraphQL `Condition` straight to it), living beside `status` on the wire, not
 inside it. There is no per-condition `ObservedGeneration`: the object-level one is the
 handshake, and each object's conditions are written by one controller in one pass.

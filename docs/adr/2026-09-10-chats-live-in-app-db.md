@@ -28,8 +28,8 @@ Three tables in `app.db`: `chat`, `chat_message`, `chat_send`. They go into the 
 `0001_init.sql` rather than a new `0002` — nothing has shipped, so the initial schema is still the
 whole schema (→ [schema edit, not migration](2026-08-29-schema-edit-not-migration.md)).
 
-`internal/chatsvc` owns the file: `chatsvc.New(dataDir, provider)` opens it itself, the way
-`clustersvc.New` opens its own store, so there is one owner and no handoff. Ids are ULIDs
+`internal/services/chat` owns the file: `chat.New(dataDir, provider)` opens it itself, the way
+`cluster.New` opens its own store, so there is one owner and no handoff. Ids are ULIDs
 (`github.com/oklog/ulid/v2`) and timestamps are unix millis, which is what would let chats ride
 the existing `cloud/mutationqueue` and `cloud/syncstore` machinery later without a rewrite.
 

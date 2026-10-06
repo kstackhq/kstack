@@ -28,9 +28,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -150,7 +150,7 @@ func TestATaskPipeHeldPastTheGraceIsLetGo(t *testing.T) {
 // A sandboxed task's run directory stays while the task runs and goes once
 // Wait has reaped it.
 func TestATasksRunDirectoryGoesAtWait(t *testing.T) {
-	tl := clusterTool(t, map[apimeta.ClusterID]*clustersvc.Cluster{"7": kubeCluster("prod", "uid")})
+	tl := clusterTool(t, map[apimeta.ClusterID]*cluster.Cluster{"7": kubeCluster("prod", "uid")})
 	rt := tools.Runtime{ClusterID: "7", Dir: testChatDir(t), Tasks: newFakeTasks(t)}
 	release := filepath.Join(t.TempDir(), "release")
 	require.NoError(t, syscall.Mkfifo(release, 0o600))

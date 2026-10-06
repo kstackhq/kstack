@@ -13,7 +13,7 @@ answers the call with one outcome per command. The living model is
 
 **Several commands from one call, each under the same gate.** A `shell_call` is one `tool_use`
 named `shell` in the record, its input the action as the API sent it. `callRows`
-(`chatsvc/tools.go`) expands it before anything is written: one pending row per command, its
+(`services/chat/tools.go`) expands it before anything is written: one pending row per command, its
 `arguments` `{"command": …}` written by the sidecar (`shellCallBlock`) in the one shape
 `readBashInput`, `commandLine` and `messageCommands` read, so the card and the transcript agree
 with a `bash` row by construction. Every command's card is on the user at once. Each runs only

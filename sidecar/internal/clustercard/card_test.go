@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
 
 var errRead = errors.New("boom")
@@ -34,13 +34,13 @@ var errRead = errors.New("boom")
 // read, canned answers for the cache reads, one knob for a read that fails, and
 // every other method left to panic since nothing calls it.
 type fakeService struct {
-	clustersvc.Service
+	cluster.Service
 	// active is what ReadActive hands read; readErr, when set, is its answer instead.
-	active  clustersvc.ActiveCluster
+	active  cluster.ActiveCluster
 	readErr error
-	health  clustersvc.ClusterCacheHealth
-	sync    clustersvc.ClusterCacheSyncStatus
-	kinds   []clustersvc.ClusterCachedDataKind
+	health  cluster.ClusterCacheHealth
+	sync    cluster.ClusterCacheSyncStatus
+	kinds   []cluster.ClusterCachedDataKind
 	names   []string
 	// fail names the cache read that errors: health, sync, kinds or objects.
 	fail string
@@ -48,30 +48,30 @@ type fakeService struct {
 	// cache that does not exist; the list read then answers no file either.
 	gone string
 	// asked is every cache id the cache reads were given.
-	asked []clustersvc.ClusterCacheID
+	asked []cluster.ClusterCacheID
 }
 
 // The three families the card reads, each over the one fake.
 type (
 	fakeClusters struct {
-		clustersvc.Clusters
+		cluster.Clusters
 		*fakeService
 	}
 	fakeCaches struct {
-		clustersvc.Caches
+		cluster.Caches
 		*fakeService
 	}
 	fakeCachedData struct {
-		clustersvc.CachedData
+		cluster.CachedData
 		*fakeService
 	}
 )
 
-func (f *fakeService) Clusters() clustersvc.Clusters     { return fakeClusters{fakeService: f} }
-func (f *fakeService) Caches() clustersvc.Caches         { return fakeCaches{fakeService: f} }
-func (f *fakeService) CachedData() clustersvc.CachedData { return fakeCachedData{fakeService: f} }
+func (f *fakeService) Clusters() cluster.Clusters     { return fakeClusters{fakeService: f} }
+func (f *fakeService) Caches() cluster.Caches         { return fakeCaches{fakeService: f} }
+func (f *fakeService) CachedData() cluster.CachedData { return fakeCachedData{fakeService: f} }
 
-func (f fakeClusters) ReadActive(ctx context.Context, _ clustersvc.ClusterID, read func(context.Context, clustersvc.ActiveCluster) error) error {
+func (f fakeClusters) ReadActive(ctx context.Context, _ cluster.ClusterID, read func(context.Context, cluster.ActiveCluster) error) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -81,57 +81,57 @@ func (f fakeClusters) ReadActive(ctx context.Context, _ clustersvc.ClusterID, re
 	return read(ctx, f.active)
 }
 
-func (f fakeCaches) Health(_ context.Context, _ clustersvc.ClusterID, cacheID clustersvc.ClusterCacheID) (clustersvc.ClusterCacheHealth, bool, error) {
+func (f fakeCaches) Health(_ context.Context, _ cluster.ClusterID, cacheID cluster.ClusterCacheID) (cluster.ClusterCacheHealth, bool, error) {
 	f.asked = append(f.asked, cacheID)
 	if f.fail == "health" {
-		return clustersvc.ClusterCacheHealth{}, false, errRead
+		return cluster.ClusterCacheHealth{}, false, errRead
 	}
 	return f.health, f.gone != "health", nil
 }
 
-func (f fakeCaches) SyncStatus(context.Context, clustersvc.ClusterID, clustersvc.ClusterCacheID) (clustersvc.ClusterCacheSyncStatus, bool, error) {
+func (f fakeCaches) SyncStatus(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheSyncStatus, bool, error) {
 	if f.fail == "sync" {
-		return clustersvc.ClusterCacheSyncStatus{}, false, errRead
+		return cluster.ClusterCacheSyncStatus{}, false, errRead
 	}
 	return f.sync, f.gone != "sync", nil
 }
 
-func (f fakeCachedData) ListKinds(context.Context, clustersvc.ClusterID, clustersvc.ClusterCacheID) ([]clustersvc.ClusterCachedDataKind, error) {
+func (f fakeCachedData) ListKinds(context.Context, cluster.ClusterID, cluster.ClusterCacheID) ([]cluster.ClusterCachedDataKind, error) {
 	if f.fail == "kinds" {
 		return nil, errRead
 	}
 	return f.kinds, nil
 }
 
-func (f fakeCachedData) ListObjects(context.Context, clustersvc.ClusterID, clustersvc.ClusterCacheID, string, string) ([]clustersvc.ClusterCachedDataObject, bool, error) {
+func (f fakeCachedData) ListObjects(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string, string) ([]cluster.ClusterCachedDataObject, bool, error) {
 	if f.fail == "objects" {
 		return nil, false, errRead
 	}
-	var out []clustersvc.ClusterCachedDataObject
+	var out []cluster.ClusterCachedDataObject
 	for _, n := range f.names {
-		out = append(out, clustersvc.ClusterCachedDataObject{Name: n})
+		out = append(out, cluster.ClusterCachedDataObject{Name: n})
 	}
 	return out, f.gone == "", nil
 }
 
 func strp(s string) *string { return &s }
 
-// cluster is a reachable, identified record whose server UID is uid ("" for a
+// clusterRecord is a reachable, identified record whose server UID is uid ("" for a
 // cluster never identified).
-func cluster(uid string) *clustersvc.Cluster {
-	c := &clustersvc.Cluster{
-		ID: "7", Conditions: []clustersvc.Condition{
-			{Type: "Connected", Status: clustersvc.ConditionTrue, Reason: "Connected"},
-			{Type: "Identified", Status: clustersvc.ConditionTrue, Reason: "Identified"},
+func clusterRecord(uid string) *cluster.Cluster {
+	c := &cluster.Cluster{
+		ID: "7", Conditions: []cluster.Condition{
+			{Type: "Connected", Status: cluster.ConditionTrue, Reason: "Connected"},
+			{Type: "Identified", Status: cluster.ConditionTrue, Reason: "Identified"},
 		},
-		Spec: clustersvc.ClusterSpec{
+		Spec: cluster.ClusterSpec{
 			Name:   strp("prod"),
-			Source: clustersvc.ClusterSpecSource{Kubeconfig: &clustersvc.ClusterSpecSourceKubeconfig{Context: "prod-admin"}},
+			Source: cluster.ClusterSpecSource{Kubeconfig: &cluster.ClusterSpecSourceKubeconfig{Context: "prod-admin"}},
 		},
-		Status: clustersvc.ClusterStatus{
-			Server: clustersvc.ClusterServer{Version: strp("v1.31.2")},
-			Source: clustersvc.ClusterStatusSource{Kubeconfig: &clustersvc.ClusterStatusSourceKubeconfig{
-				Cluster: clustersvc.ClusterStatusSourceKubeconfigCluster{Entry: &clustersvc.ClusterStatusSourceKubeconfigClusterEntry{Server: "https://10.0.0.1:6443"}},
+		Status: cluster.ClusterStatus{
+			Server: cluster.ClusterServer{Version: strp("v1.31.2")},
+			Source: cluster.ClusterStatusSource{Kubeconfig: &cluster.ClusterStatusSourceKubeconfig{
+				Cluster: cluster.ClusterStatusSourceKubeconfigCluster{Entry: &cluster.ClusterStatusSourceKubeconfigClusterEntry{Server: "https://10.0.0.1:6443"}},
 			}},
 		},
 	}
@@ -144,19 +144,19 @@ func cluster(uid string) *clustersvc.Cluster {
 // healthy is a reachable, identified cluster read with its active cache.
 func healthy() *fakeService {
 	return &fakeService{
-		active: clustersvc.ActiveCluster{
-			Cluster: cluster("uid-2"),
-			Cache:   &clustersvc.ClusterCache{RecordMeta: clustersvc.RecordMeta{ID: 11}, Spec: clustersvc.ClusterCacheSpec{ServerUID: "uid-2"}},
+		active: cluster.ActiveCluster{
+			Cluster: clusterRecord("uid-2"),
+			Cache:   &cluster.ClusterCache{RecordMeta: cluster.RecordMeta{ID: 11}, Spec: cluster.ClusterCacheSpec{ServerUID: "uid-2"}},
 		},
-		health: clustersvc.ClusterCacheHealth{Reason: "Watching", TotalKinds: 2},
-		sync: clustersvc.ClusterCacheSyncStatus{
-			Discovery: clustersvc.ClusterCacheDiscoveryStatus{Reason: "Discovered"},
-			Kinds: []clustersvc.ClusterCacheKindSyncStatus{
+		health: cluster.ClusterCacheHealth{Reason: "Watching", TotalKinds: 2},
+		sync: cluster.ClusterCacheSyncStatus{
+			Discovery: cluster.ClusterCacheDiscoveryStatus{Reason: "Discovered"},
+			Kinds: []cluster.ClusterCacheKindSyncStatus{
 				{APIVersion: "v1", Resource: "namespaces", Reason: "Watching"},
 				{APIVersion: "v1", Resource: "nodes", Reason: "Watching", ObjectCount: 3},
 			},
 		},
-		kinds: []clustersvc.ClusterCachedDataKind{
+		kinds: []cluster.ClusterCachedDataKind{
 			{APIVersion: "v1", Kind: "Namespace", Resource: "namespaces", Scope: "Cluster"},
 			{APIVersion: "v1", Kind: "Node", Resource: "nodes", Scope: "Cluster", Count: 3},
 			{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: "Namespaced"},
@@ -171,7 +171,7 @@ func TestCardReadsTheActiveCache(t *testing.T) {
 	f := healthy()
 	got := cardOf(f)
 
-	assert.Equal(t, []clustersvc.ClusterCacheID{11}, f.asked, "the cache the reading handed")
+	assert.Equal(t, []cluster.ClusterCacheID{11}, f.asked, "the cache the reading handed")
 	assert.Contains(t, got, `{"cluster":{"name":"prod","context":"prod-admin","kubernetes":"v1.31.2"},"connection":{"status":"Connected","tls":"verified"},"freshness":{"status":"watching"},"inventory":{"namespaces":{"status":"watching","names":["default","kube-system"]},"apiGroups":`)
 	assert.Contains(t, got, `{"name":"core","kinds":["Namespace","Node","Pod"]}`)
 }
@@ -182,7 +182,7 @@ func TestCardReadsTheActiveCache(t *testing.T) {
 // "none", not one that skipped verifying it. The server URL stays behind — the
 // endpoint the card withholds.
 func TestCardReadsTheTLSPostureOffTheKubeconfigEntry(t *testing.T) {
-	type entry = clustersvc.ClusterStatusSourceKubeconfigClusterEntry
+	type entry = cluster.ClusterStatusSourceKubeconfigClusterEntry
 	tests := map[string]struct {
 		entry      *entry
 		clientCert bool
@@ -238,8 +238,8 @@ func TestTheCardRendersContextName(t *testing.T) {
 			assert.Equal(t, want, card.Cluster.Context)
 		})
 	}
-	assert.Equal(t, "prod-admin", ContextName(cluster("")))
-	c := cluster("")
+	assert.Equal(t, "prod-admin", ContextName(clusterRecord("")))
+	c := clusterRecord("")
 	c.Spec.Source.Kubeconfig.Context = long
 	assert.Equal(t, cut(long, contextMax), ContextName(c))
 	c.Spec.Source.Kubeconfig = nil
@@ -251,7 +251,7 @@ func TestTheCardRendersContextName(t *testing.T) {
 // own kubeconfig, where a cut one names nothing.
 func TestAnEKSContextIsNotCut(t *testing.T) {
 	arn := "arn:aws:eks:ap-southeast-2:123456789012:cluster/" + strings.Repeat("c", 100)
-	c := cluster("")
+	c := clusterRecord("")
 	c.Spec.Source.Kubeconfig.Context = arn
 
 	assert.Equal(t, arn, ContextName(c))
@@ -265,21 +265,21 @@ func TestCardOfAClusterTheUserNeverNamed(t *testing.T) {
 
 func TestCardSaysWhenTheIdentityCannotBeRead(t *testing.T) {
 	f := healthy()
-	f.active.Cluster.Conditions[1] = clustersvc.Condition{Type: "Identified", Status: clustersvc.ConditionFalse, Reason: "UIDUnreadable"}
+	f.active.Cluster.Conditions[1] = cluster.Condition{Type: "Identified", Status: cluster.ConditionFalse, Reason: "UIDUnreadable"}
 	assert.Contains(t, cardOf(f), `"connection":{"status":"UIDUnreadable","tls":"verified"}`)
 }
 
 func TestCardOfANeverIdentifiedCluster(t *testing.T) {
 	f := healthy()
-	f.active = clustersvc.ActiveCluster{Cluster: cluster("")}
-	f.active.Cluster.Conditions = []clustersvc.Condition{{Type: "Connected", Status: clustersvc.ConditionFalse, Reason: "Connecting"}}
+	f.active = cluster.ActiveCluster{Cluster: clusterRecord("")}
+	f.active.Cluster.Conditions = []cluster.Condition{{Type: "Connected", Status: cluster.ConditionFalse, Reason: "Connecting"}}
 	assert.Equal(t, cardHead+`{"cluster":{"name":"prod","context":"prod-admin","kubernetes":"v1.31.2"},"connection":{"status":"Connecting","tls":"verified"},"freshness":{"status":"syncing"}}`+fenceClose, cardOf(f))
 	assert.Empty(t, f.asked)
 }
 
 func TestCardOfAClusterWithNoVerdictYet(t *testing.T) {
 	f := healthy()
-	f.active = clustersvc.ActiveCluster{Cluster: cluster("")}
+	f.active = cluster.ActiveCluster{Cluster: clusterRecord("")}
 	f.active.Cluster.Conditions = nil
 	assert.Contains(t, cardOf(f), `"connection":{"status":"Connecting","tls":"verified"}`)
 }
@@ -293,7 +293,7 @@ func TestCardOfAnIdentifiedClusterWhoseCacheIsNotYetCreated(t *testing.T) {
 // Resolving the cluster and guarding its identity are ReadActive's; whatever it
 // answers instead of a reading, the card is unavailable.
 func TestCardIsUnavailableWhenTheReadingFails(t *testing.T) {
-	for _, err := range []error{clustersvc.ErrNotFound, clustersvc.ErrIdentityMoved, errRead} {
+	for _, err := range []error{cluster.ErrNotFound, cluster.ErrIdentityMoved, errRead} {
 		f := healthy()
 		f.readErr = err
 		assert.Equal(t, Unavailable, cardOf(f), err.Error())
@@ -326,8 +326,8 @@ func TestCardIsUnavailableWhenItsBoundExpires(t *testing.T) {
 func TestCardFoldsTheSyncRowsOntoTheCatalog(t *testing.T) {
 	f := healthy()
 	at := time.Date(2026, 9, 14, 7, 30, 15, 0, time.UTC)
-	f.health = clustersvc.ClusterCacheHealth{Reason: "SyncFailed", LastLiveAt: &at, TotalKinds: 2, PausedKinds: 1,
-		UnhealthyKindRefs: []clustersvc.SyncedKindRef{{APIVersion: "v1", Resource: "nodes"}}}
+	f.health = cluster.ClusterCacheHealth{Reason: "SyncFailed", LastLiveAt: &at, TotalKinds: 2, PausedKinds: 1,
+		UnhealthyKindRefs: []cluster.SyncedKindRef{{APIVersion: "v1", Resource: "nodes"}}}
 	f.sync.Kinds[0].Reason = "Paused"
 	f.sync.Kinds[1].Reason = "SyncFailed"
 	got := cardOf(f)
@@ -339,7 +339,7 @@ func TestCardFoldsTheSyncRowsOntoTheCatalog(t *testing.T) {
 // still there, and the card lists them as paused.
 func TestCardOfAPausedCacheListsWhatItHolds(t *testing.T) {
 	f := healthy()
-	f.health = clustersvc.ClusterCacheHealth{Reason: "Paused"}
+	f.health = cluster.ClusterCacheHealth{Reason: "Paused"}
 	f.sync.Kinds[0].Reason = "Paused"
 	f.sync.Kinds[1].Reason = ""
 	got := cardOf(f)

@@ -56,6 +56,7 @@ no "used to", "formerly", "superseded". **`docs/adr/` is the sole exemption.** A
 append-only historical log; recording what we rejected, what we replaced, and what we believed at
 the time is their function. Edit an accepted ADR only to fix errors or flip its status — do not
 rewrite its decision to match later reality. Write a new one.
+A path or package name the code has moved from is updated in place: that is a fix, not a rewrite.
 
 ## Writing one
 
@@ -184,3 +185,4 @@ usually just documentation in the wrong place.
 | 2026-10-04 | [A folder grant is a rule, and the file tools walk it by handle](2026-10-04-a-folder-grant-is-a-rule.md) | cross-cutting | Accepted |
 | 2026-10-05 | [Secret data is a permissioned read](2026-10-05-secret-data-is-a-permissioned-read.md) | cross-cutting | Accepted |
 | 2026-10-05 | [A monitor run is a run of the chat service](2026-10-05-a-monitor-run-is-a-run-of-the-chat-service.md) | sidecar | Accepted |
+| 2026-10-06 | [Group the sidecar's packages into services, lib and the rest](2026-10-06-sidecar-packages-group-into-services-lib-and-the-rest.md) | sidecar | Accepted |

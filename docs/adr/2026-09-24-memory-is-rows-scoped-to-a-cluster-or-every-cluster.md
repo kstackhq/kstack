@@ -27,7 +27,7 @@ behaviour we can add later.**
 
 ## Decision
 
-A memory is a row of the `memories` table in `app.db`, owned by `internal/memorysvc`: a **name
+A memory is a row of the `memories` table in `app.db`, owned by `internal/services/memory`: a **name
 and a body**, for one cluster (`cluster_id`) or for every cluster (`NULL`), with who wrote it
 last (`written_by`), the chat it came from (`chat_id`) and the cluster's server UID at the last
 write (`server_uid`). A name is unique within its scope, so a cluster's note and a note for every

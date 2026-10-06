@@ -22,7 +22,7 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/kstackhq/kstack/sidecar/internal/rootdir"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/rootdir"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 )
 

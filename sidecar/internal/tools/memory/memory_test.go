@@ -24,8 +24,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -113,7 +113,7 @@ func TestActionOfReadsASave(t *testing.T) {
 // the cluster and chat it named, with a refusal a test can set. The checks answer
 // as the writes would and record nothing.
 type fakeMemory struct {
-	memorysvc.Service
+	memory.Service
 	err   error
 	calls []string
 }
@@ -188,11 +188,11 @@ func TestRunAnswersEachOp(t *testing.T) {
 // Every refusal is a code the model can act on, never a Go error's text.
 func TestRunNamesEachRefusal(t *testing.T) {
 	cases := map[error]string{
-		memorysvc.ErrNotFound:               "not-found",
-		memorysvc.ErrUserNote:               "user-note",
-		memorysvc.ErrFull:                   "full",
-		memorysvc.ErrSecret:                 "secret",
-		memorysvc.ErrClusterGone:            "cluster-gone",
+		memory.ErrNotFound:                  "not-found",
+		memory.ErrUserNote:                  "user-note",
+		memory.ErrFull:                      "full",
+		memory.ErrSecret:                    "secret",
+		memory.ErrClusterGone:               "cluster-gone",
 		errors.New("database is locked /x"): "unavailable",
 	}
 	for err, code := range cases {
@@ -213,7 +213,7 @@ func TestRunNamesEachRefusal(t *testing.T) {
 
 	// The store checks a note's shape and wraps the field it refuses; the model
 	// reads the field.
-	wrapped := fmt.Errorf("%w: %w", memorysvc.ErrBadInput, &memorysvc.FieldError{Field: "body"})
+	wrapped := fmt.Errorf("%w: %w", memory.ErrBadInput, &memory.FieldError{Field: "body"})
 	out, _ = run(t, &fakeMemory{err: wrapped}, aSave)
 	assert.Equal(t, map[string]any{"error": "bad-input", "field": "body"}, out)
 }
@@ -235,7 +235,7 @@ func TestEveryCallForEveryClusterAsks(t *testing.T) {
 		`{"op":"forget"}`,
 		`not json`,
 	} {
-		a, err := approval(&fakeMemory{err: memorysvc.ErrFull}, raw)
+		a, err := approval(&fakeMemory{err: memory.ErrFull}, raw)
 		require.NoError(t, err, raw)
 		assert.Equal(t, tools.Approval{Skip: true}, a, raw)
 	}
@@ -249,11 +249,11 @@ func TestEveryCallForEveryClusterAsks(t *testing.T) {
 	assert.Equal(t, &fakeMemory{}, mem, "a check writes nothing")
 
 	for code, refused := range map[string]error{
-		"not-found":    memorysvc.ErrNotFound,
-		"user-note":    memorysvc.ErrUserNote,
-		"full":         memorysvc.ErrFull,
-		"secret":       memorysvc.ErrSecret,
-		"cluster-gone": memorysvc.ErrClusterGone,
+		"not-found":    memory.ErrNotFound,
+		"user-note":    memory.ErrUserNote,
+		"full":         memory.ErrFull,
+		"secret":       memory.ErrSecret,
+		"cluster-gone": memory.ErrClusterGone,
 		"unavailable":  errors.New("database is locked /x"),
 	} {
 		for _, raw := range []string{aGlobalSave, aGlobalForget} {
@@ -262,7 +262,7 @@ func TestEveryCallForEveryClusterAsks(t *testing.T) {
 		}
 	}
 
-	wrapped := fmt.Errorf("%w: %w", memorysvc.ErrBadInput, &memorysvc.FieldError{Field: "name"})
+	wrapped := fmt.Errorf("%w: %w", memory.ErrBadInput, &memory.FieldError{Field: "name"})
 	_, err := approval(&fakeMemory{err: wrapped}, aGlobalSave)
 	assert.Equal(t, &tools.Refusal{Result: `{"error":"bad-input","field":"name"}`}, err)
 }

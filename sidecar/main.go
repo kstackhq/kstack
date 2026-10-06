@@ -44,10 +44,10 @@ import (
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/app"
-	"github.com/kstackhq/kstack/sidecar/internal/ipc"
-	"github.com/kstackhq/kstack/sidecar/internal/logging"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/logging"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/version"
 )
 
 func main() {

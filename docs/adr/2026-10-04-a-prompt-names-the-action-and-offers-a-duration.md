@@ -59,7 +59,7 @@ its namespace, so the rule says *inside* and leaves it out. *Allow for this comm
 objects the user has not seen. The diff is a preview, not a lock. Each is a residual in [the
 security record](../security/2026-10-04-the-prompt-names-the-action.md).
 
-`approvalDecide`'s answers are a table in `chatsvc`: a call's own request and an action no rule may
+`approvalDecide`'s answers are a table in `services/chat`: a call's own request and an action no rule may
 allow take `Once` and `Deny` alone. A step that adds a class adds its row there. A field added to
 `permissions.Rule` is drawn by `Rule.Line()`'s three cases.
 

@@ -37,7 +37,7 @@ alone, and one `DELETE` takes all three. The message's public status is its run'
 columns. `messages` has no status and no model columns.
 
 **A send is one transaction that writes the user message with the client's request key, a queued
-chat run, and the empty assistant message** (`chatsvc.writeTurnRows`), after replaying the key,
+chat run, and the empty assistant message** (`chat.writeTurnRows`), after replaying the key,
 admitting the post and reserving the conversation's turn. The request key lives on the user
 message (`messages.request_key`, unique), so a replay is one joined `SELECT` — message → run →
 answer — and there is no ledger to prune. The key goes with its message: a retry after the chat is

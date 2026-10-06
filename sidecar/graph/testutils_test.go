@@ -15,10 +15,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/auth"
-	"github.com/kstackhq/kstack/sidecar/internal/chatsvc"
-	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/chat"
+	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 )
 
 // fakeAuth is a hand-written auth.Service for the resolver tests. The resolver
@@ -141,21 +141,21 @@ func mutation(t *testing.T, srvURL, mutation string) (map[string]any, []gqlError
 // only under conditions a resolver test cannot set up. The embedded Service is nil,
 // so any other call panics, and a test leaning on it by accident fails on its code.
 type refusingChat struct {
-	chatsvc.Service
+	chat.Service
 	err error
 }
 
-func (c refusingChat) Send(context.Context, *chatsvc.ChatID, chatsvc.Mode, apimeta.ClusterID, bool, bool, bool, string, string, string, string, string) (chatsvc.ChatMessage, error) {
-	return chatsvc.ChatMessage{}, c.err
+func (c refusingChat) Send(context.Context, *chat.ChatID, chat.Mode, apimeta.ClusterID, bool, bool, bool, string, string, string, string, string) (chat.ChatMessage, error) {
+	return chat.ChatMessage{}, c.err
 }
 
-func (c refusingChat) Cancel(context.Context, chatsvc.ChatID) error { return c.err }
+func (c refusingChat) Cancel(context.Context, chat.ChatID) error { return c.err }
 
-func (c refusingChat) Approve(context.Context, chatsvc.ApprovalID, chatsvc.ApprovalDecision) (bool, error) {
+func (c refusingChat) Approve(context.Context, chat.ApprovalID, chat.ApprovalDecision) (bool, error) {
 	return false, c.err
 }
 
-func (c refusingChat) StopBackgroundTask(context.Context, chatsvc.ToolCallID) (bool, error) {
+func (c refusingChat) StopBackgroundTask(context.Context, chat.ToolCallID) (bool, error) {
 	return false, c.err
 }
 

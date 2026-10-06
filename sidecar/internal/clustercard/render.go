@@ -27,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
 
 // The card is the Cluster section of a context block: a fenced JSON object on
@@ -140,7 +140,7 @@ type Facts struct {
 // CacheFacts is one reading of the active cache.
 type CacheFacts struct {
 	// Health is the cache-wide verdict, which Freshness reads.
-	Health clustersvc.ClusterCacheHealth
+	Health cluster.ClusterCacheHealth
 	// Discovery is the sweep's own verdict.
 	Discovery string
 	// Kinds is the catalog, each with its sync verdict.
@@ -248,7 +248,7 @@ func build(f Facts) card {
 // the reason is only the first offender's, so whether every kind is behind is
 // decided by count. A cluster with sync switched off reads Paused with no counts,
 // which answers before any count is read.
-func Freshness(h *clustersvc.ClusterCacheHealth) FreshnessSection {
+func Freshness(h *cluster.ClusterCacheHealth) FreshnessSection {
 	if h == nil {
 		return FreshnessSection{Status: StatusSyncing}
 	}

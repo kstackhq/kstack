@@ -17,17 +17,17 @@ import (
 	"github.com/99designs/gqlgen/graphql/introspection"
 	"github.com/amorey/beehive"
 	"github.com/kstackhq/kstack/sidecar/graph/model"
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/auth"
-	"github.com/kstackhq/kstack/sidecar/internal/auth/oauth"
-	"github.com/kstackhq/kstack/sidecar/internal/chatsvc"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/rawjson"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
-	"github.com/kstackhq/kstack/sidecar/internal/rawjson"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/chat"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
+	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	gqlparser "github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
@@ -459,17 +459,17 @@ type ComplexityRoot struct {
 	}
 
 	Mutation struct {
-		ApprovalDecide                  func(childComplexity int, id chatsvc.ApprovalID, decision chatsvc.ApprovalDecision) int
+		ApprovalDecide                  func(childComplexity int, id chat.ApprovalID, decision chat.ApprovalDecision) int
 		AuthLoginStart                  func(childComplexity int) int
 		AuthLogout                      func(childComplexity int) int
-		BackgroundTaskStop              func(childComplexity int, id chatsvc.ToolCallID) int
+		BackgroundTaskStop              func(childComplexity int, id chat.ToolCallID) int
 		ChatCancel                      func(childComplexity int, chatID apimeta.ChatID) int
 		ChatDelete                      func(childComplexity int, id apimeta.ChatID) int
 		ChatGrantRemove                 func(childComplexity int, chatID apimeta.ChatID, id string) int
 		ChatNetworkEnabledSet           func(childComplexity int, id apimeta.ChatID, enabled bool) int
 		ChatRename                      func(childComplexity int, id apimeta.ChatID, title string) int
 		ChatSandboxDisabledSet          func(childComplexity int, id apimeta.ChatID, sandboxDisabled bool) int
-		ChatSend                        func(childComplexity int, chatID *apimeta.ChatID, mode chatsvc.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, networkEnabled bool, networkThisTurn bool, providerID string, modelID string, effort string, requestID string, content string) int
+		ChatSend                        func(childComplexity int, chatID *apimeta.ChatID, mode chat.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, networkEnabled bool, networkThisTurn bool, providerID string, modelID string, effort string, requestID string, content string) int
 		ClusterCacheClear               func(childComplexity int, id apimeta.ObjectID) int
 		ClusterCachedKindSyncEnabledSet func(childComplexity int, id apimeta.ObjectID, syncEnabled bool) int
 		ClusterConnectionRetry          func(childComplexity int, id apimeta.ClusterID) int
@@ -479,7 +479,7 @@ type ComplexityRoot struct {
 		ClusterSyncEnabledSet           func(childComplexity int, id apimeta.ClusterID, syncEnabled bool) int
 		FolderGrant                     func(childComplexity int, chatID *apimeta.ChatID, path string, write bool, duration model.GrantDuration) int
 		FolderRevoke                    func(childComplexity int, id string) int
-		MemoryDelete                    func(childComplexity int, id memorysvc.MemoryID) int
+		MemoryDelete                    func(childComplexity int, id memory.MemoryID) int
 		MemorySave                      func(childComplexity int, input model.MemorySaveInput) int
 		OnboardingFinish                func(childComplexity int) int
 		PermissionDefaultModeSet        func(childComplexity int, mode permissions.Mode) int
@@ -735,47 +735,47 @@ type ComplexityRoot struct {
 // region    ************************** generated!.gotpl **************************
 
 type ChatMessageResolver interface {
-	Thinking(ctx context.Context, obj *chatsvc.ChatMessage) (string, error)
+	Thinking(ctx context.Context, obj *chat.ChatMessage) (string, error)
 
-	Provider(ctx context.Context, obj *chatsvc.ChatMessage) (*model.Provider, error)
+	Provider(ctx context.Context, obj *chat.ChatMessage) (*model.Provider, error)
 
-	FinishedAt(ctx context.Context, obj *chatsvc.ChatMessage) (*time.Time, error)
-	ToolCalls(ctx context.Context, obj *chatsvc.ChatMessage) ([]*chatsvc.ToolCall, error)
-	Citations(ctx context.Context, obj *chatsvc.ChatMessage) ([]*llm.Citation, error)
+	FinishedAt(ctx context.Context, obj *chat.ChatMessage) (*time.Time, error)
+	ToolCalls(ctx context.Context, obj *chat.ChatMessage) ([]*chat.ToolCall, error)
+	Citations(ctx context.Context, obj *chat.ChatMessage) ([]*llm.Citation, error)
 }
 type ClusterResolver interface {
-	Caches(ctx context.Context, obj *clustersvc.Cluster) ([]*clustersvc.ClusterCache, error)
-	Events(ctx context.Context, obj *clustersvc.Cluster, category *string, limit *int) ([]*clustersvc.Event, error)
+	Caches(ctx context.Context, obj *cluster.Cluster) ([]*cluster.ClusterCache, error)
+	Events(ctx context.Context, obj *cluster.Cluster, category *string, limit *int) ([]*cluster.Event, error)
 }
 type ClusterCacheResolver interface {
-	Kinds(ctx context.Context, obj *clustersvc.ClusterCache) ([]*clustersvc.ClusterCachedDataKind, error)
-	CachedKinds(ctx context.Context, obj *clustersvc.ClusterCache) ([]*clustersvc.ClusterCachedKind, error)
-	Events(ctx context.Context, obj *clustersvc.ClusterCache, category *string, limit *int) ([]*clustersvc.Event, error)
+	Kinds(ctx context.Context, obj *cluster.ClusterCache) ([]*cluster.ClusterCachedDataKind, error)
+	CachedKinds(ctx context.Context, obj *cluster.ClusterCache) ([]*cluster.ClusterCachedKind, error)
+	Events(ctx context.Context, obj *cluster.ClusterCache, category *string, limit *int) ([]*cluster.Event, error)
 }
 type ClusterCachedKindResolver interface {
-	Events(ctx context.Context, obj *clustersvc.ClusterCachedKind, category *string, limit *int) ([]*clustersvc.Event, error)
+	Events(ctx context.Context, obj *cluster.ClusterCachedKind, category *string, limit *int) ([]*cluster.Event, error)
 }
 type ClusterCachedKindSpecResolver interface {
-	SyncEnabled(ctx context.Context, obj *clustersvc.ClusterCachedKindSpec) (bool, error)
+	SyncEnabled(ctx context.Context, obj *cluster.ClusterCachedKindSpec) (bool, error)
 }
 type ClusterPrincipalResolver interface {
-	Permissions(ctx context.Context, obj *clustersvc.ClusterPrincipal, namespace string) (*model.ClusterPermissions, error)
+	Permissions(ctx context.Context, obj *cluster.ClusterPrincipal, namespace string) (*model.ClusterPermissions, error)
 }
 type MutationResolver interface {
-	ClusterEnabledSet(ctx context.Context, id apimeta.ClusterID, enabled bool) (*clustersvc.Cluster, error)
-	ClusterSyncEnabledSet(ctx context.Context, id apimeta.ClusterID, syncEnabled bool) (*clustersvc.Cluster, error)
-	ClusterMonitoringEnabledSet(ctx context.Context, id apimeta.ClusterID, monitoringEnabled bool) (*clustersvc.Cluster, error)
+	ClusterEnabledSet(ctx context.Context, id apimeta.ClusterID, enabled bool) (*cluster.Cluster, error)
+	ClusterSyncEnabledSet(ctx context.Context, id apimeta.ClusterID, syncEnabled bool) (*cluster.Cluster, error)
+	ClusterMonitoringEnabledSet(ctx context.Context, id apimeta.ClusterID, monitoringEnabled bool) (*cluster.Cluster, error)
 	ClusterConnectionRetry(ctx context.Context, id apimeta.ClusterID) (bool, error)
 	ClusterDelete(ctx context.Context, id apimeta.ClusterID) (bool, error)
-	ClusterCacheClear(ctx context.Context, id apimeta.ObjectID) (*clustersvc.ClusterCache, error)
-	ClusterCachedKindSyncEnabledSet(ctx context.Context, id apimeta.ObjectID, syncEnabled bool) (*clustersvc.ClusterCachedKind, error)
-	ChatSend(ctx context.Context, chatID *apimeta.ChatID, mode chatsvc.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, networkEnabled bool, networkThisTurn bool, providerID string, modelID string, effort string, requestID string, content string) (*chatsvc.ChatMessage, error)
+	ClusterCacheClear(ctx context.Context, id apimeta.ObjectID) (*cluster.ClusterCache, error)
+	ClusterCachedKindSyncEnabledSet(ctx context.Context, id apimeta.ObjectID, syncEnabled bool) (*cluster.ClusterCachedKind, error)
+	ChatSend(ctx context.Context, chatID *apimeta.ChatID, mode chat.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, networkEnabled bool, networkThisTurn bool, providerID string, modelID string, effort string, requestID string, content string) (*chat.ChatMessage, error)
 	ChatCancel(ctx context.Context, chatID apimeta.ChatID) (bool, error)
-	ApprovalDecide(ctx context.Context, id chatsvc.ApprovalID, decision chatsvc.ApprovalDecision) (bool, error)
-	BackgroundTaskStop(ctx context.Context, id chatsvc.ToolCallID) (bool, error)
-	ChatRename(ctx context.Context, id apimeta.ChatID, title string) (*chatsvc.Chat, error)
-	ChatSandboxDisabledSet(ctx context.Context, id apimeta.ChatID, sandboxDisabled bool) (*chatsvc.Chat, error)
-	ChatNetworkEnabledSet(ctx context.Context, id apimeta.ChatID, enabled bool) (*chatsvc.Chat, error)
+	ApprovalDecide(ctx context.Context, id chat.ApprovalID, decision chat.ApprovalDecision) (bool, error)
+	BackgroundTaskStop(ctx context.Context, id chat.ToolCallID) (bool, error)
+	ChatRename(ctx context.Context, id apimeta.ChatID, title string) (*chat.Chat, error)
+	ChatSandboxDisabledSet(ctx context.Context, id apimeta.ChatID, sandboxDisabled bool) (*chat.Chat, error)
+	ChatNetworkEnabledSet(ctx context.Context, id apimeta.ChatID, enabled bool) (*chat.Chat, error)
 	ChatDelete(ctx context.Context, id apimeta.ChatID) (bool, error)
 	SandboxPathInclude(ctx context.Context, dir string, target string) ([]*model.SandboxPathEntry, error)
 	SandboxPathRemove(ctx context.Context, dir string) ([]*model.SandboxPathEntry, error)
@@ -784,8 +784,8 @@ type MutationResolver interface {
 	SandboxExecutableRegister(ctx context.Context, name string, invocation *string) ([]*model.SandboxExecutable, error)
 	SandboxExecutableRemove(ctx context.Context, name string) ([]*model.SandboxExecutable, error)
 	OnboardingFinish(ctx context.Context) (*model.Onboarding, error)
-	MemorySave(ctx context.Context, input model.MemorySaveInput) (*memorysvc.Memory, error)
-	MemoryDelete(ctx context.Context, id memorysvc.MemoryID) (bool, error)
+	MemorySave(ctx context.Context, input model.MemorySaveInput) (*memory.Memory, error)
+	MemoryDelete(ctx context.Context, id memory.MemoryID) (bool, error)
 	PermissionDefaultModeSet(ctx context.Context, mode permissions.Mode) (*model.PermissionSettings, error)
 	PermissionModeSet(ctx context.Context, context string, mode permissions.Mode) (*model.PermissionSettings, error)
 	PermissionModeClear(ctx context.Context, context string) (*model.PermissionSettings, error)
@@ -801,12 +801,12 @@ type MutationResolver interface {
 type QueryResolver interface {
 	Models(ctx context.Context) ([]*model.Model, error)
 	Sandbox(ctx context.Context) (*sandbox.Status, error)
-	Cluster(ctx context.Context, id apimeta.ClusterID) (*clustersvc.Cluster, error)
-	Clusters(ctx context.Context) ([]*clustersvc.Cluster, error)
-	ClusterCache(ctx context.Context, id apimeta.ObjectID) (*clustersvc.ClusterCache, error)
-	ClusterCaches(ctx context.Context, clusterID *apimeta.ClusterID) ([]*clustersvc.ClusterCache, error)
-	ClusterCachedKind(ctx context.Context, id apimeta.ObjectID) (*clustersvc.ClusterCachedKind, error)
-	ClusterCachedKinds(ctx context.Context, cacheID *apimeta.ObjectID) ([]*clustersvc.ClusterCachedKind, error)
+	Cluster(ctx context.Context, id apimeta.ClusterID) (*cluster.Cluster, error)
+	Clusters(ctx context.Context) ([]*cluster.Cluster, error)
+	ClusterCache(ctx context.Context, id apimeta.ObjectID) (*cluster.ClusterCache, error)
+	ClusterCaches(ctx context.Context, clusterID *apimeta.ClusterID) ([]*cluster.ClusterCache, error)
+	ClusterCachedKind(ctx context.Context, id apimeta.ObjectID) (*cluster.ClusterCachedKind, error)
+	ClusterCachedKinds(ctx context.Context, cacheID *apimeta.ObjectID) ([]*cluster.ClusterCachedKind, error)
 	SecurityRefused(ctx context.Context) ([]*securityconfig.Refusal, error)
 	SandboxPath(ctx context.Context) ([]*model.SandboxPathEntry, error)
 	SandboxPathFault(ctx context.Context) (*string, error)
@@ -819,26 +819,26 @@ type QueryResolver interface {
 	AuthState(ctx context.Context) (*auth.State, error)
 }
 type SubscriptionResolver interface {
-	EventsWatch(ctx context.Context, id apimeta.ObjectID, category *string) (<-chan *clustersvc.EventWatchFrame, error)
-	ClustersWatch(ctx context.Context) (<-chan *clustersvc.ClusterWatchFrame, error)
-	ClusterEventsWatch(ctx context.Context, id apimeta.ClusterID, category *string) (<-chan *clustersvc.EventWatchFrame, error)
-	ClusterScheduleWatch(ctx context.Context, id apimeta.ClusterID) (<-chan *clustersvc.Schedule, error)
-	ClusterCachesWatch(ctx context.Context) (<-chan *clustersvc.ClusterCacheWatchFrame, error)
-	ClusterCacheHealthWatch(ctx context.Context) (<-chan *clustersvc.ClusterCacheHealth, error)
-	ClusterCachedKindsWatch(ctx context.Context, cacheID apimeta.ObjectID) (<-chan *clustersvc.ClusterCachedKindWatchFrame, error)
-	ClusterCacheStatsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *clustersvc.ClusterCacheStats, error)
-	ClusterCacheSyncStatusWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *clustersvc.ClusterCacheSyncStatus, error)
-	ClusterCachedDataKindsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *clustersvc.ClusterCachedDataKindWatchFrame, error)
-	ClusterCachedDataEventsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *clustersvc.ClusterCachedDataEventWatchFrame, error)
-	ClusterCachedDataObjectsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID, apiVersion string, resource string) (<-chan *clustersvc.ClusterCachedDataObjectWatchFrame, error)
-	ChatsWatch(ctx context.Context) (<-chan *chatsvc.ChatWatchFrame, error)
-	ChatMessagesWatch(ctx context.Context, chatID apimeta.ChatID) (<-chan *chatsvc.ChatMessageWatchFrame, error)
-	MemoriesWatch(ctx context.Context, clusterID apimeta.ClusterID) (<-chan *memorysvc.MemoryWatchFrame, error)
+	EventsWatch(ctx context.Context, id apimeta.ObjectID, category *string) (<-chan *cluster.EventWatchFrame, error)
+	ClustersWatch(ctx context.Context) (<-chan *cluster.ClusterWatchFrame, error)
+	ClusterEventsWatch(ctx context.Context, id apimeta.ClusterID, category *string) (<-chan *cluster.EventWatchFrame, error)
+	ClusterScheduleWatch(ctx context.Context, id apimeta.ClusterID) (<-chan *cluster.Schedule, error)
+	ClusterCachesWatch(ctx context.Context) (<-chan *cluster.ClusterCacheWatchFrame, error)
+	ClusterCacheHealthWatch(ctx context.Context) (<-chan *cluster.ClusterCacheHealth, error)
+	ClusterCachedKindsWatch(ctx context.Context, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedKindWatchFrame, error)
+	ClusterCacheStatsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCacheStats, error)
+	ClusterCacheSyncStatusWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCacheSyncStatus, error)
+	ClusterCachedDataKindsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedDataKindWatchFrame, error)
+	ClusterCachedDataEventsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID) (<-chan *cluster.ClusterCachedDataEventWatchFrame, error)
+	ClusterCachedDataObjectsWatch(ctx context.Context, id apimeta.ClusterID, cacheID apimeta.ObjectID, apiVersion string, resource string) (<-chan *cluster.ClusterCachedDataObjectWatchFrame, error)
+	ChatsWatch(ctx context.Context) (<-chan *chat.ChatWatchFrame, error)
+	ChatMessagesWatch(ctx context.Context, chatID apimeta.ChatID) (<-chan *chat.ChatMessageWatchFrame, error)
+	MemoriesWatch(ctx context.Context, clusterID apimeta.ClusterID) (<-chan *memory.MemoryWatchFrame, error)
 	SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error)
 	AuthStateWatch(ctx context.Context) (<-chan *auth.State, error)
 }
 type ToolCallResolver interface {
-	Status(ctx context.Context, obj *chatsvc.ToolCall) (*chatsvc.ToolCallStatus, error)
+	Status(ctx context.Context, obj *chat.ToolCall) (*chat.ToolCallStatus, error)
 }
 
 // endregion ************************** generated!.gotpl **************************
@@ -2399,7 +2399,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Mutation.ApprovalDecide(childComplexity, args["id"].(chatsvc.ApprovalID), args["decision"].(chatsvc.ApprovalDecision)), true
+		return e.ComplexityRoot.Mutation.ApprovalDecide(childComplexity, args["id"].(chat.ApprovalID), args["decision"].(chat.ApprovalDecision)), true
 	case "Mutation.authLoginStart":
 		if e.ComplexityRoot.Mutation.AuthLoginStart == nil {
 			break
@@ -2422,7 +2422,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Mutation.BackgroundTaskStop(childComplexity, args["id"].(chatsvc.ToolCallID)), true
+		return e.ComplexityRoot.Mutation.BackgroundTaskStop(childComplexity, args["id"].(chat.ToolCallID)), true
 	case "Mutation.chatCancel":
 		if e.ComplexityRoot.Mutation.ChatCancel == nil {
 			break
@@ -2499,7 +2499,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Mutation.ChatSend(childComplexity, args["chatID"].(*apimeta.ChatID), args["mode"].(chatsvc.Mode), args["clusterID"].(apimeta.ClusterID), args["sandboxDisabled"].(bool), args["networkEnabled"].(bool), args["networkThisTurn"].(bool), args["providerID"].(string), args["modelID"].(string), args["effort"].(string), args["requestID"].(string), args["content"].(string)), true
+		return e.ComplexityRoot.Mutation.ChatSend(childComplexity, args["chatID"].(*apimeta.ChatID), args["mode"].(chat.Mode), args["clusterID"].(apimeta.ClusterID), args["sandboxDisabled"].(bool), args["networkEnabled"].(bool), args["networkThisTurn"].(bool), args["providerID"].(string), args["modelID"].(string), args["effort"].(string), args["requestID"].(string), args["content"].(string)), true
 	case "Mutation.clusterCacheClear":
 		if e.ComplexityRoot.Mutation.ClusterCacheClear == nil {
 			break
@@ -2609,7 +2609,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Mutation.MemoryDelete(childComplexity, args["id"].(memorysvc.MemoryID)), true
+		return e.ComplexityRoot.Mutation.MemoryDelete(childComplexity, args["id"].(memory.MemoryID)), true
 	case "Mutation.memorySave":
 		if e.ComplexityRoot.Mutation.MemorySave == nil {
 			break
@@ -5283,16 +5283,16 @@ func (ec *executionContext) field_Mutation_approvalDecide_args(ctx context.Conte
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
-		func(ctx context.Context, v any) (chatsvc.ApprovalID, error) {
-			return ec.unmarshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalID(ctx, v)
+		func(ctx context.Context, v any) (chat.ApprovalID, error) {
+			return ec.unmarshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
 	}
 	args["id"] = arg0
 	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "decision",
-		func(ctx context.Context, v any) (chatsvc.ApprovalDecision, error) {
-			return ec.unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalDecision(ctx, v)
+		func(ctx context.Context, v any) (chat.ApprovalDecision, error) {
+			return ec.unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalDecision(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5305,8 +5305,8 @@ func (ec *executionContext) field_Mutation_backgroundTaskStop_args(ctx context.C
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
-		func(ctx context.Context, v any) (chatsvc.ToolCallID, error) {
-			return ec.unmarshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallID(ctx, v)
+		func(ctx context.Context, v any) (chat.ToolCallID, error) {
+			return ec.unmarshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5320,7 +5320,7 @@ func (ec *executionContext) field_Mutation_chatCancel_args(ctx context.Context, 
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "chatID",
 		func(ctx context.Context, v any) (apimeta.ChatID, error) {
-			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5334,7 +5334,7 @@ func (ec *executionContext) field_Mutation_chatDelete_args(ctx context.Context, 
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ChatID, error) {
-			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5348,7 +5348,7 @@ func (ec *executionContext) field_Mutation_chatGrantRemove_args(ctx context.Cont
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "chatID",
 		func(ctx context.Context, v any) (apimeta.ChatID, error) {
-			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5370,7 +5370,7 @@ func (ec *executionContext) field_Mutation_chatNetworkEnabledSet_args(ctx contex
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ChatID, error) {
-			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5392,7 +5392,7 @@ func (ec *executionContext) field_Mutation_chatRename_args(ctx context.Context, 
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ChatID, error) {
-			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5414,7 +5414,7 @@ func (ec *executionContext) field_Mutation_chatSandboxDisabledSet_args(ctx conte
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ChatID, error) {
-			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5436,15 +5436,15 @@ func (ec *executionContext) field_Mutation_chatSend_args(ctx context.Context, ra
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "chatID",
 		func(ctx context.Context, v any) (*apimeta.ChatID, error) {
-			return ec.unmarshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+			return ec.unmarshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
 	}
 	args["chatID"] = arg0
 	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "mode",
-		func(ctx context.Context, v any) (chatsvc.Mode, error) {
-			return ec.unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMode(ctx, v)
+		func(ctx context.Context, v any) (chat.Mode, error) {
+			return ec.unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5452,7 +5452,7 @@ func (ec *executionContext) field_Mutation_chatSend_args(ctx context.Context, ra
 	args["mode"] = arg1
 	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "clusterID",
 		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5530,7 +5530,7 @@ func (ec *executionContext) field_Mutation_clusterCacheClear_args(ctx context.Co
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ObjectID, error) {
-			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, v)
+			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5544,7 +5544,7 @@ func (ec *executionContext) field_Mutation_clusterCachedKindSyncEnabledSet_args(
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ObjectID, error) {
-			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, v)
+			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5566,7 +5566,7 @@ func (ec *executionContext) field_Mutation_clusterConnectionRetry_args(ctx conte
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5580,7 +5580,7 @@ func (ec *executionContext) field_Mutation_clusterDelete_args(ctx context.Contex
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5594,7 +5594,7 @@ func (ec *executionContext) field_Mutation_clusterEnabledSet_args(ctx context.Co
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5616,7 +5616,7 @@ func (ec *executionContext) field_Mutation_clusterMonitoringEnabledSet_args(ctx 
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5638,7 +5638,7 @@ func (ec *executionContext) field_Mutation_clusterSyncEnabledSet_args(ctx contex
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5660,7 +5660,7 @@ func (ec *executionContext) field_Mutation_folderGrant_args(ctx context.Context,
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "chatID",
 		func(ctx context.Context, v any) (*apimeta.ChatID, error) {
-			return ec.unmarshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+			return ec.unmarshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5711,8 +5711,8 @@ func (ec *executionContext) field_Mutation_memoryDelete_args(ctx context.Context
 	var err error
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
-		func(ctx context.Context, v any) (memorysvc.MemoryID, error) {
-			return ec.unmarshalNMemoryID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐMemoryID(ctx, v)
+		func(ctx context.Context, v any) (memory.MemoryID, error) {
+			return ec.unmarshalNMemoryID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemoryID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5918,7 +5918,7 @@ func (ec *executionContext) field_Query_chatGrants_args(ctx context.Context, raw
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "chatID",
 		func(ctx context.Context, v any) (apimeta.ChatID, error) {
-			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5932,7 +5932,7 @@ func (ec *executionContext) field_Query_clusterCache_args(ctx context.Context, r
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ObjectID, error) {
-			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, v)
+			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5946,7 +5946,7 @@ func (ec *executionContext) field_Query_clusterCachedKind_args(ctx context.Conte
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ObjectID, error) {
-			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, v)
+			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5960,7 +5960,7 @@ func (ec *executionContext) field_Query_clusterCachedKinds_args(ctx context.Cont
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "cacheID",
 		func(ctx context.Context, v any) (*apimeta.ObjectID, error) {
-			return ec.unmarshalOObjectID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, v)
+			return ec.unmarshalOObjectID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5974,7 +5974,7 @@ func (ec *executionContext) field_Query_clusterCaches_args(ctx context.Context, 
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "clusterID",
 		func(ctx context.Context, v any) (*apimeta.ClusterID, error) {
-			return ec.unmarshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5988,7 +5988,7 @@ func (ec *executionContext) field_Query_cluster_args(ctx context.Context, rawArg
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6002,7 +6002,7 @@ func (ec *executionContext) field_Query_sandboxFolders_args(ctx context.Context,
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "chatID",
 		func(ctx context.Context, v any) (*apimeta.ChatID, error) {
-			return ec.unmarshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+			return ec.unmarshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6016,7 +6016,7 @@ func (ec *executionContext) field_Subscription_chatMessagesWatch_args(ctx contex
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "chatID",
 		func(ctx context.Context, v any) (apimeta.ChatID, error) {
-			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, v)
+			return ec.unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6030,7 +6030,7 @@ func (ec *executionContext) field_Subscription_clusterCacheStatsWatch_args(ctx c
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6038,7 +6038,7 @@ func (ec *executionContext) field_Subscription_clusterCacheStatsWatch_args(ctx c
 	args["id"] = arg0
 	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "cacheID",
 		func(ctx context.Context, v any) (apimeta.ObjectID, error) {
-			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, v)
+			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6052,7 +6052,7 @@ func (ec *executionContext) field_Subscription_clusterCacheSyncStatusWatch_args(
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6060,7 +6060,7 @@ func (ec *executionContext) field_Subscription_clusterCacheSyncStatusWatch_args(
 	args["id"] = arg0
 	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "cacheID",
 		func(ctx context.Context, v any) (apimeta.ObjectID, error) {
-			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, v)
+			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6074,7 +6074,7 @@ func (ec *executionContext) field_Subscription_clusterCachedDataEventsWatch_args
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6082,7 +6082,7 @@ func (ec *executionContext) field_Subscription_clusterCachedDataEventsWatch_args
 	args["id"] = arg0
 	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "cacheID",
 		func(ctx context.Context, v any) (apimeta.ObjectID, error) {
-			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, v)
+			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6096,7 +6096,7 @@ func (ec *executionContext) field_Subscription_clusterCachedDataKindsWatch_args(
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6104,7 +6104,7 @@ func (ec *executionContext) field_Subscription_clusterCachedDataKindsWatch_args(
 	args["id"] = arg0
 	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "cacheID",
 		func(ctx context.Context, v any) (apimeta.ObjectID, error) {
-			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, v)
+			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6118,7 +6118,7 @@ func (ec *executionContext) field_Subscription_clusterCachedDataObjectsWatch_arg
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6126,7 +6126,7 @@ func (ec *executionContext) field_Subscription_clusterCachedDataObjectsWatch_arg
 	args["id"] = arg0
 	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "cacheID",
 		func(ctx context.Context, v any) (apimeta.ObjectID, error) {
-			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, v)
+			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6156,7 +6156,7 @@ func (ec *executionContext) field_Subscription_clusterCachedKindsWatch_args(ctx 
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "cacheID",
 		func(ctx context.Context, v any) (apimeta.ObjectID, error) {
-			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, v)
+			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6170,7 +6170,7 @@ func (ec *executionContext) field_Subscription_clusterEventsWatch_args(ctx conte
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6192,7 +6192,7 @@ func (ec *executionContext) field_Subscription_clusterScheduleWatch_args(ctx con
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6206,7 +6206,7 @@ func (ec *executionContext) field_Subscription_eventsWatch_args(ctx context.Cont
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (apimeta.ObjectID, error) {
-			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, v)
+			return ec.unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6228,7 +6228,7 @@ func (ec *executionContext) field_Subscription_memoriesWatch_args(ctx context.Co
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "clusterID",
 		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
-			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6333,7 +6333,7 @@ func (ec *executionContext) _AuthState_identity(ctx context.Context, field graph
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *oauth.Identity) graphql.Marshaler {
-			return ec.marshalOIdentity2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋauthᚋoauthᚐIdentity(ctx, selections, v)
+			return ec.marshalOIdentity2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋauthᚋoauthᚐIdentity(ctx, selections, v)
 		},
 		true,
 		false,
@@ -6352,7 +6352,7 @@ func (ec *executionContext) fieldContext_AuthState_identity(_ context.Context, f
 	return fc, nil
 }
 
-func (ec *executionContext) _BackgroundTask_status(ctx context.Context, field graphql.CollectedField, obj *chatsvc.BackgroundTask) (ret graphql.Marshaler) {
+func (ec *executionContext) _BackgroundTask_status(ctx context.Context, field graphql.CollectedField, obj *chat.BackgroundTask) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6364,8 +6364,8 @@ func (ec *executionContext) _BackgroundTask_status(ctx context.Context, field gr
 			return obj.Status, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v chatsvc.BackgroundTaskStatus) graphql.Marshaler {
-			return ec.marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐBackgroundTaskStatus(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v chat.BackgroundTaskStatus) graphql.Marshaler {
+			return ec.marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTaskStatus(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6375,7 +6375,7 @@ func (ec *executionContext) fieldContext_BackgroundTask_status(_ context.Context
 	return graphql.NewScalarFieldContext("BackgroundTask", field, false, false, errors.New("field of type BackgroundTaskStatus does not have child fields"))
 }
 
-func (ec *executionContext) _BackgroundTask_exitCode(ctx context.Context, field graphql.CollectedField, obj *chatsvc.BackgroundTask) (ret graphql.Marshaler) {
+func (ec *executionContext) _BackgroundTask_exitCode(ctx context.Context, field graphql.CollectedField, obj *chat.BackgroundTask) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6398,7 +6398,7 @@ func (ec *executionContext) fieldContext_BackgroundTask_exitCode(_ context.Conte
 	return graphql.NewScalarFieldContext("BackgroundTask", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _BackgroundTask_report(ctx context.Context, field graphql.CollectedField, obj *chatsvc.BackgroundTask) (ret graphql.Marshaler) {
+func (ec *executionContext) _BackgroundTask_report(ctx context.Context, field graphql.CollectedField, obj *chat.BackgroundTask) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6421,7 +6421,7 @@ func (ec *executionContext) fieldContext_BackgroundTask_report(_ context.Context
 	return graphql.NewScalarFieldContext("BackgroundTask", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _Chat_id(ctx context.Context, field graphql.CollectedField, obj *chatsvc.Chat) (ret graphql.Marshaler) {
+func (ec *executionContext) _Chat_id(ctx context.Context, field graphql.CollectedField, obj *chat.Chat) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6434,7 +6434,7 @@ func (ec *executionContext) _Chat_id(ctx context.Context, field graphql.Collecte
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.ChatID) graphql.Marshaler {
-			return ec.marshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, selections, v)
+			return ec.marshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6444,7 +6444,7 @@ func (ec *executionContext) fieldContext_Chat_id(_ context.Context, field graphq
 	return graphql.NewScalarFieldContext("Chat", field, false, false, errors.New("field of type ChatID does not have child fields"))
 }
 
-func (ec *executionContext) _Chat_title(ctx context.Context, field graphql.CollectedField, obj *chatsvc.Chat) (ret graphql.Marshaler) {
+func (ec *executionContext) _Chat_title(ctx context.Context, field graphql.CollectedField, obj *chat.Chat) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6467,7 +6467,7 @@ func (ec *executionContext) fieldContext_Chat_title(_ context.Context, field gra
 	return graphql.NewScalarFieldContext("Chat", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _Chat_mode(ctx context.Context, field graphql.CollectedField, obj *chatsvc.Chat) (ret graphql.Marshaler) {
+func (ec *executionContext) _Chat_mode(ctx context.Context, field graphql.CollectedField, obj *chat.Chat) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6479,8 +6479,8 @@ func (ec *executionContext) _Chat_mode(ctx context.Context, field graphql.Collec
 			return obj.Mode, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v chatsvc.Mode) graphql.Marshaler {
-			return ec.marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMode(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v chat.Mode) graphql.Marshaler {
+			return ec.marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6490,7 +6490,7 @@ func (ec *executionContext) fieldContext_Chat_mode(_ context.Context, field grap
 	return graphql.NewScalarFieldContext("Chat", field, false, false, errors.New("field of type ChatMode does not have child fields"))
 }
 
-func (ec *executionContext) _Chat_clusterID(ctx context.Context, field graphql.CollectedField, obj *chatsvc.Chat) (ret graphql.Marshaler) {
+func (ec *executionContext) _Chat_clusterID(ctx context.Context, field graphql.CollectedField, obj *chat.Chat) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6503,7 +6503,7 @@ func (ec *executionContext) _Chat_clusterID(ctx context.Context, field graphql.C
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.ClusterID) graphql.Marshaler {
-			return ec.marshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, selections, v)
+			return ec.marshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6513,7 +6513,7 @@ func (ec *executionContext) fieldContext_Chat_clusterID(_ context.Context, field
 	return graphql.NewScalarFieldContext("Chat", field, false, false, errors.New("field of type ClusterID does not have child fields"))
 }
 
-func (ec *executionContext) _Chat_createdAt(ctx context.Context, field graphql.CollectedField, obj *chatsvc.Chat) (ret graphql.Marshaler) {
+func (ec *executionContext) _Chat_createdAt(ctx context.Context, field graphql.CollectedField, obj *chat.Chat) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6536,7 +6536,7 @@ func (ec *executionContext) fieldContext_Chat_createdAt(_ context.Context, field
 	return graphql.NewScalarFieldContext("Chat", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _Chat_updatedAt(ctx context.Context, field graphql.CollectedField, obj *chatsvc.Chat) (ret graphql.Marshaler) {
+func (ec *executionContext) _Chat_updatedAt(ctx context.Context, field graphql.CollectedField, obj *chat.Chat) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6559,7 +6559,7 @@ func (ec *executionContext) fieldContext_Chat_updatedAt(_ context.Context, field
 	return graphql.NewScalarFieldContext("Chat", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _Chat_awaitingApproval(ctx context.Context, field graphql.CollectedField, obj *chatsvc.Chat) (ret graphql.Marshaler) {
+func (ec *executionContext) _Chat_awaitingApproval(ctx context.Context, field graphql.CollectedField, obj *chat.Chat) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6582,7 +6582,7 @@ func (ec *executionContext) fieldContext_Chat_awaitingApproval(_ context.Context
 	return graphql.NewScalarFieldContext("Chat", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _Chat_sandboxDisabled(ctx context.Context, field graphql.CollectedField, obj *chatsvc.Chat) (ret graphql.Marshaler) {
+func (ec *executionContext) _Chat_sandboxDisabled(ctx context.Context, field graphql.CollectedField, obj *chat.Chat) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6605,7 +6605,7 @@ func (ec *executionContext) fieldContext_Chat_sandboxDisabled(_ context.Context,
 	return graphql.NewScalarFieldContext("Chat", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _Chat_networkEnabled(ctx context.Context, field graphql.CollectedField, obj *chatsvc.Chat) (ret graphql.Marshaler) {
+func (ec *executionContext) _Chat_networkEnabled(ctx context.Context, field graphql.CollectedField, obj *chat.Chat) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6628,7 +6628,7 @@ func (ec *executionContext) fieldContext_Chat_networkEnabled(_ context.Context, 
 	return graphql.NewScalarFieldContext("Chat", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessage_id(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_id(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6640,8 +6640,8 @@ func (ec *executionContext) _ChatMessage_id(ctx context.Context, field graphql.C
 			return obj.ID, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v chatsvc.MessageID) graphql.Marshaler {
-			return ec.marshalNMessageID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMessageID(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v chat.MessageID) graphql.Marshaler {
+			return ec.marshalNMessageID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6651,7 +6651,7 @@ func (ec *executionContext) fieldContext_ChatMessage_id(_ context.Context, field
 	return graphql.NewScalarFieldContext("ChatMessage", field, false, false, errors.New("field of type MessageID does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessage_chatID(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_chatID(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6664,7 +6664,7 @@ func (ec *executionContext) _ChatMessage_chatID(ctx context.Context, field graph
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.ChatID) graphql.Marshaler {
-			return ec.marshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx, selections, v)
+			return ec.marshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6674,7 +6674,7 @@ func (ec *executionContext) fieldContext_ChatMessage_chatID(_ context.Context, f
 	return graphql.NewScalarFieldContext("ChatMessage", field, false, false, errors.New("field of type ChatID does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessage_seq(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_seq(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6697,7 +6697,7 @@ func (ec *executionContext) fieldContext_ChatMessage_seq(_ context.Context, fiel
 	return graphql.NewScalarFieldContext("ChatMessage", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessage_role(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_role(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6709,8 +6709,8 @@ func (ec *executionContext) _ChatMessage_role(ctx context.Context, field graphql
 			return obj.Role, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v chatsvc.Role) graphql.Marshaler {
-			return ec.marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐRole(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v chat.Role) graphql.Marshaler {
+			return ec.marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐRole(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6720,7 +6720,7 @@ func (ec *executionContext) fieldContext_ChatMessage_role(_ context.Context, fie
 	return graphql.NewScalarFieldContext("ChatMessage", field, false, false, errors.New("field of type ChatMessageRole does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessage_content(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_content(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6733,7 +6733,7 @@ func (ec *executionContext) _ChatMessage_content(ctx context.Context, field grap
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v rawjson.RawJSON) graphql.Marshaler {
-			return ec.marshalNJSON2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrawjsonᚐRawJSON(ctx, selections, v)
+			return ec.marshalNJSON2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋrawjsonᚐRawJSON(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6743,7 +6743,7 @@ func (ec *executionContext) fieldContext_ChatMessage_content(_ context.Context, 
 	return graphql.NewScalarFieldContext("ChatMessage", field, false, false, errors.New("field of type JSON does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessage_thinking(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_thinking(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6766,7 +6766,7 @@ func (ec *executionContext) fieldContext_ChatMessage_thinking(_ context.Context,
 	return graphql.NewScalarFieldContext("ChatMessage", field, true, true, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessage_status(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_status(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6778,8 +6778,8 @@ func (ec *executionContext) _ChatMessage_status(ctx context.Context, field graph
 			return obj.Status, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v chatsvc.MessageStatus) graphql.Marshaler {
-			return ec.marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMessageStatus(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v chat.MessageStatus) graphql.Marshaler {
+			return ec.marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageStatus(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6789,7 +6789,7 @@ func (ec *executionContext) fieldContext_ChatMessage_status(_ context.Context, f
 	return graphql.NewScalarFieldContext("ChatMessage", field, false, false, errors.New("field of type ChatMessageStatus does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessage_awaitingApproval(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_awaitingApproval(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6812,7 +6812,7 @@ func (ec *executionContext) fieldContext_ChatMessage_awaitingApproval(_ context.
 	return graphql.NewScalarFieldContext("ChatMessage", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessage_error(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_error(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6835,7 +6835,7 @@ func (ec *executionContext) fieldContext_ChatMessage_error(_ context.Context, fi
 	return graphql.NewScalarFieldContext("ChatMessage", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessage_model(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_model(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6858,7 +6858,7 @@ func (ec *executionContext) fieldContext_ChatMessage_model(_ context.Context, fi
 	return graphql.NewScalarFieldContext("ChatMessage", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessage_provider(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_provider(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6890,7 +6890,7 @@ func (ec *executionContext) fieldContext_ChatMessage_provider(_ context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _ChatMessage_effort(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_effort(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6913,7 +6913,7 @@ func (ec *executionContext) fieldContext_ChatMessage_effort(_ context.Context, f
 	return graphql.NewScalarFieldContext("ChatMessage", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessage_finishReason(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_finishReason(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6936,7 +6936,7 @@ func (ec *executionContext) fieldContext_ChatMessage_finishReason(_ context.Cont
 	return graphql.NewScalarFieldContext("ChatMessage", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessage_createdAt(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_createdAt(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6959,7 +6959,7 @@ func (ec *executionContext) fieldContext_ChatMessage_createdAt(_ context.Context
 	return graphql.NewScalarFieldContext("ChatMessage", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessage_finishedAt(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_finishedAt(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6982,7 +6982,7 @@ func (ec *executionContext) fieldContext_ChatMessage_finishedAt(_ context.Contex
 	return graphql.NewScalarFieldContext("ChatMessage", field, true, true, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessage_toolCalls(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_toolCalls(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -6994,8 +6994,8 @@ func (ec *executionContext) _ChatMessage_toolCalls(ctx context.Context, field gr
 			return ec.Resolvers.ChatMessage().ToolCalls(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*chatsvc.ToolCall) graphql.Marshaler {
-			return ec.marshalNToolCall2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*chat.ToolCall) graphql.Marshaler {
+			return ec.marshalNToolCall2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7014,7 +7014,7 @@ func (ec *executionContext) fieldContext_ChatMessage_toolCalls(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _ChatMessage_citations(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessage) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessage_citations(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessage) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7046,7 +7046,7 @@ func (ec *executionContext) fieldContext_ChatMessage_citations(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _ChatMessageWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessageWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessageWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessageWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7059,7 +7059,7 @@ func (ec *executionContext) _ChatMessageWatchFrame_type(ctx context.Context, fie
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.DeltaFrameType) graphql.Marshaler {
-			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐDeltaFrameType(ctx, selections, v)
+			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐDeltaFrameType(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7069,7 +7069,7 @@ func (ec *executionContext) fieldContext_ChatMessageWatchFrame_type(_ context.Co
 	return graphql.NewScalarFieldContext("ChatMessageWatchFrame", field, false, false, errors.New("field of type DeltaFrameType does not have child fields"))
 }
 
-func (ec *executionContext) _ChatMessageWatchFrame_message(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatMessageWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatMessageWatchFrame_message(ctx context.Context, field graphql.CollectedField, obj *chat.ChatMessageWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7081,8 +7081,8 @@ func (ec *executionContext) _ChatMessageWatchFrame_message(ctx context.Context, 
 			return obj.Message, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.ChatMessage) graphql.Marshaler {
-			return ec.marshalOChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐChatMessage(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *chat.ChatMessage) graphql.Marshaler {
+			return ec.marshalOChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatMessage(ctx, selections, v)
 		},
 		true,
 		false,
@@ -7101,7 +7101,7 @@ func (ec *executionContext) fieldContext_ChatMessageWatchFrame_message(_ context
 	return fc, nil
 }
 
-func (ec *executionContext) _ChatWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *chat.ChatWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7114,7 +7114,7 @@ func (ec *executionContext) _ChatWatchFrame_type(ctx context.Context, field grap
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.DeltaFrameType) graphql.Marshaler {
-			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐDeltaFrameType(ctx, selections, v)
+			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐDeltaFrameType(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7124,7 +7124,7 @@ func (ec *executionContext) fieldContext_ChatWatchFrame_type(_ context.Context, 
 	return graphql.NewScalarFieldContext("ChatWatchFrame", field, false, false, errors.New("field of type DeltaFrameType does not have child fields"))
 }
 
-func (ec *executionContext) _ChatWatchFrame_chat(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ChatWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ChatWatchFrame_chat(ctx context.Context, field graphql.CollectedField, obj *chat.ChatWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7136,8 +7136,8 @@ func (ec *executionContext) _ChatWatchFrame_chat(ctx context.Context, field grap
 			return obj.Chat, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.Chat) graphql.Marshaler {
-			return ec.marshalOChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐChat(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *chat.Chat) graphql.Marshaler {
+			return ec.marshalOChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChat(ctx, selections, v)
 		},
 		true,
 		false,
@@ -7248,7 +7248,7 @@ func (ec *executionContext) fieldContext_Citation_citedText(_ context.Context, f
 	return graphql.NewScalarFieldContext("Citation", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _Cluster_id(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Cluster) (ret graphql.Marshaler) {
+func (ec *executionContext) _Cluster_id(ctx context.Context, field graphql.CollectedField, obj *cluster.Cluster) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7261,7 +7261,7 @@ func (ec *executionContext) _Cluster_id(ctx context.Context, field graphql.Colle
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.ClusterID) graphql.Marshaler {
-			return ec.marshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, selections, v)
+			return ec.marshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7271,7 +7271,7 @@ func (ec *executionContext) fieldContext_Cluster_id(_ context.Context, field gra
 	return graphql.NewScalarFieldContext("Cluster", field, false, false, errors.New("field of type ClusterID does not have child fields"))
 }
 
-func (ec *executionContext) _Cluster_createdAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Cluster) (ret graphql.Marshaler) {
+func (ec *executionContext) _Cluster_createdAt(ctx context.Context, field graphql.CollectedField, obj *cluster.Cluster) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7294,7 +7294,7 @@ func (ec *executionContext) fieldContext_Cluster_createdAt(_ context.Context, fi
 	return graphql.NewScalarFieldContext("Cluster", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _Cluster_updatedAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Cluster) (ret graphql.Marshaler) {
+func (ec *executionContext) _Cluster_updatedAt(ctx context.Context, field graphql.CollectedField, obj *cluster.Cluster) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7317,7 +7317,7 @@ func (ec *executionContext) fieldContext_Cluster_updatedAt(_ context.Context, fi
 	return graphql.NewScalarFieldContext("Cluster", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _Cluster_deletionRequestedAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Cluster) (ret graphql.Marshaler) {
+func (ec *executionContext) _Cluster_deletionRequestedAt(ctx context.Context, field graphql.CollectedField, obj *cluster.Cluster) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7340,7 +7340,7 @@ func (ec *executionContext) fieldContext_Cluster_deletionRequestedAt(_ context.C
 	return graphql.NewScalarFieldContext("Cluster", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _Cluster_spec(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Cluster) (ret graphql.Marshaler) {
+func (ec *executionContext) _Cluster_spec(ctx context.Context, field graphql.CollectedField, obj *cluster.Cluster) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7352,8 +7352,8 @@ func (ec *executionContext) _Cluster_spec(ctx context.Context, field graphql.Col
 			return obj.Spec, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v clustersvc.ClusterSpec) graphql.Marshaler {
-			return ec.marshalNClusterSpec2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterSpec(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v cluster.ClusterSpec) graphql.Marshaler {
+			return ec.marshalNClusterSpec2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterSpec(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7372,7 +7372,7 @@ func (ec *executionContext) fieldContext_Cluster_spec(_ context.Context, field g
 	return fc, nil
 }
 
-func (ec *executionContext) _Cluster_status(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Cluster) (ret graphql.Marshaler) {
+func (ec *executionContext) _Cluster_status(ctx context.Context, field graphql.CollectedField, obj *cluster.Cluster) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7384,8 +7384,8 @@ func (ec *executionContext) _Cluster_status(ctx context.Context, field graphql.C
 			return obj.Status, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v clustersvc.ClusterStatus) graphql.Marshaler {
-			return ec.marshalNClusterStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterStatus(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v cluster.ClusterStatus) graphql.Marshaler {
+			return ec.marshalNClusterStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterStatus(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7404,7 +7404,7 @@ func (ec *executionContext) fieldContext_Cluster_status(_ context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _Cluster_conditions(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Cluster) (ret graphql.Marshaler) {
+func (ec *executionContext) _Cluster_conditions(ctx context.Context, field graphql.CollectedField, obj *cluster.Cluster) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7416,7 +7416,7 @@ func (ec *executionContext) _Cluster_conditions(ctx context.Context, field graph
 			return obj.Conditions, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []clustersvc.Condition) graphql.Marshaler {
+		func(ctx context.Context, selections ast.SelectionSet, v []cluster.Condition) graphql.Marshaler {
 			return ec.marshalNCondition2ᚕgithubᚗcomᚋamoreyᚋbeehiveᚐConditionᚄ(ctx, selections, v)
 		},
 		true,
@@ -7436,7 +7436,7 @@ func (ec *executionContext) fieldContext_Cluster_conditions(_ context.Context, f
 	return fc, nil
 }
 
-func (ec *executionContext) _Cluster_caches(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Cluster) (ret graphql.Marshaler) {
+func (ec *executionContext) _Cluster_caches(ctx context.Context, field graphql.CollectedField, obj *cluster.Cluster) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7448,8 +7448,8 @@ func (ec *executionContext) _Cluster_caches(ctx context.Context, field graphql.C
 			return ec.Resolvers.Cluster().Caches(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*clustersvc.ClusterCache) graphql.Marshaler {
-			return ec.marshalNClusterCache2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*cluster.ClusterCache) graphql.Marshaler {
+			return ec.marshalNClusterCache2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7468,7 +7468,7 @@ func (ec *executionContext) fieldContext_Cluster_caches(_ context.Context, field
 	return fc, nil
 }
 
-func (ec *executionContext) _Cluster_events(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Cluster) (ret graphql.Marshaler) {
+func (ec *executionContext) _Cluster_events(ctx context.Context, field graphql.CollectedField, obj *cluster.Cluster) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7481,8 +7481,8 @@ func (ec *executionContext) _Cluster_events(ctx context.Context, field graphql.C
 			return ec.Resolvers.Cluster().Events(ctx, obj, fc.Args["category"].(*string), fc.Args["limit"].(*int))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*clustersvc.Event) graphql.Marshaler {
-			return ec.marshalNEvent2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐEventᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*cluster.Event) graphql.Marshaler {
+			return ec.marshalNEvent2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐEventᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7512,7 +7512,7 @@ func (ec *executionContext) fieldContext_Cluster_events(ctx context.Context, fie
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCache_id(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCache) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCache_id(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCache) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7525,7 +7525,7 @@ func (ec *executionContext) _ClusterCache_id(ctx context.Context, field graphql.
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.ObjectID) graphql.Marshaler {
-			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, selections, v)
+			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7535,7 +7535,7 @@ func (ec *executionContext) fieldContext_ClusterCache_id(_ context.Context, fiel
 	return graphql.NewScalarFieldContext("ClusterCache", field, false, false, errors.New("field of type ObjectID does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCache_clusterID(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCache) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCache_clusterID(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCache) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7548,7 +7548,7 @@ func (ec *executionContext) _ClusterCache_clusterID(ctx context.Context, field g
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.ClusterID) graphql.Marshaler {
-			return ec.marshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, selections, v)
+			return ec.marshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7558,7 +7558,7 @@ func (ec *executionContext) fieldContext_ClusterCache_clusterID(_ context.Contex
 	return graphql.NewScalarFieldContext("ClusterCache", field, false, false, errors.New("field of type ClusterID does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCache_generation(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCache) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCache_generation(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCache) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7581,7 +7581,7 @@ func (ec *executionContext) fieldContext_ClusterCache_generation(_ context.Conte
 	return graphql.NewScalarFieldContext("ClusterCache", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCache_createdAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCache) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCache_createdAt(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCache) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7604,7 +7604,7 @@ func (ec *executionContext) fieldContext_ClusterCache_createdAt(_ context.Contex
 	return graphql.NewScalarFieldContext("ClusterCache", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCache_deletionRequestedAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCache) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCache_deletionRequestedAt(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCache) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7627,7 +7627,7 @@ func (ec *executionContext) fieldContext_ClusterCache_deletionRequestedAt(_ cont
 	return graphql.NewScalarFieldContext("ClusterCache", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCache_spec(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCache) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCache_spec(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCache) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7639,8 +7639,8 @@ func (ec *executionContext) _ClusterCache_spec(ctx context.Context, field graphq
 			return obj.Spec, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v clustersvc.ClusterCacheSpec) graphql.Marshaler {
-			return ec.marshalNClusterCacheSpec2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheSpec(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v cluster.ClusterCacheSpec) graphql.Marshaler {
+			return ec.marshalNClusterCacheSpec2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheSpec(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7659,7 +7659,7 @@ func (ec *executionContext) fieldContext_ClusterCache_spec(_ context.Context, fi
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCache_conditions(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCache) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCache_conditions(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCache) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7671,7 +7671,7 @@ func (ec *executionContext) _ClusterCache_conditions(ctx context.Context, field 
 			return obj.Conditions, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []clustersvc.Condition) graphql.Marshaler {
+		func(ctx context.Context, selections ast.SelectionSet, v []cluster.Condition) graphql.Marshaler {
 			return ec.marshalNCondition2ᚕgithubᚗcomᚋamoreyᚋbeehiveᚐConditionᚄ(ctx, selections, v)
 		},
 		true,
@@ -7691,7 +7691,7 @@ func (ec *executionContext) fieldContext_ClusterCache_conditions(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCache_kinds(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCache) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCache_kinds(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCache) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7703,8 +7703,8 @@ func (ec *executionContext) _ClusterCache_kinds(ctx context.Context, field graph
 			return ec.Resolvers.ClusterCache().Kinds(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*clustersvc.ClusterCachedDataKind) graphql.Marshaler {
-			return ec.marshalNClusterCachedDataKind2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataKindᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*cluster.ClusterCachedDataKind) graphql.Marshaler {
+			return ec.marshalNClusterCachedDataKind2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataKindᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7723,7 +7723,7 @@ func (ec *executionContext) fieldContext_ClusterCache_kinds(_ context.Context, f
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCache_cachedKinds(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCache) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCache_cachedKinds(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCache) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7735,8 +7735,8 @@ func (ec *executionContext) _ClusterCache_cachedKinds(ctx context.Context, field
 			return ec.Resolvers.ClusterCache().CachedKinds(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*clustersvc.ClusterCachedKind) graphql.Marshaler {
-			return ec.marshalNClusterCachedKind2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedKindᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*cluster.ClusterCachedKind) graphql.Marshaler {
+			return ec.marshalNClusterCachedKind2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedKindᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7755,7 +7755,7 @@ func (ec *executionContext) fieldContext_ClusterCache_cachedKinds(_ context.Cont
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCache_events(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCache) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCache_events(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCache) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7768,8 +7768,8 @@ func (ec *executionContext) _ClusterCache_events(ctx context.Context, field grap
 			return ec.Resolvers.ClusterCache().Events(ctx, obj, fc.Args["category"].(*string), fc.Args["limit"].(*int))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*clustersvc.Event) graphql.Marshaler {
-			return ec.marshalNEvent2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐEventᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*cluster.Event) graphql.Marshaler {
+			return ec.marshalNEvent2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐEventᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7799,7 +7799,7 @@ func (ec *executionContext) fieldContext_ClusterCache_events(ctx context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCacheDiscoveryStatus_reason(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheDiscoveryStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheDiscoveryStatus_reason(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheDiscoveryStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7822,7 +7822,7 @@ func (ec *executionContext) fieldContext_ClusterCacheDiscoveryStatus_reason(_ co
 	return graphql.NewScalarFieldContext("ClusterCacheDiscoveryStatus", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheDiscoveryStatus_message(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheDiscoveryStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheDiscoveryStatus_message(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheDiscoveryStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7845,7 +7845,7 @@ func (ec *executionContext) fieldContext_ClusterCacheDiscoveryStatus_message(_ c
 	return graphql.NewScalarFieldContext("ClusterCacheDiscoveryStatus", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheHealth_cacheID(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheHealth) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheHealth_cacheID(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheHealth) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7858,7 +7858,7 @@ func (ec *executionContext) _ClusterCacheHealth_cacheID(ctx context.Context, fie
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.ObjectID) graphql.Marshaler {
-			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, selections, v)
+			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7868,7 +7868,7 @@ func (ec *executionContext) fieldContext_ClusterCacheHealth_cacheID(_ context.Co
 	return graphql.NewScalarFieldContext("ClusterCacheHealth", field, false, false, errors.New("field of type ObjectID does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheHealth_status(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheHealth) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheHealth_status(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheHealth) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7891,7 +7891,7 @@ func (ec *executionContext) fieldContext_ClusterCacheHealth_status(_ context.Con
 	return graphql.NewScalarFieldContext("ClusterCacheHealth", field, false, false, errors.New("field of type ConditionStatus does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheHealth_reason(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheHealth) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheHealth_reason(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheHealth) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7914,7 +7914,7 @@ func (ec *executionContext) fieldContext_ClusterCacheHealth_reason(_ context.Con
 	return graphql.NewScalarFieldContext("ClusterCacheHealth", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheHealth_unhealthyKindRefs(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheHealth) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheHealth_unhealthyKindRefs(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheHealth) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7926,8 +7926,8 @@ func (ec *executionContext) _ClusterCacheHealth_unhealthyKindRefs(ctx context.Co
 			return obj.UnhealthyKindRefs, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []clustersvc.SyncedKindRef) graphql.Marshaler {
-			return ec.marshalNSyncedKindRef2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐSyncedKindRefᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []cluster.SyncedKindRef) graphql.Marshaler {
+			return ec.marshalNSyncedKindRef2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐSyncedKindRefᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7946,7 +7946,7 @@ func (ec *executionContext) fieldContext_ClusterCacheHealth_unhealthyKindRefs(_ 
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCacheHealth_totalKinds(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheHealth) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheHealth_totalKinds(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheHealth) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7969,7 +7969,7 @@ func (ec *executionContext) fieldContext_ClusterCacheHealth_totalKinds(_ context
 	return graphql.NewScalarFieldContext("ClusterCacheHealth", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheHealth_unhealthyKinds(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheHealth) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheHealth_unhealthyKinds(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheHealth) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -7992,7 +7992,7 @@ func (ec *executionContext) fieldContext_ClusterCacheHealth_unhealthyKinds(_ con
 	return graphql.NewScalarFieldContext("ClusterCacheHealth", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheHealth_pausedKinds(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheHealth) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheHealth_pausedKinds(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheHealth) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8015,7 +8015,7 @@ func (ec *executionContext) fieldContext_ClusterCacheHealth_pausedKinds(_ contex
 	return graphql.NewScalarFieldContext("ClusterCacheHealth", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheHealth_lastUpdateAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheHealth) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheHealth_lastUpdateAt(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheHealth) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8038,7 +8038,7 @@ func (ec *executionContext) fieldContext_ClusterCacheHealth_lastUpdateAt(_ conte
 	return graphql.NewScalarFieldContext("ClusterCacheHealth", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheHealth_lastLiveAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheHealth) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheHealth_lastLiveAt(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheHealth) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8061,7 +8061,7 @@ func (ec *executionContext) fieldContext_ClusterCacheHealth_lastLiveAt(_ context
 	return graphql.NewScalarFieldContext("ClusterCacheHealth", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheKindSyncStatus_apiVersion(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheKindSyncStatus_apiVersion(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8084,7 +8084,7 @@ func (ec *executionContext) fieldContext_ClusterCacheKindSyncStatus_apiVersion(_
 	return graphql.NewScalarFieldContext("ClusterCacheKindSyncStatus", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheKindSyncStatus_kind(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheKindSyncStatus_kind(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8107,7 +8107,7 @@ func (ec *executionContext) fieldContext_ClusterCacheKindSyncStatus_kind(_ conte
 	return graphql.NewScalarFieldContext("ClusterCacheKindSyncStatus", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheKindSyncStatus_resource(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheKindSyncStatus_resource(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8130,7 +8130,7 @@ func (ec *executionContext) fieldContext_ClusterCacheKindSyncStatus_resource(_ c
 	return graphql.NewScalarFieldContext("ClusterCacheKindSyncStatus", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheKindSyncStatus_reason(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheKindSyncStatus_reason(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8153,7 +8153,7 @@ func (ec *executionContext) fieldContext_ClusterCacheKindSyncStatus_reason(_ con
 	return graphql.NewScalarFieldContext("ClusterCacheKindSyncStatus", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheKindSyncStatus_message(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheKindSyncStatus_message(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8176,7 +8176,7 @@ func (ec *executionContext) fieldContext_ClusterCacheKindSyncStatus_message(_ co
 	return graphql.NewScalarFieldContext("ClusterCacheKindSyncStatus", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheKindSyncStatus_sinceAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheKindSyncStatus_sinceAt(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8199,7 +8199,7 @@ func (ec *executionContext) fieldContext_ClusterCacheKindSyncStatus_sinceAt(_ co
 	return graphql.NewScalarFieldContext("ClusterCacheKindSyncStatus", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheKindSyncStatus_lastUpdateAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheKindSyncStatus_lastUpdateAt(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8222,7 +8222,7 @@ func (ec *executionContext) fieldContext_ClusterCacheKindSyncStatus_lastUpdateAt
 	return graphql.NewScalarFieldContext("ClusterCacheKindSyncStatus", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheKindSyncStatus_lastLiveAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheKindSyncStatus_lastLiveAt(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8245,7 +8245,7 @@ func (ec *executionContext) fieldContext_ClusterCacheKindSyncStatus_lastLiveAt(_
 	return graphql.NewScalarFieldContext("ClusterCacheKindSyncStatus", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheKindSyncStatus_restarts(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheKindSyncStatus_restarts(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8268,7 +8268,7 @@ func (ec *executionContext) fieldContext_ClusterCacheKindSyncStatus_restarts(_ c
 	return graphql.NewScalarFieldContext("ClusterCacheKindSyncStatus", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheKindSyncStatus_nextRetryAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheKindSyncStatus_nextRetryAt(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8291,7 +8291,7 @@ func (ec *executionContext) fieldContext_ClusterCacheKindSyncStatus_nextRetryAt(
 	return graphql.NewScalarFieldContext("ClusterCacheKindSyncStatus", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheKindSyncStatus_objectCount(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheKindSyncStatus_objectCount(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheKindSyncStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8314,7 +8314,7 @@ func (ec *executionContext) fieldContext_ClusterCacheKindSyncStatus_objectCount(
 	return graphql.NewScalarFieldContext("ClusterCacheKindSyncStatus", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheSpec_serverUid(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheSpec) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheSpec_serverUid(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheSpec) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8337,7 +8337,7 @@ func (ec *executionContext) fieldContext_ClusterCacheSpec_serverUid(_ context.Co
 	return graphql.NewScalarFieldContext("ClusterCacheSpec", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheStats_exists(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheStats) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheStats_exists(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheStats) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8360,7 +8360,7 @@ func (ec *executionContext) fieldContext_ClusterCacheStats_exists(_ context.Cont
 	return graphql.NewScalarFieldContext("ClusterCacheStats", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheStats_bytes(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheStats) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheStats_bytes(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheStats) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8383,7 +8383,7 @@ func (ec *executionContext) fieldContext_ClusterCacheStats_bytes(_ context.Conte
 	return graphql.NewScalarFieldContext("ClusterCacheStats", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheStats_dbBytes(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheStats) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheStats_dbBytes(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheStats) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8406,7 +8406,7 @@ func (ec *executionContext) fieldContext_ClusterCacheStats_dbBytes(_ context.Con
 	return graphql.NewScalarFieldContext("ClusterCacheStats", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheStats_walBytes(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheStats) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheStats_walBytes(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheStats) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8429,7 +8429,7 @@ func (ec *executionContext) fieldContext_ClusterCacheStats_walBytes(_ context.Co
 	return graphql.NewScalarFieldContext("ClusterCacheStats", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheStats_shmBytes(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheStats) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheStats_shmBytes(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheStats) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8452,7 +8452,7 @@ func (ec *executionContext) fieldContext_ClusterCacheStats_shmBytes(_ context.Co
 	return graphql.NewScalarFieldContext("ClusterCacheStats", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheStats_objectCount(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheStats) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheStats_objectCount(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheStats) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8475,7 +8475,7 @@ func (ec *executionContext) fieldContext_ClusterCacheStats_objectCount(_ context
 	return graphql.NewScalarFieldContext("ClusterCacheStats", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheStats_kindCount(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheStats) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheStats_kindCount(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheStats) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8498,7 +8498,7 @@ func (ec *executionContext) fieldContext_ClusterCacheStats_kindCount(_ context.C
 	return graphql.NewScalarFieldContext("ClusterCacheStats", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheStats_overSizeLimit(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheStats) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheStats_overSizeLimit(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheStats) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8521,7 +8521,7 @@ func (ec *executionContext) fieldContext_ClusterCacheStats_overSizeLimit(_ conte
 	return graphql.NewScalarFieldContext("ClusterCacheStats", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheStats_sizeLimitBytes(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheStats) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheStats_sizeLimitBytes(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheStats) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8544,7 +8544,7 @@ func (ec *executionContext) fieldContext_ClusterCacheStats_sizeLimitBytes(_ cont
 	return graphql.NewScalarFieldContext("ClusterCacheStats", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheSyncStatus_cacheID(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheSyncStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheSyncStatus_cacheID(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheSyncStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8557,7 +8557,7 @@ func (ec *executionContext) _ClusterCacheSyncStatus_cacheID(ctx context.Context,
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.ObjectID) graphql.Marshaler {
-			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, selections, v)
+			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -8567,7 +8567,7 @@ func (ec *executionContext) fieldContext_ClusterCacheSyncStatus_cacheID(_ contex
 	return graphql.NewScalarFieldContext("ClusterCacheSyncStatus", field, false, false, errors.New("field of type ObjectID does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheSyncStatus_discovery(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheSyncStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheSyncStatus_discovery(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheSyncStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8579,8 +8579,8 @@ func (ec *executionContext) _ClusterCacheSyncStatus_discovery(ctx context.Contex
 			return obj.Discovery, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v clustersvc.ClusterCacheDiscoveryStatus) graphql.Marshaler {
-			return ec.marshalNClusterCacheDiscoveryStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheDiscoveryStatus(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v cluster.ClusterCacheDiscoveryStatus) graphql.Marshaler {
+			return ec.marshalNClusterCacheDiscoveryStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheDiscoveryStatus(ctx, selections, v)
 		},
 		true,
 		true,
@@ -8599,7 +8599,7 @@ func (ec *executionContext) fieldContext_ClusterCacheSyncStatus_discovery(_ cont
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCacheSyncStatus_kinds(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheSyncStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheSyncStatus_kinds(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheSyncStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8611,8 +8611,8 @@ func (ec *executionContext) _ClusterCacheSyncStatus_kinds(ctx context.Context, f
 			return obj.Kinds, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []clustersvc.ClusterCacheKindSyncStatus) graphql.Marshaler {
-			return ec.marshalNClusterCacheKindSyncStatus2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheKindSyncStatusᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []cluster.ClusterCacheKindSyncStatus) graphql.Marshaler {
+			return ec.marshalNClusterCacheKindSyncStatus2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheKindSyncStatusᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -8631,7 +8631,7 @@ func (ec *executionContext) fieldContext_ClusterCacheSyncStatus_kinds(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCacheWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8644,7 +8644,7 @@ func (ec *executionContext) _ClusterCacheWatchFrame_type(ctx context.Context, fi
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.DeltaFrameType) graphql.Marshaler {
-			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐDeltaFrameType(ctx, selections, v)
+			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐDeltaFrameType(ctx, selections, v)
 		},
 		true,
 		true,
@@ -8654,7 +8654,7 @@ func (ec *executionContext) fieldContext_ClusterCacheWatchFrame_type(_ context.C
 	return graphql.NewScalarFieldContext("ClusterCacheWatchFrame", field, false, false, errors.New("field of type DeltaFrameType does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCacheWatchFrame_cache(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCacheWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCacheWatchFrame_cache(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCacheWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8666,8 +8666,8 @@ func (ec *executionContext) _ClusterCacheWatchFrame_cache(ctx context.Context, f
 			return obj.Cache, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCache) graphql.Marshaler {
-			return ec.marshalOClusterCache2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCache(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCache) graphql.Marshaler {
+			return ec.marshalOClusterCache2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCache(ctx, selections, v)
 		},
 		true,
 		false,
@@ -8686,7 +8686,7 @@ func (ec *executionContext) fieldContext_ClusterCacheWatchFrame_cache(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCachedDataEvent_uid(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataEvent) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataEvent_uid(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataEvent) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8709,7 +8709,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataEvent_uid(_ context.Co
 	return graphql.NewScalarFieldContext("ClusterCachedDataEvent", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataEvent_type(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataEvent) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataEvent_type(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataEvent) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8732,7 +8732,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataEvent_type(_ context.C
 	return graphql.NewScalarFieldContext("ClusterCachedDataEvent", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataEvent_reason(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataEvent) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataEvent_reason(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataEvent) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8755,7 +8755,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataEvent_reason(_ context
 	return graphql.NewScalarFieldContext("ClusterCachedDataEvent", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataEvent_message(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataEvent) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataEvent_message(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataEvent) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8778,7 +8778,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataEvent_message(_ contex
 	return graphql.NewScalarFieldContext("ClusterCachedDataEvent", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataEvent_count(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataEvent) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataEvent_count(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataEvent) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8801,7 +8801,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataEvent_count(_ context.
 	return graphql.NewScalarFieldContext("ClusterCachedDataEvent", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataEvent_firstSeen(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataEvent) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataEvent_firstSeen(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataEvent) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8824,7 +8824,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataEvent_firstSeen(_ cont
 	return graphql.NewScalarFieldContext("ClusterCachedDataEvent", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataEvent_lastSeen(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataEvent) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataEvent_lastSeen(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataEvent) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8847,7 +8847,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataEvent_lastSeen(_ conte
 	return graphql.NewScalarFieldContext("ClusterCachedDataEvent", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataEvent_involvedKind(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataEvent) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataEvent_involvedKind(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataEvent) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8870,7 +8870,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataEvent_involvedKind(_ c
 	return graphql.NewScalarFieldContext("ClusterCachedDataEvent", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataEvent_involvedNamespace(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataEvent) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataEvent_involvedNamespace(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataEvent) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8893,7 +8893,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataEvent_involvedNamespac
 	return graphql.NewScalarFieldContext("ClusterCachedDataEvent", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataEvent_involvedName(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataEvent) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataEvent_involvedName(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataEvent) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8916,7 +8916,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataEvent_involvedName(_ c
 	return graphql.NewScalarFieldContext("ClusterCachedDataEvent", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataEventWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataEventWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataEventWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataEventWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8929,7 +8929,7 @@ func (ec *executionContext) _ClusterCachedDataEventWatchFrame_type(ctx context.C
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.DeltaFrameType) graphql.Marshaler {
-			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐDeltaFrameType(ctx, selections, v)
+			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐDeltaFrameType(ctx, selections, v)
 		},
 		true,
 		true,
@@ -8939,7 +8939,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataEventWatchFrame_type(_
 	return graphql.NewScalarFieldContext("ClusterCachedDataEventWatchFrame", field, false, false, errors.New("field of type DeltaFrameType does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataEventWatchFrame_event(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataEventWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataEventWatchFrame_event(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataEventWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8951,8 +8951,8 @@ func (ec *executionContext) _ClusterCachedDataEventWatchFrame_event(ctx context.
 			return obj.Event, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCachedDataEvent) graphql.Marshaler {
-			return ec.marshalOClusterCachedDataEvent2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataEvent(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCachedDataEvent) graphql.Marshaler {
+			return ec.marshalOClusterCachedDataEvent2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataEvent(ctx, selections, v)
 		},
 		true,
 		false,
@@ -8971,7 +8971,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataEventWatchFrame_event(
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCachedDataEventWatchFrame_cacheID(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataEventWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataEventWatchFrame_cacheID(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataEventWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -8984,7 +8984,7 @@ func (ec *executionContext) _ClusterCachedDataEventWatchFrame_cacheID(ctx contex
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.ObjectID) graphql.Marshaler {
-			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, selections, v)
+			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -8994,7 +8994,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataEventWatchFrame_cacheI
 	return graphql.NewScalarFieldContext("ClusterCachedDataEventWatchFrame", field, false, false, errors.New("field of type ObjectID does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataKind_apiVersion(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataKind) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataKind_apiVersion(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataKind) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9017,7 +9017,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataKind_apiVersion(_ cont
 	return graphql.NewScalarFieldContext("ClusterCachedDataKind", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataKind_kind(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataKind) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataKind_kind(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataKind) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9040,7 +9040,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataKind_kind(_ context.Co
 	return graphql.NewScalarFieldContext("ClusterCachedDataKind", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataKind_resource(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataKind) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataKind_resource(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataKind) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9063,7 +9063,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataKind_resource(_ contex
 	return graphql.NewScalarFieldContext("ClusterCachedDataKind", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataKind_scope(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataKind) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataKind_scope(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataKind) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9086,7 +9086,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataKind_scope(_ context.C
 	return graphql.NewScalarFieldContext("ClusterCachedDataKind", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataKind_isCRD(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataKind) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataKind_isCRD(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataKind) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9109,7 +9109,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataKind_isCRD(_ context.C
 	return graphql.NewScalarFieldContext("ClusterCachedDataKind", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataKind_printerColumns(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataKind) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataKind_printerColumns(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataKind) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9121,8 +9121,8 @@ func (ec *executionContext) _ClusterCachedDataKind_printerColumns(ctx context.Co
 			return obj.PrinterColumns, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []clustersvc.PrinterColumn) graphql.Marshaler {
-			return ec.marshalNPrinterColumn2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐPrinterColumnᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []cluster.PrinterColumn) graphql.Marshaler {
+			return ec.marshalNPrinterColumn2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐPrinterColumnᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -9141,7 +9141,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataKind_printerColumns(_ 
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCachedDataKind_count(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataKind) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataKind_count(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataKind) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9164,7 +9164,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataKind_count(_ context.C
 	return graphql.NewScalarFieldContext("ClusterCachedDataKind", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataKindWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataKindWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataKindWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataKindWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9177,7 +9177,7 @@ func (ec *executionContext) _ClusterCachedDataKindWatchFrame_type(ctx context.Co
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.DeltaFrameType) graphql.Marshaler {
-			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐDeltaFrameType(ctx, selections, v)
+			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐDeltaFrameType(ctx, selections, v)
 		},
 		true,
 		true,
@@ -9187,7 +9187,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataKindWatchFrame_type(_ 
 	return graphql.NewScalarFieldContext("ClusterCachedDataKindWatchFrame", field, false, false, errors.New("field of type DeltaFrameType does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataKindWatchFrame_kind(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataKindWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataKindWatchFrame_kind(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataKindWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9199,8 +9199,8 @@ func (ec *executionContext) _ClusterCachedDataKindWatchFrame_kind(ctx context.Co
 			return obj.Kind, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCachedDataKind) graphql.Marshaler {
-			return ec.marshalOClusterCachedDataKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataKind(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCachedDataKind) graphql.Marshaler {
+			return ec.marshalOClusterCachedDataKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataKind(ctx, selections, v)
 		},
 		true,
 		false,
@@ -9219,7 +9219,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataKindWatchFrame_kind(_ 
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCachedDataKindWatchFrame_cacheID(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataKindWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataKindWatchFrame_cacheID(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataKindWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9232,7 +9232,7 @@ func (ec *executionContext) _ClusterCachedDataKindWatchFrame_cacheID(ctx context
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.ObjectID) graphql.Marshaler {
-			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, selections, v)
+			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -9242,7 +9242,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataKindWatchFrame_cacheID
 	return graphql.NewScalarFieldContext("ClusterCachedDataKindWatchFrame", field, false, false, errors.New("field of type ObjectID does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataObject_uid(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataObject) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataObject_uid(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataObject) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9265,7 +9265,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataObject_uid(_ context.C
 	return graphql.NewScalarFieldContext("ClusterCachedDataObject", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataObject_apiVersion(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataObject) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataObject_apiVersion(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataObject) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9288,7 +9288,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataObject_apiVersion(_ co
 	return graphql.NewScalarFieldContext("ClusterCachedDataObject", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataObject_kind(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataObject) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataObject_kind(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataObject) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9311,7 +9311,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataObject_kind(_ context.
 	return graphql.NewScalarFieldContext("ClusterCachedDataObject", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataObject_namespace(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataObject) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataObject_namespace(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataObject) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9334,7 +9334,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataObject_namespace(_ con
 	return graphql.NewScalarFieldContext("ClusterCachedDataObject", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataObject_name(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataObject) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataObject_name(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataObject) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9357,7 +9357,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataObject_name(_ context.
 	return graphql.NewScalarFieldContext("ClusterCachedDataObject", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataObject_creationTimestamp(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataObject) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataObject_creationTimestamp(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataObject) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9380,7 +9380,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataObject_creationTimesta
 	return graphql.NewScalarFieldContext("ClusterCachedDataObject", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataObject_rawJSON(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataObject) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataObject_rawJSON(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataObject) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9393,7 +9393,7 @@ func (ec *executionContext) _ClusterCachedDataObject_rawJSON(ctx context.Context
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v rawjson.RawJSON) graphql.Marshaler {
-			return ec.marshalOJSON2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrawjsonᚐRawJSON(ctx, selections, v)
+			return ec.marshalOJSON2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋrawjsonᚐRawJSON(ctx, selections, v)
 		},
 		true,
 		false,
@@ -9403,7 +9403,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataObject_rawJSON(_ conte
 	return graphql.NewScalarFieldContext("ClusterCachedDataObject", field, false, false, errors.New("field of type JSON does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataObjectWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataObjectWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataObjectWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataObjectWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9416,7 +9416,7 @@ func (ec *executionContext) _ClusterCachedDataObjectWatchFrame_type(ctx context.
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.DeltaFrameType) graphql.Marshaler {
-			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐDeltaFrameType(ctx, selections, v)
+			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐDeltaFrameType(ctx, selections, v)
 		},
 		true,
 		true,
@@ -9426,7 +9426,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataObjectWatchFrame_type(
 	return graphql.NewScalarFieldContext("ClusterCachedDataObjectWatchFrame", field, false, false, errors.New("field of type DeltaFrameType does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataObjectWatchFrame_object(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataObjectWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataObjectWatchFrame_object(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataObjectWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9438,8 +9438,8 @@ func (ec *executionContext) _ClusterCachedDataObjectWatchFrame_object(ctx contex
 			return obj.Object, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCachedDataObject) graphql.Marshaler {
-			return ec.marshalOClusterCachedDataObject2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataObject(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCachedDataObject) graphql.Marshaler {
+			return ec.marshalOClusterCachedDataObject2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataObject(ctx, selections, v)
 		},
 		true,
 		false,
@@ -9458,7 +9458,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataObjectWatchFrame_objec
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCachedDataObjectWatchFrame_cacheID(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataObjectWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataObjectWatchFrame_cacheID(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataObjectWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9471,7 +9471,7 @@ func (ec *executionContext) _ClusterCachedDataObjectWatchFrame_cacheID(ctx conte
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.ObjectID) graphql.Marshaler {
-			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, selections, v)
+			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -9481,7 +9481,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataObjectWatchFrame_cache
 	return graphql.NewScalarFieldContext("ClusterCachedDataObjectWatchFrame", field, false, false, errors.New("field of type ObjectID does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataObjectWatchFrame_apiVersion(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataObjectWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataObjectWatchFrame_apiVersion(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataObjectWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9504,7 +9504,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataObjectWatchFrame_apiVe
 	return graphql.NewScalarFieldContext("ClusterCachedDataObjectWatchFrame", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedDataObjectWatchFrame_resource(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedDataObjectWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedDataObjectWatchFrame_resource(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedDataObjectWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9527,7 +9527,7 @@ func (ec *executionContext) fieldContext_ClusterCachedDataObjectWatchFrame_resou
 	return graphql.NewScalarFieldContext("ClusterCachedDataObjectWatchFrame", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedKind_id(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedKind) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedKind_id(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedKind) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9540,7 +9540,7 @@ func (ec *executionContext) _ClusterCachedKind_id(ctx context.Context, field gra
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.ObjectID) graphql.Marshaler {
-			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, selections, v)
+			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -9550,7 +9550,7 @@ func (ec *executionContext) fieldContext_ClusterCachedKind_id(_ context.Context,
 	return graphql.NewScalarFieldContext("ClusterCachedKind", field, false, false, errors.New("field of type ObjectID does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedKind_owner(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedKind) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedKind_owner(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedKind) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9562,8 +9562,8 @@ func (ec *executionContext) _ClusterCachedKind_owner(ctx context.Context, field 
 			return obj.Owner, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v clustersvc.ObjectRef) graphql.Marshaler {
-			return ec.marshalNObjectRef2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐObjectRef(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v cluster.ObjectRef) graphql.Marshaler {
+			return ec.marshalNObjectRef2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐObjectRef(ctx, selections, v)
 		},
 		true,
 		true,
@@ -9582,7 +9582,7 @@ func (ec *executionContext) fieldContext_ClusterCachedKind_owner(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCachedKind_generation(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedKind) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedKind_generation(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedKind) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9605,7 +9605,7 @@ func (ec *executionContext) fieldContext_ClusterCachedKind_generation(_ context.
 	return graphql.NewScalarFieldContext("ClusterCachedKind", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedKind_createdAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedKind) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedKind_createdAt(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedKind) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9628,7 +9628,7 @@ func (ec *executionContext) fieldContext_ClusterCachedKind_createdAt(_ context.C
 	return graphql.NewScalarFieldContext("ClusterCachedKind", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedKind_deletionRequestedAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedKind) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedKind_deletionRequestedAt(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedKind) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9651,7 +9651,7 @@ func (ec *executionContext) fieldContext_ClusterCachedKind_deletionRequestedAt(_
 	return graphql.NewScalarFieldContext("ClusterCachedKind", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedKind_spec(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedKind) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedKind_spec(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedKind) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9663,8 +9663,8 @@ func (ec *executionContext) _ClusterCachedKind_spec(ctx context.Context, field g
 			return obj.Spec, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v clustersvc.ClusterCachedKindSpec) graphql.Marshaler {
-			return ec.marshalNClusterCachedKindSpec2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedKindSpec(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v cluster.ClusterCachedKindSpec) graphql.Marshaler {
+			return ec.marshalNClusterCachedKindSpec2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedKindSpec(ctx, selections, v)
 		},
 		true,
 		true,
@@ -9683,7 +9683,7 @@ func (ec *executionContext) fieldContext_ClusterCachedKind_spec(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCachedKind_conditions(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedKind) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedKind_conditions(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedKind) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9695,7 +9695,7 @@ func (ec *executionContext) _ClusterCachedKind_conditions(ctx context.Context, f
 			return obj.Conditions, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []clustersvc.Condition) graphql.Marshaler {
+		func(ctx context.Context, selections ast.SelectionSet, v []cluster.Condition) graphql.Marshaler {
 			return ec.marshalNCondition2ᚕgithubᚗcomᚋamoreyᚋbeehiveᚐConditionᚄ(ctx, selections, v)
 		},
 		true,
@@ -9715,7 +9715,7 @@ func (ec *executionContext) fieldContext_ClusterCachedKind_conditions(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCachedKind_events(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedKind) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedKind_events(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedKind) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9728,8 +9728,8 @@ func (ec *executionContext) _ClusterCachedKind_events(ctx context.Context, field
 			return ec.Resolvers.ClusterCachedKind().Events(ctx, obj, fc.Args["category"].(*string), fc.Args["limit"].(*int))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*clustersvc.Event) graphql.Marshaler {
-			return ec.marshalNEvent2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐEventᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*cluster.Event) graphql.Marshaler {
+			return ec.marshalNEvent2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐEventᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -9759,7 +9759,7 @@ func (ec *executionContext) fieldContext_ClusterCachedKind_events(ctx context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterCachedKindSpec_apiVersion(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedKindSpec) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedKindSpec_apiVersion(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedKindSpec) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9782,7 +9782,7 @@ func (ec *executionContext) fieldContext_ClusterCachedKindSpec_apiVersion(_ cont
 	return graphql.NewScalarFieldContext("ClusterCachedKindSpec", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedKindSpec_kind(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedKindSpec) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedKindSpec_kind(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedKindSpec) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9805,7 +9805,7 @@ func (ec *executionContext) fieldContext_ClusterCachedKindSpec_kind(_ context.Co
 	return graphql.NewScalarFieldContext("ClusterCachedKindSpec", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedKindSpec_resource(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedKindSpec) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedKindSpec_resource(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedKindSpec) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9828,7 +9828,7 @@ func (ec *executionContext) fieldContext_ClusterCachedKindSpec_resource(_ contex
 	return graphql.NewScalarFieldContext("ClusterCachedKindSpec", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedKindSpec_namespaced(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedKindSpec) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedKindSpec_namespaced(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedKindSpec) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9851,7 +9851,7 @@ func (ec *executionContext) fieldContext_ClusterCachedKindSpec_namespaced(_ cont
 	return graphql.NewScalarFieldContext("ClusterCachedKindSpec", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedKindSpec_syncEnabled(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedKindSpec) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedKindSpec_syncEnabled(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedKindSpec) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9874,7 +9874,7 @@ func (ec *executionContext) fieldContext_ClusterCachedKindSpec_syncEnabled(_ con
 	return graphql.NewScalarFieldContext("ClusterCachedKindSpec", field, true, true, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedKindWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedKindWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedKindWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedKindWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9887,7 +9887,7 @@ func (ec *executionContext) _ClusterCachedKindWatchFrame_type(ctx context.Contex
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.DeltaFrameType) graphql.Marshaler {
-			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐDeltaFrameType(ctx, selections, v)
+			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐDeltaFrameType(ctx, selections, v)
 		},
 		true,
 		true,
@@ -9897,7 +9897,7 @@ func (ec *executionContext) fieldContext_ClusterCachedKindWatchFrame_type(_ cont
 	return graphql.NewScalarFieldContext("ClusterCachedKindWatchFrame", field, false, false, errors.New("field of type DeltaFrameType does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterCachedKindWatchFrame_kind(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterCachedKindWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterCachedKindWatchFrame_kind(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterCachedKindWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -9909,8 +9909,8 @@ func (ec *executionContext) _ClusterCachedKindWatchFrame_kind(ctx context.Contex
 			return obj.Kind, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCachedKind) graphql.Marshaler {
-			return ec.marshalOClusterCachedKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedKind(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCachedKind) graphql.Marshaler {
+			return ec.marshalOClusterCachedKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedKind(ctx, selections, v)
 		},
 		true,
 		false,
@@ -10039,7 +10039,7 @@ func (ec *executionContext) fieldContext_ClusterPermissions_incomplete(_ context
 	return graphql.NewScalarFieldContext("ClusterPermissions", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterPrincipal_username(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterPrincipal) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterPrincipal_username(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterPrincipal) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10062,7 +10062,7 @@ func (ec *executionContext) fieldContext_ClusterPrincipal_username(_ context.Con
 	return graphql.NewScalarFieldContext("ClusterPrincipal", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterPrincipal_groups(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterPrincipal) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterPrincipal_groups(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterPrincipal) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10085,7 +10085,7 @@ func (ec *executionContext) fieldContext_ClusterPrincipal_groups(_ context.Conte
 	return graphql.NewScalarFieldContext("ClusterPrincipal", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterPrincipal_permissions(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterPrincipal) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterPrincipal_permissions(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterPrincipal) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10129,7 +10129,7 @@ func (ec *executionContext) fieldContext_ClusterPrincipal_permissions(ctx contex
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterServer_uid(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterServer) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterServer_uid(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterServer) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10152,7 +10152,7 @@ func (ec *executionContext) fieldContext_ClusterServer_uid(_ context.Context, fi
 	return graphql.NewScalarFieldContext("ClusterServer", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterServer_version(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterServer) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterServer_version(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterServer) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10175,7 +10175,7 @@ func (ec *executionContext) fieldContext_ClusterServer_version(_ context.Context
 	return graphql.NewScalarFieldContext("ClusterServer", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterServer_endpoint(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterServer) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterServer_endpoint(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterServer) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10198,7 +10198,7 @@ func (ec *executionContext) fieldContext_ClusterServer_endpoint(_ context.Contex
 	return graphql.NewScalarFieldContext("ClusterServer", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterSpec_name(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterSpec) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterSpec_name(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterSpec) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10221,7 +10221,7 @@ func (ec *executionContext) fieldContext_ClusterSpec_name(_ context.Context, fie
 	return graphql.NewScalarFieldContext("ClusterSpec", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterSpec_enabled(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterSpec) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterSpec_enabled(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterSpec) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10244,7 +10244,7 @@ func (ec *executionContext) fieldContext_ClusterSpec_enabled(_ context.Context, 
 	return graphql.NewScalarFieldContext("ClusterSpec", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterSpec_syncEnabled(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterSpec) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterSpec_syncEnabled(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterSpec) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10267,7 +10267,7 @@ func (ec *executionContext) fieldContext_ClusterSpec_syncEnabled(_ context.Conte
 	return graphql.NewScalarFieldContext("ClusterSpec", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterSpec_monitoringEnabled(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterSpec) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterSpec_monitoringEnabled(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterSpec) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10290,7 +10290,7 @@ func (ec *executionContext) fieldContext_ClusterSpec_monitoringEnabled(_ context
 	return graphql.NewScalarFieldContext("ClusterSpec", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterSpec_source(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterSpec) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterSpec_source(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterSpec) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10302,8 +10302,8 @@ func (ec *executionContext) _ClusterSpec_source(ctx context.Context, field graph
 			return obj.Source, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v clustersvc.ClusterSpecSource) graphql.Marshaler {
-			return ec.marshalNClusterSpecSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterSpecSource(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v cluster.ClusterSpecSource) graphql.Marshaler {
+			return ec.marshalNClusterSpecSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterSpecSource(ctx, selections, v)
 		},
 		true,
 		true,
@@ -10322,7 +10322,7 @@ func (ec *executionContext) fieldContext_ClusterSpec_source(_ context.Context, f
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterSpecSource_kubeconfig(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterSpecSource) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterSpecSource_kubeconfig(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterSpecSource) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10334,8 +10334,8 @@ func (ec *executionContext) _ClusterSpecSource_kubeconfig(ctx context.Context, f
 			return obj.Kubeconfig, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterSpecSourceKubeconfig) graphql.Marshaler {
-			return ec.marshalOClusterSpecSourceKubeconfig2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterSpecSourceKubeconfig(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterSpecSourceKubeconfig) graphql.Marshaler {
+			return ec.marshalOClusterSpecSourceKubeconfig2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterSpecSourceKubeconfig(ctx, selections, v)
 		},
 		true,
 		false,
@@ -10354,7 +10354,7 @@ func (ec *executionContext) fieldContext_ClusterSpecSource_kubeconfig(_ context.
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterSpecSourceKubeconfig_context(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterSpecSourceKubeconfig) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterSpecSourceKubeconfig_context(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterSpecSourceKubeconfig) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10377,7 +10377,7 @@ func (ec *executionContext) fieldContext_ClusterSpecSourceKubeconfig_context(_ c
 	return graphql.NewScalarFieldContext("ClusterSpecSourceKubeconfig", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterStatus_source(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterStatus_source(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10389,8 +10389,8 @@ func (ec *executionContext) _ClusterStatus_source(ctx context.Context, field gra
 			return obj.Source, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v clustersvc.ClusterStatusSource) graphql.Marshaler {
-			return ec.marshalNClusterStatusSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterStatusSource(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v cluster.ClusterStatusSource) graphql.Marshaler {
+			return ec.marshalNClusterStatusSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterStatusSource(ctx, selections, v)
 		},
 		true,
 		true,
@@ -10409,7 +10409,7 @@ func (ec *executionContext) fieldContext_ClusterStatus_source(_ context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterStatus_server(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterStatus_server(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10421,8 +10421,8 @@ func (ec *executionContext) _ClusterStatus_server(ctx context.Context, field gra
 			return obj.Server, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v clustersvc.ClusterServer) graphql.Marshaler {
-			return ec.marshalNClusterServer2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterServer(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v cluster.ClusterServer) graphql.Marshaler {
+			return ec.marshalNClusterServer2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterServer(ctx, selections, v)
 		},
 		true,
 		true,
@@ -10441,7 +10441,7 @@ func (ec *executionContext) fieldContext_ClusterStatus_server(_ context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterStatus_principal(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterStatus) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterStatus_principal(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterStatus) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10453,8 +10453,8 @@ func (ec *executionContext) _ClusterStatus_principal(ctx context.Context, field 
 			return obj.Principal, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v clustersvc.ClusterPrincipal) graphql.Marshaler {
-			return ec.marshalNClusterPrincipal2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterPrincipal(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v cluster.ClusterPrincipal) graphql.Marshaler {
+			return ec.marshalNClusterPrincipal2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterPrincipal(ctx, selections, v)
 		},
 		true,
 		true,
@@ -10473,7 +10473,7 @@ func (ec *executionContext) fieldContext_ClusterStatus_principal(_ context.Conte
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterStatusSource_kubeconfig(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterStatusSource) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterStatusSource_kubeconfig(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterStatusSource) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10485,8 +10485,8 @@ func (ec *executionContext) _ClusterStatusSource_kubeconfig(ctx context.Context,
 			return obj.Kubeconfig, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterStatusSourceKubeconfig) graphql.Marshaler {
-			return ec.marshalOClusterStatusSourceKubeconfig2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterStatusSourceKubeconfig(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterStatusSourceKubeconfig) graphql.Marshaler {
+			return ec.marshalOClusterStatusSourceKubeconfig2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterStatusSourceKubeconfig(ctx, selections, v)
 		},
 		true,
 		false,
@@ -10505,7 +10505,7 @@ func (ec *executionContext) fieldContext_ClusterStatusSource_kubeconfig(_ contex
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterStatusSourceKubeconfig_cluster(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterStatusSourceKubeconfig) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterStatusSourceKubeconfig_cluster(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterStatusSourceKubeconfig) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10517,8 +10517,8 @@ func (ec *executionContext) _ClusterStatusSourceKubeconfig_cluster(ctx context.C
 			return obj.Cluster, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v clustersvc.ClusterStatusSourceKubeconfigCluster) graphql.Marshaler {
-			return ec.marshalNClusterStatusSourceKubeconfigCluster2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterStatusSourceKubeconfigCluster(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v cluster.ClusterStatusSourceKubeconfigCluster) graphql.Marshaler {
+			return ec.marshalNClusterStatusSourceKubeconfigCluster2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterStatusSourceKubeconfigCluster(ctx, selections, v)
 		},
 		true,
 		true,
@@ -10537,7 +10537,7 @@ func (ec *executionContext) fieldContext_ClusterStatusSourceKubeconfig_cluster(_
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterStatusSourceKubeconfig_user(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterStatusSourceKubeconfig) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterStatusSourceKubeconfig_user(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterStatusSourceKubeconfig) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10549,8 +10549,8 @@ func (ec *executionContext) _ClusterStatusSourceKubeconfig_user(ctx context.Cont
 			return obj.User, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v clustersvc.ClusterStatusSourceKubeconfigUser) graphql.Marshaler {
-			return ec.marshalNClusterStatusSourceKubeconfigUser2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterStatusSourceKubeconfigUser(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v cluster.ClusterStatusSourceKubeconfigUser) graphql.Marshaler {
+			return ec.marshalNClusterStatusSourceKubeconfigUser2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterStatusSourceKubeconfigUser(ctx, selections, v)
 		},
 		true,
 		true,
@@ -10569,7 +10569,7 @@ func (ec *executionContext) fieldContext_ClusterStatusSourceKubeconfig_user(_ co
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterStatusSourceKubeconfig_isPresent(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterStatusSourceKubeconfig) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterStatusSourceKubeconfig_isPresent(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterStatusSourceKubeconfig) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10592,7 +10592,7 @@ func (ec *executionContext) fieldContext_ClusterStatusSourceKubeconfig_isPresent
 	return graphql.NewScalarFieldContext("ClusterStatusSourceKubeconfig", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterStatusSourceKubeconfig_isDefault(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterStatusSourceKubeconfig) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterStatusSourceKubeconfig_isDefault(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterStatusSourceKubeconfig) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10615,7 +10615,7 @@ func (ec *executionContext) fieldContext_ClusterStatusSourceKubeconfig_isDefault
 	return graphql.NewScalarFieldContext("ClusterStatusSourceKubeconfig", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterStatusSourceKubeconfigCluster_name(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterStatusSourceKubeconfigCluster) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterStatusSourceKubeconfigCluster_name(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterStatusSourceKubeconfigCluster) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10638,7 +10638,7 @@ func (ec *executionContext) fieldContext_ClusterStatusSourceKubeconfigCluster_na
 	return graphql.NewScalarFieldContext("ClusterStatusSourceKubeconfigCluster", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterStatusSourceKubeconfigCluster_entry(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterStatusSourceKubeconfigCluster) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterStatusSourceKubeconfigCluster_entry(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterStatusSourceKubeconfigCluster) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10650,8 +10650,8 @@ func (ec *executionContext) _ClusterStatusSourceKubeconfigCluster_entry(ctx cont
 			return obj.Entry, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterStatusSourceKubeconfigClusterEntry) graphql.Marshaler {
-			return ec.marshalOClusterStatusSourceKubeconfigClusterEntry2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterStatusSourceKubeconfigClusterEntry(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterStatusSourceKubeconfigClusterEntry) graphql.Marshaler {
+			return ec.marshalOClusterStatusSourceKubeconfigClusterEntry2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterStatusSourceKubeconfigClusterEntry(ctx, selections, v)
 		},
 		true,
 		false,
@@ -10670,7 +10670,7 @@ func (ec *executionContext) fieldContext_ClusterStatusSourceKubeconfigCluster_en
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterStatusSourceKubeconfigClusterEntry_server(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterStatusSourceKubeconfigClusterEntry) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterStatusSourceKubeconfigClusterEntry_server(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterStatusSourceKubeconfigClusterEntry) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10693,7 +10693,7 @@ func (ec *executionContext) fieldContext_ClusterStatusSourceKubeconfigClusterEnt
 	return graphql.NewScalarFieldContext("ClusterStatusSourceKubeconfigClusterEntry", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterStatusSourceKubeconfigClusterEntry_insecureSkipTLSVerify(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterStatusSourceKubeconfigClusterEntry) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterStatusSourceKubeconfigClusterEntry_insecureSkipTLSVerify(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterStatusSourceKubeconfigClusterEntry) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10716,7 +10716,7 @@ func (ec *executionContext) fieldContext_ClusterStatusSourceKubeconfigClusterEnt
 	return graphql.NewScalarFieldContext("ClusterStatusSourceKubeconfigClusterEntry", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterStatusSourceKubeconfigUser_name(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterStatusSourceKubeconfigUser) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterStatusSourceKubeconfigUser_name(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterStatusSourceKubeconfigUser) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10739,7 +10739,7 @@ func (ec *executionContext) fieldContext_ClusterStatusSourceKubeconfigUser_name(
 	return graphql.NewScalarFieldContext("ClusterStatusSourceKubeconfigUser", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10752,7 +10752,7 @@ func (ec *executionContext) _ClusterWatchFrame_type(ctx context.Context, field g
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.DeltaFrameType) graphql.Marshaler {
-			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐDeltaFrameType(ctx, selections, v)
+			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐDeltaFrameType(ctx, selections, v)
 		},
 		true,
 		true,
@@ -10762,7 +10762,7 @@ func (ec *executionContext) fieldContext_ClusterWatchFrame_type(_ context.Contex
 	return graphql.NewScalarFieldContext("ClusterWatchFrame", field, false, false, errors.New("field of type DeltaFrameType does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterWatchFrame_cluster(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ClusterWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterWatchFrame_cluster(ctx context.Context, field graphql.CollectedField, obj *cluster.ClusterWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10774,8 +10774,8 @@ func (ec *executionContext) _ClusterWatchFrame_cluster(ctx context.Context, fiel
 			return obj.Cluster, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.Cluster) graphql.Marshaler {
-			return ec.marshalOCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐCluster(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.Cluster) graphql.Marshaler {
+			return ec.marshalOCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐCluster(ctx, selections, v)
 		},
 		true,
 		false,
@@ -10794,7 +10794,7 @@ func (ec *executionContext) fieldContext_ClusterWatchFrame_cluster(_ context.Con
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterWrite_approval(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterWrite_approval(ctx context.Context, field graphql.CollectedField, obj *chat.ClusterWrite) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10806,8 +10806,8 @@ func (ec *executionContext) _ClusterWrite_approval(ctx context.Context, field gr
 			return obj.Approval, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v chatsvc.ToolCallApproval) graphql.Marshaler {
-			return ec.marshalNToolCallApproval2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallApproval(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v chat.ToolCallApproval) graphql.Marshaler {
+			return ec.marshalNToolCallApproval2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallApproval(ctx, selections, v)
 		},
 		true,
 		true,
@@ -10826,7 +10826,7 @@ func (ec *executionContext) fieldContext_ClusterWrite_approval(_ context.Context
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterWrite_action(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterWrite_action(ctx context.Context, field graphql.CollectedField, obj *chat.ClusterWrite) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10838,8 +10838,8 @@ func (ec *executionContext) _ClusterWrite_action(ctx context.Context, field grap
 			return obj.Action, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v chatsvc.PermissionAction) graphql.Marshaler {
-			return ec.marshalNPermissionAction2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐPermissionAction(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v chat.PermissionAction) graphql.Marshaler {
+			return ec.marshalNPermissionAction2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐPermissionAction(ctx, selections, v)
 		},
 		true,
 		true,
@@ -10858,7 +10858,7 @@ func (ec *executionContext) fieldContext_ClusterWrite_action(_ context.Context, 
 	return fc, nil
 }
 
-func (ec *executionContext) _ClusterWrite_diff(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterWrite_diff(ctx context.Context, field graphql.CollectedField, obj *chat.ClusterWrite) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10881,7 +10881,7 @@ func (ec *executionContext) fieldContext_ClusterWrite_diff(_ context.Context, fi
 	return graphql.NewScalarFieldContext("ClusterWrite", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterWrite_diffCut(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterWrite_diffCut(ctx context.Context, field graphql.CollectedField, obj *chat.ClusterWrite) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10904,7 +10904,7 @@ func (ec *executionContext) fieldContext_ClusterWrite_diffCut(_ context.Context,
 	return graphql.NewScalarFieldContext("ClusterWrite", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterWrite_diffError(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterWrite_diffError(ctx context.Context, field graphql.CollectedField, obj *chat.ClusterWrite) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10927,7 +10927,7 @@ func (ec *executionContext) fieldContext_ClusterWrite_diffError(_ context.Contex
 	return graphql.NewScalarFieldContext("ClusterWrite", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterWrite_method(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterWrite_method(ctx context.Context, field graphql.CollectedField, obj *chat.ClusterWrite) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10950,7 +10950,7 @@ func (ec *executionContext) fieldContext_ClusterWrite_method(_ context.Context, 
 	return graphql.NewScalarFieldContext("ClusterWrite", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterWrite_path(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterWrite_path(ctx context.Context, field graphql.CollectedField, obj *chat.ClusterWrite) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10973,7 +10973,7 @@ func (ec *executionContext) fieldContext_ClusterWrite_path(_ context.Context, fi
 	return graphql.NewScalarFieldContext("ClusterWrite", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterWrite_subresource(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterWrite_subresource(ctx context.Context, field graphql.CollectedField, obj *chat.ClusterWrite) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -10996,7 +10996,7 @@ func (ec *executionContext) fieldContext_ClusterWrite_subresource(_ context.Cont
 	return graphql.NewScalarFieldContext("ClusterWrite", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterWrite_contentType(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterWrite_contentType(ctx context.Context, field graphql.CollectedField, obj *chat.ClusterWrite) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11019,7 +11019,7 @@ func (ec *executionContext) fieldContext_ClusterWrite_contentType(_ context.Cont
 	return graphql.NewScalarFieldContext("ClusterWrite", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterWrite_body(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterWrite_body(ctx context.Context, field graphql.CollectedField, obj *chat.ClusterWrite) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11042,7 +11042,7 @@ func (ec *executionContext) fieldContext_ClusterWrite_body(_ context.Context, fi
 	return graphql.NewScalarFieldContext("ClusterWrite", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterWrite_dryRun(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterWrite_dryRun(ctx context.Context, field graphql.CollectedField, obj *chat.ClusterWrite) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11065,7 +11065,7 @@ func (ec *executionContext) fieldContext_ClusterWrite_dryRun(_ context.Context, 
 	return graphql.NewScalarFieldContext("ClusterWrite", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ClusterWrite_reason(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ClusterWrite) (ret graphql.Marshaler) {
+func (ec *executionContext) _ClusterWrite_reason(ctx context.Context, field graphql.CollectedField, obj *chat.ClusterWrite) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11548,7 +11548,7 @@ func (ec *executionContext) fieldContext_EditAction_replaceAll(_ context.Context
 	return graphql.NewScalarFieldContext("EditAction", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _Event_id(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Event) (ret graphql.Marshaler) {
+func (ec *executionContext) _Event_id(ctx context.Context, field graphql.CollectedField, obj *cluster.Event) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11561,7 +11561,7 @@ func (ec *executionContext) _Event_id(ctx context.Context, field graphql.Collect
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.ObjectID) graphql.Marshaler {
-			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, selections, v)
+			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -11571,7 +11571,7 @@ func (ec *executionContext) fieldContext_Event_id(_ context.Context, field graph
 	return graphql.NewScalarFieldContext("Event", field, false, false, errors.New("field of type ObjectID does not have child fields"))
 }
 
-func (ec *executionContext) _Event_category(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Event) (ret graphql.Marshaler) {
+func (ec *executionContext) _Event_category(ctx context.Context, field graphql.CollectedField, obj *cluster.Event) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11594,7 +11594,7 @@ func (ec *executionContext) fieldContext_Event_category(_ context.Context, field
 	return graphql.NewScalarFieldContext("Event", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _Event_type(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Event) (ret graphql.Marshaler) {
+func (ec *executionContext) _Event_type(ctx context.Context, field graphql.CollectedField, obj *cluster.Event) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11617,7 +11617,7 @@ func (ec *executionContext) fieldContext_Event_type(_ context.Context, field gra
 	return graphql.NewScalarFieldContext("Event", field, false, false, errors.New("field of type EventType does not have child fields"))
 }
 
-func (ec *executionContext) _Event_reason(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Event) (ret graphql.Marshaler) {
+func (ec *executionContext) _Event_reason(ctx context.Context, field graphql.CollectedField, obj *cluster.Event) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11640,7 +11640,7 @@ func (ec *executionContext) fieldContext_Event_reason(_ context.Context, field g
 	return graphql.NewScalarFieldContext("Event", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _Event_message(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Event) (ret graphql.Marshaler) {
+func (ec *executionContext) _Event_message(ctx context.Context, field graphql.CollectedField, obj *cluster.Event) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11663,7 +11663,7 @@ func (ec *executionContext) fieldContext_Event_message(_ context.Context, field 
 	return graphql.NewScalarFieldContext("Event", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _Event_count(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Event) (ret graphql.Marshaler) {
+func (ec *executionContext) _Event_count(ctx context.Context, field graphql.CollectedField, obj *cluster.Event) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11686,7 +11686,7 @@ func (ec *executionContext) fieldContext_Event_count(_ context.Context, field gr
 	return graphql.NewScalarFieldContext("Event", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _Event_firstAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Event) (ret graphql.Marshaler) {
+func (ec *executionContext) _Event_firstAt(ctx context.Context, field graphql.CollectedField, obj *cluster.Event) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11709,7 +11709,7 @@ func (ec *executionContext) fieldContext_Event_firstAt(_ context.Context, field 
 	return graphql.NewScalarFieldContext("Event", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _Event_lastAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Event) (ret graphql.Marshaler) {
+func (ec *executionContext) _Event_lastAt(ctx context.Context, field graphql.CollectedField, obj *cluster.Event) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11732,7 +11732,7 @@ func (ec *executionContext) fieldContext_Event_lastAt(_ context.Context, field g
 	return graphql.NewScalarFieldContext("Event", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _EventWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *clustersvc.EventWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _EventWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *cluster.EventWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11744,8 +11744,8 @@ func (ec *executionContext) _EventWatchFrame_type(ctx context.Context, field gra
 			return obj.Type, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v clustersvc.EventFrameType) graphql.Marshaler {
-			return ec.marshalNEventFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐEventFrameType(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v cluster.EventFrameType) graphql.Marshaler {
+			return ec.marshalNEventFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐEventFrameType(ctx, selections, v)
 		},
 		true,
 		true,
@@ -11755,7 +11755,7 @@ func (ec *executionContext) fieldContext_EventWatchFrame_type(_ context.Context,
 	return graphql.NewScalarFieldContext("EventWatchFrame", field, false, false, errors.New("field of type EventFrameType does not have child fields"))
 }
 
-func (ec *executionContext) _EventWatchFrame_event(ctx context.Context, field graphql.CollectedField, obj *clustersvc.EventWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _EventWatchFrame_event(ctx context.Context, field graphql.CollectedField, obj *cluster.EventWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11767,8 +11767,8 @@ func (ec *executionContext) _EventWatchFrame_event(ctx context.Context, field gr
 			return obj.Event, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.Event) graphql.Marshaler {
-			return ec.marshalOEvent2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐEvent(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.Event) graphql.Marshaler {
+			return ec.marshalOEvent2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐEvent(ctx, selections, v)
 		},
 		true,
 		false,
@@ -11948,7 +11948,7 @@ func (ec *executionContext) fieldContext_KubeQueryAction_limit(_ context.Context
 	return graphql.NewScalarFieldContext("KubeQueryAction", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _Memory_id(ctx context.Context, field graphql.CollectedField, obj *memorysvc.Memory) (ret graphql.Marshaler) {
+func (ec *executionContext) _Memory_id(ctx context.Context, field graphql.CollectedField, obj *memory.Memory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11960,8 +11960,8 @@ func (ec *executionContext) _Memory_id(ctx context.Context, field graphql.Collec
 			return obj.ID, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v memorysvc.MemoryID) graphql.Marshaler {
-			return ec.marshalNMemoryID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐMemoryID(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v memory.MemoryID) graphql.Marshaler {
+			return ec.marshalNMemoryID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemoryID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -11971,7 +11971,7 @@ func (ec *executionContext) fieldContext_Memory_id(_ context.Context, field grap
 	return graphql.NewScalarFieldContext("Memory", field, false, false, errors.New("field of type MemoryID does not have child fields"))
 }
 
-func (ec *executionContext) _Memory_clusterID(ctx context.Context, field graphql.CollectedField, obj *memorysvc.Memory) (ret graphql.Marshaler) {
+func (ec *executionContext) _Memory_clusterID(ctx context.Context, field graphql.CollectedField, obj *memory.Memory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -11984,7 +11984,7 @@ func (ec *executionContext) _Memory_clusterID(ctx context.Context, field graphql
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *apimeta.ClusterID) graphql.Marshaler {
-			return ec.marshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, selections, v)
+			return ec.marshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, selections, v)
 		},
 		true,
 		false,
@@ -11994,7 +11994,7 @@ func (ec *executionContext) fieldContext_Memory_clusterID(_ context.Context, fie
 	return graphql.NewScalarFieldContext("Memory", field, false, false, errors.New("field of type ClusterID does not have child fields"))
 }
 
-func (ec *executionContext) _Memory_name(ctx context.Context, field graphql.CollectedField, obj *memorysvc.Memory) (ret graphql.Marshaler) {
+func (ec *executionContext) _Memory_name(ctx context.Context, field graphql.CollectedField, obj *memory.Memory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -12017,7 +12017,7 @@ func (ec *executionContext) fieldContext_Memory_name(_ context.Context, field gr
 	return graphql.NewScalarFieldContext("Memory", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _Memory_body(ctx context.Context, field graphql.CollectedField, obj *memorysvc.Memory) (ret graphql.Marshaler) {
+func (ec *executionContext) _Memory_body(ctx context.Context, field graphql.CollectedField, obj *memory.Memory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -12040,7 +12040,7 @@ func (ec *executionContext) fieldContext_Memory_body(_ context.Context, field gr
 	return graphql.NewScalarFieldContext("Memory", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _Memory_writtenBy(ctx context.Context, field graphql.CollectedField, obj *memorysvc.Memory) (ret graphql.Marshaler) {
+func (ec *executionContext) _Memory_writtenBy(ctx context.Context, field graphql.CollectedField, obj *memory.Memory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -12052,8 +12052,8 @@ func (ec *executionContext) _Memory_writtenBy(ctx context.Context, field graphql
 			return obj.WrittenBy, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v memorysvc.Author) graphql.Marshaler {
-			return ec.marshalNMemoryAuthor2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐAuthor(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v memory.Author) graphql.Marshaler {
+			return ec.marshalNMemoryAuthor2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐAuthor(ctx, selections, v)
 		},
 		true,
 		true,
@@ -12063,7 +12063,7 @@ func (ec *executionContext) fieldContext_Memory_writtenBy(_ context.Context, fie
 	return graphql.NewScalarFieldContext("Memory", field, false, false, errors.New("field of type MemoryAuthor does not have child fields"))
 }
 
-func (ec *executionContext) _Memory_updatedAt(ctx context.Context, field graphql.CollectedField, obj *memorysvc.Memory) (ret graphql.Marshaler) {
+func (ec *executionContext) _Memory_updatedAt(ctx context.Context, field graphql.CollectedField, obj *memory.Memory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -12178,7 +12178,7 @@ func (ec *executionContext) fieldContext_MemoryAction_scope(_ context.Context, f
 	return graphql.NewScalarFieldContext("MemoryAction", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _MemoryWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *memorysvc.MemoryWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _MemoryWatchFrame_type(ctx context.Context, field graphql.CollectedField, obj *memory.MemoryWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -12191,7 +12191,7 @@ func (ec *executionContext) _MemoryWatchFrame_type(ctx context.Context, field gr
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.DeltaFrameType) graphql.Marshaler {
-			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐDeltaFrameType(ctx, selections, v)
+			return ec.marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐDeltaFrameType(ctx, selections, v)
 		},
 		true,
 		true,
@@ -12201,7 +12201,7 @@ func (ec *executionContext) fieldContext_MemoryWatchFrame_type(_ context.Context
 	return graphql.NewScalarFieldContext("MemoryWatchFrame", field, false, false, errors.New("field of type DeltaFrameType does not have child fields"))
 }
 
-func (ec *executionContext) _MemoryWatchFrame_memory(ctx context.Context, field graphql.CollectedField, obj *memorysvc.MemoryWatchFrame) (ret graphql.Marshaler) {
+func (ec *executionContext) _MemoryWatchFrame_memory(ctx context.Context, field graphql.CollectedField, obj *memory.MemoryWatchFrame) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -12213,8 +12213,8 @@ func (ec *executionContext) _MemoryWatchFrame_memory(ctx context.Context, field 
 			return obj.Memory, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *memorysvc.Memory) graphql.Marshaler {
-			return ec.marshalOMemory2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐMemory(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *memory.Memory) graphql.Marshaler {
+			return ec.marshalOMemory2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemory(ctx, selections, v)
 		},
 		true,
 		false,
@@ -12370,8 +12370,8 @@ func (ec *executionContext) _Mutation_clusterEnabledSet(ctx context.Context, fie
 			return ec.Resolvers.Mutation().ClusterEnabledSet(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["enabled"].(bool))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.Cluster) graphql.Marshaler {
-			return ec.marshalNCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐCluster(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.Cluster) graphql.Marshaler {
+			return ec.marshalNCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐCluster(ctx, selections, v)
 		},
 		true,
 		true,
@@ -12414,8 +12414,8 @@ func (ec *executionContext) _Mutation_clusterSyncEnabledSet(ctx context.Context,
 			return ec.Resolvers.Mutation().ClusterSyncEnabledSet(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["syncEnabled"].(bool))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.Cluster) graphql.Marshaler {
-			return ec.marshalNCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐCluster(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.Cluster) graphql.Marshaler {
+			return ec.marshalNCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐCluster(ctx, selections, v)
 		},
 		true,
 		true,
@@ -12458,8 +12458,8 @@ func (ec *executionContext) _Mutation_clusterMonitoringEnabledSet(ctx context.Co
 			return ec.Resolvers.Mutation().ClusterMonitoringEnabledSet(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["monitoringEnabled"].(bool))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.Cluster) graphql.Marshaler {
-			return ec.marshalNCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐCluster(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.Cluster) graphql.Marshaler {
+			return ec.marshalNCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐCluster(ctx, selections, v)
 		},
 		true,
 		true,
@@ -12590,8 +12590,8 @@ func (ec *executionContext) _Mutation_clusterCacheClear(ctx context.Context, fie
 			return ec.Resolvers.Mutation().ClusterCacheClear(ctx, fc.Args["id"].(apimeta.ObjectID))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCache) graphql.Marshaler {
-			return ec.marshalNClusterCache2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCache(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCache) graphql.Marshaler {
+			return ec.marshalNClusterCache2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCache(ctx, selections, v)
 		},
 		true,
 		true,
@@ -12634,8 +12634,8 @@ func (ec *executionContext) _Mutation_clusterCachedKindSyncEnabledSet(ctx contex
 			return ec.Resolvers.Mutation().ClusterCachedKindSyncEnabledSet(ctx, fc.Args["id"].(apimeta.ObjectID), fc.Args["syncEnabled"].(bool))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCachedKind) graphql.Marshaler {
-			return ec.marshalNClusterCachedKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedKind(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCachedKind) graphql.Marshaler {
+			return ec.marshalNClusterCachedKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedKind(ctx, selections, v)
 		},
 		true,
 		true,
@@ -12675,11 +12675,11 @@ func (ec *executionContext) _Mutation_chatSend(ctx context.Context, field graphq
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Mutation().ChatSend(ctx, fc.Args["chatID"].(*apimeta.ChatID), fc.Args["mode"].(chatsvc.Mode), fc.Args["clusterID"].(apimeta.ClusterID), fc.Args["sandboxDisabled"].(bool), fc.Args["networkEnabled"].(bool), fc.Args["networkThisTurn"].(bool), fc.Args["providerID"].(string), fc.Args["modelID"].(string), fc.Args["effort"].(string), fc.Args["requestID"].(string), fc.Args["content"].(string))
+			return ec.Resolvers.Mutation().ChatSend(ctx, fc.Args["chatID"].(*apimeta.ChatID), fc.Args["mode"].(chat.Mode), fc.Args["clusterID"].(apimeta.ClusterID), fc.Args["sandboxDisabled"].(bool), fc.Args["networkEnabled"].(bool), fc.Args["networkThisTurn"].(bool), fc.Args["providerID"].(string), fc.Args["modelID"].(string), fc.Args["effort"].(string), fc.Args["requestID"].(string), fc.Args["content"].(string))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.ChatMessage) graphql.Marshaler {
-			return ec.marshalNChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐChatMessage(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *chat.ChatMessage) graphql.Marshaler {
+			return ec.marshalNChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatMessage(ctx, selections, v)
 		},
 		true,
 		true,
@@ -12763,7 +12763,7 @@ func (ec *executionContext) _Mutation_approvalDecide(ctx context.Context, field 
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Mutation().ApprovalDecide(ctx, fc.Args["id"].(chatsvc.ApprovalID), fc.Args["decision"].(chatsvc.ApprovalDecision))
+			return ec.Resolvers.Mutation().ApprovalDecide(ctx, fc.Args["id"].(chat.ApprovalID), fc.Args["decision"].(chat.ApprovalDecision))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
@@ -12807,7 +12807,7 @@ func (ec *executionContext) _Mutation_backgroundTaskStop(ctx context.Context, fi
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Mutation().BackgroundTaskStop(ctx, fc.Args["id"].(chatsvc.ToolCallID))
+			return ec.Resolvers.Mutation().BackgroundTaskStop(ctx, fc.Args["id"].(chat.ToolCallID))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
@@ -12854,8 +12854,8 @@ func (ec *executionContext) _Mutation_chatRename(ctx context.Context, field grap
 			return ec.Resolvers.Mutation().ChatRename(ctx, fc.Args["id"].(apimeta.ChatID), fc.Args["title"].(string))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.Chat) graphql.Marshaler {
-			return ec.marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐChat(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *chat.Chat) graphql.Marshaler {
+			return ec.marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChat(ctx, selections, v)
 		},
 		true,
 		true,
@@ -12898,8 +12898,8 @@ func (ec *executionContext) _Mutation_chatSandboxDisabledSet(ctx context.Context
 			return ec.Resolvers.Mutation().ChatSandboxDisabledSet(ctx, fc.Args["id"].(apimeta.ChatID), fc.Args["sandboxDisabled"].(bool))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.Chat) graphql.Marshaler {
-			return ec.marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐChat(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *chat.Chat) graphql.Marshaler {
+			return ec.marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChat(ctx, selections, v)
 		},
 		true,
 		true,
@@ -12942,8 +12942,8 @@ func (ec *executionContext) _Mutation_chatNetworkEnabledSet(ctx context.Context,
 			return ec.Resolvers.Mutation().ChatNetworkEnabledSet(ctx, fc.Args["id"].(apimeta.ChatID), fc.Args["enabled"].(bool))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.Chat) graphql.Marshaler {
-			return ec.marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐChat(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *chat.Chat) graphql.Marshaler {
+			return ec.marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChat(ctx, selections, v)
 		},
 		true,
 		true,
@@ -13302,8 +13302,8 @@ func (ec *executionContext) _Mutation_memorySave(ctx context.Context, field grap
 			return ec.Resolvers.Mutation().MemorySave(ctx, fc.Args["input"].(model.MemorySaveInput))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *memorysvc.Memory) graphql.Marshaler {
-			return ec.marshalNMemory2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐMemory(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *memory.Memory) graphql.Marshaler {
+			return ec.marshalNMemory2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemory(ctx, selections, v)
 		},
 		true,
 		true,
@@ -13343,7 +13343,7 @@ func (ec *executionContext) _Mutation_memoryDelete(ctx context.Context, field gr
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Mutation().MemoryDelete(ctx, fc.Args["id"].(memorysvc.MemoryID))
+			return ec.Resolvers.Mutation().MemoryDelete(ctx, fc.Args["id"].(memory.MemoryID))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
@@ -13865,7 +13865,7 @@ func (ec *executionContext) fieldContext_NonResourceRule_nonResourceUrls(_ conte
 	return graphql.NewScalarFieldContext("NonResourceRule", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ObjectRef_id(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ObjectRef) (ret graphql.Marshaler) {
+func (ec *executionContext) _ObjectRef_id(ctx context.Context, field graphql.CollectedField, obj *cluster.ObjectRef) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13878,7 +13878,7 @@ func (ec *executionContext) _ObjectRef_id(ctx context.Context, field graphql.Col
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v apimeta.ObjectID) graphql.Marshaler {
-			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx, selections, v)
+			return ec.marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -13888,7 +13888,7 @@ func (ec *executionContext) fieldContext_ObjectRef_id(_ context.Context, field g
 	return graphql.NewScalarFieldContext("ObjectRef", field, false, false, errors.New("field of type ObjectID does not have child fields"))
 }
 
-func (ec *executionContext) _ObjectRef_kind(ctx context.Context, field graphql.CollectedField, obj *clustersvc.ObjectRef) (ret graphql.Marshaler) {
+func (ec *executionContext) _ObjectRef_kind(ctx context.Context, field graphql.CollectedField, obj *cluster.ObjectRef) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13934,7 +13934,7 @@ func (ec *executionContext) fieldContext_Onboarding_finished(_ context.Context, 
 	return graphql.NewScalarFieldContext("Onboarding", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _PermissionAction_summary(ctx context.Context, field graphql.CollectedField, obj *chatsvc.PermissionAction) (ret graphql.Marshaler) {
+func (ec *executionContext) _PermissionAction_summary(ctx context.Context, field graphql.CollectedField, obj *chat.PermissionAction) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13957,7 +13957,7 @@ func (ec *executionContext) fieldContext_PermissionAction_summary(_ context.Cont
 	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _PermissionAction_class(ctx context.Context, field graphql.CollectedField, obj *chatsvc.PermissionAction) (ret graphql.Marshaler) {
+func (ec *executionContext) _PermissionAction_class(ctx context.Context, field graphql.CollectedField, obj *chat.PermissionAction) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13980,7 +13980,7 @@ func (ec *executionContext) fieldContext_PermissionAction_class(_ context.Contex
 	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type PermissionClass does not have child fields"))
 }
 
-func (ec *executionContext) _PermissionAction_context(ctx context.Context, field graphql.CollectedField, obj *chatsvc.PermissionAction) (ret graphql.Marshaler) {
+func (ec *executionContext) _PermissionAction_context(ctx context.Context, field graphql.CollectedField, obj *chat.PermissionAction) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14003,7 +14003,7 @@ func (ec *executionContext) fieldContext_PermissionAction_context(_ context.Cont
 	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _PermissionAction_namespace(ctx context.Context, field graphql.CollectedField, obj *chatsvc.PermissionAction) (ret graphql.Marshaler) {
+func (ec *executionContext) _PermissionAction_namespace(ctx context.Context, field graphql.CollectedField, obj *chat.PermissionAction) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14026,7 +14026,7 @@ func (ec *executionContext) fieldContext_PermissionAction_namespace(_ context.Co
 	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _PermissionAction_verb(ctx context.Context, field graphql.CollectedField, obj *chatsvc.PermissionAction) (ret graphql.Marshaler) {
+func (ec *executionContext) _PermissionAction_verb(ctx context.Context, field graphql.CollectedField, obj *chat.PermissionAction) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14049,7 +14049,7 @@ func (ec *executionContext) fieldContext_PermissionAction_verb(_ context.Context
 	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _PermissionAction_group(ctx context.Context, field graphql.CollectedField, obj *chatsvc.PermissionAction) (ret graphql.Marshaler) {
+func (ec *executionContext) _PermissionAction_group(ctx context.Context, field graphql.CollectedField, obj *chat.PermissionAction) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14072,7 +14072,7 @@ func (ec *executionContext) fieldContext_PermissionAction_group(_ context.Contex
 	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _PermissionAction_kind(ctx context.Context, field graphql.CollectedField, obj *chatsvc.PermissionAction) (ret graphql.Marshaler) {
+func (ec *executionContext) _PermissionAction_kind(ctx context.Context, field graphql.CollectedField, obj *chat.PermissionAction) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14095,7 +14095,7 @@ func (ec *executionContext) fieldContext_PermissionAction_kind(_ context.Context
 	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _PermissionAction_grantable(ctx context.Context, field graphql.CollectedField, obj *chatsvc.PermissionAction) (ret graphql.Marshaler) {
+func (ec *executionContext) _PermissionAction_grantable(ctx context.Context, field graphql.CollectedField, obj *chat.PermissionAction) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14118,7 +14118,7 @@ func (ec *executionContext) fieldContext_PermissionAction_grantable(_ context.Co
 	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _PermissionAction_commandRule(ctx context.Context, field graphql.CollectedField, obj *chatsvc.PermissionAction) (ret graphql.Marshaler) {
+func (ec *executionContext) _PermissionAction_commandRule(ctx context.Context, field graphql.CollectedField, obj *chat.PermissionAction) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14141,7 +14141,7 @@ func (ec *executionContext) fieldContext_PermissionAction_commandRule(_ context.
 	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _PermissionAction_chatRule(ctx context.Context, field graphql.CollectedField, obj *chatsvc.PermissionAction) (ret graphql.Marshaler) {
+func (ec *executionContext) _PermissionAction_chatRule(ctx context.Context, field graphql.CollectedField, obj *chat.PermissionAction) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14223,7 +14223,7 @@ func (ec *executionContext) _PermissionContextMode_source(ctx context.Context, f
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v securityconfig.ModeSource) graphql.Marshaler {
-			return ec.marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsecurityconfigᚐModeSource(ctx, selections, v)
+			return ec.marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐModeSource(ctx, selections, v)
 		},
 		true,
 		true,
@@ -14545,7 +14545,7 @@ func (ec *executionContext) _PermissionSettings_contexts(ctx context.Context, fi
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v []*securityconfig.ContextModeState) graphql.Marshaler {
-			return ec.marshalNPermissionContextMode2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsecurityconfigᚐContextModeStateᚄ(ctx, selections, v)
+			return ec.marshalNPermissionContextMode2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐContextModeStateᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -14642,7 +14642,7 @@ func (ec *executionContext) fieldContext_PermissionSettings_held(_ context.Conte
 	return graphql.NewScalarFieldContext("PermissionSettings", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _PrinterColumn_name(ctx context.Context, field graphql.CollectedField, obj *clustersvc.PrinterColumn) (ret graphql.Marshaler) {
+func (ec *executionContext) _PrinterColumn_name(ctx context.Context, field graphql.CollectedField, obj *cluster.PrinterColumn) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14665,7 +14665,7 @@ func (ec *executionContext) fieldContext_PrinterColumn_name(_ context.Context, f
 	return graphql.NewScalarFieldContext("PrinterColumn", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _PrinterColumn_type(ctx context.Context, field graphql.CollectedField, obj *clustersvc.PrinterColumn) (ret graphql.Marshaler) {
+func (ec *executionContext) _PrinterColumn_type(ctx context.Context, field graphql.CollectedField, obj *cluster.PrinterColumn) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14688,7 +14688,7 @@ func (ec *executionContext) fieldContext_PrinterColumn_type(_ context.Context, f
 	return graphql.NewScalarFieldContext("PrinterColumn", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _PrinterColumn_jsonPath(ctx context.Context, field graphql.CollectedField, obj *clustersvc.PrinterColumn) (ret graphql.Marshaler) {
+func (ec *executionContext) _PrinterColumn_jsonPath(ctx context.Context, field graphql.CollectedField, obj *cluster.PrinterColumn) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14711,7 +14711,7 @@ func (ec *executionContext) fieldContext_PrinterColumn_jsonPath(_ context.Contex
 	return graphql.NewScalarFieldContext("PrinterColumn", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _PrinterColumn_priority(ctx context.Context, field graphql.CollectedField, obj *clustersvc.PrinterColumn) (ret graphql.Marshaler) {
+func (ec *executionContext) _PrinterColumn_priority(ctx context.Context, field graphql.CollectedField, obj *cluster.PrinterColumn) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14880,8 +14880,8 @@ func (ec *executionContext) _Query_cluster(ctx context.Context, field graphql.Co
 			return ec.Resolvers.Query().Cluster(ctx, fc.Args["id"].(apimeta.ClusterID))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.Cluster) graphql.Marshaler {
-			return ec.marshalOCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐCluster(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.Cluster) graphql.Marshaler {
+			return ec.marshalOCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐCluster(ctx, selections, v)
 		},
 		true,
 		false,
@@ -14923,8 +14923,8 @@ func (ec *executionContext) _Query_clusters(ctx context.Context, field graphql.C
 			return ec.Resolvers.Query().Clusters(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*clustersvc.Cluster) graphql.Marshaler {
-			return ec.marshalNCluster2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*cluster.Cluster) graphql.Marshaler {
+			return ec.marshalNCluster2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -14956,8 +14956,8 @@ func (ec *executionContext) _Query_clusterCache(ctx context.Context, field graph
 			return ec.Resolvers.Query().ClusterCache(ctx, fc.Args["id"].(apimeta.ObjectID))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCache) graphql.Marshaler {
-			return ec.marshalOClusterCache2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCache(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCache) graphql.Marshaler {
+			return ec.marshalOClusterCache2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCache(ctx, selections, v)
 		},
 		true,
 		false,
@@ -15000,8 +15000,8 @@ func (ec *executionContext) _Query_clusterCaches(ctx context.Context, field grap
 			return ec.Resolvers.Query().ClusterCaches(ctx, fc.Args["clusterID"].(*apimeta.ClusterID))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*clustersvc.ClusterCache) graphql.Marshaler {
-			return ec.marshalNClusterCache2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*cluster.ClusterCache) graphql.Marshaler {
+			return ec.marshalNClusterCache2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -15044,8 +15044,8 @@ func (ec *executionContext) _Query_clusterCachedKind(ctx context.Context, field 
 			return ec.Resolvers.Query().ClusterCachedKind(ctx, fc.Args["id"].(apimeta.ObjectID))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCachedKind) graphql.Marshaler {
-			return ec.marshalOClusterCachedKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedKind(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCachedKind) graphql.Marshaler {
+			return ec.marshalOClusterCachedKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedKind(ctx, selections, v)
 		},
 		true,
 		false,
@@ -15088,8 +15088,8 @@ func (ec *executionContext) _Query_clusterCachedKinds(ctx context.Context, field
 			return ec.Resolvers.Query().ClusterCachedKinds(ctx, fc.Args["cacheID"].(*apimeta.ObjectID))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*clustersvc.ClusterCachedKind) graphql.Marshaler {
-			return ec.marshalNClusterCachedKind2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedKindᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*cluster.ClusterCachedKind) graphql.Marshaler {
+			return ec.marshalNClusterCachedKind2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedKindᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -15132,7 +15132,7 @@ func (ec *executionContext) _Query_securityRefused(ctx context.Context, field gr
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v []*securityconfig.Refusal) graphql.Marshaler {
-			return ec.marshalNSecurityRefusal2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsecurityconfigᚐRefusalᚄ(ctx, selections, v)
+			return ec.marshalNSecurityRefusal2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐRefusalᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -15426,7 +15426,7 @@ func (ec *executionContext) _Query_authState(ctx context.Context, field graphql.
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *auth.State) graphql.Marshaler {
-			return ec.marshalNAuthState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋauthᚐState(ctx, selections, v)
+			return ec.marshalNAuthState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋauthᚐState(ctx, selections, v)
 		},
 		true,
 		true,
@@ -16376,7 +16376,7 @@ func (ec *executionContext) fieldContext_SandboxStatus_networkReason(_ context.C
 	return graphql.NewScalarFieldContext("SandboxStatus", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _Schedule_nextRequeueAt(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Schedule) (ret graphql.Marshaler) {
+func (ec *executionContext) _Schedule_nextRequeueAt(ctx context.Context, field graphql.CollectedField, obj *cluster.Schedule) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -16399,7 +16399,7 @@ func (ec *executionContext) fieldContext_Schedule_nextRequeueAt(_ context.Contex
 	return graphql.NewScalarFieldContext("Schedule", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _Schedule_probing(ctx context.Context, field graphql.CollectedField, obj *clustersvc.Schedule) (ret graphql.Marshaler) {
+func (ec *executionContext) _Schedule_probing(ctx context.Context, field graphql.CollectedField, obj *cluster.Schedule) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -16527,8 +16527,8 @@ func (ec *executionContext) _Subscription_eventsWatch(ctx context.Context, field
 			return ec.Resolvers.Subscription().EventsWatch(ctx, fc.Args["id"].(apimeta.ObjectID), fc.Args["category"].(*string))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.EventWatchFrame) graphql.Marshaler {
-			return ec.marshalNEventWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐEventWatchFrame(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.EventWatchFrame) graphql.Marshaler {
+			return ec.marshalNEventWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐEventWatchFrame(ctx, selections, v)
 		},
 		true,
 		true,
@@ -16570,8 +16570,8 @@ func (ec *executionContext) _Subscription_clustersWatch(ctx context.Context, fie
 			return ec.Resolvers.Subscription().ClustersWatch(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterWatchFrame) graphql.Marshaler {
-			return ec.marshalNClusterWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterWatchFrame(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterWatchFrame) graphql.Marshaler {
+			return ec.marshalNClusterWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterWatchFrame(ctx, selections, v)
 		},
 		true,
 		true,
@@ -16603,8 +16603,8 @@ func (ec *executionContext) _Subscription_clusterEventsWatch(ctx context.Context
 			return ec.Resolvers.Subscription().ClusterEventsWatch(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["category"].(*string))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.EventWatchFrame) graphql.Marshaler {
-			return ec.marshalNEventWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐEventWatchFrame(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.EventWatchFrame) graphql.Marshaler {
+			return ec.marshalNEventWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐEventWatchFrame(ctx, selections, v)
 		},
 		true,
 		true,
@@ -16647,8 +16647,8 @@ func (ec *executionContext) _Subscription_clusterScheduleWatch(ctx context.Conte
 			return ec.Resolvers.Subscription().ClusterScheduleWatch(ctx, fc.Args["id"].(apimeta.ClusterID))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.Schedule) graphql.Marshaler {
-			return ec.marshalNSchedule2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐSchedule(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.Schedule) graphql.Marshaler {
+			return ec.marshalNSchedule2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐSchedule(ctx, selections, v)
 		},
 		true,
 		true,
@@ -16690,8 +16690,8 @@ func (ec *executionContext) _Subscription_clusterCachesWatch(ctx context.Context
 			return ec.Resolvers.Subscription().ClusterCachesWatch(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCacheWatchFrame) graphql.Marshaler {
-			return ec.marshalNClusterCacheWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheWatchFrame(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCacheWatchFrame) graphql.Marshaler {
+			return ec.marshalNClusterCacheWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheWatchFrame(ctx, selections, v)
 		},
 		true,
 		true,
@@ -16722,8 +16722,8 @@ func (ec *executionContext) _Subscription_clusterCacheHealthWatch(ctx context.Co
 			return ec.Resolvers.Subscription().ClusterCacheHealthWatch(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCacheHealth) graphql.Marshaler {
-			return ec.marshalNClusterCacheHealth2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheHealth(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCacheHealth) graphql.Marshaler {
+			return ec.marshalNClusterCacheHealth2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheHealth(ctx, selections, v)
 		},
 		true,
 		true,
@@ -16755,8 +16755,8 @@ func (ec *executionContext) _Subscription_clusterCachedKindsWatch(ctx context.Co
 			return ec.Resolvers.Subscription().ClusterCachedKindsWatch(ctx, fc.Args["cacheID"].(apimeta.ObjectID))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCachedKindWatchFrame) graphql.Marshaler {
-			return ec.marshalNClusterCachedKindWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedKindWatchFrame(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCachedKindWatchFrame) graphql.Marshaler {
+			return ec.marshalNClusterCachedKindWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedKindWatchFrame(ctx, selections, v)
 		},
 		true,
 		true,
@@ -16799,8 +16799,8 @@ func (ec *executionContext) _Subscription_clusterCacheStatsWatch(ctx context.Con
 			return ec.Resolvers.Subscription().ClusterCacheStatsWatch(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["cacheID"].(apimeta.ObjectID))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCacheStats) graphql.Marshaler {
-			return ec.marshalNClusterCacheStats2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheStats(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCacheStats) graphql.Marshaler {
+			return ec.marshalNClusterCacheStats2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheStats(ctx, selections, v)
 		},
 		true,
 		true,
@@ -16843,8 +16843,8 @@ func (ec *executionContext) _Subscription_clusterCacheSyncStatusWatch(ctx contex
 			return ec.Resolvers.Subscription().ClusterCacheSyncStatusWatch(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["cacheID"].(apimeta.ObjectID))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCacheSyncStatus) graphql.Marshaler {
-			return ec.marshalNClusterCacheSyncStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheSyncStatus(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCacheSyncStatus) graphql.Marshaler {
+			return ec.marshalNClusterCacheSyncStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheSyncStatus(ctx, selections, v)
 		},
 		true,
 		true,
@@ -16887,8 +16887,8 @@ func (ec *executionContext) _Subscription_clusterCachedDataKindsWatch(ctx contex
 			return ec.Resolvers.Subscription().ClusterCachedDataKindsWatch(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["cacheID"].(apimeta.ObjectID))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCachedDataKindWatchFrame) graphql.Marshaler {
-			return ec.marshalNClusterCachedDataKindWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataKindWatchFrame(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCachedDataKindWatchFrame) graphql.Marshaler {
+			return ec.marshalNClusterCachedDataKindWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataKindWatchFrame(ctx, selections, v)
 		},
 		true,
 		true,
@@ -16931,8 +16931,8 @@ func (ec *executionContext) _Subscription_clusterCachedDataEventsWatch(ctx conte
 			return ec.Resolvers.Subscription().ClusterCachedDataEventsWatch(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["cacheID"].(apimeta.ObjectID))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCachedDataEventWatchFrame) graphql.Marshaler {
-			return ec.marshalNClusterCachedDataEventWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataEventWatchFrame(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCachedDataEventWatchFrame) graphql.Marshaler {
+			return ec.marshalNClusterCachedDataEventWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataEventWatchFrame(ctx, selections, v)
 		},
 		true,
 		true,
@@ -16975,8 +16975,8 @@ func (ec *executionContext) _Subscription_clusterCachedDataObjectsWatch(ctx cont
 			return ec.Resolvers.Subscription().ClusterCachedDataObjectsWatch(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["cacheID"].(apimeta.ObjectID), fc.Args["apiVersion"].(string), fc.Args["resource"].(string))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *clustersvc.ClusterCachedDataObjectWatchFrame) graphql.Marshaler {
-			return ec.marshalNClusterCachedDataObjectWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataObjectWatchFrame(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *cluster.ClusterCachedDataObjectWatchFrame) graphql.Marshaler {
+			return ec.marshalNClusterCachedDataObjectWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataObjectWatchFrame(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17018,8 +17018,8 @@ func (ec *executionContext) _Subscription_chatsWatch(ctx context.Context, field 
 			return ec.Resolvers.Subscription().ChatsWatch(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.ChatWatchFrame) graphql.Marshaler {
-			return ec.marshalNChatWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐChatWatchFrame(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *chat.ChatWatchFrame) graphql.Marshaler {
+			return ec.marshalNChatWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatWatchFrame(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17051,8 +17051,8 @@ func (ec *executionContext) _Subscription_chatMessagesWatch(ctx context.Context,
 			return ec.Resolvers.Subscription().ChatMessagesWatch(ctx, fc.Args["chatID"].(apimeta.ChatID))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.ChatMessageWatchFrame) graphql.Marshaler {
-			return ec.marshalNChatMessageWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐChatMessageWatchFrame(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *chat.ChatMessageWatchFrame) graphql.Marshaler {
+			return ec.marshalNChatMessageWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatMessageWatchFrame(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17095,8 +17095,8 @@ func (ec *executionContext) _Subscription_memoriesWatch(ctx context.Context, fie
 			return ec.Resolvers.Subscription().MemoriesWatch(ctx, fc.Args["clusterID"].(apimeta.ClusterID))
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *memorysvc.MemoryWatchFrame) graphql.Marshaler {
-			return ec.marshalNMemoryWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐMemoryWatchFrame(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *memory.MemoryWatchFrame) graphql.Marshaler {
+			return ec.marshalNMemoryWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemoryWatchFrame(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17171,7 +17171,7 @@ func (ec *executionContext) _Subscription_authStateWatch(ctx context.Context, fi
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *auth.State) graphql.Marshaler {
-			return ec.marshalNAuthState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋauthᚐState(ctx, selections, v)
+			return ec.marshalNAuthState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋauthᚐState(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17190,7 +17190,7 @@ func (ec *executionContext) fieldContext_Subscription_authStateWatch(_ context.C
 	return fc, nil
 }
 
-func (ec *executionContext) _SyncedKindRef_apiVersion(ctx context.Context, field graphql.CollectedField, obj *clustersvc.SyncedKindRef) (ret graphql.Marshaler) {
+func (ec *executionContext) _SyncedKindRef_apiVersion(ctx context.Context, field graphql.CollectedField, obj *cluster.SyncedKindRef) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17213,7 +17213,7 @@ func (ec *executionContext) fieldContext_SyncedKindRef_apiVersion(_ context.Cont
 	return graphql.NewScalarFieldContext("SyncedKindRef", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _SyncedKindRef_resource(ctx context.Context, field graphql.CollectedField, obj *clustersvc.SyncedKindRef) (ret graphql.Marshaler) {
+func (ec *executionContext) _SyncedKindRef_resource(ctx context.Context, field graphql.CollectedField, obj *cluster.SyncedKindRef) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17547,7 +17547,7 @@ func (ec *executionContext) fieldContext_ToolAction_kubeQuery(_ context.Context,
 	return fc, nil
 }
 
-func (ec *executionContext) _ToolCall_id(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_id(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17559,8 +17559,8 @@ func (ec *executionContext) _ToolCall_id(ctx context.Context, field graphql.Coll
 			return obj.ID, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v chatsvc.ToolCallID) graphql.Marshaler {
-			return ec.marshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallID(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v chat.ToolCallID) graphql.Marshaler {
+			return ec.marshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17570,7 +17570,7 @@ func (ec *executionContext) fieldContext_ToolCall_id(_ context.Context, field gr
 	return graphql.NewScalarFieldContext("ToolCall", field, false, false, errors.New("field of type ToolCallID does not have child fields"))
 }
 
-func (ec *executionContext) _ToolCall_toolUseID(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_toolUseID(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17593,7 +17593,7 @@ func (ec *executionContext) fieldContext_ToolCall_toolUseID(_ context.Context, f
 	return graphql.NewScalarFieldContext("ToolCall", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ToolCall_name(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_name(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17616,7 +17616,7 @@ func (ec *executionContext) fieldContext_ToolCall_name(_ context.Context, field 
 	return graphql.NewScalarFieldContext("ToolCall", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ToolCall_contract(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_contract(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17639,7 +17639,7 @@ func (ec *executionContext) fieldContext_ToolCall_contract(_ context.Context, fi
 	return graphql.NewScalarFieldContext("ToolCall", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ToolCall_arguments(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_arguments(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17652,7 +17652,7 @@ func (ec *executionContext) _ToolCall_arguments(ctx context.Context, field graph
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v rawjson.RawJSON) graphql.Marshaler {
-			return ec.marshalNJSON2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrawjsonᚐRawJSON(ctx, selections, v)
+			return ec.marshalNJSON2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋrawjsonᚐRawJSON(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17662,7 +17662,7 @@ func (ec *executionContext) fieldContext_ToolCall_arguments(_ context.Context, f
 	return graphql.NewScalarFieldContext("ToolCall", field, false, false, errors.New("field of type JSON does not have child fields"))
 }
 
-func (ec *executionContext) _ToolCall_actionKind(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_actionKind(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17685,7 +17685,7 @@ func (ec *executionContext) fieldContext_ToolCall_actionKind(_ context.Context, 
 	return graphql.NewScalarFieldContext("ToolCall", field, false, false, errors.New("field of type ToolActionKind does not have child fields"))
 }
 
-func (ec *executionContext) _ToolCall_status(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_status(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17697,8 +17697,8 @@ func (ec *executionContext) _ToolCall_status(ctx context.Context, field graphql.
 			return ec.Resolvers.ToolCall().Status(ctx, obj)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.ToolCallStatus) graphql.Marshaler {
-			return ec.marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallStatus(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *chat.ToolCallStatus) graphql.Marshaler {
+			return ec.marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallStatus(ctx, selections, v)
 		},
 		true,
 		false,
@@ -17708,7 +17708,7 @@ func (ec *executionContext) fieldContext_ToolCall_status(_ context.Context, fiel
 	return graphql.NewScalarFieldContext("ToolCall", field, true, true, errors.New("field of type ToolCallStatus does not have child fields"))
 }
 
-func (ec *executionContext) _ToolCall_runsOn(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_runsOn(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17720,8 +17720,8 @@ func (ec *executionContext) _ToolCall_runsOn(ctx context.Context, field graphql.
 			return obj.RunsOn, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v chatsvc.ToolCallRunsOn) graphql.Marshaler {
-			return ec.marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallRunsOn(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v chat.ToolCallRunsOn) graphql.Marshaler {
+			return ec.marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallRunsOn(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17731,7 +17731,7 @@ func (ec *executionContext) fieldContext_ToolCall_runsOn(_ context.Context, fiel
 	return graphql.NewScalarFieldContext("ToolCall", field, false, false, errors.New("field of type ToolCallRunsOn does not have child fields"))
 }
 
-func (ec *executionContext) _ToolCall_action(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_action(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17763,7 +17763,7 @@ func (ec *executionContext) fieldContext_ToolCall_action(_ context.Context, fiel
 	return fc, nil
 }
 
-func (ec *executionContext) _ToolCall_approval(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_approval(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17775,8 +17775,8 @@ func (ec *executionContext) _ToolCall_approval(ctx context.Context, field graphq
 			return obj.Approval, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.ToolCallApproval) graphql.Marshaler {
-			return ec.marshalOToolCallApproval2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallApproval(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *chat.ToolCallApproval) graphql.Marshaler {
+			return ec.marshalOToolCallApproval2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallApproval(ctx, selections, v)
 		},
 		true,
 		false,
@@ -17795,7 +17795,7 @@ func (ec *executionContext) fieldContext_ToolCall_approval(_ context.Context, fi
 	return fc, nil
 }
 
-func (ec *executionContext) _ToolCall_network(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_network(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17807,8 +17807,8 @@ func (ec *executionContext) _ToolCall_network(ctx context.Context, field graphql
 			return obj.Network, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.ToolCallNetwork) graphql.Marshaler {
-			return ec.marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallNetwork(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *chat.ToolCallNetwork) graphql.Marshaler {
+			return ec.marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallNetwork(ctx, selections, v)
 		},
 		true,
 		false,
@@ -17818,7 +17818,7 @@ func (ec *executionContext) fieldContext_ToolCall_network(_ context.Context, fie
 	return graphql.NewScalarFieldContext("ToolCall", field, false, false, errors.New("field of type ToolCallNetwork does not have child fields"))
 }
 
-func (ec *executionContext) _ToolCall_output(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_output(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17841,7 +17841,7 @@ func (ec *executionContext) fieldContext_ToolCall_output(_ context.Context, fiel
 	return graphql.NewScalarFieldContext("ToolCall", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _ToolCall_isError(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_isError(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17864,7 +17864,7 @@ func (ec *executionContext) fieldContext_ToolCall_isError(_ context.Context, fie
 	return graphql.NewScalarFieldContext("ToolCall", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _ToolCall_background(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_background(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17876,8 +17876,8 @@ func (ec *executionContext) _ToolCall_background(ctx context.Context, field grap
 			return obj.Background, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.BackgroundTask) graphql.Marshaler {
-			return ec.marshalOBackgroundTask2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐBackgroundTask(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *chat.BackgroundTask) graphql.Marshaler {
+			return ec.marshalOBackgroundTask2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTask(ctx, selections, v)
 		},
 		true,
 		false,
@@ -17896,7 +17896,7 @@ func (ec *executionContext) fieldContext_ToolCall_background(_ context.Context, 
 	return fc, nil
 }
 
-func (ec *executionContext) _ToolCall_agentCallID(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_agentCallID(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17908,8 +17908,8 @@ func (ec *executionContext) _ToolCall_agentCallID(ctx context.Context, field gra
 			return obj.AgentCallID, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *chatsvc.ToolCallID) graphql.Marshaler {
-			return ec.marshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallID(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *chat.ToolCallID) graphql.Marshaler {
+			return ec.marshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallID(ctx, selections, v)
 		},
 		true,
 		false,
@@ -17919,7 +17919,7 @@ func (ec *executionContext) fieldContext_ToolCall_agentCallID(_ context.Context,
 	return graphql.NewScalarFieldContext("ToolCall", field, false, false, errors.New("field of type ToolCallID does not have child fields"))
 }
 
-func (ec *executionContext) _ToolCall_clusterWrites(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCall) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCall_clusterWrites(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17931,8 +17931,8 @@ func (ec *executionContext) _ToolCall_clusterWrites(ctx context.Context, field g
 			return obj.ClusterWrites, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []chatsvc.ClusterWrite) graphql.Marshaler {
-			return ec.marshalNClusterWrite2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐClusterWriteᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []chat.ClusterWrite) graphql.Marshaler {
+			return ec.marshalNClusterWrite2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐClusterWriteᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17951,7 +17951,7 @@ func (ec *executionContext) fieldContext_ToolCall_clusterWrites(_ context.Contex
 	return fc, nil
 }
 
-func (ec *executionContext) _ToolCallApproval_id(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCallApproval) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCallApproval_id(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCallApproval) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17963,8 +17963,8 @@ func (ec *executionContext) _ToolCallApproval_id(ctx context.Context, field grap
 			return obj.ID, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v chatsvc.ApprovalID) graphql.Marshaler {
-			return ec.marshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalID(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v chat.ApprovalID) graphql.Marshaler {
+			return ec.marshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17974,7 +17974,7 @@ func (ec *executionContext) fieldContext_ToolCallApproval_id(_ context.Context, 
 	return graphql.NewScalarFieldContext("ToolCallApproval", field, false, false, errors.New("field of type ApprovalID does not have child fields"))
 }
 
-func (ec *executionContext) _ToolCallApproval_status(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCallApproval) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCallApproval_status(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCallApproval) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -17986,8 +17986,8 @@ func (ec *executionContext) _ToolCallApproval_status(ctx context.Context, field 
 			return obj.Status, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v chatsvc.ApprovalStatus) graphql.Marshaler {
-			return ec.marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalStatus(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v chat.ApprovalStatus) graphql.Marshaler {
+			return ec.marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalStatus(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17997,7 +17997,7 @@ func (ec *executionContext) fieldContext_ToolCallApproval_status(_ context.Conte
 	return graphql.NewScalarFieldContext("ToolCallApproval", field, false, false, errors.New("field of type ApprovalStatus does not have child fields"))
 }
 
-func (ec *executionContext) _ToolCallApproval_duration(ctx context.Context, field graphql.CollectedField, obj *chatsvc.ToolCallApproval) (ret graphql.Marshaler) {
+func (ec *executionContext) _ToolCallApproval_duration(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCallApproval) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -19145,14 +19145,14 @@ func (ec *executionContext) unmarshalInputMemorySaveInput(ctx context.Context, o
 		switch k {
 		case "id":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("id"))
-			data, err := ec.unmarshalOMemoryID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐMemoryID(ctx, v)
+			data, err := ec.unmarshalOMemoryID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemoryID(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.ID = data
 		case "clusterID":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("clusterID"))
-			data, err := ec.unmarshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx, v)
+			data, err := ec.unmarshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -19317,7 +19317,7 @@ func (ec *executionContext) _AuthState(ctx context.Context, sel ast.SelectionSet
 
 var backgroundTaskImplementors = []string{"BackgroundTask"}
 
-func (ec *executionContext) _BackgroundTask(ctx context.Context, sel ast.SelectionSet, obj *chatsvc.BackgroundTask) graphql.Marshaler {
+func (ec *executionContext) _BackgroundTask(ctx context.Context, sel ast.SelectionSet, obj *chat.BackgroundTask) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, backgroundTaskImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -19365,7 +19365,7 @@ func (ec *executionContext) _BackgroundTask(ctx context.Context, sel ast.Selecti
 
 var chatImplementors = []string{"Chat"}
 
-func (ec *executionContext) _Chat(ctx context.Context, sel ast.SelectionSet, obj *chatsvc.Chat) graphql.Marshaler {
+func (ec *executionContext) _Chat(ctx context.Context, sel ast.SelectionSet, obj *chat.Chat) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, chatImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -19443,7 +19443,7 @@ func (ec *executionContext) _Chat(ctx context.Context, sel ast.SelectionSet, obj
 
 var chatMessageImplementors = []string{"ChatMessage"}
 
-func (ec *executionContext) _ChatMessage(ctx context.Context, sel ast.SelectionSet, obj *chatsvc.ChatMessage) graphql.Marshaler {
+func (ec *executionContext) _ChatMessage(ctx context.Context, sel ast.SelectionSet, obj *chat.ChatMessage) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, chatMessageImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -19726,7 +19726,7 @@ func (ec *executionContext) _ChatMessage(ctx context.Context, sel ast.SelectionS
 
 var chatMessageWatchFrameImplementors = []string{"ChatMessageWatchFrame"}
 
-func (ec *executionContext) _ChatMessageWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *chatsvc.ChatMessageWatchFrame) graphql.Marshaler {
+func (ec *executionContext) _ChatMessageWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *chat.ChatMessageWatchFrame) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, chatMessageWatchFrameImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -19769,7 +19769,7 @@ func (ec *executionContext) _ChatMessageWatchFrame(ctx context.Context, sel ast.
 
 var chatWatchFrameImplementors = []string{"ChatWatchFrame"}
 
-func (ec *executionContext) _ChatWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *chatsvc.ChatWatchFrame) graphql.Marshaler {
+func (ec *executionContext) _ChatWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *chat.ChatWatchFrame) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, chatWatchFrameImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -19865,7 +19865,7 @@ func (ec *executionContext) _Citation(ctx context.Context, sel ast.SelectionSet,
 
 var clusterImplementors = []string{"Cluster"}
 
-func (ec *executionContext) _Cluster(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.Cluster) graphql.Marshaler {
+func (ec *executionContext) _Cluster(ctx context.Context, sel ast.SelectionSet, obj *cluster.Cluster) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -20009,7 +20009,7 @@ func (ec *executionContext) _Cluster(ctx context.Context, sel ast.SelectionSet, 
 
 var clusterCacheImplementors = []string{"ClusterCache"}
 
-func (ec *executionContext) _ClusterCache(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCache) graphql.Marshaler {
+func (ec *executionContext) _ClusterCache(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCache) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCacheImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -20191,7 +20191,7 @@ func (ec *executionContext) _ClusterCache(ctx context.Context, sel ast.Selection
 
 var clusterCacheDiscoveryStatusImplementors = []string{"ClusterCacheDiscoveryStatus"}
 
-func (ec *executionContext) _ClusterCacheDiscoveryStatus(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCacheDiscoveryStatus) graphql.Marshaler {
+func (ec *executionContext) _ClusterCacheDiscoveryStatus(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCacheDiscoveryStatus) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCacheDiscoveryStatusImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -20234,7 +20234,7 @@ func (ec *executionContext) _ClusterCacheDiscoveryStatus(ctx context.Context, se
 
 var clusterCacheHealthImplementors = []string{"ClusterCacheHealth"}
 
-func (ec *executionContext) _ClusterCacheHealth(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCacheHealth) graphql.Marshaler {
+func (ec *executionContext) _ClusterCacheHealth(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCacheHealth) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCacheHealthImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -20312,7 +20312,7 @@ func (ec *executionContext) _ClusterCacheHealth(ctx context.Context, sel ast.Sel
 
 var clusterCacheKindSyncStatusImplementors = []string{"ClusterCacheKindSyncStatus"}
 
-func (ec *executionContext) _ClusterCacheKindSyncStatus(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCacheKindSyncStatus) graphql.Marshaler {
+func (ec *executionContext) _ClusterCacheKindSyncStatus(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCacheKindSyncStatus) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCacheKindSyncStatusImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -20400,7 +20400,7 @@ func (ec *executionContext) _ClusterCacheKindSyncStatus(ctx context.Context, sel
 
 var clusterCacheSpecImplementors = []string{"ClusterCacheSpec"}
 
-func (ec *executionContext) _ClusterCacheSpec(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCacheSpec) graphql.Marshaler {
+func (ec *executionContext) _ClusterCacheSpec(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCacheSpec) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCacheSpecImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -20438,7 +20438,7 @@ func (ec *executionContext) _ClusterCacheSpec(ctx context.Context, sel ast.Selec
 
 var clusterCacheStatsImplementors = []string{"ClusterCacheStats"}
 
-func (ec *executionContext) _ClusterCacheStats(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCacheStats) graphql.Marshaler {
+func (ec *executionContext) _ClusterCacheStats(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCacheStats) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCacheStatsImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -20516,7 +20516,7 @@ func (ec *executionContext) _ClusterCacheStats(ctx context.Context, sel ast.Sele
 
 var clusterCacheSyncStatusImplementors = []string{"ClusterCacheSyncStatus"}
 
-func (ec *executionContext) _ClusterCacheSyncStatus(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCacheSyncStatus) graphql.Marshaler {
+func (ec *executionContext) _ClusterCacheSyncStatus(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCacheSyncStatus) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCacheSyncStatusImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -20564,7 +20564,7 @@ func (ec *executionContext) _ClusterCacheSyncStatus(ctx context.Context, sel ast
 
 var clusterCacheWatchFrameImplementors = []string{"ClusterCacheWatchFrame"}
 
-func (ec *executionContext) _ClusterCacheWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCacheWatchFrame) graphql.Marshaler {
+func (ec *executionContext) _ClusterCacheWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCacheWatchFrame) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCacheWatchFrameImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -20607,7 +20607,7 @@ func (ec *executionContext) _ClusterCacheWatchFrame(ctx context.Context, sel ast
 
 var clusterCachedDataEventImplementors = []string{"ClusterCachedDataEvent"}
 
-func (ec *executionContext) _ClusterCachedDataEvent(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCachedDataEvent) graphql.Marshaler {
+func (ec *executionContext) _ClusterCachedDataEvent(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCachedDataEvent) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCachedDataEventImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -20690,7 +20690,7 @@ func (ec *executionContext) _ClusterCachedDataEvent(ctx context.Context, sel ast
 
 var clusterCachedDataEventWatchFrameImplementors = []string{"ClusterCachedDataEventWatchFrame"}
 
-func (ec *executionContext) _ClusterCachedDataEventWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCachedDataEventWatchFrame) graphql.Marshaler {
+func (ec *executionContext) _ClusterCachedDataEventWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCachedDataEventWatchFrame) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCachedDataEventWatchFrameImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -20738,7 +20738,7 @@ func (ec *executionContext) _ClusterCachedDataEventWatchFrame(ctx context.Contex
 
 var clusterCachedDataKindImplementors = []string{"ClusterCachedDataKind"}
 
-func (ec *executionContext) _ClusterCachedDataKind(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCachedDataKind) graphql.Marshaler {
+func (ec *executionContext) _ClusterCachedDataKind(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCachedDataKind) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCachedDataKindImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -20806,7 +20806,7 @@ func (ec *executionContext) _ClusterCachedDataKind(ctx context.Context, sel ast.
 
 var clusterCachedDataKindWatchFrameImplementors = []string{"ClusterCachedDataKindWatchFrame"}
 
-func (ec *executionContext) _ClusterCachedDataKindWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCachedDataKindWatchFrame) graphql.Marshaler {
+func (ec *executionContext) _ClusterCachedDataKindWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCachedDataKindWatchFrame) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCachedDataKindWatchFrameImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -20854,7 +20854,7 @@ func (ec *executionContext) _ClusterCachedDataKindWatchFrame(ctx context.Context
 
 var clusterCachedDataObjectImplementors = []string{"ClusterCachedDataObject"}
 
-func (ec *executionContext) _ClusterCachedDataObject(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCachedDataObject) graphql.Marshaler {
+func (ec *executionContext) _ClusterCachedDataObject(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCachedDataObject) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCachedDataObjectImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -20922,7 +20922,7 @@ func (ec *executionContext) _ClusterCachedDataObject(ctx context.Context, sel as
 
 var clusterCachedDataObjectWatchFrameImplementors = []string{"ClusterCachedDataObjectWatchFrame"}
 
-func (ec *executionContext) _ClusterCachedDataObjectWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCachedDataObjectWatchFrame) graphql.Marshaler {
+func (ec *executionContext) _ClusterCachedDataObjectWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCachedDataObjectWatchFrame) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCachedDataObjectWatchFrameImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -20980,7 +20980,7 @@ func (ec *executionContext) _ClusterCachedDataObjectWatchFrame(ctx context.Conte
 
 var clusterCachedKindImplementors = []string{"ClusterCachedKind"}
 
-func (ec *executionContext) _ClusterCachedKind(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCachedKind) graphql.Marshaler {
+func (ec *executionContext) _ClusterCachedKind(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCachedKind) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCachedKindImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -21086,7 +21086,7 @@ func (ec *executionContext) _ClusterCachedKind(ctx context.Context, sel ast.Sele
 
 var clusterCachedKindSpecImplementors = []string{"ClusterCachedKindSpec"}
 
-func (ec *executionContext) _ClusterCachedKindSpec(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCachedKindSpec) graphql.Marshaler {
+func (ec *executionContext) _ClusterCachedKindSpec(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCachedKindSpec) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCachedKindSpecImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -21177,7 +21177,7 @@ func (ec *executionContext) _ClusterCachedKindSpec(ctx context.Context, sel ast.
 
 var clusterCachedKindWatchFrameImplementors = []string{"ClusterCachedKindWatchFrame"}
 
-func (ec *executionContext) _ClusterCachedKindWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterCachedKindWatchFrame) graphql.Marshaler {
+func (ec *executionContext) _ClusterCachedKindWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterCachedKindWatchFrame) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterCachedKindWatchFrameImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -21273,7 +21273,7 @@ func (ec *executionContext) _ClusterPermissions(ctx context.Context, sel ast.Sel
 
 var clusterPrincipalImplementors = []string{"ClusterPrincipal"}
 
-func (ec *executionContext) _ClusterPrincipal(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterPrincipal) graphql.Marshaler {
+func (ec *executionContext) _ClusterPrincipal(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterPrincipal) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterPrincipalImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -21354,7 +21354,7 @@ func (ec *executionContext) _ClusterPrincipal(ctx context.Context, sel ast.Selec
 
 var clusterServerImplementors = []string{"ClusterServer"}
 
-func (ec *executionContext) _ClusterServer(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterServer) graphql.Marshaler {
+func (ec *executionContext) _ClusterServer(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterServer) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterServerImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -21402,7 +21402,7 @@ func (ec *executionContext) _ClusterServer(ctx context.Context, sel ast.Selectio
 
 var clusterSpecImplementors = []string{"ClusterSpec"}
 
-func (ec *executionContext) _ClusterSpec(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterSpec) graphql.Marshaler {
+func (ec *executionContext) _ClusterSpec(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterSpec) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterSpecImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -21460,7 +21460,7 @@ func (ec *executionContext) _ClusterSpec(ctx context.Context, sel ast.SelectionS
 
 var clusterSpecSourceImplementors = []string{"ClusterSpecSource"}
 
-func (ec *executionContext) _ClusterSpecSource(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterSpecSource) graphql.Marshaler {
+func (ec *executionContext) _ClusterSpecSource(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterSpecSource) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterSpecSourceImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -21498,7 +21498,7 @@ func (ec *executionContext) _ClusterSpecSource(ctx context.Context, sel ast.Sele
 
 var clusterSpecSourceKubeconfigImplementors = []string{"ClusterSpecSourceKubeconfig"}
 
-func (ec *executionContext) _ClusterSpecSourceKubeconfig(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterSpecSourceKubeconfig) graphql.Marshaler {
+func (ec *executionContext) _ClusterSpecSourceKubeconfig(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterSpecSourceKubeconfig) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterSpecSourceKubeconfigImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -21536,7 +21536,7 @@ func (ec *executionContext) _ClusterSpecSourceKubeconfig(ctx context.Context, se
 
 var clusterStatusImplementors = []string{"ClusterStatus"}
 
-func (ec *executionContext) _ClusterStatus(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterStatus) graphql.Marshaler {
+func (ec *executionContext) _ClusterStatus(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterStatus) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterStatusImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -21584,7 +21584,7 @@ func (ec *executionContext) _ClusterStatus(ctx context.Context, sel ast.Selectio
 
 var clusterStatusSourceImplementors = []string{"ClusterStatusSource"}
 
-func (ec *executionContext) _ClusterStatusSource(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterStatusSource) graphql.Marshaler {
+func (ec *executionContext) _ClusterStatusSource(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterStatusSource) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterStatusSourceImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -21622,7 +21622,7 @@ func (ec *executionContext) _ClusterStatusSource(ctx context.Context, sel ast.Se
 
 var clusterStatusSourceKubeconfigImplementors = []string{"ClusterStatusSourceKubeconfig"}
 
-func (ec *executionContext) _ClusterStatusSourceKubeconfig(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterStatusSourceKubeconfig) graphql.Marshaler {
+func (ec *executionContext) _ClusterStatusSourceKubeconfig(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterStatusSourceKubeconfig) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterStatusSourceKubeconfigImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -21675,7 +21675,7 @@ func (ec *executionContext) _ClusterStatusSourceKubeconfig(ctx context.Context, 
 
 var clusterStatusSourceKubeconfigClusterImplementors = []string{"ClusterStatusSourceKubeconfigCluster"}
 
-func (ec *executionContext) _ClusterStatusSourceKubeconfigCluster(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterStatusSourceKubeconfigCluster) graphql.Marshaler {
+func (ec *executionContext) _ClusterStatusSourceKubeconfigCluster(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterStatusSourceKubeconfigCluster) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterStatusSourceKubeconfigClusterImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -21718,7 +21718,7 @@ func (ec *executionContext) _ClusterStatusSourceKubeconfigCluster(ctx context.Co
 
 var clusterStatusSourceKubeconfigClusterEntryImplementors = []string{"ClusterStatusSourceKubeconfigClusterEntry"}
 
-func (ec *executionContext) _ClusterStatusSourceKubeconfigClusterEntry(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterStatusSourceKubeconfigClusterEntry) graphql.Marshaler {
+func (ec *executionContext) _ClusterStatusSourceKubeconfigClusterEntry(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterStatusSourceKubeconfigClusterEntry) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterStatusSourceKubeconfigClusterEntryImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -21761,7 +21761,7 @@ func (ec *executionContext) _ClusterStatusSourceKubeconfigClusterEntry(ctx conte
 
 var clusterStatusSourceKubeconfigUserImplementors = []string{"ClusterStatusSourceKubeconfigUser"}
 
-func (ec *executionContext) _ClusterStatusSourceKubeconfigUser(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterStatusSourceKubeconfigUser) graphql.Marshaler {
+func (ec *executionContext) _ClusterStatusSourceKubeconfigUser(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterStatusSourceKubeconfigUser) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterStatusSourceKubeconfigUserImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -21799,7 +21799,7 @@ func (ec *executionContext) _ClusterStatusSourceKubeconfigUser(ctx context.Conte
 
 var clusterWatchFrameImplementors = []string{"ClusterWatchFrame"}
 
-func (ec *executionContext) _ClusterWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ClusterWatchFrame) graphql.Marshaler {
+func (ec *executionContext) _ClusterWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *cluster.ClusterWatchFrame) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterWatchFrameImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -21842,7 +21842,7 @@ func (ec *executionContext) _ClusterWatchFrame(ctx context.Context, sel ast.Sele
 
 var clusterWriteImplementors = []string{"ClusterWrite"}
 
-func (ec *executionContext) _ClusterWrite(ctx context.Context, sel ast.SelectionSet, obj *chatsvc.ClusterWrite) graphql.Marshaler {
+func (ec *executionContext) _ClusterWrite(ctx context.Context, sel ast.SelectionSet, obj *chat.ClusterWrite) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, clusterWriteImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -22167,7 +22167,7 @@ func (ec *executionContext) _EditAction(ctx context.Context, sel ast.SelectionSe
 
 var eventImplementors = []string{"Event"}
 
-func (ec *executionContext) _Event(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.Event) graphql.Marshaler {
+func (ec *executionContext) _Event(ctx context.Context, sel ast.SelectionSet, obj *cluster.Event) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, eventImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -22240,7 +22240,7 @@ func (ec *executionContext) _Event(ctx context.Context, sel ast.SelectionSet, ob
 
 var eventWatchFrameImplementors = []string{"EventWatchFrame"}
 
-func (ec *executionContext) _EventWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.EventWatchFrame) graphql.Marshaler {
+func (ec *executionContext) _EventWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *cluster.EventWatchFrame) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, eventWatchFrameImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -22417,7 +22417,7 @@ func (ec *executionContext) _KubeQueryAction(ctx context.Context, sel ast.Select
 
 var memoryImplementors = []string{"Memory"}
 
-func (ec *executionContext) _Memory(ctx context.Context, sel ast.SelectionSet, obj *memorysvc.Memory) graphql.Marshaler {
+func (ec *executionContext) _Memory(ctx context.Context, sel ast.SelectionSet, obj *memory.Memory) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, memoryImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -22533,7 +22533,7 @@ func (ec *executionContext) _MemoryAction(ctx context.Context, sel ast.Selection
 
 var memoryWatchFrameImplementors = []string{"MemoryWatchFrame"}
 
-func (ec *executionContext) _MemoryWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *memorysvc.MemoryWatchFrame) graphql.Marshaler {
+func (ec *executionContext) _MemoryWatchFrame(ctx context.Context, sel ast.SelectionSet, obj *memory.MemoryWatchFrame) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, memoryWatchFrameImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -22963,7 +22963,7 @@ func (ec *executionContext) _NonResourceRule(ctx context.Context, sel ast.Select
 
 var objectRefImplementors = []string{"ObjectRef"}
 
-func (ec *executionContext) _ObjectRef(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.ObjectRef) graphql.Marshaler {
+func (ec *executionContext) _ObjectRef(ctx context.Context, sel ast.SelectionSet, obj *cluster.ObjectRef) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, objectRefImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -23044,7 +23044,7 @@ func (ec *executionContext) _Onboarding(ctx context.Context, sel ast.SelectionSe
 
 var permissionActionImplementors = []string{"PermissionAction"}
 
-func (ec *executionContext) _PermissionAction(ctx context.Context, sel ast.SelectionSet, obj *chatsvc.PermissionAction) graphql.Marshaler {
+func (ec *executionContext) _PermissionAction(ctx context.Context, sel ast.SelectionSet, obj *chat.PermissionAction) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, permissionActionImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -23326,7 +23326,7 @@ func (ec *executionContext) _PermissionSettings(ctx context.Context, sel ast.Sel
 
 var printerColumnImplementors = []string{"PrinterColumn"}
 
-func (ec *executionContext) _PrinterColumn(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.PrinterColumn) graphql.Marshaler {
+func (ec *executionContext) _PrinterColumn(ctx context.Context, sel ast.SelectionSet, obj *cluster.PrinterColumn) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, printerColumnImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -24322,7 +24322,7 @@ func (ec *executionContext) _SandboxStatus(ctx context.Context, sel ast.Selectio
 
 var scheduleImplementors = []string{"Schedule"}
 
-func (ec *executionContext) _Schedule(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.Schedule) graphql.Marshaler {
+func (ec *executionContext) _Schedule(ctx context.Context, sel ast.SelectionSet, obj *cluster.Schedule) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, scheduleImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -24503,7 +24503,7 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 
 var syncedKindRefImplementors = []string{"SyncedKindRef"}
 
-func (ec *executionContext) _SyncedKindRef(ctx context.Context, sel ast.SelectionSet, obj *clustersvc.SyncedKindRef) graphql.Marshaler {
+func (ec *executionContext) _SyncedKindRef(ctx context.Context, sel ast.SelectionSet, obj *cluster.SyncedKindRef) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, syncedKindRefImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -24629,7 +24629,7 @@ func (ec *executionContext) _ToolAction(ctx context.Context, sel ast.SelectionSe
 
 var toolCallImplementors = []string{"ToolCall"}
 
-func (ec *executionContext) _ToolCall(ctx context.Context, sel ast.SelectionSet, obj *chatsvc.ToolCall) graphql.Marshaler {
+func (ec *executionContext) _ToolCall(ctx context.Context, sel ast.SelectionSet, obj *chat.ToolCall) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, toolCallImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -24775,7 +24775,7 @@ func (ec *executionContext) _ToolCall(ctx context.Context, sel ast.SelectionSet,
 
 var toolCallApprovalImplementors = []string{"ToolCallApproval"}
 
-func (ec *executionContext) _ToolCallApproval(ctx context.Context, sel ast.SelectionSet, obj *chatsvc.ToolCallApproval) graphql.Marshaler {
+func (ec *executionContext) _ToolCallApproval(ctx context.Context, sel ast.SelectionSet, obj *chat.ToolCallApproval) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, toolCallApprovalImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -25256,15 +25256,15 @@ func (ec *executionContext) ___Type(ctx context.Context, sel ast.SelectionSet, o
 
 // region    ***************************** type.gotpl *****************************
 
-func (ec *executionContext) unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalDecision(ctx context.Context, v any) (chatsvc.ApprovalDecision, error) {
+func (ec *executionContext) unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalDecision(ctx context.Context, v any) (chat.ApprovalDecision, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalDecision[tmp]
+	res := unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalDecision[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalDecision(ctx context.Context, sel ast.SelectionSet, v chatsvc.ApprovalDecision) graphql.Marshaler {
+func (ec *executionContext) marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalDecision(ctx context.Context, sel ast.SelectionSet, v chat.ApprovalDecision) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalDecision[v])
+	res := graphql.MarshalString(marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalDecision[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25274,29 +25274,29 @@ func (ec *executionContext) marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋk
 }
 
 var (
-	unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalDecision = map[string]chatsvc.ApprovalDecision{
-		"Once":    chatsvc.DecisionOnce,
-		"Command": chatsvc.DecisionCommand,
-		"Chat":    chatsvc.DecisionChat,
-		"Always":  chatsvc.DecisionAlways,
-		"Deny":    chatsvc.DecisionDeny,
+	unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalDecision = map[string]chat.ApprovalDecision{
+		"Once":    chat.DecisionOnce,
+		"Command": chat.DecisionCommand,
+		"Chat":    chat.DecisionChat,
+		"Always":  chat.DecisionAlways,
+		"Deny":    chat.DecisionDeny,
 	}
-	marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalDecision = map[chatsvc.ApprovalDecision]string{
-		chatsvc.DecisionOnce:    "Once",
-		chatsvc.DecisionCommand: "Command",
-		chatsvc.DecisionChat:    "Chat",
-		chatsvc.DecisionAlways:  "Always",
-		chatsvc.DecisionDeny:    "Deny",
+	marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalDecision = map[chat.ApprovalDecision]string{
+		chat.DecisionOnce:    "Once",
+		chat.DecisionCommand: "Command",
+		chat.DecisionChat:    "Chat",
+		chat.DecisionAlways:  "Always",
+		chat.DecisionDeny:    "Deny",
 	}
 )
 
-func (ec *executionContext) unmarshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalID(ctx context.Context, v any) (chatsvc.ApprovalID, error) {
+func (ec *executionContext) unmarshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalID(ctx context.Context, v any) (chat.ApprovalID, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := chatsvc.ApprovalID(tmp)
+	res := chat.ApprovalID(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalID(ctx context.Context, sel ast.SelectionSet, v chatsvc.ApprovalID) graphql.Marshaler {
+func (ec *executionContext) marshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalID(ctx context.Context, sel ast.SelectionSet, v chat.ApprovalID) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -25307,15 +25307,15 @@ func (ec *executionContext) marshalNApprovalID2githubᚗcomᚋkstackhqᚋkstack�
 	return res
 }
 
-func (ec *executionContext) unmarshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalStatus(ctx context.Context, v any) (chatsvc.ApprovalStatus, error) {
+func (ec *executionContext) unmarshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalStatus(ctx context.Context, v any) (chat.ApprovalStatus, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalStatus[tmp]
+	res := unmarshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalStatus[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalStatus(ctx context.Context, sel ast.SelectionSet, v chatsvc.ApprovalStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalStatus(ctx context.Context, sel ast.SelectionSet, v chat.ApprovalStatus) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalStatus[v])
+	res := graphql.MarshalString(marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalStatus[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25325,25 +25325,25 @@ func (ec *executionContext) marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkst
 }
 
 var (
-	unmarshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalStatus = map[string]chatsvc.ApprovalStatus{
-		"Pending":   chatsvc.ApprovalPending,
-		"Approved":  chatsvc.ApprovalApproved,
-		"Denied":    chatsvc.ApprovalDenied,
-		"Abandoned": chatsvc.ApprovalAbandoned,
-		"Allowed":   chatsvc.ApprovalAllowed,
-		"Refused":   chatsvc.ApprovalRefused,
+	unmarshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalStatus = map[string]chat.ApprovalStatus{
+		"Pending":   chat.ApprovalPending,
+		"Approved":  chat.ApprovalApproved,
+		"Denied":    chat.ApprovalDenied,
+		"Abandoned": chat.ApprovalAbandoned,
+		"Allowed":   chat.ApprovalAllowed,
+		"Refused":   chat.ApprovalRefused,
 	}
-	marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐApprovalStatus = map[chatsvc.ApprovalStatus]string{
-		chatsvc.ApprovalPending:   "Pending",
-		chatsvc.ApprovalApproved:  "Approved",
-		chatsvc.ApprovalDenied:    "Denied",
-		chatsvc.ApprovalAbandoned: "Abandoned",
-		chatsvc.ApprovalAllowed:   "Allowed",
-		chatsvc.ApprovalRefused:   "Refused",
+	marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalStatus = map[chat.ApprovalStatus]string{
+		chat.ApprovalPending:   "Pending",
+		chat.ApprovalApproved:  "Approved",
+		chat.ApprovalDenied:    "Denied",
+		chat.ApprovalAbandoned: "Abandoned",
+		chat.ApprovalAllowed:   "Allowed",
+		chat.ApprovalRefused:   "Refused",
 	}
 )
 
-func (ec *executionContext) marshalNAuthState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋauthᚐState(ctx context.Context, sel ast.SelectionSet, v *auth.State) graphql.Marshaler {
+func (ec *executionContext) marshalNAuthState2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋauthᚐState(ctx context.Context, sel ast.SelectionSet, v *auth.State) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25353,15 +25353,15 @@ func (ec *executionContext) marshalNAuthState2ᚖgithubᚗcomᚋkstackhqᚋkstac
 	return ec._AuthState(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐBackgroundTaskStatus(ctx context.Context, v any) (chatsvc.BackgroundTaskStatus, error) {
+func (ec *executionContext) unmarshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTaskStatus(ctx context.Context, v any) (chat.BackgroundTaskStatus, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐBackgroundTaskStatus[tmp]
+	res := unmarshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTaskStatus[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐBackgroundTaskStatus(ctx context.Context, sel ast.SelectionSet, v chatsvc.BackgroundTaskStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTaskStatus(ctx context.Context, sel ast.SelectionSet, v chat.BackgroundTaskStatus) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐBackgroundTaskStatus[v])
+	res := graphql.MarshalString(marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTaskStatus[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25371,21 +25371,21 @@ func (ec *executionContext) marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhq
 }
 
 var (
-	unmarshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐBackgroundTaskStatus = map[string]chatsvc.BackgroundTaskStatus{
-		"Running":   chatsvc.BackgroundTaskRunning,
-		"Exited":    chatsvc.BackgroundTaskExited,
-		"Completed": chatsvc.BackgroundTaskCompleted,
-		"Failed":    chatsvc.BackgroundTaskFailed,
-		"Stopped":   chatsvc.BackgroundTaskStopped,
-		"Lost":      chatsvc.BackgroundTaskLost,
+	unmarshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTaskStatus = map[string]chat.BackgroundTaskStatus{
+		"Running":   chat.BackgroundTaskRunning,
+		"Exited":    chat.BackgroundTaskExited,
+		"Completed": chat.BackgroundTaskCompleted,
+		"Failed":    chat.BackgroundTaskFailed,
+		"Stopped":   chat.BackgroundTaskStopped,
+		"Lost":      chat.BackgroundTaskLost,
 	}
-	marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐBackgroundTaskStatus = map[chatsvc.BackgroundTaskStatus]string{
-		chatsvc.BackgroundTaskRunning:   "Running",
-		chatsvc.BackgroundTaskExited:    "Exited",
-		chatsvc.BackgroundTaskCompleted: "Completed",
-		chatsvc.BackgroundTaskFailed:    "Failed",
-		chatsvc.BackgroundTaskStopped:   "Stopped",
-		chatsvc.BackgroundTaskLost:      "Lost",
+	marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTaskStatus = map[chat.BackgroundTaskStatus]string{
+		chat.BackgroundTaskRunning:   "Running",
+		chat.BackgroundTaskExited:    "Exited",
+		chat.BackgroundTaskCompleted: "Completed",
+		chat.BackgroundTaskFailed:    "Failed",
+		chat.BackgroundTaskStopped:   "Stopped",
+		chat.BackgroundTaskLost:      "Lost",
 	}
 )
 
@@ -25405,7 +25405,7 @@ func (ec *executionContext) marshalNBoolean2bool(ctx context.Context, sel ast.Se
 	return res
 }
 
-func (ec *executionContext) marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐChat(ctx context.Context, sel ast.SelectionSet, v *chatsvc.Chat) graphql.Marshaler {
+func (ec *executionContext) marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChat(ctx context.Context, sel ast.SelectionSet, v *chat.Chat) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25415,13 +25415,13 @@ func (ec *executionContext) marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋs
 	return ec._Chat(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx context.Context, v any) (apimeta.ChatID, error) {
+func (ec *executionContext) unmarshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx context.Context, v any) (apimeta.ChatID, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := apimeta.ChatID(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx context.Context, sel ast.SelectionSet, v apimeta.ChatID) graphql.Marshaler {
+func (ec *executionContext) marshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx context.Context, sel ast.SelectionSet, v apimeta.ChatID) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -25432,7 +25432,7 @@ func (ec *executionContext) marshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsi
 	return res
 }
 
-func (ec *executionContext) marshalNChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐChatMessage(ctx context.Context, sel ast.SelectionSet, v *chatsvc.ChatMessage) graphql.Marshaler {
+func (ec *executionContext) marshalNChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatMessage(ctx context.Context, sel ast.SelectionSet, v *chat.ChatMessage) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25442,15 +25442,15 @@ func (ec *executionContext) marshalNChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkst
 	return ec._ChatMessage(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐRole(ctx context.Context, v any) (chatsvc.Role, error) {
+func (ec *executionContext) unmarshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐRole(ctx context.Context, v any) (chat.Role, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐRole[tmp]
+	res := unmarshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐRole[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐRole(ctx context.Context, sel ast.SelectionSet, v chatsvc.Role) graphql.Marshaler {
+func (ec *executionContext) marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐRole(ctx context.Context, sel ast.SelectionSet, v chat.Role) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐRole[v])
+	res := graphql.MarshalString(marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐRole[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25460,25 +25460,25 @@ func (ec *executionContext) marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋks
 }
 
 var (
-	unmarshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐRole = map[string]chatsvc.Role{
-		"User":      chatsvc.RoleUser,
-		"Assistant": chatsvc.RoleAssistant,
+	unmarshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐRole = map[string]chat.Role{
+		"User":      chat.RoleUser,
+		"Assistant": chat.RoleAssistant,
 	}
-	marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐRole = map[chatsvc.Role]string{
-		chatsvc.RoleUser:      "User",
-		chatsvc.RoleAssistant: "Assistant",
+	marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐRole = map[chat.Role]string{
+		chat.RoleUser:      "User",
+		chat.RoleAssistant: "Assistant",
 	}
 )
 
-func (ec *executionContext) unmarshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMessageStatus(ctx context.Context, v any) (chatsvc.MessageStatus, error) {
+func (ec *executionContext) unmarshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageStatus(ctx context.Context, v any) (chat.MessageStatus, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMessageStatus[tmp]
+	res := unmarshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageStatus[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMessageStatus(ctx context.Context, sel ast.SelectionSet, v chatsvc.MessageStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageStatus(ctx context.Context, sel ast.SelectionSet, v chat.MessageStatus) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMessageStatus[v])
+	res := graphql.MarshalString(marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageStatus[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25488,23 +25488,23 @@ func (ec *executionContext) marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋ
 }
 
 var (
-	unmarshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMessageStatus = map[string]chatsvc.MessageStatus{
-		"Streaming":       chatsvc.StatusStreaming,
-		"WaitingApproval": chatsvc.StatusWaitingApproval,
-		"Complete":        chatsvc.StatusComplete,
-		"Failed":          chatsvc.StatusFailed,
-		"Cancelled":       chatsvc.StatusCancelled,
+	unmarshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageStatus = map[string]chat.MessageStatus{
+		"Streaming":       chat.StatusStreaming,
+		"WaitingApproval": chat.StatusWaitingApproval,
+		"Complete":        chat.StatusComplete,
+		"Failed":          chat.StatusFailed,
+		"Cancelled":       chat.StatusCancelled,
 	}
-	marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMessageStatus = map[chatsvc.MessageStatus]string{
-		chatsvc.StatusStreaming:       "Streaming",
-		chatsvc.StatusWaitingApproval: "WaitingApproval",
-		chatsvc.StatusComplete:        "Complete",
-		chatsvc.StatusFailed:          "Failed",
-		chatsvc.StatusCancelled:       "Cancelled",
+	marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageStatus = map[chat.MessageStatus]string{
+		chat.StatusStreaming:       "Streaming",
+		chat.StatusWaitingApproval: "WaitingApproval",
+		chat.StatusComplete:        "Complete",
+		chat.StatusFailed:          "Failed",
+		chat.StatusCancelled:       "Cancelled",
 	}
 )
 
-func (ec *executionContext) marshalNChatMessageWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐChatMessageWatchFrame(ctx context.Context, sel ast.SelectionSet, v *chatsvc.ChatMessageWatchFrame) graphql.Marshaler {
+func (ec *executionContext) marshalNChatMessageWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatMessageWatchFrame(ctx context.Context, sel ast.SelectionSet, v *chat.ChatMessageWatchFrame) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25514,15 +25514,15 @@ func (ec *executionContext) marshalNChatMessageWatchFrame2ᚖgithubᚗcomᚋksta
 	return ec._ChatMessageWatchFrame(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMode(ctx context.Context, v any) (chatsvc.Mode, error) {
+func (ec *executionContext) unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode(ctx context.Context, v any) (chat.Mode, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMode[tmp]
+	res := unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMode(ctx context.Context, sel ast.SelectionSet, v chatsvc.Mode) graphql.Marshaler {
+func (ec *executionContext) marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode(ctx context.Context, sel ast.SelectionSet, v chat.Mode) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMode[v])
+	res := graphql.MarshalString(marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25532,17 +25532,17 @@ func (ec *executionContext) marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋ
 }
 
 var (
-	unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMode = map[string]chatsvc.Mode{
-		"Chat":      chatsvc.ModeChat,
-		"Dashboard": chatsvc.ModeDashboard,
+	unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode = map[string]chat.Mode{
+		"Chat":      chat.ModeChat,
+		"Dashboard": chat.ModeDashboard,
 	}
-	marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMode = map[chatsvc.Mode]string{
-		chatsvc.ModeChat:      "Chat",
-		chatsvc.ModeDashboard: "Dashboard",
+	marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode = map[chat.Mode]string{
+		chat.ModeChat:      "Chat",
+		chat.ModeDashboard: "Dashboard",
 	}
 )
 
-func (ec *executionContext) marshalNChatWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐChatWatchFrame(ctx context.Context, sel ast.SelectionSet, v *chatsvc.ChatWatchFrame) graphql.Marshaler {
+func (ec *executionContext) marshalNChatWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatWatchFrame(ctx context.Context, sel ast.SelectionSet, v *chat.ChatWatchFrame) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25578,11 +25578,11 @@ func (ec *executionContext) marshalNCitation2ᚖgithubᚗcomᚋkstackhqᚋkstack
 	return ec._Citation(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNCluster2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterᚄ(ctx context.Context, sel ast.SelectionSet, v []*clustersvc.Cluster) graphql.Marshaler {
+func (ec *executionContext) marshalNCluster2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterᚄ(ctx context.Context, sel ast.SelectionSet, v []*cluster.Cluster) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐCluster(ctx, sel, v[i])
+		return ec.marshalNCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐCluster(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -25594,7 +25594,7 @@ func (ec *executionContext) marshalNCluster2ᚕᚖgithubᚗcomᚋkstackhqᚋksta
 	return ret
 }
 
-func (ec *executionContext) marshalNCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐCluster(ctx context.Context, sel ast.SelectionSet, v *clustersvc.Cluster) graphql.Marshaler {
+func (ec *executionContext) marshalNCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐCluster(ctx context.Context, sel ast.SelectionSet, v *cluster.Cluster) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25604,11 +25604,11 @@ func (ec *executionContext) marshalNCluster2ᚖgithubᚗcomᚋkstackhqᚋkstack�
 	return ec._Cluster(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNClusterCache2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheᚄ(ctx context.Context, sel ast.SelectionSet, v []*clustersvc.ClusterCache) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCache2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheᚄ(ctx context.Context, sel ast.SelectionSet, v []*cluster.ClusterCache) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNClusterCache2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCache(ctx, sel, v[i])
+		return ec.marshalNClusterCache2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCache(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -25620,7 +25620,7 @@ func (ec *executionContext) marshalNClusterCache2ᚕᚖgithubᚗcomᚋkstackhq�
 	return ret
 }
 
-func (ec *executionContext) marshalNClusterCache2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCache(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCache) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCache2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCache(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCache) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25630,11 +25630,11 @@ func (ec *executionContext) marshalNClusterCache2ᚖgithubᚗcomᚋkstackhqᚋks
 	return ec._ClusterCache(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNClusterCacheDiscoveryStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheDiscoveryStatus(ctx context.Context, sel ast.SelectionSet, v clustersvc.ClusterCacheDiscoveryStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCacheDiscoveryStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheDiscoveryStatus(ctx context.Context, sel ast.SelectionSet, v cluster.ClusterCacheDiscoveryStatus) graphql.Marshaler {
 	return ec._ClusterCacheDiscoveryStatus(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNClusterCacheHealth2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheHealth(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCacheHealth) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCacheHealth2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheHealth(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCacheHealth) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25644,15 +25644,15 @@ func (ec *executionContext) marshalNClusterCacheHealth2ᚖgithubᚗcomᚋkstackh
 	return ec._ClusterCacheHealth(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNClusterCacheKindSyncStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheKindSyncStatus(ctx context.Context, sel ast.SelectionSet, v clustersvc.ClusterCacheKindSyncStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCacheKindSyncStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheKindSyncStatus(ctx context.Context, sel ast.SelectionSet, v cluster.ClusterCacheKindSyncStatus) graphql.Marshaler {
 	return ec._ClusterCacheKindSyncStatus(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNClusterCacheKindSyncStatus2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheKindSyncStatusᚄ(ctx context.Context, sel ast.SelectionSet, v []clustersvc.ClusterCacheKindSyncStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCacheKindSyncStatus2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheKindSyncStatusᚄ(ctx context.Context, sel ast.SelectionSet, v []cluster.ClusterCacheKindSyncStatus) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNClusterCacheKindSyncStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheKindSyncStatus(ctx, sel, v[i])
+		return ec.marshalNClusterCacheKindSyncStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheKindSyncStatus(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -25664,11 +25664,11 @@ func (ec *executionContext) marshalNClusterCacheKindSyncStatus2ᚕgithubᚗcom�
 	return ret
 }
 
-func (ec *executionContext) marshalNClusterCacheSpec2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheSpec(ctx context.Context, sel ast.SelectionSet, v clustersvc.ClusterCacheSpec) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCacheSpec2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheSpec(ctx context.Context, sel ast.SelectionSet, v cluster.ClusterCacheSpec) graphql.Marshaler {
 	return ec._ClusterCacheSpec(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNClusterCacheStats2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheStats(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCacheStats) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCacheStats2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheStats(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCacheStats) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25678,7 +25678,7 @@ func (ec *executionContext) marshalNClusterCacheStats2ᚖgithubᚗcomᚋkstackhq
 	return ec._ClusterCacheStats(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNClusterCacheSyncStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheSyncStatus(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCacheSyncStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCacheSyncStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheSyncStatus(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCacheSyncStatus) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25688,7 +25688,7 @@ func (ec *executionContext) marshalNClusterCacheSyncStatus2ᚖgithubᚗcomᚋkst
 	return ec._ClusterCacheSyncStatus(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNClusterCacheWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCacheWatchFrame(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCacheWatchFrame) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCacheWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCacheWatchFrame(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCacheWatchFrame) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25698,7 +25698,7 @@ func (ec *executionContext) marshalNClusterCacheWatchFrame2ᚖgithubᚗcomᚋkst
 	return ec._ClusterCacheWatchFrame(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNClusterCachedDataEventWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataEventWatchFrame(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCachedDataEventWatchFrame) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCachedDataEventWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataEventWatchFrame(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCachedDataEventWatchFrame) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25708,11 +25708,11 @@ func (ec *executionContext) marshalNClusterCachedDataEventWatchFrame2ᚖgithub�
 	return ec._ClusterCachedDataEventWatchFrame(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNClusterCachedDataKind2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataKindᚄ(ctx context.Context, sel ast.SelectionSet, v []*clustersvc.ClusterCachedDataKind) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCachedDataKind2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataKindᚄ(ctx context.Context, sel ast.SelectionSet, v []*cluster.ClusterCachedDataKind) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNClusterCachedDataKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataKind(ctx, sel, v[i])
+		return ec.marshalNClusterCachedDataKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataKind(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -25724,7 +25724,7 @@ func (ec *executionContext) marshalNClusterCachedDataKind2ᚕᚖgithubᚗcomᚋk
 	return ret
 }
 
-func (ec *executionContext) marshalNClusterCachedDataKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataKind(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCachedDataKind) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCachedDataKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataKind(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCachedDataKind) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25734,7 +25734,7 @@ func (ec *executionContext) marshalNClusterCachedDataKind2ᚖgithubᚗcomᚋksta
 	return ec._ClusterCachedDataKind(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNClusterCachedDataKindWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataKindWatchFrame(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCachedDataKindWatchFrame) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCachedDataKindWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataKindWatchFrame(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCachedDataKindWatchFrame) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25744,7 +25744,7 @@ func (ec *executionContext) marshalNClusterCachedDataKindWatchFrame2ᚖgithubᚗ
 	return ec._ClusterCachedDataKindWatchFrame(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNClusterCachedDataObjectWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataObjectWatchFrame(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCachedDataObjectWatchFrame) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCachedDataObjectWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataObjectWatchFrame(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCachedDataObjectWatchFrame) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25754,11 +25754,11 @@ func (ec *executionContext) marshalNClusterCachedDataObjectWatchFrame2ᚖgithub�
 	return ec._ClusterCachedDataObjectWatchFrame(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNClusterCachedKind2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedKindᚄ(ctx context.Context, sel ast.SelectionSet, v []*clustersvc.ClusterCachedKind) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCachedKind2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedKindᚄ(ctx context.Context, sel ast.SelectionSet, v []*cluster.ClusterCachedKind) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNClusterCachedKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedKind(ctx, sel, v[i])
+		return ec.marshalNClusterCachedKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedKind(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -25770,7 +25770,7 @@ func (ec *executionContext) marshalNClusterCachedKind2ᚕᚖgithubᚗcomᚋkstac
 	return ret
 }
 
-func (ec *executionContext) marshalNClusterCachedKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedKind(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCachedKind) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCachedKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedKind(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCachedKind) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25780,11 +25780,11 @@ func (ec *executionContext) marshalNClusterCachedKind2ᚖgithubᚗcomᚋkstackhq
 	return ec._ClusterCachedKind(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNClusterCachedKindSpec2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedKindSpec(ctx context.Context, sel ast.SelectionSet, v clustersvc.ClusterCachedKindSpec) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCachedKindSpec2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedKindSpec(ctx context.Context, sel ast.SelectionSet, v cluster.ClusterCachedKindSpec) graphql.Marshaler {
 	return ec._ClusterCachedKindSpec(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNClusterCachedKindWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedKindWatchFrame(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCachedKindWatchFrame) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterCachedKindWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedKindWatchFrame(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCachedKindWatchFrame) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25794,13 +25794,13 @@ func (ec *executionContext) marshalNClusterCachedKindWatchFrame2ᚖgithubᚗcom�
 	return ec._ClusterCachedKindWatchFrame(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx context.Context, v any) (apimeta.ClusterID, error) {
+func (ec *executionContext) unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx context.Context, v any) (apimeta.ClusterID, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := apimeta.ClusterID(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx context.Context, sel ast.SelectionSet, v apimeta.ClusterID) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx context.Context, sel ast.SelectionSet, v apimeta.ClusterID) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -25821,39 +25821,39 @@ func (ec *executionContext) marshalNClusterPermissions2ᚖgithubᚗcomᚋkstackh
 	return ec._ClusterPermissions(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNClusterPrincipal2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterPrincipal(ctx context.Context, sel ast.SelectionSet, v clustersvc.ClusterPrincipal) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterPrincipal2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterPrincipal(ctx context.Context, sel ast.SelectionSet, v cluster.ClusterPrincipal) graphql.Marshaler {
 	return ec._ClusterPrincipal(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNClusterServer2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterServer(ctx context.Context, sel ast.SelectionSet, v clustersvc.ClusterServer) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterServer2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterServer(ctx context.Context, sel ast.SelectionSet, v cluster.ClusterServer) graphql.Marshaler {
 	return ec._ClusterServer(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNClusterSpec2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterSpec(ctx context.Context, sel ast.SelectionSet, v clustersvc.ClusterSpec) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterSpec2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterSpec(ctx context.Context, sel ast.SelectionSet, v cluster.ClusterSpec) graphql.Marshaler {
 	return ec._ClusterSpec(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNClusterSpecSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterSpecSource(ctx context.Context, sel ast.SelectionSet, v clustersvc.ClusterSpecSource) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterSpecSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterSpecSource(ctx context.Context, sel ast.SelectionSet, v cluster.ClusterSpecSource) graphql.Marshaler {
 	return ec._ClusterSpecSource(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNClusterStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterStatus(ctx context.Context, sel ast.SelectionSet, v clustersvc.ClusterStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterStatus(ctx context.Context, sel ast.SelectionSet, v cluster.ClusterStatus) graphql.Marshaler {
 	return ec._ClusterStatus(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNClusterStatusSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterStatusSource(ctx context.Context, sel ast.SelectionSet, v clustersvc.ClusterStatusSource) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterStatusSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterStatusSource(ctx context.Context, sel ast.SelectionSet, v cluster.ClusterStatusSource) graphql.Marshaler {
 	return ec._ClusterStatusSource(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNClusterStatusSourceKubeconfigCluster2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterStatusSourceKubeconfigCluster(ctx context.Context, sel ast.SelectionSet, v clustersvc.ClusterStatusSourceKubeconfigCluster) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterStatusSourceKubeconfigCluster2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterStatusSourceKubeconfigCluster(ctx context.Context, sel ast.SelectionSet, v cluster.ClusterStatusSourceKubeconfigCluster) graphql.Marshaler {
 	return ec._ClusterStatusSourceKubeconfigCluster(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNClusterStatusSourceKubeconfigUser2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterStatusSourceKubeconfigUser(ctx context.Context, sel ast.SelectionSet, v clustersvc.ClusterStatusSourceKubeconfigUser) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterStatusSourceKubeconfigUser2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterStatusSourceKubeconfigUser(ctx context.Context, sel ast.SelectionSet, v cluster.ClusterStatusSourceKubeconfigUser) graphql.Marshaler {
 	return ec._ClusterStatusSourceKubeconfigUser(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNClusterWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterWatchFrame(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterWatchFrame) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterWatchFrame(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterWatchFrame) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25863,15 +25863,15 @@ func (ec *executionContext) marshalNClusterWatchFrame2ᚖgithubᚗcomᚋkstackhq
 	return ec._ClusterWatchFrame(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNClusterWrite2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐClusterWrite(ctx context.Context, sel ast.SelectionSet, v chatsvc.ClusterWrite) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterWrite2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐClusterWrite(ctx context.Context, sel ast.SelectionSet, v chat.ClusterWrite) graphql.Marshaler {
 	return ec._ClusterWrite(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNClusterWrite2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐClusterWriteᚄ(ctx context.Context, sel ast.SelectionSet, v []chatsvc.ClusterWrite) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterWrite2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐClusterWriteᚄ(ctx context.Context, sel ast.SelectionSet, v []chat.ClusterWrite) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNClusterWrite2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐClusterWrite(ctx, sel, v[i])
+		return ec.marshalNClusterWrite2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐClusterWrite(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -25883,11 +25883,11 @@ func (ec *executionContext) marshalNClusterWrite2ᚕgithubᚗcomᚋkstackhqᚋks
 	return ret
 }
 
-func (ec *executionContext) marshalNCondition2githubᚗcomᚋamoreyᚋbeehiveᚐCondition(ctx context.Context, sel ast.SelectionSet, v clustersvc.Condition) graphql.Marshaler {
+func (ec *executionContext) marshalNCondition2githubᚗcomᚋamoreyᚋbeehiveᚐCondition(ctx context.Context, sel ast.SelectionSet, v cluster.Condition) graphql.Marshaler {
 	return ec._Condition(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNCondition2ᚕgithubᚗcomᚋamoreyᚋbeehiveᚐConditionᚄ(ctx context.Context, sel ast.SelectionSet, v []clustersvc.Condition) graphql.Marshaler {
+func (ec *executionContext) marshalNCondition2ᚕgithubᚗcomᚋamoreyᚋbeehiveᚐConditionᚄ(ctx context.Context, sel ast.SelectionSet, v []cluster.Condition) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
@@ -25920,13 +25920,13 @@ func (ec *executionContext) marshalNConditionStatus2githubᚗcomᚋamoreyᚋbeeh
 	return res
 }
 
-func (ec *executionContext) unmarshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐDeltaFrameType(ctx context.Context, v any) (apimeta.DeltaFrameType, error) {
+func (ec *executionContext) unmarshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐDeltaFrameType(ctx context.Context, v any) (apimeta.DeltaFrameType, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := apimeta.DeltaFrameType(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐDeltaFrameType(ctx context.Context, sel ast.SelectionSet, v apimeta.DeltaFrameType) graphql.Marshaler {
+func (ec *executionContext) marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐDeltaFrameType(ctx context.Context, sel ast.SelectionSet, v apimeta.DeltaFrameType) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -25937,11 +25937,11 @@ func (ec *executionContext) marshalNDeltaFrameType2githubᚗcomᚋkstackhqᚋkst
 	return res
 }
 
-func (ec *executionContext) marshalNEvent2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐEventᚄ(ctx context.Context, sel ast.SelectionSet, v []*clustersvc.Event) graphql.Marshaler {
+func (ec *executionContext) marshalNEvent2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐEventᚄ(ctx context.Context, sel ast.SelectionSet, v []*cluster.Event) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNEvent2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐEvent(ctx, sel, v[i])
+		return ec.marshalNEvent2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐEvent(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -25953,7 +25953,7 @@ func (ec *executionContext) marshalNEvent2ᚕᚖgithubᚗcomᚋkstackhqᚋkstack
 	return ret
 }
 
-func (ec *executionContext) marshalNEvent2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐEvent(ctx context.Context, sel ast.SelectionSet, v *clustersvc.Event) graphql.Marshaler {
+func (ec *executionContext) marshalNEvent2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐEvent(ctx context.Context, sel ast.SelectionSet, v *cluster.Event) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25963,13 +25963,13 @@ func (ec *executionContext) marshalNEvent2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋ
 	return ec._Event(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNEventFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐEventFrameType(ctx context.Context, v any) (clustersvc.EventFrameType, error) {
+func (ec *executionContext) unmarshalNEventFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐEventFrameType(ctx context.Context, v any) (cluster.EventFrameType, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := clustersvc.EventFrameType(tmp)
+	res := cluster.EventFrameType(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNEventFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐEventFrameType(ctx context.Context, sel ast.SelectionSet, v clustersvc.EventFrameType) graphql.Marshaler {
+func (ec *executionContext) marshalNEventFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐEventFrameType(ctx context.Context, sel ast.SelectionSet, v cluster.EventFrameType) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -25997,7 +25997,7 @@ func (ec *executionContext) marshalNEventType2githubᚗcomᚋamoreyᚋbeehiveᚐ
 	return res
 }
 
-func (ec *executionContext) marshalNEventWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐEventWatchFrame(ctx context.Context, sel ast.SelectionSet, v *clustersvc.EventWatchFrame) graphql.Marshaler {
+func (ec *executionContext) marshalNEventWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐEventWatchFrame(ctx context.Context, sel ast.SelectionSet, v *cluster.EventWatchFrame) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26049,17 +26049,17 @@ func (ec *executionContext) marshalNInt2int64(ctx context.Context, sel ast.Selec
 	return res
 }
 
-func (ec *executionContext) unmarshalNJSON2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrawjsonᚐRawJSON(ctx context.Context, v any) (rawjson.RawJSON, error) {
+func (ec *executionContext) unmarshalNJSON2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋrawjsonᚐRawJSON(ctx context.Context, v any) (rawjson.RawJSON, error) {
 	var res rawjson.RawJSON
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNJSON2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrawjsonᚐRawJSON(ctx context.Context, sel ast.SelectionSet, v rawjson.RawJSON) graphql.Marshaler {
+func (ec *executionContext) marshalNJSON2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋrawjsonᚐRawJSON(ctx context.Context, sel ast.SelectionSet, v rawjson.RawJSON) graphql.Marshaler {
 	return v
 }
 
-func (ec *executionContext) marshalNMemory2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐMemory(ctx context.Context, sel ast.SelectionSet, v *memorysvc.Memory) graphql.Marshaler {
+func (ec *executionContext) marshalNMemory2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemory(ctx context.Context, sel ast.SelectionSet, v *memory.Memory) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26069,15 +26069,15 @@ func (ec *executionContext) marshalNMemory2ᚖgithubᚗcomᚋkstackhqᚋkstack�
 	return ec._Memory(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNMemoryAuthor2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐAuthor(ctx context.Context, v any) (memorysvc.Author, error) {
+func (ec *executionContext) unmarshalNMemoryAuthor2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐAuthor(ctx context.Context, v any) (memory.Author, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNMemoryAuthor2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐAuthor[tmp]
+	res := unmarshalNMemoryAuthor2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐAuthor[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNMemoryAuthor2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐAuthor(ctx context.Context, sel ast.SelectionSet, v memorysvc.Author) graphql.Marshaler {
+func (ec *executionContext) marshalNMemoryAuthor2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐAuthor(ctx context.Context, sel ast.SelectionSet, v memory.Author) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNMemoryAuthor2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐAuthor[v])
+	res := graphql.MarshalString(marshalNMemoryAuthor2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐAuthor[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26087,23 +26087,23 @@ func (ec *executionContext) marshalNMemoryAuthor2githubᚗcomᚋkstackhqᚋkstac
 }
 
 var (
-	unmarshalNMemoryAuthor2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐAuthor = map[string]memorysvc.Author{
-		"Model": memorysvc.AuthorModel,
-		"User":  memorysvc.AuthorUser,
+	unmarshalNMemoryAuthor2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐAuthor = map[string]memory.Author{
+		"Model": memory.AuthorModel,
+		"User":  memory.AuthorUser,
 	}
-	marshalNMemoryAuthor2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐAuthor = map[memorysvc.Author]string{
-		memorysvc.AuthorModel: "Model",
-		memorysvc.AuthorUser:  "User",
+	marshalNMemoryAuthor2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐAuthor = map[memory.Author]string{
+		memory.AuthorModel: "Model",
+		memory.AuthorUser:  "User",
 	}
 )
 
-func (ec *executionContext) unmarshalNMemoryID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐMemoryID(ctx context.Context, v any) (memorysvc.MemoryID, error) {
+func (ec *executionContext) unmarshalNMemoryID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemoryID(ctx context.Context, v any) (memory.MemoryID, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := memorysvc.MemoryID(tmp)
+	res := memory.MemoryID(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNMemoryID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐMemoryID(ctx context.Context, sel ast.SelectionSet, v memorysvc.MemoryID) graphql.Marshaler {
+func (ec *executionContext) marshalNMemoryID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemoryID(ctx context.Context, sel ast.SelectionSet, v memory.MemoryID) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -26119,7 +26119,7 @@ func (ec *executionContext) unmarshalNMemorySaveInput2githubᚗcomᚋkstackhqᚋ
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNMemoryWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐMemoryWatchFrame(ctx context.Context, sel ast.SelectionSet, v *memorysvc.MemoryWatchFrame) graphql.Marshaler {
+func (ec *executionContext) marshalNMemoryWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemoryWatchFrame(ctx context.Context, sel ast.SelectionSet, v *memory.MemoryWatchFrame) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26129,13 +26129,13 @@ func (ec *executionContext) marshalNMemoryWatchFrame2ᚖgithubᚗcomᚋkstackhq�
 	return ec._MemoryWatchFrame(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNMessageID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMessageID(ctx context.Context, v any) (chatsvc.MessageID, error) {
+func (ec *executionContext) unmarshalNMessageID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageID(ctx context.Context, v any) (chat.MessageID, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := chatsvc.MessageID(tmp)
+	res := chat.MessageID(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNMessageID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐMessageID(ctx context.Context, sel ast.SelectionSet, v chatsvc.MessageID) graphql.Marshaler {
+func (ec *executionContext) marshalNMessageID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageID(ctx context.Context, sel ast.SelectionSet, v chat.MessageID) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -26198,17 +26198,17 @@ func (ec *executionContext) marshalNNonResourceRule2ᚖgithubᚗcomᚋkstackhq�
 	return ec._NonResourceRule(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx context.Context, v any) (apimeta.ObjectID, error) {
+func (ec *executionContext) unmarshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx context.Context, v any) (apimeta.ObjectID, error) {
 	var res apimeta.ObjectID
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx context.Context, sel ast.SelectionSet, v apimeta.ObjectID) graphql.Marshaler {
+func (ec *executionContext) marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx context.Context, sel ast.SelectionSet, v apimeta.ObjectID) graphql.Marshaler {
 	return v
 }
 
-func (ec *executionContext) marshalNObjectRef2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐObjectRef(ctx context.Context, sel ast.SelectionSet, v clustersvc.ObjectRef) graphql.Marshaler {
+func (ec *executionContext) marshalNObjectRef2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐObjectRef(ctx context.Context, sel ast.SelectionSet, v cluster.ObjectRef) graphql.Marshaler {
 	return ec._ObjectRef(ctx, sel, &v)
 }
 
@@ -26222,7 +26222,7 @@ func (ec *executionContext) marshalNOnboarding2ᚖgithubᚗcomᚋkstackhqᚋksta
 	return ec._Onboarding(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNPermissionAction2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐPermissionAction(ctx context.Context, sel ast.SelectionSet, v chatsvc.PermissionAction) graphql.Marshaler {
+func (ec *executionContext) marshalNPermissionAction2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐPermissionAction(ctx context.Context, sel ast.SelectionSet, v chat.PermissionAction) graphql.Marshaler {
 	return ec._PermissionAction(ctx, sel, &v)
 }
 
@@ -26262,11 +26262,11 @@ var (
 	}
 )
 
-func (ec *executionContext) marshalNPermissionContextMode2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsecurityconfigᚐContextModeStateᚄ(ctx context.Context, sel ast.SelectionSet, v []*securityconfig.ContextModeState) graphql.Marshaler {
+func (ec *executionContext) marshalNPermissionContextMode2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐContextModeStateᚄ(ctx context.Context, sel ast.SelectionSet, v []*securityconfig.ContextModeState) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNPermissionContextMode2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsecurityconfigᚐContextModeState(ctx, sel, v[i])
+		return ec.marshalNPermissionContextMode2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐContextModeState(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -26278,7 +26278,7 @@ func (ec *executionContext) marshalNPermissionContextMode2ᚕᚖgithubᚗcomᚋk
 	return ret
 }
 
-func (ec *executionContext) marshalNPermissionContextMode2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsecurityconfigᚐContextModeState(ctx context.Context, sel ast.SelectionSet, v *securityconfig.ContextModeState) graphql.Marshaler {
+func (ec *executionContext) marshalNPermissionContextMode2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐContextModeState(ctx context.Context, sel ast.SelectionSet, v *securityconfig.ContextModeState) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26348,15 +26348,15 @@ var (
 	}
 )
 
-func (ec *executionContext) unmarshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsecurityconfigᚐModeSource(ctx context.Context, v any) (securityconfig.ModeSource, error) {
+func (ec *executionContext) unmarshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐModeSource(ctx context.Context, v any) (securityconfig.ModeSource, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsecurityconfigᚐModeSource[tmp]
+	res := unmarshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐModeSource[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsecurityconfigᚐModeSource(ctx context.Context, sel ast.SelectionSet, v securityconfig.ModeSource) graphql.Marshaler {
+func (ec *executionContext) marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐModeSource(ctx context.Context, sel ast.SelectionSet, v securityconfig.ModeSource) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsecurityconfigᚐModeSource[v])
+	res := graphql.MarshalString(marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐModeSource[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26366,12 +26366,12 @@ func (ec *executionContext) marshalNPermissionModeSource2githubᚗcomᚋkstackhq
 }
 
 var (
-	unmarshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsecurityconfigᚐModeSource = map[string]securityconfig.ModeSource{
+	unmarshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐModeSource = map[string]securityconfig.ModeSource{
 		"Refused": securityconfig.SourceRefused,
 		"Entry":   securityconfig.SourceEntry,
 		"Default": securityconfig.SourceDefault,
 	}
-	marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsecurityconfigᚐModeSource = map[securityconfig.ModeSource]string{
+	marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐModeSource = map[securityconfig.ModeSource]string{
 		securityconfig.SourceRefused: "Refused",
 		securityconfig.SourceEntry:   "Entry",
 		securityconfig.SourceDefault: "Default",
@@ -26419,15 +26419,15 @@ func (ec *executionContext) marshalNPermissionSettings2ᚖgithubᚗcomᚋkstackh
 	return ec._PermissionSettings(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNPrinterColumn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐPrinterColumn(ctx context.Context, sel ast.SelectionSet, v clustersvc.PrinterColumn) graphql.Marshaler {
+func (ec *executionContext) marshalNPrinterColumn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐPrinterColumn(ctx context.Context, sel ast.SelectionSet, v cluster.PrinterColumn) graphql.Marshaler {
 	return ec._PrinterColumn(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNPrinterColumn2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐPrinterColumnᚄ(ctx context.Context, sel ast.SelectionSet, v []clustersvc.PrinterColumn) graphql.Marshaler {
+func (ec *executionContext) marshalNPrinterColumn2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐPrinterColumnᚄ(ctx context.Context, sel ast.SelectionSet, v []cluster.PrinterColumn) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNPrinterColumn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐPrinterColumn(ctx, sel, v[i])
+		return ec.marshalNPrinterColumn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐPrinterColumn(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -26603,7 +26603,7 @@ func (ec *executionContext) marshalNSandboxStatus2ᚖgithubᚗcomᚋkstackhqᚋk
 	return ec._SandboxStatus(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNSchedule2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐSchedule(ctx context.Context, sel ast.SelectionSet, v *clustersvc.Schedule) graphql.Marshaler {
+func (ec *executionContext) marshalNSchedule2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐSchedule(ctx context.Context, sel ast.SelectionSet, v *cluster.Schedule) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26613,11 +26613,11 @@ func (ec *executionContext) marshalNSchedule2ᚖgithubᚗcomᚋkstackhqᚋkstack
 	return ec._Schedule(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNSecurityRefusal2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsecurityconfigᚐRefusalᚄ(ctx context.Context, sel ast.SelectionSet, v []*securityconfig.Refusal) graphql.Marshaler {
+func (ec *executionContext) marshalNSecurityRefusal2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐRefusalᚄ(ctx context.Context, sel ast.SelectionSet, v []*securityconfig.Refusal) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNSecurityRefusal2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsecurityconfigᚐRefusal(ctx, sel, v[i])
+		return ec.marshalNSecurityRefusal2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐRefusal(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -26629,7 +26629,7 @@ func (ec *executionContext) marshalNSecurityRefusal2ᚕᚖgithubᚗcomᚋkstackh
 	return ret
 }
 
-func (ec *executionContext) marshalNSecurityRefusal2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsecurityconfigᚐRefusal(ctx context.Context, sel ast.SelectionSet, v *securityconfig.Refusal) graphql.Marshaler {
+func (ec *executionContext) marshalNSecurityRefusal2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐRefusal(ctx context.Context, sel ast.SelectionSet, v *securityconfig.Refusal) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26684,15 +26684,15 @@ func (ec *executionContext) marshalNString2ᚕstringᚄ(ctx context.Context, sel
 	return ret
 }
 
-func (ec *executionContext) marshalNSyncedKindRef2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐSyncedKindRef(ctx context.Context, sel ast.SelectionSet, v clustersvc.SyncedKindRef) graphql.Marshaler {
+func (ec *executionContext) marshalNSyncedKindRef2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐSyncedKindRef(ctx context.Context, sel ast.SelectionSet, v cluster.SyncedKindRef) graphql.Marshaler {
 	return ec._SyncedKindRef(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNSyncedKindRef2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐSyncedKindRefᚄ(ctx context.Context, sel ast.SelectionSet, v []clustersvc.SyncedKindRef) graphql.Marshaler {
+func (ec *executionContext) marshalNSyncedKindRef2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐSyncedKindRefᚄ(ctx context.Context, sel ast.SelectionSet, v []cluster.SyncedKindRef) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNSyncedKindRef2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐSyncedKindRef(ctx, sel, v[i])
+		return ec.marshalNSyncedKindRef2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐSyncedKindRef(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -26720,11 +26720,11 @@ func (ec *executionContext) marshalNTime2timeᚐTime(ctx context.Context, sel as
 	return res
 }
 
-func (ec *executionContext) marshalNToolCall2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallᚄ(ctx context.Context, sel ast.SelectionSet, v []*chatsvc.ToolCall) graphql.Marshaler {
+func (ec *executionContext) marshalNToolCall2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallᚄ(ctx context.Context, sel ast.SelectionSet, v []*chat.ToolCall) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNToolCall2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCall(ctx, sel, v[i])
+		return ec.marshalNToolCall2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCall(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -26736,7 +26736,7 @@ func (ec *executionContext) marshalNToolCall2ᚕᚖgithubᚗcomᚋkstackhqᚋkst
 	return ret
 }
 
-func (ec *executionContext) marshalNToolCall2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCall(ctx context.Context, sel ast.SelectionSet, v *chatsvc.ToolCall) graphql.Marshaler {
+func (ec *executionContext) marshalNToolCall2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCall(ctx context.Context, sel ast.SelectionSet, v *chat.ToolCall) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26746,17 +26746,17 @@ func (ec *executionContext) marshalNToolCall2ᚖgithubᚗcomᚋkstackhqᚋkstack
 	return ec._ToolCall(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNToolCallApproval2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallApproval(ctx context.Context, sel ast.SelectionSet, v chatsvc.ToolCallApproval) graphql.Marshaler {
+func (ec *executionContext) marshalNToolCallApproval2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallApproval(ctx context.Context, sel ast.SelectionSet, v chat.ToolCallApproval) graphql.Marshaler {
 	return ec._ToolCallApproval(ctx, sel, &v)
 }
 
-func (ec *executionContext) unmarshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallID(ctx context.Context, v any) (chatsvc.ToolCallID, error) {
+func (ec *executionContext) unmarshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallID(ctx context.Context, v any) (chat.ToolCallID, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := chatsvc.ToolCallID(tmp)
+	res := chat.ToolCallID(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallID(ctx context.Context, sel ast.SelectionSet, v chatsvc.ToolCallID) graphql.Marshaler {
+func (ec *executionContext) marshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallID(ctx context.Context, sel ast.SelectionSet, v chat.ToolCallID) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -26767,15 +26767,15 @@ func (ec *executionContext) marshalNToolCallID2githubᚗcomᚋkstackhqᚋkstack�
 	return res
 }
 
-func (ec *executionContext) unmarshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallRunsOn(ctx context.Context, v any) (chatsvc.ToolCallRunsOn, error) {
+func (ec *executionContext) unmarshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallRunsOn(ctx context.Context, v any) (chat.ToolCallRunsOn, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallRunsOn[tmp]
+	res := unmarshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallRunsOn[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallRunsOn(ctx context.Context, sel ast.SelectionSet, v chatsvc.ToolCallRunsOn) graphql.Marshaler {
+func (ec *executionContext) marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallRunsOn(ctx context.Context, sel ast.SelectionSet, v chat.ToolCallRunsOn) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallRunsOn[v])
+	res := graphql.MarshalString(marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallRunsOn[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26785,13 +26785,13 @@ func (ec *executionContext) marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkst
 }
 
 var (
-	unmarshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallRunsOn = map[string]chatsvc.ToolCallRunsOn{
-		"Sidecar":  chatsvc.ToolCallRunsOnSidecar,
-		"Provider": chatsvc.ToolCallRunsOnProvider,
+	unmarshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallRunsOn = map[string]chat.ToolCallRunsOn{
+		"Sidecar":  chat.ToolCallRunsOnSidecar,
+		"Provider": chat.ToolCallRunsOnProvider,
 	}
-	marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallRunsOn = map[chatsvc.ToolCallRunsOn]string{
-		chatsvc.ToolCallRunsOnSidecar:  "Sidecar",
-		chatsvc.ToolCallRunsOnProvider: "Provider",
+	marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallRunsOn = map[chat.ToolCallRunsOn]string{
+		chat.ToolCallRunsOnSidecar:  "Sidecar",
+		chat.ToolCallRunsOnProvider: "Provider",
 	}
 )
 
@@ -26969,7 +26969,7 @@ var (
 	}
 )
 
-func (ec *executionContext) marshalOBackgroundTask2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐBackgroundTask(ctx context.Context, sel ast.SelectionSet, v *chatsvc.BackgroundTask) graphql.Marshaler {
+func (ec *executionContext) marshalOBackgroundTask2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTask(ctx context.Context, sel ast.SelectionSet, v *chat.BackgroundTask) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -27006,14 +27006,14 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	return res
 }
 
-func (ec *executionContext) marshalOChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐChat(ctx context.Context, sel ast.SelectionSet, v *chatsvc.Chat) graphql.Marshaler {
+func (ec *executionContext) marshalOChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChat(ctx context.Context, sel ast.SelectionSet, v *chat.Chat) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._Chat(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx context.Context, v any) (*apimeta.ChatID, error) {
+func (ec *executionContext) unmarshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx context.Context, v any) (*apimeta.ChatID, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -27022,7 +27022,7 @@ func (ec *executionContext) unmarshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstack
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐChatID(ctx context.Context, sel ast.SelectionSet, v *apimeta.ChatID) graphql.Marshaler {
+func (ec *executionContext) marshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐChatID(ctx context.Context, sel ast.SelectionSet, v *apimeta.ChatID) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -27032,56 +27032,56 @@ func (ec *executionContext) marshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstack�
 	return res
 }
 
-func (ec *executionContext) marshalOChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐChatMessage(ctx context.Context, sel ast.SelectionSet, v *chatsvc.ChatMessage) graphql.Marshaler {
+func (ec *executionContext) marshalOChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatMessage(ctx context.Context, sel ast.SelectionSet, v *chat.ChatMessage) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._ChatMessage(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalOCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐCluster(ctx context.Context, sel ast.SelectionSet, v *clustersvc.Cluster) graphql.Marshaler {
+func (ec *executionContext) marshalOCluster2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐCluster(ctx context.Context, sel ast.SelectionSet, v *cluster.Cluster) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._Cluster(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalOClusterCache2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCache(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCache) graphql.Marshaler {
+func (ec *executionContext) marshalOClusterCache2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCache(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCache) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._ClusterCache(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalOClusterCachedDataEvent2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataEvent(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCachedDataEvent) graphql.Marshaler {
+func (ec *executionContext) marshalOClusterCachedDataEvent2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataEvent(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCachedDataEvent) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._ClusterCachedDataEvent(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalOClusterCachedDataKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataKind(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCachedDataKind) graphql.Marshaler {
+func (ec *executionContext) marshalOClusterCachedDataKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataKind(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCachedDataKind) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._ClusterCachedDataKind(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalOClusterCachedDataObject2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedDataObject(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCachedDataObject) graphql.Marshaler {
+func (ec *executionContext) marshalOClusterCachedDataObject2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedDataObject(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCachedDataObject) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._ClusterCachedDataObject(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalOClusterCachedKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterCachedKind(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterCachedKind) graphql.Marshaler {
+func (ec *executionContext) marshalOClusterCachedKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterCachedKind(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterCachedKind) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._ClusterCachedKind(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx context.Context, v any) (*apimeta.ClusterID, error) {
+func (ec *executionContext) unmarshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx context.Context, v any) (*apimeta.ClusterID, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -27090,7 +27090,7 @@ func (ec *executionContext) unmarshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkst
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐClusterID(ctx context.Context, sel ast.SelectionSet, v *apimeta.ClusterID) graphql.Marshaler {
+func (ec *executionContext) marshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx context.Context, sel ast.SelectionSet, v *apimeta.ClusterID) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -27100,21 +27100,21 @@ func (ec *executionContext) marshalOClusterID2ᚖgithubᚗcomᚋkstackhqᚋkstac
 	return res
 }
 
-func (ec *executionContext) marshalOClusterSpecSourceKubeconfig2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterSpecSourceKubeconfig(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterSpecSourceKubeconfig) graphql.Marshaler {
+func (ec *executionContext) marshalOClusterSpecSourceKubeconfig2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterSpecSourceKubeconfig(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterSpecSourceKubeconfig) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._ClusterSpecSourceKubeconfig(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalOClusterStatusSourceKubeconfig2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterStatusSourceKubeconfig(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterStatusSourceKubeconfig) graphql.Marshaler {
+func (ec *executionContext) marshalOClusterStatusSourceKubeconfig2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterStatusSourceKubeconfig(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterStatusSourceKubeconfig) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._ClusterStatusSourceKubeconfig(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalOClusterStatusSourceKubeconfigClusterEntry2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐClusterStatusSourceKubeconfigClusterEntry(ctx context.Context, sel ast.SelectionSet, v *clustersvc.ClusterStatusSourceKubeconfigClusterEntry) graphql.Marshaler {
+func (ec *executionContext) marshalOClusterStatusSourceKubeconfigClusterEntry2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐClusterStatusSourceKubeconfigClusterEntry(ctx context.Context, sel ast.SelectionSet, v *cluster.ClusterStatusSourceKubeconfigClusterEntry) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -27142,7 +27142,7 @@ func (ec *executionContext) marshalOEditAction2ᚖgithubᚗcomᚋkstackhqᚋksta
 	return ec._EditAction(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalOEvent2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋclustersvcᚐEvent(ctx context.Context, sel ast.SelectionSet, v *clustersvc.Event) graphql.Marshaler {
+func (ec *executionContext) marshalOEvent2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐEvent(ctx context.Context, sel ast.SelectionSet, v *cluster.Event) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -27156,7 +27156,7 @@ func (ec *executionContext) marshalOFetchAction2ᚖgithubᚗcomᚋkstackhqᚋkst
 	return ec._FetchAction(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalOIdentity2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋauthᚋoauthᚐIdentity(ctx context.Context, sel ast.SelectionSet, v *oauth.Identity) graphql.Marshaler {
+func (ec *executionContext) marshalOIdentity2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋauthᚋoauthᚐIdentity(ctx context.Context, sel ast.SelectionSet, v *oauth.Identity) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -27181,13 +27181,13 @@ func (ec *executionContext) marshalOInt2ᚖint(ctx context.Context, sel ast.Sele
 	return res
 }
 
-func (ec *executionContext) unmarshalOJSON2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrawjsonᚐRawJSON(ctx context.Context, v any) (rawjson.RawJSON, error) {
+func (ec *executionContext) unmarshalOJSON2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋrawjsonᚐRawJSON(ctx context.Context, v any) (rawjson.RawJSON, error) {
 	var res rawjson.RawJSON
 	err := res.UnmarshalGQL(v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOJSON2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrawjsonᚐRawJSON(ctx context.Context, sel ast.SelectionSet, v rawjson.RawJSON) graphql.Marshaler {
+func (ec *executionContext) marshalOJSON2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋrawjsonᚐRawJSON(ctx context.Context, sel ast.SelectionSet, v rawjson.RawJSON) graphql.Marshaler {
 	return v
 }
 
@@ -27232,7 +27232,7 @@ var (
 	}
 )
 
-func (ec *executionContext) marshalOMemory2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐMemory(ctx context.Context, sel ast.SelectionSet, v *memorysvc.Memory) graphql.Marshaler {
+func (ec *executionContext) marshalOMemory2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemory(ctx context.Context, sel ast.SelectionSet, v *memory.Memory) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -27246,16 +27246,16 @@ func (ec *executionContext) marshalOMemoryAction2ᚖgithubᚗcomᚋkstackhqᚋks
 	return ec._MemoryAction(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalOMemoryID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐMemoryID(ctx context.Context, v any) (*memorysvc.MemoryID, error) {
+func (ec *executionContext) unmarshalOMemoryID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemoryID(ctx context.Context, v any) (*memory.MemoryID, error) {
 	if v == nil {
 		return nil, nil
 	}
 	tmp, err := graphql.UnmarshalString(v)
-	res := memorysvc.MemoryID(tmp)
+	res := memory.MemoryID(tmp)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOMemoryID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋmemorysvcᚐMemoryID(ctx context.Context, sel ast.SelectionSet, v *memorysvc.MemoryID) graphql.Marshaler {
+func (ec *executionContext) marshalOMemoryID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemoryID(ctx context.Context, sel ast.SelectionSet, v *memory.MemoryID) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -27265,7 +27265,7 @@ func (ec *executionContext) marshalOMemoryID2ᚖgithubᚗcomᚋkstackhqᚋkstack
 	return res
 }
 
-func (ec *executionContext) unmarshalOObjectID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx context.Context, v any) (*apimeta.ObjectID, error) {
+func (ec *executionContext) unmarshalOObjectID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx context.Context, v any) (*apimeta.ObjectID, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -27274,7 +27274,7 @@ func (ec *executionContext) unmarshalOObjectID2ᚖgithubᚗcomᚋkstackhqᚋksta
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOObjectID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋapimetaᚐObjectID(ctx context.Context, sel ast.SelectionSet, v *apimeta.ObjectID) graphql.Marshaler {
+func (ec *executionContext) marshalOObjectID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐObjectID(ctx context.Context, sel ast.SelectionSet, v *apimeta.ObjectID) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -27403,23 +27403,23 @@ var (
 	}
 )
 
-func (ec *executionContext) marshalOToolCallApproval2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallApproval(ctx context.Context, sel ast.SelectionSet, v *chatsvc.ToolCallApproval) graphql.Marshaler {
+func (ec *executionContext) marshalOToolCallApproval2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallApproval(ctx context.Context, sel ast.SelectionSet, v *chat.ToolCallApproval) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._ToolCallApproval(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallID(ctx context.Context, v any) (*chatsvc.ToolCallID, error) {
+func (ec *executionContext) unmarshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallID(ctx context.Context, v any) (*chat.ToolCallID, error) {
 	if v == nil {
 		return nil, nil
 	}
 	tmp, err := graphql.UnmarshalString(v)
-	res := chatsvc.ToolCallID(tmp)
+	res := chat.ToolCallID(tmp)
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallID(ctx context.Context, sel ast.SelectionSet, v *chatsvc.ToolCallID) graphql.Marshaler {
+func (ec *executionContext) marshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallID(ctx context.Context, sel ast.SelectionSet, v *chat.ToolCallID) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -27429,75 +27429,75 @@ func (ec *executionContext) marshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋksta
 	return res
 }
 
-func (ec *executionContext) unmarshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallNetwork(ctx context.Context, v any) (*chatsvc.ToolCallNetwork, error) {
+func (ec *executionContext) unmarshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallNetwork(ctx context.Context, v any) (*chat.ToolCallNetwork, error) {
 	if v == nil {
 		return nil, nil
 	}
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallNetwork[tmp]
+	res := unmarshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallNetwork[tmp]
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallNetwork(ctx context.Context, sel ast.SelectionSet, v *chatsvc.ToolCallNetwork) graphql.Marshaler {
+func (ec *executionContext) marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallNetwork(ctx context.Context, sel ast.SelectionSet, v *chat.ToolCallNetwork) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	_ = sel
 	_ = ctx
-	res := graphql.MarshalString(marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallNetwork[*v])
+	res := graphql.MarshalString(marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallNetwork[*v])
 	return res
 }
 
 var (
-	unmarshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallNetwork = map[string]chatsvc.ToolCallNetwork{
-		"Chat":     chatsvc.ToolCallNetworkChat,
-		"Turn":     chatsvc.ToolCallNetworkTurn,
-		"Approved": chatsvc.ToolCallNetworkApproved,
+	unmarshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallNetwork = map[string]chat.ToolCallNetwork{
+		"Chat":     chat.ToolCallNetworkChat,
+		"Turn":     chat.ToolCallNetworkTurn,
+		"Approved": chat.ToolCallNetworkApproved,
 	}
-	marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallNetwork = map[chatsvc.ToolCallNetwork]string{
-		chatsvc.ToolCallNetworkChat:     "Chat",
-		chatsvc.ToolCallNetworkTurn:     "Turn",
-		chatsvc.ToolCallNetworkApproved: "Approved",
+	marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallNetwork = map[chat.ToolCallNetwork]string{
+		chat.ToolCallNetworkChat:     "Chat",
+		chat.ToolCallNetworkTurn:     "Turn",
+		chat.ToolCallNetworkApproved: "Approved",
 	}
 )
 
-func (ec *executionContext) unmarshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallStatus(ctx context.Context, v any) (*chatsvc.ToolCallStatus, error) {
+func (ec *executionContext) unmarshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallStatus(ctx context.Context, v any) (*chat.ToolCallStatus, error) {
 	if v == nil {
 		return nil, nil
 	}
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallStatus[tmp]
+	res := unmarshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallStatus[tmp]
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallStatus(ctx context.Context, sel ast.SelectionSet, v *chatsvc.ToolCallStatus) graphql.Marshaler {
+func (ec *executionContext) marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallStatus(ctx context.Context, sel ast.SelectionSet, v *chat.ToolCallStatus) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	_ = sel
 	_ = ctx
-	res := graphql.MarshalString(marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallStatus[*v])
+	res := graphql.MarshalString(marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallStatus[*v])
 	return res
 }
 
 var (
-	unmarshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallStatus = map[string]chatsvc.ToolCallStatus{
-		"NotRun":           chatsvc.ToolCallNotRun,
-		"AwaitingApproval": chatsvc.ToolCallAwaitingApproval,
-		"Denied":           chatsvc.ToolCallDenied,
-		"Running":          chatsvc.ToolCallRunning,
-		"Succeeded":        chatsvc.ToolCallSucceeded,
-		"Failed":           chatsvc.ToolCallFailed,
-		"Interrupted":      chatsvc.ToolCallInterrupted,
+	unmarshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallStatus = map[string]chat.ToolCallStatus{
+		"NotRun":           chat.ToolCallNotRun,
+		"AwaitingApproval": chat.ToolCallAwaitingApproval,
+		"Denied":           chat.ToolCallDenied,
+		"Running":          chat.ToolCallRunning,
+		"Succeeded":        chat.ToolCallSucceeded,
+		"Failed":           chat.ToolCallFailed,
+		"Interrupted":      chat.ToolCallInterrupted,
 	}
-	marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋchatsvcᚐToolCallStatus = map[chatsvc.ToolCallStatus]string{
-		chatsvc.ToolCallNotRun:           "NotRun",
-		chatsvc.ToolCallAwaitingApproval: "AwaitingApproval",
-		chatsvc.ToolCallDenied:           "Denied",
-		chatsvc.ToolCallRunning:          "Running",
-		chatsvc.ToolCallSucceeded:        "Succeeded",
-		chatsvc.ToolCallFailed:           "Failed",
-		chatsvc.ToolCallInterrupted:      "Interrupted",
+	marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallStatus = map[chat.ToolCallStatus]string{
+		chat.ToolCallNotRun:           "NotRun",
+		chat.ToolCallAwaitingApproval: "AwaitingApproval",
+		chat.ToolCallDenied:           "Denied",
+		chat.ToolCallRunning:          "Running",
+		chat.ToolCallSucceeded:        "Succeeded",
+		chat.ToolCallFailed:           "Failed",
+		chat.ToolCallInterrupted:      "Interrupted",
 	}
 )
 

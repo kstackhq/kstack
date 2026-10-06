@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kstackhq/kstack/sidecar/internal/drain"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/drain"
 )
 
 const (

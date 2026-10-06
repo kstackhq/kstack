@@ -15,7 +15,7 @@ record families (`Clusters`, `Caches`, `Discovery`, `Syncs`, `Data`). Connection
 the core controller: per-cluster reconcile locks, a sentinel watch on `kube-system` to notice a
 lost connection, and an in-process retry bus.
 
-That subsystem was torn down and rebuilt as `internal/clustersvc` from mid-August on. Probing moved
+That subsystem was torn down and rebuilt as `internal/services/cluster` from mid-August on. Probing moved
 into a connection pool driven by the supervisor (→ [probe engine](2026-08-24-probe-engine.md), [the
 connection probe dials /api](2026-08-25-connection-probe-dial.md)). Discovery and sync became what
 `kubesync` does to fill a cache, mirrored into one `ClusterCachedKind` record per kind (→ [kind
@@ -25,21 +25,21 @@ This ADR records the package shape that rebuild settled on, written down on 2026
 
 ## Decision
 
-**`sidecar/internal/clustersvc` is one package.** `service.go` specifies the whole API — `Service`
+**`sidecar/internal/services/cluster` is one package.** `service.go` specifies the whole API — `Service`
 and the four family interfaces — and bootstraps beehive; its package doc is the map. One file per
 family holds everything about that kind: its beehive shapes, the record served to GraphQL, its
 delta-watch frame, and the controller that writes it (`clusters.go`, `caches.go`,
 `cachedkinds.go`, `cacheddata.go`). `shared.go` holds the vocabulary every family reuses. The
 schema binds these types 1:1 by name in `gqlgen.yml`.
 
-**Mechanisms are leaves under `clustersvc/internal/`**: `kubeconn` (the connection pool and its
+**Mechanisms are leaves under `services/cluster/internal/`**: `kubeconn` (the connection pool and its
 probes), `kubesync` (discovery and the per-kind syncs that fill a cache) and `kubestore` (the
-cache's SQLite files). The compiler keeps them private to `clustersvc`. A leaf speaks native
+cache's SQLite files). The compiler keeps them private to `services/cluster`. A leaf speaks native
 vocabulary — GVRs, a `rest.Config`, cache rows — and never the records above it; the controllers
 translate. A leaf that reaches for a record type gets an import cycle, which is the enforcement.
 The connection surface is the one exception: it reads no beehive object, so its types alias
 straight through (`Lease = kubeconn.Lease`). A controller holds policy only. Mechanism growing in
-one is the signal to extract another leaf, and `go test ./internal/clustersvc` staying fast is how
+one is the signal to extract another leaf, and `go test ./internal/services/cluster` staying fast is how
 that shows.
 
 **The families are views.** `Clusters()`, `Caches()`, `CachedKinds()` and `CachedData()` return

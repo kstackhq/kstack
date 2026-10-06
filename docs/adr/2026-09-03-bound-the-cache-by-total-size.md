@@ -31,7 +31,7 @@ and a whole-file ceiling that pauses the sync when the footprint crosses it.
 The ceiling is built in two halves, both landed. The janitor measures the database plus its
 `-wal`/`-shm` sidecars each sweep and publishes an edge-triggered verdict (`kubestore/janitor.go`);
 the cache pass acts on it, stopping the sync through `armSync`'s existing switch and reporting
-`ReasonSizeLimit` on the health gauge (`clustersvc/caches.go`, → [a stopped cache is held by its
+`ReasonSizeLimit` on the health gauge (`services/cluster/caches.go`, → [a stopped cache is held by its
 record](2026-09-03-a-stopped-cache-is-held-by-its-record.md)).
 
 The janitor's stance on events is unchanged, and now deliberate at both levels: events retention

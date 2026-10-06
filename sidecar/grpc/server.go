@@ -17,9 +17,9 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/grpc/authpb"
 	"github.com/kstackhq/kstack/sidecar/grpc/pokepb"
-	"github.com/kstackhq/kstack/sidecar/internal/auth"
-	"github.com/kstackhq/kstack/sidecar/internal/drain"
-	"github.com/kstackhq/kstack/sidecar/internal/poke"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/drain"
+	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 )
 
 // IsGRPCRequest IS the definition of a gRPC request — HTTP/2 plus the gRPC content-type —

@@ -6,7 +6,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 ## Sidecar — cluster service
 
-- **The cluster controller re-derives its source edge every pass.** `clusterController.Reconcile` (`sidecar/internal/clustersvc/clusters.go`) declares the dependency onto the kubeconfig anchor by looking the anchor up by name and calling `AddDependency` on every reconcile: a `GetByName` row read plus an `Edges().Add` transaction (a `SELECT` join and an `INSERT ... ON CONFLICT DO NOTHING`), whether or not the edge already exists. **Not a performance problem** — both are indexed round-trips, the expensive half (the requeue signal) is already gated on `ReconcileOwedStamped` so it fires once per edge ever created, and passes are paced by `clusterProbeInterval` (5m) plus events. Listed for the **simplification**, and because the cost is worth knowing before anyone puts this pass on a hot path.
+- **The cluster controller re-derives its source edge every pass.** `clusterController.Reconcile` (`sidecar/internal/services/cluster/clusters.go`) declares the dependency onto the kubeconfig anchor by looking the anchor up by name and calling `AddDependency` on every reconcile: a `GetByName` row read plus an `Edges().Add` transaction (a `SELECT` join and an `INSERT ... ON CONFLICT DO NOTHING`), whether or not the edge already exists. **Not a performance problem** — both are indexed round-trips, the expensive half (the requeue signal) is already gated on `ReconcileOwedStamped` so it fires once per edge ever created, and passes are paced by `clusterProbeInterval` (5m) plus events. Listed for the **simplification**, and because the cost is worth knowing before anyone puts this pass on a hot path.
   - **Fix:** own the edge instead of re-deriving it. The mirror (`mirror.go`) creates the runtime object, so it would create it with `beehive.WithOwner(...)` onto the source's anchor and let the pass read `client.GetOwner(ctx)`, exactly as `cacheController` already does. That deletes the `sourceClient` read, the `ErrNotFound` startup-requeue branch, and the `kubeconfigContextOf` special case, and a future non-kubeconfig source inherits the wake instead of needing its own branch. Store round-trips stay at two (`GetOwner` is also a read), so this buys clarity, not speed.
   - **Check before doing it:** stored Clusters predate the edge, so `GetOwner` reports no owner for them and they would never get the dependency — a non-issue under the pre-release policy (edit `0001_init.sql`, delete the dev `app.db`), but it is why the change is not purely mechanical. Also confirm `WithOwner` does not change Cluster lifecycle: owner edges cascade on delete, and nothing deletes an anchor today, so the risk is latent rather than live.
   - **Fix the stale comment either way:** the block's comment claims "every later pass is free", which is only true of the *wake*. The edge upsert still costs a transaction per pass.
@@ -16,7 +16,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 - **Nothing exposes the four non-connection probes, so "Connected but not Identified" has no detail.**
   `kubeconn.State` carries a full `Observation` per probe — value, `LastSeen`, `LastAttempt`
   (verdict/reason/message), `Failures`/`FailingSince`, `NextAttempt` — and `foldState`
-  (`sidecar/internal/clustersvc/clusters.go`) deliberately copies only the **values** into
+  (`sidecar/internal/services/cluster/clusters.go`) deliberately copies only the **values** into
   `ClusterStatus`, since a status that moved every pass would re-emit the record to every watcher on
   every cycle. So a cluster whose credentials cannot read `kube-system` surfaces as one condition
   reason (`ReasonUIDUnreadable`) and nothing else: no failure count, no "next attempt in 4m", no
@@ -37,8 +37,8 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **`supervisor.Supervisor`'s `Wake`/`WakeAll` pair reads as one axis and is two.** `Wake(subjectName string, names ...string)` takes named probes on **one** subject; `WakeAll(names ...string)` takes named probes across **every** subject. The variadic means the same thing in both, and `All` varies the argument that is not there — so `WakeAll` reads as "wake every probe" when it means "wake these probes everywhere". Both call sites are correct today: `watchKubeconfig` wants `WakeAll(nameConnection)` (one probe, whole fleet) and `RetryAndWait` wants `Wake(contextName, probeNames[:]...)` (one context, every probe) — they are exact transposes, which is what makes the pair easy to reach for backwards. **Fix:** rename `WakeAll` to name its axis (`WakeEverySubject`, or `WakeSubjects`), two call sites plus `engine_test.go` and the `sidecar/CLAUDE.md` wiring line. **Weigh:** the engine is a general leaf and `WakeAll` is the shorter, more conventional spelling; the case for renaming rests on the pair being read together, which is exactly when the ambiguity bites.
 
-- **`supervisor.Supervisor`'s run queue has no debounce.** `runQ` and `passQ` are `internal/workqueue`
-  queues (`sidecar/internal/supervisor/supervisor.go`). **Deduping is not debouncing** — a key waits once,
+- **`supervisor.Supervisor`'s run queue has no debounce.** `runQ` and `passQ` are `internal/lib/workqueue`
+  queues (`sidecar/internal/lib/supervisor/supervisor.go`). **Deduping is not debouncing** — a key waits once,
   but only while it is waiting, and one added while a worker holds it is queued afresh on `Done`,
   so asks spread across a run are a run apiece. For the connection probe each one re-reads the
   kubeconfig and the CA files behind it, then dials `/api`.
@@ -58,7 +58,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     by more than a person's click rate now — the mutation is held open for the probe's round trip
     and the button is disabled for all of it — so this is a watch item rather than work, until a
     producer that can ask in a loop makes it real.
-  - **Home:** `internal/workqueue`, as its own feature. The old pairing with `AddAfter` is gone:
+  - **Home:** `internal/lib/workqueue`, as its own feature. The old pairing with `AddAfter` is gone:
     the engine schedules delayed work with a per-subject `time.AfterFunc` over a schedule derived
     in `pass`, so nothing wants a delayed queue add any more.
     [amorey/gobus#17](https://github.com/amorey/gobus/issues/17) proposes the same queue upstream;
@@ -69,7 +69,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     burst without a second timing mechanism in the queue.
 
 - **The cold-list burst sets the heap's high-water mark.** `defaultPacing`
-  (`sidecar/internal/clustersvc/internal/kubesync/kinds.go`) is `pageSize: 500` against
+  (`sidecar/internal/services/cluster/internal/kubesync/kinds.go`) is `pageSize: 500` against
   `kindStartConcurrency: 16`, so up to 8000 objects can be decoded at once — and each is live three
   times over at write time: client-go buffers the whole page body, decodes it into a
   `map[string]interface{}` several times its JSON size, and `projectObject` deep-copies that again
@@ -111,17 +111,17 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   - **The protocol wrinkle:** subscription variables are fixed for the life of a subscription, so moving the window means resubscribing — a debounced resubscribe per scroll settle, re-snapshotting a window's worth of rows. Cheap, but it makes the window a subscription variable (or a search param) rather than client state, and every move is a round trip.
   - **Not what the change log is for.** A log tail names the uid that changed, which is not a position in a sort order: inserting one object above the window shifts a row out of the bottom, and the entry mentions neither of the two objects whose page membership moved. Kubernetes offers `limit`/`continue` on list and nothing on watch for the same reason.
 
-- **One measurement per cache for the stats gauge, not one per subscriber.** `cachesAPI.WatchStats` builds its whole loop inside `NewStream`'s pump (`clustersvc/caches.go:347`, `stream.go:180`), so every subscriber gets its own: three windows on one cache means three 5-second tickers, three file measurements, and three sets of row-count queries against the same file. The counts are the expensive half — the file measurement is three `os.Stat` calls, the counts are SQL. Nothing is wrong with the answers; the work is just done N times. **Shape:** one measurement stream per cache, multicast to its subscribers, the way the delta watches already fan out — the pump moves off the subscription and onto the cache, and a subscriber joins the running one and gets the current value on arrival (the gauge is current-on-subscribe, so a joiner must not wait for the next tick). `WatchHealth` has the same per-subscriber shape over the records, so whatever carries the multicast should be able to serve both. **Not blocked on anything**, and independent of the cache size ceiling: the janitor's own measurement is a different caller with a different lifetime, and is not what this de-dupes.
+- **One measurement per cache for the stats gauge, not one per subscriber.** `cachesAPI.WatchStats` builds its whole loop inside `NewStream`'s pump (`services/cluster/caches.go:347`, `stream.go:180`), so every subscriber gets its own: three windows on one cache means three 5-second tickers, three file measurements, and three sets of row-count queries against the same file. The counts are the expensive half — the file measurement is three `os.Stat` calls, the counts are SQL. Nothing is wrong with the answers; the work is just done N times. **Shape:** one measurement stream per cache, multicast to its subscribers, the way the delta watches already fan out — the pump moves off the subscription and onto the cache, and a subscriber joins the running one and gets the current value on arrival (the gauge is current-on-subscribe, so a joiner must not wait for the next tick). `WatchHealth` has the same per-subscriber shape over the records, so whatever carries the multicast should be able to serve both. **Not blocked on anything**, and independent of the cache size ceiling: the janitor's own measurement is a different caller with a different lifetime, and is not what this de-dupes.
 
-- **OAuth access-token refresh — background/proactive half.** On-demand refresh is done (`sidecar/internal/auth/grant.go` refreshes a lazily-expired token using the stored refresh token). What remains: a proactive/background refresh before expiry rather than only refreshing when a consumer hits an already-expired token.
+- **OAuth access-token refresh — background/proactive half.** On-demand refresh is done (`sidecar/internal/services/auth/grant.go` refreshes a lazily-expired token using the stored refresh token). What remains: a proactive/background refresh before expiry rather than only refreshing when a consumer hits an already-expired token.
 - **SSO failure didn't retry.** The async login tail (wait-for-redirect → exchange → verify → persist) is fire-and-forget; a tail failure is only logged and leaves the session signed-out (a known v1 limitation), with no retry. The user must manually re-initiate login.
 - **Check RBAC permissions?** The `ClusterPermissions`/`ResourceRule`/`NonResourceRule` types and schema exist, but the `Permissions` resolver is a stub that returns `not implemented: permissions`. Implement it via a `SelfSubjectRulesReview`. Distinct from the `SelfSubjectReview` *authentication* probe behind `ClusterPrincipal.username`, which is implemented.
 
 ## Sidecar (Go)
 
-- **A chat's directory layout is named in two packages.** chatsvc owns `<data>/chats/<id>`, but
+- **A chat's directory layout is named in two packages.** services/chat owns `<data>/chats/<id>`, but
   `tools` names two of its entries (`workspace/` in `WorkspacePath`, `results/` in `SaveTo`) while
-  chatsvc names the third (`tasks/`), and chatsvc calls `tools.WorkspacePath` to learn its own
+  services/chat names the third (`tasks/`), and services/chat calls `tools.WorkspacePath` to learn its own
   workspace's path. Fix when the layout next changes: let the owner name every entry, keeping the
   link-safe opening in `tools`.
 
@@ -144,7 +144,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   asked. Move that decision to the asker: bash hands every sandboxed call its asker, refuses only
   when there is none, and the asker answers a write it cannot put to anyone with an error the
   proxy maps to a refusal. What is left is how to get the request in front of the user in time.
-  - **Not a one-line change.** chatsvc's asker is bound to the run: it files a write under the
+  - **Not a one-line change.** services/chat's asker is bound to the run: it files a write under the
     journal's `openTool`, the call running now, and ends its wait with the turn. A write a
     background command sends later would land on an unrelated call, or be abandoned at once. The
     asker has to be per call, asking as it does today while its call is open and through a late
@@ -240,10 +240,10 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   **Trigger:** met, since `sandbox-shell` doubles the starts on both platforms and the `init`s
   run confined under bubblewrap.
 
-- **Reorganize the model, tool and run-loop code into `llm` → `tools` → `agent` → `chatsvc`.** `llm` speaks to models, `tools` is what the sidecar can do, `agent` runs a loop over the two, and `chatsvc` owns chats, rows, approvals and the live view, with Go enforcing the one import direction; the spec sequence is written when the work starts.
+- **Reorganize the model, tool and run-loop code into `llm` → `tools` → `agent` → `services/chat`.** `llm` speaks to models, `tools` is what the sidecar can do, `agent` runs a loop over the two, and `services/chat` owns chats, rows, approvals and the live view, with Go enforcing the one import direction; the spec sequence is written when the work starts.
 
 - **Give each chat a scratch directory, and run bash there.** Two steps. First, each chat gets
-  `<dataDir>/workdirs/<chatID>`, owned by `chatsvc`: made owner-only just before a tool uses it,
+  `<dataDir>/workdirs/<chatID>`, owned by `services/chat`: made owner-only just before a tool uses it,
   removed with the chat — never following a link a command may have put in its place — and swept
   at start for chats that are gone. Second, it replaces the user's home as bash's default
   `workdir`; its prompt then says a file written stays for the rest of the chat, and stops
@@ -269,7 +269,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **Explore a Relay-style mutation shape.** Every mutation takes flat arguments today, and
   `chatSend` has eight of them; the Relay convention is one `input` object per mutation
-  (`chatSend(input: ChatSendInput!)`), with a `chatsvc.SendRequest` behind it so `Send`'s
+  (`chatSend(input: ChatSendInput!)`), with a `chat.SendRequest` behind it so `Send`'s
   positional arguments become one value. Decide it schema-wide — one mutation on the convention
   and the rest off it is worse than either — and whether the matching `…Payload` types come with
   it. Nothing is waiting on it.
@@ -304,9 +304,9 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **The byte counts on `ClusterCacheStats` are `Int!`, which the GraphQL spec defines as signed 32-bit.** `bytes`, `dbBytes`, `walBytes`, `shmBytes` and `sizeLimitBytes` are all `int64` in Go, and the default size limit (2 GiB) is already past the 32-bit maximum. Nothing breaks today: gqlgen's `MarshalInt64` writes the digits with no range check, and the webview maps `Int` to a TypeScript `number`, which holds the value exactly. A spec-strict client would refuse it. **Trigger:** the first client that is not the webview. **Fix:** a custom `Int64` scalar in `schema.graphqls`, bound in `gqlgen.yml`, mapped to `number` in the frontend codegen config, and applied to all five fields in one change — not per field, or the type says two things about one quantity.
 
-- **`chatsvc`'s watches re-read a whole transcript to diff it; a write log is not the answer, a read
+- **`services/chat`'s watches re-read a whole transcript to diff it; a write log is not the answer, a read
   split might be.** Every `messages/<chatID>` ping re-reads the chat's rows and diffs them by id
-  (`readMessages`, `foldMessagePing` in `sidecar/internal/chatsvc/service.go`), and the rows carry
+  (`readMessages`, `foldMessagePing` in `sidecar/internal/services/chat/service.go`), and the rows carry
   `content` — the verbatim content blocks — so `fold` compares whole message bodies to learn that
   one row settled. **Nothing here is hot:** that pull runs a handful of times per turn (the send,
   the settle, a rename, a delete), while the per-chunk path rides `stream/<chatID>` and reads
@@ -329,7 +329,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 - **Investigate scoping `chatsWatch` by mode and cluster server-side.** The watch is unscoped and the webview does both filters itself (`chatModeOf` and `clusterID` in `src/lib/chats.tsx`), so every window holds every chat of every cluster in both modes to draw one list. Scoping it to `(clusterID, mode)` would ship each window only its own. **What it costs.** `OpenChat` tells a deleted chat from another cluster's by looking in the list, so a scoped list leaves it nothing to look in — it would need a `chat(id)` read of its own, and the out-of-scope notice would then be driven by that read rather than by the fold. urql keys an operation on its variables, so each mode and each cluster switch opens its own connection and cold-lists, where today one watch serves the window. And the SQL needs an index the table does not have: `chat_by_recency` is `(updated_at DESC)`, and a scoped newest-first read wants `(cluster_id, mode, updated_at DESC)` — an edit to `0001_init.sql`, since nothing has shipped. **Trigger:** a chat count at which sending every chat to every window is visible in a profile, or a second consumer of the list that cannot filter client-side. Unmeasured today.
 
 - **Explore comparing cluster cards by hash rather than by text.** `questionContent`
-  (`sidecar/internal/chatsvc/service.go`) decides whether a send carries a card by comparing the
+  (`sidecar/internal/services/chat/service.go`) decides whether a send carries a card by comparing the
   freshly rendered card, byte for byte, against the newest context block in the chat's record
   (`newestCard`, a `json_extract` over the chat's user rows). Both sides are up to 4 KiB, and the
   read walks the rows since the last card. A hash of the card beside the message — a column on
@@ -343,9 +343,9 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   send whose compare is visible in a profile, or a second kind of context that makes the block
   large enough to matter.
 
-- **A failed answer is never retried.** `chatsvc` settles a turn that failed as a `failed` row
+- **A failed answer is never retried.** `services/chat` settles a turn that failed as a `failed` row
   carrying the text that arrived and the reason (`answer`/`settled` in
-  `sidecar/internal/chatsvc/service.go`); only the *write* of that row retries. The policy is
+  `sidecar/internal/services/chat/service.go`); only the *write* of that row retries. The policy is
   deliberate — a model call costs money and the user did not ask twice — but it does not
   distinguish a refusal from a 429 or a connection dropped three tokens in.
   - **The re-typing is answered**: the transcript's last row, when it is a failed answer, draws
@@ -365,7 +365,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     state in the service. Build the ladder only if the transient failures turn out to be common
     enough that a person clicking resend is the worse answer.
 
-- **Return an error from `marshalBlocks` instead of panicking.** `chatsvc/record.go`'s
+- **Return an error from `marshalBlocks` instead of panicking.** `services/chat/record.go`'s
   `marshalBlocks` panics when a block's `Input` or `Payload` is not valid JSON. No path reaches it
   today: `ToolUseBlock` and `ServerUseBlock` refuse bad input, the wires check every payload
   (`Block.replayable`), and stored rows are decoded by `unmarshalBlocks`. But a `Block` built by
@@ -375,8 +375,8 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   path), `writeTurnRows` fails the send, and `Progress` logs it and keeps the last content.
 
 - **A full chat could continue.** Every turn replays the whole transcript (`buildRequest` in
-  `sidecar/internal/chatsvc/service.go`), so a chat grows until the model can no longer read it.
-  `roomFor` (`sidecar/internal/chatsvc/context.go`) makes the end honest — a send past the
+  `sidecar/internal/services/chat/service.go`), so a chat grows until the model can no longer read it.
+  `roomFor` (`sidecar/internal/services/chat/context.go`) makes the end honest — a send past the
   model's window is refused with `KSTACK_CHAT_CONTEXT_FULL` and the draft stays —
   but a refused chat is over on that model, and a long investigation is exactly the chat a user
   wants to keep. What would let it go on, each a different trade:
@@ -399,7 +399,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   - **Trigger:** the first user who hits the refusal on a chat they wanted to continue.
 
 - **Record the system prompt each turn was sent.** A stored turn says what the model answered
-  and what it cost, but not what it was told: `systemPromptFor` (`sidecar/internal/chatsvc/service.go`)
+  and what it cost, but not what it was told: `systemPromptFor` (`sidecar/internal/services/chat/service.go`)
   picks `toolsPrompt` or `noToolsPrompt` per turn by encoder, and `prompts/system.md` is embedded
   from source, so reading a chat back later means guessing which prompt, from which build, ran it.
   - **Store the text, not a version number.** A version cannot say which of the two prompts a
@@ -440,9 +440,9 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   - Until it lands, the counts on a `Cancelled` or `Failed` row are the finished calls' alone,
     and the resolver descriptions should say so.
 
-- **Hoist `Condition`/`Event`/`Schedule`/`ObjectRef` when a second consumer appears.** All four are kind-agnostic on the wire (unprefixed, per the schema's naming rule) but live in `internal/clustersvc` (`shared.go`) because the cluster surface is their only consumer. **Trigger:** the first non-cluster kind or subsystem that needs conditions, events, schedules, or owner refs — at that point move all four into a shared leaf package (e.g. `internal/apimeta`), leaving `clustersvc` its `ConditionType` constants (`Connected`/`Identified`/`Synced`). `ObjectRef` takes `toOwnerRef` with it. Hoisting earlier would be a one-importer abstraction.
+- **Hoist `Condition`/`Event`/`Schedule`/`ObjectRef` when a second consumer appears.** All four are kind-agnostic on the wire (unprefixed, per the schema's naming rule) but live in `internal/services/cluster` (`shared.go`) because the cluster surface is their only consumer. **Trigger:** the first non-cluster kind or subsystem that needs conditions, events, schedules, or owner refs — at that point move all four into a shared leaf package (e.g. `internal/lib/apimeta`), leaving `services/cluster` its `ConditionType` constants (`Connected`/`Identified`/`Synced`). `ObjectRef` takes `toOwnerRef` with it. Hoisting earlier would be a one-importer abstraction.
 
-- **Hoist the doubling-backoff ladder into a shared leaf when a second consumer appears.** Only `prefsync`'s `backoffDelay` (`internal/cloud/prefsync/engine.go` — `baseBackoff << attempt`, clamped to `maxBackoff`, then jittered, with a `withBackoff(base, max)` test seam) computes one by hand: everything inside the control plane rides beehive's own per-object ladder instead. **Trigger:** the next thing that cannot ride beehive's — anything outside the control plane, which is what `prefsync` is. At that point extract base/max/jitter and the `Reset`-on-success discipline into a leaf (e.g. `internal/backoff`) with the same parameterized-cadence seam the testing conventions require. Note the two readings a shared type has to keep expressible: `prefsync` counts attempts across reconnects, where a pass-oriented ladder re-levels on any clean pass.
+- **Hoist the doubling-backoff ladder into a shared leaf when a second consumer appears.** Only `prefsync`'s `backoffDelay` (`internal/services/cloud/prefsync/engine.go` — `baseBackoff << attempt`, clamped to `maxBackoff`, then jittered, with a `withBackoff(base, max)` test seam) computes one by hand: everything inside the control plane rides beehive's own per-object ladder instead. **Trigger:** the next thing that cannot ride beehive's — anything outside the control plane, which is what `prefsync` is. At that point extract base/max/jitter and the `Reset`-on-success discipline into a leaf (e.g. `internal/backoff`) with the same parameterized-cadence seam the testing conventions require. Note the two readings a shared type has to keep expressible: `prefsync` counts attempts across reconnects, where a pass-oriented ladder re-levels on any clean pass.
 
 - **`appdb.Close` during the janitor's first sweep can leave `app.db-wal` behind.** The sweep starts the moment `Open` returns; a `Close` that cancels it mid-statement leaves the WAL beside the file (about 1 in 200 in a loop of `Open` then `Close` after a short delay). A failed `app.New` that closes the file right after opening it hits this, and a test asserting the WAL's absence flakes. Wanted: `Close` leaves no WAL after joining the janitor, e.g. an uncancelled checkpoint before the pools close.
 
@@ -456,7 +456,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     records a resolution: the fault when it failed, else a sync of its path. The launch's PATH
     sync part and `RefreshPath` both call it, and `NewService` loses its `fault` argument.
 
-- **Rename `chatsvc` to the agent-run service it is.** The package owns every agent run: a chat's
+- **Rename `services/chat` to the agent-run service it is.** The package owns every agent run: a chat's
   turns, the subagents, the background tasks, the permissions askers, the folder grants the
   executable probe reads, and the monitor run, which has no chat at all. "chat" names the one run it started with. A name such as
   `agentsvc` or `runsvc`; the chats, their messages and their watches stay inside it.
@@ -464,7 +464,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     update both `CLAUDE.md`s and the security records' code references. Leave the
     ADRs. No table or wire name changes.
 
-- **Build the monitoring agent over `chatsvc.RunMonitor`.** The run, its session, its record, its
+- **Build the monitoring agent over `chat.RunMonitor`.** The run, its session, its record, its
   folder and its teardown exist; nothing calls them but their tests.
   - **Schedule and brief.** When a run starts, what it is told, what it keeps between runs (the
     last run's `task` and `result` are there to read), and how its model is picked.
@@ -479,7 +479,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   - **Findings.** A view of what the runs found, its reports drawn as text.
 
 - **Rename `securityconfig` to `securitysvc`, once 3A and 3B have merged.** The package is a
-  service like `chatsvc` and `memorysvc`: a `Service` with operations, runtime state and a watch,
+  service like `services/chat` and `services/memory`: a `Service` with operations, runtime state and a watch,
   which the resolvers call. "config" reads as a file loaded once. Do it before a step-4 branch
   starts, so nothing in flight conflicts with the move.
   - **Scope.** `git mv` the package, fix its importers and the gqlgen binding, and regenerate.
@@ -553,7 +553,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     The host's is free — `tracing` bakes file and line into a static `Metadata` — while slog's runs
     `runtime.CallersFrames` per record, which does not matter at the rate we log.
   - **Trim the path, or it costs history.** With `-trimpath` slog reports
-    `github.com/kstackhq/kstack/sidecar/internal/clustersvc/caches.go` — 64 characters
+    `github.com/kstackhq/kstack/sidecar/internal/services/cluster/caches.go` — 64 characters
     before the key, roughly half again the size of a typical record, against a 2 MB rotation. Cut
     the module prefix in `hostKeys` and it is ~20%. (A `go test` build reports an absolute path
     instead, so nothing should assert the shape.)
@@ -838,7 +838,7 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   [the cache is ordinary application data](adr/2026-09-02-the-cache-is-ordinary-application-data.md):
   the file is protected as well as the kubeconfig beside it, but a token expires and a certificate
   is revoked while the file keeps answering. **Shape:** evict a cache whose cluster has not been
-  opened in N days, and clear every cache on sign-out (`internal/auth`'s `Logout` is the hook) —
+  opened in N days, and clear every cache on sign-out (`internal/services/auth`'s `Logout` is the hook) —
   sign-out is the user saying the machine no longer speaks for them. `kubestore`'s `Manager.Remove`
   already owns the teardown (closes the file, unlinks it and its `-wal`/`-shm`, refuses a later
   open of the same id), so eviction is a policy above it rather than new machinery; what it needs

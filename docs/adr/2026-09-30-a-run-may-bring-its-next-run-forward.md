@@ -15,7 +15,7 @@ back in the bodies. Three days later a job needed one. The kind-catalog sweep st
 watch that only woke it, with the sweep's interval as the backstop. On a healthy watch the
 backstop could be long. With the watch down it had to be short. One registration could not be
 both. That sweep has since been removed with the package that held it; the result it asked for
-survived into `internal/supervisor`. This records the reversal, made on 2026-08-27 and written
+survived into `internal/lib/supervisor`. This records the reversal, made on 2026-08-27 and written
 down on 2026-09-30.
 
 ## Decision

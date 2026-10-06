@@ -86,16 +86,16 @@ milliseconds; NULL differs from zero. `appdb.NewID()` generates canonical UUIDv7
 `appdb.ValidateUUID` accepts canonical lowercase RFC-variant UUIDv4/v7 request keys, rejecting nil IDs.
 Clients never supply row IDs. An id is identity and never authorizes: knowing one grants nothing,
 and a share link is its own row with a random token. A synced row keeps the id it was minted with,
-so the cloud stores client-minted ids unchanged and scopes their uniqueness per account. Shared watch folds use `internal/deltafold`.
+so the cloud stores client-minted ids unchanged and scopes their uniqueness per account. Shared watch folds use `internal/lib/deltafold`.
 
-Clusters are rows in `app.db` (`clusters`, owned by `clustersvc`), addressed by the `ClusterID`
+Clusters are rows in `app.db` (`clusters`, owned by `services/cluster`), addressed by the `ClusterID`
 scalar; beehive holds one runtime object per row, named by its id, that the mirror keeps. A
 cluster's deletion is a mark: the mirror tears the runtime down, the chat sweeper deletes the
 chats, and the row goes last. Every send checks its cluster's mark inside its transaction
 (`ErrClusterGone` → `KSTACK_RECORD_NOT_FOUND`). `chats.cluster_id` references `clusters(id)`.
 
 Conversations, messages, agent runs, model calls, tool calls and approvals are the seven
-application tables of `appdb/migrations/0001_init.sql`, the only schema authority; `chatsvc`
+application tables of `appdb/migrations/0001_init.sql`, the only schema authority; `services/chat`
 owns all but `clusters`. A send files the user message (carrying the client's UUID request key),
 a queued chat run and the empty assistant message in one transaction; the turn claims its run
 and settles it with the answer; a message's public status is its run's. A model call's row is

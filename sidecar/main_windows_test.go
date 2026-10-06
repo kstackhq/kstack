@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/ipc"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
 )
 
 // socketPath returns a bindable pipe name for one test, pid-namespaced so a

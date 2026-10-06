@@ -19,7 +19,7 @@ path in the chat's results, for a path in the rest of the data directory, and fo
 is not one absolute, plain line. The last two are refused by `Run`, so no one is asked about a read
 that cannot happen. The zero value asks, so a gated tool that forgets asks
 (`TestAGatedToolAsksByDefault`). A skipped call runs with no approval row and `is_mutating` 0
-(`TestASkippedApprovalRunsUnasked`, in `agent` and `chatsvc`). Every other gated call keeps
+(`TestASkippedApprovalRunsUnasked`, in `agent` and `services/chat`). Every other gated call keeps
 `is_mutating` 1, an approved `Read` included: the column means "gated".
 
 ## The path drawn is the path opened

@@ -9,7 +9,7 @@ status: Accepted
 
 ## Context
 
-Two packages carried the same machinery. `chatsvc/statements.go` prepared the chat statements on
+Two packages carried the same machinery. `services/chat/statements.go` prepared the chat statements on
 `app.db`'s two pools and routed each call to the reader's copy, the writer's copy, or a rebinding
 onto the open transaction (→ [app.db SQL discipline](2026-09-14-app-db-sql-discipline.md)).
 `kubestore/statements.go` did the same for each cache file, with a two-way declaration and no
@@ -21,7 +21,7 @@ pool rule are the subtle part, and they were about to be written again.
 
 ## Decision
 
-The machinery is one leaf, `internal/sqlstmt`, beside `sqlitemigrate`. A store declares its table
+The machinery is one leaf, `internal/lib/sqlstmt`, beside `sqlitemigrate`. A store declares its table
 as `[]sqlstmt.Statement`, each entry the text and its pool (`OnWriter`, `OnReader`, `OnBoth`),
 indexed by the store's own id type. `sqlstmt.Prepare[ID](ctx, write, read, table)` compiles the
 table on both pools at open and hands back a `Set[ID]`; `Set.Stmts()` issues on the pools,
@@ -30,7 +30,7 @@ reader, and each gives the caller a `Stmts[ID]` whose `Exec`/`Query`/`QueryRow` 
 Inside a transaction the copy rebound is the one prepared on that transaction's pool, once per
 id. `Set.Close` finalizes the statements alone; the pools stay the caller's.
 
-`chatsvc` prepares on `db.Write, db.Read` and declares its in-transaction reads `OnBoth`.
+`services/chat` prepares on `db.Write, db.Read` and declares its in-transaction reads `OnBoth`.
 `kubestore` prepares on each file's pools, declares nothing `OnBoth`, and takes its snapshot
 reads through `InReadTx`. Both keep every line of SQL and every row function. What is shared is
 how a statement reaches a pool, not what it says.
@@ -54,8 +54,8 @@ and a slice indexed by a `~int` type parameter is ordinary Go.
 The pool sits beside the text in one table, so the separate hand-maintained pools tables and
 their "a write filed as a read" trap are gone; `Prepare` refuses an id the table left without
 text, and an id reached inside a transaction whose pool does not hold it panics at the first
-call. `chatsvc` has no `store` type: its `store.go` is the row functions over a `stmts`, which is
+call. `services/chat` has no `store` type: its `store.go` is the row functions over a `stmts`, which is
 `sqlstmt.Stmts[stmtID]`. `kubestore`'s eight hand-opened transactions are `InTx` and `InReadTx`
 closures. The tests of the routing run in `sqlstmt` against a table of their own and no store.
 This amends the "each pool holds its own half" paragraph of the cache store's ADR and the
-"`chatsvc` carries the cache store's discipline over" paragraph of `app.db`'s.
+"`services/chat` carries the cache store's discipline over" paragraph of `app.db`'s.

@@ -27,10 +27,10 @@ import (
 	"slices"
 	"time"
 
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
-	"github.com/kstackhq/kstack/sidecar/internal/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
 )
 
@@ -455,7 +455,7 @@ type ActionAsker interface {
 	Record(ctx context.Context, r ActionRequest, d permissions.Decision, reason string) error
 }
 
-// Runtime is what a tool gets of the chat its call runs in. chatsvc sets every
+// Runtime is what a tool gets of the chat its call runs in. chat sets every
 // field it has; a test sets the ones its tool reads. ClusterID is the chat's stored
 // cluster, the one a tool acting on a cluster reaches, and ChatID the chat; a model
 // names neither. Session is the run's policy, the chat's switch as its turn read

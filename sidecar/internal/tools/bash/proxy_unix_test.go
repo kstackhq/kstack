@@ -42,12 +42,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
 	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
-	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -192,9 +192,9 @@ func (api *fakeAPI) credentials() []string {
 
 // connection is api as the cluster's connection, whose client adds the
 // user's own credential to a request that carries none.
-func (api *fakeAPI) connection() *clustersvc.Connection {
+func (api *fakeAPI) connection() *cluster.Connection {
 	base, _ := url.Parse(api.URL)
-	return &clustersvc.Connection{BaseURL: base, HTTPClient: &http.Client{Transport: usersOwn{api.Client().Transport}}}
+	return &cluster.Connection{BaseURL: base, HTTPClient: &http.Client{Transport: usersOwn{api.Client().Transport}}}
 }
 
 type usersOwn struct{ base http.RoundTripper }
@@ -211,7 +211,7 @@ func (u usersOwn) RoundTrip(r *http.Request) (*http.Response, error) {
 // reached through lease.
 func proxyTool(t *testing.T, lease *fakeLease) *Tool {
 	t.Helper()
-	tl := clusterTool(t, map[apimeta.ClusterID]*clustersvc.Cluster{"7": kubeCluster("prod", "uid-1")})
+	tl := clusterTool(t, map[apimeta.ClusterID]*cluster.Cluster{"7": kubeCluster("prod", "uid-1")})
 	tl.sandboxer = sandboxed(t)
 	svc := tl.clusterSvc.(fakeService)
 	svc.lease = lease
@@ -369,7 +369,7 @@ func TestAClusterThatCannotBeClaimedStillRunsTheCommand(t *testing.T) {
 		want       string
 	}{
 		"not connectable": {
-			uid: "uid-1", acquireErr: clustersvc.ErrNotConnectable,
+			uid: "uid-1", acquireErr: cluster.ErrNotConnectable,
 			want: "Kstack does not connect to this cluster: it is disabled, being deleted, or has no kubeconfig credentials",
 		},
 		"unidentified": {
@@ -379,7 +379,7 @@ func TestAClusterThatCannotBeClaimedStillRunsTheCommand(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tl := proxyTool(t, nil)
 			tl.clusterSvc = fakeService{
-				clusters:   map[apimeta.ClusterID]*clustersvc.Cluster{"7": kubeCluster("prod", c.uid)},
+				clusters:   map[apimeta.ClusterID]*cluster.Cluster{"7": kubeCluster("prod", c.uid)},
 				acquireErr: c.acquireErr,
 			}
 
@@ -398,12 +398,12 @@ func TestAClusterThatCannotBeClaimedStillRunsTheCommand(t *testing.T) {
 func TestAClaimThatFailsCouldNotStart(t *testing.T) {
 	for name, acquireErr := range map[string]error{
 		"another": errDisk,
-		"gone":    clustersvc.ErrNotFound,
+		"gone":    cluster.ErrNotFound,
 	} {
 		t.Run(name, func(t *testing.T) {
 			tl := proxyTool(t, nil)
 			tl.clusterSvc = fakeService{
-				clusters:   map[apimeta.ClusterID]*clustersvc.Cluster{"7": kubeCluster("prod", "uid-1")},
+				clusters:   map[apimeta.ClusterID]*cluster.Cluster{"7": kubeCluster("prod", "uid-1")},
 				acquireErr: acquireErr,
 			}
 
@@ -412,7 +412,7 @@ func TestAClaimThatFailsCouldNotStart(t *testing.T) {
 			assert.True(t, isError)
 			assert.True(t, strings.HasPrefix(text, "could not start: "), text)
 			assert.NotContains(t, text, "ran")
-			if acquireErr == clustersvc.ErrNotFound {
+			if acquireErr == cluster.ErrNotFound {
 				assert.Contains(t, text, errClusterGone.Error())
 			}
 			entries, err := os.ReadDir(tl.runsDir)

@@ -26,21 +26,21 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/graph"
 	grpcserver "github.com/kstackhq/kstack/sidecar/grpc"
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
-	"github.com/kstackhq/kstack/sidecar/internal/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/catalog"
-	"github.com/kstackhq/kstack/sidecar/internal/chatsvc"
-	"github.com/kstackhq/kstack/sidecar/internal/cloud"
 	"github.com/kstackhq/kstack/sidecar/internal/clustercard"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
-	"github.com/kstackhq/kstack/sidecar/internal/kubeconfig"
-	"github.com/kstackhq/kstack/sidecar/internal/lifecycle"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
-	"github.com/kstackhq/kstack/sidecar/internal/poke"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/chat"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cloud"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
+	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
+	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	agenttool "github.com/kstackhq/kstack/sidecar/internal/tools/agent"
@@ -48,7 +48,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/edit"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/kubequery"
-	"github.com/kstackhq/kstack/sidecar/internal/tools/memory"
+	memorytool "github.com/kstackhq/kstack/sidecar/internal/tools/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/read"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/taskstop"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/webfetch"
@@ -190,7 +190,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		}
 		return nil, err
 	}
-	clusterSvc, err := clustersvc.New(db, p.Cluster, kubeconfigSvc, pokeSvc)
+	clusterSvc, err := cluster.New(db, p.Cluster, kubeconfigSvc, pokeSvc)
 	if err != nil {
 		return fail(err)
 	}
@@ -225,7 +225,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	}
 	sandboxStatus := sandboxStatusOf(found, probed)
 	securityCfg := newSecurityService(securityStore, boxer, shell, sandboxStatus, p.Bash.DeniedDirs, launchFault, p.Bash.TmpDir)
-	memorySvc, err := memorysvc.New(db, serverUIDLookup{clusters: clusterSvc.Clusters()})
+	memorySvc, err := memory.New(db, serverUIDLookup{clusters: clusterSvc.Clusters()})
 	if err != nil {
 		return fail(err)
 	}
@@ -235,7 +235,7 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	if err != nil {
 		return fail(fmt.Errorf("fence Kstack's directories: %w", err))
 	}
-	chatSvc, err := chatsvc.New(db, p.ChatsDir, p.MonitorDir, llmSvc, clustercard.New(clusterSvc), memorySvc, box, cat, sandboxStatus, securityCfg)
+	chatSvc, err := chat.New(db, p.ChatsDir, p.MonitorDir, llmSvc, clustercard.New(clusterSvc), memorySvc, box, cat, sandboxStatus, securityCfg)
 	if err != nil {
 		return fail(err)
 	}
@@ -365,11 +365,11 @@ func (a *App) Close() error {
 }
 
 // serverUIDLookup reads a cluster's last-probed kube-system UID off the cluster
-// service, which memorysvc stamps on a cluster memory: "" for a cluster the service
+// service, which memory stamps on a cluster memory: "" for a cluster the service
 // does not know or has never probed.
 type serverUIDLookup struct {
 	clusters interface {
-		Get(ctx context.Context, id apimeta.ClusterID) (*clustersvc.Cluster, error)
+		Get(ctx context.Context, id apimeta.ClusterID) (*cluster.Cluster, error)
 	}
 }
 
@@ -451,7 +451,7 @@ func sandboxStatusOf(shellFound bool, probed sandbox.Status) sandbox.Status {
 // the proxy the environment names. The order is the preference within a kind: the
 // first tool of a kind that a turn's target takes is the one it gets. A machine
 // with no shell still reads the stored calls of bash and TaskStop.
-func chatTools(shell *bash.Tool, fenced []string, hidden func() (never, shut []string), umask fs.FileMode, memorySvc memorysvc.Service, clusterSvc clustersvc.Service) (tools.Box, error) {
+func chatTools(shell *bash.Tool, fenced []string, hidden func() (never, shut []string), umask fs.FileMode, memorySvc memory.Service, clusterSvc cluster.Service) (tools.Box, error) {
 	reader, err := read.New(hidden, fenced...)
 	if err != nil {
 		return tools.Box{}, err
@@ -470,7 +470,7 @@ func chatTools(shell *bash.Tool, fenced []string, hidden func() (never, shut []s
 		Proxy:    httpproxy.FromEnvironment(),
 	}), webfetch.FetchTimeout)
 	search := anthropicwebsearch.New(time.Now)
-	notes := memory.New(memorySvc)
+	notes := memorytool.New(memorySvc)
 	query := kubequery.New(clusterSvc)
 	if shell == nil {
 		return tools.NewBox([]tools.Tool{reader, notes, writer, editor, fetcher, agenttool.New(), search, query}, bash.Reader{}, taskstop.New()), nil

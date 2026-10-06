@@ -22,22 +22,22 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/rest"
 
-	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
 
 // ClusterCards renders the card for a chat's cluster over the cluster service. It is
-// chatsvc's ClusterCards.
-type ClusterCards struct{ svc clustersvc.Service }
+// chat's ClusterCards.
+type ClusterCards struct{ svc cluster.Service }
 
-func New(svc clustersvc.Service) *ClusterCards { return &ClusterCards{svc: svc} }
+func New(svc cluster.Service) *ClusterCards { return &ClusterCards{svc: svc} }
 
 // ClusterCard is the card for clusterID, or Unavailable when none can be rendered: the
 // record is gone, a read fails, the identity moves under the reading twice, or ctx
 // ends first. The send is never refused over it.
 func (c *ClusterCards) ClusterCard(ctx context.Context, clusterID apimeta.ClusterID) string {
 	var f Facts
-	err := c.svc.Clusters().ReadActive(ctx, clusterID, func(ctx context.Context, a clustersvc.ActiveCluster) error {
+	err := c.svc.Clusters().ReadActive(ctx, clusterID, func(ctx context.Context, a cluster.ActiveCluster) error {
 		var err error
 		f, err = Read(ctx, c.svc, a)
 		return err
@@ -51,7 +51,7 @@ func (c *ClusterCards) ClusterCard(ctx context.Context, clusterID apimeta.Cluste
 
 // Read gathers the card's facts for the cluster it is handed: the record's fields,
 // and with a cache its health, sync rows, kind catalog and namespace names.
-func Read(ctx context.Context, svc clustersvc.Service, a clustersvc.ActiveCluster) (Facts, error) {
+func Read(ctx context.Context, svc cluster.Service, a cluster.ActiveCluster) (Facts, error) {
 	cluster := a.Cluster
 	f := Facts{
 		Name: deref(cluster.Spec.Name), Context: ContextName(cluster), Version: deref(cluster.Status.Server.Version),
@@ -73,7 +73,7 @@ func Read(ctx context.Context, svc clustersvc.Service, a clustersvc.ActiveCluste
 // by: the record's kube-context cut as the card cuts it, empty for a record that
 // names none. So the prompts' kubectl --context <context> selects it even when
 // the card had to cut the name.
-func ContextName(c *clustersvc.Cluster) string {
+func ContextName(c *cluster.Cluster) string {
 	return cut(c.KubeContext(), contextMax)
 }
 
@@ -83,7 +83,7 @@ func ContextName(c *clustersvc.Cluster) string {
 // is named or verifying is skipped, else plain http — so a server without TLS
 // is none ahead of the skip-verify flag. Empty when there is no entry or
 // client-go could not parse it. The server URL itself stays out of the card.
-func tlsPosture(c *clustersvc.Cluster) string {
+func tlsPosture(c *cluster.Cluster) string {
 	src := c.Status.Source.Kubeconfig
 	if src == nil || src.Cluster.Entry == nil {
 		return ""
@@ -105,7 +105,7 @@ func tlsPosture(c *clustersvc.Cluster) string {
 
 // cacheFacts is one reading of the cache: its health, its sync rows folded onto the
 // catalog, and its namespace names.
-func cacheFacts(ctx context.Context, svc clustersvc.Service, id clustersvc.ClusterID, cacheID clustersvc.ClusterCacheID) (*CacheFacts, error) {
+func cacheFacts(ctx context.Context, svc cluster.Service, id cluster.ClusterID, cacheID cluster.ClusterCacheID) (*CacheFacts, error) {
 	health, ok, err := svc.Caches().Health(ctx, id, cacheID)
 	if err != nil {
 		return nil, err
@@ -151,17 +151,17 @@ func cacheFacts(ctx context.Context, svc clustersvc.Service, id clustersvc.Clust
 
 // connection is the record's verdict in one reason: the identity's when the
 // connection is up but the identity is not, else the connection's own.
-func connection(c *clustersvc.Cluster) string {
-	connected := clustersvc.FindCondition(c.Conditions, clustersvc.ConditionConnected)
-	identified := clustersvc.FindCondition(c.Conditions, clustersvc.ConditionIdentified)
-	if connected != nil && connected.Status == clustersvc.ConditionTrue &&
-		identified != nil && identified.Status != clustersvc.ConditionTrue {
+func connection(c *cluster.Cluster) string {
+	connected := cluster.FindCondition(c.Conditions, cluster.ConditionConnected)
+	identified := cluster.FindCondition(c.Conditions, cluster.ConditionIdentified)
+	if connected != nil && connected.Status == cluster.ConditionTrue &&
+		identified != nil && identified.Status != cluster.ConditionTrue {
 		return identified.Reason
 	}
 	if connected != nil {
 		return connected.Reason
 	}
-	return clustersvc.ReasonConnecting
+	return cluster.ReasonConnecting
 }
 
 func deref(s *string) string {

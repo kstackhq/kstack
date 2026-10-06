@@ -21,7 +21,7 @@ be replayed.
 
 ## Decision
 
-**Sending a message is a save, not a phone call.** `chatsvc.Send` writes three rows — the user's
+**Sending a message is a save, not a phone call.** `chat.Send` writes three rows — the user's
 message, an empty assistant message marked `streaming`, and the `chat_send` ledger entry — and
 returns the assistant row without waiting. The turn runs on a goroutine the service owns and joins,
 and the answer shows up in the database. Every window watching that chat sees it, because they are

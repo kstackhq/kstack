@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/kstackhq/kstack/sidecar/grpc/authpb"
-	"github.com/kstackhq/kstack/sidecar/internal/auth"
+	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 )
 
 // authServer implements authpb.AuthServiceServer; a nil auth degrades safely
