@@ -336,7 +336,9 @@ func TestAProbesDiskReadIsBounded(t *testing.T) {
 	assert.False(t, got[0].Probed, "the executable never ran")
 
 	close(fake.holdSys)
-	assert.True(t, tl.ProbeExecutables(t.Context(), nil)[0].OK)
+	tl.probe.diskTimeout = diskTimeout // a loaded runner can take 50ms to build a run
+	next := tl.ProbeExecutables(t.Context(), nil)
+	assert.True(t, next[0].OK, next[0].Error)
 }
 
 // The run's build reads the disk again, after the PATH is built, and a read
@@ -357,7 +359,9 @@ func TestAProbesRunBuildIsBounded(t *testing.T) {
 	assert.NotEmpty(t, got[0].Resolved)
 
 	close(fake.holdSys)
-	assert.True(t, tl.ProbeExecutables(t.Context(), nil)[0].OK)
+	tl.probe.diskTimeout = diskTimeout // a loaded runner can take 50ms to build a run
+	next := tl.ProbeExecutables(t.Context(), nil)
+	assert.True(t, next[0].OK, next[0].Error)
 }
 
 // A run's build that fails on its own, before the deadline, reports its own
