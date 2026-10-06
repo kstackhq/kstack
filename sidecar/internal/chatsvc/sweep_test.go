@@ -35,7 +35,7 @@ import (
 func TestStopEndsAnUnreadSweepReport(t *testing.T) {
 	dir := t.TempDir()
 	box, lists := testBox()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), &stubClusterCards{}, nil, box, lists, sandbox.Status{})
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), &stubClusterCards{}, nil, box, lists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	s.onSwept = make(chan struct{})
 	stop, err := s.Start(t.Context())
