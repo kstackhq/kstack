@@ -177,6 +177,9 @@ type Tool struct {
 	// extraWritable is more a sandboxed run may write: a test's seam, nil in
 	// production.
 	extraWritable []string
+	// after starts a call's deadline: time.After, or a test's stand-in set by
+	// SetCallDeadline.
+	after func(d time.Duration) <-chan time.Time
 
 	// probe is the tool probe's state (executableprobe.go).
 	probe *executableProbe
@@ -251,6 +254,13 @@ func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc clustersvc
 		t.version = readVersion(shell)
 	}
 	return t, true
+}
+
+// SetCallDeadline makes after start each call's deadline in place of
+// time.After, so a test fires a timeout when it chooses. It is a test seam:
+// production calls none.
+func (t *Tool) SetCallDeadline(after func(d time.Duration) <-chan time.Time) {
+	t.after = after
 }
 
 // Shell is the shell a command runs in, which a sandboxed run's System reads.
@@ -631,6 +641,7 @@ func (t *Tool) runCall(ctx context.Context, in input, rt tools.Runtime, network 
 		shell: t.shell, dir: cwd, scripts: t.scripts, env: t.env,
 		command: wrapper(t.kind, snapshot, in.Command),
 		capture: tools.FileLimit, timeout: in.Timeout, killGrace: killGrace, pipeGrace: pipeGrace,
+		hooks: hooks{after: t.after},
 	}
 	if boxer != nil {
 		sandboxedRun, err := t.sandboxedRunFor(ctx, boxer, rt, cwd, false, network)

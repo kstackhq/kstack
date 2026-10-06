@@ -107,6 +107,9 @@ type Config struct {
 	// launchPath is a test's stand-in for the PATH the login shell answers,
 	// used while RunLoginShell is false.
 	launchPath []string
+	// callDeadline is a test's stand-in for what starts a Bash call's
+	// deadline, so the test fires the timeout; nil for time.After.
+	callDeadline func(d time.Duration) <-chan time.Time
 	// UserUmask is the umask the process started with, before main made it
 	// owner-only: a file Write makes for the user takes it. Zero on Windows.
 	UserUmask fs.FileMode
@@ -217,6 +220,9 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	llmSvc := llm.New(cat.Providers()...)
 	pathList := func() securityconfig.RunPath { return securityStore.Get().RunPath() }
 	shell, found := bash.New(p.Bash, cfg.HostPID, sb, clusterSvc, pathList)
+	if found && cfg.callDeadline != nil {
+		shell.SetCallDeadline(cfg.callDeadline)
+	}
 	sandboxStatus := sandboxStatusOf(found, probed)
 	securityCfg := newSecurityService(securityStore, boxer, shell, sandboxStatus, p.Bash.DeniedDirs, launchFault, p.Bash.TmpDir)
 	memorySvc, err := memorysvc.New(db, serverUIDLookup{clusters: clusterSvc.Clusters()})

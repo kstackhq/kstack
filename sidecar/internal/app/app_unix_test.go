@@ -27,6 +27,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -220,15 +221,22 @@ func TestASandboxedDeleteDeniedIsForbidden(t *testing.T) {
 }
 
 // A call whose time runs out while its write waits ends: the write is
-// abandoned, the run is not left waiting, and the cluster sees nothing.
+// abandoned, the run is not left waiting, and the cluster sees nothing. The
+// test fires the deadline once the write waits, so how long kubectl takes to
+// start never decides it.
 func TestACallTimingOutWhileAWriteWaits(t *testing.T) {
-	e := startE2E(t)
+	deadline := make(chan time.Time)
+	e := startE2E(t, func(cfg *Config) {
+		cfg.callDeadline = func(time.Duration) <-chan time.Time { return deadline }
+	})
 
-	e.ask(t, "delete pod x", llm.StagedCall("Bash", bashInputWithin("kubectl delete pod x --wait=false", 2000)))
+	e.ask(t, "delete pod x", llm.StagedCall("Bash", bashInput("kubectl delete pod x --wait=false")))
 	e.clusterWrite(t, "pending")
+	close(deadline)
 
 	row := e.bashCall(t, "succeeded", "failed")
 	assert.Equal(t, "failed", row.status, row.result)
+	assert.True(t, strings.HasPrefix(row.result, "Command timed out"), row.result)
 	assert.Equal(t, "abandoned", e.clusterWrite(t, "abandoned").status)
 	assert.NotEqual(t, "waiting_approval", e.runStatus(t))
 	for _, r := range e.cluster.requests() {

@@ -198,9 +198,10 @@ func toolsFolder(t *testing.T, names ...string) string {
 }
 
 // startE2E starts the app over a fake cluster and waits for the cluster to be
-// identified, so a sandboxed run can claim its connection. Without a sandbox,
-// kubectl or jq, testutil.RequireSandbox decides.
-func startE2E(t *testing.T) *e2e {
+// identified, so a sandboxed run can claim its connection. Each of with changes
+// the app's Config before New. Without a sandbox, kubectl or jq,
+// testutil.RequireSandbox decides.
+func startE2E(t *testing.T, with ...func(*Config)) *e2e {
 	t.Helper()
 	if _, v, _ := sandbox.Probe(t.Context()); !v.Available {
 		testutil.RequireSandbox(t, "no sandbox: "+v.Reason)
@@ -214,7 +215,11 @@ func startE2E(t *testing.T) *e2e {
 	data := filepath.Join(dir, "data")
 	fake := llm.NewFake(0)
 	shellPath := append([]string{bin}, filepath.SplitList(loginshell.DefaultPath)...)
-	a, err := New(t.Context(), withDirs(t, Config{KubeconfigPath: kubeconfig, DataDir: data, RuntimeDir: shortTemp(t), launchPath: shellPath, fake: fake}))
+	cfg := Config{KubeconfigPath: kubeconfig, DataDir: data, RuntimeDir: shortTemp(t), launchPath: shellPath, fake: fake}
+	for _, w := range with {
+		w(&cfg)
+	}
+	a, err := New(t.Context(), withDirs(t, cfg))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = a.Close() })
 	startApp(t, a)
@@ -367,16 +372,6 @@ func firstLine(result string) string {
 
 // bashInput is a Bash call's arguments running command.
 func bashInput(command string) string {
-	return bashInputWithin(command, 0)
-}
-
-// bashInputWithin is bashInput with the call's timeout in milliseconds, none
-// when zero.
-func bashInputWithin(command string, timeoutMs int) string {
-	in := map[string]any{"command": command, "description": "e2e"}
-	if timeoutMs > 0 {
-		in["timeout"] = timeoutMs
-	}
-	b, _ := json.Marshal(in)
+	b, _ := json.Marshal(map[string]any{"command": command, "description": "e2e"})
 	return string(b)
 }
