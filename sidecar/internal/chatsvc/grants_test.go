@@ -414,3 +414,27 @@ func TestAChatsSessionAsksAndReadsSecretData(t *testing.T) {
 		assert.False(t, sess.NoSecretData)
 	}
 }
+
+// The monitor's session holds less than any chat's: no switch, no policy (the
+// proxy reads read-only), no network, no folders, no prompts and no Secret
+// data. Under the policy the proxy builds from it, every write, every Secret
+// read and every action a rule would ask about is refused.
+func TestTheMonitorSessionIsReadOnlyAndAsksNobody(t *testing.T) {
+	sess := monitorSession()
+
+	assert.Equal(t, session.Monitor, sess.Kind)
+	assert.False(t, sess.Outside)
+	assert.Nil(t, sess.Policy)
+	assert.Nil(t, sess.Network)
+	assert.Nil(t, sess.Folders)
+	assert.Empty(t, sess.GrantedFolders(t.Context()))
+	assert.True(t, sess.NoPrompts)
+	assert.True(t, sess.NoSecretData)
+
+	asks := permissions.Rule{Effect: permissions.AskFor, Class: permissions.ReadInside}
+	policy := permissions.Policy{Mode: permissions.ReadOnly, Rules: []permissions.Rule{asks}, NoPrompts: sess.NoPrompts, NoSecretData: sess.NoSecretData}
+	for _, class := range []permissions.Class{permissions.UpstreamWrite, permissions.Destructive, permissions.SecretRead, permissions.ReadInside} {
+		got, why := policy.Authorize(permissions.Action{Class: class, Verb: "patch", Group: "apps", Kind: "deployments"})
+		assert.Equal(t, permissions.Refuse, got, "class %d: %s", class, why)
+	}
+}

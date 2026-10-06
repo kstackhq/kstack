@@ -180,15 +180,10 @@ func TestTheSubagentsMessageIsTheNewestCardThenThePrompt(t *testing.T) {
 	}}}, second.LastRequest().Messages)
 }
 
-// memoryKindTool is a tool of the Memory kind, under its own name.
-type memoryKindTool struct{ testTool }
-
-func (memoryKindTool) ActionKind() tools.ActionKind { return tools.ActionMemory }
-
 // The subagent is offered every tool the parent is but Agent and Memory, the
 // provider's search included.
 func TestTheSubagentIsOfferedEveryToolButAgentAndMemory(t *testing.T) {
-	s := startServiceWithAgent(t, testTool{name: "echo"}, memoryKindTool{testTool{name: "notes"}})
+	s := startServiceWithAgent(t, testTool{name: "echo"}, kindTool{testTool{name: "notes"}, tools.ActionMemory})
 	sub := subagentFake(s, "Count the pods.")
 	fakeOf(s).SetToolCalls(agentCall("Count the pods."))
 
@@ -324,7 +319,7 @@ func TestAFailedSubagentEndsItsTaskFailed(t *testing.T) {
 	assert.Equal(t, StatusComplete, settled.Status)
 	runs := subagentRuns(t, s.db, msg.RunID)
 	require.Len(t, runs, 1)
-	assert.Equal(t, string(runFailed), runs[0].status)
+	assert.Equal(t, string(RunFailed), runs[0].status)
 	assert.Equal(t, "provider down", runs[0].errText)
 	assert.Empty(t, runs[0].result)
 	rows := taskRows(t, s.db)
@@ -344,7 +339,7 @@ func TestAnEmptyReportIsAgentFailed(t *testing.T) {
 	awaitSettled(t, s, msg.ChatID, msg.ID)
 	awaitTasks(t, s, msg.ChatID)
 
-	assert.Equal(t, string(runSucceeded), subagentRuns(t, s.db, msg.RunID)[0].status)
+	assert.Equal(t, string(RunSucceeded), subagentRuns(t, s.db, msg.RunID)[0].status)
 	rows := taskRows(t, s.db)
 	require.Len(t, rows, 1)
 	assert.Equal(t, taskFailed, rows[0].status)
@@ -409,7 +404,7 @@ func TestAWriteFailedInASubagentFailsItAlone(t *testing.T) {
 	assert.Equal(t, int32(1), runs.Load(), "the parent's echo ran, the subagent's did not")
 	sub := subagentRuns(t, s.db, msg.RunID)
 	require.Len(t, sub, 1)
-	assert.Equal(t, string(runFailed), sub[0].status)
+	assert.Equal(t, string(RunFailed), sub[0].status)
 	for _, c := range toolCallRows(t, s.db, sub[0].id) {
 		assert.Equal(t, `{"error":"not-run"}`, c.result)
 	}
@@ -458,7 +453,7 @@ func TestAnEndWhoseRowsFailStillEndsTheTask(t *testing.T) {
 
 	runs := subagentRuns(t, s.db, msg.RunID)
 	require.Len(t, runs, 1)
-	assert.Equal(t, string(runSucceeded), runs[0].status)
+	assert.Equal(t, string(RunSucceeded), runs[0].status)
 	assert.Equal(t, fakeSentence, runs[0].result)
 	assert.Equal(t, taskCompleted, taskRows(t, s.db)[0].status)
 }
@@ -490,7 +485,7 @@ func TestTheAgentsEndHealsItsRows(t *testing.T) {
 	assert.Equal(t, StatusComplete, settled.Status)
 	runs := subagentRuns(t, s.db, msg.RunID)
 	require.Len(t, runs, 1)
-	assert.Equal(t, string(runFailed), runs[0].status)
+	assert.Equal(t, string(RunFailed), runs[0].status)
 	assert.Equal(t, "panic: boom", runs[0].errText)
 	assert.Equal(t, []llmCallRow{{err: "panic: boom", finished: true}}, llmCallRows(t, s.db, runs[0].id))
 	assert.Equal(t, taskFailed, taskRows(t, s.db)[0].status)
@@ -640,8 +635,8 @@ func TestASubagentsGatedCallWaitsOnTheUser(t *testing.T) {
 	require.NotNil(t, call.Approval)
 	runs := subagentRuns(t, s.db, msg.RunID)
 	require.Len(t, runs, 1)
-	assert.Equal(t, runSucceeded, runStatusOf(t, s.db, msg.RunID))
-	assert.Equal(t, runWaitingApproval, runStatusOf(t, s.db, runs[0].id))
+	assert.Equal(t, RunSucceeded, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunWaitingApproval, runStatusOf(t, s.db, runs[0].id))
 	assert.Empty(t, sh.commands())
 
 	approve(t, s, call.Approval.ID, true)
@@ -667,7 +662,7 @@ func TestACancelLeavesTheAgentRunning(t *testing.T) {
 	assert.Equal(t, StatusCancelled, settled.Status)
 	runs := subagentRuns(t, s.db, msg.RunID)
 	require.Len(t, runs, 1)
-	assert.Equal(t, runRunning, runStatusOf(t, s.db, runs[0].id))
+	assert.Equal(t, RunRunning, runStatusOf(t, s.db, runs[0].id))
 
 	close(release)
 	awaitTasks(t, s, msg.ChatID)
@@ -711,12 +706,12 @@ func TestTheParentsSettleLeavesARunningAgentAlone(t *testing.T) {
 	assert.Equal(t, StatusComplete, settled.Status)
 	runs := subagentRuns(t, s.db, msg.RunID)
 	require.Len(t, runs, 1)
-	assert.Equal(t, runRunning, runStatusOf(t, s.db, runs[0].id))
+	assert.Equal(t, RunRunning, runStatusOf(t, s.db, runs[0].id))
 	assert.Equal(t, toolRunning, toolCallRows(t, s.db, runs[0].id)[0].status)
 
 	close(release)
 	awaitTasks(t, s, msg.ChatID)
-	assert.Equal(t, runSucceeded, runStatusOf(t, s.db, runs[0].id))
+	assert.Equal(t, RunSucceeded, runStatusOf(t, s.db, runs[0].id))
 }
 
 // A subagent's background command is a task of the chat under the subagent's call,
@@ -862,7 +857,7 @@ func TestStartFailsAStrandedSubagentAndKeepsItsLink(t *testing.T) {
 	db := openTestDB(t, dir)
 	c := seedChat(t, db, aChat("1", time.UnixMilli(1_000).UTC()))
 	turn := seedTurn(t, db, c.ID, time.UnixMilli(1_000).UTC())
-	setRunStatus(t, db, turn.Run, runRunning)
+	setRunStatus(t, db, turn.Run, RunRunning)
 	subagent, call := appdb.NewID(), appdb.NewID()
 	for _, q := range []string{
 		`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, chat_id, provider, model, dialect, task, status, created_at)
@@ -878,8 +873,8 @@ func TestStartFailsAStrandedSubagentAndKeepsItsLink(t *testing.T) {
 
 	s := startService(t, dir)
 
-	assert.Equal(t, runFailed, runStatusOf(t, s.db, turn.Run))
-	assert.Equal(t, runFailed, runStatusOf(t, s.db, RunID(subagent)))
+	assert.Equal(t, RunFailed, runStatusOf(t, s.db, turn.Run))
+	assert.Equal(t, RunFailed, runStatusOf(t, s.db, RunID(subagent)))
 	assert.Equal(t, RunID(subagent), spawnedRunOf(t, s.db, turn.Run))
 }
 
@@ -980,7 +975,7 @@ func TestAnAgentCallRunsASubagentAndAnswersWithItsReport(t *testing.T) {
 	runs := subagentRuns(t, s.db, msg.RunID)
 	require.Len(t, runs, 1)
 	assert.Equal(t, subagentRun{
-		id: runs[0].id, trigger: "agent", agentType: agenttool.GeneralPurpose, status: string(runSucceeded),
+		id: runs[0].id, trigger: "agent", agentType: agenttool.GeneralPurpose, status: string(RunSucceeded),
 		provider: "fake", model: "fake", effort: "high", task: "Count the pods.", result: fakeSentence,
 		started: true, finished: true, parent: msg.RunID, chat: msg.ChatID,
 	}, runs[0])
@@ -1290,7 +1285,7 @@ func agentStopped(t *testing.T, s *service, msg ChatMessage) taskRow {
 	awaitTasks(t, s, msg.ChatID)
 	runs := subagentRuns(t, s.db, msg.RunID)
 	require.Len(t, runs, 1)
-	assert.Equal(t, string(runCancelled), runs[0].status)
+	assert.Equal(t, string(RunCancelled), runs[0].status)
 	assert.Equal(t, `{"error":"cancelled"}`, toolCallRows(t, s.db, runs[0].id)[0].result)
 	rows := taskRows(t, s.db)
 	require.Len(t, rows, 1)
@@ -1345,7 +1340,7 @@ func TestTheAppsStopRecordsItsStopOnAnAgent(t *testing.T) {
 // A stop that lands as the run succeeds leaves the agent completed: the end is
 // the run's, and its notice is owed like any other.
 func TestAStopAsTheAgentSucceedsIsCompleted(t *testing.T) {
-	c := &subagent{status: runSucceeded, report: "Two pods."}
+	c := &subagent{briefedRun{status: RunSucceeded, report: "Two pods."}}
 
 	end := c.end(stoppedByModel, time.UnixMilli(1_000).UTC())
 
@@ -1361,7 +1356,7 @@ func TestAStrandedAgentIsLost(t *testing.T) {
 	db := openTestDB(t, dir)
 	c := seedChat(t, db, aChat("1", time.UnixMilli(1_000).UTC()))
 	turn := seedTurn(t, db, c.ID, time.UnixMilli(1_000).UTC())
-	settleSeededRun(t, db, turn.Run, runSucceeded, time.UnixMilli(1_000).UTC())
+	settleSeededRun(t, db, turn.Run, RunSucceeded, time.UnixMilli(1_000).UTC())
 	sub := appdb.NewID()
 	for _, q := range []string{
 		`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, chat_id, provider, model, dialect, task, status, created_at)
@@ -1379,7 +1374,7 @@ func TestAStrandedAgentIsLost(t *testing.T) {
 
 	s := startService(t, dir)
 
-	assert.Equal(t, runFailed, runStatusOf(t, s.db, RunID(sub)))
+	assert.Equal(t, RunFailed, runStatusOf(t, s.db, RunID(sub)))
 	assert.Equal(t, taskLost, taskRows(t, s.db)[0].status)
 }
 
@@ -1462,7 +1457,7 @@ func TestAnEndThatCannotLandLeavesTheTaskRunning(t *testing.T) {
 	awaitTasks(t, s, msg.ChatID)
 
 	assert.Equal(t, taskRunning, taskRows(t, s.db)[0].status)
-	assert.Equal(t, runRunning, runStatusOf(t, s.db, subagentRuns(t, s.db, msg.RunID)[0].id))
+	assert.Equal(t, RunRunning, runStatusOf(t, s.db, subagentRuns(t, s.db, msg.RunID)[0].id))
 }
 
 // A subagent's tools reach the chat's cluster and the chat, as its parent's do.

@@ -161,6 +161,7 @@ func requireTables(t *testing.T, db *sql.DB) {
 	require.NoError(t, idx.Err())
 	require.Equal(t, []string{
 		"CREATE INDEX agent_runs_chat_idx ON agent_runs (chat_id)",
+		"CREATE INDEX agent_runs_cluster_idx ON agent_runs (cluster_id)",
 		"CREATE INDEX agent_runs_parent_idx ON agent_runs (parent_run_id)",
 		"CREATE INDEX agent_runs_queued_idx ON agent_runs (id) WHERE status = 'queued'",
 		"CREATE INDEX agent_runs_waiting_idx ON agent_runs (chat_id) WHERE status = 'waiting_approval'",

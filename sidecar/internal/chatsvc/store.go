@@ -77,30 +77,30 @@ const (
 	runsOnProvider = "provider"
 )
 
-// runStatus is where an agent run is in its lifecycle: queued, then running, then
+// RunStatus is where an agent run is in its lifecycle: queued, then running, then
 // one of the three terminal states. waiting_approval is running with a command
 // waiting on the user.
-type runStatus string
+type RunStatus string
 
 const (
-	runQueued          runStatus = "queued"
-	runRunning         runStatus = "running"
-	runWaitingApproval runStatus = "waiting_approval"
-	runSucceeded       runStatus = "succeeded"
-	runFailed          runStatus = "failed"
-	runCancelled       runStatus = "cancelled"
+	RunQueued          RunStatus = "queued"
+	RunRunning         RunStatus = "running"
+	RunWaitingApproval RunStatus = "waiting_approval"
+	RunSucceeded       RunStatus = "succeeded"
+	RunFailed          RunStatus = "failed"
+	RunCancelled       RunStatus = "cancelled"
 )
 
 // messageStatusOf is the public status of an assistant message, off its run's.
-func messageStatusOf(s runStatus) MessageStatus {
+func messageStatusOf(s RunStatus) MessageStatus {
 	switch s {
-	case runSucceeded:
+	case RunSucceeded:
 		return StatusComplete
-	case runFailed:
+	case RunFailed:
 		return StatusFailed
-	case runCancelled:
+	case RunCancelled:
 		return StatusCancelled
-	case runWaitingApproval:
+	case RunWaitingApproval:
 		return StatusWaitingApproval
 	default:
 		return StatusStreaming
@@ -256,12 +256,14 @@ func scanChat(s scanner) (Chat, error) {
 // agentRun is a run's row as it is inserted. A chat run is queued, answering
 // the question TriggerMessageID, with the three names the send asked for. A
 // subagent's run is running, under ParentID, with the AgentType that ran and the
-// Task it was handed.
+// Task it was handed. A monitor's run is queued under ClusterID, with no chat,
+// its Task the brief.
 type agentRun struct {
 	ID               RunID
 	ParentID         RunID
 	AgentType        string
 	ChatID           ChatID
+	ClusterID        apimeta.ClusterID
 	TriggerMessageID MessageID
 	ProviderID       string
 	ModelID          string
@@ -440,6 +442,17 @@ func insertSubagentRun(ctx context.Context, st stmts, r agentRun) error {
 	return nil
 }
 
+// insertMonitorRun inserts a monitor's run, queued under its cluster.
+func insertMonitorRun(ctx context.Context, st stmts, r agentRun) error {
+	_, err := st.Exec(ctx, stmtInsertMonitorRun,
+		string(r.ID), r.AppVersion, string(r.ClusterID),
+		r.ProviderID, r.ModelID, nullString(r.Effort), string(r.Dialect), r.Task, millis(r.CreatedAt))
+	if err != nil {
+		return fmt.Errorf("insert monitor run: %w", err)
+	}
+	return nil
+}
+
 // deleteRun takes back a subagent's run whose start failed.
 func deleteRun(ctx context.Context, st stmts, id RunID) error {
 	if _, err := st.Exec(ctx, stmtDeleteRun, string(id)); err != nil {
@@ -472,7 +485,7 @@ func writeContent(ctx context.Context, st stmts, id MessageID, c rawjson.RawJSON
 }
 
 // flipRun moves a live run between running and waiting_approval.
-func flipRun(ctx context.Context, st stmts, id RunID, status runStatus) error {
+func flipRun(ctx context.Context, st stmts, id RunID, status RunStatus) error {
 	if _, err := st.Exec(ctx, stmtFlipRun, string(status), string(id)); err != nil {
 		return fmt.Errorf("flip run: %w", err)
 	}
@@ -481,7 +494,7 @@ func flipRun(ctx context.Context, st stmts, id RunID, status runStatus) error {
 
 // settleRun ends a run: a terminal status, a subagent's final text, its error (""
 // is NULL for both), when.
-func settleRun(ctx context.Context, st stmts, id RunID, status runStatus, result, errText string, at time.Time) error {
+func settleRun(ctx context.Context, st stmts, id RunID, status RunStatus, result, errText string, at time.Time) error {
 	_, err := st.Exec(ctx, stmtSettleRun, string(status), nullString(result), nullString(errText), millis(at), string(id))
 	if err != nil {
 		return fmt.Errorf("settle run: %w", err)
@@ -841,7 +854,7 @@ func lastAnswerRun(ctx context.Context, st stmts, chatID ChatID) (providerID, mo
 
 // runSummary is what the length check reads of a chat's newest turn.
 type runSummary struct {
-	status              runStatus
+	status              RunStatus
 	errText             string
 	providerID, modelID string
 	// firstCallErred says the turn's first model call ended on an error, a
@@ -984,7 +997,7 @@ func scanMessage(s scanner) (ChatMessage, error) {
 	m.FinishReason = finishReason.String
 	m.Status = StatusComplete
 	if status.Valid {
-		m.Status = messageStatusOf(runStatus(status.String))
+		m.Status = messageStatusOf(RunStatus(status.String))
 	}
 	m.CreatedAt = fromMillis(createdAt)
 	if finishedAt.Valid {
@@ -1013,6 +1026,24 @@ func clusterAccepts(ctx context.Context, st stmts, clusterID apimeta.ClusterID) 
 // sweeper deletes.
 func markedClusterIDs(ctx context.Context, st stmts) ([]apimeta.ClusterID, error) {
 	return collectIDs[apimeta.ClusterID](ctx, st, stmtSelectMarkedClusterIDs, "marked clusters")
+}
+
+// clusterMonitoring is whether the cluster is there and unmarked, and whether
+// its monitoring switch is on.
+func clusterMonitoring(ctx context.Context, st stmts, clusterID apimeta.ClusterID) (found, enabled bool, err error) {
+	err = st.QueryRow(ctx, stmtSelectClusterMonitoring, string(clusterID)).Scan(&enabled)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, false, nil
+	}
+	if err != nil {
+		return false, false, fmt.Errorf("cluster monitoring: %w", err)
+	}
+	return true, enabled, nil
+}
+
+// liveClusterIDs lists the clusters not marked for deletion.
+func liveClusterIDs(ctx context.Context, st stmts) ([]apimeta.ClusterID, error) {
+	return collectIDs[apimeta.ClusterID](ctx, st, stmtSelectLiveClusterIDs, "live clusters")
 }
 
 // collectIDs runs a statement whose rows are one id each.

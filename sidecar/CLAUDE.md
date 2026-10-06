@@ -21,6 +21,7 @@ sweeps it and removes it:
   beehive.db                           clustersvc
   settings.json, settings-queue.json   cloud
   chats/<chat id>/                     chatsvc: results/, tasks/, workspace/, toolhome/
+  monitor/<cluster id>/                chatsvc: a monitor's results/, workspace/, toolhome/
 <cache>/                               what Kstack rebuilds
   kubestore/<cache id>.db              clustersvc: the mirror
   kubectl/<cluster id>/<server>/       bash: the kubectl cache
@@ -1297,7 +1298,7 @@ proxy decided with nobody asked (`Record`, with the reason in the user's words),
 can be asked. `chatsvc` sets every
 field; a test sets the ones its tool
 reads. **A `session.Session`** is one agent run's policy: its `Kind` (`Chat`, `Subagent` or
-`Monitor`, the last built by nothing yet), `Outside`, the chat's switch as its turn read it, and
+`Monitor`, built by `chatsvc`'s `monitorSession`), `Outside`, the chat's switch as its turn read it, and
 `Policy`, a function of a kube-context answering a `permissions.Policy` — the context's mode and the
 rules — read live on every write, which `chatsvc` sets to the security store's `ModeFor` and the
 chat's grants joined with the store's `Rules()` (`sessionFor`, `grants.go`), so a mode or rule
@@ -1309,7 +1310,7 @@ changed in Settings applies to the next write, a running subagent's included; `N
 function answering the session's folder grants (`session.Folder`: `Path`, `Write`), read live,
 whose one builder is `chatsvc`'s `foldersFor` (*Chat*, below); and `NoPrompts` and `NoSecretData`,
 a session that never asks and one that never reads Secret data, the one source of the policy's two
-flags, which `chatsvc` never sets and `Narrow` copies (step 6B's monitor will set both). A nil
+flags, which a chat's session never sets, the monitor's sets both, and `Narrow` copies. A nil
 `Folders` reads none:
 `Session.GrantedFolders(ctx)` is the reader that says so, and every reader of the folders goes
 through it (`TestASessionWithNoFoldersReadsNone`).
@@ -2137,7 +2138,7 @@ fake, a test tool and a logging recorder.
 > - The lifecycle: `Start` fails the stranded runs, closes their model and tool calls
 >   (`{"error":"stranded"}` on a tool call) and starts the sweeper; `stop` cancels the turns and joins them with the pumps and the sweeper.
 > - The turn: `Send` resolves the provider and model it names through the llm
->   service (`New(db, chatsDir, llmSvc, clusterCards, memories, box, lists, sandbox)`: the box every turn is offered
+>   service (`New(db, chatsDir, monitorDir, llmSvc, clusterCards, memories, box, lists, sandbox, security)`: the box every turn is offered
 >   from, which reads every stored call, and `ToolLists`, the one method it calls of the
 >   catalog, `ToolsFor(target)`, taken the way it takes `ClusterCards` so its tests list their own
 >   tools), writes its rows and runs one
@@ -2207,6 +2208,8 @@ fake, a test tool and a logging recorder.
 > - The subagent: the `Agent` tool (`internal/tools/agent`), the turn as its spawner, the
 >   subagent's rows, approvals and notices (`subagent.go`) — described below under *A turn can hand a
 >   task to a subagent*.
+> - The monitor run: `RunMonitor` (`monitor.go`) — described below under *A monitor run is a run of
+>   the chat service*.
 >
 > Not yet: the native bash and shell contracts, and the prompt sections that describe them. Every paragraph below describes the code as it was
 > before the rewrite, kept as the list of invariants the rebuild has to reproduce and rewritten as each
@@ -2229,15 +2232,20 @@ internal/chatsvc/
                  agent.Run, the agent.Recorder it reports to, the live overlay
   subagent.go    the subagent an Agent call starts as a task: the turn as its
                  tools.Spawner, the agentTask that runs it, its recorder and its end
+  monitor.go     the monitor run: RunMonitor, its slot per cluster, its recorder,
+                 asker and tasks, its settle
   approval.go    the gate: the agent.Approver a run is, the waiters, Approve
-  prompt.go      the system prompt, embedded from prompts/system.md
+  prompt.go      the system prompts, embedded from prompts/: system.md,
+                 general_purpose.md, monitor.md
   store.go       one function per statement over a stmts (sqlstmt.Stmts) that reads
                  or writes the records, the scanners, the run-status mapping
   statements.go  the table: every statement's text and the pool it is prepared on
   stream.go      Stream[T], the frame types, the two deltafold folds
-  sweep.go       the chat sweeper: a marked cluster's chats go, on the clusters signal
-                 and on its own retry; the chats' directory's start sweep
-  chatdir.go     the chats' directory: its root, a chat's `chatDir`, its removal
+  sweep.go       the chat sweeper: a marked cluster's chats go, and a monitor whose
+                 cluster is not a live row, on the clusters signal and on its own
+                 retry; the chats' directory's start sweep
+  chatdir.go     the chats' and the monitor's directories: their roots, a chat's
+                 `entryDir` (`chatDir`, `monitorDir`), its removal
   files.go       each chat's file stamps, in memory, dropped with the chat
   tasks.go       background tasks: their slots, start, watcher and stops
   notices.go     how a task ended, told to the model: on a question, or a turn of its own
@@ -2245,9 +2253,9 @@ internal/chatsvc/
 
 **Each chat's files live in `<data>/chats/<chatID>`** (`chatdir.go`): `results/`, `tasks/`,
 `workspace/` and `toolhome/` (*Tools*, above), so all of them go with the chat, and none names the chat's
-cluster. `New` makes the chats' directory 0700 and opens it as an `os.Root` (`openChats`), closed on
+cluster. `New` makes the chats' directory 0700 and opens it as an `os.Root` (`rootdir.MakeRoot`), closed on
 `Close`; its path is absolute, since a result names its file under the root's name and `Read` takes
-only an absolute path. `chatDir` is a chat's `tools.ChatDir`, built from its id: `Root` is
+only an absolute path. `chatDir(id)` is a chat's `tools.ChatDir`, an `entryDir` of the chats' root, as `monitorDir(id)` is a cluster's of the monitor's: `Root` is
 `rootdir.Open` of the chat's entry, so a link a command swaps in reaches no other directory. The
 turn's box is `s.boxFor(t.target)`, and its runtime is `tools.Runtime{ClusterID: t.clusterID, ChatID: chatID, Session: t.session(), Dir: s.chatDir(chatID), Tasks: s.chatTasks(chatID, t.runJournal), Files: s.chatFiles(chatID), Agent: t}`, `t.clusterID` read once as the run starts (`chatOf`) and `t.outsideSandbox` once in the transaction that reserves the turn, beside the context block that tells the model, so a switch flipped mid-turn changes the next turn; a subagent and a task take both from the turn that started them, a subagent's session being `session.Narrow(t.session())`.
 **A chat's file stamps** (`files.go`) are one map per chat under `stampsMu`, never persisted:
@@ -2255,7 +2263,7 @@ turn's box is `s.boxFor(t.target)`, and its runtime is `tools.Runtime{ClusterID:
 **`Delete` refuses an id that is not a UUID** (`ErrBadRequest`) before touching anything: the id
 names the directory to remove, and `<chat>/out.txt` would reach into a live chat's files. It reads
 nothing before its write, and **removes the entry once the row's write succeeds**
-(`removeChatDir`, `rootdir.RemoveAll` under the chats' root); the turn is already joined, so
+(`entryDir.remove`, `rootdir.RemoveAll` under the chats' root); the turn is already joined, so
 nothing of the sidecar's writes there after. An entry already gone is a removal done, and a
 removal that fails is logged. **The start sweep** (`sweepChatDirs`, in the sweeper's loop after its
 first sweep, so neither `Start`, which the first request waits on, nor that sweep waits on a gone
@@ -2295,7 +2303,8 @@ chat — stamping it again would jump every interrupted chat to the top of the s
 work the user did not do.
 
 **A message is what a client posts; a run is what the server does about it.** `agent_runs` is
-one row per execution: for a chat turn, `trigger = 'chat'`, `trigger_message_id` the user message
+one row per execution — `cluster_id` set on a monitor's alone, `chat_id` NULL on it alone, two
+`CHECK`s holding the pair, so a cluster's delete cascades its monitor's runs — and for a chat turn, `trigger = 'chat'`, `trigger_message_id` the user message
 it answers (unique, so a message starts at most one run), and the assistant message's `run_id`
 pointing back at it — plain references both ways, cascaded off the chat alone, so a
 chat goes with **one `DELETE`** (`stmtDeleteChat`), which is what lets SQLite check
@@ -2406,7 +2415,9 @@ holds its service, chat, run, target, the `Agent` call a subagent's run is under
 turn's own, which `isTurns` reads), the bound on its waits for the user (`unansweredLimit`, zero on
 a turn's own), its model and tool calls, open call and next seq, and a `publish` func — a turn's publishes into its
 live message (`publishLive`), a subagent's notifies the chat's watchers, since every row it writes
-has landed first. The parent and its subagents share no memory. A `subagent` publishes no
+has landed first. The parent and its subagents share no memory. **A `subagent` is a `briefedRun`**, the
+recorder a subagent and a monitor share — a run handed a brief and no message of its own, which
+keeps how its loop ended for one write at its end. It publishes no
 `Progress`, and its `Settled` writes nothing: it keeps how the loop ended — the report is the text of
 its last reply, `llm.Text` of the blocks after its last result (`lastReplyText`) — for the task's end. **`watchTask` is the one writer of the end**:
 after `Wait`, `subagent.end` names it off the run's outcome — `stopped` with `stopped_by` for a run
@@ -2421,6 +2432,34 @@ inside the subagent ends it alone. The stored read attaches a subagent's calls t
 [ADR: an agent runs in the background](../docs/adr/2026-09-25-an-agent-runs-in-the-background.md),
 [security records: the Agent tool](../docs/security/2026-09-25-agent-tool.md),
 [background agents](../docs/security/2026-09-25-background-agents.md).
+
+**A monitor run is a run of the chat service** (`monitor.go`). `RunMonitor(ctx, clusterID, target,
+brief)` takes one `agent.Run` on the calling goroutine, built as a subagent's is, with no chat and
+no task, and answers a `MonitorResult` (the run, its `RunStatus`, the report — the text of its last
+reply — and its error). It refuses, before anything is written, a machine with no sandbox
+(`ErrNoSandbox`), an empty brief or one over `maxMonitorBriefLen` (4,000 bytes) and a target that takes no
+tools (`ErrBadRequest`); then a second run on the cluster (`ErrMonitorInFlight`, `s.monitors` under
+`turnsMu`, one `monitor` per cluster, reserved and released as a turn is); then, inside the insert's
+transaction, a cluster marked or gone (`ErrClusterGone`) or whose `monitoring_enabled` is off
+(`ErrMonitoringOff`). Its context ends with
+the caller's, the service's, and the sweeper's cancel. The run is inserted queued
+(`stmtInsertMonitorRun`: `trigger` and `agent_type` `monitor`, `cluster_id`, `task` the brief) and
+claimed by its first round, as a turn's is. **It runs in `monitorSession()`** (`grants.go`:
+`NoPrompts` and `NoSecretData`, and no `Policy`, `Network` or `Folders`), told `prompts/monitor.md`
+(`monitorSystemPrompt`) and one message of the cluster card — the card alone, never the memory
+notes — then the brief, offered the box less `Agent`, `Memory`, `WebFetch`, `TaskStop` and the
+search, at `maxMonitorToolCalls` (16). Its directory is the cluster's `monitorDir`. Its recorder is
+`monitor`, a `briefedRun` with an `Approve` that answers no and writes nothing; its asker is
+`monitorAsker`, which records what the proxy decided and answers an ask with `errMonitorAsked`; its
+tasks are `monitorTasks`, which start none. It runs through `briefedRun`'s `loop` and settles in
+one transaction through its `writeRun` and `writeRows` (`monitor.settle`); a settle the store refuses
+is left for the next start to fail as stranded.
+**The sweeper ends it** (`sweepMonitors`, on every pass before the chats): it lists the monitor's
+directory, copies the slots, then reads the live rows, cancels and joins every run whose cluster is not a
+live row, then removes its folder and every entry naming neither a live cluster nor a run still in its slot. Nothing calls `RunMonitor`
+but its tests. → [ADR: a monitor run is a run of the chat
+service](../docs/adr/2026-10-05-a-monitor-run-is-a-run-of-the-chat-service.md), [security record:
+the monitoring session](../docs/security/2026-10-05-the-monitoring-session.md).
 
 **A reply's calls run one at a time, in reply order** (`agent`). An `Agent` call only starts its
 subagent, so a subagent's requests wait beside the parent's and each other's.
@@ -3375,7 +3414,7 @@ child answers (its agent's file, `general.md`). All under `prompts/`. Per-run st
 way, so the prefix cache holds.
 
 **A question carries a cluster card when the card has changed.** `chatsvc.New(db, chatsDir,
-llmSvc, clusterCards, memories, box, lists, sandbox, security)` takes a `ClusterCards` — `ClusterCard(ctx, clusterID)
+monitorDir, llmSvc, clusterCards, memories, box, lists, sandbox, security)` takes a `ClusterCards` — `ClusterCard(ctx, clusterID)
 string`, the one thing this package asks about a cluster — which `internal/clustercard` implements
 over `clustersvc.Service`, and a `Memories` — `Section(ctx, clusterID)`, every note the cluster
 sees — which `memorysvc` implements. `sandbox` is whether the machine offers sandboxed Bash, which

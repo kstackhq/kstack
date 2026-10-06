@@ -18,6 +18,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/testutil"
 )
@@ -33,7 +35,7 @@ import (
 func TestStopEndsAnUnreadSweepReport(t *testing.T) {
 	dir := t.TempDir()
 	box, lists := testBox()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), &stubClusterCards{}, nil, box, lists, sandbox.Status{})
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), &stubClusterCards{}, nil, box, lists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	s.onSwept = make(chan struct{})
 	stop, err := s.Start(t.Context())
@@ -156,7 +158,7 @@ func TestTheClusterReadsReportAStorageFault(t *testing.T) {
 // A service that is stopping refuses to start its sweeper, the way every other
 // entrant is refused once stop has begun.
 func TestStartAfterStopRefusesTheSweeper(t *testing.T) {
-	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, s.Close()) })
 	require.NoError(t, s.stop(t.Context()))
@@ -209,8 +211,9 @@ func TestDeleteByClusterReportsAReadThatFailed(t *testing.T) {
 // A chats' directory the sweep cannot list is left for the next start.
 func TestTheStartSweepLeavesAChatsDirectoryItCannotList(t *testing.T) {
 	dir := t.TempDir()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.monitorRoot.Close() })
 	require.NoError(t, s.chatsRoot.Close())
 	logs := testutil.CaptureLogs(t)
 
@@ -232,7 +235,7 @@ func TestTheStartSweepRemovesTheDirectoriesOfGoneChats(t *testing.T) {
 	}
 	require.NoError(t, os.WriteFile(filepath.Join(results, "stray"), nil, 0o600))
 
-	s, err := newService(db, chatsDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(db, chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	startPrepared(t, s)
 
@@ -241,4 +244,151 @@ func TestTheStartSweepRemovesTheDirectoriesOfGoneChats(t *testing.T) {
 	require.Len(t, entries, 1)
 	assert.Equal(t, string(kept.ID), entries[0].Name())
 	assert.FileExists(t, filepath.Join(results, string(kept.ID), "out.txt"))
+}
+
+// awaitSweepUntil waits out sweeps until cond holds.
+func awaitSweepUntil(t *testing.T, s *service, cond func() bool) {
+	t.Helper()
+	for !cond() {
+		testutil.Wait(t, s.onSwept, "a sweep")
+	}
+}
+
+// Marking a cluster ends its monitor and removes its folder before its chats
+// go, so a chat delete that fails leaves no monitor running; the row's delete
+// then takes the run's rows.
+func TestAMonitorRunEndsWithItsCluster(t *testing.T) {
+	s := startMonitorService(t, "", testTool{name: "echo"})
+	c := seedChat(t, s.db, aChat("7", time.UnixMilli(1_000).UTC()))
+	_, done := heldMonitor(t, s, "7")
+	var atDelete []bool
+	s.deleteWrite = func(ctx context.Context, id ChatID) (bool, error) {
+		s.turnsMu.Lock()
+		_, running := s.monitors["7"]
+		s.turnsMu.Unlock()
+		_, err := os.Stat(s.monitorDir("7").Path())
+		atDelete = append(atDelete, running || err == nil)
+		if len(atDelete) == 1 {
+			return false, assert.AnError
+		}
+		return s.deleteRow(ctx, id)
+	}
+
+	markCluster(t, s.db, "7")
+	s.db.Notify(appdb.KeyClusters)
+
+	res := testutil.Recv(t, done, "the run to end")
+	assert.Equal(t, RunCancelled, res.Status)
+	awaitSweepUntil(t, s, func() bool { _, ok, _ := s.Get(t.Context(), c.ID); return !ok })
+	assert.Equal(t, []bool{false, false}, atDelete, "no run and no folder by the time any chat delete runs")
+	assert.NoDirExists(t, s.monitorDir("7").Path())
+
+	_, err := s.db.Write.Exec(`DELETE FROM clusters WHERE id = '7'`)
+	require.NoError(t, err)
+	assert.Zero(t, tableCount(t, s.db, "agent_runs"))
+	assert.Zero(t, tableCount(t, s.db, "llm_calls"))
+}
+
+// A cluster whose row is gone before any pass saw it marked still loses its
+// monitor and its folder; a run on a live cluster is left alone.
+func TestAMonitorEndsWhenItsRowIsGone(t *testing.T) {
+	s := startMonitorService(t, "", testTool{name: "echo"})
+	_, gone := heldMonitor(t, s, "7")
+	liveGate, live := heldMonitor(t, s, "8")
+
+	_, err := s.db.Write.Exec(`DELETE FROM clusters WHERE id = '7'`)
+	require.NoError(t, err)
+	s.db.Notify(appdb.KeyClusters)
+
+	assert.Equal(t, RunCancelled, testutil.Recv(t, gone, "the run to end").Status)
+	awaitSweepUntil(t, s, func() bool { _, err := os.Stat(s.monitorDir("7").Path()); return os.IsNotExist(err) })
+	assert.DirExists(t, s.monitorDir("8").Path())
+	select {
+	case <-live:
+		t.Fatal("a live cluster's run is not the sweep's to end")
+	default:
+	}
+	close(liveGate)
+	assert.Equal(t, RunSucceeded, testutil.Recv(t, live, "the live run").Status)
+}
+
+// The first pass removes every monitor folder that names no live cluster, and
+// keeps a live cluster's.
+func TestTheMonitorsFolderIsSwept(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"7", "gone"} {
+		require.NoError(t, os.MkdirAll(filepath.Join(monitorDirIn(dir), name, "workspace"), 0o700))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(monitorDirIn(dir), "stray"), nil, 0o600))
+
+	startService(t, dir)
+
+	entries, err := os.ReadDir(monitorDirIn(dir))
+	require.NoError(t, err)
+	require.Len(t, entries, 1)
+	assert.Equal(t, "7", entries[0].Name())
+}
+
+// A run reserved for a cluster made after the sweep read the live rows is not
+// the sweep's to end: it took its slots before that read.
+func TestAMonitorSweepLeavesARunReservedAfterItsRead(t *testing.T) {
+	s := startMonitorService(t, "")
+	type reservation struct {
+		m   *monitor
+		err error
+	}
+	reserved := make(chan reservation, 1)
+	var once sync.Once
+	s.onLiveRead = func() {
+		once.Do(func() {
+			_, err := s.db.Write.Exec(`INSERT INTO clusters (id, source, source_key, created_at, updated_at)
+			VALUES ('new', 'kubeconfig', 'ctx-new', 0, 0)`)
+			if err != nil {
+				reserved <- reservation{err: err}
+				return
+			}
+			m, err := s.reserveMonitor(context.Background(), "new", "", llm.Target{})
+			reserved <- reservation{m, err}
+		})
+	}
+
+	s.db.Notify(appdb.KeyClusters)
+	r := testutil.Recv(t, reserved, "the reservation")
+	require.NoError(t, r.err)
+	t.Cleanup(func() { s.releaseMonitor("new", r.m) })
+	testutil.Wait(t, s.onSwept, "the sweep")
+	assert.NoError(t, r.m.ctx.Err(), "the run is not cancelled")
+}
+
+// A run that starts on a cluster with a folder after the sweep copied the
+// slots, its cluster marked before the live read, keeps its folder through that
+// pass; the mark's signal brings the pass that ends it and removes it.
+func TestAMonitorSweepKeepsTheFolderOfARunItDidNotEnd(t *testing.T) {
+	s := startMonitorService(t, "", testTool{name: "echo"})
+	require.NoError(t, os.MkdirAll(s.monitorDir("8").Path(), 0o700))
+	entered, proceed := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	s.onSlotsCopied = func() {
+		once.Do(func() {
+			entered <- struct{}{}
+			<-proceed
+		})
+	}
+
+	s.db.Notify(appdb.KeyClusters)
+	testutil.Wait(t, entered, "the slots copied")
+	_, done := heldMonitor(t, s, "8")
+	markCluster(t, s.db, "8")
+	close(proceed)
+	testutil.Wait(t, s.onSwept, "the sweep")
+	assert.DirExists(t, s.monitorDir("8").Path())
+	select {
+	case <-done:
+		t.Fatal("a run the pass did not copy is not the pass's to end")
+	default:
+	}
+
+	s.db.Notify(appdb.KeyClusters)
+	assert.Equal(t, RunCancelled, testutil.Recv(t, done, "the run to end").Status)
+	awaitSweepUntil(t, s, func() bool { _, err := os.Stat(s.monitorDir("8").Path()); return os.IsNotExist(err) })
 }
