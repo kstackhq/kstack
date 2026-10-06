@@ -25,6 +25,7 @@ const SandboxDocument = graphql(`
   query Sandbox {
     sandbox {
       available
+      reason
       networkAvailable
       networkReason
     }
@@ -34,12 +35,14 @@ const SandboxDocument = graphql(`
 /**
  * `available` is undefined until the sidecar has answered, and after a failure:
  * a sidecar that could not be reached has not said there is no sandbox.
+ * `reason` is what the probe found, or why there is none, in the sidecar's words.
  * `networkAvailable` is the same for the network, and `networkReason` why not.
  * `failed` is that failure, and `retry` the only way back, since a query re-runs
  * for nobody.
  */
 export type Sandbox = {
   available: boolean | undefined;
+  reason: string;
   networkAvailable: boolean | undefined;
   networkReason: string;
   failed: boolean;
@@ -49,12 +52,13 @@ export type Sandbox = {
 export function useSandbox(): Sandbox {
   const [{ data, error, fetching }, reexecute] = useQuery({ query: SandboxDocument });
   const available = data?.sandbox.available;
+  const reason = data?.sandbox.reason ?? '';
   const networkAvailable = data?.sandbox.networkAvailable;
   const networkReason = data?.sandbox.networkReason ?? '';
   // Past the cache: what failed is what we are asking again for.
   const retry = useCallback(() => reexecute({ requestPolicy: 'network-only' }), [reexecute]);
   return useMemo(
-    () => ({ available, networkAvailable, networkReason, failed: !fetching && error !== undefined, retry }),
-    [available, networkAvailable, networkReason, error, fetching, retry],
+    () => ({ available, reason, networkAvailable, networkReason, failed: !fetching && error !== undefined, retry }),
+    [available, reason, networkAvailable, networkReason, error, fetching, retry],
   );
 }

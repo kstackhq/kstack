@@ -53,6 +53,8 @@ type Settings struct {
 	Rules       []permissions.Rule `json:"rules,omitempty"`       // the always rules, the user's
 
 	Executables []Executable `json:"executables,omitempty"` // the user's registered tools, in the order added
+
+	Onboarded bool `json:"onboarded,omitempty"` // the onboarding flow was finished; it gates nothing
 }
 
 // schemaVersion is the file's layout, stamped under versionKey on every

@@ -995,6 +995,12 @@ type Chat {
   networkEnabled: Boolean!
 }
 
+"The onboarding flow's state on this machine."
+type Onboarding {
+  "Whether the flow has been finished."
+  finished: Boolean!
+}
+
 "Whether sandboxed Bash is offered on this machine. It is fixed for the sidecar's life, so this is a query and not a watch."
 type SandboxStatus {
   available: Boolean!
@@ -1680,6 +1686,9 @@ type Query {
   "Every executable the sandbox probe checks, the curated ones then the user's, as the last probe found each. Empty on a machine with no sandbox."
   sandboxExecutables: [SandboxExecutable!]!
 
+  "Whether the onboarding flow has been finished on this machine."
+  onboarding: Onboarding!
+
   "The permission modes and rules, as Settings shows them."
   permissionSettings: PermissionSettings!
 
@@ -1762,6 +1771,9 @@ type Mutation {
 
   "Remove a registered executable. Refused KSTACK_VALIDATION_ERROR for a name not registered. Returns the whole report."
   sandboxExecutableRemove(name: String!): [SandboxExecutable!]!
+
+  "Mark the onboarding flow finished. Its Finish and the no-sandbox screen's OK call it; nothing unsets it."
+  onboardingFinish: Onboarding!
 
   # --- Memory ---
   "Create a memory, or rewrite one by `id`; a rewrite can rename it and move it between one cluster and every cluster. Written by the user. Refused `KSTACK_MEMORY_NAME_TAKEN` for a name the target scope holds, `KSTACK_MEMORY_FULL` for a scope with no room for the memory, `KSTACK_MEMORY_SECRET` for a credential, `KSTACK_VALIDATION_ERROR` for a note out of shape, and `KSTACK_RECORD_NOT_FOUND` for an unknown id or a missing cluster."

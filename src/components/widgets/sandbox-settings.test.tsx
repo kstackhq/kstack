@@ -20,7 +20,8 @@ import type { SandboxFolder, SandboxFolders } from '@/lib/sandbox-folders';
 import type { SandboxPath, SandboxPathEntry } from '@/lib/sandbox-path';
 import type { SandboxExecutable, SandboxExecutables } from '@/lib/sandbox-executables';
 
-const { sandbox, path, folders, executables, mac } = vi.hoisted(() => ({
+const { sandbox, path, folders, executables, mac, openDialog } = vi.hoisted(() => ({
+  openDialog: vi.fn(),
   sandbox: { current: {} as { available: boolean | undefined } },
   path: { current: {} as SandboxPath },
   folders: { current: {} as SandboxFolders },
@@ -32,6 +33,7 @@ vi.mock('@/lib/sandbox-path', () => ({ useSandboxPath: () => path.current }));
 vi.mock('@/lib/sandbox-executables', () => ({ useSandboxExecutables: () => executables.current }));
 vi.mock('@/lib/sandbox-folders', () => ({ useSandboxFolders: () => folders.current }));
 vi.mock('@/lib/platform', () => ({ isMacOS: () => mac.current }));
+vi.mock('@/lib/dialog', () => ({ useDialog: () => ({ openDialog }) }));
 
 const { SandboxSettings } = await import('./sandbox-settings');
 
@@ -119,6 +121,7 @@ const probed = (name: string, extra: Partial<SandboxExecutable> = {}): SandboxEx
 });
 
 beforeEach(() => {
+  openDialog.mockClear();
   sandbox.current = { available: true };
   mac.current = false;
   withPath({});
@@ -127,6 +130,16 @@ beforeEach(() => {
 });
 
 describe('SandboxSettings', () => {
+  it('opens the onboarding flow again, and writes nothing', async () => {
+    const user = userEvent.setup();
+    render(<SandboxSettings />);
+    await user.click(screen.getByRole('button', { name: 'Set up the sandbox again' }));
+    expect(openDialog).toHaveBeenCalledExactlyOnceWith('onboarding');
+    expect(path.current.include).not.toHaveBeenCalled();
+    expect(path.current.refresh).not.toHaveBeenCalled();
+    expect(executables.current.probe).not.toHaveBeenCalled();
+  });
+
   it('draws the entries in order with their tags and buttons', () => {
     withPath({
       entries: [

@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The Settings dialog's Sandbox section: the frozen PATH sandboxed commands
-// search, each folder's state, and Include, Remove and Refresh PATH; then the
-// executables the probe checks and the user's own executables;
-// then the folders granted always, with Add and Remove; then what no grant
-// opens. A folder name is text the user's shell or hand produced, so it is
+// The Settings dialog's Sandbox section: a button that opens the onboarding
+// flow again; the frozen PATH sandboxed commands search, each folder's state,
+// and Include, Remove and Refresh PATH; then the executables the probe checks
+// and the user's own executables; then the folders granted always, with Add
+// and Remove; then what no grant opens. A folder name is text the user's shell or hand produced, so it is
 // drawn through VisibleText with its whitespace kept and the trailing
 // spelled: a change approves the folder drawn, and two that differ only in
 // whitespace must not look alike. A executable's path, version and error are its
@@ -30,12 +30,13 @@ import { Spinner } from '@kubetail/ui/elements/spinner';
 
 import { FolderGrantForm } from '@/components/widgets/folder-grant-form';
 import { VisibleText } from '@/components/widgets/visible-text';
+import { useDialog } from '@/lib/dialog';
 import { isMacOS } from '@/lib/platform';
 import { useSandbox } from '@/lib/sandbox';
 import { useSandboxFolders } from '@/lib/sandbox-folders';
 import type { SandboxFolder } from '@/lib/sandbox-folders';
 import { useSandboxPath } from '@/lib/sandbox-path';
-import type { SandboxPathEntry } from '@/lib/sandbox-path';
+import type { SandboxPath, SandboxPathEntry } from '@/lib/sandbox-path';
 import { useSandboxExecutables } from '@/lib/sandbox-executables';
 import type { SandboxExecutable, SandboxExecutables } from '@/lib/sandbox-executables';
 
@@ -99,18 +100,11 @@ function inEffect(entries: number, resolved: boolean | undefined): string {
   return "Sandboxed commands use the system's default PATH.";
 }
 
-function SandboxPathList({ onRefreshed }: { onRefreshed: () => void }) {
-  const { entries, fault, resolved, changing, refreshing, changeError, refreshError, include, remove, refresh } =
-    useSandboxPath();
+// The PATH list with Refresh PATH, Include and Remove; its heading is the caller's.
+export function SandboxPathList({ path, onRefreshed }: { path: SandboxPath; onRefreshed: () => void }) {
+  const { entries, fault, resolved, changing, refreshing, changeError, refreshError, include, remove, refresh } = path;
   return (
-    <Field>
-      <FieldContent>
-        <FieldLabel>Sandbox</FieldLabel>
-        <FieldDescription>
-          Sandboxed commands find programs in these folders, in this order. Kstack reads them from your shell at each
-          launch; a new folder that would open more to commands waits for you.
-        </FieldDescription>
-      </FieldContent>
+    <>
       <div>
         <Button
           size="sm"
@@ -142,6 +136,22 @@ function SandboxPathList({ onRefreshed }: { onRefreshed: () => void }) {
         ))}
       </ul>
       {changeError && <p className="text-xs text-destructive">{changeError}</p>}
+    </>
+  );
+}
+
+function SandboxPathSection({ onRefreshed }: { onRefreshed: () => void }) {
+  const path = useSandboxPath();
+  return (
+    <Field>
+      <FieldContent>
+        <FieldLabel>Sandbox</FieldLabel>
+        <FieldDescription>
+          Sandboxed commands find programs in these folders, in this order. Kstack reads them from your shell at each
+          launch; a new folder that would open more to commands waits for you.
+        </FieldDescription>
+      </FieldContent>
+      <SandboxPathList path={path} onRefreshed={onRefreshed} />
     </Field>
   );
 }
@@ -238,22 +248,12 @@ function RegisteredExecutables({ executables }: { executables: SandboxExecutable
   );
 }
 
-function SandboxExecutableList({ executables }: { executables: SandboxExecutables }) {
+// The executables report with Probe again; its heading and its line for a
+// missing kubectl are the caller's.
+export function SandboxExecutableList({ executables }: { executables: SandboxExecutables }) {
   const { report, probing, probeError, probe } = executables;
-  const kubectl = report?.find((executable) => executable.name === 'kubectl');
   return (
-    <Field>
-      <FieldContent>
-        <FieldLabel>Executables</FieldLabel>
-        <FieldDescription>
-          Kstack runs each executable once in the sandbox, with no cluster and no network, to see what it needs.
-        </FieldDescription>
-      </FieldContent>
-      {kubectl?.probed && !kubectl.resolved && (
-        <p className="text-xs text-destructive">
-          kubectl was not found on the sandbox&apos;s PATH. Install it, or include its folder above.
-        </p>
-      )}
+    <>
       <div>
         <Button size="sm" variant="outline" disabled={probing} onClick={() => probe()}>
           {probing ? (
@@ -272,6 +272,31 @@ function SandboxExecutableList({ executables }: { executables: SandboxExecutable
           <ExecutableRow key={executable.name} executable={executable} />
         ))}
       </ul>
+    </>
+  );
+}
+
+// kubectlMissing reports whether the probe ran kubectl and found no binary.
+export function kubectlMissing(report: SandboxExecutable[] | undefined): boolean {
+  const kubectl = report?.find((executable) => executable.name === 'kubectl');
+  return !!kubectl?.probed && !kubectl.resolved;
+}
+
+function SandboxExecutableSection({ executables }: { executables: SandboxExecutables }) {
+  return (
+    <Field>
+      <FieldContent>
+        <FieldLabel>Executables</FieldLabel>
+        <FieldDescription>
+          Kstack runs each executable once in the sandbox, with no cluster and no network, to see what it needs.
+        </FieldDescription>
+      </FieldContent>
+      {kubectlMissing(executables.report) && (
+        <p className="text-xs text-destructive">
+          kubectl was not found on the sandbox&apos;s PATH. Install it, or include its folder above.
+        </p>
+      )}
+      <SandboxExecutableList executables={executables} />
       <RegisteredExecutables executables={executables} />
     </Field>
   );
@@ -372,10 +397,16 @@ function SandboxFolderList() {
 // One reader of the executables for the section, since a Refresh PATH probes them.
 function SandboxSections() {
   const executables = useSandboxExecutables();
+  const { openDialog } = useDialog();
   return (
     <>
-      <SandboxPathList onRefreshed={executables.probe} />
-      <SandboxExecutableList executables={executables} />
+      <div>
+        <Button size="sm" variant="outline" onClick={() => openDialog('onboarding')}>
+          Set up the sandbox again
+        </Button>
+      </div>
+      <SandboxPathSection onRefreshed={executables.probe} />
+      <SandboxExecutableSection executables={executables} />
       <SandboxFolderList />
     </>
   );

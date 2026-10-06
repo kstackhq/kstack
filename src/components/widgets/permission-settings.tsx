@@ -17,99 +17,19 @@
 // with a sandbox, since without one every command asks and nothing here
 // applies. Every context, pattern and rule line is user or cluster text, drawn
 // through VisibleText.
-import { useEffect, useId, useState } from 'react';
+import { useId, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 
 import { Button } from '@kubetail/ui/elements/button';
 import { Input } from '@kubetail/ui/elements/input';
 import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
-import { useMutation, useQuery } from 'urql';
-import type { CombinedError } from 'urql';
 
 import { Dialog } from '@/components/widgets/dialog';
 import { VisibleText } from '@/components/widgets/visible-text';
-import { graphql } from '@/gql';
 import type { PermissionClass, PermissionEffect, PermissionMode, PermissionModeSource } from '@/gql/graphql';
+import { usePermissionSettings } from '@/lib/permission-settings';
+import type { PermissionSettings as Permissions, Refusal, RuleInput } from '@/lib/permission-settings';
 import { useSandbox } from '@/lib/sandbox';
-
-const PermissionSettingsQuery = graphql(`
-  query PermissionSettings {
-    permissionSettings {
-      defaultMode
-      contexts {
-        context
-        mode
-        source
-        pattern
-        own
-      }
-      rules {
-        id
-        line
-      }
-      destructive
-      held
-    }
-  }
-`);
-
-const SecurityRefusedQuery = graphql(`
-  query SecurityRefused {
-    securityRefused {
-      field
-      value
-      reason
-    }
-  }
-`);
-
-const DefaultModeSetMutation = graphql(`
-  mutation PermissionDefaultModeSet($mode: PermissionMode!) {
-    permissionDefaultModeSet(mode: $mode) {
-      held
-    }
-  }
-`);
-
-const ModeSetMutation = graphql(`
-  mutation PermissionModeSet($context: String!, $mode: PermissionMode!) {
-    permissionModeSet(context: $context, mode: $mode) {
-      held
-    }
-  }
-`);
-
-const ModeClearMutation = graphql(`
-  mutation PermissionModeClear($context: String!) {
-    permissionModeClear(context: $context) {
-      held
-    }
-  }
-`);
-
-const RuleAddMutation = graphql(`
-  mutation PermissionRuleAdd($input: PermissionRuleInput!) {
-    permissionRuleAdd(input: $input) {
-      held
-    }
-  }
-`);
-
-const RuleRemoveMutation = graphql(`
-  mutation PermissionRuleRemove($id: String!) {
-    permissionRuleRemove(id: $id) {
-      held
-    }
-  }
-`);
-
-const DiscardRefusedMutation = graphql(`
-  mutation PermissionDiscardRefused($field: String!) {
-    permissionDiscardRefused(field: $field) {
-      held
-    }
-  }
-`);
 
 const SELECT = 'h-9 rounded-md border bg-transparent px-3 text-sm';
 
@@ -151,13 +71,6 @@ const HELD: Record<string, { title: string; meanwhile: string }> = {
   },
 };
 
-type Refusal = { field: string; value: string; reason: string };
-
-// errorText is a refused mutation's reason, as the sidecar spells it.
-function errorText(error: CombinedError | undefined): string | undefined {
-  return error?.graphQLErrors[0]?.message ?? error?.message;
-}
-
 export function PermissionSettings() {
   const { available } = useSandbox();
   if (available !== true) return null;
@@ -165,35 +78,9 @@ export function PermissionSettings() {
 }
 
 function PermissionSection() {
-  // Asked again on every opening and whenever the window regains focus: another
-  // window can change the settings, and the clusters watch can learn a context,
-  // and neither reaches this window's cache.
-  const [{ data }, reexecute] = useQuery({ query: PermissionSettingsQuery, requestPolicy: 'cache-and-network' });
-  useEffect(() => {
-    const refresh = () => reexecute({ requestPolicy: 'network-only' });
-    window.addEventListener('focus', refresh);
-    return () => window.removeEventListener('focus', refresh);
-  }, [reexecute]);
-  const [{ data: refusedData }] = useQuery({ query: SecurityRefusedQuery });
-  const [error, setError] = useState<string>();
-  const [, setDefaultMode] = useMutation(DefaultModeSetMutation);
-  const [, setMode] = useMutation(ModeSetMutation);
-  const [, clearMode] = useMutation(ModeClearMutation);
-  const [, addRule] = useMutation(RuleAddMutation);
-  const [, removeRule] = useMutation(RuleRemoveMutation);
-  const [, discardRefused] = useMutation(DiscardRefusedMutation);
-
-  // Every mutation answers the settings it left, so urql's cache asks the query
-  // again; a refusal is drawn until the next mutation.
-  const run = async (mutation: Promise<{ error?: CombinedError }>) => {
-    setError(errorText((await mutation).error));
-  };
-
-  const settings = data?.permissionSettings;
+  const permissions = usePermissionSettings();
+  const { settings, refused, error, held } = permissions;
   if (!settings) return null;
-  const refused: Refusal[] = refusedData?.securityRefused ?? [];
-  const held = (field: string) => settings.held.includes(field);
-  const defaultRefusal = held('defaultMode') ? refused.find((r) => r.field === 'defaultMode') : undefined;
 
   return (
     <section aria-label="Permissions" className="flex flex-col gap-4 text-sm">
@@ -208,48 +95,20 @@ function PermissionSection() {
         </p>
       )}
 
-      <div className="flex flex-col gap-2">
-        <span className="font-medium">Default mode</span>
-        {defaultRefusal && (
-          <p className="text-destructive">
-            The file&apos;s default mode, <VisibleText text={defaultRefusal.value} />, {defaultRefusal.reason}: Kstack
-            reads it as read-only until you pick one.
-          </p>
-        )}
-        {/* While held no tab is selected, so picking read-only still sends it. */}
-        <Tabs
-          value={held('defaultMode') ? '' : settings.defaultMode}
-          onValueChange={(mode) => run(setDefaultMode({ mode: mode as PermissionMode }))}
-        >
-          <TabsList aria-label="Default mode">
-            {MODES.map(({ value, label }) => (
-              <TabsTrigger key={value} value={value}>
-                {label}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-        <ul className="text-muted-foreground">
-          {MODES.map(({ value, label, line }) => (
-            <li key={value}>
-              {label}: {line}
-            </li>
-          ))}
-        </ul>
-      </div>
+      <DefaultModePicker permissions={permissions} />
 
       {held('modes') && (
-        <HeldField field="modes" refused={refused} onDiscard={() => run(discardRefused({ field: 'modes' }))} />
+        <HeldField field="modes" refused={refused} onDiscard={() => permissions.discardRefused('modes')} />
       )}
       <ContextModes
         contexts={settings.contexts}
         disabled={held('modes')}
-        onSet={(context, mode) => run(setMode({ context, mode }))}
-        onClear={(context) => run(clearMode({ context }))}
+        onSet={permissions.setMode}
+        onClear={permissions.clearMode}
       />
 
       {held('rules') && (
-        <HeldField field="rules" refused={refused} onDiscard={() => run(discardRefused({ field: 'rules' }))} />
+        <HeldField field="rules" refused={refused} onDiscard={() => permissions.discardRefused('rules')} />
       )}
       <RuleList title="Rules" empty="No rules yet.">
         {settings.rules.map((rule) => (
@@ -262,20 +121,59 @@ function PermissionSection() {
               variant="ghost"
               size="xs"
               disabled={held('rules')}
-              onClick={() => run(removeRule({ id: rule.id }))}
+              onClick={() => permissions.removeRule(rule.id)}
             >
               Remove
             </Button>
           </li>
         ))}
       </RuleList>
-      <RuleForm disabled={held('rules')} onAdd={(input) => run(addRule({ input }))} />
+      <RuleForm disabled={held('rules')} onAdd={permissions.addRule} />
       <RuleList title="Always asks" note="In every mode, and refused in a read-only one.">
         {settings.destructive.map((line) => (
           <li key={line}>{line}</li>
         ))}
       </RuleList>
     </section>
+  );
+}
+
+// The default mode: a refused one the file holds, the picker, and what each
+// mode does.
+export function DefaultModePicker({ permissions }: { permissions: Permissions }) {
+  const { settings, refused, held, setDefaultMode } = permissions;
+  if (!settings) return null;
+  const defaultRefusal = held('defaultMode') ? refused.find((r) => r.field === 'defaultMode') : undefined;
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="font-medium">Default mode</span>
+      {defaultRefusal && (
+        <p className="text-destructive">
+          The file&apos;s default mode, <VisibleText text={defaultRefusal.value} />, {defaultRefusal.reason}: Kstack
+          reads it as read-only until you pick one.
+        </p>
+      )}
+      {/* While held no tab is selected, so picking read-only still sends it. */}
+      <Tabs
+        value={held('defaultMode') ? '' : settings.defaultMode}
+        onValueChange={(mode) => setDefaultMode(mode as PermissionMode)}
+      >
+        <TabsList aria-label="Default mode">
+          {MODES.map(({ value, label }) => (
+            <TabsTrigger key={value} value={value}>
+              {label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
+      <ul className="text-muted-foreground">
+        {MODES.map(({ value, label, line }) => (
+          <li key={value}>
+            {label}: {line}
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -314,7 +212,7 @@ type ContextMode = {
 // One row per known context: its mode, where the mode comes from, and a picker
 // that sets the context's own. Clear removes the context's own entry, never a
 // pattern it matches.
-function ContextModes({
+export function ContextModes({
   contexts,
   disabled,
   onSet,
@@ -379,16 +277,6 @@ function ContextModes({
     </div>
   );
 }
-
-type RuleInput = {
-  effect: PermissionEffect;
-  class: PermissionClass;
-  context: string;
-  namespace: string;
-  verb: string;
-  group: string;
-  kind: string;
-};
 
 // The namespace that is cluster-scoped objects alone: permissions.ClusterScope.
 const CLUSTER_SCOPE = '[cluster]';

@@ -16,7 +16,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { MAC_USER_AGENT, NON_MAC_USER_AGENT, WINDOWS_USER_AGENT, restoreUserAgent, setUserAgent } from '@/test-utils';
 
-import { isLinux, isMacOS } from './platform';
+import { isLinux, isMacOS, isWindows } from './platform';
 
 // `NON_MAC_USER_AGENT` is a Linux UA (see `test-utils`).
 afterEach(restoreUserAgent);
@@ -52,5 +52,22 @@ describe('isLinux', () => {
   it('is false on Windows', () => {
     setUserAgent(WINDOWS_USER_AGENT);
     expect(isLinux()).toBe(false);
+  });
+});
+
+describe('isWindows', () => {
+  it('is true on a Windows webview user agent', () => {
+    setUserAgent(WINDOWS_USER_AGENT);
+    expect(isWindows()).toBe(true);
+  });
+
+  it('is false on macOS', () => {
+    setUserAgent(MAC_USER_AGENT);
+    expect(isWindows()).toBe(false);
+  });
+
+  it('is false on Linux', () => {
+    setUserAgent(NON_MAC_USER_AGENT);
+    expect(isWindows()).toBe(false);
   });
 });
