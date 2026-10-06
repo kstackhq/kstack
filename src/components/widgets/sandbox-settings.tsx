@@ -14,13 +14,19 @@
 
 // The Settings dialog's Sandbox section: the frozen PATH sandboxed commands
 // search, each folder's state, and Include, Remove and Refresh PATH; then the
-// folders granted always, with Add and Remove; then what no grant opens. A
-// folder name is text the user's shell or hand produced, so it is drawn
-// through VisibleText with its whitespace kept and the trailing spelled: a
-// change approves the folder drawn, and two that differ only in whitespace
-// must not look alike.
+// executables the probe checks and the user's own executables;
+// then the folders granted always, with Add and Remove; then what no grant
+// opens. A folder name is text the user's shell or hand produced, so it is
+// drawn through VisibleText with its whitespace kept and the trailing
+// spelled: a change approves the folder drawn, and two that differ only in
+// whitespace must not look alike. A executable's path, version and error are its
+// own text, drawn the same way.
+import { useState } from 'react';
+
 import { Button } from '@kubetail/ui/elements/button';
 import { Field, FieldContent, FieldDescription, FieldLabel } from '@kubetail/ui/elements/field';
+import { Input } from '@kubetail/ui/elements/input';
+import { Spinner } from '@kubetail/ui/elements/spinner';
 
 import { FolderGrantForm } from '@/components/widgets/folder-grant-form';
 import { VisibleText } from '@/components/widgets/visible-text';
@@ -30,6 +36,8 @@ import { useSandboxFolders } from '@/lib/sandbox-folders';
 import type { SandboxFolder } from '@/lib/sandbox-folders';
 import { useSandboxPath } from '@/lib/sandbox-path';
 import type { SandboxPathEntry } from '@/lib/sandbox-path';
+import { useSandboxExecutables } from '@/lib/sandbox-executables';
+import type { SandboxExecutable, SandboxExecutables } from '@/lib/sandbox-executables';
 
 const TAGS: Record<SandboxPathEntry['state'], string> = {
   Adopted: 'included',
@@ -91,7 +99,7 @@ function inEffect(entries: number, resolved: boolean | undefined): string {
   return "Sandboxed commands use the system's default PATH.";
 }
 
-function SandboxPathList() {
+function SandboxPathList({ onRefreshed }: { onRefreshed: () => void }) {
   const { entries, fault, resolved, changing, refreshing, changeError, refreshError, include, remove, refresh } =
     useSandboxPath();
   return (
@@ -104,7 +112,15 @@ function SandboxPathList() {
         </FieldDescription>
       </FieldContent>
       <div>
-        <Button size="sm" variant="outline" disabled={refreshing} onClick={() => refresh()}>
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={refreshing}
+          onClick={async () => {
+            // A new PATH can change which binary each executable resolves to.
+            if (await refresh()) onRefreshed();
+          }}
+        >
           Refresh PATH
         </Button>
         {refreshError && <p className="mt-1 text-xs text-destructive">{refreshError}</p>}
@@ -126,6 +142,137 @@ function SandboxPathList() {
         ))}
       </ul>
       {changeError && <p className="text-xs text-destructive">{changeError}</p>}
+    </Field>
+  );
+}
+
+function ExecutableRow({ executable }: { executable: SandboxExecutable }) {
+  const { name, probed, resolved, shim, target, ok, version, error } = executable;
+  return (
+    <li className="py-1.5 text-xs">
+      <p className="flex gap-2">
+        <span className="font-mono font-medium break-all whitespace-pre-wrap">
+          <VisibleText text={name} trailing="end" />
+        </span>
+        {probed && resolved && <span className="text-muted-foreground">{ok ? 'ok' : 'failed'}</span>}
+      </p>
+      {(!probed || !resolved) && <p className="text-muted-foreground">{error}</p>}
+      {resolved && (
+        <p className="font-mono break-all whitespace-pre-wrap text-muted-foreground" data-testid="resolved">
+          <VisibleText text={resolved} trailing="end" />
+        </p>
+      )}
+      {shim && (
+        <p className="text-muted-foreground">
+          <span>shim →</span>{' '}
+          <span className="font-mono break-all whitespace-pre-wrap" data-testid="target">
+            <VisibleText text={target} trailing="end" />
+          </span>
+        </p>
+      )}
+      {version && (
+        <p className="break-all whitespace-pre-wrap">
+          <VisibleText text={version} trailing="end" />
+        </p>
+      )}
+      {probed && resolved && error && (
+        <p className="break-all whitespace-pre-wrap text-destructive">
+          <VisibleText text={error} trailing="end" />
+        </p>
+      )}
+    </li>
+  );
+}
+
+// The user's own executables, each with Remove, and the form that adds one.
+function RegisteredExecutables({ executables }: { executables: SandboxExecutables }) {
+  const { report, changing, registerError, removeError, register, remove } = executables;
+  const [name, setName] = useState('');
+  const [invocation, setInvocation] = useState('');
+  const registered = report?.filter((executable) => executable.registered) ?? [];
+
+  const add = async () => {
+    if (await register(name, invocation)) {
+      setName('');
+      setInvocation('');
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-1">
+      <p className="text-xs font-medium">Your executables</p>
+      <ul className="divide-y" aria-label="Registered executables">
+        {registered.map((executable) => (
+          <li key={executable.name} className="flex items-center gap-2 py-1.5 text-xs">
+            <span className="min-w-0 flex-1 font-mono break-all whitespace-pre-wrap">
+              <VisibleText text={executable.invocation} trailing="end" />
+            </span>
+            <Button size="sm" variant="ghost" disabled={changing} onClick={() => remove(executable.name)}>
+              Remove
+            </Button>
+          </li>
+        ))}
+      </ul>
+      {removeError && <p className="text-xs text-destructive">{removeError}</p>}
+      <div className="flex flex-wrap items-center gap-2">
+        <Input
+          aria-label="Executable name"
+          className="w-40 font-mono text-xs"
+          placeholder="name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+        />
+        <Input
+          aria-label="Invocation"
+          className="min-w-48 flex-1 font-mono text-xs"
+          placeholder="<name> --version"
+          value={invocation}
+          onChange={(e) => setInvocation(e.target.value)}
+        />
+        <Button size="sm" variant="outline" disabled={changing || name === ''} onClick={add}>
+          Add executable
+        </Button>
+      </div>
+      {registerError && <p className="text-xs text-destructive">{registerError}</p>}
+    </div>
+  );
+}
+
+function SandboxExecutableList({ executables }: { executables: SandboxExecutables }) {
+  const { report, probing, probeError, probe } = executables;
+  const kubectl = report?.find((executable) => executable.name === 'kubectl');
+  return (
+    <Field>
+      <FieldContent>
+        <FieldLabel>Executables</FieldLabel>
+        <FieldDescription>
+          Kstack runs each executable once in the sandbox, with no cluster and no network, to see what it needs.
+        </FieldDescription>
+      </FieldContent>
+      {kubectl?.probed && !kubectl.resolved && (
+        <p className="text-xs text-destructive">
+          kubectl was not found on the sandbox&apos;s PATH. Install it, or include its folder above.
+        </p>
+      )}
+      <div>
+        <Button size="sm" variant="outline" disabled={probing} onClick={() => probe()}>
+          {probing ? (
+            <>
+              <Spinner size="xs" className="mr-0" />
+              Probing…
+            </>
+          ) : (
+            'Probe again'
+          )}
+        </Button>
+        {probeError && <p className="mt-1 text-xs text-destructive">{probeError}</p>}
+      </div>
+      <ul className="divide-y" aria-label="Executables">
+        {report?.map((executable) => (
+          <ExecutableRow key={executable.name} executable={executable} />
+        ))}
+      </ul>
+      <RegisteredExecutables executables={executables} />
     </Field>
   );
 }
@@ -222,13 +369,20 @@ function SandboxFolderList() {
   );
 }
 
-export function SandboxSettings() {
-  const { available } = useSandbox();
-  if (available !== true) return null;
+// One reader of the executables for the section, since a Refresh PATH probes them.
+function SandboxSections() {
+  const executables = useSandboxExecutables();
   return (
     <>
-      <SandboxPathList />
+      <SandboxPathList onRefreshed={executables.probe} />
+      <SandboxExecutableList executables={executables} />
       <SandboxFolderList />
     </>
   );
+}
+
+export function SandboxSettings() {
+  const { available } = useSandbox();
+  if (available !== true) return null;
+  return <SandboxSections />;
 }

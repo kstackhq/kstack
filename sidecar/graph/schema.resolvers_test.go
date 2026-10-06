@@ -6,15 +6,19 @@ package graph_test
 import (
 	"context"
 	"encoding/json"
+
 	"errors"
 	"fmt"
+	"github.com/amorey/gochan/watch"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -2678,7 +2682,8 @@ func sandboxPathServer(t *testing.T, available bool, resolve func(context.Contex
 			return securityconfig.Zones{Open: sandbox.FilePolicy{Read: []string{open}}}
 		}
 		svc = securityconfig.NewService(store, zones, resolve, "timeout")
-		require.NoError(t, svc.SyncPath(t.Context(), []string{open, pending}))
+		_, err := svc.SyncPath(t.Context(), []string{open, pending})
+		require.NoError(t, err)
 	}
 	srv = httptest.NewServer(graph.NewServer(&graph.Resolver{SecurityCfg: svc, SandboxStatus: sandbox.Status{Available: available}}))
 	t.Cleanup(srv.Close)
@@ -3008,4 +3013,219 @@ func TestAClusterWriteCarriesItsDurationAndDiff(t *testing.T) {
 		map[string]any{"approval": map[string]any{"status": "Approved", "duration": "Chat"}, "diff": "", "diffCut": false, "diffError": ""},
 		map[string]any{"approval": map[string]any{"status": "Pending", "duration": nil}, "diff": "-a\n+b\n", "diffCut": true, "diffError": ""},
 	}, f["message"].(map[string]any)["toolCalls"].([]any)[0].(map[string]any)["clusterWrites"])
+}
+
+// fakeProber probes each tool as found and passing but for helm, which
+// fails.
+// A probe runs when the test says: StartProbe publishes it running and
+// keeps what it was asked, and finish runs it and publishes its end.
+type fakeProber struct {
+	mu         sync.Mutex
+	last       []bash.ExecutableReport
+	registered []securityconfig.Executable
+	probes     int
+	hub        *watch.Hub[bash.ProbeState]
+}
+
+func newFakeProber() *fakeProber {
+	return &fakeProber{hub: watch.New(bash.ProbeState{})}
+}
+
+func (f *fakeProber) StartProbe(registered []securityconfig.Executable) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.registered = registered
+	f.probes++
+	f.hub.Sender().Send(bash.ProbeState{Probing: true, Probes: f.probes, Last: f.last}) //nolint:errcheck // never closed
+}
+
+func (f *fakeProber) WatchProbe() *watch.Receiver[bash.ProbeState] { return f.hub.Receiver() }
+
+// finish runs the probe StartProbe was asked for and publishes its end.
+func (f *fakeProber) finish() {
+	f.mu.Lock()
+	registered := f.registered
+	f.mu.Unlock()
+	var probed []bash.ExecutableReport
+	for _, report := range f.Report(registered) {
+		report.Probed, report.Resolved, report.OK, report.Version, report.Error = true, "/bin/"+report.Name, report.Name != "helm", "v1", ""
+		if report.Name == "helm" {
+			report.Error = "Exit code 1"
+		}
+		probed = append(probed, report)
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.last = probed
+	f.hub.Sender().Send(bash.ProbeState{Probes: f.probes, Last: probed}) //nolint:errcheck // never closed
+}
+
+// Report is the curated tools then registered, each as the last probe found
+// it, else not probed yet.
+func (f *fakeProber) Report(registered []securityconfig.Executable) []bash.ExecutableReport {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var tools []securityconfig.Executable
+	tools = append(tools, securityconfig.CuratedExecutables...)
+	tools = append(tools, registered...)
+	var out []bash.ExecutableReport
+	for i, tool := range tools {
+		j := slices.IndexFunc(f.last, func(r bash.ExecutableReport) bool { return r.Executable == tool })
+		if j >= 0 {
+			out = append(out, f.last[j])
+			continue
+		}
+		out = append(out, bash.ExecutableReport{Executable: tool, Registered: i >= len(securityconfig.CuratedExecutables), Error: "not probed yet"})
+	}
+	return out
+}
+
+// sandboxExecutablesServer is a server over a fake prober and a security store,
+// on a machine with a sandbox or without.
+func sandboxExecutablesServer(t *testing.T, available bool) (*httptest.Server, *fakeProber) {
+	t.Helper()
+	store, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	require.NoError(t, err)
+	prober := newFakeProber()
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
+		SecurityCfg:   securityconfig.NewService(store, nil, nil, ""),
+		SandboxStatus: sandbox.Status{Available: available},
+		Executables:   prober,
+	}))
+	t.Cleanup(srv.Close)
+	return srv, prober
+}
+
+// executablesReport is the first sandboxExecutablesWatch frame on events that probing
+// and names describe: a gauge over two receivers can say one thing twice,
+// so a frame is never counted.
+func executablesReport(t *testing.T, events <-chan sseEvent, probing bool, names []string) map[string]any {
+	t.Helper()
+	for {
+		ev := testutil.Recv(t, events, "a sandboxExecutablesWatch frame")
+		var payload struct {
+			Data struct {
+				Report map[string]any `json:"sandboxExecutablesWatch"`
+			} `json:"data"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(ev.data), &payload), ev.data)
+		report := payload.Data.Report
+		if report["probing"] == probing && slices.Equal(namesOf(report["executables"]), names) {
+			return report
+		}
+	}
+}
+
+const sandboxExecutableFields = `{ name invocation registered probed resolved shim target ok version error }`
+
+// namesOf is each tool's name in tools, a list off the wire.
+func namesOf(tools any) []string {
+	var names []string
+	for _, tl := range tools.([]any) {
+		names = append(names, tl.(map[string]any)["name"].(string))
+	}
+	return names
+}
+
+// The query, the probe, register and remove each answer the whole report in
+// the list's order: an executable listed since the last probe unprobed. The probe
+// answers the report as it stands and its end reaches the watch, which
+// carries whether one runs and re-draws when the registered tools change.
+// Each refusal is a KSTACK_VALIDATION_ERROR in the user's words.
+func TestSandboxExecutableMutationsAnswerTheReport(t *testing.T) {
+	srv, prober := sandboxExecutablesServer(t, true)
+	curated := []string{"kubectl", "helm", "kustomize", "git", "jq", "yq"}
+
+	data, _ := mutation(t, srv.URL, `{ sandboxExecutables `+sandboxExecutableFields+` }`)
+	assert.Equal(t, curated, namesOf(data["sandboxExecutables"]))
+	first := data["sandboxExecutables"].([]any)[0].(map[string]any)
+	assert.Equal(t, false, first["probed"])
+	assert.Equal(t, "not probed yet", first["error"])
+
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesWatch { probing probes executables `+sandboxExecutableFields+` } }`)
+	defer resp.Body.Close()
+	events := sseEvents(t, resp)
+	assert.Equal(t, float64(0), executablesReport(t, events, false, curated)["probes"])
+
+	data, _ = mutation(t, srv.URL, `mutation { sandboxExecutablesProbe `+sandboxExecutableFields+` }`)
+	assert.Equal(t, false, data["sandboxExecutablesProbe"].([]any)[0].(map[string]any)["probed"], "the report as it stands")
+	report := executablesReport(t, events, true, curated)
+	assert.Equal(t, false, report["executables"].([]any)[0].(map[string]any)["probed"])
+	assert.Equal(t, float64(1), report["probes"])
+
+	prober.finish()
+	report = executablesReport(t, events, false, curated)
+	assert.Equal(t, float64(1), report["probes"])
+	kubectl := report["executables"].([]any)[0].(map[string]any)
+	assert.Equal(t, map[string]any{
+		"name": "kubectl", "invocation": "kubectl version --client", "registered": false, "probed": true,
+		"resolved": "/bin/kubectl", "shim": false, "target": "", "ok": true, "version": "v1", "error": "",
+	}, kubectl)
+
+	data, _ = mutation(t, srv.URL, `mutation { sandboxExecutableRegister(name: "k9s") `+sandboxExecutableFields+` }`)
+	tools := data["sandboxExecutableRegister"].([]any)
+	assert.Equal(t, append(slices.Clone(curated), "k9s"), namesOf(tools))
+	k9s := tools[len(tools)-1].(map[string]any)
+	assert.Equal(t, "k9s --version", k9s["invocation"])
+	assert.Equal(t, true, k9s["registered"])
+	assert.Equal(t, false, k9s["probed"])
+	assert.Equal(t, true, tools[0].(map[string]any)["probed"], "the last probe's reports stay")
+	executablesReport(t, events, false, append(slices.Clone(curated), "k9s"))
+
+	data, _ = mutation(t, srv.URL, `mutation { sandboxExecutableRemove(name: "k9s") `+sandboxExecutableFields+` }`)
+	assert.Equal(t, curated, namesOf(data["sandboxExecutableRemove"]))
+	executablesReport(t, events, false, curated)
+
+	for query, message := range map[string]string{
+		`mutation { sandboxExecutableRegister(name: "kubectl") { name } }`:                            "Kstack probes kubectl already.",
+		`mutation { sandboxExecutableRegister(name: "a/b") { name } }`:                                "An executable's name is 1 to 64 letters, digits, ., _, + or -, and does not start with -.",
+		`mutation { sandboxExecutableRegister(name: "k9s", invocation: "other --version") { name } }`: "An invocation starts with the executable's name.",
+		`mutation { sandboxExecutableRemove(name: "k9s") { name } }`:                                  "That executable is not registered.",
+	} {
+		_, errs := mutation(t, srv.URL, query)
+		code, got := refusal(t, errs)
+		assert.Equal(t, "KSTACK_VALIDATION_ERROR", code, query)
+		assert.Equal(t, message, got, query)
+	}
+	mutation(t, srv.URL, `mutation { sandboxExecutableRegister(name: "k9s") { name } }`)
+	_, errs := mutation(t, srv.URL, `mutation { sandboxExecutableRegister(name: "k9s") { name } }`)
+	_, got := refusal(t, errs)
+	assert.Equal(t, "That executable is already listed.", got)
+}
+
+// A machine with no sandbox answers no tools, on the query and the watch,
+// and refuses the probe and a register.
+func TestSandboxExecutablesAreEmptyWithNoSandbox(t *testing.T) {
+	srv, _ := sandboxExecutablesServer(t, false)
+
+	data, _ := mutation(t, srv.URL, `{ sandboxExecutables { name } }`)
+	assert.Equal(t, []any{}, data["sandboxExecutables"])
+	resp := openSSESubscription(t, srv.URL, "", `subscription { sandboxExecutablesWatch { probing executables { name } } }`)
+	defer resp.Body.Close()
+	executablesReport(t, sseEvents(t, resp), false, nil)
+	for _, query := range []string{
+		`mutation { sandboxExecutablesProbe { name } }`,
+		`mutation { sandboxExecutableRegister(name: "k9s") { name } }`,
+	} {
+		_, errs := mutation(t, srv.URL, query)
+		code, _ := refusal(t, errs)
+		assert.Equal(t, "KSTACK_VALIDATION_ERROR", code, query)
+	}
+}
+
+// With no sandbox, an executable registered on a machine that had one can still be
+// removed, and the answer is the empty report.
+func TestSandboxExecutableRemoveWorksWithNoSandbox(t *testing.T) {
+	store, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	require.NoError(t, err)
+	require.NoError(t, store.RegisterExecutable("k9s", ""))
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
+		SecurityCfg: securityconfig.NewService(store, nil, nil, ""),
+		Executables: newFakeProber(),
+	}))
+	t.Cleanup(srv.Close)
+
+	data, _ := mutation(t, srv.URL, `mutation { sandboxExecutableRemove(name: "k9s") { name } }`)
+	assert.Equal(t, []any{}, data["sandboxExecutableRemove"])
+	assert.Empty(t, store.Get().Executables)
 }

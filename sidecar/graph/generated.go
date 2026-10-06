@@ -487,6 +487,9 @@ type ComplexityRoot struct {
 		PermissionModeSet               func(childComplexity int, context string, mode permissions.Mode) int
 		PermissionRuleAdd               func(childComplexity int, input model.PermissionRuleInput) int
 		PermissionRuleRemove            func(childComplexity int, id string) int
+		SandboxExecutableRegister       func(childComplexity int, name string, invocation *string) int
+		SandboxExecutableRemove         func(childComplexity int, name string) int
+		SandboxExecutablesProbe         func(childComplexity int) int
 		SandboxPathInclude              func(childComplexity int, dir string, target string) int
 		SandboxPathRefresh              func(childComplexity int) int
 		SandboxPathRemove               func(childComplexity int, dir string) int
@@ -569,6 +572,7 @@ type ComplexityRoot struct {
 		Models              func(childComplexity int) int
 		PermissionSettings  func(childComplexity int) int
 		Sandbox             func(childComplexity int) int
+		SandboxExecutables  func(childComplexity int) int
 		SandboxFolders      func(childComplexity int, chatID *apimeta.ChatID) int
 		SandboxPath         func(childComplexity int) int
 		SandboxPathFault    func(childComplexity int) int
@@ -585,6 +589,25 @@ type ComplexityRoot struct {
 		ResourceNames func(childComplexity int) int
 		Resources     func(childComplexity int) int
 		Verbs         func(childComplexity int) int
+	}
+
+	SandboxExecutable struct {
+		Error      func(childComplexity int) int
+		Invocation func(childComplexity int) int
+		Name       func(childComplexity int) int
+		Ok         func(childComplexity int) int
+		Probed     func(childComplexity int) int
+		Registered func(childComplexity int) int
+		Resolved   func(childComplexity int) int
+		Shim       func(childComplexity int) int
+		Target     func(childComplexity int) int
+		Version    func(childComplexity int) int
+	}
+
+	SandboxExecutablesReport struct {
+		Executables func(childComplexity int) int
+		Probes      func(childComplexity int) int
+		Probing     func(childComplexity int) int
 	}
 
 	SandboxFolder struct {
@@ -649,6 +672,7 @@ type ComplexityRoot struct {
 		ClustersWatch                 func(childComplexity int) int
 		EventsWatch                   func(childComplexity int, id apimeta.ObjectID, category *string) int
 		MemoriesWatch                 func(childComplexity int, clusterID apimeta.ClusterID) int
+		SandboxExecutablesWatch       func(childComplexity int) int
 	}
 
 	SyncedKindRef struct {
@@ -750,6 +774,9 @@ type MutationResolver interface {
 	SandboxPathInclude(ctx context.Context, dir string, target string) ([]*model.SandboxPathEntry, error)
 	SandboxPathRemove(ctx context.Context, dir string) ([]*model.SandboxPathEntry, error)
 	SandboxPathRefresh(ctx context.Context) ([]*model.SandboxPathEntry, error)
+	SandboxExecutablesProbe(ctx context.Context) ([]*model.SandboxExecutable, error)
+	SandboxExecutableRegister(ctx context.Context, name string, invocation *string) ([]*model.SandboxExecutable, error)
+	SandboxExecutableRemove(ctx context.Context, name string) ([]*model.SandboxExecutable, error)
 	MemorySave(ctx context.Context, input model.MemorySaveInput) (*memorysvc.Memory, error)
 	MemoryDelete(ctx context.Context, id memorysvc.MemoryID) (bool, error)
 	PermissionDefaultModeSet(ctx context.Context, mode permissions.Mode) (*model.PermissionSettings, error)
@@ -777,6 +804,7 @@ type QueryResolver interface {
 	SandboxPath(ctx context.Context) ([]*model.SandboxPathEntry, error)
 	SandboxPathFault(ctx context.Context) (*string, error)
 	SandboxPathResolved(ctx context.Context) (bool, error)
+	SandboxExecutables(ctx context.Context) ([]*model.SandboxExecutable, error)
 	PermissionSettings(ctx context.Context) (*model.PermissionSettings, error)
 	SandboxFolders(ctx context.Context, chatID *apimeta.ChatID) (*model.SandboxFolders, error)
 	ChatGrants(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error)
@@ -798,6 +826,7 @@ type SubscriptionResolver interface {
 	ChatsWatch(ctx context.Context) (<-chan *chatsvc.ChatWatchFrame, error)
 	ChatMessagesWatch(ctx context.Context, chatID apimeta.ChatID) (<-chan *chatsvc.ChatMessageWatchFrame, error)
 	MemoriesWatch(ctx context.Context, clusterID apimeta.ClusterID) (<-chan *memorysvc.MemoryWatchFrame, error)
+	SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error)
 	AuthStateWatch(ctx context.Context) (<-chan *auth.State, error)
 }
 type ToolCallResolver interface {
@@ -2650,6 +2679,34 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.PermissionRuleRemove(childComplexity, args["id"].(string)), true
+	case "Mutation.sandboxExecutableRegister":
+		if e.ComplexityRoot.Mutation.SandboxExecutableRegister == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_sandboxExecutableRegister_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SandboxExecutableRegister(childComplexity, args["name"].(string), args["invocation"].(*string)), true
+	case "Mutation.sandboxExecutableRemove":
+		if e.ComplexityRoot.Mutation.SandboxExecutableRemove == nil {
+			break
+		}
+
+		args, err := ec.field_Mutation_sandboxExecutableRemove_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Mutation.SandboxExecutableRemove(childComplexity, args["name"].(string)), true
+	case "Mutation.sandboxExecutablesProbe":
+		if e.ComplexityRoot.Mutation.SandboxExecutablesProbe == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Mutation.SandboxExecutablesProbe(childComplexity), true
 	case "Mutation.sandboxPathInclude":
 		if e.ComplexityRoot.Mutation.SandboxPathInclude == nil {
 			break
@@ -3030,6 +3087,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Sandbox(childComplexity), true
+	case "Query.sandboxExecutables":
+		if e.ComplexityRoot.Query.SandboxExecutables == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Query.SandboxExecutables(childComplexity), true
 	case "Query.sandboxFolders":
 		if e.ComplexityRoot.Query.SandboxFolders == nil {
 			break
@@ -3097,6 +3160,86 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ResourceRule.Verbs(childComplexity), true
+
+	case "SandboxExecutable.error":
+		if e.ComplexityRoot.SandboxExecutable.Error == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxExecutable.Error(childComplexity), true
+	case "SandboxExecutable.invocation":
+		if e.ComplexityRoot.SandboxExecutable.Invocation == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxExecutable.Invocation(childComplexity), true
+	case "SandboxExecutable.name":
+		if e.ComplexityRoot.SandboxExecutable.Name == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxExecutable.Name(childComplexity), true
+	case "SandboxExecutable.ok":
+		if e.ComplexityRoot.SandboxExecutable.Ok == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxExecutable.Ok(childComplexity), true
+	case "SandboxExecutable.probed":
+		if e.ComplexityRoot.SandboxExecutable.Probed == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxExecutable.Probed(childComplexity), true
+	case "SandboxExecutable.registered":
+		if e.ComplexityRoot.SandboxExecutable.Registered == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxExecutable.Registered(childComplexity), true
+	case "SandboxExecutable.resolved":
+		if e.ComplexityRoot.SandboxExecutable.Resolved == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxExecutable.Resolved(childComplexity), true
+	case "SandboxExecutable.shim":
+		if e.ComplexityRoot.SandboxExecutable.Shim == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxExecutable.Shim(childComplexity), true
+	case "SandboxExecutable.target":
+		if e.ComplexityRoot.SandboxExecutable.Target == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxExecutable.Target(childComplexity), true
+	case "SandboxExecutable.version":
+		if e.ComplexityRoot.SandboxExecutable.Version == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxExecutable.Version(childComplexity), true
+
+	case "SandboxExecutablesReport.executables":
+		if e.ComplexityRoot.SandboxExecutablesReport.Executables == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxExecutablesReport.Executables(childComplexity), true
+	case "SandboxExecutablesReport.probes":
+		if e.ComplexityRoot.SandboxExecutablesReport.Probes == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxExecutablesReport.Probes(childComplexity), true
+	case "SandboxExecutablesReport.probing":
+		if e.ComplexityRoot.SandboxExecutablesReport.Probing == nil {
+			break
+		}
+
+		return e.ComplexityRoot.SandboxExecutablesReport.Probing(childComplexity), true
 
 	case "SandboxFolder.id":
 		if e.ComplexityRoot.SandboxFolder.ID == nil {
@@ -3400,6 +3543,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Subscription.MemoriesWatch(childComplexity, args["clusterID"].(apimeta.ClusterID)), true
+	case "Subscription.sandboxExecutablesWatch":
+		if e.ComplexityRoot.Subscription.SandboxExecutablesWatch == nil {
+			break
+		}
+
+		return e.ComplexityRoot.Subscription.SandboxExecutablesWatch(childComplexity), true
 
 	case "SyncedKindRef.apiVersion":
 		if e.ComplexityRoot.SyncedKindRef.APIVersion == nil {
@@ -4675,6 +4824,44 @@ func (ec *executionContext) childFields_ResourceRule(ctx context.Context, field 
 	return nil, fmt.Errorf("no field named %q was found under type ResourceRule", field.Name)
 }
 
+func (ec *executionContext) childFields_SandboxExecutable(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "name":
+		return ec.fieldContext_SandboxExecutable_name(ctx, field)
+	case "invocation":
+		return ec.fieldContext_SandboxExecutable_invocation(ctx, field)
+	case "registered":
+		return ec.fieldContext_SandboxExecutable_registered(ctx, field)
+	case "probed":
+		return ec.fieldContext_SandboxExecutable_probed(ctx, field)
+	case "resolved":
+		return ec.fieldContext_SandboxExecutable_resolved(ctx, field)
+	case "shim":
+		return ec.fieldContext_SandboxExecutable_shim(ctx, field)
+	case "target":
+		return ec.fieldContext_SandboxExecutable_target(ctx, field)
+	case "ok":
+		return ec.fieldContext_SandboxExecutable_ok(ctx, field)
+	case "version":
+		return ec.fieldContext_SandboxExecutable_version(ctx, field)
+	case "error":
+		return ec.fieldContext_SandboxExecutable_error(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SandboxExecutable", field.Name)
+}
+
+func (ec *executionContext) childFields_SandboxExecutablesReport(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "probing":
+		return ec.fieldContext_SandboxExecutablesReport_probing(ctx, field)
+	case "probes":
+		return ec.fieldContext_SandboxExecutablesReport_probes(ctx, field)
+	case "executables":
+		return ec.fieldContext_SandboxExecutablesReport_executables(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type SandboxExecutablesReport", field.Name)
+}
+
 func (ec *executionContext) childFields_SandboxFolder(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "id":
@@ -5602,6 +5789,42 @@ func (ec *executionContext) field_Mutation_permissionRuleRemove_args(ctx context
 		return nil, err
 	}
 	args["id"] = arg0
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_sandboxExecutableRegister_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "name",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "invocation",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOString2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["invocation"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Mutation_sandboxExecutableRemove_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "name",
+		func(ctx context.Context, v any) (string, error) {
+			return ec.unmarshalNString2string(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["name"] = arg0
 	return args, nil
 }
 
@@ -12879,6 +13102,126 @@ func (ec *executionContext) fieldContext_Mutation_sandboxPathRefresh(_ context.C
 	return fc, nil
 }
 
+func (ec *executionContext) _Mutation_sandboxExecutablesProbe(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_sandboxExecutablesProbe(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Mutation().SandboxExecutablesProbe(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.SandboxExecutable) graphql.Marshaler {
+			return ec.marshalNSandboxExecutable2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxExecutableᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_sandboxExecutablesProbe(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SandboxExecutable(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_sandboxExecutableRegister(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_sandboxExecutableRegister(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SandboxExecutableRegister(ctx, fc.Args["name"].(string), fc.Args["invocation"].(*string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.SandboxExecutable) graphql.Marshaler {
+			return ec.marshalNSandboxExecutable2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxExecutableᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_sandboxExecutableRegister(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SandboxExecutable(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_sandboxExecutableRegister_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Mutation_sandboxExecutableRemove(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Mutation_sandboxExecutableRemove(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Mutation().SandboxExecutableRemove(ctx, fc.Args["name"].(string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.SandboxExecutable) graphql.Marshaler {
+			return ec.marshalNSandboxExecutable2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxExecutableᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Mutation_sandboxExecutableRemove(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Mutation",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SandboxExecutable(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Mutation_sandboxExecutableRemove_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Mutation_memorySave(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -14796,6 +15139,38 @@ func (ec *executionContext) fieldContext_Query_sandboxPathResolved(_ context.Con
 	return graphql.NewScalarFieldContext("Query", field, true, true, errors.New("field of type Boolean does not have child fields"))
 }
 
+func (ec *executionContext) _Query_sandboxExecutables(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Query_sandboxExecutables(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Query().SandboxExecutables(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.SandboxExecutable) graphql.Marshaler {
+			return ec.marshalNSandboxExecutable2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxExecutableᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Query_sandboxExecutables(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Query",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SandboxExecutable(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _Query_permissionSettings(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -15137,6 +15512,314 @@ func (ec *executionContext) _ResourceRule_resourceNames(ctx context.Context, fie
 }
 func (ec *executionContext) fieldContext_ResourceRule_resourceNames(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ResourceRule", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxExecutable_name(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutable) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxExecutable_name(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Name, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxExecutable_name(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxExecutable", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxExecutable_invocation(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutable) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxExecutable_invocation(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Invocation, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxExecutable_invocation(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxExecutable", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxExecutable_registered(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutable) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxExecutable_registered(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Registered, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxExecutable_registered(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxExecutable", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxExecutable_probed(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutable) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxExecutable_probed(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Probed, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxExecutable_probed(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxExecutable", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxExecutable_resolved(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutable) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxExecutable_resolved(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Resolved, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxExecutable_resolved(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxExecutable", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxExecutable_shim(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutable) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxExecutable_shim(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Shim, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxExecutable_shim(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxExecutable", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxExecutable_target(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutable) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxExecutable_target(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Target, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxExecutable_target(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxExecutable", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxExecutable_ok(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutable) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxExecutable_ok(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Ok, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxExecutable_ok(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxExecutable", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxExecutable_version(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutable) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxExecutable_version(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Version, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxExecutable_version(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxExecutable", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxExecutable_error(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutable) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxExecutable_error(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Error, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxExecutable_error(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxExecutable", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxExecutablesReport_probing(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutablesReport) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxExecutablesReport_probing(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Probing, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxExecutablesReport_probing(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxExecutablesReport", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxExecutablesReport_probes(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutablesReport) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxExecutablesReport_probes(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Probes, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxExecutablesReport_probes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SandboxExecutablesReport", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _SandboxExecutablesReport_executables(ctx context.Context, field graphql.CollectedField, obj *model.SandboxExecutablesReport) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_SandboxExecutablesReport_executables(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Executables, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []*model.SandboxExecutable) graphql.Marshaler {
+			return ec.marshalNSandboxExecutable2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxExecutableᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_SandboxExecutablesReport_executables(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "SandboxExecutablesReport",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SandboxExecutable(ctx, field)
+		},
+	}
+	return fc, nil
 }
 
 func (ec *executionContext) _SandboxFolder_id(ctx context.Context, field graphql.CollectedField, obj *model.SandboxFolder) (ret graphql.Marshaler) {
@@ -16317,6 +17000,38 @@ func (ec *executionContext) fieldContext_Subscription_memoriesWatch(ctx context.
 	if fc.Args, err = ec.field_Subscription_memoriesWatch_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_sandboxExecutablesWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_sandboxExecutablesWatch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return ec.Resolvers.Subscription().SandboxExecutablesWatch(ctx)
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *model.SandboxExecutablesReport) graphql.Marshaler {
+			return ec.marshalNSandboxExecutablesReport2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxExecutablesReport(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_sandboxExecutablesWatch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_SandboxExecutablesReport(ctx, field)
+		},
 	}
 	return fc, nil
 }
@@ -21941,6 +22656,27 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "sandboxExecutablesProbe":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_sandboxExecutablesProbe(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sandboxExecutableRegister":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_sandboxExecutableRegister(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "sandboxExecutableRemove":
+			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
+				return ec._Mutation_sandboxExecutableRemove(ctx, field)
+			})
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
 		case "memorySave":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_memorySave(ctx, field)
@@ -22806,6 +23542,28 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
+		case "sandboxExecutables":
+			field := field
+
+			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
+				defer func() {
+					if r := recover(); r != nil {
+						ec.Error(ctx, ec.Recover(ctx, r))
+					}
+				}()
+				res = ec._Query_sandboxExecutables(ctx, field)
+				if res == graphql.Null {
+					atomic.AddUint32(&fs.Invalids, 1)
+				}
+				return res
+			}
+
+			rrm := func(ctx context.Context) graphql.Marshaler {
+				return ec.OperationContext.RootResolverMiddleware(ctx,
+					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
+			}
+
+			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
 		case "permissionSettings":
 			field := field
 
@@ -22996,6 +23754,137 @@ func (ec *executionContext) _ResourceRule(ctx context.Context, sel ast.Selection
 			}
 		case "resourceNames":
 			out.Values[i] = ec._ResourceRule_resourceNames(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var sandboxExecutableImplementors = []string{"SandboxExecutable"}
+
+func (ec *executionContext) _SandboxExecutable(ctx context.Context, sel ast.SelectionSet, obj *model.SandboxExecutable) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, sandboxExecutableImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SandboxExecutable")
+		case "name":
+			out.Values[i] = ec._SandboxExecutable_name(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "invocation":
+			out.Values[i] = ec._SandboxExecutable_invocation(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "registered":
+			out.Values[i] = ec._SandboxExecutable_registered(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "probed":
+			out.Values[i] = ec._SandboxExecutable_probed(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resolved":
+			out.Values[i] = ec._SandboxExecutable_resolved(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "shim":
+			out.Values[i] = ec._SandboxExecutable_shim(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "target":
+			out.Values[i] = ec._SandboxExecutable_target(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "ok":
+			out.Values[i] = ec._SandboxExecutable_ok(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "version":
+			out.Values[i] = ec._SandboxExecutable_version(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "error":
+			out.Values[i] = ec._SandboxExecutable_error(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
+var sandboxExecutablesReportImplementors = []string{"SandboxExecutablesReport"}
+
+func (ec *executionContext) _SandboxExecutablesReport(ctx context.Context, sel ast.SelectionSet, obj *model.SandboxExecutablesReport) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, sandboxExecutablesReportImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("SandboxExecutablesReport")
+		case "probing":
+			out.Values[i] = ec._SandboxExecutablesReport_probing(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "probes":
+			out.Values[i] = ec._SandboxExecutablesReport_probes(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "executables":
+			out.Values[i] = ec._SandboxExecutablesReport_executables(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -23414,6 +24303,8 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_chatMessagesWatch(ctx, fields[0])
 	case "memoriesWatch":
 		return ec._Subscription_memoriesWatch(ctx, fields[0])
+	case "sandboxExecutablesWatch":
+		return ec._Subscription_sandboxExecutablesWatch(ctx, fields[0])
 	case "authStateWatch":
 		return ec._Subscription_authStateWatch(ctx, fields[0])
 	default:
@@ -25383,6 +26274,42 @@ func (ec *executionContext) marshalNResourceRule2ᚖgithubᚗcomᚋkstackhqᚋks
 		return graphql.Null
 	}
 	return ec._ResourceRule(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNSandboxExecutable2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxExecutableᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.SandboxExecutable) graphql.Marshaler {
+	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
+		fc := graphql.GetFieldContext(ctx)
+		fc.Result = &v[i]
+		return ec.marshalNSandboxExecutable2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxExecutable(ctx, sel, v[i])
+	})
+
+	for _, e := range ret {
+		if e == graphql.Null {
+			return graphql.Null
+		}
+	}
+
+	return ret
+}
+
+func (ec *executionContext) marshalNSandboxExecutable2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxExecutable(ctx context.Context, sel ast.SelectionSet, v *model.SandboxExecutable) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SandboxExecutable(ctx, sel, v)
+}
+
+func (ec *executionContext) marshalNSandboxExecutablesReport2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxExecutablesReport(ctx context.Context, sel ast.SelectionSet, v *model.SandboxExecutablesReport) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._SandboxExecutablesReport(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNSandboxFolder2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐSandboxFolderᚄ(ctx context.Context, sel ast.SelectionSet, v []*model.SandboxFolder) graphql.Marshaler {

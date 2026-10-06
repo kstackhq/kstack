@@ -18,15 +18,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SandboxFolder, SandboxFolders } from '@/lib/sandbox-folders';
 import type { SandboxPath, SandboxPathEntry } from '@/lib/sandbox-path';
+import type { SandboxExecutable, SandboxExecutables } from '@/lib/sandbox-executables';
 
-const { sandbox, path, folders, mac } = vi.hoisted(() => ({
+const { sandbox, path, folders, executables, mac } = vi.hoisted(() => ({
   sandbox: { current: {} as { available: boolean | undefined } },
   path: { current: {} as SandboxPath },
   folders: { current: {} as SandboxFolders },
+  executables: { current: {} as SandboxExecutables },
   mac: { current: false },
 }));
 vi.mock('@/lib/sandbox', () => ({ useSandbox: () => sandbox.current }));
 vi.mock('@/lib/sandbox-path', () => ({ useSandboxPath: () => path.current }));
+vi.mock('@/lib/sandbox-executables', () => ({ useSandboxExecutables: () => executables.current }));
 vi.mock('@/lib/sandbox-folders', () => ({ useSandboxFolders: () => folders.current }));
 vi.mock('@/lib/platform', () => ({ isMacOS: () => mac.current }));
 
@@ -56,7 +59,7 @@ function withPath(over: Partial<SandboxPath>) {
     refreshError: null,
     include: vi.fn(async () => {}),
     remove: vi.fn(async () => {}),
-    refresh: vi.fn(async () => {}),
+    refresh: vi.fn(async () => true),
     ...over,
   };
 }
@@ -86,11 +89,41 @@ const folder = (dir: string, extra: Partial<SandboxFolder> = {}): SandboxFolder 
   ...extra,
 });
 
+function withExecutables(over: Partial<SandboxExecutables>) {
+  executables.current = {
+    report: [],
+    probing: false,
+    changing: false,
+    probeError: null,
+    registerError: null,
+    removeError: null,
+    probe: vi.fn(async () => {}),
+    register: vi.fn(async () => true),
+    remove: vi.fn(async () => {}),
+    ...over,
+  };
+}
+
+const probed = (name: string, extra: Partial<SandboxExecutable> = {}): SandboxExecutable => ({
+  name,
+  invocation: `${name} --version`,
+  registered: false,
+  probed: true,
+  resolved: `/opt/homebrew/bin/${name}`,
+  shim: false,
+  target: '',
+  ok: true,
+  version: `${name} v1`,
+  error: '',
+  ...extra,
+});
+
 beforeEach(() => {
   sandbox.current = { available: true };
   mac.current = false;
   withPath({});
   withFolders({});
+  withExecutables({});
 });
 
 describe('SandboxSettings', () => {
@@ -342,5 +375,143 @@ describe('SandboxSettings: Folders', () => {
         .map((r) => r.textContent),
     ).toEqual(['/Users/ren/.ssh', '/Users/ren/Library/Application Support/Kstack']);
     expect(screen.getByText(/A sandboxed command never reads these, whatever you grant/)).toBeInTheDocument();
+  });
+});
+
+describe('SandboxSettings: Executables', () => {
+  const executableRows = () => within(screen.getByRole('list', { name: 'Executables' })).getAllByRole('listitem');
+
+  it('draws each executable: its path or why it has none, a shim, its version, its tag and its error', () => {
+    withExecutables({
+      report: [
+        probed('kubectl', { shim: true, target: '/Users/ren/.asdf/installs/kubectl/1.31/bin/kubectl' }),
+        probed('helm', { ok: false, error: 'Exit code 1', version: 'Error: plugin failed' }),
+        probed('kustomize', { resolved: '', ok: false, version: '', error: "not found on the sandbox's PATH" }),
+        probed('git', { probed: false, resolved: '', ok: false, version: '', error: 'not probed yet' }),
+        probed('jq', {
+          probed: false,
+          resolved: '',
+          ok: false,
+          version: '',
+          error: 'could not start: the disk did not answer in time',
+        }),
+      ],
+    });
+    render(<SandboxSettings />);
+    const [kubectl, helm, kustomize, git, jq] = executableRows();
+
+    expect(within(kubectl).getByTestId('resolved').textContent).toBe('/opt/homebrew/bin/kubectl');
+    expect(within(kubectl).getByText('shim →')).toBeInTheDocument();
+    expect(within(kubectl).getByTestId('target').textContent).toBe(
+      '/Users/ren/.asdf/installs/kubectl/1.31/bin/kubectl',
+    );
+    expect(within(kubectl).getByText('kubectl v1')).toBeInTheDocument();
+    expect(within(kubectl).getByText('ok')).toBeInTheDocument();
+
+    expect(within(helm).getByText('failed')).toBeInTheDocument();
+    expect(within(helm).getByText('Exit code 1')).toBeInTheDocument();
+    expect(within(helm).getByText('Error: plugin failed')).toBeInTheDocument();
+
+    expect(within(kustomize).getByText("not found on the sandbox's PATH")).toBeInTheDocument();
+    expect(within(kustomize).queryByText('failed')).toBeNull();
+
+    expect(within(git).getByText('not probed yet')).toBeInTheDocument();
+    expect(within(git).queryByText('failed')).toBeNull();
+
+    expect(within(jq).getByText('could not start: the disk did not answer in time')).toBeInTheDocument();
+    expect(within(jq).queryByText('failed')).toBeNull();
+    expect(
+      screen.getByText(
+        'Kstack runs each executable once in the sandbox, with no cluster and no network, to see what it needs.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('says plainly when kubectl was not found, and only then', () => {
+    const line = "kubectl was not found on the sandbox's PATH. Install it, or include its folder above.";
+    withExecutables({
+      report: [probed('kubectl', { resolved: '', ok: false, error: "not found on the sandbox's PATH" })],
+    });
+    const { unmount } = render(<SandboxSettings />);
+    expect(screen.getByText(line)).toBeInTheDocument();
+
+    unmount();
+    withExecutables({ report: [probed('kubectl')] });
+    const found = render(<SandboxSettings />);
+    expect(screen.queryByText(line)).toBeNull();
+
+    found.unmount();
+    withExecutables({ report: [probed('kubectl', { probed: false, resolved: '', error: 'not probed yet' })] });
+    const unprobed = render(<SandboxSettings />);
+    expect(screen.queryByText(line)).toBeNull();
+
+    // A probe that could not start says nothing about whether kubectl is there.
+    unprobed.unmount();
+    withExecutables({
+      report: [
+        probed('kubectl', { probed: false, resolved: '', error: 'could not start: the disk did not answer in time' }),
+      ],
+    });
+    render(<SandboxSettings />);
+    expect(screen.queryByText(line)).toBeNull();
+  });
+
+  it('probes again, holding the button while it runs, and draws a refused probe', async () => {
+    withExecutables({ report: [probed('kubectl')] });
+    const { unmount } = render(<SandboxSettings />);
+    await userEvent.click(screen.getByRole('button', { name: 'Probe again' }));
+    expect(executables.current.probe).toHaveBeenCalled();
+
+    unmount();
+    withExecutables({ report: [probed('kubectl')], probing: true, probeError: 'This machine has no sandbox.' });
+    render(<SandboxSettings />);
+    expect(screen.getByRole('button', { name: /Probing…/ })).toBeDisabled();
+    expect(screen.getByText('This machine has no sandbox.')).toBeInTheDocument();
+  });
+
+  it('probes once Refresh PATH answers, and not when it is refused', async () => {
+    const { unmount } = render(<SandboxSettings />);
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh PATH' }));
+    expect(executables.current.probe).toHaveBeenCalledTimes(1);
+
+    unmount();
+    withPath({ refresh: vi.fn(async () => false) });
+    withExecutables({});
+    render(<SandboxSettings />);
+    await userEvent.click(screen.getByRole('button', { name: 'Refresh PATH' }));
+    expect(executables.current.probe).not.toHaveBeenCalled();
+  });
+
+  it('lists the registered executables with Remove, and adds one', async () => {
+    withExecutables({ report: [probed('kubectl'), probed('k9s', { registered: true })] });
+    render(<SandboxSettings />);
+    const registered = within(screen.getByRole('list', { name: 'Registered executables' })).getAllByRole('listitem');
+    expect(registered).toHaveLength(1);
+    await userEvent.click(within(registered[0]).getByRole('button', { name: 'Remove' }));
+    expect(executables.current.remove).toHaveBeenCalledWith('k9s');
+
+    const name = screen.getByRole('textbox', { name: 'Executable name' });
+    const invocation = screen.getByRole('textbox', { name: 'Invocation' });
+    expect(invocation).toHaveAttribute('placeholder', '<name> --version');
+    await userEvent.type(name, 'stern');
+    await userEvent.click(screen.getByRole('button', { name: 'Add executable' }));
+    expect(executables.current.register).toHaveBeenCalledWith('stern', '');
+    expect(name).toHaveValue('');
+  });
+
+  it('keeps the form and draws why a register was refused', async () => {
+    withExecutables({ register: vi.fn(async () => false), registerError: 'Kstack probes kubectl already.' });
+    render(<SandboxSettings />);
+    await userEvent.type(screen.getByRole('textbox', { name: 'Executable name' }), 'kubectl');
+    await userEvent.click(screen.getByRole('button', { name: 'Add executable' }));
+    expect(screen.getByRole('textbox', { name: 'Executable name' })).toHaveValue('kubectl');
+    expect(screen.getByText('Kstack probes kubectl already.')).toBeInTheDocument();
+  });
+
+  it('holds Add and Remove while a change is in flight', () => {
+    withExecutables({ report: [probed('k9s', { registered: true })], changing: true });
+    render(<SandboxSettings />);
+    expect(screen.getByRole('button', { name: 'Remove' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Add executable' })).toBeDisabled();
   });
 });

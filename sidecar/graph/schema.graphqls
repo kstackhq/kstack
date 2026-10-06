@@ -1588,6 +1588,40 @@ type SandboxFolders {
   rulesHeld: Boolean!
 }
 
+"One executable the sandbox probe checks, as the last probe found it."
+type SandboxExecutable {
+  "The executable's name. User text for a registered one: draw it through VisibleText."
+  name: String!
+  "What the probe runs, split on whitespace and never through a shell."
+  invocation: String!
+  "Registered by the user in Settings, not on the curated list."
+  registered: Boolean!
+  "Whether a probe has run it; false for an executable listed since the last probe, whose `error` says so."
+  probed: Boolean!
+  "The binary on the sandbox's PATH; empty when none. Draw it through VisibleText."
+  resolved: String!
+  "Under a version manager's shims folder."
+  shim: Boolean!
+  "The binary behind a shim; empty when unknown."
+  target: String!
+  "The invocation exited 0."
+  ok: Boolean!
+  "The first non-empty line of its output, redacted. The executable's own text: draw it through VisibleText."
+  version: String!
+  "Why it did not run or did not pass: Bash's first line, `not found on the sandbox's PATH`, `could not start: …` or `not probed yet`; empty when ok."
+  error: String!
+}
+
+"The executable probe as a watcher sees it."
+type SandboxExecutablesReport {
+  "A probe is running; its reports land in `executables` when it ends."
+  probing: Boolean!
+  "How many probes have started since the sidecar did. A gauge keeps its latest value alone, so a probe's start and end can arrive as one frame; a watcher that asked for a probe knows it started once this moved."
+  probes: Int!
+  "Every executable the probe checks, the curated ones then the user's, as the last probe found each. Empty on a machine with no sandbox."
+  executables: [SandboxExecutable!]!
+}
+
 "One value the security settings file held and the sidecar left out."
 type SecurityRefusal {
   "The setting's JSON key in the file."
@@ -1642,6 +1676,9 @@ type Query {
 
   "Whether a sync has ever read the login shell's PATH. Until one has, sandboxed commands search the platform's default folders; after it, the list alone, so an empty one searches nothing. False on a machine with no sandbox."
   sandboxPathResolved: Boolean!
+
+  "Every executable the sandbox probe checks, the curated ones then the user's, as the last probe found each. Empty on a machine with no sandbox."
+  sandboxExecutables: [SandboxExecutable!]!
 
   "The permission modes and rules, as Settings shows them."
   permissionSettings: PermissionSettings!
@@ -1716,6 +1753,15 @@ type Mutation {
 
   "Run the login shell again and fold its PATH in. Refused KSTACK_VALIDATION_ERROR with the shell's fault, or on a machine with no sandbox. Returns the whole list."
   sandboxPathRefresh: [SandboxPathEntry!]!
+
+  "Start a probe of every listed executable in the sandbox, with no cluster and no network, and answer the report as it stands; a probe already running is waited out, then one runs. Its end reaches `sandboxExecutablesWatch`. Refused KSTACK_VALIDATION_ERROR on a machine with no sandbox."
+  sandboxExecutablesProbe: [SandboxExecutable!]!
+
+  "Register an executable for the probe, with `invocation`, or `<name> --version` when it is null. Refused KSTACK_VALIDATION_ERROR for a name or invocation out of shape, a name already listed, or on a machine with no sandbox. Returns the whole report, the new executable not probed yet."
+  sandboxExecutableRegister(name: String!, invocation: String): [SandboxExecutable!]!
+
+  "Remove a registered executable. Refused KSTACK_VALIDATION_ERROR for a name not registered. Returns the whole report."
+  sandboxExecutableRemove(name: String!): [SandboxExecutable!]!
 
   # --- Memory ---
   "Create a memory, or rewrite one by `id`; a rewrite can rename it and move it between one cluster and every cluster. Written by the user. Refused `KSTACK_MEMORY_NAME_TAKEN` for a name the target scope holds, `KSTACK_MEMORY_FULL` for a scope with no room for the memory, `KSTACK_MEMORY_SECRET` for a credential, `KSTACK_VALIDATION_ERROR` for a note out of shape, and `KSTACK_RECORD_NOT_FOUND` for an unknown id or a missing cluster."
@@ -1833,6 +1879,10 @@ type Subscription {
   # --- Memory ---
   "DELTA WATCH. What one cluster's chats see, keyed by `memory.id`: its own memories and every cluster's. A move between scopes arrives as `Added` or `Deleted` on each cluster it enters or leaves."
   memoriesWatch(clusterID: ClusterID!): MemoryWatchFrame!
+
+  # --- Sandbox ---
+  "GAUGE. The executable probe: whether one runs, and the report as the last one left it, a fresh value on each start, each end and each change to the registered executables."
+  sandboxExecutablesWatch: SandboxExecutablesReport!
 
   # --- Cloud account ---
   "Authentication state as a gauge: a fresh snapshot on every sign-in, sign-out, and refresh failure."
