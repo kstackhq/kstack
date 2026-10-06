@@ -916,7 +916,7 @@ func TestTheStartSweepMarksRunningTasksLost(t *testing.T) {
 	db := openTestDB(t, dir)
 	c := seedChat(t, db, aChat("1", now))
 	turn := seedTurn(t, db, c.ID, now)
-	settleSeededRun(t, db, turn.Run, runSucceeded, now)
+	settleSeededRun(t, db, turn.Run, RunSucceeded, now)
 	for _, q := range []string{
 		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at, finished_at) VALUES ('l', '` + string(turn.Run) + `', 0, 'fake', 'fake', 0, 0)`,
 		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, cwd, status, created_at, started_at, finished_at)
@@ -930,7 +930,7 @@ func TestTheStartSweepMarksRunningTasksLost(t *testing.T) {
 	}
 	require.NoError(t, db.Close())
 
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -984,14 +984,14 @@ func TestAStartWhoseFileOrRowFailsLeavesNothing(t *testing.T) {
 	require.Error(t, err, "the row refers to a call that is not there")
 	assert.Empty(t, taskFiles(t, s, c.ID))
 
-	tasks := filepath.Join(tc.Path(), taskDirName)
+	tasks := filepath.Join(s.chatDir(c.ID).Path(), taskDirName)
 	require.NoError(t, os.RemoveAll(tasks))
 	require.NoError(t, os.WriteFile(tasks, nil, 0o600))
 	_, _, err = tc.Start(never)
 	require.Error(t, err, "the tasks directory is a file")
 
-	require.NoError(t, os.RemoveAll(tc.Path()))
-	require.NoError(t, os.WriteFile(tc.Path(), nil, 0o600))
+	require.NoError(t, os.RemoveAll(s.chatDir(c.ID).Path()))
+	require.NoError(t, os.WriteFile(s.chatDir(c.ID).Path(), nil, 0o600))
 	_, _, err = tc.Start(never)
 	assert.ErrorIs(t, err, rootdir.ErrNotADirectory, "the chat's entry is a file")
 

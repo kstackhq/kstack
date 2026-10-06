@@ -32,6 +32,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/rootdir"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/session"
@@ -69,6 +70,12 @@ var (
 	// ErrChatNetworkChanged is a send whose sender saw the chat's network switch
 	// the other way.
 	ErrChatNetworkChanged = errors.New("chatsvc: the chat's network switch changed")
+	// ErrNoSandbox is a monitor run on a machine where no sandbox confines one.
+	ErrNoSandbox = errors.New("chatsvc: no sandbox confines a monitor run")
+	// ErrMonitoringOff is a monitor run on a cluster whose monitoring is off.
+	ErrMonitoringOff = errors.New("chatsvc: the cluster is not watched")
+	// ErrMonitorInFlight is a monitor run on a cluster whose run is still going.
+	ErrMonitorInFlight = errors.New("chatsvc: a monitor run is already in flight")
 )
 
 const (
@@ -188,6 +195,10 @@ type Service interface {
 	// RemoveChatGrant removes one of the chat's rules by id and answers the
 	// rules left: ErrChatGone or ErrGrantGone for a chat or an id gone.
 	RemoveChatGrant(ctx context.Context, chatID ChatID, id string) ([]permissions.Rule, error)
+
+	// RunMonitor takes one monitor run on the cluster: a run of target over
+	// brief in the monitor's session, settled when it returns.
+	RunMonitor(ctx context.Context, clusterID apimeta.ClusterID, target llm.Target, brief string) (MonitorResult, error)
 }
 
 var _ Service = (*service)(nil)
@@ -209,9 +220,11 @@ type service struct {
 	// target takes, and every stored call is read through it, whether or not a
 	// turn offers its tool.
 	tools tools.Box
-	// chatsRoot is the root every chat's directory is under: held open so no
-	// link a command swaps in leads out of it.
-	chatsRoot *os.Root
+	// chatsRoot is the root every chat's directory is under, and monitorRoot
+	// every cluster's monitor directory: held open so no link a command swaps
+	// in leads out of either.
+	chatsRoot   *os.Root
+	monitorRoot *os.Root
 
 	// turns is the one in-flight turn per chat, under turnsMu. The mutex is never
 	// held across a database call: the writer has one connection, and a holder
@@ -229,6 +242,8 @@ type service struct {
 	ruleWrite func(ctx context.Context, chatID ChatID, rule permissions.Rule, d ApprovalDecision) error
 	// tasks is every background task that holds a slot, by chat, under turnsMu too.
 	tasks map[ChatID]map[TaskID]*task
+	// monitors is the one monitor run per cluster, under turnsMu too.
+	monitors map[apimeta.ClusterID]*monitor
 
 	// stamps is what each chat's turns have seen of the files they read, under
 	// its own mutex (files.go).
@@ -261,34 +276,44 @@ type service struct {
 	onSwept       chan struct{} // receives after every sweep
 	onRecorded    func()        // runs once a task's rows land, before it starts
 	onFoldersRead func()        // runs once a notice turn has read the folders, before its transaction
+	onSlotsCopied func()        // runs once a monitor sweep has copied the slots, before it reads the live clusters
+	onLiveRead    func()        // runs once a monitor sweep has read the live clusters
 }
 
 // New builds the service over the app's DB, the directory each chat's files go
-// under, the providers a send can name, the card source, the memories each
-// chat's cluster sees, the box: the tools every turn is offered from, which read
-// every stored call, the lists that pick a turn's tools from it, whether the
-// machine offers sandboxed Bash, and the security settings a session's modes,
-// rules and folders come from. Nothing runs until Start.
-func New(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, security *securityconfig.Service) (Service, error) {
-	return newService(db, chatsDir, llmSvc, clusterCards, memories, box, lists, sandboxStatus, security)
+// under and the one each cluster's monitor's go under, the providers a send can
+// name, the card source, the memories each chat's cluster sees, the box: the
+// tools every turn is offered from, which read every stored call, the lists
+// that pick a turn's tools from it, whether the machine offers sandboxed Bash,
+// and the security settings a session's modes, rules and folders come from.
+// Nothing runs until Start.
+func New(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, security *securityconfig.Service) (Service, error) {
+	return newService(db, chatsDir, monitorDir, llmSvc, clusterCards, memories, box, lists, sandboxStatus, security)
 }
 
 // newService is New returning the concrete type, for tests. A nil memories sends
 // no memory section.
-func newService(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, security *securityconfig.Service) (*service, error) {
-	chatsRoot, err := openChats(chatsDir)
+func newService(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, security *securityconfig.Service) (*service, error) {
+	chatsRoot, err := rootdir.MakeRoot(chatsDir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("open the chats' directory: %w", err)
+	}
+	monitorRoot, err := rootdir.MakeRoot(monitorDir)
+	if err != nil {
+		_ = chatsRoot.Close()
+		return nil, fmt.Errorf("open the monitor's directory: %w", err)
 	}
 	st, err := sqlstmt.Prepare[stmtID](context.Background(), db.Write, db.Read, statements)
 	if err != nil {
 		_ = chatsRoot.Close()
+		_ = monitorRoot.Close()
 		return nil, fmt.Errorf("prepare chat statements: %w", err)
 	}
 	s := &service{
 		db:                 db,
 		store:              st,
 		chatsRoot:          chatsRoot,
+		monitorRoot:        monitorRoot,
 		llmSvc:             llmSvc,
 		clusterCards:       clusterCards,
 		memories:           memories,
@@ -300,6 +325,7 @@ func newService(db *appdb.DB, chatsDir string, llmSvc *llm.Service, clusterCards
 		deleting:           map[ChatID]int{},
 		pending:            map[ApprovalID]*waiter{},
 		tasks:              map[ChatID]map[TaskID]*task{},
+		monitors:           map[apimeta.ClusterID]*monitor{},
 		stamps:             map[ChatID]map[string]tools.Stamp{},
 		stopped:            make(chan struct{}),
 		sweepRetry:         sweepRetry,
@@ -404,9 +430,11 @@ func (s *service) enter() error {
 	}
 }
 
-// Close releases the prepared statements and the chats' root. It runs after
-// stop has joined every reader.
-func (s *service) Close() error { return errors.Join(s.store.Close(), s.chatsRoot.Close()) }
+// Close releases the prepared statements and the two roots. It runs after stop
+// has joined every reader.
+func (s *service) Close() error {
+	return errors.Join(s.store.Close(), s.chatsRoot.Close(), s.monitorRoot.Close())
+}
 
 // notify tells the watchers of key to re-read. Called after a commit, never inside
 // the transaction.
@@ -820,7 +848,7 @@ func (s *service) Delete(ctx context.Context, chatID ChatID) error {
 	}
 	// The run has ended, and a settle's retry writes rows alone, so nothing of the
 	// sidecar's writes to the directory after.
-	s.removeChatDir(chatID)
+	s.chatDir(chatID).remove()
 	s.dropStamps(chatID)
 	s.notify(chatsKey)
 	s.notify(messagesKey(chatID))

@@ -81,7 +81,7 @@ func roomFor(ctx context.Context, st stmts, chatID ChatID, target llm.Target, bo
 		return err
 	}
 	// A refused request reports no usage, so the count alone would admit the send.
-	if ok && run.status == runFailed && run.errText == contextFullText && run.firstCallErred &&
+	if ok && run.status == RunFailed && run.errText == contextFullText && run.firstCallErred &&
 		run.providerID == target.Provider.ID && run.modelID == target.Model.ID {
 		return ErrChatContextFull
 	}

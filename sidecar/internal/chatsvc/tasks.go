@@ -74,14 +74,15 @@ type task struct {
 // file goes in the chat's directory, and it belongs to the call open in
 // run; run is nil for tasks no run starts.
 type chatTasks struct {
-	chatDir
+	s   *service
+	id  ChatID
 	run *runJournal
 }
 
 var _ tools.Tasks = chatTasks{}
 
 func (s *service) chatTasks(id ChatID, j *runJournal) chatTasks {
-	return chatTasks{chatDir: s.chatDir(id), run: j}
+	return chatTasks{s: s, id: id, run: j}
 }
 
 // Start starts a task for the call now running in the run.
@@ -89,7 +90,7 @@ func (c chatTasks) Start(start func(*os.File) (tools.Task, error)) (string, stri
 	if c.run == nil || c.run.openTool == nil {
 		return "", "", errNoOpenCall
 	}
-	return c.s.startTask(c.chatDir, c.run.runID, c.run.openTool.ID, taskRecord{}, start)
+	return c.s.startTask(c.id, c.run.runID, c.run.openTool.ID, taskRecord{}, start)
 }
 
 // Stop stops one of the chat's tasks on the model's word, with the grace. A
@@ -124,11 +125,12 @@ type taskRecord struct {
 // task's file, writes its row with rec, starts the task and hands it to a
 // watcher; a step that fails undoes the ones before it. The slot is one of wg's,
 // taken through enter, so stop waits for the watcher that releases it.
-func (s *service) startTask(dir chatDir, runID RunID, toolCallID ToolCallID, rec taskRecord, start func(*os.File) (tools.Task, error)) (string, string, error) {
+func (s *service) startTask(chatID ChatID, runID RunID, toolCallID ToolCallID, rec taskRecord, start func(*os.File) (tools.Task, error)) (string, string, error) {
 	if err := s.enter(); err != nil {
 		return "", "", err
 	}
-	tk := &task{id: newTaskID(), chatID: dir.id, runID: runID, toolCallID: toolCallID, end: rec.end, done: make(chan struct{})}
+	dir := s.chatDir(chatID)
+	tk := &task{id: newTaskID(), chatID: chatID, runID: runID, toolCallID: toolCallID, end: rec.end, done: make(chan struct{})}
 	if err := s.registerTask(tk); err != nil {
 		s.wg.Done()
 		return "", "", err
@@ -245,7 +247,7 @@ func (s *service) dropTask(tk *task) {
 
 // openTaskFile makes the chat's tasks directory and a new file for the task in
 // it, through the chat's root, and answers the path a result names it by.
-func openTaskFile(dir chatDir, id TaskID) (*os.File, string, error) {
+func openTaskFile(dir entryDir, id TaskID) (*os.File, string, error) {
 	root, err := dir.Root(true)
 	if err != nil {
 		return nil, "", err
@@ -263,7 +265,7 @@ func openTaskFile(dir chatDir, id TaskID) (*os.File, string, error) {
 }
 
 // removeTaskFile removes a task's file, for a start that failed after making it.
-func removeTaskFile(dir chatDir, id TaskID) {
+func removeTaskFile(dir entryDir, id TaskID) {
 	root, err := dir.Root(false)
 	if err != nil {
 		return

@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The chat sweeper: what deletes the chats of a cluster marked for deletion, on the
-// clusters signal and on its own retry.
+// The chat sweeper: what deletes the chats of a cluster marked for deletion, and
+// ends the monitor of a cluster that is marked or gone, on the clusters signal
+// and on its own retry.
 package chatsvc
 
 import (
@@ -21,6 +22,7 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"time"
 
 	"github.com/amorey/gobus/conflate"
@@ -82,21 +84,80 @@ func (s *service) sweepLoop(clusters *conflate.Receiver[string, struct{}]) {
 	}
 }
 
-// sweep runs one pass over the marked clusters. It notifies nothing itself: each
-// delete that removes a row pings the clusters key, and a no-op scan notifying would
-// wake the mirror, whose own pass would wake this, forever.
+// sweep runs one pass: the monitors of every cluster that is not a live row,
+// then the chats of every marked cluster. The monitors go first, so a chat
+// delete that fails does not leave one running until the retry. It notifies
+// nothing itself: each delete that removes a row pings the clusters key, and a
+// no-op scan notifying would wake the mirror, whose own pass would wake this,
+// forever.
 func (s *service) sweep() error {
+	errs := []error{s.sweepMonitors()}
 	ids, err := markedClusterIDs(s.ctx, s.store.Stmts())
 	if err != nil {
-		return err
+		return errors.Join(append(errs, err)...)
 	}
-	var errs []error
 	for _, id := range ids {
 		if _, err := s.deleteByCluster(s.ctx, id); err != nil {
 			errs = append(errs, err)
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// sweepMonitors ends every monitor run, and removes every monitor directory,
+// whose cluster is not a live row. It keys on the live rows rather than the
+// marked ones: the mirror can delete a marked row with no chats before any pass
+// sees the mark, and a monitor run holds no row back. The directory is listed
+// and the slots copied before the rows are read, so neither an entry nor a run
+// made meanwhile is taken by mistake: a run is reserved for a cluster whose row
+// already exists, so the read sees it unless it has gone since. A run still in
+// its slot once the others are joined keeps its directory: a run uses it only
+// past its insert, which a mark is serialized with, and the mark's signal
+// brings the pass that ends it.
+func (s *service) sweepMonitors() error {
+	entries, err := fs.ReadDir(s.monitorRoot.FS(), ".")
+	if err != nil {
+		slog.Warn("could not list the monitor's directory", "err", err)
+	}
+	s.turnsMu.Lock()
+	slots := maps.Clone(s.monitors)
+	s.turnsMu.Unlock()
+	if s.onSlotsCopied != nil {
+		s.onSlotsCopied()
+	}
+	ids, err := liveClusterIDs(s.ctx, s.store.Stmts())
+	if err != nil {
+		return err
+	}
+	if s.onLiveRead != nil {
+		s.onLiveRead()
+	}
+	live := make(map[apimeta.ClusterID]bool, len(ids))
+	for _, id := range ids {
+		live[id] = true
+	}
+	gone := map[apimeta.ClusterID]*monitor{}
+	for id, m := range slots {
+		if !live[id] {
+			gone[id] = m
+		}
+	}
+	for _, m := range gone {
+		m.cancel()
+	}
+	// Each run has settled before its directory goes.
+	for id, m := range gone {
+		<-m.done
+		s.monitorDir(id).remove()
+	}
+	s.turnsMu.Lock()
+	held := maps.Clone(s.monitors)
+	s.turnsMu.Unlock()
+	rootdir.Sweep(s.monitorRoot, entries, func(e fs.DirEntry) bool {
+		id := apimeta.ClusterID(e.Name())
+		return live[id] || held[id] != nil
+	})
+	return nil
 }
 
 // deleteByCluster deletes every chat filed under the cluster, each as Delete would,

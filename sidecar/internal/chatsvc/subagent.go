@@ -59,13 +59,13 @@ func (t *turn) Start(ctx context.Context, d tools.Delegation) (string, error) {
 	linked := *t.openTool
 	linked.SpawnedRunID = run.ID
 	chatID := t.chatID
-	c := &subagent{runJournal: &runJournal{
+	c := &subagent{briefedRun{runJournal: &runJournal{
 		s: s, chatID: chatID, runID: run.ID, target: target, agentCallID: linked.ID,
 		unansweredLimit: s.unansweredLimit,
 		// Every row it writes has landed before it publishes, so the watchers'
 		// re-read finds it.
 		publish: func(MessageStatus) { s.notify(messagesKey(chatID)) },
-	}}
+	}}}
 	spec := agent.Turn{
 		Target: target, SystemPrompt: subagentSystemPrompt(),
 		Messages: []llm.Message{{Role: string(RoleUser), Blocks: subagentMessage(card, d.Prompt)}},
@@ -91,7 +91,7 @@ func (t *turn) Start(ctx context.Context, d tools.Delegation) (string, error) {
 		takeBack: func(ctx context.Context, st stmts) error { return deleteRun(ctx, st, run.ID) },
 		end:      c.end,
 	}
-	id, _, err := s.startTask(s.chatDir(chatID), t.runID, linked.ID, rec, func(f *os.File) (tools.Task, error) {
+	id, _, err := s.startTask(chatID, t.runID, linked.ID, rec, func(f *os.File) (tools.Task, error) {
 		// The last moment before the subagent starts: a Cancel during the row
 		// write starts nothing, rather than an agent under a call that answered
 		// cancelled, whose id the model never saw. It reads the turn's context,
@@ -165,23 +165,12 @@ func (a *agentTask) Wait() tools.Exit {
 // Stop cancels the subagent at once, whatever now says: it has no grace to give.
 func (a *agentTask) Stop(bool) { a.cancel() }
 
-// run is the subagent's loop, then its report into f. The stream is third-party
-// code, so a panic in it fails the subagent rather than the process.
+// run is the subagent's loop, then its report into f.
 func (a *agentTask) run(ctx context.Context, spec agent.Turn, f *os.File) {
 	defer close(a.done)
 	defer a.cancel()
 	c := a.sub
-	func() {
-		defer func() {
-			if p := recover(); p != nil {
-				c.streamErr = fmt.Errorf("panic: %v", p)
-				c.status, c.report, c.errText = runFailed, "", c.streamErr.Error()
-			}
-		}()
-		// agent.Run's error also carries the writes that are not fatal; Settled
-		// reads the loop's own outcome.
-		_, _ = agent.Run(ctx, spec, c, c)
-	}()
+	c.loop(ctx, spec, c)
 	report := c.report[:tools.RuneBoundary(c.report, min(len(c.report), tools.FileLimit))]
 	_, err := f.WriteString(report)
 	if err = errors.Join(err, f.Close()); err != nil {
@@ -189,32 +178,11 @@ func (a *agentTask) run(ctx context.Context, spec agent.Turn, f *os.File) {
 	}
 }
 
-// subagent is the agent.Recorder and Approver of one subagent's run: its calls
-// are recorded as a parent's are, under its own run. status, report, errText and
-// streamErr are how the loop settled, which the task's end writes: status is
-// empty until Settled, and report is the text of the last reply of a subagent
-// that succeeded.
+// subagent is the agent.Recorder and Approver of one subagent's run: a
+// briefedRun whose end is its task's. Its gated calls ask the user through the
+// journal, as a turn's do.
 type subagent struct {
-	*runJournal
-	status    runStatus
-	report    string
-	errText   string
-	streamErr error
-}
-
-// Progress publishes nothing: the subagent's text is its report, which reaches
-// the parent as a notice.
-func (c *subagent) Progress([]llm.Block) {}
-
-// Settled keeps how the loop ended. It writes nothing: the task's end writes the
-// run whole, with its rows, in one transaction.
-func (c *subagent) Settled(_ context.Context, res agent.Result, err error) error {
-	c.streamErr = err
-	c.status, c.errText = runOutcome(err)
-	if c.status == runSucceeded {
-		c.report = lastReplyText(res.Blocks)
-	}
-	return nil
+	briefedRun
 }
 
 // end is how the subagent's task ends, off the run's outcome: stopped for a run
@@ -223,22 +191,68 @@ func (c *subagent) Settled(_ context.Context, res agent.Result, err error) error
 // row write ends the run and heals its rows too.
 func (c *subagent) end(by string, at time.Time) taskEnd {
 	end := taskEnd{Status: taskFailed, At: at}
-	end.Run = func(ctx context.Context, st stmts) error {
-		return settleRun(ctx, st, c.runID, c.status, c.report, c.errText, at)
-	}
-	// Every row whole again: it heals a write that did not land, and closes a
-	// call a panic left open.
-	end.Rows = func(ctx context.Context, st stmts) error {
-		c.closeOpen("", c.streamErr, at)
-		return c.writeCalls(ctx, st)
-	}
+	end.Run = func(ctx context.Context, st stmts) error { return c.writeRun(ctx, st, at) }
+	end.Rows = func(ctx context.Context, st stmts) error { return c.writeRows(ctx, st, at) }
 	switch {
-	case c.status == runCancelled:
+	case c.status == RunCancelled:
 		end.Status, end.StoppedBy, end.Notified = taskStopped, by, by == stoppedByModel
-	case c.status == runSucceeded && c.report != "":
+	case c.status == RunSucceeded && c.report != "":
 		end.Status = taskCompleted
 	}
 	return end
+}
+
+// briefedRun is the agent.Recorder of a run handed a brief and no message of its
+// own — a subagent's or a monitor's: its calls are recorded under its own run,
+// and its report is the text of its last reply. status, report, errText and
+// streamErr are how the loop settled, kept for one write at the run's end:
+// status is empty until Settled, and report is set only when the run succeeded.
+type briefedRun struct {
+	*runJournal
+	status    RunStatus
+	report    string
+	errText   string
+	streamErr error
+}
+
+// Progress publishes nothing: the run's text is its report, read once it ends.
+func (c *briefedRun) Progress([]llm.Block) {}
+
+// Settled keeps how the loop ended. It writes nothing: the run's end writes the
+// run whole, with its rows, in one transaction.
+func (c *briefedRun) Settled(_ context.Context, res agent.Result, err error) error {
+	c.streamErr = err
+	c.status, c.errText = runOutcome(err)
+	if c.status == RunSucceeded {
+		c.report = lastReplyText(res.Blocks)
+	}
+	return nil
+}
+
+// loop runs the agent's loop, approver deciding its gated calls. The stream is
+// third-party code, so a panic in it fails the run rather than the process.
+func (c *briefedRun) loop(ctx context.Context, spec agent.Turn, approver agent.Approver) {
+	defer func() {
+		if p := recover(); p != nil {
+			c.streamErr = fmt.Errorf("panic: %v", p)
+			c.status, c.report, c.errText = RunFailed, "", c.streamErr.Error()
+		}
+	}()
+	// agent.Run's error also carries the writes that are not fatal; Settled
+	// reads the loop's own outcome.
+	_, _ = agent.Run(ctx, spec, c, approver)
+}
+
+// writeRun writes the run's end as the loop settled it.
+func (c *briefedRun) writeRun(ctx context.Context, st stmts, at time.Time) error {
+	return settleRun(ctx, st, c.runID, c.status, c.report, c.errText, at)
+}
+
+// writeRows writes every row of the run whole again: it heals a write that did
+// not land, and closes a call a panic left open.
+func (c *briefedRun) writeRows(ctx context.Context, st stmts, at time.Time) error {
+	c.closeOpen("", c.streamErr, at)
+	return c.writeCalls(ctx, st)
 }
 
 // lastReplyText is the text of the last reply in a run's blocks: llm.Text over

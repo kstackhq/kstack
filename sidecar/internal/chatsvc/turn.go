@@ -57,7 +57,7 @@ type turn struct {
 	settled, landed, succeeded bool
 	// The outcome settle fixes, which every attempt writes whole: the run's
 	// status and error, the answer's content, and when it ended.
-	status   runStatus
+	status   RunStatus
 	errText  string
 	answer   rawjson.RawJSON
 	at       time.Time
@@ -539,18 +539,18 @@ func (t *turn) Settled(_ context.Context, res agent.Result, err error) error {
 // runOutcome is the status a stream error settles a run as, and the text stored
 // with it: a cancel is cancelled and carries none, a provider that refused to read
 // the chat is failed in the transcript's own words, and a clean stream succeeded.
-func runOutcome(streamErr error) (runStatus, string) {
+func runOutcome(streamErr error) (RunStatus, string) {
 	switch {
 	case streamErr == nil:
-		return runSucceeded, ""
+		return RunSucceeded, ""
 	case errors.Is(streamErr, context.Canceled), errors.Is(streamErr, context.DeadlineExceeded):
-		return runCancelled, ""
+		return RunCancelled, ""
 	}
 	var pe *llm.Error
 	if errors.As(streamErr, &pe) && pe.ContextFull() {
-		return runFailed, contextFullText
+		return RunFailed, contextFullText
 	}
-	return runFailed, streamErr.Error()
+	return RunFailed, streamErr.Error()
 }
 
 // callError is a model call's error as its row keeps it: empty for a clean
@@ -559,9 +559,9 @@ func runOutcome(streamErr error) (runStatus, string) {
 // holds a response body.
 func callError(streamErr error) string {
 	switch status, _ := runOutcome(streamErr); status {
-	case runSucceeded:
+	case RunSucceeded:
 		return ""
-	case runCancelled:
+	case RunCancelled:
 		return callCancelled
 	}
 	return streamErr.Error()
@@ -611,7 +611,7 @@ func (t *turn) settleAttempt() {
 		return
 	}
 	t.landed = true
-	t.succeeded = t.status == runSucceeded
+	t.succeeded = t.status == RunSucceeded
 	if t.attempts > 1 {
 		slog.Info("chat answer settled after retrying", "chat", t.chatID, "attempts", t.attempts)
 	}

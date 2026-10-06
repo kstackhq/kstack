@@ -634,8 +634,10 @@ above, that is most of 1, 2 and 6.
 2. **Session grants and "always" rules supersede the bash tool record's rule** ("no setting, no
    allowlist, no read exempt") for actions the proxy classifies. A raw command outside the
    sandbox still asks every time.
-3. **The monitoring session's plumbing is built ahead of a monitoring agent**: its kind, its
-   read-only token policy and the proposal card, driven by a stand-in until an agent exists.
+3. **The monitoring session's plumbing is built ahead of a monitoring agent** (step 6B): a run of
+   the chat service under its cluster and no chat (`chatsvc.RunMonitor`), its session, its record,
+   its folder and its teardown, called by its tests alone until an agent exists. The proposal card
+   goes to the agent's step.
 4. **One token per run, mapped to its session.** A run's token dies with the run, as it does
    today, which is stricter than one per session and costs nothing; the session is what the token
    maps to. The proxy reads the session's policy through the run's grant.
@@ -682,8 +684,9 @@ above, that is most of 1, 2 and 6.
     kill grace, times the CPU count, so it binds only a process that outlives the clock, and on
     macOS only one that does not ignore `SIGXCPU`.
 17. **The monitor is refused by its mode and its no-prompts policy, never by its kind** (step
-    6B), so a proxy that forgot about monitors would still refuse it; its proposal is text a
-    chat runs under the normal flow.
+    6B), so a proxy that forgot about monitors would still refuse it. It has an asker
+    (`monitorAsker`), which records each refusal on its run and never asks, so a hijacked monitor
+    leaves a trail; its proposal is text a chat runs under the normal flow.
 18. **macOS refuses the setuid programs that exist to escalate, not every setuid program**
     (step 2B): `sudo`, `su`, `login` and `security_authtrampoline`. Seatbelt's `file-mode` rule
     also refuses setgid files, and no later rule wins `ps` and `top` back, which macOS installs

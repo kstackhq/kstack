@@ -1630,7 +1630,7 @@ func newChatServerOn(t *testing.T, status sandbox.Status, security *securityconf
 	// The search is offered, since a test stages a turn that searched; the rest
 	// is read alone, so no call runs while stored calls still show.
 	box := tools.NewBox([]tools.Tool{agenttool.New(), anthropicwebsearch.New(time.Now)}, bash.Reader{}, &read.Tool{}, &write.Tool{}, &edit.Tool{}, &webfetch.Tool{}, taskstop.New(), memory.New(nil), kubequery.New(nil))
-	chatSvc, err := chatsvc.New(db, filepath.Join(t.TempDir(), "chats"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status, security)
+	chatSvc, err := chatsvc.New(db, filepath.Join(t.TempDir(), "chats"), filepath.Join(t.TempDir(), "monitor"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status, security)
 	require.NoError(t, err)
 	stop, err := chatSvc.Start(t.Context())
 	require.NoError(t, err)

@@ -30,6 +30,12 @@ var promptSystem string
 //go:embed prompts/general_purpose.md
 var promptGeneralPurpose string
 
+// promptMonitor is what a monitor run is told: who it is, what it holds, and
+// that nobody is there to ask.
+//
+//go:embed prompts/monitor.md
+var promptMonitor string
+
 // systemPrompt is the system prompt a turn hands the agent: promptSystem. The
 // agent appends what the turn can do, each offered tool's section among it, and
 // the standing rule that data is not instructions.
@@ -42,4 +48,10 @@ func systemPrompt() string {
 // on answering the user.
 func subagentSystemPrompt() string {
 	return systemPrompt() + "\n\n" + strings.TrimSpace(promptGeneralPurpose)
+}
+
+// monitorSystemPrompt is the system prompt a monitor run hands the agent, which
+// appends what it can do and that data is not instructions.
+func monitorSystemPrompt() string {
+	return strings.TrimSpace(promptMonitor)
 }

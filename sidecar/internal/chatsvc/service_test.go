@@ -49,7 +49,7 @@ func TestStartFailsAStrandedRun(t *testing.T) {
 	db := openTestDB(t, dir)
 	c := seedChat(t, db, aChat("1", now))
 	stranded := seedTurn(t, db, c.ID, now)
-	setRunStatus(t, db, stranded.Run, runRunning)
+	setRunStatus(t, db, stranded.Run, RunRunning)
 	_, err := db.Write.Exec(`UPDATE messages SET content = ? WHERE id = ?`, `[{"type":"text","text":"half an answer"}]`, string(stranded.Assistant))
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
@@ -62,23 +62,31 @@ func TestStartFailsAStrandedRun(t *testing.T) {
 	assert.Equal(t, StatusFailed, msgs[1].Status)
 	assert.Equal(t, strandedReason, msgs[1].Error)
 	assert.Contains(t, string(msgs[1].Content), "half an answer")
-	assert.Equal(t, runFailed, runStatusOf(t, s.db, stranded.Run))
+	assert.Equal(t, RunFailed, runStatusOf(t, s.db, stranded.Run))
 }
 
-// A stranded run under no chat — a monitor's — is failed like the rest, and the
-// reconcile survives its NULL chat.
-func TestStartFailsAStrandedRunWithNoChat(t *testing.T) {
+// A monitor run a previous process left running is failed at the next start, as
+// any run is, its open calls closed: the reconcile survives its NULL chat.
+func TestAStrandedMonitorRunIsFailed(t *testing.T) {
 	dir := t.TempDir()
 	db := openTestDB(t, dir)
-	run := RunID(appdb.NewID())
-	_, err := db.Write.Exec(`INSERT INTO agent_runs (id, agent_type, app_version, trigger, provider, model, dialect, status, created_at)
-		VALUES (?, 'monitor', 'test', 'monitor', 'fake', 'fake', 'fake', 'running', 0)`, string(run))
+	run := agentRun{ID: newRunID(), ClusterID: "7", ProviderID: "fake", ModelID: "fake", Dialect: "fake", Task: "look", AppVersion: "test"}
+	require.NoError(t, prepareOn(t, db).InTx(t.Context(), func(st stmts) error { return insertMonitorRun(t.Context(), st, run) }))
+	setRunStatus(t, db, run.ID, RunRunning)
+	_, err := db.Write.Exec(`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES ('l', ?, 0, 'fake', 'fake', 0)`, string(run.ID))
+	require.NoError(t, err)
+	_, err = db.Write.Exec(`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, status, created_at, started_at) VALUES ('t', 'l', 0, 'Bash', 'running', 0, 0)`)
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
 	s := startService(t, dir)
 
-	assert.Equal(t, runFailed, runStatusOf(t, s.db, run))
+	assert.Equal(t, RunFailed, runStatusOf(t, s.db, run.ID))
+	assert.True(t, llmCallOf(t, s.db, run.ID).finished)
+	calls := toolCallRows(t, s.db, run.ID)
+	require.Len(t, calls, 1)
+	assert.Equal(t, "failed", calls[0].status)
+	assert.Equal(t, `{"error":"stranded"}`, calls[0].errText)
 }
 
 // A watch opened before Start read the stranded answer as it was; the reconcile
@@ -88,8 +96,8 @@ func TestStartTellsAPreStartWatchOfAStrandedRun(t *testing.T) {
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, db, aChat("1", now))
 	stranded := seedTurn(t, db, c.ID, now)
-	setRunStatus(t, db, stranded.Run, runRunning)
-	s, err := newService(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	setRunStatus(t, db, stranded.Run, RunRunning)
+	s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 
 	w, err := s.WatchMessages(t.Context(), c.ID)
@@ -110,7 +118,7 @@ func TestStartTellsAPreStartWatchOfAStrandedRun(t *testing.T) {
 // before it: nothing else will, since the lifecycle stops only what started.
 func TestAFailedStartEndsThePreStartWatches(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
-	s, err := newService(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	w, err := s.WatchList(t.Context())
 	require.NoError(t, err)
@@ -152,7 +160,7 @@ func TestNewFailsWhenTheStatementsWillNotPrepare(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
 	require.NoError(t, db.Close())
 
-	_, err := New(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, tools.Box{}, noLists, sandbox.Status{}, testSecurity(t))
+	_, err := New(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, tools.Box{}, noLists, sandbox.Status{}, testSecurity(t))
 
 	assert.ErrorContains(t, err, "prepare chat statements")
 }
@@ -161,7 +169,7 @@ func TestNewFailsWhenTheStatementsWillNotPrepare(t *testing.T) {
 // quietly left stranded rows behind.
 func TestStartReportsAReconcileItCouldNotRun(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
-	s, err := newService(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	// The statements fail to close on the closed file; the directory is what matters.
 	t.Cleanup(func() { _ = s.Close() })
@@ -174,7 +182,7 @@ func TestStartReportsAReconcileItCouldNotRun(t *testing.T) {
 // The service's context exists from construction, so a watch that arrives before
 // Start is answered.
 func TestAWatchBeforeStartIsAnswered(t *testing.T) {
-	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), testutil.Timeout)
@@ -191,7 +199,7 @@ func TestAWatchBeforeStartIsAnswered(t *testing.T) {
 // Nothing joins the WaitGroup once stop has run: work admitted after its Wait is
 // work Close pulls the connection out from under.
 func TestWorkArrivingAfterStopIsRefused(t *testing.T) {
-	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	stop, err := s.Start(t.Context())
 	require.NoError(t, err)
@@ -434,7 +442,7 @@ func TestMessagesWatchOpensWithASnapshotAndItsBookmark(t *testing.T) {
 	assert.Equal(t, DeltaFrameBookmark, bookmark.Type)
 	assert.Nil(t, bookmark.Message)
 
-	settleSeededRun(t, s.db, turn.Run, runSucceeded, time.UnixMilli(2_000).UTC())
+	settleSeededRun(t, s.db, turn.Run, RunSucceeded, time.UnixMilli(2_000).UTC())
 	s.notify(messagesKey(c.ID))
 	settled := awaitFrame(t, w.Frames, func(f ChatMessageWatchFrame) bool {
 		return f.Message != nil && f.Message.ID == turn.Assistant && f.Message.Status == StatusComplete
@@ -905,7 +913,7 @@ func TestAChatMovesAcrossDialects(t *testing.T) {
 	answer := marshalBlocks([]llm.Block{thinking, llm.TextBlock("Two pods.")})
 	_, err = s.db.Write.Exec(`UPDATE messages SET content = ? WHERE id = ?`, string(answer), string(turn.Assistant))
 	require.NoError(t, err)
-	settleSeededRun(t, s.db, turn.Run, runSucceeded, now)
+	settleSeededRun(t, s.db, turn.Run, RunSucceeded, now)
 
 	sent, err := s.Send(t.Context(), &c.ID, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "and nodes?")
 	require.NoError(t, err)
@@ -1144,7 +1152,7 @@ func TestCancelKeepsThePartialAnswer(t *testing.T) {
 	assert.Equal(t, StatusCancelled, got.Status)
 	assert.Equal(t, marshalBlocks([]llm.Block{llm.ThinkingBlock(fakeFirstWord)}), got.Content)
 	assert.Empty(t, got.FinishReason)
-	assert.Equal(t, runCancelled, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunCancelled, runStatusOf(t, s.db, msg.RunID))
 	assert.Equal(t, llmCallRow{err: callCancelled, finished: true}, llmCallOf(t, s.db, msg.RunID))
 }
 
@@ -1169,7 +1177,7 @@ func TestACancelBeforeTheClaimRunsNothing(t *testing.T) {
 	s.startTurn(tr, msgs[1])
 	testutil.Wait(t, tr.done, "the turn to end")
 
-	assert.Equal(t, runCancelled, runStatusOf(t, s.db, turn.Run))
+	assert.Equal(t, RunCancelled, runStatusOf(t, s.db, turn.Run))
 	assert.Zero(t, fakeOf(s).Asked())
 	assert.Zero(t, tableCount(t, s.db, "llm_calls"), "no call was opened")
 }
@@ -1208,7 +1216,7 @@ func TestARefusedClaimAsksNoModel(t *testing.T) {
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 	turn := seedTurn(t, s.db, c.ID, time.UnixMilli(1_000).UTC())
-	setRunStatus(t, s.db, turn.Run, runRunning)
+	setRunStatus(t, s.db, turn.Run, RunRunning)
 	tr, err := s.reserveTurn(c.ID, turn.Run, fakeTarget(s))
 	require.NoError(t, err)
 	msgs, err := listMessages(t.Context(), s.store.Stmts(), c.ID, testReaders)
@@ -1217,7 +1225,7 @@ func TestARefusedClaimAsksNoModel(t *testing.T) {
 	s.startTurn(tr, msgs[1])
 	testutil.Wait(t, tr.done, "the turn to end")
 
-	assert.Equal(t, runFailed, runStatusOf(t, s.db, turn.Run))
+	assert.Equal(t, RunFailed, runStatusOf(t, s.db, turn.Run))
 	assert.Zero(t, fakeOf(s).Asked())
 	msgs, err = listMessages(t.Context(), s.store.Stmts(), c.ID, testReaders)
 	require.NoError(t, err)
@@ -1283,7 +1291,7 @@ func TestASendDuringADeleteIsRefused(t *testing.T) {
 
 // Stop cancels every turn and waits for its settle.
 func TestStopCancelsTheTurnsAndSettlesThem(t *testing.T) {
-	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	stop, err := s.Start(t.Context())
 	require.NoError(t, err)
@@ -1303,7 +1311,7 @@ func TestStopCancelsTheTurnsAndSettlesThem(t *testing.T) {
 
 func TestASendAfterARestartContinuesTheSeq(t *testing.T) {
 	dir := t.TempDir()
-	first, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	first, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	stop, err := first.Start(t.Context())
 	require.NoError(t, err)
@@ -1326,7 +1334,7 @@ func TestStartClosesTheCallsAPreviousRunLeftOpen(t *testing.T) {
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, db, aChat("1", now))
 	turn := seedTurn(t, db, c.ID, now)
-	setRunStatus(t, db, turn.Run, runRunning)
+	setRunStatus(t, db, turn.Run, RunRunning)
 	_, err := db.Write.Exec(`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES (?, ?, 0, 'fake', 'fake', 0)`, appdb.NewID(), string(turn.Run))
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
@@ -1601,7 +1609,7 @@ func TestAnUnsettledRowsPayloadsGoWithItsRounds(t *testing.T) {
 	}
 	_, err := s.db.Write.Exec(`UPDATE messages SET content = ? WHERE id = ?`, string(marshalBlocks(row)), string(turn.Assistant))
 	require.NoError(t, err)
-	setRunStatus(t, s.db, turn.Run, runCancelled)
+	setRunStatus(t, s.db, turn.Run, RunCancelled)
 
 	next := send(t, s, &chat.ID, "2", "and?")
 	awaitSettled(t, s, chat.ID, next.ID)
@@ -1670,7 +1678,7 @@ func TestStrandedToolCallsAreClosedOnStart(t *testing.T) {
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, db, aChat("1", now))
 	turn := seedTurn(t, db, c.ID, now)
-	setRunStatus(t, db, turn.Run, runRunning)
+	setRunStatus(t, db, turn.Run, RunRunning)
 	call := appdb.NewID()
 	_, err := db.Write.Exec(`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES (?, ?, 0, 'fake', 'fake', 0)`, call, string(turn.Run))
 	require.NoError(t, err)
@@ -1812,7 +1820,7 @@ func TestAStartThatCannotCloseAStrandedCallFails(t *testing.T) {
 			require.NoError(t, err)
 			_, err = db.Write.Exec(tc.trigger)
 			require.NoError(t, err)
-			s, err := newService(db, chatsDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+			s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 			require.NoError(t, err)
 
 			_, err = s.Start(t.Context())

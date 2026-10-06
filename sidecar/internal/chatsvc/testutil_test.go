@@ -79,6 +79,13 @@ func markCluster(t *testing.T, db *appdb.DB, id apimeta.ClusterID) {
 	require.NoError(t, err)
 }
 
+// setMonitoring switches the monitor on or off for a seeded cluster.
+func setMonitoring(t *testing.T, db *appdb.DB, id apimeta.ClusterID, on bool) {
+	t.Helper()
+	_, err := db.Write.Exec(`UPDATE clusters SET monitoring_enabled = ? WHERE id = ?`, on, string(id))
+	require.NoError(t, err)
+}
+
 // newTestSet is the statement set prepared on an app.db of this test's own.
 func newTestSet(t *testing.T) *sqlstmt.Set[stmtID] {
 	t.Helper()
@@ -138,23 +145,23 @@ func seedTurn(t *testing.T, db *appdb.DB, chatID ChatID, at time.Time) seededTur
 }
 
 // setRunStatus moves a seeded run, the way a turn would.
-func setRunStatus(t *testing.T, db *appdb.DB, id RunID, status runStatus) {
+func setRunStatus(t *testing.T, db *appdb.DB, id RunID, status RunStatus) {
 	t.Helper()
 	_, err := db.Write.Exec(`UPDATE agent_runs SET status = ? WHERE id = ?`, string(status), string(id))
 	require.NoError(t, err)
 }
 
 // settleSeededRun settles a seeded run at finishedAt.
-func settleSeededRun(t *testing.T, db *appdb.DB, id RunID, status runStatus, finishedAt time.Time) {
+func settleSeededRun(t *testing.T, db *appdb.DB, id RunID, status RunStatus, finishedAt time.Time) {
 	t.Helper()
 	_, err := db.Write.Exec(`UPDATE agent_runs SET status = ?, finished_at = ? WHERE id = ?`, string(status), millis(finishedAt), string(id))
 	require.NoError(t, err)
 }
 
 // runStatusOf reads a run's stored status.
-func runStatusOf(t *testing.T, db *appdb.DB, id RunID) runStatus {
+func runStatusOf(t *testing.T, db *appdb.DB, id RunID) RunStatus {
 	t.Helper()
-	var status runStatus
+	var status RunStatus
 	require.NoError(t, db.Read.QueryRow(`SELECT status FROM agent_runs WHERE id = ?`, string(id)).Scan(&status))
 	return status
 }
@@ -170,6 +177,9 @@ func tableCount(t *testing.T, db *appdb.DB, table string) int {
 // chatsDirIn is the chats' directory under dir.
 func chatsDirIn(dir string) string { return filepath.Join(dir, "chats") }
 
+// monitorDirIn is the monitor's directory under dir.
+func monitorDirIn(dir string) string { return filepath.Join(dir, "monitor") }
+
 // startService opens a service over dir and starts it, on the fake and no card:
 // the stub's empty card is what a fresh chat holds, so no question carries a
 // context block.
@@ -182,7 +192,7 @@ func startService(t *testing.T, dir string) *service {
 // tool box and lists.
 func startServiceWith(t *testing.T, dir string, llmSvc *llm.Service, clusterCards ClusterCards, box tools.Box, lists ToolLists) *service {
 	t.Helper()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), llmSvc, clusterCards, nil, box, lists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), llmSvc, clusterCards, nil, box, lists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	startPrepared(t, s)
 	return s

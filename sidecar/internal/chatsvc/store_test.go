@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/rawjson"
@@ -61,9 +62,12 @@ func TestEveryRowHelperNamesItsFailure(t *testing.T) {
 		"next seq":                  func() error { _, err := nextSeq(ctx, st, id); return err },
 		"insert message":            func() error { return insertMessage(ctx, st, ChatMessage{}, "") },
 		"insert run":                func() error { return insertRun(ctx, st, agentRun{}) },
+		"insert monitor run":        func() error { return insertMonitorRun(ctx, st, agentRun{}) },
+		"cluster monitoring":        func() error { _, _, err := clusterMonitoring(ctx, st, "1"); return err },
+		"live clusters":             func() error { _, err := liveClusterIDs(ctx, st); return err },
 		"claim run":                 func() error { return claimRun(ctx, st, "r", now) },
 		"write content":             func() error { return writeContent(ctx, st, "m", emptyContent) },
-		"settle run":                func() error { return settleRun(ctx, st, "r", runFailed, "", "", now) },
+		"settle run":                func() error { return settleRun(ctx, st, "r", RunFailed, "", "", now) },
 		"answer by request key":     func() error { _, _, err := answerByRequestKey(ctx, st, "k", testReaders); return err },
 		"insert llm call":           func() error { return insertLLMCall(ctx, st, llmCallEntry{}) },
 		"close llm call":            func() error { return closeLLMCall(ctx, st, llmCallEntry{ID: "c", FinishedAt: now}) },
@@ -71,7 +75,7 @@ func TestEveryRowHelperNamesItsFailure(t *testing.T) {
 		"upsert tool call":          func() error { return upsertToolCall(ctx, st, toolCallEntry{}) },
 		"close stranded tool calls": func() error { return closeStrandedToolCalls(ctx, st, now) },
 		"upsert approval":           func() error { return upsertApproval(ctx, st, approval{}) },
-		"flip run":                  func() error { return flipRun(ctx, st, "r", runRunning) },
+		"flip run":                  func() error { return flipRun(ctx, st, "r", RunRunning) },
 		"cluster accepts":           func() error { _, err := clusterAccepts(ctx, st, "1"); return err },
 		"insert task":               func() error { return insertTask(ctx, st, "t", id, "c", "/p", now) },
 		"delete task":               func() error { return deleteTask(ctx, st, "t") },
@@ -219,9 +223,94 @@ func TestChatModeIsCheckedByTheColumn(t *testing.T) {
 // A run's dialect is checked non-empty alone: the set is llm.Dialects' to list.
 func TestARunDialectIsCheckedByTheColumn(t *testing.T) {
 	db := openTestDB(t, t.TempDir())
-	_, err := db.Write.Exec(`INSERT INTO agent_runs (id, agent_type, app_version, trigger, provider, model, dialect, created_at)
-		VALUES ('r', 'chat', 'test', 'chat', 'fake', 'fake', '', 0)`)
+	_, err := db.Write.Exec(`INSERT INTO agent_runs (id, agent_type, app_version, trigger, cluster_id, provider, model, dialect, created_at)
+		VALUES ('r', 'monitor', 'test', 'monitor', '1', 'fake', 'fake', '', 0)`)
 	assert.ErrorContains(t, err, "CHECK")
+}
+
+// A monitor's run is filed under its cluster and no chat, queued, its task the
+// brief; the CHECKs keep a cluster on a monitor's run alone.
+func TestAMonitorRunIsFiledUnderItsClusterWithNoChat(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	st := prepareOn(t, db).Stmts()
+	run := agentRun{
+		ID: newRunID(), ClusterID: "7", ProviderID: "fake", ModelID: "fake", Effort: "low",
+		Dialect: "fake", Task: "look", AppVersion: "test", CreatedAt: time.UnixMilli(1_000).UTC(),
+	}
+
+	require.NoError(t, insertMonitorRun(t.Context(), st, run))
+
+	var (
+		agentType, trigger, task, status string
+		chatID, clusterID                sql.NullString
+	)
+	require.NoError(t, db.Read.QueryRow(`SELECT agent_type, trigger, chat_id, cluster_id, task, status FROM agent_runs WHERE id = ?`,
+		string(run.ID)).Scan(&agentType, &trigger, &chatID, &clusterID, &task, &status))
+	assert.Equal(t, "monitor", agentType)
+	assert.Equal(t, "monitor", trigger)
+	assert.False(t, chatID.Valid)
+	assert.Equal(t, "7", clusterID.String)
+	assert.Equal(t, "look", task)
+	assert.Equal(t, string(RunQueued), status)
+
+	c := seedChat(t, db, aChat("7", time.UnixMilli(1_000).UTC()))
+	for _, row := range []struct {
+		name, trigger string
+		chat, cluster any
+	}{
+		{"a monitor's run with a chat", "monitor", string(c.ID), "7"},
+		{"a monitor's run with no cluster", "monitor", nil, nil},
+		{"a chat's run with a cluster", "chat", string(c.ID), "7"},
+	} {
+		_, err := db.Write.Exec(`INSERT INTO agent_runs (id, agent_type, app_version, trigger, chat_id, cluster_id, provider, model, dialect, created_at)
+			VALUES (?, 'x', 'test', ?, ?, ?, 'fake', 'fake', 'fake', 0)`, appdb.NewID(), row.trigger, row.chat, row.cluster)
+		assert.ErrorContains(t, err, "CHECK", row.name)
+	}
+}
+
+// A cluster's delete takes its monitor's runs and their rows.
+func TestAClustersDeleteTakesItsMonitorRuns(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	st := prepareOn(t, db).Stmts()
+	run := agentRun{ID: newRunID(), ClusterID: "7", ProviderID: "fake", ModelID: "fake", Dialect: "fake", Task: "look", AppVersion: "test"}
+	require.NoError(t, insertMonitorRun(t.Context(), st, run))
+	_, err := db.Write.Exec(`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES ('l', ?, 0, 'fake', 'fake', 0)`, string(run.ID))
+	require.NoError(t, err)
+
+	_, err = db.Write.Exec(`DELETE FROM clusters WHERE id = '7'`)
+	require.NoError(t, err)
+
+	assert.Zero(t, tableCount(t, db, "agent_runs"))
+	assert.Zero(t, tableCount(t, db, "llm_calls"))
+}
+
+// Whether a monitor may run on a cluster: a row that is there and unmarked,
+// and whose switch is on.
+func TestClusterMonitoring(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	st := prepareOn(t, db).Stmts()
+	setMonitoring(t, db, "7", true)
+	setMonitoring(t, db, "8", true)
+	markCluster(t, db, "8")
+
+	for id, want := range map[apimeta.ClusterID][2]bool{
+		"7": {true, true}, "1": {true, false}, "8": {false, false}, "nope": {false, false},
+	} {
+		found, enabled, err := clusterMonitoring(t.Context(), st, id)
+		require.NoError(t, err)
+		assert.Equal(t, want, [2]bool{found, enabled}, id)
+	}
+}
+
+// The clusters a monitor may be kept under are the unmarked rows.
+func TestLiveClusterIDsAreTheUnmarkedRows(t *testing.T) {
+	db := openTestDB(t, t.TempDir())
+	st := prepareOn(t, db).Stmts()
+	markCluster(t, db, "8")
+
+	ids, err := liveClusterIDs(t.Context(), st)
+	require.NoError(t, err)
+	assert.ElementsMatch(t, []apimeta.ClusterID{"1", "2", "7", "9", "42"}, ids)
 }
 
 // The list sorts by updated_at: a chat moves to the top when its row is touched.
@@ -356,13 +445,13 @@ func TestAMessagesStatusIsItsRuns(t *testing.T) {
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, db, aChat("1", now))
-	turns := map[runStatus]seededTurn{}
-	for _, status := range []runStatus{runQueued, runRunning, runWaitingApproval, runSucceeded, runFailed, runCancelled} {
+	turns := map[RunStatus]seededTurn{}
+	for _, status := range []RunStatus{RunQueued, RunRunning, RunWaitingApproval, RunSucceeded, RunFailed, RunCancelled} {
 		turn := seedTurn(t, db, c.ID, now)
 		setRunStatus(t, db, turn.Run, status)
 		turns[status] = turn
 	}
-	settleSeededRun(t, db, turns[runSucceeded].Run, runSucceeded, time.UnixMilli(5_000).UTC())
+	settleSeededRun(t, db, turns[RunSucceeded].Run, RunSucceeded, time.UnixMilli(5_000).UTC())
 
 	msgs, err := listMessages(t.Context(), st, c.ID, testReaders)
 	require.NoError(t, err)
@@ -370,15 +459,15 @@ func TestAMessagesStatusIsItsRuns(t *testing.T) {
 	for _, m := range msgs {
 		byID[m.ID] = m
 	}
-	want := map[runStatus]MessageStatus{
-		runQueued: StatusStreaming, runRunning: StatusStreaming, runWaitingApproval: StatusWaitingApproval,
-		runSucceeded: StatusComplete, runFailed: StatusFailed, runCancelled: StatusCancelled,
+	want := map[RunStatus]MessageStatus{
+		RunQueued: StatusStreaming, RunRunning: StatusStreaming, RunWaitingApproval: StatusWaitingApproval,
+		RunSucceeded: StatusComplete, RunFailed: StatusFailed, RunCancelled: StatusCancelled,
 	}
 	for status, turn := range turns {
 		assert.Equal(t, want[status], byID[turn.Assistant].Status, string(status))
 	}
-	assert.Equal(t, sql.NullTime{Time: time.UnixMilli(5_000).UTC(), Valid: true}, byID[turns[runSucceeded].Assistant].FinishedAt)
-	assert.Equal(t, sql.NullTime{}, byID[turns[runFailed].Assistant].FinishedAt)
+	assert.Equal(t, sql.NullTime{Time: time.UnixMilli(5_000).UTC(), Valid: true}, byID[turns[RunSucceeded].Assistant].FinishedAt)
+	assert.Equal(t, sql.NullTime{}, byID[turns[RunFailed].Assistant].FinishedAt)
 }
 
 func TestFailStrandedRunsFailsEveryUnfinishedRun(t *testing.T) {
@@ -388,11 +477,11 @@ func TestFailStrandedRunsFailsEveryUnfinishedRun(t *testing.T) {
 	c := seedChat(t, db, aChat("1", now))
 	queued := seedTurn(t, db, c.ID, now)
 	running := seedTurn(t, db, c.ID, now)
-	setRunStatus(t, db, running.Run, runRunning)
+	setRunStatus(t, db, running.Run, RunRunning)
 	waiting := seedTurn(t, db, c.ID, now)
-	setRunStatus(t, db, waiting.Run, runWaitingApproval)
+	setRunStatus(t, db, waiting.Run, RunWaitingApproval)
 	done := seedTurn(t, db, c.ID, now)
-	settleSeededRun(t, db, done.Run, runSucceeded, now)
+	settleSeededRun(t, db, done.Run, RunSucceeded, now)
 
 	stranded, err := failStrandedRuns(t.Context(), st, "stranded", time.UnixMilli(9_000).UTC())
 	require.NoError(t, err)
@@ -485,7 +574,7 @@ func TestClaimRunTakesOnlyAQueuedRun(t *testing.T) {
 	turn := seedTurn(t, db, c.ID, now)
 
 	require.NoError(t, claimRun(t.Context(), st, turn.Run, now))
-	assert.Equal(t, runRunning, runStatusOf(t, db, turn.Run))
+	assert.Equal(t, RunRunning, runStatusOf(t, db, turn.Run))
 	assert.ErrorIs(t, claimRun(t.Context(), st, turn.Run, now), errRunNotQueued, "claimed twice")
 	assert.ErrorIs(t, claimRun(t.Context(), st, RunID(appdb.NewID()), now), errRunNotQueued, "no such run")
 }
@@ -541,7 +630,7 @@ func TestASettledTurnEqualsItsOwnRoundTrip(t *testing.T) {
 	done := time.UnixMilli(3_000).UTC()
 	answer := marshalBlocks([]llm.Block{llm.TextBlock("Twelve pods.")})
 	require.NoError(t, writeContent(t.Context(), st, turn.Assistant, answer))
-	require.NoError(t, settleRun(t.Context(), st, turn.Run, runSucceeded, "", "", done))
+	require.NoError(t, settleRun(t.Context(), st, turn.Run, RunSucceeded, "", "", done))
 	call.StopReason, call.FinishedAt = "end_turn", done
 	require.NoError(t, closeLLMCall(t.Context(), st, call))
 
@@ -794,7 +883,7 @@ func TestTheActionCarriesTheRowsFlag(t *testing.T) {
 	set := prepareOn(t, db)
 	c := seedChat(t, db, aChat("1", now))
 	turn := seedTurn(t, db, c.ID, now)
-	settleSeededRun(t, db, turn.Run, runSucceeded, now)
+	settleSeededRun(t, db, turn.Run, RunSucceeded, now)
 	for _, q := range []string{
 		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at, finished_at) VALUES ('l', '` + string(turn.Run) + `', 0, 'fake', 'fake', 0, 0)`,
 		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, cwd, sandboxed, status, created_at, started_at, finished_at)

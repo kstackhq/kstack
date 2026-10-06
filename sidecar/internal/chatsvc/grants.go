@@ -334,6 +334,13 @@ func (s *service) sessionFor(chatID ChatID, outside, networkThisTurn bool) sessi
 	}
 }
 
+// monitorSession is the monitor's session: it reads the cluster through the
+// proxy and nothing else. Every field it leaves zero is read by something: no
+// Policy is read-only at the proxy, no Network is none, no Folders is none.
+func monitorSession() session.Session {
+	return session.Session{Kind: session.Monitor, NoPrompts: true, NoSecretData: true}
+}
+
 // networkEnabled is the chat's network switch as stored now. A read that
 // fails, or a chat that is gone, answers false, so a broken read gives no
 // network.

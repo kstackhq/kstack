@@ -57,7 +57,7 @@ func TestATurnReservedAsTheServiceStopsIsAbandoned(t *testing.T) {
 	testutil.Wait(t, tr.done, "the abandoned turn")
 	assert.Nil(t, s.turnOf(c.ID))
 	assert.Zero(t, fakeOf(s).Asked())
-	assert.Equal(t, runQueued, runStatusOf(t, s.db, turn.Run))
+	assert.Equal(t, RunQueued, runStatusOf(t, s.db, turn.Run))
 }
 
 // A message with no blocks is left out of the history: no wire accepts one, and an
@@ -67,7 +67,7 @@ func TestTheHistoryLeavesOutAMessageWithNoBlocks(t *testing.T) {
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, s.db, aChat("1", now))
 	seeded := seedTurn(t, s.db, c.ID, now) // its answer is still emptyContent
-	settleSeededRun(t, s.db, seeded.Run, runCancelled, now)
+	settleSeededRun(t, s.db, seeded.Run, RunCancelled, now)
 
 	msg := send(t, s, &c.ID, "1", "and?")
 	awaitSettled(t, s, c.ID, msg.ID)
@@ -91,7 +91,7 @@ func TestATurnWhoseHistoryWillNotReadAsksNoModel(t *testing.T) {
 			now := time.UnixMilli(1_000).UTC()
 			c := seedChat(t, s.db, aChat("1", now))
 			seeded := seedTurn(t, s.db, c.ID, now)
-			settleSeededRun(t, s.db, seeded.Run, runSucceeded, now)
+			settleSeededRun(t, s.db, seeded.Run, RunSucceeded, now)
 			_, err := s.db.Write.Exec(`UPDATE messages SET content = ? WHERE id = ?`, content, string(seeded.Assistant))
 			require.NoError(t, err)
 
@@ -120,7 +120,7 @@ func TestLLMCallStartedClaimsNothingOnACancelledContext(t *testing.T) {
 	assert.ErrorIs(t, tr.LLMCallStarted(ctx, "fake"), context.Canceled)
 
 	assert.Empty(t, tr.llmCalls)
-	assert.Equal(t, runQueued, runStatusOf(t, s.db, turn.Run))
+	assert.Equal(t, RunQueued, runStatusOf(t, s.db, turn.Run))
 	assert.Zero(t, tableCount(t, s.db, "llm_calls"))
 }
 
@@ -137,9 +137,9 @@ func TestACancelThatInterruptsAReadSettlesCancelled(t *testing.T) {
 
 	tr.settle(agent.Result{}, errors.New("list messages: begin: interrupted (9)"))
 
-	assert.Equal(t, runCancelled, tr.status)
+	assert.Equal(t, RunCancelled, tr.status)
 	assert.Empty(t, tr.errText)
-	assert.Equal(t, runCancelled, runStatusOf(t, s.db, seeded.Run))
+	assert.Equal(t, RunCancelled, runStatusOf(t, s.db, seeded.Run))
 }
 
 // A settle that cannot land leaves the run unfinished, whichever of its writes the
@@ -743,7 +743,7 @@ func TestTheTurnsOwnRunSetsTheLiveFinishReason(t *testing.T) {
 // settle, is left as it is.
 func TestASettleThatFailsUntilStopLeavesTheRunForTheNextStart(t *testing.T) {
 	dir := t.TempDir()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	stop, err := s.Start(t.Context())
 	require.NoError(t, err)
@@ -760,13 +760,13 @@ func TestASettleThatFailsUntilStopLeavesTheRunForTheNextStart(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, StatusStreaming, msgs[1].Status)
 	assert.Equal(t, marshalBlocks([]llm.Block{llm.ThinkingBlock(fakeFirstWord)}), msgs[1].Content)
-	assert.Equal(t, runRunning, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunRunning, runStatusOf(t, s.db, msg.RunID))
 	require.NoError(t, stop(t.Context()))
 	require.NoError(t, s.Close())
-	assert.Equal(t, runRunning, runStatusOf(t, s.db, msg.RunID), "nothing written")
+	assert.Equal(t, RunRunning, runStatusOf(t, s.db, msg.RunID), "nothing written")
 
 	next := startService(t, dir)
-	assert.Equal(t, runFailed, runStatusOf(t, next.db, msg.RunID))
+	assert.Equal(t, RunFailed, runStatusOf(t, next.db, msg.RunID))
 	assert.Equal(t, llmCallRow{err: callCancelled, finished: true}, llmCallOf(t, next.db, msg.RunID))
 }
 
@@ -780,13 +780,13 @@ func TestACallRowLandsAheadOfTheSettledWrite(t *testing.T) {
 
 	answers <- errRefused
 	answers <- errRefused
-	assert.Equal(t, runRunning, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunRunning, runStatusOf(t, s.db, msg.RunID))
 	before := llmCallRows(t, s.db, msg.RunID)
 	assert.Equal(t, []llmCallRow{{stopReason: "end_turn", finished: true}}, before)
 	answers <- nil
 	awaitSettled(t, s, msg.ChatID, msg.ID)
 
-	assert.Equal(t, runSucceeded, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunSucceeded, runStatusOf(t, s.db, msg.RunID))
 	assert.Equal(t, before, llmCallRows(t, s.db, msg.RunID))
 }
 
@@ -1098,7 +1098,7 @@ func TestTheFirstCheckpointCountsFromTheAnswer(t *testing.T) {
 // last checkpoint wrote, so the stranded answer keeps the text the reader saw.
 func TestAStrandedAnswerKeepsItsLastCheckpoint(t *testing.T) {
 	dir := t.TempDir()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 	require.NoError(t, err)
 	s.checkpointEvery = 0
 	stop, err := s.Start(t.Context())
@@ -1216,14 +1216,14 @@ func TestATurnClaimsItsRunAndSettlesIt(t *testing.T) {
 	awaitLiveContent(t, s, msg.ChatID)
 
 	var started, finished sql.NullInt64
-	assert.Equal(t, runRunning, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunRunning, runStatusOf(t, s.db, msg.RunID))
 	require.NoError(t, s.db.Read.QueryRow(`SELECT started_at FROM agent_runs WHERE id = ?`, string(msg.RunID)).Scan(&started))
 	assert.True(t, started.Valid)
 	close(gate)
 	got := awaitSettled(t, s, msg.ChatID, msg.ID)
 
 	assert.Equal(t, StatusComplete, got.Status)
-	assert.Equal(t, runSucceeded, runStatusOf(t, s.db, msg.RunID))
+	assert.Equal(t, RunSucceeded, runStatusOf(t, s.db, msg.RunID))
 	require.NoError(t, s.db.Read.QueryRow(`SELECT finished_at FROM agent_runs WHERE id = ?`, string(msg.RunID)).Scan(&finished))
 	assert.Equal(t, got.FinishedAt.Time.UnixMilli(), finished.Int64)
 }
@@ -1244,7 +1244,7 @@ func TestAMessageReadsCitationsByItsRunsDialect(t *testing.T) {
 		text.Payload = json.RawMessage(payload)
 		_, err = s.db.Write.Exec(`UPDATE messages SET content = ? WHERE id = ?`, string(marshalBlocks([]llm.Block{text})), string(turn.Assistant))
 		require.NoError(t, err)
-		settleSeededRun(t, s.db, turn.Run, runSucceeded, now)
+		settleSeededRun(t, s.db, turn.Run, RunSucceeded, now)
 	}
 	answer(onMessages, "messages", llm.DialectMessages,
 		`{"type":"text","text":"It shipped.","citations":[{"type":"web_search_result_location","url":"https://kubernetes.io/releases","title":"Releases","cited_text":"1.36","encrypted_index":"aQ=="}]}`)

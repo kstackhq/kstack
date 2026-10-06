@@ -98,14 +98,18 @@ CREATE TABLE chats (
 -- failed: the process that owned it is gone and nothing resumes a queued run.
 -- A child agent's run (trigger 'agent') is inserted running under its parent_run_id
 -- and the parent's chat, with the task it was handed; result is its final
--- text. The monitor's runs are to come.
+-- text. A monitor's run (trigger 'monitor') is inserted queued under its
+-- cluster, with no chat and no message; task is its brief and result its
+-- report. cluster_id is set on a monitor's run alone: a chat's and a subagent's
+-- cluster is their chat's.
 CREATE TABLE agent_runs (
   id              TEXT    PRIMARY KEY,
   parent_run_id   TEXT    REFERENCES agent_runs(id) ON DELETE CASCADE,
   agent_type      TEXT    NOT NULL,
   app_version     TEXT    NOT NULL,
   trigger         TEXT    NOT NULL CHECK (trigger IN ('chat', 'monitor', 'agent')),
-  chat_id TEXT    REFERENCES chats(id) ON DELETE CASCADE,
+  chat_id         TEXT    REFERENCES chats(id) ON DELETE CASCADE,
+  cluster_id      TEXT    REFERENCES clusters(id) ON DELETE CASCADE,
   trigger_message_id
                   TEXT    UNIQUE REFERENCES messages(id),
 
@@ -123,10 +127,14 @@ CREATE TABLE agent_runs (
 
   created_at      INTEGER NOT NULL,
   started_at      INTEGER,
-  finished_at     INTEGER
+  finished_at     INTEGER,
+
+  CHECK ((trigger = 'monitor') = (chat_id IS NULL)),
+  CHECK ((trigger = 'monitor') = (cluster_id IS NOT NULL))
 ) STRICT;
 
 CREATE INDEX agent_runs_parent_idx ON agent_runs (parent_run_id);
+CREATE INDEX agent_runs_cluster_idx ON agent_runs (cluster_id);
 CREATE INDEX agent_runs_chat_idx   ON agent_runs (chat_id);
 CREATE INDEX agent_runs_queued_idx ON agent_runs (id) WHERE status = 'queued';
 -- The chat list marks a chat with a run waiting on the user, on every read.

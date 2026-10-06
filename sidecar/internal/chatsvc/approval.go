@@ -80,7 +80,7 @@ func (j *runJournal) writeWaiting(ctx context.Context, row *toolCallEntry, a app
 		if err := upsertApproval(wctx, st, a); err != nil {
 			return err
 		}
-		return flipRun(wctx, st, j.runID, runWaitingApproval)
+		return flipRun(wctx, st, j.runID, RunWaitingApproval)
 	})
 }
 
@@ -122,7 +122,7 @@ func (j *runJournal) endApproval(ctx context.Context, a *approval, d decision) e
 		if err := upsertApproval(wctx, st, ended); err != nil {
 			return err
 		}
-		return flipRun(wctx, st, j.runID, runRunning)
+		return flipRun(wctx, st, j.runID, RunRunning)
 	})
 	if err != nil {
 		return err

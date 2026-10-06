@@ -62,7 +62,7 @@ func TestNewRefusesAChatsDirectoryItCannotOpen(t *testing.T) {
 	require.NoError(t, os.Mkdir(chats, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(chats, 0o700) })
 
-	_, err := newService(openTestDB(t, dir), chats, fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	_, err := newService(openTestDB(t, dir), chats, monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
 
 	assert.ErrorContains(t, err, "open the chats' directory")
 }
@@ -169,9 +169,26 @@ func TestAChatEntryThatIsALinkIsNeverWalked(t *testing.T) {
 	require.NoError(t, os.Chmod(results, 0o500))
 	t.Cleanup(func() { _ = os.Chmod(results, 0o700) })
 
-	s.removeChatDir("c1")
+	s.chatDir("c1").remove()
 
 	info, err := os.Stat(locked)
 	require.NoError(t, err)
 	assert.Equal(t, os.FileMode(0o500), info.Mode().Perm())
+}
+
+// The monitor's directory is made owner-only, and so is each cluster's entry.
+func TestANewMonitorDirIsOwnerOnly(t *testing.T) {
+	dir := t.TempDir()
+	s := startService(t, dir)
+	d := s.monitorDir("7")
+
+	root, err := d.Root(true)
+	require.NoError(t, err)
+	require.NoError(t, root.Close())
+	assert.Equal(t, filepath.Join(monitorDirIn(dir), "7"), d.Path())
+	for _, path := range []string{monitorDirIn(dir), d.Path()} {
+		info, err := os.Stat(path)
+		require.NoError(t, err)
+		assert.Equal(t, os.FileMode(0o700), info.Mode().Perm(), path)
+	}
 }

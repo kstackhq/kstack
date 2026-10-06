@@ -34,6 +34,7 @@ import (
 //	  beehive.db                           clustersvc
 //	  settings.json, settings-queue.json   cloud
 //	  chats/<chat id>/                     chatsvc: results/, tasks/, workspace/
+//	  monitor/<cluster id>/                chatsvc: a monitor's results/, workspace/, toolhome/
 //	<cache>/                               what Kstack rebuilds
 //	  kubestore/<cache id>.db              clustersvc: the mirror
 //	  kubectl/<cluster id>/<server>/       bash: the kubectl cache
@@ -46,6 +47,7 @@ type paths struct {
 	AppDBFile    string
 	SecurityFile string
 	ChatsDir     string
+	MonitorDir   string
 	Cloud        cloud.Paths
 	Cluster      clustersvc.Paths
 	Bash         bash.Paths
@@ -62,6 +64,7 @@ func pathsOf(cfg Config) paths {
 		AppDBFile:    filepath.Join(data, "app.db"),
 		SecurityFile: filepath.Join(data, "security.json"),
 		ChatsDir:     filepath.Join(data, "chats"),
+		MonitorDir:   filepath.Join(data, "monitor"),
 		Cloud: cloud.Paths{
 			SettingsFile: filepath.Join(data, "settings.json"),
 			QueueFile:    filepath.Join(data, "settings-queue.json"),
