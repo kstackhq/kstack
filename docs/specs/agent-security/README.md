@@ -68,7 +68,7 @@ it holds; a later spec uses it by name. Go paths are under `sidecar/internal/`.
 | Package | Holds | First in |
 | --- | --- | --- |
 | `sandbox` | the OS sandbox: `Policy`, the zone `Lists`, `Limits`, and reading a probe's denials | landed; 1A, 2A, 2B, 6A |
-| `securityconfig` | the settings file `<data>/security.json`: the store, and the fields later steps add — the frozen `PATH`, the permission rules and modes, the folders granted always, the registered tools, the onboarding flag | 1C |
+| `securityconfig` | the settings file `<data>/security.json`: the store, and the fields later steps add — the frozen `PATH`, the permission rules and modes, the folders granted always, the registered executables, the onboarding flag | 1C |
 | `session` | a `Session`: one agent run's kind and sandbox switch, then its approval mode, network, folder grants and rules; and how a subagent's is narrowed from its parent's | 2C |
 | `permissions` | the action classes, the approval modes, the rules, and `Decide` | 3B, 3C, 4B |
 | `kubeproxy` | the cluster proxy | landed; 3B, 5A |
@@ -233,16 +233,15 @@ after a call's disclosure and the prompt's folder line; the second keeps the fir
 
 | Spec | Step | After it |
 | --- | --- | --- |
-| [6A](6a-tool-probing.md) | **Tool probing.** The curated tools are probed in the real sandbox at onboarding and after a `PATH` refresh; each reports the binary it resolved to and the paths it was denied — found from Seatbelt's reports on macOS and the output on both, through a new `Policy.Explain` — with a grant button; the user registers more tools; a missing `kubectl` is said plainly. Needs 3A, 4D and 5B. | A `helm` plugin works in the sandbox after one click, and the user knows which `kubectl` the agent runs. |
+| 6A | **Executable probing.** The curated executables are probed in the real sandbox when the synced `PATH` moves and after a `PATH` refresh; each reports the binary it resolved to, its version and its own error; the user registers more executables; a missing `kubectl` is said plainly. Needs 3A, 4D and 5B. **Landed** without the denied-path report and its grant button the spec drew: the executable's error is what the user reads, and the *Folders* section is where a grant is made; a report per denied path stays possible on both platforms (`docs/TODO.md`). The root and `sidecar/` `CLAUDE.md` describe it. | A `helm` plugin works in the sandbox after one click, and the user knows which `kubectl` the agent runs. |
 | [6B](6b-the-monitoring-session.md) | **The monitoring session.** A monitor run of the chat service: read-only at the cluster proxy, no network, Secret data never, no prompts, its own workspace, no folder grants; recorded as a chat's run is, under its cluster and no chat; nothing on the wire. Needs 4C and 5A. | A monitoring agent can plug in and change nothing without a human. |
 
 Seam: 6A and 6B both edit `app/app.go` (6A the probe's folders and the launch probe after
 `SyncPath`, 6B the monitor's directory handed to `chatsvc.New`) and `security-model.md`.
 They touch different lines; the second keeps the first's.
 
-6A meets 4D across waves: the probe has no chat, so its run reads `chatsvc.AlwaysFolders`, which
-is `foldersFor(ctx, "")`, the folders
-granted always alone, and a folder granted from its report reaches the next probe.
+6A meets 4D across waves: the probe has no chat, so its run reads `chatsvc.FoldersFor(ctx, "")`,
+the folders granted always alone, and a folder granted from its report reaches the next probe.
 
 **Wave 7** — needs waves 1 to 6.
 

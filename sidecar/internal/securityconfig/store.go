@@ -51,6 +51,8 @@ type Settings struct {
 	DefaultMode permissions.Mode   `json:"defaultMode,omitempty"` // Ask when empty
 	Modes       []ContextMode      `json:"modes,omitempty"`       // first match wins
 	Rules       []permissions.Rule `json:"rules,omitempty"`       // the always rules, the user's
+
+	Executables []Executable `json:"executables,omitempty"` // the user's registered tools, in the order added
 }
 
 // schemaVersion is the file's layout, stamped under versionKey on every

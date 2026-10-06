@@ -20,7 +20,7 @@ import "github.com/kstackhq/kstack/sidecar/internal/permissions"
 // step. A check reads the value alone, never the disk or another service; it
 // removes from the settings every value it refuses and answers one Refusal for
 // each.
-var checks = []func(*Settings) []Refusal{checkPath, checkDefaultMode, checkModes, checkRules}
+var checks = []func(*Settings) []Refusal{checkPath, checkDefaultMode, checkModes, checkRules, checkExecutables}
 
 // A Refusal is one value a check left out. Value is what the field's Settings
 // section names it by, else its JSON; Reason is in the user's words. As an

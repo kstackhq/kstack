@@ -152,6 +152,9 @@ func shellCmd(ctx context.Context, s spec, w *os.File) (*exec.Cmd, error) {
 	if s.sandboxedRun != nil {
 		r := s.sandboxedRun.run
 		r.Shell, r.Args, r.Dir = s.shell, []string{"-c", s.command}, s.dir
+		if s.args != nil {
+			r.Args = s.args
+		}
 		var err error
 		if cmd, err = s.sandboxedRun.boxer.Command(ctx, r); err != nil {
 			return nil, err

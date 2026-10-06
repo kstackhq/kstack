@@ -177,6 +177,9 @@ type Tool struct {
 	// extraWritable is more a sandboxed run may write: a test's seam, nil in
 	// production.
 	extraWritable []string
+
+	// probe is the tool probe's state (executableprobe.go).
+	probe *executableProbe
 }
 
 // Paths is where the tool keeps its files. ShellDir holds the snapshot, and on
@@ -236,6 +239,7 @@ func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc clustersvc
 		fallbackPath: filepath.SplitList(defaultPath),
 		snapTimeout:  snapshotTimeout,
 		snapLimit:    snapshotLimit,
+		probe:        newExecutableProbe(),
 	}
 	// A nil pointer in an interface is not a nil interface.
 	if boxer != nil {
@@ -814,10 +818,13 @@ func (t *Tool) checkDir(ctx context.Context, dir string) error {
 
 // spec is one run: what it carries when sandboxed, nil for a run outside the
 // sandbox, the shell, where it starts, the command, what its environment adds
-// outside the sandbox, and its bounds.
+// outside the sandbox, and its bounds. args, when set, is what a sandboxed
+// run gives shell in place of -c and the command: the tool probe's, which
+// runs a binary with no shell.
 type spec struct {
 	sandboxedRun                 *sandboxedRun
 	shell, dir, scripts, command string
+	args                         []string
 	env                          []string
 	capture                      int
 	timeout                      time.Duration // the call's own deadline

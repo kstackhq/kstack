@@ -105,6 +105,40 @@ type ResourceRule struct {
 	ResourceNames []string `json:"resourceNames"`
 }
 
+// One executable the sandbox probe checks, as the last probe found it.
+type SandboxExecutable struct {
+	// The executable's name. User text for a registered one: draw it through VisibleText.
+	Name string `json:"name"`
+	// What the probe runs, split on whitespace and never through a shell.
+	Invocation string `json:"invocation"`
+	// Registered by the user in Settings, not on the curated list.
+	Registered bool `json:"registered"`
+	// Whether a probe has run it; false for an executable listed since the last probe, whose `error` says so.
+	Probed bool `json:"probed"`
+	// The binary on the sandbox's PATH; empty when none. Draw it through VisibleText.
+	Resolved string `json:"resolved"`
+	// Under a version manager's shims folder.
+	Shim bool `json:"shim"`
+	// The binary behind a shim; empty when unknown.
+	Target string `json:"target"`
+	// The invocation exited 0.
+	Ok bool `json:"ok"`
+	// The first non-empty line of its output, redacted. The executable's own text: draw it through VisibleText.
+	Version string `json:"version"`
+	// Why it did not run or did not pass: Bash's first line, `not found on the sandbox's PATH`, `could not start: …` or `not probed yet`; empty when ok.
+	Error string `json:"error"`
+}
+
+// The executable probe as a watcher sees it.
+type SandboxExecutablesReport struct {
+	// A probe is running; its reports land in `executables` when it ends.
+	Probing bool `json:"probing"`
+	// How many probes have started since the sidecar did. A gauge keeps its latest value alone, so a probe's start and end can arrive as one frame; a watcher that asked for a probe knows it started once this moved.
+	Probes int `json:"probes"`
+	// Every executable the probe checks, the curated ones then the user's, as the last probe found each. Empty on a machine with no sandbox.
+	Executables []*SandboxExecutable `json:"executables"`
+}
+
 // One folder a sandboxed command may read, or read and write.
 type SandboxFolder struct {
 	// The rule's id.

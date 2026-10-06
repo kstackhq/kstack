@@ -5,6 +5,8 @@ package graph
 // Hand-written; gqlgen never regenerates this file. Add resolver dependencies here.
 
 import (
+	"github.com/amorey/gochan/watch"
+
 	"github.com/kstackhq/kstack/sidecar/internal/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/chatsvc"
 	"github.com/kstackhq/kstack/sidecar/internal/clustersvc"
@@ -12,6 +14,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/memorysvc"
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
 // Resolver carries every operation's dependencies. Each field MUST be non-nil — the
@@ -38,4 +41,26 @@ type Resolver struct {
 	Auth auth.Service
 	// SecurityCfg is the security settings file, and the frozen PATH kept in it.
 	SecurityCfg *securityconfig.Service
+	// Executables probes the executables sandboxed commands run: the Bash tool, nil where
+	// there is no shell.
+	Executables ExecutableProber
+}
+
+// ExecutableProber is the executable probe: *bash.Tool, or a test's fake. StartProbe
+// and Report take the user's registered executables, the curated ones first, and
+// WatchProbe says when a probe starts and ends.
+type ExecutableProber interface {
+	StartProbe(registered []securityconfig.Executable)
+	Report(registered []securityconfig.Executable) []bash.ExecutableReport
+	WatchProbe() *watch.Receiver[bash.ProbeState]
+}
+
+// probes reports whether this machine probes executables: a sandbox and a shell.
+func (r *Resolver) probes() bool {
+	return r.SandboxStatus.Available && r.Executables != nil
+}
+
+// registeredExecutables is the user's registered executables, as stored.
+func (r *Resolver) registeredExecutables() []securityconfig.Executable {
+	return r.SecurityCfg.Get().Executables
 }

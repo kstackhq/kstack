@@ -107,18 +107,18 @@ type pathView struct {
 	snap    *snapshot
 }
 
-// SyncPath filters resolved and folds it into the stored list. The disk is
-// read on a goroutine abandoned when ctx ends or syncTimeout passes, since a
-// stat on a dead network mount does not return; one that ends first changes
-// nothing.
-func (s *Service) SyncPath(ctx context.Context, resolved []string) error {
+// SyncPath filters resolved and folds it into the stored list, and answers
+// whether the list it wrote differs from the one it read. The disk is read on
+// a goroutine abandoned when ctx ends or syncTimeout passes, since a stat on
+// a dead network mount does not return; one that ends first changes nothing.
+func (s *Service) SyncPath(ctx context.Context, resolved []string) (changed bool, err error) {
 	if s.zones == nil {
-		return ErrNoSandbox
+		return false, ErrNoSandbox
 	}
 	ctx, cancel := context.WithTimeout(ctx, s.syncTimeout)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
-		return err
+		return false, err
 	}
 	viewed := make(chan pathView, 1)
 	go func() { viewed <- s.view(resolved) }()
@@ -126,7 +126,7 @@ func (s *Service) SyncPath(ctx context.Context, resolved []string) error {
 	select {
 	case v = <-viewed:
 	case <-ctx.Done():
-		return ctx.Err()
+		return false, ctx.Err()
 	}
 	if len(v.dropped) > 0 {
 		slog.Info("PATH entries left out", "rules", countsOf(v.dropped))
@@ -140,7 +140,7 @@ func (s *Service) SyncPath(ctx context.Context, resolved []string) error {
 	// Read before the Update, which holds the store's lock while fn runs.
 	held := s.Held("path")
 	var before, after []PathEntry
-	err := s.Update(func(st *Settings) error {
+	err = s.Update(func(st *Settings) error {
 		before = st.Path
 		st.Path = diffPath(st.Path, v.fresh, held || st.PathStrict)
 		st.PathResolved, st.PathStrict = true, false
@@ -148,12 +148,12 @@ func (s *Service) SyncPath(ctx context.Context, resolved []string) error {
 		return nil
 	}, "path", "pathResolved", "pathStrict")
 	if err != nil {
-		return err
+		return false, err
 	}
 	// A diagnostic: its stats run after the write, so one that hangs on a dead
 	// mount never holds the sync.
 	go logToolMoves(before, after, statTool)
-	return nil
+	return !slices.Equal(before, after), nil
 }
 
 // RefreshPath is Refresh PATH: the login shell run again, then a sync. A
@@ -174,7 +174,7 @@ func (s *Service) RefreshPath(ctx context.Context) ([]PathEntry, error) {
 	if err != nil {
 		return nil, PathRefusal("Your shell did not answer: " + err.Error() + ".")
 	}
-	if err := s.SyncPath(ctx, path); err != nil {
+	if _, err := s.SyncPath(ctx, path); err != nil {
 		return nil, err
 	}
 	return s.Get().Path, nil

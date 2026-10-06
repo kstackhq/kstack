@@ -219,7 +219,8 @@ func TestAPendingEntryIsNotOnThePath(t *testing.T) {
 	svc := securityconfig.NewService(store, func() securityconfig.Zones {
 		return securityconfig.Zones{Never: f.fake.never, Open: f.fake.system.Files}
 	}, nil, "")
-	require.NoError(t, svc.SyncPath(t.Context(), []string{scripts}))
+	_, err = svc.SyncPath(t.Context(), []string{scripts})
+	require.NoError(t, err)
 	f.tl.pathList = func() securityconfig.RunPath { return svc.Get().RunPath() }
 
 	text, isError := f.tl.Run(t.Context(), testRuntime(t), command("command -v hello"))
