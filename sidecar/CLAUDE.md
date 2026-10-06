@@ -3607,8 +3607,7 @@ it concurrently.
 **`<data>/security.json` is the security settings**, 0600 through `atomicjson`, in the data
 directory no sandboxed command reads, and never synced. `app.New` opens it on every platform;
 `Store` has `Get`, `Update`, `Subscribe` (a `gochan/watch` receiver, current on subscribe) and
-`Refused`. Each step of the agent-security sequence adds its own field to `Settings`,
-`omitempty` (`omitzero` for a struct), and names it in its spec. `Path` is the first. `Store` wraps the generic
+`Refused`. Every field of `Settings` is `omitempty` (`omitzero` for a struct). `Store` wraps the generic
 `store[Settings]` so it can carry methods of `Settings`' own.
 
 - **Every value crosses a JSON copy** (`clone`): `Get` and each send are copies, so a caller

@@ -1,10 +1,9 @@
 # Sandbox, credentials and permissions
 
-A note, not a spec: the design of the agent runtime's security, written 29 September 2026 and
-brought up to date with the specs' decisions on 2 October (*Where this meets the code*). The
-spec sequence in [`docs/specs/agent-security/`](../specs/agent-security/README.md) builds it, in
-its own order; its README says which steps have landed. What has already landed of it is
-described by `sidecar/CLAUDE.md`.
+A note, not a spec: the design of the agent runtime's security, written 29 September 2026. The
+agent-security sequence built it and landed on 6 October 2026; *Where this meets the code* says
+where the build departs from the note's words. What is true of the code is described by the
+`CLAUDE.md` files, `docs/security-model.md` and the ADRs.
 
 Where this note says "must", it states an invariant that a test covers. Where it says "should",
 it states the recommended default, and the implementer may deviate with a documented reason.
@@ -565,8 +564,8 @@ permissions; the sandbox second; the egress proxy and the permissions UI after.
 
 ### Order
 
-The order the design was written with. [The sequence's README](../specs/agent-security/README.md)
-turns it into steps, given what had already landed when the design was adopted.
+The order the design was written with. The agent-security sequence built it in steps of its own,
+given what had already landed when the design was adopted.
 
 1. Credential proxy with kubeconfig rewriting, the Kubernetes read/write classifier, session
    tokens, and borrowing of existing kubeconfig credentials including `exec` plugins. This alone
@@ -614,11 +613,12 @@ turns it into steps, given what had already landed when the design was adopted.
 
 ## Where this meets the code
 
-Adopted on 2026-09-30, over a sandbox already built. What is true of the code is in
-`sidecar/CLAUDE.md`; this section says how the design maps onto it and where the sequence departs
-from the note's words, each departure a decision of its own.
+Adopted on 2026-09-30, over a sandbox already built, and landed in full on 2026-10-06. What is
+true of the code is in the `CLAUDE.md` files; this section says how the design maps onto it and
+where the build departs from the note's words, each departure a decision of its own. The step
+numbers (`3B`) name the sequence's steps, and the ADRs and security records cite them.
 
-**Already landed**, by the sandboxed Bash work: the Seatbelt and
+**Already landed when the design was adopted**, by the sandboxed Bash work: the Seatbelt and
 bubblewrap sandboxes with a closed home, a built environment and no network; the cluster proxy
 (`kubeproxy`) with the Kubernetes read/write classifier, a per-run token carried as proxy
 credentials, a generated kubeconfig, Secret redaction and the `exec` plugin run in the sidecar;
@@ -646,12 +646,10 @@ above, that is most of 1, 2 and 6.
    file cannot reach Kstack's data or the network while it runs.
 7. **`kubectl port-forward` stays refused.** The proxy refuses every upgrade, so loopback need not
    stay open for it. A later step may classify it as the class-4 write the note names.
-8. **Only the tool probe finds denials** (step 6A), since its report reaches the user alone. A
-   chat's failed command offers a grant the user types (step 5B), and its model reads the tool's
-   own error. Linux has no readable denial log for an unprivileged process, so a probe's denial
-   there is found from its output checked against the policy; on macOS it is found from
-   Seatbelt's reports as well, read from a `log stream` and attributed to the run by a tag on
-   each of its deny rules.
+8. **Nothing reports a denied path** (steps 5B and 6A). A chat's failed command offers a grant
+   the user types, and its model reads the tool's own error; the executable probe shows each
+   executable's own error, and a folder is granted in Settings. A report per denied path stays
+   possible on both platforms (`docs/TODO.md`).
 9. **A subagent shares its parent's workspace.** Its privilege is its parent's, so a folder of
    its own would separate nothing, and its `Write` and `Edit` are drawn open under the chat as
    the parent's are. The chat and the monitor keep separate workspaces, as the note says.
@@ -667,10 +665,11 @@ above, that is most of 1, 2 and 6.
     rule that says "always ask" cannot turn a refusal into a prompt.
 12. **`/etc` is readable whole, with its secret files on the denied-always list** (step 2A),
     since the loader and libc read files the note's short list cannot name.
-13. **A cloud provider's hosts are not on the allowlist** (step 4C). A tunnel to
-    `*.amazonaws.com` carries whatever a command sends, and a bucket that takes anonymous uploads
-    is an exfiltration path that needs no credential. A `CONNECT` to a cloud host asks as a new
-    host, and the user's answer is the user's to judge.
+13. **Network is the user's switch, not a host allowlist** (step 4C,
+    [ADR](../adr/2026-10-04-network-is-the-users-switch.md)). A sandboxed command has no network
+    unless the user turned it on for the chat, for one message, or for one command they approved;
+    on, it reaches the internet with nothing filtered by host but the machine's loopback. There is
+    no egress proxy.
 14. **A folder grant is read-only over the home, and a read-write grant may not hold a
     denied-always path** (step 4D), because a command that can write a folder can rename what
     is under it out from under a Seatbelt rule.

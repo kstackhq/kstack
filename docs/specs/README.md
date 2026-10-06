@@ -55,9 +55,6 @@ of more than one step.
 Branches on a fork are the contributor's to name. We suggest the spec's own name: `<topic>`,
 `<topic>-<n>` or `<topic>-<n><a>`.
 
-**[Agent security](agent-security/README.md) is the one sequence on `main`.** It is the third
-shape. Each step is deleted, with its row in that README, in the change that lands it.
-
 ## Working a numbered spec
 
 The numbered specs share these rules, so each states only what is its own.
@@ -129,5 +126,3 @@ root `CLAUDE.md`. All commands below run from the repository root unless explici
 
 Proposed: the open spec PRs, [`is:pr is:open label:spec`](https://github.com/kstackhq/kstack/pulls?q=is%3Apr+is%3Aopen+label%3Aspec).
 In progress: the open PRs from a `wip/<topic>` branch into `main`.
-On `main`: [Sandbox, credentials and permissions](agent-security/README.md), the agent-security
-sequence (sidecar, host, webview).

@@ -2,7 +2,7 @@
 
 Pending work across the three parts of the app. Grouped by area; detailed items keep their acceptance notes inline.
 
-> **The specs are the plan.** Work with a settled shape has a spec — proposed in a pull request labelled `spec`, accepted on a `wip/<topic>` branch, or a step of the [agent-security sequence](specs/agent-security/README.md) — and is not repeated here. This file holds what has no spec yet: watch items, simplifications, and work whose shape is still a question.
+> **The specs are the plan.** Work with a settled shape has a spec — proposed in a pull request labelled `spec`, or accepted on a `wip/<topic>` branch — and is not repeated here. This file holds what has no spec yet: watch items, simplifications, and work whose shape is still a question.
 
 ## Sidecar — cluster service
 
@@ -456,17 +456,16 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     records a resolution: the fault when it failed, else a sync of its path. The launch's PATH
     sync part and `RefreshPath` both call it, and `NewService` loses its `fault` argument.
 
-- **Rename `chatsvc` to the agent-run service it is, once the agent-security sequence has
-  landed.** The package owns every agent run: a chat's turns, the subagents, the background tasks,
-  the permissions askers, the folder grants the executable probe reads, and from step 6B the monitor
-  run, which has no chat at all. "chat" names the one run it started with. A name such as
+- **Rename `chatsvc` to the agent-run service it is.** The package owns every agent run: a chat's
+  turns, the subagents, the background tasks, the permissions askers, the folder grants the
+  executable probe reads, and the monitor run, which has no chat at all. "chat" names the one run it started with. A name such as
   `agentsvc` or `runsvc`; the chats, their messages and their watches stay inside it.
   - **Scope.** `git mv` the package, fix its importers and the gqlgen binding, regenerate, and
-    update both `CLAUDE.md`s, the specs and the security records' code references. Leave the
+    update both `CLAUDE.md`s and the security records' code references. Leave the
     ADRs. No table or wire name changes.
 
-- **Build the monitoring agent over `chatsvc.RunMonitor`.** Step 6B built the run, its session, its
-  record, its folder and its teardown; nothing calls it but its tests.
+- **Build the monitoring agent over `chatsvc.RunMonitor`.** The run, its session, its record, its
+  folder and its teardown exist; nothing calls them but their tests.
   - **Schedule and brief.** When a run starts, what it is told, what it keeps between runs (the
     last run's `task` and `result` are there to read), and how its model is picked.
   - **Settings.** The per-cluster switch (`clusters.monitoring_enabled`,
@@ -491,10 +490,10 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     service need not sit on `app.db`.
 
 - **Group `security.json`'s keys by area, and rethink how settings sync (design first).** The
-  file's keys are flat, and later steps add more of them (host rules, folders granted always,
-  registered executables, the monitor's switch, the onboarding flag).
+  file's keys are flat: the frozen `PATH`, the permission modes and rules (folder grants among
+  them), the registered executables and the onboarding flag.
   - **Grouping.** One object per area: `sandbox` (`path`, `pathResolved`, `pathStrict`),
-    `permissions` (`defaultMode`, `modes`, `rules`), and later `network` and `folders`. The store
+    `permissions` (`defaultMode`, `modes`, `rules`), `executables` and `onboarded`. The store
     refuses and holds a value per top-level key and per list element, so the decode has to recurse
     to keep that. Holding `permissions` as one key would hold the modes along with one bad rule.
     Nothing has shipped, so the layout changes without a migration.
@@ -505,7 +504,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     never widen what a sandbox may do; and whether settings should be rows in `app.db` rather
     than files, with sync a queue of changes. Rows would bring a watch, transactions and one
     schema, but `security.json` is meant to be edited by hand. The sync design needs an ADR.
-  - **Trigger:** the grouping before step 4C adds the host rules; the sync before the first
+  - **Trigger:** the grouping before the next field joins `Settings`; the sync before the first
     setting that has to sync.
 
 - **Explore refactoring the login shell code.** Its three runs are spread over two packages and
@@ -817,10 +816,7 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   ([record](security/2026-09-24-the-cluster-through-the-shell.md)). **Shape:** give each such
   command a `KUBECONFIG` naming the chat's context as current — a file of the chat's own, beside
   the user's, never an edit to theirs — so a command that omits the flag still reaches the right
-  cluster, and the approval request says which one. The
-  [agent-security sequence](specs/agent-security/README.md) narrows the case to a chat the user
-  switched out of the sandbox (its step 1B); the scoped `KUBECONFIG` for such a command is not yet
-  in a spec.
+  cluster, and the approval request says which one. The scoped `KUBECONFIG` is not yet in a spec.
 
 - **An approved command must not run what an unasked write left in the workspace (medium; chat
   owner).** A command outside the sandbox starts in the workspace, and tools read config from
