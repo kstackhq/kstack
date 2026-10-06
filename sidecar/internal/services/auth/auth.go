@@ -1,7 +1,6 @@
 // Package auth is the local-first identity subsystem: signed-in session state,
 // locally-persisted credentials, and the sidecar-owned browser sign-in/out flow. A user
-// stays signed in offline (a present refresh token marks "signed in"). **internal/services/cloud
-// depends on this package, never the reverse.**
+// stays signed in offline (a present refresh token marks "signed in").
 //
 // One flat package by file: this one (Service, State/TokenSet, Config, composition
 // owner), grant.go (the credential state machine + oauth2.TokenSource adapter), login.go
@@ -270,7 +269,7 @@ func (s *service) StartLogin(ctx context.Context) error {
 //
 // A failed keychain write returns the error and stays signed IN — reporting signed-out
 // while a durable refresh token survives to re-authenticate on restart would be
-// inconsistent. internal/services/cloud observes the session change itself; auth never calls it.
+// inconsistent.
 func (s *service) Logout(ctx context.Context) error {
 	// Capture the refresh token BEFORE clear erases it.
 	var refreshToken string

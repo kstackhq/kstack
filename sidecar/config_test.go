@@ -30,7 +30,6 @@ import (
 // What a bare command line yields: the production endpoints.
 var productionConfig = config{
 	App: app.Config{
-		CloudURL:       "https://api.kstack.sh",
 		OAuthIssuerURL: "https://oauth.kstack.sh",
 		OAuthClientID:  "kstack-desktop",
 		AddFake:        debugBuild,
@@ -70,7 +69,6 @@ func TestConfigFromArgsDefaultsToProduction(t *testing.T) {
 // asserts the override a `make sidecar-dev` build honours.
 func TestConfigFromArgsIgnoresEnvironment(t *testing.T) {
 	e := env{
-		"KSTACK_CLOUD_API_URL":    "https://cloud.override",
 		"KSTACK_OAUTH_ISSUER":     "https://issuer.override",
 		"KSTACK_OAUTH_CLIENT_ID":  "override",
 		"KSTACK_DATA_DIR":         "/tmp/override",
@@ -81,7 +79,6 @@ func TestConfigFromArgsIgnoresEnvironment(t *testing.T) {
 
 	want := productionConfig
 	if debugBuild {
-		want.App.CloudURL = "https://cloud.override"
 		want.App.OAuthIssuerURL = "https://issuer.override"
 		want.App.OAuthClientID = "override"
 		want.App.DataDir = "/tmp/override"
@@ -99,7 +96,6 @@ func TestConfigFromArgsReadsFlags(t *testing.T) {
 			DataDir:         "/tmp/data",
 			CacheDir:        "/tmp/cache",
 			RuntimeDir:      "/tmp/run",
-			CloudURL:        "https://cloud.example",
 			OAuthIssuerURL:  "https://issuer.example",
 			OAuthClientID:   "other",
 			KeychainService: "Kstack-dev",
@@ -119,7 +115,6 @@ func TestConfigFromArgsReadsFlags(t *testing.T) {
 		"--data-dir", "/tmp/data",
 		"--cache-dir", "/tmp/cache",
 		"--runtime-dir", "/tmp/run",
-		"--cloud-url", "https://cloud.example",
 		"--oauth-issuer", "https://issuer.example",
 		"--oauth-client-id", "other",
 		"--keychain-service", "Kstack-dev",

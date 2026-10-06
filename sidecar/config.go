@@ -59,7 +59,6 @@ func configFromArgs(args []string, getenv func(string) string) (config, error) {
 	fs.StringVar(&cfg.App.RuntimeDir, "runtime-dir", "", "directory for what lives for a session: the shell snapshot, a sandboxed run's files (required)")
 	// The OAuth client is public (PKCE/loopback, no secret), so baking the
 	// production defaults into the binary leaks nothing.
-	fs.StringVar(&cfg.App.CloudURL, "cloud-url", "https://api.kstack.sh", "kstack cloud API base URL")
 	fs.StringVar(&cfg.App.OAuthIssuerURL, "oauth-issuer", "https://oauth.kstack.sh", "OAuth issuer URL")
 	fs.StringVar(&cfg.App.OAuthClientID, "oauth-client-id", "kstack-desktop", "OAuth client id")
 	// The host passes its install's name, so a dev run and an installed
@@ -126,7 +125,6 @@ func applyEnvOverrides(cfg *config, getenv func(string) string) {
 			*dst = v
 		}
 	}
-	set(&cfg.App.CloudURL, "KSTACK_CLOUD_API_URL")
 	set(&cfg.App.OAuthIssuerURL, "KSTACK_OAUTH_ISSUER")
 	set(&cfg.App.OAuthClientID, "KSTACK_OAUTH_CLIENT_ID")
 	set(&cfg.App.DataDir, "KSTACK_DATA_DIR")

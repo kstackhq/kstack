@@ -36,8 +36,8 @@ const (
 // PokeService is the host-internal resync channel. The native host calls Poke
 // when the OS resumes from sleep or the network becomes reachable again; the
 // sidecar broadcasts a SourceHost resync signal to every in-process subscriber
-// (today the per-cluster Kubernetes sync and the cloud settings engine), waking
-// long-lived network connections that may have gone stale. It rides the same
+// (the kubeconfig watch and the per-cluster Kubernetes sync), waking long-lived
+// network connections that may have gone stale. It rides the same
 // socket as GraphQL and the other gRPC services (h2c multiplexing) and is
 // consumed only by the native host, never the webview.
 //
@@ -75,8 +75,8 @@ func (c *pokeServiceClient) Poke(ctx context.Context, in *PokeRequest, opts ...g
 // PokeService is the host-internal resync channel. The native host calls Poke
 // when the OS resumes from sleep or the network becomes reachable again; the
 // sidecar broadcasts a SourceHost resync signal to every in-process subscriber
-// (today the per-cluster Kubernetes sync and the cloud settings engine), waking
-// long-lived network connections that may have gone stale. It rides the same
+// (the kubeconfig watch and the per-cluster Kubernetes sync), waking long-lived
+// network connections that may have gone stale. It rides the same
 // socket as GraphQL and the other gRPC services (h2c multiplexing) and is
 // consumed only by the native host, never the webview.
 //

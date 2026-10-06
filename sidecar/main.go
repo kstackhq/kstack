@@ -114,7 +114,6 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 		"pid", os.Getpid(),
 		"host_pid", cfg.HostPID,
 		"data_dir", cfg.App.DataDir,
-		"cloud_url", cfg.App.CloudURL,
 		"oauth_issuer", cfg.App.OAuthIssuerURL,
 	)
 

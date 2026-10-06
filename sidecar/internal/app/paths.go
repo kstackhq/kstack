@@ -18,7 +18,6 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/kstackhq/kstack/sidecar/internal/services/cloud"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -32,7 +31,6 @@ import (
 //	  app.db                               app
 //	  security.json                        app: the security settings
 //	  beehive.db                           cluster
-//	  settings.json, settings-queue.json   cloud
 //	  chats/<chat id>/                     chat: results/, tasks/, workspace/
 //	  monitor/<cluster id>/                chat: a monitor's results/, workspace/, toolhome/
 //	<cache>/                               what Kstack rebuilds
@@ -48,7 +46,6 @@ type paths struct {
 	SecurityFile string
 	ChatsDir     string
 	MonitorDir   string
-	Cloud        cloud.Paths
 	Cluster      cluster.Paths
 	Bash         bash.Paths
 }
@@ -65,10 +62,6 @@ func pathsOf(cfg Config) paths {
 		SecurityFile: filepath.Join(data, "security.json"),
 		ChatsDir:     filepath.Join(data, "chats"),
 		MonitorDir:   filepath.Join(data, "monitor"),
-		Cloud: cloud.Paths{
-			SettingsFile: filepath.Join(data, "settings.json"),
-			QueueFile:    filepath.Join(data, "settings-queue.json"),
-		},
 		Cluster: cluster.Paths{
 			BeehiveDBFile: filepath.Join(data, "beehive.db"),
 			KubestoreDir:  filepath.Join(cache, "kubestore"),

@@ -65,7 +65,7 @@ These apply to `src/`, `sidecar/`, and `src-tauri/` alike; each area's `CLAUDE.m
 - **Go** — wait on a channel, not a duration: `testutil.Probe`/`Signal`, `testutil.Recv`/`Wait`, or `require.Eventually`. Never `time.Sleep`.
 - **Rust** — `#[tokio::test(start_paused = true)]`, which auto-advances virtual time between parked timers. `src-tauri/src/services/sidecar/ipc.rs` (`connect_retries_until_endpoint_appears`) is the reference.
 
-**Pace a timing-dependent unit by parameter, not by constant.** A production constant a test must outwait (a retry cadence, a poll interval) becomes an argument, and production passes the constant — see `prefsync`'s `withBackoff`. Shrinking it in a test is then free, and the test never encodes the production number.
+**Pace a timing-dependent unit by parameter, not by constant.** A production constant a test must outwait (a retry cadence, a poll interval) becomes an argument, and production passes the constant — see `appdb`'s `runJanitor`. Shrinking it in a test is then free, and the test never encodes the production number.
 
 Two shapes are *not* magic sleeps, and both must say so in a comment:
 

@@ -9,7 +9,7 @@
 sidecar:
 	go run scripts/build-sidecar.go
 
-# The dev build, and the only one that lets KSTACK_CLOUD_API_URL and friends
+# The dev build, and the only one that lets KSTACK_OAUTH_ISSUER and friends
 # redirect the sidecar. `tauri dev` calls this; every release path calls
 # `sidecar` and so builds untagged.
 sidecar-dev:

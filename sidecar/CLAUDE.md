@@ -10,7 +10,7 @@ A standalone Go binary started by the Tauri host. It serves the app's GraphQL AP
 
 The host resolves three directories and passes them in (`src-tauri/CLAUDE.md`). **`app/paths.go`
 names every path under them** (`pathsOf`; the doc comment on `paths` is the tree), grouped into
-each owner's own `Paths` (`cluster.Paths`, `cloud.Paths`, `bash.Paths`), and each service is
+each owner's own `Paths` (`cluster.Paths`, `bash.Paths`), and each service is
 handed its own and names nothing else. A directory's field ends in `Dir` and a file's in `File`. **Each subtree has one owner**, which makes it 0700,
 sweeps it and removes it:
 
@@ -19,7 +19,6 @@ sweeps it and removes it:
   app.db                               app
   security.json                        app: the security settings
   beehive.db                           services/cluster
-  settings.json, settings-queue.json   cloud
   chats/<chat id>/                     services/chat: results/, tasks/, workspace/, toolhome/
   monitor/<cluster id>/                services/chat: a monitor's results/, workspace/, toolhome/
 <cache>/                               what Kstack rebuilds
@@ -103,7 +102,7 @@ Shutdown order from `main.go`: `app.NotifyShutdown()` → `srv.Shutdown` → `ap
 
 Full picture: [`docs/security-model.md`](../docs/security-model.md). The sidecar holds every credential in the system, so these are load-bearing:
 
-- **Every endpoint is an argument.** `configFromArgs` (`config.go`) parses the whole command line, including `--cloud-url`, `--oauth-issuer`, `--oauth-client-id` and `--keychain-service`; the host passes them. The environment reaches the config only through `applyEnvOverrides` (`config.go`), a no-op unless the binary is built with `-tags debug` (`make sidecar-dev`, for a standalone dev run with no host) — and only as the `getenv` the call is handed: `os.Getenv` from `main`, a map of the test's own in every test, so no test reads a key out of the shell running it. A model provider's base URL is one of those overrides: `KSTACK_<ID>_BASE_URL`, one per id in `catalog.BaseURLVars()`, lands in `Config.LLMBaseURLs`, so a release build never takes a model endpoint from the environment. `KSTACK_LOG_LEVEL` is the one variable a release build still reads — a log level redirects nothing. **The model-provider keys are the exception, and a narrow one**: every key variable in `catalog.KeyVars()` (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the eight Chat Completions vendors') is read by `configFromArgs` in every build, because a key selects an account and never an endpoint, so it cannot redirect where anything is sent. A key that is set is kept under its provider's id in `Config.LLMKeys` and registered with `safe.AddSecret` before the logger exists; one that is not is left out, and `catalog.New` lists no row for it. `main` then calls `takeProviderKeys` — after the parse, before the shell import starts — which removes every key variable in the table, set or not, and nothing else: the sidecar spawns kubeconfig credential plugins and a child inherits the environment. `config_test.go` pins the boundary; `go test` builds untagged, and the coverage gate runs both builds.
+- **Every endpoint is an argument.** `configFromArgs` (`config.go`) parses the whole command line, including `--oauth-issuer`, `--oauth-client-id` and `--keychain-service`; the host passes them. The environment reaches the config only through `applyEnvOverrides` (`config.go`), a no-op unless the binary is built with `-tags debug` (`make sidecar-dev`, for a standalone dev run with no host) — and only as the `getenv` the call is handed: `os.Getenv` from `main`, a map of the test's own in every test, so no test reads a key out of the shell running it. A model provider's base URL is one of those overrides: `KSTACK_<ID>_BASE_URL`, one per id in `catalog.BaseURLVars()`, lands in `Config.LLMBaseURLs`, so a release build never takes a model endpoint from the environment. `KSTACK_LOG_LEVEL` is the one variable a release build still reads — a log level redirects nothing. **The model-provider keys are the exception, and a narrow one**: every key variable in `catalog.KeyVars()` (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the eight Chat Completions vendors') is read by `configFromArgs` in every build, because a key selects an account and never an endpoint, so it cannot redirect where anything is sent. A key that is set is kept under its provider's id in `Config.LLMKeys` and registered with `safe.AddSecret` before the logger exists; one that is not is left out, and `catalog.New` lists no row for it. `main` then calls `takeProviderKeys` — after the parse, before the shell import starts — which removes every key variable in the table, set or not, and nothing else: the sidecar spawns kubeconfig credential plugins and a child inherits the environment. `config_test.go` pins the boundary; `go test` builds untagged, and the coverage gate runs both builds.
 
 - **Only the host process may connect.** `ipc.Authenticated` checks each accepted connection's peer pid against `--host-pid` (the kernel stamps it, so a client cannot claim another's) and closes anything else without ending the accept loop; zero, the standalone-run default, falls back to the uid alone. The file mode carries the rest: `ipc.Listen` tightens the umask *before* `net.Listen` so the socket is never briefly world-accessible, then chmods 0600; Windows binds the pipe owner-only (`D:P(A;;GA;;;OW)`). Both are pinned by tests. Authentication runs the other way too: the host verifies on every dial that the process serving the endpoint is the sidecar it spawned (`src-tauri/src/services/sidecar/{ipc,peer}.rs`), and on Unix places the endpoint in an owner-only runtime directory. Never widen access or add a TCP listener — the GET transport is registered alongside POST and SSE and is only harmless because the transport is local.
 - **Redaction happens at write time, keyed off the body's own group and kind,** so it cannot be bypassed by how an object was addressed (`kubestore/objects.go`). A new read path serves the stored body; it does not get to re-derive what to hide. It fails closed: a path occupied by the wrong type is dropped, not skipped — the discrimination is the `err` a `Nested*` read returns, since "absent" and "there but unreadable" share the `found` boolean. The table is deliberately incomplete, so treat a cache file as holding cluster data in the clear — that is what makes its file mode and its lifetime security properties. Storing it in the clear is a decision, not an oversight. → [ADR: the cache is ordinary application data](../docs/adr/2026-09-02-the-cache-is-ordinary-application-data.md).
@@ -3760,15 +3759,11 @@ decides whether the webview opens the flow at launch.
 
 ## Auth / identity (`internal/services/auth`)
 
-Local-first accounts against kstack-cloud's Hydra: system browser (auth-code + PKCE, loopback redirect), verification via go-oidc, refresh token in the OS keyring. Signed-in ⇔ refresh token present; works offline; degrades to signed-out when unconfigured. → [ADR: local-first auth & settings](../docs/adr/2026-08-09-local-first-auth-settings.md).
+Local-first accounts against kstack-cloud's Hydra: system browser (auth-code + PKCE, loopback redirect), verification via go-oidc, refresh token in the OS keyring. Signed-in ⇔ refresh token present; works offline; degrades to signed-out when unconfigured. → [ADR: local-first auth](../docs/adr/2026-08-09-local-first-auth-settings.md).
 
 - Flat root package by file: `auth.go`, `grant.go` (token set as source of truth, `Authenticated`/`Identity` derived, lazy refresh with burst-dedup, persist-before-cache), `login.go` (synchronous setup, bounded detached tail), `keyring.go`. `auth/oauth` is a leaf that must not import `auth`.
 - `Config` carries production knobs only; test seams are unexported functional options on `newWithOptions`. No `Start`/`Close`. `Logout` clears locally first, revokes fire-and-forget.
 - `TokenSource(ctx)` is nil when degraded; consumers read `AccessToken` only. The GraphQL projection drops tokens.
-
-## Cloud settings sync (`internal/services/cloud`)
-
-An edit applies to a local JSON file immediately and queues durably for the cloud. **`cloud` depends on `auth`, never the reverse**, tracking only the `Authenticated` bit. Degrades without its paths (`cloud.Paths{SettingsFile, QueueFile}`) or a cloud URL. `Start` is idempotent. Sub-packages leaf-first: `syncstore`, `prefs` (pointer fields + omitempty so absent ≠ cleared), `mutationqueue`, `api`, `prefsync` (the reconcile `Engine`; `Watch` returns data plus a buffered terminal-error channel). Test seams as in `auth`.
 
 ## Kubeconfig (`internal/services/kubeconfig`)
 
@@ -3809,7 +3804,7 @@ Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-
 - White-box tests by default (`package foo`). External `package foo_test` only to pin a public contract, and say so.
 - No magic sleeps (root `CLAUDE.md`). A cadence becomes a parameter whose production value is the constant.
 - Wait on channels through `internal/lib/testutil` (`Wait`, `Recv`, `RecvClosed`, `WaitClosed`); the one failsafe is `testutil.Timeout`. A negative assertion gets its own short window.
-- A fake that notifies the test uses `testutil.Signal` (single-shot, idempotent `Fire`) or `testutil.Probe[T]` (repeating, non-blocking, drops oldest). Exception: a consumer doing edge detection needs a lossless fan-out (`internal/services/cloud`'s `fakeAuth`).
+- A fake that notifies the test uses `testutil.Signal` (single-shot, idempotent `Fire`) or `testutil.Probe[T]` (repeating, non-blocking, drops oldest). Exception: a consumer doing edge detection needs a lossless fan-out.
 - `make test-changed` while working (the changed packages), `make test-go` for the whole suite, `make lint-go` (gofmt), `make vet-go`. Run `gofmt -w` before committing.
 
 **Coverage is gated.** `make cover-go` (CI's `Go · Coverage` job) runs the suite twice —

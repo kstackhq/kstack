@@ -27,18 +27,16 @@ func TestEveryPathIsUnderItsKind(t *testing.T) {
 	p := pathsOf(Config{DataDir: data, CacheDir: cache, RuntimeDir: runtime})
 
 	for want, got := range map[string]string{
-		filepath.Join(data, "app.db"):              p.AppDBFile,
-		filepath.Join(data, "chats"):               p.ChatsDir,
-		filepath.Join(data, "monitor"):             p.MonitorDir,
-		filepath.Join(data, "security.json"):       p.SecurityFile,
-		filepath.Join(data, "settings.json"):       p.Cloud.SettingsFile,
-		filepath.Join(data, "settings-queue.json"): p.Cloud.QueueFile,
-		filepath.Join(data, "beehive.db"):          p.Cluster.BeehiveDBFile,
-		filepath.Join(cache, "kubestore"):          p.Cluster.KubestoreDir,
-		filepath.Join(cache, "kubectl"):            p.Bash.KubectlDir,
-		filepath.Join(runtime, "shell"):            p.Bash.ShellDir,
-		filepath.Join(runtime, "runs"):             p.Bash.RunsDir,
-		filepath.Join(cache, "tmp"):                p.Bash.TmpDir,
+		filepath.Join(data, "app.db"):        p.AppDBFile,
+		filepath.Join(data, "chats"):         p.ChatsDir,
+		filepath.Join(data, "monitor"):       p.MonitorDir,
+		filepath.Join(data, "security.json"): p.SecurityFile,
+		filepath.Join(data, "beehive.db"):    p.Cluster.BeehiveDBFile,
+		filepath.Join(cache, "kubestore"):    p.Cluster.KubestoreDir,
+		filepath.Join(cache, "kubectl"):      p.Bash.KubectlDir,
+		filepath.Join(runtime, "shell"):      p.Bash.ShellDir,
+		filepath.Join(runtime, "runs"):       p.Bash.RunsDir,
+		filepath.Join(cache, "tmp"):          p.Bash.TmpDir,
 	} {
 		assert.Equal(t, want, got)
 	}

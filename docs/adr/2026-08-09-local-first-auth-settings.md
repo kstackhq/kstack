@@ -3,6 +3,8 @@ title: Sidecar-owned local-first auth; cloud settings sync depends on auth, not 
 date: 2026-08-09
 scope: sidecar
 status: Accepted
+amended_by:
+  - [Remove cloud settings sync until settings have a design](2026-10-06-remove-cloud-settings-sync.md)
 ---
 
 # Sidecar-owned local-first auth; cloud settings sync depends on auth, not the reverse

@@ -86,8 +86,7 @@ func (f *fakeAuth) Logout(context.Context) error {
 	return nil
 }
 
-// TokenSource is unused by the graph resolvers (only the cloud client reads it),
-// so the fake returns nil.
+// TokenSource is unused by the graph resolvers, so the fake returns nil.
 func (f *fakeAuth) TokenSource(context.Context) oauth2.TokenSource { return nil }
 
 // Subscribe streams session State (current-on-subscribe, then changes) plus a

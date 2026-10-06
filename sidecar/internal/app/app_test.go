@@ -476,7 +476,7 @@ func partIndex(t *testing.T, a *App, name string) int {
 	return i
 }
 
-// With no cloud config (the standalone/test default), the account surface is
+// With no OAuth config (the standalone/test default), the account surface is
 // wired through composition but degraded: the authState query answers signed-out
 // instead of panicking. This is also the canary that the composed App is a
 // working http.Handler with the GraphQL surface wired through composition.
@@ -596,17 +596,6 @@ func TestAppClosesTheDatabaseWhenAConstructorFails(t *testing.T) {
 			assert.NoFileExists(t, path+"-wal")
 		})
 	}
-}
-
-// The cloud service, built between the two, fails on a settings file it cannot
-// read, and closes the file the same way. It reads one only with a cloud URL.
-func TestAppClosesTheDatabaseWhenTheCloudServiceFails(t *testing.T) {
-	dir := t.TempDir()
-	require.NoError(t, os.WriteFile(filepath.Join(dir, "settings.json"), []byte("{"), 0o600))
-
-	_, err := New(t.Context(), withDirs(t, Config{DataDir: dir, CloudURL: "http://127.0.0.1:1"}))
-	require.Error(t, err)
-	assert.NoFileExists(t, filepath.Join(dir, "app.db-wal"))
 }
 
 // A sandbox file that is not a JSON object fails New naming it, before app.db

@@ -405,7 +405,7 @@ func TestDegradedConstruction(t *testing.T) {
 	}
 }
 
-// A configured Service exposes an oauth2.TokenSource for downstream cloud calls.
+// A configured Service exposes an oauth2.TokenSource.
 func TestTokenSourceExposedWhenConfigured(t *testing.T) {
 	svc, err := newWithOptions(Config{}, withCredentialsStore(&memStore{}))
 	if err != nil {

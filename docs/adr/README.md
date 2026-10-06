@@ -186,3 +186,4 @@ usually just documentation in the wrong place.
 | 2026-10-05 | [Secret data is a permissioned read](2026-10-05-secret-data-is-a-permissioned-read.md) | cross-cutting | Accepted |
 | 2026-10-05 | [A monitor run is a run of the chat service](2026-10-05-a-monitor-run-is-a-run-of-the-chat-service.md) | sidecar | Accepted |
 | 2026-10-06 | [Group the sidecar's packages into services, lib and the rest](2026-10-06-sidecar-packages-group-into-services-lib-and-the-rest.md) | sidecar | Accepted |
+| 2026-10-06 | [Remove cloud settings sync until settings have a design](2026-10-06-remove-cloud-settings-sync.md) | sidecar | Accepted |

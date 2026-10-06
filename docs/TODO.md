@@ -442,8 +442,6 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **Hoist `Condition`/`Event`/`Schedule`/`ObjectRef` when a second consumer appears.** All four are kind-agnostic on the wire (unprefixed, per the schema's naming rule) but live in `internal/services/cluster` (`shared.go`) because the cluster surface is their only consumer. **Trigger:** the first non-cluster kind or subsystem that needs conditions, events, schedules, or owner refs — at that point move all four into a shared leaf package (e.g. `internal/lib/apimeta`), leaving `services/cluster` its `ConditionType` constants (`Connected`/`Identified`/`Synced`). `ObjectRef` takes `toOwnerRef` with it. Hoisting earlier would be a one-importer abstraction.
 
-- **Hoist the doubling-backoff ladder into a shared leaf when a second consumer appears.** Only `prefsync`'s `backoffDelay` (`internal/services/cloud/prefsync/engine.go` — `baseBackoff << attempt`, clamped to `maxBackoff`, then jittered, with a `withBackoff(base, max)` test seam) computes one by hand: everything inside the control plane rides beehive's own per-object ladder instead. **Trigger:** the next thing that cannot ride beehive's — anything outside the control plane, which is what `prefsync` is. At that point extract base/max/jitter and the `Reset`-on-success discipline into a leaf (e.g. `internal/backoff`) with the same parameterized-cadence seam the testing conventions require. Note the two readings a shared type has to keep expressible: `prefsync` counts attempts across reconnects, where a pass-oriented ladder re-levels on any clean pass.
-
 - **`appdb.Close` during the janitor's first sweep can leave `app.db-wal` behind.** The sweep starts the moment `Open` returns; a `Close` that cancels it mid-statement leaves the WAL beside the file (about 1 in 200 in a loop of `Open` then `Close` after a short delay). A failed `app.New` that closes the file right after opening it hits this, and a test asserting the WAL's absence flakes. Wanted: `Close` leaves no WAL after joining the janitor, e.g. an uncancelled checkpoint before the pools close.
 
 - **Give `app` a runtime struct for what `main` measured at launch.** `app.Config` mixes the
@@ -497,9 +495,8 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     refuses and holds a value per top-level key and per list element, so the decode has to recurse
     to keep that. Holding `permissions` as one key would hold the modes along with one bad rule.
     Nothing has shipped, so the layout changes without a migration.
-  - **Sync.** Settings live in three places today: `host.json` (the host's, such as the color
-    scheme), `<data>/settings.json` with its queue (`cloud`'s, synced), and `security.json`
-    (never synced). Decide which settings follow a user to another machine; whether a security
+  - **Sync.** Settings live in two places today, and neither syncs: `host.json` (the host's,
+    such as the color scheme) and `security.json`. Decide which settings follow a user to another machine; whether a security
     setting may ever sync, and if so only one that narrows, since a value from the cloud must
     never widen what a sandbox may do; and whether settings should be rows in `app.db` rather
     than files, with sync a queue of changes. Rows would bring a watch, transactions and one

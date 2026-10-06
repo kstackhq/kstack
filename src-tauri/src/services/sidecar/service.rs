@@ -333,7 +333,6 @@ impl SidecarService {
 /// process's environment: the sidecar inherits that environment, so reading
 /// them here would move the redirection risk rather than close it. A dev run
 /// overrides them inside the sidecar's own debug build.
-const CLOUD_URL: &str = "https://api.kstack.sh";
 const OAUTH_ISSUER: &str = "https://oauth.kstack.sh";
 const OAUTH_CLIENT_ID: &str = "kstack-desktop";
 
@@ -371,7 +370,6 @@ fn cmd_args(socket: &Endpoint, dirs: &Dirs, log_file: Option<&std::path::Path>) 
         ("--cache-dir", dirs.cache.to_string_lossy().into_owned()),
         ("--runtime-dir", dirs.runtime.to_string_lossy().into_owned()),
         ("--host-pid", std::process::id().to_string()),
-        ("--cloud-url", CLOUD_URL.to_owned()),
         ("--oauth-issuer", OAUTH_ISSUER.to_owned()),
         ("--oauth-client-id", OAUTH_CLIENT_ID.to_owned()),
         ("--keychain-service", KEYCHAIN_SERVICE.to_owned()),
@@ -454,8 +452,6 @@ mod tests {
             "/some/app/run".to_owned(),
             "--host-pid".to_owned(),
             std::process::id().to_string(),
-            "--cloud-url".to_owned(),
-            CLOUD_URL.to_owned(),
             "--oauth-issuer".to_owned(),
             OAUTH_ISSUER.to_owned(),
             "--oauth-client-id".to_owned(),

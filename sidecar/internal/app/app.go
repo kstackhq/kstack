@@ -1,5 +1,5 @@
 // Package app is the sidecar's composition root and lifecycle owner. It builds
-// the shared instances (the poke bus and the cluster, auth, and cloud services),
+// the shared instances (the poke bus and the cluster and auth services),
 // wires the GraphQL and gRPC servers, and multiplexes them onto one h2c handler.
 // main() stays thin: it binds the listener and drives the shutdown surface this
 // package exposes — NotifyShutdown / DrainWithContext / Close.
@@ -35,7 +35,6 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/chat"
-	"github.com/kstackhq/kstack/sidecar/internal/services/cloud"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
@@ -73,9 +72,6 @@ type Config struct {
 	// LogDir is where the host logs, which is Kstack's own too: a grant of the
 	// home must not open it. Empty when the sidecar logs to stderr alone.
 	LogDir string
-	// CloudURL is the kstack-cloud API base URL. Empty disables the cloud
-	// subsystem (signed-out, no network).
-	CloudURL string
 	// OAuthIssuerURL is the Hydra OAuth issuer base URL; auth derives every
 	// endpoint from it via Hydra's standard path layout.
 	OAuthIssuerURL string
@@ -129,8 +125,8 @@ type App struct {
 	parts []lifecycle.Part
 }
 
-// New builds the composition root, wiring the beehive control-plane, auth, and
-// cloud subsystems into the GraphQL and gRPC servers that share one h2c socket.
+// New builds the composition root, wiring the beehive control-plane and auth
+// subsystems into the GraphQL and gRPC servers that share one h2c socket.
 // ctx is startup's: once it has ended, New stops and answers its error.
 func New(ctx context.Context, cfg Config) (*App, error) {
 	if err := makeDirs(cfg); err != nil {
@@ -209,13 +205,6 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		return fail(err)
 	}
 
-	// cloud depends on auth, never the reverse; see
-	// docs/adr/2026-08-09-local-first-auth-settings.md.
-	cloudSvc, err := cloud.New(p.Cloud, cfg.CloudURL, authSvc, pokeSvc)
-	if err != nil {
-		return fail(err)
-	}
-
 	cat := newCatalog(cfg)
 	llmSvc := llm.New(cat.Providers()...)
 	pathList := func() securityconfig.RunPath { return securityStore.Get().RunPath() }
@@ -278,7 +267,6 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 		{Name: "poke service", StartCloser: lifecycle.StartFunc(pokeSvc.Start)},
 		{Name: "kubeconfig service", StartCloser: kubeconfigSvc},
 		{Name: "cluster service", StartCloser: clusterSvc},
-		{Name: "cloud service", StartCloser: lifecycle.StartFunc(cloudSvc.Start)},
 		{Name: "memory service", StartCloser: memorySvc},
 		{Name: "chat service", StartCloser: chatSvc},
 	}
