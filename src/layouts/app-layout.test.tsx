@@ -54,6 +54,17 @@ vi.mock('@/components/widgets/settings-button', () => ({
 vi.mock('@/lib/connection-status', () => ({
   ConnectionStatus: () => <div data-testid="connection-status" />,
 }));
+// The launcher asks the sidecar and opens a dialog; this test only checks it
+// mounts under the dialog host.
+vi.mock('@/lib/onboarding', async () => {
+  const { useDialog } = await import('@/lib/dialog');
+  return {
+    OnboardingLaunch: () => {
+      useDialog();
+      return <div data-testid="onboarding-launch" />;
+    },
+  };
+});
 // The real resource nav builds its tree from the active cluster's kinds (urql +
 // clusters providers); this test only checks that it mounts on dashboard, so stub
 // it with a nav that keeps the accessible "Resources" name the assertions match.
@@ -296,5 +307,10 @@ describe('AppLayout', () => {
   it('renders the connection-status banner', async () => {
     await renderWithRouter(buildTree(), '/');
     expect(screen.getByTestId('connection-status')).toBeInTheDocument();
+  });
+
+  it('mounts the onboarding launcher under the dialog host', async () => {
+    await renderWithRouter(buildTree(), '/');
+    expect(screen.getByTestId('onboarding-launch')).toBeInTheDocument();
   });
 });

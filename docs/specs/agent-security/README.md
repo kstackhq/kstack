@@ -247,7 +247,7 @@ the folders granted always alone, and a folder granted from its report reaches t
 
 | Spec | Step | After it |
 | --- | --- | --- |
-| [7A](7a-onboarding.md) | **Onboarding.** One flow on first launch: the `PATH` list, the executables report, and the approval mode. Needs 3A, 3B and 6A. | A new user's tools work in the sandbox with nothing typed and nothing signed into. |
+| 7A | **Onboarding.** One flow on first launch: the `PATH` list, the executables report, and the approval mode. Needs 3A, 3B and 6A. **Landed**; the root and `sidecar/` `CLAUDE.md` describe it. | A new user's tools work in the sandbox with nothing typed and nothing signed into. |
 
 ## What each step records
 

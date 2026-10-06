@@ -53,6 +53,16 @@ describe('useSandbox', () => {
     expect(result.current.networkReason).toBe('pasta not found');
   });
 
+  // What the probe found, or why there is none, in the sidecar's words.
+  it("answers the sidecar's reason", () => {
+    expect(renderHook(() => useSandbox()).result.current.reason).toBe('');
+    state.current = {
+      fetching: false,
+      data: { sandbox: { available: false, reason: 'user namespaces are disabled' } },
+    };
+    expect(renderHook(() => useSandbox()).result.current.reason).toBe('user namespaces are disabled');
+  });
+
   // A sidecar that could not be reached has not said there is no sandbox.
   it('is unknown and failed after a failure', () => {
     state.current = { fetching: false, error: new Error('unreachable') };
