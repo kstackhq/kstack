@@ -714,19 +714,29 @@ func TestTheListedProgramsRun(t *testing.T) {
 		{"curl", `curl -sS --fail "http://127.0.0.1:$PORT/"`},
 	} {
 		t.Run(p.name, func(t *testing.T) {
+			bound := testutil.Timeout
 			if p.name == "git" || p.name == "python3" {
 				if !hasTools {
 					t.Skip("no Command Line Tools: /usr/bin/" + p.name + " only offers to install them")
 				}
 				// A user who has run the tool has it in xcrun's cache, which
-				// the run starts with.
-				require.NoError(t, exec.Command("/bin/sh", "-c", p.script).Run())
+				// the run starts with. On a fresh runner the first launch
+				// resolves the Command Line Tools and can take tens of
+				// seconds, and the run after it some of that again.
+				ctx, cancel := context.WithTimeout(t.Context(), time.Minute)
+				defer cancel()
+				start := time.Now()
+				out, err := exec.CommandContext(ctx, "/bin/sh", "-c", p.script).CombinedOutput()
+				t.Logf("unconfined warm-up took %s", time.Since(start))
+				require.NoError(t, err, "unconfined: %s", out)
+				bound = time.Minute
 			}
 			m := standIn(t)
 			m.withCluster(t)
 
-			out, ok := sh(t, s, m.on(s), p.script)
+			out, ok, late := shWithin(t, s, m.on(s), bound, p.script)
 
+			assert.False(t, late, "did not end within %s", bound)
 			assert.True(t, ok, out)
 		})
 	}
