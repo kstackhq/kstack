@@ -398,12 +398,28 @@ func awaitLiveContent(t *testing.T, s *service, chatID ChatID) ChatMessage {
 	return *f.Message
 }
 
-// awaitTurnDone waits for the chat's turn to have settled and released.
-func awaitTurnDone(t *testing.T, s *service, chatID ChatID) {
+// awaitTurnReleased waits for the chat's slot to be free: the turn's rows are
+// written and its overlay gone. Its goroutine may still be kicking the chat, so
+// a test that changes the service afterwards waits on awaitTurnDone instead.
+func awaitTurnReleased(t *testing.T, s *service, chatID ChatID) {
 	t.Helper()
 	if turn := s.turnOf(chatID); turn != nil {
 		testutil.Wait(t, turn.done, "the turn to end")
 	}
+}
+
+// heldTurn is chatID's turn, taken at a moment the caller knows it holds its slot.
+func heldTurn(t *testing.T, s *service, chatID ChatID) *turn {
+	t.Helper()
+	turn := s.turnOf(chatID)
+	require.NotNil(t, turn, "the turn holds its slot")
+	return turn
+}
+
+// awaitTurnDone waits for the turn's goroutine to return, its kick included.
+func awaitTurnDone(t *testing.T, turn *turn) {
+	t.Helper()
+	testutil.Wait(t, turn.done, "the turn to end")
 }
 
 // searchCall is a search as the stream shows it: its call, with no payload.

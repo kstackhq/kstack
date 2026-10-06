@@ -45,7 +45,8 @@ type turn struct {
 	*runJournal
 	ctx    context.Context
 	cancel context.CancelFunc
-	// done closes when the goroutine has settled and released; Delete joins on it.
+	// done closes when the goroutine returns, settled, released and kicked;
+	// Delete joins on it.
 	done chan struct{}
 	// retrying closes when the settle's first attempt fails, and gone once a
 	// delete's write has taken the chat, which ends the retry.

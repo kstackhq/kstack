@@ -1237,7 +1237,7 @@ func TestARefusedClaimAsksNoModel(t *testing.T) {
 func TestATurnEndsWriteThenReleaseThenNotify(t *testing.T) {
 	s := newTestService(t)
 	msg := send(t, s, nil, "1", "hi")
-	awaitTurnDone(t, s, msg.ChatID)
+	awaitTurnReleased(t, s, msg.ChatID)
 
 	assert.Nil(t, s.turnOf(msg.ChatID), "the slot is released once the turn ends")
 	got := awaitSettled(t, s, msg.ChatID, msg.ID)

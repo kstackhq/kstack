@@ -349,7 +349,7 @@ func TestACancelledWaitRunsNothing(t *testing.T) {
 	_, id := awaitRequest(t, s, msg)
 	require.NoError(t, s.Cancel(t.Context(), msg.ChatID))
 	got := awaitSettled(t, s, msg.ChatID, msg.ID)
-	awaitTurnDone(t, s, msg.ChatID)
+	awaitTurnReleased(t, s, msg.ChatID)
 
 	assert.Equal(t, StatusCancelled, got.Status)
 	ran := sh.commands()
@@ -396,7 +396,7 @@ func TestACancelBeforeTheDecisionCommitsLeavesItPending(t *testing.T) {
 	awaitRequest(t, s, msg)
 	require.NoError(t, s.Cancel(t.Context(), msg.ChatID))
 	awaitSettled(t, s, msg.ChatID, msg.ID)
-	awaitTurnDone(t, s, msg.ChatID)
+	awaitTurnReleased(t, s, msg.ChatID)
 
 	assert.Equal(t, []approvalRow{{status: ApprovalPending}}, approvalRows(t, s.db))
 	rows := toolCallRows(t, s.db, msg.RunID)
@@ -554,7 +554,7 @@ func TestEveryEndOfAGatedCallClosesItsOneRow(t *testing.T) {
 			_, id := awaitRequest(t, s, msg)
 			tc.end(t, s, msg, id)
 			awaitSettled(t, s, msg.ChatID, msg.ID)
-			awaitTurnDone(t, s, msg.ChatID)
+			awaitTurnReleased(t, s, msg.ChatID)
 
 			rows := toolCallRows(t, s.db, msg.RunID)
 			require.Len(t, rows, 1)
@@ -628,7 +628,7 @@ func TestTheToolCallRowHoldsTheCwd(t *testing.T) {
 
 	approve(t, s, id, true)
 	awaitSettled(t, s, msg.ChatID, msg.ID)
-	awaitTurnDone(t, s, msg.ChatID)
+	awaitTurnReleased(t, s, msg.ChatID)
 	msgs, err := s.readMessages(t.Context(), msg.ChatID)
 	require.NoError(t, err)
 	assert.Equal(t, workdir, toolCallsOf(t, msgs[1])[0].Action.Command.Cwd)
@@ -683,7 +683,7 @@ func TestASandboxedCallIsRecordedAsSandboxed(t *testing.T) {
 			approve(t, s, id, true)
 		}
 		awaitSettled(t, s, msg.ChatID, msg.ID)
-		awaitTurnDone(t, s, msg.ChatID)
+		awaitTurnReleased(t, s, msg.ChatID)
 
 		assert.Equal(t, "/work", whileRunning.cwd, "skip=%v", skip)
 		assert.True(t, whileRunning.sandboxed, "the running row, skip=%v", skip)
@@ -703,7 +703,7 @@ func TestAStoredReadKeepsAnUnrunCommand(t *testing.T) {
 	awaitRequest(t, s, msg)
 	require.NoError(t, s.Cancel(t.Context(), msg.ChatID))
 	awaitSettled(t, s, msg.ChatID, msg.ID)
-	awaitTurnDone(t, s, msg.ChatID)
+	awaitTurnReleased(t, s, msg.ChatID)
 
 	msgs, err := s.readMessages(t.Context(), msg.ChatID)
 	require.NoError(t, err)
@@ -789,7 +789,7 @@ func TestAnUngatedBashCallShowsItsCommand(t *testing.T) {
 	awaitRequest(t, s, msg)
 	require.NoError(t, s.Cancel(t.Context(), msg.ChatID))
 	awaitSettled(t, s, msg.ChatID, msg.ID)
-	awaitTurnDone(t, s, msg.ChatID)
+	awaitTurnReleased(t, s, msg.ChatID)
 	msgs, err := s.readMessages(t.Context(), msg.ChatID)
 	require.NoError(t, err)
 	queued := toolCallsOf(t, msgs[1])[1]
@@ -1762,7 +1762,7 @@ func TestTheRecordSaysTheNetworkOnceTheCallRuns(t *testing.T) {
 			approve(t, s, id, true)
 		}
 		got := awaitSettled(t, s, msg.ChatID, msg.ID)
-		awaitTurnDone(t, s, msg.ChatID)
+		awaitTurnReleased(t, s, msg.ChatID)
 
 		assert.Equal(t, c.stored, whileRunning.String, "the running row")
 		assert.Equal(t, c.stored, networkOf(t, s).String, "the settle's rewrite keeps it")
@@ -1780,7 +1780,7 @@ func TestTheRecordSaysTheNetworkOnceTheCallRuns(t *testing.T) {
 	_, id := awaitRequest(t, s, msg)
 	approve(t, s, id, false)
 	got := awaitSettled(t, s, msg.ChatID, msg.ID)
-	awaitTurnDone(t, s, msg.ChatID)
+	awaitTurnReleased(t, s, msg.ChatID)
 	assert.False(t, networkOf(t, s).Valid, "a denied call never had any")
 	assert.Nil(t, toolCallsOf(t, got)[0].Network)
 }

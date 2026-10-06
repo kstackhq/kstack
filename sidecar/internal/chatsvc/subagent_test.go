@@ -156,7 +156,7 @@ func TestTheSubagentsMessageIsTheNewestCardThenThePrompt(t *testing.T) {
 	first, second := subagentFake(s, "Count the pods."), subagentFake(s, "List the nodes.")
 	fakeOf(s).SetToolCalls(agentCall("Count the pods."))
 	msg := send(t, s, nil, "k1", "how many pods?")
-	awaitTurnDone(t, s, msg.ChatID)
+	awaitTurnReleased(t, s, msg.ChatID)
 	awaitTasks(t, s, msg.ChatID)
 	awaitNoticeTurnDone(t, s, msg.ChatID, msg.ID)
 	assert.Equal(t, []llm.Message{{Role: "user", Blocks: []llm.Block{
@@ -166,7 +166,7 @@ func TestTheSubagentsMessageIsTheNewestCardThenThePrompt(t *testing.T) {
 
 	cards.set("## Cluster\n\n```json\n{\"cluster\":{\"context\":\"kind-dev\"}}\n```")
 	send(t, s, &msg.ChatID, "k2", "and now?")
-	awaitTurnDone(t, s, msg.ChatID)
+	awaitTurnReleased(t, s, msg.ChatID)
 	awaitTasks(t, s, msg.ChatID)
 	cards.set("## Cluster\n\n```json\n{\"cluster\":{\"context\":\"kind-prod\"}}\n```")
 	fakeOf(s).SetToolCalls(agentCall("List the nodes."))
@@ -814,7 +814,7 @@ func TestASubagentsCallsAreReadUnderItsAgentCall(t *testing.T) {
 	subagentFake(s, "Count the pods.").SetToolCalls(llm.StagedCall("echo", `{"n":2}`))
 
 	msg := send(t, s, nil, "k", "how many pods?")
-	awaitTurnDone(t, s, msg.ChatID)
+	awaitTurnReleased(t, s, msg.ChatID)
 	awaitTasks(t, s, msg.ChatID)
 	stored, err := s.readMessages(t.Context(), msg.ChatID)
 	require.NoError(t, err)
@@ -837,7 +837,7 @@ func TestARepeatedSendReadsTheSubagentsCalls(t *testing.T) {
 	fakeOf(s).SetToolCalls(agentCall("Count the pods."))
 	subagentFake(s, "Count the pods.").SetToolCalls(llm.StagedCall("echo", `{}`))
 	msg := send(t, s, nil, "k", "how many pods?")
-	awaitTurnDone(t, s, msg.ChatID)
+	awaitTurnReleased(t, s, msg.ChatID)
 	awaitTasks(t, s, msg.ChatID)
 
 	again := send(t, s, nil, "k", "how many pods?")
@@ -887,7 +887,7 @@ func TestASubagentsBackgroundCommandTellsTheParent(t *testing.T) {
 	subagentFake(s, "Start the build.").SetToolCalls(taskCall())
 	first := send(t, s, nil, "1", "build it")
 	testutil.Recv(t, tt.ready, "the task to start")
-	awaitTurnDone(t, s, first.ChatID)
+	awaitTurnReleased(t, s, first.ChatID)
 	awaitAgentOf(t, s, first.ChatID, first.RunID)
 	awaitNoticeTurnDone(t, s, first.ChatID, first.ID)
 	command := ToolCallID(commandTaskOf(t, s, subagentRuns(t, s.db, first.RunID)[0].id).toolCallID)
@@ -1131,7 +1131,7 @@ func noticeTurnAfterAgent(t *testing.T, s *service) ChatMessage {
 func awaitNoticeTurnDone(t *testing.T, s *service, chatID ChatID, seen ...MessageID) {
 	t.Helper()
 	awaitNoticeTurn(t, s, chatID, seen...)
-	awaitTurnDone(t, s, chatID)
+	awaitTurnReleased(t, s, chatID)
 }
 
 // agentNoticeOf is the one notice the question before answer is.
@@ -1157,7 +1157,7 @@ func TestAnAgentsReportRidesTheNextQuestion(t *testing.T) {
 	awaitAgentOf(t, s, first.ChatID, first.RunID)
 	require.NoError(t, s.Cancel(t.Context(), first.ChatID))
 	awaitSettled(t, s, first.ChatID, first.ID)
-	awaitTurnDone(t, s, first.ChatID)
+	awaitTurnReleased(t, s, first.ChatID)
 
 	next := send(t, s, &first.ChatID, "2", "and now?")
 	awaitSettled(t, s, next.ChatID, next.ID)
@@ -1207,7 +1207,7 @@ func TestAnAgentFromANoticeTurnStartsNoTurn(t *testing.T) {
 	fakeOf(s).QueueToolCalls(nil, []llm.Block{agentCall("List the nodes.")})
 
 	noticeTurn := noticeTurnAfterAgent(t, s)
-	awaitTurnDone(t, s, noticeTurn.ChatID)
+	awaitTurnReleased(t, s, noticeTurn.ChatID)
 	awaitAgentOf(t, s, noticeTurn.ChatID, noticeTurn.RunID)
 
 	assert.Nil(t, s.turnOf(noticeTurn.ChatID))

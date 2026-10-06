@@ -401,7 +401,7 @@ func TestASlotFreesWhenTheRowIsWritten(t *testing.T) {
 
 	close(release)
 	testutil.Wait(t, tk.done, "the task's row")
-	awaitTurnDone(t, s, chatID) // the turn the exit started
+	awaitTurnReleased(t, s, chatID) // the turn the exit started
 	startTaskTurn(t, s, tt, &chatID, "6")
 }
 
