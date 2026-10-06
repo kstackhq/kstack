@@ -333,10 +333,14 @@ func TestAWriteThatChangesNothingSaysSo(t *testing.T) {
 }
 
 // The endpoint's end cuts the preview's requests, and the write still asks.
+// The endpoint retires while the read is in flight, and the read is held
+// until the cut reaches the server, so the read is the request cut.
 func TestADiffUsesTheEndpoint(t *testing.T) {
 	done := make(chan struct{})
-	close(done)
-	api, _ := objectServer(t, objectNow, nil)
+	api := newAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
+		close(done)
+		<-r.Context().Done()
+	})
 	asker := make(fakeAsker, 1)
 	s := serveAsking(t, api.upstreamUntil(done), asker)
 
