@@ -308,6 +308,14 @@ func (r *mutationResolver) SandboxExecutableRemove(ctx context.Context, name str
 	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
 }
 
+// OnboardingFinish is the resolver for the onboardingFinish field.
+func (r *mutationResolver) OnboardingFinish(ctx context.Context) (*model.Onboarding, error) {
+	if err := r.SecurityCfg.FinishOnboarding(); err != nil {
+		return nil, err
+	}
+	return &model.Onboarding{Finished: true}, nil
+}
+
 // MemorySave is the resolver for the memorySave field: an update with an id, a
 // create without one.
 func (r *mutationResolver) MemorySave(ctx context.Context, input model.MemorySaveInput) (*memorysvc.Memory, error) {
@@ -521,6 +529,11 @@ func (r *queryResolver) SandboxExecutables(ctx context.Context) ([]*model.Sandbo
 		return []*model.SandboxExecutable{}, nil
 	}
 	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
+}
+
+// Onboarding is the resolver for the onboarding field.
+func (r *queryResolver) Onboarding(ctx context.Context) (*model.Onboarding, error) {
+	return &model.Onboarding{Finished: r.SecurityCfg.Get().Onboarded}, nil
 }
 
 // PermissionSettings is the resolver for the permissionSettings field.

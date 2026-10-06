@@ -29,3 +29,8 @@ export function isMacOS(): boolean {
 export function isLinux(): boolean {
   return /Linux/i.test(window.navigator.userAgent);
 }
+
+/** True inside the Windows system WebView, where Kstack has no sandbox. */
+export function isWindows(): boolean {
+  return /Windows/i.test(window.navigator.userAgent);
+}
