@@ -25,6 +25,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
 // gitBashTool is the tool over Git Bash, whose login shell reads rc from a home
@@ -40,12 +42,16 @@ func gitBashTool(t *testing.T, rc string) *Tool {
 }
 
 // Git Bash's profile reaches the snapshot through the dump's file, which is gone
-// once the launch returns; the snapshot is read-only and holds no shims.
+// once the launch returns; the snapshot is read-only and holds no shims. The
+// timeout outlasts a cold Git Bash on a loaded runner, and a dump that gives up
+// all the same fails with its logged reason.
 func TestTheSnapshotHoldsTheGitBashProfile(t *testing.T) {
+	logs := testutil.CaptureLogs(t)
 	rt := testRuntime(t)
 	tl := gitBashTool(t, "alias ll='ls -l'\n")
+	tl.snapTimeout = 2 * time.Minute
 	tl.takeSnapshot(t.Context())
-	require.NotEmpty(t, tl.snapshot)
+	require.NotEmpty(t, tl.snapshot, logs.String())
 	b, err := os.ReadFile(tl.snapshot)
 	require.NoError(t, err)
 	assert.True(t, strings.Contains(string(b), "ll="), "missing the alias")
