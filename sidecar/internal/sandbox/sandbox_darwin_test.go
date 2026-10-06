@@ -683,6 +683,16 @@ func shWithin(t *testing.T, s *Sandbox, r Run, d time.Duration, script string, e
 	return withoutCoverWarning(out), err == nil, ctx.Err() != nil
 }
 
+// logDenials logs what the sandbox refused since start, which tells a slow
+// refusal from a run that something let through and left waiting.
+func logDenials(t *testing.T, start time.Time) {
+	t.Helper()
+	out, err := exec.Command("/usr/bin/log", "show", "--style", "compact",
+		"--start", start.Format(time.DateTime),
+		"--predicate", `sender == "Sandbox"`).CombinedOutput()
+	t.Logf("sandbox denials since %s (err %v):\n%s", start.Format(time.DateTime), err, out)
+}
+
 // write makes a file holding "secret" under dir.
 func write(t *testing.T, dir, name string) string {
 	t.Helper()
@@ -1066,9 +1076,18 @@ func TestNoAppIsOpenedOrDriven(t *testing.T) {
 	}
 	t.Cleanup(func() { _, _ = pasteboard(string(prev)) })
 
-	// Each is a negative assertion bounded at 15 seconds: a profile that let
+	// Each is a negative assertion bounded at a minute: a profile that let
 	// the Apple Event through would wait on a privacy prompt, which never ends,
-	// while a refusal under a loaded suite can take over five seconds.
+	// while a refusal on a loaded Intel runner can take over fifteen seconds.
+	run := func(script string) (string, bool) {
+		start := time.Now()
+		out, ok, late := shWithin(t, s, m.on(s), time.Minute, script)
+		if late {
+			logDenials(t, start)
+		}
+		assert.False(t, late, "%s did not end within a minute", script)
+		return out, ok
+	}
 	// AppleScript answers an application's own name from its bundle, and
 	// terms need Finder's dictionary, so the query is raw codes Finder alone
 	// can answer.
@@ -1077,12 +1096,10 @@ func TestNoAppIsOpenedOrDriven(t *testing.T) {
 		`osascript -e 'tell application "Finder" to get «property pnam» of «property sdsk»'`,
 		"echo inside | pbcopy",
 	} {
-		out, ok, late := shWithin(t, s, m.on(s), 15*time.Second, script)
-		assert.False(t, late, "%s did not end within 15 seconds", script)
+		out, ok := run(script)
 		assert.False(t, ok, "%s: %s", script, out)
 	}
-	out, _, late := shWithin(t, s, m.on(s), 15*time.Second, "pbpaste")
-	assert.False(t, late)
+	out, _ := run("pbpaste")
 	assert.NotContains(t, out, marker)
 	got, err := exec.Command("pbpaste").Output()
 	require.NoError(t, err)
