@@ -131,9 +131,9 @@ ask, decided under the proxy's write lock like a write.
 internet and why (4C). `chats.sandbox_disabled` is step 1B's switch, `chats.network_enabled` 4C's.
 
 **The wire.** `approvalDecide` takes the decision. Settings are read and written through
-queries and mutations named `sandbox…`, `permission…`, `network…` and `folder…`, each
-introduced by the step that needs it; the chat's
-switch is `chatSandboxDisabledSet`. An enum's members are spelled as the schema's are, in
+queries and mutations named `sandbox…`, `permission…`, `network…`, `folder…` and
+`onboarding…`, each introduced by the step that needs it; the chat's switch is
+`chatSandboxDisabledSet`. An enum's members are spelled as the schema's are, in
 PascalCase (`Pending`, `Bookmark`).
 
 **The webview.** The request is `ApprovalRequest` in `chat-transcript.tsx`. The Settings dialog
@@ -247,7 +247,7 @@ the folders granted always alone, and a folder granted from its report reaches t
 
 | Spec | Step | After it |
 | --- | --- | --- |
-| [7A](7a-onboarding.md) | **Onboarding.** One flow on first launch: the `PATH` list, the probes, and the approval mode. Needs 3A, 3B, 5B and 6A. | A new user's tools work in the sandbox with nothing typed and nothing signed into. |
+| [7A](7a-onboarding.md) | **Onboarding.** One flow on first launch: the `PATH` list, the executables report, and the approval mode. Needs 3A, 3B and 6A. | A new user's tools work in the sandbox with nothing typed and nothing signed into. |
 
 ## What each step records
 
