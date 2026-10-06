@@ -34,13 +34,14 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
-// startHeld starts trap, then the holder's sleep in the background, as a task
-// whose SIGKILL follows SIGTERM after killGrace, and waits until the sleep is up.
-func startHeld(t *testing.T, trap string, killGrace time.Duration) (*task, *holder) {
+// startHeld starts trap, then the holder's sleep in the background, then tail,
+// as a task whose SIGKILL follows SIGTERM after killGrace, and waits until the
+// sleep is up.
+func startHeld(t *testing.T, trap, tail string, killGrace time.Duration) (*task, *holder) {
 	t.Helper()
 	tl := tool(t)
 	h := newHolder(t)
-	s := tl.spec(trap+"; "+h.command("; wait"), 1024)
+	s := tl.spec(trap+"; "+h.command(tail), 1024)
 	s.killGrace = killGrace
 	tk, err := startTask(t.Context(), s, taskOut(t))
 	require.NoError(t, err)
@@ -51,7 +52,7 @@ func startHeld(t *testing.T, trap string, killGrace time.Duration) (*task, *hold
 // A stop sends SIGTERM first: a trap on it runs, and the task reads as stopped
 // whatever the trap exits with.
 func TestAStopSendsTermFirst(t *testing.T) {
-	tk, h := startHeld(t, `trap 'exit 0' TERM`, time.Hour)
+	tk, h := startHeld(t, `trap 'exit 0' TERM`, "; wait", time.Hour)
 	tk.Stop(false)
 	assert.Equal(t, tools.Exit{Code: 0, OK: true, Stopped: true}, tk.Wait())
 	h.awaitGone(t)
@@ -59,7 +60,7 @@ func TestAStopSendsTermFirst(t *testing.T) {
 
 // A group that ignores SIGTERM gets SIGKILL once the grace is out.
 func TestAStopKillsWhatIgnoresTerm(t *testing.T) {
-	tk, h := startHeld(t, `trap '' TERM`, time.Millisecond)
+	tk, h := startHeld(t, `trap '' TERM`, blocked(t), time.Millisecond)
 	tk.Stop(false)
 	assert.Equal(t, tools.Exit{Code: 137, OK: true, Stopped: true}, tk.Wait())
 	h.awaitGone(t)
@@ -67,7 +68,7 @@ func TestAStopKillsWhatIgnoresTerm(t *testing.T) {
 
 // A stop now does not wait the grace out, whatever the command traps.
 func TestAStopNowKillsAtOnce(t *testing.T) {
-	tk, h := startHeld(t, `trap '' TERM`, time.Hour)
+	tk, h := startHeld(t, `trap '' TERM`, blocked(t), time.Hour)
 	tk.Stop(false)
 	tk.Stop(true)
 	assert.Equal(t, tools.Exit{Code: 137, OK: true, Stopped: true}, tk.Wait())

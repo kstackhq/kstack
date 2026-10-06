@@ -186,6 +186,18 @@ func (h *holder) awaitGone(t *testing.T) {
 	testutil.Wait(t, h.gone, "the sleep to be gone")
 }
 
+// blocked is a tail that holds bash in a read of a FIFO only bash has open, so
+// nothing but a signal ends it. The exit code is bash's own, and a group kill
+// can reach the sleep first (macOS does): bash in a plain wait would then exit
+// 0 before its own SIGKILL lands. A stop reads as stopped either way; only the
+// code depends on the order.
+func blocked(t *testing.T) string {
+	t.Helper()
+	fifo := filepath.Join(t.TempDir(), "block")
+	require.NoError(t, syscall.Mkfifo(fifo, 0o600))
+	return "; read -r _ <> '" + fifo + "'"
+}
+
 // A cancelled command is killed at once with everything in its group, and the
 // result says so.
 func TestRunKillsTheGroupOnCancel(t *testing.T) {
@@ -194,7 +206,7 @@ func TestRunKillsTheGroupOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	res := make(chan result, 1)
-	go func() { res <- run(ctx, tl.spec(h.command("; wait"), 1024)) }()
+	go func() { res <- run(ctx, tl.spec(h.command(blocked(t)), 1024)) }()
 	h.awaitStarted(t)
 	cancel()
 	r := testutil.Recv(t, res, "the run to end")
