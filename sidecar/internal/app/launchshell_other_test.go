@@ -40,13 +40,10 @@ func TestSetShellEnvIsANoOpOffDarwin(t *testing.T) {
 func TestLinuxSkipsTheResolutionWithNoSandbox(t *testing.T) {
 	resolve := resolveShell
 	t.Cleanup(func() { resolveShell = resolve })
-	resolveShell = func(context.Context, loginshell.Start) (loginshell.Result, *loginshell.Fault) {
+	resolveShell = func(context.Context, loginshell.Start, []string) (loginshell.Result, *loginshell.Fault) {
 		t.Fatal("the login shell ran")
 		return loginshell.Result{}, nil
 	}
 
-	path, fault := launchShell(t.Context(), nil, []string{t.TempDir()}, t.TempDir())
-
-	require.Nil(t, path)
-	require.Empty(t, fault)
+	require.Equal(t, launch{}, launchShell(t.Context(), nil, []string{t.TempDir()}, t.TempDir()))
 }

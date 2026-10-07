@@ -74,7 +74,8 @@ type Config struct {
 	// release don't share a keychain entry.
 	KeychainService string
 	// LLMKeys is the model-provider key per provider id, for the keys the config
-	// found set; a provider with no key here is not listed.
+	// found set; with RunLoginShell, New adds each key the login shell sets that
+	// is missing here. A provider with no key is not listed.
 	LLMKeys map[string]string
 	// LLMBaseURLs moves a listed provider's base URL, by provider id. Only a
 	// debug build sets it.
@@ -88,8 +89,9 @@ type Config struct {
 	// HostPID is the host's process, which a command's kill is refused against;
 	// 0 when the sidecar was not told it.
 	HostPID int
-	// RunLoginShell runs the user's login shell: once in New, for its PATH and on
-	// macOS its environment, and for the snapshot after Start. main alone sets
+	// RunLoginShell runs the user's login shell: once in New, for its PATH, the
+	// provider keys LLMKeys lacks and on macOS its environment, and for the
+	// snapshot after Start. main alone sets
 	// it, so no test spawns the developer's login shell.
 	RunLoginShell bool
 	// launchPath is a test's stand-in for the PATH the login shell answers,

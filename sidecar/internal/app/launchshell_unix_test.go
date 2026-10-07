@@ -17,10 +17,15 @@
 package app
 
 import (
+	"bytes"
 	"context"
+	"log/slog"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/run/loginshell"
 	"github.com/stretchr/testify/require"
 )
@@ -29,19 +34,50 @@ import (
 // and its PATH handed on.
 func TestResolveIsRunOnceAtLaunch(t *testing.T) {
 	runs := 0
-	path, fault := runShell(t.Context(), nil, func(context.Context, loginshell.Start) (loginshell.Result, *loginshell.Fault) {
+	got := runShell(t.Context(), nil, nil, func(context.Context, loginshell.Start, []string) (loginshell.Result, *loginshell.Fault) {
 		runs++
 		return loginshell.Result{Path: []string{"/opt/bin", "/usr/bin"}}, nil
 	})
 	require.Equal(t, 1, runs)
-	require.Equal(t, []string{"/opt/bin", "/usr/bin"}, path)
-	require.Empty(t, fault)
+	require.Equal(t, launch{path: []string{"/opt/bin", "/usr/bin"}}, got)
 
-	path, fault = runShell(t.Context(), nil, func(context.Context, loginshell.Start) (loginshell.Result, *loginshell.Fault) {
+	got = runShell(t.Context(), nil, nil, func(context.Context, loginshell.Start, []string) (loginshell.Result, *loginshell.Fault) {
 		return loginshell.Result{}, &loginshell.Fault{Reason: "timeout", ExitCode: -1}
 	})
-	require.Nil(t, path)
-	require.Equal(t, "timeout", fault)
+	require.Equal(t, launch{fault: "timeout"}, got)
+}
+
+// A key the login shell set is handed back and registered with the redactor,
+// and no log line carries it. It is never set on the process, so a credential
+// plugin the sidecar spawns does not inherit it.
+func TestAKeyFromTheShellIsRedactedAndNeverInherited(t *testing.T) {
+	const key = "sk-ant-shell-0123456789"
+	t.Cleanup(safe.ResetSecrets)
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	require.NoError(t, os.Unsetenv("ANTHROPIC_API_KEY"))
+	var logged bytes.Buffer
+	defer slog.SetDefault(slog.Default())
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logged, nil)))
+
+	var asked []string
+	got := runShell(t.Context(), nil, []string{"ANTHROPIC_API_KEY"}, func(_ context.Context, _ loginshell.Start, keyVars []string) (loginshell.Result, *loginshell.Fault) {
+		asked = keyVars
+		return loginshell.Result{
+			Path: []string{"/usr/bin"},
+			Env:  map[string]string{},
+			Keys: map[string]string{"ANTHROPIC_API_KEY": key},
+		}, nil
+	})
+
+	require.Equal(t, []string{"ANTHROPIC_API_KEY"}, asked)
+	require.Equal(t, map[string]string{"ANTHROPIC_API_KEY": key}, got.keys)
+	require.NotContains(t, safe.String("key "+key+" here"), key)
+	require.NotContains(t, logged.String(), key)
+	_, set := os.LookupEnv("ANTHROPIC_API_KEY")
+	require.False(t, set, "the key is not on the process")
+	out, err := exec.Command("/usr/bin/env").Output()
+	require.NoError(t, err)
+	require.NotContains(t, string(out), key, "a child does not inherit it")
 }
 
 // The launch resolution runs in the sandbox, its output leaving it, so the
@@ -51,10 +87,9 @@ func TestTheLaunchResolutionRunsInTheSandbox(t *testing.T) {
 	kstackDirs := []string{t.TempDir(), t.TempDir(), t.TempDir()}
 	tmpDir := filepath.Join(kstackDirs[1], "tmp")
 
-	path, fault := launchShell(t.Context(), sb, kstackDirs, tmpDir)
+	got := launchShell(t.Context(), sb, kstackDirs, tmpDir)
 
-	require.Nil(t, path)
-	require.Equal(t, "sandbox refused", fault)
+	require.Equal(t, launch{fault: "sandbox refused"}, got)
 	require.Len(t, sb.runs, 1)
 	p := sb.runs[0].Policy
 	require.Equal(t, []string{"/never"}, p.Always.Deny)
@@ -72,7 +107,7 @@ func stubLaunch(t *testing.T, res loginshell.Result, f *loginshell.Fault) *int {
 	runs := new(int)
 	resolve := resolveShell
 	t.Cleanup(func() { resolveShell = resolve })
-	resolveShell = func(context.Context, loginshell.Start) (loginshell.Result, *loginshell.Fault) {
+	resolveShell = func(context.Context, loginshell.Start, []string) (loginshell.Result, *loginshell.Fault) {
 		*runs++
 		return res, f
 	}

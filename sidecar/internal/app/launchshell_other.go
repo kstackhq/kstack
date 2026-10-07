@@ -22,5 +22,6 @@ package app
 func setShellEnv(map[string]string) {}
 
 // skipResolution reports whether the launch resolution is skipped: with no
-// sandbox, nothing reads its PATH, and setShellEnv sets nothing here.
+// sandbox, nothing reads its PATH, and setShellEnv sets nothing here. A desktop
+// entry's launch then leaves the provider keys to the launch environment.
 func skipResolution(sb sandboxer) bool { return sb == nil }

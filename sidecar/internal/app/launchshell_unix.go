@@ -19,9 +19,13 @@ package app
 import (
 	"context"
 	"log/slog"
+	"maps"
 	"os"
+	"slices"
 	"time"
 
+	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/run/loginshell"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -30,16 +34,16 @@ import (
 var resolveShell = loginshell.Resolve
 
 // launchShell runs the account's login shell once, in sb: its environment is
-// set where the platform needs it, and its PATH is what the sandbox's is
-// resolved from. Its output leaves the sandbox, so it reads nothing on the
-// denied-always list, and nothing of Kstack's directories (kstackDirs); its
-// TMPDIR is a run's, under tmpDir. sb is nil for no sandbox, where the shell
-// runs unconfined, or not at all where nothing reads its answer
-// (skipResolution). It answers the shell's PATH, nil when it was not read, and
-// why not, "" when it was.
-func launchShell(ctx context.Context, sb sandboxer, kstackDirs []string, tmpDir string) (path []string, fault string) {
+// set where the platform needs it, its PATH is what the sandbox's is resolved
+// from, and the provider keys are read from it, since a GUI launch inherits
+// none a startup file exports. Its output leaves the sandbox, so it reads
+// nothing on the denied-always list, and nothing of Kstack's directories
+// (kstackDirs); its TMPDIR is a run's, under tmpDir. sb is nil for no sandbox,
+// where the shell runs unconfined, or not at all where nothing reads its
+// answer (skipResolution).
+func launchShell(ctx context.Context, sb sandboxer, kstackDirs []string, tmpDir string) launch {
 	if skipResolution(sb) {
-		return nil, ""
+		return launch{}
 	}
 	var deny []string
 	if sb == nil {
@@ -48,28 +52,33 @@ func launchShell(ctx context.Context, sb sandboxer, kstackDirs []string, tmpDir 
 		home, _ := os.UserHomeDir()
 		deny = sb.Never(home)
 	}
-	return runShell(ctx, loginshell.In(sb, deny, kstackDirs, bash.TempDir(tmpDir)), resolveShell)
+	keyVars := slices.Sorted(maps.Values(catalog.KeyVars()))
+	return runShell(ctx, loginshell.In(sb, deny, kstackDirs, bash.TempDir(tmpDir)), keyVars, resolveShell)
 }
 
 // runShell calls resolve once, through start, under the shell's timeout, and
-// hands its answer to both readers. It logs how long the shell took, so the
+// hands its answer to its readers. It logs how long the shell took, so the
 // timeout can be judged against real startup files. A failure is not a startup
-// error: it logs the reason, never a value, and answers no path.
-func runShell(ctx context.Context, start loginshell.Start, resolve func(context.Context, loginshell.Start) (loginshell.Result, *loginshell.Fault)) ([]string, string) {
+// error: it logs the reason, never a value, and answers nothing.
+func runShell(ctx context.Context, start loginshell.Start, keyVars []string, resolve func(context.Context, loginshell.Start, []string) (loginshell.Result, *loginshell.Fault)) launch {
 	started := time.Now()
 	ctx, cancel := context.WithTimeout(ctx, loginshell.DefaultTimeout)
 	defer cancel()
 
-	res, f := resolve(ctx, start)
+	res, f := resolve(ctx, start, keyVars)
 	if f != nil {
 		slog.Warn("login shell not read",
 			"reason", f.Reason,
 			"exit_code", f.ExitCode,
 			"elapsed", time.Since(started),
 		)
-		return nil, f.Reason
+		return launch{fault: f.Reason}
+	}
+	// Before the next log line, so none can carry a key.
+	for _, key := range res.Keys {
+		safe.AddSecret(key)
 	}
 	slog.Info("login shell read", "elapsed", time.Since(started))
 	setShellEnv(res.Env)
-	return res.Path, ""
+	return launch{path: res.Path, keys: res.Keys}
 }

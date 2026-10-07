@@ -79,7 +79,7 @@ func TestResolveBoundsShellDiscovery(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
 	defer cancel()
-	_, f := Resolve(ctx, plainStart)
+	_, f := Resolve(ctx, plainStart, nil)
 	require.NotNil(t, f)
 	require.Equal(t, reasonTimeout, f.Reason)
 }

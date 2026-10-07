@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,7 +33,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/loginshell"
@@ -404,4 +407,38 @@ func TestNewStopsWhenItsContextEnds(t *testing.T) {
 	require.ErrorIs(t, err, context.Canceled)
 	assert.Nil(t, a)
 	assert.Zero(t, *launches)
+}
+
+// New asks the login shell for every provider key and lists the providers it
+// sets; a key the launch environment set wins.
+func TestNewTakesTheProviderKeysTheShellSets(t *testing.T) {
+	if _, v, _ := sandbox.Probe(t.Context()); !v.Available {
+		testutil.RequireSandbox(t, "no sandbox: "+v.Reason)
+	}
+	t.Cleanup(safe.ResetSecrets)
+	var asked []string
+	resolve := resolveShell
+	t.Cleanup(func() { resolveShell = resolve })
+	resolveShell = func(_ context.Context, _ loginshell.Start, keyVars []string) (loginshell.Result, *loginshell.Fault) {
+		asked = keyVars
+		return loginshell.Result{Keys: map[string]string{
+			"ANTHROPIC_API_KEY": "sk-ant-shell-0123456789",
+			"OPENAI_API_KEY":    "sk-openai-shell-0123456789",
+		}}, nil
+	}
+
+	a, err := New(t.Context(), withDirs(t, Config{
+		DataDir:       t.TempDir(),
+		RunLoginShell: true,
+		LLMKeys:       map[string]string{"openai": "sk-openai-launch-0123456789"},
+	}))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, a.Close()) })
+
+	assert.Equal(t, slices.Sorted(maps.Values(catalog.KeyVars())), asked)
+	keys := map[string]string{}
+	for _, p := range a.rt.Catalog.Providers() {
+		keys[p.ID] = p.Key
+	}
+	assert.Equal(t, map[string]string{"anthropic": "sk-ant-shell-0123456789", "openai": "sk-openai-launch-0123456789"}, keys)
 }

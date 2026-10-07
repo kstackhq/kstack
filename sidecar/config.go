@@ -84,7 +84,7 @@ func configFromArgs(args []string, getenv func(string) string) (config, error) {
 // an exception to *the environment reaches the config only in a debug build*, and
 // stated as one: a key selects an account, never an endpoint, so it cannot
 // redirect where anything is sent. A key that is set is kept under its provider's
-// id; one that is not is left out, and the llm service lists no row for it. Each
+// id; one that is not is left out, for app.New to read from the login shell. Each
 // key is registered with the redactor here, before the logger exists, so no log
 // line can carry it.
 func readProviders(cfg *config, getenv func(string) string) {

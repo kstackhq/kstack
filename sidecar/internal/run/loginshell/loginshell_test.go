@@ -48,7 +48,7 @@ func TestResolveImportsThePathTheShellBuilds(t *testing.T) {
 	_, err := exec.LookPath(plugin)
 	require.Error(t, err, "fixture must be off the inherited PATH")
 
-	got, f := Resolve(context.Background(), plainStart)
+	got, f := Resolve(context.Background(), plainStart, nil)
 	require.Nil(t, f)
 	require.Contains(t, got.Env["PATH"], dir)
 
@@ -71,7 +71,7 @@ func TestResolveStopsAtTheLastMarker(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Resolve(ctx, plainStart)
+	got, f := Resolve(ctx, plainStart, nil)
 	require.Nil(t, f, "an answer in hand must not wait on the pipe closing")
 	require.Contains(t, got.Env["PATH"], dir)
 
@@ -101,11 +101,28 @@ func TestResolveImportsTheVariablesTheShellExports(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Resolve(ctx, plainStart)
+	got, f := Resolve(ctx, plainStart, nil)
 	require.Nil(t, f)
 	require.Contains(t, got.Env["PATH"], dir)
 	require.Equal(t, "/etc/k.yaml:"+filepath.Join(home, ".kube/work.yaml"), got.Env["KUBECONFIG"])
 	require.Equal(t, "work", got.Env["AWS_PROFILE"])
+}
+
+// The keys asked for come back as the shell set them, apart from the allowlist;
+// one unset or empty is left out.
+func TestResolveReadsTheKeysItIsAskedFor(t *testing.T) {
+	dir, _ := fixturePlugin(t)
+	pre := "export ANTHROPIC_API_KEY='sk-ant shell'\nexport OPENAI_API_KEY=\n"
+	useAccountShell(t, fakeShell(t, dir, pre, ""))
+
+	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
+	defer cancel()
+
+	got, f := Resolve(ctx, plainStart, []string{"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GROQ_API_KEY"})
+	require.Nil(t, f)
+	require.Contains(t, got.Env["PATH"], dir)
+	require.Equal(t, map[string]string{"ANTHROPIC_API_KEY": "sk-ant shell"}, got.Keys)
+	require.NotContains(t, got.Env, "ANTHROPIC_API_KEY")
 }
 
 func TestResolveResolvesAgainstTheDirectoryTheShellEndedIn(t *testing.T) {
@@ -123,7 +140,7 @@ func TestResolveResolvesAgainstTheDirectoryTheShellEndedIn(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Resolve(ctx, plainStart)
+	got, f := Resolve(ctx, plainStart, nil)
 	require.Nil(t, f)
 	require.Equal(t, filepath.Join(home, "work", "config"), got.Env["KUBECONFIG"])
 }
@@ -137,7 +154,7 @@ func TestResolveRefusesAPathThatFindsNothing(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	_, f := Resolve(ctx, plainStart)
+	_, f := Resolve(ctx, plainStart, nil)
 	require.NotNil(t, f)
 	require.Equal(t, reasonBadOutput, f.Reason)
 }
@@ -153,7 +170,7 @@ func TestResolveOmitsWhatTheShellDoesNotSet(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Resolve(ctx, plainStart)
+	got, f := Resolve(ctx, plainStart, nil)
 	require.Nil(t, f)
 	require.NotContains(t, got.Env, "KUBECONFIG")
 	require.NotContains(t, got.Env, "AWS_PROFILE")
@@ -181,7 +198,7 @@ func TestResolveFallsBackWhenTheShellCannotAnswer(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 			defer cancel()
 
-			_, f := Resolve(ctx, plainStart)
+			_, f := Resolve(ctx, plainStart, nil)
 			require.NotNil(t, f)
 			require.Equal(t, tc.reason, f.Reason)
 			if tc.code >= 0 {
@@ -223,7 +240,7 @@ func TestResolveFallsBackWhenTheShellNeverAnswers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
 
-	_, f := Resolve(ctx, plainStart)
+	_, f := Resolve(ctx, plainStart, nil)
 	require.NotNil(t, f)
 	require.Equal(t, reasonTimeout, f.Reason)
 }
@@ -235,7 +252,7 @@ func TestResolveLeavesTheEnvironmentAloneOnFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	_, f := Resolve(ctx, plainStart)
+	_, f := Resolve(ctx, plainStart, nil)
 	require.NotNil(t, f)
 	require.Equal(t, "/usr/bin:/bin", os.Getenv("PATH"), "a fallback must keep the inherited PATH")
 }
@@ -551,7 +568,7 @@ func TestResolveRunsTheAccountShell(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Resolve(ctx, plainStart)
+	got, f := Resolve(ctx, plainStart, nil)
 	require.Nil(t, f)
 	require.Contains(t, got.Path, dir)
 }
@@ -564,7 +581,7 @@ func TestResolveAnswersThePathAsExported(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
 
-	got, f := Resolve(ctx, plainStart)
+	got, f := Resolve(ctx, plainStart, nil)
 	require.Nil(t, f)
 	want := append(append([]string{dir}, filepath.SplitList(DefaultPath)...), "bin", "", "~/x")
 	require.Equal(t, want, got.Path)
@@ -590,7 +607,7 @@ func TestTheShellsEnvironmentIsScrubbed(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
-	_, f := Resolve(ctx, plainStart)
+	_, f := Resolve(ctx, plainStart, nil)
 	require.Nil(t, f)
 
 	out, err := os.ReadFile(seen)
@@ -618,7 +635,7 @@ func TestResolveFallsBackWhenThereIsNoShell(t *testing.T) {
 	defer func(shells []string) { defaultShells = shells }(defaultShells)
 	defaultShells = []string{filepath.Join(t.TempDir(), "zsh")}
 
-	_, f := Resolve(t.Context(), plainStart)
+	_, f := Resolve(t.Context(), plainStart, nil)
 	require.NotNil(t, f)
 	require.Equal(t, reasonNoShell, f.Reason)
 	require.Equal(t, -1, f.ExitCode)
@@ -626,11 +643,11 @@ func TestResolveFallsBackWhenThereIsNoShell(t *testing.T) {
 
 // parseAnswer is parse over a posix run's frames, read as an answer.
 func parseAnswer(out []byte) (answer, bool) {
-	frames, ok := parse(out, posix.frames)
+	frames, ok := parse(out, posix(nil).frames)
 	if !ok {
 		return answer{}, false
 	}
-	return answerOf(frames), true
+	return answerOf(frames, nil), true
 }
 
 // Each kind of shell is run with its own flags and asked in its own language,
@@ -656,7 +673,7 @@ func TestResolveReadsEachShellKind(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 			defer cancel()
-			got, f := Resolve(ctx, plainStart)
+			got, f := Resolve(ctx, plainStart, nil)
 			require.Nil(t, f)
 			require.Equal(t, []string{"/a", "/b"}, got.Path)
 			require.Equal(t, tc.env, got.Env)
@@ -696,7 +713,7 @@ func TestResolveRefusesAnEmptyNuPath(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), testDeadline)
 	defer cancel()
-	_, f := Resolve(ctx, plainStart)
+	_, f := Resolve(ctx, plainStart, nil)
 	require.NotNil(t, f)
 	require.Equal(t, reasonBadOutput, f.Reason)
 }

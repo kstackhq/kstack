@@ -69,11 +69,13 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	// Before anything that reads the environment: on macOS the login shell's
 	// sets it process-wide, credential plugins resolve against it, and net/http
-	// and WebFetch read the proxy variables from it.
+	// and WebFetch read the proxy variables from it. The keys it answers reach
+	// the catalog alone.
 	p := pathsOf(cfg)
-	launchPath, launchFault := cfg.launchPath, ""
+	login := launch{path: cfg.launchPath}
 	if cfg.RunLoginShell {
-		launchPath, launchFault = launchShell(ctx, boxer, p.Bash.DeniedDirs, p.Bash.TmpDir)
+		login = launchShell(ctx, boxer, p.Bash.DeniedDirs, p.Bash.TmpDir)
+		cfg.LLMKeys = withShellKeys(cfg.LLMKeys, login.keys)
 	}
 
 	// The settings hold no handle, so a failure leaves nothing to close.
@@ -134,7 +136,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 	rt.Shell = shell
 	rt.SandboxStatus = sandboxStatusOf(found, probed)
-	rt.Settings = newSettingsService(settingsStore, boxer, shell, rt.SandboxStatus, p.Bash.DeniedDirs, launchFault, p.Bash.TmpDir)
+	rt.Settings = newSettingsService(settingsStore, boxer, shell, rt.SandboxStatus, p.Bash.DeniedDirs, login.fault, p.Bash.TmpDir)
 
 	rt.Memory, err = memory.New(db, serverUIDLookup{clusters: rt.Cluster.Clusters()})
 	if err != nil {
@@ -167,11 +169,11 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	}
 
 	// Before the snapshot, so the first sandboxed run reads the synced list.
-	if launchPath != nil && rt.SandboxStatus.Available {
+	if login.path != nil && rt.SandboxStatus.Available {
 		rt.add("PATH sync", lifecycle.StartFunc(func(ctx context.Context) (func(context.Context) error, error) {
 			// Only when the list moved, so nothing runs unasked on a machine
 			// whose tools did not; the executable probe part's Close ends it.
-			if syncPath(ctx, rt.Settings, launchPath) {
+			if syncPath(ctx, rt.Settings, login.path) {
 				shell.StartProbe(rt.Settings.Get().Executables)
 			}
 			return func(context.Context) error { return nil }, nil

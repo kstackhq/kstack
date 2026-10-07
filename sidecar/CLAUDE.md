@@ -131,7 +131,7 @@ Shutdown order from `main.go`: `app.NotifyShutdown()` → `srv.Shutdown` → `ap
 
 Full picture: [`docs/security-model.md`](../docs/security-model.md). The sidecar holds every credential in the system, so these are load-bearing:
 
-- **Every endpoint is an argument.** `configFromArgs` (`config.go`) parses the whole command line, including `--oauth-issuer`, `--oauth-client-id` and `--keychain-service`; the host passes them. The environment reaches the config only through `applyEnvOverrides` (`config.go`), a no-op unless the binary is built with `-tags debug` (`make sidecar-dev`, for a standalone dev run with no host) — and only as the `getenv` the call is handed: `os.Getenv` from `main`, a map of the test's own in every test, so no test reads a key out of the shell running it. A model provider's base URL is one of those overrides: `KSTACK_<ID>_BASE_URL`, one per id in `catalog.BaseURLVars()`, lands in `Config.LLMBaseURLs`, so a release build never takes a model endpoint from the environment. `KSTACK_LOG_LEVEL` is the one variable a release build still reads — a log level redirects nothing. **The model-provider keys are the exception, and a narrow one**: every key variable in `catalog.KeyVars()` (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the eight Chat Completions vendors') is read by `configFromArgs` in every build, because a key selects an account and never an endpoint, so it cannot redirect where anything is sent. A key that is set is kept under its provider's id in `Config.LLMKeys` and registered with `safe.AddSecret` before the logger exists; one that is not is left out, and `catalog.New` lists no row for it. `main` then calls `takeProviderKeys` — after the parse, before the shell import starts — which removes every key variable in the table, set or not, and nothing else: the sidecar spawns kubeconfig credential plugins and a child inherits the environment. `config_test.go` pins the boundary; `go test` builds untagged, and the coverage gate runs both builds.
+- **Every endpoint is an argument.** `configFromArgs` (`config.go`) parses the whole command line, including `--oauth-issuer`, `--oauth-client-id` and `--keychain-service`; the host passes them. The environment reaches the config only through `applyEnvOverrides` (`config.go`), a no-op unless the binary is built with `-tags debug` (`make sidecar-dev`, for a standalone dev run with no host) — and only as the `getenv` the call is handed: `os.Getenv` from `main`, a map of the test's own in every test, so no test reads a key out of the shell running it. A model provider's base URL is one of those overrides: `KSTACK_<ID>_BASE_URL`, one per id in `catalog.BaseURLVars()`, lands in `Config.LLMBaseURLs`, so a release build never takes a model endpoint from the environment. `KSTACK_LOG_LEVEL` is the one variable a release build still reads — a log level redirects nothing. **The model-provider keys are the exception, and a narrow one**: every key variable in `catalog.KeyVars()` (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the eight Chat Completions vendors') is read by `configFromArgs` in every build, because a key selects an account and never an endpoint, so it cannot redirect where anything is sent. A key that is set is kept under its provider's id in `Config.LLMKeys` and registered with `safe.AddSecret` before the logger exists; one that is not is left out, and `catalog.New` lists no row for it. `main` then calls `takeProviderKeys` — after the parse, before the shell import starts — which removes every key variable in the table, set or not, and nothing else: the sidecar spawns kubeconfig credential plugins and a child inherits the environment. **The launch's login shell is asked for every key too** (*The login shell*, below): `runShell` registers each it answers with `safe.AddSecret` before it logs, and `withShellKeys` (`app/launchshell.go`) adds them to `Config.LLMKeys` before the catalog is built, a key the launch environment set winning. No key from the shell is ever set on the process. `config_test.go` pins the boundary; `go test` builds untagged, and the coverage gate runs both builds.
 
 - **Only the host process may connect.** `ipc.Authenticated` checks each accepted connection's peer pid against `--host-pid` (the kernel stamps it, so a client cannot claim another's) and closes anything else without ending the accept loop; zero, the standalone-run default, falls back to the uid alone. The file mode carries the rest: `ipc.Listen` tightens the umask *before* `net.Listen` so the socket is never briefly world-accessible, then chmods 0600; Windows binds the pipe owner-only (`D:P(A;;GA;;;OW)`). Both are pinned by tests. Authentication runs the other way too: the host verifies on every dial that the process serving the endpoint is the sidecar it spawned (`src-tauri/src/services/sidecar/{ipc,peer}.rs`), and on Unix places the endpoint in an owner-only runtime directory. Never widen access or add a TCP listener — the GET transport is registered alongside POST and SSE and is only harmless because the transport is local.
 - **Redaction happens at write time, keyed off the body's own group and kind,** so it cannot be bypassed by how an object was addressed (`kubestore/objects.go`). A new read path serves the stored body; it does not get to re-derive what to hide. It fails closed: a path occupied by the wrong type is dropped, not skipped — the discrimination is the `err` a `Nested*` read returns, since "absent" and "there but unreadable" share the `found` boolean. The table is deliberately incomplete, so treat a cache file as holding cluster data in the clear — that is what makes its file mode and its lifetime security properties. Storing it in the clear is a decision, not an oversight. → [ADR: the cache is ordinary application data](../docs/adr/2026-09-02-the-cache-is-ordinary-application-data.md).
@@ -147,9 +147,14 @@ Full picture: [`docs/security-model.md`](../docs/security-model.md). The sidecar
 `app/launchshell_unix.go`; `launchshell_windows.go`'s runs nothing), **in the sandbox** (below). On
 Linux with no sandbox it is not run at all (`skipResolution` in `launchshell_other.go`), since
 nothing reads its answer there; on macOS with none it runs unconfined and logs that once. `loginshell.Resolve` answers a `Result` with
-two readers: `Path`, the shell's `PATH` split and unfiltered, which the app hands to the sync
-(*Settings*, below), and `Env`, the allowlisted environment, which `setShellEnv`
-sets process-wide on macOS (`launchshell_darwin.go`; a no-op in `launchshell_other.go`). A GUI launch
+three readers: `Path`, the shell's `PATH` split and unfiltered, which the app hands to the sync
+(*Settings*, below); `Env`, the allowlisted environment, which `setShellEnv`
+sets process-wide on macOS (`launchshell_darwin.go`; a no-op in `launchshell_other.go`); and
+`Keys`, the secrets the caller named, as the shell set them. `launchShell` names every provider
+key variable and answers a `launch` (`app/launchshell.go`: the path, the fault and the keys);
+`runShell` registers each key with the redactor before it logs, and they reach `Config.LLMKeys`
+and nothing else — `Keys` is never set on the process, so no child inherits a key. `Path` passes
+no keys. A GUI launch
 inherits launchd's minimal environment, so without it a kubeconfig `exec` credential plugin
 (`aws`, `gke-gcloud-auth-plugin`) is not found even though the same kubeconfig works in a
 terminal — and an exported `KUBECONFIG` or `AWS_PROFILE` is invisible. It is installed
@@ -167,7 +172,7 @@ executable by absolute path falls back to the platform's own (`/bin/zsh`; `/bin/
 a dead network mount past any cancel, so `Resolve` runs it on a goroutine and answers `timeout`
 at its deadline (`findShellOrTimeout`). **The command follows the shell's kind**, by base name: `nu` runs
 `-l -c` with two frames (the cwd, then `$env.PATH | str join ":"`), and any other shell `-i -l -c`
-with the posix command below, so a nushell run answers `Path` and an empty `Env`. **The
+with the posix command below, so a nushell run answers `Path` and an empty `Env` and `Keys`. **The
 environment is scrubbed**: `HOME`, `USER`, `LOGNAME`, `TMPDIR`, `LANG` and `TZ` copied when set,
 `SHELL` the shell run, `TERM=dumb`, `DISABLE_AUTO_UPDATE=true`, and `PATH` at
 `loginshell.DefaultPath`, the platform's login default, so a terminal launch and a Finder launch
@@ -201,7 +206,8 @@ whose sandbox answered the probe. → [ADR: the login shell runs in the sandbox]
 **The allowlist is the security boundary.** `imported` names every variable and its kind, the shell
 command is built from that list, and adding a row is a security change: we spawn credential plugins
 as children, so an import is an import into them. Deny by default, no prefix wildcards, and nothing
-that is itself a secret. → [ADR: shell-environment allowlist](../docs/adr/2026-09-07-shell-environment-allowlist.md).
+that is itself a secret. The keys a caller names are printed after the allowlist, one frame each,
+read as they are, and never imported. → [ADR: shell-environment allowlist](../docs/adr/2026-09-07-shell-environment-allowlist.md).
 
 | Kind | What it means |
 | --- | --- |
@@ -244,7 +250,7 @@ Traps worth knowing:
 - **The marker must begin with a letter and the escape is `\000`.** `printf` reads `\0` as the
   start of an octal escape, so a marker starting `0`-`7` is swallowed into it and simply vanishes.
 - **Resolution stops at the last marker, not at EOF.** `parse` takes the number of frames the
-  kind prints. The shell's cwd leads, so N variables are framed by N+2 markers: one before `pwd`, one before each `printenv`, and one after the last. A startup file that backgrounds a daemon leaves it
+  kind prints. The shell's cwd leads, so N variables (the allowlist, then the keys) are framed by N+2 markers: one before `pwd`, one before each `printenv`, and one after the last. A startup file that backgrounds a daemon leaves it
   holding stdout; waiting for the pipe to close would hand it the power to stall every launch. The
   shell's exit status gates only when nothing usable was captured.
 - **Each surviving entry is byte-for-byte.** A directory name may hold anything but NUL and the
@@ -1138,9 +1144,10 @@ sub-package names they had; the layout they land in is the one above.
   sink renders it through `safe` like any other `err`.
 - **Keys are one environment variable per provider** (ten of them; the list is in *Every
   endpoint is an argument* above), read by `configFromArgs`, registered with `safe.AddSecret`,
-  and cleared by `main`. On macOS a GUI launch sees none of them — the
-  shell-environment allowlist never imports a secret — so a dev run from a terminal is where a
-  key arrives. → [security records](../docs/security/2026-09-12-cloud-providers-from-the-environment.md).
+  and cleared by `main`. A GUI launch sees none of them, so `app.New` reads them from the login
+  shell too (*The login shell*, below), the launch's winning, and never sets them on the process.
+  → [security records](../docs/security/2026-09-12-cloud-providers-from-the-environment.md),
+  [provider keys from the login shell](../docs/security/2026-10-07-provider-keys-from-the-login-shell.md).
   **OpenRouter's entry carries `Extra`**: `provider.data_collection: deny`, so OpenRouter routes
   only to downstream providers it classifies as not collecting user data for training or
   retention — its classification, not one we verify, and not zero-data-retention, which is the
