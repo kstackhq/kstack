@@ -105,6 +105,23 @@ runs:
         toolchain: ${{ steps.rust-toolchain.outputs.channel }}
         components: rustfmt, clippy
 
+    # rust-cache keys on every installed toolchain, so the runner image's own
+    # stable would change the key, and miss the cache, whenever an image update
+    # rolls out. The pinned toolchain is the only one any cargo call here uses.
+    - name: Remove the runner image's Rust toolchains
+      if: inputs.setup-rust == 'true'
+      shell: bash
+      env:
+        CHANNEL: ${{ steps.rust-toolchain.outputs.channel }}
+      run: |
+        rustup toolchain list --quiet | while read -r toolchain; do
+          case "$toolchain" in
+            "$CHANNEL"-*) ;;
+            *) rustup toolchain uninstall "$toolchain" ;;
+          esac
+        done
+        rustup toolchain list
+
     # The caller decides whether to save; ci.yml's CACHE_MODE saves on main.
     - name: Set up Rust cache
       if: inputs.setup-rust == 'true' && inputs.rust-cache-key != ''
