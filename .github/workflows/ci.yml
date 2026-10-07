@@ -7,27 +7,40 @@ on:
   pull_request:
     branches:
       - "**"
-  # The nightly run on main rebuilds the Go caches every PR reads, running
-  # every Go test with nothing replayed from a cache.
-  schedule:
-    - cron: "0 3 * * *"
+  # A run on main updates the Go caches every PR reads.
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
-      rebuild-cache:
-        description: Rebuild the Go caches, as the nightly run does
-        type: boolean
-        default: false
+      cache-mode:
+        description: >-
+          use: restore the Go and Rust caches, save none. update: also save a
+          new Go cache. rebuild: start the Go cache from empty and save it.
+          Off main, a saved cache is that branch's alone; PRs never read it.
+        type: choice
+        options:
+          - use
+          - update
+          - rebuild
+        default: use
 
 # A PR's new push cancels its last run. Every other run has a group of its own,
-# so a rebuilding run is never cancelled, nor left pending behind another.
+# so a run on main is never cancelled, which would save no cache, nor left
+# pending behind another.
 concurrency:
   group: ci-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
-  # A rebuilding run saves a new Go cache per job and runner. The one it
-  # replaces is never restored again, so it is the first GitHub evicts.
-  REBUILD_CACHE: ${{ github.ref == 'refs/heads/main' && (github.event_name == 'schedule' || inputs.rebuild-cache == true) }}
+  # use, update or rebuild: the one place that decides whether a run saves a
+  # Go or Rust cache. An update or a rebuild saves a new Go cache per job and
+  # runner; the one it replaces is never restored again, so it is the first
+  # GitHub evicts. Rust saves when its Cargo.lock key misses, so it has nothing
+  # to update or rebuild. A dispatch takes its input; a push to main updates;
+  # a PR carries no inputs, so it uses, since a PR saving its own copy pushes
+  # the repo past its cache limit.
+  CACHE_MODE: ${{ inputs.cache-mode || github.ref == 'refs/heads/main' && 'update' || 'use' }}
   # Full debug info swells the Rust caches and slows linking; line tables keep
   # file:line in test backtraces. Workflow-wide, since rust-cache keys on CARGO_*
   # variables and Rust · Audit borrows Rust · Vet's cache.
@@ -132,6 +145,7 @@ jobs:
         with:
           setup-rust: "true"
           rust-cache-key: ${{ github.job }}-${{ matrix.runner }}
+          cache-save: ${{ env.CACHE_MODE != 'use' }}
       - name: Stub sidecar binary
         shell: bash
         run: |
@@ -196,7 +210,6 @@ jobs:
           # Nothing here compiles worth saving, so it borrows Rust · Vet's
           # registry and index.
           rust-cache-key: rust-vet-ubuntu-24.04
-          cache-save: "false"
       - name: Install cargo-audit
         run: cargo install --locked cargo-audit --version 0.22.2
       - name: Run cargo audit
@@ -237,7 +250,7 @@ jobs:
           setup-go: "true"
           setup-sandbox: "true"
           go-cache-key: ${{ github.job }}-${{ matrix.runner }}
-          go-cache-rebuild: ${{ env.REBUILD_CACHE }}
+          go-cache-mode: ${{ env.CACHE_MODE }}
       - name: Build
         working-directory: ./sidecar
         run: go build
@@ -251,7 +264,7 @@ jobs:
       # After every test passed, so a failed job leaves its runner's last cache
       # the newest. The test flags must match a PR's, or a PR replays nothing.
       - name: Save Go cache
-        if: env.REBUILD_CACHE == 'true'
+        if: env.CACHE_MODE != 'use'
         uses: actions/cache/save@v6
         with:
           path: ${{ steps.setup.outputs.go-cache-path }}
@@ -352,6 +365,7 @@ jobs:
           setup-rust: "true"
           github-token: ${{ secrets.GITHUB_TOKEN }}
           rust-cache-key: ${{ github.job }}-${{ matrix.runner }}
+          cache-save: ${{ env.CACHE_MODE != 'use' }}
       - name: Build sidecar
         shell: bash
         run: go run scripts/build-sidecar.go

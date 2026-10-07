@@ -51,13 +51,13 @@ inputs:
     required: false
     default: ''
   cache-save:
-    description: 'Whether to save the Rust cache, which happens on main alone'
-    required: false
-    default: 'true'
-  go-cache-rebuild:
-    description: 'Whether to skip restoring the Go cache, so the job builds a new one to save'
+    description: 'Whether to save the Rust cache'
     required: false
     default: 'false'
+  go-cache-mode:
+    description: 'use, update or rebuild; a rebuild skips restoring the Go cache, so the job builds a new one to save'
+    required: false
+    default: 'use'
   kubectl-version:
     description: 'kubectl version the sandbox tests run'
     required: false
@@ -105,15 +105,14 @@ runs:
         toolchain: ${{ steps.rust-toolchain.outputs.channel }}
         components: rustfmt, clippy
 
-    # Saved on main alone, which every PR can read; a PR saving its own copy
-    # pushes the repo past its cache limit.
+    # The caller decides whether to save; ci.yml's CACHE_MODE saves on main.
     - name: Set up Rust cache
       if: inputs.setup-rust == 'true' && inputs.rust-cache-key != ''
       uses: Swatinem/rust-cache@v2
       with:
         workspaces: "./src-tauri"
         shared-key: ${{ inputs.rust-cache-key }}
-        save-if: ${{ inputs.cache-save == 'true' && github.ref == 'refs/heads/main' }}
+        save-if: ${{ inputs.cache-save == 'true' }}
         cache-bin: false
 
     - name: Set up PNPM
@@ -154,17 +153,17 @@ runs:
           echo "EOF"
         } >> "$GITHUB_OUTPUT"
 
-    # The key is this run's own, which never exists, so the prefix finds the
-    # newest cache. A rebuilding run restores nothing, so every test runs, and
-    # the job saves the cache after its tests pass.
+    # A rebuilding run restores nothing, so every test runs. Any other restores
+    # the newest cache, and a run on main saves a new one after its tests pass.
     - name: Restore Go cache
       if: >-
         inputs.setup-go == 'true' && inputs.go-cache-key != ''
-        && inputs.go-cache-rebuild != 'true'
+        && inputs.go-cache-mode != 'rebuild'
       uses: actions/cache/restore@v6
       with:
         path: ${{ steps.go-cache-paths.outputs.path }}
-        key: ${{ steps.go-cache-paths.outputs.key }}
+        # Never matches, so restore-keys finds the newest cache.
+        key: doesntexist
         restore-keys: ${{ steps.go-cache-paths.outputs.prefix }}
 
     # bubblewrap and passt (pasta, a run's internet) for the sandbox's tests,
