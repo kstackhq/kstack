@@ -157,14 +157,7 @@ jobs:
           setup-rust: "true"
           rust-cache-key: ${{ github.job }}-${{ matrix.runner }}
           cache-save: ${{ env.CACHE_MODE != 'use' }}
-      - name: Stub sidecar binary
-        shell: bash
-        run: |
-          TRIPLE="$(rustc -vV | sed -n 's/^host: //p')"
-          EXT=""
-          case "$TRIPLE" in *windows*) EXT=".exe" ;; esac
-          mkdir -p src-tauri/binaries
-          touch "src-tauri/binaries/kstack-sidecar-$TRIPLE$EXT"
+      - uses: ./.github/actions/stub-sidecar
       - name: Run clippy
         working-directory: ./src-tauri
         run: cargo clippy --all -- -D warnings
@@ -372,14 +365,11 @@ jobs:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-environment
         with:
-          setup-go: "true"
           setup-rust: "true"
           github-token: ${{ secrets.GITHUB_TOKEN }}
           rust-cache-key: ${{ github.job }}-${{ matrix.runner }}
           cache-save: ${{ env.CACHE_MODE != 'use' }}
-      - name: Build sidecar
-        shell: bash
-        run: go run scripts/build-sidecar.go
+      - uses: ./.github/actions/stub-sidecar
       - name: Build
         working-directory: ./src-tauri
         run: cargo build
