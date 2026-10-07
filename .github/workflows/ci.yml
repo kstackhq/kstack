@@ -314,8 +314,10 @@ jobs:
       - name: Check coverage against the threshold
         run: make cover-js
 
+  # Rust · Vet's clippy already type-checks the build; this links the real
+  # binary, then runs the tests under the same cache.
   rust-test:
-    name: Rust · Test
+    name: Rust · Build and Test
     needs:
       - rust-lint
       - rust-vet
@@ -334,6 +336,9 @@ jobs:
       - name: Build sidecar
         shell: bash
         run: go run scripts/build-sidecar.go
+      - name: Build
+        working-directory: ./src-tauri
+        run: cargo build
       - name: Run tests
         working-directory: ./src-tauri
         run: cargo test
@@ -356,30 +361,6 @@ jobs:
   ###########################
   # Build jobs
   ###########################
-
-  rust-build:
-    name: Rust · Build
-    needs:
-      - rust-lint
-      - rust-vet
-    strategy:
-      fail-fast: false
-      matrix: *full-matrix
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-environment
-        with:
-          setup-go: "true"
-          setup-rust: "true"
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          rust-cache-key: ${{ github.job }}-${{ matrix.runner }}
-      - name: Build sidecar
-        shell: bash
-        run: go run scripts/build-sidecar.go
-      - name: Build
-        working-directory: ./src-tauri
-        run: cargo build
 
   typescript-build:
     name: TypeScript · Build
