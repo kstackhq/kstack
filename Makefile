@@ -2,7 +2,7 @@
 # so it doesn't belong in package.json scripts; this Makefile is the
 # place where Go, Rust, and JS commands meet.
 
-.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js vet vet-go vet-rust check-cache check-switch clean
+.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js vet vet-go vet-rust check-cache check-switch prompts clean
 
 # Build the Go sidecar into src-tauri/binaries/ with the Tauri-required
 # `<name>-<rust-host-triple>` filename. Tauri's externalBin picks it up.
@@ -63,6 +63,14 @@ test-js:
 # check to run while working; CI runs every suite and both coverage gates.
 test-changed:
 	bash scripts/test-changed.sh
+
+# Rewrites the goldens that pin what the model reads: the system prompt and every
+# tool's offer, per kind of run and machine (sidecar/internal/app/testdata/prompt/),
+# and a question's context block (sidecar/internal/agent/chat/testdata/context.md).
+# Run it after changing a prompt, an offer or their assembly, and review the diff:
+# it is the model's view of the change, byte for byte where the cache depends on it.
+prompts:
+	cd sidecar && go test ./internal/app ./internal/agent/chat -run MatchesItsGolden -update
 
 # Go coverage gate. Runs the suite untagged and with `-tags debug` (the only build
 # that compiles the environment overrides), merges the profiles, drops generated

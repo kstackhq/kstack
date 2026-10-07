@@ -39,19 +39,19 @@ var promptMonitor string
 // systemPrompt is the system prompt a turn hands the agent: promptSystem. The
 // agent appends what the turn can do, each offered tool's section among it, and
 // the standing rule that data is not instructions.
-func systemPrompt() string {
+func SystemPrompt() string {
 	return strings.TrimSpace(promptSystem)
 }
 
 // subagentSystemPrompt is the system prompt a subagent hands the agent: the chat's,
 // then the subagent's own section, which takes precedence over the chat's sections
 // on answering the user.
-func subagentSystemPrompt() string {
-	return systemPrompt() + "\n\n" + strings.TrimSpace(promptGeneralPurpose)
+func SubagentSystemPrompt() string {
+	return SystemPrompt() + "\n\n" + strings.TrimSpace(promptGeneralPurpose)
 }
 
 // monitorSystemPrompt is the system prompt a monitor run hands the agent, which
 // appends what it can do and that data is not instructions.
-func monitorSystemPrompt() string {
+func MonitorSystemPrompt() string {
 	return strings.TrimSpace(promptMonitor)
 }

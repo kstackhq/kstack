@@ -141,7 +141,7 @@ func TestRunMonitorRecordsARun(t *testing.T) {
 	assert.Equal(t, 0, calls[0].llmCallSeq)
 
 	req := fakeOf(s).LastRequest()
-	assert.True(t, strings.HasPrefix(req.SystemPrompt, monitorSystemPrompt()))
+	assert.True(t, strings.HasPrefix(req.SystemPrompt, MonitorSystemPrompt()))
 	require.Len(t, req.Messages, 2, "the brief, then the round")
 	assert.Equal(t, []llm.Block{llm.ContextBlock("card-7"), llm.TextBlock("look at the pods")}, req.Messages[0].Blocks)
 	assert.Equal(t, []string{"echo"}, offered(req))

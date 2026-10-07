@@ -67,18 +67,16 @@ func (t *turn) Start(ctx context.Context, d tools.Delegation) (string, error) {
 		publish: func(MessageStatus) { s.notify(messagesKey(chatID)) },
 	}}}
 	spec := loop.Turn{
-		Target: target, SystemPrompt: subagentSystemPrompt(),
+		Target: target, SystemPrompt: SubagentSystemPrompt(),
 		Messages: []llm.Message{{Role: string(RoleUser), Blocks: subagentMessage(card, d.Prompt)}},
 		// Its prefix is its brief, not the chat's.
 		AffinityKey: string(run.ID),
-		// No Agent, so depth is one, and no Memory: a note outlives the chat, and the
-		// chat's own turns are what write one.
-		Tools: s.boxFor(target).Without(tools.ActionDelegate, tools.ActionMemory),
+		Tools:       SubagentBox(s.boxFor(target)),
 		Runtime: tools.Runtime{
 			ClusterID: t.clusterID, ChatID: chatID, Session: session.Narrow(t.session()),
 			Dir: s.chatDir(chatID), Tasks: s.chatTasks(chatID, c.runJournal), Files: runStamps{},
 		},
-		MaxToolCalls: maxSubagentToolCalls, DefaultToolTimeout: defaultToolTimeout,
+		MaxToolCalls: MaxSubagentToolCalls, DefaultToolTimeout: defaultToolTimeout,
 	}
 	rec := taskRecord{
 		write: func(ctx context.Context, st stmts) error {
@@ -109,6 +107,13 @@ func (t *turn) Start(ctx context.Context, d tools.Delegation) (string, error) {
 	// link to a run a failed start took back would fail that write.
 	*t.openTool = linked
 	return id, nil
+}
+
+// SubagentBox is what a subagent is offered of the chat's box: no Agent, so
+// depth is one, and no Memory, since a note outlives the chat and the chat's
+// own turns are what write one.
+func SubagentBox(box tools.Box) tools.Box {
+	return box.Without(tools.ActionDelegate, tools.ActionMemory)
 }
 
 // subagentMessage is the one message a subagent starts from: the chat's newest card,

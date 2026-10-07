@@ -294,6 +294,8 @@ type toolDeps struct {
 	umask    fs.FileMode
 	memory   memory.Service
 	clusters cluster.Service
+	// now is the clock the search's prompt names the month by; nil is time.Now.
+	now func() time.Time
 }
 
 // chatTools is the one box: bash where New found a shell, Read, Memory, Write, Edit
@@ -320,7 +322,11 @@ func chatTools(d toolDeps) (tools.Box, error) {
 		Public:   webfetch.Public,
 		Proxy:    httpproxy.FromEnvironment(),
 	}), webfetch.FetchTimeout)
-	search := anthropicwebsearch.New(time.Now)
+	now := d.now
+	if now == nil {
+		now = time.Now
+	}
+	search := anthropicwebsearch.New(now)
 	notes := memorytool.New(d.memory)
 	query := kubequery.New(d.clusters)
 	if d.shell == nil {

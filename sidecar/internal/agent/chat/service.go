@@ -98,13 +98,13 @@ const (
 	// clusterCardTimeout bounds the cluster card's reads on a send: every read is a
 	// local file, so a card that takes longer is unavailable rather than a slower send.
 	clusterCardTimeout = 2 * time.Second
-	// maxToolCalls is what one turn may ask for, counted per call: enough for a
+	// MaxToolCalls is what one turn may ask for, counted per call: enough for a
 	// handful of reads and a synthesis, few enough that a loop cannot run away.
-	maxToolCalls = 8
-	// maxSubagentToolCalls is what one subagent may ask for: more than a turn's,
+	MaxToolCalls = 8
+	// MaxSubagentToolCalls is what one subagent may ask for: more than a turn's,
 	// since a subagent exists to spend calls whose output the parent would rather
 	// not keep. The Agent tool's section states it.
-	maxSubagentToolCalls = 16
+	MaxSubagentToolCalls = 16
 	// defaultToolTimeout bounds one call of a tool with no bound of its own: the time a
 	// cache read takes.
 	defaultToolTimeout = 2 * time.Second

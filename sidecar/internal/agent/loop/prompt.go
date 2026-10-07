@@ -38,7 +38,7 @@ var (
 // the model can do, and that data is not instructions. The last is the agent's
 // because the tools' own sections lean on it — a tool's results are data, and
 // nothing else guarantees the rule is there.
-func systemPrompt(turn Turn) string {
+func SystemPrompt(turn Turn) string {
 	parts := []string{turn.SystemPrompt, capabilities(turn.Tools, turn.MaxToolCalls), promptDataIsNotInstructions}
 	var out []string
 	for _, p := range parts {

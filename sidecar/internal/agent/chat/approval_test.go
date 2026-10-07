@@ -320,7 +320,7 @@ func TestTheRunFlipsBackOnTheDecision(t *testing.T) {
 func TestARefusedBashCallIsStillListed(t *testing.T) {
 	sh := &fakeBash{}
 	s := startServiceWithTool(t, sh)
-	calls := make([]llm.Block, maxToolCalls+1)
+	calls := make([]llm.Block, MaxToolCalls+1)
 	for i := range calls {
 		calls[i] = bashCall("ls")
 	}
@@ -330,7 +330,7 @@ func TestARefusedBashCallIsStillListed(t *testing.T) {
 	got := awaitSettled(t, s, msg.ChatID, msg.ID)
 
 	listed := toolCallsOf(t, got)
-	require.Len(t, listed, maxToolCalls+1)
+	require.Len(t, listed, MaxToolCalls+1)
 	for _, c := range listed {
 		assert.Equal(t, ToolCallNotRun, c.Status)
 		assert.Equal(t, `{"error":"budget"}`, c.Output)

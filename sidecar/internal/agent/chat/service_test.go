@@ -2227,7 +2227,7 @@ func TestATurnsToolCallsLandInResultOrder(t *testing.T) {
 	for i, r := range rows {
 		assert.Equal(t, i/2, r.llmCallSeq, "row %d is under round %d's call", i, i/2)
 		assert.Equal(t, fmt.Sprintf(`{"n":%d}`, i%2+1), r.args)
-		assert.Equal(t, i < maxToolCalls, r.hasStarted, "only a call that ran started")
+		assert.Equal(t, i < MaxToolCalls, r.hasStarted, "only a call that ran started")
 	}
 }
 
@@ -2262,9 +2262,9 @@ func TestARepeatedToolUseIDLandsARowPerResult(t *testing.T) {
 
 		require.Equal(t, StatusComplete, got.Status)
 		rows := toolCallRows(t, s.db, msg.RunID)
-		require.Len(t, rows, maxToolCalls+2)
+		require.Len(t, rows, MaxToolCalls+2)
 		for i, r := range rows {
-			if i < maxToolCalls {
+			if i < MaxToolCalls {
 				assert.Equal(t, toolSucceeded, r.status)
 				assert.Equal(t, `{"n":1}`, r.result)
 			} else {

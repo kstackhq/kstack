@@ -32,8 +32,8 @@ import (
 )
 
 const (
-	// maxMonitorToolCalls is what one monitor run may ask for, as a subagent may.
-	maxMonitorToolCalls = maxSubagentToolCalls
+	// MaxMonitorToolCalls is what one monitor run may ask for, as a subagent may.
+	MaxMonitorToolCalls = MaxSubagentToolCalls
 	// maxMonitorBriefLen caps a monitor's brief, in bytes.
 	maxMonitorBriefLen = 4000
 )
@@ -109,20 +109,28 @@ func (s *service) RunMonitor(ctx context.Context, clusterID apimeta.ClusterID, t
 	cancelCard()
 
 	spec := loop.Turn{
-		Target: target, SystemPrompt: monitorSystemPrompt(),
+		Target: target, SystemPrompt: MonitorSystemPrompt(),
 		Messages:    []llm.Message{{Role: string(RoleUser), Blocks: subagentMessage(card, brief)}},
 		AffinityKey: string(run.ID),
-		Tools:       box.Without(tools.ActionDelegate, tools.ActionMemory, tools.ActionFetch, tools.ActionStop, tools.ActionSearch),
+		Tools:       MonitorBox(box),
 		Runtime: tools.Runtime{
 			ClusterID: clusterID, Session: monitorSession(),
 			Dir: s.monitorDir(clusterID), Tasks: monitorTasks{}, Files: runStamps{},
 			ActionAsker: monitorAsker{j: m.runJournal},
 		},
-		MaxToolCalls: maxMonitorToolCalls, DefaultToolTimeout: defaultToolTimeout,
+		MaxToolCalls: MaxMonitorToolCalls, DefaultToolTimeout: defaultToolTimeout,
 	}
 	m.loop(m.ctx, spec, m)
 	m.settle()
 	return MonitorResult{RunID: run.ID, Status: m.status, Report: m.report, Error: m.errText}, nil
+}
+
+// MonitorBox is what a monitor run is offered of the chat's box: the tools that
+// read and change the cluster alone. No Agent, no Memory, no WebFetch or search,
+// since nothing it reads should leave the machine or outlive the run, and no
+// TaskStop, since it starts no background task.
+func MonitorBox(box tools.Box) tools.Box {
+	return box.Without(tools.ActionDelegate, tools.ActionMemory, tools.ActionFetch, tools.ActionStop, tools.ActionSearch)
 }
 
 // monitor is a cluster's monitor run: the loop.Recorder and Approver of one

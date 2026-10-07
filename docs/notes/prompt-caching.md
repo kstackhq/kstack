@@ -176,7 +176,10 @@ cache. They reach the model call's row (`llm_calls.cache_read_tokens`, `cache_wr
 beside the uncached remainder in `input_tokens`).
 
 These counts are the only evidence caching works. A regression is no error, just a higher bill.
-After a change to prompt assembly, check them by hand.
+After a change to prompt assembly, check them by hand. The goldens under
+`sidecar/internal/app/testdata/prompt/` and `sidecar/internal/agent/chat/testdata/context.md`
+show the prefix byte for byte, so `make prompts` and the diff say what moved before any call is
+made.
 
 ## Checking a row
 

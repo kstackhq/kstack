@@ -240,14 +240,14 @@ func (s *service) run(t *turn) (res loop.Result, err error) {
 	}
 	t.clusterID = chat.ClusterID
 	spec := loop.Turn{
-		Target: t.target, SystemPrompt: systemPrompt(), Messages: history, AffinityKey: string(t.chatID),
+		Target: t.target, SystemPrompt: SystemPrompt(), Messages: history, AffinityKey: string(t.chatID),
 		Tools: s.boxFor(t.target),
 		Runtime: tools.Runtime{
 			ClusterID: t.clusterID, ChatID: t.chatID, Session: t.session(),
 			Dir: s.chatDir(t.chatID), Tasks: s.chatTasks(t.chatID, t.runJournal), Files: s.chatFiles(t.chatID),
 			Agent: t, ActionAsker: actionAsker{j: t.runJournal, run: t.ctx},
 		},
-		MaxToolCalls: maxToolCalls, DefaultToolTimeout: defaultToolTimeout,
+		MaxToolCalls: MaxToolCalls, DefaultToolTimeout: defaultToolTimeout,
 	}
 	return loop.Run(t.ctx, spec, t, t)
 }

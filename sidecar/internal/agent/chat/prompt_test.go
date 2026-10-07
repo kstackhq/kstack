@@ -89,8 +89,8 @@ func TestTheSystemPromptExplainsTheSandboxSection(t *testing.T) {
 // The monitor's prompt is its own file, whole, and tells it nobody is there to
 // ask: a refusal that says to ask the user means stop.
 func TestTheMonitorPromptSaysThereIsNoUser(t *testing.T) {
-	assert.True(t, strings.HasPrefix(monitorSystemPrompt(), "You are Kstack's monitor"))
-	assert.Contains(t, monitorSystemPrompt(), "# There is no user")
-	assert.Contains(t, monitorSystemPrompt(), "A refusal that says to ask the user, or to have them grant a folder, means stop")
-	assert.NotContains(t, monitorSystemPrompt(), "You are Kstack, the chat agent")
+	assert.True(t, strings.HasPrefix(MonitorSystemPrompt(), "You are Kstack's monitor"))
+	assert.Contains(t, MonitorSystemPrompt(), "# There is no user")
+	assert.Contains(t, MonitorSystemPrompt(), "A refusal that says to ask the user, or to have them grant a folder, means stop")
+	assert.NotContains(t, MonitorSystemPrompt(), "You are Kstack, the chat agent")
 }

@@ -85,7 +85,7 @@ func roomFor(ctx context.Context, st stmts, chatID ChatID, target llm.Target, bo
 		run.providerID == target.Provider.ID && run.modelID == target.Model.ID {
 		return ErrChatContextFull
 	}
-	ceiling := contextCeiling(target.Model, turnInputAllowance(box, maxToolCalls))
+	ceiling := contextCeiling(target.Model, turnInputAllowance(box, MaxToolCalls))
 	if ceiling <= 0 {
 		return nil
 	}

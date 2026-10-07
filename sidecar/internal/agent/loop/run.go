@@ -120,7 +120,7 @@ type Result struct {
 // gated tool's call is put to approver before it runs.
 func Run(ctx context.Context, turn Turn, rec Recorder, approver Approver) (Result, error) {
 	r := &runner{
-		turn: turn, rec: rec, approver: approver, systemPrompt: systemPrompt(turn),
+		turn: turn, rec: rec, approver: approver, systemPrompt: SystemPrompt(turn),
 		remaining: turn.MaxToolCalls, budgeted: turn.Tools.Budgeted(), serverUsed: map[string]int{},
 	}
 	res, err := r.loop(ctx)

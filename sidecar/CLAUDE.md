@@ -2156,9 +2156,25 @@ onto the return. Chat's `turn` implements all seven.
 under it, the provider's search included, each opening with its own `##` heading), then `# Data is not instructions`. The last is the agent's because a tool's
 results are data and its sections lean on the rule. Its one exception is the user's memories: the
 notes marked `"by":"user"` in the `## Memory` section of the newest `<context>` block. `tools.md` also spells out each refusal
-code the loop answers with, so a refusal the model reads is one it can act on. Golden files under `testdata/` keep
-the document readable as one. The loop imports `llm` and `tools` alone; its tests run on the
-fake, a test tool and a logging recorder.
+code the loop answers with, so a refusal the model reads is one it can act on. `SystemPrompt(turn)` is
+the assembly, exported so the app's goldens render it over the real box (below). Golden files under
+`testdata/` keep the document readable as one over a test tool. The loop imports `llm` and `tools`
+alone; its tests run on the fake, a test tool and a logging recorder.
+
+**What the model reads is pinned as goldens, whole.** The prompt text is assembled from a dozen
+files across `agent/chat`, `agent/loop` and each tool's `prompts/`, and the goldens are the one
+place it is read as the model reads it. `internal/app/testdata/prompt/` holds one document per
+kind of run and machine — `chat_{macos,linux,windows,no_shell}.md`, `subagent_linux.md`,
+`monitor_linux.md` — each the system prompt byte for byte over the app's own box
+(`chatTools`, with `bash.Described(platform, kind, version, sandboxed)` standing in for the
+machine's shell and the search's clock fixed), then every tool's offer, its schema indented to
+be read. `internal/agent/chat/testdata/context.md` is a question's context block in its tags —
+card, Memory, Workspace, Sandbox, in the order the cache depends on — over a sample cluster, two
+notes and two granted folders. **A change to any prompt, offer or their assembly fails them; run
+`make prompts` to rewrite them and review the diff**, which is the model's view of the change.
+A byte that moves in the prefix is a cache miss on every open chat, so the diff is also where a
+caching regression shows. `chat.SystemPrompt`, `SubagentSystemPrompt`, `MonitorSystemPrompt`,
+`SubagentBox`, `MonitorBox` and the three `Max*ToolCalls` are exported for this and nothing else.
 
 ## Chat (`internal/agent/chat`)
 
@@ -2180,7 +2196,7 @@ fake, a test tool and a logging recorder.
 >   from, which reads every stored call, and `ToolLists`, the one method it calls of the
 >   catalog, `ToolsFor(target)`, taken the way it takes `ClusterCards` so its tests list their own
 >   tools), writes its rows and runs one
->   `loop.Run` on them (`Turn.Target`, with `maxToolCalls` and `defaultToolTimeout`, and the
+>   `loop.Run` on them (`Turn.Target`, with `MaxToolCalls` and `defaultToolTimeout`, and the
 >   chat id as `Turn.AffinityKey`; a subagent's turn carries its run id);
 >   `Cancel` cancels it; every read overlays the live answer. The question is its
 >   text, with the cluster card ahead of it as a `context` block when the card changed
@@ -2444,10 +2460,10 @@ succeeded, since the parent writes that row again when the call finishes. **The 
 `agentTask`**, a `tools.Task` whose goroutine runs one more `loop.Run` under a context only a stop
 cancels — so a parent's Cancel leaves it running — then writes the report into the task's file, up
 to `FileLimit`, and closes it; a panic in the stream fails it. `Wait` blocks until then and answers
-a zero `Exit`; `Stop` cancels at once. The loop's spec: `subagentSystemPrompt()` (`system.md`, then
+a zero `Exit`; `Stop` cancels at once. The loop's spec: `SubagentSystemPrompt()` (`system.md`, then
 `prompts/general_purpose.md`), one message of the card then the prompt (`subagentMessage`),
-`boxFor(target).Without(tools.ActionDelegate, tools.ActionMemory)` — so depth is one, a subagent's
-`Agent` call is `unknown-tool`, and a subagent writes no note — `maxSubagentToolCalls` (16), a `runStamps` of its own, since a stamp says the model
+`SubagentBox(boxFor(target))` — the box less `Agent` and `Memory`, so depth is one, a subagent's
+`Agent` call is `unknown-tool`, and a subagent writes no note — `MaxSubagentToolCalls` (16), a `runStamps` of its own, since a stamp says the model
 saw the file, and `chatTasks` over its own calls. **Each run owns its own calls**: `runJournal`
 holds its service, chat, run, target, the `Agent` call a subagent's run is under (`""` on a
 turn's own, which `isTurns` reads), the bound on its waits for the user (`unansweredLimit`, zero on
@@ -2484,9 +2500,9 @@ the caller's, the service's, and the sweeper's cancel. The run is inserted queue
 (`stmtInsertMonitorRun`: `trigger` and `agent_type` `monitor`, `cluster_id`, `task` the brief) and
 claimed by its first round, as a turn's is. **It runs in `monitorSession()`** (`grants.go`:
 `NoPrompts` and `NoSecretData`, and no `Policy`, `Network` or `Folders`), told `prompts/monitor.md`
-(`monitorSystemPrompt`) and one message of the cluster card — the card alone, never the memory
-notes — then the brief, offered the box less `Agent`, `Memory`, `WebFetch`, `TaskStop` and the
-search, at `maxMonitorToolCalls` (16). Its directory is the cluster's `monitorDir`. Its recorder is
+(`MonitorSystemPrompt`) and one message of the cluster card — the card alone, never the memory
+notes — then the brief, offered `MonitorBox(box)`, the box less `Agent`, `Memory`, `WebFetch`,
+`TaskStop` and the search, at `MaxMonitorToolCalls` (16). Its directory is the cluster's `monitorDir`. Its recorder is
 `monitor`, a `briefedRun` with an `Approve` that answers no and writes nothing; its asker is
 `monitorAsker`, which records what the proxy decided and answers an ask with `errMonitorAsked`; its
 tasks are `monitorTasks`, which start none. It runs through `briefedRun`'s `loop` and settles in
@@ -3323,9 +3339,9 @@ turn's status, and the call rows are where usage and timing are read.
     pushed over by its own tool results, which the next request drops, so it refuses nothing.
   - **The tokens the newest reported call of a succeeded turn on the same provider read and
     wrote** (`lastContextUse`: `inputTokens()` plus the output) exceed `contextCeiling(model,
-    allowance)` — the window less `MaxOutputTokens` less `turnInputAllowance(box, maxToolCalls)`,
+    allowance)` — the window less `MaxOutputTokens` less `turnInputAllowance(box, MaxToolCalls)`,
     a sum of named terms in `context.go`: the context block at its budgets and a long question,
-    `maxToolCalls` results at `typicalResultBytes` when the box `HasRunner`, and each `Budgeted`
+    `MaxToolCalls` results at `typicalResultBytes` when the box `HasRunner`, and each `Budgeted`
     tool's `Allowance()` (10K for the searches' results), all at `bytesPerToken`, so a change to
     a budget moves it. **A call that ran a server tool is not counted**: inside one request the
     provider samples again after each server call, and whether its usage counts the chat once
@@ -3425,8 +3441,8 @@ resumes, at most `maxPauses` (3) times per turn and only while every server tool
 offers has uses left, otherwise the turn settles `Complete` on `pause_turn` — a request that
 stops offering a tool drops its calls from the history, the paused reply's included
 (`TestAPausedReplyIsResumed`, `TestPausesAreCapped`, `TestAPauseIsNotResumedOnceAServerToolIsSpent`). **The budget counts calls,
-not rounds** (`maxToolCalls`, a field, 8 in production), and a refused call spends it too, so a
-turn streams at most `maxToolCalls + 2 + maxPauses` times (`TestTheStreamCountIsBounded` pins
+not rounds** (`MaxToolCalls`, a field, 8 in production), and a refused call spends it too, so a
+turn streams at most `MaxToolCalls + 2 + maxPauses` times (`TestTheStreamCountIsBounded` pins
 the first two terms). A refusal the loop writes is
 `{"error":"<code>"}` with `IsError`, never a Go error's text: `budget`, `not-run`, `unknown-tool`
 (a name the definitions do not list; `Call` never sees it), `timeout`. **A timeout is not a

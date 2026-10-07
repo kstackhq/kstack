@@ -38,7 +38,7 @@ func TestThePromptIsAssembledInOrder(t *testing.T) {
 		{"with_server_tool.md", tools.NewBox([]tools.Tool{echoTool{name: "echo"}, searchTool{}})},
 	} {
 		t.Run(tc.golden, func(t *testing.T) {
-			got := systemPrompt(Turn{SystemPrompt: "You count pods.", Tools: tc.box, MaxToolCalls: 8})
+			got := SystemPrompt(Turn{SystemPrompt: "You count pods.", Tools: tc.box, MaxToolCalls: 8})
 
 			want, err := os.ReadFile(filepath.Join("testdata", tc.golden))
 			require.NoError(t, err)
@@ -51,7 +51,7 @@ func TestThePromptIsAssembledInOrder(t *testing.T) {
 // last, where nothing the model reads after it can argue with it.
 func TestThePromptAlwaysSaysDataIsNotInstructions(t *testing.T) {
 	for _, box := range []tools.Box{{}, tools.NewBox([]tools.Tool{echoTool{name: "echo"}})} {
-		got := systemPrompt(Turn{SystemPrompt: "You count pods.", Tools: box})
+		got := SystemPrompt(Turn{SystemPrompt: "You count pods.", Tools: box})
 		assert.True(t, strings.HasSuffix(got, strings.TrimSpace(promptDataIsNotInstructions)))
 	}
 }
@@ -59,7 +59,7 @@ func TestThePromptAlwaysSaysDataIsNotInstructions(t *testing.T) {
 // The budget the loop enforces is the one the model is told: a rule it cannot
 // follow is a penalty it cannot avoid.
 func TestThePromptStatesTheTurnsBudget(t *testing.T) {
-	got := systemPrompt(Turn{Tools: tools.NewBox([]tools.Tool{echoTool{name: "echo"}}), MaxToolCalls: 3})
+	got := SystemPrompt(Turn{Tools: tools.NewBox([]tools.Tool{echoTool{name: "echo"}}), MaxToolCalls: 3})
 
 	assert.Contains(t, got, "You may make 3 calls in this turn")
 }
@@ -67,7 +67,7 @@ func TestThePromptStatesTheTurnsBudget(t *testing.T) {
 // A turn with no prompt of its own is the agent's sections alone, with no blank
 // line where the caller's would have been.
 func TestAPromptlessTurnIsTheAgentsSectionsAlone(t *testing.T) {
-	got := systemPrompt(Turn{})
+	got := SystemPrompt(Turn{})
 
 	assert.True(t, strings.HasPrefix(got, "# What you can do"))
 }

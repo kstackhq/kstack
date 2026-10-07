@@ -52,17 +52,17 @@ var (
 func TestContextCeilingLeavesRoomForTheAnswerAndTheTurn(t *testing.T) {
 	assert.Equal(t, (clustercard.Budget+2*memory.ScopeBudget+workspaceShare)/bytesPerToken, contextTokens)
 	base := contextTokens + questionTokens
-	results := maxToolCalls * typicalResultBytes / bytesPerToken
+	results := MaxToolCalls * typicalResultBytes / bytesPerToken
 
-	assert.Equal(t, base, turnInputAllowance(emptyBox, maxToolCalls))
-	assert.Equal(t, base+results, turnInputAllowance(runnerBox, maxToolCalls), "a tool the sidecar runs adds the call budget's results")
-	assert.Equal(t, 26_784, turnInputAllowance(runnerBox, maxToolCalls))
-	assert.Equal(t, 36_784, turnInputAllowance(runnerAndBoth, maxToolCalls))
+	assert.Equal(t, base, turnInputAllowance(emptyBox, MaxToolCalls))
+	assert.Equal(t, base+results, turnInputAllowance(runnerBox, MaxToolCalls), "a tool the sidecar runs adds the call budget's results")
+	assert.Equal(t, 26_784, turnInputAllowance(runnerBox, MaxToolCalls))
+	assert.Equal(t, 36_784, turnInputAllowance(runnerAndBoth, MaxToolCalls))
 
 	haiku := llm.Model{ID: "haiku", MaxOutputTokens: 64_000, ContextWindow: 200_000}
-	assert.Equal(t, int64(99_216), contextCeiling(haiku, turnInputAllowance(runnerAndBoth, maxToolCalls)))
+	assert.Equal(t, int64(99_216), contextCeiling(haiku, turnInputAllowance(runnerAndBoth, MaxToolCalls)))
 	opus := llm.Model{ID: "opus", MaxOutputTokens: 64_000, ContextWindow: 1_000_000}
-	assert.Equal(t, int64(899_216), contextCeiling(opus, turnInputAllowance(runnerAndBoth, maxToolCalls)))
+	assert.Equal(t, int64(899_216), contextCeiling(opus, turnInputAllowance(runnerAndBoth, MaxToolCalls)))
 
 	assert.Zero(t, contextCeiling(llm.Model{ID: "unstated", MaxOutputTokens: 64_000}, base), "a window of 0 has no ceiling")
 	uncapped := llm.Model{ID: "grok", ContextWindow: 500_000}
@@ -72,8 +72,8 @@ func TestContextCeilingLeavesRoomForTheAnswerAndTheTurn(t *testing.T) {
 // Each provider tool the box holds adds its own allowance; a box without one adds
 // none for it.
 func TestTheCeilingFollowsTheOffers(t *testing.T) {
-	assert.Equal(t, turnInputAllowance(emptyBox, maxToolCalls)+testSearch.Allowance(), turnInputAllowance(searchBox, maxToolCalls))
-	assert.Equal(t, turnInputAllowance(runnerBox, maxToolCalls)+testSearch.Allowance(), turnInputAllowance(runnerAndBoth, maxToolCalls))
+	assert.Equal(t, turnInputAllowance(emptyBox, MaxToolCalls)+testSearch.Allowance(), turnInputAllowance(searchBox, MaxToolCalls))
+	assert.Equal(t, turnInputAllowance(runnerBox, MaxToolCalls)+testSearch.Allowance(), turnInputAllowance(runnerAndBoth, MaxToolCalls))
 }
 
 // Every stated window leaves room at the largest allowance a turn can take, so no
@@ -83,7 +83,7 @@ func TestEveryStatedWindowLeavesACeiling(t *testing.T) {
 	for id := range catalog.KeyVars() {
 		keys[id] = "k"
 	}
-	largest := turnInputAllowance(runnerAndBoth, maxToolCalls)
+	largest := turnInputAllowance(runnerAndBoth, MaxToolCalls)
 	for _, p := range catalog.New(catalog.Config{APIKeys: keys, Fake: llm.NewFake(0)}).Providers() {
 		for _, m := range p.Catalog {
 			if m.ContextWindow > 0 {

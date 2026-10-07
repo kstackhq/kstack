@@ -185,6 +185,18 @@ type Tool struct {
 	probe *executableProbe
 }
 
+// Described is a tool that runs nothing: what a machine of platform whose shell
+// is kind at version, sandboxed or not, tells the model through Prompt and
+// Definition. The app's prompt goldens read it. The sandbox it holds is never
+// asked anything: Prompt reads only that there is one.
+func Described(platform, kind, version string, sandboxed bool) *Tool {
+	t := &Tool{platform: platform, kind: kind, version: version}
+	if sandboxed {
+		t.sandboxer = &sandbox.Sandbox{}
+	}
+	return t
+}
+
 // Paths is where the tool keeps its files. ShellDir holds the snapshot, and on
 // Windows each command's script; RunsDir each sandboxed run's own directory,
 // TmpDir each one's TMPDIR, and KubectlDir each cluster's kubectl cache.

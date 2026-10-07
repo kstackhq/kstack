@@ -70,7 +70,7 @@ func TestRunStreamsAnAnswer(t *testing.T) {
 	assert.Equal(t, Result{Blocks: answered.Blocks, StopReason: "end_turn"}, res)
 	require.Equal(t, 1, f.Asked())
 	assert.Equal(t, llm.Request{Provider: turn.Target.Provider, Model: turn.Target.Model, Effort: turn.Target.Effort,
-		SystemPrompt: systemPrompt(turn), Messages: turn.Messages}, f.LastRequest(),
+		SystemPrompt: SystemPrompt(turn), Messages: turn.Messages}, f.LastRequest(),
 		"the provider, model and effort reach the request whole, under the assembled prompt")
 }
 
@@ -415,7 +415,7 @@ func TestARunWithNoSystemSendsTheAgentsSectionsAlone(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, 1, f.Asked())
-	assert.Equal(t, systemPrompt(turn), f.LastRequest().SystemPrompt)
+	assert.Equal(t, SystemPrompt(turn), f.LastRequest().SystemPrompt)
 	assert.True(t, strings.HasPrefix(f.LastRequest().SystemPrompt, "# What you can do"))
 }
 
