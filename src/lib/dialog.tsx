@@ -22,7 +22,7 @@ import type { ReactNode } from 'react';
 import { createContext, useContext, useMemo, useState } from 'react';
 
 // Add a dialog by extending this union and rendering it in the `AppDialogs` host.
-export type DialogId = 'clusters' | 'memories' | 'onboarding' | 'settings';
+export type DialogId = 'clusters' | 'memories' | 'settings';
 
 type DialogContextValue = {
   activeDialog: DialogId | null;

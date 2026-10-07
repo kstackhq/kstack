@@ -58,12 +58,6 @@ type NonResourceRule struct {
 	NonResourceUrls []string `json:"nonResourceUrls"`
 }
 
-// The onboarding flow's state on this machine.
-type Onboarding struct {
-	// Whether the flow has been finished.
-	Finished bool `json:"finished"`
-}
-
 // A rule to add; every string is a pattern but `group`, and empty matches anything. A `namespace` of `[cluster]` is cluster-scoped objects alone.
 type PermissionRuleInput struct {
 	Effect    permissions.Effect `json:"effect"`

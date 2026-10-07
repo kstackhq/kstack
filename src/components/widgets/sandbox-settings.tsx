@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The Settings dialog's Sandbox section: a button that opens the onboarding
-// flow again; the frozen PATH sandboxed commands search, each folder's state,
+// The Settings dialog's Sandbox section: the frozen PATH sandboxed commands search, each folder's state,
 // and Include, Remove and Refresh PATH; then the executables the probe checks
 // and the user's own executables; then the folders granted always, with Add
 // and Remove; then what no grant opens. A folder name is text the user's shell or hand produced, so it is
@@ -30,7 +29,6 @@ import { Spinner } from '@kubetail/ui/elements/spinner';
 
 import { FolderGrantForm } from '@/components/widgets/folder-grant-form';
 import { VisibleText } from '@/components/widgets/visible-text';
-import { useDialog } from '@/lib/dialog';
 import { isMacOS } from '@/lib/platform';
 import { useSandbox } from '@/lib/sandbox';
 import { useSandboxFolders } from '@/lib/sandbox-folders';
@@ -101,7 +99,7 @@ function inEffect(entries: number, resolved: boolean | undefined): string {
 }
 
 // The PATH list with Refresh PATH, Include and Remove; its heading is the caller's.
-export function SandboxPathList({ path, onRefreshed }: { path: SandboxPath; onRefreshed: () => void }) {
+function SandboxPathList({ path, onRefreshed }: { path: SandboxPath; onRefreshed: () => void }) {
   const { entries, fault, resolved, changing, refreshing, changeError, refreshError, include, remove, refresh } = path;
   return (
     <>
@@ -250,7 +248,7 @@ function RegisteredExecutables({ executables }: { executables: SandboxExecutable
 
 // The executables report with Probe again; its heading and its line for a
 // missing kubectl are the caller's.
-export function SandboxExecutableList({ executables }: { executables: SandboxExecutables }) {
+function SandboxExecutableList({ executables }: { executables: SandboxExecutables }) {
   const { report, probing, probeError, probe } = executables;
   return (
     <>
@@ -277,7 +275,7 @@ export function SandboxExecutableList({ executables }: { executables: SandboxExe
 }
 
 // kubectlMissing reports whether the probe ran kubectl and found no binary.
-export function kubectlMissing(report: SandboxExecutable[] | undefined): boolean {
+function kubectlMissing(report: SandboxExecutable[] | undefined): boolean {
   const kubectl = report?.find((executable) => executable.name === 'kubectl');
   return !!kubectl?.probed && !kubectl.resolved;
 }
@@ -397,14 +395,8 @@ function SandboxFolderList() {
 // One reader of the executables for the section, since a Refresh PATH probes them.
 function SandboxSections() {
   const executables = useSandboxExecutables();
-  const { openDialog } = useDialog();
   return (
     <>
-      <div>
-        <Button size="sm" variant="outline" onClick={() => openDialog('onboarding')}>
-          Set up the sandbox again
-        </Button>
-      </div>
       <SandboxPathSection onRefreshed={executables.probe} />
       <SandboxExecutableSection executables={executables} />
       <SandboxFolderList />

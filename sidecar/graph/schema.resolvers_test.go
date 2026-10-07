@@ -3229,31 +3229,3 @@ func TestSandboxExecutableRemoveWorksWithNoSandbox(t *testing.T) {
 	assert.Equal(t, []any{}, data["sandboxExecutableRemove"])
 	assert.Empty(t, store.Get().Executables)
 }
-
-// The onboarding flag is false on a fresh file, and the finish writes it, on a
-// machine with a sandbox and on one without.
-func TestOnboardingServesTheFlag(t *testing.T) {
-	for _, available := range []bool{true, false} {
-		t.Run(fmt.Sprintf("available=%v", available), func(t *testing.T) {
-			store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
-			require.NoError(t, err)
-			srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
-				Settings:      settings.NewService(store, nil, nil, ""),
-				SandboxStatus: sandbox.Status{Available: available},
-			}))
-			t.Cleanup(srv.Close)
-
-			data, errs := mutation(t, srv.URL, `{ onboarding { finished } }`)
-			require.Empty(t, errs)
-			assert.Equal(t, map[string]any{"finished": false}, data["onboarding"])
-
-			data, errs = mutation(t, srv.URL, `mutation { onboardingFinish { finished } }`)
-			require.Empty(t, errs)
-			assert.Equal(t, map[string]any{"finished": true}, data["onboardingFinish"])
-			assert.True(t, store.Get().Onboarded)
-
-			data, _ = mutation(t, srv.URL, `{ onboarding { finished } }`)
-			assert.Equal(t, map[string]any{"finished": true}, data["onboarding"])
-		})
-	}
-}

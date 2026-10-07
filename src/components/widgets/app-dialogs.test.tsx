@@ -40,10 +40,6 @@ vi.mock('@/components/widgets/cluster-sync-panel', () => ({
   },
 }));
 
-vi.mock('@/components/widgets/onboarding-dialog', () => ({
-  OnboardingDialog: ({ open }: AppDialogProps) => <div data-testid="onboarding" data-open={open} />,
-}));
-
 const { AppDialogs } = await import('./app-dialogs');
 
 // A trigger that opens the clusters dialog through the controller — standing in
@@ -57,20 +53,10 @@ function OpenClusters() {
   );
 }
 
-function OpenOnboarding() {
-  const { openDialog } = useDialog();
-  return (
-    <button type="button" onClick={() => openDialog('onboarding')}>
-      open-onboarding
-    </button>
-  );
-}
-
 function renderHost() {
   return render(
     <DialogProvider>
       <OpenClusters />
-      <OpenOnboarding />
       <AppDialogs />
     </DialogProvider>,
   );
@@ -93,12 +79,5 @@ describe('AppDialogs', () => {
     // shut and, once the exit transition completes, unmounts it entirely.
     await user.click(screen.getByRole('button', { name: 'close-clusters' }));
     expect(screen.queryByTestId('clusters')).toBeNull();
-  });
-
-  it('mounts the onboarding dialog on request', async () => {
-    const user = userEvent.setup();
-    renderHost();
-    await user.click(screen.getByRole('button', { name: 'open-onboarding' }));
-    expect(screen.getByTestId('onboarding')).toHaveAttribute('data-open', 'true');
   });
 });

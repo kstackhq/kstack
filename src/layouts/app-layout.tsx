@@ -36,7 +36,6 @@ import { ChatOutboxProvider } from '@/lib/chat-outbox';
 import { ChatSwitchProvider } from '@/lib/chat-switch';
 import { ConnectionStatus } from '@/lib/connection-status';
 import { DialogProvider } from '@/lib/dialog';
-import { OnboardingLaunch } from '@/lib/onboarding';
 import { usePersistedFlag } from '@/lib/persisted-flag';
 import { RightSidebarProvider } from '@/lib/right-sidebar';
 
@@ -61,7 +60,6 @@ export function AppLayout() {
       <ChatSwitchProvider>
         <DialogProvider>
           <ConnectionStatus />
-          <OnboardingLaunch />
           {/* The right sidebar's state wraps the bar and the row alike: its toggle is
           in one, its panel in the other. The library's provider owns the left
           sidebar's narrow-window state and `Cmd/Ctrl+B`; it hardcodes `min-h-svh`,

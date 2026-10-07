@@ -27,7 +27,6 @@ type Settings struct {
 	Sandbox     SandboxSettings    `json:"sandbox,omitzero"`
 	Permissions PermissionSettings `json:"permissions,omitzero"`
 	Executables []Executable       `json:"executables,omitempty"` // the user's registered tools, in the order added
-	Onboarded   bool               `json:"onboarded,omitempty"`   // the onboarding flow was finished; it gates nothing
 }
 
 // SandboxSettings is the sandbox group: the user's PATH as a sandboxed run

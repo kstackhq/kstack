@@ -482,7 +482,6 @@ type ComplexityRoot struct {
 		FolderRevoke                    func(childComplexity int, id string) int
 		MemoryDelete                    func(childComplexity int, id memory.MemoryID) int
 		MemorySave                      func(childComplexity int, input model.MemorySaveInput) int
-		OnboardingFinish                func(childComplexity int) int
 		PermissionDefaultModeSet        func(childComplexity int, mode permissions.Mode) int
 		PermissionDiscardRefused        func(childComplexity int, field string) int
 		PermissionModeClear             func(childComplexity int, context string) int
@@ -505,10 +504,6 @@ type ComplexityRoot struct {
 	ObjectRef struct {
 		ID   func(childComplexity int) int
 		Kind func(childComplexity int) int
-	}
-
-	Onboarding struct {
-		Finished func(childComplexity int) int
 	}
 
 	PermissionAction struct {
@@ -576,7 +571,6 @@ type ComplexityRoot struct {
 		ClusterCaches       func(childComplexity int, clusterID *apimeta.ClusterID) int
 		Clusters            func(childComplexity int) int
 		Models              func(childComplexity int) int
-		Onboarding          func(childComplexity int) int
 		PermissionSettings  func(childComplexity int) int
 		Sandbox             func(childComplexity int) int
 		SandboxExecutables  func(childComplexity int) int
@@ -784,7 +778,6 @@ type MutationResolver interface {
 	SandboxExecutablesProbe(ctx context.Context) ([]*model.SandboxExecutable, error)
 	SandboxExecutableRegister(ctx context.Context, name string, invocation *string) ([]*model.SandboxExecutable, error)
 	SandboxExecutableRemove(ctx context.Context, name string) ([]*model.SandboxExecutable, error)
-	OnboardingFinish(ctx context.Context) (*model.Onboarding, error)
 	MemorySave(ctx context.Context, input model.MemorySaveInput) (*memory.Memory, error)
 	MemoryDelete(ctx context.Context, id memory.MemoryID) (bool, error)
 	PermissionDefaultModeSet(ctx context.Context, mode permissions.Mode) (*model.PermissionSettings, error)
@@ -813,7 +806,6 @@ type QueryResolver interface {
 	SandboxPathFault(ctx context.Context) (*string, error)
 	SandboxPathResolved(ctx context.Context) (bool, error)
 	SandboxExecutables(ctx context.Context) ([]*model.SandboxExecutable, error)
-	Onboarding(ctx context.Context) (*model.Onboarding, error)
 	PermissionSettings(ctx context.Context) (*model.PermissionSettings, error)
 	SandboxFolders(ctx context.Context, chatID *apimeta.ChatID) (*model.SandboxFolders, error)
 	ChatGrants(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error)
@@ -2622,12 +2614,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Mutation.MemorySave(childComplexity, args["input"].(model.MemorySaveInput)), true
-	case "Mutation.onboardingFinish":
-		if e.ComplexityRoot.Mutation.OnboardingFinish == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Mutation.OnboardingFinish(childComplexity), true
 	case "Mutation.permissionDefaultModeSet":
 		if e.ComplexityRoot.Mutation.PermissionDefaultModeSet == nil {
 			break
@@ -2776,13 +2762,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ObjectRef.Kind(childComplexity), true
-
-	case "Onboarding.finished":
-		if e.ComplexityRoot.Onboarding.Finished == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Onboarding.Finished(childComplexity), true
 
 	case "PermissionAction.chatRule":
 		if e.ComplexityRoot.PermissionAction.ChatRule == nil {
@@ -3097,12 +3076,6 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.Models(childComplexity), true
-	case "Query.onboarding":
-		if e.ComplexityRoot.Query.Onboarding == nil {
-			break
-		}
-
-		return e.ComplexityRoot.Query.Onboarding(childComplexity), true
 	case "Query.permissionSettings":
 		if e.ComplexityRoot.Query.PermissionSettings == nil {
 			break
@@ -4718,14 +4691,6 @@ func (ec *executionContext) childFields_ObjectRef(ctx context.Context, field gra
 		return ec.fieldContext_ObjectRef_kind(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ObjectRef", field.Name)
-}
-
-func (ec *executionContext) childFields_Onboarding(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-	switch field.Name {
-	case "finished":
-		return ec.fieldContext_Onboarding_finished(ctx, field)
-	}
-	return nil, fmt.Errorf("no field named %q was found under type Onboarding", field.Name)
 }
 
 func (ec *executionContext) childFields_PermissionAction(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -13258,38 +13223,6 @@ func (ec *executionContext) fieldContext_Mutation_sandboxExecutableRemove(ctx co
 	return fc, nil
 }
 
-func (ec *executionContext) _Mutation_onboardingFinish(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Mutation_onboardingFinish(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Mutation().OnboardingFinish(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.Onboarding) graphql.Marshaler {
-			return ec.marshalNOnboarding2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐOnboarding(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Mutation_onboardingFinish(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Mutation",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_Onboarding(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
 func (ec *executionContext) _Mutation_memorySave(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -13910,29 +13843,6 @@ func (ec *executionContext) _ObjectRef_kind(ctx context.Context, field graphql.C
 }
 func (ec *executionContext) fieldContext_ObjectRef_kind(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("ObjectRef", field, false, false, errors.New("field of type String does not have child fields"))
-}
-
-func (ec *executionContext) _Onboarding_finished(ctx context.Context, field graphql.CollectedField, obj *model.Onboarding) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Onboarding_finished(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return obj.Finished, nil
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
-			return ec.marshalNBoolean2bool(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Onboarding_finished(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("Onboarding", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
 func (ec *executionContext) _PermissionAction_summary(ctx context.Context, field graphql.CollectedField, obj *chat.PermissionAction) (ret graphql.Marshaler) {
@@ -15257,38 +15167,6 @@ func (ec *executionContext) fieldContext_Query_sandboxExecutables(_ context.Cont
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 			return ec.childFields_SandboxExecutable(ctx, field)
-		},
-	}
-	return fc, nil
-}
-
-func (ec *executionContext) _Query_onboarding(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
-	return graphql.ResolveField(
-		ctx,
-		ec.OperationContext,
-		field,
-		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_onboarding(ctx, field)
-		},
-		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().Onboarding(ctx)
-		},
-		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *model.Onboarding) graphql.Marshaler {
-			return ec.marshalNOnboarding2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐOnboarding(ctx, selections, v)
-		},
-		true,
-		true,
-	)
-}
-func (ec *executionContext) fieldContext_Query_onboarding(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	fc = &graphql.FieldContext{
-		Object:     "Query",
-		Field:      field,
-		IsMethod:   true,
-		IsResolver: true,
-		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_Onboarding(ctx, field)
 		},
 	}
 	return fc, nil
@@ -22800,13 +22678,6 @@ func (ec *executionContext) _Mutation(ctx context.Context, sel ast.SelectionSet)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
-		case "onboardingFinish":
-			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
-				return ec._Mutation_onboardingFinish(ctx, field)
-			})
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
 		case "memorySave":
 			out.Values[i] = ec.OperationContext.RootResolverMiddleware(innerCtx, func(ctx context.Context) (res graphql.Marshaler) {
 				return ec._Mutation_memorySave(ctx, field)
@@ -22981,44 +22852,6 @@ func (ec *executionContext) _ObjectRef(ctx context.Context, sel ast.SelectionSet
 			}
 		case "kind":
 			out.Values[i] = ec._ObjectRef_kind(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
-				out.Invalids++
-			}
-		default:
-			panic("unknown field " + strconv.Quote(field.Name))
-		}
-	}
-	out.Dispatch(ctx)
-	if out.Invalids > 0 {
-		return graphql.Null
-	}
-
-	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
-
-	ec.ProcessDeferredGroup(graphql.DeferredGroup{
-		Defers:   deferLabelToView,
-		Path:     graphql.GetPath(ctx),
-		FieldSet: deferredFieldSet,
-		Context:  ctx,
-	})
-
-	return out
-}
-
-var onboardingImplementors = []string{"Onboarding"}
-
-func (ec *executionContext) _Onboarding(ctx context.Context, sel ast.SelectionSet, obj *model.Onboarding) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, onboardingImplementors)
-
-	out := graphql.NewFieldSet(fields)
-	deferredFieldSet := graphql.NewFieldSet(nil)
-	deferLabelToView := make(map[string]*graphql.FieldSetView)
-	for i, field := range fields {
-		switch field.Name {
-		case "__typename":
-			out.Values[i] = graphql.MarshalString("Onboarding")
-		case "finished":
-			out.Values[i] = ec._Onboarding_finished(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -23720,28 +23553,6 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 					}
 				}()
 				res = ec._Query_sandboxExecutables(ctx, field)
-				if res == graphql.Null {
-					atomic.AddUint32(&fs.Invalids, 1)
-				}
-				return res
-			}
-
-			rrm := func(ctx context.Context) graphql.Marshaler {
-				return ec.OperationContext.RootResolverMiddleware(ctx,
-					func(ctx context.Context) graphql.Marshaler { return innerFunc(ctx, out) })
-			}
-
-			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
-		case "onboarding":
-			field := field
-
-			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
-				defer func() {
-					if r := recover(); r != nil {
-						ec.Error(ctx, ec.Recover(ctx, r))
-					}
-				}()
-				res = ec._Query_onboarding(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -26211,16 +26022,6 @@ func (ec *executionContext) marshalNObjectID2githubᚗcomᚋkstackhqᚋkstackᚋ
 
 func (ec *executionContext) marshalNObjectRef2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋclusterᚐObjectRef(ctx context.Context, sel ast.SelectionSet, v cluster.ObjectRef) graphql.Marshaler {
 	return ec._ObjectRef(ctx, sel, &v)
-}
-
-func (ec *executionContext) marshalNOnboarding2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐOnboarding(ctx context.Context, sel ast.SelectionSet, v *model.Onboarding) graphql.Marshaler {
-	if v == nil {
-		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
-			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
-		}
-		return graphql.Null
-	}
-	return ec._Onboarding(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalNPermissionAction2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐPermissionAction(ctx context.Context, sel ast.SelectionSet, v chat.PermissionAction) graphql.Marshaler {

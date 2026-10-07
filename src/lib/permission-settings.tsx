@@ -14,7 +14,7 @@
 
 // The permission modes and rules: the one reader of the `permissionSettings`
 // and `settingsRefused` queries and the six `permission*` mutations, for the
-// Settings section and the onboarding flow.
+// Settings section.
 import { useEffect, useMemo, useState } from 'react';
 
 import { useMutation, useQuery } from 'urql';

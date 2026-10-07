@@ -51,8 +51,6 @@ type Documents = {
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": typeof types.MemoriesWatchDocument,
     "\n  query Models {\n    models {\n      provider {\n        id\n        label\n      }\n      id\n      label\n      efforts\n      defaultEffort\n    }\n  }\n": typeof types.ModelsDocument,
     "\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n": typeof types.ChatNetworkEnabledSetDocument,
-    "\n  query Onboarding {\n    onboarding {\n      finished\n    }\n  }\n": typeof types.OnboardingDocument,
-    "\n  mutation OnboardingFinish {\n    onboardingFinish {\n      finished\n    }\n  }\n": typeof types.OnboardingFinishDocument,
     "\n  query PermissionSettings {\n    permissionSettings {\n      defaultMode\n      contexts {\n        context\n        mode\n        source\n        pattern\n        own\n      }\n      rules {\n        id\n        line\n      }\n      destructive\n      held\n    }\n  }\n": typeof types.PermissionSettingsDocument,
     "\n  query SettingsRefused {\n    settingsRefused {\n      field\n      value\n      reason\n    }\n  }\n": typeof types.SettingsRefusedDocument,
     "\n  mutation PermissionDefaultModeSet($mode: PermissionMode!) {\n    permissionDefaultModeSet(mode: $mode) {\n      held\n    }\n  }\n": typeof types.PermissionDefaultModeSetDocument,
@@ -113,8 +111,6 @@ const documents: Documents = {
     "\n  subscription MemoriesWatch($clusterID: ClusterID!) {\n    memoriesWatch(clusterID: $clusterID) {\n      type\n      memory {\n        id\n        clusterID\n        name\n        body\n        writtenBy\n        updatedAt\n      }\n    }\n  }\n": types.MemoriesWatchDocument,
     "\n  query Models {\n    models {\n      provider {\n        id\n        label\n      }\n      id\n      label\n      efforts\n      defaultEffort\n    }\n  }\n": types.ModelsDocument,
     "\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n": types.ChatNetworkEnabledSetDocument,
-    "\n  query Onboarding {\n    onboarding {\n      finished\n    }\n  }\n": types.OnboardingDocument,
-    "\n  mutation OnboardingFinish {\n    onboardingFinish {\n      finished\n    }\n  }\n": types.OnboardingFinishDocument,
     "\n  query PermissionSettings {\n    permissionSettings {\n      defaultMode\n      contexts {\n        context\n        mode\n        source\n        pattern\n        own\n      }\n      rules {\n        id\n        line\n      }\n      destructive\n      held\n    }\n  }\n": types.PermissionSettingsDocument,
     "\n  query SettingsRefused {\n    settingsRefused {\n      field\n      value\n      reason\n    }\n  }\n": types.SettingsRefusedDocument,
     "\n  mutation PermissionDefaultModeSet($mode: PermissionMode!) {\n    permissionDefaultModeSet(mode: $mode) {\n      held\n    }\n  }\n": types.PermissionDefaultModeSetDocument,
@@ -300,14 +296,6 @@ export function graphql(source: "\n  query Models {\n    models {\n      provide
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
 export function graphql(source: "\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n"): (typeof documents)["\n  mutation ChatNetworkEnabledSet($id: ChatID!, $enabled: Boolean!) {\n    chatNetworkEnabledSet(id: $id, enabled: $enabled) {\n      id\n      networkEnabled\n    }\n  }\n"];
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(source: "\n  query Onboarding {\n    onboarding {\n      finished\n    }\n  }\n"): (typeof documents)["\n  query Onboarding {\n    onboarding {\n      finished\n    }\n  }\n"];
-/**
- * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
- */
-export function graphql(source: "\n  mutation OnboardingFinish {\n    onboardingFinish {\n      finished\n    }\n  }\n"): (typeof documents)["\n  mutation OnboardingFinish {\n    onboardingFinish {\n      finished\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

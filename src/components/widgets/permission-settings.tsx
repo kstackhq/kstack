@@ -143,7 +143,7 @@ function PermissionSection() {
 
 // The default mode: a refused one the file holds, the picker, and what each
 // mode does.
-export function DefaultModePicker({ permissions }: { permissions: Permissions }) {
+function DefaultModePicker({ permissions }: { permissions: Permissions }) {
   const { settings, refused, held, setDefaultMode } = permissions;
   if (!settings) return null;
   const defaultRefusal = held('defaultMode') ? refused.find((r) => r.field === 'defaultMode') : undefined;
@@ -215,7 +215,7 @@ type ContextMode = {
 // One row per known context: its mode, where the mode comes from, and a picker
 // that sets the context's own. Clear removes the context's own entry, never a
 // pattern it matches.
-export function ContextModes({
+function ContextModes({
   contexts,
   disabled,
   onSet,

@@ -21,7 +21,6 @@ import type { ComponentType } from 'react';
 
 import { ClusterSyncPanel } from '@/components/widgets/cluster-sync-panel';
 import { MemoryDialog } from '@/components/widgets/memory-dialog';
-import { OnboardingDialog } from '@/components/widgets/onboarding-dialog';
 import { SettingsDialog } from '@/components/widgets/settings-dialog';
 import { useDialog, type AppDialogProps, type DialogId } from '@/lib/dialog';
 
@@ -29,7 +28,6 @@ import { useDialog, type AppDialogProps, type DialogId } from '@/lib/dialog';
 const DIALOGS: Partial<Record<DialogId, ComponentType<AppDialogProps>>> = {
   clusters: ClusterSyncPanel,
   memories: MemoryDialog,
-  onboarding: OnboardingDialog,
   settings: SettingsDialog,
 };
 
