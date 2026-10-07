@@ -68,9 +68,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-environment
+      - id: setup
+        uses: ./.github/actions/setup-environment
         with:
           setup-go: "true"
+          go-cache-key: ${{ github.job }}-ubuntu-24.04
+          go-cache-mode: ${{ env.CACHE_MODE }}
       - name: Run vetter
         working-directory: ./sidecar
         run: go vet ./...
@@ -79,6 +82,14 @@ jobs:
       - name: Run vetter (GOOS=windows)
         working-directory: ./sidecar
         run: GOOS=windows go vet ./...
+      # After both passes, so the cache holds the Windows target's builds too,
+      # and a failed job leaves the last cache the newest.
+      - name: Save Go cache
+        if: env.CACHE_MODE != 'use'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.setup.outputs.go-cache-path }}
+          key: ${{ steps.setup.outputs.go-cache-key }}
 
   rust-lint:
     name: Rust · Lint
