@@ -34,6 +34,18 @@ inputs:
     description: 'Whether to set up the sandbox and require its tests'
     required: false
     default: 'false'
+  go-cache-key:
+    description: 'Names the Go cache; empty turns it off'
+    required: false
+    default: ''
+  rust-cache-key:
+    description: 'Names the Rust cache; empty turns it off'
+    required: false
+    default: ''
+  cache-save:
+    description: 'Whether to save the Go and Rust caches, which happens on main alone'
+    required: false
+    default: 'true'
   kubectl-version:
     description: 'kubectl version the sandbox tests run'
     required: false
@@ -81,12 +93,15 @@ runs:
         toolchain: ${{ steps.rust-toolchain.outputs.channel }}
         components: rustfmt, clippy
 
+    # Saved on main alone, which every PR can read; a PR saving its own copy
+    # pushes the repo past its cache limit.
     - name: Set up Rust cache
-      if: inputs.setup-rust == 'true'
+      if: inputs.setup-rust == 'true' && inputs.rust-cache-key != ''
       uses: Swatinem/rust-cache@v2
       with:
         workspaces: "./src-tauri"
-        shared-key: ${{ runner.os }}-${{ runner.arch }}
+        shared-key: ${{ inputs.rust-cache-key }}
+        save-if: ${{ inputs.cache-save == 'true' && github.ref == 'refs/heads/main' }}
         cache-bin: false
 
     - name: Set up PNPM
@@ -106,8 +121,41 @@ runs:
       uses: actions/setup-go@v6
       with:
         go-version: ${{ inputs.go-version }}
-        cache-dependency-path: |
-          sidecar/go.sum
+        cache: false
+
+    - name: Find Go cache paths
+      if: inputs.setup-go == 'true' && inputs.go-cache-key != ''
+      id: go-cache-paths
+      shell: bash
+      run: |
+        echo "gomodcache=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+        echo "gocache=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+
+    # Saved on main alone, as the Rust cache is. actions/cache saves in its
+    # post step, so main takes it and everywhere else takes restore alone.
+    - name: Set up Go cache
+      if: >-
+        inputs.setup-go == 'true' && inputs.go-cache-key != ''
+        && inputs.cache-save == 'true' && github.ref == 'refs/heads/main'
+      uses: actions/cache@v6
+      with:
+        path: |
+          ${{ steps.go-cache-paths.outputs.gomodcache }}
+          ${{ steps.go-cache-paths.outputs.gocache }}
+        key: go-${{ inputs.go-version }}-${{ inputs.go-cache-key }}-${{ hashFiles('sidecar/go.sum') }}
+        restore-keys: go-${{ inputs.go-version }}-${{ inputs.go-cache-key }}-
+
+    - name: Restore Go cache
+      if: >-
+        inputs.setup-go == 'true' && inputs.go-cache-key != ''
+        && !(inputs.cache-save == 'true' && github.ref == 'refs/heads/main')
+      uses: actions/cache/restore@v6
+      with:
+        path: |
+          ${{ steps.go-cache-paths.outputs.gomodcache }}
+          ${{ steps.go-cache-paths.outputs.gocache }}
+        key: go-${{ inputs.go-version }}-${{ inputs.go-cache-key }}-${{ hashFiles('sidecar/go.sum') }}
+        restore-keys: go-${{ inputs.go-version }}-${{ inputs.go-cache-key }}-
 
     # bubblewrap and passt (pasta, a run's internet) for the sandbox's tests,
     # which fail rather than skip under KSTACK_REQUIRE_SANDBOX, and iproute2,

@@ -7,11 +7,16 @@ on:
   pull_request:
     branches:
       - "**"
+  # Main writes the Go and Rust caches every PR reads.
+  push:
+    branches:
+      - main
   workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # A run on main is left to finish, so it saves its caches.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ##############################
@@ -111,6 +116,7 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           setup-rust: "true"
+          rust-cache-key: ${{ github.job }}-${{ matrix.runner }}
       - name: Stub sidecar binary
         shell: bash
         run: |
@@ -172,6 +178,10 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           setup-rust: "true"
+          # Nothing here compiles worth saving, so it borrows Rust · Vet's
+          # registry and index.
+          rust-cache-key: rust-vet-ubuntu-24.04
+          cache-save: "false"
       - name: Install cargo-audit
         run: cargo install --locked cargo-audit --version 0.22.2
       - name: Run cargo audit
@@ -208,6 +218,7 @@ jobs:
         with:
           setup-go: "true"
           setup-sandbox: "true"
+          go-cache-key: ${{ github.job }}-${{ matrix.runner }}
       - name: Run tests
         working-directory: ./sidecar
         run: go test ./...
@@ -308,6 +319,7 @@ jobs:
           setup-go: "true"
           setup-rust: "true"
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          rust-cache-key: ${{ github.job }}-${{ matrix.runner }}
       - name: Build sidecar
         shell: bash
         run: go run scripts/build-sidecar.go
@@ -348,6 +360,7 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           setup-go: "true"
+          go-cache-key: ${{ github.job }}-${{ matrix.runner }}
       - name: Build
         working-directory: ./sidecar
         run: go build
@@ -368,6 +381,7 @@ jobs:
           setup-go: "true"
           setup-rust: "true"
           github-token: ${{ secrets.GITHUB_TOKEN }}
+          rust-cache-key: ${{ github.job }}-${{ matrix.runner }}
       - name: Build sidecar
         shell: bash
         run: go run scripts/build-sidecar.go
