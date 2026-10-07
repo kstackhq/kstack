@@ -107,6 +107,7 @@ jobs:
     name: Rust · Vet
     strategy:
       fail-fast: false
+      # Keep in step with the stress job's matrix in stress.yml.
       matrix: &full-matrix
         os:
           - linux

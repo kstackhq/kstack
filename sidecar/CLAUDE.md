@@ -3807,6 +3807,22 @@ Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-
 - A fake that notifies the test uses `testutil.Signal` (single-shot, idempotent `Fire`) or `testutil.Probe[T]` (repeating, non-blocking, drops oldest). Exception: a consumer doing edge detection needs a lossless fan-out.
 - `make test-changed` while working (the changed packages), `make test-go` for the whole suite, `make lint-go` (gofmt), `make vet-go`. Run `gofmt -w` before committing.
 
+**A nightly stress run hunts concurrency bugs** (`.github/workflows/stress.yml`, 05:00 UTC, or
+dispatched with `count` and `cpu`). On each of `ci.yml`'s nine runners it runs the whole suite
+with `-race` (but on Windows arm64, which has no race detector), `-cpu 1,4`, `-shuffle=on` and
+`-count=3`. A red run means a test failed under some schedule, nothing else. A test that hangs
+under `-cpu 1` assumes another goroutine runs beside it: that is a finding. `scripts/stress.go`
+reads the `-json` output into `stress/failures.json` — each failing test, the `-cpu` value it ran
+under and its package's shuffle seed — and the report job files one issue per test, labelled
+`stress` and titled `Stress: <Test> fails in <package>`, commenting on it when it is already open.
+A job that failed with no test to blame comments on `Stress run failed outside a test`. Each issue
+carries the command that reproduces it from `sidecar/`, which runs the whole package, since the
+seed orders all of it:
+
+```sh
+go test -race -cpu 1 -shuffle=<seed> -count=3 ./internal/services/chat
+```
+
 **Coverage is gated.** `make cover-go` (CI's `Go · Coverage` job) runs the suite twice —
 untagged and `-tags debug`, the only build that compiles `applyEnvOverrides` — merges the
 profiles with `-coverpkg=./...` so a helper exercised from another package counts, drops
