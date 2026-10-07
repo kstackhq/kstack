@@ -203,8 +203,10 @@ jobs:
   # Test jobs
   ###########################
 
+  # Go · Vet already type-checks the build; this links the real binary, then
+  # runs the tests under the same cache.
   go-test:
-    name: Go · Test
+    name: Go · Build and Test
     needs:
       - go-lint
       - go-vet
@@ -219,6 +221,9 @@ jobs:
           setup-go: "true"
           setup-sandbox: "true"
           go-cache-key: ${{ github.job }}-${{ matrix.runner }}
+      - name: Build
+        working-directory: ./sidecar
+        run: go build
       - name: Run tests
         working-directory: ./sidecar
         run: go test ./...
@@ -345,25 +350,6 @@ jobs:
   ###########################
   # Build jobs
   ###########################
-
-  go-build:
-    name: Go · Build
-    needs:
-      - go-lint
-      - go-vet
-    strategy:
-      fail-fast: false
-      matrix: *full-matrix
-    runs-on: ${{ matrix.runner }}
-    steps:
-      - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-environment
-        with:
-          setup-go: "true"
-          go-cache-key: ${{ github.job }}-${{ matrix.runner }}
-      - name: Build
-        working-directory: ./sidecar
-        run: go build
 
   rust-build:
     name: Rust · Build
