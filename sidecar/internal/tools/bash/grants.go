@@ -18,9 +18,9 @@ import (
 	"log/slog"
 	"slices"
 
-	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
-	"github.com/kstackhq/kstack/sidecar/internal/session"
 )
 
 // grantRules is the session's folders as Files rules: each checked again

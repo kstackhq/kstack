@@ -18,8 +18,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/kstackhq/kstack/sidecar/internal/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 )
 
 // target is how a sandboxed run reaches the chat's cluster: the kube-context its

@@ -3,6 +3,7 @@ title: Group the sidecar's packages into services, lib and the rest
 date: 2026-10-06
 scope: sidecar
 status: Accepted
+amended_by: [Group the sidecar's packages into layers](2026-10-07-sidecar-folders-are-layers.md)
 ---
 
 # Group the sidecar's packages into services, lib and the rest

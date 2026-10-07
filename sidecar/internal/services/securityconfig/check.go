@@ -14,7 +14,7 @@
 
 package securityconfig
 
-import "github.com/kstackhq/kstack/sidecar/internal/permissions"
+import "github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 
 // checks is the read-back: one check per field, each added by the field's
 // step. A check reads the value alone, never the disk or another service; it

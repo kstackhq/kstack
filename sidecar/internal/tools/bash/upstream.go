@@ -18,8 +18,8 @@ import (
 	"context"
 	"errors"
 
-	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/run/kubeproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
 

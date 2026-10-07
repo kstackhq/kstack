@@ -4,7 +4,7 @@ A standalone Go binary started by the Tauri host. It serves the app's GraphQL AP
 
 `--data-dir`, `--cache-dir` and `--runtime-dir` are **required** and absolute; `app.New` errors on an empty or relative one, makes a missing one 0700, and tests pass `t.TempDir()`. `<data-dir>/app.db` is `internal/appdb`'s: one migration sequence, numbered files in `appdb/migrations/`, never a second embed against the same file. `appdb.Open` hands back two pools — the one-connection writer, migrated, and a `query_only` reader — so a consumer's reads never queue behind its writes — and runs the file's janitor, one per open `DB` (`appdb/janitor.go`): a freelist-gated bounded vacuum, then a `TRUNCATE` `wal_checkpoint` after a vacuum or when the log outweighs the file; a zero interval runs none, and `Close` joins it before the pools close. **A service's statements are a `sqlstmt.Set`** prepared on `db.Write, db.Read` (see `sqlstmt` under `internal/`); the SQL stays the service's. Nothing has shipped, so a table change edits `0001_init.sql` rather than adding a file. → [ADR: schema edit, not migration](../docs/adr/2026-08-29-schema-edit-not-migration.md).
 
-**The app owns app.db.** `build` (`internal/app/runtime.go`) opens the file once and hands the `*appdb.DB` to every service that writes or watches it (`cluster.New(db, …)`, `memory.New(db, …)` and `chat.New(db, …)`). It opens before every service, so a failure before it leaves nothing to close, and a constructor failing after it closes every part built so far before `New` returns. It is the first of `Runtime.parts`, a `lifecycle.CloseFunc` (nothing to start), so the reverse close order releases it after every service, and a failed `Start` in `main.run` still reaches `application.Close`. A service prepares its statements on the pools it is given and closes only those; its tests build it over a temporary DB of their own (`openTestDB` in `services/chat`) and simulate a failed store by closing that DB. **The DB carries the change bus** (`appdb.go`): `Notify(key)` after a commit, never inside the transaction, and `Subscribe(keys…)` before the first read — a `gobus/conflate` receiver, one coalesced ping per key, ended by `DB.Close`; no keys is a panic. **The keys are named there** (`KeyClusters`, `KeyChats`, `KeyMemories`, `MessagesKey`, `StreamKey`), so a writer in one service and a watcher in another cannot spell one apart; a service wraps them under its own id type and adds none of its own. `services/cluster` and `services/chat` both notify and subscribe to `KeyClusters` (*Cluster subsystem*, below), and `services/memory`'s watch re-reads on it too, since a cluster's delete cascades to its memories. A service joins its own pumps in its stop, before that close runs. **Row ids are `appdb`'s**: `NewID()` mints a canonical lowercase UUIDv7, increasing in the order minted within a process, and `ValidateUUID` accepts the canonical spelling of a v4 or v7 with the RFC variant and nothing else — not the nil UUID, braces, `urn:`, uppercase, bare hex or a ULID. It validates a client's request key as well as a row id, and says nothing about who minted it. → [ADR: the app owns app.db](../docs/adr/2026-09-16-the-app-owns-app-db.md).
+**The app owns app.db.** `build` (`internal/app/runtime.go`) opens the file once and hands the `*appdb.DB` to every service that writes or watches it (`cluster.New(db, …)`, `memory.New(db, …)` and `chat.New(db, …)`). It opens before every service, so a failure before it leaves nothing to close, and a constructor failing after it closes every part built so far before `New` returns. It is the first of `Runtime.parts`, a `lifecycle.CloseFunc` (nothing to start), so the reverse close order releases it after every service, and a failed `Start` in `main.run` still reaches `application.Close`. A service prepares its statements on the pools it is given and closes only those; its tests build it over a temporary DB of their own (`openTestDB` in `agent/chat`) and simulate a failed store by closing that DB. **The DB carries the change bus** (`appdb.go`): `Notify(key)` after a commit, never inside the transaction, and `Subscribe(keys…)` before the first read — a `gobus/conflate` receiver, one coalesced ping per key, ended by `DB.Close`; no keys is a panic. **The keys are named there** (`KeyClusters`, `KeyChats`, `KeyMemories`, `MessagesKey`, `StreamKey`), so a writer in one service and a watcher in another cannot spell one apart; a service wraps them under its own id type and adds none of its own. `services/cluster` and `agent/chat` both notify and subscribe to `KeyClusters` (*Cluster subsystem*, below), and `services/memory`'s watch re-reads on it too, since a cluster's delete cascades to its memories. A service joins its own pumps in its stop, before that close runs. **Row ids are `appdb`'s**: `NewID()` mints a canonical lowercase UUIDv7, increasing in the order minted within a process, and `ValidateUUID` accepts the canonical spelling of a v4 or v7 with the RFC variant and nothing else — not the nil UUID, braces, `urn:`, uppercase, bare hex or a ULID. It validates a client's request key as well as a row id, and says nothing about who minted it. → [ADR: the app owns app.db](../docs/adr/2026-09-16-the-app-owns-app-db.md).
 
 ## Directories
 
@@ -19,8 +19,8 @@ sweeps it and removes it:
   app.db                               app
   security.json                        app: the security settings
   beehive.db                           services/cluster
-  chats/<chat id>/                     services/chat: results/, tasks/, workspace/, toolhome/
-  monitor/<cluster id>/                services/chat: a monitor's results/, workspace/, toolhome/
+  chats/<chat id>/                     agent/chat: results/, tasks/, workspace/, toolhome/
+  monitor/<cluster id>/                agent/chat: a monitor's results/, workspace/, toolhome/
 <cache>/                               what Kstack rebuilds
   kubestore/<cache id>.db              services/cluster: the mirror
   kubectl/<cluster id>/<server>/       bash: the kubectl cache
@@ -90,15 +90,36 @@ that is what keeps cluster-controlled text from forging a line (`TestInitWritesO
 host](../docs/adr/2026-09-08-json-logs-rendered-by-the-host.md), [ADR: two processes, two log
 files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
 
-- `internal/app/` probes the sandbox once (`probeSandbox`, a test's seam, under the context `New` is handed, the shutdown signal's; a probe that context cut short answers its error, which `New` returns, and `run` exits cleanly on it), then, with `RunLoginShell`, runs the login shell in it (`launchShell`, *The login shell*, below), **before anything that reads the environment**: on macOS it sets the environment process-wide, and `chatTools` reads the proxy variables. Then `build` opens the security settings (`securityconfig.Open`, before `app.db`, since the store holds no handle) and `app.db`, and builds `poke`, `kubeconfig`, `services/cluster`, `auth`, `cloud`, the catalog and llm service, the Bash tool, the security service, `services/memory`, the tool box and `services/chat`; `New` wires `graph.NewServer` + `grpcserver.NewServer` over the runtime and multiplexes both onto one h2c handler. `Runtime.parts` is start order (app.db → poke → kubeconfig → cluster → cloud → memory → chat, then the executable probe when there is a shell, whose Close ends a running probe, then the `PATH` sync when the launch read a `PATH` on a machine with a sandbox, then the shell snapshot with `RunLoginShell`); stop and close reverse it. The sync folds the launch's `PATH` into the stored list, and one that fails is a warning, not a startup error. A sync that changed the list starts a probe of every listed executable (`StartProbe`), so nothing runs unasked on a machine whose tools did not move; the executable probe part's Close ends it. At the end of `build`, once `services/chat` exists, the Bash tool is handed the probe's folders: `FoldersFor(ctx, "")`, the folders granted always, and `securityCfg.CheckFolder` (`SetProbeFolders`). **kubeconfig before cluster is load-bearing** (`app_test.go` pins it). The transports stay out of the slice; `grpcServer.Stop()` runs first in `Close`.
+- `internal/app/` probes the sandbox once (`probeSandbox`, a test's seam, under the context `New` is handed, the shutdown signal's; a probe that context cut short answers its error, which `New` returns, and `run` exits cleanly on it), then, with `RunLoginShell`, runs the login shell in it (`launchShell`, *The login shell*, below), **before anything that reads the environment**: on macOS it sets the environment process-wide, and `chatTools` reads the proxy variables. Then `build` opens the security settings (`securityconfig.Open`, before `app.db`, since the store holds no handle) and `app.db`, and builds `poke`, `kubeconfig`, `services/cluster`, `auth`, `cloud`, the catalog and llm service, the Bash tool, the security service, `services/memory`, the tool box and `agent/chat`; `New` wires `graph.NewServer` + `grpcserver.NewServer` over the runtime and multiplexes both onto one h2c handler. `Runtime.parts` is start order (app.db → poke → kubeconfig → cluster → cloud → memory → chat, then the executable probe when there is a shell, whose Close ends a running probe, then the `PATH` sync when the launch read a `PATH` on a machine with a sandbox, then the shell snapshot with `RunLoginShell`); stop and close reverse it. The sync folds the launch's `PATH` into the stored list, and one that fails is a warning, not a startup error. A sync that changed the list starts a probe of every listed executable (`StartProbe`), so nothing runs unasked on a machine whose tools did not move; the executable probe part's Close ends it. At the end of `build`, once `agent/chat` exists, the Bash tool is handed the probe's folders: `FoldersFor(ctx, "")`, the folders granted always, and `securityCfg.CheckFolder` (`SetProbeFolders`). **kubeconfig before cluster is load-bearing** (`app_test.go` pins it). The transports stay out of the slice; `grpcServer.Stop()` runs first in `Close`.
 
   **`READY` promises a socket, not a finished startup.** `run` prints it after the bind and before `Start`; the first request is answered after `Start`, and every part completes its startup work inside `Start`. Everything that reads the environment does so after the shell import at the top of `app.New`, which finishes before `READY` — nothing sends before it, and `net/http` reads the proxy variables once per process on the first request.
-- `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.SecurityCfg` is `securityconfig.Service`, the settings store with the frozen `PATH` kept in it; its resolvers are `securityRefused`, and `sandboxPath`, `sandboxPathFault` and the three `sandboxPath*` mutations, which answer an empty list, no fault and a refusal on a machine with no sandbox. A `securityconfig.PathRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxPathErr`). Its permission resolvers are `permissionSettings` and the six `permission*` mutations, each answering the settings it left (`permissionSettings` in `util.go`, the known contexts read off `Clusters().List`), and a refused one `KSTACK_VALIDATION_ERROR` with the reason (`permissionsAfter`); a rule's id is `appdb.NewID()`. The folder resolvers are `sandboxFolders(chatID)` and `folderGrant` and `folderRevoke`, each answering the whole `SandboxFolders` (the always grants and the chat's with each `refused` reason, the never-readable list and the wide folders; empty lists on a machine with no sandbox), through `services/chat`, where an empty chat id is no chat: a `Chat` grant with no `chatID`, or an empty one, is `KSTACK_VALIDATION_ERROR`, so it never widens to every chat, and an `Always` one ignores it. A `FolderRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` whose `rule` is the check's, with a link's `target` beside it (`folderErr`). The executable resolvers are `sandboxExecutables`, `sandboxExecutablesProbe`, `sandboxExecutableRegister` and `sandboxExecutableRemove`, each answering the whole report through `Resolver.Executables` (an `ExecutableProber`, the Bash tool), `Report` laying the last probe over the list; `sandboxExecutablesProbe` only starts one (`StartProbe`), since a probe can outlast the host's request budget, and **`sandboxExecutablesWatch` is the gauge its end reaches**: `WatchProbe`'s `ProbeState` and the security store's settings, each a current-on-subscribe receiver, folded into one `SandboxExecutablesReport` — `probing`, and `bash.ReportOver` the state's last report and the settings' registered executables — on either's change. With no sandbox or no shell the query is empty, the watch answers one empty report, and the probe and a register are refused. A `securityconfig.ExecutableRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxExecutableErr`). `onboarding` answers `Onboarded`, and `onboardingFinish` sets it, with a sandbox or without, since the store is open on every platform.
+- `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.SecurityCfg` is `securityconfig.Service`, the settings store with the frozen `PATH` kept in it; its resolvers are `securityRefused`, and `sandboxPath`, `sandboxPathFault` and the three `sandboxPath*` mutations, which answer an empty list, no fault and a refusal on a machine with no sandbox. A `securityconfig.PathRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxPathErr`). Its permission resolvers are `permissionSettings` and the six `permission*` mutations, each answering the settings it left (`permissionSettings` in `util.go`, the known contexts read off `Clusters().List`), and a refused one `KSTACK_VALIDATION_ERROR` with the reason (`permissionsAfter`); a rule's id is `appdb.NewID()`. The folder resolvers are `sandboxFolders(chatID)` and `folderGrant` and `folderRevoke`, each answering the whole `SandboxFolders` (the always grants and the chat's with each `refused` reason, the never-readable list and the wide folders; empty lists on a machine with no sandbox), through `agent/chat`, where an empty chat id is no chat: a `Chat` grant with no `chatID`, or an empty one, is `KSTACK_VALIDATION_ERROR`, so it never widens to every chat, and an `Always` one ignores it. A `FolderRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` whose `rule` is the check's, with a link's `target` beside it (`folderErr`). The executable resolvers are `sandboxExecutables`, `sandboxExecutablesProbe`, `sandboxExecutableRegister` and `sandboxExecutableRemove`, each answering the whole report through `Resolver.Executables` (an `ExecutableProber`, the Bash tool), `Report` laying the last probe over the list; `sandboxExecutablesProbe` only starts one (`StartProbe`), since a probe can outlast the host's request budget, and **`sandboxExecutablesWatch` is the gauge its end reaches**: `WatchProbe`'s `ProbeState` and the security store's settings, each a current-on-subscribe receiver, folded into one `SandboxExecutablesReport` — `probing`, and `bash.ReportOver` the state's last report and the settings' registered executables — on either's change. With no sandbox or no shell the query is empty, the watch answers one empty report, and the probe and a register are refused. A `securityconfig.ExecutableRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxExecutableErr`). `onboarding` answers `Onboarded`, and `onboardingFinish` sets it, with a sandbox or without, since the store is open on every platform.
 - `grpc/` — `AuthService`, `PokeService`, committed protoc output in `authpb/`, `pokepb/`. Regenerate with `make proto`; **never hand-edit `*.pb.go`**. `IsGRPCRequest` lives here.
-- `internal/` groups its packages by one rule → [ADR: services, lib and the rest](../docs/adr/2026-10-06-sidecar-packages-group-into-services-lib-and-the-rest.md):
-  - `internal/services/` — a package that owns state outliving a request (rows, a watch, a connection, goroutines) and is reached from `graph/` or `grpc/`: `auth`, `chat`, `cloud`, `cluster`, `kubeconfig`, `memory` (the notes a chat's cluster sees, below), `poke`, `securityconfig` (the security settings, below).
-  - `internal/lib/` — a building block that knows nothing of Kstack's domain; `lib` is a folder, never a package name: `apimeta` (wire vocabulary no service owns — the delta-frame type, `ObjectID`, `ClusterID`, which `services/cluster` aliases, and `ChatID`, which `services/chat` aliases and `services/memory` and `tools.Runtime` name), `atomicjson`, `deltafold` (a watch's memory: `Snapshot`/`Diff`/`Upsert`/`Has` over a caller's key, equality and frame, plus `Send`; imports `apimeta` alone), `drain`, `ipc`, `lifecycle`, `logging`, `rawjson`, `rootdir` (a directory opened and removed through an `os.Root`, under *Tools*), `safe` (an error rendered for a log line, and a command's output redacted: `Redact` line by line, `RedactJSON` a JSON text by its structure, for text that is one line with its newlines escaped; the field and flag rules read a credential's name off `credentialNames`, with or without the separator inside it, so camelCase keys match), `sqlitemigrate` (the migration runner, `Apply`), `sqlitepool` (the one home of the SQLite open contract: `OpenWriter` a store's one writer connection, `OpenReader` a reader pool, `OpenQuery` read-only connections through a caller's driver with none kept idle), `sqlstmt` (a store's statement table, prepared once on a file's writer and reader pools and routed per call: a `[]sqlstmt.Statement` indexed by the store's own id type, each entry its text and pool — `OnWriter`, `OnReader`, or `OnBoth` for a read some caller runs inside a write transaction; `Prepare[ID]` compiles it at open, since modernc caches nothing and a text handed to a pool at a call site is compiled every time; `Set.Stmts()` issues on the pools, `Set.InTx` inside one write transaction, `Set.InReadTx` inside one read-only transaction on the reader, always rolled back; inside a transaction the copy rebound, once per id, is the one prepared on that transaction's pool, and an id its pool does not hold panics; `Set.Close` finalizes the statements alone, and a closed set refuses `InTx`/`InReadTx` with `ErrClosed`, since `Tx.StmtContext` would quietly re-prepare a closed statement; imports nothing of ours; → [ADR: one statement set](../docs/adr/2026-09-16-sqlstmt-prepares-a-services-statements.md)), `supervisor`, `testutil` (test-only, imported by no production code), `version` (`Version` is `dev` unless the linker stamped it: `scripts/build-sidecar.go` passes `-X …/internal/lib/version.Version=$SIDECAR_VERSION` when set, `release.yml` sets it to the release version, and `main` logs it on the `sidecar starting` line; nothing reads a version from the environment or a file), `workqueue`.
-  - the rest stay at the top of `internal/`: `appdb`, `catalog` (the providers and the tools each is offered, below), `clustercard` (the cluster card a chat send will carry), `kubeproxy` (the cluster proxy a sandboxed run reaches its cluster through, under *Tools*), `loginshell`, `permissions` (the classes, modes and rules a cluster write is decided by, under *Tools*), `sandbox` (the machine's sandbox and a run's forwarder, under *Tools*), `session` (one agent run's identity and policy, under *Tools*), plus the subsystems below.
+- `internal/` groups its packages by one rule → [ADR: services, lib and the rest](../docs/adr/2026-10-06-sidecar-packages-group-into-services-lib-and-the-rest.md), and every folder is a layer (*Where a new package goes*, below):
+  - `internal/services/` — a package that owns state outliving a request (rows, a watch, a connection, goroutines), is reached from `graph/` or `grpc/`, and sits below the tools — the services a tool may import; `chat`, the one service built on the tools, is `agent/chat`: `auth`, `cluster` (with `cluster/clustercard` under it, the cluster as a run is told it: a projection of the service, below the tools that name the context and the freshness as it does), `kubeconfig`, `memory` (the notes a chat's cluster sees, below), `poke`, `securityconfig` (the security settings, below).
+  - `internal/lib/` — a building block that knows nothing of Kstack's domain; `lib` is a folder, never a package name: `apimeta` (wire vocabulary no service owns — the delta-frame type, `ObjectID`, `ClusterID`, which `services/cluster` aliases, and `ChatID`, which `agent/chat` aliases and `services/memory` and `tools.Runtime` name), `atomicjson`, `deltafold` (a watch's memory: `Snapshot`/`Diff`/`Upsert`/`Has` over a caller's key, equality and frame, plus `Send`; imports `apimeta` alone), `drain`, `ipc`, `lifecycle`, `logging`, `rawjson`, `rootdir` (a directory opened and removed through an `os.Root`, under *Tools*), `safe` (an error rendered for a log line, and a command's output redacted: `Redact` line by line, `RedactJSON` a JSON text by its structure, for text that is one line with its newlines escaped; the field and flag rules read a credential's name off `credentialNames`, with or without the separator inside it, so camelCase keys match), `sqlitemigrate` (the migration runner, `Apply`), `sqlitepool` (the one home of the SQLite open contract: `OpenWriter` a store's one writer connection, `OpenReader` a reader pool, `OpenQuery` read-only connections through a caller's driver with none kept idle), `sqlstmt` (a store's statement table, prepared once on a file's writer and reader pools and routed per call: a `[]sqlstmt.Statement` indexed by the store's own id type, each entry its text and pool — `OnWriter`, `OnReader`, or `OnBoth` for a read some caller runs inside a write transaction; `Prepare[ID]` compiles it at open, since modernc caches nothing and a text handed to a pool at a call site is compiled every time; `Set.Stmts()` issues on the pools, `Set.InTx` inside one write transaction, `Set.InReadTx` inside one read-only transaction on the reader, always rolled back; inside a transaction the copy rebound, once per id, is the one prepared on that transaction's pool, and an id its pool does not hold panics; `Set.Close` finalizes the statements alone, and a closed set refuses `InTx`/`InReadTx` with `ErrClosed`, since `Tx.StmtContext` would quietly re-prepare a closed statement; imports nothing of ours; → [ADR: one statement set](../docs/adr/2026-09-16-sqlstmt-prepares-a-services-statements.md)), `supervisor`, `testutil` (test-only, imported by no production code), `version` (`Version` is `dev` unless the linker stamped it: `scripts/build-sidecar.go` passes `-X …/internal/lib/version.Version=$SIDECAR_VERSION` when set, `release.yml` sets it to the release version, and `main` logs it on the `sidecar starting` line; nothing reads a version from the environment or a file), `workqueue`.
+  - `internal/llm/` — a call to a model, importing nothing of ours (*Models*, below).
+  - `internal/run/` — what confines one run, the leaves the tools stand on: `permissions` (the classes, modes and rules a cluster write is decided by, under *Tools*), `sandbox` (the machine's sandbox and a run's forwarder, under *Tools*), `session` (one agent run's identity and policy, under *Tools*), `kubeproxy` (the cluster proxy a sandboxed run reaches its cluster through, under *Tools*), `loginshell` (below).
+  - `internal/agent/` — the agent itself, everything above `tools`: `loop` (the loop, below), `catalog` (the providers and the tools each is offered, below), `chat` (the chat service, below).
+  - the rest stay at the top of `internal/`: `app`, `appdb`, plus the subsystems below.
+
+**Where a new package goes.** The folders are layers, in this order, and an import between two
+folders points only from right to left:
+
+```
+lib → appdb → llm → run → services → tools → agent → app
+```
+
+Place a package by what it imports, then check the name fits: a building block with no
+Kstack vocabulary is `lib/`; one that confines or scopes a run and imports no service is
+`run/`; one that owns rows, a watch or goroutines and is reached from `graph/` or `grpc/` is
+`services/`, with a projection of one service as its child (`cluster/clustercard`); a tool is
+`tools/<name>`; anything that drives a turn or wires the agent — importing `tools` — is
+`agent/`. If the imports a package needs cross the order, the package is in the wrong folder or
+the import is wrong; `TestInternalFoldersAreLayers` (`app_test.go`) fails on the edge, and the
+answer is to move the package or reopen the ADR, never to add the edge. No folder is a package:
+`lib`, `run`, `services`, `tools` and `agent` are directories, and a package keeps its own name
+under them. → [ADR: folders are layers](../docs/adr/2026-10-07-sidecar-folders-are-layers.md).
 
 ## gRPC + GraphQL over one socket (h2c)
 
@@ -115,12 +136,12 @@ Full picture: [`docs/security-model.md`](../docs/security-model.md). The sidecar
 - **Only the host process may connect.** `ipc.Authenticated` checks each accepted connection's peer pid against `--host-pid` (the kernel stamps it, so a client cannot claim another's) and closes anything else without ending the accept loop; zero, the standalone-run default, falls back to the uid alone. The file mode carries the rest: `ipc.Listen` tightens the umask *before* `net.Listen` so the socket is never briefly world-accessible, then chmods 0600; Windows binds the pipe owner-only (`D:P(A;;GA;;;OW)`). Both are pinned by tests. Authentication runs the other way too: the host verifies on every dial that the process serving the endpoint is the sidecar it spawned (`src-tauri/src/services/sidecar/{ipc,peer}.rs`), and on Unix places the endpoint in an owner-only runtime directory. Never widen access or add a TCP listener — the GET transport is registered alongside POST and SSE and is only harmless because the transport is local.
 - **Redaction happens at write time, keyed off the body's own group and kind,** so it cannot be bypassed by how an object was addressed (`kubestore/objects.go`). A new read path serves the stored body; it does not get to re-derive what to hide. It fails closed: a path occupied by the wrong type is dropped, not skipped — the discrimination is the `err` a `Nested*` read returns, since "absent" and "there but unreadable" share the `found` boolean. The table is deliberately incomplete, so treat a cache file as holding cluster data in the clear — that is what makes its file mode and its lifetime security properties. Storing it in the clear is a decision, not an oversight. → [ADR: the cache is ordinary application data](../docs/adr/2026-09-02-the-cache-is-ordinary-application-data.md).
   → [ADR: secret redaction](../docs/adr/2026-08-30-secret-redaction-at-write-time.md).
-- **Reading a kubeconfig can execute code.** `clientcmd` honours `exec` credential plugins, and the connection probe dials every declared context on startup and on every file change. Anything that widens what gets probed widens what runs. On macOS the process environment is an allowlisted import of the user's login shell (`internal/loginshell`), so what a plugin name resolves to — and which identity it picks — is what their shell would produce.
+- **Reading a kubeconfig can execute code.** `clientcmd` honours `exec` credential plugins, and the connection probe dials every declared context on startup and on every file change. Anything that widens what gets probed widens what runs. On macOS the process environment is an allowlisted import of the user's login shell (`internal/run/loginshell`), so what a plugin name resolves to — and which identity it picks — is what their shell would produce.
 - **GraphQL diagnostics exclude request data.** The error presenter logs only operation type, Go error type and — for a coded error — its `code`, which is server-chosen vocabulary and the only thing that says which refusal it was (`TestErrorLogOmitsRequestData`, `TestErrorLogNamesTheCode`); variables, inline literals, aliases, names and error messages can contain sensitive values. Every other diagnostic is rendered by `internal/lib/safe`, which bounds a message and strips what a credential looks like in an error — a URL's query and userinfo, an echoed `Authorization`/`Set-Cookie`, a bearer/JWT token — and **blanks every value registered with `safe.AddSecret`** wherever it appears: `readProviders` registers each provider key it read before the logger exists, since the vendors' keys share no prefix a shape rule could match. Matches are found in the original text and merged, so a short key inside a long one leaves no tail in the clear; a value under sixteen bytes registers nothing. `safe.HasSecret` asks whether a memory note's name or body holds any of it, less a URL's query and the `.netrc` rule, which suit an error and not a note. **Logs are rendered at the sink**, by `logging.Init`'s handler, so an ordinary `slog.Error("…", "err", err)` is correct and the loggers we don't own (beehive's verdicts, client-go, oauth2) are covered too. **A value that is neither string nor error is logged as its type** (`<unrendered pkg.T>`) — the renderer cannot read inside it and the encoder would write every field, so a caller who wants the contents renders them and logs a string. **A message that is persisted rather than logged is rendered where it is recorded** — `supervisor.Fail` and `kubesync`'s store failure — because a condition message outlives its log line and is served to the UI. GraphQL and gRPC auth projections omit tokens. `TestAuthProjectionCarriesNoTokens` pins the GraphQL fields. OAuth credentials necessarily cross the network to the issuer.
 - **Restored identity is display-only.** Login verifies the ID token; startup decodes the stored token without verification. `UnverifiedIdentity.DisplayOnly` returns an ordinary `Identity`, so review must keep identity and the local `Authenticated` flag out of authorization decisions. The cloud verifies access tokens independently. The loopback callback checks state before consuming a code or error (`TestLoopbackRejectsInvalidCallbackWithoutConsuming`).
 
 
-## The login shell (`internal/loginshell`)
+## The login shell (`internal/run/loginshell`)
 
 `app.New` runs the user's login shell **once per launch**, on macOS and Linux (`launchShell` in
 `app/launchshell_unix.go`; `launchshell_windows.go`'s runs nothing), **in the sandbox** (below). On
@@ -400,7 +421,7 @@ One SQLite file per cache behind a refcounted `Manager`; a `Store` is a claim. �
 - Every row carries `write_seq`; the stamp moves only when `resource_version` does, and unchanged means unchanged in full. `objects.changed_at` is that write's time, under the same rule, the first list counting as a change. Every delete logs to `deletes` first, in the same transaction; a row leaving a kind logs one too. A reader applies deletes before writes. → [ADR: write positions and the deletes log](../docs/adr/2026-08-30-write-positions-and-the-deletes-log.md).
 - Core `v1` events go to the `events` table, routed by api version and plural. Nothing ages them out.
 - Bodies are sanitized on the way in; redaction is the `redactions` table keyed by (api group, Kind), looked up on the body's own apiVersion and kind. Nothing derived from a secret is ever stored. → [ADR: secret redaction](../docs/adr/2026-08-30-secret-redaction-at-write-time.md).
-- Every statement is named in `statements.go`, a `[]sqlstmt.Statement` of `OnWriter`/`OnReader` prepared by `openFile` into the file's `set` — no `OnBoth`: no read runs inside a write transaction, and adding one is a design decision, not a flag flip. A write transaction is `f.set.InTx`; a read that pairs rows with a position is `inReadTx` (`reads.go`), so both come off one snapshot. Collections bind as one JSON argument; the prune uses `RETURNING` and drains it. Reads ride their own `query_only` pool. `sqlitepool` owns the open contract, and `sqlitemigrate` applies the migrations. → [ADR: SQL discipline](../docs/adr/2026-09-02-kubestore-sql-discipline.md), [ADR: one statement set](../docs/adr/2026-09-16-sqlstmt-prepares-a-services-statements.md). `services/chat` keeps the same discipline over `app.db`, with the reads its sends run inside a transaction declared `OnBoth`.
+- Every statement is named in `statements.go`, a `[]sqlstmt.Statement` of `OnWriter`/`OnReader` prepared by `openFile` into the file's `set` — no `OnBoth`: no read runs inside a write transaction, and adding one is a design decision, not a flag flip. A write transaction is `f.set.InTx`; a read that pairs rows with a position is `inReadTx` (`reads.go`), so both come off one snapshot. Collections bind as one JSON argument; the prune uses `RETURNING` and drains it. Reads ride their own `query_only` pool. `sqlitepool` owns the open contract, and `sqlitemigrate` applies the migrations. → [ADR: SQL discipline](../docs/adr/2026-09-02-kubestore-sql-discipline.md), [ADR: one statement set](../docs/adr/2026-09-16-sqlstmt-prepares-a-services-statements.md). `agent/chat` keeps the same discipline over `app.db`, with the reads its sends run inside a transaction declared `OnBoth`.
 - **Every SQLite file is owner-only.** `main` sets the process umask to 0o077 (`umask_unix.go`), so a new file is born 0600; `sqlitepool.OpenWriter` pings and then chmods the database and its `-wal`/`-shm` siblings, which is what catches a file an older build wrote at 0644, then rewrites a file that predates the DSN's `auto_vacuum=INCREMENTAL` (`PRAGMA auto_vacuum=INCREMENTAL; VACUUM;`), since SQLite ignores the pragma once a table exists and a janitor's `incremental_vacuum` would be a no-op on it forever. The host creates the three directories 0700 before spawning us. Both are pinned by tests. None of it applies on Windows, where the inherited `%LOCALAPPDATA%` ACL is the whole protection. → [ADR: the profile ACL protects the Windows files](../docs/adr/2026-09-02-windows-cache-files-rely-on-the-profile-acl.md).
 - One janitor per open file: freelist-gated bounded vacuum, per-kind deletes trim marks, nothing waits under `m.mu`. Zero `Interval` runs none. It sweeps on its interval **and** on every commit — `file.notify` wakes it through a capacity-one channel, so a burst owes one sweep. → [ADR: janitor](../docs/adr/2026-09-02-kubestore-janitor.md).
 - **`Retention.SizeLimit` is the cache's ceiling** — the three files summed, judged at the end of each sweep, after the vacuum and after a checkpoint when the WAL outweighs the file. Soft by one interval: a sweep is what notices. The verdict is a tri-state memo on the `file` (`unknown` is not `under`, so the fresh file a `Clear` swaps in still reports its first answer), published as an edge on `WatchSizeLimitNews`. `Stats.OverSizeLimit` reads that memo and never recomputes; it is false for a cache nobody has open and for a manager with no janitor. The cache pass is what acts on it. → [ADR: bound the cache by total size](../docs/adr/2026-09-03-bound-the-cache-by-total-size.md).
@@ -416,7 +437,7 @@ One SQLite file per cache behind a refcounted `Manager`; a `Store` is a claim. �
 
 > **This code is being rebuilt, and this section is the spec for it.** The model code was
 > removed for a rewrite and is being rebuilt into four layers, `llm` → `tools` →
-> `agent` → `services/chat`. What exists:
+> `agent/loop` → `agent/chat`. What exists:
 >
 > - `Dialect` (`dialect.go`): `messages`, `responses`, `chatcompletions`, `fake`, named for
 >   the API and never the vendor. `Dialects` is the list, and the GraphQL `LLMDialect`
@@ -488,7 +509,7 @@ One SQLite file per cache behind a refcounted `Manager`; a `Store` is a claim. �
 >   refuses a pair with one side missing. It logs that at `Warn`, by message index and block
 >   type.
 > - **A payload never leaves the sidecar.** `WithoutPayloads(blocks)` is what a reader is shown, a
->   slice holding none coming back as it is. `services/chat` applies it in `Progress`, before the
+>   slice holding none coming back as it is. `agent/chat` applies it in `Progress`, before the
 >   overlay's marshal, and in `forReader`, which every row leaving the service passes through:
 >   `readMessages` behind the watch and the query, and the answer a retried send returns.
 >   `history` reads `listMessages` directly and keeps the payloads for the replay. The webview
@@ -564,7 +585,7 @@ One SQLite file per cache behind a refcounted `Manager`; a `Store` is a claim. �
 >   one; on Chat Completions a zero sends none and the vendor's default applies. OpenRouter's
 >   `Extra` is `provider.data_collection: deny`. No test reaches a vendor, so each provider
 >   file says whether its ids were checked against `GET /models`.
-> - The seam `agent.Run` reads: `Block` (the `text` and `context` kinds, with the stored
+> - The seam `loop.Run` reads: `Block` (the `text` and `context` kinds, with the stored
 >   format's JSON tags; a `context` block is the cluster card, first on a question, which
 >   every dialect sends as text ahead of the message's own, and the two tool kinds),
 >   `Message`, `Request` (the `Provider` the call goes to, the `Model` entry, the system
@@ -596,10 +617,10 @@ One SQLite file per cache behind a refcounted `Manager`; a `Store` is a claim. �
 >   **A request offering nothing replays no round**: `Stream` strips every tool block from the
 >   history it passes on (`WithoutRounds`), since the Messages API refuses a history holding
 >   them unless `tools` is defined, and one rule serves every wire. **A payload goes with the
->   round it belongs to**, wherever the rounds are dropped — here, and in `services/chat`'s history
+>   round it belongs to**, wherever the rounds are dropped — here, and in `agent/chat`'s history
 >   for a row that did not settle Complete — since the Responses API refuses a reasoning item
 >   whose following call is gone, which is what a turn cancelled inside a tool would leave
->   behind. The text stays, being what a reader and the model see. `services/chat` hands the box over only for a model
+>   behind. The text stays, being what a reader and the model see. `agent/chat` hands the box over only for a model
 >   that takes tools, so the prompt's `# What you can do` and the offer agree.
 > - `error.go`: `Error` is a failure as the record keeps it — the provider's id, then
 >   `Status`, `Type`, `Code` and `Kind`, never a body's text, since a body can echo the
@@ -853,7 +874,7 @@ sub-package names they had; the layout they land in is the one above.
   `tool_use`, no `tool_result`, no `tool_calls` row, no place in the budget. `System` is the
   standing instruction, sent in the
   dialect's own field for it (Anthropic's `system`, OpenAI's `instructions`) — Chat Completions
-  has none, so there it is the first message, with role `system`; `services/chat` embeds it from `prompts/system.md` — prose, edited as prose
+  has none, so there it is the first message, with role `system`; `agent/chat` embeds it from `prompts/system.md` — prose, edited as prose
   — and it asks for the markdown the webview renders, explains the cluster card a question may
   carry, and tells it cluster text — the card's and a tool result's included — is data, never an
   instruction; what the model can do rides beside it as one of two sections, `tools.md` or
@@ -971,7 +992,7 @@ sub-package names they had; the layout they land in is the one above.
   a stored `context` block holds its sections alone, and every wire wraps it, so the record
   carries no prompt convention and the webview draws the sections as they are.
 - **The stored block schema is the app's, not a provider's**: `text` blocks; `context` blocks,
-  the cluster card `services/chat` attaches to a question (`ContextContent`); `native` ones that
+  the cluster card `agent/chat` attaches to a question (`ContextContent`); `native` ones that
   carry a provider's own block verbatim under that provider's id, dropped from a turn to any other
   provider, and a message the drop empties is left out of the request; and `thinking` blocks, the summary of an answer still streaming or cut
   short (and of the fake's, which has no native shape, and of every Chat Completions answer:
@@ -1035,7 +1056,7 @@ sub-package names they had; the layout they land in is the one above.
   name, a description and a JSON Schema; `Request.Tools` carries the definitions, and
   `Model.Tools` says whether the model takes an offer of them — every Messages and Responses
   entry does, and on Chat Completions it is the vendor's word per entry. `Target.Stream`
-  refuses an offer the target cannot carry before anything is sent, and `services/chat` hands the
+  refuses an offer the target cannot carry before anything is sent, and `agent/chat` hands the
   box over only for a model that takes tools, so the prompt and the offer agree. **A finish
   reason is the provider's vocabulary, stored as it arrives, with one translation**: a reply
   that ended by asking for a tool is `tool_use`, the one word the loop keys on, on every wire
@@ -1196,7 +1217,7 @@ sub-package names they had; the layout they land in is the one above.
   vendor's key. → ADR: Ollama is local, and `OLLAMA_HOST` says
   where.
 
-## Catalog (`internal/catalog`)
+## Catalog (`internal/agent/catalog`)
 
 The providers the app holds and, **for each provider, every tool its turns are offered**, ours
 and the vendor's, by tool name. It sits above both `llm` and `tools`: it imports `llm` and each
@@ -1305,12 +1326,12 @@ classified action (`ActionRequest`: the `permissions.Action`, whether a rule may
 `CommandRule` and `ChatRule` lines each allow answer adds, the `ClusterWrite` as sent, and the diff) to the user and
 answers an `Answer` (approved, and the `permissions.Duration` the user chose), or records one the
 proxy decided with nobody asked (`Record`, with the reason in the user's words), nil where nobody
-can be asked. `services/chat` sets every
+can be asked. `agent/chat` sets every
 field; a test sets the ones its tool
 reads. **A `session.Session`** is one agent run's policy: its `Kind` (`Chat`, `Subagent` or
-`Monitor`, built by `services/chat`'s `monitorSession`), `Outside`, the chat's switch as its turn read it, and
+`Monitor`, built by `agent/chat`'s `monitorSession`), `Outside`, the chat's switch as its turn read it, and
 `Policy`, a function of a kube-context answering a `permissions.Policy` — the context's mode and the
-rules — read live on every write, which `services/chat` sets to the security store's `ModeFor` and the
+rules — read live on every write, which `agent/chat` sets to the security store's `ModeFor` and the
 chat's grants joined with the store's `Rules()` (`sessionFor`, `grants.go`), so a mode or rule
 changed in Settings applies to the next write, a running subagent's included; `Network`, the
 `session.Network` a sandboxed command starting now has — `NetworkChat` while the chat's
@@ -1318,7 +1339,7 @@ changed in Settings applies to the next write, a running subagent's included; `N
 `NoNetwork`, a read that fails answering `NoNetwork` — nil for a session that never has it, which
 `sessionFor` alone sets, so a session built any other way (the monitor's) has none; and `Folders`, a
 function answering the session's folder grants (`session.Folder`: `Path`, `Write`), read live,
-whose one builder is `services/chat`'s `foldersFor` (*Chat*, below); and `NoPrompts` and `NoSecretData`,
+whose one builder is `agent/chat`'s `foldersFor` (*Chat*, below); and `NoPrompts` and `NoSecretData`,
 a session that never asks and one that never reads Secret data, the one source of the policy's two
 flags, which a chat's session never sets, the monitor's sets both, and `Narrow` copies. A nil
 `Folders` reads none:
@@ -1326,7 +1347,7 @@ flags, which a chat's session never sets, the monitor's sets both, and `Narrow` 
 through it (`TestASessionWithNoFoldersReadsNone`).
 The chat, the cluster and the workspace are not on it: the runtime's `ChatID`, `ClusterID` and
 `tools.WorkspacePath(rt.Dir)` are their one source, and policy that depends on the cluster is a
-function `services/chat` builds knowing it. A turn builds its session (`turn.session()`); a
+function `agent/chat` builds knowing it. A turn builds its session (`turn.session()`); a
 subagent's is **`session.Narrow`** of its parent turn's: identity and the switch are copied at spawn,
 and a field of policy the user can change while it runs is a `func(context.Context) T` read live,
 which `Narrow` hands on or tightens and never widens, so a subagent never holds more than its
@@ -1380,7 +1401,7 @@ no directory. Bash passes `output`, WebFetch `page`; a test passes a saver of it
 is the block alone, for a tool that saves on its own: KubeQuery does, since its fallback for a
 failed save is a render of whole rows, where `Fit`'s would cut one.
 
-**`internal/sandbox` is the machine's sandbox**, a leaf that knows no tool and no cluster.
+**`internal/run/sandbox` is the machine's sandbox**, a leaf that knows no tool and no cluster.
 `Probe(ctx)` answers a `*Sandbox`, nil for none, and a `Status` (`Available`, `Reason`, and
 `NetworkAvailable` and `NetworkReason`: whether a sandboxed command can be given the internet,
 true wherever the sandbox is on macOS and only with a `pasta` that passed the probe on Linux),
@@ -1716,7 +1737,7 @@ cannot listen on, a core size it cannot set, a command it cannot start), and `sa
 line; a command can exit 125 itself, so the line is what tells them apart. `forward_unix.go`
 runs the child; `forward_windows.go` answers 125 with *no sandbox on this platform*.
 
-**`internal/permissions` is the decision** (`permissions.go`, `match.go`), a leaf that
+**`internal/run/permissions` is the decision** (`permissions.go`, `match.go`), a leaf that
 imports nothing of ours: the six `Class`es, numbered as the note numbers them, the `Mode`s
 (`ReadOnly`, `Ask`, `Auto`), a `Rule` (an `Effect`, a class, and the patterns `Context`,
 `Namespace`, `Verb` and `Kind` with an exact `Group`, each unset matching anything, and `Command`, a
@@ -1776,7 +1797,7 @@ pods/api-7f9c in team-a on dev-eks*). A write to a core Namespace is in that nam
 read off the body's `metadata.name`, so a rule scoped to it matches. `Destructive` is the class 5 list in words, which
 Settings shows. → [ADR: permissions are classes, modes and rules decided at the proxy](../docs/adr/2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md), [ADR: a prompt is a denial the user may lift](../docs/adr/2026-10-03-authorization-is-binary-and-a-prompt-is-a-denial-the-user-may-lift.md).
 
-**`internal/kubeproxy` is the cluster proxy**, a leaf beside `sandbox` that imports nothing of
+**`internal/run/kubeproxy` is the cluster proxy**, a leaf beside `sandbox` that imports nothing of
 `tools` or `services/cluster`: `kubeproxy.go` the grant and the handler, `policy.go` the path parse
 and the read policy, `redact.go` and `redact_helm.go` the Secret rewriter, `status.go` the
 `Status` every refusal writes, `server.go` the server a run serves a grant on, `write.go` the
@@ -2035,9 +2056,9 @@ contract; the binding parses its contract's input into the capability's request 
 the outcome in the contract's shape. Two bindings of one capability share its code by
 construction. No capability ships yet.
 
-## Agent (`internal/agent`)
+## Agent (`internal/agent/loop`)
 
-The loop that takes a turn. `agent.Run(ctx, Turn, Recorder, Approver) (Result, error)` runs on the
+The loop that takes a turn. `loop.Run(ctx, Turn, Recorder, Approver) (Result, error)` runs on the
 calling goroutine: the model is asked, the calls it asks for are run and answered, and it is
 asked again with the rounds so far as the last assistant message. A `Turn` is the `llm.Target`,
 the caller's system prompt, the messages, the `AffinityKey` every round's request carries, the
@@ -2052,7 +2073,7 @@ the last reply's stop reason, valid on every path but a refused start.
 than `tool_use` ends the turn, a call left in it answered `not-run`; a `tool_use` with nothing
 to run is malformed and ends it too. A refusal the loop writes is `{"error":"<code>"}` with
 `IsError`, never a Go error's text: `budget`, `not-run`, `unknown-tool`, `timeout`,
-`cancelled`, `bad-input`, `denied`. Each is an exported `agent.Code`, whose `Text()` is that
+`cancelled`, `bad-input`, `denied`. Each is an exported `loop.Code`, whose `Text()` is that
 object and which `RefusalOf` reads back, so chat keys on the constant rather than a spelling of
 its own.
 
@@ -2132,11 +2153,11 @@ code the loop answers with, so a refusal the model reads is one it can act on. G
 the document readable as one. The loop imports `llm` and `tools` alone; its tests run on the
 fake, a test tool and a logging recorder.
 
-## Chat (`internal/services/chat`)
+## Chat (`internal/agent/chat`)
 
 > **This code is being rebuilt, and this section is the spec for it.** The chat code was
 > removed for a rewrite and is being rebuilt into four layers, `llm` → `tools` →
-> `agent` → `services/chat`. What exists:
+> `agent/loop` → `agent/chat`. What exists:
 >
 > - The record: the types, the statements and row helpers, `Get`, `List`, `Rename` (the
 >   title trimmed, refused empty or over `maxTitleLen`), `SetSandboxDisabled` (the user's
@@ -2152,7 +2173,7 @@ fake, a test tool and a logging recorder.
 >   from, which reads every stored call, and `ToolLists`, the one method it calls of the
 >   catalog, `ToolsFor(target)`, taken the way it takes `ClusterCards` so its tests list their own
 >   tools), writes its rows and runs one
->   `agent.Run` on them (`Turn.Target`, with `maxToolCalls` and `defaultToolTimeout`, and the
+>   `loop.Run` on them (`Turn.Target`, with `maxToolCalls` and `defaultToolTimeout`, and the
 >   chat id as `Turn.AffinityKey`; a subagent's turn carries its run id);
 >   `Cancel` cancels it; every read overlays the live answer. The question is its
 >   text, with the cluster card ahead of it as a `context` block when the card changed
@@ -2233,18 +2254,18 @@ record](../docs/adr/2026-09-10-the-answer-is-a-record.md), [ADR: chats live in
 message](../docs/adr/2026-09-17-a-turn-is-a-run-over-its-message.md).
 
 ```
-internal/services/chat/
+internal/agent/chat/
   record.go      the value-typed records the wire carries: the ids, the enums, Chat,
                  ChatMessage
   service.go     every method on *service: the errors, New/Start/Close, the
                  mutations, the two watch pumps
   turn.go        the turn: the per-chat reservation, the goroutine that runs
-                 agent.Run, the agent.Recorder it reports to, the live overlay
+                 loop.Run, the loop.Recorder it reports to, the live overlay
   subagent.go    the subagent an Agent call starts as a task: the turn as its
                  tools.Spawner, the agentTask that runs it, its recorder and its end
   monitor.go     the monitor run: RunMonitor, its slot per cluster, its recorder,
                  asker and tasks, its settle
-  approval.go    the gate: the agent.Approver a run is, the waiters, Approve
+  approval.go    the gate: the loop.Approver a run is, the waiters, Approve
   prompt.go      the system prompts, embedded from prompts/: system.md,
                  general_purpose.md, monitor.md
   store.go       one function per statement over a stmts (sqlstmt.Stmts) that reads
@@ -2344,7 +2365,7 @@ turn runs where and with what its sender saw — and `resolveChat`, it reserves 
 message carrying the client's `request_key`, the queued run, and the assistant message with
 `emptyContent` (`[]`) and the run's id — in that order, since each references the last. IDs are
 minted inside the transaction. **The turn is the agent's recorder** (`turn.go` implements
-`agent.Recorder`): `LLMCallStarted` claims the run (`claimRun`, `queued` → `running`,
+`loop.Recorder`): `LLMCallStarted` claims the run (`claimRun`, `queued` → `running`,
 `errRunNotQueued` when it was not) and opens the call row in one transaction before the model
 is asked, so a cancel that landed first, or a claim that fails, asks no model and the run is
 settled by the goroutine — cancelled from queued, or failed. **The run is recovered** (`run`):
@@ -2413,7 +2434,7 @@ call's deadline passing once the rows have landed does not refuse the agent they
 that fails takes the run back (`deleteRun`; the link goes with it, `ON DELETE SET NULL`) with the
 task row; the turn goes on. The link lands on the parent's `openTool` only once the start
 succeeded, since the parent writes that row again when the call finishes. **The subagent is
-`agentTask`**, a `tools.Task` whose goroutine runs one more `agent.Run` under a context only a stop
+`agentTask`**, a `tools.Task` whose goroutine runs one more `loop.Run` under a context only a stop
 cancels — so a parent's Cancel leaves it running — then writes the report into the task's file, up
 to `FileLimit`, and closes it; a panic in the stream fails it. `Wait` blocks until then and answers
 a zero `Exit`; `Stop` cancels at once. The loop's spec: `subagentSystemPrompt()` (`system.md`, then
@@ -2444,7 +2465,7 @@ inside the subagent ends it alone. The stored read attaches a subagent's calls t
 [background agents](../docs/security/2026-09-25-background-agents.md).
 
 **A monitor run is a run of the chat service** (`monitor.go`). `RunMonitor(ctx, clusterID, target,
-brief)` takes one `agent.Run` on the calling goroutine, built as a subagent's is, with no chat and
+brief)` takes one `loop.Run` on the calling goroutine, built as a subagent's is, with no chat and
 no task, and answers a `MonitorResult` (the run, its `RunStatus`, the report — the text of its last
 reply — and its error). It refuses, before anything is written, a machine with no sandbox
 (`ErrNoSandbox`), an empty brief or one over `maxMonitorBriefLen` (4,000 bytes) and a target that takes no
@@ -2471,7 +2492,7 @@ but its tests. → [ADR: a monitor run is a run of the chat
 service](../docs/adr/2026-10-05-a-monitor-run-is-a-run-of-the-chat-service.md), [security record:
 the monitoring session](../docs/security/2026-10-05-the-monitoring-session.md).
 
-**A reply's calls run one at a time, in reply order** (`agent`). An `Agent` call only starts its
+**A reply's calls run one at a time, in reply order** (`loop`). An `Agent` call only starts its
 subagent, so a subagent's requests wait beside the parent's and each other's.
 → [ADR: the gate is the tool's card](../docs/adr/2026-09-22-the-gate-is-the-tools-card.md).
 
@@ -2992,7 +3013,7 @@ and the job, kept until the reap. `Stop(false)` is SIGTERM, then SIGKILL after `
 `Stop(true)`, and any stop on Windows, kills at once. Bash's exit kills its group, as in the
 foreground.
 
-**`services/chat` holds the tasks** (`tasks.go`): `tasks map[ChatID]map[TaskID]*task` under `turnsMu`,
+**`agent/chat` holds the tasks** (`tasks.go`): `tasks map[ChatID]map[TaskID]*task` under `turnsMu`,
 every task that holds a slot — a command's, or an agent's, which share the slots. Each records the
 run whose call started it. `startTask` runs in order: a `wg` slot through `enter`; registration under `turnsMu`, refused once `stopped` is
 closed, for a chat being deleted, and at the limits (`maxTasksPerChat` 4, `maxTasks` 16);
@@ -3054,7 +3075,7 @@ anything else.
 → [security record: background commands](../docs/security/2026-09-23-background-commands.md).
 
 **A command is asked before it runs** (`approval.go`). The turn is the loop's
-`agent.Approver`. `Approve` mints the `ApprovalID` and registers its waiter (`service.pending`,
+`loop.Approver`. `Approve` mints the `ApprovalID` and registers its waiter (`service.pending`,
 under `turnsMu`) before anything is written, so no id is decidable ahead of its request; then one
 transaction writes the call's row `awaiting_approval` with `is_mutating` 1, the approval's
 `Cwd` as `cwd` and `Sandboxed` as `sandboxed`, and no `started_at`, its `approvals` row `pending`, and **this run's** flip to
@@ -3338,7 +3359,7 @@ turn's status, and the call rows are where usage and timing are read.
   turn's first request overflowed, a repeat on that model is refused ahead; the call's own row
   keeps the redacted provider error.
 
-**Two watches, two bus keys.** `WatchList` and `WatchMessages` return `services/chat`'s own
+**Two watches, two bus keys.** `WatchList` and `WatchMessages` return `agent/chat`'s own
 `Stream[T]`; the bus is the DB's (`Notify`/`Subscribe`) and the keys are `appdb`'s:
 `chats` and `messages/<chatID>` (the rows changed — re-read and diff). A watcher
 subscribes, then reads, then sends `Added` frames and one `Bookmark`; a re-read that fails ends
@@ -3387,7 +3408,7 @@ again with the rounds so far as the request's last assistant message. One row, `
 it settles, so `Send`, the overlay, the checkpoint, the reservation and the replay are untouched;
 the encoder unfolds the row into the wire's messages. **Every call gets a result, whatever the
 finish reason**, and the finish reason decides what the result is (`toolLoop.take`,
-`services/chat/tools.go`): `tool_use` with calls that fit the budget runs each under `toolTimeout` and
+`agent/chat/tools.go`): `tool_use` with calls that fit the budget runs each under `toolTimeout` and
 goes round again; `tool_use` with no call is a malformed reply and settles; calls beyond the
 budget run **none** — each answered `budget` — and one synthesis round follows, whose own calls
 are answered `budget` before the row settles `Complete` on `tool_use`; any other finish settles,
@@ -3414,7 +3435,7 @@ reason is the run's own latest one.
 → [ADR: tool rounds live in the answer's row](../docs/adr/2026-09-14-tool-rounds-live-in-the-answers-row.md),
 [ADR: a tool call is a committed row before it runs](../docs/adr/2026-09-17-a-tool-call-is-a-committed-row-before-it-runs.md).
 
-**`services/chat` takes cluster tools the way it takes cards.** `ClusterTools` is
+**`agent/chat` takes cluster tools the way it takes cards.** `ClusterTools` is
 `Definitions() []llm.CustomTool` and `Call(ctx, clusterID, name, input) (text, isError)`;
 `chat.New(db, llmSvc, cards, clusterTools, shell)` takes one, nil offering none. A turn's
 custom tools are the cluster tools plus `spawn_agent` — only when the service holds a
@@ -3425,7 +3446,7 @@ way, so the prefix cache holds.
 
 **A question carries a cluster card when the card has changed.** `chat.New(db, chatsDir,
 monitorDir, llmSvc, clusterCards, memories, box, lists, sandbox, security)` takes a `ClusterCards` — `ClusterCard(ctx, clusterID)
-string`, the one thing this package asks about a cluster — which `internal/clustercard` implements
+string`, the one thing this package asks about a cluster — which `internal/services/cluster/clustercard` implements
 over `cluster.Service`, and a `Memories` — `Section(ctx, clusterID)`, every note the cluster
 sees — which `services/memory` implements. `sandbox` is whether the machine offers sandboxed Bash, which
 the switch and the `## Sandbox` section need, and `security` the service each session's modes,
@@ -3828,7 +3849,7 @@ carries the command that reproduces it from `sidecar/`, which runs the whole pac
 seed orders all of it:
 
 ```sh
-go test -race -cpu 1 -shuffle=<seed> -count=3 ./internal/services/chat
+go test -race -cpu 1 -shuffle=<seed> -count=3 ./internal/agent/chat
 ```
 
 **Coverage is gated.** `make cover-go` (CI's `Go · Coverage` job) runs the suite twice —

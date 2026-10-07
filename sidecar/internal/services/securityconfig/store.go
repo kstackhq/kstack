@@ -33,7 +33,7 @@ import (
 	"github.com/amorey/gochan/watch"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/atomicjson"
-	"github.com/kstackhq/kstack/sidecar/internal/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
 // Settings is the security settings. Each field is added by the step that

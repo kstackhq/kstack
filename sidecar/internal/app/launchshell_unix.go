@@ -22,7 +22,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
+	"github.com/kstackhq/kstack/sidecar/internal/run/loginshell"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 

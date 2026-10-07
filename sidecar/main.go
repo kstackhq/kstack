@@ -27,7 +27,7 @@
 // so a single UDS path works for all our targets.
 //
 // Started as `kstack-sidecar sandbox-init …` or `sandbox-shell …`, the binary
-// is a sandboxed run's forwarder or shell launcher instead (internal/sandbox),
+// is a sandboxed run's forwarder or shell launcher instead (internal/run/sandbox),
 // and none of the above runs.
 package main
 
@@ -47,7 +47,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/logging"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
-	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
 func main() {

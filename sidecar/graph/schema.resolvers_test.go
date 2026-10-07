@@ -26,17 +26,17 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
+	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
-	"github.com/kstackhq/kstack/sidecar/internal/catalog"
-	"github.com/kstackhq/kstack/sidecar/internal/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/services/chat"
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
-	agenttool "github.com/kstackhq/kstack/sidecar/internal/tools/agent"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/edit"
@@ -1629,7 +1629,7 @@ func newChatServerOn(t *testing.T, status sandbox.Status, security *securityconf
 	llmSvc := llm.New(cat.Providers()...)
 	// The search is offered, since a test stages a turn that searched; the rest
 	// is read alone, so no call runs while stored calls still show.
-	box := tools.NewBox([]tools.Tool{agenttool.New(), anthropicwebsearch.New(time.Now)}, bash.Reader{}, &read.Tool{}, &write.Tool{}, &edit.Tool{}, &webfetch.Tool{}, taskstop.New(), memorytool.New(nil), kubequery.New(nil))
+	box := tools.NewBox([]tools.Tool{agent.New(), anthropicwebsearch.New(time.Now)}, bash.Reader{}, &read.Tool{}, &write.Tool{}, &edit.Tool{}, &webfetch.Tool{}, taskstop.New(), memorytool.New(nil), kubequery.New(nil))
 	chatSvc, err := chat.New(db, filepath.Join(t.TempDir(), "chats"), filepath.Join(t.TempDir(), "monitor"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status, security)
 	require.NoError(t, err)
 	stop, err := chatSvc.Start(t.Context())
@@ -2263,7 +2263,7 @@ func TestEveryActionKindIsServed(t *testing.T) {
 		llm.StagedCall(webfetch.Name, `{"url":"https://a.test/"}`),
 		llm.StagedCall(taskstop.Name, `{"task_id":"t"}`),
 		llm.StagedCall(memorytool.Name, `{"op":"forget","name":"a"}`),
-		llm.StagedCall(agenttool.Name, `{"description":"d","prompt":"p"}`),
+		llm.StagedCall(agent.Name, `{"description":"d","prompt":"p"}`),
 		llm.StagedCall(kubequery.Name, `{"sql":"SELECT 1"}`),
 	)
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
@@ -2300,7 +2300,7 @@ var enumOfKind = map[tools.ActionKind]string{
 // under; the answer's own calls name none.
 func TestASubagentsCallIsServedUnderItsAgentCall(t *testing.T) {
 	srv, _, fake := newChatServerOver(t)
-	fake.SetToolCalls(llm.StagedCall(agenttool.Name, `{"description":"d","prompt":"p"}`))
+	fake.SetToolCalls(llm.StagedCall(agent.Name, `{"description":"d","prompt":"p"}`))
 	fake.Route("p").SetToolCalls(llm.StagedCall(taskstop.Name, `{"task_id":"t"}`))
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)

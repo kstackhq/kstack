@@ -19,7 +19,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
 // pathDir is one folder filterPath kept.

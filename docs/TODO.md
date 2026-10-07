@@ -119,9 +119,9 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 ## Sidecar (Go)
 
-- **A chat's directory layout is named in two packages.** services/chat owns `<data>/chats/<id>`, but
+- **A chat's directory layout is named in two packages.** agent/chat owns `<data>/chats/<id>`, but
   `tools` names two of its entries (`workspace/` in `WorkspacePath`, `results/` in `SaveTo`) while
-  services/chat names the third (`tasks/`), and services/chat calls `tools.WorkspacePath` to learn its own
+  agent/chat names the third (`tasks/`), and agent/chat calls `tools.WorkspacePath` to learn its own
   workspace's path. Fix when the layout next changes: let the owner name every entry, keeping the
   link-safe opening in `tools`.
 
@@ -144,7 +144,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   asked. Move that decision to the asker: bash hands every sandboxed call its asker, refuses only
   when there is none, and the asker answers a write it cannot put to anyone with an error the
   proxy maps to a refusal. What is left is how to get the request in front of the user in time.
-  - **Not a one-line change.** services/chat's asker is bound to the run: it files a write under the
+  - **Not a one-line change.** agent/chat's asker is bound to the run: it files a write under the
     journal's `openTool`, the call running now, and ends its wait with the turn. A write a
     background command sends later would land on an unrelated call, or be abandoned at once. The
     asker has to be per call, asking as it does today while its call is open and through a late
@@ -240,10 +240,10 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   **Trigger:** met, since `sandbox-shell` doubles the starts on both platforms and the `init`s
   run confined under bubblewrap.
 
-- **Reorganize the model, tool and run-loop code into `llm` → `tools` → `agent` → `services/chat`.** `llm` speaks to models, `tools` is what the sidecar can do, `agent` runs a loop over the two, and `services/chat` owns chats, rows, approvals and the live view, with Go enforcing the one import direction; the spec sequence is written when the work starts.
+- **Reorganize the model, tool and run-loop code into `llm` → `tools` → `agent` → `agent/chat`.** `llm` speaks to models, `tools` is what the sidecar can do, `agent` runs a loop over the two, and `agent/chat` owns chats, rows, approvals and the live view, with Go enforcing the one import direction; the spec sequence is written when the work starts.
 
 - **Give each chat a scratch directory, and run bash there.** Two steps. First, each chat gets
-  `<dataDir>/workdirs/<chatID>`, owned by `services/chat`: made owner-only just before a tool uses it,
+  `<dataDir>/workdirs/<chatID>`, owned by `agent/chat`: made owner-only just before a tool uses it,
   removed with the chat — never following a link a command may have put in its place — and swept
   at start for chats that are gone. Second, it replaces the user's home as bash's default
   `workdir`; its prompt then says a file written stays for the rest of the chat, and stops
@@ -304,9 +304,9 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **The byte counts on `ClusterCacheStats` are `Int!`, which the GraphQL spec defines as signed 32-bit.** `bytes`, `dbBytes`, `walBytes`, `shmBytes` and `sizeLimitBytes` are all `int64` in Go, and the default size limit (2 GiB) is already past the 32-bit maximum. Nothing breaks today: gqlgen's `MarshalInt64` writes the digits with no range check, and the webview maps `Int` to a TypeScript `number`, which holds the value exactly. A spec-strict client would refuse it. **Trigger:** the first client that is not the webview. **Fix:** a custom `Int64` scalar in `schema.graphqls`, bound in `gqlgen.yml`, mapped to `number` in the frontend codegen config, and applied to all five fields in one change — not per field, or the type says two things about one quantity.
 
-- **`services/chat`'s watches re-read a whole transcript to diff it; a write log is not the answer, a read
+- **`agent/chat`'s watches re-read a whole transcript to diff it; a write log is not the answer, a read
   split might be.** Every `messages/<chatID>` ping re-reads the chat's rows and diffs them by id
-  (`readMessages`, `foldMessagePing` in `sidecar/internal/services/chat/service.go`), and the rows carry
+  (`readMessages`, `foldMessagePing` in `sidecar/internal/agent/chat/service.go`), and the rows carry
   `content` — the verbatim content blocks — so `fold` compares whole message bodies to learn that
   one row settled. **Nothing here is hot:** that pull runs a handful of times per turn (the send,
   the settle, a rename, a delete), while the per-chunk path rides `stream/<chatID>` and reads
@@ -329,7 +329,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 - **Investigate scoping `chatsWatch` by mode and cluster server-side.** The watch is unscoped and the webview does both filters itself (`chatModeOf` and `clusterID` in `src/lib/chats.tsx`), so every window holds every chat of every cluster in both modes to draw one list. Scoping it to `(clusterID, mode)` would ship each window only its own. **What it costs.** `OpenChat` tells a deleted chat from another cluster's by looking in the list, so a scoped list leaves it nothing to look in — it would need a `chat(id)` read of its own, and the out-of-scope notice would then be driven by that read rather than by the fold. urql keys an operation on its variables, so each mode and each cluster switch opens its own connection and cold-lists, where today one watch serves the window. And the SQL needs an index the table does not have: `chat_by_recency` is `(updated_at DESC)`, and a scoped newest-first read wants `(cluster_id, mode, updated_at DESC)` — an edit to `0001_init.sql`, since nothing has shipped. **Trigger:** a chat count at which sending every chat to every window is visible in a profile, or a second consumer of the list that cannot filter client-side. Unmeasured today.
 
 - **Explore comparing cluster cards by hash rather than by text.** `questionContent`
-  (`sidecar/internal/services/chat/service.go`) decides whether a send carries a card by comparing the
+  (`sidecar/internal/agent/chat/service.go`) decides whether a send carries a card by comparing the
   freshly rendered card, byte for byte, against the newest context block in the chat's record
   (`newestCard`, a `json_extract` over the chat's user rows). Both sides are up to 4 KiB, and the
   read walks the rows since the last card. A hash of the card beside the message — a column on
@@ -343,9 +343,9 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   send whose compare is visible in a profile, or a second kind of context that makes the block
   large enough to matter.
 
-- **A failed answer is never retried.** `services/chat` settles a turn that failed as a `failed` row
+- **A failed answer is never retried.** `agent/chat` settles a turn that failed as a `failed` row
   carrying the text that arrived and the reason (`answer`/`settled` in
-  `sidecar/internal/services/chat/service.go`); only the *write* of that row retries. The policy is
+  `sidecar/internal/agent/chat/service.go`); only the *write* of that row retries. The policy is
   deliberate — a model call costs money and the user did not ask twice — but it does not
   distinguish a refusal from a 429 or a connection dropped three tokens in.
   - **The re-typing is answered**: the transcript's last row, when it is a failed answer, draws
@@ -365,7 +365,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     state in the service. Build the ladder only if the transient failures turn out to be common
     enough that a person clicking resend is the worse answer.
 
-- **Return an error from `marshalBlocks` instead of panicking.** `services/chat/record.go`'s
+- **Return an error from `marshalBlocks` instead of panicking.** `agent/chat/record.go`'s
   `marshalBlocks` panics when a block's `Input` or `Payload` is not valid JSON. No path reaches it
   today: `ToolUseBlock` and `ServerUseBlock` refuse bad input, the wires check every payload
   (`Block.replayable`), and stored rows are decoded by `unmarshalBlocks`. But a `Block` built by
@@ -375,8 +375,8 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   path), `writeTurnRows` fails the send, and `Progress` logs it and keeps the last content.
 
 - **A full chat could continue.** Every turn replays the whole transcript (`buildRequest` in
-  `sidecar/internal/services/chat/service.go`), so a chat grows until the model can no longer read it.
-  `roomFor` (`sidecar/internal/services/chat/context.go`) makes the end honest — a send past the
+  `sidecar/internal/agent/chat/service.go`), so a chat grows until the model can no longer read it.
+  `roomFor` (`sidecar/internal/agent/chat/context.go`) makes the end honest — a send past the
   model's window is refused with `KSTACK_CHAT_CONTEXT_FULL` and the draft stays —
   but a refused chat is over on that model, and a long investigation is exactly the chat a user
   wants to keep. What would let it go on, each a different trade:
@@ -399,7 +399,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   - **Trigger:** the first user who hits the refusal on a chat they wanted to continue.
 
 - **Record the system prompt each turn was sent.** A stored turn says what the model answered
-  and what it cost, but not what it was told: `systemPromptFor` (`sidecar/internal/services/chat/service.go`)
+  and what it cost, but not what it was told: `systemPromptFor` (`sidecar/internal/agent/chat/service.go`)
   picks `toolsPrompt` or `noToolsPrompt` per turn by encoder, and `prompts/system.md` is embedded
   from source, so reading a chat back later means guessing which prompt, from which build, ran it.
   - **Store the text, not a version number.** A version cannot say which of the two prompts a
@@ -454,7 +454,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     records a resolution: the fault when it failed, else a sync of its path. The launch's PATH
     sync part and `RefreshPath` both call it, and `NewService` loses its `fault` argument.
 
-- **Rename `services/chat` to the agent-run service it is.** The package owns every agent run: a chat's
+- **Rename `agent/chat` to the agent-run service it is.** The package owns every agent run: a chat's
   turns, the subagents, the background tasks, the permissions askers, the folder grants the
   executable probe reads, and the monitor run, which has no chat at all. "chat" names the one run it started with. A name such as
   `agentsvc` or `runsvc`; the chats, their messages and their watches stay inside it.
@@ -477,7 +477,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   - **Findings.** A view of what the runs found, its reports drawn as text.
 
 - **Rename `securityconfig` to `securitysvc`, once 3A and 3B have merged.** The package is a
-  service like `services/chat` and `services/memory`: a `Service` with operations, runtime state and a watch,
+  service like `agent/chat` and `services/memory`: a `Service` with operations, runtime state and a watch,
   which the resolvers call. "config" reads as a file loaded once. Do it before a step-4 branch
   starts, so nothing in flight conflicts with the move.
   - **Scope.** `git mv` the package, fix its importers and the gqlgen binding, and regenerate.
@@ -513,7 +513,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   one place that knows the resolution shuts the denied-always list and the snapshot does not,
   and fewer platform files.
 
-- **Explore moving the sandbox into a library of its own.** `internal/sandbox` imports nothing
+- **Explore moving the sandbox into a library of its own.** `internal/run/sandbox` imports nothing
   else of Kstack's: it confines a command under bubblewrap or Seatbelt from a `Policy`, with the
   lists, the probe and the forwarder. A Go module of its own would give it a public API, its own
   tests and releases, and a use outside Kstack. What ties it to Kstack today: the
@@ -746,7 +746,7 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   call asking, and the probe's reason in the sidecar's log.
 
 - **Capture a real helm release for the rewriter's tests (low; sandbox owner).**
-  `sidecar/internal/kubeproxy/testdata/helm-release.json` is written by hand in the shape Helm 3
+  `sidecar/internal/run/kubeproxy/testdata/helm-release.json` is written by hand in the shape Helm 3
   stores. Replace it with one a real `helm install` wrote, a chart with a Secret and a hook, and
   name that helm's version in `TestHelmReadsARedactedRelease`.
 
@@ -799,7 +799,7 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   unused contexts and approval revocation. The highest open finding, and the one whose shape is
   still a product question. Until then use only trusted kubeconfigs. On macOS the surface is the
   wider one: the process environment is an allowlisted import of the user's login shell
-  (`sidecar/internal/loginshell`), so the gate must approve a plugin's environment as well as the
+  (`sidecar/internal/run/loginshell`), so the gate must approve a plugin's environment as well as the
   path it resolves to through that PATH, not the ones a GUI launch inherits. The chat's bash
   tool is a second runner of the plugin: an approved command that reaches a cluster runs it
   through the same imported PATH ([record](security/2026-09-18-bash-tool.md)).

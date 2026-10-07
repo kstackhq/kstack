@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/oauth2"
 
+	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
-	"github.com/kstackhq/kstack/sidecar/internal/services/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 )
 

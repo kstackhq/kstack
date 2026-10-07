@@ -24,7 +24,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 	clientcmdapi "k8s.io/client-go/tools/clientcmd/api"
 
-	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
+	"github.com/kstackhq/kstack/sidecar/internal/run/kubeproxy"
 )
 
 // kubeServer is the server every run's kubeconfig names. client-go sends each

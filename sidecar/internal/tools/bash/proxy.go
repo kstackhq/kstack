@@ -19,9 +19,9 @@ import (
 	"net"
 	"net/http"
 
-	"github.com/kstackhq/kstack/sidecar/internal/kubeproxy"
-	"github.com/kstackhq/kstack/sidecar/internal/permissions"
-	"github.com/kstackhq/kstack/sidecar/internal/session"
+	"github.com/kstackhq/kstack/sidecar/internal/run/kubeproxy"
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 

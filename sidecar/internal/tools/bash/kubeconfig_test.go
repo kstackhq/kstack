@@ -23,7 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/kstackhq/kstack/sidecar/internal/clustercard"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 )
 
 // The run's kubeconfig is one cluster at the fixed server dialled through the

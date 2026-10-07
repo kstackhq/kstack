@@ -27,7 +27,6 @@ import (
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
-	"github.com/kstackhq/kstack/sidecar/internal/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/drain"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
@@ -220,7 +219,7 @@ func checkRoom(ctx context.Context, st stmts, m Memory) error {
 			after = append(after, other)
 		}
 	}
-	if clustercard.SectionSize(entries(after)) > ScopeBudget {
+	if sectionSize(entries(after)) > ScopeBudget {
 		return ErrFull
 	}
 	return nil

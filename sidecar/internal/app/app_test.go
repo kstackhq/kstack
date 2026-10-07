@@ -5,7 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,13 +26,13 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/kstackhq/kstack/sidecar/grpc/authpb"
+	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
-	"github.com/kstackhq/kstack/sidecar/internal/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
@@ -688,4 +691,46 @@ func TestASecurityServiceWithNoSandboxSyncsNothing(t *testing.T) {
 	assert.False(t, syncPath(t.Context(), svc, []string{t.TempDir()}), "nothing changed")
 	assert.Contains(t, log.String(), "PATH not synced")
 	assert.Empty(t, store.Get().Path)
+}
+
+// A folder under internal/ is a layer: an import between two folders points
+// from right to left in this order. A new package goes in the folder its
+// imports allow; a cross-folder import the other way reopens the ADR rather
+// than adding the edge.
+// → docs/adr/2026-10-07-sidecar-folders-are-layers.md
+func TestInternalFoldersAreLayers(t *testing.T) {
+	const module = "github.com/kstackhq/kstack/sidecar/internal/"
+	order := []string{"lib", "appdb", "llm", "run", "services", "tools", "agent", "app"}
+	rank := func(folder string) int {
+		i := slices.Index(order, folder)
+		require.NotEqual(t, -1, i, "folder %q is not in the layer order", folder)
+		return i
+	}
+	folderOf := func(pkg string) string { return strings.SplitN(pkg, "/", 2)[0] }
+
+	root := filepath.Join("..")
+	fset := token.NewFileSet()
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() || !strings.HasSuffix(path, ".go") {
+			return err
+		}
+		rel, err := filepath.Rel(root, path)
+		require.NoError(t, err)
+		src := folderOf(filepath.ToSlash(rel))
+		f, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
+		require.NoError(t, err, rel)
+		for _, imp := range f.Imports {
+			target, ok := strings.CutPrefix(strings.Trim(imp.Path.Value, `"`), module)
+			if !ok {
+				continue
+			}
+			dst := folderOf(target)
+			if dst == src {
+				continue
+			}
+			assert.Greater(t, rank(src), rank(dst), "%s imports %s: %s may not import %s", rel, target, src, dst)
+		}
+		return nil
+	})
+	require.NoError(t, err)
 }

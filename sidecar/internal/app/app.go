@@ -25,16 +25,16 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/graph"
 	grpcserver "github.com/kstackhq/kstack/sidecar/grpc"
-	"github.com/kstackhq/kstack/sidecar/internal/catalog"
+	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
-	agenttool "github.com/kstackhq/kstack/sidecar/internal/tools/agent"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/edit"
@@ -322,7 +322,7 @@ func chatTools(d toolDeps) (tools.Box, error) {
 	notes := memorytool.New(d.memory)
 	query := kubequery.New(d.clusters)
 	if d.shell == nil {
-		return tools.NewBox([]tools.Tool{reader, notes, writer, editor, fetcher, agenttool.New(), search, query}, bash.Reader{}, taskstop.New()), nil
+		return tools.NewBox([]tools.Tool{reader, notes, writer, editor, fetcher, agent.New(), search, query}, bash.Reader{}, taskstop.New()), nil
 	}
-	return tools.NewBox([]tools.Tool{d.shell, reader, notes, writer, editor, fetcher, taskstop.New(), agenttool.New(), search, query}), nil
+	return tools.NewBox([]tools.Tool{d.shell, reader, notes, writer, editor, fetcher, taskstop.New(), agent.New(), search, query}), nil
 }

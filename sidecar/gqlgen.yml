@@ -223,23 +223,23 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/llm.DialectFake
 
   # --- Chat ---
-  # The chat types bind 1:1 into internal/services/chat, like the cluster ones. ChatID is a
+  # The chat types bind 1:1 into internal/agent/chat, like the cluster ones. ChatID is a
   # UUID string, not a beehive object id, so it is its own scalar; it binds to apimeta,
   # which chat aliases, since memory and tools name a chat too.
   ChatID:
     model: github.com/kstackhq/kstack/sidecar/internal/lib/apimeta.ChatID
 
   MessageID:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.MessageID
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.MessageID
 
   ApprovalID:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalID
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ApprovalID
 
   ToolCallID:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallID
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallID
 
   ToolCall:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCall
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCall
     fields:
       # A provider call has no status; the record keeps "" so a call stays
       # comparable, and the resolver serves it as null.
@@ -247,11 +247,11 @@ models:
         resolver: true
 
   ToolCallApproval:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallApproval
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallApproval
   ClusterWrite:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ClusterWrite
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ClusterWrite
   PermissionAction:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.PermissionAction
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.PermissionAction
 
   # --- Memory ---
   # The memory types bind 1:1 into internal/services/memory, like the chat ones.
@@ -330,148 +330,148 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/tools.ActionKubeQuery
 
   ToolCallNetwork:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallNetwork
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallNetwork
     enum_values:
       Chat:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallNetworkChat
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallNetworkChat
       Turn:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallNetworkTurn
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallNetworkTurn
       Approved:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallNetworkApproved
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallNetworkApproved
 
   ToolCallRunsOn:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallRunsOn
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallRunsOn
     enum_values:
       Sidecar:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallRunsOnSidecar
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallRunsOnSidecar
       Provider:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallRunsOnProvider
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallRunsOnProvider
 
   ApprovalDecision:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalDecision
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ApprovalDecision
     enum_values:
       Once:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.DecisionOnce
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.DecisionOnce
       Command:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.DecisionCommand
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.DecisionCommand
       Chat:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.DecisionChat
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.DecisionChat
       Always:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.DecisionAlways
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.DecisionAlways
       Deny:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.DecisionDeny
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.DecisionDeny
 
   ApprovalDuration:
-    model: github.com/kstackhq/kstack/sidecar/internal/permissions.Duration
+    model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Duration
     enum_values:
       Once:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.DurationOnce
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.DurationOnce
       Command:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.DurationCommand
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.DurationCommand
       Chat:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.DurationChat
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.DurationChat
       Always:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.DurationAlways
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.DurationAlways
 
   ApprovalStatus:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalStatus
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ApprovalStatus
     enum_values:
       Pending:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalPending
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ApprovalPending
       Approved:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalApproved
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ApprovalApproved
       Denied:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalDenied
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ApprovalDenied
       Abandoned:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalAbandoned
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ApprovalAbandoned
       Allowed:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalAllowed
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ApprovalAllowed
       Refused:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ApprovalRefused
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ApprovalRefused
 
   BackgroundTask:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTask
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.BackgroundTask
 
   BackgroundTaskStatus:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTaskStatus
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.BackgroundTaskStatus
     enum_values:
       Running:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTaskRunning
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.BackgroundTaskRunning
       Exited:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTaskExited
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.BackgroundTaskExited
       Completed:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTaskCompleted
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.BackgroundTaskCompleted
       Failed:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTaskFailed
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.BackgroundTaskFailed
       Stopped:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTaskStopped
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.BackgroundTaskStopped
       Lost:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.BackgroundTaskLost
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.BackgroundTaskLost
 
   ToolCallStatus:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallStatus
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallStatus
     enum_values:
       NotRun:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallNotRun
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallNotRun
       AwaitingApproval:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallAwaitingApproval
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallAwaitingApproval
       Denied:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallDenied
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallDenied
       Running:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallRunning
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallRunning
       Succeeded:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallSucceeded
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallSucceeded
       Failed:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallFailed
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallFailed
       Interrupted:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ToolCallInterrupted
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallInterrupted
 
   Chat:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.Chat
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.Chat
 
   SandboxStatus:
-    model: github.com/kstackhq/kstack/sidecar/internal/sandbox.Status
+    model: github.com/kstackhq/kstack/sidecar/internal/run/sandbox.Status
 
   # The stored vocabulary is lower-case (the Messages API's own), so each enum member
   # binds to the constant that carries it.
   ChatMessageRole:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.Role
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.Role
     enum_values:
       User:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.RoleUser
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.RoleUser
       Assistant:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.RoleAssistant
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.RoleAssistant
 
   ChatMode:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.Mode
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.Mode
     enum_values:
       Chat:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ModeChat
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ModeChat
       Dashboard:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.ModeDashboard
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ModeDashboard
 
   ChatMessageStatus:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.MessageStatus
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.MessageStatus
     enum_values:
       Streaming:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.StatusStreaming
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.StatusStreaming
       WaitingApproval:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.StatusWaitingApproval
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.StatusWaitingApproval
       Complete:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.StatusComplete
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.StatusComplete
       Failed:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.StatusFailed
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.StatusFailed
       Cancelled:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/chat.StatusCancelled
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.StatusCancelled
 
   ChatWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ChatWatchFrame
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ChatWatchFrame
 
   ChatMessageWatchFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ChatMessageWatchFrame
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ChatMessageWatchFrame
 
   ChatMessage:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/chat.ChatMessage
+    model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ChatMessage
     fields:
       # The nullable column is sql.NullTime so a watch can diff a message with ==,
       # and gqlgen has no marshaler for it. Declared here rather than inferred, so
@@ -501,38 +501,38 @@ models:
 
   # --- Permissions ---
   PermissionClass:
-    model: github.com/kstackhq/kstack/sidecar/internal/permissions.Class
+    model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Class
     enum_values:
       ReadInside:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.ReadInside
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.ReadInside
       WriteInside:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.WriteInside
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.WriteInside
       NewHost:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.NewHost
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.NewHost
       UpstreamWrite:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.UpstreamWrite
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.UpstreamWrite
       Destructive:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.Destructive
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Destructive
       SecretRead:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.SecretRead
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.SecretRead
   PermissionMode:
-    model: github.com/kstackhq/kstack/sidecar/internal/permissions.Mode
+    model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Mode
     enum_values:
       ReadOnly:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.ReadOnly
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.ReadOnly
       Ask:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.Ask
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Ask
       Auto:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.Auto
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Auto
   PermissionEffect:
-    model: github.com/kstackhq/kstack/sidecar/internal/permissions.Effect
+    model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Effect
     enum_values:
       Allow:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.Allow
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Allow
       Deny:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.Deny
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Deny
       Ask:
-        value: github.com/kstackhq/kstack/sidecar/internal/permissions.AskFor
+        value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.AskFor
   PermissionModeSource:
     model: github.com/kstackhq/kstack/sidecar/internal/services/securityconfig.ModeSource
     enum_values:
@@ -544,7 +544,7 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/services/securityconfig.SourceDefault
   # line binds to the rule's Line method.
   PermissionRule:
-    model: github.com/kstackhq/kstack/sidecar/internal/permissions.Rule
+    model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Rule
   PermissionContextMode:
     model: github.com/kstackhq/kstack/sidecar/internal/services/securityconfig.ContextModeState
 

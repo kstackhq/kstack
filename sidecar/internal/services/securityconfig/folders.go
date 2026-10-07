@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
 // FolderRefusal is why a folder cannot be granted, in the user's words. Rule

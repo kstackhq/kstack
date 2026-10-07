@@ -20,8 +20,8 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/kstackhq/kstack/sidecar/internal/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/fencejson"
 )
 
 // ScopeBudget is the most one scope's notes may take in the section, as it
@@ -44,13 +44,23 @@ type section struct {
 	Memories []sectionEntry `json:"memories"`
 }
 
+// UnavailableSection is the section when the notes could not be read.
+var UnavailableSection = json.RawMessage(`{"unavailable":true}`)
+
+// sectionSize is what v costs in the context block, measured as the card
+// marshals it.
+func sectionSize(v any) int {
+	raw, _ := fencejson.Marshal(v) // strings always marshal
+	return len(raw)
+}
+
 // Section is every note cluster sees, whole, as the model reads it in the context
 // block: the cluster's own, then the ones for every cluster, each by name.
 func (s *service) Section(ctx context.Context, cluster apimeta.ClusterID) json.RawMessage {
 	ms, err := visible(ctx, s.store.Stmts(), cluster)
 	if err != nil {
 		slog.Warn("memory section unavailable", "err", err)
-		return clustercard.UnavailableSection
+		return UnavailableSection
 	}
 	raw, _ := json.Marshal(section{Today: s.now().Local().Format(time.DateOnly), Memories: entries(ms)}) // strings always marshal
 	return raw

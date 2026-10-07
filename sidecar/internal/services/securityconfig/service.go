@@ -26,7 +26,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
 // Zones is what the sync judges an entry, and a grant a folder, by: Never,

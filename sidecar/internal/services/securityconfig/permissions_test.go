@@ -22,7 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
 func openFile(t *testing.T, body string) (*Store, string) {

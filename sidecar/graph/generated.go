@@ -17,14 +17,14 @@ import (
 	"github.com/99designs/gqlgen/graphql/introspection"
 	"github.com/amorey/beehive"
 	"github.com/kstackhq/kstack/sidecar/graph/model"
+	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/rawjson"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
-	"github.com/kstackhq/kstack/sidecar/internal/permissions"
-	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
-	"github.com/kstackhq/kstack/sidecar/internal/services/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
@@ -5284,7 +5284,7 @@ func (ec *executionContext) field_Mutation_approvalDecide_args(ctx context.Conte
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (chat.ApprovalID, error) {
-			return ec.unmarshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalID(ctx, v)
+			return ec.unmarshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5292,7 +5292,7 @@ func (ec *executionContext) field_Mutation_approvalDecide_args(ctx context.Conte
 	args["id"] = arg0
 	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "decision",
 		func(ctx context.Context, v any) (chat.ApprovalDecision, error) {
-			return ec.unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalDecision(ctx, v)
+			return ec.unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalDecision(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5306,7 +5306,7 @@ func (ec *executionContext) field_Mutation_backgroundTaskStop_args(ctx context.C
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
 		func(ctx context.Context, v any) (chat.ToolCallID, error) {
-			return ec.unmarshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallID(ctx, v)
+			return ec.unmarshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallID(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5444,7 +5444,7 @@ func (ec *executionContext) field_Mutation_chatSend_args(ctx context.Context, ra
 	args["chatID"] = arg0
 	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "mode",
 		func(ctx context.Context, v any) (chat.Mode, error) {
-			return ec.unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode(ctx, v)
+			return ec.unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMode(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5740,7 +5740,7 @@ func (ec *executionContext) field_Mutation_permissionDefaultModeSet_args(ctx con
 	args := map[string]any{}
 	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "mode",
 		func(ctx context.Context, v any) (permissions.Mode, error) {
-			return ec.unmarshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐMode(ctx, v)
+			return ec.unmarshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐMode(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -5790,7 +5790,7 @@ func (ec *executionContext) field_Mutation_permissionModeSet_args(ctx context.Co
 	args["context"] = arg0
 	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "mode",
 		func(ctx context.Context, v any) (permissions.Mode, error) {
-			return ec.unmarshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐMode(ctx, v)
+			return ec.unmarshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐMode(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -6365,7 +6365,7 @@ func (ec *executionContext) _BackgroundTask_status(ctx context.Context, field gr
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v chat.BackgroundTaskStatus) graphql.Marshaler {
-			return ec.marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTaskStatus(ctx, selections, v)
+			return ec.marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐBackgroundTaskStatus(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6480,7 +6480,7 @@ func (ec *executionContext) _Chat_mode(ctx context.Context, field graphql.Collec
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v chat.Mode) graphql.Marshaler {
-			return ec.marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode(ctx, selections, v)
+			return ec.marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMode(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6641,7 +6641,7 @@ func (ec *executionContext) _ChatMessage_id(ctx context.Context, field graphql.C
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v chat.MessageID) graphql.Marshaler {
-			return ec.marshalNMessageID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageID(ctx, selections, v)
+			return ec.marshalNMessageID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMessageID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6710,7 +6710,7 @@ func (ec *executionContext) _ChatMessage_role(ctx context.Context, field graphql
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v chat.Role) graphql.Marshaler {
-			return ec.marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐRole(ctx, selections, v)
+			return ec.marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐRole(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6779,7 +6779,7 @@ func (ec *executionContext) _ChatMessage_status(ctx context.Context, field graph
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v chat.MessageStatus) graphql.Marshaler {
-			return ec.marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageStatus(ctx, selections, v)
+			return ec.marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMessageStatus(ctx, selections, v)
 		},
 		true,
 		true,
@@ -6995,7 +6995,7 @@ func (ec *executionContext) _ChatMessage_toolCalls(ctx context.Context, field gr
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v []*chat.ToolCall) graphql.Marshaler {
-			return ec.marshalNToolCall2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallᚄ(ctx, selections, v)
+			return ec.marshalNToolCall2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -7082,7 +7082,7 @@ func (ec *executionContext) _ChatMessageWatchFrame_message(ctx context.Context, 
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *chat.ChatMessage) graphql.Marshaler {
-			return ec.marshalOChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatMessage(ctx, selections, v)
+			return ec.marshalOChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐChatMessage(ctx, selections, v)
 		},
 		true,
 		false,
@@ -7137,7 +7137,7 @@ func (ec *executionContext) _ChatWatchFrame_chat(ctx context.Context, field grap
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *chat.Chat) graphql.Marshaler {
-			return ec.marshalOChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChat(ctx, selections, v)
+			return ec.marshalOChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐChat(ctx, selections, v)
 		},
 		true,
 		false,
@@ -10807,7 +10807,7 @@ func (ec *executionContext) _ClusterWrite_approval(ctx context.Context, field gr
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v chat.ToolCallApproval) graphql.Marshaler {
-			return ec.marshalNToolCallApproval2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallApproval(ctx, selections, v)
+			return ec.marshalNToolCallApproval2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallApproval(ctx, selections, v)
 		},
 		true,
 		true,
@@ -10839,7 +10839,7 @@ func (ec *executionContext) _ClusterWrite_action(ctx context.Context, field grap
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v chat.PermissionAction) graphql.Marshaler {
-			return ec.marshalNPermissionAction2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐPermissionAction(ctx, selections, v)
+			return ec.marshalNPermissionAction2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐPermissionAction(ctx, selections, v)
 		},
 		true,
 		true,
@@ -12679,7 +12679,7 @@ func (ec *executionContext) _Mutation_chatSend(ctx context.Context, field graphq
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *chat.ChatMessage) graphql.Marshaler {
-			return ec.marshalNChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatMessage(ctx, selections, v)
+			return ec.marshalNChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐChatMessage(ctx, selections, v)
 		},
 		true,
 		true,
@@ -12855,7 +12855,7 @@ func (ec *executionContext) _Mutation_chatRename(ctx context.Context, field grap
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *chat.Chat) graphql.Marshaler {
-			return ec.marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChat(ctx, selections, v)
+			return ec.marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐChat(ctx, selections, v)
 		},
 		true,
 		true,
@@ -12899,7 +12899,7 @@ func (ec *executionContext) _Mutation_chatSandboxDisabledSet(ctx context.Context
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *chat.Chat) graphql.Marshaler {
-			return ec.marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChat(ctx, selections, v)
+			return ec.marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐChat(ctx, selections, v)
 		},
 		true,
 		true,
@@ -12943,7 +12943,7 @@ func (ec *executionContext) _Mutation_chatNetworkEnabledSet(ctx context.Context,
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *chat.Chat) graphql.Marshaler {
-			return ec.marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChat(ctx, selections, v)
+			return ec.marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐChat(ctx, selections, v)
 		},
 		true,
 		true,
@@ -13611,7 +13611,7 @@ func (ec *executionContext) _Mutation_chatGrantRemove(ctx context.Context, field
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v []*permissions.Rule) graphql.Marshaler {
-			return ec.marshalNPermissionRule2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐRuleᚄ(ctx, selections, v)
+			return ec.marshalNPermissionRule2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐRuleᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -13970,7 +13970,7 @@ func (ec *executionContext) _PermissionAction_class(ctx context.Context, field g
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v permissions.Class) graphql.Marshaler {
-			return ec.marshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass(ctx, selections, v)
+			return ec.marshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐClass(ctx, selections, v)
 		},
 		true,
 		true,
@@ -14200,7 +14200,7 @@ func (ec *executionContext) _PermissionContextMode_mode(ctx context.Context, fie
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v permissions.Mode) graphql.Marshaler {
-			return ec.marshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐMode(ctx, selections, v)
+			return ec.marshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐMode(ctx, selections, v)
 		},
 		true,
 		true,
@@ -14315,7 +14315,7 @@ func (ec *executionContext) _PermissionRule_effect(ctx context.Context, field gr
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v permissions.Effect) graphql.Marshaler {
-			return ec.marshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐEffect(ctx, selections, v)
+			return ec.marshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐEffect(ctx, selections, v)
 		},
 		true,
 		true,
@@ -14338,7 +14338,7 @@ func (ec *executionContext) _PermissionRule_class(ctx context.Context, field gra
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v permissions.Class) graphql.Marshaler {
-			return ec.marshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass(ctx, selections, v)
+			return ec.marshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐClass(ctx, selections, v)
 		},
 		true,
 		true,
@@ -14522,7 +14522,7 @@ func (ec *executionContext) _PermissionSettings_defaultMode(ctx context.Context,
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v permissions.Mode) graphql.Marshaler {
-			return ec.marshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐMode(ctx, selections, v)
+			return ec.marshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐMode(ctx, selections, v)
 		},
 		true,
 		true,
@@ -14577,7 +14577,7 @@ func (ec *executionContext) _PermissionSettings_rules(ctx context.Context, field
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v []*permissions.Rule) graphql.Marshaler {
-			return ec.marshalNPermissionRule2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐRuleᚄ(ctx, selections, v)
+			return ec.marshalNPermissionRule2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐRuleᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -14848,7 +14848,7 @@ func (ec *executionContext) _Query_sandbox(ctx context.Context, field graphql.Co
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *sandbox.Status) graphql.Marshaler {
-			return ec.marshalNSandboxStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsandboxᚐStatus(ctx, selections, v)
+			return ec.marshalNSandboxStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋsandboxᚐStatus(ctx, selections, v)
 		},
 		true,
 		true,
@@ -15383,7 +15383,7 @@ func (ec *executionContext) _Query_chatGrants(ctx context.Context, field graphql
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v []*permissions.Rule) graphql.Marshaler {
-			return ec.marshalNPermissionRule2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐRuleᚄ(ctx, selections, v)
+			return ec.marshalNPermissionRule2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐRuleᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17019,7 +17019,7 @@ func (ec *executionContext) _Subscription_chatsWatch(ctx context.Context, field 
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *chat.ChatWatchFrame) graphql.Marshaler {
-			return ec.marshalNChatWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatWatchFrame(ctx, selections, v)
+			return ec.marshalNChatWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐChatWatchFrame(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17052,7 +17052,7 @@ func (ec *executionContext) _Subscription_chatMessagesWatch(ctx context.Context,
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *chat.ChatMessageWatchFrame) graphql.Marshaler {
-			return ec.marshalNChatMessageWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatMessageWatchFrame(ctx, selections, v)
+			return ec.marshalNChatMessageWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐChatMessageWatchFrame(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17560,7 +17560,7 @@ func (ec *executionContext) _ToolCall_id(ctx context.Context, field graphql.Coll
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v chat.ToolCallID) graphql.Marshaler {
-			return ec.marshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallID(ctx, selections, v)
+			return ec.marshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17698,7 +17698,7 @@ func (ec *executionContext) _ToolCall_status(ctx context.Context, field graphql.
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *chat.ToolCallStatus) graphql.Marshaler {
-			return ec.marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallStatus(ctx, selections, v)
+			return ec.marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallStatus(ctx, selections, v)
 		},
 		true,
 		false,
@@ -17721,7 +17721,7 @@ func (ec *executionContext) _ToolCall_runsOn(ctx context.Context, field graphql.
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v chat.ToolCallRunsOn) graphql.Marshaler {
-			return ec.marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallRunsOn(ctx, selections, v)
+			return ec.marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallRunsOn(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17776,7 +17776,7 @@ func (ec *executionContext) _ToolCall_approval(ctx context.Context, field graphq
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *chat.ToolCallApproval) graphql.Marshaler {
-			return ec.marshalOToolCallApproval2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallApproval(ctx, selections, v)
+			return ec.marshalOToolCallApproval2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallApproval(ctx, selections, v)
 		},
 		true,
 		false,
@@ -17808,7 +17808,7 @@ func (ec *executionContext) _ToolCall_network(ctx context.Context, field graphql
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *chat.ToolCallNetwork) graphql.Marshaler {
-			return ec.marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallNetwork(ctx, selections, v)
+			return ec.marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallNetwork(ctx, selections, v)
 		},
 		true,
 		false,
@@ -17877,7 +17877,7 @@ func (ec *executionContext) _ToolCall_background(ctx context.Context, field grap
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *chat.BackgroundTask) graphql.Marshaler {
-			return ec.marshalOBackgroundTask2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTask(ctx, selections, v)
+			return ec.marshalOBackgroundTask2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐBackgroundTask(ctx, selections, v)
 		},
 		true,
 		false,
@@ -17909,7 +17909,7 @@ func (ec *executionContext) _ToolCall_agentCallID(ctx context.Context, field gra
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *chat.ToolCallID) graphql.Marshaler {
-			return ec.marshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallID(ctx, selections, v)
+			return ec.marshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallID(ctx, selections, v)
 		},
 		true,
 		false,
@@ -17932,7 +17932,7 @@ func (ec *executionContext) _ToolCall_clusterWrites(ctx context.Context, field g
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v []chat.ClusterWrite) graphql.Marshaler {
-			return ec.marshalNClusterWrite2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐClusterWriteᚄ(ctx, selections, v)
+			return ec.marshalNClusterWrite2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐClusterWriteᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17964,7 +17964,7 @@ func (ec *executionContext) _ToolCallApproval_id(ctx context.Context, field grap
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v chat.ApprovalID) graphql.Marshaler {
-			return ec.marshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalID(ctx, selections, v)
+			return ec.marshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalID(ctx, selections, v)
 		},
 		true,
 		true,
@@ -17987,7 +17987,7 @@ func (ec *executionContext) _ToolCallApproval_status(ctx context.Context, field 
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v chat.ApprovalStatus) graphql.Marshaler {
-			return ec.marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalStatus(ctx, selections, v)
+			return ec.marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalStatus(ctx, selections, v)
 		},
 		true,
 		true,
@@ -18010,7 +18010,7 @@ func (ec *executionContext) _ToolCallApproval_duration(ctx context.Context, fiel
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *permissions.Duration) graphql.Marshaler {
-			return ec.marshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐDuration(ctx, selections, v)
+			return ec.marshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐDuration(ctx, selections, v)
 		},
 		true,
 		false,
@@ -19212,14 +19212,14 @@ func (ec *executionContext) unmarshalInputPermissionRuleInput(ctx context.Contex
 		switch k {
 		case "effect":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("effect"))
-			data, err := ec.unmarshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐEffect(ctx, v)
+			data, err := ec.unmarshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐEffect(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Effect = data
 		case "class":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("class"))
-			data, err := ec.unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass(ctx, v)
+			data, err := ec.unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐClass(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -25256,15 +25256,15 @@ func (ec *executionContext) ___Type(ctx context.Context, sel ast.SelectionSet, o
 
 // region    ***************************** type.gotpl *****************************
 
-func (ec *executionContext) unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalDecision(ctx context.Context, v any) (chat.ApprovalDecision, error) {
+func (ec *executionContext) unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalDecision(ctx context.Context, v any) (chat.ApprovalDecision, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalDecision[tmp]
+	res := unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalDecision[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalDecision(ctx context.Context, sel ast.SelectionSet, v chat.ApprovalDecision) graphql.Marshaler {
+func (ec *executionContext) marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalDecision(ctx context.Context, sel ast.SelectionSet, v chat.ApprovalDecision) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalDecision[v])
+	res := graphql.MarshalString(marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalDecision[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25274,14 +25274,14 @@ func (ec *executionContext) marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋk
 }
 
 var (
-	unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalDecision = map[string]chat.ApprovalDecision{
+	unmarshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalDecision = map[string]chat.ApprovalDecision{
 		"Once":    chat.DecisionOnce,
 		"Command": chat.DecisionCommand,
 		"Chat":    chat.DecisionChat,
 		"Always":  chat.DecisionAlways,
 		"Deny":    chat.DecisionDeny,
 	}
-	marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalDecision = map[chat.ApprovalDecision]string{
+	marshalNApprovalDecision2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalDecision = map[chat.ApprovalDecision]string{
 		chat.DecisionOnce:    "Once",
 		chat.DecisionCommand: "Command",
 		chat.DecisionChat:    "Chat",
@@ -25290,13 +25290,13 @@ var (
 	}
 )
 
-func (ec *executionContext) unmarshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalID(ctx context.Context, v any) (chat.ApprovalID, error) {
+func (ec *executionContext) unmarshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalID(ctx context.Context, v any) (chat.ApprovalID, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := chat.ApprovalID(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalID(ctx context.Context, sel ast.SelectionSet, v chat.ApprovalID) graphql.Marshaler {
+func (ec *executionContext) marshalNApprovalID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalID(ctx context.Context, sel ast.SelectionSet, v chat.ApprovalID) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -25307,15 +25307,15 @@ func (ec *executionContext) marshalNApprovalID2githubᚗcomᚋkstackhqᚋkstack�
 	return res
 }
 
-func (ec *executionContext) unmarshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalStatus(ctx context.Context, v any) (chat.ApprovalStatus, error) {
+func (ec *executionContext) unmarshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalStatus(ctx context.Context, v any) (chat.ApprovalStatus, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalStatus[tmp]
+	res := unmarshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalStatus[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalStatus(ctx context.Context, sel ast.SelectionSet, v chat.ApprovalStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalStatus(ctx context.Context, sel ast.SelectionSet, v chat.ApprovalStatus) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalStatus[v])
+	res := graphql.MarshalString(marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalStatus[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25325,7 +25325,7 @@ func (ec *executionContext) marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkst
 }
 
 var (
-	unmarshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalStatus = map[string]chat.ApprovalStatus{
+	unmarshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalStatus = map[string]chat.ApprovalStatus{
 		"Pending":   chat.ApprovalPending,
 		"Approved":  chat.ApprovalApproved,
 		"Denied":    chat.ApprovalDenied,
@@ -25333,7 +25333,7 @@ var (
 		"Allowed":   chat.ApprovalAllowed,
 		"Refused":   chat.ApprovalRefused,
 	}
-	marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐApprovalStatus = map[chat.ApprovalStatus]string{
+	marshalNApprovalStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐApprovalStatus = map[chat.ApprovalStatus]string{
 		chat.ApprovalPending:   "Pending",
 		chat.ApprovalApproved:  "Approved",
 		chat.ApprovalDenied:    "Denied",
@@ -25353,15 +25353,15 @@ func (ec *executionContext) marshalNAuthState2ᚖgithubᚗcomᚋkstackhqᚋkstac
 	return ec._AuthState(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTaskStatus(ctx context.Context, v any) (chat.BackgroundTaskStatus, error) {
+func (ec *executionContext) unmarshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐBackgroundTaskStatus(ctx context.Context, v any) (chat.BackgroundTaskStatus, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTaskStatus[tmp]
+	res := unmarshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐBackgroundTaskStatus[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTaskStatus(ctx context.Context, sel ast.SelectionSet, v chat.BackgroundTaskStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐBackgroundTaskStatus(ctx context.Context, sel ast.SelectionSet, v chat.BackgroundTaskStatus) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTaskStatus[v])
+	res := graphql.MarshalString(marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐBackgroundTaskStatus[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25371,7 +25371,7 @@ func (ec *executionContext) marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhq
 }
 
 var (
-	unmarshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTaskStatus = map[string]chat.BackgroundTaskStatus{
+	unmarshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐBackgroundTaskStatus = map[string]chat.BackgroundTaskStatus{
 		"Running":   chat.BackgroundTaskRunning,
 		"Exited":    chat.BackgroundTaskExited,
 		"Completed": chat.BackgroundTaskCompleted,
@@ -25379,7 +25379,7 @@ var (
 		"Stopped":   chat.BackgroundTaskStopped,
 		"Lost":      chat.BackgroundTaskLost,
 	}
-	marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTaskStatus = map[chat.BackgroundTaskStatus]string{
+	marshalNBackgroundTaskStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐBackgroundTaskStatus = map[chat.BackgroundTaskStatus]string{
 		chat.BackgroundTaskRunning:   "Running",
 		chat.BackgroundTaskExited:    "Exited",
 		chat.BackgroundTaskCompleted: "Completed",
@@ -25405,7 +25405,7 @@ func (ec *executionContext) marshalNBoolean2bool(ctx context.Context, sel ast.Se
 	return res
 }
 
-func (ec *executionContext) marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChat(ctx context.Context, sel ast.SelectionSet, v *chat.Chat) graphql.Marshaler {
+func (ec *executionContext) marshalNChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐChat(ctx context.Context, sel ast.SelectionSet, v *chat.Chat) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25432,7 +25432,7 @@ func (ec *executionContext) marshalNChatID2githubᚗcomᚋkstackhqᚋkstackᚋsi
 	return res
 }
 
-func (ec *executionContext) marshalNChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatMessage(ctx context.Context, sel ast.SelectionSet, v *chat.ChatMessage) graphql.Marshaler {
+func (ec *executionContext) marshalNChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐChatMessage(ctx context.Context, sel ast.SelectionSet, v *chat.ChatMessage) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25442,15 +25442,15 @@ func (ec *executionContext) marshalNChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkst
 	return ec._ChatMessage(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐRole(ctx context.Context, v any) (chat.Role, error) {
+func (ec *executionContext) unmarshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐRole(ctx context.Context, v any) (chat.Role, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐRole[tmp]
+	res := unmarshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐRole[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐRole(ctx context.Context, sel ast.SelectionSet, v chat.Role) graphql.Marshaler {
+func (ec *executionContext) marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐRole(ctx context.Context, sel ast.SelectionSet, v chat.Role) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐRole[v])
+	res := graphql.MarshalString(marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐRole[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25460,25 +25460,25 @@ func (ec *executionContext) marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋks
 }
 
 var (
-	unmarshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐRole = map[string]chat.Role{
+	unmarshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐRole = map[string]chat.Role{
 		"User":      chat.RoleUser,
 		"Assistant": chat.RoleAssistant,
 	}
-	marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐRole = map[chat.Role]string{
+	marshalNChatMessageRole2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐRole = map[chat.Role]string{
 		chat.RoleUser:      "User",
 		chat.RoleAssistant: "Assistant",
 	}
 )
 
-func (ec *executionContext) unmarshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageStatus(ctx context.Context, v any) (chat.MessageStatus, error) {
+func (ec *executionContext) unmarshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMessageStatus(ctx context.Context, v any) (chat.MessageStatus, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageStatus[tmp]
+	res := unmarshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMessageStatus[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageStatus(ctx context.Context, sel ast.SelectionSet, v chat.MessageStatus) graphql.Marshaler {
+func (ec *executionContext) marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMessageStatus(ctx context.Context, sel ast.SelectionSet, v chat.MessageStatus) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageStatus[v])
+	res := graphql.MarshalString(marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMessageStatus[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25488,14 +25488,14 @@ func (ec *executionContext) marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋ
 }
 
 var (
-	unmarshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageStatus = map[string]chat.MessageStatus{
+	unmarshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMessageStatus = map[string]chat.MessageStatus{
 		"Streaming":       chat.StatusStreaming,
 		"WaitingApproval": chat.StatusWaitingApproval,
 		"Complete":        chat.StatusComplete,
 		"Failed":          chat.StatusFailed,
 		"Cancelled":       chat.StatusCancelled,
 	}
-	marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageStatus = map[chat.MessageStatus]string{
+	marshalNChatMessageStatus2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMessageStatus = map[chat.MessageStatus]string{
 		chat.StatusStreaming:       "Streaming",
 		chat.StatusWaitingApproval: "WaitingApproval",
 		chat.StatusComplete:        "Complete",
@@ -25504,7 +25504,7 @@ var (
 	}
 )
 
-func (ec *executionContext) marshalNChatMessageWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatMessageWatchFrame(ctx context.Context, sel ast.SelectionSet, v *chat.ChatMessageWatchFrame) graphql.Marshaler {
+func (ec *executionContext) marshalNChatMessageWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐChatMessageWatchFrame(ctx context.Context, sel ast.SelectionSet, v *chat.ChatMessageWatchFrame) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25514,15 +25514,15 @@ func (ec *executionContext) marshalNChatMessageWatchFrame2ᚖgithubᚗcomᚋksta
 	return ec._ChatMessageWatchFrame(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode(ctx context.Context, v any) (chat.Mode, error) {
+func (ec *executionContext) unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMode(ctx context.Context, v any) (chat.Mode, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode[tmp]
+	res := unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMode[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode(ctx context.Context, sel ast.SelectionSet, v chat.Mode) graphql.Marshaler {
+func (ec *executionContext) marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMode(ctx context.Context, sel ast.SelectionSet, v chat.Mode) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode[v])
+	res := graphql.MarshalString(marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMode[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25532,17 +25532,17 @@ func (ec *executionContext) marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋ
 }
 
 var (
-	unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode = map[string]chat.Mode{
+	unmarshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMode = map[string]chat.Mode{
 		"Chat":      chat.ModeChat,
 		"Dashboard": chat.ModeDashboard,
 	}
-	marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMode = map[chat.Mode]string{
+	marshalNChatMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMode = map[chat.Mode]string{
 		chat.ModeChat:      "Chat",
 		chat.ModeDashboard: "Dashboard",
 	}
 )
 
-func (ec *executionContext) marshalNChatWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatWatchFrame(ctx context.Context, sel ast.SelectionSet, v *chat.ChatWatchFrame) graphql.Marshaler {
+func (ec *executionContext) marshalNChatWatchFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐChatWatchFrame(ctx context.Context, sel ast.SelectionSet, v *chat.ChatWatchFrame) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -25863,15 +25863,15 @@ func (ec *executionContext) marshalNClusterWatchFrame2ᚖgithubᚗcomᚋkstackhq
 	return ec._ClusterWatchFrame(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNClusterWrite2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐClusterWrite(ctx context.Context, sel ast.SelectionSet, v chat.ClusterWrite) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterWrite2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐClusterWrite(ctx context.Context, sel ast.SelectionSet, v chat.ClusterWrite) graphql.Marshaler {
 	return ec._ClusterWrite(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNClusterWrite2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐClusterWriteᚄ(ctx context.Context, sel ast.SelectionSet, v []chat.ClusterWrite) graphql.Marshaler {
+func (ec *executionContext) marshalNClusterWrite2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐClusterWriteᚄ(ctx context.Context, sel ast.SelectionSet, v []chat.ClusterWrite) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNClusterWrite2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐClusterWrite(ctx, sel, v[i])
+		return ec.marshalNClusterWrite2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐClusterWrite(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -26129,13 +26129,13 @@ func (ec *executionContext) marshalNMemoryWatchFrame2ᚖgithubᚗcomᚋkstackhq�
 	return ec._MemoryWatchFrame(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNMessageID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageID(ctx context.Context, v any) (chat.MessageID, error) {
+func (ec *executionContext) unmarshalNMessageID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMessageID(ctx context.Context, v any) (chat.MessageID, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := chat.MessageID(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNMessageID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐMessageID(ctx context.Context, sel ast.SelectionSet, v chat.MessageID) graphql.Marshaler {
+func (ec *executionContext) marshalNMessageID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐMessageID(ctx context.Context, sel ast.SelectionSet, v chat.MessageID) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -26222,19 +26222,19 @@ func (ec *executionContext) marshalNOnboarding2ᚖgithubᚗcomᚋkstackhqᚋksta
 	return ec._Onboarding(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNPermissionAction2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐPermissionAction(ctx context.Context, sel ast.SelectionSet, v chat.PermissionAction) graphql.Marshaler {
+func (ec *executionContext) marshalNPermissionAction2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐPermissionAction(ctx context.Context, sel ast.SelectionSet, v chat.PermissionAction) graphql.Marshaler {
 	return ec._PermissionAction(ctx, sel, &v)
 }
 
-func (ec *executionContext) unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass(ctx context.Context, v any) (permissions.Class, error) {
+func (ec *executionContext) unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐClass(ctx context.Context, v any) (permissions.Class, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass[tmp]
+	res := unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐClass[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass(ctx context.Context, sel ast.SelectionSet, v permissions.Class) graphql.Marshaler {
+func (ec *executionContext) marshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐClass(ctx context.Context, sel ast.SelectionSet, v permissions.Class) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass[v])
+	res := graphql.MarshalString(marshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐClass[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26244,7 +26244,7 @@ func (ec *executionContext) marshalNPermissionClass2githubᚗcomᚋkstackhqᚋks
 }
 
 var (
-	unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass = map[string]permissions.Class{
+	unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐClass = map[string]permissions.Class{
 		"ReadInside":    permissions.ReadInside,
 		"WriteInside":   permissions.WriteInside,
 		"NewHost":       permissions.NewHost,
@@ -26252,7 +26252,7 @@ var (
 		"Destructive":   permissions.Destructive,
 		"SecretRead":    permissions.SecretRead,
 	}
-	marshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐClass = map[permissions.Class]string{
+	marshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐClass = map[permissions.Class]string{
 		permissions.ReadInside:    "ReadInside",
 		permissions.WriteInside:   "WriteInside",
 		permissions.NewHost:       "NewHost",
@@ -26288,15 +26288,15 @@ func (ec *executionContext) marshalNPermissionContextMode2ᚖgithubᚗcomᚋksta
 	return ec._PermissionContextMode(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐEffect(ctx context.Context, v any) (permissions.Effect, error) {
+func (ec *executionContext) unmarshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐEffect(ctx context.Context, v any) (permissions.Effect, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐEffect[tmp]
+	res := unmarshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐEffect[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐEffect(ctx context.Context, sel ast.SelectionSet, v permissions.Effect) graphql.Marshaler {
+func (ec *executionContext) marshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐEffect(ctx context.Context, sel ast.SelectionSet, v permissions.Effect) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐEffect[v])
+	res := graphql.MarshalString(marshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐEffect[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26306,27 +26306,27 @@ func (ec *executionContext) marshalNPermissionEffect2githubᚗcomᚋkstackhqᚋk
 }
 
 var (
-	unmarshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐEffect = map[string]permissions.Effect{
+	unmarshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐEffect = map[string]permissions.Effect{
 		"Allow": permissions.Allow,
 		"Deny":  permissions.Deny,
 		"Ask":   permissions.AskFor,
 	}
-	marshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐEffect = map[permissions.Effect]string{
+	marshalNPermissionEffect2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐEffect = map[permissions.Effect]string{
 		permissions.Allow:  "Allow",
 		permissions.Deny:   "Deny",
 		permissions.AskFor: "Ask",
 	}
 )
 
-func (ec *executionContext) unmarshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐMode(ctx context.Context, v any) (permissions.Mode, error) {
+func (ec *executionContext) unmarshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐMode(ctx context.Context, v any) (permissions.Mode, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐMode[tmp]
+	res := unmarshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐMode[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐMode(ctx context.Context, sel ast.SelectionSet, v permissions.Mode) graphql.Marshaler {
+func (ec *executionContext) marshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐMode(ctx context.Context, sel ast.SelectionSet, v permissions.Mode) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐMode[v])
+	res := graphql.MarshalString(marshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐMode[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26336,12 +26336,12 @@ func (ec *executionContext) marshalNPermissionMode2githubᚗcomᚋkstackhqᚋkst
 }
 
 var (
-	unmarshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐMode = map[string]permissions.Mode{
+	unmarshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐMode = map[string]permissions.Mode{
 		"ReadOnly": permissions.ReadOnly,
 		"Ask":      permissions.Ask,
 		"Auto":     permissions.Auto,
 	}
-	marshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐMode = map[permissions.Mode]string{
+	marshalNPermissionMode2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐMode = map[permissions.Mode]string{
 		permissions.ReadOnly: "ReadOnly",
 		permissions.Ask:      "Ask",
 		permissions.Auto:     "Auto",
@@ -26378,11 +26378,11 @@ var (
 	}
 )
 
-func (ec *executionContext) marshalNPermissionRule2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐRuleᚄ(ctx context.Context, sel ast.SelectionSet, v []*permissions.Rule) graphql.Marshaler {
+func (ec *executionContext) marshalNPermissionRule2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐRuleᚄ(ctx context.Context, sel ast.SelectionSet, v []*permissions.Rule) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNPermissionRule2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐRule(ctx, sel, v[i])
+		return ec.marshalNPermissionRule2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐRule(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -26394,7 +26394,7 @@ func (ec *executionContext) marshalNPermissionRule2ᚕᚖgithubᚗcomᚋkstackhq
 	return ret
 }
 
-func (ec *executionContext) marshalNPermissionRule2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐRule(ctx context.Context, sel ast.SelectionSet, v *permissions.Rule) graphql.Marshaler {
+func (ec *executionContext) marshalNPermissionRule2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐRule(ctx context.Context, sel ast.SelectionSet, v *permissions.Rule) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26593,7 +26593,7 @@ func (ec *executionContext) marshalNSandboxPathState2githubᚗcomᚋkstackhqᚋk
 	return v
 }
 
-func (ec *executionContext) marshalNSandboxStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋsandboxᚐStatus(ctx context.Context, sel ast.SelectionSet, v *sandbox.Status) graphql.Marshaler {
+func (ec *executionContext) marshalNSandboxStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋsandboxᚐStatus(ctx context.Context, sel ast.SelectionSet, v *sandbox.Status) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26720,11 +26720,11 @@ func (ec *executionContext) marshalNTime2timeᚐTime(ctx context.Context, sel as
 	return res
 }
 
-func (ec *executionContext) marshalNToolCall2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallᚄ(ctx context.Context, sel ast.SelectionSet, v []*chat.ToolCall) graphql.Marshaler {
+func (ec *executionContext) marshalNToolCall2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallᚄ(ctx context.Context, sel ast.SelectionSet, v []*chat.ToolCall) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNToolCall2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCall(ctx, sel, v[i])
+		return ec.marshalNToolCall2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCall(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -26736,7 +26736,7 @@ func (ec *executionContext) marshalNToolCall2ᚕᚖgithubᚗcomᚋkstackhqᚋkst
 	return ret
 }
 
-func (ec *executionContext) marshalNToolCall2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCall(ctx context.Context, sel ast.SelectionSet, v *chat.ToolCall) graphql.Marshaler {
+func (ec *executionContext) marshalNToolCall2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCall(ctx context.Context, sel ast.SelectionSet, v *chat.ToolCall) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26746,17 +26746,17 @@ func (ec *executionContext) marshalNToolCall2ᚖgithubᚗcomᚋkstackhqᚋkstack
 	return ec._ToolCall(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNToolCallApproval2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallApproval(ctx context.Context, sel ast.SelectionSet, v chat.ToolCallApproval) graphql.Marshaler {
+func (ec *executionContext) marshalNToolCallApproval2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallApproval(ctx context.Context, sel ast.SelectionSet, v chat.ToolCallApproval) graphql.Marshaler {
 	return ec._ToolCallApproval(ctx, sel, &v)
 }
 
-func (ec *executionContext) unmarshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallID(ctx context.Context, v any) (chat.ToolCallID, error) {
+func (ec *executionContext) unmarshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallID(ctx context.Context, v any) (chat.ToolCallID, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := chat.ToolCallID(tmp)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallID(ctx context.Context, sel ast.SelectionSet, v chat.ToolCallID) graphql.Marshaler {
+func (ec *executionContext) marshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallID(ctx context.Context, sel ast.SelectionSet, v chat.ToolCallID) graphql.Marshaler {
 	_ = sel
 	res := graphql.MarshalString(string(v))
 	if res == graphql.Null {
@@ -26767,15 +26767,15 @@ func (ec *executionContext) marshalNToolCallID2githubᚗcomᚋkstackhqᚋkstack�
 	return res
 }
 
-func (ec *executionContext) unmarshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallRunsOn(ctx context.Context, v any) (chat.ToolCallRunsOn, error) {
+func (ec *executionContext) unmarshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallRunsOn(ctx context.Context, v any) (chat.ToolCallRunsOn, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallRunsOn[tmp]
+	res := unmarshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallRunsOn[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallRunsOn(ctx context.Context, sel ast.SelectionSet, v chat.ToolCallRunsOn) graphql.Marshaler {
+func (ec *executionContext) marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallRunsOn(ctx context.Context, sel ast.SelectionSet, v chat.ToolCallRunsOn) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallRunsOn[v])
+	res := graphql.MarshalString(marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallRunsOn[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26785,11 +26785,11 @@ func (ec *executionContext) marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkst
 }
 
 var (
-	unmarshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallRunsOn = map[string]chat.ToolCallRunsOn{
+	unmarshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallRunsOn = map[string]chat.ToolCallRunsOn{
 		"Sidecar":  chat.ToolCallRunsOnSidecar,
 		"Provider": chat.ToolCallRunsOnProvider,
 	}
-	marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallRunsOn = map[chat.ToolCallRunsOn]string{
+	marshalNToolCallRunsOn2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallRunsOn = map[chat.ToolCallRunsOn]string{
 		chat.ToolCallRunsOnSidecar:  "Sidecar",
 		chat.ToolCallRunsOnProvider: "Provider",
 	}
@@ -26935,33 +26935,33 @@ func (ec *executionContext) marshalN__TypeKind2string(ctx context.Context, sel a
 	return res
 }
 
-func (ec *executionContext) unmarshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐDuration(ctx context.Context, v any) (*permissions.Duration, error) {
+func (ec *executionContext) unmarshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐDuration(ctx context.Context, v any) (*permissions.Duration, error) {
 	if v == nil {
 		return nil, nil
 	}
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐDuration[tmp]
+	res := unmarshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐDuration[tmp]
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐDuration(ctx context.Context, sel ast.SelectionSet, v *permissions.Duration) graphql.Marshaler {
+func (ec *executionContext) marshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐDuration(ctx context.Context, sel ast.SelectionSet, v *permissions.Duration) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	_ = sel
 	_ = ctx
-	res := graphql.MarshalString(marshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐDuration[*v])
+	res := graphql.MarshalString(marshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐDuration[*v])
 	return res
 }
 
 var (
-	unmarshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐDuration = map[string]permissions.Duration{
+	unmarshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐDuration = map[string]permissions.Duration{
 		"Once":    permissions.DurationOnce,
 		"Command": permissions.DurationCommand,
 		"Chat":    permissions.DurationChat,
 		"Always":  permissions.DurationAlways,
 	}
-	marshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋpermissionsᚐDuration = map[permissions.Duration]string{
+	marshalOApprovalDuration2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐDuration = map[permissions.Duration]string{
 		permissions.DurationOnce:    "Once",
 		permissions.DurationCommand: "Command",
 		permissions.DurationChat:    "Chat",
@@ -26969,7 +26969,7 @@ var (
 	}
 )
 
-func (ec *executionContext) marshalOBackgroundTask2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐBackgroundTask(ctx context.Context, sel ast.SelectionSet, v *chat.BackgroundTask) graphql.Marshaler {
+func (ec *executionContext) marshalOBackgroundTask2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐBackgroundTask(ctx context.Context, sel ast.SelectionSet, v *chat.BackgroundTask) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -27006,7 +27006,7 @@ func (ec *executionContext) marshalOBoolean2ᚖbool(ctx context.Context, sel ast
 	return res
 }
 
-func (ec *executionContext) marshalOChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChat(ctx context.Context, sel ast.SelectionSet, v *chat.Chat) graphql.Marshaler {
+func (ec *executionContext) marshalOChat2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐChat(ctx context.Context, sel ast.SelectionSet, v *chat.Chat) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -27032,7 +27032,7 @@ func (ec *executionContext) marshalOChatID2ᚖgithubᚗcomᚋkstackhqᚋkstack�
 	return res
 }
 
-func (ec *executionContext) marshalOChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐChatMessage(ctx context.Context, sel ast.SelectionSet, v *chat.ChatMessage) graphql.Marshaler {
+func (ec *executionContext) marshalOChatMessage2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐChatMessage(ctx context.Context, sel ast.SelectionSet, v *chat.ChatMessage) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -27403,14 +27403,14 @@ var (
 	}
 )
 
-func (ec *executionContext) marshalOToolCallApproval2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallApproval(ctx context.Context, sel ast.SelectionSet, v *chat.ToolCallApproval) graphql.Marshaler {
+func (ec *executionContext) marshalOToolCallApproval2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallApproval(ctx context.Context, sel ast.SelectionSet, v *chat.ToolCallApproval) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._ToolCallApproval(ctx, sel, v)
 }
 
-func (ec *executionContext) unmarshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallID(ctx context.Context, v any) (*chat.ToolCallID, error) {
+func (ec *executionContext) unmarshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallID(ctx context.Context, v any) (*chat.ToolCallID, error) {
 	if v == nil {
 		return nil, nil
 	}
@@ -27419,7 +27419,7 @@ func (ec *executionContext) unmarshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋks
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallID(ctx context.Context, sel ast.SelectionSet, v *chat.ToolCallID) graphql.Marshaler {
+func (ec *executionContext) marshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallID(ctx context.Context, sel ast.SelectionSet, v *chat.ToolCallID) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
@@ -27429,59 +27429,59 @@ func (ec *executionContext) marshalOToolCallID2ᚖgithubᚗcomᚋkstackhqᚋksta
 	return res
 }
 
-func (ec *executionContext) unmarshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallNetwork(ctx context.Context, v any) (*chat.ToolCallNetwork, error) {
+func (ec *executionContext) unmarshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallNetwork(ctx context.Context, v any) (*chat.ToolCallNetwork, error) {
 	if v == nil {
 		return nil, nil
 	}
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallNetwork[tmp]
+	res := unmarshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallNetwork[tmp]
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallNetwork(ctx context.Context, sel ast.SelectionSet, v *chat.ToolCallNetwork) graphql.Marshaler {
+func (ec *executionContext) marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallNetwork(ctx context.Context, sel ast.SelectionSet, v *chat.ToolCallNetwork) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	_ = sel
 	_ = ctx
-	res := graphql.MarshalString(marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallNetwork[*v])
+	res := graphql.MarshalString(marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallNetwork[*v])
 	return res
 }
 
 var (
-	unmarshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallNetwork = map[string]chat.ToolCallNetwork{
+	unmarshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallNetwork = map[string]chat.ToolCallNetwork{
 		"Chat":     chat.ToolCallNetworkChat,
 		"Turn":     chat.ToolCallNetworkTurn,
 		"Approved": chat.ToolCallNetworkApproved,
 	}
-	marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallNetwork = map[chat.ToolCallNetwork]string{
+	marshalOToolCallNetwork2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallNetwork = map[chat.ToolCallNetwork]string{
 		chat.ToolCallNetworkChat:     "Chat",
 		chat.ToolCallNetworkTurn:     "Turn",
 		chat.ToolCallNetworkApproved: "Approved",
 	}
 )
 
-func (ec *executionContext) unmarshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallStatus(ctx context.Context, v any) (*chat.ToolCallStatus, error) {
+func (ec *executionContext) unmarshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallStatus(ctx context.Context, v any) (*chat.ToolCallStatus, error) {
 	if v == nil {
 		return nil, nil
 	}
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallStatus[tmp]
+	res := unmarshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallStatus[tmp]
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallStatus(ctx context.Context, sel ast.SelectionSet, v *chat.ToolCallStatus) graphql.Marshaler {
+func (ec *executionContext) marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallStatus(ctx context.Context, sel ast.SelectionSet, v *chat.ToolCallStatus) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	_ = sel
 	_ = ctx
-	res := graphql.MarshalString(marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallStatus[*v])
+	res := graphql.MarshalString(marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallStatus[*v])
 	return res
 }
 
 var (
-	unmarshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallStatus = map[string]chat.ToolCallStatus{
+	unmarshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallStatus = map[string]chat.ToolCallStatus{
 		"NotRun":           chat.ToolCallNotRun,
 		"AwaitingApproval": chat.ToolCallAwaitingApproval,
 		"Denied":           chat.ToolCallDenied,
@@ -27490,7 +27490,7 @@ var (
 		"Failed":           chat.ToolCallFailed,
 		"Interrupted":      chat.ToolCallInterrupted,
 	}
-	marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋchatᚐToolCallStatus = map[chat.ToolCallStatus]string{
+	marshalOToolCallStatus2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallStatus = map[chat.ToolCallStatus]string{
 		chat.ToolCallNotRun:           "NotRun",
 		chat.ToolCallAwaitingApproval: "AwaitingApproval",
 		chat.ToolCallDenied:           "Denied",

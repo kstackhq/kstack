@@ -24,7 +24,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 )
 
@@ -344,7 +343,7 @@ func (h *harness) ownSize(t *testing.T, cluster apimeta.ClusterID) int {
 			own = append(own, m)
 		}
 	}
-	return clustercard.SectionSize(entries(own))
+	return sectionSize(entries(own))
 }
 
 // fill saves notes of body into cluster until the next is refused ErrFull.

@@ -21,7 +21,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/kstackhq/kstack/sidecar/internal/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 )
 
 // ContextMode is the mode for the contexts a pattern matches.

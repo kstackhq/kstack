@@ -20,7 +20,7 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
+	"github.com/kstackhq/kstack/sidecar/internal/run/loginshell"
 )
 
 // shims follow the user's definitions in the snapshot, so they win. They are a

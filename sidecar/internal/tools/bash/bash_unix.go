@@ -26,8 +26,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
-	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/run/loginshell"
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
 // defaultPath is what a sandboxed run searches while the user's list was

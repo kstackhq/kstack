@@ -19,8 +19,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/app"
-	"github.com/kstackhq/kstack/sidecar/internal/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 )

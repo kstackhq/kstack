@@ -23,7 +23,7 @@ import (
 	"strconv"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/rootdir"
-	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
 const (

@@ -147,7 +147,7 @@ func TestAWireFileMayImportAModelSDKsTypes(t *testing.T) {
 		{"internal/tools/anthropicwebsearch/anthropicwebsearch.go", anthropicSDK},
 		{"internal/tools/anthropicwebsearch/messages.go", anthropicSDK + "/option"},
 		{"internal/tools/anthropicwebsearch/messages_test.go", anthropicSDK + "/packages/ssestream"},
-		{"internal/services/chat/messages.go", anthropicSDK},
+		{"internal/agent/chat/messages.go", anthropicSDK},
 		{"internal/tools/messages.go", anthropicSDK},
 	}
 	for _, c := range refused {

@@ -24,7 +24,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 

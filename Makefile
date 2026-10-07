@@ -79,14 +79,14 @@ cover-go:
 # vendors and spends real tokens, so nothing runs it automatically: run it before
 # a catalog change lands and paste its lines into the PR.
 check-cache:
-	cd sidecar && go test -tags livecache -count=1 -v -run TestEveryModelReadsItsSecondTurnFromTheCache ./internal/catalog
+	cd sidecar && go test -tags livecache -count=1 -v -run TestEveryModelReadsItsSecondTurnFromTheCache ./internal/agent/catalog
 
 # Walks one chat across every dialect — Anthropic, OpenAI, a Chat Completions
 # vendor, Anthropic again — each step a real tool round over the steps before it,
 # with the keys in the environment. It spends real tokens, so nothing runs it
 # automatically: run it before a change to how a wire replays another's rows lands.
 check-switch:
-	cd sidecar && go test -tags liveswitch -count=1 -v -run TestAChatSwitchesAcrossEveryDialect ./internal/catalog
+	cd sidecar && go test -tags liveswitch -count=1 -v -run TestAChatSwitchesAcrossEveryDialect ./internal/agent/catalog
 
 # Frontend coverage gate: fails below the line percentage in
 # scripts/coverage-threshold. Excludes generated output and the test harness
@@ -117,7 +117,7 @@ vet: vet-go vet-rust
 # The live checks are behind tags no other target builds; vetting them here keeps
 # them compiling.
 vet-go:
-	cd sidecar && go vet ./... && go vet -tags livecache ./internal/catalog && go vet -tags liveswitch ./internal/catalog
+	cd sidecar && go vet ./... && go vet -tags livecache ./internal/agent/catalog && go vet -tags liveswitch ./internal/agent/catalog
 
 vet-rust:
 	cd src-tauri && cargo clippy --all-targets -- -D warnings

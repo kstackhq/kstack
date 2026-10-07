@@ -29,8 +29,8 @@ import (
 	"syscall"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/rootdir"
-	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
-	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/run/loginshell"
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
 // TempDir makes a login shell's TMPDIR as a sandboxed run's is made: a <pid>-*

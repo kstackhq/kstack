@@ -14,7 +14,7 @@
 
 package securityconfig
 
-import "github.com/kstackhq/kstack/sidecar/internal/sandbox"
+import "github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 
 // RunCheck is the sync's checks over one folder, against a run's own open
 // folders and the paths it never opens, since the stored list can predate a path the

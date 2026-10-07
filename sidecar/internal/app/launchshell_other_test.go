@@ -21,7 +21,7 @@ import (
 	"os"
 	"testing"
 
-	"github.com/kstackhq/kstack/sidecar/internal/loginshell"
+	"github.com/kstackhq/kstack/sidecar/internal/run/loginshell"
 	"github.com/stretchr/testify/require"
 )
 

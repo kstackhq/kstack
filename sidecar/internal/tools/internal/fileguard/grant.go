@@ -18,8 +18,8 @@ import (
 	"context"
 	"slices"
 
-	"github.com/kstackhq/kstack/sidecar/internal/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/session"
+	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 )
 
 // Hidden is what the sandbox keeps shut under any grant, each path as the
