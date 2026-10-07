@@ -18,6 +18,12 @@ concurrency:
   # A run on main is left to finish, so it saves its caches.
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  # Full debug info swells the Rust caches and slows linking; line tables keep
+  # file:line in test backtraces. Workflow-wide, since rust-cache keys on CARGO_*
+  # variables and Rust · Audit borrows Rust · Vet's cache.
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+
 jobs:
   ##############################
   # Pre-flight jobs
