@@ -39,7 +39,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
@@ -192,7 +192,7 @@ func startService(t *testing.T, dir string) *service {
 // tool box and lists.
 func startServiceWith(t *testing.T, dir string, llmSvc *llm.Service, clusterCards ClusterCards, box tools.Box, lists ToolLists) *service {
 	t.Helper()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), llmSvc, clusterCards, nil, box, lists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), llmSvc, clusterCards, nil, box, lists, sandbox.Status{}, testSettings(t))
 	require.NoError(t, err)
 	startPrepared(t, s)
 	return s
@@ -697,7 +697,7 @@ func offered(req llm.Request) []string {
 	return out
 }
 
-// testSecurity is a security store over a file not yet written: every default.
+// testSettings is a settings store over a file not yet written: every default.
 // grantable makes s a machine with a sandbox whose home is a fresh folder
 // holding a never-readable .ssh and a code/svc, and answers the home.
 func grantable(t *testing.T, s *service) string {
@@ -705,34 +705,34 @@ func grantable(t *testing.T, s *service) string {
 	return grantableWith(t, s, "")
 }
 
-// grantableWith is grantable over a security.json holding securityJSON, with
+// grantableWith is grantable over a settings.json holding settingsJSON, with
 // <home> in it spelled as the home and a / after it as the separator; "" for a
 // file not yet written.
-func grantableWith(t *testing.T, s *service, securityJSON string) string {
+func grantableWith(t *testing.T, s *service, settingsJSON string) string {
 	t.Helper()
 	home := testutil.GrantableDir(t)
 	for _, d := range []string{".ssh", "code/svc"} {
 		require.NoError(t, os.MkdirAll(filepath.Join(home, d), 0o755))
 	}
-	file := filepath.Join(t.TempDir(), "security.json")
-	if securityJSON != "" {
+	file := filepath.Join(t.TempDir(), "settings.json")
+	if settingsJSON != "" {
 		// Marshalled, since a Windows path's backslashes are escapes in JSON.
 		inJSON := func(s string) string { b, _ := json.Marshal(s); return string(b[1 : len(b)-1]) }
 		r := strings.NewReplacer("<home>/", inJSON(home+string(filepath.Separator)), "<home>", inJSON(home))
-		require.NoError(t, os.WriteFile(file, []byte(r.Replace(securityJSON)), 0o600))
+		require.NoError(t, os.WriteFile(file, []byte(r.Replace(settingsJSON)), 0o600))
 	}
-	store, err := securityconfig.Open(file)
+	store, err := settings.Open(file)
 	require.NoError(t, err)
-	s.security = securityconfig.NewService(store, func() securityconfig.Zones {
-		return securityconfig.Zones{Never: []string{filepath.Join(home, ".ssh")}, Home: home, NoWrite: sandbox.NoWrite(home)}
+	s.settings = settings.NewService(store, func() settings.Zones {
+		return settings.Zones{Never: []string{filepath.Join(home, ".ssh")}, Home: home, NoWrite: sandbox.NoWrite(home)}
 	}, nil, "")
 	s.sandboxStatus = sandbox.Status{Available: true}
 	return home
 }
 
-func testSecurity(t *testing.T) *securityconfig.Service {
+func testSettings(t *testing.T) *settings.Service {
 	t.Helper()
-	s, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	s, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
-	return securityconfig.NewService(s, nil, nil, "")
+	return settings.NewService(s, nil, nil, "")
 }

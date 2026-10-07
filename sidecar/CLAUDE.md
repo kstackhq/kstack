@@ -17,7 +17,7 @@ sweeps it and removes it:
 ```
 <data>/                                what a user would lose
   app.db                               app
-  security.json                        app: the security settings
+  settings.json                        app: the user's settings
   beehive.db                           services/cluster
   chats/<chat id>/                     agent/chat: results/, tasks/, workspace/, toolhome/
   monitor/<cluster id>/                agent/chat: a monitor's results/, workspace/, toolhome/
@@ -90,14 +90,14 @@ that is what keeps cluster-controlled text from forging a line (`TestInitWritesO
 host](../docs/adr/2026-09-08-json-logs-rendered-by-the-host.md), [ADR: two processes, two log
 files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
 
-- `internal/app/` probes the sandbox once (`probeSandbox`, a test's seam, under the context `New` is handed, the shutdown signal's; a probe that context cut short answers its error, which `New` returns, and `run` exits cleanly on it), then, with `RunLoginShell`, runs the login shell in it (`launchShell`, *The login shell*, below), **before anything that reads the environment**: on macOS it sets the environment process-wide, and `chatTools` reads the proxy variables. Then `build` opens the security settings (`securityconfig.Open`, before `app.db`, since the store holds no handle) and `app.db`, and builds `poke`, `kubeconfig`, `services/cluster`, `auth`, `cloud`, the catalog and llm service, the Bash tool, the security service, `services/memory`, the tool box and `agent/chat`; `New` wires `graph.NewServer` + `grpcserver.NewServer` over the runtime and multiplexes both onto one h2c handler. `Runtime.parts` is start order (app.db → poke → kubeconfig → cluster → cloud → memory → chat, then the executable probe when there is a shell, whose Close ends a running probe, then the `PATH` sync when the launch read a `PATH` on a machine with a sandbox, then the shell snapshot with `RunLoginShell`); stop and close reverse it. The sync folds the launch's `PATH` into the stored list, and one that fails is a warning, not a startup error. A sync that changed the list starts a probe of every listed executable (`StartProbe`), so nothing runs unasked on a machine whose tools did not move; the executable probe part's Close ends it. At the end of `build`, once `agent/chat` exists, the Bash tool is handed the probe's folders: `FoldersFor(ctx, "")`, the folders granted always, and `securityCfg.CheckFolder` (`SetProbeFolders`). **kubeconfig before cluster is load-bearing** (`app_test.go` pins it). The transports stay out of the slice; `grpcServer.Stop()` runs first in `Close`.
+- `internal/app/` probes the sandbox once (`probeSandbox`, a test's seam, under the context `New` is handed, the shutdown signal's; a probe that context cut short answers its error, which `New` returns, and `run` exits cleanly on it), then, with `RunLoginShell`, runs the login shell in it (`launchShell`, *The login shell*, below), **before anything that reads the environment**: on macOS it sets the environment process-wide, and `chatTools` reads the proxy variables. Then `build` opens the settings (`settings.Open`, before `app.db`, since the store holds no handle) and `app.db`, and builds `poke`, `kubeconfig`, `services/cluster`, `auth`, `cloud`, the catalog and llm service, the Bash tool, the settings service, `services/memory`, the tool box and `agent/chat`; `New` wires `graph.NewServer` + `grpcserver.NewServer` over the runtime and multiplexes both onto one h2c handler. `Runtime.parts` is start order (app.db → poke → kubeconfig → cluster → cloud → memory → chat, then the executable probe when there is a shell, whose Close ends a running probe, then the `PATH` sync when the launch read a `PATH` on a machine with a sandbox, then the shell snapshot with `RunLoginShell`); stop and close reverse it. The sync folds the launch's `PATH` into the stored list, and one that fails is a warning, not a startup error. A sync that changed the list starts a probe of every listed executable (`StartProbe`), so nothing runs unasked on a machine whose tools did not move; the executable probe part's Close ends it. At the end of `build`, once `agent/chat` exists, the Bash tool is handed the probe's folders: `FoldersFor(ctx, "")`, the folders granted always (`SetProbeFolders`). **kubeconfig before cluster is load-bearing** (`app_test.go` pins it). The transports stay out of the slice; `grpcServer.Stop()` runs first in `Close`.
 
   **`READY` promises a socket, not a finished startup.** `run` prints it after the bind and before `Start`; the first request is answered after `Start`, and every part completes its startup work inside `Start`. Everything that reads the environment does so after the shell import at the top of `app.New`, which finishes before `READY` — nothing sends before it, and `net/http` reads the proxy variables once per process on the first request.
-- `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.SecurityCfg` is `securityconfig.Service`, the settings store with the frozen `PATH` kept in it; its resolvers are `securityRefused`, and `sandboxPath`, `sandboxPathFault` and the three `sandboxPath*` mutations, which answer an empty list, no fault and a refusal on a machine with no sandbox. A `securityconfig.PathRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxPathErr`). Its permission resolvers are `permissionSettings` and the six `permission*` mutations, each answering the settings it left (`permissionSettings` in `util.go`, the known contexts read off `Clusters().List`), and a refused one `KSTACK_VALIDATION_ERROR` with the reason (`permissionsAfter`); a rule's id is `appdb.NewID()`. The folder resolvers are `sandboxFolders(chatID)` and `folderGrant` and `folderRevoke`, each answering the whole `SandboxFolders` (the always grants and the chat's with each `refused` reason, the never-readable list and the wide folders; empty lists on a machine with no sandbox), through `agent/chat`, where an empty chat id is no chat: a `Chat` grant with no `chatID`, or an empty one, is `KSTACK_VALIDATION_ERROR`, so it never widens to every chat, and an `Always` one ignores it. A `FolderRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` whose `rule` is the check's, with a link's `target` beside it (`folderErr`). The executable resolvers are `sandboxExecutables`, `sandboxExecutablesProbe`, `sandboxExecutableRegister` and `sandboxExecutableRemove`, each answering the whole report through `Resolver.Executables` (an `ExecutableProber`, the Bash tool), `Report` laying the last probe over the list; `sandboxExecutablesProbe` only starts one (`StartProbe`), since a probe can outlast the host's request budget, and **`sandboxExecutablesWatch` is the gauge its end reaches**: `WatchProbe`'s `ProbeState` and the security store's settings, each a current-on-subscribe receiver, folded into one `SandboxExecutablesReport` — `probing`, and `bash.ReportOver` the state's last report and the settings' registered executables — on either's change. With no sandbox or no shell the query is empty, the watch answers one empty report, and the probe and a register are refused. A `securityconfig.ExecutableRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxExecutableErr`). `onboarding` answers `Onboarded`, and `onboardingFinish` sets it, with a sandbox or without, since the store is open on every platform.
+- `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.Settings` is `settings.Service`, the settings store with the frozen `PATH` kept in it; its resolvers are `settingsRefused`, and `sandboxPath`, `sandboxPathFault` and the three `sandboxPath*` mutations, which answer an empty list, no fault and a refusal on a machine with no sandbox. A `settings.PathRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxPathErr`). Its permission resolvers are `permissionSettings` and the six `permission*` mutations, each answering the settings it left (`permissionSettings` in `util.go`, the known contexts read off `Clusters().List`), and a refused one `KSTACK_VALIDATION_ERROR` with the reason (`permissionsAfter`); a rule's id is `appdb.NewID()`. The folder resolvers are `sandboxFolders(chatID)` and `folderGrant` and `folderRevoke`, each answering the whole `SandboxFolders` (the always grants and the chat's with each `refused` reason, the never-readable list and the wide folders; empty lists on a machine with no sandbox), through `agent/chat`, where an empty chat id is no chat: a `Chat` grant with no `chatID`, or an empty one, is `KSTACK_VALIDATION_ERROR`, so it never widens to every chat, and an `Always` one ignores it. A `FolderRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` whose `rule` is the check's, with a link's `target` beside it (`folderErr`). The executable resolvers are `sandboxExecutables`, `sandboxExecutablesProbe`, `sandboxExecutableRegister` and `sandboxExecutableRemove`, each answering the whole report through `Resolver.Executables` (an `ExecutableProber`, the Bash tool), `Report` laying the last probe over the list; `sandboxExecutablesProbe` only starts one (`StartProbe`), since a probe can outlast the host's request budget, and **`sandboxExecutablesWatch` is the gauge its end reaches**: `WatchProbe`'s `ProbeState` and the settings store's settings, each a current-on-subscribe receiver, folded into one `SandboxExecutablesReport` — `probing`, and `bash.ReportOver` the state's last report and the settings' registered executables — on either's change. With no sandbox or no shell the query is empty, the watch answers one empty report, and the probe and a register are refused. A `settings.ExecutableRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxExecutableErr`). `onboarding` answers `Onboarded`, and `onboardingFinish` sets it, with a sandbox or without, since the store is open on every platform.
 - `grpc/` — `AuthService`, `PokeService`, committed protoc output in `authpb/`, `pokepb/`. Regenerate with `make proto`; **never hand-edit `*.pb.go`**. `IsGRPCRequest` lives here.
 - `internal/` groups its packages by one rule → [ADR: services, lib and the rest](../docs/adr/2026-10-06-sidecar-packages-group-into-services-lib-and-the-rest.md), and every folder is a layer (*Where a new package goes*, below):
-  - `internal/services/` — a package that owns state outliving a request (rows, a watch, a connection, goroutines), is reached from `graph/` or `grpc/`, and sits below the tools — the services a tool may import; `chat`, the one service built on the tools, is `agent/chat`: `auth`, `cluster` (with `cluster/clustercard` under it, the cluster as a run is told it: a projection of the service, below the tools that name the context and the freshness as it does), `kubeconfig`, `memory` (the notes a chat's cluster sees, below), `poke`, `securityconfig` (the security settings, below).
-  - `internal/lib/` — a building block that knows nothing of Kstack's domain; `lib` is a folder, never a package name: `apimeta` (wire vocabulary no service owns — the delta-frame type, `ObjectID`, `ClusterID`, which `services/cluster` aliases, and `ChatID`, which `agent/chat` aliases and `services/memory` and `tools.Runtime` name), `atomicjson`, `deltafold` (a watch's memory: `Snapshot`/`Diff`/`Upsert`/`Has` over a caller's key, equality and frame, plus `Send`; imports `apimeta` alone), `drain`, `ipc`, `lifecycle`, `logging`, `rawjson`, `rootdir` (a directory opened and removed through an `os.Root`, under *Tools*), `safe` (an error rendered for a log line, and a command's output redacted: `Redact` line by line, `RedactJSON` a JSON text by its structure, for text that is one line with its newlines escaped; the field and flag rules read a credential's name off `credentialNames`, with or without the separator inside it, so camelCase keys match), `sqlitemigrate` (the migration runner, `Apply`), `sqlitepool` (the one home of the SQLite open contract: `OpenWriter` a store's one writer connection, `OpenReader` a reader pool, `OpenQuery` read-only connections through a caller's driver with none kept idle), `sqlstmt` (a store's statement table, prepared once on a file's writer and reader pools and routed per call: a `[]sqlstmt.Statement` indexed by the store's own id type, each entry its text and pool — `OnWriter`, `OnReader`, or `OnBoth` for a read some caller runs inside a write transaction; `Prepare[ID]` compiles it at open, since modernc caches nothing and a text handed to a pool at a call site is compiled every time; `Set.Stmts()` issues on the pools, `Set.InTx` inside one write transaction, `Set.InReadTx` inside one read-only transaction on the reader, always rolled back; inside a transaction the copy rebound, once per id, is the one prepared on that transaction's pool, and an id its pool does not hold panics; `Set.Close` finalizes the statements alone, and a closed set refuses `InTx`/`InReadTx` with `ErrClosed`, since `Tx.StmtContext` would quietly re-prepare a closed statement; imports nothing of ours; → [ADR: one statement set](../docs/adr/2026-09-16-sqlstmt-prepares-a-services-statements.md)), `supervisor`, `testutil` (test-only, imported by no production code), `version` (`Version` is `dev` unless the linker stamped it: `scripts/build-sidecar.go` passes `-X …/internal/lib/version.Version=$SIDECAR_VERSION` when set, `release.yml` sets it to the release version, and `main` logs it on the `sidecar starting` line; nothing reads a version from the environment or a file), `workqueue`.
+  - `internal/services/` — a package that owns state outliving a request (rows, a watch, a connection, goroutines), is reached from `graph/` or `grpc/`, and sits below the tools — the services a tool may import; `chat`, the one service built on the tools, is `agent/chat`: `auth`, `cluster` (with `cluster/clustercard` under it, the cluster as a run is told it: a projection of the service, below the tools that name the context and the freshness as it does), `kubeconfig`, `memory` (the notes a chat's cluster sees, below), `poke`, `settings` (the user's settings and the sandbox state derived from them, below).
+  - `internal/lib/` — a building block that knows nothing of Kstack's domain; `lib` is a folder, never a package name: `apimeta` (wire vocabulary no service owns — the delta-frame type, `ObjectID`, `ClusterID`, which `services/cluster` aliases, and `ChatID`, which `agent/chat` aliases and `services/memory` and `tools.Runtime` name), `atomicjson`, `deltafold` (a watch's memory: `Snapshot`/`Diff`/`Upsert`/`Has` over a caller's key, equality and frame, plus `Send`; imports `apimeta` alone), `drain`, `ipc`, `jsonsettings` (a settings struct kept in one hand-editable JSON file, under *Settings*), `lifecycle`, `logging`, `rawjson`, `rootdir` (a directory opened and removed through an `os.Root`, under *Tools*), `safe` (an error rendered for a log line, and a command's output redacted: `Redact` line by line, `RedactJSON` a JSON text by its structure, for text that is one line with its newlines escaped; the field and flag rules read a credential's name off `credentialNames`, with or without the separator inside it, so camelCase keys match), `sqlitemigrate` (the migration runner, `Apply`), `sqlitepool` (the one home of the SQLite open contract: `OpenWriter` a store's one writer connection, `OpenReader` a reader pool, `OpenQuery` read-only connections through a caller's driver with none kept idle), `sqlstmt` (a store's statement table, prepared once on a file's writer and reader pools and routed per call: a `[]sqlstmt.Statement` indexed by the store's own id type, each entry its text and pool — `OnWriter`, `OnReader`, or `OnBoth` for a read some caller runs inside a write transaction; `Prepare[ID]` compiles it at open, since modernc caches nothing and a text handed to a pool at a call site is compiled every time; `Set.Stmts()` issues on the pools, `Set.InTx` inside one write transaction, `Set.InReadTx` inside one read-only transaction on the reader, always rolled back; inside a transaction the copy rebound, once per id, is the one prepared on that transaction's pool, and an id its pool does not hold panics; `Set.Close` finalizes the statements alone, and a closed set refuses `InTx`/`InReadTx` with `ErrClosed`, since `Tx.StmtContext` would quietly re-prepare a closed statement; imports nothing of ours; → [ADR: one statement set](../docs/adr/2026-09-16-sqlstmt-prepares-a-services-statements.md)), `supervisor`, `testutil` (test-only, imported by no production code), `version` (`Version` is `dev` unless the linker stamped it: `scripts/build-sidecar.go` passes `-X …/internal/lib/version.Version=$SIDECAR_VERSION` when set, `release.yml` sets it to the release version, and `main` logs it on the `sidecar starting` line; nothing reads a version from the environment or a file), `workqueue`.
   - `internal/llm/` — a call to a model, importing nothing of ours (*Models*, below).
   - `internal/run/` — what confines one run, the leaves the tools stand on: `permissions` (the classes, modes and rules a cluster write is decided by, under *Tools*), `sandbox` (the machine's sandbox and a run's forwarder, under *Tools*), `session` (one agent run's identity and policy, under *Tools*), `kubeproxy` (the cluster proxy a sandboxed run reaches its cluster through, under *Tools*), `loginshell` (below).
   - `internal/agent/` — the agent itself, everything above `tools`: `loop` (the loop, below), `catalog` (the providers and the tools each is offered, below), `chat` (the chat service, below).
@@ -148,7 +148,7 @@ Full picture: [`docs/security-model.md`](../docs/security-model.md). The sidecar
 Linux with no sandbox it is not run at all (`skipResolution` in `launchshell_other.go`), since
 nothing reads its answer there; on macOS with none it runs unconfined and logs that once. `loginshell.Resolve` answers a `Result` with
 two readers: `Path`, the shell's `PATH` split and unfiltered, which the app hands to the sync
-(*Security settings*, below), and `Env`, the allowlisted environment, which `setShellEnv`
+(*Settings*, below), and `Env`, the allowlisted environment, which `setShellEnv`
 sets process-wide on macOS (`launchshell_darwin.go`; a no-op in `launchshell_other.go`). A GUI launch
 inherits launchd's minimal environment, so without it a kubeconfig `exec` credential plugin
 (`aws`, `gke-gcloud-auth-plugin`) is not found even though the same kubeconfig works in a
@@ -1331,7 +1331,7 @@ field; a test sets the ones its tool
 reads. **A `session.Session`** is one agent run's policy: its `Kind` (`Chat`, `Subagent` or
 `Monitor`, built by `agent/chat`'s `monitorSession`), `Outside`, the chat's switch as its turn read it, and
 `Policy`, a function of a kube-context answering a `permissions.Policy` — the context's mode and the
-rules — read live on every write, which `agent/chat` sets to the security store's `ModeFor` and the
+rules — read live on every write, which `agent/chat` sets to the settings store's `ModeFor` and the
 chat's grants joined with the store's `Rules()` (`sessionFor`, `grants.go`), so a mode or rule
 changed in Settings applies to the next write, a running subagent's included; `Network`, the
 `session.Network` a sandboxed command starting now has — `NetworkChat` while the chat's
@@ -1649,7 +1649,7 @@ or under an Always path, not broad — `/`, the home or an app-data folder under
 the same `broadDirs` that keeps a toolchain folder out of `System`), or a folder holding one —
 not a fixed mount (`overFixedMount`, which `Command` refuses), and no list
 separator in its name, which a joined `PATH` would split — each refusal a reason of its own, so a
-folder that passes never stops a run from starting. `securityconfig`'s filter and its per-run
+folder that passes never stops a run from starting. `settings`' filter and its per-run
 check both call it, then add only the list's own rules. `FilePolicy.WithSearch(folders)` is the
 run's Read rules for them, a Files Deny on one of those very folders dropped, since it would win
 the tie.
@@ -1951,7 +1951,7 @@ the root forms under the workspace or a walked folder, and `Close` closes the ro
 **A granted folder is reached by handle** (`grant.go`, `walk.go`). `Fence.WithHidden(hidden)` gives
 a fence what the sandbox keeps shut under a grant: `hidden` answers `Hidden`'s `Never` (the
 denied-always list with Kstack's directories) and `Closed` (the closed folders), as the zones list
-them, from `securityconfig`'s snapshot, so asking touches no disk; a fence with none skips nothing.
+them, from `settings`' snapshot, so asking touches no disk; a fence with none skips nothing.
 **Both are resolved each time they are compared** (`Hidden.resolved`), never kept resolved, so a
 never path that is a link retargeted after the sync is caught at its target of now
 (`TestARetargetedNeverPathStaysHidden`, `TestACheckResolvesTheZonesNow`).
@@ -2510,7 +2510,7 @@ with no shell clears the network answer with it (`TestNoShellOffersNoNetwork`) �
 `chat.New` and `graph.Resolver` take; `chatTools`, the one
 `tools.NewBox`), then Read, Memory, Write, Edit, WebFetch, TaskStop, the provider's web search and KubeQuery; a machine with none is
 offered Read, Memory, Write, Edit, WebFetch, the search and KubeQuery, and reads bash's stored calls through `bash.Reader`. Read, Write and Edit take Kstack's
-directories (`Paths.DeniedDirs`) and build their own fence around them, with the security service's
+directories (`Paths.DeniedDirs`) and build their own fence around them, with the settings service's
 `Hidden` as what the sandbox keeps shut under a grant; `chatTools` runs once `makeDirs` has made them, and
 `app.New` fails to start without them. For bash, `New` reads the version once with `bash --version` (never
 `-c`, which sources `BASH_ENV`), and the prompt's `- Shell:` line names it — on a bash older than
@@ -2577,14 +2577,14 @@ reboot too, so a reused pid never keeps a gone sidecar's `TMPDIR`. A sidecar tha
 sweep's hold takes the lock again when the sweep removed the file. **Its `PATH` is frozen at its start** (`path.go`): `New`'s `pathList` is the
 stored settings' `RunPath`, the list and whether a sync has written it, read
 once before the run is built, and
-`runPath` checks each adopted entry with a `securityconfig.RunCheck` over the run's `System` and its `Always` paths, each list
+`runPath` checks each adopted entry with a `settings.RunCheck` over the run's `System` and its `Always` paths, each list
 resolved once per run — the
 folder it resolves to now when the sync would adopt that unasked, the stored `Target` for one the
 user adopted, nothing for one inside an `Always` path, broad, world-writable, or no longer open or
 shared under the shell's adoption — logging each entry it leaves out or moves. The folders that
 pass are the run's `PATH`, joined in order without repeats, or `emptyPath` (`/nonexistent`) with
 none, since an empty `PATH` searches the writable working directory. **Only a list never
-resolved** (`Settings.PathResolved` unset: no sync has run, as after a first launch whose shell
+resolved** (`Settings.Sandbox.PathResolved` unset: no sync has run, as after a first launch whose shell
 failed) searches `loginshell.DefaultPath` instead, each folder an entry the shell adopted under the
 same checks; a resolved list that is empty, or whose every entry fails them, searches nothing. Each folder
 `System` does not open is a Files Read rule of the run, which takes the place of a Files Deny on
@@ -2632,9 +2632,9 @@ as its own Read, and the workspace, the tool home, its `TMPDIR` and the kubectl 
 Write; and a run with a cluster has one
 relay, from `Port()` to its proxy socket. **A grant is a Files rule**: `grantRules` reads the
 session's folders once, as the run is built, and checks each again with
-`securityconfig.CheckStoredFolder`
+`settings.CheckStoredFolder`
 against what this run enforces — its `System` files, `Never` with Kstack's directories, the home,
-`sandbox.NoWrite` and the stored `PATH` (`securityconfig.PathEntryFolders`) — so a folder that moved or
+`sandbox.NoWrite` and the stored `PATH` (`settings.PathEntryFolders`) — so a folder that moved or
 became a link since `foldersFor` read it is left out, and logged (`TestAGrantThatFailsTheCheckIsLeftOut`).
 A folder granted twice keeps the wider grant, and one under a read-write folder is dropped, since
 `Check` refuses any rule beneath a Write rule; a read-write folder under a read one stays
@@ -2688,7 +2688,7 @@ listing names asks for nothing, that a background command reads it redacted and 
 is refused when the command read Secret data redacted; and that `sudo` does not work, a command's processes are limited, one past its CPU
 time is killed with exit 152, and a crash that cannot create a thread hit the count.
 **The executable probe runs the executables a command would, before any chat does** (`executableprobe.go`).
-`executableList(registered)` is the list: `securityconfig.CuratedExecutables` (`kubectl`, `helm`, `kustomize`,
+`executableList(registered)` is the list: `settings.CuratedExecutables` (`kubectl`, `helm`, `kustomize`,
 `git`, `jq`, `yq`), then the user's, each an `ExecutableReport` not probed yet. **`ProbeExecutables(ctx,
 registered)` runs each in the sandbox, one after another**: the executable's name resolved on the run's
 `PATH` (`resolveExecutable`: the first regular, executable `<entry>/<name>`, no entry listed) and the
@@ -3144,13 +3144,13 @@ only if it is still `w`. Under `turnsMu`, `Approve` reads the waiter and asks it
 and `Deny` alone, anything else `ErrBadRequest` with the waiter left in place), removes it, then
 lets go:
 `Command` delivers approved with `command`, the proxy keeping the rule; `Chat` writes
-`permissions.GrantRule(act)` through `addGrant`, and `Always` into `securityconfig`'s rules under a
+`permissions.GrantRule(act)` through `addGrant`, and `Always` into `settings`' rules under a
 fresh `appdb.NewID()`, each unless the same rule is held there already (`sameRule`: equal once the
 ids are cleared), then delivers. The rule lands before the decision, outside `turnsMu`, through
 `ruleWrite` (`writeRule`, a test's seam). A write that fails takes `turnsMu` again and puts the
 waiter back unless it is `forgotten`, then answers the error; `Always` while the settings hold
-rules Kstack cannot read is `securityconfig.ErrHeld`, which `approvalErr` (`graph/util.go`) maps to
-`KSTACK_VALIDATION_ERROR` naming `security.json`.
+rules Kstack cannot read is `settings.ErrHeld`, which `approvalErr` (`graph/util.go`) maps to
+`KSTACK_VALIDATION_ERROR` naming `settings.json`.
 
 **A chat's rules are `chat_grants` rows** (`grants.go`), each a `permissions.Rule` as JSON whose
 `ID` is the row's, cascading with the chat. `grantsFor` reads them on every decision, never cached;
@@ -3164,15 +3164,15 @@ the `chatGrants(chatID)` query and the `chatGrantRemove(chatID, id)` mutation, w
 rules left; `ErrGrantGone` is `KSTACK_RECORD_NOT_FOUND`.
 
 **`foldersFor(ctx, chatID)` is the one builder of a session's folders** (`grants.go`): the chat's
-folder grants, then the always ones (`folderRules`, over `security.Rules()`, so a held `rules`
-grants none), each checked again by `securityconfig.Service.CheckStoredFolder` — a folder that
+folder grants, then the always ones (`folderRules`, over `settings.Rules()`, so a held `permissions.rules`
+grants none), each checked again by `settings.Service.CheckStoredFolder` — a folder that
 fails is left out and logged with its reason — and none at all where `sandboxStatus` is not
 `Available`.
 `sessionFor` sets `Folders` to it, and to none for a chat switched outside the sandbox, so `bash`
 and the file tools read one checked list (`TestFoldersForAnswersOnlyCheckedFolders`,
 `TestNoFolderAppliesWithoutASandbox`). `FoldersFor(ctx, "")` is the always folders alone, for a run
 with no chat. **`GrantFolder(ctx, chatID, path, write)`** checks the path as a new grant
-(`CheckFolder`, a `securityconfig.FolderRefusal` on refusal), then writes a `Rule{Allow,
+(`CheckFolder`, a `settings.FolderRefusal` on refusal), then writes a `Rule{Allow,
 ReadInside|WriteInside, Folder}`: a chat's through `putGrant` in one transaction with the lookup
 (`readGrants`, the chat's rules read on the transaction's own statements), and with no chat (`""`)
 an always one through the store's `PutRule`, one update; a folder already granted in the same
@@ -3633,57 +3633,80 @@ it concurrently.
 | `llm.ErrBadRequest` | `ErrValidationError` | `KSTACK_VALIDATION_ERROR` |
 | `llm.ErrModelUnavailable` | `ErrConflict` | `KSTACK_CONFLICT` |
 
-## Security settings (`internal/services/securityconfig`)
+## Settings (`internal/services/settings`)
 
-**`<data>/security.json` is the security settings**, 0600 through `atomicjson`, in the data
-directory no sandboxed command reads, and never synced. `app.New` opens it on every platform;
-`Store` has `Get`, `Update`, `Subscribe` (a `gochan/watch` receiver, current on subscribe) and
-`Refused`. Every field of `Settings` is `omitempty` (`omitzero` for a struct). `Store` wraps the generic
-`store[Settings]` so it can carry methods of `Settings`' own.
+**`<data>/settings.json` is the user's settings**, 0600 through `atomicjson`, in the data
+directory no sandboxed command reads, and never synced. The package holds the user's settings and
+the operations on them, and the sandbox state derived from them; it is a service without
+`app.db`. `app.New` opens it on every platform. The keys are grouped by area, one object per
+area, and `schemaVersion` is 1:
 
+```json
+{
+  "schemaVersion": 1,
+  "sandbox": { "path": [], "pathResolved": false, "pathStrict": false },
+  "permissions": { "defaultMode": "", "modes": [], "rules": [] },
+  "executables": [],
+  "onboarded": false
+}
+```
+
+`Settings` mirrors it: `Sandbox` (`SandboxSettings`) and `Permissions` (`PermissionSettings`), each
+`omitzero`, then `Executables` and `Onboarded`. `Store` wraps the generic
+`jsonsettings.Store[Settings]` so it can carry methods of its own; it has `Get`, `Update`,
+`Subscribe` (a `gochan/watch` receiver, current on subscribe), `Held` and `Refused`. **A field's
+key is dotted inside its group** (`permissions.rules`), and every `Field*` constant spells one:
+`Held`, `Update`'s `fields`, a `Refusal`'s `Field` and the wire all name a field by it. →
+[ADR: settings are one file grouped by area](../docs/adr/2026-10-07-settings-are-one-file-grouped-by-area.md).
+
+**The store is `internal/lib/jsonsettings`**, which knows nothing of sandboxes or permissions, and
+its tests run it over their own settings types.
+
+- **A field of struct type is a group**: an object in the file whose fields are read the same
+  way, each under its dotted key. A group the file holds as anything but an object fails `Open`,
+  as a file that is not a JSON object does, naming the file. A group with nothing in it is left
+  out of the file.
 - **Every value crosses a JSON copy** (`clone`): `Get` and each send are copies, so a caller
   never reaches the store's value; receivers share one delivery and treat it as read-only.
 - **Equal means the same file.** An `Update` that leaves the file's JSON as it is writes and
   publishes nothing, so a nil slice swapped for an empty one is no change. The first write
   that changes something creates the file; `Open` writes nothing.
-- **Decoding is per field, and a list per element.** `Open` reads the file as a JSON object and
-  decodes each key into the field `encoding/json` writes under it. A `null` is refused, since
+- **Decoding is per field, and a list per element**, inside a group as at the top level. Each
+  key decodes into the field `encoding/json` writes under it. A `null` is refused, since
   `encoding/json` would read it as the zero value. One bad list element is refused
   alone; any other value of the wrong type is refused whole, and the other fields load. A key no
-  field names is ignored and kept: every write puts it back as read, so an older Kstack's write
-  keeps a newer one's setting. Only a file that is not a JSON object, `null` included, fails
-  `Open`, naming the file.
+  field names, at the top level or in a group, is ignored and kept: every write puts it back as
+  read, so an older Kstack's write keeps a newer one's setting.
 - **Every write stamps `schemaVersion`**: `schemaVersion` in `store.go`, or the file's own when a
-  newer Kstack wrote it, since this build cannot upgrade what it does not know. A step that
-  changes a field's layout bumps it and upgrades an older file in `Open`.
+  newer Kstack wrote it, since this build cannot upgrade what it does not know. A change to a
+  field's layout bumps it and upgrades an older file in `Open`.
 - **A hand edit may cost a permission, never a restriction.** `strictest` (`check.go`) maps each
-  field that restricts to what sets it to its most restrictive state. A refusal on such a field
-  sets that state, never the zero value, and the store keeps the field's raw JSON, which every
-  `Update` writes back until one names the field in `fields` (its JSON key), which ends the hold.
+  field that restricts, by its key, to what sets it to its most restrictive state. A refusal on
+  such a field sets that state, never the zero value, and the store keeps the field's raw JSON,
+  which every `Update` writes back until one names the field in `fields`, which ends the hold.
   **The store guards a held field**: an `Update` that changes one without naming it is `ErrHeld`
   and writes nothing, so no writer drops the value by accident; `Held(field)` says whether the
   store still keeps it. The fix can be the strictest state the field already answers, which
   changes nothing in memory, so a Settings section's mutation names the field it writes. A field
-  not listed only grants, and a refused value of it is dropped.
-- **The read-back is `checks`** (`check.go`), one per field, each added by its field's step. A
-  check reads the value alone, removes what it refuses, and answers a `Refusal` (field, value,
-  reason in the user's words) for each. On `Open` every refused value is logged and kept for the
-  store's life in `Refused()`, which the `securityRefused` query serves. On `Update` a refusal is
-  the error (`Refusal` is an `error`), and nothing is written. `WithChecks` is the test seam that
-  swaps the list.
-- **The core is generic** (`store[T]`), so the tests run it over their own settings type.
+  not listed only grants, and a refused value of it is dropped. A group is never held whole: a
+  bad rule leaves `permissions.modes` readable.
+- **The read-back is `checks`** (`check.go`), one per field. A check reads the value alone,
+  removes what it refuses, and answers a `Refusal` (field, value, reason in the user's words) for
+  each. On `Open` every refused value is logged and kept for the store's life in `Refused()`,
+  which the `settingsRefused` query serves. On `Update` a refusal is the error (`Refusal` is an
+  `error`), and nothing is written. `WithChecks` is the test seam that swaps the list.
 - **The approval modes and the always rules** (`permissions.go`): `DefaultMode` (`Ask` when
   empty), `Modes` (`ContextMode`s, first match wins) and `Rules`. `ModeFor(context)` is a
-  `ContextModeState`: read-only while `modes` is held (source `refused`), else the first entry
+  `ContextModeState`: read-only while `permissions.modes` is held (source `refused`), else the first entry
   whose pattern matches (`entry`, with the entry's pattern and whether it is the context's own,
   `Own`, what `ClearMode` removes), else the default (`default`); `DefaultMode()` is the default,
-  `Ask` when unset. `Rules()` is the always rules, or while `rules` is held those less every
+  `Ask` when unset. `Rules()` is the always rules, or while `permissions.rules` is held those less every
   `Allow`, plus `permissions.Refused` and `permissions.RefusedSecrets`, which a session reads per
   write. `FieldDefaultMode`,
   `FieldModes` and `FieldRules` are the fields' keys. The mutations: `SetDefaultMode` (names
-  `defaultMode`, its fix), `SetMode` (the context's literal, first, replacing one already there),
+  `permissions.defaultMode`, its fix), `SetMode` (the context's literal, first, replacing one already there),
   `ClearMode`, `AddRule`, `PutRule` (the first rule a predicate passes swapped in place under its
-  id, else appended), `RemoveRule` (`ErrNoRule`) and `DiscardRefused` (`modes` or `rules`,
+  id, else appended), `RemoveRule` (`ErrNoRule`) and `DiscardRefused` (`permissions.modes` or `permissions.rules`,
   naming it; `ErrNotHeld` otherwise). The checks refuse a mode that is not one of the three, an
   entry with no context, and a rule with an unknown effect, a class other than 1, 2 (a folder
   grant), 4, 5 (the two a cluster write is decided as) or 6 (a Secret read), an `Allow` of class 5, a cluster rule
@@ -3697,7 +3720,7 @@ directory no sandboxed command reads, and never synced. `app.New` opens it on ev
   `modes`' and `rules`' leave what passed and only hold the field, whose strict state `ModeFor`
   and `Rules` apply where they read it.
 
-**`Settings.Path` is the user's `PATH`, frozen** (`path.go`): a `PathEntry` per folder, in the
+**`Settings.Sandbox.Path` is the user's `PATH`, frozen** (`path.go`): a `PathEntry` per folder, in the
 shell's order — `Dir` as the shell gave it, `Target` the folder it resolved to when its state was
 set, `State` (`adopted`, `pending`, `gone`), `Source` (`shell` for the sync's decision, `user` for
 Include's or Remove's) and `Shared`. A state holds for `Target` alone. Its check refuses an entry
@@ -3718,7 +3741,7 @@ per sync (`sandbox.Resolved`) and compared by text (`sandbox.Under`). `SyncPath`
 reads the disk on a goroutine abandoned when its context ends or `SyncTimeout` (5s) passes, at
 launch and on refresh alike, answers whether the list it wrote differs from the one it read, and
 diffs in one `Update` naming
-`path`: a new entry open and not shared is `adopted`, any other new one `pending`; an entry whose
+`sandbox.path`: a new entry open and not shared is `adopted`, any other new one `pending`; an entry whose
 `Target` changed is filed again as new; every entry whose `Target` held takes the folder's
 `Shared` as it is now; a shell-adopted entry now shared or no longer open goes
 `pending`; an `adopted` or `pending` entry the shell no longer lists is dropped, a `gone` one kept

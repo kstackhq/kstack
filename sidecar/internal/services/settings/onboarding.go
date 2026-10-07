@@ -12,26 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+package settings
 
-import (
-	"path/filepath"
-	"testing"
-
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-)
-
-func TestOnboardedIsFalseOnAFreshFile(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
-	s, err := Open(file)
-	require.NoError(t, err)
-	assert.False(t, s.Get().Onboarded)
-
-	require.NoError(t, s.FinishOnboarding())
-	assert.True(t, s.Get().Onboarded)
-
-	again, err := Open(file)
-	require.NoError(t, err)
-	assert.True(t, again.Get().Onboarded, "a written true is read back")
+// FinishOnboarding marks the onboarding flow finished. Nothing unsets it.
+func (s *Store) FinishOnboarding() error {
+	return s.Update(func(v *Settings) error {
+		v.Onboarded = true
+		return nil
+	})
 }

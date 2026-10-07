@@ -496,8 +496,8 @@ models:
         resolver: true
 
   # --- Sandbox ---
-  SecurityRefusal:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/securityconfig.Refusal
+  SettingsRefusal:
+    model: github.com/kstackhq/kstack/sidecar/internal/lib/jsonsettings.Refusal
 
   # --- Permissions ---
   PermissionClass:
@@ -534,19 +534,19 @@ models:
       Ask:
         value: github.com/kstackhq/kstack/sidecar/internal/run/permissions.AskFor
   PermissionModeSource:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/securityconfig.ModeSource
+    model: github.com/kstackhq/kstack/sidecar/internal/services/settings.ModeSource
     enum_values:
       Refused:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/securityconfig.SourceRefused
+        value: github.com/kstackhq/kstack/sidecar/internal/services/settings.SourceRefused
       Entry:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/securityconfig.SourceEntry
+        value: github.com/kstackhq/kstack/sidecar/internal/services/settings.SourceEntry
       Default:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/securityconfig.SourceDefault
+        value: github.com/kstackhq/kstack/sidecar/internal/services/settings.SourceDefault
   # line binds to the rule's Line method.
   PermissionRule:
     model: github.com/kstackhq/kstack/sidecar/internal/run/permissions.Rule
   PermissionContextMode:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/securityconfig.ContextModeState
+    model: github.com/kstackhq/kstack/sidecar/internal/services/settings.ContextModeState
 
   # --- Auth ---
   # Bind the GraphQL auth types straight to the auth domain types so the

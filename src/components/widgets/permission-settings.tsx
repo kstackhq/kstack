@@ -63,8 +63,11 @@ const CLASSES: { value: PermissionClass; label: string }[] = [
 ];
 
 // What Kstack does while a field it cannot read is held.
-const HELD: Record<string, { title: string; meanwhile: string }> = {
-  modes: { title: 'Modes Kstack cannot read', meanwhile: 'Every context is read-only until the file is fixed.' },
+const HELD: Record<'modes' | 'rules', { title: string; meanwhile: string }> = {
+  modes: {
+    title: 'Modes Kstack cannot read',
+    meanwhile: 'Every context is read-only until the file is fixed.',
+  },
   rules: {
     title: 'Rules Kstack cannot read',
     meanwhile: 'Every cluster write is refused, and Secret data stays redacted, until the file is fixed.',
@@ -418,7 +421,15 @@ function RuleForm({ disabled, onAdd }: { disabled: boolean; onAdd: (input: RuleI
 
 // A field of the file Kstack could not read: each refused value with its
 // reason, what Kstack does meanwhile, and the discard, confirmed first.
-function HeldField({ field, refused, onDiscard }: { field: string; refused: Refusal[]; onDiscard: () => void }) {
+function HeldField({
+  field,
+  refused,
+  onDiscard,
+}: {
+  field: 'modes' | 'rules';
+  refused: Refusal[];
+  onDiscard: () => void;
+}) {
   const [confirming, setConfirming] = useState(false);
   const { title, meanwhile } = HELD[field];
   const values = refused.filter((r) => r.field === field);

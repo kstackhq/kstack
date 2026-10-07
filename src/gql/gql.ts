@@ -54,7 +54,7 @@ type Documents = {
     "\n  query Onboarding {\n    onboarding {\n      finished\n    }\n  }\n": typeof types.OnboardingDocument,
     "\n  mutation OnboardingFinish {\n    onboardingFinish {\n      finished\n    }\n  }\n": typeof types.OnboardingFinishDocument,
     "\n  query PermissionSettings {\n    permissionSettings {\n      defaultMode\n      contexts {\n        context\n        mode\n        source\n        pattern\n        own\n      }\n      rules {\n        id\n        line\n      }\n      destructive\n      held\n    }\n  }\n": typeof types.PermissionSettingsDocument,
-    "\n  query SecurityRefused {\n    securityRefused {\n      field\n      value\n      reason\n    }\n  }\n": typeof types.SecurityRefusedDocument,
+    "\n  query SettingsRefused {\n    settingsRefused {\n      field\n      value\n      reason\n    }\n  }\n": typeof types.SettingsRefusedDocument,
     "\n  mutation PermissionDefaultModeSet($mode: PermissionMode!) {\n    permissionDefaultModeSet(mode: $mode) {\n      held\n    }\n  }\n": typeof types.PermissionDefaultModeSetDocument,
     "\n  mutation PermissionModeSet($context: String!, $mode: PermissionMode!) {\n    permissionModeSet(context: $context, mode: $mode) {\n      held\n    }\n  }\n": typeof types.PermissionModeSetDocument,
     "\n  mutation PermissionModeClear($context: String!) {\n    permissionModeClear(context: $context) {\n      held\n    }\n  }\n": typeof types.PermissionModeClearDocument,
@@ -116,7 +116,7 @@ const documents: Documents = {
     "\n  query Onboarding {\n    onboarding {\n      finished\n    }\n  }\n": types.OnboardingDocument,
     "\n  mutation OnboardingFinish {\n    onboardingFinish {\n      finished\n    }\n  }\n": types.OnboardingFinishDocument,
     "\n  query PermissionSettings {\n    permissionSettings {\n      defaultMode\n      contexts {\n        context\n        mode\n        source\n        pattern\n        own\n      }\n      rules {\n        id\n        line\n      }\n      destructive\n      held\n    }\n  }\n": types.PermissionSettingsDocument,
-    "\n  query SecurityRefused {\n    securityRefused {\n      field\n      value\n      reason\n    }\n  }\n": types.SecurityRefusedDocument,
+    "\n  query SettingsRefused {\n    settingsRefused {\n      field\n      value\n      reason\n    }\n  }\n": types.SettingsRefusedDocument,
     "\n  mutation PermissionDefaultModeSet($mode: PermissionMode!) {\n    permissionDefaultModeSet(mode: $mode) {\n      held\n    }\n  }\n": types.PermissionDefaultModeSetDocument,
     "\n  mutation PermissionModeSet($context: String!, $mode: PermissionMode!) {\n    permissionModeSet(context: $context, mode: $mode) {\n      held\n    }\n  }\n": types.PermissionModeSetDocument,
     "\n  mutation PermissionModeClear($context: String!) {\n    permissionModeClear(context: $context) {\n      held\n    }\n  }\n": types.PermissionModeClearDocument,
@@ -315,7 +315,7 @@ export function graphql(source: "\n  query PermissionSettings {\n    permissionS
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */
-export function graphql(source: "\n  query SecurityRefused {\n    securityRefused {\n      field\n      value\n      reason\n    }\n  }\n"): (typeof documents)["\n  query SecurityRefused {\n    securityRefused {\n      field\n      value\n      reason\n    }\n  }\n"];
+export function graphql(source: "\n  query SettingsRefused {\n    settingsRefused {\n      field\n      value\n      reason\n    }\n  }\n"): (typeof documents)["\n  query SettingsRefused {\n    settingsRefused {\n      field\n      value\n      reason\n    }\n  }\n"];
 /**
  * The graphql function is used to parse GraphQL queries into a document that can be used by GraphQL clients.
  */

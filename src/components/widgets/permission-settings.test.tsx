@@ -38,8 +38,8 @@ vi.mock('urql', () => ({
     queryArgs.push(args);
     return [
       {
-        data: JSON.stringify(args.query).includes('securityRefused')
-          ? { securityRefused: refusedState.current }
+        data: JSON.stringify(args.query).includes('settingsRefused')
+          ? { settingsRefused: refusedState.current }
           : { permissionSettings: settingsState.current },
       },
       reexecuteMock,
@@ -277,10 +277,10 @@ describe('PermissionSettings', () => {
 
   it("draws a held field's refused values, holds its edits, and discards behind a confirm", async () => {
     const user = userEvent.setup();
-    settingsState.current = settings({ held: ['rules'] });
+    settingsState.current = settings({ held: ['permissions.rules'] });
     refusedState.current = [
-      { field: 'rules', value: '{"id":"b","class":9}', reason: 'names a class its provider does not have' },
-      { field: 'modes', value: 'x', reason: 'not held, so not drawn' },
+      { field: 'permissions.rules', value: '{"id":"b","class":9}', reason: 'names a class its provider does not have' },
+      { field: 'permissions.modes', value: 'x', reason: 'not held, so not drawn' },
     ];
     render(<PermissionSettings />);
 
@@ -302,11 +302,11 @@ describe('PermissionSettings', () => {
     expect(mutateMock).not.toHaveBeenCalled();
     expect(screen.getByRole('dialog')).toHaveTextContent('{"id":"b","class":9}');
     await user.click(screen.getByRole('button', { name: 'Discard' }));
-    expect(mutateMock).toHaveBeenCalledWith('permissionDiscardRefused', { field: 'rules' });
+    expect(mutateMock).toHaveBeenCalledWith('permissionDiscardRefused', { field: 'permissions.rules' });
   });
 
   it('holds the context pickers while modes is held, and says why', () => {
-    settingsState.current = settings({ held: ['modes'] });
+    settingsState.current = settings({ held: ['permissions.modes'] });
     render(<PermissionSettings />);
     expect(within(row('dev-eks')).getByRole('combobox')).toBeDisabled();
     expect(screen.getByRole('region', { name: 'Modes Kstack cannot read' })).toHaveTextContent(
@@ -315,8 +315,10 @@ describe('PermissionSettings', () => {
   });
 
   it('says why a default mode was refused, above its picker, while it is held', () => {
-    refusedState.current = [{ field: 'defaultMode', value: '"readonly"', reason: 'is not read-only, ask or auto' }];
-    settingsState.current = settings({ held: ['defaultMode'] });
+    refusedState.current = [
+      { field: 'permissions.defaultMode', value: '"readonly"', reason: 'is not read-only, ask or auto' },
+    ];
+    settingsState.current = settings({ held: ['permissions.defaultMode'] });
     const { unmount } = render(<PermissionSettings />);
     expect(screen.getByText(/is not read-only, ask or auto/)).toBeInTheDocument();
     unmount();
@@ -329,7 +331,7 @@ describe('PermissionSettings', () => {
 
   it('selects no default mode while it is held, so picking read-only sends it', async () => {
     const user = userEvent.setup();
-    settingsState.current = settings({ defaultMode: 'ReadOnly', held: ['defaultMode'] });
+    settingsState.current = settings({ defaultMode: 'ReadOnly', held: ['permissions.defaultMode'] });
     render(<PermissionSettings />);
 
     expect(screen.queryByRole('tab', { selected: true })).toBeNull();

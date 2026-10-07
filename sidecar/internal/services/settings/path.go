@@ -12,11 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+package settings
 
 import (
 	"path/filepath"
 	"slices"
+)
+
+// The keys of the sandbox group's fields, each of which answers its strictest
+// state while the store holds it.
+const (
+	FieldPath         = "sandbox.path"
+	FieldPathResolved = "sandbox.pathResolved"
+	FieldPathStrict   = "sandbox.pathStrict"
 )
 
 // PathEntry is one folder of the user's PATH and what the sandbox does with
@@ -58,7 +66,7 @@ const (
 func checkPath(v *Settings) []Refusal {
 	var refused []Refusal
 	var kept []PathEntry
-	for _, e := range v.Path {
+	for _, e := range v.Sandbox.Path {
 		reason := ""
 		switch {
 		case !filepath.IsAbs(e.Dir) || !filepath.IsAbs(e.Target):
@@ -71,11 +79,11 @@ func checkPath(v *Settings) []Refusal {
 			reason = "has a source Kstack does not know"
 		}
 		if reason != "" {
-			refused = append(refused, Refusal{Field: "path", Value: e.Dir, Reason: reason})
+			refused = append(refused, Refusal{Field: FieldPath, Value: e.Dir, Reason: reason})
 			continue
 		}
 		kept = append(kept, e)
 	}
-	v.Path = kept
+	v.Sandbox.Path = kept
 	return refused
 }

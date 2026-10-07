@@ -12,21 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+package settings
 
-import (
-	"testing"
+import "os"
 
-	"github.com/stretchr/testify/assert"
-)
-
-func TestTmpIsAFixedMountOnLinux(t *testing.T) {
-	f := newGrantFixture(t)
-	for _, p := range []string{"/tmp", "/tmp/x", "/proc", "/proc/1/root", "/dev", "/dev/pts"} {
-		for _, write := range []bool{false, true} {
-			assert.Equal(t, "fixed", ruleOf(t, CheckFolder(p, write, f.zones, nil)), p)
-		}
-	}
-	assert.EqualError(t, CheckFolder("/proc/1/root", false, f.zones, nil),
-		"Every sandboxed command has its own /proc; it cannot be granted.")
-}
+// shared answers false: Windows has no sandbox, so nothing filters its PATH,
+// and its modes are not Unix permissions.
+func shared(os.FileInfo) bool { return false }

@@ -189,3 +189,4 @@ usually just documentation in the wrong place.
 | 2026-10-06 | [Remove cloud settings sync until settings have a design](2026-10-06-remove-cloud-settings-sync.md) | sidecar | Accepted |
 | 2026-10-06 | [Build every service into one runtime, in order, and never hand it to a service](2026-10-06-the-runtime-is-built-in-order.md) | sidecar | Accepted |
 | 2026-10-07 | [Group the sidecar's packages into layers](2026-10-07-sidecar-folders-are-layers.md) | sidecar | Accepted |
+| 2026-10-07 | [Keep the user's settings in one file, grouped by area](2026-10-07-settings-are-one-file-grouped-by-area.md) | sidecar | Accepted |

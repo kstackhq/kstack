@@ -26,7 +26,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
 // sandboxed is this machine's sandbox, for a test that runs a command through
@@ -71,8 +71,8 @@ func withTool(t *testing.T, tl *Tool, name string) {
 	require.NoError(t, err)
 	require.NoError(t, os.Symlink(target, filepath.Join(dir, name)))
 	list := tl.pathList()
-	list.Entries = append([]securityconfig.PathEntry{{
-		Dir: dir, Target: dir, State: securityconfig.PathAdopted, Source: securityconfig.SourceUser,
+	list.Entries = append([]settings.PathEntry{{
+		Dir: dir, Target: dir, State: settings.PathAdopted, Source: settings.SourceUser,
 	}}, list.Entries...)
-	tl.pathList = func() securityconfig.RunPath { return list }
+	tl.pathList = func() settings.RunPath { return list }
 }

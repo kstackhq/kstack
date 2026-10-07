@@ -18,7 +18,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
 // fakeAuth is a hand-written auth.Service for the resolver tests. The resolver
@@ -158,10 +158,10 @@ func (c refusingChat) StopBackgroundTask(context.Context, chat.ToolCallID) (bool
 	return false, c.err
 }
 
-// testSecurity is a security store over a file not yet written: every default.
-func testSecurity(t *testing.T) *securityconfig.Service {
+// testSettings is a settings store over a file not yet written: every default.
+func testSettings(t *testing.T) *settings.Service {
 	t.Helper()
-	s, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	s, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
-	return securityconfig.NewService(s, nil, nil, "")
+	return settings.NewService(s, nil, nil, "")
 }

@@ -12,12 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+package settings
 
-// FinishOnboarding marks the onboarding flow finished. Nothing unsets it.
-func (s *Store) FinishOnboarding() error {
-	return s.Update(func(v *Settings) error {
-		v.Onboarded = true
-		return nil
-	})
-}
+// wideDirs is every disk mounted on the Mac.
+var wideDirs = []string{"/Volumes"}

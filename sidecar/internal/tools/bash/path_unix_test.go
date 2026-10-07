@@ -27,7 +27,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
 // pathFixture is a tool over a fake sandbox whose System reads open, and
@@ -61,8 +61,8 @@ func (f *pathFixture) dir(t *testing.T, rel string) string {
 }
 
 // adopted is an entry the shell adopted for dir at target.
-func adopted(dir, target string, source securityconfig.Source) securityconfig.PathEntry {
-	return securityconfig.PathEntry{Dir: dir, Target: target, State: securityconfig.PathAdopted, Source: source}
+func adopted(dir, target string, source settings.Source) settings.PathEntry {
+	return settings.PathEntry{Dir: dir, Target: target, State: settings.PathAdopted, Source: source}
 }
 
 // runPathOf runs echo "$PATH" sandboxed and answers it and the run.
@@ -78,11 +78,11 @@ func (f *pathFixture) runPathOf(t *testing.T) (string, sandbox.Run) {
 func TestTheRunFreezesThePath(t *testing.T) {
 	f := newPathFixture(t)
 	inOpen, inHome := f.dir(t, "open/bin"), f.dir(t, "home/bin")
-	entries := []securityconfig.PathEntry{
-		adopted(inOpen, inOpen, securityconfig.SourceShell),
-		adopted(inHome, inHome, securityconfig.SourceUser),
+	entries := []settings.PathEntry{
+		adopted(inOpen, inOpen, settings.SourceShell),
+		adopted(inHome, inHome, settings.SourceUser),
 	}
-	f.tl.pathList = func() securityconfig.RunPath { return securityconfig.RunPath{Entries: entries, Resolved: true} }
+	f.tl.pathList = func() settings.RunPath { return settings.RunPath{Entries: entries, Resolved: true} }
 	// A store changed while the run is built changes nothing it finds.
 	release := make(chan struct{})
 	close(release)
@@ -95,8 +95,8 @@ func TestTheRunFreezesThePath(t *testing.T) {
 
 	// A list the user emptied finds nothing: no default stands in for it.
 	f.fake.onSystem = nil
-	removed := securityconfig.PathEntry{Dir: inOpen, Target: inOpen, State: securityconfig.PathGone, Source: securityconfig.SourceUser}
-	entries = []securityconfig.PathEntry{removed}
+	removed := settings.PathEntry{Dir: inOpen, Target: inOpen, State: settings.PathGone, Source: settings.SourceUser}
+	entries = []settings.PathEntry{removed}
 	path, r = f.runPathOf(t)
 	assert.Equal(t, emptyPath, path)
 	assert.Equal(t, []string{"/usr", "/bin", f.open}, r.Policy.Files.Read)
@@ -112,13 +112,13 @@ func TestAnEmptyListSearchesTheCheckedDefault(t *testing.T) {
 	link := filepath.Join(f.base, "bin")
 	require.NoError(t, os.Symlink(usable, link))
 	f.tl.fallbackPath = []string{usable, world, link, f.dir(t, "home/bin")}
-	f.tl.pathList = func() securityconfig.RunPath { return securityconfig.RunPath{} }
+	f.tl.pathList = func() settings.RunPath { return settings.RunPath{} }
 
 	path, r := f.runPathOf(t)
 	assert.Equal(t, usable, path, "the world-writable, the duplicate and the closed are left out")
 	assert.Equal(t, []string{"/usr", "/bin", f.open}, r.Policy.Files.Read, "a default opens nothing")
 
-	f.tl.pathList = func() securityconfig.RunPath { return securityconfig.RunPath{Resolved: true} }
+	f.tl.pathList = func() settings.RunPath { return settings.RunPath{Resolved: true} }
 	path, _ = f.runPathOf(t)
 	assert.Equal(t, emptyPath, path)
 }
@@ -128,10 +128,10 @@ func TestTheRunLeavesOutAMovedEntry(t *testing.T) {
 	first, other := f.dir(t, "open/v1"), f.dir(t, "open/other")
 	link := filepath.Join(f.base, "current")
 	require.NoError(t, os.Symlink(f.dir(t, "home/v2"), link))
-	f.tl.pathList = func() securityconfig.RunPath {
-		return securityconfig.RunPath{Resolved: true, Entries: []securityconfig.PathEntry{
-			adopted(link, first, securityconfig.SourceShell),
-			adopted(other, other, securityconfig.SourceShell),
+	f.tl.pathList = func() settings.RunPath {
+		return settings.RunPath{Resolved: true, Entries: []settings.PathEntry{
+			adopted(link, first, settings.SourceShell),
+			adopted(other, other, settings.SourceShell),
 		}}
 	}
 	log := testutil.CaptureLogs(t)
@@ -149,13 +149,13 @@ func TestTheRunLeavesOutAnEntryNoRuleOpens(t *testing.T) {
 	require.NoError(t, os.Chmod(world, 0o777))
 	byShell, byUser := f.dir(t, "home/shell"), f.dir(t, "home/user")
 	kept := f.dir(t, "open/kept")
-	f.tl.pathList = func() securityconfig.RunPath {
-		return securityconfig.RunPath{Resolved: true, Entries: []securityconfig.PathEntry{
-			adopted(inNever, inNever, securityconfig.SourceUser),
-			adopted(world, world, securityconfig.SourceUser),
-			adopted(byShell, byShell, securityconfig.SourceShell),
-			adopted(byUser, byUser, securityconfig.SourceUser),
-			adopted(kept, kept, securityconfig.SourceShell),
+	f.tl.pathList = func() settings.RunPath {
+		return settings.RunPath{Resolved: true, Entries: []settings.PathEntry{
+			adopted(inNever, inNever, settings.SourceUser),
+			adopted(world, world, settings.SourceUser),
+			adopted(byShell, byShell, settings.SourceShell),
+			adopted(byUser, byUser, settings.SourceUser),
+			adopted(kept, kept, settings.SourceShell),
 		}}
 	}
 	log := testutil.CaptureLogs(t)
@@ -175,11 +175,11 @@ func TestTheRunLeavesOutABroadEntry(t *testing.T) {
 	f := newPathFixture(t)
 	f.tl.home = f.home
 	inHome := f.dir(t, "home/bin")
-	f.tl.pathList = func() securityconfig.RunPath {
-		return securityconfig.RunPath{Resolved: true, Entries: []securityconfig.PathEntry{
-			adopted(f.home, f.home, securityconfig.SourceUser),
-			adopted(f.base, f.base, securityconfig.SourceUser),
-			adopted(inHome, inHome, securityconfig.SourceUser),
+	f.tl.pathList = func() settings.RunPath {
+		return settings.RunPath{Resolved: true, Entries: []settings.PathEntry{
+			adopted(f.home, f.home, settings.SourceUser),
+			adopted(f.base, f.base, settings.SourceUser),
+			adopted(inHome, inHome, settings.SourceUser),
 		}}
 	}
 
@@ -193,8 +193,8 @@ func TestTheRunFollowsALinkIntoAnOpenFolder(t *testing.T) {
 	first, second := f.dir(t, "open/v1"), f.dir(t, "open/v2")
 	link := filepath.Join(f.base, "current")
 	require.NoError(t, os.Symlink(second, link))
-	entries := []securityconfig.PathEntry{adopted(link, first, securityconfig.SourceShell)}
-	f.tl.pathList = func() securityconfig.RunPath { return securityconfig.RunPath{Entries: entries, Resolved: true} }
+	entries := []settings.PathEntry{adopted(link, first, settings.SourceShell)}
+	f.tl.pathList = func() settings.RunPath { return settings.RunPath{Entries: entries, Resolved: true} }
 	log := testutil.CaptureLogs(t)
 
 	path, _ := f.runPathOf(t)
@@ -214,14 +214,14 @@ func TestAPendingEntryIsNotOnThePath(t *testing.T) {
 	f := newPathFixture(t)
 	scripts := f.dir(t, "home/scripts")
 	require.NoError(t, os.WriteFile(filepath.Join(scripts, "hello"), []byte("#!/bin/sh\necho hi\n"), 0o755))
-	store, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
-	svc := securityconfig.NewService(store, func() securityconfig.Zones {
-		return securityconfig.Zones{Never: f.fake.never, Open: f.fake.system.Files}
+	svc := settings.NewService(store, func() settings.Zones {
+		return settings.Zones{Never: f.fake.never, Open: f.fake.system.Files}
 	}, nil, "")
 	_, err = svc.SyncPath(t.Context(), []string{scripts})
 	require.NoError(t, err)
-	f.tl.pathList = func() securityconfig.RunPath { return svc.Get().RunPath() }
+	f.tl.pathList = func() settings.RunPath { return svc.Get().RunPath() }
 
 	text, isError := f.tl.Run(t.Context(), testRuntime(t), command("command -v hello"))
 	assert.True(t, isError, text)
@@ -239,8 +239,8 @@ func TestAnIncludedClosedFolderIsOpened(t *testing.T) {
 	f := newPathFixture(t)
 	closed := f.dir(t, "open/Downloads")
 	f.fake.system.Files.Deny = []string{closed}
-	f.tl.pathList = func() securityconfig.RunPath {
-		return securityconfig.RunPath{Resolved: true, Entries: []securityconfig.PathEntry{adopted(closed, closed, securityconfig.SourceUser)}}
+	f.tl.pathList = func() settings.RunPath {
+		return settings.RunPath{Resolved: true, Entries: []settings.PathEntry{adopted(closed, closed, settings.SourceUser)}}
 	}
 
 	path, r := f.runPathOf(t)

@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+package jsonsettings
 
 import (
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"sync"
@@ -32,8 +33,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
-// testSettings stands in for Settings, which has no fields until a later step
-// adds them.
+// testSettings stands in for a caller's settings.
 type testSettings struct {
 	Names  []string `json:"names,omitempty"`
 	Count  int      `json:"count,omitempty"`
@@ -45,15 +45,15 @@ var testStrictest = map[string]func(*testSettings){
 	"denied": func(v *testSettings) { v.Denied = []string{"*"} },
 }
 
-func openTest(t *testing.T, file string, checks ...func(*testSettings) []Refusal) *store[testSettings] {
+func openTest(t *testing.T, file string, checks ...func(*testSettings) []Refusal) *Store[testSettings] {
 	t.Helper()
-	s, err := openStore(file, checks, testStrictest)
+	s, err := Open(file, checks, testStrictest)
 	require.NoError(t, err)
 	return s
 }
 
 func TestTheStorePersists(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	s := openTest(t, file)
 	assert.Equal(t, testSettings{}, s.Get(), "a missing file opens empty")
 	assert.NoFileExists(t, file, "Open writes nothing")
@@ -64,18 +64,15 @@ func TestTheStorePersists(t *testing.T) {
 		return nil
 	}))
 	assert.Equal(t, testSettings{Names: []string{"a", "b"}, Count: 2}, openTest(t, file).Get())
-
-	_, err := Open(filepath.Join(t.TempDir(), "security.json"))
-	require.NoError(t, err, "the production store opens a missing file")
 }
 
 func TestABadFileFailsOpen(t *testing.T) {
 	for _, body := range []string{"{", "[]", "null"} {
 		t.Run(body, func(t *testing.T) {
-			file := filepath.Join(t.TempDir(), "security.json")
+			file := filepath.Join(t.TempDir(), "settings.json")
 			require.NoError(t, os.WriteFile(file, []byte(body), 0o600))
 
-			_, err := Open(file)
+			_, err := Open[testSettings](file, nil, nil)
 			require.ErrorContains(t, err, file)
 		})
 	}
@@ -83,15 +80,15 @@ func TestABadFileFailsOpen(t *testing.T) {
 
 // A file that cannot be read fails Open too, rather than opening empty.
 func TestAnUnreadableFileFailsOpen(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	require.NoError(t, os.Mkdir(file, 0o700))
 
-	_, err := Open(file)
+	_, err := Open[testSettings](file, nil, nil)
 	require.ErrorContains(t, err, file)
 }
 
 func TestAFieldOfTheWrongTypeIsRefusedAlone(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	body := `{"names": "a", "count": 3, "other": true, "Count": 9}`
 	require.NoError(t, os.WriteFile(file, []byte(body), 0o600))
 
@@ -105,7 +102,7 @@ func TestAFieldOfTheWrongTypeIsRefusedAlone(t *testing.T) {
 }
 
 func TestAnEqualUpdateWritesNothing(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	s := openTest(t, file)
 	rx := s.Subscribe()
 	defer rx.Close()
@@ -122,11 +119,11 @@ func TestAnEqualUpdateWritesNothing(t *testing.T) {
 }
 
 func TestUpdateIsOneWrite(t *testing.T) {
-	s := openTest(t, filepath.Join(t.TempDir(), "security.json"))
+	s := openTest(t, filepath.Join(t.TempDir(), "settings.json"))
 	var saves atomic.Int32
 	var fail atomic.Bool
 	save := s.save
-	s.save = func(file string, v map[string]json.RawMessage) error {
+	s.save = func(file string, v object) error {
 		if fail.Load() {
 			return errBoom
 		}
@@ -166,7 +163,7 @@ func TestUpdateIsOneWrite(t *testing.T) {
 var errBoom = errors.New("boom")
 
 func TestSubscribeSeesTheLatestWrite(t *testing.T) {
-	s := openTest(t, filepath.Join(t.TempDir(), "security.json"))
+	s := openTest(t, filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, s.Update(func(v *testSettings) error {
 		v.Names = []string{"a"}
 		return nil
@@ -193,7 +190,7 @@ func TestSubscribeSeesTheLatestWrite(t *testing.T) {
 }
 
 func TestARefusedValueIsLeftOutAndListed(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	require.NoError(t, os.WriteFile(file, []byte(`{"names": ["a"], "count": 1}`), 0o600))
 	logs := testutil.CaptureLogs(t)
 
@@ -245,8 +242,8 @@ func TestARefusedValueIsLeftOutAndListed(t *testing.T) {
 }
 
 func TestAWriteStampsTheVersion(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
-	write := func(s *store[testSettings], count int) string {
+	file := filepath.Join(t.TempDir(), "settings.json")
+	write := func(s *Store[testSettings], count int) string {
 		t.Helper()
 		require.NoError(t, s.Update(func(v *testSettings) error {
 			v.Count = count
@@ -268,7 +265,7 @@ func TestAWriteStampsTheVersion(t *testing.T) {
 
 // A key no field names is a newer Kstack's setting, so a write keeps it.
 func TestAWriteKeepsTheKeysNoFieldNames(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	require.NoError(t, os.WriteFile(file, []byte(`{"count": 1, "rules": [{"deny": "x"}], "Count": 9}`), 0o600))
 	s := openTest(t, file)
 	assert.Empty(t, s.Refused())
@@ -290,9 +287,9 @@ func TestDecodeReadsTheKeyASaveWrites(t *testing.T) {
 		Hidden int `json:"-"`
 		inner  int
 	}
-	v, refused := decode[fields](map[string]json.RawMessage{
+	v, refused := decode[fields](object{
 		"Plain": json.RawMessage("1"), "-": json.RawMessage("2"), "inner": json.RawMessage("3"),
-	})
+	}, fieldsOf(reflect.TypeFor[fields](), nil, nil))
 	assert.Empty(t, refused)
 	assert.Equal(t, fields{Plain: 1}, v)
 }
@@ -300,7 +297,7 @@ func TestDecodeReadsTheKeyASaveWrites(t *testing.T) {
 // The store keeps its own copy of what Update wrote, so data the callback
 // still holds cannot change it afterwards.
 func TestUpdateKeepsItsOwnCopy(t *testing.T) {
-	s := openTest(t, filepath.Join(t.TempDir(), "security.json"))
+	s := openTest(t, filepath.Join(t.TempDir(), "settings.json"))
 	mine := []string{"a"}
 	require.NoError(t, s.Update(func(v *testSettings) error {
 		v.Names = mine
@@ -312,7 +309,7 @@ func TestUpdateKeepsItsOwnCopy(t *testing.T) {
 }
 
 func TestOneBadElementIsRefusedAlone(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	require.NoError(t, os.WriteFile(file, []byte(`{"names": ["a", 1, "b"]}`), 0o600))
 
 	s := openTest(t, file)
@@ -321,7 +318,7 @@ func TestOneBadElementIsRefusedAlone(t *testing.T) {
 }
 
 func TestARefusedRestrictionFailsClosed(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	require.NoError(t, os.WriteFile(file, []byte(`{"denied": ["a", 1]}`), 0o600))
 	assert.Equal(t, []string{"*"}, openTest(t, file).Get().Denied, "a bad element")
 
@@ -340,7 +337,7 @@ func TestARefusedRestrictionFailsClosed(t *testing.T) {
 }
 
 func TestAnUpdateKeepsARefusedRestrictionInTheFile(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	require.NoError(t, os.WriteFile(file, []byte(`{"denied": ["a", 1]}`), 0o600))
 	s := openTest(t, file)
 
@@ -365,7 +362,7 @@ func TestAnUpdateKeepsARefusedRestrictionInTheFile(t *testing.T) {
 // The fix can be the strictest state the field already answers, which changes
 // nothing in memory; naming the field is what writes it.
 func TestAnUpdateNamingARefusedRestrictionWritesItsStrictestState(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	require.NoError(t, os.WriteFile(file, []byte(`{"denied": ["a", 1]}`), 0o600))
 	s := openTest(t, file)
 	rx := s.Subscribe()
@@ -394,7 +391,7 @@ func TestAnUpdateNamingARefusedRestrictionWritesItsStrictestState(t *testing.T) 
 // store could not read, so it is refused; naming the field ends the hold, and
 // leaving it alone keeps it.
 func TestAHeldFieldRefusesAnUnnamedChange(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	require.NoError(t, os.WriteFile(file, []byte(`{"denied": ["a", 1]}`), 0o600))
 	s := openTest(t, file)
 	require.True(t, s.Held("denied"))
@@ -434,7 +431,7 @@ func TestCloneRefusesAValueThatIsNotJSON(t *testing.T) {
 // refused like any value of the wrong type: a field that restricts answers
 // its strictest state, never its zero value.
 func TestANullIsRefused(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	require.NoError(t, os.WriteFile(file, []byte(`{"denied": null}`), 0o600))
 	s := openTest(t, file)
 
@@ -442,4 +439,131 @@ func TestANullIsRefused(t *testing.T) {
 	assert.True(t, s.Held("denied"))
 	require.Len(t, s.Refused(), 1)
 	assert.Equal(t, "denied", s.Refused()[0].Field)
+}
+
+// groupedSettings holds a group, which the file keeps as an object of its own.
+type groupedSettings struct {
+	Group testGroup `json:"group,omitzero"`
+	Count int       `json:"count,omitempty"`
+}
+
+type testGroup struct {
+	Names  []string `json:"names,omitempty"`
+	Denied []string `json:"denied,omitempty"`
+}
+
+var groupedStrictest = map[string]func(*groupedSettings){
+	"group.denied": func(v *groupedSettings) { v.Group.Denied = []string{"*"} },
+}
+
+func openGrouped(t *testing.T, file string) *Store[groupedSettings] {
+	t.Helper()
+	s, err := Open(file, nil, groupedStrictest)
+	require.NoError(t, err)
+	return s
+}
+
+func TestAGroupIsAnObjectInTheFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "settings.json")
+	s := openGrouped(t, file)
+	require.NoError(t, s.Update(func(v *groupedSettings) error {
+		v.Group.Names = []string{"a"}
+		return nil
+	}))
+	data, err := os.ReadFile(file)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"group": {"names": ["a"]}, "schemaVersion": 1}`, string(data))
+	assert.Equal(t, []string{"a"}, openGrouped(t, file).Get().Group.Names)
+
+	require.NoError(t, s.Update(func(v *groupedSettings) error {
+		v.Group.Names = nil
+		v.Count = 1
+		return nil
+	}))
+	data, err = os.ReadFile(file)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"count": 1, "schemaVersion": 1}`, string(data), "an empty group is left out")
+}
+
+// A value refused inside a group is held under its dotted key, and the
+// group's other fields load and write as usual.
+func TestARefusedValueInAGroupIsHeldAlone(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "settings.json")
+	require.NoError(t, os.WriteFile(file, []byte(`{"group": {"names": ["a", 2], "denied": ["a", 1]}}`), 0o600))
+	s := openGrouped(t, file)
+
+	assert.Equal(t, testGroup{Names: []string{"a"}, Denied: []string{"*"}}, s.Get().Group)
+	assert.True(t, s.Held("group.denied"))
+	assert.False(t, s.Held("group.names"), "a field that only grants is dropped, not held")
+	assert.Equal(t, []Refusal{
+		{Field: "group.names", Value: "2", Reason: "is not the type this setting holds"},
+		{Field: "group.denied", Value: "1", Reason: "is not the type this setting holds"},
+	}, s.Refused())
+
+	require.NoError(t, s.Update(func(v *groupedSettings) error {
+		v.Group.Names = []string{"b"}
+		return nil
+	}))
+	data, err := os.ReadFile(file)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"group": {"names": ["b"], "denied": ["a", 1]}, "schemaVersion": 1}`, string(data),
+		"a write of the group's other field keeps the held one")
+
+	require.ErrorIs(t, s.Update(func(v *groupedSettings) error {
+		v.Group.Denied = []string{"a"}
+		return nil
+	}), ErrHeld)
+
+	require.NoError(t, s.Update(func(v *groupedSettings) error {
+		v.Group.Denied = []string{"a"}
+		return nil
+	}, "group.denied"))
+	data, err = os.ReadFile(file)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"group": {"names": ["b"], "denied": ["a"]}, "schemaVersion": 1}`, string(data))
+}
+
+// A held field whose group is otherwise empty still writes its group.
+func TestAHeldFieldKeepsItsGroup(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "settings.json")
+	require.NoError(t, os.WriteFile(file, []byte(`{"group": {"denied": "a"}}`), 0o600))
+	s := openGrouped(t, file)
+
+	require.NoError(t, s.Update(func(v *groupedSettings) error {
+		v.Count = 1
+		return nil
+	}))
+	data, err := os.ReadFile(file)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"count": 1, "group": {"denied": "a"}, "schemaVersion": 1}`, string(data))
+}
+
+func TestAGroupThatIsNotAnObjectFailsOpen(t *testing.T) {
+	for _, body := range []string{`{"group": 5}`, `{"group": null}`, `{"group": []}`} {
+		t.Run(body, func(t *testing.T) {
+			file := filepath.Join(t.TempDir(), "settings.json")
+			require.NoError(t, os.WriteFile(file, []byte(body), 0o600))
+
+			_, err := Open[groupedSettings](file, nil, nil)
+			require.ErrorContains(t, err, file)
+			require.ErrorContains(t, err, "group is not a JSON object")
+		})
+	}
+}
+
+// A key inside a group that no field names is a newer Kstack's, kept as the
+// top level's are.
+func TestAWriteKeepsTheKeysAGroupDoesNotName(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "settings.json")
+	require.NoError(t, os.WriteFile(file, []byte(`{"group": {"names": ["a"], "later": {"x": 1}}, "names": 3}`), 0o600))
+	s := openGrouped(t, file)
+	assert.Empty(t, s.Refused())
+
+	require.NoError(t, s.Update(func(v *groupedSettings) error {
+		v.Group.Names = nil
+		return nil
+	}))
+	data, err := os.ReadFile(file)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"group": {"later": {"x": 1}}, "names": 3, "schemaVersion": 1}`, string(data))
 }

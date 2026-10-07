@@ -25,7 +25,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -391,18 +391,18 @@ func (s *service) Approve(ctx context.Context, id ApprovalID, d ApprovalDecision
 
 // writeRule writes rule as chatID's for Chat, or into the settings for
 // Always, unless the same rule is held there already. While the settings hold
-// rules Kstack cannot read, an Always write is securityconfig.ErrHeld.
+// rules Kstack cannot read, an Always write is settings.ErrHeld.
 func (s *service) writeRule(ctx context.Context, chatID ChatID, rule permissions.Rule, d ApprovalDecision) error {
 	if d == DecisionChat {
 		_, err := s.addGrant(ctx, chatID, rule)
 		return err
 	}
-	return s.security.Update(func(v *securityconfig.Settings) error {
-		if slices.ContainsFunc(v.Rules, func(r permissions.Rule) bool { return sameRule(r, rule) }) {
+	return s.settings.Update(func(v *settings.Settings) error {
+		if slices.ContainsFunc(v.Permissions.Rules, func(r permissions.Rule) bool { return sameRule(r, rule) }) {
 			return nil
 		}
 		rule.ID = appdb.NewID()
-		v.Rules = append(v.Rules, rule)
+		v.Permissions.Rules = append(v.Permissions.Rules, rule)
 		return nil
 	})
 }

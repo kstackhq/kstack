@@ -45,7 +45,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -151,7 +151,7 @@ type Tool struct {
 	// pathList is the user's stored PATH list, read once at a sandboxed run's
 	// start; nil for none. fallbackPath is what a run searches while the list
 	// was never resolved: the platform's login default, or a test's folders.
-	pathList     func() securityconfig.RunPath
+	pathList     func() settings.RunPath
 	fallbackPath []string
 
 	// The profile snapshot every command outside the sandbox sources: its
@@ -207,7 +207,7 @@ type Paths struct {
 // user's stored PATH list, which a sandboxed run reads at its start and searches
 // the adopted entries of, since a sync, Include or Remove changes it while the
 // tool lives; nil for none.
-func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Service, pathList func() securityconfig.RunPath) (t *Tool, ok bool) {
+func New(paths Paths, hostPID int, boxer *sandbox.Sandbox, clusterSvc cluster.Service, pathList func() settings.RunPath) (t *Tool, ok bool) {
 	shell, kind, found := findShell()
 	if !found {
 		return nil, false
@@ -756,7 +756,7 @@ func (t *Tool) sandboxedRunFor(ctx context.Context, boxer sandboxer, rt tools.Ru
 		net.Relays = []sandbox.Relay{{Port: port, Socket: socket}}
 	}
 	// Read once, here: nothing the store changes while the run lives reaches it.
-	var list securityconfig.RunPath
+	var list settings.RunPath
 	if t.pathList != nil {
 		list = t.pathList()
 	}

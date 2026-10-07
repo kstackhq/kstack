@@ -606,7 +606,7 @@ function ClusterWriteLines({ call }: { call: ChatToolCall }) {
 // Why an Always answer was refused: the settings hold rules Kstack cannot read,
 // so the rule it adds could not be written. The request still waits.
 const HELD_RULES =
-  'Kstack cannot add a rule while security.json holds rules it cannot read. Fix them in Settings, or approve once.';
+  'Kstack cannot add a rule while settings.json holds rules it cannot read. Fix them in Settings, or approve once.';
 
 // One allow answer and the rule it adds under it, in the words Settings uses.
 function AllowAnswer({

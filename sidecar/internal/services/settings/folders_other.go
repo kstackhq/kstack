@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+//go:build !darwin
 
-import "os"
+package settings
 
-// shared answers false: Windows has no sandbox, so nothing filters its PATH,
-// and its modes are not Unix permissions.
-func shared(os.FileInfo) bool { return false }
+// wideDirs is none: no other folder here reads every disk.
+var wideDirs []string

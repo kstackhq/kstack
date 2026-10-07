@@ -14,7 +14,7 @@
 
 //go:build !windows
 
-package securityconfig
+package settings
 
 import (
 	"context"
@@ -210,7 +210,7 @@ func TestAWriteGrantOnCodeThatRunsIsRefused(t *testing.T) {
 
 func TestNoSnapshotRefusesEveryFolder(t *testing.T) {
 	f := newGrantFixture(t)
-	store, err := Open(filepath.Join(t.TempDir(), "security.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 	s := NewService(store, nil, nil, "")
 	for _, write := range []bool{false, true} {
@@ -228,7 +228,7 @@ func TestTheZonesAreASnapshot(t *testing.T) {
 	f := newGrantFixture(t)
 	filtered := f.in("proj/node_modules/.bin")
 	require.NoError(t, os.MkdirAll(filtered, 0o755))
-	store, err := Open(filepath.Join(t.TempDir(), "security.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 	var calls atomic.Int32
 	s := NewService(store, func() Zones {
@@ -237,7 +237,7 @@ func TestTheZonesAreASnapshot(t *testing.T) {
 	}, func(context.Context) ([]string, error) { return []string{filtered}, nil }, "")
 
 	synced(t, s, []string{filtered})
-	assert.Empty(t, s.Get().Path, "the sync filters the project's folder out")
+	assert.Empty(t, s.Get().Sandbox.Path, "the sync filters the project's folder out")
 	assert.Equal(t, int32(1), calls.Load())
 	for range 3 {
 		assert.NoError(t, s.CheckFolder(t.Context(), f.in("code/svc"), true))
@@ -266,7 +266,7 @@ func TestTheZonesAreASnapshot(t *testing.T) {
 }
 
 func TestAFolderIsRefusedWhenTheSnapshotRunsPastTheBound(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "security.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
@@ -282,7 +282,7 @@ func TestAFolderIsRefusedWhenTheSnapshotRunsPastTheBound(t *testing.T) {
 
 func TestTheSnapshotIsTakenOnFirstUse(t *testing.T) {
 	f := newGrantFixture(t)
-	store, err := Open(filepath.Join(t.TempDir(), "security.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 	var calls atomic.Int32
 	s := NewService(store, func() Zones {
@@ -300,7 +300,7 @@ func TestTheSnapshotIsTakenOnFirstUse(t *testing.T) {
 
 func TestWideIsTheHomeAndEachFolderOverIt(t *testing.T) {
 	f := newGrantFixture(t)
-	store, err := Open(filepath.Join(t.TempDir(), "security.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 	s := NewService(store, func() Zones { return f.zones }, nil, "")
 	wide := s.WideFolders(t.Context())
@@ -324,7 +324,7 @@ func TestACheckResolvesTheZonesNow(t *testing.T) {
 	}
 	require.NoError(t, os.RemoveAll(f.in(".ssh")))
 	require.NoError(t, os.Symlink(f.in("dotfiles/ssh-a"), f.in(".ssh")))
-	store, err := Open(filepath.Join(t.TempDir(), "security.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 	s := NewService(store, func() Zones { return f.zones }, nil, "")
 	assert.Equal(t, "never", ruleOf(t, s.CheckFolder(t.Context(), f.in("dotfiles/ssh-a"), false)))

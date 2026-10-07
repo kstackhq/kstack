@@ -33,7 +33,10 @@ const { sandbox, path, executables, permissions, finishing, windows } = vi.hoist
 vi.mock('@/lib/sandbox', () => ({ useSandbox: () => sandbox.current }));
 vi.mock('@/lib/sandbox-path', () => ({ useSandboxPath: () => path.current }));
 vi.mock('@/lib/sandbox-executables', () => ({ useSandboxExecutables: () => executables.current }));
-vi.mock('@/lib/permission-settings', () => ({ usePermissionSettings: () => permissions.current }));
+vi.mock('@/lib/permission-settings', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/permission-settings')>()),
+  usePermissionSettings: () => permissions.current,
+}));
 vi.mock('@/lib/onboarding', () => ({ useOnboardingFinish: () => finishing.current }));
 vi.mock('@/lib/platform', () => ({ isMacOS: () => false, isWindows: () => windows.current }));
 
@@ -360,9 +363,9 @@ describe('Permissions', () => {
   });
 
   it('says why a mode change was refused', async () => {
-    withPermissions({ error: 'security.json is read-only' });
+    withPermissions({ error: 'settings.json is read-only' });
     await toPermissions();
-    expect(screen.getByRole('alert')).toHaveTextContent('security.json is read-only');
+    expect(screen.getByRole('alert')).toHaveTextContent('settings.json is read-only');
   });
 
   it('holds the contexts while modes is held, and sends the user to Settings', async () => {

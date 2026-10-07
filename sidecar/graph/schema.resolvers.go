@@ -15,13 +15,13 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/jsonsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
@@ -257,19 +257,19 @@ func (r *mutationResolver) ChatDelete(ctx context.Context, id apimeta.ChatID) (b
 
 // SandboxPathInclude is the resolver for the sandboxPathInclude field.
 func (r *mutationResolver) SandboxPathInclude(ctx context.Context, dir string, target string) ([]*model.SandboxPathEntry, error) {
-	entries, err := r.SecurityCfg.AdoptPath(dir, target)
+	entries, err := r.Settings.AdoptPath(dir, target)
 	return sandboxPathOf(entries), sandboxPathErr(err)
 }
 
 // SandboxPathRemove is the resolver for the sandboxPathRemove field.
 func (r *mutationResolver) SandboxPathRemove(ctx context.Context, dir string) ([]*model.SandboxPathEntry, error) {
-	entries, err := r.SecurityCfg.DropPath(dir)
+	entries, err := r.Settings.DropPath(dir)
 	return sandboxPathOf(entries), sandboxPathErr(err)
 }
 
 // SandboxPathRefresh is the resolver for the sandboxPathRefresh field.
 func (r *mutationResolver) SandboxPathRefresh(ctx context.Context) ([]*model.SandboxPathEntry, error) {
-	entries, err := r.SecurityCfg.RefreshPath(ctx)
+	entries, err := r.Settings.RefreshPath(ctx)
 	return sandboxPathOf(entries), sandboxPathErr(err)
 }
 
@@ -291,7 +291,7 @@ func (r *mutationResolver) SandboxExecutableRegister(ctx context.Context, name s
 	if invocation != nil {
 		given = *invocation
 	}
-	if err := r.SecurityCfg.RegisterExecutable(name, given); err != nil {
+	if err := r.Settings.RegisterExecutable(name, given); err != nil {
 		return nil, sandboxExecutableErr(err)
 	}
 	return sandboxExecutablesOf(r.Executables.Report(r.registeredExecutables())), nil
@@ -299,7 +299,7 @@ func (r *mutationResolver) SandboxExecutableRegister(ctx context.Context, name s
 
 // SandboxExecutableRemove is the resolver for the sandboxExecutableRemove field.
 func (r *mutationResolver) SandboxExecutableRemove(ctx context.Context, name string) ([]*model.SandboxExecutable, error) {
-	if err := r.SecurityCfg.RemoveExecutable(name); err != nil {
+	if err := r.Settings.RemoveExecutable(name); err != nil {
 		return nil, sandboxExecutableErr(err)
 	}
 	if !r.probes() {
@@ -310,7 +310,7 @@ func (r *mutationResolver) SandboxExecutableRemove(ctx context.Context, name str
 
 // OnboardingFinish is the resolver for the onboardingFinish field.
 func (r *mutationResolver) OnboardingFinish(ctx context.Context) (*model.Onboarding, error) {
-	if err := r.SecurityCfg.FinishOnboarding(); err != nil {
+	if err := r.Settings.FinishOnboarding(); err != nil {
 		return nil, err
 	}
 	return &model.Onboarding{Finished: true}, nil
@@ -349,17 +349,17 @@ func (r *mutationResolver) MemoryDelete(ctx context.Context, id memory.MemoryID)
 
 // PermissionDefaultModeSet is the resolver for the permissionDefaultModeSet field.
 func (r *mutationResolver) PermissionDefaultModeSet(ctx context.Context, mode permissions.Mode) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.SecurityCfg.SetDefaultMode(mode))
+	return r.permissionsAfter(ctx, r.Settings.SetDefaultMode(mode))
 }
 
 // PermissionModeSet is the resolver for the permissionModeSet field.
 func (r *mutationResolver) PermissionModeSet(ctx context.Context, context string, mode permissions.Mode) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.SecurityCfg.SetMode(context, mode))
+	return r.permissionsAfter(ctx, r.Settings.SetMode(context, mode))
 }
 
 // PermissionModeClear is the resolver for the permissionModeClear field.
 func (r *mutationResolver) PermissionModeClear(ctx context.Context, context string) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.SecurityCfg.ClearMode(context))
+	return r.permissionsAfter(ctx, r.Settings.ClearMode(context))
 }
 
 // PermissionRuleAdd is the resolver for the permissionRuleAdd field.
@@ -368,12 +368,12 @@ func (r *mutationResolver) PermissionRuleAdd(ctx context.Context, input model.Pe
 		ID: appdb.NewID(), Effect: input.Effect, Class: input.Class,
 		Context: input.Context, Namespace: input.Namespace, Verb: input.Verb, Group: input.Group, Kind: input.Kind,
 	}
-	return r.permissionsAfter(ctx, r.SecurityCfg.AddRule(rule))
+	return r.permissionsAfter(ctx, r.Settings.AddRule(rule))
 }
 
 // PermissionRuleRemove is the resolver for the permissionRuleRemove field.
 func (r *mutationResolver) PermissionRuleRemove(ctx context.Context, id string) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.SecurityCfg.RemoveRule(id))
+	return r.permissionsAfter(ctx, r.Settings.RemoveRule(id))
 }
 
 // ChatGrantRemove is the resolver for the chatGrantRemove field.
@@ -387,7 +387,7 @@ func (r *mutationResolver) ChatGrantRemove(ctx context.Context, chatID apimeta.C
 
 // PermissionDiscardRefused is the resolver for the permissionDiscardRefused field.
 func (r *mutationResolver) PermissionDiscardRefused(ctx context.Context, field string) (*model.PermissionSettings, error) {
-	return r.permissionsAfter(ctx, r.SecurityCfg.DiscardRefused(field))
+	return r.permissionsAfter(ctx, r.Settings.DiscardRefused(field))
 }
 
 // FolderGrant is the resolver for the folderGrant field.
@@ -495,10 +495,10 @@ func (r *queryResolver) ClusterCachedKinds(ctx context.Context, cacheID *apimeta
 	return r.ClusterSvc.CachedKinds().List(ctx)
 }
 
-// SecurityRefused is the resolver for the securityRefused field.
-func (r *queryResolver) SecurityRefused(ctx context.Context) ([]*securityconfig.Refusal, error) {
-	refused := r.SecurityCfg.Refused()
-	out := make([]*securityconfig.Refusal, len(refused))
+// SettingsRefused is the resolver for the settingsRefused field.
+func (r *queryResolver) SettingsRefused(ctx context.Context) ([]*jsonsettings.Refusal, error) {
+	refused := r.Settings.Refused()
+	out := make([]*jsonsettings.Refusal, len(refused))
 	for i := range refused {
 		out[i] = &refused[i]
 	}
@@ -507,12 +507,12 @@ func (r *queryResolver) SecurityRefused(ctx context.Context) ([]*securityconfig.
 
 // SandboxPath is the resolver for the sandboxPath field.
 func (r *queryResolver) SandboxPath(ctx context.Context) ([]*model.SandboxPathEntry, error) {
-	return sandboxPathOf(r.SecurityCfg.Path()), nil
+	return sandboxPathOf(r.Settings.Path()), nil
 }
 
 // SandboxPathFault is the resolver for the sandboxPathFault field.
 func (r *queryResolver) SandboxPathFault(ctx context.Context) (*string, error) {
-	if fault := r.SecurityCfg.PathFault(); fault != "" {
+	if fault := r.Settings.PathFault(); fault != "" {
 		return &fault, nil
 	}
 	return nil, nil
@@ -520,7 +520,7 @@ func (r *queryResolver) SandboxPathFault(ctx context.Context) (*string, error) {
 
 // SandboxPathResolved is the resolver for the sandboxPathResolved field.
 func (r *queryResolver) SandboxPathResolved(ctx context.Context) (bool, error) {
-	return r.SecurityCfg.PathResolved(), nil
+	return r.Settings.PathResolved(), nil
 }
 
 // SandboxExecutables is the resolver for the sandboxExecutables field.
@@ -533,7 +533,7 @@ func (r *queryResolver) SandboxExecutables(ctx context.Context) ([]*model.Sandbo
 
 // Onboarding is the resolver for the onboarding field.
 func (r *queryResolver) Onboarding(ctx context.Context) (*model.Onboarding, error) {
-	return &model.Onboarding{Finished: r.SecurityCfg.Get().Onboarded}, nil
+	return &model.Onboarding{Finished: r.Settings.Get().Onboarded}, nil
 }
 
 // PermissionSettings is the resolver for the permissionSettings field.
@@ -745,7 +745,7 @@ func (r *subscriptionResolver) SandboxExecutablesWatch(ctx context.Context) (<-c
 		}()
 		return out, nil
 	}
-	probe, settings := r.Executables.WatchProbe(), r.SecurityCfg.Subscribe()
+	probe, settings := r.Executables.WatchProbe(), r.Settings.Subscribe()
 	go func() {
 		defer close(out)
 		defer probe.Close()

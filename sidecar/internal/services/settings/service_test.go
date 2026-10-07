@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+package settings
 
 import (
 	"path/filepath"
@@ -24,7 +24,7 @@ import (
 
 // On a machine with no sandbox the list is empty and every change is refused.
 func TestAServiceWithNoSandboxChangesNothing(t *testing.T) {
-	store, err := Open(filepath.Join(t.TempDir(), "security.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 	s := NewService(store, nil, nil, "")
 
@@ -38,5 +38,5 @@ func TestAServiceWithNoSandboxChangesNothing(t *testing.T) {
 	assert.ErrorIs(t, err, ErrNoSandbox)
 	_, err = s.DropPath(t.TempDir())
 	assert.ErrorIs(t, err, ErrNoSandbox)
-	assert.Empty(t, store.Get().Path)
+	assert.Empty(t, store.Get().Sandbox.Path)
 }

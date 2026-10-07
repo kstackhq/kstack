@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+package settings
 
 import (
 	"context"
@@ -230,7 +230,7 @@ func (s *Service) checkWithin(ctx context.Context, path string, write, stored bo
 	if snap == nil {
 		return timeoutRefusal
 	}
-	entries := s.Get().Path
+	entries := s.Get().Sandbox.Path
 	err, ok := readWithin(ctx, s.syncTimeout, func() error {
 		return s.checkFolder(path, write, resolveZones(snap.zones), pathFolders(entries, snap.loginPath), stored)
 	})

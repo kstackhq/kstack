@@ -21,7 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 
@@ -603,9 +603,9 @@ func TestAppClosesTheDatabaseWhenAConstructorFails(t *testing.T) {
 
 // A sandbox file that is not a JSON object fails New naming it, before app.db
 // opens.
-func TestABadSecurityFileFailsNew(t *testing.T) {
+func TestABadSettingsFileFailsNew(t *testing.T) {
 	dir := t.TempDir()
-	file := filepath.Join(dir, "security.json")
+	file := filepath.Join(dir, "settings.json")
 	require.NoError(t, os.WriteFile(file, []byte("{"), 0o600))
 
 	_, err := New(t.Context(), withDirs(t, Config{DataDir: dir}))
@@ -681,16 +681,16 @@ func TestNoShellOffersNoNetwork(t *testing.T) {
 // On a machine with no sandbox the service syncs nothing and keeps no fault,
 // and a sync that fails at Start is a warning, not a startup error.
 func TestASecurityServiceWithNoSandboxSyncsNothing(t *testing.T) {
-	store, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
-	svc := newSecurityService(store, nil, nil, sandbox.Status{}, nil, "timeout", "")
+	svc := newSettingsService(store, nil, nil, sandbox.Status{}, nil, "timeout", "")
 	assert.Empty(t, svc.PathFault())
 	assert.False(t, svc.Get().RunPath().Resolved)
 
 	log := testutil.CaptureLogs(t)
 	assert.False(t, syncPath(t.Context(), svc, []string{t.TempDir()}), "nothing changed")
 	assert.Contains(t, log.String(), "PATH not synced")
-	assert.Empty(t, store.Get().Path)
+	assert.Empty(t, store.Get().Sandbox.Path)
 }
 
 // A folder under internal/ is a layer: an import between two folders points

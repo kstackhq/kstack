@@ -19,7 +19,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -38,7 +38,7 @@ type Runtime struct {
 	// Shell is nil on a machine with no shell.
 	Shell         *bash.Tool
 	SandboxStatus sandbox.Status
-	Security      *securityconfig.Service
+	Settings      *settings.Service
 	Memory        memory.Service
 	Tools         tools.Box
 	Chat          chat.Service
@@ -76,8 +76,8 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		launchPath, launchFault = launchShell(ctx, boxer, p.Bash.DeniedDirs, p.Bash.TmpDir)
 	}
 
-	// The security settings hold no handle, so a failure leaves nothing to close.
-	securityStore, err := securityconfig.Open(p.SecurityFile)
+	// The settings hold no handle, so a failure leaves nothing to close.
+	settingsStore, err := settings.Open(p.SettingsFile)
 	if err != nil {
 		return nil, err
 	}
@@ -127,14 +127,14 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.Catalog = newCatalog(cfg)
 	rt.LLM = llm.New(rt.Catalog.Providers()...)
 
-	pathList := func() securityconfig.RunPath { return securityStore.Get().RunPath() }
+	pathList := func() settings.RunPath { return settingsStore.Get().RunPath() }
 	shell, found := bash.New(p.Bash, cfg.HostPID, sb, rt.Cluster, pathList)
 	if found && cfg.callDeadline != nil {
 		shell.SetCallDeadline(cfg.callDeadline)
 	}
 	rt.Shell = shell
 	rt.SandboxStatus = sandboxStatusOf(found, probed)
-	rt.Security = newSecurityService(securityStore, boxer, shell, rt.SandboxStatus, p.Bash.DeniedDirs, launchFault, p.Bash.TmpDir)
+	rt.Settings = newSettingsService(settingsStore, boxer, shell, rt.SandboxStatus, p.Bash.DeniedDirs, launchFault, p.Bash.TmpDir)
 
 	rt.Memory, err = memory.New(db, serverUIDLookup{clusters: rt.Cluster.Clusters()})
 	if err != nil {
@@ -144,14 +144,14 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 
 	// The file tools are fenced out of every one of Kstack's directories.
 	rt.Tools, err = chatTools(toolDeps{
-		shell: shell, fenced: p.Bash.DeniedDirs, hidden: rt.Security.Hidden, umask: cfg.UserUmask,
+		shell: shell, fenced: p.Bash.DeniedDirs, hidden: rt.Settings.Hidden, umask: cfg.UserUmask,
 		memory: rt.Memory, clusters: rt.Cluster,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("fence Kstack's directories: %w", err))
 	}
 
-	rt.Chat, err = chat.New(db, p.ChatsDir, p.MonitorDir, rt.LLM, clustercard.New(rt.Cluster), rt.Memory, rt.Tools, rt.Catalog, rt.SandboxStatus, rt.Security)
+	rt.Chat, err = chat.New(db, p.ChatsDir, p.MonitorDir, rt.LLM, clustercard.New(rt.Cluster), rt.Memory, rt.Tools, rt.Catalog, rt.SandboxStatus, rt.Settings)
 	if err != nil {
 		return fail(err)
 	}
@@ -171,8 +171,8 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		rt.add("PATH sync", lifecycle.StartFunc(func(ctx context.Context) (func(context.Context) error, error) {
 			// Only when the list moved, so nothing runs unasked on a machine
 			// whose tools did not; the executable probe part's Close ends it.
-			if syncPath(ctx, rt.Security, launchPath) {
-				shell.StartProbe(rt.Security.Get().Executables)
+			if syncPath(ctx, rt.Settings, launchPath) {
+				shell.StartProbe(rt.Settings.Get().Executables)
 			}
 			return func(context.Context) error { return nil }, nil
 		}))
@@ -209,7 +209,7 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		LLMSvc:        rt.LLM,
 		SandboxStatus: rt.SandboxStatus,
 		Auth:          rt.Auth,
-		SecurityCfg:   rt.Security,
+		Settings:      rt.Settings,
 		Executables:   prober,
 	}
 }

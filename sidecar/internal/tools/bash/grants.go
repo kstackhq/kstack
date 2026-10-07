@@ -20,7 +20,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
 // grantRules is the session's folders as Files rules: each checked again
@@ -29,16 +29,16 @@ import (
 // A folder granted twice keeps the wider grant, and one under a read-write
 // folder is dropped, since that rule covers it and Check refuses any rule
 // beneath a Write rule. It reads the disk.
-func (t *Tool) grantRules(folders []session.Folder, open sandbox.FilePolicy, never []string, entries []securityconfig.PathEntry) sandbox.FilePolicy {
+func (t *Tool) grantRules(folders []session.Folder, open sandbox.FilePolicy, never []string, entries []settings.PathEntry) sandbox.FilePolicy {
 	if len(folders) == 0 {
 		return sandbox.FilePolicy{}
 	}
-	zones := securityconfig.Zones{Never: slices.Concat(never, t.denied), Open: open, Home: t.home, NoWrite: sandbox.NoWrite(t.home)}
-	pathFolders := securityconfig.PathEntryFolders(entries)
+	zones := settings.Zones{Never: slices.Concat(never, t.denied), Open: open, Home: t.home, NoWrite: sandbox.NoWrite(t.home)}
+	pathFolders := settings.PathEntryFolders(entries)
 	var passed []string
 	writable := map[string]bool{}
 	for _, f := range folders {
-		if err := securityconfig.CheckStoredFolder(f.Path, f.Write, zones, pathFolders); err != nil {
+		if err := settings.CheckStoredFolder(f.Path, f.Write, zones, pathFolders); err != nil {
 			slog.Info("folder grant left out of a run", "folder", f.Path, "reason", err.Error())
 			continue
 		}

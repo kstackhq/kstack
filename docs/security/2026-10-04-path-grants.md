@@ -95,4 +95,4 @@ and so do `Read`, `Write` and `Edit` without a request.
 ## What closes
 
 The TODO item *Revisit how little of the home a sandboxed command reads*: this is the allow-list
-it asked for, kept in `security.json` rather than `host.json`.
+it asked for, kept in `settings.json` rather than `host.json`.

@@ -37,9 +37,9 @@ import (
 func fileApprovals(t *testing.T, s *service, c ChatID, readPath, writePath string) (readA, writeA tools.Approval) {
 	t.Helper()
 	data := t.TempDir()
-	reader, err := read.New(s.security.Hidden, data)
+	reader, err := read.New(s.settings.Hidden, data)
 	require.NoError(t, err)
-	writer, err := write.New(0o022, s.security.Hidden, data)
+	writer, err := write.New(0o022, s.settings.Hidden, data)
 	require.NoError(t, err)
 	rt := tools.Runtime{Session: s.sessionFor(c, false, false), Dir: s.chatDir(c)}
 	raw := func(v map[string]string) json.RawMessage {
@@ -54,7 +54,7 @@ func fileApprovals(t *testing.T, s *service, c ChatID, readPath, writePath strin
 	return readA, writeA
 }
 
-// A rule hand-edited into security.json passes the store's shape check, which
+// A rule hand-edited into settings.json passes the store's shape check, which
 // reads no disk; foldersFor's check refuses it.
 func TestFoldersForAnswersOnlyCheckedFolders(t *testing.T) {
 	s := newTestService(t)
@@ -64,7 +64,7 @@ func TestFoldersForAnswersOnlyCheckedFolders(t *testing.T) {
 	for id, r := range map[string]bool{home: true, "/proc": false} {
 		rule := folderRule(id, r)
 		rule.ID = id
-		require.NoError(t, s.security.AddRule(rule))
+		require.NoError(t, s.settings.AddRule(rule))
 	}
 
 	assert.Empty(t, s.FoldersFor(t.Context(), c.ID))

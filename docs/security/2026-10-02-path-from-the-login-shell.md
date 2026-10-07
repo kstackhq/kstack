@@ -1,7 +1,7 @@
 # Security record — `PATH` from the login shell, 2 October 2026
 
 **Subject:** a sandboxed command's `PATH` is the user's login shell's, filtered and frozen in
-`security.json`, and it is the run's Read rules too. The living model is
+`settings.json`, and it is the run's Read rules too. The living model is
 [security-model.md](../security-model.md); the zones are recorded in
 [the sandbox's own environment](2026-10-02-the-sandboxs-own-environment.md).
 

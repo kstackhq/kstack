@@ -37,7 +37,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/loginshell"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/webfetch"
@@ -309,11 +309,11 @@ func TestStartSyncsTheLaunchPath(t *testing.T) {
 	assert.Equal(t, partIndex(t, a, "shell snapshot")-1, partIndex(t, a, "PATH sync"))
 	startApp(t, a)
 
-	store, err := securityconfig.Open(filepath.Join(data, "security.json"))
+	store, err := settings.Open(filepath.Join(data, "settings.json"))
 	require.NoError(t, err)
-	assert.Equal(t, []securityconfig.PathEntry{
-		{Dir: "/usr/bin", Target: usrBin, State: securityconfig.PathAdopted, Source: securityconfig.SourceShell},
-	}, store.Get().Path)
+	assert.Equal(t, []settings.PathEntry{
+		{Dir: "/usr/bin", Target: usrBin, State: settings.PathAdopted, Source: settings.SourceShell},
+	}, store.Get().Sandbox.Path)
 }
 
 // countProbes replaces probeSandbox with one that counts its calls and keeps
@@ -374,11 +374,11 @@ func (s *refusingSandbox) System(string, string) sandbox.System { return sandbox
 // policy: the denied-always list, as it stands at each refresh, and Kstack's
 // directories shut.
 func TestTheRefreshRunsInTheSandbox(t *testing.T) {
-	store, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 	sb := &refusingSandbox{never: []string{"/never"}}
 	kstackDirs := []string{t.TempDir(), t.TempDir(), t.TempDir()}
-	svc := newSecurityService(store, sb, nil, sandbox.Status{Available: true}, kstackDirs, "", filepath.Join(kstackDirs[1], "tmp"))
+	svc := newSettingsService(store, sb, nil, sandbox.Status{Available: true}, kstackDirs, "", filepath.Join(kstackDirs[1], "tmp"))
 
 	_, err = svc.RefreshPath(t.Context())
 	require.ErrorContains(t, err, "sandbox refused")

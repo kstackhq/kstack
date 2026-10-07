@@ -20,7 +20,7 @@ func TestNewKeepsTheRuntime(t *testing.T) {
 	rt := a.rt
 	for name, svc := range map[string]any{
 		"DB": rt.DB, "Poke": rt.Poke, "Kubeconfig": rt.Kubeconfig, "Cluster": rt.Cluster,
-		"Auth": rt.Auth, "LLM": rt.LLM, "Security": rt.Security,
+		"Auth": rt.Auth, "LLM": rt.LLM, "Security": rt.Settings,
 		"Memory": rt.Memory, "Chat": rt.Chat,
 	} {
 		assert.NotNil(t, svc, name)

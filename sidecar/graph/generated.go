@@ -19,6 +19,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/graph/model"
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/jsonsettings"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/rawjson"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
@@ -27,7 +28,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	gqlparser "github.com/vektah/gqlparser/v2"
 	"github.com/vektah/gqlparser/v2/ast"
@@ -583,7 +584,7 @@ type ComplexityRoot struct {
 		SandboxPath         func(childComplexity int) int
 		SandboxPathFault    func(childComplexity int) int
 		SandboxPathResolved func(childComplexity int) int
-		SecurityRefused     func(childComplexity int) int
+		SettingsRefused     func(childComplexity int) int
 	}
 
 	ReadAction struct {
@@ -655,7 +656,7 @@ type ComplexityRoot struct {
 		Query func(childComplexity int) int
 	}
 
-	SecurityRefusal struct {
+	SettingsRefusal struct {
 		Field  func(childComplexity int) int
 		Reason func(childComplexity int) int
 		Value  func(childComplexity int) int
@@ -807,7 +808,7 @@ type QueryResolver interface {
 	ClusterCaches(ctx context.Context, clusterID *apimeta.ClusterID) ([]*cluster.ClusterCache, error)
 	ClusterCachedKind(ctx context.Context, id apimeta.ObjectID) (*cluster.ClusterCachedKind, error)
 	ClusterCachedKinds(ctx context.Context, cacheID *apimeta.ObjectID) ([]*cluster.ClusterCachedKind, error)
-	SecurityRefused(ctx context.Context) ([]*securityconfig.Refusal, error)
+	SettingsRefused(ctx context.Context) ([]*jsonsettings.Refusal, error)
 	SandboxPath(ctx context.Context) ([]*model.SandboxPathEntry, error)
 	SandboxPathFault(ctx context.Context) (*string, error)
 	SandboxPathResolved(ctx context.Context) (bool, error)
@@ -3149,12 +3150,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Query.SandboxPathResolved(childComplexity), true
-	case "Query.securityRefused":
-		if e.ComplexityRoot.Query.SecurityRefused == nil {
+	case "Query.settingsRefused":
+		if e.ComplexityRoot.Query.SettingsRefused == nil {
 			break
 		}
 
-		return e.ComplexityRoot.Query.SecurityRefused(childComplexity), true
+		return e.ComplexityRoot.Query.SettingsRefused(childComplexity), true
 
 	case "ReadAction.path":
 		if e.ComplexityRoot.ReadAction.Path == nil {
@@ -3400,24 +3401,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.SearchAction.Query(childComplexity), true
 
-	case "SecurityRefusal.field":
-		if e.ComplexityRoot.SecurityRefusal.Field == nil {
+	case "SettingsRefusal.field":
+		if e.ComplexityRoot.SettingsRefusal.Field == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SecurityRefusal.Field(childComplexity), true
-	case "SecurityRefusal.reason":
-		if e.ComplexityRoot.SecurityRefusal.Reason == nil {
+		return e.ComplexityRoot.SettingsRefusal.Field(childComplexity), true
+	case "SettingsRefusal.reason":
+		if e.ComplexityRoot.SettingsRefusal.Reason == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SecurityRefusal.Reason(childComplexity), true
-	case "SecurityRefusal.value":
-		if e.ComplexityRoot.SecurityRefusal.Value == nil {
+		return e.ComplexityRoot.SettingsRefusal.Reason(childComplexity), true
+	case "SettingsRefusal.value":
+		if e.ComplexityRoot.SettingsRefusal.Value == nil {
 			break
 		}
 
-		return e.ComplexityRoot.SecurityRefusal.Value(childComplexity), true
+		return e.ComplexityRoot.SettingsRefusal.Value(childComplexity), true
 
 	case "Subscription.authStateWatch":
 		if e.ComplexityRoot.Subscription.AuthStateWatch == nil {
@@ -4975,16 +4976,16 @@ func (ec *executionContext) childFields_SearchAction(ctx context.Context, field 
 	return nil, fmt.Errorf("no field named %q was found under type SearchAction", field.Name)
 }
 
-func (ec *executionContext) childFields_SecurityRefusal(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+func (ec *executionContext) childFields_SettingsRefusal(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "field":
-		return ec.fieldContext_SecurityRefusal_field(ctx, field)
+		return ec.fieldContext_SettingsRefusal_field(ctx, field)
 	case "value":
-		return ec.fieldContext_SecurityRefusal_value(ctx, field)
+		return ec.fieldContext_SettingsRefusal_value(ctx, field)
 	case "reason":
-		return ec.fieldContext_SecurityRefusal_reason(ctx, field)
+		return ec.fieldContext_SettingsRefusal_reason(ctx, field)
 	}
-	return nil, fmt.Errorf("no field named %q was found under type SecurityRefusal", field.Name)
+	return nil, fmt.Errorf("no field named %q was found under type SettingsRefusal", field.Name)
 }
 
 func (ec *executionContext) childFields_SyncedKindRef(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -14164,7 +14165,7 @@ func (ec *executionContext) fieldContext_PermissionAction_chatRule(_ context.Con
 	return graphql.NewScalarFieldContext("PermissionAction", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _PermissionContextMode_context(ctx context.Context, field graphql.CollectedField, obj *securityconfig.ContextModeState) (ret graphql.Marshaler) {
+func (ec *executionContext) _PermissionContextMode_context(ctx context.Context, field graphql.CollectedField, obj *settings.ContextModeState) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14187,7 +14188,7 @@ func (ec *executionContext) fieldContext_PermissionContextMode_context(_ context
 	return graphql.NewScalarFieldContext("PermissionContextMode", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _PermissionContextMode_mode(ctx context.Context, field graphql.CollectedField, obj *securityconfig.ContextModeState) (ret graphql.Marshaler) {
+func (ec *executionContext) _PermissionContextMode_mode(ctx context.Context, field graphql.CollectedField, obj *settings.ContextModeState) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14210,7 +14211,7 @@ func (ec *executionContext) fieldContext_PermissionContextMode_mode(_ context.Co
 	return graphql.NewScalarFieldContext("PermissionContextMode", field, false, false, errors.New("field of type PermissionMode does not have child fields"))
 }
 
-func (ec *executionContext) _PermissionContextMode_source(ctx context.Context, field graphql.CollectedField, obj *securityconfig.ContextModeState) (ret graphql.Marshaler) {
+func (ec *executionContext) _PermissionContextMode_source(ctx context.Context, field graphql.CollectedField, obj *settings.ContextModeState) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14222,8 +14223,8 @@ func (ec *executionContext) _PermissionContextMode_source(ctx context.Context, f
 			return obj.Source, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v securityconfig.ModeSource) graphql.Marshaler {
-			return ec.marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐModeSource(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v settings.ModeSource) graphql.Marshaler {
+			return ec.marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsettingsᚐModeSource(ctx, selections, v)
 		},
 		true,
 		true,
@@ -14233,7 +14234,7 @@ func (ec *executionContext) fieldContext_PermissionContextMode_source(_ context.
 	return graphql.NewScalarFieldContext("PermissionContextMode", field, false, false, errors.New("field of type PermissionModeSource does not have child fields"))
 }
 
-func (ec *executionContext) _PermissionContextMode_pattern(ctx context.Context, field graphql.CollectedField, obj *securityconfig.ContextModeState) (ret graphql.Marshaler) {
+func (ec *executionContext) _PermissionContextMode_pattern(ctx context.Context, field graphql.CollectedField, obj *settings.ContextModeState) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14256,7 +14257,7 @@ func (ec *executionContext) fieldContext_PermissionContextMode_pattern(_ context
 	return graphql.NewScalarFieldContext("PermissionContextMode", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _PermissionContextMode_own(ctx context.Context, field graphql.CollectedField, obj *securityconfig.ContextModeState) (ret graphql.Marshaler) {
+func (ec *executionContext) _PermissionContextMode_own(ctx context.Context, field graphql.CollectedField, obj *settings.ContextModeState) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14544,8 +14545,8 @@ func (ec *executionContext) _PermissionSettings_contexts(ctx context.Context, fi
 			return obj.Contexts, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*securityconfig.ContextModeState) graphql.Marshaler {
-			return ec.marshalNPermissionContextMode2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐContextModeStateᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*settings.ContextModeState) graphql.Marshaler {
+			return ec.marshalNPermissionContextMode2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsettingsᚐContextModeStateᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -15119,33 +15120,33 @@ func (ec *executionContext) fieldContext_Query_clusterCachedKinds(ctx context.Co
 	return fc, nil
 }
 
-func (ec *executionContext) _Query_securityRefused(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
+func (ec *executionContext) _Query_settingsRefused(ctx context.Context, field graphql.CollectedField) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_Query_securityRefused(ctx, field)
+			return ec.fieldContext_Query_settingsRefused(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
-			return ec.Resolvers.Query().SecurityRefused(ctx)
+			return ec.Resolvers.Query().SettingsRefused(ctx)
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*securityconfig.Refusal) graphql.Marshaler {
-			return ec.marshalNSecurityRefusal2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐRefusalᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*jsonsettings.Refusal) graphql.Marshaler {
+			return ec.marshalNSettingsRefusal2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋjsonsettingsᚐRefusalᚄ(ctx, selections, v)
 		},
 		true,
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_Query_securityRefused(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+func (ec *executionContext) fieldContext_Query_settingsRefused(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	fc = &graphql.FieldContext{
 		Object:     "Query",
 		Field:      field,
 		IsMethod:   true,
 		IsResolver: true,
 		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.childFields_SecurityRefusal(ctx, field)
+			return ec.childFields_SettingsRefusal(ctx, field)
 		},
 	}
 	return fc, nil
@@ -16445,13 +16446,13 @@ func (ec *executionContext) fieldContext_SearchAction_query(_ context.Context, f
 	return graphql.NewScalarFieldContext("SearchAction", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _SecurityRefusal_field(ctx context.Context, field graphql.CollectedField, obj *securityconfig.Refusal) (ret graphql.Marshaler) {
+func (ec *executionContext) _SettingsRefusal_field(ctx context.Context, field graphql.CollectedField, obj *jsonsettings.Refusal) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SecurityRefusal_field(ctx, field)
+			return ec.fieldContext_SettingsRefusal_field(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			return obj.Field, nil
@@ -16464,17 +16465,17 @@ func (ec *executionContext) _SecurityRefusal_field(ctx context.Context, field gr
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_SecurityRefusal_field(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SecurityRefusal", field, false, false, errors.New("field of type String does not have child fields"))
+func (ec *executionContext) fieldContext_SettingsRefusal_field(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SettingsRefusal", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _SecurityRefusal_value(ctx context.Context, field graphql.CollectedField, obj *securityconfig.Refusal) (ret graphql.Marshaler) {
+func (ec *executionContext) _SettingsRefusal_value(ctx context.Context, field graphql.CollectedField, obj *jsonsettings.Refusal) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SecurityRefusal_value(ctx, field)
+			return ec.fieldContext_SettingsRefusal_value(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			return obj.Value, nil
@@ -16487,17 +16488,17 @@ func (ec *executionContext) _SecurityRefusal_value(ctx context.Context, field gr
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_SecurityRefusal_value(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SecurityRefusal", field, false, false, errors.New("field of type String does not have child fields"))
+func (ec *executionContext) fieldContext_SettingsRefusal_value(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SettingsRefusal", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _SecurityRefusal_reason(ctx context.Context, field graphql.CollectedField, obj *securityconfig.Refusal) (ret graphql.Marshaler) {
+func (ec *executionContext) _SettingsRefusal_reason(ctx context.Context, field graphql.CollectedField, obj *jsonsettings.Refusal) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
 		field,
 		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
-			return ec.fieldContext_SecurityRefusal_reason(ctx, field)
+			return ec.fieldContext_SettingsRefusal_reason(ctx, field)
 		},
 		func(ctx context.Context) (any, error) {
 			return obj.Reason, nil
@@ -16510,8 +16511,8 @@ func (ec *executionContext) _SecurityRefusal_reason(ctx context.Context, field g
 		true,
 	)
 }
-func (ec *executionContext) fieldContext_SecurityRefusal_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
-	return graphql.NewScalarFieldContext("SecurityRefusal", field, false, false, errors.New("field of type String does not have child fields"))
+func (ec *executionContext) fieldContext_SettingsRefusal_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("SettingsRefusal", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _Subscription_eventsWatch(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
@@ -23127,7 +23128,7 @@ func (ec *executionContext) _PermissionAction(ctx context.Context, sel ast.Selec
 
 var permissionContextModeImplementors = []string{"PermissionContextMode"}
 
-func (ec *executionContext) _PermissionContextMode(ctx context.Context, sel ast.SelectionSet, obj *securityconfig.ContextModeState) graphql.Marshaler {
+func (ec *executionContext) _PermissionContextMode(ctx context.Context, sel ast.SelectionSet, obj *settings.ContextModeState) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, permissionContextModeImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -23621,7 +23622,7 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 			}
 
 			out.Concurrently(i, func(ctx context.Context) graphql.Marshaler { return rrm(innerCtx) })
-		case "securityRefused":
+		case "settingsRefused":
 			field := field
 
 			innerFunc := func(ctx context.Context, fs *graphql.FieldSet) (res graphql.Marshaler) {
@@ -23630,7 +23631,7 @@ func (ec *executionContext) _Query(ctx context.Context, sel ast.SelectionSet) gr
 						ec.Error(ctx, ec.Recover(ctx, r))
 					}
 				}()
-				res = ec._Query_securityRefused(ctx, field)
+				res = ec._Query_settingsRefused(ctx, field)
 				if res == graphql.Null {
 					atomic.AddUint32(&fs.Invalids, 1)
 				}
@@ -24401,10 +24402,10 @@ func (ec *executionContext) _SearchAction(ctx context.Context, sel ast.Selection
 	return out
 }
 
-var securityRefusalImplementors = []string{"SecurityRefusal"}
+var settingsRefusalImplementors = []string{"SettingsRefusal"}
 
-func (ec *executionContext) _SecurityRefusal(ctx context.Context, sel ast.SelectionSet, obj *securityconfig.Refusal) graphql.Marshaler {
-	fields := graphql.CollectFields(ec.OperationContext, sel, securityRefusalImplementors)
+func (ec *executionContext) _SettingsRefusal(ctx context.Context, sel ast.SelectionSet, obj *jsonsettings.Refusal) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, settingsRefusalImplementors)
 
 	out := graphql.NewFieldSet(fields)
 	deferredFieldSet := graphql.NewFieldSet(nil)
@@ -24412,19 +24413,19 @@ func (ec *executionContext) _SecurityRefusal(ctx context.Context, sel ast.Select
 	for i, field := range fields {
 		switch field.Name {
 		case "__typename":
-			out.Values[i] = graphql.MarshalString("SecurityRefusal")
+			out.Values[i] = graphql.MarshalString("SettingsRefusal")
 		case "field":
-			out.Values[i] = ec._SecurityRefusal_field(ctx, field, obj)
+			out.Values[i] = ec._SettingsRefusal_field(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		case "value":
-			out.Values[i] = ec._SecurityRefusal_value(ctx, field, obj)
+			out.Values[i] = ec._SettingsRefusal_value(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
 		case "reason":
-			out.Values[i] = ec._SecurityRefusal_reason(ctx, field, obj)
+			out.Values[i] = ec._SettingsRefusal_reason(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
@@ -26262,11 +26263,11 @@ var (
 	}
 )
 
-func (ec *executionContext) marshalNPermissionContextMode2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐContextModeStateᚄ(ctx context.Context, sel ast.SelectionSet, v []*securityconfig.ContextModeState) graphql.Marshaler {
+func (ec *executionContext) marshalNPermissionContextMode2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsettingsᚐContextModeStateᚄ(ctx context.Context, sel ast.SelectionSet, v []*settings.ContextModeState) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNPermissionContextMode2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐContextModeState(ctx, sel, v[i])
+		return ec.marshalNPermissionContextMode2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsettingsᚐContextModeState(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -26278,7 +26279,7 @@ func (ec *executionContext) marshalNPermissionContextMode2ᚕᚖgithubᚗcomᚋk
 	return ret
 }
 
-func (ec *executionContext) marshalNPermissionContextMode2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐContextModeState(ctx context.Context, sel ast.SelectionSet, v *securityconfig.ContextModeState) graphql.Marshaler {
+func (ec *executionContext) marshalNPermissionContextMode2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsettingsᚐContextModeState(ctx context.Context, sel ast.SelectionSet, v *settings.ContextModeState) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26348,15 +26349,15 @@ var (
 	}
 )
 
-func (ec *executionContext) unmarshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐModeSource(ctx context.Context, v any) (securityconfig.ModeSource, error) {
+func (ec *executionContext) unmarshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsettingsᚐModeSource(ctx context.Context, v any) (settings.ModeSource, error) {
 	tmp, err := graphql.UnmarshalString(v)
-	res := unmarshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐModeSource[tmp]
+	res := unmarshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsettingsᚐModeSource[tmp]
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐModeSource(ctx context.Context, sel ast.SelectionSet, v securityconfig.ModeSource) graphql.Marshaler {
+func (ec *executionContext) marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsettingsᚐModeSource(ctx context.Context, sel ast.SelectionSet, v settings.ModeSource) graphql.Marshaler {
 	_ = sel
-	res := graphql.MarshalString(marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐModeSource[v])
+	res := graphql.MarshalString(marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsettingsᚐModeSource[v])
 	if res == graphql.Null {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -26366,15 +26367,15 @@ func (ec *executionContext) marshalNPermissionModeSource2githubᚗcomᚋkstackhq
 }
 
 var (
-	unmarshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐModeSource = map[string]securityconfig.ModeSource{
-		"Refused": securityconfig.SourceRefused,
-		"Entry":   securityconfig.SourceEntry,
-		"Default": securityconfig.SourceDefault,
+	unmarshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsettingsᚐModeSource = map[string]settings.ModeSource{
+		"Refused": settings.SourceRefused,
+		"Entry":   settings.SourceEntry,
+		"Default": settings.SourceDefault,
 	}
-	marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐModeSource = map[securityconfig.ModeSource]string{
-		securityconfig.SourceRefused: "Refused",
-		securityconfig.SourceEntry:   "Entry",
-		securityconfig.SourceDefault: "Default",
+	marshalNPermissionModeSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsettingsᚐModeSource = map[settings.ModeSource]string{
+		settings.SourceRefused: "Refused",
+		settings.SourceEntry:   "Entry",
+		settings.SourceDefault: "Default",
 	}
 )
 
@@ -26613,11 +26614,11 @@ func (ec *executionContext) marshalNSchedule2ᚖgithubᚗcomᚋkstackhqᚋkstack
 	return ec._Schedule(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNSecurityRefusal2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐRefusalᚄ(ctx context.Context, sel ast.SelectionSet, v []*securityconfig.Refusal) graphql.Marshaler {
+func (ec *executionContext) marshalNSettingsRefusal2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋjsonsettingsᚐRefusalᚄ(ctx context.Context, sel ast.SelectionSet, v []*jsonsettings.Refusal) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNSecurityRefusal2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐRefusal(ctx, sel, v[i])
+		return ec.marshalNSettingsRefusal2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋjsonsettingsᚐRefusal(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -26629,14 +26630,14 @@ func (ec *executionContext) marshalNSecurityRefusal2ᚕᚖgithubᚗcomᚋkstackh
 	return ret
 }
 
-func (ec *executionContext) marshalNSecurityRefusal2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋsecurityconfigᚐRefusal(ctx context.Context, sel ast.SelectionSet, v *securityconfig.Refusal) graphql.Marshaler {
+func (ec *executionContext) marshalNSettingsRefusal2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋjsonsettingsᚐRefusal(ctx context.Context, sel ast.SelectionSet, v *jsonsettings.Refusal) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
 		}
 		return graphql.Null
 	}
-	return ec._SecurityRefusal(ctx, sel, v)
+	return ec._SettingsRefusal(ctx, sel, v)
 }
 
 func (ec *executionContext) unmarshalNString2string(ctx context.Context, v any) (string, error) {

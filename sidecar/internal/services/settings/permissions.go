@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+package settings
 
 import (
 	"cmp"
@@ -56,9 +56,9 @@ type ContextModeState struct {
 // The keys of the fields that answer their strictest state while the store
 // holds them.
 const (
-	FieldDefaultMode = "defaultMode"
-	FieldModes       = "modes"
-	FieldRules       = "rules"
+	FieldDefaultMode = "permissions.defaultMode"
+	FieldModes       = "permissions.modes"
+	FieldRules       = "permissions.rules"
 )
 
 // ModeFor is context's mode and where it comes from: read-only while modes is
@@ -70,7 +70,7 @@ func (s *Store) ModeFor(context string) ContextModeState {
 		return st
 	}
 	v := s.Get()
-	for _, m := range v.Modes {
+	for _, m := range v.Permissions.Modes {
 		if permissions.Match(m.Context, context) {
 			st.Mode, st.Source, st.Pattern = m.Mode, SourceEntry, m.Context
 			st.Own = m.Context == permissions.Literal(context)
@@ -87,7 +87,7 @@ func (s *Store) DefaultMode() permissions.Mode {
 }
 
 func defaultMode(v Settings) permissions.Mode {
-	return cmp.Or(v.DefaultMode, permissions.Ask)
+	return cmp.Or(v.Permissions.DefaultMode, permissions.Ask)
 }
 
 // Rules is the always rules as a decision reads them. While rules is held,
@@ -95,7 +95,7 @@ func defaultMode(v Settings) permissions.Mode {
 // permissions.RefusedSecrets, which are never written to the file and whose
 // ids the rules check refuses there.
 func (s *Store) Rules() []permissions.Rule {
-	rules := s.Get().Rules
+	rules := s.Get().Permissions.Rules
 	if !s.Held(FieldRules) {
 		return rules
 	}
@@ -106,7 +106,7 @@ func (s *Store) Rules() []permissions.Rule {
 // SetDefaultMode sets the default mode, which also fixes a refused one.
 func (s *Store) SetDefaultMode(mode permissions.Mode) error {
 	return s.Update(func(v *Settings) error {
-		v.DefaultMode = mode
+		v.Permissions.DefaultMode = mode
 		return nil
 	}, FieldDefaultMode)
 }
@@ -116,7 +116,7 @@ func (s *Store) SetDefaultMode(mode permissions.Mode) error {
 func (s *Store) SetMode(context string, mode permissions.Mode) error {
 	entry := ContextMode{Context: permissions.Literal(context), Mode: mode}
 	return s.Update(func(v *Settings) error {
-		v.Modes = append([]ContextMode{entry}, withoutEntry(v.Modes, entry.Context)...)
+		v.Permissions.Modes = append([]ContextMode{entry}, withoutEntry(v.Permissions.Modes, entry.Context)...)
 		return nil
 	})
 }
@@ -124,7 +124,7 @@ func (s *Store) SetMode(context string, mode permissions.Mode) error {
 // ClearMode removes context's own mode.
 func (s *Store) ClearMode(context string) error {
 	return s.Update(func(v *Settings) error {
-		v.Modes = withoutEntry(v.Modes, permissions.Literal(context))
+		v.Permissions.Modes = withoutEntry(v.Permissions.Modes, permissions.Literal(context))
 		return nil
 	})
 }
@@ -134,12 +134,12 @@ func withoutEntry(modes []ContextMode, pattern string) []ContextMode {
 }
 
 // ErrNoRule is a rule id the settings do not hold.
-var ErrNoRule = errors.New("securityconfig: no rule has this id")
+var ErrNoRule = errors.New("settings: no rule has this id")
 
 // AddRule adds an always rule, which the rules check reads first.
 func (s *Store) AddRule(r permissions.Rule) error {
 	return s.Update(func(v *Settings) error {
-		v.Rules = append(v.Rules, r)
+		v.Permissions.Rules = append(v.Permissions.Rules, r)
 		return nil
 	})
 }
@@ -147,11 +147,11 @@ func (s *Store) AddRule(r permissions.Rule) error {
 // RemoveRule removes the always rule with id.
 func (s *Store) RemoveRule(id string) error {
 	return s.Update(func(v *Settings) error {
-		i := slices.IndexFunc(v.Rules, func(r permissions.Rule) bool { return r.ID == id })
+		i := slices.IndexFunc(v.Permissions.Rules, func(r permissions.Rule) bool { return r.ID == id })
 		if i < 0 {
 			return ErrNoRule
 		}
-		v.Rules = slices.Delete(v.Rules, i, i+1)
+		v.Permissions.Rules = slices.Delete(v.Permissions.Rules, i, i+1)
 		return nil
 	})
 }
@@ -161,19 +161,19 @@ func (s *Store) RemoveRule(id string) error {
 // cannot interleave with another's.
 func (s *Store) PutRule(r permissions.Rule, replaces func(permissions.Rule) bool) error {
 	return s.Update(func(v *Settings) error {
-		i := slices.IndexFunc(v.Rules, replaces)
+		i := slices.IndexFunc(v.Permissions.Rules, replaces)
 		if i < 0 {
-			v.Rules = append(v.Rules, r)
+			v.Permissions.Rules = append(v.Permissions.Rules, r)
 			return nil
 		}
-		r.ID = v.Rules[i].ID
-		v.Rules[i] = r
+		r.ID = v.Permissions.Rules[i].ID
+		v.Permissions.Rules[i] = r
 		return nil
 	})
 }
 
 // ErrNotHeld is a discard of a field the store does not hold.
-var ErrNotHeld = errors.New("securityconfig: this setting holds nothing Kstack cannot read")
+var ErrNotHeld = errors.New("settings: this setting holds nothing Kstack cannot read")
 
 // DiscardRefused writes modes or rules as it stands, the elements that passed,
 // which ends the hold and drops what could not be read.
@@ -187,17 +187,17 @@ func (s *Store) DiscardRefused(field string) error {
 var validModes = map[permissions.Mode]bool{permissions.ReadOnly: true, permissions.Ask: true, permissions.Auto: true}
 
 func checkDefaultMode(v *Settings) []Refusal {
-	if v.DefaultMode == "" || validModes[v.DefaultMode] {
+	if v.Permissions.DefaultMode == "" || validModes[v.Permissions.DefaultMode] {
 		return nil
 	}
-	r := Refusal{Field: FieldDefaultMode, Value: jsonOf(v.DefaultMode), Reason: "is not read-only, ask or auto"}
-	v.DefaultMode = ""
+	r := Refusal{Field: FieldDefaultMode, Value: jsonOf(v.Permissions.DefaultMode), Reason: "is not read-only, ask or auto"}
+	v.Permissions.DefaultMode = ""
 	return []Refusal{r}
 }
 
 func checkModes(v *Settings) []Refusal {
 	var refused []Refusal
-	v.Modes = slices.DeleteFunc(v.Modes, func(m ContextMode) bool {
+	v.Permissions.Modes = slices.DeleteFunc(v.Permissions.Modes, func(m ContextMode) bool {
 		reason := ""
 		switch {
 		case m.Context == "":
@@ -230,7 +230,7 @@ var secretReadVerbs = map[string]bool{"": true, "get": true, "list": true, "watc
 func checkRules(v *Settings) []Refusal {
 	var refused []Refusal
 	seen := map[string]bool{}
-	v.Rules = slices.DeleteFunc(v.Rules, func(r permissions.Rule) bool {
+	v.Permissions.Rules = slices.DeleteFunc(v.Permissions.Rules, func(r permissions.Rule) bool {
 		reason := ruleRefusal(r, seen)
 		seen[r.ID] = true
 		if reason == "" {

@@ -32,7 +32,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
@@ -231,7 +231,7 @@ func newCatalog(cfg Config) catalog.Catalog {
 // probeSandbox is sandbox.Probe, which a test replaces to count its calls.
 var probeSandbox = sandbox.Probe
 
-// sandboxer is what the login shell and the security settings need of the
+// sandboxer is what the login shell and the settings need of the
 // sandbox: *sandbox.Sandbox, or a test's fake.
 type sandboxer interface {
 	Command(ctx context.Context, r sandbox.Run) (*exec.Cmd, error)
@@ -239,7 +239,7 @@ type sandboxer interface {
 	Never(home string) []string
 }
 
-// newSecurityService is the security settings and the frozen PATH kept in
+// newSettingsService is the user's settings and the frozen PATH kept in
 // them. The sync judges an entry, and a grant a folder, by what a sandboxed run
 // of the bash tool's shell reads, and by the paths no rule opens, Kstack's
 // directories (denied) among them. Refresh PATH runs the login shell in sb as
@@ -247,23 +247,23 @@ type sandboxer interface {
 // afresh, as a run does: it lists the other users' homes, which can appear
 // while the sidecar runs. On a machine with no sandbox it syncs nothing, keeps
 // no fault and refuses every folder.
-func newSecurityService(store *securityconfig.Store, sb sandboxer, shell *bash.Tool, status sandbox.Status, denied []string, fault, tmpDir string) *securityconfig.Service {
+func newSettingsService(store *settings.Store, sb sandboxer, shell *bash.Tool, status sandbox.Status, denied []string, fault, tmpDir string) *settings.Service {
 	if !status.Available {
-		return securityconfig.NewService(store, nil, nil, "")
+		return settings.NewService(store, nil, nil, "")
 	}
 	home, _ := os.UserHomeDir()
-	zones := func() securityconfig.Zones {
-		return securityconfig.Zones{
+	zones := func() settings.Zones {
+		return settings.Zones{
 			Never: slices.Concat(sb.Never(home), denied), Open: sb.System(home, shell.Shell()).Files, Home: home, NoWrite: sandbox.NoWrite(home),
 		}
 	}
-	return securityconfig.NewService(store, zones, shellPathResolver(sb, home, denied, tmpDir), fault)
+	return settings.NewService(store, zones, shellPathResolver(sb, home, denied, tmpDir), fault)
 }
 
 // syncPath folds the launch's PATH into the stored list, and answers whether
 // it changed it. A sync that fails changes nothing and is not a startup
 // error.
-func syncPath(ctx context.Context, svc *securityconfig.Service, path []string) bool {
+func syncPath(ctx context.Context, svc *settings.Service, path []string) bool {
 	changed, err := svc.SyncPath(ctx, path)
 	if err != nil {
 		slog.Warn("PATH not synced", "err", err)

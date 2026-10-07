@@ -55,7 +55,7 @@ func startServiceWithMemories(t *testing.T, cards ClusterCards, memories *stubMe
 	if len(offered) > 0 {
 		box, lists = testBox(offered...)
 	}
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), cards, memories, box, lists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), cards, memories, box, lists, sandbox.Status{}, testSettings(t))
 	require.NoError(t, err)
 	startPrepared(t, s)
 	return s

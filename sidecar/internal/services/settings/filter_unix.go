@@ -14,7 +14,7 @@
 
 //go:build !windows
 
-package securityconfig
+package settings
 
 import (
 	"os"

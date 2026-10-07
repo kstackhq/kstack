@@ -449,7 +449,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   `HostPID`, `UserUmask`, and the login shell's answer, split across `ShellPath` and `ShellFault`.
   Move the facts into a struct of their own. Carry the shell's answer as one field, a path or the
   reason there is none, whose zero value means `main` did not run the shell (tests, Windows).
-  - **One way into the PATH's state.** The launch's fault enters `securityconfig.Service` through
+  - **One way into the PATH's state.** The launch's fault enters `settings.Service` through
     `NewService`, while a refresh's goes through `RefreshPath`. Give the service one method that
     records a resolution: the fault when it failed, else a sync of its path. The launch's PATH
     sync part and `RefreshPath` both call it, and `NewService` loses its `fault` argument.
@@ -476,33 +476,12 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
     and a question only as the user's own draft, never sent on a press.
   - **Findings.** A view of what the runs found, its reports drawn as text.
 
-- **Rename `securityconfig` to `securitysvc`, once 3A and 3B have merged.** The package is a
-  service like `agent/chat` and `services/memory`: a `Service` with operations, runtime state and a watch,
-  which the resolvers call. "config" reads as a file loaded once. Do it before a step-4 branch
-  starts, so nothing in flight conflicts with the move.
-  - **Scope.** `git mv` the package, fix its importers and the gqlgen binding, and regenerate.
-    Update both `CLAUDE.md`s, `docs/security-model.md`, the specs and the security records' code
-    references. Leave the ADRs. `security.json` and its schema stay as they are.
-  - **Keep it narrow.** It holds the user's security settings and the operations on them, not
-    everything about security. Say so in the package doc, and say in `sidecar/CLAUDE.md` that a
-    service need not sit on `app.db`.
-
-- **Group `security.json`'s keys by area, and rethink how settings sync (design first).** The
-  file's keys are flat: the frozen `PATH`, the permission modes and rules (folder grants among
-  them), the registered executables and the onboarding flag.
-  - **Grouping.** One object per area: `sandbox` (`path`, `pathResolved`, `pathStrict`),
-    `permissions` (`defaultMode`, `modes`, `rules`), `executables` and `onboarded`. The store
-    refuses and holds a value per top-level key and per list element, so the decode has to recurse
-    to keep that. Holding `permissions` as one key would hold the modes along with one bad rule.
-    Nothing has shipped, so the layout changes without a migration.
-  - **Sync.** Settings live in two places today, and neither syncs: `host.json` (the host's,
-    such as the color scheme) and `security.json`. Decide which settings follow a user to another machine; whether a security
-    setting may ever sync, and if so only one that narrows, since a value from the cloud must
-    never widen what a sandbox may do; and whether settings should be rows in `app.db` rather
-    than files, with sync a queue of changes. Rows would bring a watch, transactions and one
-    schema, but `security.json` is meant to be edited by hand. The sync design needs an ADR.
-  - **Trigger:** the grouping before the next field joins `Settings`; the sync before the first
-    setting that has to sync.
+- **Rethink how settings sync (design first).** Settings live in two places today, and neither
+  syncs: `host.json` (the host's, such as the color scheme) and `settings.json`. Decide which
+  settings follow a user to another machine; whether a security setting may ever sync, and if so
+  only one that narrows, since a value from the cloud must never widen what a sandbox may do; and
+  how a synced value meets a file the user edits by hand. The sync design needs an ADR.
+  **Trigger:** the first setting that has to sync.
 
 - **Explore refactoring the login shell code.** Its three runs are spread over two packages and
   six platform files: `app` runs the launch resolution (`launchshell_*.go`) and builds Refresh

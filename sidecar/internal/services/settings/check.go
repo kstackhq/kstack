@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+package settings
 
 import "github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 
@@ -22,28 +22,7 @@ import "github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 // each.
 var checks = []func(*Settings) []Refusal{checkPath, checkDefaultMode, checkModes, checkRules, checkExecutables}
 
-// A Refusal is one value a check left out. Value is what the field's Settings
-// section names it by, else its JSON; Reason is in the user's words. As an
-// error, it is an Update the check refused.
-type Refusal struct {
-	Field  string
-	Value  string
-	Reason string
-}
-
-func (r Refusal) Error() string {
-	return r.Field + ": " + r.Reason
-}
-
-func runChecks[T any](v *T, checks []func(*T) []Refusal) []Refusal {
-	var refused []Refusal
-	for _, check := range checks {
-		refused = append(refused, check(v)...)
-	}
-	return refused
-}
-
-// strictest is how each field that restricts, keyed by its JSON name, is set
+// strictest is how each field that restricts, keyed by its dotted key, is set
 // to its most restrictive state; each such field's step adds its line. When the
 // file holds a value of one the store refuses, the field answers that state
 // until the user fixes the file, never its zero value. A field not listed only
@@ -57,12 +36,12 @@ var strictest = map[string]func(*Settings){
 	// A refused entry may have been a removal, so the field restricts. The
 	// entries that passed stay as they are: what makes the field strict is
 	// the sync's, while the store holds it.
-	"path": func(*Settings) {},
+	FieldPath: func(*Settings) {},
 	// Resolved, so no default stands in for the list.
-	"pathResolved": func(v *Settings) { v.PathResolved = true },
+	FieldPathResolved: func(v *Settings) { v.Sandbox.PathResolved = true },
 	// Strict, so the next sync adopts nothing new unasked.
-	"pathStrict":     func(v *Settings) { v.PathStrict = true },
-	FieldDefaultMode: func(v *Settings) { v.DefaultMode = permissions.ReadOnly },
+	FieldPathStrict:  func(v *Settings) { v.Sandbox.PathStrict = true },
+	FieldDefaultMode: func(v *Settings) { v.Permissions.DefaultMode = permissions.ReadOnly },
 	FieldModes:       func(*Settings) {},
 	FieldRules:       func(*Settings) {},
 }

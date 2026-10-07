@@ -32,13 +32,13 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
 // ExecutableReport is one tool the probe checks, as the last probe found it.
 type ExecutableReport struct {
-	securityconfig.Executable
+	settings.Executable
 	Registered bool   // by the user, in Settings
 	Probed     bool   // a probe ran it; false for an executable listed since the last, and for one a probe could not start on, whose Error says why
 	Resolved   string // the binary on the frozen PATH; "" when none
@@ -77,9 +77,9 @@ var shimDirs = map[string]string{
 
 // executableList is every tool a probe runs, in the report's order: the curated
 // tools, then the registered ones, each not probed yet.
-func executableList(registered []securityconfig.Executable) []ExecutableReport {
+func executableList(registered []settings.Executable) []ExecutableReport {
 	var list []ExecutableReport
-	for _, tool := range securityconfig.CuratedExecutables {
+	for _, tool := range settings.CuratedExecutables {
 		list = append(list, ExecutableReport{Executable: tool, Error: notProbedYet})
 	}
 	for _, tool := range registered {
@@ -151,7 +151,7 @@ type executableProbe struct {
 
 // probeBatch is one probe, which every caller that asked for it shares.
 type probeBatch struct {
-	registered []securityconfig.Executable // the last caller's
+	registered []settings.Executable // the last caller's
 	asked      int
 	done       chan struct{}
 	reports    []ExecutableReport
@@ -186,7 +186,7 @@ func (t *Tool) SetProbeFolders(folders func(context.Context) []session.Folder) {
 // one more run with every other call that waited, which starts after all of
 // them asked, on the registered tools the last of them gave. So no call
 // answers a report begun before it.
-func (t *Tool) ProbeExecutables(ctx context.Context, registered []securityconfig.Executable) []ExecutableReport {
+func (t *Tool) ProbeExecutables(ctx context.Context, registered []settings.Executable) []ExecutableReport {
 	if t.sandboxer == nil {
 		return nil
 	}
@@ -201,7 +201,7 @@ func (t *Tool) ProbeExecutables(ctx context.Context, registered []securityconfig
 
 // StartProbe asks for a probe as ProbeExecutables does and returns at once; Close
 // ends it, and WatchProbe says when it ends.
-func (t *Tool) StartProbe(registered []securityconfig.Executable) {
+func (t *Tool) StartProbe(registered []settings.Executable) {
 	if t.sandboxer != nil {
 		t.queueProbe(registered)
 	}
@@ -215,7 +215,7 @@ func (t *Tool) WatchProbe() *watch.Receiver[ProbeState] {
 
 // queueProbe joins the probe queued behind the running one, starting it when
 // none runs, and answers it.
-func (t *Tool) queueProbe(registered []securityconfig.Executable) *probeBatch {
+func (t *Tool) queueProbe(registered []settings.Executable) *probeBatch {
 	p := t.probe
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -273,7 +273,7 @@ func (t *Tool) LastProbe() []ExecutableReport {
 }
 
 // Report is ReportOver the last probe.
-func (t *Tool) Report(registered []securityconfig.Executable) []ExecutableReport {
+func (t *Tool) Report(registered []settings.Executable) []ExecutableReport {
 	return ReportOver(t.LastProbe(), registered)
 }
 
@@ -281,7 +281,7 @@ func (t *Tool) Report(registered []securityconfig.Executable) []ExecutableReport
 // tool it ran with the same invocation answers that report, and any other is
 // not probed yet. So a register or a remove redraws from one answer, and the
 // list draws before the first probe.
-func ReportOver(last []ExecutableReport, registered []securityconfig.Executable) []ExecutableReport {
+func ReportOver(last []ExecutableReport, registered []settings.Executable) []ExecutableReport {
 	list := executableList(registered)
 	for i, unprobed := range list {
 		j := slices.IndexFunc(last, func(r ExecutableReport) bool { return r.Executable == unprobed.Executable })
@@ -295,8 +295,8 @@ func ReportOver(last []ExecutableReport, registered []securityconfig.Executable)
 // runProbe is one probe of the tool list, over the PATH a run would search
 // now; once ctx ends, or the disk does not answer, each report is not probed
 // and says why.
-func (t *Tool) runProbe(ctx context.Context, registered []securityconfig.Executable) []ExecutableReport {
-	var list securityconfig.RunPath
+func (t *Tool) runProbe(ctx context.Context, registered []settings.Executable) []ExecutableReport {
+	var list settings.RunPath
 	if t.pathList != nil {
 		list = t.pathList()
 	}

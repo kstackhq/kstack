@@ -29,7 +29,7 @@ import (
 //
 //	<data>/                                what a user would lose
 //	  app.db                               app
-//	  security.json                        app: the security settings
+//	  settings.json                        app: the user's settings
 //	  beehive.db                           cluster
 //	  chats/<chat id>/                     chat: results/, tasks/, workspace/
 //	  monitor/<cluster id>/                chat: a monitor's results/, workspace/, toolhome/
@@ -43,7 +43,7 @@ import (
 //	  runs/<pid>-*/, runs/<pid>.lock       bash: a run's kubeconfig and socket, the lock
 type paths struct {
 	AppDBFile    string
-	SecurityFile string
+	SettingsFile string
 	ChatsDir     string
 	MonitorDir   string
 	Cluster      cluster.Paths
@@ -59,7 +59,7 @@ func pathsOf(cfg Config) paths {
 	}
 	return paths{
 		AppDBFile:    filepath.Join(data, "app.db"),
-		SecurityFile: filepath.Join(data, "security.json"),
+		SettingsFile: filepath.Join(data, "settings.json"),
 		ChatsDir:     filepath.Join(data, "chats"),
 		MonitorDir:   filepath.Join(data, "monitor"),
 		Cluster: cluster.Paths{

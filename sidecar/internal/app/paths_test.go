@@ -30,7 +30,7 @@ func TestEveryPathIsUnderItsKind(t *testing.T) {
 		filepath.Join(data, "app.db"):        p.AppDBFile,
 		filepath.Join(data, "chats"):         p.ChatsDir,
 		filepath.Join(data, "monitor"):       p.MonitorDir,
-		filepath.Join(data, "security.json"): p.SecurityFile,
+		filepath.Join(data, "settings.json"): p.SettingsFile,
 		filepath.Join(data, "beehive.db"):    p.Cluster.BeehiveDBFile,
 		filepath.Join(cache, "kubestore"):    p.Cluster.KubestoreDir,
 		filepath.Join(cache, "kubectl"):      p.Bash.KubectlDir,

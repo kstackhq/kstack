@@ -12,7 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+package settings
 
-// wideDirs is every disk mounted on the Mac.
-var wideDirs = []string{"/Volumes"}
+import (
+	"path/filepath"
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+func TestOnboardedIsFalseOnAFreshFile(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "settings.json")
+	s, err := Open(file)
+	require.NoError(t, err)
+	assert.False(t, s.Get().Onboarded)
+
+	require.NoError(t, s.FinishOnboarding())
+	assert.True(t, s.Get().Onboarded)
+
+	again, err := Open(file)
+	require.NoError(t, err)
+	assert.True(t, again.Get().Onboarded, "a written true is read back")
+}

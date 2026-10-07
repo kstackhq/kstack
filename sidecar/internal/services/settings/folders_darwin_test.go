@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+package settings
 
 import (
 	"os"
@@ -51,7 +51,7 @@ func TestAFolderSpelledInAnotherCaseIsRefused(t *testing.T) {
 
 func TestWideHoldsTheVolumesOnMacOS(t *testing.T) {
 	f := newGrantFixture(t)
-	store, err := Open(filepath.Join(t.TempDir(), "security.json"))
+	store, err := Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 	s := NewService(store, func() Zones { return f.zones }, nil, "")
 	assert.Contains(t, s.WideFolders(t.Context()), "/Volumes")

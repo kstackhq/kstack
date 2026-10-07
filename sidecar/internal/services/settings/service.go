@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+package settings
 
 import (
 	"context"
@@ -138,15 +138,15 @@ func (s *Service) SyncPath(ctx context.Context, resolved []string) (changed bool
 	s.pathMu.Lock()
 	defer s.pathMu.Unlock()
 	// Read before the Update, which holds the store's lock while fn runs.
-	held := s.Held("path")
+	held := s.Held(FieldPath)
 	var before, after []PathEntry
 	err = s.Update(func(st *Settings) error {
-		before = st.Path
-		st.Path = diffPath(st.Path, v.fresh, held || st.PathStrict)
-		st.PathResolved, st.PathStrict = true, false
-		after = st.Path
+		before = st.Sandbox.Path
+		st.Sandbox.Path = diffPath(st.Sandbox.Path, v.fresh, held || st.Sandbox.PathStrict)
+		st.Sandbox.PathResolved, st.Sandbox.PathStrict = true, false
+		after = st.Sandbox.Path
 		return nil
-	}, "path", "pathResolved", "pathStrict")
+	}, FieldPath, FieldPathResolved, FieldPathStrict)
 	if err != nil {
 		return false, err
 	}
@@ -177,7 +177,7 @@ func (s *Service) RefreshPath(ctx context.Context) ([]PathEntry, error) {
 	if _, err := s.SyncPath(ctx, path); err != nil {
 		return nil, err
 	}
-	return s.Get().Path, nil
+	return s.Get().Sandbox.Path, nil
 }
 
 // Path is the list, in the shell's order; nil on a machine with no sandbox.
@@ -185,7 +185,7 @@ func (s *Service) Path() []PathEntry {
 	if s.zones == nil {
 		return nil
 	}
-	return s.Get().Path
+	return s.Get().Sandbox.Path
 }
 
 // RunPath is the list as a run reads it: the entries, and whether a sync has
@@ -201,12 +201,12 @@ type RunPath struct {
 // PathResolved reports whether a sync has written the list; false on a
 // machine with no sandbox.
 func (s *Service) PathResolved() bool {
-	return s.zones != nil && s.Get().PathResolved
+	return s.zones != nil && s.Get().Sandbox.PathResolved
 }
 
 // RunPath is the list a run starts from.
 func (v Settings) RunPath() RunPath {
-	return RunPath{Entries: v.Path, Resolved: v.PathResolved}
+	return RunPath{Entries: v.Sandbox.Path, Resolved: v.Sandbox.PathResolved}
 }
 
 // PathFault is why the last read of the login shell failed, at launch or on
@@ -228,7 +228,7 @@ func (s *Service) AdoptPath(dir, target string) ([]PathEntry, error) {
 	}
 	s.pathMu.Lock()
 	defer s.pathMu.Unlock()
-	if s.Held("path") {
+	if s.Held(FieldPath) {
 		return nil, ErrPathHeld
 	}
 	return s.setState(dir, target, PathAdopted, ErrPathIncluded, false)
@@ -245,7 +245,7 @@ func (s *Service) DropPath(dir string) ([]PathEntry, error) {
 	s.pathMu.Lock()
 	defer s.pathMu.Unlock()
 	// Remove narrows, so it holds for whatever the entry leads to.
-	return s.setState(dir, "", PathGone, ErrPathRemoved, s.Held("path"))
+	return s.setState(dir, "", PathGone, ErrPathRemoved, s.Held(FieldPath))
 }
 
 // setState sets dir's entry to state, by the user, or refuses an entry not
@@ -253,23 +253,23 @@ func (s *Service) DropPath(dir string) ([]PathEntry, error) {
 // there with already. strict marks the next sync strict.
 func (s *Service) setState(dir, target string, state PathState, already error, strict bool) ([]PathEntry, error) {
 	err := s.Update(func(v *Settings) error {
-		i := slices.IndexFunc(v.Path, func(e PathEntry) bool { return e.Dir == dir })
+		i := slices.IndexFunc(v.Sandbox.Path, func(e PathEntry) bool { return e.Dir == dir })
 		switch {
 		case i < 0:
 			return ErrPathNotListed
-		case target != "" && v.Path[i].Target != target:
+		case target != "" && v.Sandbox.Path[i].Target != target:
 			return ErrPathChanged
-		case v.Path[i].State == state:
+		case v.Sandbox.Path[i].State == state:
 			return already
 		}
-		v.Path[i].State, v.Path[i].Source = state, SourceUser
-		v.PathStrict = v.PathStrict || strict
+		v.Sandbox.Path[i].State, v.Sandbox.Path[i].Source = state, SourceUser
+		v.Sandbox.PathStrict = v.Sandbox.PathStrict || strict
 		return nil
-	}, "path", "pathStrict")
+	}, FieldPath, FieldPathStrict)
 	if err != nil {
 		return nil, err
 	}
-	return s.Get().Path, nil
+	return s.Get().Sandbox.Path, nil
 }
 
 // view reads the disk for a sync: the filter over resolved, whether each kept

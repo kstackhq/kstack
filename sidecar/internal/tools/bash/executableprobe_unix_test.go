@@ -35,7 +35,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
 // writeExecutable writes an executable script at dir/name that runs body.
@@ -102,11 +102,11 @@ func probingTool(t *testing.T) (*Tool, *fakeSandboxer, string) {
 
 // onPath makes dirs tl's PATH, each a folder the user included.
 func onPath(tl *Tool, dirs ...string) {
-	var entries []securityconfig.PathEntry
+	var entries []settings.PathEntry
 	for _, d := range dirs {
-		entries = append(entries, adopted(d, d, securityconfig.SourceUser))
+		entries = append(entries, adopted(d, d, settings.SourceUser))
 	}
-	tl.pathList = func() securityconfig.RunPath { return securityconfig.RunPath{Entries: entries, Resolved: true} }
+	tl.pathList = func() settings.RunPath { return settings.RunPath{Entries: entries, Resolved: true} }
 }
 
 // reportOf is the report of name in reports.
@@ -118,7 +118,7 @@ func reportOf(t *testing.T, reports []ExecutableReport, name string) ExecutableR
 }
 
 // kubectl is the curated list's first tool.
-var kubectl = securityconfig.CuratedExecutables[0]
+var kubectl = settings.CuratedExecutables[0]
 
 // A PATH with no kubectl reports it not found, and runs nothing for it.
 func TestAMissingKubectlIsReported(t *testing.T) {
@@ -126,7 +126,7 @@ func TestAMissingKubectlIsReported(t *testing.T) {
 
 	got := tl.ProbeExecutables(t.Context(), nil)
 
-	require.Len(t, got, len(securityconfig.CuratedExecutables))
+	require.Len(t, got, len(settings.CuratedExecutables))
 	assert.Equal(t, ExecutableReport{Executable: kubectl, Probed: true, Error: "not found on the sandbox's PATH"}, got[0])
 	assert.Empty(t, fake.seen())
 }
@@ -140,9 +140,9 @@ func TestTheProbeRunsOnlyTheList(t *testing.T) {
 	helmBin := writeExecutable(t, bin, "helm", "echo 'Error: no such command' >&2; exit 3")
 	k9sBin := writeExecutable(t, bin, "k9s", `echo "k9s $1"`)
 	writeExecutable(t, bin, "planted", "true")
-	k9s := securityconfig.Executable{Name: "k9s", Invocation: "k9s info"}
+	k9s := settings.Executable{Name: "k9s", Invocation: "k9s info"}
 
-	got := tl.ProbeExecutables(t.Context(), []securityconfig.Executable{k9s})
+	got := tl.ProbeExecutables(t.Context(), []settings.Executable{k9s})
 
 	var ran [][]string
 	for _, r := range fake.seen() {
@@ -153,7 +153,7 @@ func TestTheProbeRunsOnlyTheList(t *testing.T) {
 		Executable: kubectl, Probed: true, Resolved: kubectlBin, OK: true, Version: "Client Version: v1.31.0",
 	}, got[0])
 	assert.Equal(t, ExecutableReport{
-		Executable: securityconfig.CuratedExecutables[1], Probed: true,
+		Executable: settings.CuratedExecutables[1], Probed: true,
 		Resolved: helmBin, Version: "Error: no such command", Error: "Exit code 3",
 	}, reportOf(t, got, "helm"))
 	assert.Equal(t, ExecutableReport{
@@ -453,19 +453,19 @@ func TestReportOverlaysTheLastProbe(t *testing.T) {
 	tl, _, bin := probingTool(t)
 	writeExecutable(t, bin, "kubectl", "echo v1")
 	writeExecutable(t, bin, "k9s", "echo k9s")
-	unprobed := func(tool securityconfig.Executable) ExecutableReport {
+	unprobed := func(tool settings.Executable) ExecutableReport {
 		return ExecutableReport{Executable: tool, Registered: true, Error: "not probed yet"}
 	}
 
 	before := tl.Report(nil)
 	assert.Equal(t, ExecutableReport{Executable: kubectl, Error: "not probed yet"}, before[0], "before the first probe")
 
-	probed := tl.ProbeExecutables(t.Context(), []securityconfig.Executable{{Name: "k9s", Invocation: "k9s version"}})
-	changed := securityconfig.Executable{Name: "k9s", Invocation: "k9s info"}
-	added := securityconfig.Executable{Name: "stern", Invocation: "stern --version"}
-	got := tl.Report([]securityconfig.Executable{changed, added})
+	probed := tl.ProbeExecutables(t.Context(), []settings.Executable{{Name: "k9s", Invocation: "k9s version"}})
+	changed := settings.Executable{Name: "k9s", Invocation: "k9s info"}
+	added := settings.Executable{Name: "stern", Invocation: "stern --version"}
+	got := tl.Report([]settings.Executable{changed, added})
 
-	require.Len(t, got, len(securityconfig.CuratedExecutables)+2)
+	require.Len(t, got, len(settings.CuratedExecutables)+2)
 	assert.Equal(t, probed[0], got[0])
 	assert.Equal(t, unprobed(changed), got[len(got)-2], "an invocation changed")
 	assert.Equal(t, unprobed(added), got[len(got)-1], "an executable listed since")

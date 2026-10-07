@@ -35,7 +35,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -935,7 +935,7 @@ func TestAStrandedWaitClearsTheChatsMark(t *testing.T) {
 	setRunStatus(t, db, turn.Run, RunWaitingApproval)
 	require.NoError(t, db.Close())
 
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
 	require.NoError(t, err)
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
@@ -1474,7 +1474,7 @@ func TestOnceWritesTheDurationAndNoRule(t *testing.T) {
 	assert.Equal(t, "true once", toolCallsOf(t, msg)[0].Output)
 	assert.Equal(t, map[ApprovalStatus][]string{ApprovalApproved: {"once"}}, durations(t, s.db))
 	assert.Empty(t, s.grantsFor(t.Context(), msg.ChatID))
-	assert.Empty(t, s.security.Get().Rules)
+	assert.Empty(t, s.settings.Get().Permissions.Rules)
 }
 
 // A denial is nobody's choice of how long: it records no duration.
@@ -1531,7 +1531,7 @@ func TestCommandWritesNoRule(t *testing.T) {
 	assert.Equal(t, "true command", toolCallsOf(t, msg)[0].Output)
 	assert.Equal(t, map[ApprovalStatus][]string{ApprovalApproved: {"command"}}, durations(t, s.db))
 	assert.Empty(t, s.grantsFor(t.Context(), msg.ChatID))
-	assert.Empty(t, s.security.Get().Rules)
+	assert.Empty(t, s.settings.Get().Permissions.Rules)
 }
 
 // grantRows is how many chat_grants rows there are.
@@ -1566,7 +1566,7 @@ func TestAlwaysWritesTheRuleIntoTheSettings(t *testing.T) {
 	s, msg := askOnce(t, DecisionAlways)
 
 	assert.Equal(t, "true always", toolCallsOf(t, msg)[0].Output)
-	rules := s.security.Get().Rules
+	rules := s.settings.Get().Permissions.Rules
 	require.Len(t, rules, 1)
 	assert.NotEmpty(t, rules[0].ID)
 	want := permissions.GrantRule(deleteX.Action)
@@ -1591,7 +1591,7 @@ func TestARuleAlreadyHeldIsWrittenOnce(t *testing.T) {
 
 		assert.Equal(t, "true "+string(d), toolCallsOf(t, settled)[0].Output)
 		assert.Len(t, s.grantsFor(t.Context(), first.ChatID), map[ApprovalDecision]int{DecisionChat: 1, DecisionAlways: 0}[d], d)
-		assert.Len(t, s.security.Get().Rules, map[ApprovalDecision]int{DecisionChat: 0, DecisionAlways: 1}[d], d)
+		assert.Len(t, s.settings.Get().Permissions.Rules, map[ApprovalDecision]int{DecisionChat: 0, DecisionAlways: 1}[d], d)
 	}
 }
 
@@ -1617,18 +1617,18 @@ func askWith(t *testing.T, s *service, d ApprovalDecision) (*service, ChatMessag
 // is written, and the request still waits for Once.
 func TestAlwaysWaitsWhileTheRulesAreHeld(t *testing.T) {
 	s := startWriter(t, writerTool{})
-	file := filepath.Join(t.TempDir(), "security.json")
-	require.NoError(t, os.WriteFile(file, []byte(`{"rules":[{"id":"b","effect":"maybe","class":4}]}`), 0o600))
-	held, err := securityconfig.Open(file)
+	file := filepath.Join(t.TempDir(), "settings.json")
+	require.NoError(t, os.WriteFile(file, []byte(`{"permissions":{"rules":[{"id":"b","effect":"maybe","class":4}]}}`), 0o600))
+	held, err := settings.Open(file)
 	require.NoError(t, err)
-	s.security = securityconfig.NewService(held, nil, nil, "")
+	s.settings = settings.NewService(held, nil, nil, "")
 	before, err := os.ReadFile(file)
 	require.NoError(t, err)
 
 	msg := send(t, s, nil, "1", "hi")
 	id := toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].ClusterWrites[0].Approval.ID
 	ok, err := s.Approve(t.Context(), id, DecisionAlways)
-	assert.ErrorIs(t, err, securityconfig.ErrHeld)
+	assert.ErrorIs(t, err, settings.ErrHeld)
 	assert.False(t, ok)
 	after, err := os.ReadFile(file)
 	require.NoError(t, err)
@@ -1812,7 +1812,7 @@ func TestAChatAnswerWritesAClassSixGrant(t *testing.T) {
 
 	s = startWriter(t, writerTool{request: &readDB})
 	_, _ = askWith(t, s, DecisionAlways)
-	rules := s.security.Get().Rules
+	rules := s.settings.Get().Permissions.Rules
 	require.Len(t, rules, 1)
 	want.ID = rules[0].ID
 	assert.Equal(t, want, rules[0])

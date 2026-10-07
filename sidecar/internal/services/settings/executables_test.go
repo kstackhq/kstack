@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+package settings
 
 import (
 	"os"
@@ -51,7 +51,7 @@ func TestCheckExecutableRefusesEachBadShape(t *testing.T) {
 // An executable the file holds that fails the check, or repeats a name, is read back
 // without it, and its reason is kept for Settings.
 func TestABadExecutableIsLeftOutWithItsReason(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	require.NoError(t, os.WriteFile(file, []byte(`{"executables": [
 		{"name": "k9s", "invocation": "k9s version"},
 		{"name": "bin/tool", "invocation": "bin/tool"},
@@ -74,7 +74,7 @@ func TestABadExecutableIsLeftOutWithItsReason(t *testing.T) {
 // An executable is registered with its invocation, or "<name> --version" with none,
 // and removed by name; each refusal is in the user's words and writes nothing.
 func TestRegisterAndRemoveAnExecutable(t *testing.T) {
-	s, err := Open(filepath.Join(t.TempDir(), "security.json"))
+	s, err := Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 
 	require.NoError(t, s.RegisterExecutable("k9s", ""))

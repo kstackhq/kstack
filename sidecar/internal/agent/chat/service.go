@@ -37,7 +37,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -184,7 +184,7 @@ type Service interface {
 	FolderGrants(ctx context.Context, chatID ChatID) (always, chat []FolderGrant)
 	// GrantFolder grants path, read or with write read and write, for the chat
 	// or with no chat always, once it passes its check, a
-	// securityconfig.FolderRefusal otherwise. A grant of a folder already
+	// settings.FolderRefusal otherwise. A grant of a folder already
 	// granted in the same place changes that grant's mode and keeps its id.
 	GrantFolder(ctx context.Context, chatID ChatID, path string, write bool) error
 	// RevokeFolder removes the always grant with id; ErrGrantGone for an id
@@ -212,9 +212,9 @@ type service struct {
 	lists        ToolLists
 	// sandboxStatus is whether sandboxed Bash is offered, which the switch needs.
 	sandboxStatus sandbox.Status
-	// security holds the modes, the always rules and the folders granted always
+	// settings holds the modes, the always rules and the folders granted always
 	// each session decides by, and the zones a folder is checked against.
-	security *securityconfig.Service
+	settings *settings.Service
 	// tools is every tool the app knows, in offer order, and the readers of those
 	// this machine cannot offer: each turn is offered what its list names and its
 	// target takes, and every stored call is read through it, whether or not a
@@ -285,15 +285,15 @@ type service struct {
 // name, the card source, the memories each chat's cluster sees, the box: the
 // tools every turn is offered from, which read every stored call, the lists
 // that pick a turn's tools from it, whether the machine offers sandboxed Bash,
-// and the security settings a session's modes, rules and folders come from.
+// and the user's settings a session's modes, rules and folders come from.
 // Nothing runs until Start.
-func New(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, security *securityconfig.Service) (Service, error) {
-	return newService(db, chatsDir, monitorDir, llmSvc, clusterCards, memories, box, lists, sandboxStatus, security)
+func New(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, settingsSvc *settings.Service) (Service, error) {
+	return newService(db, chatsDir, monitorDir, llmSvc, clusterCards, memories, box, lists, sandboxStatus, settingsSvc)
 }
 
 // newService is New returning the concrete type, for tests. A nil memories sends
 // no memory section.
-func newService(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, security *securityconfig.Service) (*service, error) {
+func newService(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, clusterCards ClusterCards, memories Memories, box tools.Box, lists ToolLists, sandboxStatus sandbox.Status, settingsSvc *settings.Service) (*service, error) {
 	chatsRoot, err := rootdir.MakeRoot(chatsDir)
 	if err != nil {
 		return nil, fmt.Errorf("open the chats' directory: %w", err)
@@ -320,7 +320,7 @@ func newService(db *appdb.DB, chatsDir, monitorDir string, llmSvc *llm.Service, 
 		tools:              box,
 		lists:              lists,
 		sandboxStatus:      sandboxStatus,
-		security:           security,
+		settings:           settingsSvc,
 		turns:              map[ChatID]*turn{},
 		deleting:           map[ChatID]int{},
 		pending:            map[ApprovalID]*waiter{},

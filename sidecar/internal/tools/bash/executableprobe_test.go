@@ -19,18 +19,18 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
 // The list is the curated tools in their order, then the registered ones,
 // each not probed yet.
 func TestTheExecutableListIsTheCuratedThenTheRegistered(t *testing.T) {
-	k9s := securityconfig.Executable{Name: "k9s", Invocation: "k9s version"}
+	k9s := settings.Executable{Name: "k9s", Invocation: "k9s version"}
 
-	got := executableList([]securityconfig.Executable{k9s})
+	got := executableList([]settings.Executable{k9s})
 
-	assert.Len(t, got, len(securityconfig.CuratedExecutables)+1)
-	assert.Equal(t, ExecutableReport{Executable: securityconfig.CuratedExecutables[0], Error: "not probed yet"}, got[0])
+	assert.Len(t, got, len(settings.CuratedExecutables)+1)
+	assert.Equal(t, ExecutableReport{Executable: settings.CuratedExecutables[0], Error: "not probed yet"}, got[0])
 	assert.Equal(t, ExecutableReport{Executable: k9s, Registered: true, Error: "not probed yet"}, got[len(got)-1])
 }
 

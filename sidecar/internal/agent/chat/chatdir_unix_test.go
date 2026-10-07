@@ -62,7 +62,7 @@ func TestNewRefusesAChatsDirectoryItCannotOpen(t *testing.T) {
 	require.NoError(t, os.Mkdir(chats, 0o000))
 	t.Cleanup(func() { _ = os.Chmod(chats, 0o700) })
 
-	_, err := newService(openTestDB(t, dir), chats, monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	_, err := newService(openTestDB(t, dir), chats, monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
 
 	assert.ErrorContains(t, err, "open the chats' directory")
 }

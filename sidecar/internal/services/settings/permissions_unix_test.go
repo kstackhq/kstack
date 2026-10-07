@@ -14,7 +14,7 @@
 
 //go:build !windows
 
-package securityconfig
+package settings
 
 import (
 	"testing"
@@ -27,8 +27,8 @@ import (
 
 func TestAFolderRuleIsShapeChecked(t *testing.T) {
 	read := `{"id": "r", "effect": "allow", "class": 1, "folder": "/nowhere/on/this/disk"}`
-	s, _ := openFile(t, `{"rules": [`+read+`, {"id": "w", "effect": "allow", "class": 2, "folder": "/also/nowhere"}]}`)
-	assert.False(t, s.Held("rules"), "the read-back reads the value alone, never the disk")
+	s, _ := openFile(t, `{"permissions": {"rules": [`+read+`, {"id": "w", "effect": "allow", "class": 2, "folder": "/also/nowhere"}]}}`)
+	assert.False(t, s.Held(FieldRules), "the read-back reads the value alone, never the disk")
 	assert.Len(t, s.Rules(), 2)
 
 	for name, bad := range map[string]permissions.Rule{
@@ -47,7 +47,7 @@ func TestAFolderRuleIsShapeChecked(t *testing.T) {
 		require.ErrorAs(t, err, &r, name)
 		assert.NotEmpty(t, r.Reason, name)
 	}
-	assert.Len(t, s.Get().Rules, 2, "a refused add writes nothing")
+	assert.Len(t, s.Get().Permissions.Rules, 2, "a refused add writes nothing")
 
 	err := s.AddRule(permissions.Rule{ID: "b", Effect: permissions.Deny, Class: permissions.NewHost})
 	var r Refusal

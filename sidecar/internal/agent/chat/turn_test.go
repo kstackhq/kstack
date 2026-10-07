@@ -743,7 +743,7 @@ func TestTheTurnsOwnRunSetsTheLiveFinishReason(t *testing.T) {
 // settle, is left as it is.
 func TestASettleThatFailsUntilStopLeavesTheRunForTheNextStart(t *testing.T) {
 	dir := t.TempDir()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
 	require.NoError(t, err)
 	stop, err := s.Start(t.Context())
 	require.NoError(t, err)
@@ -1098,7 +1098,7 @@ func TestTheFirstCheckpointCountsFromTheAnswer(t *testing.T) {
 // last checkpoint wrote, so the stranded answer keeps the text the reader saw.
 func TestAStrandedAnswerKeepsItsLastCheckpoint(t *testing.T) {
 	dir := t.TempDir()
-	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSecurity(t))
+	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
 	require.NoError(t, err)
 	s.checkpointEvery = 0
 	stop, err := s.Start(t.Context())

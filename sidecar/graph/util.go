@@ -18,7 +18,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
@@ -165,7 +165,7 @@ func chatErr(err error) error {
 // through: a refusal in the user's words is a validation error carrying them,
 // and anything else stays opaque.
 func sandboxPathErr(err error) error {
-	var refusal securityconfig.PathRefusal
+	var refusal settings.PathRefusal
 	if errors.As(err, &refusal) {
 		return gqlerrors.NewValidationError("sandbox-path", refusal.Error())
 	}
@@ -174,19 +174,19 @@ func sandboxPathErr(err error) error {
 
 // The path entries' states and sources, by their wire spelling.
 var (
-	sandboxPathStates = map[securityconfig.PathState]model.SandboxPathState{
-		securityconfig.PathAdopted: model.SandboxPathStateAdopted,
-		securityconfig.PathPending: model.SandboxPathStatePending,
-		securityconfig.PathGone:    model.SandboxPathStateGone,
+	sandboxPathStates = map[settings.PathState]model.SandboxPathState{
+		settings.PathAdopted: model.SandboxPathStateAdopted,
+		settings.PathPending: model.SandboxPathStatePending,
+		settings.PathGone:    model.SandboxPathStateGone,
 	}
-	sandboxPathSources = map[securityconfig.Source]model.SandboxPathSource{
-		securityconfig.SourceShell: model.SandboxPathSourceShell,
-		securityconfig.SourceUser:  model.SandboxPathSourceUser,
+	sandboxPathSources = map[settings.Source]model.SandboxPathSource{
+		settings.SourceShell: model.SandboxPathSourceShell,
+		settings.SourceUser:  model.SandboxPathSourceUser,
 	}
 )
 
 // sandboxPathOf is entries on the wire, in order.
-func sandboxPathOf(entries []securityconfig.PathEntry) []*model.SandboxPathEntry {
+func sandboxPathOf(entries []settings.PathEntry) []*model.SandboxPathEntry {
 	out := make([]*model.SandboxPathEntry, len(entries))
 	for i, e := range entries {
 		out[i] = &model.SandboxPathEntry{
@@ -198,14 +198,14 @@ func sandboxPathOf(entries []securityconfig.PathEntry) []*model.SandboxPathEntry
 
 // noSandboxExecutables refuses a probe or a register on a machine with no sandbox.
 func noSandboxExecutables() error {
-	return gqlerrors.NewValidationError("sandbox-executable", securityconfig.ErrNoSandbox.Error())
+	return gqlerrors.NewValidationError("sandbox-executable", settings.ErrNoSandbox.Error())
 }
 
 // sandboxExecutableErr is what the executable resolvers return an error through: a
 // refusal in the user's words is a validation error carrying them, and
 // anything else stays opaque.
 func sandboxExecutableErr(err error) error {
-	var refusal securityconfig.ExecutableRefusal
+	var refusal settings.ExecutableRefusal
 	if errors.As(err, &refusal) {
 		return gqlerrors.NewValidationError("sandbox-executable", refusal.Error())
 	}
@@ -230,8 +230,8 @@ func sandboxExecutablesOf(reports []bash.ExecutableReport) []*model.SandboxExecu
 // refused it, a link's carrying the path it leads to, so the webview can offer
 // that one.
 func folderErr(err error) error {
-	var refusal securityconfig.FolderRefusal
-	var shape securityconfig.Refusal
+	var refusal settings.FolderRefusal
+	var shape settings.Refusal
 	switch {
 	case errors.As(err, &refusal):
 		e := gqlerrors.NewValidationError(refusal.Rule, refusal.Reason)
@@ -241,7 +241,7 @@ func folderErr(err error) error {
 		return e
 	case errors.As(err, &shape):
 		return gqlerrors.NewValidationError("folder", shape.Error())
-	case errors.Is(err, securityconfig.ErrHeld):
+	case errors.Is(err, settings.ErrHeld):
 		return gqlerrors.NewValidationError("folder", chat.RulesHeldReason)
 	}
 	return chatErr(err)
@@ -254,11 +254,11 @@ func (r *Resolver) sandboxFolders(ctx context.Context, chatID apimeta.ChatID) (*
 	out := &model.SandboxFolders{
 		Always: sandboxFoldersOf(always), Chat: sandboxFoldersOf(chat),
 		Never: []string{}, Wide: []string{},
-		RulesHeld: r.SecurityCfg.Held(securityconfig.FieldRules),
+		RulesHeld: r.Settings.Held(settings.FieldRules),
 	}
 	if r.SandboxStatus.Available {
-		out.Never = append(out.Never, r.SecurityCfg.NeverReadable(ctx)...)
-		out.Wide = append(out.Wide, r.SecurityCfg.WideFolders(ctx)...)
+		out.Never = append(out.Never, r.Settings.NeverReadable(ctx)...)
+		out.Wide = append(out.Wide, r.Settings.WideFolders(ctx)...)
 	}
 	return out, nil
 }
@@ -291,16 +291,16 @@ func (r *Resolver) permissionSettings(ctx context.Context) (*model.PermissionSet
 	slices.Sort(contexts)
 	contexts = slices.Compact(contexts)
 
-	cfg := r.SecurityCfg
+	cfg := r.Settings
 	out := &model.PermissionSettings{DefaultMode: cfg.DefaultMode(), Destructive: kubeproxy.Destructive, Held: []string{}}
 	for _, c := range contexts {
 		st := cfg.ModeFor(c)
 		out.Contexts = append(out.Contexts, &st)
 	}
-	for _, rule := range cfg.Get().Rules {
+	for _, rule := range cfg.Get().Permissions.Rules {
 		out.Rules = append(out.Rules, &rule)
 	}
-	for _, field := range []string{securityconfig.FieldDefaultMode, securityconfig.FieldModes, securityconfig.FieldRules} {
+	for _, field := range []string{settings.FieldDefaultMode, settings.FieldModes, settings.FieldRules} {
 		if cfg.Held(field) {
 			out.Held = append(out.Held, field)
 		}
@@ -312,9 +312,9 @@ func (r *Resolver) permissionSettings(ctx context.Context) (*model.PermissionSet
 // answer refused while the settings hold rules Kstack cannot read names the
 // file, and anything else is a chat refusal.
 func approvalErr(err error) error {
-	if errors.Is(err, securityconfig.ErrHeld) {
+	if errors.Is(err, settings.ErrHeld) {
 		return gqlerrors.NewValidationError("decision",
-			"security.json holds rules Kstack cannot read, so no rule can be added: fix them in Settings, or approve once")
+			"settings.json holds rules Kstack cannot read, so no rule can be added: fix them in Settings, or approve once")
 	}
 	return chatErr(err)
 }
@@ -322,13 +322,13 @@ func approvalErr(err error) error {
 // permissionsAfter is a permission mutation's answer: its refusal, else the
 // settings it left.
 func (r *Resolver) permissionsAfter(ctx context.Context, err error) (*model.PermissionSettings, error) {
-	var refusal securityconfig.Refusal
+	var refusal settings.Refusal
 	switch {
 	case errors.As(err, &refusal):
 		return nil, gqlerrors.NewValidationError("permission", refusal.Error())
-	case errors.Is(err, securityconfig.ErrHeld):
-		return nil, gqlerrors.NewValidationError("permission", "the security settings file holds a value Kstack cannot read: fix it, or discard what Kstack cannot read")
-	case errors.Is(err, securityconfig.ErrNoRule), errors.Is(err, securityconfig.ErrNotHeld):
+	case errors.Is(err, settings.ErrHeld):
+		return nil, gqlerrors.NewValidationError("permission", "the settings file holds a value Kstack cannot read: fix it, or discard what Kstack cannot read")
+	case errors.Is(err, settings.ErrNoRule), errors.Is(err, settings.ErrNotHeld):
 		return nil, gqlerrors.NewValidationError("permission", err.Error())
 	case err != nil:
 		return nil, err

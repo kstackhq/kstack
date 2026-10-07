@@ -12,28 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-//go:build !windows
-
-package securityconfig
+package settings
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
-// On Windows the profile ACL keeps the file the user's.
-func TestTheFileIsOwnerOnly(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
-	require.NoError(t, openTest(t, file).Update(func(v *testSettings) error {
-		v.Count = 1
-		return nil
-	}))
-
-	fi, err := os.Stat(file)
-	require.NoError(t, err)
-	assert.Equal(t, os.FileMode(0o600), fi.Mode().Perm())
+func TestTmpIsAFixedMountOnLinux(t *testing.T) {
+	f := newGrantFixture(t)
+	for _, p := range []string{"/tmp", "/tmp/x", "/proc", "/proc/1/root", "/dev", "/dev/pts"} {
+		for _, write := range []bool{false, true} {
+			assert.Equal(t, "fixed", ruleOf(t, CheckFolder(p, write, f.zones, nil)), p)
+		}
+	}
+	assert.EqualError(t, CheckFolder("/proc/1/root", false, f.zones, nil),
+		"Every sandboxed command has its own /proc; it cannot be granted.")
 }

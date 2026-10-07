@@ -34,7 +34,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
@@ -1613,11 +1613,11 @@ func newChatServerOver(t *testing.T) (*httptest.Server, *appdb.DB, *llm.Fake) {
 // newChatServerWith is newChatServerOver on a machine whose sandbox is status.
 func newChatServerWith(t *testing.T, status sandbox.Status) (*httptest.Server, *appdb.DB, *llm.Fake) {
 	t.Helper()
-	return newChatServerOn(t, status, testSecurity(t))
+	return newChatServerOn(t, status, testSettings(t))
 }
 
-// newChatServerOn is newChatServerWith over the security settings security.
-func newChatServerOn(t *testing.T, status sandbox.Status, security *securityconfig.Service) (*httptest.Server, *appdb.DB, *llm.Fake) {
+// newChatServerOn is newChatServerWith over the settings store svc.
+func newChatServerOn(t *testing.T, status sandbox.Status, svc *settings.Service) (*httptest.Server, *appdb.DB, *llm.Fake) {
 	t.Helper()
 	db, err := appdb.Open(filepath.Join(t.TempDir(), "app.db"), 0)
 	require.NoError(t, err)
@@ -1630,7 +1630,7 @@ func newChatServerOn(t *testing.T, status sandbox.Status, security *securityconf
 	// The search is offered, since a test stages a turn that searched; the rest
 	// is read alone, so no call runs while stored calls still show.
 	box := tools.NewBox([]tools.Tool{agent.New(), anthropicwebsearch.New(time.Now)}, bash.Reader{}, &read.Tool{}, &write.Tool{}, &edit.Tool{}, &webfetch.Tool{}, taskstop.New(), memorytool.New(nil), kubequery.New(nil))
-	chatSvc, err := chat.New(db, filepath.Join(t.TempDir(), "chats"), filepath.Join(t.TempDir(), "monitor"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status, security)
+	chatSvc, err := chat.New(db, filepath.Join(t.TempDir(), "chats"), filepath.Join(t.TempDir(), "monitor"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status, svc)
 	require.NoError(t, err)
 	stop, err := chatSvc.Start(t.Context())
 	require.NoError(t, err)
@@ -1640,7 +1640,7 @@ func newChatServerOn(t *testing.T, status sandbox.Status, security *securityconf
 	})
 	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
 		ClusterSvc: newFakeClusterService(nil), ChatSvc: chatSvc, LLMSvc: llmSvc, Auth: newFakeAuth(auth.Identity{}),
-		SandboxStatus: status, SecurityCfg: security,
+		SandboxStatus: status, Settings: svc,
 	}))
 	t.Cleanup(srv.Close)
 	return srv, db, fake
@@ -2065,19 +2065,19 @@ func TestTheModelsQueryListsEveryProvidersCatalog(t *testing.T) {
 		"id":"fake-no-tools","label":"Fake model (no tools)","efforts":[],"defaultEffort":""}]}}`, string(raw))
 }
 
-// securityRefused answers what the settings file's Open left out.
-func TestSecurityRefusedIsWhatOpenLeftOut(t *testing.T) {
-	refuse := func(*securityconfig.Settings) []securityconfig.Refusal {
-		return []securityconfig.Refusal{{Field: "rules", Value: "Bash(rm *)", Reason: "is not a rule"}}
+// settingsRefused answers what the settings file's Open left out.
+func TestSettingsRefusedIsWhatOpenLeftOut(t *testing.T) {
+	refuse := func(*settings.Settings) []settings.Refusal {
+		return []settings.Refusal{{Field: "permissions.rules", Value: "Bash(rm *)", Reason: "is not a rule"}}
 	}
-	cfg, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"), securityconfig.WithChecks(refuse))
+	cfg, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), settings.WithChecks(refuse))
 	require.NoError(t, err)
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{SecurityCfg: securityconfig.NewService(cfg, nil, nil, "")}))
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Settings: settings.NewService(cfg, nil, nil, "")}))
 	t.Cleanup(srv.Close)
 
-	raw := postGQL(t, srv.URL, `{"query":"{ securityRefused { field value reason } }"}`)
+	raw := postGQL(t, srv.URL, `{"query":"{ settingsRefused { field value reason } }"}`)
 
-	assert.JSONEq(t, `{"data":{"securityRefused":[{"field":"rules","value":"Bash(rm *)","reason":"is not a rule"}]}}`, string(raw))
+	assert.JSONEq(t, `{"data":{"settingsRefused":[{"field":"permissions.rules","value":"Bash(rm *)","reason":"is not a rule"}]}}`, string(raw))
 }
 
 // approvalDecide reaches the service, and a decision nothing waits on answers false
@@ -2096,7 +2096,7 @@ func TestApprovalDecideReachesTheService(t *testing.T) {
 type heldChat struct{ chat.Service }
 
 func (heldChat) Approve(context.Context, chat.ApprovalID, chat.ApprovalDecision) (bool, error) {
-	return false, fmt.Errorf("write the rule: %w", securityconfig.ErrHeld)
+	return false, fmt.Errorf("write the rule: %w", settings.ErrHeld)
 }
 
 // Always while the settings hold rules Kstack cannot read is a validation
@@ -2108,7 +2108,7 @@ func TestApprovalDecideMapsHeldToValidation(t *testing.T) {
 	message, code := refusalOf(t, srv, `mutation { approvalDecide(id: "`+appdb.NewID()+`", decision: Always) }`)
 
 	assert.Equal(t, "KSTACK_VALIDATION_ERROR", code)
-	assert.Contains(t, message, "security.json")
+	assert.Contains(t, message, "settings.json")
 }
 
 // An answer carries its turn's tool calls off their rows: a call of a tool the turn
@@ -2674,18 +2674,18 @@ func sandboxPathServer(t *testing.T, available bool, resolve func(context.Contex
 	open, pending = filepath.Join(base, "open"), filepath.Join(base, "pending")
 	require.NoError(t, os.Mkdir(open, 0o755))
 	require.NoError(t, os.Mkdir(pending, 0o755))
-	store, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
-	svc := securityconfig.NewService(store, nil, nil, "")
+	svc := settings.NewService(store, nil, nil, "")
 	if available {
-		zones := func() securityconfig.Zones {
-			return securityconfig.Zones{Open: sandbox.FilePolicy{Read: []string{open}}}
+		zones := func() settings.Zones {
+			return settings.Zones{Open: sandbox.FilePolicy{Read: []string{open}}}
 		}
-		svc = securityconfig.NewService(store, zones, resolve, "timeout")
+		svc = settings.NewService(store, zones, resolve, "timeout")
 		_, err := svc.SyncPath(t.Context(), []string{open, pending})
 		require.NoError(t, err)
 	}
-	srv = httptest.NewServer(graph.NewServer(&graph.Resolver{SecurityCfg: svc, SandboxStatus: sandbox.Status{Available: available}}))
+	srv = httptest.NewServer(graph.NewServer(&graph.Resolver{Settings: svc, SandboxStatus: sandbox.Status{Available: available}}))
 	t.Cleanup(srv.Close)
 	return srv, open, pending
 }
@@ -2759,16 +2759,16 @@ func jsonEscape(s string) string {
 }
 
 // newPermissionServer is a server over the default cluster fixtures and a
-// security store over file, which holds body when it is not empty.
+// settings store over file, which holds body when it is not empty.
 func newPermissionServer(t *testing.T, body string) *httptest.Server {
 	t.Helper()
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	if body != "" {
 		require.NoError(t, os.WriteFile(file, []byte(body), 0o600))
 	}
-	cfg, err := securityconfig.Open(file)
+	cfg, err := settings.Open(file)
 	require.NoError(t, err)
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ClusterSvc: newFakeClusterService(clusterFixtures()), SecurityCfg: securityconfig.NewService(cfg, nil, nil, "")}))
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ClusterSvc: newFakeClusterService(clusterFixtures()), Settings: settings.NewService(cfg, nil, nil, "")}))
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -2795,8 +2795,8 @@ func refusalOf(t *testing.T, srv *httptest.Server, query string) (string, string
 // permissionSettings answers each known context's mode and where it comes
 // from, the rules, and the class 5 list in words.
 func TestPermissionSettingsShowsModesAndRules(t *testing.T) {
-	srv := newPermissionServer(t, `{"modes": [{"context": "prod", "mode": "read-only"}], "rules": [{"id": "r", "effect": "deny", "class": 5,
-		"context": "prod*", "verb": "delete", "group": "core", "kind": "namespaces"}]}`)
+	srv := newPermissionServer(t, `{"permissions": {"modes": [{"context": "prod", "mode": "read-only"}], "rules": [{"id": "r", "effect": "deny", "class": 5,
+		"context": "prod*", "verb": "delete", "group": "core", "kind": "namespaces"}]}}`)
 
 	data := mutate(t, srv, `{ permissionSettings { `+permissionSettingsFields+` destructive } }`)
 
@@ -2854,28 +2854,28 @@ func TestAPermissionRefusalIsAValidationError(t *testing.T) {
 	message, code := refusalOf(t, srv, `mutation { permissionRuleAdd(input: {effect: Allow, class: Destructive}) { held } }`)
 	assert.Equal(t, "KSTACK_VALIDATION_ERROR", code)
 	assert.Contains(t, message, "allows a destructive write")
-	_, code = refusalOf(t, srv, `mutation { permissionDiscardRefused(field: "rules") { held } }`)
+	_, code = refusalOf(t, srv, `mutation { permissionDiscardRefused(field: "permissions.rules") { held } }`)
 	assert.Equal(t, "KSTACK_VALIDATION_ERROR", code)
 	_, code = refusalOf(t, srv, `mutation { permissionRuleRemove(id: "nope") { held } }`)
 	assert.Equal(t, "KSTACK_VALIDATION_ERROR", code)
 
-	srv = newPermissionServer(t, `{"rules": [{"id": "b", "effect": "deny", "class": 9}]}`)
+	srv = newPermissionServer(t, `{"permissions": {"rules": [{"id": "b", "effect": "deny", "class": 9}]}}`)
 	data := mutate(t, srv, `{ permissionSettings { held } }`)
-	assert.Equal(t, []any{"rules"}, data["permissionSettings"].(map[string]any)["held"])
+	assert.Equal(t, []any{"permissions.rules"}, data["permissionSettings"].(map[string]any)["held"])
 	message, code = refusalOf(t, srv, `mutation { permissionRuleAdd(input: {effect: Deny, class: UpstreamWrite}) { held } }`)
 	assert.Equal(t, "KSTACK_VALIDATION_ERROR", code)
 	assert.Contains(t, message, "cannot read")
 
-	data = mutate(t, srv, `mutation { permissionDiscardRefused(field: "rules") { held } }`)
+	data = mutate(t, srv, `mutation { permissionDiscardRefused(field: "permissions.rules") { held } }`)
 	assert.Equal(t, []any{}, data["permissionDiscardRefused"].(map[string]any)["held"])
 }
 
 // A default mode the file holds that Kstack cannot read is held until the user
 // sets one.
 func TestADefaultModeIsHeldUntilItIsSet(t *testing.T) {
-	srv := newPermissionServer(t, `{"defaultMode": "readonly"}`)
+	srv := newPermissionServer(t, `{"permissions": {"defaultMode": "readonly"}}`)
 	data := mutate(t, srv, `{ permissionSettings { held } }`)
-	assert.Equal(t, []any{"defaultMode"}, data["permissionSettings"].(map[string]any)["held"])
+	assert.Equal(t, []any{"permissions.defaultMode"}, data["permissionSettings"].(map[string]any)["held"])
 
 	data = mutate(t, srv, `mutation { permissionDefaultModeSet(mode: Auto) { held } }`)
 	assert.Equal(t, []any{}, data["permissionDefaultModeSet"].(map[string]any)["held"])
@@ -2884,11 +2884,11 @@ func TestADefaultModeIsHeldUntilItIsSet(t *testing.T) {
 // The settings read the known contexts off the cluster service, so a list it
 // cannot answer fails the query rather than drawing no contexts.
 func TestPermissionSettingsFailsWithTheClusterList(t *testing.T) {
-	cfg, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	cfg, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 	svc := newFakeClusterService(clusterFixtures())
 	svc.listErr = errors.New("store closed")
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ClusterSvc: svc, SecurityCfg: securityconfig.NewService(cfg, nil, nil, "")}))
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ClusterSvc: svc, Settings: settings.NewService(cfg, nil, nil, "")}))
 	t.Cleanup(srv.Close)
 
 	_, code := refusalOf(t, srv, `{ permissionSettings { held } }`)
@@ -3022,7 +3022,7 @@ func TestAClusterWriteCarriesItsDurationAndDiff(t *testing.T) {
 type fakeProber struct {
 	mu         sync.Mutex
 	last       []bash.ExecutableReport
-	registered []securityconfig.Executable
+	registered []settings.Executable
 	probes     int
 	hub        *watch.Hub[bash.ProbeState]
 }
@@ -3031,7 +3031,7 @@ func newFakeProber() *fakeProber {
 	return &fakeProber{hub: watch.New(bash.ProbeState{})}
 }
 
-func (f *fakeProber) StartProbe(registered []securityconfig.Executable) {
+func (f *fakeProber) StartProbe(registered []settings.Executable) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.registered = registered
@@ -3062,11 +3062,11 @@ func (f *fakeProber) finish() {
 
 // Report is the curated tools then registered, each as the last probe found
 // it, else not probed yet.
-func (f *fakeProber) Report(registered []securityconfig.Executable) []bash.ExecutableReport {
+func (f *fakeProber) Report(registered []settings.Executable) []bash.ExecutableReport {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	var tools []securityconfig.Executable
-	tools = append(tools, securityconfig.CuratedExecutables...)
+	var tools []settings.Executable
+	tools = append(tools, settings.CuratedExecutables...)
 	tools = append(tools, registered...)
 	var out []bash.ExecutableReport
 	for i, tool := range tools {
@@ -3075,20 +3075,20 @@ func (f *fakeProber) Report(registered []securityconfig.Executable) []bash.Execu
 			out = append(out, f.last[j])
 			continue
 		}
-		out = append(out, bash.ExecutableReport{Executable: tool, Registered: i >= len(securityconfig.CuratedExecutables), Error: "not probed yet"})
+		out = append(out, bash.ExecutableReport{Executable: tool, Registered: i >= len(settings.CuratedExecutables), Error: "not probed yet"})
 	}
 	return out
 }
 
-// sandboxExecutablesServer is a server over a fake prober and a security store,
+// sandboxExecutablesServer is a server over a fake prober and a settings store,
 // on a machine with a sandbox or without.
 func sandboxExecutablesServer(t *testing.T, available bool) (*httptest.Server, *fakeProber) {
 	t.Helper()
-	store, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 	prober := newFakeProber()
 	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
-		SecurityCfg:   securityconfig.NewService(store, nil, nil, ""),
+		Settings:      settings.NewService(store, nil, nil, ""),
 		SandboxStatus: sandbox.Status{Available: available},
 		Executables:   prober,
 	}))
@@ -3216,11 +3216,11 @@ func TestSandboxExecutablesAreEmptyWithNoSandbox(t *testing.T) {
 // With no sandbox, an executable registered on a machine that had one can still be
 // removed, and the answer is the empty report.
 func TestSandboxExecutableRemoveWorksWithNoSandbox(t *testing.T) {
-	store, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 	require.NoError(t, store.RegisterExecutable("k9s", ""))
 	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
-		SecurityCfg: securityconfig.NewService(store, nil, nil, ""),
+		Settings:    settings.NewService(store, nil, nil, ""),
 		Executables: newFakeProber(),
 	}))
 	t.Cleanup(srv.Close)
@@ -3235,10 +3235,10 @@ func TestSandboxExecutableRemoveWorksWithNoSandbox(t *testing.T) {
 func TestOnboardingServesTheFlag(t *testing.T) {
 	for _, available := range []bool{true, false} {
 		t.Run(fmt.Sprintf("available=%v", available), func(t *testing.T) {
-			store, err := securityconfig.Open(filepath.Join(t.TempDir(), "security.json"))
+			store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
 			require.NoError(t, err)
 			srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
-				SecurityCfg:   securityconfig.NewService(store, nil, nil, ""),
+				Settings:      settings.NewService(store, nil, nil, ""),
 				SandboxStatus: sandbox.Status{Available: available},
 			}))
 			t.Cleanup(srv.Close)

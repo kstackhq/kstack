@@ -34,7 +34,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -1293,14 +1293,14 @@ func TestThePromptSaysSudoDoesNotWork(t *testing.T) {
 
 // defaultEntries is the platform's default PATH as folders the user included,
 // so a run over a fake sandbox, which opens no folder, still finds sleep.
-func defaultEntries() securityconfig.RunPath {
-	var entries []securityconfig.PathEntry
+func defaultEntries() settings.RunPath {
+	var entries []settings.PathEntry
 	for _, dir := range filepath.SplitList(defaultPath) {
-		entries = append(entries, securityconfig.PathEntry{
-			Dir: dir, Target: dir, State: securityconfig.PathAdopted, Source: securityconfig.SourceUser,
+		entries = append(entries, settings.PathEntry{
+			Dir: dir, Target: dir, State: settings.PathAdopted, Source: settings.SourceUser,
 		})
 	}
-	return securityconfig.RunPath{Entries: entries, Resolved: true}
+	return settings.RunPath{Entries: entries, Resolved: true}
 }
 
 // The prompt says what an allow keeps: a change allowed for the chat or always

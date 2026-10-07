@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+package settings
 
 import (
 	"encoding/json"
@@ -27,7 +27,7 @@ import (
 // Entries survive a reopen in order, with their states and sources; an entry
 // the check refuses is left out, listed, and held.
 func TestPathEntriesPersist(t *testing.T) {
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	a, b, c := t.TempDir(), t.TempDir(), t.TempDir()
 	entries := []PathEntry{
 		{Dir: b, Target: b, State: PathAdopted, Source: SourceShell},
@@ -37,13 +37,13 @@ func TestPathEntriesPersist(t *testing.T) {
 	s, err := Open(file)
 	require.NoError(t, err)
 	require.NoError(t, s.Update(func(v *Settings) error {
-		v.Path = entries
+		v.Sandbox.Path = entries
 		return nil
-	}, "path"))
+	}, FieldPath))
 
 	s, err = Open(file)
 	require.NoError(t, err)
-	assert.Equal(t, entries, s.Get().Path)
+	assert.Equal(t, entries, s.Get().Sandbox.Path)
 	assert.Empty(t, s.Refused())
 
 	bad := append(entries,
@@ -53,19 +53,19 @@ func TestPathEntriesPersist(t *testing.T) {
 		PathEntry{Dir: filepath.Join(a, "y"), Target: a, State: PathAdopted, Source: "them"},
 		PathEntry{Dir: filepath.Join(a, "z"), Target: "z", State: PathAdopted, Source: SourceShell},
 	)
-	raw, err := json.Marshal(map[string]any{"path": bad})
+	raw, err := json.Marshal(map[string]any{"sandbox": map[string]any{"path": bad}})
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(file, raw, 0o600))
 
 	s, err = Open(file)
 	require.NoError(t, err)
-	assert.Equal(t, entries, s.Get().Path, "the entries that passed load as they are")
+	assert.Equal(t, entries, s.Get().Sandbox.Path, "the entries that passed load as they are")
 	refused := s.Refused()
 	require.Len(t, refused, 5)
 	assert.Equal(t, "bin", refused[0].Value)
 	assert.Equal(t, b, refused[1].Value)
 	for _, r := range refused {
-		assert.Equal(t, "path", r.Field)
+		assert.Equal(t, FieldPath, r.Field)
 	}
-	assert.True(t, s.Held("path"))
+	assert.True(t, s.Held(FieldPath))
 }

@@ -13,7 +13,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
@@ -39,8 +39,8 @@ type Resolver struct {
 	// Auth backs the authState query/watch and the login/logout mutations; it degrades
 	// internally when no cloud account is configured.
 	Auth auth.Service
-	// SecurityCfg is the security settings file, and the frozen PATH kept in it.
-	SecurityCfg *securityconfig.Service
+	// Settings is the user's settings file, and the frozen PATH kept in it.
+	Settings *settings.Service
 	// Executables probes the executables sandboxed commands run: the Bash tool, nil where
 	// there is no shell.
 	Executables ExecutableProber
@@ -50,8 +50,8 @@ type Resolver struct {
 // and Report take the user's registered executables, the curated ones first, and
 // WatchProbe says when a probe starts and ends.
 type ExecutableProber interface {
-	StartProbe(registered []securityconfig.Executable)
-	Report(registered []securityconfig.Executable) []bash.ExecutableReport
+	StartProbe(registered []settings.Executable)
+	Report(registered []settings.Executable) []bash.ExecutableReport
 	WatchProbe() *watch.Receiver[bash.ProbeState]
 }
 
@@ -61,6 +61,6 @@ func (r *Resolver) probes() bool {
 }
 
 // registeredExecutables is the user's registered executables, as stored.
-func (r *Resolver) registeredExecutables() []securityconfig.Executable {
-	return r.SecurityCfg.Get().Executables
+func (r *Resolver) registeredExecutables() []settings.Executable {
+	return r.Settings.Get().Executables
 }

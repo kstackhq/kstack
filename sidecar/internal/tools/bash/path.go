@@ -21,7 +21,7 @@ import (
 	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
 // emptyPath is the PATH of a run that searches no folder. An empty PATH would
@@ -36,18 +36,18 @@ const emptyPath = "/nonexistent"
 // fallback instead, each folder as an entry the shell adopted, so the same
 // checks hold. Each entry left out, or run on a folder other than its Target,
 // gets one log line. It reads the disk.
-func runPath(list securityconfig.RunPath, fallback []string, open sandbox.FilePolicy, never []string, home string) (folders, reads []string) {
+func runPath(list settings.RunPath, fallback []string, open sandbox.FilePolicy, never []string, home string) (folders, reads []string) {
 	entries := list.Entries
 	if !list.Resolved {
 		for _, dir := range fallback {
-			entries = append(entries, securityconfig.PathEntry{
-				Dir: dir, Target: dir, State: securityconfig.PathAdopted, Source: securityconfig.SourceShell,
+			entries = append(entries, settings.PathEntry{
+				Dir: dir, Target: dir, State: settings.PathAdopted, Source: settings.SourceShell,
 			})
 		}
 	}
-	check := securityconfig.NewRunCheck(open, never, home)
+	check := settings.NewRunCheck(open, never, home)
 	for _, e := range entries {
-		if e.State != securityconfig.PathAdopted {
+		if e.State != settings.PathAdopted {
 			continue
 		}
 		folder, isOpen, ok := check.Folder(e)

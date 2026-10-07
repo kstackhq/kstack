@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package securityconfig
+package settings
 
 import (
 	"os"
@@ -27,7 +27,7 @@ import (
 
 func openFile(t *testing.T, body string) (*Store, string) {
 	t.Helper()
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	if body != "" {
 		require.NoError(t, os.WriteFile(file, []byte(body), 0o600))
 	}
@@ -55,36 +55,36 @@ func TestAContextNothingNamesTakesTheDefaultMode(t *testing.T) {
 }
 
 func TestModesMatchInOrder(t *testing.T) {
-	s, _ := openFile(t, `{"defaultMode": "auto", "modes": [
+	s, _ := openFile(t, `{"permissions": {"defaultMode": "auto", "modes": [
 		{"context": "dev-*", "mode": "read-only"},
 		{"context": "dev-eks", "mode": "ask"},
 		{"context": "*", "mode": "ask"}
-	]}`)
+	]}}`)
 	assert.Equal(t, permissions.ReadOnly, s.ModeFor("dev-eks").Mode, "the first match wins")
 	assert.Equal(t, ContextModeState{Context: "prod-eu", Mode: permissions.Ask, Source: SourceEntry, Pattern: "*"}, s.ModeFor("prod-eu"),
 		"Settings names the pattern that decided it")
 
-	s, _ = openFile(t, `{"defaultMode": "auto"}`)
+	s, _ = openFile(t, `{"permissions": {"defaultMode": "auto"}}`)
 	assert.Equal(t, permissions.Auto, s.ModeFor("staging").Mode, "the default mode answers what nothing else does")
 	assert.Equal(t, permissions.Auto, s.DefaultMode())
 }
 
 func TestABadModeIsReadOnly(t *testing.T) {
-	s, file := openFile(t, `{"defaultMode": "readonly"}`)
+	s, file := openFile(t, `{"permissions": {"defaultMode": "readonly"}}`)
 	assert.Equal(t, ContextModeState{Context: "dev", Mode: permissions.ReadOnly, Source: SourceDefault}, s.ModeFor("dev"))
-	assert.Equal(t, []Refusal{{Field: "defaultMode", Value: `"readonly"`, Reason: "is not read-only, ask or auto"}}, s.Refused())
+	assert.Equal(t, []Refusal{{Field: FieldDefaultMode, Value: `"readonly"`, Reason: "is not read-only, ask or auto"}}, s.Refused())
 	require.NoError(t, s.SetDefaultMode(permissions.Auto), "setting the default mode is its fix")
 	assert.Equal(t, permissions.Auto, s.ModeFor("dev").Mode)
-	assert.JSONEq(t, `{"defaultMode": "auto", "schemaVersion": 1}`, readFile(t, file))
+	assert.JSONEq(t, `{"permissions": {"defaultMode": "auto"}, "schemaVersion": 1}`, readFile(t, file))
 
-	s, file = openFile(t, `{"modes": [{"context": "dev", "mode": "auto"}, {"context": "x", "mode": "yolo"}, {"context": "", "mode": "ask"}]}`)
+	s, file = openFile(t, `{"permissions": {"modes": [{"context": "dev", "mode": "auto"}, {"context": "x", "mode": "yolo"}, {"context": "", "mode": "ask"}]}}`)
 	for _, context := range []string{"dev", "staging"} {
 		assert.Equal(t, ContextModeState{Context: context, Mode: permissions.ReadOnly, Source: SourceRefused}, s.ModeFor(context))
 	}
 	assert.Len(t, s.Refused(), 2)
-	assert.Equal(t, "modes", s.Refused()[0].Field)
+	assert.Equal(t, FieldModes, s.Refused()[0].Field)
 	require.NoError(t, s.SetDefaultMode(permissions.Auto), "a write that does not touch the field")
-	assert.JSONEq(t, `{"defaultMode": "auto", "modes": [{"context": "dev", "mode": "auto"}, {"context": "x", "mode": "yolo"}, {"context": "", "mode": "ask"}], "schemaVersion": 1}`,
+	assert.JSONEq(t, `{"permissions": {"defaultMode": "auto", "modes": [{"context": "dev", "mode": "auto"}, {"context": "x", "mode": "yolo"}, {"context": "", "mode": "ask"}]}, "schemaVersion": 1}`,
 		readFile(t, file), "keeps the file's raw value")
 }
 
@@ -105,21 +105,21 @@ func TestABadRuleRefusesEveryClusterWrite(t *testing.T) {
 		"misspelled field": `{"id": "b", "effect": "allow", "class": 4, "namepsace": "team-a"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			s, _ := openFile(t, `{"rules": [`+deny+`, `+allow+`, `+bad+`]}`)
-			assert.True(t, s.Held("rules"))
+			s, _ := openFile(t, `{"permissions": {"rules": [`+deny+`, `+allow+`, `+bad+`]}}`)
+			assert.True(t, s.Held(FieldRules))
 			ids := []string{}
 			for _, r := range s.Rules() {
 				ids = append(ids, r.ID)
 			}
 			assert.Equal(t, []string{"d", "refused", "refused-secrets"}, ids, "the Deny, no Allow, and the class 4 and 6 Denies")
 			assert.Equal(t, permissions.Refused, s.Rules()[1])
-			assert.Len(t, s.Get().Rules, 2, "Get still holds the Allow")
+			assert.Len(t, s.Get().Permissions.Rules, 2, "Get still holds the Allow")
 			require.Len(t, s.Refused(), 1)
-			assert.Equal(t, "rules", s.Refused()[0].Field)
+			assert.Equal(t, FieldRules, s.Refused()[0].Field)
 		})
 	}
 
-	s, _ := openFile(t, `{"rules": [`+allow+`]}`)
+	s, _ := openFile(t, `{"permissions": {"rules": [`+allow+`]}}`)
 	for name, bad := range map[string]permissions.Rule{
 		"repeated id":      {ID: "a", Effect: permissions.Deny, Class: permissions.UpstreamWrite},
 		"the id refused":   {ID: "refused", Effect: permissions.Deny, Class: permissions.UpstreamWrite},
@@ -129,15 +129,27 @@ func TestABadRuleRefusesEveryClusterWrite(t *testing.T) {
 		err := s.AddRule(bad)
 		var r Refusal
 		require.ErrorAs(t, err, &r, name)
-		assert.Equal(t, "rules", r.Field, name)
+		assert.Equal(t, FieldRules, r.Field, name)
 		assert.NotEmpty(t, r.Reason, name)
 	}
-	assert.Len(t, s.Get().Rules, 1, "a refused add writes nothing")
+	assert.Len(t, s.Get().Permissions.Rules, 1, "a refused add writes nothing")
+}
+
+// The permissions group holds each field on its own: a bad rule leaves the
+// modes beside it readable.
+func TestABadRuleLeavesTheModesReadable(t *testing.T) {
+	s, _ := openFile(t, `{"permissions": {"modes": [{"context": "dev", "mode": "auto"}],
+		"rules": [{"id": "b", "effect": "deny", "class": 9}]}}`)
+	assert.True(t, s.Held(FieldRules))
+	assert.False(t, s.Held(FieldModes))
+	assert.Equal(t, ContextModeState{Context: "dev", Mode: permissions.Auto, Source: SourceEntry, Pattern: "dev", Own: true}, s.ModeFor("dev"))
+	require.Len(t, s.Refused(), 1)
+	assert.Equal(t, "permissions.rules", s.Refused()[0].Field)
 }
 
 func TestAHeldListRefusesItsEdits(t *testing.T) {
-	s, file := openFile(t, `{"modes": [{"context": "dev", "mode": "auto"}, {"context": "x", "mode": "yolo"}],
-		"rules": [{"id": "a", "effect": "allow", "class": 4}, {"id": "b", "effect": "deny", "class": 9}]}`)
+	s, file := openFile(t, `{"permissions": {"modes": [{"context": "dev", "mode": "auto"}, {"context": "x", "mode": "yolo"}],
+		"rules": [{"id": "a", "effect": "allow", "class": 4}, {"id": "b", "effect": "deny", "class": 9}]}}`)
 	before := readFile(t, file)
 	rule := permissions.Rule{ID: "c", Effect: permissions.Deny, Class: permissions.UpstreamWrite}
 	for name, err := range map[string]error{
@@ -150,33 +162,33 @@ func TestAHeldListRefusesItsEdits(t *testing.T) {
 	}
 	assert.Equal(t, before, readFile(t, file), "a refused edit writes nothing")
 
-	require.NoError(t, s.DiscardRefused("modes"))
-	assert.False(t, s.Held("modes"))
+	require.NoError(t, s.DiscardRefused(FieldModes))
+	assert.False(t, s.Held(FieldModes))
 	assert.Equal(t, ContextModeState{Context: "dev", Mode: permissions.Auto, Source: SourceEntry, Pattern: "dev", Own: true}, s.ModeFor("dev"))
 
-	require.NoError(t, s.DiscardRefused("rules"))
+	require.NoError(t, s.DiscardRefused(FieldRules))
 	assert.Equal(t, []permissions.Rule{{ID: "a", Effect: permissions.Allow, Class: permissions.UpstreamWrite}}, s.Rules())
-	assert.JSONEq(t, `{"modes": [{"context": "dev", "mode": "auto"}], "rules": [{"id": "a", "effect": "allow", "class": 4}], "schemaVersion": 1}`,
+	assert.JSONEq(t, `{"permissions": {"modes": [{"context": "dev", "mode": "auto"}], "rules": [{"id": "a", "effect": "allow", "class": 4}]}, "schemaVersion": 1}`,
 		readFile(t, file))
 	require.NoError(t, s.AddRule(rule), "the edits work once the hold ends")
 
-	assert.ErrorIs(t, s.DiscardRefused("rules"), ErrNotHeld, "a field that is not held")
-	assert.ErrorIs(t, s.DiscardRefused("defaultMode"), ErrNotHeld, "the default mode is fixed by setting it")
+	assert.ErrorIs(t, s.DiscardRefused(FieldRules), ErrNotHeld, "a field that is not held")
+	assert.ErrorIs(t, s.DiscardRefused(FieldDefaultMode), ErrNotHeld, "the default mode is fixed by setting it")
 	assert.ErrorIs(t, s.RemoveRule("nope"), ErrNoRule)
 }
 
 func TestAModeSetInSettingsWinsOverAPattern(t *testing.T) {
-	s, _ := openFile(t, `{"modes": [{"context": "*", "mode": "auto"}]}`)
+	s, _ := openFile(t, `{"permissions": {"modes": [{"context": "*", "mode": "auto"}]}}`)
 	require.NoError(t, s.SetMode("prod-eu", permissions.Ask))
 	assert.Equal(t, permissions.Ask, s.ModeFor("prod-eu").Mode)
 	assert.Equal(t, permissions.Auto, s.ModeFor("dev").Mode)
 
 	require.NoError(t, s.SetMode("prod-eu", permissions.ReadOnly))
-	assert.Equal(t, []ContextMode{{Context: "prod-eu", Mode: permissions.ReadOnly}, {Context: "*", Mode: permissions.Auto}}, s.Get().Modes,
+	assert.Equal(t, []ContextMode{{Context: "prod-eu", Mode: permissions.ReadOnly}, {Context: "*", Mode: permissions.Auto}}, s.Get().Permissions.Modes,
 		"setting it again replaces the entry")
 
 	require.NoError(t, s.SetMode("dev*", permissions.Ask))
-	assert.Equal(t, ContextMode{Context: `dev\*`, Mode: permissions.Ask}, s.Get().Modes[0], "the entry is the context's literal")
+	assert.Equal(t, ContextMode{Context: `dev\*`, Mode: permissions.Ask}, s.Get().Permissions.Modes[0], "the entry is the context's literal")
 	assert.Equal(t, permissions.Auto, s.ModeFor("dev-eks").Mode, "and names that context alone")
 
 	require.NoError(t, s.ClearMode("prod-eu"))
@@ -185,7 +197,7 @@ func TestAModeSetInSettingsWinsOverAPattern(t *testing.T) {
 }
 
 func TestAContextSaysWhetherItsEntryIsItsOwn(t *testing.T) {
-	s, _ := openFile(t, `{"modes": [{"context": "dev-eks", "mode": "auto"}, {"context": "*", "mode": "ask"}]}`)
+	s, _ := openFile(t, `{"permissions": {"modes": [{"context": "dev-eks", "mode": "auto"}, {"context": "*", "mode": "ask"}]}}`)
 	assert.True(t, s.ModeFor("dev-eks").Own, "an entry naming the context alone")
 	assert.False(t, s.ModeFor("staging").Own, "a pattern that matches it")
 
@@ -194,15 +206,15 @@ func TestAContextSaysWhetherItsEntryIsItsOwn(t *testing.T) {
 }
 
 func TestHeldRulesGrantNoFolder(t *testing.T) {
-	s, _ := openFile(t, `{"rules": [{"id": "r", "effect": "allow", "class": 1, "folder": "/Users/me/code"},
-		{"id": "b", "effect": "deny", "class": 9}]}`)
-	require.True(t, s.Held("rules"))
+	s, _ := openFile(t, `{"permissions": {"rules": [{"id": "r", "effect": "allow", "class": 1, "folder": "/Users/me/code"},
+		{"id": "b", "effect": "deny", "class": 9}]}}`)
+	require.True(t, s.Held(FieldRules))
 	assert.Equal(t, []permissions.Rule{permissions.Refused, permissions.RefusedSecrets}, s.Rules(), "a file Kstack cannot read grants no folder")
 }
 
 func TestPutRuleKeepsItsPlace(t *testing.T) {
-	s, _ := openFile(t, `{"rules": [{"id": "a", "effect": "deny", "class": 4}, {"id": "b", "effect": "allow", "class": 4, "context": "dev"},
-		{"id": "c", "effect": "deny", "class": 5}]}`)
+	s, _ := openFile(t, `{"permissions": {"rules": [{"id": "a", "effect": "deny", "class": 4}, {"id": "b", "effect": "allow", "class": 4, "context": "dev"},
+		{"id": "c", "effect": "deny", "class": 5}]}}`)
 	byID := func(id string) func(permissions.Rule) bool {
 		return func(r permissions.Rule) bool { return r.ID == id }
 	}
@@ -226,8 +238,8 @@ func TestPutRuleKeepsItsPlace(t *testing.T) {
 
 func TestAClassSixRuleIsRead(t *testing.T) {
 	kept := `{"id": "k", "effect": "allow", "class": 6, "context": "dev-*", "namespace": "team-a"}`
-	s, _ := openFile(t, `{"rules": [`+kept+`, {"id": "c", "effect": "deny", "class": 6, "verb": "list", "group": "core", "kind": "secrets"}]}`)
-	assert.False(t, s.Held("rules"))
+	s, _ := openFile(t, `{"permissions": {"rules": [`+kept+`, {"id": "c", "effect": "deny", "class": 6, "verb": "list", "group": "core", "kind": "secrets"}]}}`)
+	assert.False(t, s.Held(FieldRules))
 	assert.Len(t, s.Rules(), 2)
 
 	for name, c := range map[string]struct {
@@ -249,8 +261,8 @@ func TestAClassSixRuleIsRead(t *testing.T) {
 }
 
 func TestHeldRulesKeepSecretDataRedacted(t *testing.T) {
-	s, _ := openFile(t, `{"rules": [{"id": "a", "effect": "allow", "class": 6}, {"id": "b", "effect": "deny", "class": 9}]}`)
-	require.True(t, s.Held("rules"))
+	s, _ := openFile(t, `{"permissions": {"rules": [{"id": "a", "effect": "allow", "class": 6}, {"id": "b", "effect": "deny", "class": 9}]}}`)
+	require.True(t, s.Held(FieldRules))
 	assert.Equal(t, []permissions.Rule{permissions.Refused, permissions.RefusedSecrets}, s.Rules())
 
 	read := permissions.Action{Class: permissions.SecretRead, Context: "dev", Namespace: "team-a", Verb: "get", Group: "core", Kind: "secrets"}

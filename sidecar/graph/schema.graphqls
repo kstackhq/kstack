@@ -1499,7 +1499,7 @@ type PermissionSettings {
   rules: [PermissionRule!]!
   "The writes that always ask, in words."
   destructive: [String!]!
-  "The settings fields the file holds a value of that Kstack cannot read: `defaultMode`, `modes`, `rules`."
+  "The settings fields the file holds a value of that Kstack cannot read, by key: `permissions.defaultMode`, `permissions.modes`, `permissions.rules`."
   held: [String!]!
 }
 
@@ -1565,7 +1565,7 @@ type SandboxPathEntry {
 enum GrantDuration {
   "For one chat: a rule of the chat's, gone with it."
   Chat
-  "For every chat: a rule in the security settings file."
+  "For every chat: a rule in the settings file."
   Always
 }
 
@@ -1628,9 +1628,9 @@ type SandboxExecutablesReport {
   executables: [SandboxExecutable!]!
 }
 
-"One value the security settings file held and the sidecar left out."
-type SecurityRefusal {
-  "The setting's JSON key in the file."
+"One value the settings file held and the sidecar left out."
+type SettingsRefusal {
+  "The setting's key in the file, dotted inside a group: `permissions.rules`."
   field: String!
   "What the setting's section names the value by, else its JSON."
   value: String!
@@ -1671,8 +1671,8 @@ type Query {
   clusterCachedKinds(cacheID: ObjectID): [ClusterCachedKind!]!
 
   # --- Sandbox ---
-  "Every value the security settings file held that the sidecar left out at start, each with its reason. Fixed for the process's life, so this is a query and not a watch."
-  securityRefused: [SecurityRefusal!]!
+  "Every value the settings file held that the sidecar left out at start, each with its reason. Fixed for the process's life, so this is a query and not a watch."
+  settingsRefused: [SettingsRefusal!]!
 
   "The frozen PATH sandboxed commands search, in the shell's order. Empty on a machine with no sandbox."
   sandboxPath: [SandboxPathEntry!]!
@@ -1735,7 +1735,7 @@ type Mutation {
   "Stop the in-flight turn, keeping the partial answer. Returns true; a no-op when nothing is running."
   chatCancel(chatID: ChatID!): Boolean!
 
-  "Decide a waiting request. Returns true when a turn was waiting on it; that says the decision reached the turn, not that it was recorded, since a cancel landing in the same moment can still win and leave the approval pending. A decision nothing waits on — the turn cancelled, stranded or already decided — returns false and changes nothing. `Command`, `Chat` and `Always` are refused `KSTACK_VALIDATION_ERROR` on a call's own request and on an action no rule may allow, and the request still waits; so is `Always` while the security settings hold rules Kstack cannot read."
+  "Decide a waiting request. Returns true when a turn was waiting on it; that says the decision reached the turn, not that it was recorded, since a cancel landing in the same moment can still win and leave the approval pending. A decision nothing waits on — the turn cancelled, stranded or already decided — returns false and changes nothing. `Command`, `Chat` and `Always` are refused `KSTACK_VALIDATION_ERROR` on a call's own request and on an action no rule may allow, and the request still waits; so is `Always` while the settings hold rules Kstack cannot read."
   approvalDecide(id: ApprovalID!, decision: ApprovalDecision!): Boolean!
 
   "The user's stop of the background task a call started: SIGTERM, then SIGKILL after a grace. Returns true when a task of that call was running; false, changing nothing, when none is."
@@ -1801,10 +1801,10 @@ type Mutation {
   "Removes one of the chat's rules by id, and answers the rules left. Refused `KSTACK_RECORD_NOT_FOUND` for a chat or an id that is gone."
   chatGrantRemove(chatID: ChatID!, id: String!): [PermissionRule!]!
 
-  "Write `modes` or `rules` as Kstack read it, dropping what it could not read. Refused `KSTACK_VALIDATION_ERROR` for a field that holds nothing unread."
+  "Write `permissions.modes` or `permissions.rules` as Kstack read it, dropping what it could not read. Refused `KSTACK_VALIDATION_ERROR` for a field that holds nothing unread."
   permissionDiscardRefused(field: String!): PermissionSettings!
 
-  "Grant a folder, or change the mode of one granted in the same place. `Chat` writes a rule of the chat's and needs `chatID`; `Always` a rule in the security settings file, and ignores it. Refused `KSTACK_VALIDATION_ERROR` with the reason the folder cannot be granted, whose `rule` is `link` and whose `target` extension is the resolved path for a link; also while the file's rules cannot be read, and on a machine with no sandbox. Refused `KSTACK_RECORD_NOT_FOUND` for a chat that is gone."
+  "Grant a folder, or change the mode of one granted in the same place. `Chat` writes a rule of the chat's and needs `chatID`; `Always` a rule in the settings file, and ignores it. Refused `KSTACK_VALIDATION_ERROR` with the reason the folder cannot be granted, whose `rule` is `link` and whose `target` extension is the resolved path for a link; also while the file's rules cannot be read, and on a machine with no sandbox. Refused `KSTACK_RECORD_NOT_FOUND` for a chat that is gone."
   folderGrant(chatID: ChatID, path: String!, write: Boolean!, duration: GrantDuration!): SandboxFolders!
 
   "Revoke an always folder grant by id. A chat's grant is removed with `chatGrantRemove`. Refused `KSTACK_RECORD_NOT_FOUND` for an id that is not one, and `KSTACK_VALIDATION_ERROR` while the file's rules cannot be read."

@@ -2761,7 +2761,7 @@ describe('ChatTranscript', () => {
         fireEvent.click(screen.getByRole('button', { name: 'Always allow' }));
       });
       expect(request()).toHaveTextContent(
-        'Kstack cannot add a rule while security.json holds rules it cannot read. Fix them in Settings, or approve once.',
+        'Kstack cannot add a rule while settings.json holds rules it cannot read. Fix them in Settings, or approve once.',
       );
       expect(request()).not.toHaveTextContent('The decision did not reach the sidecar.');
       await act(async () => {

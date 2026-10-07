@@ -26,7 +26,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
 // grantsFor is the rules that last for chatID's life, read on every decision
@@ -185,7 +185,7 @@ func (s *service) foldersFrom(ctx context.Context, chatID ChatID, rules []permis
 	var folders []session.Folder
 	for _, r := range rules {
 		write := r.Class == permissions.WriteInside
-		if err := s.security.CheckStoredFolder(ctx, r.Folder, write); err != nil {
+		if err := s.settings.CheckStoredFolder(ctx, r.Folder, write); err != nil {
 			slog.Info("folder grant left out", "chat", chatID, "folder", r.Folder, "reason", err)
 			continue
 		}
@@ -205,7 +205,7 @@ func (s *service) folderRules(ctx context.Context, st stmts, chatID ChatID) []pe
 	if chatID != "" {
 		rules = grantsIn(ctx, st, chatID)
 	}
-	rules = append(rules, s.security.Rules()...)
+	rules = append(rules, s.settings.Rules()...)
 	return slices.DeleteFunc(rules, func(r permissions.Rule) bool { return r.Folder == "" || r.Effect != permissions.Allow })
 }
 
@@ -227,8 +227,8 @@ func (s *service) FolderGrants(ctx context.Context, chatID ChatID) (always, chat
 	if !s.sandboxStatus.Available {
 		return nil, nil
 	}
-	always = s.checkedFolderGrants(ctx, s.security.Get().Rules)
-	if s.security.Held(securityconfig.FieldRules) {
+	always = s.checkedFolderGrants(ctx, s.settings.Get().Permissions.Rules)
+	if s.settings.Held(settings.FieldRules) {
 		for i := range always {
 			always[i].Refused = RulesHeldReason
 		}
@@ -242,7 +242,7 @@ func (s *service) FolderGrants(ctx context.Context, chatID ChatID) (always, chat
 // RulesHeldReason is why no always grant applies while the rules field is
 // held, in the user's words; the wire gives a refused grant or revoke the same
 // reason.
-const RulesHeldReason = "The security settings file holds a rule Kstack cannot read: fix security.json, or discard what Kstack cannot read in Settings."
+const RulesHeldReason = "The settings file holds a rule Kstack cannot read: fix settings.json, or discard what Kstack cannot read in Settings."
 
 // checkedFolderGrants is the folder grants among rules, each checked.
 func (s *service) checkedFolderGrants(ctx context.Context, rules []permissions.Rule) []FolderGrant {
@@ -252,7 +252,7 @@ func (s *service) checkedFolderGrants(ctx context.Context, rules []permissions.R
 			continue
 		}
 		g := FolderGrant{ID: r.ID, Path: r.Folder, Write: r.Class == permissions.WriteInside}
-		if err := s.security.CheckStoredFolder(ctx, g.Path, g.Write); err != nil {
+		if err := s.settings.CheckStoredFolder(ctx, g.Path, g.Write); err != nil {
 			g.Refused = err.Error()
 		}
 		grants = append(grants, g)
@@ -266,7 +266,7 @@ func (s *service) checkedFolderGrants(ctx context.Context, rules []permissions.R
 // The lookup and the write are one transaction, or one update under the
 // store's lock, so two grants of one folder at once leave one rule.
 func (s *service) GrantFolder(ctx context.Context, chatID ChatID, path string, write bool) error {
-	if err := s.security.CheckFolder(ctx, path, write); err != nil {
+	if err := s.settings.CheckFolder(ctx, path, write); err != nil {
 		return err
 	}
 	rule := permissions.Rule{Effect: permissions.Allow, Class: permissions.ReadInside, Folder: path}
@@ -276,7 +276,7 @@ func (s *service) GrantFolder(ctx context.Context, chatID ChatID, path string, w
 	grantsPath := func(r permissions.Rule) bool { return r.Folder == path }
 	if chatID == "" {
 		rule.ID = appdb.NewID()
-		return s.security.PutRule(rule, grantsPath)
+		return s.settings.PutRule(rule, grantsPath)
 	}
 	return s.store.InTx(ctx, func(st stmts) error {
 		held, _, err := readGrants(ctx, st, chatID)
@@ -293,9 +293,9 @@ func (s *service) GrantFolder(ctx context.Context, chatID ChatID, path string, w
 
 // RevokeFolder removes an always folder grant by id.
 func (s *service) RevokeFolder(id string) error {
-	for _, r := range s.security.Get().Rules {
+	for _, r := range s.settings.Get().Permissions.Rules {
 		if r.ID == id && r.Folder != "" {
-			return s.security.RemoveRule(id)
+			return s.settings.RemoveRule(id)
 		}
 	}
 	return ErrGrantGone
@@ -318,8 +318,8 @@ func (s *service) sessionFor(chatID ChatID, outside, networkThisTurn bool) sessi
 		Folders: folders,
 		Policy: func(ctx context.Context, kubeContext string) permissions.Policy {
 			return permissions.Policy{
-				Mode:  s.security.ModeFor(kubeContext).Mode,
-				Rules: append(s.grantsFor(ctx, chatID), s.security.Rules()...),
+				Mode:  s.settings.ModeFor(kubeContext).Mode,
+				Rules: append(s.grantsFor(ctx, chatID), s.settings.Rules()...),
 			}
 		},
 		Network: func(ctx context.Context) session.Network {

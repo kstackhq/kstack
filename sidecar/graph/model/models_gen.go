@@ -12,7 +12,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
 // The connecting principal's effective RBAC in one namespace (live
@@ -80,12 +80,12 @@ type PermissionSettings struct {
 	// The mode of a context nothing else names.
 	DefaultMode permissions.Mode `json:"defaultMode"`
 	// Each known context's mode, by context.
-	Contexts []*securityconfig.ContextModeState `json:"contexts"`
+	Contexts []*settings.ContextModeState `json:"contexts"`
 	// The user's always rules.
 	Rules []*permissions.Rule `json:"rules"`
 	// The writes that always ask, in words.
 	Destructive []string `json:"destructive"`
-	// The settings fields the file holds a value of that Kstack cannot read: `defaultMode`, `modes`, `rules`.
+	// The settings fields the file holds a value of that Kstack cannot read, by key: `permissions.defaultMode`, `permissions.modes`, `permissions.rules`.
 	Held []string `json:"held"`
 }
 
@@ -191,7 +191,7 @@ type GrantDuration string
 const (
 	// For one chat: a rule of the chat's, gone with it.
 	GrantDurationChat GrantDuration = "Chat"
-	// For every chat: a rule in the security settings file.
+	// For every chat: a rule in the settings file.
 	GrantDurationAlways GrantDuration = "Always"
 )
 

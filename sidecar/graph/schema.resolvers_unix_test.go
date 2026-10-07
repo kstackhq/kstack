@@ -16,7 +16,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
 
 // newFolderServer is a chat server on a machine with a sandbox, whose home is
@@ -26,7 +26,7 @@ func newFolderServer(t *testing.T) (*httptest.Server, string) {
 	return newFolderServerWith(t, "")
 }
 
-// newFolderServerWith is newFolderServer over a security settings file
+// newFolderServerWith is newFolderServer over a settings file
 // holding body ("" for none).
 func newFolderServerWith(t *testing.T, body string) (*httptest.Server, string) {
 	t.Helper()
@@ -34,14 +34,14 @@ func newFolderServerWith(t *testing.T, body string) (*httptest.Server, string) {
 	for _, d := range []string{".ssh", "code"} {
 		require.NoError(t, os.MkdirAll(filepath.Join(home, d), 0o755))
 	}
-	file := filepath.Join(t.TempDir(), "security.json")
+	file := filepath.Join(t.TempDir(), "settings.json")
 	if body != "" {
 		require.NoError(t, os.WriteFile(file, []byte(body), 0o600))
 	}
-	store, err := securityconfig.Open(file)
+	store, err := settings.Open(file)
 	require.NoError(t, err)
-	security := securityconfig.NewService(store, func() securityconfig.Zones {
-		return securityconfig.Zones{Never: []string{filepath.Join(home, ".ssh")}, Home: home}
+	security := settings.NewService(store, func() settings.Zones {
+		return settings.Zones{Never: []string{filepath.Join(home, ".ssh")}, Home: home}
 	}, nil, "")
 	srv, _, _ := newChatServerOn(t, sandbox.Status{Available: true}, security)
 	return srv, home
@@ -180,7 +180,7 @@ func TestARefusedFolderIsDrawnRefused(t *testing.T) {
 // A rule Kstack cannot read holds the rules field, which the folders say, so
 // Settings can draw Remove disabled rather than offer a revoke it refuses.
 func TestSandboxFoldersSayTheRulesAreHeld(t *testing.T) {
-	srv, home := newFolderServerWith(t, `{"rules": [{"id": "b", "effect": "deny", "class": 9}]}`)
+	srv, home := newFolderServerWith(t, `{"permissions": {"rules": [{"id": "b", "effect": "deny", "class": 9}]}}`)
 	got := mutate(t, srv, `{ sandboxFolders `+foldersFields+` }`)
 	assert.Equal(t, true, got["sandboxFolders"].(map[string]any)["rulesHeld"])
 

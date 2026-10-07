@@ -7,7 +7,7 @@ import (
 	"testing"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
-	"github.com/kstackhq/kstack/sidecar/internal/services/securityconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
 
@@ -83,7 +83,7 @@ func TestMapStreamStopsOnContextCancelDuringSend(t *testing.T) {
 // A grant the settings refuse by its shape is a validation error under the
 // folder rule, carrying the settings' own reason.
 func TestFolderErrNamesARefusedShape(t *testing.T) {
-	refusal := securityconfig.Refusal{Field: "rules", Value: "x", Reason: "is not a rule"}
+	refusal := settings.Refusal{Field: "permissions.rules", Value: "x", Reason: "is not a rule"}
 	var e *gqlerror.Error
 	if !errors.As(folderErr(refusal), &e) {
 		t.Fatalf("folderErr(%v) is not a GraphQL error", refusal)
