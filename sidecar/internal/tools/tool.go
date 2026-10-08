@@ -174,10 +174,11 @@ const (
 	ActionMemory    ActionKind = "memory"
 	ActionDelegate  ActionKind = "delegate"   // hands a task to a subagent
 	ActionKubeQuery ActionKind = "kube-query" // SQL over the cluster's cache
+	ActionLogsView  ActionKind = "logs-view"  // a live view of logs the user looks at
 )
 
 // ActionKinds is every kind, in declaration order.
-var ActionKinds = []ActionKind{ActionCommand, ActionRead, ActionWrite, ActionEdit, ActionSearch, ActionFetch, ActionStop, ActionMemory, ActionDelegate, ActionKubeQuery}
+var ActionKinds = []ActionKind{ActionCommand, ActionRead, ActionWrite, ActionEdit, ActionSearch, ActionFetch, ActionStop, ActionMemory, ActionDelegate, ActionKubeQuery, ActionLogsView}
 
 // valid reports whether k is one of ActionKinds.
 func (k ActionKind) valid() bool {
@@ -198,6 +199,7 @@ type Action struct {
 	Memory      *MemoryAction    `json:"memory"`
 	Delegate    *DelegateAction  `json:"delegate"`
 	KubeQuery   *KubeQueryAction `json:"kubeQuery"`
+	LogsView    *LogsViewAction  `json:"logsView"`
 }
 
 // Kind is the kind whose field is set, or "" for none.
@@ -221,6 +223,8 @@ func (a Action) Kind() ActionKind {
 		return ActionDelegate
 	case a.KubeQuery != nil:
 		return ActionKubeQuery
+	case a.LogsView != nil:
+		return ActionLogsView
 	}
 	return ""
 }
@@ -290,6 +294,82 @@ type KubeQueryAction struct {
 	SQL   string `json:"sql"`
 	Limit int    `json:"limit"`
 }
+
+// LogsViewAction is a live view of logs the user looks at, as the sidecar hands it
+// to the log backend: the Sources whose lines it merges by timestamp, in the order
+// asked; the Filters on those lines, none keeping every line; the Grep, a regular
+// expression each line's message must match, empty for none; the Anchor the view
+// opens at; and PinToEnd, whether the viewer keeps the end in view as lines arrive.
+type LogsViewAction struct {
+	Sources  []LogsViewSource `json:"sources"`
+	Filters  []LogsViewFilter `json:"filters"`
+	Grep     string           `json:"grep"`
+	Anchor   LogsViewAnchor   `json:"anchor"`
+	PinToEnd bool             `json:"pinToEnd"`
+}
+
+// LogsViewAnchor is where a view opens: an edge of the stream, or the moment At,
+// which is set for LogsAnchorAt alone.
+type LogsViewAnchor struct {
+	Kind LogsAnchorKind `json:"kind"`
+	At   *time.Time     `json:"at"`
+}
+
+// LogsAnchorKind is the oldest line the backend keeps, the newest, or a moment
+// between. The GraphQL LogsViewAnchorKind enum binds member by member onto it.
+type LogsAnchorKind string
+
+const (
+	LogsAnchorHead LogsAnchorKind = "head"
+	LogsAnchorTail LogsAnchorKind = "tail"
+	LogsAnchorAt   LogsAnchorKind = "at"
+)
+
+// LogsViewSource is one resource a view reads, in its Namespace, by Kind and Name:
+// its Containers by exact name — the default container resolved, or the ones
+// named; every one when empty — and Previous for the instance before the last
+// restart, which is finished.
+type LogsViewSource struct {
+	Namespace  string         `json:"namespace"`
+	Kind       LogsSourceKind `json:"kind"`
+	Name       string         `json:"name"`
+	Containers []string       `json:"containers"`
+	Previous   bool           `json:"previous"`
+}
+
+// LogsSourceKind is a kind the log backend reads: a pod, or a workload whose pods
+// it follows. The GraphQL LogsViewSourceKind enum binds member by member onto it.
+type LogsSourceKind string
+
+const (
+	LogsSourcePod         LogsSourceKind = "pod"
+	LogsSourceDeployment  LogsSourceKind = "deployment"
+	LogsSourceStatefulSet LogsSourceKind = "statefulset"
+	LogsSourceDaemonSet   LogsSourceKind = "daemonset"
+	LogsSourceJob         LogsSourceKind = "job"
+	LogsSourceCronJob     LogsSourceKind = "cronjob"
+	LogsSourceReplicaSet  LogsSourceKind = "replicaset"
+)
+
+// LogsViewFilter is one filter on a view's lines: the Values its Field may take,
+// never empty.
+type LogsViewFilter struct {
+	Field  LogsFilterField `json:"field"`
+	Values []string        `json:"values"`
+}
+
+// LogsFilterField is what a line can be filtered by: the node it ran on, and the
+// node's labels. The GraphQL LogsViewFilterField enum binds member by member onto
+// it.
+type LogsFilterField string
+
+const (
+	LogsFilterNode   LogsFilterField = "node"
+	LogsFilterRegion LogsFilterField = "region"
+	LogsFilterZone   LogsFilterField = "zone"
+	LogsFilterOS     LogsFilterField = "os"
+	LogsFilterArch   LogsFilterField = "arch"
+)
 
 // DelegateAction is a task handed to a subagent: Prompt, the brief the parent
 // wrote; AgentType, the kind of agent; Model, the model it runs on, empty for

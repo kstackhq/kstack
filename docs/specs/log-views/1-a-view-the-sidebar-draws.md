@@ -13,15 +13,15 @@ Go paths below are under `sidecar/internal/` unless they say otherwise.
 
 ## In short
 
-Say *tail webapp logs* in chat mode, and the log viewer opens in the right sidebar on the pods
-that make up `webapp`, following at the end. Say *logs from yesterday* and it opens anchored at
+Say *tail webapp logs* in chat mode, and the log viewer opens in the right sidebar on the
+`webapp` deployment, following at the end. Say *logs from yesterday* and it opens anchored at
 yesterday's midnight. The model reads one line about what opened and answers in a sentence.
 
 This rung builds the thinnest slice through every layer that the rest of the ladder hangs off:
 
-- **Schema.** `LogsView` in `ToolActionKind`, and `LogsViewAction` on `ToolAction`: the resolved
-  namespace and pods, the grep, and the anchor.
-- **Sidecar.** `tools/logsview`: a tool that reads the call's arguments, resolves the selector
+- **Schema.** `LogsView` in `ToolActionKind`, and `LogsViewAction` on `ToolAction`: the sources,
+  their filters, the grep, and the anchor.
+- **Sidecar.** `tools/logsview`: a tool that reads the call's arguments, checks the sources
   against the mirror, writes the action, and answers a one-line receipt. It streams nothing to
   the model and asks no one.
 - **Webview.** The **focused view**, held beside the right sidebar's state; chat mode's right
@@ -48,52 +48,107 @@ nothing after it changes that shape.
 
 ### 1. The action
 
-`LogsViewAction` is what was shown, never what the model typed:
+`LogsViewAction` is what the log backend takes, never what the model typed:
 
 ```graphql
-"A live view of logs the user is looking at. Every field is resolved by the sidecar."
+"A live view of logs the user is looking at, as the sidecar hands it to the log backend."
 type LogsViewAction {
-  namespace: String!
-  "The pods the selector matched against the mirror, in name order."
-  pods: [String!]!
-  "The text each line must hold; empty for none. The model wrote it, so draw it as text."
+  "What the view reads, in the order asked. Their lines are merged by timestamp."
+  sources: [LogsViewSource!]!
+  "What the view keeps of its sources' lines. Empty keeps every line."
+  filters: [LogsViewFilter!]!
+  "A regular expression each line's message must match; empty for none. The model wrote it, so draw it as text."
   grep: String!
-  "Where the view opens. The viewer follows at its end, so an anchor at now is a tail."
-  anchor: Time!
+  anchor: LogsViewAnchor!
+  "Whether the viewer keeps the end in view as lines arrive. Lines arrive either way; the user can unpin it by hand."
+  pinToEnd: Boolean!
 }
+
+"Where a view opens: an edge of the stream, or a moment in it."
+type LogsViewAnchor {
+  kind: LogsViewAnchorKind!
+  "The moment. Set for At alone."
+  at: Time
+}
+enum LogsViewAnchorKind { Head Tail At }
+
+"One resource whose logs a view reads."
+type LogsViewSource {
+  namespace: String!
+  kind: LogsViewSourceKind!
+  name: String!
+  "The containers read, by exact name: the default container the sidecar resolved, or the ones named. Empty reads every container."
+  containers: [String!]!
+  "The instance before the last restart, rather than the running one. Finished: nothing arrives on it."
+  previous: Boolean!
+}
+enum LogsViewSourceKind { Pod Deployment StatefulSet DaemonSet Job CronJob ReplicaSet }
+
+"One filter on a view's lines: the values its field may take."
+type LogsViewFilter {
+  field: LogsViewFilterField!
+  "The values allowed. Never empty."
+  values: [String!]!
+}
+enum LogsViewFilterField { Node Region Zone Os Arch }
 ```
 
-`pods` is resolved at the call, so a view opened on a Deployment is the Deployment's pods then.
-What the viewer does when a pod goes or a new one arrives is the viewer's own, and the action
-does not change. *Open for rung 2 or later:* whether the action should also keep the selector
-the model named, so a later call or the viewer can re-resolve it.
+A source names a pod or a workload, and which pods a workload is at any moment is the backend's
+to follow, so the action does not change when a pod goes or arrives. The model types a source as
+`<kind>/<name>`, as kubectl spells one, and the tool parses it once, so the webview parses
+nothing.
+
+A source reads its default container, as `kubectl logs` does: the one the
+`kubectl.kubernetes.io/default-container` annotation names on the pod or the workload's pod
+template, else the first. The tool resolves it off the mirror and writes the exact name, so the
+record says what was shown, and the receipt names the containers it left out, so the model can
+widen on its next call. `all_containers` writes the empty list, which stays live for a workload
+whose template changes.
+
+`previous` is per source and applies to each container the source shows; a container that never
+restarted has no previous instance and contributes nothing, so a healthy sidecar never fails the
+view. *Why did it crash* is one view of a pod's previous instance and its running one as two
+sources, merged, with the restart as the seam, and one container's previous instance beside
+another's current one is the same shape. The mirror's `containers` table says whether a previous
+instance exists, so the tool refuses a pod source none of whose containers restarted before
+anything is opened, and a workload's receipt counts the pods that have one.
 
 ### 2. The tool
 
 `tools/logsview`, built like `tools/kubequery`: a `Definition()` from `prompts/schema.json` and
 `prompts/description.md`, a `Prompt()` from `prompts/logsview.md`, an `ActionKind()` of
-`tools.ActionLogsView`, and a `Run` that parses, resolves, writes the action and answers.
+`tools.ActionLogsView`, and a `Run` that parses, checks, writes the action and answers.
 
-**Arguments.** `description` (what the view is for, drawn as every description is); `namespace`;
-one of `pod`, `deployment`, `statefulset`, `daemonset` or `selector` (a label selector); `grep`
-(optional); `since` (optional — an RFC 3339 time or a duration like `1h`, resolved against the
-sidecar's clock; absent means now). The schema says every call opens or replaces the user's view
-and that the model reads only a receipt.
+**Arguments.** `description` (what the view is for, drawn as every description is); `sources`
+(one or more `{ namespace, resource, containers?, all_containers?, previous? }`, the resource as
+`<kind>/<name>`, the containers exact names, `all_containers` refused beside `containers`);
+`filters` (optional: `node`, `region`, `zone`, `os`, `arch`, each a list of values, carried on
+the action as one `LogsViewFilter` per field set); `grep` (optional, a regular expression over
+each line's message); `anchor` (optional: `tail`, the default, `head`, an RFC 3339 time, or a
+duration like `2m` back from the sidecar's clock); `pin_to_end` (optional, default false). The
+schema says every call opens or replaces the user's view and that the model reads only a receipt.
 
-**Resolution.** Through `cluster.Service` over the chat's cluster, as KubeQuery reads the mirror:
-a workload's pods are the ones its selector matches in the mirror, a pod is checked to exist. No
-match is a refusal the model reads, and the call has no action. The clock is the sidecar's, and
-a `since` it cannot read is a refusal too.
+**Checks.** Through `cluster.Service` over the chat's cluster, as KubeQuery reads the mirror: each
+source's kind is one the backend reads and its object is in the mirror; each container named is
+one of the source's pods', and with none named the default is resolved; a `previous` pod source
+has a container that restarted, and a container of it that did not contributes nothing; `grep` compiles; `anchor` reads. Each failure is a refusal the
+model reads, and the call has no action.
 
-**The receipt.** One line: `Viewing 3 pods of deployment/webapp in prod from 2026-10-08T14:02:00Z`,
-with `matching "error"` when a grep is set. Nothing else. The tool reads no log line.
+**The receipt.** One line: `Viewing deployments/webapp in prod from 2026-10-08T14:02:00Z`. The
+anchor reads `from the start`, `at the newest line` or `from <time>`, then `pinned to the end`
+when pinned; `and 2 more sources`, `defaulted container app out of app, istio-proxy` for a source
+defaulted among several, `containers app, istio-proxy` for the ones named or all, `previous
+instance` or `previous instance of 2 of 3 pods`, and `matching /error/` follow as the call sets
+them. Nothing else. The tool reads no log line.
 
 **The record.** The row's `action` is the `LogsViewAction` of §1; `actionKind` is `LogsView`.
 Nothing is written anywhere else: the view lives in the call row.
 
 **The prompt.** One paragraph in `prompts/logsview.md`, folded into the system prompt where the
 other tools' are: the user sees every call as a live view in their window; call it whenever they
-ask to see, tail or search logs; to narrow or move the view, call again; do not describe lines you
+ask to see, tail or search logs; a view reads one or more resources merged by timestamp, with
+filters and a regex grep; *tail the logs* is `anchor: tail, pin_to_end: true` and *the last two
+minutes* is `anchor: 2m` alone; to narrow or move the view, call again; do not describe lines you
 have not read. The `kstack-logs` skill is left as it is in this rung.
 
 ### 3. The focused view
@@ -112,7 +167,7 @@ unmounts leaves the view in place: the panel is the window's, and the user may b
 ### 4. The sidebar
 
 Chat mode's right sidebar draws the viewer when the focused view is set, else the placeholder it
-draws today. The viewer is mounted off the action — namespace, pods, grep, anchor — with a header
+draws today. The viewer is mounted off the action — sources, filters, grep, anchor — with a header
 naming them through `VisibleText`, and a close that clears the focused view. The panel does not
 scroll; the viewer owns its scroller, as the transcript does.
 
@@ -122,7 +177,8 @@ for chat mode if the viewer needs it, under its own key as the widths already ar
 ### 5. The card
 
 In `chat-transcript.tsx`, a `LogsView` call draws a card instead of the closed disclosure: one
-line, `Logs: 3 pods of webapp in prod from 14:02`, each name through `VisibleText`, then
+line, `Logs: Deployment webapp in prod from 14:02` (`and 2 more` for more sources), each name
+through `VisibleText`, then
 **Expand**, which sets the focused view to this call. The card of the focused call says
 *Showing in the sidebar* in Expand's place. A call with no action (a refusal) draws as every
 refused call does, the kind through `actionKindLabel` as `Logs`. On the dashboard the card draws
@@ -133,8 +189,25 @@ and Expand is absent.
 - **Two tools, and this rung builds only the view.** The model has no way to read logs through
   a tool of ours until rung 4. Reason: the receipt-only tool is the piece every later rung hangs
   off, and `kubectl logs` in Bash covers the model's reading meanwhile.
-- **`pods` resolved at the call, selector not kept.** Reason: the action is what was shown, and
-  this rung has nothing that re-resolves. Revisit when something does.
+- **The action is the backend's input, sources and all.** Reason: the backend follows a
+  workload's pods itself, so resolving them in the sidecar would freeze a view the backend keeps
+  live, and the viewer hands the action on without translating.
+- **`pinToEnd` is on the action.** Reason: whether the viewer keeps the end in view cannot be read
+  off the anchor — *tail the logs* and *show me the latest* both open at the tail — and a viewer
+  that pins itself on finding the viewport at the end guesses wrong for a short window that fills
+  in. Only the model heard which was asked. It is named for the viewport, not `follow`, since `-f`
+  means "keep the stream open" everywhere the model has read it, and lines arrive here either way.
+- **Containers are the source's, by exact name, the default one by default.** Reason: a container
+  belongs to a pod, where the node filters belong to where a line ran; the default-container
+  annotation is the app's author saying which container is the app, and a sidecar can bury the
+  app's lines at a rate no labelling makes readable, so the view follows `kubectl logs` and the
+  receipt says what it left out; and the mirror holds the exact names, so a pattern would add a
+  matcher for a need the receipt already meets.
+- **`previous` is the source's.** Reason: it is one container instance's finished log, and the
+  view a user wants of a crash is the previous and the running instance of one pod merged.
+- **The anchor has a head.** Reason: *from the start* is a real request whose time only the backend
+  knows, so it is an edge, not a timestamp, and an Expand on an old tail card lands at the live
+  end rather than at the moment the card was made.
 - **The focused view is not persisted.** Reason: a view is a call of a chat; a window that
   reopens on a chat can expand the card again, and a persisted call id can point at a deleted
   chat.
@@ -148,6 +221,12 @@ and Expand is absent.
 
 Paths are under `sidecar/internal/` unless rooted.
 
+**Status.** The first PR on `wip/log-views` lands the skeleton: task 1 whole; task 2 as the
+package with its offer and prompt, `parse` and `resolve` refusing as not implemented, and not yet
+registered; task 3 whole; task 4's selection and label, not the effect; task 5 with a line in the
+viewer's place; task 7's paragraphs for what landed. Task 6, the effect, the registration and
+the tool's body follow.
+
 1. **Schema and kind.** `sidecar/graph/schema.graphqls`: `LogsView` in `ToolActionKind`,
    `LogsViewAction`, and `logsView` on `ToolAction`. `tools/tool.go`: `ActionLogsView` and the
    Go `LogsViewAction`. `sidecar/graph/schema.resolvers.go` maps both; `enumOfKind` in
@@ -155,7 +234,7 @@ Paths are under `sidecar/internal/` unless rooted.
 2. **The tool.** `tools/logsview/{logsview.go,resolve.go,prompts/}`: §2. Registered in
    `agent/catalog/catalog.go`'s `ours` and built in `app/app.go` beside `kubequery.New`.
 3. **The focused view.** `src/lib/logs-view.tsx` (§3); mounted in `src/layouts/app-layout.tsx`.
-4. **The selection and the effect.** `src/lib/chats.tsx`: select `logsView { namespace pods grep
+4. **The selection and the effect.** `src/lib/chats.tsx`: select `logsView { sources filters grep
    anchor }`, add `LogsView: 'Logs'` to `ACTION_KIND_LABELS`. The newest-call effect in
    `src/components/widgets/chat-pane.tsx`'s `OpenChat`.
 5. **The sidebar.** `src/components/widgets/right-sidebar.tsx`: the viewer off the focused view
@@ -168,10 +247,15 @@ Paths are under `sidecar/internal/` unless rooted.
 
 Go, beside the files they cover:
 
-- `tools/logsview/logsview_test.go`: a deployment resolves to its pods in name order; a pod that
-  is not in the mirror refuses with no action; `since` as a time, as a duration, and absent
-  (now, from an injected clock); an unreadable `since` refuses; the receipt's spelling, with and
-  without a grep; the action carries the resolved values and never the model's text.
+- `tools/logsview/logsview_test.go`: a source whose object is in the mirror passes, and one that
+  is not refuses with no action; a kind the backend does not read refuses; a container no pod of
+  the source has refuses; no container named resolves the annotation's, else the first, and a
+  one-container pod resolves it with no *defaulted* line; `all_containers` writes the empty list
+  and refuses beside `containers`; `previous` on a pod that never restarted refuses, on one whose
+  sidecar did not shows the sidecar nothing, and on a workload counts; a `grep` that does not compile refuses; `anchor` as `head`, `tail`, absent
+  (tail), a time, and a duration from an injected clock; an unreadable `anchor` refuses;
+  `pin_to_end` absent is false; the receipt's spelling with and without filters, a grep and the
+  pin; the action carries the checked values and never the model's text.
 - `sidecar/graph/schema.resolvers_test.go`: a `LogsView` call serves its action, as
   `TestAKubeQueryCallServesItsQuery` pins KubeQuery's.
 - `agent/chat` prompt goldens: the tool's paragraph where the system prompt folds it in.
@@ -184,16 +268,16 @@ TypeScript, beside the files they cover:
   focused view once, a second frame of the same call does not set it again, a newer call
   replaces it, a call with no action is skipped.
 - `src/components/widgets/chat-transcript.test.tsx`: the card's line through `VisibleText` (a
-  pod name with a reordering character is spelled out); Expand sets the focused view; the
+  resource name with a reordering character is spelled out); Expand sets the focused view; the
   focused call's card says *Showing in the sidebar*; a refused call draws as *Logs* with the
   refusal; on the dashboard Expand is absent.
 - `src/components/widgets/right-sidebar.test.tsx`: with no focused view the placeholder; with
-  one, the viewer mounted with the action's values and a header through `VisibleText`; close
-  clears it.
+  one, the viewer mounted at the action's anchor and pin with a header through `VisibleText`;
+  close clears it.
 
 ## Security
 
-**Widens:** nothing the model can do. The tool reads the mirror's pod list, which KubeQuery
+**Widens:** nothing the model can do. The tool reads the mirror, which KubeQuery
 already serves, and no log line reaches the model. **What the user sees** is log text, which is
 cluster data: the viewer draws every line as text with control sequences stripped, and every name
 on the card and the header goes through `VisibleText`. The root `CLAUDE.md`'s *log-tail windows
@@ -220,8 +304,8 @@ first; `cd sidecar && go test ./internal/tools/logsview ./graph/... ./internal/a
 `gqlgen generate`, root `pnpm codegen`, `pnpm build`, `make test-js`, `make lint-js`;
 `make test-changed` while working.
 
-By hand, in chat mode on a cluster with a Deployment: *tail webapp logs* opens the panel on its
-pods following at the end, and the answer is one sentence; *logs from yesterday* opens it anchored
+By hand, in chat mode on a cluster with a Deployment: *tail webapp logs* opens the panel on the
+deployment following at the end, and the answer is one sentence; *logs from yesterday* opens it anchored
 at midnight and the card's time says so; a pod name that does not exist draws a refused *Logs*
 call and no panel; closing the panel and pressing Expand on the card reopens it; on the dashboard
 the card draws and nothing opens.
