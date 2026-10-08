@@ -299,6 +299,60 @@ models:
   KubeQueryAction:
     model: github.com/kstackhq/kstack/sidecar/internal/tools.KubeQueryAction
 
+  LogsViewAction:
+    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsViewAction
+
+  LogsViewSource:
+    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsViewSource
+
+  LogsViewSourceKind:
+    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourceKind
+    enum_values:
+      Pod:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourcePod
+      Deployment:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourceDeployment
+      StatefulSet:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourceStatefulSet
+      DaemonSet:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourceDaemonSet
+      Job:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourceJob
+      CronJob:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourceCronJob
+      ReplicaSet:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourceReplicaSet
+
+  LogsViewAnchor:
+    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsViewAnchor
+
+  LogsViewAnchorKind:
+    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsAnchorKind
+    enum_values:
+      Head:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsAnchorHead
+      Tail:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsAnchorTail
+      At:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsAnchorAt
+
+  LogsViewFilter:
+    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsViewFilter
+
+  LogsViewFilterField:
+    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsFilterField
+    enum_values:
+      Node:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsFilterNode
+      Region:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsFilterRegion
+      Zone:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsFilterZone
+      Os:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsFilterOS
+      Arch:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsFilterArch
+
   Citation:
     model: github.com/kstackhq/kstack/sidecar/internal/llm.Citation
 
@@ -328,6 +382,8 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/tools.ActionDelegate
       KubeQuery:
         value: github.com/kstackhq/kstack/sidecar/internal/tools.ActionKubeQuery
+      LogsView:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.ActionLogsView
 
   ToolCallNetwork:
     model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallNetwork
