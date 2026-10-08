@@ -23,12 +23,15 @@ import { RightSidebarProvider, useRightSidebar } from './right-sidebar';
 // The layout names the mode, so a test drives it the same way: by re-rendering the
 // provider under a different one.
 function Probe() {
-  const { mode, open, toggle, close } = useRightSidebar();
+  const { mode, open, toggle, show, close } = useRightSidebar();
   return (
     <div>
       <span data-testid="state">{`${mode}:${open}`}</span>
       <button type="button" onClick={toggle}>
         toggle
+      </button>
+      <button type="button" onClick={show}>
+        show
       </button>
       <button type="button" onClick={close}>
         close
@@ -75,6 +78,15 @@ describe('useRightSidebar', () => {
 
     click('toggle');
     expect(state()).toBe('chat:false');
+  });
+
+  it('shows whatever it was', () => {
+    render(harness('chat'));
+    click('show');
+    expect(state()).toBe('chat:true');
+
+    click('show');
+    expect(state()).toBe('chat:true');
   });
 
   it('closes whatever it was', () => {

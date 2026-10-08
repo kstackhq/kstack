@@ -114,6 +114,25 @@ const ChatMessagesWatchSubscription = graphql(`
               sql
               limit
             }
+            logsView {
+              sources {
+                namespace
+                kind
+                name
+                containers
+                previous
+              }
+              filters {
+                field
+                values
+              }
+              grep
+              anchor {
+                kind
+                at
+              }
+              pinToEnd
+            }
           }
           agentCallID
           approval {
@@ -319,6 +338,7 @@ const ACTION_KIND_LABELS: Record<ToolActionKind, string> = {
   Memory: 'Memory',
   Delegate: 'Agent',
   KubeQuery: 'Query',
+  LogsView: 'Logs',
 };
 
 export function actionKindLabel(kind: ToolActionKind): string {

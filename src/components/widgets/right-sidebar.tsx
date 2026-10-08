@@ -19,16 +19,18 @@
 // opens under it.
 //
 // What it holds follows the mode, since the two have nothing in common: the dashboard
-// gets a chat of its own, chat mode a placeholder until there is something to put in
-// it. The panel does not scroll — its contents own a scroller each, and one inside
-// another gives two scrollbars that fight.
+// gets a chat of its own, chat mode the focused log view, or a placeholder while
+// none is set. The panel does not scroll — its contents own a scroller each, and one
+// inside another gives two scrollbars that fight.
 import { PanelRight } from 'lucide-react';
 
 import { Button } from '@kubetail/ui/elements/button';
 
 import type { AppMode } from '@/lib/app-mode';
 import { DashboardChat } from '@/components/widgets/dashboard-chat';
+import { LogsViewPanel } from '@/components/widgets/logs-view-panel';
 import { ResizeHandle } from '@/components/widgets/resize-handle';
+import { useLogsView } from '@/lib/logs-view';
 import { usePersistedWidth } from '@/lib/persisted-width';
 import { useRightSidebar } from '@/lib/right-sidebar';
 
@@ -47,6 +49,12 @@ function Placeholder({ title, detail }: { title: string; detail: string }) {
       <p className="text-sm text-muted-foreground">{detail}</p>
     </div>
   );
+}
+
+function ChatPanel() {
+  const { view, viewer, clear } = useLogsView();
+  if (view) return <LogsViewPanel view={view} viewer={viewer} onClose={clear} />;
+  return <Placeholder title="Conversation" detail="What the chat is working from will appear here." />;
 }
 
 export function RightSidebarToggle() {
@@ -83,11 +91,7 @@ export function RightSidebar() {
       className="relative flex shrink-0 flex-col overflow-hidden bg-card"
       style={{ width }}
     >
-      {onDashboard ? (
-        <DashboardChat />
-      ) : (
-        <Placeholder title="Conversation" detail="What the chat is working from will appear here." />
-      )}
+      {onDashboard ? <DashboardChat /> : <ChatPanel />}
       {/* The panel ends at the window's right edge, so what is left of the window
           from the pointer is its width. */}
       <ResizeHandle edge="left" onResize={setWidth} label="Resize right sidebar" />

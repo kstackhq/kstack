@@ -2034,6 +2034,26 @@ off the provider's arguments, and `messages.go` is its `llm.MessagesServerTool` 
 `web_search_20260318` with `allowed_callers: ["direct"]`, and the SDK's constants for the names it
 reads. A server tool's package is named for its vendor, whose SDK it imports.
 
+**LogsView (`tools/logsview`) is a live view of logs the user looks at, opened by the model's
+call.** It is `Custom`, never `Gated`: it checks the call against the mirror through
+`cluster.Service`, records what it showed as the call's `LogsViewAction` and answers a one-line
+receipt, reading no log line. The action is what the log backend takes. `Sources`, whose lines
+the backend merges by timestamp: each a namespace, a `LogsSourceKind` (a pod, or a workload whose
+pods the backend follows) and a name, parsed once from the `<kind>/<name>` the model types; its
+`Containers` by exact name — the default container, resolved off the mirror as `kubectl logs`
+resolves it (the `kubectl.kubernetes.io/default-container` annotation, else the first), unless
+the call names some or asks for `all_containers`, the empty list — and `Previous`, the finished
+instance before the last restart, checked off the mirror's `containers` table. `Filters`, each a
+`LogsFilterField` (node, region, zone, os, arch: where a line ran, never its container) and the
+values allowed. `Grep`, a regular expression over each line's message. `Anchor`, a
+`LogsAnchorKind` (head, tail, or at, with `At` set for that alone), resolved from the model's
+`tail`, `head`, time or duration. `PinToEnd`, whether the viewer keeps the end in view as lines
+arrive, which they do either way. The three enums bind member by member in `gqlgen.yml`. **It is
+a skeleton and not in the box**: `parse` and `resolve` answer `errNotImplemented`, so every
+`Action` is refused and every `Run` answers `{"error":"not-implemented"}`, and neither
+`catalog`'s `ours` nor `app.go` names it, so no turn is offered it and the prompt goldens are
+unchanged. The resolver tests read it as a reader alone, for its kind. → `docs/specs/log-views/`.
+
 **KubeQuery (`tools/kubequery`) is read-only SQL over the chat's cluster's cache, run without
 asking.** It is `Custom` and `Bounded` (10 s, whatever the input), never `Gated`. `parse` is the
 strict walk: `sql`, `limit` (200 unless given, read as 2000 past it) and `description`; a `;`

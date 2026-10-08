@@ -32,6 +32,7 @@ type RightSidebarContextValue = {
   mode: AppMode;
   open: boolean;
   toggle: () => void;
+  show: () => void;
   close: () => void;
 };
 
@@ -46,6 +47,7 @@ export function RightSidebarProvider({ mode, children }: { mode: AppMode; childr
       mode,
       open,
       toggle: () => setOpen(!open),
+      show: () => setOpen(true),
       close: () => setOpen(false),
     }),
     [mode, open, setOpen],
