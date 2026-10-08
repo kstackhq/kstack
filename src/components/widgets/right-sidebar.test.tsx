@@ -15,6 +15,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { LogsViewProvider, useLogsView } from '@/lib/logs-view';
+import type { LogsView } from '@/lib/logs-view';
 import { RightSidebarProvider } from '@/lib/right-sidebar';
 import type { AppMode } from '@/lib/app-mode';
 
@@ -33,10 +35,35 @@ const { RightSidebar, RightSidebarToggle } = await import('./right-sidebar');
 const renderPanel = ({ mode = 'chat' }: { mode?: AppMode } = {}) =>
   render(
     <RightSidebarProvider mode={mode}>
-      <RightSidebarToggle />
-      <RightSidebar />
+      <LogsViewProvider>
+        <RightSidebarToggle />
+        <RightSidebar />
+        <FocusView />
+      </LogsViewProvider>
     </RightSidebarProvider>,
   );
+
+const logsView: LogsView = {
+  chatId: 'chat-1',
+  callId: 'call-1',
+  action: {
+    sources: [{ namespace: 'prod', kind: 'Deployment', name: 'webapp', containers: [], previous: false }],
+    filters: [],
+    grep: '',
+    anchor: { kind: 'Tail', at: null },
+    pinToEnd: true,
+  },
+};
+
+// Stands in for whatever sets the focused view: the card's Expand, or the newest call.
+function FocusView() {
+  const { set } = useLogsView();
+  return (
+    <button type="button" onClick={() => set(logsView)}>
+      focus view
+    </button>
+  );
+}
 
 const panel = () => screen.queryByTestId('right-sidebar');
 const panelWidth = () => screen.getByTestId('right-sidebar').style.width;
@@ -149,6 +176,18 @@ describe('RightSidebar', () => {
     renderPanel();
     clickToggle();
     expect(screen.getByRole('complementary', { name: 'Chat details' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Conversation' })).toBeInTheDocument();
+  });
+
+  it('draws the focused log view in chat mode, and the placeholder again once it is closed', () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'focus view' }));
+    // Setting the view opens the panel by itself.
+    expect(screen.getByRole('heading', { name: /Logs: Deployment webapp in prod/ })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Conversation' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close log view' }));
+    expect(panel()).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Conversation' })).toBeInTheDocument();
   });
 

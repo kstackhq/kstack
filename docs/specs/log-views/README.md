@@ -62,12 +62,21 @@ These are decided across the ladder. A rung that needs to revisit one says so in
 - **Two tools, not one with a flag.** `LogsView` opens or changes what the user sees and hands the
   model a one-line receipt. `LogsRead` hands the model a bounded sample and draws a frozen snippet.
   The call row then says honestly which happened, the way `Read` and `Write` are separate kinds.
-- **The anchor is the interface.** A view is a selector, an optional grep and an anchor
-  timestamp. *Tail* is a view anchored at now, *yesterday* one anchored at yesterday's midnight.
-  There is no follow flag: following is what the viewer does at its end.
-- **The sidecar resolves, the action is what was shown.** *webapp* becomes the pods it matched
-  against the mirror, *yesterday* an absolute time, and the action carries the resolved values,
-  never what the model typed.
+- **The anchor is the interface, and pinning is the model's word.** A view is a list of sources,
+  the filters on their lines, an optional grep, an anchor and whether the viewer is pinned to the
+  end. The anchor is an edge, *head* or *tail*, or a moment: *yesterday* is a view anchored at
+  yesterday's midnight. New lines arrive whatever the anchor; `pinToEnd` says whether the viewer
+  keeps the end in view as they do, which the anchor cannot imply — *tail the logs* is pinned and
+  *the latest lines* is not, both at the tail — so the model says it and the user unpins by hand,
+  which leaves no row.
+- **The view is what the log backend takes.** The backend reads any list of resources, each in
+  its namespace, by its default container, the ones named or every one, its previous instance or
+  its running one, and merges their lines by timestamp; it filters by node, region, zone, os and
+  arch; and its grep is a regular expression over each line's message. The action carries exactly
+  that, so the viewer hands it on without translating.
+- **The sidecar checks, the action is what was shown.** A source is checked against the mirror,
+  *yesterday* becomes an absolute time, and the action carries the resolved values, never what
+  the model typed.
 - **A change is a new call.** The model never mutates a view. What the user changes by hand in
   the viewer is the viewer's own state and leaves no row.
 - **The focused view is window state, out of the URL.** It is chrome, like the right sidebar's
@@ -135,8 +144,8 @@ to the dashboard.
 
 Fixed here so the rungs agree. Go paths are under `sidecar/internal/`.
 
-- **A view**: what the user is looking at — a selector resolved to pods, an optional grep and an
-  anchor. On the wire it is `LogsViewAction`; in the webview, the `action` of the `LogsView` call
+- **A view**: what the user is looking at — its sources, their filters, an optional grep, an
+  anchor and whether it is pinned to the end. On the wire it is `LogsViewAction`; in the webview, the `action` of the `LogsView` call
   that opened it.
 - **The focused view**: the one view a window draws in full, held beside the right sidebar's state
   as `{ chatId, callId, action }`. Rung 1 introduces it.
