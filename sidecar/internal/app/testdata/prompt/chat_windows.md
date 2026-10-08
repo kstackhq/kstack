@@ -451,9 +451,9 @@ The agent starts with no memory of this conversation. It sees the cluster card a
       "description": "Optional model override for this agent, one of your provider's models. If omitted or your own, the agent runs on your model and effort; another model runs at its default effort.",
       "enum": [
         "claude-fable-5-1",
-        "claude-opus-5",
-        "claude-sonnet-5",
-        "claude-haiku-4-5-20251001"
+        "claude-opus-5-5",
+        "claude-sonnet-5-5",
+        "claude-haiku-5-5"
       ],
       "type": "string"
     },
