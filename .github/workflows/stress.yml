@@ -139,9 +139,9 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
 
-          gh label create stress --force --color B60205 \
-            --description "A concurrency bug the nightly stress run found"
-          gh issue list --label stress --state open --limit 1000 --json number,title > open.json
+          # By title, not label: triage takes needs-triage off an issue it keeps open.
+          gh issue list --search 'in:title Stress' --state open --limit 1000 \
+            --json number,title > open.json
 
           # Comments on the open issue with this title, or opens one.
           file_issue() {
@@ -150,7 +150,7 @@ jobs:
             if [ -n "$number" ]; then
               gh issue comment "$number" --body-file "$body"
             else
-              gh issue create --title "$title" --label stress --body-file "$body"
+              gh issue create --title "$title" --label needs-triage --body-file "$body"
             fi
           }
 
