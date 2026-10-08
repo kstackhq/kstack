@@ -1156,6 +1156,7 @@ enum ToolActionKind {
   Memory
   Delegate
   KubeQuery
+  LogsView
 }
 
 "A command started with `run_in_background`, or an agent an `Agent` call launched, off its `background_tasks` row."
@@ -1195,6 +1196,72 @@ type ToolAction {
   memory: MemoryAction
   delegate: DelegateAction
   kubeQuery: KubeQueryAction
+  logsView: LogsViewAction
+}
+
+"A live view of logs the user is looking at, as the sidecar hands it to the log backend."
+type LogsViewAction {
+  "What the view reads, in the order asked. Their lines are merged by timestamp."
+  sources: [LogsViewSource!]!
+  "What the view keeps of its sources' lines. Empty keeps every line."
+  filters: [LogsViewFilter!]!
+  "A regular expression each line's message must match; empty for none. The model wrote it, so draw it as text."
+  grep: String!
+  anchor: LogsViewAnchor!
+  "Whether the viewer keeps the end in view as lines arrive. Lines arrive either way; the user can unpin it by hand."
+  pinToEnd: Boolean!
+}
+
+"Where a view opens: an edge of the stream, or a moment in it."
+type LogsViewAnchor {
+  kind: LogsViewAnchorKind!
+  "The moment. Set for At alone."
+  at: Time
+}
+
+"The oldest line the backend keeps, the newest, or a moment between."
+enum LogsViewAnchorKind {
+  Head
+  Tail
+  At
+}
+
+"One resource whose logs a view reads. Every name came from the cluster or the model, so draw them as text."
+type LogsViewSource {
+  namespace: String!
+  kind: LogsViewSourceKind!
+  name: String!
+  "The containers read, by exact name: the default container the sidecar resolved, or the ones named. Empty reads every container."
+  containers: [String!]!
+  "The instance before the last restart, rather than the running one. Finished: nothing arrives on it."
+  previous: Boolean!
+}
+
+"The kinds the log backend reads: a pod, or a workload whose pods it follows."
+enum LogsViewSourceKind {
+  Pod
+  Deployment
+  StatefulSet
+  DaemonSet
+  Job
+  CronJob
+  ReplicaSet
+}
+
+"One filter on a view's lines: the values its field may take."
+type LogsViewFilter {
+  field: LogsViewFilterField!
+  "The values allowed. Never empty."
+  values: [String!]!
+}
+
+"What a line can be filtered by: the node it ran on, and the node's labels."
+enum LogsViewFilterField {
+  Node
+  Region
+  Zone
+  Os
+  Arch
 }
 
 "A statement over the chat's cluster's cache. The model wrote it, so draw it as text."
