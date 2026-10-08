@@ -510,6 +510,18 @@ func (e testTool) Run(ctx context.Context, _ tools.Runtime, input json.RawMessag
 	return string(input), false
 }
 
+// shownTool is a testTool whose run resolves its action: the input as a command's
+// text, under what it answered, and none on a refusal.
+type shownTool struct{ testTool }
+
+func (s shownTool) RunShown(ctx context.Context, rt tools.Runtime, input json.RawMessage) (string, bool, *tools.Action) {
+	text, isError := s.testTool.Run(ctx, rt, input)
+	if isError {
+		return text, true, nil
+	}
+	return text, false, &tools.Action{Description: text, Command: &tools.CommandAction{Text: string(input)}}
+}
+
 // startServiceWithTool is a started service offering the tools given.
 func startServiceWithTool(t *testing.T, offered ...tools.Tool) *service {
 	t.Helper()

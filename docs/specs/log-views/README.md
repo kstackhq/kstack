@@ -76,7 +76,8 @@ These are decided across the ladder. A rung that needs to revisit one says so in
   that, so the viewer hands it on without translating.
 - **The sidecar checks, the action is what was shown.** A source is checked against the mirror,
   *yesterday* becomes an absolute time, and the action carries the resolved values, never what
-  the model typed.
+  the model typed. The tool hands the action back from its run and the call row keeps it
+  (`tool_calls.shown_action`), since the arguments alone cannot say it.
 - **A change is a new call.** The model never mutates a view. What the user changes by hand in
   the viewer is the viewer's own state and leaves no row.
 - **The focused view is window state, out of the URL.** It is chrome, like the right sidebar's

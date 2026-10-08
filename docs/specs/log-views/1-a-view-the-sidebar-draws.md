@@ -117,7 +117,8 @@ anything is opened, and a workload's receipt counts the pods that have one.
 
 `tools/logsview`, built like `tools/kubequery`: a `Definition()` from `prompts/schema.json` and
 `prompts/description.md`, a `Prompt()` from `prompts/logsview.md`, an `ActionKind()` of
-`tools.ActionLogsView`, and a `Run` that parses, checks, writes the action and answers.
+`tools.ActionLogsView`, and a `RunShown` that parses, checks, answers the receipt and hands the
+view back as the call's action, which the row keeps (`tools.Shown`; see *The record*).
 
 **Arguments.** `description` (what the view is for, drawn as every description is); `sources`
 (one or more `{ namespace, resource, containers?, all_containers?, previous? }`, the resource as
@@ -142,7 +143,12 @@ instance` or `previous instance of 2 of 3 pods`, and `matching /error/` follow a
 them. Nothing else. The tool reads no log line.
 
 **The record.** The row's `action` is the `LogsViewAction` of §1; `actionKind` is `LogsView`.
-Nothing is written anywhere else: the view lives in the call row.
+The arguments alone cannot say it — the default container is the mirror's and `2m` is a moment
+only on the run's clock — so the tool is `tools.Shown`: `RunShown` answers the action beside the
+receipt, the loop hands it to the recorder with the result, and `agent/chat` keeps it in
+`tool_calls.shown_action`, which the read serves ahead of the arguments' reading. Its `Action(input)`
+answers none, so a refused or not-run call shows its kind alone. Nothing is written anywhere
+else: the view lives in the call row.
 
 **The prompt.** One paragraph in `prompts/logsview.md`, folded into the system prompt where the
 other tools' are: the user sees every call as a live view in their window; call it whenever they
@@ -186,6 +192,12 @@ and Expand is absent.
 
 ## Decisions this rung asks for
 
+- **A shown tool records its action at the run.** Reason: what the user saw is the mirror's
+  default container and an absolute time, which a read that recomputed them later from the
+  arguments would get wrong. → [ADR](../../adr/2026-10-08-a-shown-tool-records-its-action-at-the-run.md).
+- **A subagent and a monitor are not offered `LogsView`.** Reason: a view is the user's window,
+  and the chat's own turn is what answers them; a monitor runs with nobody looking.
+
 - **Two tools, and this rung builds only the view.** The model has no way to read logs through
   a tool of ours until rung 4. Reason: the receipt-only tool is the piece every later rung hangs
   off, and `kubectl logs` in Bash covers the model's reading meanwhile.
@@ -221,11 +233,11 @@ and Expand is absent.
 
 Paths are under `sidecar/internal/` unless rooted.
 
-**Status.** The first PR on `wip/log-views` lands the skeleton: task 1 whole; task 2 as the
-package with its offer and prompt, `parse` and `resolve` refusing as not implemented, and not yet
-registered; task 3 whole; task 4's selection and label, not the effect; task 5 with a line in the
-viewer's place; task 7's paragraphs for what landed. Task 6, the effect, the registration and
-the tool's body follow.
+**Status.** The first PR on `wip/log-views` landed the skeleton: task 1 whole; task 2 as the
+package with its offer and prompt; task 3 whole; task 4's selection and label, not the effect;
+task 5 with a line in the viewer's place; task 7's paragraphs for what landed. The second lands
+task 2 whole — the tool's body, its registration, and the `tools.Shown` mechanism that keeps the
+action on the row — and task 7's paragraphs for it. Task 6 and the effect follow.
 
 1. **Schema and kind.** `sidecar/graph/schema.graphqls`: `LogsView` in `ToolActionKind`,
    `LogsViewAction`, and `logsView` on `ToolAction`. `tools/tool.go`: `ActionLogsView` and the
@@ -256,8 +268,10 @@ Go, beside the files they cover:
   (tail), a time, and a duration from an injected clock; an unreadable `anchor` refuses;
   `pin_to_end` absent is false; the receipt's spelling with and without filters, a grep and the
   pin; the action carries the checked values and never the model's text.
-- `sidecar/graph/schema.resolvers_test.go`: a `LogsView` call serves its action, as
-  `TestAKubeQueryCallServesItsQuery` pins KubeQuery's.
+- `agent/loop/run_test.go` and `agent/chat/turn_test.go`: a `tools.Shown` tool's action is told
+  with its result and none with a refusal, and served on the live message and the stored read
+  alike; the resolver tests serve the kind (`TestEveryActionKindIsServed`), and the tool's own
+  tests pin the action, since the resolver tests' cluster fake answers no statement.
 - `agent/chat` prompt goldens: the tool's paragraph where the system prompt folds it in.
 
 TypeScript, beside the files they cover:

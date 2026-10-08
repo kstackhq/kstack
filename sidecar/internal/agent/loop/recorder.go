@@ -51,8 +51,9 @@ type Recorder interface {
 	// it does not run.
 	ToolCallStarted(ctx context.Context, call llm.Block, approval tools.Approval) error
 	// ToolCallFinished is told exactly once per call of the reply, in the reply's
-	// order, run or refused, with its result.
-	ToolCallFinished(ctx context.Context, call, result llm.Block) error
+	// order, run or refused, with its result, and with the action a tools.Shown
+	// tool resolved at its run, nil on every other call and on a refusal.
+	ToolCallFinished(ctx context.Context, call, result llm.Block, shown *tools.Action) error
 	// Settled is told once, last, with the turn's outcome. Its error is returned
 	// from Run; the result stands.
 	Settled(ctx context.Context, result Result, err error) error
