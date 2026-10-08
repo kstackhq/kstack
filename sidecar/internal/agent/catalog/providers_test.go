@@ -103,13 +103,14 @@ func TestEachKeyedProviderIsWrittenAsItsRow(t *testing.T) {
 		windows   map[string]int
 	}{
 		{"anthropic", "Anthropic", llm.DialectMessages, "https://api.anthropic.com",
-			[]string{"claude-fable-5-1", "claude-opus-5", "claude-sonnet-5", haikuID},
+			[]string{"claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"},
 			map[string][]string{
-				"claude-fable-5-1": {"low", "medium", "high", "xhigh", "max"},
-				"claude-opus-5":    {"low", "medium", "high", "xhigh", "max"},
-				"claude-sonnet-5":  {"low", "medium", "high", "xhigh", "max"},
+				"claude-fable-5-1":  {"low", "medium", "high", "xhigh", "max"},
+				"claude-opus-5-5":   {"low", "medium", "high", "xhigh", "max"},
+				"claude-sonnet-5-5": {"low", "medium", "high", "xhigh", "max"},
+				"claude-haiku-5-5":  {"low", "medium", "high", "xhigh", "max"},
 			}, nil,
-			map[string]int{"claude-fable-5-1": 1_000_000, "claude-opus-5": 1_000_000, "claude-sonnet-5": 1_000_000, haikuID: 200_000}},
+			map[string]int{"claude-fable-5-1": 1_000_000, "claude-opus-5-5": 1_000_000, "claude-sonnet-5-5": 1_000_000, "claude-haiku-5-5": 1_000_000}},
 		{"openai", "OpenAI", llm.DialectResponses, "https://api.openai.com/v1",
 			[]string{"gpt-6-astra", "gpt-5.6", "gpt-5.6-terra", "gpt-5.6-luna"},
 			map[string][]string{
@@ -251,15 +252,25 @@ func TestDeepSeeksReasonerTakesNoTools(t *testing.T) {
 	}
 }
 
-// Every Claude model reads a million tokens but Haiku, which reads 200K.
+// Every Claude model reads a million tokens.
 func TestAnthropicCatalogStatesAContextWindow(t *testing.T) {
 	for _, m := range newAnthropicProvider().Catalog {
-		want := 1_000_000
-		if m.ID == haikuID {
-			want = 200_000
-		}
-		assert.Equal(t, want, m.ContextWindow, m.ID)
+		assert.Equal(t, 1_000_000, m.ContextWindow, m.ID)
 	}
+}
+
+// Each Claude model defaults to the effort the API gives it when none is sent.
+func TestAnthropicCatalogDefaultsToTheAPIsEffort(t *testing.T) {
+	defaults := map[string]string{}
+	for _, m := range newAnthropicProvider().Catalog {
+		defaults[m.ID] = m.DefaultEffort
+	}
+	assert.Equal(t, map[string]string{
+		"claude-fable-5-1":  "high",
+		"claude-opus-5-5":   "medium",
+		"claude-sonnet-5-5": "high",
+		"claude-haiku-5-5":  "medium",
+	}, defaults)
 }
 
 // Every entry states how its provider caches it, since the wire marks a prompt by

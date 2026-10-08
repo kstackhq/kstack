@@ -585,7 +585,7 @@ One SQLite file per cache behind a refcounted `Manager`; a `Store` is a claim. �
 >   table). The rows are `catalog/providers.go`'s.
 >   **Every catalog is written**, no discovery. **Five entries list efforts**, in the vendor's
 >   own words, least to most, each with the default a picker starts on: `anthropic`
->   (`low`…`max`, not Haiku 4.5, which refuses adaptive thinking), `openai`, `gemini`, `groq`
+>   (`low`…`max`, every model), `openai`, `gemini`, `groq`
 >   and `xai`. The five whose ids are UNVERIFIED list none. A model states an
 >   output cap where its wire requires one (Messages, Responses) or where the vendor states
 >   one; on Chat Completions a zero sends none and the vendor's default applies. OpenRouter's
@@ -1080,8 +1080,7 @@ sub-package names they had; the layout they land in is the one above.
 - **Both cloud encoders ask for a summary of the thinking, and both stream it.** Anthropic's request
   names `thinking: adaptive` with `display: summarized` (the default display is `omitted`) beside
   `output_config.effort`, **for a model that lists efforts** — the two are one feature there, and a
-  model listing none (Haiku 4.5, whose thinking is the manual budgeted kind) is sent neither, since
-  it refuses `adaptive`. The summary arrives as `thinking_delta`s and ends up in the signed thinking block's `thinking`
+  model listing none is sent neither. The summary arrives as `thinking_delta`s and ends up in the signed thinking block's `thinking`
   field, which goes back unchanged. OpenAI's sends `reasoning.summary: auto` and the summary
   arrives as `reasoning_summary_text.delta`s, one part per section, stored in the reasoning
   item's `summary` list beside the ciphertext. It is never the raw reasoning on either. **A

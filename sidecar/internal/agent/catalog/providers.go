@@ -81,26 +81,22 @@ func baseURLVar(id string) string {
 // Messages and Responses APIs require a cap on every request.
 const writtenCap = 64_000
 
-// haikuID is the one Claude model with no efforts. Every Anthropic id was
-// verified against GET /v1/models/{id} before it was written: no test can catch
-// a wrong one.
-const haikuID = "claude-haiku-4-5-20251001"
-
 // claudeEfforts is the Messages API's own scale, least to most.
 var claudeEfforts = []string{"low", "medium", "high", "xhigh", "max"}
 
 // newAnthropicProvider is the Messages API provider: the current Claude lineup in
-// picker order. Haiku 4.5 refuses adaptive thinking, so it lists no efforts and
-// is sent neither.
+// picker order. Every id was verified against GET /v1/models/{id} before it was
+// written, since no test can catch a wrong one. Each default effort is the API's
+// own for that model.
 func newAnthropicProvider() llm.Provider {
 	return llm.Provider{
 		ID: "anthropic", Label: "Anthropic", Dialect: llm.DialectMessages,
 		BaseURL: "https://api.anthropic.com",
 		Catalog: []llm.Model{
 			{ID: "claude-fable-5-1", Label: "Claude Fable 5.1", Efforts: claudeEfforts, DefaultEffort: "high", MaxOutputTokens: writtenCap, ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheMarks},
-			{ID: "claude-opus-5", Label: "Claude Opus 5", Efforts: claudeEfforts, DefaultEffort: "high", MaxOutputTokens: writtenCap, ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheMarks},
-			{ID: "claude-sonnet-5", Label: "Claude Sonnet 5", Efforts: claudeEfforts, DefaultEffort: "high", MaxOutputTokens: writtenCap, ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheMarks},
-			{ID: haikuID, Label: "Claude Haiku 4.5", MaxOutputTokens: writtenCap, ContextWindow: 200_000, Tools: true, Cache: llm.CacheMarks},
+			{ID: "claude-opus-5-5", Label: "Claude Opus 5.5", Efforts: claudeEfforts, DefaultEffort: "medium", MaxOutputTokens: writtenCap, ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheMarks},
+			{ID: "claude-sonnet-5-5", Label: "Claude Sonnet 5.5", Efforts: claudeEfforts, DefaultEffort: "high", MaxOutputTokens: writtenCap, ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheMarks},
+			{ID: "claude-haiku-5-5", Label: "Claude Haiku 5.5", Efforts: claudeEfforts, DefaultEffort: "medium", MaxOutputTokens: writtenCap, ContextWindow: 1_000_000, Tools: true, Cache: llm.CacheMarks},
 		},
 	}
 }

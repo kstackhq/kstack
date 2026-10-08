@@ -59,9 +59,9 @@ the five-minute default. A one-hour write costs more than a five-minute one (2×
 - **What Kstack marks:** two places. The system block is a fixed read point every chat shares.
   The request-level `cache_control` is placed by the API after the last block and moved forward
   each turn. So a turn reads the transcript so far and writes only what the last turn added.
-- **Minimum prefix:** Opus 5: 512 tokens; Sonnet 5: 1,024; Haiku 4.5: 4,096; Fable 5.1:
-  UNVERIFIED. A shorter prefix is not cached, and no error says so. The system prompt alone is
-  under most of these minimums, so the system mark only pays once the prompt grows.
+- **Minimum prefix:** 512 tokens on Fable 5.1, Opus 5.5, Sonnet 5.5 and Haiku 5.5, as Anthropic
+  documents it. A shorter prefix is not cached, and no error says so. The system prompt alone
+  may be under it, so the system mark only pays once the prompt grows.
 - **Reported as:** `cache_read_input_tokens` and `cache_creation_input_tokens`. Here
   `input_tokens` is the uncached remainder, so the wire adds all three up.
 - **Kept:** one hour past last use, the lifetime the mark sets.

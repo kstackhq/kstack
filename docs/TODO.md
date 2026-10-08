@@ -737,7 +737,7 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   sandbox gets its own item.
 
 - **Check the rebuilt web search against the real API (low; chat owner).** On a dev build with an
-  Anthropic key, on each Claude model, Haiku 4.5 included: a question that needs a search draws
+  Anthropic key, on each Claude model: a question that needs a search draws
   *Searched the web* and *Sources*; a follow-up in the same chat is accepted (the replay); a
   cancel mid-search leaves the query on the `Cancelled` row. Once, with `maxUses` raised to 20: a
   paused turn resumes and settles with an answer, and with `maxPauses` at 0 it settles on
