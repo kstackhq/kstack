@@ -182,10 +182,11 @@ for chat mode if the viewer needs it, under its own key as the widths already ar
 
 ### 5. The card
 
-In `chat-transcript.tsx`, a `LogsView` call draws a card instead of the closed disclosure: one
-line, `Logs: Deployment webapp in prod from 14:02` (`and 2 more` for more sources), each name
-through `VisibleText`, then
-**Expand**, which sets the focused view to this call. The card of the focused call says
+`logs-view-card.tsx`, which `chat-transcript.tsx` draws for a `LogsView` call with an action in
+place of the closed disclosure: a block of `Logs: Deployment webapp in prod` (`and 2 more` for
+more sources) over where it opened, `from 2026-10-08T14:02:00Z` as the sidebar's header spells
+it, the pin and the grep, each name through `VisibleText`, the model's description, the receipt,
+then **Expand**, which sets the focused view to this call. The card of the focused call says
 *Showing in the sidebar* in Expand's place. A call with no action (a refusal) draws as every
 refused call does, the kind through `actionKindLabel` as `Logs`. On the dashboard the card draws
 and Expand is absent.
@@ -237,7 +238,7 @@ Paths are under `sidecar/internal/` unless rooted.
 package with its offer and prompt; task 3 whole; task 4's selection and label, not the effect;
 task 5 with a line in the viewer's place; task 7's paragraphs for what landed. The second lands
 task 2 whole — the tool's body, its registration, and the `tools.Shown` mechanism that keeps the
-action on the row — and task 7's paragraphs for it. Task 6 and the effect follow.
+action on the row — task 6, the card, and task 7's paragraphs for both. The effect follows.
 
 1. **Schema and kind.** `sidecar/graph/schema.graphqls`: `LogsView` in `ToolActionKind`,
    `LogsViewAction`, and `logsView` on `ToolAction`. `tools/tool.go`: `ActionLogsView` and the
