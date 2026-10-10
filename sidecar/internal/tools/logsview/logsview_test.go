@@ -329,6 +329,17 @@ func TestTheReceiptSpellsTheWholeView(t *testing.T) {
 	assert.Equal(t, tools.LogsViewSource{Namespace: "prod", Kind: tools.LogsSourcePod, Name: "webapp-7f9c", Containers: []string{"app", "istio-proxy"}}, view.Sources[1])
 }
 
+// A pod's previous instance is named alone, and more than one more source is counted.
+func TestTheReceiptCountsTheSources(t *testing.T) {
+	text, _ := viewOf(t, watching(), `{"sources":[
+		{"namespace":"prod","resource":"pods/webapp-7f9c","previous":true},
+		{"namespace":"prod","resource":"deployments/webapp"},
+		{"namespace":"prod","resource":"pods/webapp-7f9c"}]}`)
+
+	assert.True(t, strings.HasPrefix(text, "Viewing pods/webapp-7f9c in prod and 2 more sources"), text)
+	assert.Contains(t, text, "pods/webapp-7f9c: previous instance.")
+}
+
 func TestTheActionCarriesTheDescription(t *testing.T) {
 	_, _, shown := run(t, watching(), `{"description":"Tail the app","sources":[{"namespace":"prod","resource":"deployments/webapp"}]}`)
 	require.NotNil(t, shown)
@@ -350,7 +361,17 @@ func TestBadArgumentsAreRefusedByField(t *testing.T) {
 		`{"sources":[{"namespace":"prod","resource":"pods/a"}],"filters":{"pod":["a"]}}`: `{"error":"bad-input"}`,
 		`{"sources":[{"namespace":"prod","resource":"pods/a"}],"grep":"a\nb"}`:           `{"error":"bad-input","field":"grep"}`,
 		`{"sources":[{"namespace":"prod","resource":"pods/a"}]} {}`:                      `{"error":"bad-input"}`,
-		`[]`: `{"error":"bad-input"}`,
+		`[]`:             `{"error":"bad-input"}`,
+		`{"sources":{}}`: `{"error":"bad-input"}`,
+		`{"sources":[{"namespace":"","resource":"pods/a"}]}`:                             `{"error":"bad-input","field":"namespace","source":0}`,
+		`{"sources":[{"namespace":"prod","resource":"pods/a"}],"grep":"a","grep":"b"}`:   `{"error":"bad-input"}`,
+		`{"sources":[{"namespace":"prod","resource":"pods/a"}],"filters":[]}`:            `{"error":"bad-input"}`,
+		`{"sources":[{"namespace":"prod","resource":"pods/a"}],"filters":{"node":"a"}}`:  `{"error":"bad-input","field":"filters.node"}`,
+		`{"sources":[{"namespace":"prod","resource":"pods/a"}],"filters":{"node":[1]}}`:  `{"error":"bad-input","field":"filters.node"}`,
+		`{"sources":[{"namespace":"prod","resource":"pods/a"}],"filters":{"node":[""]}}`: `{"error":"bad-input","field":"filters.node","message":"never empty"}`,
+		`{"sources":[{"namespace":"prod","resource":"pods/a"}]`:                          `{"error":"bad-input"}`,
+		`{"sources":[{"namespace":"prod","resource":"pods/a"}`:                           `{"error":"bad-input"}`,
+		`{"sources":[{"namespace":"prod","resource":"pods/a"}],"filters":{"node":["a"`:   `{"error":"bad-input","field":"filters.node"}`,
 	} {
 		text := refusalOf(t, watching(), raw)
 		assert.JSONEq(t, want, text, raw)
