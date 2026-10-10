@@ -39,6 +39,9 @@
   --sidebar-accent-foreground: #402318;
   --sidebar-border: #ccd5e2;
   --sidebar-ring: #9f5436;
+  --topbar: #f2f3fa;
+  --topbar-hover: #e5e5e5;
+  --topbar-input-border: rgba(23, 23, 23, 0.05);
 }
 
 .dark {
@@ -74,10 +77,16 @@
   --sidebar-accent-foreground: #e7d2c9;
   --sidebar-border: #353d4a;
   --sidebar-ring: #5f6b7d;
+  --topbar: #232935;
+  --topbar-hover: rgba(255, 255, 255, 0.135);
+  --topbar-input-border: rgba(255, 255, 255, 0.102);
 }
 
 @theme {
   --font-sans: 'Roboto Flex Variable', Arial, Helvetica, sans-serif;
+  --color-topbar: var(--topbar);
+  --color-topbar-hover: var(--topbar-hover);
+  --color-topbar-input-border: var(--topbar-input-border);
 }
 
 @layer base {
