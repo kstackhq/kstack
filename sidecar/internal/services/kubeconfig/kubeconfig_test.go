@@ -481,12 +481,15 @@ func TestTruncateWindowIsNotPublished(t *testing.T) {
 
 // The settle timer keeps notifications out of the writer's truncate window, but a
 // tick or a poke can land in it too — and the file loads there as a valid config with
-// no contexts. Pinned on poll directly: the window is one syscall wide, so reaching it
-// through the loop would be a race the test could only lose quietly.
+// no contexts. Pinned on poll directly, on an unstarted service: the window is one
+// syscall wide, so reaching it through the loop would be a race the test could only
+// lose quietly.
 func TestATruncatedFileIsNotPublished(t *testing.T) {
 	w, path := newTestService(t, time.Hour)
 	writeKubeconfig(t, path, "prod")
-	start(t, w)
+	w.poll()
+	cfg, _ := w.Get()
+	require.Contains(t, cfg.Contexts, "prod", "the last good config")
 
 	require.NoError(t, os.WriteFile(path, nil, 0o600))
 	w.poll()
@@ -498,11 +501,14 @@ func TestATruncatedFileIsNotPublished(t *testing.T) {
 
 // A writer can truncate the file after the poll has looked at it and fill it again
 // after the load has read it, so the load reads the window while neither look sees
-// an empty file. The load is rigged to land in that window.
+// an empty file. The load is rigged to land in that window, and driven by calling
+// poll on an unstarted service so the rigged load runs on the test's goroutine alone.
 func TestALoadDuringARewriteIsNotPublished(t *testing.T) {
 	w, path := newTestService(t, time.Hour)
 	writeKubeconfig(t, path, "prod")
-	start(t, w)
+	w.poll()
+	cfg, _ := w.Get()
+	require.Contains(t, cfg.Contexts, "prod", "the last good config")
 
 	w.load = func(rules *clientcmd.ClientConfigLoadingRules) (*api.Config, error) {
 		require.NoError(t, os.WriteFile(path, nil, 0o600))
