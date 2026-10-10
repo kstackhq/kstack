@@ -309,7 +309,7 @@ func (r *runner) runCalls(ctx context.Context, calls []llm.Block) error {
 		}
 		if g.code != "" {
 			// Nothing ran, so there is no start to tell.
-			if err := r.answer(ctx, call, g.refused); err != nil {
+			if err := r.answer(ctx, call, g.refused, nil); err != nil {
 				return errors.Join(err, r.refuse(ctx, calls[i+1:], CodeNotRun))
 			}
 			continue
@@ -317,7 +317,8 @@ func (r *runner) runCalls(ctx context.Context, calls []llm.Block) error {
 		if err := r.rec.ToolCallStarted(ctx, call, g.approval); err != nil {
 			return errors.Join(err, r.refuse(ctx, calls[i:], CodeNotRun))
 		}
-		if err := r.answer(ctx, call, r.runOne(ctx, tool, call, g.approval)); err != nil {
+		result, shown := r.runOne(ctx, tool, call, g.approval)
+		if err := r.answer(ctx, call, result, shown); err != nil {
 			return errors.Join(err, r.refuse(ctx, calls[i+1:], CodeNotRun))
 		}
 	}
@@ -379,13 +380,14 @@ func (r *runner) decide(ctx context.Context, call llm.Block, approval tools.Appr
 }
 
 // runOne runs one call under its tool's bound, else the turn's, handing a
-// tools.ApprovedRunner the approval its gate decided, and reads what it returned against
-// the context it ran under. A result with no error is kept whatever the clock
-// says, since the read happened. An error after the turn's cancel is the tool
-// answering the cancel, and one after the deadline alone is it answering the
-// deadline; the cancel is checked first, since a deadline under a cancelled turn
-// says nothing about the tool.
-func (r *runner) runOne(ctx context.Context, tool tools.Runner, call llm.Block, approval tools.Approval) llm.Block {
+// tools.ApprovedRunner the approval its gate decided and keeping the action a
+// tools.Shown tool resolved, and reads what it returned against the context it
+// ran under. A result with no error is kept whatever the clock says, since the
+// read happened. An error after the turn's cancel is the tool answering the
+// cancel, and one after the deadline alone is it answering the deadline; the
+// cancel is checked first, since a deadline under a cancelled turn says nothing
+// about the tool.
+func (r *runner) runOne(ctx context.Context, tool tools.Runner, call llm.Block, approval tools.Approval) (llm.Block, *tools.Action) {
 	timeout := r.turn.DefaultToolTimeout
 	if b, ok := tool.(tools.Bounded); ok {
 		timeout = b.CallTimeout(call.Input)
@@ -398,28 +400,32 @@ func (r *runner) runOne(ctx context.Context, tool tools.Runner, call llm.Block, 
 	}
 	var text string
 	var isError bool
-	if a, ok := tool.(tools.ApprovedRunner); ok {
-		text, isError = a.RunApproved(callCtx, r.turn.Runtime, call.Input, approval)
-	} else {
+	var shown *tools.Action
+	switch tool := tool.(type) {
+	case tools.ApprovedRunner:
+		text, isError = tool.RunApproved(callCtx, r.turn.Runtime, call.Input, approval)
+	case tools.Shown:
+		text, isError, shown = tool.RunShown(callCtx, r.turn.Runtime, call.Input)
+	default:
 		text, isError = tool.Run(callCtx, r.turn.Runtime, call.Input)
 	}
 	switch {
 	case !isError:
-		return llm.ToolResultBlock(call.ID, text, false)
+		return llm.ToolResultBlock(call.ID, text, false), shown
 	case ctx.Err() != nil:
-		return refusal(call, CodeCancelled)
+		return refusal(call, CodeCancelled), nil
 	case callCtx.Err() != nil:
-		return refusal(call, CodeTimeout)
+		return refusal(call, CodeTimeout), nil
 	}
-	return llm.ToolResultBlock(call.ID, text, true)
+	return llm.ToolResultBlock(call.ID, text, true), nil
 }
 
-// answer puts one call's result in the rounds, tells the recorder, and publishes
-// the rounds so far, so a reader sees each result as it lands and a turn that ends
-// inside a later call keeps this one.
-func (r *runner) answer(ctx context.Context, call, result llm.Block) error {
+// answer puts one call's result in the rounds, tells the recorder, with the
+// action the tool resolved, and publishes the rounds so far, so a reader sees each
+// result as it lands and a turn that ends inside a later call keeps this one.
+func (r *runner) answer(ctx context.Context, call, result llm.Block, shown *tools.Action) error {
 	r.rounds = append(r.rounds, result)
-	err := r.rec.ToolCallFinished(ctx, call, result)
+	err := r.rec.ToolCallFinished(ctx, call, result, shown)
 	r.rec.Progress(slices.Clone(r.rounds))
 	return err
 }
@@ -429,7 +435,7 @@ func (r *runner) answer(ctx context.Context, call, result llm.Block) error {
 func (r *runner) refuse(ctx context.Context, calls []llm.Block, code Code) error {
 	var errs []error
 	for _, call := range calls {
-		if err := r.answer(ctx, call, refusal(call, code)); err != nil {
+		if err := r.answer(ctx, call, refusal(call, code), nil); err != nil {
 			errs = append(errs, err)
 		}
 	}

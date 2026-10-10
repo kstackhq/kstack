@@ -15,6 +15,7 @@
 package loop
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -756,6 +757,23 @@ func TestProgressCarriesTheRoundsThenTheReplyInFlight(t *testing.T) {
 	assert.Equal(t, append(llm.AnswerBlocks(thought, twelvePods), use), rec.progress[streamed], "the reply with its call, before it runs")
 	assert.Equal(t, round, rec.progress[streamed+1], "the round whole, once its result is in")
 	assert.Equal(t, res.Blocks, rec.progress[len(rec.progress)-1], "the last snapshot is the answer")
+}
+
+// A tools.Shown tool's action is told with its result, and none with a refusal:
+// a view shows what the run resolved, never what the arguments say.
+func TestAShownToolsActionIsToldWithItsResult(t *testing.T) {
+	f, turn := echoTurn(shownTool{echoTool{name: "view", run: func(_ context.Context, input json.RawMessage) (string, bool) {
+		return "opened", !bytes.Contains(input, []byte("ok"))
+	}}})
+	f.SetToolCalls(llm.StagedCall("view", `{"ok":true}`), llm.StagedCall("view", `{}`))
+	rec := &recording{}
+
+	_, err := Run(t.Context(), turn, rec, rec)
+
+	require.NoError(t, err)
+	require.Len(t, rec.shown, 2)
+	assert.Equal(t, &tools.Action{Description: "opened", Command: &tools.CommandAction{Text: `{"ok":true}`}}, rec.shown[0])
+	assert.Nil(t, rec.shown[1])
 }
 
 // The order of a two-round turn, whole.

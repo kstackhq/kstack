@@ -15,6 +15,7 @@
 package chat
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -261,6 +262,30 @@ func citationsOf(t *testing.T, msg ChatMessage) []llm.Citation {
 		citations = append(citations, *c)
 	}
 	return citations
+}
+
+// A tools.Shown tool's call is served with the action its run resolved, on the
+// live message and the stored read alike, in place of what its arguments say;
+// a call of it that was refused shows what the arguments say.
+func TestAShownCallIsServedWithWhatItsRunResolved(t *testing.T) {
+	s := startServiceWithTool(t, shownTool{testTool{name: "view", run: func(_ context.Context, input json.RawMessage) (string, bool) {
+		return "opened", !bytes.Contains(input, []byte("ok"))
+	}}})
+	fakeOf(s).SetToolCalls(llm.StagedCall("view", `{"ok":true}`), llm.StagedCall("view", `{}`))
+	msg := send(t, s, nil, "1", "show me")
+
+	got := awaitSettled(t, s, msg.ChatID, msg.ID)
+	stored, err := s.transcript(t.Context(), msg.ChatID)
+	require.NoError(t, err)
+
+	want := &tools.Action{Description: "opened", Command: &tools.CommandAction{Text: `{"ok":true}`}}
+	for _, m := range []ChatMessage{got, stored[1]} {
+		calls, err := m.ToolCallList()
+		require.NoError(t, err)
+		require.Len(t, calls, 2)
+		assert.Equal(t, want, calls[0].Action)
+		assert.Equal(t, &tools.Action{Command: &tools.CommandAction{Text: `{}`}}, calls[1].Action, "the arguments' reading")
+	}
 }
 
 // A search is served the way the transcript reads it: the query as the

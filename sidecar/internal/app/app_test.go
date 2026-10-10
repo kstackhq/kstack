@@ -47,7 +47,7 @@ func TestTheFileToolsAreOfferedWithoutAShell(t *testing.T) {
 	require.NoError(t, err)
 
 	defs, native := box.Offer()
-	assert.Equal(t, []string{"Read", "Memory", "Write", "Edit", "WebFetch", "Agent", "KubeQuery"}, definitionNames(defs))
+	assert.Equal(t, []string{"Read", "Memory", "Write", "Edit", "WebFetch", "Agent", "KubeQuery", "LogsView"}, definitionNames(defs))
 	require.Len(t, native, 1)
 	assert.Equal(t, anthropicwebsearch.Name, native[0].Tool.Name())
 	got, ok := box.Action(bash.Name, json.RawMessage(`{"command":"ls"}`), "/srv", false)

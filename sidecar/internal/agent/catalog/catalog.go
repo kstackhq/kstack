@@ -25,6 +25,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/edit"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/kubequery"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/logsview"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/read"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/taskstop"
@@ -83,7 +84,7 @@ func (c Catalog) ToolsFor(t llm.Target) []string {
 
 // ours is every tool the app defines, which every provider is offered unless
 // its list says otherwise.
-var ours = []string{bash.Name, read.Name, memory.Name, write.Name, edit.Name, webfetch.Name, taskstop.Name, agent.Name, kubequery.Name}
+var ours = []string{bash.Name, read.Name, memory.Name, write.Name, edit.Name, webfetch.Name, taskstop.Name, agent.Name, kubequery.Name, logsview.Name}
 
 // withSearch is ours and the Messages API's web search.
 var withSearch = append(slices.Clone(ours), anthropicwebsearch.Name)

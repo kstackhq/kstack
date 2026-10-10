@@ -19,48 +19,10 @@ import { X } from 'lucide-react';
 import { Button } from '@kubetail/ui/elements/button';
 
 import { LogViewer } from '@/components/widgets/log-viewer';
+import { anchorLine, Names, SourceLine } from '@/components/widgets/logs-view-lines';
 import { VisibleText } from '@/components/widgets/visible-text';
-import type { LogsView, LogsViewAction } from '@/lib/logs-view';
+import type { LogsView } from '@/lib/logs-view';
 import type { ViewerStore } from '@/lib/log-viewer-store';
-
-type Source = LogsViewAction['sources'][number];
-type Anchor = LogsViewAction['anchor'];
-
-// Names from the cluster or the model, comma-separated, each spelled through
-// VisibleText.
-function Names({ names }: { names: string[] }) {
-  return names.map((name, i) => (
-    // eslint-disable-next-line react/no-array-index-key
-    <span key={i}>
-      {i > 0 && ', '}
-      <VisibleText text={name} />
-    </span>
-  ));
-}
-
-// `Deployment webapp in prod (app, istio-proxy), previous instance`: the enum's
-// word is the app's own, the rest the cluster's.
-function SourceLine({ source }: { source: Source }) {
-  return (
-    <>
-      {source.kind} <VisibleText text={source.name} /> in <VisibleText text={source.namespace} />
-      {source.containers.length > 0 && (
-        <>
-          {' ('}
-          <Names names={source.containers} />)
-        </>
-      )}
-      {source.previous && ', previous instance'}
-    </>
-  );
-}
-
-// The moment is drawn as the backend stamped it.
-function anchorLine(anchor: Anchor): string {
-  if (anchor.kind === 'Head') return 'from the start';
-  if (anchor.kind === 'Tail') return 'at the newest line';
-  return `from ${anchor.at ?? ''}`;
-}
 
 function Header({ view, onClose }: { view: LogsView; onClose: () => void }) {
   const { sources, filters, grep, anchor, pinToEnd } = view.action;

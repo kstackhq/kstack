@@ -151,6 +151,15 @@ type ApprovedRunner interface {
 	RunApproved(ctx context.Context, rt Runtime, input json.RawMessage, a Approval) (text string, isError bool)
 }
 
+// Shown is a Runner whose run resolves what the call showed, which the row keeps
+// as the call's action: read off the arguments alone it would say what the model
+// typed, not what the mirror and the clock made of it. shown is nil on a refusal,
+// and Run on such a tool is RunShown with the action dropped.
+type Shown interface {
+	Runner
+	RunShown(ctx context.Context, rt Runtime, input json.RawMessage) (text string, isError bool, shown *Action)
+}
+
 // Refusal is an Approval error carrying the result the model reads, so a call
 // refused before the user is asked says why in the tool's own words.
 type Refusal struct {

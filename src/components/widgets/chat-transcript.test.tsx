@@ -26,6 +26,8 @@ vi.mock('urql', () => ({ useMutation: () => [{}, sendMock], useQuery: () => [cat
 
 const { ChatOutboxProvider } = await import('@/lib/chat-outbox');
 const { chatGrantsContext } = await import('@/lib/chat-grants');
+const { LogsViewProvider } = await import('@/lib/logs-view');
+const { RightSidebarProvider } = await import('@/lib/right-sidebar');
 const { APPROVE_ARM_MS, ChatTranscript } = await import('./chat-transcript');
 
 const opus = {
@@ -49,18 +51,28 @@ beforeEach(() => {
   sendMock.mockResolvedValue({ data: { chatSend: { id: 'm9', chatID: 'c1', seq: 9, status: 'Streaming' } } });
 });
 
+// The providers the layout mounts around the transcript: the outbox Ask again
+// sends from, and the focused view the card sets. One wrapper for every tree, so
+// a rerender keeps the transcript mounted.
+const wrap = (ui: ReactNode, mode: 'chat' | 'dashboard' = 'chat') => (
+  <RightSidebarProvider mode={mode}>
+    <LogsViewProvider>
+      <ChatOutboxProvider>{ui}</ChatOutboxProvider>
+    </LogsViewProvider>
+  </RightSidebarProvider>
+);
+
 // The answer as it grows, for the pinning tests.
-const grown = () => (
-  <ChatOutboxProvider>
+const grown = () =>
+  wrap(
     <ChatTranscript
       messages={[msg({ status: 'Streaming', content: [{ type: 'text', text: 'more' }] })]}
       phase="live"
       mode="chat"
       chatID="c1"
       clusterID="1"
-    />
-  </ChatOutboxProvider>
-);
+    />,
+  );
 
 // The transcript reads the chat's outbox, so it renders inside the provider the
 // layout mounts. Approve arms at once unless a case asks for the real wait, which
@@ -75,27 +87,27 @@ const draw = (
     sandboxDisabled?: boolean;
     networkEnabled?: boolean;
     switching?: boolean;
+    mode?: 'chat' | 'dashboard';
   } = {
     sandboxAvailable: false,
   },
 ) =>
   render(
-    (
-      <ChatOutboxProvider>
-        <ChatTranscript
-          messages={messages}
-          phase={props.phase ?? 'live'}
-          mode="chat"
-          chatID="c1"
-          clusterID="1"
-          approveArmMs={props.approveArmMs ?? 0}
-          sandboxAvailable={'sandboxAvailable' in props ? props.sandboxAvailable : false}
-          sandboxDisabled={'sandboxDisabled' in props ? props.sandboxDisabled : false}
-          networkEnabled={'networkEnabled' in props ? props.networkEnabled : false}
-          switching={props.switching}
-        />
-      </ChatOutboxProvider>
-    ) as ReactNode,
+    wrap(
+      <ChatTranscript
+        messages={messages}
+        phase={props.phase ?? 'live'}
+        mode={props.mode ?? 'chat'}
+        chatID="c1"
+        clusterID="1"
+        approveArmMs={props.approveArmMs ?? 0}
+        sandboxAvailable={'sandboxAvailable' in props ? props.sandboxAvailable : false}
+        sandboxDisabled={'sandboxDisabled' in props ? props.sandboxDisabled : false}
+        networkEnabled={'networkEnabled' in props ? props.networkEnabled : false}
+        switching={props.switching}
+      />,
+      props.mode ?? 'chat',
+    ),
   );
 
 function msg(over: Partial<ChatMessage> = {}): ChatMessage {
@@ -194,7 +206,62 @@ function sizeScroller(el: HTMLElement, { scrollHeight = 1000, clientHeight = 400
 
 const scroller = () => screen.getByTestId('chat-transcript');
 
+// A LogsView call that opened a view.
+const logsViewCall = (over: Partial<ChatToolCall> = {}) =>
+  call({
+    id: 'lv-1',
+    name: 'LogsView',
+    actionKind: 'LogsView',
+    status: 'Succeeded',
+    approval: null,
+    output: 'Viewing deployments/webapp in prod at the newest line.',
+    action: {
+      description: '',
+      command: null,
+      read: null,
+      write: null,
+      edit: null,
+      search: null,
+      fetch: null,
+      memory: null,
+      delegate: null,
+      kubeQuery: null,
+      logsView: {
+        sources: [{ namespace: 'prod', kind: 'Deployment', name: 'webapp', containers: ['app'], previous: false }],
+        filters: [],
+        grep: '',
+        anchor: { kind: 'Tail', at: null },
+        pinToEnd: false,
+      },
+    },
+    ...over,
+  });
+
 describe('ChatTranscript', () => {
+  it('draws a LogsView call that opened as a card with Expand, and one refused as Logs', () => {
+    draw([
+      msg({
+        status: 'Complete',
+        toolCalls: [
+          logsViewCall(),
+          logsViewCall({ id: 'lv-2', status: 'Failed', action: null, output: '{"error":"not-found","source":0}' }),
+        ],
+      }),
+    ]);
+
+    expect(screen.getByText(/Logs: Deployment webapp in prod/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Expand' })).toBeInTheDocument();
+    expect(screen.getByText('Logs')).toBeInTheDocument();
+    expect(screen.getByText('failed')).toBeInTheDocument();
+  });
+
+  it('draws the card without Expand on the dashboard', () => {
+    draw([msg({ status: 'Complete', toolCalls: [logsViewCall()] })], { mode: 'dashboard' });
+
+    expect(screen.getByText(/Logs: Deployment webapp in prod/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Expand' })).not.toBeInTheDocument();
+  });
+
   it('waits for the snapshot before saying a chat is empty', () => {
     draw([], { phase: 'connecting' });
     expect(screen.queryByText('No messages yet.')).not.toBeInTheDocument();
@@ -441,11 +508,7 @@ describe('ChatTranscript', () => {
     // The disclosure is a <details>; its open attribute is the state under test.
     const disclosure = () => screen.getByText('Thinking').closest('details')!;
     const redraw = (rerender: (ui: ReactNode) => void, messages: ChatMessage[]) =>
-      rerender(
-        <ChatOutboxProvider>
-          <ChatTranscript messages={messages} phase="live" mode="chat" chatID="c1" clusterID="1" />
-        </ChatOutboxProvider>,
-      );
+      rerender(wrap(<ChatTranscript messages={messages} phase="live" mode="chat" chatID="c1" clusterID="1" />));
     const thinkingOnly = (over: Partial<ChatMessage> = {}) =>
       msg({ status: 'Streaming', content: [], thinking: 'the pod question', ...over });
     const withText = (over: Partial<ChatMessage> = {}) =>
@@ -1638,7 +1701,7 @@ describe('ChatTranscript', () => {
       expect(approve()).toBeDisabled();
 
       rerender(
-        <ChatOutboxProvider>
+        wrap(
           <ChatTranscript
             messages={[
               msg({
@@ -1677,8 +1740,8 @@ describe('ChatTranscript', () => {
             chatID="c1"
             clusterID="1"
             approveArmMs={0}
-          />
-        </ChatOutboxProvider>,
+          />,
+        ),
       );
       expect(request().querySelector('pre')).toHaveTextContent('date');
       expect(approve()).toBeEnabled();

@@ -94,7 +94,7 @@ const (
 	provider, model, effort, dialect, status, created_at`
 	llmCallColumns  = `id, run_id, seq, provider, model, effort, started_at`
 	toolCallColumns = `id, llm_call_id, seq, runs_on, tool_name, contract_name, tool_use_id, arguments, cwd, sandboxed, network, result, error,
-	is_mutating, spawned_run_id, status, created_at, started_at, finished_at`
+	is_mutating, spawned_run_id, status, created_at, started_at, finished_at, shown_action`
 	approvalColumns = `id, tool_call_id, kind, request, status, duration, reason, created_at, decided_at`
 )
 
@@ -106,7 +106,7 @@ const (
 // (c.seq, t.seq).
 const toolCallReadColumns = `c.run_id, t.id, t.runs_on, t.tool_use_id, t.tool_name, t.contract_name, t.arguments, t.cwd, t.sandboxed, t.network, t.result, t.error,
 	t.status, t.started_at, t.spawned_run_id, a.id, a.status, COALESCE(a.duration, ''), b.status, b.exit_code,
-	CASE WHEN b.status = 'completed' THEN sr.result END`
+	CASE WHEN b.status = 'completed' THEN sr.result END, t.shown_action`
 
 const toolCallReadFrom = ` FROM tool_calls t JOIN llm_calls c ON c.id = t.llm_call_id
 	LEFT JOIN approvals a ON a.tool_call_id = t.id AND a.kind = 'call'
@@ -216,12 +216,12 @@ var statements = []sqlstmt.Statement{
 	// spawned_run_id is the entry's, which carries the link from the subagent's
 	// insert on, so every later write keeps it.
 	stmtUpsertToolCall: sqlstmt.OnWriter(`INSERT INTO tool_calls (` + toolCallColumns + `)
-	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(id) DO UPDATE SET
 	tool_name = excluded.tool_name, tool_use_id = excluded.tool_use_id, arguments = excluded.arguments, network = excluded.network,
 	result = excluded.result, error = excluded.error, is_mutating = excluded.is_mutating,
 	spawned_run_id = excluded.spawned_run_id, status = excluded.status,
-	started_at = excluded.started_at, finished_at = excluded.finished_at`),
+	started_at = excluded.started_at, finished_at = excluded.finished_at, shown_action = excluded.shown_action`),
 	stmtCloseStrandedToolCalls: sqlstmt.OnWriter(`UPDATE tool_calls SET status = 'failed', error = ?, finished_at = ?
 	WHERE finished_at IS NULL AND runs_on = 'sidecar'`),
 	// An approval is written whole like its call: pending with the request, then the

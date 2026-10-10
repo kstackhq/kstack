@@ -323,8 +323,9 @@ type ToolCall struct {
 	// ActionKind is what the call does, its tool's kind whatever the arguments
 	// hold; nil for a tool the box does not know.
 	ActionKind *tools.ActionKind `json:"actionKind"`
-	// Action is what the call does, read from its arguments by its own tool; nil
-	// when the tool has no way to show a call or refuses the arguments.
+	// Action is what the call does: what its tool resolved at the run, else what
+	// its tool reads off its arguments; nil when the tool has no way to show a call
+	// or refuses the arguments.
 	Action *tools.Action `json:"action"`
 	// Approval is the user's decision on the call; nil on a call no one was asked about.
 	Approval *ToolCallApproval `json:"approval"`
@@ -499,9 +500,12 @@ func marshalToolCalls(rows []toolCallEntry, box tools.Box) rawjson.RawJSON {
 	return rawjson.RawJSON(b)
 }
 
-// actionOf is what a stored call does, read through box, and nil when nothing
-// reads it (tools.Box.Action).
+// actionOf is what a stored call does: the action its run showed, else its
+// arguments read through box, and nil when nothing reads them (tools.Box.Action).
 func actionOf(box tools.Box, r toolCallEntry) *tools.Action {
+	if r.Shown != nil {
+		return r.Shown
+	}
 	a, ok := box.Action(r.Name, json.RawMessage(r.Arguments), r.Cwd, r.Sandboxed)
 	if !ok {
 		return nil

@@ -45,7 +45,8 @@ type recording struct {
 	toolStarts  []llm.Block
 	// startApprovals is the approval ToolCallStarted was told with each start.
 	startApprovals []tools.Approval
-	answers        []pair // each call with the result ToolCallFinished was told for it, in order
+	answers        []pair          // each call with the result ToolCallFinished was told for it, in order
+	shown          []*tools.Action // the action ToolCallFinished was told beside each answer, in order
 	result         Result
 	streamErr      error
 	finishedWith   []llm.Response // each response LLMCallFinished was told, in order
@@ -96,9 +97,10 @@ func (r *recording) ToolCallStarted(_ context.Context, call llm.Block, approval 
 	return failAt(r.toolStartErr, r.toolStartFailAt, len(r.toolStarts))
 }
 
-func (r *recording) ToolCallFinished(_ context.Context, call, result llm.Block) error {
+func (r *recording) ToolCallFinished(_ context.Context, call, result llm.Block, shown *tools.Action) error {
 	r.log = append(r.log, "tool-finished")
 	r.answers = append(r.answers, pair{call, result})
+	r.shown = append(r.shown, shown)
 	return failAt(r.toolFinishErr, r.toolFinishFailAt, len(r.answers))
 }
 
@@ -185,6 +187,18 @@ func (e echoTool) Run(ctx context.Context, _ tools.Runtime, input json.RawMessag
 		return e.run(ctx, input)
 	}
 	return string(input), false
+}
+
+// shownTool is an echoTool whose run resolves its action: the input as a
+// command's text, under what it answered, and none on a refusal.
+type shownTool struct{ echoTool }
+
+func (s shownTool) RunShown(ctx context.Context, rt tools.Runtime, input json.RawMessage) (string, bool, *tools.Action) {
+	text, isError := s.echoTool.Run(ctx, rt, input)
+	if isError {
+		return text, true, nil
+	}
+	return text, false, &tools.Action{Description: text, Command: &tools.CommandAction{Text: string(input)}}
 }
 
 // gatedTool is an echoTool that asks for a decision: its approval's cwd is the

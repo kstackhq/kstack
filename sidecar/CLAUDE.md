@@ -1245,7 +1245,7 @@ does.
   `Cache`** and a row whose vendor routes by a key its `AffinityRoute`, as the vendor documents
   them; a new entry lands with the line `make check-cache` prints for it.
 - **A list is policy.** `lists` is static data by provider id: `ours` (bash, Read, Memory, Write, Edit,
-  WebFetch, TaskStop, Agent, KubeQuery) for every provider, and the Anthropic search added for `anthropic` and `fake`. It
+  WebFetch, TaskStop, Agent, KubeQuery, LogsView) for every provider, and the Anthropic search added for `anthropic` and `fake`. It
   decides which code runs each kind of action for a provider, and what leaves the machine for
   it, so adding a vendor's tool to a list, or leaving one of ours off, is a security change.
   Where a vendor's tool and one of ours do the same kind of thing, the list names one of them.
@@ -1263,7 +1263,7 @@ does.
 Every tool the model can call. **A tool's kind is what it implements** (`tool.go`): every tool is
 a `Reader` — `Name()`, its identity, unique in the box and what every stored call and count names;
 `ActionKind()`, what its calls do, one of `ActionCommand`, `ActionRead`, `ActionWrite`,
-`ActionEdit`, `ActionSearch`, `ActionFetch`, `ActionStop`, `ActionMemory`, `ActionDelegate`, `ActionKubeQuery`; and `Action(input, cwd, sandboxed)`, `cwd` and `sandboxed` the row's — with a `Prompt()`, its markdown section
+`ActionEdit`, `ActionSearch`, `ActionFetch`, `ActionStop`, `ActionMemory`, `ActionDelegate`, `ActionKubeQuery`, `ActionLogsView`; and `Action(input, cwd, sandboxed)`, `cwd` and `sandboxed` the row's — with a `Prompt()`, its markdown section
 of "What you can do", opening with its own `##` heading. A `Runner` adds
 `Run(ctx, rt, input) (text, isError)`, which answers one call and never returns a Go error's
 text. A `Custom` tool is a `Runner` offered by its `Definition()`, named as the tool is; a
@@ -1278,8 +1278,13 @@ it when it is a `Runner`, and the provider runs it when it is `Budgeted` (`MaxUs
 turn).
 A `Gated` runner adds `Approval(ctx, rt, input)`, which reads `rt` and never starts or stops a task or
 writes a stamp; an error it returns may be a `*tools.Refusal`, carrying the result the model reads
-in place of `bad-input`. `Gated` and `Bounded` embed `Runner`. A tool is one type, built once: the loop
-finds `Gated` and `Bounded` on it by assertion, and the chat reaches it as `rt` at each call.
+in place of `bad-input`. A `Shown` runner adds `RunShown(ctx, rt, input)`, which answers the action
+its run showed beside the text, nil on a refusal, for a tool whose action the arguments alone cannot
+say; the loop hands it to the recorder with the result, the row keeps it (`tool_calls.shown_action`), and
+such a tool's `Action(input)` answers none, so a call of it that did not open anything shows its kind
+alone → [ADR: a shown tool records its action at the run](../docs/adr/2026-10-08-a-shown-tool-records-its-action-at-the-run.md).
+`Gated`, `Shown` and `Bounded` embed `Runner`. A tool is one type, built once: the loop
+finds `Gated`, `Shown` and `Bounded` on it by assertion, and the chat reaches it as `rt` at each call.
 
 **One `Box` holds every tool** (`box.go`), in offer order, and the readers of tools this machine
 cannot offer: `NewBox(tools, alsoReads...)`, which panics on a wiring mistake — a tool that is
@@ -1361,8 +1366,8 @@ parent now does. A later field is classed by that rule and gets its line in
 `TestNarrowKeepsTheParentsIdentity`. `session` is a leaf: it imports nothing of ours, and a proxy
 imports it, never the reverse. Each tool reads the fields it uses (Read `Dir` and `Files`, Write and Edit `Dir` and `Files`,
 WebFetch `Dir`, TaskStop `Tasks`, bash `Dir` and `Tasks`, Memory `ClusterID` and `ChatID`,
-KubeQuery `ClusterID` and `Dir`). **A tool that acts through a service is built with it**:
-`memory.New(memorySvc)` and `kubequery.New(clusterSvc)` in `app`'s `chatTools`, each calling its
+KubeQuery `ClusterID` and `Dir`, LogsView `ClusterID`). **A tool that acts through a service is built with it**:
+`memory.New(memorySvc)`, `kubequery.New(clusterSvc)` and `logsview.New(clusterSvc, now)` in `app`'s `chatTools`, each calling its
 service on the runtime's cluster and mapping the service's own errors to the model's codes. The
 rules a note keeps are `services/memory`'s. → [ADR: a tool calls its service
 directly](../docs/adr/2026-09-27-a-tool-calls-its-service-directly.md). `InlineLimit` (30,000) is the most a result carries, header included;
@@ -2035,9 +2040,10 @@ off the provider's arguments, and `messages.go` is its `llm.MessagesServerTool` 
 reads. A server tool's package is named for its vendor, whose SDK it imports.
 
 **LogsView (`tools/logsview`) is a live view of logs the user looks at, opened by the model's
-call.** It is `Custom`, never `Gated`: it checks the call against the mirror through
-`cluster.Service`, records what it showed as the call's `LogsViewAction` and answers a one-line
-receipt, reading no log line. The action is what the log backend takes. `Sources`, whose lines
+call.** It is `Custom` and `Shown`, never `Gated`: it checks the call against the mirror through
+`cluster.Service`, hands what it showed back as the call's `LogsViewAction`, which the row keeps,
+and answers a one-line receipt, reading no log line. Its `Action(input)` answers none, since the
+view is the run's. The action is what the log backend takes. `Sources`, whose lines
 the backend merges by timestamp: each a namespace, a `LogsSourceKind` (a pod, or a workload whose
 pods the backend follows) and a name, parsed once from the `<kind>/<name>` the model types; its
 `Containers` by exact name — the default container, resolved off the mirror as `kubectl logs`
@@ -2048,11 +2054,27 @@ instance before the last restart, checked off the mirror's `containers` table. `
 values allowed. `Grep`, a regular expression over each line's message. `Anchor`, a
 `LogsAnchorKind` (head, tail, or at, with `At` set for that alone), resolved from the model's
 `tail`, `head`, time or duration. `PinToEnd`, whether the viewer keeps the end in view as lines
-arrive, which they do either way. The three enums bind member by member in `gqlgen.yml`. **It is
-a skeleton and not in the box**: `parse` and `resolve` answer `errNotImplemented`, so every
-`Action` is refused and every `Run` answers `{"error":"not-implemented"}`, and neither
-`catalog`'s `ours` nor `app.go` names it, so no turn is offered it and the prompt goldens are
-unchanged. The resolver tests read it as a reader alone, for its kind. → `docs/specs/log-views/`.
+arrive, which they do either way. The three enums bind member by member in `gqlgen.yml`. `parse`
+(`parse.go`) is the strict walk over a nested object: each key spelled exactly and at most once,
+each value's type off its token, a resource as kubectl spells it (plural, singular or short), every
+namespace, name and container a DNS name, `all_containers` refused beside `containers`, a filter's
+list never empty, a `grep` that compiles on one line of at most 1,000 bytes. `resolve`
+(`resolve.go`) reads the anchor on the tool's clock — `tail` (the default), `head`, an RFC 3339
+time, or a positive Go duration back from now — then, inside one `Clusters().ReadActive` whose
+cache's `Freshness` does not withhold, each source off the cache's views (`mirror.go`, through
+`CachedData().Query` with every value a SQL literal): a pod's containers and restarts off the
+`containers` table, a workload's off its pod template in `body`, the default container the
+annotation's when the source has it, else the first, and for `previous` on a workload the pods
+under it in `ancestors` with a restarted container among those shown. A refusal is one JSON line:
+`bad-input` with the `field` and, inside a source, its `source` index, never the model's text;
+`not-found`, `no-container` (with the `containers` it has) and `no-previous` by `source`;
+`no-cache`; `syncing`; `read-failed` with none of its text. **The receipt** is the first source,
+how many more, the anchor (`from the start`, `at the newest line`, `from <time>`) and `pinned to
+the end`, then each source's note — `defaulted container app out of app, istio-proxy`,
+`containers …` for the ones named or all, `previous instance`, `previous instance of 2 of 3
+pods` — under its name when there are several, then `Matching /<grep>/`, the whole through
+`safe.Redact`. It is in `catalog`'s `ours` and `app.go`'s box after KubeQuery, and out of
+`SubagentBox` and `MonitorBox`: a view is the user's window. → `docs/specs/log-views/`.
 
 **KubeQuery (`tools/kubequery`) is read-only SQL over the chat's cluster's cache, run without
 asking.** It is `Custom` and `Bounded` (10 s, whatever the input), never `Gated`. `parse` is the
@@ -2481,8 +2503,8 @@ cancels — so a parent's Cancel leaves it running — then writes the report in
 to `FileLimit`, and closes it; a panic in the stream fails it. `Wait` blocks until then and answers
 a zero `Exit`; `Stop` cancels at once. The loop's spec: `SubagentSystemPrompt()` (`system.md`, then
 `prompts/general_purpose.md`), one message of the card then the prompt (`subagentMessage`),
-`SubagentBox(boxFor(target))` — the box less `Agent` and `Memory`, so depth is one, a subagent's
-`Agent` call is `unknown-tool`, and a subagent writes no note — `MaxSubagentToolCalls` (16), a `runStamps` of its own, since a stamp says the model
+`SubagentBox(boxFor(target))` — the box less `Agent`, `Memory` and `LogsView`, so depth is one, a subagent's
+`Agent` call is `unknown-tool`, a subagent writes no note and opens no view — `MaxSubagentToolCalls` (16), a `runStamps` of its own, since a stamp says the model
 saw the file, and `chatTasks` over its own calls. **Each run owns its own calls**: `runJournal`
 holds its service, chat, run, target, the `Agent` call a subagent's run is under (`""` on a
 turn's own, which `isTurns` reads), the bound on its waits for the user (`unansweredLimit`, zero on
@@ -2521,7 +2543,7 @@ claimed by its first round, as a turn's is. **It runs in `monitorSession()`** (`
 `NoPrompts` and `NoSecretData`, and no `Policy`, `Network` or `Folders`), told `prompts/monitor.md`
 (`MonitorSystemPrompt`) and one message of the cluster card — the card alone, never the memory
 notes — then the brief, offered `MonitorBox(box)`, the box less `Agent`, `Memory`, `WebFetch`,
-`TaskStop` and the search, at `MaxMonitorToolCalls` (16). Its directory is the cluster's `monitorDir`. Its recorder is
+`TaskStop`, the search and `LogsView`, at `MaxMonitorToolCalls` (16). Its directory is the cluster's `monitorDir`. Its recorder is
 `monitor`, a `briefedRun` with an `Approve` that answers no and writes nothing; its asker is
 `monitorAsker`, which records what the proxy decided and answers an ask with `errMonitorAsked`; its
 tasks are `monitorTasks`, which start none. It runs through `briefedRun`'s `loop` and settles in
@@ -2550,8 +2572,8 @@ given its chat. **`app.go` offers it wherever `bash.New` finds a shell** (over t
 builds the one `sandbox.Status` from both, available only with a shell and a sandbox — a sandbox
 with no shell clears the network answer with it (`TestNoShellOffersNoNetwork`) — which
 `chat.New` and `graph.Resolver` take; `chatTools`, the one
-`tools.NewBox`), then Read, Memory, Write, Edit, WebFetch, TaskStop, the provider's web search and KubeQuery; a machine with none is
-offered Read, Memory, Write, Edit, WebFetch, the search and KubeQuery, and reads bash's stored calls through `bash.Reader`. Read, Write and Edit take Kstack's
+`tools.NewBox`), then Read, Memory, Write, Edit, WebFetch, TaskStop, the provider's web search, KubeQuery and LogsView; a machine with none is
+offered Read, Memory, Write, Edit, WebFetch, the search, KubeQuery and LogsView, and reads bash's stored calls through `bash.Reader`. Read, Write and Edit take Kstack's
 directories (`Paths.DeniedDirs`) and build their own fence around them, with the settings service's
 `Hidden` as what the sandbox keeps shut under a grant; `chatTools` runs once `makeDirs` has made them, and
 `app.New` fails to start without them. For bash, `New` reads the version once with `bash --version` (never
@@ -3241,7 +3263,8 @@ inside `Send`'s write transaction; a caller on the pools goes through `transcrip
 `toolCallStatus` is the one mapping: `awaiting_approval` → `AwaitingApproval`; `denied`,
 `running`, `succeeded` → their own; `failed` with `started_at` NULL → `NotRun`, set with the
 error `cancelled`, `timeout`, `stranded` or `interrupted` → `Interrupted`, else `Failed`.
-`action` is the call's arguments and `cwd` read through the service's box (`Box.Action`,
+`action` is what a `Shown` tool's run showed, off the row's `shown_action`, else the
+call's arguments and `cwd` read through the service's box (`Box.Action`,
 `marshalToolCalls(rows, box)`), null when nothing reads it or its tool refuses them —
 so a Bash call that never reached the gate still shows its command, with an empty `cwd`.
 `approval` is null on a call nobody was asked about and otherwise the approvals row as `ToolCallApproval` —

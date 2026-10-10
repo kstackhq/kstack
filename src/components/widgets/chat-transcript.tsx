@@ -32,7 +32,9 @@ import { AppLogo } from '@/components/widgets/app-logo';
 import { DiffBlock } from '@/components/widgets/diff-block';
 import { FolderGrantForm } from '@/components/widgets/folder-grant-form';
 import { approvalAnchor } from '@/lib/approval-anchor';
+import { LogsViewCard } from '@/components/widgets/logs-view-card';
 import { Markdown } from '@/components/widgets/markdown';
+import { ModelDescription } from '@/components/widgets/model-description';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { graphql } from '@/gql';
 import type { AppMode } from '@/lib/app-mode';
@@ -491,15 +493,21 @@ function ToolCalls({
   byAgent,
   modelLabel,
   chatID,
+  mode,
 }: {
   calls: ChatToolCall[];
   byAgent: SubagentCalls;
   modelLabel: ModelLabel;
   chatID: string;
+  mode: AppMode;
 }) {
   return (
     <div className="mt-1 text-xs text-muted-foreground">
       {calls.map((call) => {
+        // A view that opened is a card, not a disclosure: the user looks at it.
+        if (call.action?.logsView) {
+          return <LogsViewCard key={call.id} call={call} action={call.action.logsView} chatID={chatID} mode={mode} />;
+        }
         const summary = summaryOf(call);
         const line = descriptionLine(call.action?.description ?? '');
         const cwd = call.action?.command?.cwd ?? '';
@@ -557,6 +565,7 @@ function ToolCalls({
                   report={call.background?.report ?? ''}
                   modelLabel={modelLabel}
                   chatID={chatID}
+                  mode={mode}
                 />
               ) : (
                 <pre className="mt-1 border-l-2 border-muted pl-3 font-mono break-all whitespace-pre-wrap">
@@ -695,12 +704,14 @@ function AgentBody({
   report,
   modelLabel,
   chatID,
+  mode,
 }: {
   delegate: DelegateAction;
   calls: ChatToolCall[];
   report: string;
   modelLabel: ModelLabel;
   chatID: string;
+  mode: AppMode;
 }) {
   const kind = delegate.model === '' ? delegate.agentType : `${delegate.agentType} · ${modelLabel(delegate.model)}`;
   return (
@@ -710,7 +721,7 @@ function AgentBody({
       </p>
       <FoldedBlock text={delegate.prompt} className="mt-1 border-l-2 border-muted pl-3 break-all whitespace-pre-wrap" />
       {calls.length > 0 && (
-        <ToolCalls calls={calls} byAgent={NO_SUBAGENT_CALLS} modelLabel={modelLabel} chatID={chatID} />
+        <ToolCalls calls={calls} byAgent={NO_SUBAGENT_CALLS} modelLabel={modelLabel} chatID={chatID} mode={mode} />
       )}
       {report !== '' && (
         <div className="mt-1 border-l-2 border-muted pl-3 text-foreground">
@@ -735,22 +746,6 @@ function LabelledLine({ label, text, after }: { label: string; text: string; aft
       </span>
       {after && <span className="-ml-1 shrink-0 text-muted-foreground">{after}</span>}
     </p>
-  );
-}
-
-// The model's description of a command, as descriptionLine reads it: italic and
-// quoted, in the color of wherever it sits, so it reads as the model's claim and
-// never outshines the command. One line, cut by an ellipsis inside the quotes;
-// no title, since a native tooltip draws the text unspelled.
-function ModelDescription({ line }: { line: string }) {
-  return (
-    <span className="flex min-w-0 italic">
-      <span>“</span>
-      <span className="min-w-0 truncate">
-        <VisibleText text={line} />
-      </span>
-      <span>”</span>
-    </span>
   );
 }
 
@@ -1167,6 +1162,7 @@ function Notices({ notices }: { notices: TaskNotice[] }) {
 function Message({
   message,
   chatID,
+  mode,
   label,
   labelOf,
   onAskAgain,
@@ -1175,6 +1171,7 @@ function Message({
 }: {
   message: ChatMessage;
   chatID: string;
+  mode: AppMode;
   approveArmMs: number;
   sandboxAvailable: boolean | undefined;
   /** The model this answer ran on, when it differs from the answer before it. */
@@ -1236,7 +1233,9 @@ function Message({
             <Spinner size="sm" />
           </span>
         )}
-        {done.length > 0 && <ToolCalls calls={done} byAgent={byAgent} modelLabel={modelLabel} chatID={chatID} />}
+        {done.length > 0 && (
+          <ToolCalls calls={done} byAgent={byAgent} modelLabel={modelLabel} chatID={chatID} mode={mode} />
+        )}
         {waiting.map(({ call, approval, change }) => (
           // Keyed on the approval, never the call or the message, so a decided
           // request's pressed state never reaches the next. Live while a run of
@@ -1373,6 +1372,7 @@ export function ChatTranscript({
         key={message.id}
         message={message}
         chatID={chatID}
+        mode={mode}
         label={label}
         labelOf={labelOf}
         onAskAgain={message.id === last?.id ? onAskAgain : undefined}
