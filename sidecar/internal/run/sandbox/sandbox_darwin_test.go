@@ -1518,19 +1518,29 @@ func TestAProbeCutShortIsAnError(t *testing.T) {
 	assert.Nil(t, s)
 }
 
-// hostAddress is an IPv4 address the host holds other than loopback.
+// hostAddress is an IPv4 address the host holds other than loopback and
+// link-local. A CI runner can lose its address for a moment, as a DHCP lease
+// lapses, so it waits up to hostAddressWait for one.
 func hostAddress(t *testing.T) string {
 	t.Helper()
-	addrs, err := net.InterfaceAddrs()
-	require.NoError(t, err)
-	for _, a := range addrs {
-		if ip, ok := a.(*net.IPNet); ok && ip.IP.To4() != nil && !ip.IP.IsLoopback() && !ip.IP.IsLinkLocalUnicast() {
-			return ip.IP.String()
+	var host string
+	require.EventuallyWithT(t, func(c *assert.CollectT) {
+		addrs, err := net.InterfaceAddrs()
+		require.NoError(c, err)
+		for _, a := range addrs {
+			if ip, ok := a.(*net.IPNet); ok && ip.IP.To4() != nil && !ip.IP.IsLoopback() && !ip.IP.IsLinkLocalUnicast() {
+				host = ip.IP.String()
+				return
+			}
 		}
-	}
-	require.FailNow(t, "the host holds no address but loopback")
-	return ""
+		assert.Fail(c, "the host holds no address but loopback and link-local", "held: %v", addrs)
+	}, hostAddressWait, 250*time.Millisecond)
+	return host
 }
+
+// hostAddressWait is how long hostAddress waits, long enough for a DHCP
+// client to renew a lapsed lease.
+const hostAddressWait = time.Minute
 
 // curlConnect is a curl that says why a connect failed: -v names the error
 // on a line of its own, which curl words differently across versions.
