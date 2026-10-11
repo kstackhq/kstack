@@ -127,10 +127,11 @@ func (s *service) RunMonitor(ctx context.Context, clusterID apimeta.ClusterID, t
 
 // MonitorBox is what a monitor run is offered of the chat's box: the tools that
 // read and change the cluster alone. No Agent, no Memory, no WebFetch or search,
-// since nothing it reads should leave the machine or outlive the run, and no
-// TaskStop, since it starts no background task.
+// since nothing it reads should leave the machine or outlive the run, no
+// TaskStop, since it starts no background task, and no LogsView, since nobody
+// is looking.
 func MonitorBox(box tools.Box) tools.Box {
-	return box.Without(tools.ActionDelegate, tools.ActionMemory, tools.ActionFetch, tools.ActionStop, tools.ActionSearch)
+	return box.Without(tools.ActionDelegate, tools.ActionMemory, tools.ActionFetch, tools.ActionStop, tools.ActionSearch, tools.ActionLogsView)
 }
 
 // monitor is a cluster's monitor run: the loop.Recorder and Approver of one
