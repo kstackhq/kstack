@@ -104,6 +104,9 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 		slog.Error("listen", "socket", cfg.Socket, "err", err)
 		return 1
 	}
+	// Shutdown closes it on the served path; this covers every return before it.
+	// A named pipe's name stays taken until its listener closes.
+	defer ln.Close()
 	ln = ipc.Authenticated(ln, ipc.Policy{HostPID: cfg.HostPID})
 	// Named pipes vanish with their listener; only the UDS file needs cleanup.
 	defer os.Remove(cfg.Socket)

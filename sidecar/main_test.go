@@ -24,6 +24,7 @@ import (
 	"testing"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
 )
 
 // runArgs parses a command line the way main does, so a run test still starts
@@ -66,7 +67,8 @@ func TestRunFailsWhenTheEndpointCannotBeBound(t *testing.T) {
 }
 
 // A shutdown signal that lands before run — during the login shell — exits 0
-// without binding or announcing READY, like the stdin-EOF shutdown.
+// without announcing READY, like the stdin-EOF shutdown, and releases the
+// endpoint: a named pipe's name stays taken while its listener is open.
 func TestRunExitsCleanlyWhenTheContextEndedBeforeStart(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -78,6 +80,11 @@ func TestRunExitsCleanlyWhenTheContextEndedBeforeStart(t *testing.T) {
 	if out.String() != "" {
 		t.Errorf("stdout = %q, want empty (a run that never starts announces nothing)", out.String())
 	}
+	ln, err := ipc.Listen(cfg.Socket)
+	if err != nil {
+		t.Fatalf("rebinding %s after run: %v (run left its listener open)", cfg.Socket, err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
 }
 
 // A failed start still closes the app, and app.db with it. The chat service's start
