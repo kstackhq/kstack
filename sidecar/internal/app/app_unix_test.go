@@ -91,7 +91,7 @@ func TestBashIsOfferedWhenItIsFound(t *testing.T) {
 	box, err := chatTools(toolDeps{shell: shell, fenced: []string{t.TempDir()}, umask: 0o022})
 	require.NoError(t, err)
 	defs, _ := box.Offer()
-	assert.Equal(t, []string{"Bash", "Read", "Memory", "Write", "Edit", "WebFetch", "TaskStop", "Agent", "KubeQuery"}, definitionNames(defs))
+	assert.Equal(t, []string{"Bash", "Read", "Memory", "Write", "Edit", "WebFetch", "TaskStop", "Agent", "KubeQuery", "LogsView"}, definitionNames(defs))
 	runner, ok := box.Runner(bash.Name)
 	require.True(t, ok)
 	assert.Same(t, shell, runner)

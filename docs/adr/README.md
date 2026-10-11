@@ -190,4 +190,5 @@ usually just documentation in the wrong place.
 | 2026-10-06 | [Build every service into one runtime, in order, and never hand it to a service](2026-10-06-the-runtime-is-built-in-order.md) | sidecar | Accepted |
 | 2026-10-07 | [Group the sidecar's packages into layers](2026-10-07-sidecar-folders-are-layers.md) | sidecar | Accepted |
 | 2026-10-07 | [Keep the user's settings in one file, grouped by area](2026-10-07-settings-are-one-file-grouped-by-area.md) | sidecar | Accepted |
+| 2026-10-08 | [A tool whose action is what its run showed records it at the run](2026-10-08-a-shown-tool-records-its-action-at-the-run.md) | cross-cutting | Accepted |
 | 2026-10-13 | [A macOS run leads its own session, so no run reads another process's launch strings](2026-10-13-a-macos-run-leads-its-own-session-so-no-run-reads-another-processs-launch-strings.md) | sidecar | Accepted |

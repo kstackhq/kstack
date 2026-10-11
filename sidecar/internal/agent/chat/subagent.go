@@ -110,10 +110,11 @@ func (t *turn) Start(ctx context.Context, d tools.Delegation) (string, error) {
 }
 
 // SubagentBox is what a subagent is offered of the chat's box: no Agent, so
-// depth is one, and no Memory, since a note outlives the chat and the chat's
-// own turns are what write one.
+// depth is one, no Memory, since a note outlives the chat and the chat's own
+// turns are what write one, and no LogsView, since a view is the user's window
+// and the chat's own turn is what answers them.
 func SubagentBox(box tools.Box) tools.Box {
-	return box.Without(tools.ActionDelegate, tools.ActionMemory)
+	return box.Without(tools.ActionDelegate, tools.ActionMemory, tools.ActionLogsView)
 }
 
 // subagentMessage is the one message a subagent starts from: the chat's newest card,
