@@ -36,7 +36,7 @@ different things, and the call kind says which happened.
 ## The shape of the work
 
 **Rungs are numbered in build order.** Files are named by the number
-(`1-a-view-the-sidebar-draws.md`); prose says "rung 1". Each rung needs the one before it unless
+(`<n>-<slug>.md`); prose says "rung 2". Each rung needs the one before it unless
 its row says otherwise. Nothing is built in parallel yet; if a wave appears, this README switches
 to the lettered naming in [Naming](../README.md#naming).
 
@@ -44,10 +44,10 @@ to the lettered naming in [Naming](../README.md#naming).
 closed disclosure like any other tool call, which is what the transcript does today for a kind it
 does not know.
 
-**The viewer is assumed.** The log viewer itself — give it a timestamp, it lands there, scroll
-either way, follow at the end — is built and is not in this repository on this branch. Rung 1
-says what it takes to mount it. If its input differs, rung 1's webview tasks change and nothing
-else does.
+**The viewer is its own PR.** The log viewer itself — give it a timestamp, it lands there, scroll
+either way, follow at the end — lands in a PR of its own, outside the rungs. Until then
+`LogViewer` (`src/components/widgets/log-viewer.tsx`) is a placeholder, and its props are the
+contract it is mounted by.
 
 **Every rung's spec has the same sections, in the same order**, as the retired agent-security
 sequence had: *In short*, *What is not in this rung*, *Design*, *Decisions this rung asks for*,
@@ -76,7 +76,8 @@ These are decided across the ladder. A rung that needs to revisit one says so in
   that, so the viewer hands it on without translating.
 - **The sidecar checks, the action is what was shown.** A source is checked against the mirror,
   *yesterday* becomes an absolute time, and the action carries the resolved values, never what
-  the model typed.
+  the model typed. The tool hands the action back from its run and the call row keeps it
+  (`tool_calls.shown_action`), since the arguments alone cannot say it.
 - **A change is a new call.** The model never mutates a view. What the user changes by hand in
   the viewer is the viewer's own state and leaves no row.
 - **The focused view is window state, out of the URL.** It is chrome, like the right sidebar's
@@ -92,7 +93,6 @@ These are decided across the ladder. A rung that needs to revisit one says so in
 
 | Rung | Builds | Spec |
 | --- | --- | --- |
-| 1 | A view the sidebar draws: `LogsView` as a receipt, the focused view, the viewer in chat mode's right sidebar | [1-a-view-the-sidebar-draws.md](1-a-view-the-sidebar-draws.md) |
 | 2 | The compact inline form | — |
 | 3 | The screen rides with the question | — |
 | 4 | `LogsRead`: what the model read, frozen | — |
@@ -100,17 +100,17 @@ These are decided across the ladder. A rung that needs to revisit one says so in
 | 6 | A watch is a background task | — |
 | 7 | The dashboard's target | — |
 
-**Rung 1 — a view the sidebar draws.** Say *tail webapp logs* and the viewer opens in the right
-sidebar on the right pods. The schema gains `LogsView` and `LogsViewAction`; the sidecar gains a
-tool that resolves the selector and answers a receipt; the webview gains the focused-view state,
-mounts the viewer in chat mode's right sidebar off it, and draws the call as a one-line card
-whose Expand sets it. The newest `LogsView` call of the open chat sets the view as it arrives.
+**Rung 1 has landed.** `LogsView` and `LogsViewAction` are on the schema, `tools/logsview` checks
+a view against the mirror and answers a receipt, and the webview draws the call as a card whose
+Expand sets the focused view, which chat mode's right sidebar draws. A view opens on Expand alone.
+What is true now is in the root and `sidecar/` `CLAUDE.md`.
 
 **Rung 2 — the compact inline form.** The card grows a fixed window of lines around the anchor,
 with no scroller of its own, since the transcript owns the scroller. Only the newest view in the
 chat runs live inline; older ones freeze. The inline card of the focused view collapses to
-*Showing in the sidebar*, so one stream runs at a time. Open: how many lines, and whether an
-older card can be made live again by hand.
+*Showing in the sidebar*, so one stream runs at a time. Open: how many lines, whether an
+older card can be made live again by hand, and whether a new view ever opens the sidebar by
+itself or stays inline until Expand.
 
 **Rung 3 — the screen rides with the question.** `chatSend` takes a snapshot of the open view:
 the resolved selector and grep, the id of the `LogsView` call that opened it, the visible range as
@@ -148,7 +148,7 @@ Fixed here so the rungs agree. Go paths are under `sidecar/internal/`.
   anchor and whether it is pinned to the end. On the wire it is `LogsViewAction`; in the webview, the `action` of the `LogsView` call
   that opened it.
 - **The focused view**: the one view a window draws in full, held beside the right sidebar's state
-  as `{ chatId, callId, action }`. Rung 1 introduces it.
+  as `{ chatId, callId, action }`.
 - **A receipt**: a `LogsView` call's `output`, one line saying what is now on screen. The model
   reads nothing else from a view.
 - **A sample**: a `LogsRead` call's `output`, bounded lines the model read. Rung 4 introduces it.

@@ -458,14 +458,14 @@ func (j *runJournal) ToolCallStarted(ctx context.Context, call llm.Block, approv
 // error, and result what the model read either way. A call refused without
 // running gets its first row here, with no started_at: the record of a call that
 // never ran.
-func (j *runJournal) ToolCallFinished(ctx context.Context, call, result llm.Block) error {
+func (j *runJournal) ToolCallFinished(ctx context.Context, call, result llm.Block, shown *tools.Action) error {
 	row := j.openTool
 	if row == nil {
 		row = j.newToolCall(call)
 		j.toolCalls = append(j.toolCalls, row)
 	}
 	j.openTool, j.toolSeq = nil, j.toolSeq+1
-	row.Status, row.Result, row.Error = toolSucceeded, result.Text, ""
+	row.Status, row.Result, row.Error, row.Shown = toolSucceeded, result.Text, "", shown
 	if result.IsError {
 		row.Status, row.Error = toolFailed, toolError(result.Text)
 		if code, _ := loop.RefusalOf(result.Text); row.IsMutating && code == loop.CodeDenied {

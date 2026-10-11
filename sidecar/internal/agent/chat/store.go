@@ -350,7 +350,10 @@ type toolCallEntry struct {
 	// Sandboxed is whether a sandbox confined the call, set at the gate.
 	Sandboxed bool
 	// Network is the network the call ran with, set when it starts running.
-	Network    session.Network
+	Network session.Network
+	// Shown is what the run showed, for a tools.Shown tool; nil where the action
+	// is read off Arguments.
+	Shown      *tools.Action
 	Result     string
 	Error      string
 	Status     string
@@ -569,10 +572,18 @@ func upsertToolCall(ctx context.Context, st stmts, c toolCallEntry) error {
 	if c.ByProvider {
 		runsOn = runsOnProvider
 	}
+	var shown sql.NullString
+	if c.Shown != nil {
+		b, err := json.Marshal(c.Shown)
+		if err != nil {
+			return fmt.Errorf("upsert tool call: %w", err)
+		}
+		shown = nullString(string(b))
+	}
 	_, err := st.Exec(ctx, stmtUpsertToolCall,
 		string(c.ID), string(c.LLMCallID), c.Seq, runsOn, c.Name, nullString(c.Contract), nullString(c.ToolUseID), nullString(c.Arguments), c.Cwd, c.Sandboxed,
 		nullString(string(c.Network)), nullString(c.Result), nullString(c.Error), c.IsMutating, nullString(string(c.SpawnedRunID)), nullString(c.Status),
-		millis(c.CreatedAt), c.StartedAt, c.FinishedAt)
+		millis(c.CreatedAt), c.StartedAt, c.FinishedAt, shown)
 	if err != nil {
 		return fmt.Errorf("upsert tool call: %w", err)
 	}
@@ -635,11 +646,18 @@ func toolCallsByRun(ctx context.Context, st stmts, reads callReads, arg string) 
 			approvalDuration             string
 			taskStatus, report           sql.NullString
 			exitCode                     sql.NullInt64
+			shown                        sql.NullString
 		)
 		err := rows.Scan(&run, &c.ID, &runsOn, &useID, &c.Name, &contract, &args, &c.Cwd, &c.Sandboxed, &network, &result, &errText, &status, &c.StartedAt,
-			&spawned, &approvalID, &approvalStatus, &approvalDuration, &taskStatus, &exitCode, &report)
+			&spawned, &approvalID, &approvalStatus, &approvalDuration, &taskStatus, &exitCode, &report, &shown)
 		if err != nil {
 			return nil, fmt.Errorf("tool calls: %w", err)
+		}
+		if shown.Valid {
+			c.Shown = &tools.Action{}
+			if err := json.Unmarshal([]byte(shown.String), c.Shown); err != nil {
+				return nil, fmt.Errorf("tool calls: %w", err)
+			}
 		}
 		c.ByProvider, c.Contract, c.Status = runsOn == runsOnProvider, contract.String, status.String
 		c.ToolUseID, c.Arguments, c.Result, c.Error = useID.String, args.String, result.String, errText.String
