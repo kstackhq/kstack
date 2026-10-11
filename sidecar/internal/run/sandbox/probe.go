@@ -14,7 +14,10 @@
 
 package sandbox
 
-import "context"
+import (
+	"context"
+	"sync"
+)
 
 // probePolicy is what a probe's run reaches before any run exists: System over
 // its shell, its folder dir writable, and the Never paths under home denied.
@@ -30,7 +33,11 @@ func (s *Sandbox) probePolicy(shell, dir, home string) Policy {
 // hang on a network mount, so it is built on a goroutine left behind then.
 func (s *Sandbox) probePolicyWithin(ctx context.Context, shell, dir, home string) (Policy, error) {
 	built, build := make(chan Policy, 1), buildProbePolicy
-	go func() { built <- build(s, shell, dir, home) }()
+	policyBuilds.Add(1)
+	go func() {
+		defer policyBuilds.Done()
+		built <- build(s, shell, dir, home)
+	}()
 	select {
 	case p := <-built:
 		return p, nil
@@ -38,6 +45,9 @@ func (s *Sandbox) probePolicyWithin(ctx context.Context, shell, dir, home string
 		return Policy{}, ctx.Err()
 	}
 }
+
+// policyBuilds counts the policy builds still running, which tests wait on.
+var policyBuilds sync.WaitGroup
 
 // buildProbePolicy is probePolicy, which a test replaces with one that hangs.
 var buildProbePolicy = (*Sandbox).probePolicy

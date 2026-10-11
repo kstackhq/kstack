@@ -1512,7 +1512,8 @@ may lie under `/tmp`.
 `Never` and `System` stat and list folders, which can hang on a network mount, so both run under a
 bound: bash's policy goroutine, and the probe's (`probePolicy`, `probe.go`: `System`, its folder
 written, `Never` denied, built through `probePolicyWithin` and `buildProbePolicy`, a test's
-seam).
+seam). A build a probe left behind runs on and reads the zone lists, so a test that cuts a probe
+short waits on `policyBuilds` in a cleanup before another test swaps them.
 → [ADR: the sandbox's zones are Kstack's lists](../docs/adr/2026-10-02-the-sandboxs-zones-are-kstacks-lists.md).
 
 **What no policy changes stays in each compiler**: on Linux the `/proc`, `/dev` and private `/tmp`

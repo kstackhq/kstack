@@ -187,6 +187,7 @@ func TestAProbePastItsBoundFails(t *testing.T) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
 	})
+	t.Cleanup(policyBuilds.Wait)
 	var s *Sandbox
 	var v Status
 	done := make(chan struct{})
@@ -1161,6 +1162,8 @@ func TestEachToolchainLocationRunsAProgram(t *testing.T) {
 // folders, which can hang on a network mount.
 func TestTheProbePolicyIsBounded(t *testing.T) {
 	release := make(chan struct{})
+	// Cleanups run last first, so the build is released before it is waited on.
+	t.Cleanup(policyBuilds.Wait)
 	t.Cleanup(func() { close(release) })
 	old := buildProbePolicy
 	buildProbePolicy = func(*Sandbox, string, string, string) Policy {
@@ -1253,6 +1256,7 @@ func TestTheShellCannotTraceItsOwnChild(t *testing.T) {
 // A probe whose context ended before it answered is the context's error, not
 // a verdict: read as one it would say there is no sandbox.
 func TestAProbeCutShortIsAnError(t *testing.T) {
+	t.Cleanup(policyBuilds.Wait)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 

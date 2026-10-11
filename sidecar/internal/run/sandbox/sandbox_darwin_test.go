@@ -387,6 +387,7 @@ func TestAProbeThatRunsIsASandbox(t *testing.T) {
 // command unconfined. The launcher hangs on purpose: the probe's own timeout
 // ends it.
 func TestAProbeThatTimesOutKeepsTheSandbox(t *testing.T) {
+	t.Cleanup(policyBuilds.Wait)
 	s, v := probe(t.Context(), launcher(t, "exec sleep 60\n"), 10*time.Millisecond)
 
 	require.NotNil(t, s)
@@ -1509,6 +1510,7 @@ func TestARunWithAnUnpassableVariableIsRefused(t *testing.T) {
 // A probe whose context ended before it answered is the context's error, not
 // a verdict: read as one it would say there is no sandbox.
 func TestAProbeCutShortIsAnError(t *testing.T) {
+	t.Cleanup(policyBuilds.Wait)
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
 
