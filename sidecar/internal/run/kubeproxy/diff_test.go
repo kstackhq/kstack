@@ -21,7 +21,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -351,12 +350,13 @@ func TestADiffUsesTheEndpoint(t *testing.T) {
 }
 
 // Each of the preview's bounds answers a reason and the write still asks: a
-// dry run that hangs past diffTimeout, a read or a dry run answering past
+// dry run that hangs until the bound cuts it, a read or a dry run answering past
 // maxDiffObject, a limiter whose next token comes past diffTimeout, and no
 // slot free, in which case nothing is sent.
 func TestTheDiffsRequestsAreBounded(t *testing.T) {
 	release := make(chan struct{})
 	t.Cleanup(func() { close(release) })
+	dryRun := make(chan struct{})
 	hanging := newAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			_, _ = io.WriteString(w, objectNow)
@@ -364,6 +364,7 @@ func TestTheDiffsRequestsAreBounded(t *testing.T) {
 		}
 		// Read whole, so the server notices the client leave.
 		_, _ = io.ReadAll(r.Body)
+		close(dryRun)
 		select {
 		case <-r.Context().Done():
 		case <-release:
@@ -371,7 +372,19 @@ func TestTheDiffsRequestsAreBounded(t *testing.T) {
 	})
 	asker := make(fakeAsker, 1)
 	g := NewGrant(hanging.upstream(), askSession, "dev", asker, noAsker, 1000, 1000, 32)
-	g.diffTimeout = 50 * time.Millisecond
+	// The bound fires once the dry run reaches the server, so the read never
+	// races it.
+	g.previewBound = func(ctx context.Context) (context.Context, context.CancelFunc) {
+		ctx, cancel := context.WithCancel(ctx)
+		go func() {
+			select {
+			case <-dryRun:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		return ctx, cancel
+	}
 	s := serveGrant(t, g)
 	r := askedRequest(t, s, asker, "PUT", configMapPath, "application/json", objectNow)
 	assert.True(t, strings.HasPrefix(r.DiffError, previewNoDryRun), r.DiffError)

@@ -32,7 +32,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"sync"
-	"time"
 
 	"golang.org/x/sync/semaphore"
 	"golang.org/x/time/rate"
@@ -113,8 +112,9 @@ type Grant struct {
 	// in, "" for a read across the cluster, under the write lock: helm
 	// rebuilds a release from the Secrets it read.
 	redactedReads map[string]bool
-	// diffTimeout bounds a preview's two requests together.
-	diffTimeout time.Duration
+	// previewBound is the context a preview's requests run under: r's, cut at
+	// diffTimeout. A test cuts it on an event instead.
+	previewBound func(context.Context) (context.Context, context.CancelFunc)
 	// waitersMoved, when set, is told each write that starts or stops waiting for
 	// writeLock, so a test can count them.
 	waitersMoved func(delta int)
@@ -143,8 +143,10 @@ func NewGrant(up Upstream, sess session.Session, kubeContext string, asker Asker
 		openRequests: semaphore.NewWeighted(int64(maxInFlight)),
 		writeLock:    semaphore.NewWeighted(1), writeWaiters: semaphore.NewWeighted(maxQueuedWrites),
 		redactedReads: map[string]bool{},
-		diffTimeout:   defaultDiffTimeout,
-		ctx:           ctx, end: end,
+		previewBound: func(ctx context.Context) (context.Context, context.CancelFunc) {
+			return context.WithTimeout(ctx, diffTimeout)
+		},
+		ctx: ctx, end: end,
 	}
 }
 

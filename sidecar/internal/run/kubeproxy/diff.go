@@ -35,8 +35,8 @@ import (
 )
 
 const (
-	// defaultDiffTimeout bounds a preview's two requests together.
-	defaultDiffTimeout = 10 * time.Second
+	// diffTimeout bounds a preview's two requests together.
+	diffTimeout = 10 * time.Second
 	// maxDiffLines is the most of a diff the request draws before the raw
 	// request takes over.
 	maxDiffLines = 2000
@@ -91,7 +91,7 @@ func (g *Grant) previewChange(r *http.Request, p apiPath, act permissions.Action
 		return preview{err: previewBusy}
 	}
 	defer g.openRequests.Release(1)
-	ctx, cancel := context.WithTimeout(r.Context(), g.diffTimeout)
+	ctx, cancel := g.previewBound(r.Context())
 	defer cancel()
 	conn, err := g.up.Endpoint(ctx)
 	if err != nil {
