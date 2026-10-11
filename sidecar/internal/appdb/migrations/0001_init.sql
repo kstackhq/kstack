@@ -252,7 +252,11 @@ CREATE UNIQUE INDEX llm_calls_run_idx ON llm_calls (run_id, seq);
 -- call ran with — 'chat' for the chat's switch, 'turn' for the turn's toggle,
 -- 'approved' for its own request — NULL for none and NULL until it runs: it is written
 -- on the row that marks the call running, so a call that asked and was denied keeps
--- NULL. Everything else a call does is read again from arguments by its own tool.
+-- NULL. shown_action is what the run showed, for a tool whose action cannot be
+-- read off the arguments alone (a view of logs: the mirror named the default
+-- container and the clock made a duration a moment); written with the result,
+-- NULL on every other call and on a refusal. Everything else a call does is read
+-- again from arguments by its own tool.
 --
 -- tool_name is the tool's name in the box and contract_name whose shapes it
 -- uses: a tool of ours by the name it is offered under, with contract_name NULL,
@@ -284,6 +288,7 @@ CREATE TABLE tool_calls (
   network        TEXT    CHECK (network IN ('chat', 'turn', 'approved')),
   result         TEXT,
   error          TEXT,
+  shown_action   TEXT,
 
   is_mutating    INTEGER NOT NULL DEFAULT 0 CHECK (is_mutating IN (0, 1)),
   spawned_run_id TEXT    REFERENCES agent_runs(id) ON DELETE SET NULL,
