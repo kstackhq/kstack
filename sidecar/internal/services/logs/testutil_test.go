@@ -17,11 +17,13 @@ package logs
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -192,6 +194,232 @@ func webMirror(t *testing.T) *fakeService {
 	return newMirror(t, append(webObjects(), webNodes()...)...)
 }
 
+// logServer is the API server's log endpoint over containers' logs held in
+// memory, honouring the parameters the fetcher sends.
+type logServer struct {
+	mu sync.Mutex
+	// logs is each container's lines, "<ts> <message>", keyed "<ns>/<pod>/<container>",
+	// with "/previous" for the instance before.
+	logs map[string][]string
+	// refuse answers a container's requests with a status and a message.
+	refuse map[string]refusal
+	// follows is what each container's follow writes after the log it opened on,
+	// by key; closing one ends that follow.
+	follows map[string]chan string
+	// queries is every request's query, in order, and keys each one's container.
+	queries []url.Values
+	keys    []string
+	// opened and closed count each container's follows that have opened and ended,
+	// by key.
+	opened, closed map[string]int
+	// onRequest, when set, runs before each request is served, with its index, and
+	// onOpen once each follow has opened, with its key. Set either before any request.
+	onRequest func(n int)
+	onOpen    func(key string)
+}
+
+type refusal struct {
+	code    int
+	message string
+}
+
+func newLogServer() *logServer {
+	return &logServer{logs: map[string][]string{}, refuse: map[string]refusal{}, follows: map[string]chan string{}, opened: map[string]int{}, closed: map[string]int{}}
+}
+
+// follow is what key's follow writes after the log it opened on.
+func (s *logServer) follow(key string) chan string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.follows[key] == nil {
+		s.follows[key] = make(chan string)
+	}
+	return s.follows[key]
+}
+
+// add appends lines to key's log.
+func (s *logServer) add(key string, lines ...string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.logs[key] = append(s.logs[key], lines...)
+}
+
+// clear empties key's log.
+func (s *logServer) clear(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.logs, key)
+}
+
+// setRefusal answers key's requests with r from now on, nil for none.
+func (s *logServer) setRefusal(key string, r *refusal) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if r == nil {
+		delete(s.refuse, key)
+		return
+	}
+	s.refuse[key] = *r
+}
+
+// followsOpened is how many of key's follows have opened.
+func (s *logServer) followsOpened(key string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.opened[key]
+}
+
+// followsClosed is how many of key's follows have ended.
+func (s *logServer) followsClosed(key string) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.closed[key]
+}
+
+// requests is every query so far.
+func (s *logServer) requests() []url.Values {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]url.Values(nil), s.queries...)
+}
+
+// requestsOf is every query for key's container, in order. A follow's containers
+// read concurrently, so a test about one container reads its requests alone.
+func (s *logServer) requestsOf(key string) []url.Values {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []url.Values
+	for i, k := range s.keys {
+		if k == key {
+			out = append(out, s.queries[i])
+		}
+	}
+	return out
+}
+
+// keyOf is the container a log path and query name, "" for a path that is no log's.
+func keyOf(path string, q url.Values) string {
+	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
+	if len(parts) != 7 || parts[0] != "api" || parts[6] != "log" {
+		return ""
+	}
+	key := parts[3] + "/" + parts[5] + "/" + q.Get("container")
+	if q.Get("previous") == "true" {
+		key += "/previous"
+	}
+	return key
+}
+
+// get reads s in memory, as a claim's get reads the API server, so a read's
+// bytes arrive as the server wrote them. It never follows.
+func (s *logServer) get(_ context.Context, path string, q url.Values) (io.ReadCloser, error) {
+	text, refused := s.serve(keyOf(path, q), q)
+	if refused != nil {
+		return nil, &statusError{refused.code, refused.message}
+	}
+	return io.NopCloser(strings.NewReader(text)), nil
+}
+
+func (s *logServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	key := keyOf(r.URL.Path, r.URL.Query())
+	if key == "" {
+		http.NotFound(w, r)
+		return
+	}
+	text, refused := s.serve(key, r.URL.Query())
+	if refused != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(refused.code)
+		_, _ = fmt.Fprintf(w, `{"kind":"Status","message":%q}`, refused.message)
+		return
+	}
+	_, _ = w.Write([]byte(text))
+	if r.URL.Query().Get("follow") != "true" {
+		return
+	}
+	w.(http.Flusher).Flush()
+	s.mu.Lock()
+	s.opened[key]++
+	s.mu.Unlock()
+	if s.onOpen != nil {
+		s.onOpen(key)
+	}
+	defer func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.closed[key]++
+	}()
+	follow := s.follow(key)
+	for {
+		select {
+		case line, ok := <-follow:
+			if !ok {
+				return
+			}
+			_, _ = w.Write([]byte(line + "\n"))
+			w.(http.Flusher).Flush()
+		case <-r.Context().Done():
+			return
+		}
+	}
+}
+
+// serve is key's log as the request's parameters cut it, or the refusal set for
+// key, after the request is counted and the hook has run.
+func (s *logServer) serve(key string, q url.Values) (string, *refusal) {
+	s.mu.Lock()
+	n := len(s.queries)
+	s.queries = append(s.queries, q)
+	s.keys = append(s.keys, key)
+	hook := s.onRequest
+	s.mu.Unlock()
+	if hook != nil {
+		hook(n)
+	}
+	s.mu.Lock()
+	lines := append([]string(nil), s.logs[key]...)
+	refused, isRefused := s.refuse[key]
+	s.mu.Unlock()
+	if isRefused {
+		return "", &refused
+	}
+	if since := q.Get("sinceTime"); since != "" {
+		at, _ := time.Parse(time.RFC3339, since)
+		var kept []string
+		for _, line := range lines {
+			ts, _ := time.Parse(time.RFC3339Nano, strings.SplitN(line, " ", 2)[0])
+			if !ts.Before(at) {
+				kept = append(kept, line)
+			}
+		}
+		lines = kept
+	}
+	if tail := q.Get("tailLines"); tail != "" {
+		n, _ := strconv.Atoi(tail)
+		lines = lines[max(0, len(lines)-n):]
+	}
+	text := ""
+	if len(lines) > 0 {
+		text = strings.Join(lines, "\n") + "\n"
+	}
+	if limit := q.Get("limitBytes"); limit != "" {
+		n, _ := strconv.Atoi(limit)
+		text = text[:min(n, len(text))]
+	}
+	return text, nil
+}
+
+// claimOn is a claim on a cluster whose API server serves s.
+func claimOn(t *testing.T, s *logServer) *claim {
+	t.Helper()
+	c, err := acquireClaim(t.Context(), serving(t, s), "7", "uid-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(c.close)
+	return c
+}
+
 // at is a moment on 2026-10-08 at 10:00, offset by d.
 func at(d time.Duration) time.Time {
 	return time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC).Add(d)
@@ -200,6 +428,24 @@ func at(d time.Duration) time.Time {
 // stamped is a log line at d past 10:00 saying msg.
 func stamped(d time.Duration, msg string) string {
 	return at(d).Format(time.RFC3339Nano) + " " + msg
+}
+
+// drain is every record r sends until it closes.
+func drain(r *streamRead) []Record {
+	var out []Record
+	for rec := range r.lines.Chan() {
+		out = append(out, rec)
+	}
+	return out
+}
+
+// messages is each record's message.
+func messages(recs []Record) []string {
+	out := []string{}
+	for _, r := range recs {
+		out = append(out, r.Message)
+	}
+	return out
 }
 
 // webView reads the app container of deployment web in prod.
@@ -306,6 +552,13 @@ func inlined(sql string, args []any) string {
 	}
 	return sql
 }
+
+// from, after, to and before are bounds at the moment d past 10:00: since it,
+// after it, until it, and before it.
+func from(d time.Duration) bound   { return bound{position{Timestamp: at(d)}, true} }
+func after(d time.Duration) bound  { return bound{position{Timestamp: at(d)}, false} }
+func to(d time.Duration) bound     { return bound{position{Timestamp: at(d)}, true} }
+func before(d time.Duration) bound { return bound{position{Timestamp: at(d)}, false} }
 
 // lineAt is the position of key's line at d past 10:00, the ordinal-th of its
 // moment.

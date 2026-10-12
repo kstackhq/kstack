@@ -2139,6 +2139,12 @@ A body the claim cut answers its reason, `ErrRevoked` or `errRetired`, never a b
 stream's, since access to `pods/log` is granted per namespace. Each read is one raw `GET` of the
 pod's `log` path through the connection's `HTTPClient`; no typed clientset.
 
+**`fetcher.go` is kubetail's algorithm**: forward with `sinceTime` rounded down to its second.
+**`reader.lines` is the one place a bound is applied**, and it numbers each line within its moment;
+every `GET` goes through it, so no read can miss one.
+A read that runs out of its budget, that the retirement cut, or that failed past a line in
+range stops short at the last line it read whole (`streamRead.stop`).
+
 **KubeQuery (`tools/kubequery`) is read-only SQL over the chat's cluster's cache, run without
 asking.** It is `Custom` and `Bounded` (10 s, whatever the input), never `Gated`. `parse` is the
 strict walk: `sql`, `limit` (200 unless given, read as 2000 past it) and `description`; a `;`
