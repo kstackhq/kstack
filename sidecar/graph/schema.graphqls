@@ -1443,7 +1443,7 @@ type LogRecord {
   message: String!
   stream: LogStream!
   place: LogPlace!
-  "Names this line: a fetch's cursor argument resumes past it. Opaque."
+  "Names this line: a fetch's cursor argument or a follow's `after` resumes past it. Opaque."
   cursor: String!
 }
 
@@ -1492,6 +1492,22 @@ input LogsViewSourceInput {
 input LogsViewFilterInput {
   field: LogsViewFilterField!
   values: [String!]!
+}
+
+"""
+One frame of a follow. `Line` carries a line; `Ended` is the last frame, carrying why
+the follow ended in the user's words, and following again would end the same way.
+Detect the end as `type === 'Ended'`, never as a missing record.
+"""
+type LogsFollowFrame {
+  type: LogsFollowFrameType!
+  record: LogRecord
+  reason: String!
+}
+
+enum LogsFollowFrameType {
+  Line
+  Ended
 }
 
 "Which end of the range a page is cut from when it holds more than `limit`."
@@ -2036,6 +2052,16 @@ type Subscription {
   # --- Memory ---
   "DELTA WATCH. What one cluster's chats see, keyed by `memory.id`: its own memories and every cluster's. A move between scopes arrives as `Added` or `Deleted` on each cluster it enters or leaves."
   memoriesWatch(clusterID: ClusterID!): MemoryWatchFrame!
+
+  # --- Logs ---
+  """
+  A view's new lines as they are written, after the cursor, or from now with none.
+  Lines are ordered per container, and across containers by arrival. A follow that
+  ends for a reason the user can read sends one `Ended` frame and completes: stop
+  subscribing. One that fails reports `watchFailed`; follow again with `after` set
+  to the last line's cursor.
+  """
+  logsFollow(id: ClusterID!, view: LogsViewInput!, after: String): LogsFollowFrame!
 
   # --- Sandbox ---
   "GAUGE. The executable probe: whether one runs, and the report as the last one left it, a fresh value on each start, each end and each change to the registered executables."

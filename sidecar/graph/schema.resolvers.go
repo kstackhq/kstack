@@ -720,6 +720,15 @@ func (r *subscriptionResolver) MemoriesWatch(ctx context.Context, clusterID apim
 	return watchStream(ctx, st.Frames, st.Err), nil
 }
 
+// LogsFollow is the resolver for the logsFollow field.
+func (r *subscriptionResolver) LogsFollow(ctx context.Context, id apimeta.ClusterID, view logs.View, after *string) (<-chan *logs.FollowFrame, error) {
+	st, err := r.Logs.Follow(ctx, id, view, after)
+	if err != nil {
+		return nil, logsErr(err)
+	}
+	return watchStream(ctx, st.Frames, st.Err), nil
+}
+
 // SandboxExecutablesWatch is the resolver for the sandboxExecutablesWatch field: the
 // probe's state and the settings' registered tools, each a current-on-subscribe
 // receiver, folded into one report on either's change. A machine with no
