@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustertest"
@@ -143,6 +144,16 @@ func webMirror(t *testing.T) *fakeService {
 	return newMirror(t, append(webObjects(), webNodes()...)...)
 }
 
+// at is a moment on 2026-10-08 at 10:00, offset by d.
+func at(d time.Duration) time.Time {
+	return time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC).Add(d)
+}
+
+// stamped is a log line at d past 10:00 saying msg.
+func stamped(d time.Duration, msg string) string {
+	return at(d).Format(time.RFC3339Nano) + " " + msg
+}
+
 // webView reads the app container of deployment web in prod.
 var webView = View{Sources: []ViewSource{{Namespace: "prod", Kind: SourceDeployment, Name: "web", Containers: []string{"app"}}}}
 
@@ -246,6 +257,18 @@ func inlined(sql string, args []any) string {
 		sql = strings.Replace(sql, "?", "'"+strings.ReplaceAll(fmt.Sprint(a), "'", "''")+"'", 1)
 	}
 	return sql
+}
+
+// lineAt is the position of key's line at d past 10:00, the ordinal-th of its
+// moment.
+func lineAt(key StreamKey, d time.Duration, ordinal int) position {
+	return position{at(d), key.Namespace, key.Pod, key.Container, key.Previous, ordinal}
+}
+
+// lineCursor is the cursor of pod/container's line at d past 10:00, in prod, the
+// ordinal-th of its moment.
+func lineCursor(pod, container string, d time.Duration, ordinal int) *string {
+	return cursorOf(lineAt(StreamKey{Namespace: "prod", Pod: pod, Container: container}, d, ordinal))
 }
 
 // keysOf is each of t's streams' key, in order.

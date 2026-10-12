@@ -2127,6 +2127,11 @@ and OSC sequences in ESC and C1 forms, every other C1, DEL and every C0 but tab,
 replaced, cut at 16 KiB on a character boundary with `…`. A refusal's message is cleaned the same
 way.
 
+**A cursor names a line** (`cursor.go`): its moment, its container and its ordinal among that
+container's lines at the moment, so a page can end at any line and the next starts just past it. A
+time alone names a moment, which the viewer's `At` anchor sends; `since` and `until` keep the
+cursor's line where `after` and `before` drop it.
+
 **KubeQuery (`tools/kubequery`) is read-only SQL over the chat's cluster's cache, run without
 asking.** It is `Custom` and `Bounded` (10 s, whatever the input), never `Gated`. `parse` is the
 strict walk: `sql`, `limit` (200 unless given, read as 2000 past it) and `description`; a `;`
