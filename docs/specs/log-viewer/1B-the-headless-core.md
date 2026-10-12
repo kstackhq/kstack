@@ -52,15 +52,15 @@ rather than pasted. The behaviour is kubetail's; the text will not be.
 
 ### 2. The line
 
-`LogLine` is defined in the library's `types.ts` as the wire's `LogRecord` from step 1A, plus a
-`cursor`. `src/lib/viewport.ts` imports it from there, so the dependency runs from the
+`LogLine` is defined in the library's `types.ts` as the wire's `LogRecord` from step 1A, its
+`cursor` included. `src/lib/viewport.ts` imports it from there, so the dependency runs from the
 app into the library and never back:
 
 ```ts
 export type LogLine = {
   /** RFC 3339, as the sidecar hands it back. */
   timestamp: string;
-  /** What the client sends back to ask for lines before or after this one. The timestamp today. */
+  /** What the client sends back to ask for lines before or after this one. Opaque. */
   cursor: string;
   /** Text, with terminal control sequences stripped by the sidecar. */
   message: string;

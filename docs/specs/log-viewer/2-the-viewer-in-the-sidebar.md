@@ -46,10 +46,12 @@ grep, field by field. `createLogsClient` answers the five methods:
   with `Tail`, `fetchAfter` sends `after` with `Head`, `fetchBefore` sends `before` with `Tail`.
   A result with an error rejects with it.
 - `subscribe(callback, { after })` runs `logsFollow` through `client.subscription(...)` and calls
-  back once per frame. It rides `subscribe-exchange`, which reconnects on its own with the same
-  `after`; the core drops what it has seen (step 1B). A `watchFailed` frame is reported by the
-  exchange already and the client does nothing more.
-- The records come back as `LogLine`s with `cursor` set to the timestamp.
+  back once per `Line` frame. It rides `subscribe-exchange`, which reconnects on its own with
+  the same `after`; the core drops what it has seen (step 1B). A `watchFailed` frame is reported
+  by the exchange already and the client does nothing more. An `Ended` frame is the follow's
+  last: the client unsubscribes, so the exchange does not follow again, and hands the reason to
+  `onError`.
+- The records come back as `LogLine`s with `cursor` set to the record's own.
 
 The client is built once per mount of the viewer, which is keyed on the call's id, so a new call
 is a new client and a re-render of the same call keeps it.
