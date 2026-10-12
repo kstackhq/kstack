@@ -12,28 +12,42 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-import { act, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { createRef, useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
-import { HIDDEN_FLUSH_MS, LogViewerCore } from './core';
+import { HIDDEN_FLUSH_MS, LogViewerCore, REOPEN_OVERLAP_MS } from './core';
+import { cursorBefore } from './cursor';
+import { FakeClient } from './fake-client';
 import type { CoreHandle, CoreRows } from './core';
-import type { Anchor, Client, FetchResult, LogLine } from './types';
+import type { Anchor, Client, Cursor, FetchOptions, FetchResult, LogLine } from './types';
 
 // Layout ---------------------------------------------------------------
 //
 // jsdom lays nothing out. The scroller is VIEW tall, every row ROW tall, and its
 // scrollHeight is the sizer the render function draws; scrollTop clamps as a
-// browser's does and fires `scroll`, which is how the virtualizer learns of a
-// move. A test's own write to scrollTop is the user's hand. Content shrinking
-// under the scroll clamps it too, on the next read, with its `scroll` a task
-// later, as a browser's layout does.
+// browser's does and fires `scroll`, which is how the virtualizer and the pin
+// learn of a move. A test's own write to scrollTop is the user's hand. Content
+// shrinking under the scroll clamps it too, on the next read, with its `scroll`
+// a task later, as a browser's layout does. `holdScrollEvents` keeps the events
+// back and answers a release that fires one per scroller, as a browser coalesces them.
 
 const ROW = 20;
 const VIEW = 100;
 
 const scrollTops = new WeakMap<Element, number>();
+
+let heldScrolls: Set<Element> | null = null;
+
+function holdScrollEvents() {
+  const held = new Set<Element>();
+  heldScrolls = held;
+  return () => {
+    heldScrolls = null;
+    held.forEach((el) => el.dispatchEvent(new Event('scroll')));
+  };
+}
 
 function scrollHeightOf(el: Element) {
   const sizer = el.firstElementChild as HTMLElement | null;
@@ -61,7 +75,10 @@ beforeEach(() => {
       const max = Math.max(0, scrollHeightOf(this) - VIEW);
       if (top <= max) return top;
       scrollTops.set(this, max);
-      setTimeout(() => this.dispatchEvent(new Event('scroll')));
+      setTimeout(() => {
+        if (heldScrolls) heldScrolls.add(this);
+        else this.dispatchEvent(new Event('scroll'));
+      });
       return max;
     },
     set(value: number) {
@@ -69,7 +86,8 @@ beforeEach(() => {
       const next = Math.min(Math.max(0, value), max);
       if (next === (scrollTops.get(this) ?? 0)) return;
       scrollTops.set(this, next);
-      this.dispatchEvent(new Event('scroll'));
+      if (heldScrolls) heldScrolls.add(this);
+      else this.dispatchEvent(new Event('scroll'));
     },
   });
   HTMLElement.prototype.scrollTo = function scrollToTop(options?: ScrollToOptions | number) {
@@ -95,6 +113,7 @@ afterEach(() => {
     if (descriptor) Object.defineProperty(HTMLElement.prototype, name, descriptor);
     else delete (HTMLElement.prototype as Partial<HTMLElement>)[name];
   });
+  heldScrolls = null;
   vi.restoreAllMocks();
   vi.useRealTimers();
   vi.unstubAllGlobals();
@@ -132,19 +151,37 @@ function page(pageLines: LogLine[], nextCursor: string | null = null, skipped: s
   return { lines: pageLines, nextCursor, skipped };
 }
 
+type Subscription = { after: Cursor | null; onLine: (line: LogLine) => void; open: boolean };
+
 type ScriptedClient = {
   [K in 'fetchSince' | 'fetchUntil' | 'fetchAfter' | 'fetchBefore']: Mock<Client[K]>;
 } & {
   subscribe: Mock<Client['subscribe']>;
+  subscriptions: Subscription[];
+  /** The one subscription open now; fails the test when there is not exactly one. */
+  live: () => Subscription;
 };
 
 function scriptedClient(): ScriptedClient {
+  const subscriptions: Subscription[] = [];
   return {
     fetchSince: vi.fn(async () => page([])),
     fetchUntil: vi.fn(async () => page([])),
     fetchAfter: vi.fn(async () => page([])),
     fetchBefore: vi.fn(async () => page([])),
-    subscribe: vi.fn(() => () => {}),
+    subscribe: vi.fn((after: Cursor | null, onLine: (line: LogLine) => void) => {
+      const subscription = { after, onLine, open: true };
+      subscriptions.push(subscription);
+      return () => {
+        subscription.open = false;
+      };
+    }),
+    subscriptions,
+    live: () => {
+      const open = subscriptions.filter((s) => s.open);
+      expect(open).toHaveLength(1);
+      return open[0];
+    },
   };
 }
 
@@ -152,15 +189,18 @@ function scriptedClient(): ScriptedClient {
 
 type MountOptions = {
   anchor?: Anchor;
+  pinToEnd?: boolean;
+  paused?: boolean;
   onError?: (error: unknown) => void;
   loadMoreThreshold?: number;
   edgeRowHeight?: number;
+  pinTolerance?: number;
 };
 
 const HEAD: Anchor = { kind: 'Head', at: null };
 const TAIL: Anchor = { kind: 'Tail', at: null };
 
-/** What the render function was last handed. */
+/** What the render function was last handed, for the walk's checks. */
 let latestRows: CoreRows | null = null;
 
 function Rows({ rows }: { rows: CoreRows }) {
@@ -198,31 +238,37 @@ function mount(client: Client, options: MountOptions = {}) {
   const ref = createRef<CoreHandle>();
   const props = {
     anchor: options.anchor ?? HEAD,
+    pinToEnd: options.pinToEnd ?? false,
     onError: options.onError,
     loadMoreThreshold: options.loadMoreThreshold ?? 1,
     edgeRowHeight: options.edgeRowHeight ?? 0,
+    pinTolerance: options.pinTolerance ?? 0,
   };
-  const view = (viewClient: Client) => (
+  const view = (paused: boolean, viewClient: Client = client) => (
     <LogViewerCore
       ref={ref}
       client={viewClient}
       anchor={props.anchor}
+      pinToEnd={props.pinToEnd}
+      paused={paused}
       onError={props.onError}
       estimateRowHeight={() => ROW}
       overscan={0}
       firstPageSize={10}
       pageSize={10}
       loadMoreThreshold={props.loadMoreThreshold}
+      pinTolerance={props.pinTolerance}
       edgeRowHeight={props.edgeRowHeight}
     >
       {(rows) => <Rows rows={rows} />}
     </LogViewerCore>
   );
-  const result = render(view(client));
+  const result = render(view(options.paused ?? false));
   const scroller = () => result.container.firstElementChild as HTMLElement;
   return {
     ref,
-    setClient: (next: Client) => result.rerender(view(next)),
+    setPaused: (paused: boolean) => result.rerender(view(paused)),
+    setClient: (next: Client) => result.rerender(view(options.paused ?? false, next)),
     state: () => ref.current!.getSnapshot(),
     scroller,
     /** The user's hand on the scroller. */
@@ -242,6 +288,12 @@ function mount(client: Client, options: MountOptions = {}) {
   };
 }
 
+/** Sends follow frames, then lets the core flush them. */
+async function deliver(subscription: Subscription, ...frames: LogLine[]) {
+  act(() => frames.forEach((frame) => subscription.onLine(frame)));
+  await flush();
+}
+
 function lineCount() {
   return Number(screen.getByTestId('sizer').dataset.count);
 }
@@ -251,7 +303,7 @@ function messages() {
 }
 
 // React commits an act's updates as it ends, and a commit can schedule the next
-// frame's work (a landing's end, a page's flight), so run until no timer is left.
+// frame's work (a landing's end, a follow's flush), so run until no timer is left.
 async function flush() {
   for (let round = 0; round < 10; round += 1) {
     // eslint-disable-next-line no-await-in-loop -- each round waits on the commit before it
@@ -311,6 +363,27 @@ describe('LogViewerCore', () => {
       expect(shown()[0]).toEqual([0, 'pod-1 line 20']);
     });
 
+    it('lands unpinned at Head when asked to pin with more after, rather than following from there', async () => {
+      const client = scriptedClient();
+      client.fetchSince.mockResolvedValueOnce(page(lines(0, 10), line(9).cursor));
+      const { state, scroller } = mount(client, { anchor: HEAD, pinToEnd: true });
+      await flush();
+
+      expect(client.subscribe).not.toHaveBeenCalled();
+      expect(scroller().scrollTop).toBe(0);
+      expect(state()).toMatchObject({ pinnedToEnd: false, following: false, atEnd: false });
+    });
+
+    it('lands pinned at Head when the first page holds the whole log, and follows', async () => {
+      const client = scriptedClient();
+      client.fetchSince.mockResolvedValueOnce(page(lines(0, 3)));
+      const { state } = mount(client, { anchor: HEAD, pinToEnd: true });
+      await flush();
+
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: true });
+      expect(client.live().after).toBe(cursorBefore(line(2).cursor, REOPEN_OVERLAP_MS));
+    });
+
     it('reports nothing from a landing a jump replaced while it was in flight', async () => {
       const client = scriptedClient();
       const onError = vi.fn();
@@ -327,7 +400,7 @@ describe('LogViewerCore', () => {
       await act(async () => refuse(new Error('refused')));
       await flush();
       expect(onError).not.toHaveBeenCalled();
-      expect(state()).toMatchObject({ loading: false, failed: false });
+      expect(state()).toMatchObject({ loading: false, following: true });
     });
 
     it('ends loading on a timer while no frame comes, as in a minimized window', async () => {
@@ -456,13 +529,20 @@ describe('LogViewerCore', () => {
       expect(state().loading).toBe(false);
     });
 
-    it('says it failed, and not that it is at the end, after a failed landing', async () => {
+    it('neither follows nor says it is at the end after a failed pinned landing', async () => {
       const client = scriptedClient();
       client.fetchUntil.mockRejectedValueOnce(new Error('refused'));
-      const { state } = mount(client, { anchor: TAIL, onError: vi.fn() });
+      const { state } = mount(client, { anchor: TAIL, pinToEnd: true, onError: vi.fn() });
       await flush();
 
-      expect(state()).toMatchObject({ loading: false, failed: true, atEnd: false });
+      expect(client.subscribe).not.toHaveBeenCalled();
+      expect(state()).toMatchObject({
+        loading: false,
+        failed: true,
+        pinnedToEnd: false,
+        following: false,
+        atEnd: false,
+      });
       expect(latestRows!.failed).toBe(true);
     });
 
@@ -470,13 +550,12 @@ describe('LogViewerCore', () => {
       const client = scriptedClient();
       client.fetchUntil.mockRejectedValueOnce(new Error('refused'));
       client.fetchUntil.mockResolvedValueOnce(page(lines(0, 3)));
-      const { ref, state } = mount(client, { anchor: TAIL, onError: vi.fn() });
+      const { ref, state } = mount(client, { anchor: TAIL, pinToEnd: true, onError: vi.fn() });
       await flush();
 
       act(() => ref.current!.jumpTo(TAIL));
       await flush();
-      expect(state().failed).toBe(false);
-      expect(messages()).toEqual(lines(0, 3).map((l) => l.message));
+      expect(state()).toMatchObject({ failed: false, pinnedToEnd: true, following: true });
     });
 
     it('reports a landing it cannot place once, with no scroll left queued behind it', async () => {
@@ -560,6 +639,552 @@ describe('LogViewerCore', () => {
     });
   });
 
+  describe('following', () => {
+    async function pinnedAtTail(client: ScriptedClient, options: MountOptions = {}) {
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10), 'older'));
+      const mounted = mount(client, { anchor: TAIL, pinToEnd: true, ...options });
+      await flush();
+      return mounted;
+    }
+
+    it('opens the follow five seconds before the newest line while pinned, and keeps the end in view as lines arrive', async () => {
+      const client = scriptedClient();
+      const { state, scroller } = await pinnedAtTail(client);
+
+      expect(client.live().after).toBe(cursorBefore(line(9).cursor, REOPEN_OVERLAP_MS));
+      await deliver(client.live(), line(10), line(11));
+
+      expect(shown().at(-1)).toEqual([2, 'pod-1 line 11']);
+      expect(scroller().scrollTop).toBe(12 * ROW - VIEW);
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: true, atEnd: true });
+    });
+
+    it('opens no follow when the view says not to pin, and pages toward the end instead', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10), 'older'));
+      const { state } = mount(client, { anchor: TAIL, pinToEnd: false });
+      await flush();
+
+      // A Tail landing scrolls to the bottom, and that must not pin it. Landed at
+      // the edge of a window with more after, it reads the next page.
+      expect(client.subscribe).not.toHaveBeenCalled();
+      expect(client.fetchSince).toHaveBeenCalledWith({ cursor: line(9).cursor, limit: 10 });
+      expect(state()).toMatchObject({ pinnedToEnd: false, following: false });
+    });
+
+    it('re-pins on a user scroll to the bottom only once the last page after had nothing more', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10), 'older'));
+      client.fetchSince.mockResolvedValueOnce(page(lines(10, 12), 'newer'));
+      const { state, userScrollToBottom } = mount(client, { anchor: TAIL, pinToEnd: false });
+      await flush();
+      expect(state().pinnedToEnd).toBe(false);
+
+      client.fetchSince.mockResolvedValueOnce(page(lines(12, 13)));
+      await userScrollToBottom();
+      expect(client.fetchSince).toHaveBeenLastCalledWith({ cursor: line(11).cursor, limit: 10 });
+      expect(state().pinnedToEnd).toBe(false);
+
+      await userScrollToBottom();
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: true, atEnd: true });
+      expect(client.live().after).toBe(cursorBefore(line(12).cursor, REOPEN_OVERLAP_MS));
+    });
+
+    it('re-pins when the page a scroll to the bottom asked for finds no more', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10), 'older'));
+      client.fetchSince.mockResolvedValueOnce(page([], 'newer'));
+      const { state, scroller, userScroll, userScrollToBottom } = mount(client, { anchor: TAIL, pinToEnd: false });
+      await flush();
+
+      client.fetchAfter.mockResolvedValueOnce(page([]));
+      await userScroll(scroller().scrollTop - ROW);
+      await userScrollToBottom();
+      expect(client.fetchAfter).toHaveBeenLastCalledWith({ cursor: 'newer', limit: 10 });
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: true });
+    });
+
+    it('does not pin when the page that finds no more was not asked for by a scroll to the bottom', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10), 'older'));
+      const { state } = mount(client, { anchor: TAIL, pinToEnd: false });
+      await flush();
+
+      expect(client.fetchSince).toHaveBeenCalledOnce();
+      expect(state()).toMatchObject({ pinnedToEnd: false, following: false });
+    });
+
+    it('does not pin when removing the edge row after clamps the scroll to the bottom', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10), 'older'));
+      const { state, scroller } = mount(client, { anchor: TAIL, pinToEnd: false, edgeRowHeight: ROW });
+      await flush();
+
+      // The landing scrolled past the rows to the edge row; the page after found no more.
+      expect(client.fetchSince).toHaveBeenCalledOnce();
+      expect(scroller().scrollTop).toBe(scroller().scrollHeight - VIEW);
+      await flush();
+
+      expect(client.subscribe).not.toHaveBeenCalled();
+      expect(state()).toMatchObject({ pinnedToEnd: false, following: false });
+    });
+
+    it('unpins on a scroll up, closes the follow and says it is no longer at the end', async () => {
+      const client = scriptedClient();
+      const { state, scroller, userScroll } = await pinnedAtTail(client);
+      const follow = client.live();
+
+      await userScroll(scroller().scrollTop - ROW);
+
+      expect(follow.open).toBe(false);
+      expect(state()).toMatchObject({ pinnedToEnd: false, following: false, atEnd: false });
+    });
+
+    it('unpins on a scroll up between follow batches arriving every frame', async () => {
+      const client = scriptedClient();
+      const { state, scroller } = await pinnedAtTail(client);
+      const follow = client.live();
+
+      // One frame: the batch is appended and the end brought into view.
+      act(() => follow.onLine(line(10)));
+      await act(() => vi.advanceTimersByTimeAsync(16));
+      const bottom = scroller().scrollTop;
+      expect(bottom).toBe(11 * ROW - VIEW);
+
+      // Before the next frame, the user scrolls up, and the next batch is already on its way.
+      act(() => {
+        scroller().scrollTop = bottom - 2 * ROW;
+        follow.onLine(line(11));
+      });
+      await flush();
+
+      expect(follow.open).toBe(false);
+      expect(scroller().scrollTop).toBe(bottom - 2 * ROW);
+      expect(state()).toMatchObject({ pinnedToEnd: false, following: false });
+    });
+
+    it('appends a follow batch on a timer while no frame comes, as in a minimized window', async () => {
+      const client = scriptedClient();
+      await pinnedAtTail(client);
+      const follow = client.live();
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0);
+
+      act(() => follow.onLine(line(10)));
+      await act(() => vi.advanceTimersByTimeAsync(HIDDEN_FLUSH_MS - 1));
+      expect(lineCount()).toBe(10);
+
+      await act(() => vi.advanceTimersByTimeAsync(1));
+      expect(lineCount()).toBe(11);
+    });
+
+    it('drops a batch still waiting when the follow closes', async () => {
+      const client = scriptedClient();
+      const { setPaused } = await pinnedAtTail(client);
+      const follow = client.live();
+
+      act(() => {
+        follow.onLine(line(10));
+        setPaused(true);
+      });
+      await act(() => vi.advanceTimersByTimeAsync(HIDDEN_FLUSH_MS));
+      expect(follow.open).toBe(false);
+      expect(lineCount()).toBe(10);
+    });
+
+    it('unpins on a scroll up whose event arrives with the follow’s, coalesced into one', async () => {
+      const client = scriptedClient();
+      const { state, scroller } = await pinnedAtTail(client);
+      const follow = client.live();
+      const bottom = scroller().scrollTop;
+
+      const release = holdScrollEvents();
+      await deliver(follow, ...lines(10, 20));
+      expect(scroller().scrollTop).toBe(bottom + 10 * ROW);
+      scroller().scrollTop = bottom + 9 * ROW;
+      // One event, reading a position above where the core left the scroller and below where the last event read it.
+      await act(async () => release());
+      await flush();
+
+      expect(follow.open).toBe(false);
+      expect(state()).toMatchObject({ pinnedToEnd: false, following: false });
+      expect(scroller().scrollTop).toBe(bottom + 9 * ROW);
+    });
+
+    it('keeps a scroll up whose event has not arrived when the follow’s lines land, and unpins when it does', async () => {
+      const client = scriptedClient();
+      const { state, scroller } = await pinnedAtTail(client);
+      const follow = client.live();
+      const bottom = scroller().scrollTop;
+
+      const release = holdScrollEvents();
+      scroller().scrollTop = bottom - ROW;
+      await deliver(follow, ...lines(10, 20));
+      expect(scroller().scrollTop).toBe(bottom - ROW);
+      await act(async () => release());
+      await flush();
+
+      expect(follow.open).toBe(false);
+      expect(state()).toMatchObject({ pinnedToEnd: false, following: false });
+    });
+
+    it('keeps the row of a scroll up whose event has not arrived when a page lands above it, and unpins', async () => {
+      const client = scriptedClient();
+      let answer: (result: FetchResult) => void = () => {};
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10), 'older')).mockReturnValueOnce(
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+      );
+      const { state, scroller } = mount(client, { anchor: TAIL, pinToEnd: true, loadMoreThreshold: 10 });
+      await flush();
+      expect(client.fetchUntil).toHaveBeenCalledTimes(2);
+      const bottom = scroller().scrollTop;
+
+      const release = holdScrollEvents();
+      scroller().scrollTop = bottom - ROW;
+      await act(async () => answer(page(lines(-10, 0))));
+      await flush();
+      expect(scroller().scrollTop).toBe(bottom - ROW + 10 * ROW);
+      await act(async () => release());
+      await flush();
+
+      expect(state()).toMatchObject({ pinnedToEnd: false, following: false });
+      expect(scroller().scrollTop).toBe(bottom - ROW + 10 * ROW);
+    });
+
+    it('unpins on a scroll up right after a scroll to the bottom, both before a render', async () => {
+      const client = scriptedClient();
+      const { state, scroller, userScroll } = await pinnedAtTail(client);
+      const bottom = scroller().scrollTop;
+      await userScroll(bottom - ROW);
+      expect(state().pinnedToEnd).toBe(false);
+
+      await act(async () => {
+        scroller().scrollTop = bottom;
+        scroller().scrollTop = bottom - ROW;
+      });
+      await flush();
+      expect(state()).toMatchObject({ pinnedToEnd: false, following: false });
+    });
+
+    it('unpins on a scroll up smaller than the pin tolerance, and stays where the user left it', async () => {
+      const client = scriptedClient();
+      const { state, scroller, userScroll } = await pinnedAtTail(client, { pinTolerance: 10 });
+      const follow = client.live();
+      const bottom = scroller().scrollTop;
+
+      await userScroll(bottom - 3);
+      expect(follow.open).toBe(false);
+      expect(state()).toMatchObject({ pinnedToEnd: false, following: false });
+      expect(scroller().scrollTop).toBe(bottom - 3);
+    });
+
+    it('pins on a scroll down that ends within the pin tolerance of the bottom', async () => {
+      const client = scriptedClient();
+      const { state, scroller, userScroll } = await pinnedAtTail(client, { pinTolerance: 10 });
+      const bottom = scroller().scrollTop;
+      await userScroll(bottom - ROW);
+      expect(state().pinnedToEnd).toBe(false);
+
+      await userScroll(bottom - 5);
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: true });
+    });
+
+    it('lets the user unpin right after a core scroll that changed nothing', async () => {
+      const client = scriptedClient();
+      const { ref, state, scroller, userScroll } = await pinnedAtTail(client);
+      const follow = client.live();
+      const bottom = scroller().scrollTop;
+
+      // A re-measure at the end scrolls to where it already is, so no event fires;
+      // what the core recorded must not be held against the user's next scroll.
+      act(() => ref.current!.measure());
+      await flush();
+      expect(scroller().scrollTop).toBe(bottom);
+
+      await userScroll(bottom - ROW);
+      expect(follow.open).toBe(false);
+      expect(state()).toMatchObject({ pinnedToEnd: false, following: false });
+    });
+
+    it('catches up from five seconds before the newest line, then re-pins and follows from there', async () => {
+      const client = scriptedClient();
+      const { state, scroller, userScroll, userScrollToBottom } = await pinnedAtTail(client);
+      await deliver(client.live(), line(10));
+
+      // The catch-up re-reads lines it holds, which are dropped.
+      client.fetchAfter.mockResolvedValueOnce(page(lines(6, 13)));
+      await userScroll(scroller().scrollTop - ROW);
+      expect(client.fetchAfter).toHaveBeenCalledWith({
+        cursor: cursorBefore(line(10).cursor, REOPEN_OVERLAP_MS),
+        limit: 10,
+      });
+
+      await userScrollToBottom();
+      expect(messages()).toEqual(lines(8, 13).map((l) => l.message));
+      expect(state().pinnedToEnd).toBe(true);
+      expect(client.live().after).toBe(cursorBefore(line(12).cursor, REOPEN_OVERLAP_MS));
+    });
+
+    it('takes a catch-up page of lines it already holds as empty, and offers to read on', async () => {
+      const client = scriptedClient();
+      const { scroller, userScroll } = await pinnedAtTail(client);
+      await deliver(client.live(), line(10));
+
+      client.fetchAfter.mockResolvedValueOnce(page(lines(6, 11), 'budget-spent'));
+      await userScroll(scroller().scrollTop - ROW);
+      expect(lineCount()).toBe(11);
+
+      client.fetchAfter.mockResolvedValueOnce(page(lines(11, 13)));
+      await act(async () => screen.getByRole('button', { name: 'Read on after' }).click());
+      await flush();
+      expect(client.fetchAfter).toHaveBeenLastCalledWith({ cursor: 'budget-spent', limit: 10 });
+      expect(lineCount()).toBe(13);
+    });
+
+    it('follows on resume whatever a catch-up page asked during the pause says when it lands late', async () => {
+      const client = scriptedClient();
+      const { state, scroller, setPaused, userScrollToBottom } = await pinnedAtTail(client, { edgeRowHeight: ROW });
+      act(() => setPaused(true));
+      await flush();
+
+      // Into the after edge row the pause drew: a catch-up page, still pinned.
+      let answer: (result: FetchResult) => void = () => {};
+      client.fetchAfter.mockReturnValueOnce(
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+      );
+      await userScrollToBottom();
+      expect(client.fetchAfter).toHaveBeenCalledOnce();
+      expect(state().pinnedToEnd).toBe(true);
+
+      act(() => setPaused(false));
+      await flush();
+      const follow = client.live();
+      // Lines it holds, and more to read: stale, since the follow reads from the after edge itself.
+      await act(async () => answer(page(lines(6, 10), line(9).cursor)));
+      await flush();
+
+      expect(follow.open).toBe(true);
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: true });
+      await deliver(follow, line(10));
+      expect(scroller().scrollTop + VIEW).toBe(scroller().scrollHeight);
+      expect(messages().at(-1)).toBe('pod-1 line 10');
+    });
+
+    it('follows on resume after a catch-up page during the pause found more to read', async () => {
+      const client = scriptedClient();
+      const { state, setPaused, userScrollToBottom } = await pinnedAtTail(client, { edgeRowHeight: ROW });
+      act(() => setPaused(true));
+      await flush();
+
+      client.fetchAfter.mockResolvedValueOnce(page(lines(10, 12), line(11).cursor));
+      await userScrollToBottom();
+      expect(lineCount()).toBe(12);
+
+      act(() => setPaused(false));
+      await flush();
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: true });
+      expect(client.live().after).toBe(cursorBefore(line(11).cursor, REOPEN_OVERLAP_MS));
+    });
+
+    it('closes the follow while paused and leaves the viewport where it is, then reopens five seconds back', async () => {
+      const client = scriptedClient();
+      const { state, scroller, setPaused } = await pinnedAtTail(client);
+      const follow = client.live();
+      const top = scroller().scrollTop;
+
+      act(() => setPaused(true));
+      await flush();
+      expect(follow.open).toBe(false);
+      expect(scroller().scrollTop).toBe(top);
+      expect(client.fetchAfter).not.toHaveBeenCalled();
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: false });
+
+      act(() => setPaused(false));
+      await flush();
+      expect(client.live().after).toBe(cursorBefore(line(9).cursor, REOPEN_OVERLAP_MS));
+      expect(state().following).toBe(true);
+    });
+
+    it('re-pins while paused as a follow closed at the end, still behind the live end', async () => {
+      const client = scriptedClient();
+      const { state, scroller, setPaused, userScroll, userScrollToBottom } = await pinnedAtTail(client, {
+        edgeRowHeight: ROW,
+      });
+      act(() => setPaused(true));
+      await flush();
+
+      // Unpinned, with a catch-up page that finds nothing more: the edge row goes.
+      await userScroll(scroller().scrollTop - ROW);
+      expect(state().pinnedToEnd).toBe(false);
+      expect(latestRows!.after.more).toBe(false);
+
+      // Lines go on being written past a pinned window that is paused.
+      await userScrollToBottom();
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: false, atEnd: false });
+      expect(latestRows!.after.more).toBe(true);
+
+      act(() => setPaused(false));
+      await flush();
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: true });
+    });
+
+    it('closes the follow on a pause pressed after the landing settled but before its loading ended', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10), 'older'));
+      const { state, setPaused } = mount(client, { anchor: TAIL, pinToEnd: true });
+      // The landing settles; the frame that ends its loading has not come.
+      await act(async () => {});
+      expect(state().loading).toBe(true);
+
+      // Behind, it catches up from the overlap rather than calling the landing the end.
+      act(() => setPaused(true));
+      await flush();
+      expect(client.subscribe).not.toHaveBeenCalled();
+      expect(state()).toMatchObject({ loading: false, pinnedToEnd: true, following: false });
+      expect(client.fetchAfter).toHaveBeenCalledWith({
+        cursor: cursorBefore(line(9).cursor, REOPEN_OVERLAP_MS),
+        limit: 10,
+      });
+
+      act(() => setPaused(false));
+      await flush();
+      expect(client.live().after).toBe(cursorBefore(line(9).cursor, REOPEN_OVERLAP_MS));
+    });
+
+    it('hands a follow line it cannot place to onError and goes on following', async () => {
+      const client = scriptedClient();
+      const onError = vi.fn();
+      const { state } = await pinnedAtTail(client, { onError });
+
+      await deliver(client.live(), { ...line(10), cursor: 'soon' });
+      expect(onError).toHaveBeenCalledWith(expect.any(RangeError));
+      await deliver(client.live(), line(11));
+      expect(shown().at(-1)).toEqual([1, 'pod-1 line 11']);
+      expect(state().following).toBe(true);
+    });
+
+    it('follows on resume after an empty landing made while paused, from the moment the landing asked', async () => {
+      const client = scriptedClient();
+      const mountedAt = Date.now();
+      const { state, setPaused } = mount(client, { anchor: TAIL, pinToEnd: true, paused: true });
+      await flush();
+      const landedAt = Date.now();
+      expect(client.subscribe).not.toHaveBeenCalled();
+
+      // Holding nothing, the follow has no newest line to reopen from: lines written
+      // during the pause would be lost to a follow opened at the moment it resumed.
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      act(() => setPaused(false));
+      await flush();
+      const from = Date.parse(client.live().after!) + REOPEN_OVERLAP_MS;
+      expect(from).toBeGreaterThanOrEqual(mountedAt);
+      expect(from).toBeLessThanOrEqual(landedAt);
+      expect(state().following).toBe(true);
+
+      await deliver(client.live(), line(0));
+      expect(messages()).toEqual(['pod-1 line 0']);
+    });
+
+    it('brings the lines written while an empty landing was in flight', async () => {
+      const log = new FakeClient({ lines: 0, delayMs: 100 });
+      const { state } = mount(log, { anchor: TAIL, pinToEnd: true });
+
+      await act(() => vi.advanceTimersByTimeAsync(50));
+      log.append();
+      await flush();
+      expect(state().following).toBe(true);
+      expect(messages()).toEqual(['line 0']);
+    });
+
+    it('brings the lines written during a pause when it reopens over an empty window', async () => {
+      const log = new FakeClient({ lines: 0 });
+      const { setPaused } = mount(log, { anchor: TAIL, pinToEnd: true, paused: true });
+      await flush();
+
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      log.append(2);
+      act(() => setPaused(false));
+      await flush();
+      expect(messages()).toEqual(['line 0', 'line 1']);
+    });
+
+    it('brings back a line received but not yet appended when a pause closes a follow over an empty window', async () => {
+      const log = new FakeClient({ lines: 0 });
+      const { setPaused } = mount(log, { anchor: TAIL, pinToEnd: true });
+      await flush();
+
+      await act(() => vi.advanceTimersByTimeAsync(1000));
+      act(() => {
+        log.append();
+        setPaused(true);
+      });
+      await act(() => vi.advanceTimersByTimeAsync(HIDDEN_FLUSH_MS));
+      expect(lineCount()).toBe(0);
+
+      act(() => setPaused(false));
+      await flush();
+      expect(messages()).toEqual(['line 0']);
+    });
+
+    it('leaves a line the overlap re-sends from before the window to the page before, which reads it once', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(100, 110), line(100).cursor));
+      const { userScroll } = mount(client, { anchor: TAIL, pinToEnd: true });
+      await flush();
+
+      await deliver(client.live(), line(99, 'pod-2'), line(110));
+      expect(lineCount()).toBe(11);
+
+      client.fetchUntil.mockResolvedValueOnce(page([line(98), line(99, 'pod-2'), line(100)]));
+      await userScroll(0);
+      expect(client.fetchUntil).toHaveBeenLastCalledWith({ cursor: line(100).cursor, limit: 10 });
+      expect(lineCount()).toBe(13);
+
+      await userScroll(0);
+      expect(messages().slice(0, 3)).toEqual(['pod-1 line 98', 'pod-2 line 99', 'pod-1 line 100']);
+    });
+
+    it('drops a follow line at or before its own source’s newest, and keeps an older line from another', async () => {
+      const client = scriptedClient();
+      await pinnedAtTail(client);
+      const follow = client.live();
+
+      await deliver(follow, line(10), line(11));
+      // A reconnect replays from the cursor the follow opened with.
+      await deliver(follow, line(10), line(11), line(12));
+      await deliver(follow, line(11, 'pod-2'));
+
+      expect(client.subscribe).toHaveBeenCalledOnce();
+      expect(messages().slice(-4)).toEqual(['pod-1 line 10', 'pod-1 line 11', 'pod-1 line 12', 'pod-2 line 11']);
+    });
+
+    it('keeps a line a container wrote twice at one moment, across follow batches', async () => {
+      const client = scriptedClient();
+      await pinnedAtTail(client);
+      const follow = client.live();
+
+      await deliver(follow, line(10));
+      await deliver(follow, line(10));
+      expect(messages().slice(-2)).toEqual(['pod-1 line 10', 'pod-1 line 10']);
+    });
+
+    it('prepends every line of a page before, whatever the follow brought', async () => {
+      const client = scriptedClient();
+      const { userScroll } = await pinnedAtTail(client);
+      await deliver(client.live(), line(10, 'pod-2'), line(11));
+
+      client.fetchUntil.mockResolvedValueOnce(page([...lines(0, 3, 'pod-2'), ...lines(5, 8)]));
+      await userScroll(0);
+      expect(lineCount()).toBe(10 + 2 + 6);
+
+      await userScroll(0);
+      expect(messages()).toEqual(['pod-2 line 0', 'pod-2 line 1', 'pod-2 line 2', 'pod-1 line 5', 'pod-1 line 6']);
+    });
+  });
+
   describe('what it publishes', () => {
     it('follows the viewport: the visible range, how many lines, and whether the newest is on screen', async () => {
       const client = scriptedClient();
@@ -576,27 +1201,355 @@ describe('LogViewerCore', () => {
       await userScroll(5 * ROW);
       expect(state().range).toEqual({ from: line(5).timestamp, to: line(9).timestamp });
 
-      // The window has more after until a page says otherwise; this one says none.
+      // Unpinned, the window has more after until a page says otherwise; this one
+      // says none, and the user's scroll to the bottom pins.
       await userScrollToBottom();
       expect(client.fetchSince).toHaveBeenLastCalledWith({ cursor: line(19).cursor, limit: 10 });
       expect(state()).toMatchObject({
         range: { from: line(15).timestamp, to: line(19).timestamp },
         atEnd: true,
+        pinnedToEnd: true,
       });
     });
   });
 
+  describe('under random use', () => {
+    // A seeded walk over a FakeClient's log, written by three pods, one of them rare.
+    // Each step is one to three acts with nothing settling between them: the user's
+    // hand, a jump, a pause, lines written, a re-measure, a held fetch answered, or
+    // time passing. Half the steps of more than one act hold their scroll events,
+    // run a frame after each act, and then fire one, as a browser coalesces them. Each fetch is answered whole, empty with its cursor (a budget spent), or
+    // failed, as the seed decides, and some are held until a later step answers
+    // them, in any order. After every step, what the core holds and says is checked
+    // against the log.
+
+    /** A linear congruential generator: enough spread for a walk, and the same walk for a seed. */
+    function seeded(seed: number) {
+      let state = seed;
+      return () => {
+        state = (state * 1664525 + 1013904223) % 4294967296;
+        return state / 4294967296;
+      };
+    }
+
+    type Answer = 'whole' | 'empty' | 'failed';
+
+    /**
+     * The FakeClient behind a hand that decides each fetch's answer, counting what it
+     * did. A held answer is read when asked and handed over when `answerOne` is called.
+     */
+    function unreliable(log: FakeClient, answer: () => Answer, hold: () => boolean) {
+      const counts = { fetches: 0, failed: 0, open: 0 };
+      const held: (() => void)[] = [];
+      const fetch = (read: (options: FetchOptions) => Promise<FetchResult>) => (options: FetchOptions) => {
+        counts.fetches += 1;
+        const how = answer();
+        if (how === 'failed') {
+          counts.failed += 1;
+          return Promise.reject(new Error('refused'));
+        }
+        const result = read(how === 'empty' ? { ...options, limit: 0 } : options);
+        if (!hold()) return result;
+        return new Promise<FetchResult>((resolve) => {
+          held.push(() => resolve(result));
+        });
+      };
+      /** Hands over the held answer at `at`, a fraction of the way along those held. */
+      const answerOne = (at: number) => held.splice(Math.floor(at * held.length), 1)[0]?.();
+      const client: Client = {
+        fetchSince: fetch((o) => log.fetchSince(o)),
+        fetchUntil: fetch((o) => log.fetchUntil(o)),
+        fetchAfter: fetch((o) => log.fetchAfter(o)),
+        fetchBefore: fetch((o) => log.fetchBefore(o)),
+        subscribe: (after, onLine) => {
+          counts.open += 1;
+          const cancel = log.subscribe(after, onLine);
+          return () => {
+            counts.open -= 1;
+            cancel();
+          };
+        },
+      };
+      return { client, counts, answerOne };
+    }
+
+    const STEPS = [
+      'scroll',
+      'bottom',
+      'up',
+      'nudge',
+      'pause',
+      'append',
+      'jump',
+      'readOn',
+      'measure',
+      'answer',
+      'tick',
+    ] as const;
+    type Step = (typeof STEPS)[number];
+
+    /** The log indexes held, in order, read off the fake's `line <index>` messages. */
+    function heldIndexes(): number[] {
+      const rows = latestRows!;
+      return Array.from({ length: rows.count }, (_, i) =>
+        Number(rows.lineAt(rows.keyAt(i)!)!.message.slice('line '.length)),
+      );
+    }
+
+    async function walk(seed: number, steps: number) {
+      const random = seeded(seed);
+      const pick = <T,>(items: readonly T[]) => items[Math.floor(random() * items.length)];
+      // Its own generator, so which pod wrote a line does not depend on when it was read.
+      // pod-a writes six lines in ten, pod-b three, and pod-c one.
+      const podRandom = seeded(seed + 1_000_000);
+      const weighted = [...Array(6).fill('pod-a'), ...Array(3).fill('pod-b'), 'pod-c'];
+      const pods: string[] = [];
+      const podOf = (index: number) => {
+        while (pods.length <= index) pods.push(weighted[Math.floor(podRandom() * weighted.length)]);
+        return pods[index];
+      };
+      const log = new FakeClient({ lines: 60, podOf });
+      const { client, counts, answerOne } = unreliable(
+        log,
+        () => {
+          const r = random();
+          if (r < 0.1) return 'failed';
+          if (r < 0.25) return 'empty';
+          return 'whole';
+        },
+        () => random() < 0.3,
+      );
+      const onError = vi.fn();
+      const anchor = pick<Anchor>([HEAD, TAIL, { kind: 'At', at: log.lineAt(30).cursor }]);
+      // A pinned Head or At landing short of the end lands unpinned.
+      const pinToEnd = random() < (anchor.kind === 'Tail' ? 0.7 : 0.3);
+      const edgeRowHeight = random() < 0.5 ? ROW : 0;
+      const pinTolerance = random() < 0.5 ? 10 : 0;
+      const mounted = mount(client, { anchor, pinToEnd, onError, loadMoreThreshold: 2, edgeRowHeight, pinTolerance });
+      await flush();
+
+      let paused = false;
+      /** The user's last move in a step: whether it went up, whether it ended off the bottom, and where. */
+      type Hand = { up: boolean; offBottom: boolean; top: number };
+      let hand: Hand | null = null;
+      const userScroll = (top: number) => {
+        const from = scroller().scrollTop;
+        scroller().scrollTop = top;
+        hand = {
+          up: scroller().scrollTop < from,
+          offBottom: scroller().scrollTop + VIEW < scroller().scrollHeight,
+          top: scroller().scrollTop,
+        };
+      };
+      const scroller = () => mounted.scroller();
+      /** The step's act; answers the anchor a jump went to. */
+      const perform = (step: Step): Anchor | null => {
+        switch (step) {
+          case 'scroll':
+            userScroll(Math.floor(random() * (scroller().scrollHeight + ROW)));
+            return null;
+          case 'bottom':
+            userScroll(scroller().scrollHeight);
+            return null;
+          case 'up':
+            userScroll(scroller().scrollTop - ROW);
+            return null;
+          case 'nudge':
+            userScroll(scroller().scrollTop - 1 - Math.floor(random() * 9));
+            return null;
+          case 'pause':
+            paused = !paused;
+            mounted.setPaused(paused);
+            return null;
+          case 'append':
+            log.append(1 + Math.floor(random() * 4));
+            return null;
+          case 'jump': {
+            const to = pick<Anchor>([
+              HEAD,
+              TAIL,
+              { kind: 'At', at: log.lineAt(Math.floor(random() * log.lineCount)).cursor },
+            ]);
+            mounted.ref.current!.jumpTo(to);
+            return to;
+          }
+          case 'readOn':
+            screen.queryAllByRole('button').forEach((button) => button.click());
+            return null;
+          case 'measure':
+            mounted.ref.current!.measure();
+            return null;
+          case 'answer':
+            answerOne(random());
+            return null;
+          case 'tick':
+            return null;
+          default:
+            throw new Error(step);
+        }
+      };
+
+      const trail: string[] = [
+        `${anchor.kind}${pinToEnd ? ' pinned' : ''}${edgeRowHeight ? ' edge rows' : ''}${pinTolerance ? ' tolerance' : ''}`,
+      ];
+      for (let i = 0; i < steps; i += 1) {
+        const acts: Step[] = Array.from({ length: random() < 0.3 ? 2 + Math.floor(random() * 2) : 1 }, () =>
+          pick(STEPS),
+        );
+        const only = (allowed: Step[]) => acts.every((a) => allowed.includes(a));
+        const any = (allowed: Step[]) => acts.some((a) => allowed.includes(a));
+        const before = {
+          pinned: mounted.state().pinnedToEnd,
+          following: mounted.state().following,
+          // The first row drawn, and where it sits in the viewport.
+          row: latestRows!.rows[0]
+            ? { key: latestRows!.rows[0].key, offset: latestRows!.rows[0].start - scroller().scrollTop }
+            : null,
+          // Within an edge row of the bottom: the after edge row, if there is one, is on screen.
+          nearBottom: scroller().scrollTop + VIEW >= scroller().scrollHeight - edgeRowHeight,
+          fetches: counts.fetches,
+          failed: counts.failed,
+          reported: onError.mock.calls.length,
+        };
+        let jumped = null as Anchor | null;
+        hand = null;
+        const release = acts.length > 1 && random() < 0.5 ? holdScrollEvents() : null;
+        if (release) {
+          // Frames run between the acts, so the core scrolls between the user's moves.
+          for (let a = 0; a < acts.length; a += 1) {
+            let to: Anchor | null = null;
+            // eslint-disable-next-line no-await-in-loop -- each act follows the one before
+            await act(async () => {
+              to = perform(acts[a]);
+            });
+            jumped = to ?? jumped;
+            // eslint-disable-next-line no-await-in-loop -- each act follows the one before
+            await act(() => vi.advanceTimersByTimeAsync(20));
+          }
+        } else {
+          // eslint-disable-next-line no-await-in-loop -- each step follows the one before
+          await act(async () => {
+            acts.forEach((step) => {
+              jumped = perform(step) ?? jumped;
+            });
+          });
+        }
+        // eslint-disable-next-line no-await-in-loop -- each step follows the one before
+        await act(() => vi.advanceTimersByTimeAsync(HIDDEN_FLUSH_MS + 50));
+        // Where the one event will read the scroller; the read clamps it, as layout would.
+        const releasedAt = {
+          top: scroller().scrollTop,
+          atBottom: scroller().scrollTop + VIEW >= scroller().scrollHeight,
+        };
+        // eslint-disable-next-line no-await-in-loop -- each step follows the one before
+        if (release) await act(async () => release());
+        // eslint-disable-next-line no-await-in-loop -- each step follows the one before
+        await flush();
+        trail.push((release ? '~' : '') + acts.join('+') + (jumped ? `:${jumped.kind}` : ''));
+        const where = `seed ${seed}, after ${trail.join(' ')}`;
+        const state = mounted.state();
+        const held = heldIndexes();
+
+        // What it holds is one stretch of the log, in order.
+        held.forEach((index, at) => {
+          if (at) expect(index, `${where}: held ${held.join(',')}`).toBe(held[at - 1] + 1);
+        });
+        if (held.length) expect(held[held.length - 1], where).toBeLessThan(log.lineCount);
+
+        // Following means pinned, not paused, loaded to the end, and one subscription open;
+        // and pinned, not paused, and landed — holding lines, which a failed landing never does — means following.
+        expect(counts.open, `${where}: subscriptions`).toBe(state.following ? 1 : 0);
+        if (state.pinnedToEnd && !paused && !state.loading && held.length) {
+          expect(state.following, `${where}: pinned and unpaused, but not following`).toBe(true);
+        }
+        if (state.following) {
+          expect(state.pinnedToEnd, where).toBe(true);
+          expect(paused, where).toBe(false);
+          // Holding nothing with history above is a landing whose page spent its budget: still the end.
+          if (held.length || !latestRows!.before.more) {
+            expect(held[held.length - 1] ?? -1, `${where}: following short of the end, held ${held.join(',')}`).toBe(
+              log.lineCount - 1,
+            );
+          }
+        }
+
+        // A scroll up that ends off the bottom unpins, whatever the core scrolled around
+        // it. A jump in the step decides the pin itself, after the scroll; and with
+        // events held, only one move of the user's in the step says which way they went,
+        // since the one event that arrives reads where they ended, not the way there.
+        // Content that shrank under a held move up, leaving the scroller at the bottom
+        // without moving it down, cannot be told from a clamp by the one event that
+        // arrives, and either reading is right. A scroll to the end moves it down.
+        const lastHand = hand as Hand | null;
+        const moves = acts.filter((a) => ['scroll', 'bottom', 'up', 'nudge'].includes(a)).length;
+        const metByContent = !!release && releasedAt.atBottom && releasedAt.top <= (lastHand?.top ?? -1);
+        if (!jumped && (!release || moves === 1) && lastHand?.up && lastHand.offBottom && !metByContent)
+          expect(state.pinnedToEnd, `${where}: still pinned after a scroll up`).toBe(false);
+
+        // Only the user's hand pins: a scroll reaching the bottom, a jump to Tail, or
+        // the page a read-on from the bottom asked for finding no more, when it is answered.
+        if (!before.pinned && state.pinnedToEnd) {
+          expect(
+            any(['scroll', 'bottom', 'readOn', 'answer']) || jumped?.kind === 'Tail',
+            `${where}: pinned by ${acts.join('+')}`,
+          ).toBe(true);
+        }
+
+        // Time passing asks for nothing, and a failure is reported once.
+        if (only(['tick'])) expect(counts.fetches, `${where}: fetched on a tick`).toBe(before.fetches);
+        // An At landing's two fetches fail as one landing.
+        const failed = counts.failed - before.failed;
+        const reported = onError.mock.calls.length - before.reported;
+        expect(reported, `${where}: ${failed} failed, ${reported} reported`).toBeGreaterThanOrEqual(
+          Math.min(failed, 1),
+        );
+        expect(reported, `${where}: ${failed} failed, ${reported} reported`).toBeLessThanOrEqual(failed);
+
+        // A page landing, a pause, lines written or a re-measure leave the reader's row
+        // where it is on screen, unless a follow runs, or the after edge row was on
+        // screen and went, shrinking the content under the reader, which nothing can
+        // scroll to make up for.
+        if (
+          !before.following &&
+          !state.following &&
+          !before.nearBottom &&
+          only(['tick', 'append', 'pause', 'readOn', 'measure', 'answer']) &&
+          before.row
+        ) {
+          const row = latestRows!.rows.find((r) => r.key === before.row!.key);
+          expect(row, `${where}: the row read left the screen`).toBeDefined();
+          expect(row!.start - scroller().scrollTop, `${where}: the row read moved`).toBe(before.row.offset);
+        }
+      }
+    }
+
+    // Each walk is a few hundredths of a second; a hundred of them outlast the default timeout under a loaded run.
+    it(
+      'holds one stretch of the log, follows only at its end, and pins only by the user’s hand',
+      { timeout: 30_000 },
+      async () => {
+        for (let seed = 1; seed <= 100; seed += 1) {
+          // eslint-disable-next-line no-await-in-loop -- one walk at a time, each on its own mount
+          await walk(seed, 40);
+          cleanup();
+        }
+      },
+    );
+  });
+
   describe('the handle', () => {
-    it('jumps to each kind of anchor', async () => {
+    it('jumps to each kind of anchor, pinning at Tail alone', async () => {
       const client = scriptedClient();
       client.fetchSince.mockResolvedValue(page(lines(0, 3)));
       client.fetchUntil.mockResolvedValue(page(lines(0, 3)));
-      const { ref } = mount(client, { anchor: HEAD });
+      const { ref, state } = mount(client, { anchor: HEAD });
       await flush();
 
       act(() => ref.current!.jumpTo(TAIL));
       await flush();
       expect(client.fetchUntil).toHaveBeenCalledWith({ limit: 10 });
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: true });
+      const follow = client.live();
 
       // Each landing's own fetch is the first after the jump; pages after it may follow.
       const at = line(1).timestamp;
@@ -605,12 +1558,25 @@ describe('LogViewerCore', () => {
       await flush();
       expect(client.fetchBefore).toHaveBeenCalledWith({ cursor: at, limit: 10 });
       expect(client.fetchSince.mock.calls[since]).toEqual([{ cursor: at, limit: 10 }]);
+      expect(follow.open).toBe(false);
+      expect(state().pinnedToEnd).toBe(false);
 
       since = client.fetchSince.mock.calls.length;
       act(() => ref.current!.jumpTo(HEAD));
       await flush();
       expect(client.fetchSince.mock.calls[since]).toEqual([{ limit: 10 }]);
       expect(shown()[0]).toEqual([0, 'pod-1 line 0']);
+    });
+
+    it('re-measures and keeps the end in view', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10)));
+      const { ref, scroller } = mount(client, { anchor: TAIL, pinToEnd: true });
+      await flush();
+
+      act(() => ref.current!.measure());
+      await flush();
+      expect(scroller().scrollTop).toBe(10 * ROW - VIEW);
     });
 
     it('re-measures and keeps the reader where they were inside the first visible row', async () => {

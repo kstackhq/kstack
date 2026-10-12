@@ -13,11 +13,18 @@
 // limitations under the License.
 import { describe, expect, it, vi } from 'vitest';
 
+import { CORE_INITIAL_STATE } from '@/lib/log-viewer';
+
 import { EMPTY_VIEWPORT, createViewportHandle } from './viewport';
 
 describe('createViewportHandle', () => {
   it('starts empty, unpinned and not at the end, with nothing selected', () => {
     expect(createViewportHandle().get()).toEqual(EMPTY_VIEWPORT);
+  });
+
+  it('agrees with the core before the viewer writes', () => {
+    expect(EMPTY_VIEWPORT.atEnd).toBe(CORE_INITIAL_STATE.atEnd);
+    expect(EMPTY_VIEWPORT.pinnedToEnd).toBe(CORE_INITIAL_STATE.pinnedToEnd);
   });
 
   it('answers the last viewport written, and tells its listeners once per write', () => {
