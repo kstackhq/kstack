@@ -239,6 +239,10 @@ function mount(client: Client, options: MountOptions = {}) {
   };
 }
 
+function lineCount() {
+  return Number(screen.getByTestId('sizer').dataset.count);
+}
+
 function messages() {
   return shown().map(([, message]) => message);
 }
@@ -337,7 +341,7 @@ describe('LogViewerCore', () => {
   });
 
   describe('paging', () => {
-    it('loads more before and after as the range reaches an edge', async () => {
+    it('loads more before and after as the range reaches an edge, keeping the rows in view', async () => {
       const client = scriptedClient();
       client.fetchBefore.mockResolvedValueOnce(page(lines(10, 20), 'older'));
       client.fetchSince.mockResolvedValueOnce(page(lines(20, 30), 'newer'));
@@ -348,6 +352,8 @@ describe('LogViewerCore', () => {
       await userScroll(0);
       // From the edge line, keeping its moment; the line already held is dropped.
       expect(client.fetchUntil).toHaveBeenLastCalledWith({ cursor: line(10).cursor, limit: 10 });
+      // Prepended above, so the row the user was reading stays at the top.
+      expect(shown()[0]).toEqual([-10, 'pod-1 line 10']);
 
       client.fetchSince.mockResolvedValueOnce(page(lines(29, 35)));
       await userScrollToBottom();
@@ -447,6 +453,63 @@ describe('LogViewerCore', () => {
       expect(state().loading).toBe(false);
     });
 
+    it('keeps the rows in view when an empty last page removes the edge row above them', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10), 'older'));
+      const { state, scroller, userScroll } = mount(client, {
+        anchor: TAIL,
+        edgeRowHeight: ROW,
+        loadMoreThreshold: 3,
+      });
+      await flush();
+
+      // Below the edge row, line 1 at the top of the view.
+      await userScroll(2 * ROW);
+      expect(client.fetchUntil).toHaveBeenLastCalledWith({ cursor: line(0).cursor, limit: 10 });
+      expect(scroller().scrollTop).toBe(ROW);
+      expect(state().range?.from).toBe(line(1).timestamp);
+    });
+
+    it('keeps the rows in view when pages before and after land in the same commit', async () => {
+      const client = scriptedClient();
+      const at = line(20).timestamp;
+      client.fetchBefore.mockResolvedValueOnce(page(lines(15, 20), 'older'));
+      client.fetchSince.mockResolvedValueOnce(page(lines(20, 25), line(24).cursor));
+      client.fetchUntil.mockResolvedValueOnce(page(lines(5, 15)));
+      client.fetchSince.mockResolvedValueOnce(page(lines(25, 35)));
+      const { state, scroller } = mount(client, { anchor: { kind: 'At', at }, loadMoreThreshold: 5 });
+      await flush();
+
+      expect(client.fetchUntil).toHaveBeenLastCalledWith({ cursor: line(15).cursor, limit: 10 });
+      expect(client.fetchSince).toHaveBeenLastCalledWith({ cursor: line(24).cursor, limit: 10 });
+      expect(lineCount()).toBe(30);
+      expect(scroller().scrollTop).toBe(15 * ROW);
+      expect(state().range?.from).toBe(line(20).timestamp);
+    });
+
+    it('leaves no stale scroll behind when a last page before is exactly as tall as the edge row it removes', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10), 'older'));
+      client.fetchSince.mockResolvedValueOnce(page([], 'newer'));
+      const { scroller, userScroll, userScrollToBottom } = mount(client, {
+        anchor: TAIL,
+        edgeRowHeight: ROW,
+        loadMoreThreshold: 3,
+      });
+      await flush();
+
+      client.fetchUntil.mockResolvedValueOnce(page([line(-1)]));
+      await userScroll(2 * ROW);
+      expect(scroller().scrollTop).toBe(2 * ROW);
+
+      // The page after adds rows below; the scroll stays where the user left it.
+      const bottom = scroller().scrollHeight - VIEW;
+      client.fetchAfter.mockResolvedValueOnce(page(lines(10, 13)));
+      await userScrollToBottom();
+      expect(client.fetchAfter).toHaveBeenLastCalledWith({ cursor: 'newer', limit: 10 });
+      expect(scroller().scrollTop).toBe(bottom);
+    });
+
     it('publishes the streams the last page could not read', async () => {
       const client = scriptedClient();
       client.fetchSince.mockResolvedValueOnce(
@@ -510,6 +573,42 @@ describe('LogViewerCore', () => {
       await flush();
       expect(client.fetchSince.mock.calls[since]).toEqual([{ limit: 10 }]);
       expect(shown()[0]).toEqual([0, 'pod-1 line 0']);
+    });
+
+    it('re-measures and keeps the reader where they were inside the first visible row', async () => {
+      const client = scriptedClient();
+      client.fetchSince.mockResolvedValueOnce(page(lines(0, 20)));
+      const { ref, scroller, userScroll } = mount(client, { anchor: HEAD });
+      await flush();
+      await userScroll(5 * ROW + 5);
+
+      act(() => ref.current!.measure());
+      await flush();
+      expect(scroller().scrollTop).toBe(5 * ROW + 5);
+    });
+
+    it('re-measures and keeps the reader’s row when a page before lands before the re-measure is drawn', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(10, 20), line(10).cursor));
+      const { ref, state, scroller, userScroll } = mount(client, { anchor: TAIL });
+      await flush();
+
+      let answer: (result: FetchResult) => void = () => {};
+      client.fetchUntil.mockReturnValueOnce(
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+      );
+      await userScroll(ROW);
+      expect(client.fetchUntil).toHaveBeenCalledTimes(2);
+
+      await act(async () => {
+        ref.current!.measure();
+        answer(page(lines(0, 10)));
+      });
+      await flush();
+      expect(scroller().scrollTop).toBe(11 * ROW);
+      expect(state().range?.from).toBe(line(11).timestamp);
     });
 
     it('lands again when the client changes', async () => {

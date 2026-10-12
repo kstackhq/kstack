@@ -16,8 +16,8 @@
 // edge as the user scrolls, and hands its rows to a render function. It draws nothing and knows nothing of the app:
 // lines come from a `Client`, errors go to `onError`, and what it knows is
 // published through its handle.
-import { useCallback, useEffect, useEffectEvent, useImperativeHandle, useRef, useState } from 'react';
-import type { ReactNode, Ref } from 'react';
+import { useCallback, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import type { ReactNode, Ref, RefObject } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Virtualizer } from '@tanstack/react-virtual';
 
@@ -92,7 +92,7 @@ export type CoreRows = {
 export type CoreHandle = {
   /** Lands again at `anchor`. */
   jumpTo: (anchor: Anchor) => void;
-  /** Re-measures every row. */
+  /** Re-measures every row, keeping the reader's place. */
   measure: () => void;
   subscribe: (listener: () => void) => () => void;
   getSnapshot: () => CoreState;
@@ -192,6 +192,45 @@ function useLoadMore({ range, count, settled, edges, load, threshold, onError }:
   return loadMore;
 }
 
+// Keeping the reader's place ----------------------------------------------
+//
+// Lines added above the rows in view, the edge row above them coming or going, or
+// a re-measure all move the rows on screen. `hold` is called just before such a
+// change and notes the first visible row by its key and how far into it the
+// scroll sits, read against the layout still on screen; the commit that draws the
+// change puts that row back. Only the first hold before a commit counts, since a
+// second is read against lines the screen does not show yet.
+
+type KeepPlaceOptions = {
+  scrollElRef: RefObject<HTMLDivElement | null>;
+  virtualizer: Virtualizer<HTMLDivElement, Element>;
+  lines: Lines;
+};
+
+function useKeepPlace({ scrollElRef, virtualizer, lines }: KeepPlaceOptions) {
+  const heldRef = useRef<{ key: number; into: number } | null>(null);
+
+  const hold = useCallback(() => {
+    const scrollEl = scrollElRef.current;
+    if (heldRef.current || !scrollEl) return;
+    // The virtualizer's measurements are the last commit's, so the item and its key are what is on screen.
+    const item = virtualizer.getVirtualItemForOffset(scrollEl.scrollTop);
+    if (item) heldRef.current = { key: item.key as number, into: scrollEl.scrollTop - item.start };
+  }, [scrollElRef, virtualizer]);
+
+  useLayoutEffect(() => {
+    const scrollEl = scrollElRef.current;
+    const held = heldRef.current;
+    heldRef.current = null;
+    if (!scrollEl) return;
+    const index = held ? lines.indexOfKey(held.key) : -1;
+    if (!held || index < 0 || index >= lines.length) return;
+    scrollEl.scrollTop = virtualizer.measurementsCache[index].start + held.into;
+  });
+
+  return hold;
+}
+
 // One landing -------------------------------------------------------------
 //
 // `LogViewerCore` keys it, so a jump or a new client starts over.
@@ -210,7 +249,8 @@ type LandingProps = {
 function Landing({ ref, client, anchor, settings, onState, onError, className, children }: LandingProps) {
   const scrollElRef = useRef<HTMLDivElement>(null);
   const [count, setCount] = useState(0);
-  const [lines] = useState(() => new Lines(setCount));
+  const holdRef = useRef(() => {});
+  const [lines] = useState(() => new Lines(setCount, () => holdRef.current()));
   // Loading ends a frame after the landing settles, landed or failed.
   const [loading, setLoading] = useState(true);
   const [landed, setLanded] = useState(false);
@@ -247,10 +287,16 @@ function Landing({ ref, client, anchor, settings, onState, onError, className, c
   const edgeRows = Number(before.more) + Number(afterEdge.more);
   const totalSize = (count ? virtualizer.getTotalSize() : 0) + edgeRows * settings.edgeRowHeight;
   const beforePaint = useBeforePaint();
+  const hold = useKeepPlace({ scrollElRef, virtualizer, lines });
+  useLayoutEffect(() => {
+    holdRef.current = hold;
+  }, [hold]);
 
   // Before the page's lines are added, so `Lines` can tell whether any were.
   const readPage = (edge: Edge, result: FetchResult) => {
     const more = result.nextCursor !== null;
+    // The edge row above the rows can come or go.
+    if (edge === 'before') hold();
     (edge === 'before' ? setBefore : setAfter)({ more, empty: more && !result.lines.length });
     lines.resumeFrom(edge, result.nextCursor);
     setSkipped(result.skipped.length ? result.skipped : NONE_SKIPPED);
@@ -375,9 +421,12 @@ function Landing({ ref, client, anchor, settings, onState, onError, className, c
   useImperativeHandle(
     ref,
     () => ({
-      measure: () => virtualizer.measure(),
+      measure: () => {
+        hold();
+        virtualizer.measure();
+      },
     }),
-    [virtualizer],
+    [hold, virtualizer],
   );
 
   // What the handle publishes.
