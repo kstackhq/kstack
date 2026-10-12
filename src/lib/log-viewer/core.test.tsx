@@ -12,7 +12,7 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-import { act, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen } from '@testing-library/react';
 import { createRef, useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
@@ -20,7 +20,7 @@ import type { Mock } from 'vitest';
 import { HIDDEN_FLUSH_MS, LogViewerCore } from './core';
 import { FakeClient } from './fake-client';
 import type { CoreHandle, CoreRows } from './core';
-import type { Anchor, Client, Cursor, FetchResult, LogLine } from './types';
+import type { Anchor, Client, Cursor, FetchOptions, FetchResult, LogLine } from './types';
 
 // Layout ---------------------------------------------------------------
 //
@@ -202,7 +202,7 @@ type MountOptions = {
 const HEAD: Anchor = { kind: 'Head', at: null };
 const TAIL: Anchor = { kind: 'Tail', at: null };
 
-/** What the render function was last handed. */
+/** What the render function was last handed, for the walk's checks. */
 let latestRows: CoreRows | null = null;
 
 function Rows({ rows }: { rows: CoreRows }) {
@@ -1202,6 +1202,330 @@ describe('LogViewerCore', () => {
         pinnedToEnd: true,
       });
     });
+  });
+
+  describe('under random use', () => {
+    // A seeded walk over a FakeClient's log, written by three pods, one of them rare.
+    // Each step is one to three acts with nothing settling between them: the user's
+    // hand, a jump, a pause, lines written, a re-measure, a held fetch answered, or
+    // time passing. Half the steps of more than one act hold their scroll events,
+    // run a frame after each act, and then fire one, as a browser coalesces them. Each fetch is answered whole, empty with its cursor (a budget spent), or
+    // failed, as the seed decides, and some are held until a later step answers
+    // them, in any order. After every step, what the core holds and says is checked
+    // against the log.
+
+    /** A linear congruential generator: enough spread for a walk, and the same walk for a seed. */
+    function seeded(seed: number) {
+      let state = seed;
+      return () => {
+        state = (state * 1664525 + 1013904223) % 4294967296;
+        return state / 4294967296;
+      };
+    }
+
+    type Answer = 'whole' | 'empty' | 'failed';
+
+    /**
+     * The FakeClient behind a hand that decides each fetch's answer, counting what it
+     * did. A held answer is read when asked and handed over when `answerOne` is called.
+     */
+    function unreliable(log: FakeClient, answer: () => Answer, hold: () => boolean) {
+      const counts = { fetches: 0, failed: 0, open: 0 };
+      const held: (() => void)[] = [];
+      const fetch = (read: (options: FetchOptions) => Promise<FetchResult>) => (options: FetchOptions) => {
+        counts.fetches += 1;
+        const how = answer();
+        if (how === 'failed') {
+          counts.failed += 1;
+          return Promise.reject(new Error('refused'));
+        }
+        const result = read(how === 'empty' ? { ...options, limit: 0 } : options);
+        if (!hold()) return result;
+        return new Promise<FetchResult>((resolve) => {
+          held.push(() => resolve(result));
+        });
+      };
+      /** Hands over the held answer at `at`, a fraction of the way along those held. */
+      const answerOne = (at: number) => held.splice(Math.floor(at * held.length), 1)[0]?.();
+      const client: Client = {
+        fetchSince: fetch((o) => log.fetchSince(o)),
+        fetchUntil: fetch((o) => log.fetchUntil(o)),
+        fetchAfter: fetch((o) => log.fetchAfter(o)),
+        fetchBefore: fetch((o) => log.fetchBefore(o)),
+        subscribe: (after, onLine) => {
+          counts.open += 1;
+          const cancel = log.subscribe(after, onLine);
+          return () => {
+            counts.open -= 1;
+            cancel();
+          };
+        },
+      };
+      return { client, counts, answerOne };
+    }
+
+    const STEPS = [
+      'scroll',
+      'bottom',
+      'up',
+      'nudge',
+      'pause',
+      'append',
+      'jump',
+      'readOn',
+      'measure',
+      'answer',
+      'tick',
+    ] as const;
+    type Step = (typeof STEPS)[number];
+
+    /** The log indexes held, in order, read off the fake's `line <index>` messages. */
+    function heldIndexes(): number[] {
+      const rows = latestRows!;
+      return Array.from({ length: rows.count }, (_, i) =>
+        Number(rows.lineAt(rows.keyAt(i)!)!.message.slice('line '.length)),
+      );
+    }
+
+    async function walk(seed: number, steps: number) {
+      const random = seeded(seed);
+      const pick = <T,>(items: readonly T[]) => items[Math.floor(random() * items.length)];
+      // Its own generator, so which pod wrote a line does not depend on when it was read.
+      // pod-a writes six lines in ten, pod-b three, and pod-c one.
+      const podRandom = seeded(seed + 1_000_000);
+      const weighted = [...Array(6).fill('pod-a'), ...Array(3).fill('pod-b'), 'pod-c'];
+      const pods: string[] = [];
+      const podOf = (index: number) => {
+        while (pods.length <= index) pods.push(weighted[Math.floor(podRandom() * weighted.length)]);
+        return pods[index];
+      };
+      const log = new FakeClient({ lines: 60, podOf });
+      const { client, counts, answerOne } = unreliable(
+        log,
+        () => {
+          const r = random();
+          if (r < 0.1) return 'failed';
+          if (r < 0.25) return 'empty';
+          return 'whole';
+        },
+        () => random() < 0.3,
+      );
+      const onError = vi.fn();
+      const anchor = pick<Anchor>([HEAD, TAIL, { kind: 'At', at: log.lineAt(30).timestamp }]);
+      // A pinned Head or At landing short of the end lands unpinned.
+      const pinToEnd = random() < (anchor.kind === 'Tail' ? 0.7 : 0.3);
+      const edgeRowHeight = random() < 0.5 ? ROW : 0;
+      const pinTolerance = random() < 0.5 ? 10 : 0;
+      const mounted = mount(client, { anchor, pinToEnd, onError, loadMoreThreshold: 2, edgeRowHeight, pinTolerance });
+      await flush();
+
+      let paused = false;
+      /** The user's last move in a step: whether it went up, whether it ended off the bottom, and where. */
+      type Hand = { up: boolean; offBottom: boolean; top: number };
+      let hand: Hand | null = null;
+      const userScroll = (top: number) => {
+        const from = scroller().scrollTop;
+        scroller().scrollTop = top;
+        hand = {
+          up: scroller().scrollTop < from,
+          offBottom: scroller().scrollTop + VIEW < scroller().scrollHeight,
+          top: scroller().scrollTop,
+        };
+      };
+      const scroller = () => mounted.scroller();
+      /** The step's act; answers the anchor a jump went to. */
+      const perform = (step: Step): Anchor | null => {
+        switch (step) {
+          case 'scroll':
+            userScroll(Math.floor(random() * (scroller().scrollHeight + ROW)));
+            return null;
+          case 'bottom':
+            userScroll(scroller().scrollHeight);
+            return null;
+          case 'up':
+            userScroll(scroller().scrollTop - ROW);
+            return null;
+          case 'nudge':
+            userScroll(scroller().scrollTop - 1 - Math.floor(random() * 9));
+            return null;
+          case 'pause':
+            paused = !paused;
+            mounted.setPaused(paused);
+            return null;
+          case 'append':
+            log.append(1 + Math.floor(random() * 4));
+            return null;
+          case 'jump': {
+            const to = pick<Anchor>([
+              HEAD,
+              TAIL,
+              { kind: 'At', at: log.lineAt(Math.floor(random() * log.lineCount)).timestamp },
+            ]);
+            mounted.ref.current!.jumpTo(to);
+            return to;
+          }
+          case 'readOn':
+            screen.queryAllByRole('button').forEach((button) => button.click());
+            return null;
+          case 'measure':
+            mounted.ref.current!.measure();
+            return null;
+          case 'answer':
+            answerOne(random());
+            return null;
+          case 'tick':
+            return null;
+          default:
+            throw new Error(step);
+        }
+      };
+
+      const trail: string[] = [
+        `${anchor.kind}${pinToEnd ? ' pinned' : ''}${edgeRowHeight ? ' edge rows' : ''}${pinTolerance ? ' tolerance' : ''}`,
+      ];
+      for (let i = 0; i < steps; i += 1) {
+        const acts: Step[] = Array.from({ length: random() < 0.3 ? 2 + Math.floor(random() * 2) : 1 }, () =>
+          pick(STEPS),
+        );
+        const only = (allowed: Step[]) => acts.every((a) => allowed.includes(a));
+        const any = (allowed: Step[]) => acts.some((a) => allowed.includes(a));
+        const before = {
+          pinned: mounted.state().pinnedToEnd,
+          following: mounted.state().following,
+          // The first row drawn, and where it sits in the viewport.
+          row: latestRows!.rows[0]
+            ? { key: latestRows!.rows[0].key, offset: latestRows!.rows[0].start - scroller().scrollTop }
+            : null,
+          // Within an edge row of the bottom: the after edge row, if there is one, is on screen.
+          nearBottom: scroller().scrollTop + VIEW >= scroller().scrollHeight - edgeRowHeight,
+          fetches: counts.fetches,
+          failed: counts.failed,
+          reported: onError.mock.calls.length,
+        };
+        let jumped = null as Anchor | null;
+        hand = null;
+        const release = acts.length > 1 && random() < 0.5 ? holdScrollEvents() : null;
+        if (release) {
+          // Frames run between the acts, so the core scrolls between the user's moves.
+          for (let a = 0; a < acts.length; a += 1) {
+            let to: Anchor | null = null;
+            // eslint-disable-next-line no-await-in-loop -- each act follows the one before
+            await act(async () => {
+              to = perform(acts[a]);
+            });
+            jumped = to ?? jumped;
+            // eslint-disable-next-line no-await-in-loop -- each act follows the one before
+            await act(() => vi.advanceTimersByTimeAsync(20));
+          }
+        } else {
+          // eslint-disable-next-line no-await-in-loop -- each step follows the one before
+          await act(async () => {
+            acts.forEach((step) => {
+              jumped = perform(step) ?? jumped;
+            });
+          });
+        }
+        // eslint-disable-next-line no-await-in-loop -- each step follows the one before
+        await act(() => vi.advanceTimersByTimeAsync(HIDDEN_FLUSH_MS + 50));
+        // Where the one event will read the scroller; the read clamps it, as layout would.
+        const releasedAt = {
+          top: scroller().scrollTop,
+          atBottom: scroller().scrollTop + VIEW >= scroller().scrollHeight,
+        };
+        // eslint-disable-next-line no-await-in-loop -- each step follows the one before
+        if (release) await act(async () => release());
+        // eslint-disable-next-line no-await-in-loop -- each step follows the one before
+        await flush();
+        trail.push((release ? '~' : '') + acts.join('+') + (jumped ? `:${jumped.kind}` : ''));
+        const where = `seed ${seed}, after ${trail.join(' ')}`;
+        const state = mounted.state();
+        const held = heldIndexes();
+
+        // What it holds is one stretch of the log, in order.
+        held.forEach((index, at) => {
+          if (at) expect(index, `${where}: held ${held.join(',')}`).toBe(held[at - 1] + 1);
+        });
+        if (held.length) expect(held[held.length - 1], where).toBeLessThan(log.lineCount);
+
+        // Following means pinned, not paused, loaded to the end, and one subscription open;
+        // and pinned, not paused, and landed — holding lines, which a failed landing never does — means following.
+        expect(counts.open, `${where}: subscriptions`).toBe(state.following ? 1 : 0);
+        if (state.pinnedToEnd && !paused && !state.loading && held.length) {
+          expect(state.following, `${where}: pinned and unpaused, but not following`).toBe(true);
+        }
+        if (state.following) {
+          expect(state.pinnedToEnd, where).toBe(true);
+          expect(paused, where).toBe(false);
+          // Holding nothing with history above is a landing whose page spent its budget: still the end.
+          if (held.length || !latestRows!.before.more) {
+            expect(held[held.length - 1] ?? -1, `${where}: following short of the end, held ${held.join(',')}`).toBe(
+              log.lineCount - 1,
+            );
+          }
+        }
+
+        // A scroll up that ends off the bottom unpins, whatever the core scrolled around
+        // it. A jump in the step decides the pin itself, after the scroll; and with
+        // events held, only one move of the user's in the step says which way they went,
+        // since the one event that arrives reads where they ended, not the way there.
+        // Content that shrank under a held move up, leaving the scroller at the bottom
+        // without moving it down, cannot be told from a clamp by the one event that
+        // arrives, and either reading is right. A scroll to the end moves it down.
+        const lastHand = hand as Hand | null;
+        const moves = acts.filter((a) => ['scroll', 'bottom', 'up', 'nudge'].includes(a)).length;
+        const metByContent = !!release && releasedAt.atBottom && releasedAt.top <= (lastHand?.top ?? -1);
+        if (!jumped && (!release || moves === 1) && lastHand?.up && lastHand.offBottom && !metByContent)
+          expect(state.pinnedToEnd, `${where}: still pinned after a scroll up`).toBe(false);
+
+        // Only the user's hand pins: a scroll reaching the bottom, a jump to Tail, or
+        // the page a read-on from the bottom asked for finding no more, when it is answered.
+        if (!before.pinned && state.pinnedToEnd) {
+          expect(
+            any(['scroll', 'bottom', 'readOn', 'answer']) || jumped?.kind === 'Tail',
+            `${where}: pinned by ${acts.join('+')}`,
+          ).toBe(true);
+        }
+
+        // Time passing asks for nothing, and a failure is reported once.
+        if (only(['tick'])) expect(counts.fetches, `${where}: fetched on a tick`).toBe(before.fetches);
+        // An At landing's two fetches fail as one landing.
+        const failed = counts.failed - before.failed;
+        const reported = onError.mock.calls.length - before.reported;
+        expect(reported, `${where}: ${failed} failed, ${reported} reported`).toBeGreaterThanOrEqual(
+          Math.min(failed, 1),
+        );
+        expect(reported, `${where}: ${failed} failed, ${reported} reported`).toBeLessThanOrEqual(failed);
+
+        // A page landing, a pause, lines written or a re-measure leave the reader's row
+        // where it is on screen, unless a follow runs, or the after edge row was on
+        // screen and went, shrinking the content under the reader, which nothing can
+        // scroll to make up for.
+        if (
+          !before.following &&
+          !state.following &&
+          !before.nearBottom &&
+          only(['tick', 'append', 'pause', 'readOn', 'measure', 'answer']) &&
+          before.row
+        ) {
+          const row = latestRows!.rows.find((r) => r.key === before.row!.key);
+          expect(row, `${where}: the row read left the screen`).toBeDefined();
+          expect(row!.start - scroller().scrollTop, `${where}: the row read moved`).toBe(before.row.offset);
+        }
+      }
+    }
+
+    // Each walk is a few hundredths of a second; a hundred of them outlast the default timeout under a loaded run.
+    it(
+      'holds one stretch of the log, follows only at its end, and pins only by the user’s hand',
+      { timeout: 30_000 },
+      async () => {
+        for (let seed = 1; seed <= 100; seed += 1) {
+          // eslint-disable-next-line no-await-in-loop -- one walk at a time, each on its own mount
+          await walk(seed, 40);
+          cleanup();
+        }
+      },
+    );
   });
 
   describe('the handle', () => {
