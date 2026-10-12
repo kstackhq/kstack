@@ -2122,6 +2122,11 @@ containers is refused, since each is its own request to the API server. The read
 the same `maxStreams` plus one; an answer cut at it or at the byte cap is refused, never read as
 every source or node. The tests run every statement over a real store (`cluster/clustertest`).
 
+**Every message goes through `stripControl`** (`clean.go`) before grep and before the wire: CSI
+and OSC sequences in ESC and C1 forms, every other C1, DEL and every C0 but tab, invalid UTF-8
+replaced, cut at 16 KiB on a character boundary with `…`. A refusal's message is cleaned the same
+way.
+
 **KubeQuery (`tools/kubequery`) is read-only SQL over the chat's cluster's cache, run without
 asking.** It is `Custom` and `Bounded` (10 s, whatever the input), never `Gated`. `parse` is the
 strict walk: `sql`, `limit` (200 unless given, read as 2000 past it) and `description`; a `;`
