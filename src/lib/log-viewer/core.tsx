@@ -17,9 +17,18 @@
 // its rows to a render function. It draws nothing and knows nothing of the app:
 // lines come from a `Client`, errors go to `onError`, and what it knows is
 // published through its handle.
-import { useCallback, useEffect, useEffectEvent, useImperativeHandle, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { ReactNode, Ref, RefObject } from 'react';
-import { useVirtualizer } from '@tanstack/react-virtual';
+import { elementScroll, useVirtualizer } from '@tanstack/react-virtual';
 import type { Virtualizer } from '@tanstack/react-virtual';
 
 import { useBeforePaint } from './before-paint';
@@ -30,9 +39,10 @@ import { createStore } from './store';
 import type { Anchor, Client, Cursor, FetchResult, LogLine } from './types';
 
 /**
- * How far before the newest line held a follow opens. A follow's lines arrive per
- * container, so one a moment behind has lines older than the newest, which an open
- * exactly there would lose; what is re-sent is held, and `Lines` drops it by its cursor.
+ * How far before the newest line held a follow opens, and the first page after an
+ * unpin reads from. A follow's lines arrive per container, so one a moment behind
+ * has lines older than the newest, which an open exactly there would lose; what is
+ * re-sent is held, and `Lines` drops it by its cursor.
  */
 export const REOPEN_OVERLAP_MS = 5000;
 
@@ -41,11 +51,11 @@ export type CoreState = {
   loading: boolean;
   /** Whether the landing failed, which leaves the viewer unpinned with nothing to page from. `jumpTo` lands again. */
   failed: boolean;
-  /** Whether the viewport keeps the end in view. */
+  /** Whether the viewport keeps the end in view. The user's hand changes it. */
   pinnedToEnd: boolean;
   /** Whether the subscription is open: pinned and landed. */
   following: boolean;
-  /** Whether the newest line is on screen: loaded to the end, with nothing more after. */
+  /** Whether the newest line is on screen: loaded to the end, with nothing more after. False the moment the viewer unpins. */
   atEnd: boolean;
   /** Timestamps of the first and last visible lines; null before any is drawn. */
   range: { from: string; to: string } | null;
@@ -129,6 +139,8 @@ type Settings = {
   pageSize: number;
   /** Pages toward an edge once at most this many rows lie between the visible range and it. */
   loadMoreThreshold: number;
+  /** How far from the bottom, in pixels, still counts as at it. */
+  pinTolerance: number;
   edgeRowHeight: number;
 };
 
@@ -136,6 +148,94 @@ type VisibleRange = { startIndex: number; endIndex: number };
 
 const NO_MORE: EdgeState = { more: false, empty: false };
 const NONE_SKIPPED: string[] = [];
+
+/**
+ * Why the window is short of the live end though the server's last page said no
+ * more: it landed without following, so lines go on being written past it, or a
+ * follow closed. The next page catches a closed follow up from REOPEN_OVERLAP_MS
+ * before the after edge, and so does the follow when it reopens.
+ */
+type Behind = null | 'landed' | 'followed';
+
+function isAtBottom(el: Element, tolerance: number) {
+  return Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) <= tolerance;
+}
+
+/** At the bottom to within a pixel: where a browser's clamp leaves a scroll, `scrollTop` being fractional. */
+function isAtVeryBottom(el: Element) {
+  return Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) < 1;
+}
+
+// The core's own scrolls --------------------------------------------------
+//
+// They fire `scroll` like the user's. Each records where it left the scroller,
+// and the event that reads that position is the core's; one reading anywhere else
+// is the user's hand, however soon after, so a follow writing every frame cannot
+// swallow a scroll up.
+//
+// Events arrive late and coalesce, so the scroller can sit away from the last
+// position known — from an event or the core's own scroll — with no event yet to
+// say so: that is a move of the user's. Its direction is measured from that
+// position, a core scroll carries it along, and the core does not scroll to the
+// end over one that went up.
+
+type OwnScroll = {
+  run: (scroll: () => void) => void;
+  /** Answers whether it scrolled: not over a move up the core has not been told of. */
+  toEnd: () => boolean;
+  /** Whose the scroll event reading `top` is, and whether it moved up. Call it once per event. */
+  read: (top: number) => { own: boolean; up: boolean };
+};
+
+function useOwnScroll(scrollElRef: RefObject<HTMLDivElement | null>): OwnScroll {
+  const runningRef = useRef(false);
+  const leftAtRef = useRef<number | null>(null);
+  // The last position known, from an event or the core's own scroll, whichever came later.
+  const lastTopRef = useRef<number | null>(null);
+  return useMemo(() => {
+    /** How far the user has moved the scroller with no event yet to say so. */
+    const unread = (scrollEl: HTMLDivElement) =>
+      lastTopRef.current === null ? 0 : scrollEl.scrollTop - lastTopRef.current;
+
+    const run = (scroll: () => void) => {
+      const scrollEl = scrollElRef.current;
+      if (!scrollEl) return;
+      const moved = unread(scrollEl);
+      const top = scrollEl.scrollTop;
+      runningRef.current = true;
+      try {
+        scroll();
+      } finally {
+        runningRef.current = false;
+      }
+      // With a move of the user's carried along, the event that comes reads it as
+      // theirs. A scroll that went nowhere fires no event, so it marks no position.
+      if (moved) leftAtRef.current = null;
+      else if (scrollEl.scrollTop !== top) leftAtRef.current = scrollEl.scrollTop;
+      lastTopRef.current = scrollEl.scrollTop - moved;
+    };
+    return {
+      run,
+      toEnd: () => {
+        const scrollEl = scrollElRef.current;
+        if (!scrollEl || unread(scrollEl) < 0) return false;
+        run(() => {
+          scrollEl.scrollTop = scrollEl.scrollHeight;
+        });
+        return true;
+      },
+      read: (top) => {
+        const up = lastTopRef.current !== null && top < lastTopRef.current;
+        lastTopRef.current = top;
+        // An event dispatched inside the scroll itself (jsdom's) is the core's too.
+        if (runningRef.current) return { own: true, up };
+        const own = top === leftAtRef.current;
+        leftAtRef.current = null;
+        return { own, up };
+      },
+    };
+  }, [scrollElRef]);
+}
 
 // Frames ------------------------------------------------------------------
 
@@ -234,11 +334,17 @@ type FollowOptions = {
   onError: (error: unknown) => void;
 };
 
-/** The end stays in view through `useKeepPlace`, which keeps it while following. */
-function useFollow({ client, lines, following, onError }: FollowOptions) {
+/**
+ * Answers how many follows have opened, so a page after asked before one did can
+ * tell it is stale. The end stays in view through `useKeepPlace`, which keeps it
+ * while following.
+ */
+function useFollow({ client, lines, following, onError }: FollowOptions): RefObject<number> {
+  const opensRef = useRef(0);
   const reportError = useEffectEvent((error: unknown) => onError(error));
   useEffect(() => {
     if (!following) return undefined;
+    opensRef.current += 1;
     let cancelFlush: (() => void) | null = null;
     let batch: LogLine[] = [];
 
@@ -265,6 +371,7 @@ function useFollow({ client, lines, following, onError }: FollowOptions) {
       cancelFlush?.();
     };
   }, [client, lines, following]);
+  return opensRef;
 }
 
 // Keeping the reader's place ----------------------------------------------
@@ -282,9 +389,10 @@ type KeepPlaceOptions = {
   virtualizer: Virtualizer<HTMLDivElement, Element>;
   lines: Lines;
   following: boolean;
+  own: OwnScroll;
 };
 
-function useKeepPlace({ scrollElRef, virtualizer, lines, following }: KeepPlaceOptions) {
+function useKeepPlace({ scrollElRef, virtualizer, lines, following, own }: KeepPlaceOptions) {
   const heldRef = useRef<{ key: number; into: number } | null>(null);
 
   const hold = useCallback(() => {
@@ -300,16 +408,99 @@ function useKeepPlace({ scrollElRef, virtualizer, lines, following }: KeepPlaceO
     const held = heldRef.current;
     heldRef.current = null;
     if (!scrollEl) return;
-    if (following) {
-      scrollEl.scrollTop = scrollEl.scrollHeight;
-      return;
-    }
+    // A scroll up not yet told of keeps the row instead: its event unpins.
+    if (following && (isAtBottom(scrollEl, 0) || own.toEnd())) return;
     const index = held ? lines.indexOfKey(held.key) : -1;
     if (!held || index < 0 || index >= lines.length) return;
-    scrollEl.scrollTop = virtualizer.measurementsCache[index].start + held.into;
+    const top = virtualizer.measurementsCache[index].start + held.into;
+    if (top !== scrollEl.scrollTop) {
+      own.run(() => {
+        scrollEl.scrollTop = top;
+      });
+    }
   });
 
   return hold;
+}
+
+// Pinning -----------------------------------------------------------------
+//
+// The pin is the user's hand: a scroll up unpins, and a scroll that reaches the
+// bottom of a window loaded to the end pins again. The core's own scrolls are not
+// the user's and change nothing.
+
+type PinToEndOptions = {
+  scrollElRef: RefObject<HTMLDivElement | null>;
+  loading: boolean;
+  setPinned: (pinned: boolean) => void;
+  following: boolean;
+  /** Closes the follow, leaving the viewer paged. */
+  stopFollowing: () => void;
+  moreAfter: boolean;
+  tolerance: number;
+  own: OwnScroll;
+};
+
+function usePinToEnd({
+  scrollElRef,
+  loading,
+  setPinned,
+  following,
+  stopFollowing,
+  moreAfter,
+  tolerance,
+  own,
+}: PinToEndOptions) {
+  // Set by a user's scroll that reached the bottom while more lay after, so the
+  // page that finds no more can pin with no scroll left to do it.
+  const wantsPinRef = useRef(false);
+
+  // A scroll up unpins, however small: the tolerance makes reaching the bottom
+  // forgiving, never leaving it.
+  const onUserScroll = useEffectEvent((atBottom: boolean, up: boolean) => {
+    wantsPinRef.current = !up && atBottom && moreAfter;
+    if (up) {
+      // Unpinned whatever the last render said: a scroll to the bottom just before may have pinned it.
+      setPinned(false);
+      if (following) stopFollowing();
+    } else if (atBottom && !moreAfter) {
+      setPinned(true);
+    }
+  });
+
+  // After the commit that dropped the edge, so the bottom is measured without its row.
+  useEffect(() => {
+    const scrollEl = scrollElRef.current;
+    if (moreAfter || !wantsPinRef.current || !scrollEl) return;
+    wantsPinRef.current = false;
+    if (isAtBottom(scrollEl, tolerance)) setPinned(true);
+  }, [scrollElRef, moreAfter, tolerance, setPinned]);
+
+  // A scroller that changes height (a scrollbar appearing, the panel resized)
+  // would hide the last row; while following, keep it in view.
+  const onResize = useEffectEvent(() => {
+    if (following) own.toEnd();
+  });
+
+  useEffect(() => {
+    const scrollEl = scrollElRef.current;
+    if (!scrollEl || loading) return;
+
+    const onScroll = () => {
+      const { own: ours, up } = own.read(scrollEl.scrollTop);
+      // A move up that ends exactly at the bottom is the browser clamping the scroll
+      // as the content shrank (an edge row removed); a user's scroll up leaves it.
+      if (!ours && !(up && isAtVeryBottom(scrollEl))) onUserScroll(isAtBottom(scrollEl, tolerance), up);
+    };
+    const resizeObserver = new ResizeObserver(() => onResize());
+
+    scrollEl.addEventListener('scroll', onScroll);
+    resizeObserver.observe(scrollEl);
+    return () => {
+      scrollEl.removeEventListener('scroll', onScroll);
+      resizeObserver.disconnect();
+    };
+  }, [scrollElRef, loading, tolerance, own]);
 }
 
 // One landing -------------------------------------------------------------
@@ -350,15 +541,18 @@ function Landing({
   const [before, setBefore] = useState(NO_MORE);
   const [after, setAfter] = useState(NO_MORE);
   const [pinned, setPinned] = useState(initialPinned);
-  // A landing that does not follow is behind: lines go on being written past it,
-  // so the after edge reads as more until a page after says otherwise.
-  const [behind, setBehind] = useState(false);
+  const [behind, setBehind] = useState<Behind>(null);
   const [skipped, setSkipped] = useState<string[]>([]);
+  const own = useOwnScroll(scrollElRef);
 
   const { estimateRowHeight } = settings;
   const estimateSize = useCallback((index: number) => estimateRowHeight(lines.at(index)), [estimateRowHeight, lines]);
   // Keys shift only when lines are added, which changes `count`, and the virtualizer re-reads them then.
   const getItemKey = useCallback((index: number) => lines.keyAt(index), [lines]);
+  const scrollToFn = useCallback<typeof elementScroll>(
+    (offset, options, instance) => own.run(() => elementScroll(offset, options, instance)),
+    [own],
+  );
 
   // The virtualizer mutates in place, so the compiler leaves this component unmemoized.
   // eslint-disable-next-line react-hooks/incompatible-library
@@ -368,6 +562,7 @@ function Landing({
     estimateSize,
     getItemKey,
     measureElement: settings.measureElement,
+    scrollToFn,
     overscan: settings.overscan,
     scrollMargin: before.more ? settings.edgeRowHeight : 0,
     useScrollendEvent: true,
@@ -378,16 +573,19 @@ function Landing({
 
   // Lines arrive only while following: pinned and landed. The follow reads
   // everything after the after edge, so it owns that edge: paging and the render
-  // function see no more after while it runs.
+  // function see no more after while it runs. A follow that closes leaves the
+  // viewer paged, behind, so nothing is appended behind a reader's back, and the
+  // after edge reads as more while behind.
   const following = pinned && !loading && landed;
   let afterEdge = after;
   if (following) afterEdge = NO_MORE;
-  else if (behind) afterEdge = { ...after, more: true };
-  const loadedToEnd = !loading && landed && !afterEdge.more;
+  else if (behind !== null) afterEdge = { ...after, more: true };
+  const moreAfter = afterEdge.more;
+  const loadedToEnd = !loading && landed && !moreAfter;
   const edgeRows = Number(before.more) + Number(afterEdge.more);
   const totalSize = (count ? virtualizer.getTotalSize() : 0) + edgeRows * settings.edgeRowHeight;
   const beforePaint = useBeforePaint();
-  const hold = useKeepPlace({ scrollElRef, virtualizer, lines, following });
+  const hold = useKeepPlace({ scrollElRef, virtualizer, lines, following, own });
   useLayoutEffect(() => {
     holdRef.current = hold;
   }, [hold]);
@@ -401,6 +599,8 @@ function Landing({
     lines.resumeFrom(edge, result.nextCursor);
     setSkipped(result.skipped.length ? result.skipped : NONE_SKIPPED);
   };
+
+  const stopFollowing = () => setBehind('followed');
 
   // Fetches the anchor's page, places it with key 0 at the anchor, and scrolls
   // there. Answers whether it landed short of the end: the server said there are more lines after it.
@@ -423,8 +623,7 @@ function Landing({
         // Queued once the lines are in.
         if (result.lines.length) {
           await beforePaint(() => {
-            const scrollEl = scrollElRef.current;
-            if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
+            own.toEnd();
           });
         }
         break;
@@ -444,12 +643,14 @@ function Landing({
         setSkipped(skippedByEither.length ? skippedByEither : NONE_SKIPPED);
         shortOfEnd = since.nextCursor !== null;
         if (lines.length) {
-          await beforePaint(() => {
-            const scrollEl = scrollElRef.current;
-            // With nothing since the moment, the last line older is as far as it goes.
-            const at = Math.min(added, lines.length - 1);
-            if (scrollEl) scrollEl.scrollTop = virtualizer.measurementsCache[at].start;
-          });
+          await beforePaint(() =>
+            own.run(() => {
+              const scrollEl = scrollElRef.current;
+              // With nothing since the moment, the last line older is as far as it goes.
+              const at = Math.min(added, lines.length - 1);
+              if (scrollEl) scrollEl.scrollTop = virtualizer.measurementsCache[at].start;
+            }),
+          );
         }
         break;
       }
@@ -469,7 +670,7 @@ function Landing({
     setLanded(true);
     if (!pinned || shortOfEnd) {
       setPinned(false);
-      setBehind(true);
+      setBehind('landed');
     }
   });
 
@@ -519,9 +720,13 @@ function Landing({
 
   const loadAfter = async () => {
     const from = lines.from('after');
-    const options = { cursor: from?.cursor, limit: settings.pageSize };
-    const result = await (from?.keep ? client.fetchSince(options) : client.fetchAfter(options));
-    setBehind(false);
+    const catchUp = behind === 'followed';
+    const options = { cursor: catchUp ? catchUpFrom(lines) : from?.cursor, limit: settings.pageSize };
+    const opens = followOpensRef.current;
+    const result = await (!catchUp && from?.keep ? client.fetchSince(options) : client.fetchAfter(options));
+    // A follow opened since read from the after edge itself, past where this page did.
+    if (followOpensRef.current !== opens) return;
+    setBehind(null);
     readPage('after', result);
     // A page of lines already held is as empty as a page with none.
     if (!lines.append(result.lines) && result.nextCursor !== null) setAfter({ more: true, empty: true });
@@ -536,7 +741,17 @@ function Landing({
     threshold: settings.loadMoreThreshold,
     onError,
   });
-  useFollow({ client, lines, following, onError });
+  const followOpensRef = useFollow({ client, lines, following, onError });
+  usePinToEnd({
+    scrollElRef,
+    loading,
+    setPinned,
+    following,
+    stopFollowing,
+    moreAfter,
+    tolerance: settings.pinTolerance,
+    own,
+  });
 
   useImperativeHandle(
     ref,
@@ -620,6 +835,7 @@ export type LogViewerCoreProps = {
   firstPageSize?: number;
   pageSize?: number;
   loadMoreThreshold?: number;
+  pinTolerance?: number;
   edgeRowHeight?: number;
   className?: string;
   children: (rows: CoreRows) => ReactNode;
@@ -639,6 +855,7 @@ export function LogViewerCore({
   firstPageSize = 150,
   pageSize = 100,
   loadMoreThreshold = 50,
+  pinTolerance = 10,
   edgeRowHeight = 0,
   className,
   children,
@@ -677,6 +894,7 @@ export function LogViewerCore({
         firstPageSize,
         pageSize,
         loadMoreThreshold,
+        pinTolerance,
         edgeRowHeight,
       }}
       onState={published.set}
