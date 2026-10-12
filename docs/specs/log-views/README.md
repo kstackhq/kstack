@@ -44,10 +44,11 @@ to the lettered naming in [Naming](../README.md#naming).
 closed disclosure like any other tool call, which is what the transcript does today for a kind it
 does not know.
 
-**The viewer is its own PR.** The log viewer itself — give it a timestamp, it lands there, scroll
-either way, follow at the end — lands in a PR of its own, outside the rungs. Until then
-`LogViewer` (`src/components/widgets/log-viewer.tsx`) is a placeholder, and its props are the
-contract it is mounted by.
+**The viewer is its own sequence.** The log viewer itself — give it a timestamp, it lands there,
+scroll either way, follow at the end — is ported from kubetail in
+[`docs/specs/log-viewer/`](../log-viewer/README.md), outside the rungs and on this branch. Rung 2
+needs its step 2. Until then `LogViewer` (`src/components/widgets/log-viewer.tsx`) is a
+placeholder, and its props are the contract it is mounted by.
 
 **Every rung's spec has the same sections, in the same order**, as the retired agent-security
 sequence had: *In short*, *What is not in this rung*, *Design*, *Decisions this rung asks for*,
@@ -65,10 +66,12 @@ These are decided across the ladder. A rung that needs to revisit one says so in
 - **The anchor is the interface, and pinning is the model's word.** A view is a list of sources,
   the filters on their lines, an optional grep, an anchor and whether the viewer is pinned to the
   end. The anchor is an edge, *head* or *tail*, or a moment: *yesterday* is a view anchored at
-  yesterday's midnight. New lines arrive whatever the anchor; `pinToEnd` says whether the viewer
-  keeps the end in view as they do, which the anchor cannot imply — *tail the logs* is pinned and
-  *the latest lines* is not, both at the tail — so the model says it and the user unpins by hand,
-  which leaves no row.
+  yesterday's midnight. `pinToEnd` says whether the viewer keeps the end in view, which the
+  anchor cannot imply — *tail the logs* is pinned and *the latest lines* is not, both at the
+  tail — so the model says it and the user unpins by hand, which leaves no row. New lines arrive
+  whatever the anchor, while the viewer is pinned: unpinned, it stops listening and pages what
+  it missed when the user scrolls back to the end (→ [the log viewer](../log-viewer/README.md),
+  *Lines arrive only while following*).
 - **The view is what the log backend takes.** The backend reads any list of resources, each in
   its namespace, by its default container, the ones named or every one, its previous instance or
   its running one, and merges their lines by timestamp; it filters by node, region, zone, os and
