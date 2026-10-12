@@ -15,21 +15,12 @@
 package logsview
 
 import (
-	"context"
 	"encoding/json"
-	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
-
-// query reads one cache's views, as KubeQuery does, inside one reading of the cluster.
-type query struct {
-	data      cluster.CachedData
-	ctx       context.Context
-	clusterID cluster.ClusterID
-	cacheID   cluster.ClusterCacheID
-}
 
 // found is what the mirror holds of a source's object: its containers first and
 // its init containers after them, the default-container annotation's value, and
@@ -41,82 +32,69 @@ type found struct {
 	restarted map[string]bool
 }
 
-// apiOf is each kind's api_version and Kind in the mirror, and where its pod
-// template is, "" for a pod's own spec.
-var apiOf = map[tools.LogsSourceKind]struct{ apiVersion, kind, template string }{
-	tools.LogsSourcePod:         {"v1", "Pod", ""},
-	tools.LogsSourceDeployment:  {"apps/v1", "Deployment", "$.spec.template"},
-	tools.LogsSourceStatefulSet: {"apps/v1", "StatefulSet", "$.spec.template"},
-	tools.LogsSourceDaemonSet:   {"apps/v1", "DaemonSet", "$.spec.template"},
-	tools.LogsSourceReplicaSet:  {"apps/v1", "ReplicaSet", "$.spec.template"},
-	tools.LogsSourceJob:         {"batch/v1", "Job", "$.spec.template"},
-	tools.LogsSourceCronJob:     {"batch/v1", "CronJob", "$.spec.jobTemplate.spec.template"},
-}
-
-// run runs one statement over the cache with args bound to its placeholders; a
-// cache gone under the read is errNoCache.
-func (q query) run(sql string, args ...any) (cluster.ClusterCachedDataQueryResult, error) {
-	res, ok, err := q.data.Query(q.ctx, q.clusterID, q.cacheID, sql, maxRows, maxBytes, args...)
-	if err != nil {
-		return res, err
+// templateOf is where kind's pod template is in its body, "" for a pod's own spec.
+func templateOf(kind tools.LogsSourceKind) string {
+	switch kind {
+	case tools.LogsSourcePod:
+		return ""
+	case tools.LogsSourceCronJob:
+		return "$.spec.jobTemplate.spec.template"
 	}
-	if !ok {
-		return res, errNoCache
-	}
-	return res, nil
+	return "$.spec.template"
 }
 
 // object is the source's object as the mirror holds it, a zero uid for none: a
 // pod's containers off the containers table, with their restarts; a workload's
 // off its pod template.
-func (q query) object(s source) (found, error) {
-	api := apiOf[s.kind]
+func object(q cluster.CacheReading, s source) (found, error) {
+	apiVersion, kind := logs.MirrorKind(s.kind)
+	template := templateOf(s.kind)
 	const where = " WHERE o.api_version = ? AND o.kind = ? AND o.namespace = ? AND o.name = ?"
-	args := []any{api.apiVersion, api.kind, s.namespace, s.name}
-	if api.template == "" {
-		res, err := q.run(`SELECT o.uid, o.body ->> '$.metadata.annotations."`+defaultContainerAnnotation+`"', c.name, coalesce(c.restarts, 0)
+	args := []any{apiVersion, kind, s.namespace, s.name}
+	if template == "" {
+		res, err := q.Query(`SELECT o.uid, o.body ->> '$.metadata.annotations."`+defaultContainerAnnotation+`"', c.name, coalesce(c.restarts, 0)
 FROM objects o LEFT JOIN containers c ON c.pod_uid = o.uid`+where+` ORDER BY c.init, c.position`, args...)
 		if err != nil || len(res.Rows) == 0 {
 			return found{}, err
 		}
-		f := found{uid: text(res.Rows[0][0]), annotated: text(res.Rows[0][1]), restarted: map[string]bool{}}
+		f := found{uid: cluster.CellText(res.Rows[0][0]), annotated: cluster.CellText(res.Rows[0][1]), restarted: map[string]bool{}}
 		for _, row := range res.Rows {
-			if name := text(row[2]); name != "" {
+			if name := cluster.CellText(row[2]); name != "" {
 				f.names = append(f.names, name)
-				f.restarted[name] = integer(row[3]) > 0
+				f.restarted[name] = cluster.CellInteger(row[3]) > 0
 			}
 		}
 		return f, nil
 	}
-	res, err := q.run(`SELECT o.uid, o.body ->> '`+api.template+`.metadata.annotations."`+defaultContainerAnnotation+`"',
-o.body -> '`+api.template+`.spec.containers', o.body -> '`+api.template+`.spec.initContainers'
+	res, err := q.Query(`SELECT o.uid, o.body ->> '`+template+`.metadata.annotations."`+defaultContainerAnnotation+`"',
+o.body -> '`+template+`.spec.containers', o.body -> '`+template+`.spec.initContainers'
 FROM objects o`+where, args...)
 	if err != nil || len(res.Rows) == 0 {
 		return found{}, err
 	}
-	f := found{uid: text(res.Rows[0][0]), annotated: text(res.Rows[0][1])}
-	f.names = append(containerNames(text(res.Rows[0][2])), containerNames(text(res.Rows[0][3]))...)
+	f := found{uid: cluster.CellText(res.Rows[0][0]), annotated: cluster.CellText(res.Rows[0][1])}
+	f.names = append(containerNames(cluster.CellText(res.Rows[0][2])), containerNames(cluster.CellText(res.Rows[0][3]))...)
 	return f, nil
 }
 
 // previousPods counts the pods under the workload uid, and those with a
 // restarted container among shown: every container when shown is empty.
-func (q query) previousPods(uid string, shown []string) (pods, restarted int, err error) {
+func previousPods(q cluster.CacheReading, uid string, shown []string) (pods, restarted int, err error) {
 	among := ""
 	args := []any{}
 	for _, name := range shown {
 		args = append(args, name)
 	}
 	if len(shown) > 0 {
-		among = " AND c.name IN (" + placeholders(len(shown)) + ")"
+		among = " AND c.name IN (" + cluster.Placeholders(len(shown)) + ")"
 	}
-	res, err := q.run(`SELECT count(*), coalesce(sum(EXISTS (SELECT 1 FROM containers c WHERE c.pod_uid = p.uid AND c.restarts > 0`+among+`)), 0)
+	res, err := q.Query(`SELECT count(*), coalesce(sum(EXISTS (SELECT 1 FROM containers c WHERE c.pod_uid = p.uid AND c.restarts > 0`+among+`)), 0)
 FROM objects p WHERE p.api_version = 'v1' AND p.kind = 'Pod'
 AND p.uid IN (SELECT uid FROM ancestors WHERE ancestor_uid = ?)`, append(args, uid)...)
 	if err != nil || len(res.Rows) == 0 {
 		return 0, 0, err
 	}
-	return int(integer(res.Rows[0][0])), int(integer(res.Rows[0][1])), nil
+	return int(cluster.CellInteger(res.Rows[0][0])), int(cluster.CellInteger(res.Rows[0][1])), nil
 }
 
 // containerNames is each container's name in a template's list, as JSON.
@@ -132,21 +110,4 @@ func containerNames(list string) []string {
 		}
 	}
 	return names
-}
-
-// placeholders is n comma-separated placeholders, for an IN list of n values.
-func placeholders(n int) string {
-	return strings.TrimSuffix(strings.Repeat("?, ", n), ", ")
-}
-
-// text is a cell as text, "" for any other.
-func text(v any) string {
-	s, _ := v.(string)
-	return s
-}
-
-// integer is a cell as an integer, 0 for any other.
-func integer(v any) int64 {
-	n, _ := v.(int64)
-	return n
 }

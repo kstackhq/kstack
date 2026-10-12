@@ -462,6 +462,10 @@ func (f fakeCachedData) Query(context.Context, cluster.ClusterID, cluster.Cluste
 	return cluster.ClusterCachedDataQueryResult{}, false, nil
 }
 
+func (f fakeCachedData) ReadActive(ctx context.Context, id cluster.ClusterID, maxRows, maxBytes int, read func(cluster.CacheReading, cluster.ActiveCluster) error) error {
+	return cluster.ReadActiveCache(ctx, f.s, id, maxRows, maxBytes, read)
+}
+
 func (f fakeCachedData) ListKinds(_ context.Context, clusterID cluster.ClusterID, _ cluster.ClusterCacheID) ([]cluster.ClusterCachedDataKind, error) {
 	f.s.mu.Lock()
 	defer f.s.mu.Unlock()

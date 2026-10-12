@@ -71,3 +71,20 @@ const (
 	FilterOS     FilterField = "os"
 	FilterArch   FilterField = "arch"
 )
+
+// mirrorKinds is each source kind's api_version and Kind in the mirror.
+var mirrorKinds = map[SourceKind]struct{ apiVersion, kind string }{
+	SourcePod:         {"v1", "Pod"},
+	SourceDeployment:  {"apps/v1", "Deployment"},
+	SourceStatefulSet: {"apps/v1", "StatefulSet"},
+	SourceDaemonSet:   {"apps/v1", "DaemonSet"},
+	SourceReplicaSet:  {"apps/v1", "ReplicaSet"},
+	SourceJob:         {"batch/v1", "Job"},
+	SourceCronJob:     {"batch/v1", "CronJob"},
+}
+
+// MirrorKind is kind's api_version and Kind in the mirror.
+func MirrorKind(kind SourceKind) (apiVersion, k string) {
+	m := mirrorKinds[kind]
+	return m.apiVersion, m.kind
+}

@@ -660,3 +660,13 @@ func TestQueryReportsAStoreThatWillNotOpen(t *testing.T) {
 
 	assert.ErrorIs(t, err, boom)
 }
+
+// ReadActive reads the service's own records: a cache that has synced nothing is
+// not trusted, and a cluster that is gone has no cache.
+func TestReadActiveReadsTheServicesCluster(t *testing.T) {
+	f := newDataFixture(t)
+	read := func(CacheReading, ActiveCluster) error { return nil }
+
+	assert.ErrorIs(t, f.data().ReadActive(context.Background(), f.clusterID, 10, 1<<20, read), ErrSyncing)
+	assert.ErrorIs(t, f.data().ReadActive(context.Background(), "404", 10, 1<<20, read), ErrNoCache)
+}

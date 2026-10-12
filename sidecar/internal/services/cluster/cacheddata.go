@@ -473,3 +473,7 @@ func (a cachedDataAPI) Query(ctx context.Context, clusterID ClusterID, cacheID C
 	}
 	return ClusterCachedDataQueryResult{Columns: res.Columns, Rows: res.Rows, More: res.More}, true, nil
 }
+
+func (a cachedDataAPI) ReadActive(ctx context.Context, id ClusterID, maxRows, maxBytes int, read func(CacheReading, ActiveCluster) error) error {
+	return ReadActiveCache(ctx, a.s, id, maxRows, maxBytes, read)
+}

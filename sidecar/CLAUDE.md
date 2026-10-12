@@ -357,7 +357,7 @@ The schema **is** the Go shape: every GraphQL type binds 1:1 by name in `gqlgen.
 - Cache-data watches are keyed by cluster id + cache id and carry `cacheID` provenance (objects also `apiVersion`/`resource`).
 - Point reads hang off the record that owns them (`Cluster.events`, `ClusterCache.kinds`, `Cluster.caches`, `ClusterCache.cachedKinds`). Every noun has the same root pair, `<noun>(id)` and `<nouns>(<parent>ID)`, the scope argument optional. Keep the shape when adding a noun.
 - `Cluster.caches` is the set, never "the" cache; activeness is the live join on `status.server.uid` (`CacheIsActive`).
-- **`Clusters().ReadActive(ctx, id, read)` is the one reading of a cluster at one identity**, for a reader that reads a cache's contents: it hands `read` an `ActiveCluster` — the record, and the cache `CacheIsActive` picks among the runtime objects, nil for a cluster never identified or one whose identity has no cache yet — then reads the identity again and runs the whole reading once more when it moved, since a cache read names its cache and never the identity. `read` may run twice, so it sets what it returns and never appends to it. A gone record is `ErrNotFound`, an identity that moves under both attempts `ErrIdentityMoved`, and `read`'s own error is returned as it is. The card and KubeQuery read through it. `Cluster.KubeContext()` is the kube-context a record comes from, empty for another source. → [ADR: the cluster service resolves a cluster](../docs/adr/2026-09-27-the-cluster-service-resolves-a-cluster.md).
+- **`Clusters().ReadActive(ctx, id, read)` is the one reading of a cluster at one identity**, for a reader that reads a cache's contents: it hands `read` an `ActiveCluster` — the record, and the cache `CacheIsActive` picks among the runtime objects, nil for a cluster never identified or one whose identity has no cache yet — then reads the identity again and runs the whole reading once more when it moved, since a cache read names its cache and never the identity. `read` may run twice, so it sets what it returns and never appends to it. A gone record is `ErrNotFound`, an identity that moves under both attempts `ErrIdentityMoved`, and `read`'s own error is returned as it is. The card and KubeQuery read through it. `Cluster.KubeContext()` is the kube-context a record comes from, empty for another source. **`CachedData().ReadActive(ctx, id, maxRows, maxBytes, read)` is that reading of the active cache by SQL** (`cachereading.go`): `ErrNoCache` for a cluster with no cache, a gone record, an identity that moves under both attempts or a cache gone under a statement, `ErrSyncing` for a cache whose rows are not `Trusted`, else `read` handed a `CacheReading` whose `Query(sql, args...)` reads that one cache within the bounds. `Placeholders`, `CellText` and `CellInteger` write and read its statements. LogsView and `services/logs` resolve a view through it; a fake `CachedData` answers it with `ReadActiveCache` over its own service. → [ADR: the cluster service resolves a cluster](../docs/adr/2026-09-27-the-cluster-service-resolves-a-cluster.md).
 - Mutations: `clusterConnectionRetry` is held open for the probe's round trip; `clusterCacheClear` takes the cache's own id, stops its workers, deletes the file, then requeues its kinds; `clusterCachedKindSyncEnabledSet` pauses one kind and keeps the rows; the three `cluster*EnabledSet` mutations each write one column with `UPDATE … RETURNING`, refusing a marked row; `clusterDelete` marks the row and returns. **Every cluster mutation returns through `clusterErr`** (`graph/util.go`): `ErrNotFound` → `KSTACK_RECORD_NOT_FOUND`, `ErrDeclaredBySource` and `ErrNotConnectable` → `KSTACK_CONFLICT`.
 - `clusterEventsWatch(id: ClusterID!)` and `Cluster.events` are the cluster's timeline (`Clusters().ListEvents`/`WatchEvents`, which read the runtime object's log); `eventsWatch(id: ObjectID!)` serves a cache's or a kind's.
 - Timestamps are nullable `Time` autobound to value `time.Time`; the delta-watch diff compares frames with `==`.
@@ -2064,9 +2064,8 @@ each value's type off its token, a resource as kubectl spells it (plural, singul
 namespace, name and container a DNS name, `all_containers` refused beside `containers`, a filter's
 list never empty, a `grep` that compiles on one line of at most 1,000 bytes. `resolve`
 (`resolve.go`) reads the anchor on the tool's clock — `tail` (the default), `head`, an RFC 3339
-time, or a positive Go duration back from now — then, inside one `Clusters().ReadActive` whose
-cache's `Freshness` does not withhold, each source off the cache's views (`mirror.go`, through
-`CachedData().Query` with every value bound to a placeholder): a pod's containers and restarts off the
+time, or a positive Go duration back from now — then, inside one `CachedData().ReadActive`, each source off the cache's views (`mirror.go`, every value bound to a
+placeholder, each kind's `api_version` and `Kind` off `logs.MirrorKind`): a pod's containers and restarts off the
 `containers` table, a workload's off its pod template in `body`, the default container the
 annotation's when the source has it, else the first, and for `previous` on a workload the pods
 under it in `ancestors` with a restarted container among those shown. A refusal is one JSON line:
@@ -2081,7 +2080,8 @@ pods` — under its name when there are several, then `Matching /<grep>/`, the w
 `SubagentBox` and `MonitorBox`: a view is the user's window. → `docs/specs/log-views/`.
 
 **`services/logs` holds a view's vocabulary** (`view.go`): `View`, its `ViewSource`s and
-`ViewFilter`s, and the `SourceKind` and `FilterField` enums. The LogsView tool's action embeds `View`, and `tools`
+`ViewFilter`s, the `SourceKind` and `FilterField` enums, and `MirrorKind`, each source kind's
+`api_version` and `Kind` in the mirror. The LogsView tool's action embeds `View`, and `tools`
 aliases the types, since a service cannot import a tool. The root `.gitignore` ignores `logs`, so
 the package has its own exception there. → `docs/specs/log-viewer/`.
 
