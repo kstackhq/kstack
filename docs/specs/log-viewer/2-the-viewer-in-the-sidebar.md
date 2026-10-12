@@ -45,11 +45,11 @@ grep, field by field. `createLogsClient` answers the five methods:
   argument onto the query's: `fetchSince` sends `since` with `Head`, `fetchUntil` sends `until`
   with `Tail`, `fetchAfter` sends `after` with `Head`, `fetchBefore` sends `before` with `Tail`.
   A result with an error rejects with it.
-- `subscribe(callback, { after })` runs `logsFollow` through `client.subscription(...)` and calls
+- `subscribe(after, onLine)` runs `logsFollow` through `client.subscription(...)` and calls
   back once per frame. It rides `subscribe-exchange`, which reconnects on its own with the same
   `after`; the core drops what it has seen (step 1B). A `watchFailed` frame is reported by the
   exchange already and the client does nothing more.
-- The records come back as `LogLine`s with `cursor` set to the timestamp.
+- The lines come back as `LogLine`s with `cursor` set to the timestamp.
 
 The client is built once per mount of the viewer, which is keyed on the call's id, so a new call
 is a new client and a re-render of the same call keeps it.
@@ -69,8 +69,8 @@ panel is its one caller.
 - Builds the client from `clusterId` and `query` (§1).
 - Hands `openAt` to the core as its `anchor` and passes `pinToEnd`. The two shapes are the same,
   so there is nothing to map.
-- Sets the core's batch sizes to 300 on open and 250 after, kubetail's numbers for a page, and
-  the loading row heights to one row.
+- Sets the core's page sizes to 300 on open and 250 after, kubetail's numbers for a page, and
+  the edge row height to one row.
 - Draws each row with **`LogViewerRow`** (`log-viewer-row.tsx`), a component of its own that
   takes one `LogLine` and whether the view reads more than one container: the time as
   `HH:mm:ss.SSS` in the window's local zone, muted; the pod, muted, with its container after a

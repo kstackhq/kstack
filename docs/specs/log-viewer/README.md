@@ -46,7 +46,7 @@ no screen. Step 2 is the first thing a user sees, and it is already useful. Step
 add a feature the viewer works without.
 
 **Copy, then reshape.** Each step names the kubetail files it starts from and what changes. The
-rule: take what works, change what kstack's contracts need, and drop what kstack has no use for.
+rule: take what works, change what kstack's contracts need, fix what is wrong, and drop what kstack has no use for.
 
 **Attribution.** Both projects are Apache 2.0, and kubetail's files are copyright "The Kubetail
 Authors", which includes contributors outside this team, so a copied file keeps their notice.

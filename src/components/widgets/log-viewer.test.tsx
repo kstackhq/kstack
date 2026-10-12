@@ -14,7 +14,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import { createViewerStore } from '@/lib/log-viewer-store';
+import { createViewportHandle } from '@/lib/viewport';
 import { LogViewer } from './log-viewer';
 
 describe('LogViewer', () => {
@@ -24,7 +24,7 @@ describe('LogViewer', () => {
         query={{ sources: [], filters: [], grep: '', anchor: { kind: 'Tail', at: null }, pinToEnd: true }}
         openAt={{ kind: 'Tail', at: null }}
         pinToEnd
-        store={createViewerStore()}
+        viewport={createViewportHandle()}
       />,
     );
     expect(screen.getByText('The log viewer is not built yet.')).toBeInTheDocument();

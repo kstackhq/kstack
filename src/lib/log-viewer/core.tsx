@@ -1,0 +1,923 @@
+// Copyright 2026 The Kstack Authors
+// Copyright 2024 The Kubetail Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+// The headless log viewer: it keeps the lines, lands at an anchor, pages at either
+// edge as the user scrolls, follows new lines while pinned to the end, and hands
+// its rows to a render function. It draws nothing and knows nothing of the app:
+// lines come from a `Client`, errors go to `onError`, and what it knows is
+// published through its handle.
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import type { ReactNode, Ref, RefObject } from 'react';
+import { elementScroll, useVirtualizer } from '@tanstack/react-virtual';
+import type { Virtualizer } from '@tanstack/react-virtual';
+
+import { useBeforePaint } from './before-paint';
+import { cursorBefore, cursorNow } from './cursor';
+import { Lines, Read } from './lines';
+import type { Edge } from './lines';
+import { createStore } from './store';
+import type { Anchor, Client, Cursor, FetchResult, LogLine } from './types';
+
+/**
+ * How far before the after edge a follow opens, and the first page after an unpin
+ * reads from. A follow's lines arrive per container, so one a moment behind has
+ * lines older than the newest; `Lines.append` drops what is re-sent, and what
+ * reaches back past the before edge.
+ */
+export const REOPEN_OVERLAP_MS = 5000;
+
+/** What the core publishes through its handle. */
+export type CoreState = {
+  loading: boolean;
+  /** Whether the landing failed, which leaves the viewer unpinned with nothing to page from. `jumpTo` lands again. */
+  failed: boolean;
+  /** Whether the viewport keeps the end in view. The user's hand changes it. */
+  pinnedToEnd: boolean;
+  /** Whether the subscription is open: pinned, not paused, and landed. */
+  following: boolean;
+  /** Whether the newest line is on screen: loaded to the end, with nothing more after. False the moment the viewer unpins. */
+  atEnd: boolean;
+  /** Timestamps of the first and last visible lines; null before any is drawn. */
+  range: { from: string; to: string } | null;
+  /** How many lines are on screen. */
+  visible: number;
+  /** The last page's lines about streams it could not read. */
+  skipped: string[];
+};
+
+export const CORE_INITIAL_STATE: CoreState = {
+  loading: true,
+  failed: false,
+  pinnedToEnd: false,
+  following: false,
+  atEnd: false,
+  range: null,
+  visible: 0,
+  skipped: [],
+};
+
+export type CoreRow = {
+  key: number;
+  index: number;
+  size: number;
+  start: number;
+  line: LogLine;
+};
+
+/** What one edge of the window says about the log past it. */
+export type EdgeState = {
+  /** Whether there are more lines that way. */
+  more: boolean;
+  /** Whether the last page that way held no line but said there are more. */
+  empty: boolean;
+};
+
+/** What the render function is handed. */
+export type CoreRows = {
+  loading: boolean;
+  /** As `CoreState.failed`. */
+  failed: boolean;
+  before: EdgeState;
+  after: EdgeState;
+  /** The height to draw an edge row at while `more` is set; the core lays rows out below it. */
+  edgeRowHeight: number;
+  /** The total height of the rows and the edge rows, for the sizer. */
+  totalSize: number;
+  /** The rows to draw. */
+  rows: CoreRow[];
+  count: number;
+  lineAt: (key: number) => LogLine | undefined;
+  keyAt: (index: number) => number | undefined;
+  /** -1 for a key not held. */
+  indexOfKey: (key: number) => number;
+  measureElement: (node: Element | null) => void;
+  /**
+   * Reads the next page toward `edge` now, for an edge row's button: with no row
+   * drawn after an empty page, there is no scroll to read on at.
+   */
+  loadMore: (edge: Edge) => void;
+};
+
+export type CoreHandle = {
+  /** Lands again at `anchor`. A jump to `Tail` pins to the end; any other unpins. */
+  jumpTo: (anchor: Anchor) => void;
+  /** Re-measures every row, keeping the reader's place, or the end while following. */
+  measure: () => void;
+  subscribe: (listener: () => void) => () => void;
+  getSnapshot: () => CoreState;
+};
+
+type Settings = {
+  estimateRowHeight: (line: LogLine) => number;
+  measureElement?: (
+    element: Element,
+    entry: ResizeObserverEntry | undefined,
+    instance: Virtualizer<HTMLDivElement, Element>,
+  ) => number;
+  overscan: number;
+  firstPageSize: number;
+  pageSize: number;
+  /** Pages toward an edge once at most this many rows lie between the visible range and it. */
+  loadMoreThreshold: number;
+  /** How far from the bottom, in pixels, still counts as at it. */
+  pinTolerance: number;
+  edgeRowHeight: number;
+};
+
+type VisibleRange = { startIndex: number; endIndex: number };
+
+const NO_MORE: EdgeState = { more: false, empty: false };
+const NONE_SKIPPED: string[] = [];
+
+/**
+ * Why the window is short of the live end though the server's last page said no
+ * more: it landed without following, so lines go on being written past it, or a
+ * follow closed. The next page catches a closed follow up from REOPEN_OVERLAP_MS
+ * before the after edge, and so does the follow when it reopens.
+ */
+type Behind = null | 'landed' | 'followed';
+
+function isAtBottom(el: Element, tolerance: number) {
+  return Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) <= tolerance;
+}
+
+/** At the bottom to within a pixel: where a browser's clamp leaves a scroll, `scrollTop` being fractional. */
+function isAtVeryBottom(el: Element) {
+  return Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight) < 1;
+}
+
+// The core's own scrolls --------------------------------------------------
+//
+// They fire `scroll` like the user's. Each records where it left the scroller,
+// and the event that reads that position is the core's; one reading anywhere else
+// is the user's hand, however soon after, so a follow writing every frame cannot
+// swallow a scroll up.
+//
+// Events arrive late and coalesce, so the scroller can sit away from the last
+// position known — from an event or the core's own scroll — with no event yet to
+// say so: that is a move of the user's. Its direction is measured from that
+// position, a core scroll carries it along, and the core does not scroll to the
+// end over one that went up.
+
+type OwnScroll = {
+  run: (scroll: () => void) => void;
+  /** Answers whether it scrolled: not over a move up the core has not been told of. */
+  toEnd: () => boolean;
+  /** Whose the scroll event reading `top` is, and whether it moved up. Call it once per event. */
+  read: (top: number) => { own: boolean; up: boolean };
+};
+
+function useOwnScroll(scrollElRef: RefObject<HTMLDivElement | null>): OwnScroll {
+  const runningRef = useRef(false);
+  const leftAtRef = useRef<number | null>(null);
+  // The last position known, from an event or the core's own scroll, whichever came later.
+  const lastTopRef = useRef<number | null>(null);
+  return useMemo(() => {
+    /** How far the user has moved the scroller with no event yet to say so. */
+    const unread = (scrollEl: HTMLDivElement) =>
+      lastTopRef.current === null ? 0 : scrollEl.scrollTop - lastTopRef.current;
+
+    const run = (scroll: () => void) => {
+      const scrollEl = scrollElRef.current;
+      if (!scrollEl) return;
+      const moved = unread(scrollEl);
+      const top = scrollEl.scrollTop;
+      runningRef.current = true;
+      try {
+        scroll();
+      } finally {
+        runningRef.current = false;
+      }
+      // With a move of the user's carried along, the event that comes reads it as
+      // theirs. A scroll that went nowhere fires no event, so it marks no position.
+      if (moved) leftAtRef.current = null;
+      else if (scrollEl.scrollTop !== top) leftAtRef.current = scrollEl.scrollTop;
+      lastTopRef.current = scrollEl.scrollTop - moved;
+    };
+    return {
+      run,
+      toEnd: () => {
+        const scrollEl = scrollElRef.current;
+        if (!scrollEl || unread(scrollEl) < 0) return false;
+        run(() => {
+          scrollEl.scrollTop = scrollEl.scrollHeight;
+        });
+        return true;
+      },
+      read: (top) => {
+        const up = lastTopRef.current !== null && top < lastTopRef.current;
+        lastTopRef.current = top;
+        // An event dispatched inside the scroll itself (jsdom's) is the core's too.
+        if (runningRef.current) return { own: true, up };
+        const own = top === leftAtRef.current;
+        leftAtRef.current = null;
+        return { own, up };
+      },
+    };
+  }, [scrollElRef]);
+}
+
+// Frames ------------------------------------------------------------------
+
+/** The longest work held for the next frame waits when no frame comes: a minimized window gets none. */
+export const HIDDEN_FLUSH_MS = 250;
+
+/** Calls `callback` on the next frame or after `HIDDEN_FLUSH_MS`, whichever is first; answers a cancel. */
+function onNextFrame(callback: () => void): () => void {
+  let frame: number;
+  let timer: ReturnType<typeof setTimeout>;
+  const cancel = () => {
+    cancelAnimationFrame(frame);
+    clearTimeout(timer);
+  };
+  frame = requestAnimationFrame(() => {
+    cancel();
+    callback();
+  });
+  timer = setTimeout(() => {
+    cancel();
+    callback();
+  }, HIDDEN_FLUSH_MS);
+  return cancel;
+}
+
+// Paging ------------------------------------------------------------------
+//
+// Reads toward an edge once at most `threshold` rows lie between the visible
+// range and it. It runs when the range moves, never because an edge changed: an empty page
+// with a cursor leaves the range where it was, so reading on waits for the user's
+// next scroll or `loadMore`, and a follow that closes pages nothing until they scroll.
+
+type LoadMoreOptions = {
+  range: VisibleRange | null;
+  count: number;
+  /** Nothing pages while the landing is still placing the rows. */
+  settled: boolean;
+  edges: Record<Edge, EdgeState>;
+  load: Record<Edge, () => Promise<void>>;
+  threshold: number;
+  onError: (error: unknown) => void;
+};
+
+/** Answers `loadMore(edge)`: a page toward `edge` now, if there is one to read and none in flight. */
+function useLoadMore({ range, count, settled, edges, load, threshold, onError }: LoadMoreOptions) {
+  const inFlightRef = useRef<Record<Edge, boolean>>({ before: false, after: false });
+
+  const loadMore = (edge: Edge) => {
+    if (!settled || !edges[edge].more || inFlightRef.current[edge]) return;
+    inFlightRef.current[edge] = true;
+    load[edge]()
+      .catch(onError)
+      .finally(() => {
+        // Held until the page has painted, so the range it moves does not ask again.
+        onNextFrame(() => {
+          inFlightRef.current[edge] = false;
+        });
+      });
+  };
+
+  const onRange = useEffectEvent(() => {
+    if (!range) return;
+    if (range.startIndex <= threshold) loadMore('before');
+    if (range.endIndex >= count - 1 - threshold) loadMore('after');
+  });
+
+  const startIndex = range?.startIndex;
+  const endIndex = range?.endIndex;
+  useEffect(() => {
+    onRange();
+  }, [startIndex, endIndex, settled]);
+
+  return loadMore;
+}
+
+// Following ---------------------------------------------------------------
+//
+// The subscription, open exactly while following. Lines are batched per animation
+// frame, appended through the duplicate rule, and the end kept in view.
+
+/** Where a follow opens, and a catch-up page reads: the after edge, overlapped. */
+function catchUpFrom(lines: Lines): Cursor | null {
+  const from = lines.from('after');
+  return from === undefined ? null : cursorBefore(from.cursor, REOPEN_OVERLAP_MS);
+}
+
+type FollowOptions = {
+  client: Client;
+  lines: Lines;
+  following: boolean;
+  onError: (error: unknown) => void;
+};
+
+/**
+ * Answers how many follows have opened, so a page after asked before one did can
+ * tell it is stale. The end stays in view through `useKeepPlace`, which keeps it
+ * while following.
+ */
+function useFollow({ client, lines, following, onError }: FollowOptions): RefObject<number> {
+  const opensRef = useRef(0);
+  const reportError = useEffectEvent((error: unknown) => onError(error));
+  useEffect(() => {
+    if (!following) return undefined;
+    opensRef.current += 1;
+    let cancelFlush: (() => void) | null = null;
+    let batch: LogLine[] = [];
+    const read = new Read();
+
+    const flush = () => {
+      cancelFlush = null;
+      const flushed = batch;
+      batch = [];
+      try {
+        lines.append(flushed, read);
+      } catch (error) {
+        reportError(error);
+      }
+    };
+
+    let after: Cursor | null;
+    try {
+      after = catchUpFrom(lines);
+    } catch (error) {
+      reportError(error);
+      return undefined;
+    }
+    const unsubscribe = client.subscribe(after, (line) => {
+      batch.push(line);
+      if (cancelFlush === null) cancelFlush = onNextFrame(flush);
+    });
+    return () => {
+      unsubscribe();
+      cancelFlush?.();
+    };
+  }, [client, lines, following]);
+  return opensRef;
+}
+
+// Keeping the reader's place ----------------------------------------------
+//
+// Lines added above the rows in view, the edge row above them coming or going, or
+// a re-measure all move the rows on screen. `hold` is called just before such a
+// change and notes the first visible row by its key and how far into it the
+// scroll sits, read against the layout still on screen; the commit that draws the
+// change puts that row back. Only the first hold before a commit counts, since a
+// second is read against lines the screen does not show yet. While following,
+// every commit keeps the end in view instead.
+
+type KeepPlaceOptions = {
+  scrollElRef: RefObject<HTMLDivElement | null>;
+  virtualizer: Virtualizer<HTMLDivElement, Element>;
+  lines: Lines;
+  following: boolean;
+  own: OwnScroll;
+};
+
+function useKeepPlace({ scrollElRef, virtualizer, lines, following, own }: KeepPlaceOptions) {
+  const heldRef = useRef<{ key: number; into: number } | null>(null);
+
+  const hold = useCallback(() => {
+    const scrollEl = scrollElRef.current;
+    if (heldRef.current || !scrollEl) return;
+    // The virtualizer's measurements are the last commit's, so the item and its key are what is on screen.
+    const item = virtualizer.getVirtualItemForOffset(scrollEl.scrollTop);
+    if (item) heldRef.current = { key: item.key as number, into: scrollEl.scrollTop - item.start };
+  }, [scrollElRef, virtualizer]);
+
+  useLayoutEffect(() => {
+    const scrollEl = scrollElRef.current;
+    const held = heldRef.current;
+    heldRef.current = null;
+    if (!scrollEl) return;
+    // A scroll up not yet told of keeps the row instead: its event unpins.
+    if (following && (isAtBottom(scrollEl, 0) || own.toEnd())) return;
+    const index = held ? lines.indexOfKey(held.key) : -1;
+    if (!held || index < 0 || index >= lines.length) return;
+    const top = virtualizer.measurementsCache[index].start + held.into;
+    if (top !== scrollEl.scrollTop) {
+      own.run(() => {
+        scrollEl.scrollTop = top;
+      });
+    }
+  });
+
+  return hold;
+}
+
+// Pinning -----------------------------------------------------------------
+//
+// The pin is the user's hand: a scroll up unpins, and a scroll that reaches the
+// bottom of a window loaded to the end pins again. The core's own scrolls are not
+// the user's and change nothing.
+
+type PinToEndOptions = {
+  scrollElRef: RefObject<HTMLDivElement | null>;
+  loading: boolean;
+  setPinned: (pinned: boolean) => void;
+  following: boolean;
+  /** Closes the follow, leaving the viewer paged. */
+  stopFollowing: () => void;
+  moreAfter: boolean;
+  tolerance: number;
+  own: OwnScroll;
+};
+
+function usePinToEnd({
+  scrollElRef,
+  loading,
+  setPinned,
+  following,
+  stopFollowing,
+  moreAfter,
+  tolerance,
+  own,
+}: PinToEndOptions) {
+  // Set by a user's scroll that reached the bottom while more lay after, so the
+  // page that finds no more can pin with no scroll left to do it.
+  const wantsPinRef = useRef(false);
+
+  // A scroll up unpins, however small: the tolerance makes reaching the bottom
+  // forgiving, never leaving it.
+  const onUserScroll = useEffectEvent((atBottom: boolean, up: boolean) => {
+    wantsPinRef.current = !up && atBottom && moreAfter;
+    if (up) {
+      // Unpinned whatever the last render said: a scroll to the bottom just before may have pinned it.
+      setPinned(false);
+      if (following) stopFollowing();
+    } else if (atBottom && !moreAfter) {
+      setPinned(true);
+    }
+  });
+
+  // After the commit that dropped the edge, so the bottom is measured without its row.
+  useEffect(() => {
+    const scrollEl = scrollElRef.current;
+    if (moreAfter || !wantsPinRef.current || !scrollEl) return;
+    wantsPinRef.current = false;
+    if (isAtBottom(scrollEl, tolerance)) setPinned(true);
+  }, [scrollElRef, moreAfter, tolerance, setPinned]);
+
+  // A scroller that changes height (a scrollbar appearing, the panel resized)
+  // would hide the last row; while following, keep it in view.
+  const onResize = useEffectEvent(() => {
+    if (following) own.toEnd();
+  });
+
+  useEffect(() => {
+    const scrollEl = scrollElRef.current;
+    if (!scrollEl || loading) return;
+
+    const onScroll = () => {
+      const { own: ours, up } = own.read(scrollEl.scrollTop);
+      // A move up that ends exactly at the bottom is the browser clamping the scroll
+      // as the content shrank (an edge row removed); a user's scroll up leaves it.
+      if (!ours && !(up && isAtVeryBottom(scrollEl))) onUserScroll(isAtBottom(scrollEl, tolerance), up);
+    };
+    const resizeObserver = new ResizeObserver(() => onResize());
+
+    scrollEl.addEventListener('scroll', onScroll);
+    resizeObserver.observe(scrollEl);
+    return () => {
+      scrollEl.removeEventListener('scroll', onScroll);
+      resizeObserver.disconnect();
+    };
+  }, [scrollElRef, loading, tolerance, own]);
+}
+
+// One landing -------------------------------------------------------------
+//
+// `LogViewerCore` keys it, so a jump or a new client starts over.
+
+type LandingProps = {
+  ref: Ref<{ measure: () => void }>;
+  client: Client;
+  anchor: Anchor;
+  pinned: boolean;
+  paused: boolean;
+  settings: Settings;
+  onState: (state: CoreState) => void;
+  onError: (error: unknown) => void;
+  className?: string;
+  children: (rows: CoreRows) => ReactNode;
+};
+
+function Landing({
+  ref,
+  client,
+  anchor,
+  pinned: initialPinned,
+  paused,
+  settings,
+  onState,
+  onError,
+  className,
+  children,
+}: LandingProps) {
+  const scrollElRef = useRef<HTMLDivElement>(null);
+  const [count, setCount] = useState(0);
+  const holdRef = useRef(() => {});
+  const [lines] = useState(() => new Lines(setCount, () => holdRef.current()));
+  // Loading ends a frame after the landing settles, landed or failed; a failed one holds no window to follow from.
+  const [loading, setLoading] = useState(true);
+  const [landed, setLanded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [before, setBefore] = useState(NO_MORE);
+  const [after, setAfter] = useState(NO_MORE);
+  const [pinned, setPinned] = useState(initialPinned);
+  const [behind, setBehind] = useState<Behind>(null);
+  const [skipped, setSkipped] = useState<string[]>([]);
+  const own = useOwnScroll(scrollElRef);
+
+  const { estimateRowHeight } = settings;
+  const estimateSize = useCallback((index: number) => estimateRowHeight(lines.at(index)), [estimateRowHeight, lines]);
+  // Keys shift only when lines are added, which changes `count`, and the virtualizer re-reads them then.
+  const getItemKey = useCallback((index: number) => lines.keyAt(index), [lines]);
+  const scrollToFn = useCallback<typeof elementScroll>(
+    (offset, options, instance) => own.run(() => elementScroll(offset, options, instance)),
+    [own],
+  );
+
+  // The virtualizer mutates in place, so the compiler leaves this component unmemoized.
+  // eslint-disable-next-line react-hooks/incompatible-library
+  const virtualizer = useVirtualizer({
+    count,
+    getScrollElement: () => scrollElRef.current,
+    estimateSize,
+    getItemKey,
+    measureElement: settings.measureElement,
+    scrollToFn,
+    overscan: settings.overscan,
+    scrollMargin: before.more ? settings.edgeRowHeight : 0,
+    useScrollendEvent: true,
+    useFlushSync: false,
+  });
+  // The visible rows, without overscan. `virtualizer.range` is filled lazily, so it can lag a render.
+  const visibleRange = virtualizer.calculateRange();
+
+  // Lines arrive only while following: pinned, not paused, and landed. The follow
+  // reads everything after the after edge, so it owns that edge: paging and the
+  // render function see no more after while it runs. A follow that closes leaves
+  // the viewer paged, behind, so nothing is appended behind a reader's back, and
+  // the after edge reads as more while behind. A window pinned and paused is a
+  // follow closed at the end whatever the last page said: lines go on being
+  // written past it.
+  const following = pinned && !paused && !loading && landed;
+  let afterEdge = after;
+  if (following) afterEdge = NO_MORE;
+  else if (behind !== null || (pinned && paused && landed)) afterEdge = { ...after, more: true };
+  const moreAfter = afterEdge.more;
+  const loadedToEnd = !loading && landed && !moreAfter;
+  const edgeRows = Number(before.more) + Number(afterEdge.more);
+  const totalSize = (count ? virtualizer.getTotalSize() : 0) + edgeRows * settings.edgeRowHeight;
+  const beforePaint = useBeforePaint();
+  const hold = useKeepPlace({ scrollElRef, virtualizer, lines, following, own });
+  useLayoutEffect(() => {
+    holdRef.current = hold;
+  }, [hold]);
+
+  // Before the page's lines are added, so `Lines` can tell whether any were.
+  const readPage = (edge: Edge, result: FetchResult) => {
+    const more = result.nextCursor !== null;
+    // The edge row above the rows can come or go.
+    if (edge === 'before') hold();
+    (edge === 'before' ? setBefore : setAfter)({ more, empty: more && !result.lines.length });
+    lines.resumeFrom(edge, result.nextCursor);
+    setSkipped(result.skipped.length ? result.skipped : NONE_SKIPPED);
+  };
+
+  const stopFollowing = () => setBehind('followed');
+
+  const [wasPaused, setWasPaused] = useState(paused);
+  if (paused !== wasPaused) {
+    setWasPaused(paused);
+    // Before loading ends too: a landing settled pinned is a follow that only waits on its frame.
+    if (paused && pinned && landed) stopFollowing();
+  }
+
+  // Fetches the anchor's page, places it with key 0 at the anchor, and scrolls
+  // there. Answers whether it landed short of the end: the server said there are more lines after it.
+  const land = useEffectEvent(async (): Promise<boolean> => {
+    const limit = settings.firstPageSize;
+    const askedAt = cursorNow();
+    let shortOfEnd = false;
+    switch (anchor.kind) {
+      case 'Head': {
+        const result = await client.fetchSince({ limit });
+        readPage('after', result);
+        lines.reset(result.lines, 'first');
+        shortOfEnd = result.nextCursor !== null;
+        break;
+      }
+      case 'Tail': {
+        const result = await client.fetchUntil({ limit });
+        readPage('before', result);
+        lines.reset(result.lines, 'last');
+        // Queued once the lines are in, so a reset that throws leaves no scroll queued.
+        if (result.lines.length) {
+          await beforePaint(() => {
+            own.toEnd();
+          });
+        }
+        break;
+      }
+      case 'At': {
+        const cursor = anchor.at;
+        const [older, since] = await Promise.all([
+          client.fetchBefore({ cursor, limit }),
+          client.fetchSince({ cursor, limit }),
+        ]);
+        // Each edge's page is read just before its lines go in, since `reset` forgets both cursors.
+        readPage('after', since);
+        lines.reset(since.lines, 'first');
+        readPage('before', older);
+        const added = lines.prepend(older.lines);
+        const skippedByEither = [...older.skipped, ...since.skipped];
+        setSkipped(skippedByEither.length ? skippedByEither : NONE_SKIPPED);
+        shortOfEnd = since.nextCursor !== null;
+        if (lines.length) {
+          await beforePaint(() =>
+            own.run(() => {
+              const scrollEl = scrollElRef.current;
+              // With nothing since the moment, the last line older is as far as it goes.
+              const at = Math.min(added, lines.length - 1);
+              if (scrollEl) scrollEl.scrollTop = virtualizer.measurementsCache[at].start;
+            }),
+          );
+        }
+        break;
+      }
+      default:
+        throw new Error(`unknown anchor ${String(anchor.kind)}`);
+    }
+    // With no line after and no page to read on from, the after edge resumes from
+    // the moment the landing asked, so lines written while it was in flight are read.
+    if (!lines.from('after')) lines.resumeFrom('after', askedAt);
+    return shortOfEnd;
+  });
+
+  // A landing that does not follow is behind from the start: unpinned, lines go on
+  // being written past it; pinned but paused, it is a follow closed at the end, which
+  // the resume reopens — with no row drawn, no page could. A landing short of the end
+  // is unpinned whatever it was asked, since a follow would read all the rest.
+  const settleLanding = useEffectEvent((shortOfEnd: boolean) => {
+    setLanded(true);
+    if (!pinned || shortOfEnd) {
+      setPinned(false);
+      setBehind('landed');
+    } else if (paused) stopFollowing();
+  });
+
+  // Unpinned, so a landing that will never follow does not say it keeps the end in view.
+  const failLanding = useEffectEvent((error: unknown) => {
+    setFailed(true);
+    setPinned(false);
+    onError(error);
+  });
+
+  // Refs, not the effect's own variables: StrictMode runs the effect twice, and the
+  // landing started by the first run must see the second's cleanup.
+  const startedRef = useRef(false);
+  const liveRef = useRef(false);
+  const cancelLoadedRef = useRef(() => {});
+  useEffect(() => {
+    liveRef.current = true;
+    if (!startedRef.current) {
+      startedRef.current = true;
+      land()
+        .then((shortOfEnd) => {
+          if (liveRef.current) settleLanding(shortOfEnd);
+        })
+        .catch((error) => {
+          if (liveRef.current) failLanding(error);
+        })
+        .finally(() => {
+          // Loading ends once the landing has painted.
+          if (liveRef.current) cancelLoadedRef.current = onNextFrame(() => setLoading(false));
+        });
+    }
+    return () => {
+      liveRef.current = false;
+      cancelLoadedRef.current();
+    };
+  }, []);
+
+  // A page from the edge line keeps that line's moment, from a page's cursor leaves it out (`PageFrom`).
+  const loadBefore = async () => {
+    const from = lines.from('before');
+    const options = { cursor: from?.cursor, limit: settings.pageSize };
+    const result = await (from?.keep ? client.fetchUntil(options) : client.fetchBefore(options));
+    readPage('before', result);
+    // A page of lines already held is as empty as a page with none.
+    if (!lines.prepend(result.lines) && result.nextCursor !== null) setBefore({ more: true, empty: true });
+  };
+
+  const loadAfter = async () => {
+    const from = lines.from('after');
+    const catchUp = behind === 'followed';
+    const options = { cursor: catchUp ? catchUpFrom(lines) : from?.cursor, limit: settings.pageSize };
+    const opens = followOpensRef.current;
+    const result = await (!catchUp && from?.keep ? client.fetchSince(options) : client.fetchAfter(options));
+    // A follow opened since read from the after edge itself, past where this page did.
+    if (followOpensRef.current !== opens) return;
+    setBehind(null);
+    readPage('after', result);
+    // A page of lines already held is as empty as a page with none.
+    if (!lines.append(result.lines) && result.nextCursor !== null) setAfter({ more: true, empty: true });
+  };
+
+  const loadMore = useLoadMore({
+    range: visibleRange,
+    count,
+    settled: !loading,
+    edges: { before, after: afterEdge },
+    load: { before: loadBefore, after: loadAfter },
+    threshold: settings.loadMoreThreshold,
+    onError,
+  });
+  const followOpensRef = useFollow({ client, lines, following, onError });
+  usePinToEnd({
+    scrollElRef,
+    loading,
+    setPinned,
+    following,
+    stopFollowing,
+    moreAfter,
+    tolerance: settings.pinTolerance,
+    own,
+  });
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      measure: () => {
+        hold();
+        virtualizer.measure();
+      },
+    }),
+    [hold, virtualizer],
+  );
+
+  // What the handle publishes.
+  const shown = visibleRange !== null && visibleRange.endIndex < count ? visibleRange : null;
+  const from = shown ? lines.at(shown.startIndex).timestamp : null;
+  const to = shown ? lines.at(shown.endIndex).timestamp : null;
+  const visible = shown ? shown.endIndex - shown.startIndex + 1 : 0;
+  const atEnd = loadedToEnd && (count === 0 || visibleRange?.endIndex === count - 1);
+  useEffect(() => {
+    onState({
+      loading,
+      failed,
+      pinnedToEnd: pinned,
+      following,
+      atEnd,
+      range: from !== null && to !== null ? { from, to } : null,
+      visible,
+      skipped,
+    });
+  }, [onState, loading, failed, pinned, following, atEnd, from, to, visible, skipped]);
+
+  const held = (index: number) => index >= 0 && index < count;
+  const lineAt = (key: number) => {
+    const index = lines.indexOfKey(key);
+    return held(index) ? lines.at(index) : undefined;
+  };
+  const rows: CoreRows = {
+    loading,
+    failed,
+    before,
+    after: afterEdge,
+    edgeRowHeight: settings.edgeRowHeight,
+    totalSize,
+    rows: count
+      ? virtualizer.getVirtualItems().map(({ key, index, size, start }) => ({
+          key: key as number,
+          index,
+          size,
+          start,
+          line: lines.at(index),
+        }))
+      : [],
+    count,
+    lineAt,
+    keyAt: (index) => (held(index) ? lines.keyAt(index) : undefined),
+    indexOfKey: (key) => (lineAt(key) ? lines.indexOfKey(key) : -1),
+    measureElement: virtualizer.measureElement,
+    loadMore,
+  };
+
+  return (
+    <div ref={scrollElRef} className={className ? `overflow-auto ${className}` : 'overflow-auto'}>
+      {children(rows)}
+    </div>
+  );
+}
+
+// LogViewerCore -----------------------------------------------------------
+
+export type LogViewerCoreProps = {
+  ref?: Ref<CoreHandle>;
+  client: Client;
+  /** Where the viewer lands on mount. Read once: a new landing is `jumpTo`, or a new mount; a new `client` lands again where the last landing did. */
+  anchor: Anchor;
+  /** Whether it starts pinned to the end. Read once, like `anchor`. */
+  pinToEnd: boolean;
+  /** The user's Pause. While set, no lines arrive. */
+  paused?: boolean;
+  onError?: (error: unknown) => void;
+  estimateRowHeight: Settings['estimateRowHeight'];
+  measureElement?: Settings['measureElement'];
+  overscan?: number;
+  firstPageSize?: number;
+  pageSize?: number;
+  loadMoreThreshold?: number;
+  pinTolerance?: number;
+  edgeRowHeight?: number;
+  className?: string;
+  children: (rows: CoreRows) => ReactNode;
+};
+
+function ignore() {}
+
+export function LogViewerCore({
+  ref,
+  client,
+  anchor,
+  pinToEnd,
+  paused = false,
+  onError = ignore,
+  estimateRowHeight,
+  measureElement,
+  overscan = 3,
+  firstPageSize = 150,
+  pageSize = 100,
+  loadMoreThreshold = 50,
+  pinTolerance = 10,
+  edgeRowHeight = 0,
+  className,
+  children,
+}: LogViewerCoreProps) {
+  const [landing, setLanding] = useState({ id: 0, anchor, pinned: pinToEnd });
+  const [landedClient, setLandedClient] = useState(client);
+  if (client !== landedClient) {
+    setLandedClient(client);
+    setLanding((prev) => ({ ...prev, id: prev.id + 1 }));
+  }
+
+  const [published] = useState(() => createStore(CORE_INITIAL_STATE));
+  const landingRef = useRef<{ measure: () => void }>(null);
+  useImperativeHandle(
+    ref,
+    () => ({
+      jumpTo: (next) => setLanding((prev) => ({ id: prev.id + 1, anchor: next, pinned: next.kind === 'Tail' })),
+      measure: () => landingRef.current?.measure(),
+      subscribe: published.subscribe,
+      getSnapshot: published.get,
+    }),
+    [published],
+  );
+
+  return (
+    <Landing
+      key={landing.id}
+      ref={landingRef}
+      client={client}
+      anchor={landing.anchor}
+      pinned={landing.pinned}
+      paused={paused}
+      settings={{
+        estimateRowHeight,
+        measureElement,
+        overscan,
+        firstPageSize,
+        pageSize,
+        loadMoreThreshold,
+        pinTolerance,
+        edgeRowHeight,
+      }}
+      onState={published.set}
+      onError={onError}
+      className={className}
+    >
+      {children}
+    </Landing>
+  );
+}

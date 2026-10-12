@@ -1,6 +1,7 @@
 import path from 'path';
 
 import { includeIgnoreFile } from '@eslint/compat';
+import type { Rule } from 'eslint';
 import js from '@eslint/js';
 import { configs, plugins } from 'eslint-config-airbnb-extended';
 import { rules as prettierConfigRules } from 'eslint-config-prettier';
@@ -88,8 +89,29 @@ const customRulesConfig = [
   },
 ];
 
-const TEMPLATE_ENGINE_MESSAGE =
+export const TEMPLATE_ENGINE_MESSAGE =
   'Cluster data is attacker-controlled text; read it with `src/lib/jsonpath.ts`, never a template engine.';
+
+// `no-restricted-imports` patterns every object setting the rule over `src/` must carry.
+const TEMPLATE_ENGINE_PATTERNS = [
+  {
+    group: [
+      'handlebars',
+      'handlebars/*',
+      'mustache',
+      'ejs',
+      'nunjucks',
+      'pug',
+      'eta',
+      'liquidjs',
+      'dot',
+      'dot/*',
+      'lodash/template',
+      'lodash.template',
+    ],
+    message: TEMPLATE_ENGINE_MESSAGE,
+  },
+];
 
 // Everything the webview displays is text chosen by whoever controls the cluster, so anything in
 // `src/` that turns that text into markup hands a hostile cluster script execution in a page that
@@ -136,26 +158,56 @@ const clusterDataIsTextConfig = [
       ],
       // airbnb turns both this and its typescript-eslint twin off, so there are no options to
       // restate here.
+      'no-restricted-imports': ['error', { patterns: TEMPLATE_ENGINE_PATTERNS }],
+    },
+  },
+];
+
+export const LOG_VIEWER_IS_A_LIBRARY_MESSAGE =
+  'The log viewer is a library: nothing under src/lib/log-viewer/ imports from the app.';
+
+const LOG_VIEWER_DIR = path.resolve(import.meta.dirname, 'src/lib/log-viewer');
+
+// A relative import that resolves outside `src/lib/log-viewer/`, from whatever depth
+// the importing file sits at. `no-restricted-imports` matches the specifier's text,
+// which cannot tell `../types` in a subdirectory from `../app` at the top.
+const noImportOutsideLibrary: Rule.RuleModule = {
+  meta: { type: 'problem', schema: [] },
+  create(context) {
+    const check = (source: string, node: Rule.Node) => {
+      if (!source.startsWith('.')) return;
+      const resolved = path.resolve(path.dirname(context.filename), source);
+      if (resolved !== LOG_VIEWER_DIR && !resolved.startsWith(`${LOG_VIEWER_DIR}${path.sep}`)) {
+        context.report({ node, message: LOG_VIEWER_IS_A_LIBRARY_MESSAGE });
+      }
+    };
+    return {
+      ImportDeclaration: (node) => check(String(node.source.value), node),
+      ExportNamedDeclaration: (node) => node.source && check(String(node.source.value), node),
+      ExportAllDeclaration: (node) => check(String(node.source.value), node),
+    };
+  },
+};
+
+// `src/lib/log-viewer/` is a library the app imports, never the other way: it knows
+// lines, cursors, anchors and a scroll element, and nothing of the app. Setting
+// `no-restricted-imports` here replaces `cluster-data-is-text`'s options for these
+// files, so the template-engine ban is carried along.
+const logViewerIsALibraryConfig = [
+  {
+    name: 'custom/log-viewer-is-a-library',
+    files: ['src/lib/log-viewer/**/*.{ts,tsx}'],
+    plugins: { kstack: { rules: { 'log-viewer-is-a-library': noImportOutsideLibrary } } },
+    rules: {
+      'kstack/log-viewer-is-a-library': 'error',
       'no-restricted-imports': [
         'error',
         {
           patterns: [
+            ...TEMPLATE_ENGINE_PATTERNS,
             {
-              group: [
-                'handlebars',
-                'handlebars/*',
-                'mustache',
-                'ejs',
-                'nunjucks',
-                'pug',
-                'eta',
-                'liquidjs',
-                'dot',
-                'dot/*',
-                'lodash/template',
-                'lodash.template',
-              ],
-              message: TEMPLATE_ENGINE_MESSAGE,
+              group: ['@/*'],
+              message: LOG_VIEWER_IS_A_LIBRARY_MESSAGE,
             },
           ],
         },
@@ -174,4 +226,5 @@ export default [
   ...reactRefreshConfig,
   ...customRulesConfig,
   ...clusterDataIsTextConfig,
+  ...logViewerIsALibraryConfig,
 ];

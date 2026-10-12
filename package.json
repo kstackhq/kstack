@@ -19,6 +19,7 @@
     "@graphql-typed-document-node/core": "^3.2.0",
     "@kubetail/ui": "3.0.0",
     "@tanstack/react-router": "^1.170.32",
+    "@tanstack/react-virtual": "^3.14.14",
     "@tauri-apps/api": "^2",
     "@urql/exchange-retry": "^2.0.0",
     "graphql": "^17.0.2",

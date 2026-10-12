@@ -13,25 +13,20 @@
 // limitations under the License.
 import { describe, expect, it, vi } from 'vitest';
 
-import { EMPTY_VIEWER_STATE, createViewerStore } from './log-viewer-store';
+import { createStore } from './store';
 
-describe('createViewerStore', () => {
-  it('starts empty, at the end and unpinned, with nothing selected', () => {
-    expect(createViewerStore().getState()).toEqual(EMPTY_VIEWER_STATE);
-  });
-
-  it('answers the last state written, and tells its listeners once per write', () => {
-    const store = createViewerStore();
+describe('createStore', () => {
+  it('answers the last value written, and tells its listeners once per write until they leave', () => {
+    const store = createStore(0);
     const listener = vi.fn();
     const unsubscribe = store.subscribe(listener);
 
-    const next = { range: { from: 'a', to: 'b' }, atEnd: false, pinnedToEnd: false, visible: 3, selection: [] };
-    store.set(next);
-    expect(store.getState()).toBe(next);
+    store.set(1);
+    expect(store.get()).toBe(1);
     expect(listener).toHaveBeenCalledOnce();
 
     unsubscribe();
-    store.set(EMPTY_VIEWER_STATE);
+    store.set(2);
     expect(listener).toHaveBeenCalledOnce();
   });
 });
