@@ -50,9 +50,7 @@ const timestampSpan = 36
 // errShort is a read that ran out of budget or windows before the end of its range.
 var errShort = errors.New("logs: the read stopped short")
 
-// budget is the bytes a fetch's streams may still read between them, spent as each
-// reads, so a busy stream can spend what a quiet one would have read. A nil budget
-// is no bound.
+// budget is the bytes a stream of a fetch may still read. A nil budget is no bound.
 type budget struct{ left atomic.Int64 }
 
 func newBudget(n int64) *budget {
