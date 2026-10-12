@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 import { act, render, screen } from '@testing-library/react';
-import { createRef } from 'react';
+import { createRef, useEffect } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
@@ -163,7 +163,13 @@ type MountOptions = {
 const HEAD: Anchor = { kind: 'Head', at: null };
 const TAIL: Anchor = { kind: 'Tail', at: null };
 
+/** What the render function was last handed. */
+let latestRows: CoreRows | null = null;
+
 function Rows({ rows }: { rows: CoreRows }) {
+  useEffect(() => {
+    latestRows = rows;
+  });
   return (
     <div data-testid="sizer" data-count={rows.count} style={{ height: `${rows.totalSize}px` }}>
       {rows.before.empty && (
@@ -324,7 +330,7 @@ describe('LogViewerCore', () => {
       await act(async () => refuse(new Error('refused')));
       await flush();
       expect(onError).not.toHaveBeenCalled();
-      expect(state()).toMatchObject({ loading: false });
+      expect(state()).toMatchObject({ loading: false, failed: false });
     });
 
     it('ends loading on a timer while no frame comes, as in a minimized window', async () => {
@@ -451,6 +457,29 @@ describe('LogViewerCore', () => {
 
       expect(onError).toHaveBeenCalledOnce();
       expect(state().loading).toBe(false);
+    });
+
+    it('says it failed, and not that it is at the end, after a failed landing', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockRejectedValueOnce(new Error('refused'));
+      const { state } = mount(client, { anchor: TAIL, onError: vi.fn() });
+      await flush();
+
+      expect(state()).toMatchObject({ loading: false, failed: true, atEnd: false });
+      expect(latestRows!.failed).toBe(true);
+    });
+
+    it('lands again after a failed landing at a jump', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockRejectedValueOnce(new Error('refused'));
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 3)));
+      const { ref, state } = mount(client, { anchor: TAIL, onError: vi.fn() });
+      await flush();
+
+      act(() => ref.current!.jumpTo(TAIL));
+      await flush();
+      expect(state().failed).toBe(false);
+      expect(messages()).toEqual(lines(0, 3).map((l) => l.message));
     });
 
     it('keeps the rows in view when an empty last page removes the edge row above them', async () => {

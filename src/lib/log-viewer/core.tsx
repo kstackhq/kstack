@@ -31,6 +31,8 @@ import type { Anchor, Client, FetchResult, LogLine } from './types';
 /** What the core publishes through its handle. */
 export type CoreState = {
   loading: boolean;
+  /** Whether the landing failed, which leaves the viewer with nothing to page from. `jumpTo` lands again. */
+  failed: boolean;
   /** Whether the newest line is on screen: loaded to the end, with nothing more after. */
   atEnd: boolean;
   /** Timestamps of the first and last visible lines; null before any is drawn. */
@@ -43,6 +45,7 @@ export type CoreState = {
 
 export const CORE_INITIAL_STATE: CoreState = {
   loading: true,
+  failed: false,
   atEnd: false,
   range: null,
   visible: 0,
@@ -68,6 +71,8 @@ export type EdgeState = {
 /** What the render function is handed. */
 export type CoreRows = {
   loading: boolean;
+  /** As `CoreState.failed`. */
+  failed: boolean;
   before: EdgeState;
   after: EdgeState;
   /** The height to draw an edge row at while `more` is set; the core lays rows out below it. */
@@ -254,6 +259,7 @@ function Landing({ ref, client, anchor, settings, onState, onError, className, c
   // Loading ends a frame after the landing settles, landed or failed.
   const [loading, setLoading] = useState(true);
   const [landed, setLanded] = useState(false);
+  const [failed, setFailed] = useState(false);
   const [before, setBefore] = useState(NO_MORE);
   const [after, setAfter] = useState(NO_MORE);
   // Lines go on being written past a landing, so the after edge reads as more
@@ -357,7 +363,10 @@ function Landing({ ref, client, anchor, settings, onState, onError, className, c
     if (!lines.from('after')) lines.resumeFrom('after', askedAt);
   });
 
-  const reportError = useEffectEvent((error: unknown) => onError(error));
+  const failLanding = useEffectEvent((error: unknown) => {
+    setFailed(true);
+    onError(error);
+  });
 
   // Refs, not the effect's own variables: StrictMode runs the effect twice, and the
   // landing started by the first run must see the second's cleanup.
@@ -375,7 +384,7 @@ function Landing({ ref, client, anchor, settings, onState, onError, className, c
           setBehind(true);
         })
         .catch((error) => {
-          if (liveRef.current) reportError(error);
+          if (liveRef.current) failLanding(error);
         })
         .finally(() => {
           // Loading ends once the landing has painted.
@@ -438,12 +447,13 @@ function Landing({ ref, client, anchor, settings, onState, onError, className, c
   useEffect(() => {
     onState({
       loading,
+      failed,
       atEnd,
       range: from !== null && to !== null ? { from, to } : null,
       visible,
       skipped,
     });
-  }, [onState, loading, atEnd, from, to, visible, skipped]);
+  }, [onState, loading, failed, atEnd, from, to, visible, skipped]);
 
   const held = (index: number) => index >= 0 && index < count;
   const lineAt = (key: number) => {
@@ -452,6 +462,7 @@ function Landing({ ref, client, anchor, settings, onState, onError, className, c
   };
   const rows: CoreRows = {
     loading,
+    failed,
     before,
     after: afterEdge,
     edgeRowHeight: settings.edgeRowHeight,
