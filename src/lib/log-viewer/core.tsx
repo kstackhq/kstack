@@ -12,8 +12,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-// The headless log viewer: it keeps the lines, lands at an anchor, and hands its
-// rows to a render function. It draws nothing and knows nothing of the app:
+// The headless log viewer: it keeps the lines, lands at an anchor, pages at either
+// edge as the user scrolls, and hands its rows to a render function. It draws nothing and knows nothing of the app:
 // lines come from a `Client`, errors go to `onError`, and what it knows is
 // published through its handle.
 import { useCallback, useEffect, useEffectEvent, useImperativeHandle, useRef, useState } from 'react';
@@ -22,6 +22,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import type { Virtualizer } from '@tanstack/react-virtual';
 
 import { useBeforePaint } from './before-paint';
+import { momentNow } from './moment';
 import { Lines } from './lines';
 import type { Edge } from './lines';
 import { createStore } from './store';
@@ -81,6 +82,11 @@ export type CoreRows = {
   /** -1 for a key not held. */
   indexOfKey: (key: number) => number;
   measureElement: (node: Element | null) => void;
+  /**
+   * Reads the next page toward `edge` now, for an edge row's button: with no row
+   * drawn after an empty page, there is no scroll to read on at.
+   */
+  loadMore: (edge: Edge) => void;
 };
 
 export type CoreHandle = {
@@ -101,8 +107,13 @@ type Settings = {
   ) => number;
   overscan: number;
   firstPageSize: number;
+  pageSize: number;
+  /** Pages toward an edge once at most this many rows lie between the visible range and it. */
+  loadMoreThreshold: number;
   edgeRowHeight: number;
 };
+
+type VisibleRange = { startIndex: number; endIndex: number };
 
 const NO_MORE: EdgeState = { more: false, empty: false };
 const NONE_SKIPPED: string[] = [];
@@ -131,6 +142,56 @@ function onNextFrame(callback: () => void): () => void {
   return cancel;
 }
 
+// Paging ------------------------------------------------------------------
+//
+// Reads toward an edge once at most `threshold` rows lie between the visible
+// range and it. It runs when the range moves, never because an edge changed: an empty page
+// with a cursor leaves the range where it was, so reading on waits for the user's
+// next scroll or `loadMore`.
+
+type LoadMoreOptions = {
+  range: VisibleRange | null;
+  count: number;
+  /** Nothing pages while the landing is still placing the rows. */
+  settled: boolean;
+  edges: Record<Edge, EdgeState>;
+  load: Record<Edge, () => Promise<void>>;
+  threshold: number;
+  onError: (error: unknown) => void;
+};
+
+/** Answers `loadMore(edge)`: a page toward `edge` now, if there is one to read and none in flight. */
+function useLoadMore({ range, count, settled, edges, load, threshold, onError }: LoadMoreOptions) {
+  const inFlightRef = useRef<Record<Edge, boolean>>({ before: false, after: false });
+
+  const loadMore = (edge: Edge) => {
+    if (!settled || !edges[edge].more || inFlightRef.current[edge]) return;
+    inFlightRef.current[edge] = true;
+    load[edge]()
+      .catch(onError)
+      .finally(() => {
+        // Held until the page has painted, so the range it moves does not ask again.
+        onNextFrame(() => {
+          inFlightRef.current[edge] = false;
+        });
+      });
+  };
+
+  const onRange = useEffectEvent(() => {
+    if (!range) return;
+    if (range.startIndex <= threshold) loadMore('before');
+    if (range.endIndex >= count - 1 - threshold) loadMore('after');
+  });
+
+  const startIndex = range?.startIndex;
+  const endIndex = range?.endIndex;
+  useEffect(() => {
+    onRange();
+  }, [startIndex, endIndex, settled]);
+
+  return loadMore;
+}
+
 // One landing -------------------------------------------------------------
 //
 // `LogViewerCore` keys it, so a jump or a new client starts over.
@@ -155,6 +216,9 @@ function Landing({ ref, client, anchor, settings, onState, onError, className, c
   const [landed, setLanded] = useState(false);
   const [before, setBefore] = useState(NO_MORE);
   const [after, setAfter] = useState(NO_MORE);
+  // Lines go on being written past a landing, so the after edge reads as more
+  // until a page after says otherwise.
+  const [behind, setBehind] = useState(false);
   const [skipped, setSkipped] = useState<string[]>([]);
 
   const { estimateRowHeight } = settings;
@@ -178,8 +242,9 @@ function Landing({ ref, client, anchor, settings, onState, onError, className, c
   // The visible rows, without overscan. `virtualizer.range` is filled lazily, so it can lag a render.
   const visibleRange = virtualizer.calculateRange();
 
-  const loadedToEnd = !loading && landed && !after.more;
-  const edgeRows = Number(before.more) + Number(after.more);
+  const afterEdge = behind ? { ...after, more: true } : after;
+  const loadedToEnd = !loading && landed && !afterEdge.more;
+  const edgeRows = Number(before.more) + Number(afterEdge.more);
   const totalSize = (count ? virtualizer.getTotalSize() : 0) + edgeRows * settings.edgeRowHeight;
   const beforePaint = useBeforePaint();
 
@@ -194,6 +259,7 @@ function Landing({ ref, client, anchor, settings, onState, onError, className, c
   // Fetches the anchor's page, places it with key 0 at the anchor, and scrolls there.
   const land = useEffectEvent(async () => {
     const limit = settings.firstPageSize;
+    const askedAt = momentNow();
     switch (anchor.kind) {
       case 'Head': {
         const result = await client.fetchSince({ limit });
@@ -240,6 +306,9 @@ function Landing({ ref, client, anchor, settings, onState, onError, className, c
       default:
         throw new Error(`unknown anchor ${String(anchor.kind)}`);
     }
+    // With no line after and no page to read on from, the after edge resumes from
+    // the moment the landing asked, so lines written while it was in flight are read.
+    if (!lines.from('after')) lines.resumeFrom('after', askedAt);
   });
 
   const reportError = useEffectEvent((error: unknown) => onError(error));
@@ -255,7 +324,9 @@ function Landing({ ref, client, anchor, settings, onState, onError, className, c
       startedRef.current = true;
       land()
         .then(() => {
-          if (liveRef.current) setLanded(true);
+          if (!liveRef.current) return;
+          setLanded(true);
+          setBehind(true);
         })
         .catch((error) => {
           if (liveRef.current) reportError(error);
@@ -270,6 +341,36 @@ function Landing({ ref, client, anchor, settings, onState, onError, className, c
       cancelLoadedRef.current();
     };
   }, []);
+
+  // A page from the edge line keeps that line's moment, from a page's cursor leaves it out (`PageFrom`).
+  const loadBefore = async () => {
+    const from = lines.from('before');
+    const options = { cursor: from?.cursor, limit: settings.pageSize };
+    const result = await (from?.keep ? client.fetchUntil(options) : client.fetchBefore(options));
+    readPage('before', result);
+    // A page of lines already held is as empty as a page with none.
+    if (!lines.prepend(result.lines) && result.nextCursor !== null) setBefore({ more: true, empty: true });
+  };
+
+  const loadAfter = async () => {
+    const from = lines.from('after');
+    const options = { cursor: from?.cursor, limit: settings.pageSize };
+    const result = await (from?.keep ? client.fetchSince(options) : client.fetchAfter(options));
+    setBehind(false);
+    readPage('after', result);
+    // A page of lines already held is as empty as a page with none.
+    if (!lines.append(result.lines) && result.nextCursor !== null) setAfter({ more: true, empty: true });
+  };
+
+  const loadMore = useLoadMore({
+    range: visibleRange,
+    count,
+    settled: !loading,
+    edges: { before, after: afterEdge },
+    load: { before: loadBefore, after: loadAfter },
+    threshold: settings.loadMoreThreshold,
+    onError,
+  });
 
   useImperativeHandle(
     ref,
@@ -303,7 +404,7 @@ function Landing({ ref, client, anchor, settings, onState, onError, className, c
   const rows: CoreRows = {
     loading,
     before,
-    after,
+    after: afterEdge,
     edgeRowHeight: settings.edgeRowHeight,
     totalSize,
     rows: count
@@ -320,6 +421,7 @@ function Landing({ ref, client, anchor, settings, onState, onError, className, c
     keyAt: (index) => (held(index) ? lines.keyAt(index) : undefined),
     indexOfKey: (key) => (lineAt(key) ? lines.indexOfKey(key) : -1),
     measureElement: virtualizer.measureElement,
+    loadMore,
   };
 
   return (
@@ -341,6 +443,8 @@ export type LogViewerCoreProps = {
   measureElement?: Settings['measureElement'];
   overscan?: number;
   firstPageSize?: number;
+  pageSize?: number;
+  loadMoreThreshold?: number;
   edgeRowHeight?: number;
   className?: string;
   children: (rows: CoreRows) => ReactNode;
@@ -357,6 +461,8 @@ export function LogViewerCore({
   measureElement,
   overscan = 3,
   firstPageSize = 150,
+  pageSize = 100,
+  loadMoreThreshold = 50,
   edgeRowHeight = 0,
   className,
   children,
@@ -392,6 +498,8 @@ export function LogViewerCore({
         measureElement,
         overscan,
         firstPageSize,
+        pageSize,
+        loadMoreThreshold,
         edgeRowHeight,
       }}
       onState={published.set}

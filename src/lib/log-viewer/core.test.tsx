@@ -156,6 +156,7 @@ function scriptedClient(): ScriptedClient {
 type MountOptions = {
   anchor?: Anchor;
   onError?: (error: unknown) => void;
+  loadMoreThreshold?: number;
   edgeRowHeight?: number;
 };
 
@@ -165,13 +166,27 @@ const TAIL: Anchor = { kind: 'Tail', at: null };
 function Rows({ rows }: { rows: CoreRows }) {
   return (
     <div data-testid="sizer" data-count={rows.count} style={{ height: `${rows.totalSize}px` }}>
-      {rows.before.empty && <div>No more in the last read; scroll to keep looking</div>}
+      {rows.before.empty && (
+        <div>
+          No more in the last read; scroll to keep looking
+          <button type="button" onClick={() => rows.loadMore('before')}>
+            Read on before
+          </button>
+        </div>
+      )}
       {rows.rows.map((row) => (
         <div key={row.key} data-testid="row" data-key={row.key}>
           {row.line.message}
         </div>
       ))}
-      {rows.after.empty && <div>No more in the last read; scroll to keep looking</div>}
+      {rows.after.empty && (
+        <div>
+          No more in the last read; scroll to keep looking
+          <button type="button" onClick={() => rows.loadMore('after')}>
+            Read on after
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -181,6 +196,7 @@ function mount(client: Client, options: MountOptions = {}) {
   const props = {
     anchor: options.anchor ?? HEAD,
     onError: options.onError,
+    loadMoreThreshold: options.loadMoreThreshold ?? 1,
     edgeRowHeight: options.edgeRowHeight ?? 0,
   };
   const view = (viewClient: Client) => (
@@ -192,6 +208,8 @@ function mount(client: Client, options: MountOptions = {}) {
       estimateRowHeight={() => ROW}
       overscan={0}
       firstPageSize={10}
+      pageSize={10}
+      loadMoreThreshold={props.loadMoreThreshold}
       edgeRowHeight={props.edgeRowHeight}
     >
       {(rows) => <Rows rows={rows} />}
@@ -316,6 +334,107 @@ describe('LogViewerCore', () => {
       await act(() => vi.advanceTimersByTimeAsync(HIDDEN_FLUSH_MS));
       expect(state().loading).toBe(false);
     });
+  });
+
+  describe('paging', () => {
+    it('loads more before and after as the range reaches an edge', async () => {
+      const client = scriptedClient();
+      client.fetchBefore.mockResolvedValueOnce(page(lines(10, 20), 'older'));
+      client.fetchSince.mockResolvedValueOnce(page(lines(20, 30), 'newer'));
+      const { userScroll, userScrollToBottom } = mount(client, { anchor: { kind: 'At', at: line(20).timestamp } });
+      await flush();
+
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 11)));
+      await userScroll(0);
+      // From the edge line, keeping its moment; the line already held is dropped.
+      expect(client.fetchUntil).toHaveBeenLastCalledWith({ cursor: line(10).cursor, limit: 10 });
+
+      client.fetchSince.mockResolvedValueOnce(page(lines(29, 35)));
+      await userScrollToBottom();
+      expect(client.fetchSince).toHaveBeenLastCalledWith({ cursor: line(29).cursor, limit: 10 });
+      await userScrollToBottom();
+      expect(shown().at(-1)).toEqual([14, 'pod-1 line 34']);
+    });
+
+    it('takes an empty page with a cursor as more to read, and reads on only at the user’s next scroll', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(100, 110), 'older'));
+      const { userScroll } = mount(client, { anchor: TAIL });
+      await flush();
+
+      client.fetchUntil.mockResolvedValueOnce(page([], 'budget-spent'));
+      await userScroll(0);
+      expect(client.fetchUntil).toHaveBeenCalledTimes(2);
+      expect(screen.getByText('No more in the last read; scroll to keep looking')).toBeInTheDocument();
+
+      await act(() => vi.advanceTimersByTimeAsync(10_000));
+      expect(client.fetchUntil).toHaveBeenCalledTimes(2);
+
+      client.fetchBefore.mockResolvedValueOnce(page([], 'budget-spent'));
+      await userScroll(3 * ROW);
+      await userScroll(0);
+      expect(client.fetchBefore).toHaveBeenCalledOnce();
+      expect(client.fetchBefore).toHaveBeenLastCalledWith({ cursor: 'budget-spent', limit: 10 });
+    });
+
+    it('reads on past an empty landing at the edge row’s button alone, since there is no row to scroll', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page([], 'budget-spent'));
+      mount(client, { anchor: TAIL });
+      await flush();
+      expect(client.fetchBefore).not.toHaveBeenCalled();
+
+      client.fetchBefore.mockResolvedValueOnce(page(lines(0, 3)));
+      await act(async () => screen.getByRole('button', { name: 'Read on before' }).click());
+      await flush();
+      expect(client.fetchBefore).toHaveBeenCalledOnce();
+      expect(client.fetchBefore).toHaveBeenCalledWith({ cursor: 'budget-spent', limit: 10 });
+      expect(messages()).toEqual(lines(0, 3).map((l) => l.message));
+    });
+
+    it('reads on again in a minimized window, where no frame comes to end the page before', async () => {
+      vi.stubGlobal('requestAnimationFrame', () => 0);
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page([], line(10).cursor));
+      mount(client, { anchor: TAIL });
+      await act(() => vi.advanceTimersByTimeAsync(HIDDEN_FLUSH_MS));
+
+      client.fetchBefore.mockResolvedValue(page([], line(5).cursor));
+      await act(async () => screen.getByRole('button', { name: 'Read on before' }).click());
+      await act(() => vi.advanceTimersByTimeAsync(HIDDEN_FLUSH_MS));
+      await act(async () => screen.getByRole('button', { name: 'Read on before' }).click());
+      expect(client.fetchBefore).toHaveBeenCalledTimes(2);
+      expect(client.fetchBefore).toHaveBeenLastCalledWith({ cursor: line(5).cursor, limit: 10 });
+    });
+
+    it('keeps an At landing’s empty page before with its cursor, beside lines after', async () => {
+      const client = scriptedClient();
+      const at = line(20).timestamp;
+      client.fetchBefore.mockResolvedValueOnce(page([], 'budget-spent'));
+      client.fetchSince.mockResolvedValueOnce(page(lines(20, 30)));
+      mount(client, { anchor: { kind: 'At', at } });
+      client.fetchBefore.mockResolvedValueOnce(page(lines(0, 3)));
+      await flush();
+
+      // Landed at the top, so the next page before is read at once.
+      expect(client.fetchBefore).toHaveBeenLastCalledWith({ cursor: 'budget-spent', limit: 10 });
+    });
+
+    it('hands a failed fetch to onError once and keeps the rows it has', async () => {
+      const client = scriptedClient();
+      const onError = vi.fn();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10), 'older'));
+      const { userScroll } = mount(client, { anchor: TAIL, onError });
+      await flush();
+
+      const failure = new Error('socket closed');
+      client.fetchUntil.mockRejectedValueOnce(failure);
+      await userScroll(0);
+
+      expect(onError).toHaveBeenCalledOnce();
+      expect(onError).toHaveBeenCalledWith(failure);
+      expect(shown()[0]).toEqual([-9, 'pod-1 line 0']);
+    });
 
     it('hands a failed landing to onError and stops loading', async () => {
       const client = scriptedClient();
@@ -337,6 +456,32 @@ describe('LogViewerCore', () => {
       await flush();
 
       expect(state().skipped).toEqual(['api-7f9c/istio-proxy: container is waiting to start']);
+    });
+  });
+
+  describe('what it publishes', () => {
+    it('follows the viewport: the visible range, how many lines, and whether the newest is on screen', async () => {
+      const client = scriptedClient();
+      client.fetchSince.mockResolvedValueOnce(page(lines(0, 20)));
+      const { state, userScroll, userScrollToBottom } = mount(client, { anchor: HEAD });
+      await flush();
+
+      expect(state()).toMatchObject({
+        range: { from: line(0).timestamp, to: line(4).timestamp },
+        visible: 5,
+        atEnd: false,
+      });
+
+      await userScroll(5 * ROW);
+      expect(state().range).toEqual({ from: line(5).timestamp, to: line(9).timestamp });
+
+      // The window has more after until a page says otherwise; this one says none.
+      await userScrollToBottom();
+      expect(client.fetchSince).toHaveBeenLastCalledWith({ cursor: line(19).cursor, limit: 10 });
+      expect(state()).toMatchObject({
+        range: { from: line(15).timestamp, to: line(19).timestamp },
+        atEnd: true,
+      });
     });
   });
 
