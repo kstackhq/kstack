@@ -16,7 +16,7 @@ import { describe, expect, it } from 'vitest';
 import * as library from '.';
 
 describe('the log viewer library', () => {
-  it('exports the store, and never the fake client', () => {
-    expect(Object.keys(library).sort()).toEqual(['createStore']);
+  it('exports the core, and never the fake client', () => {
+    expect(Object.keys(library).sort()).toEqual(['CORE_INITIAL_STATE', 'LogViewerCore', 'createStore']);
   });
 });
