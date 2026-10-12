@@ -255,7 +255,8 @@ func TestACancelledReadEndsClean(t *testing.T) {
 	s.add("prod/web/app", lineEvery(3)...)
 	get := s.get
 	for name, read := range map[string]func(context.Context) *streamRead{
-		"forward": func(ctx context.Context) *streamRead { return readForward(ctx, get, web, readOpts{}) },
+		"forward":  func(ctx context.Context) *streamRead { return readForward(ctx, get, web, readOpts{}) },
+		"backward": func(ctx context.Context) *streamRead { return readBackward(ctx, get, web, backwardOpts()) },
 	} {
 		t.Run(name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(t.Context())
@@ -273,17 +274,24 @@ func TestACancelledReadEndsClean(t *testing.T) {
 
 // A read whose context ends before its GET answers ends clean.
 func TestAReadCancelledBeforeItsGetEndsClean(t *testing.T) {
-	ctx, cancel := context.WithCancel(t.Context())
-	cancel()
 	get := func(ctx context.Context, _ string, _ url.Values) (io.ReadCloser, error) {
 		return nil, ctx.Err()
 	}
+	for name, read := range map[string]func(context.Context) *streamRead{
+		"forward":  func(ctx context.Context) *streamRead { return readForward(ctx, get, web, readOpts{}) },
+		"backward": func(ctx context.Context) *streamRead { return readBackward(ctx, get, web, backwardOpts()) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			ctx, cancel := context.WithCancel(t.Context())
+			cancel()
 
-	r := readForward(ctx, get, web, readOpts{})
+			r := read(ctx)
 
-	assert.Empty(t, drain(r))
-	assert.NoError(t, r.err)
-	assert.False(t, r.short)
+			assert.Empty(t, drain(r))
+			assert.NoError(t, r.err)
+			assert.False(t, r.short)
+		})
+	}
 }
 
 // A line each does not take is not counted as read.
@@ -346,4 +354,390 @@ func TestABodyThatFailsEndsTheRead(t *testing.T) {
 
 	assert.Equal(t, []string{"a"}, messages(drain(r)))
 	assert.EqualError(t, r.err, "reset")
+}
+
+// backwardOpts is a backward read in windows of 10 lines, with budget to spare.
+func backwardOpts() readOpts {
+	return readOpts{batch: 10, windows: 16, budget: newBudget(32 << 20)}
+}
+
+// tails is the tailLines of each request after the first, which finds the first
+// line, "" for the read of the first moment.
+func tails(s *logServer) []string {
+	var out []string
+	for _, q := range s.requests()[1:] {
+		out = append(out, q.Get("tailLines"))
+	}
+	return out
+}
+
+// A backward read that needs two windows reads the second further back, and sends
+// the lines newest first; the window that reaches the first line is followed by a
+// read of the first moment.
+func TestABackwardReadNeedsTwoWindows(t *testing.T) {
+	s := newLogServer()
+	s.add("prod/web/app", lineEvery(15)...)
+
+	r := readBackward(t.Context(), s.get, web, backwardOpts())
+
+	recs := drain(r)
+	require.NoError(t, r.err)
+	assert.Equal(t, []string{"14", "13", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2", "1", "0"}, messages(recs))
+	assert.False(t, r.short)
+	assert.Equal(t, []string{"10", "20", ""}, tails(s))
+	assert.Equal(t, "100", s.requests()[0].Get("limitBytes"))
+}
+
+// A backward read under until over a range far longer than its first window
+// reaches the log's first line in its last window, and is not short: the first
+// window's reach is rounded up, so the doublings land on the first line.
+func TestABackwardReadUnderUntilReachesTheFirstLine(t *testing.T) {
+	s := newLogServer()
+	s.add("prod/web/app", stamped(0, "first"), stamped(5*time.Hour, "last"))
+	o := backwardOpts()
+	o.until = to(5 * time.Hour)
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	assert.Equal(t, []string{"last", "first"}, messages(drain(r)))
+	require.NoError(t, r.err)
+	assert.False(t, r.short)
+}
+
+// A backward read finds the first line from since's second, keeps since's line,
+// and under until reads no window from before since.
+func TestABackwardReadKeepsItsBounds(t *testing.T) {
+	s := newLogServer()
+	s.add("prod/web/app", lineEvery(30)...)
+	o := backwardOpts()
+	o.since, o.until = from(5*time.Second), to(22*time.Second)
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	recs := drain(r)
+	assert.Equal(t, "22", recs[0].Message)
+	assert.Equal(t, "5", recs[len(recs)-1].Message)
+	assert.Len(t, recs, 18)
+	assert.Equal(t, "2026-10-08T10:00:05Z", s.requests()[0].Get("sinceTime"))
+	for _, q := range s.requests() {
+		since, err := time.Parse(time.RFC3339, q.Get("sinceTime"))
+		require.NoError(t, err)
+		assert.False(t, since.Before(o.since.at.Timestamp))
+	}
+}
+
+// An empty log reads nothing, and so does one emptied under the read.
+func TestABackwardReadOfAnEmptyLog(t *testing.T) {
+	t.Run("empty", func(t *testing.T) {
+		r := readBackward(t.Context(), claimOn(t, newLogServer()).get, web, backwardOpts())
+		assert.Empty(t, drain(r))
+		assert.NoError(t, r.err)
+	})
+	t.Run("emptied", func(t *testing.T) {
+		s := newLogServer()
+		s.add("prod/web/app", lineEvery(3)...)
+		s.onRequest = func(n int) {
+			if n == 1 {
+				s.clear("prod/web/app")
+			}
+		}
+		r := readBackward(t.Context(), s.get, web, backwardOpts())
+		assert.Empty(t, drain(r))
+		assert.NoError(t, r.err)
+		assert.False(t, r.short)
+	})
+}
+
+// A log emptied after a window was sent ends the read short at the oldest line
+// sent, since the lines before it were never read.
+func TestABackwardReadOfALogEmptiedAfterAWindowStopsShort(t *testing.T) {
+	s := newLogServer()
+	s.add("prod/web/app", lineEvery(15)...)
+	s.onRequest = func(n int) {
+		if n == 2 {
+			s.clear("prod/web/app")
+		}
+	}
+
+	r := readBackward(t.Context(), s.get, web, backwardOpts())
+
+	assert.Equal(t, []string{"14", "13", "12", "11", "10", "9", "8", "7", "6"}, messages(drain(r)))
+	assert.NoError(t, r.err)
+	assert.True(t, r.short)
+	assert.Equal(t, lineAt(web.key, 6*time.Second, 0), r.stop)
+}
+
+// A window that begins below a sub-second since holds every line in range, so
+// the read ends there rather than growing toward the second's first line.
+func TestABackwardReadEndsAtTheWindowThatPassesSince(t *testing.T) {
+	s := newLogServer()
+	for i := range 30 {
+		s.add("prod/web/app", stamped(5*time.Second+time.Duration(i)*10*time.Millisecond, strconv.Itoa(i)))
+	}
+	o := backwardOpts()
+	o.since = from(5*time.Second + 150*time.Millisecond)
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	recs := drain(r)
+	require.NoError(t, r.err)
+	assert.Len(t, recs, 15)
+	assert.Equal(t, "29", recs[0].Message)
+	assert.Equal(t, "15", recs[14].Message)
+	assert.False(t, r.short)
+	assert.Equal(t, []string{"10", "20"}, tails(s))
+}
+
+// The read that finds the first line takes no more than it asked for, though a
+// server that ignores limitBytes sends the whole log.
+func TestFindingTheFirstLineReadsItsLimit(t *testing.T) {
+	s := newLogServer()
+	s.add("prod/web/app", lineEvery(100)...)
+	var read int
+	get := func(ctx context.Context, path string, q url.Values) (io.ReadCloser, error) {
+		first := q.Has("limitBytes")
+		q.Del("limitBytes")
+		body, err := s.get(ctx, path, q)
+		if err != nil || !first {
+			return body, err
+		}
+		data, err := io.ReadAll(body)
+		body.Close()
+		if err != nil {
+			return nil, err
+		}
+		return io.NopCloser(iotest.OneByteReader(&countingReader{strings.NewReader(string(data)), &read})), nil
+	}
+
+	r := readBackward(t.Context(), get, web, backwardOpts())
+
+	drain(r)
+	require.NoError(t, r.err)
+	assert.LessOrEqual(t, read, firstBytes)
+}
+
+// countingReader adds every byte it reads to n.
+type countingReader struct {
+	io.Reader
+	n *int
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	k, err := c.Reader.Read(p)
+	*c.n += k
+	return k, err
+}
+
+// A log that grows by a whole batch under the read is read in a larger window,
+// and the lines that arrived are left for the next page.
+func TestABackwardReadOutgrowsAGrowingLog(t *testing.T) {
+	s := newLogServer()
+	s.add("prod/web/app", lineEvery(25)...)
+	s.onRequest = func(n int) {
+		if n == 2 {
+			s.add("prod/web/app", lineEvery(35)[25:]...)
+		}
+	}
+
+	r := readBackward(t.Context(), s.get, web, backwardOpts())
+
+	recs := drain(r)
+	require.NoError(t, r.err)
+	assert.Len(t, recs, 25)
+	assert.Equal(t, "24", recs[0].Message)
+	assert.Equal(t, "0", recs[24].Message)
+	assert.Equal(t, []string{"10", "20", "40", ""}, tails(s))
+}
+
+// A backward read that spends its budget stops at the oldest line it read whole
+// past the moment its last window started in, whether or not the grep kept it; a
+// window the budget cut short is left unsent, and a read that sent nothing has no
+// stop. Each line is 24 bytes, the first read 100, and a window of ten lines 240.
+func TestABackwardReadStopsAtTheBudget(t *testing.T) {
+	for name, tc := range map[string]struct {
+		budget   int64
+		until    bound
+		grep     *regexp.Regexp
+		lines    []string
+		stop     position
+		requests int
+	}{
+		"after a whole window":    {budget: 400, lines: []string{"99", "98", "97", "96", "95", "94", "93", "92", "91", "90", "89", "88", "87", "86", "85", "84", "83", "82", "81"}, stop: lineAt(web.key, 81*time.Second, 0), requests: 3},
+		"with a grep that misses": {budget: 400, grep: regexp.MustCompile(`never`), lines: []string{}, stop: lineAt(web.key, 81*time.Second, 0), requests: 3},
+		"inside the first window": {budget: 200, lines: []string{}, requests: 2},
+		"under until":             {budget: 200, until: to(50 * time.Second), lines: []string{"50", "49"}, stop: lineAt(web.key, 49*time.Second, 0), requests: 2},
+		"inside the first span":   {budget: 110, until: to(99 * time.Second), lines: []string{}, requests: 2},
+		"finding the first line":  {budget: 50, lines: []string{}, requests: 1},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newLogServer()
+			s.add("prod/web/app", lineEvery(100)...)
+			o := backwardOpts()
+			o.budget, o.until, o.grep = newBudget(tc.budget), tc.until, tc.grep
+
+			r := readBackward(t.Context(), s.get, web, o)
+
+			recs := drain(r)
+			assert.NoError(t, r.err)
+			assert.Equal(t, tc.lines, messages(recs))
+			assert.True(t, r.short)
+			assert.Equal(t, tc.stop, r.stop)
+			assert.Len(t, s.requests(), tc.requests)
+		})
+	}
+}
+
+// A read past its window cap stops at the oldest line it sent.
+func TestABackwardReadStopsAtItsWindowCap(t *testing.T) {
+	s := newLogServer()
+	s.add("prod/web/app", lineEvery(100)...)
+	o := backwardOpts()
+	o.windows = 4
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	recs := drain(r)
+	assert.Len(t, recs, 19)
+	assert.True(t, r.short)
+	assert.Equal(t, lineAt(web.key, 81*time.Second, 0), r.stop)
+	assert.Len(t, s.requests(), 3)
+}
+
+// A backward read under until reads windows of time ending there, each from its
+// start, so it reaches until however much log follows it; with three windows the
+// first reaches halfway back to the first line.
+func TestABackwardReadUnderUntilReachesIt(t *testing.T) {
+	s := newLogServer()
+	s.add("prod/web/app", lineEvery(1000)...)
+	o := backwardOpts()
+	o.until, o.windows = to(100*time.Second), 3
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	recs := drain(r)
+	require.NoError(t, r.err)
+	assert.Len(t, recs, 101)
+	assert.Equal(t, "100", recs[0].Message)
+	assert.Equal(t, "0", recs[100].Message)
+	assert.False(t, r.short)
+	var sinces []string
+	for _, q := range s.requests()[1:] {
+		sinces = append(sinces, q.Get("sinceTime"))
+	}
+	assert.Equal(t, []string{"2026-10-08T10:00:50Z", "2026-10-08T10:00:00Z"}, sinces)
+}
+
+// A backward read under until keeps since to the nanosecond, though the log
+// endpoint finds its first line from since's second.
+func TestABackwardReadUnderUntilKeepsSince(t *testing.T) {
+	s := newLogServer()
+	s.add("prod/web/app", stamped(time.Second, "before"), stamped(time.Second+300*time.Millisecond, "after"))
+	o := backwardOpts()
+	o.since, o.until = from(time.Second+200*time.Millisecond), to(time.Minute)
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	assert.Equal(t, []string{"after"}, messages(drain(r)))
+	assert.NoError(t, r.err)
+}
+
+// Lines sharing a window's starting moment are held back for the next window,
+// which reads the whole moment, so none is lost at the seam.
+func TestABackwardWindowKeepsAMomentWhole(t *testing.T) {
+	s := newLogServer()
+	lines := lineEvery(20)
+	lines[9] = stamped(10*time.Second, "9'")
+	s.add("prod/web/app", lines...)
+
+	r := readBackward(t.Context(), s.get, web, backwardOpts())
+
+	recs := drain(r)
+	require.NoError(t, r.err)
+	assert.Len(t, recs, 20)
+	assert.Equal(t, []string{"11", "10", "9'", "8"}, messages(recs[8:12]))
+}
+
+// A first moment longer than a window is read whole: a window starting in it
+// cannot tell whether it began at its top.
+func TestABackwardReadKeepsTheFirstMomentWhole(t *testing.T) {
+	s := newLogServer()
+	for i := range 25 {
+		s.add("prod/web/app", stamped(0, strconv.Itoa(i)))
+	}
+	s.add("prod/web/app", stamped(time.Second, "last"))
+
+	r := readBackward(t.Context(), s.get, web, backwardOpts())
+
+	recs := drain(r)
+	require.NoError(t, r.err)
+	assert.Len(t, recs, 26)
+	assert.Equal(t, "last", recs[0].Message)
+	assert.False(t, r.short)
+}
+
+// A backward read after a line of a moment longer than its window reads that
+// moment whole, since the window numbers its lines from its own top: with 100
+// lines at one moment, after the 91st, it sends the nine after it.
+func TestABackwardReadAfterALineReadsItsMomentWhole(t *testing.T) {
+	for name, tail := range map[string][]string{
+		"alone":             nil,
+		"before later ones": {stamped(time.Second, "later")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newLogServer()
+			for i := range 100 {
+				s.add("prod/web/app", stamped(0, strconv.Itoa(i)))
+			}
+			s.add("prod/web/app", tail...)
+			o := backwardOpts()
+			o.since = bound{lineAt(web.key, 0, 90), false}
+
+			r := readBackward(t.Context(), s.get, web, o)
+
+			recs := drain(r)
+			require.NoError(t, r.err)
+			want := []string{"99", "98", "97", "96", "95", "94", "93", "92", "91"}
+			if tail != nil {
+				want = append([]string{"later"}, want...)
+			}
+			assert.Equal(t, want, messages(recs))
+			assert.Equal(t, 91, recs[len(recs)-1].Ordinal)
+			assert.False(t, r.short)
+		})
+	}
+}
+
+// A backward read with a sub-second since reads the first moment from since,
+// though the log endpoint finds that moment from since's second.
+func TestABackwardReadKeepsSinceInTheFirstMoment(t *testing.T) {
+	s := newLogServer()
+	s.add("prod/web/app", stamped(100*time.Millisecond, "before"), stamped(500*time.Millisecond, "after"))
+	o := backwardOpts()
+	o.since = from(400 * time.Millisecond)
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	assert.Equal(t, []string{"after"}, messages(drain(r)))
+	assert.NoError(t, r.err)
+}
+
+// A backward read the API server refuses ends with its status, on its first read
+// or on a later window.
+func TestARefusedBackwardReadEndsWithItsStatus(t *testing.T) {
+	for name, on := range map[string]int{"finding the first line": 0, "a window": 1} {
+		t.Run(name, func(t *testing.T) {
+			s := newLogServer()
+			s.add("prod/web/app", lineEvery(3)...)
+			s.onRequest = func(n int) {
+				if n == on {
+					s.refuse["prod/web/app"] = refusal{404, "not found"}
+				}
+			}
+
+			r := readBackward(t.Context(), s.get, web, backwardOpts())
+
+			assert.Empty(t, drain(r))
+			assert.EqualError(t, r.err, "not found")
+		})
+	}
 }
