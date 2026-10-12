@@ -589,3 +589,13 @@ func placesOf(t target) []Place {
 	}
 	return places
 }
+
+// line is a record of pod/container in prod at d past 10:00, the first of its
+// moment, and nth the ordinal-th.
+func line(pod, container string, d time.Duration, msg string) Record {
+	return nth(pod, container, d, 0, msg)
+}
+
+func nth(pod, container string, d time.Duration, ordinal int, msg string) Record {
+	return Record{Timestamp: at(d), Message: msg, Stream: StreamKey{Namespace: "prod", Pod: pod, Container: container}, Ordinal: ordinal}
+}
