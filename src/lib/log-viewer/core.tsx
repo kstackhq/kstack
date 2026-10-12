@@ -53,7 +53,7 @@ export type CoreState = {
   failed: boolean;
   /** Whether the viewport keeps the end in view. The user's hand changes it. */
   pinnedToEnd: boolean;
-  /** Whether the subscription is open: pinned and landed. */
+  /** Whether the subscription is open: pinned, not paused, and landed. */
   following: boolean;
   /** Whether the newest line is on screen: loaded to the end, with nothing more after. False the moment the viewer unpins. */
   atEnd: boolean;
@@ -512,6 +512,7 @@ type LandingProps = {
   client: Client;
   anchor: Anchor;
   pinned: boolean;
+  paused: boolean;
   settings: Settings;
   onState: (state: CoreState) => void;
   onError: (error: unknown) => void;
@@ -524,6 +525,7 @@ function Landing({
   client,
   anchor,
   pinned: initialPinned,
+  paused,
   settings,
   onState,
   onError,
@@ -571,15 +573,17 @@ function Landing({
   // The visible rows, without overscan. `virtualizer.range` is filled lazily, so it can lag a render.
   const visibleRange = virtualizer.calculateRange();
 
-  // Lines arrive only while following: pinned and landed. The follow reads
-  // everything after the after edge, so it owns that edge: paging and the render
-  // function see no more after while it runs. A follow that closes leaves the
-  // viewer paged, behind, so nothing is appended behind a reader's back, and the
-  // after edge reads as more while behind.
-  const following = pinned && !loading && landed;
+  // Lines arrive only while following: pinned, not paused, and landed. The follow
+  // reads everything after the after edge, so it owns that edge: paging and the
+  // render function see no more after while it runs. A follow that closes leaves
+  // the viewer paged, behind, so nothing is appended behind a reader's back, and
+  // the after edge reads as more while behind. A window pinned and paused is a
+  // follow closed at the end whatever the last page said: lines go on being
+  // written past it.
+  const following = pinned && !paused && !loading && landed;
   let afterEdge = after;
   if (following) afterEdge = NO_MORE;
-  else if (behind !== null) afterEdge = { ...after, more: true };
+  else if (behind !== null || (pinned && paused && landed)) afterEdge = { ...after, more: true };
   const moreAfter = afterEdge.more;
   const loadedToEnd = !loading && landed && !moreAfter;
   const edgeRows = Number(before.more) + Number(afterEdge.more);
@@ -601,6 +605,13 @@ function Landing({
   };
 
   const stopFollowing = () => setBehind('followed');
+
+  const [wasPaused, setWasPaused] = useState(paused);
+  if (paused !== wasPaused) {
+    setWasPaused(paused);
+    // Before loading ends too: a landing settled pinned is a follow that only waits on its frame.
+    if (paused && pinned && landed) stopFollowing();
+  }
 
   // Fetches the anchor's page, places it with key 0 at the anchor, and scrolls
   // there. Answers whether it landed short of the end: the server said there are more lines after it.
@@ -664,14 +675,15 @@ function Landing({
   });
 
   // A landing that does not follow is behind from the start: unpinned, lines go on
-  // being written past it. A landing short of the end is unpinned whatever it was
-  // asked, since a follow would read all the rest.
+  // being written past it; pinned but paused, it is a follow closed at the end, which
+  // the resume reopens — with no row drawn, no page could. A landing short of the end
+  // is unpinned whatever it was asked, since a follow would read all the rest.
   const settleLanding = useEffectEvent((shortOfEnd: boolean) => {
     setLanded(true);
     if (!pinned || shortOfEnd) {
       setPinned(false);
       setBehind('landed');
-    }
+    } else if (paused) stopFollowing();
   });
 
   // Unpinned, so a landing that will never follow does not say it keeps the end in view.
@@ -828,6 +840,8 @@ export type LogViewerCoreProps = {
   anchor: Anchor;
   /** Whether it starts pinned to the end. Read once, like `anchor`. */
   pinToEnd: boolean;
+  /** The user's Pause. While set, no lines arrive. */
+  paused?: boolean;
   onError?: (error: unknown) => void;
   estimateRowHeight: Settings['estimateRowHeight'];
   measureElement?: Settings['measureElement'];
@@ -848,6 +862,7 @@ export function LogViewerCore({
   client,
   anchor,
   pinToEnd,
+  paused = false,
   onError = ignore,
   estimateRowHeight,
   measureElement,
@@ -887,6 +902,7 @@ export function LogViewerCore({
       client={client}
       anchor={landing.anchor}
       pinned={landing.pinned}
+      paused={paused}
       settings={{
         estimateRowHeight,
         measureElement,

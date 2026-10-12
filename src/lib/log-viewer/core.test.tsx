@@ -192,6 +192,7 @@ function scriptedClient(): ScriptedClient {
 type MountOptions = {
   anchor?: Anchor;
   pinToEnd?: boolean;
+  paused?: boolean;
   onError?: (error: unknown) => void;
   loadMoreThreshold?: number;
   edgeRowHeight?: number;
@@ -245,12 +246,13 @@ function mount(client: Client, options: MountOptions = {}) {
     edgeRowHeight: options.edgeRowHeight ?? 0,
     pinTolerance: options.pinTolerance ?? 0,
   };
-  const view = (viewClient: Client) => (
+  const view = (paused: boolean, viewClient: Client = client) => (
     <LogViewerCore
       ref={ref}
       client={viewClient}
       anchor={props.anchor}
       pinToEnd={props.pinToEnd}
+      paused={paused}
       onError={props.onError}
       estimateRowHeight={() => ROW}
       overscan={0}
@@ -263,11 +265,12 @@ function mount(client: Client, options: MountOptions = {}) {
       {(rows) => <Rows rows={rows} />}
     </LogViewerCore>
   );
-  const result = render(view(client));
+  const result = render(view(options.paused ?? false));
   const scroller = () => result.container.firstElementChild as HTMLElement;
   return {
     ref,
-    setClient: (next: Client) => result.rerender(view(next)),
+    setPaused: (paused: boolean) => result.rerender(view(paused)),
+    setClient: (next: Client) => result.rerender(view(options.paused ?? false, next)),
     state: () => ref.current!.getSnapshot(),
     scroller,
     /** The user's hand on the scroller. */
@@ -765,6 +768,20 @@ describe('LogViewerCore', () => {
       expect(lineCount()).toBe(11);
     });
 
+    it('drops a batch still waiting when the follow closes', async () => {
+      const client = scriptedClient();
+      const { setPaused } = await pinnedAtTail(client);
+      const follow = client.live();
+
+      act(() => {
+        follow.onLine(line(10));
+        setPaused(true);
+      });
+      await act(() => vi.advanceTimersByTimeAsync(HIDDEN_FLUSH_MS));
+      expect(follow.open).toBe(false);
+      expect(lineCount()).toBe(10);
+    });
+
     it('unpins on a scroll up whose event arrives with the follow’s, coalesced into one', async () => {
       const client = scriptedClient();
       const { state, scroller } = await pinnedAtTail(client);
@@ -916,6 +933,118 @@ describe('LogViewerCore', () => {
       expect(lineCount()).toBe(13);
     });
 
+    it('follows on resume whatever a catch-up page asked during the pause says when it lands late', async () => {
+      const client = scriptedClient();
+      const { state, scroller, setPaused, userScrollToBottom } = await pinnedAtTail(client, { edgeRowHeight: ROW });
+      act(() => setPaused(true));
+      await flush();
+
+      // Into the after edge row the pause drew: a catch-up page, still pinned.
+      let answer: (result: FetchResult) => void = () => {};
+      client.fetchAfter.mockReturnValueOnce(
+        new Promise((resolve) => {
+          answer = resolve;
+        }),
+      );
+      await userScrollToBottom();
+      expect(client.fetchAfter).toHaveBeenCalledOnce();
+      expect(state().pinnedToEnd).toBe(true);
+
+      act(() => setPaused(false));
+      await flush();
+      const follow = client.live();
+      // Lines it holds, and more to read: stale, since the follow reads from the after edge itself.
+      await act(async () => answer(page(lines(6, 10), line(9).cursor)));
+      await flush();
+
+      expect(follow.open).toBe(true);
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: true });
+      await deliver(follow, line(10));
+      expect(scroller().scrollTop + VIEW).toBe(scroller().scrollHeight);
+      expect(messages().at(-1)).toBe('pod-1 line 10');
+    });
+
+    it('follows on resume after a catch-up page during the pause found more to read', async () => {
+      const client = scriptedClient();
+      const { state, setPaused, userScrollToBottom } = await pinnedAtTail(client, { edgeRowHeight: ROW });
+      act(() => setPaused(true));
+      await flush();
+
+      client.fetchAfter.mockResolvedValueOnce(page(lines(10, 12), line(11).cursor));
+      await userScrollToBottom();
+      expect(lineCount()).toBe(12);
+
+      act(() => setPaused(false));
+      await flush();
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: true });
+      expect(client.live().after).toBe(line(6).timestamp);
+    });
+
+    it('closes the follow while paused and leaves the viewport where it is, then reopens five seconds back', async () => {
+      const client = scriptedClient();
+      const { state, scroller, setPaused } = await pinnedAtTail(client);
+      const follow = client.live();
+      const top = scroller().scrollTop;
+
+      act(() => setPaused(true));
+      await flush();
+      expect(follow.open).toBe(false);
+      expect(scroller().scrollTop).toBe(top);
+      expect(client.fetchAfter).not.toHaveBeenCalled();
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: false });
+
+      act(() => setPaused(false));
+      await flush();
+      expect(client.live().after).toBe(line(4).timestamp);
+      expect(state().following).toBe(true);
+    });
+
+    it('re-pins while paused as a follow closed at the end, still behind the live end', async () => {
+      const client = scriptedClient();
+      const { state, scroller, setPaused, userScroll, userScrollToBottom } = await pinnedAtTail(client, {
+        edgeRowHeight: ROW,
+      });
+      act(() => setPaused(true));
+      await flush();
+
+      // Unpinned, with a catch-up page that finds nothing more: the edge row goes.
+      await userScroll(scroller().scrollTop - ROW);
+      expect(state().pinnedToEnd).toBe(false);
+      expect(latestRows!.after.more).toBe(false);
+
+      // Lines go on being written past a pinned window that is paused.
+      await userScrollToBottom();
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: false, atEnd: false });
+      expect(latestRows!.after.more).toBe(true);
+
+      act(() => setPaused(false));
+      await flush();
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: true });
+    });
+
+    it('closes the follow on a pause pressed after the landing settled but before its loading ended', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10), 'older'));
+      const { state, setPaused } = mount(client, { anchor: TAIL, pinToEnd: true });
+      // The landing settles; the frame that ends its loading has not come.
+      await act(async () => {});
+      expect(state().loading).toBe(true);
+
+      // Behind, it catches up from the overlap rather than calling the landing the end.
+      act(() => setPaused(true));
+      await flush();
+      expect(client.subscribe).not.toHaveBeenCalled();
+      expect(state()).toMatchObject({ loading: false, pinnedToEnd: true, following: false });
+      expect(client.fetchAfter).toHaveBeenCalledWith({
+        cursor: line(4).timestamp,
+        limit: 10,
+      });
+
+      act(() => setPaused(false));
+      await flush();
+      expect(client.live().after).toBe(line(4).timestamp);
+    });
+
     it('hands a follow it cannot open to onError, and opens none', async () => {
       const client = scriptedClient();
       const onError = vi.fn();
@@ -927,6 +1056,28 @@ describe('LogViewerCore', () => {
       expect(client.subscribe).not.toHaveBeenCalled();
     });
 
+    it('follows on resume after an empty landing made while paused, from the moment the landing asked', async () => {
+      const client = scriptedClient();
+      const mountedAt = Date.now();
+      const { state, setPaused } = mount(client, { anchor: TAIL, pinToEnd: true, paused: true });
+      await flush();
+      const landedAt = Date.now();
+      expect(client.subscribe).not.toHaveBeenCalled();
+
+      // Holding nothing, the follow has no newest line to open before: it opens at the
+      // moment the landing asked, so lines written during the pause are read.
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      act(() => setPaused(false));
+      await flush();
+      const from = Date.parse(client.live().after!);
+      expect(from).toBeGreaterThanOrEqual(mountedAt);
+      expect(from).toBeLessThanOrEqual(landedAt);
+      expect(state().following).toBe(true);
+
+      await deliver(client.live(), line(0));
+      expect(messages()).toEqual(['pod-1 line 0']);
+    });
+
     it('brings the lines written while an empty landing was in flight', async () => {
       const log = new FakeClient({ lines: 0, delayMs: 100 });
       const { state } = mount(log, { anchor: TAIL, pinToEnd: true });
@@ -935,6 +1086,36 @@ describe('LogViewerCore', () => {
       log.append();
       await flush();
       expect(state().following).toBe(true);
+      expect(messages()).toEqual(['line 0']);
+    });
+
+    it('brings the lines written during a pause when it reopens over an empty window', async () => {
+      const log = new FakeClient({ lines: 0 });
+      const { setPaused } = mount(log, { anchor: TAIL, pinToEnd: true, paused: true });
+      await flush();
+
+      await act(() => vi.advanceTimersByTimeAsync(60_000));
+      log.append(2);
+      act(() => setPaused(false));
+      await flush();
+      expect(messages()).toEqual(['line 0', 'line 1']);
+    });
+
+    it('brings back a line received but not yet appended when a pause closes a follow over an empty window', async () => {
+      const log = new FakeClient({ lines: 0 });
+      const { setPaused } = mount(log, { anchor: TAIL, pinToEnd: true });
+      await flush();
+
+      await act(() => vi.advanceTimersByTimeAsync(1000));
+      act(() => {
+        log.append();
+        setPaused(true);
+      });
+      await act(() => vi.advanceTimersByTimeAsync(HIDDEN_FLUSH_MS));
+      expect(lineCount()).toBe(0);
+
+      act(() => setPaused(false));
+      await flush();
       expect(messages()).toEqual(['line 0']);
     });
 
