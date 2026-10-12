@@ -20,5 +20,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["vite.config.ts", "eslint.config.ts", "codegen.ts", "index.test.ts"]
+  "include": ["vite.config.ts", "eslint.config.ts", "eslint.config.test.ts", "codegen.ts", "index.test.ts"]
 }

@@ -1,7 +1,7 @@
 ---
 title: The headless core
 scope: frontend
-status: Planned
+status: Done
 ---
 
 # The headless core
@@ -37,10 +37,10 @@ From kubetail's `dashboard-ui/src/components/widgets/log-viewer/`:
 | Kubetail | Kstack | What changes |
 | --- | --- | --- |
 | `types.ts` | `src/lib/log-viewer/types.ts` | `LogRecord` becomes `LogLine` (§2) |
-| `double-tailed-array.ts` + test | `src/lib/log-viewer/double-tailed-array.ts` | Nothing |
-| `before-paint.ts` + test | `src/lib/log-viewer/before-paint.ts` | Nothing |
-| `fake-client.ts` + test | `src/lib/log-viewer/fake-client.ts` | Lines in `LogLine`'s shape; delays under fake timers |
-| `log-viewer.tsx` + test | `src/lib/log-viewer/core.tsx` | §3 |
+| `double-tailed-array.ts` + test | `src/lib/log-viewer/double-tailed-array.ts` | Rewritten smaller: `first`/`last` answer `undefined` when empty, an index not held throws `RangeError`, and the unused `set`, `forEach` and `map` go |
+| `before-paint.ts` + test | `src/lib/log-viewer/before-paint.ts` | `trigger` typed `unknown`; the tests rewritten, with an async and a throwing callback |
+| `fake-client.ts` + test | `src/lib/log-viewer/fake-client.ts` | Rewritten over `LogLine`, a third the size: `lines`, `rate` and `delayMs` options, `lineAt`, no lorem generator; `fetchSince` keeps the newest line, and a cancelled subscription delivers nothing |
+| `log-viewer.tsx` + test | `src/lib/log-viewer/core.tsx` | §3; the lines it holds are `lines.ts`, a class of kstack's own |
 | `index.ts` | `src/lib/log-viewer/index.ts` | Exports the above, but not the fake |
 
 `@tanstack/react-virtual` is added to `package.json`. It is the one dependency the core has.
@@ -79,9 +79,9 @@ export type LogLine = {
 ```
 
 The viewport imports it from there, so it and the core agree on one type. The `Client` type
-keeps kubetail's five methods over it; `FetchResult` gains `skipped: string[]`, the page's
-lines about streams it could not read, which the core publishes with its state and step 2
-draws.
+keeps kubetail's five methods over it, with `subscribe(after, onLine)` in place of kubetail's
+options object; `FetchResult` answers `lines`, and gains `skipped: string[]`, the page's lines
+about streams it could not read, which the core publishes with its state and step 2 draws.
 
 ### 3. The core
 
@@ -141,7 +141,8 @@ with the rows to draw. These change:
   seconds**: lines arrive per container, so a container a moment behind has lines older than
   the single newest cursor, and a subscription opened exactly there would lose them with no
   page to find them in. The overlap re-sends a few seconds the core already holds, and the
-  duplicate rule below drops them. The first `loadMoreAfter` after an unpin has the same gap
+  duplicate rule below drops them; a follow's first open overlaps the same way, since the rule
+  makes it free and one rule is simpler than two. The first `loadMoreAfter` after an unpin has the same gap
   and the same fix: it asks `after` the newest cursor less `REOPEN_OVERLAP`, and the lines it
   brings back go through the duplicate rule, since that page is the follow's catch-up and not
   a page of history. Nothing is appended while the user is not at the end, which is
@@ -162,9 +163,13 @@ with the rows to draw. These change:
   container landing after a later line from another is real. What repeats is a whole stretch —
   `subscribe-exchange` reconnects with the variables it was given, so after a dropped connection
   the follow replays from the cursor it first opened with, and the reopen overlap above replays
-  a few seconds on purpose. So the core keeps the newest cursor it holds **per source** and
-  drops a follow line whose cursor is at or before its own source's newest. That is exact,
-  because each container's lines arrive in order. **The rule applies to lines from the follow,
+  a few seconds on purpose. So the core keeps the newest cursor it holds **per source**, and
+  how many lines with each message are held at it, and drops a follow line before its own
+  source's newest, or at that moment while the read has not passed as many lines with its
+  message as are held there. A read is a page, or a follow across its batches; a source going
+  back in time within a follow is its reconnect's replay, and the count starts over. That is
+  exact, because each container's lines arrive in order, but for a replay whose first line of a
+  source falls at that source's newest moment, which reads as lines written twice. **The rule applies to lines from the follow,
   and to the catch-up fetch after an unpin, and to nothing else**: a page of history from
   `loadMoreBefore` is older than every source's newest by definition, and is placed by its
   cursors as kubetail places it, never filtered. Kubetail's `lastTSMap` keeps the same
@@ -274,7 +279,8 @@ TypeScript, beside the files they cover. Kubetail's suites are the starting poin
   which would make the failing cases pass for the wrong reason and the passing case fail. Each
   case asserts on the rule id and message, never on "any error". Under
   `src/lib/log-viewer/`: `import from '@/x'`, `import from '../x'` and `import from '../../x'`
-  each fail on `no-restricted-imports` with the library's message; `import 'handlebars'` fails
+  each fail with the library's message, as do `'../../x'` from a subdirectory, while `'../x'`
+  from one passes; `import 'handlebars'` fails
   there with the template-engine message, pinning that the ban survived; the same text under
   `src/components/` passes the first three.
 - `core.test.tsx` also: a `Tail` landing with `pinToEnd: false` stays unpinned; a user scroll
