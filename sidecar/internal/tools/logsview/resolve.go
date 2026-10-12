@@ -112,7 +112,7 @@ func (t *Tool) resolveIn(ctx context.Context, clusterID cluster.ClusterID, activ
 		return tools.LogsViewAction{}, nil, errSyncing
 	}
 	q := query{t.svc.CachedData(), ctx, clusterID, active.Cache.ID}
-	view := tools.LogsViewAction{Sources: []tools.LogsViewSource{}, Filters: in.filters, Grep: in.grep}
+	view := tools.LogsViewAction{LogsViewInput: tools.LogsViewInput{Sources: []tools.LogsViewSource{}, Filters: in.filters, Grep: in.grep}}
 	if view.Filters == nil {
 		view.Filters = []tools.LogsViewFilter{}
 	}

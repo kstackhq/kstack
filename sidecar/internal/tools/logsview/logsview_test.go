@@ -191,8 +191,11 @@ func TestASourceInTheMirrorOpens(t *testing.T) {
 
 	assert.Equal(t, "Viewing deployments/webapp in prod at the newest line. Defaulted container app out of app, istio-proxy, setup.", text)
 	assert.Equal(t, tools.LogsViewAction{
-		Sources: []tools.LogsViewSource{{Namespace: "prod", Kind: tools.LogsSourceDeployment, Name: "webapp", Containers: []string{"app"}}},
-		Filters: []tools.LogsViewFilter{}, Anchor: tools.LogsViewAnchor{Kind: tools.LogsAnchorTail},
+		LogsViewInput: tools.LogsViewInput{
+			Sources: []tools.LogsViewSource{{Namespace: "prod", Kind: tools.LogsSourceDeployment, Name: "webapp", Containers: []string{"app"}}},
+			Filters: []tools.LogsViewFilter{},
+		},
+		Anchor: tools.LogsViewAnchor{Kind: tools.LogsAnchorTail},
 	}, view)
 	assert.Contains(t, f.queried[0].sql, "o.api_version = ? AND o.kind = ? AND o.namespace = ? AND o.name = ?")
 	assert.Equal(t, []any{"apps/v1", "Deployment", "prod", "webapp"}, f.queried[0].args)
