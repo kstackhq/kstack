@@ -675,9 +675,6 @@ func nth(pod, container string, d time.Duration, ordinal int, msg string) Record
 	return Record{Timestamp: at(d), Message: msg, Stream: StreamKey{Namespace: "prod", Pod: pod, Container: container}, Ordinal: ordinal}
 }
 
-// compareLines orders two lines.
-func compareLines(a, b Record) int { return comparePositions(positionOf(a), positionOf(b)) }
-
 // cursor is the cursor of the moment d past 10:00.
 func cursor(d time.Duration) *string {
 	return cursorOf(position{Timestamp: at(d)})

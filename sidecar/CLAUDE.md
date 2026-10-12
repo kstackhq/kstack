@@ -4001,6 +4001,7 @@ Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-
 
 - A type's methods live in the type's file; a helper belongs to whoever calls it, and only what more than one needs goes on the service.
 - Pub/sub: unkeyed → `gochan` (`watch` for latest-value with a seed, `broadcast` for fan-out); keyed → `gobus` (`watch` delivers nothing until the next send; `conflate` for bursts). Never hand-roll a subscriber map.
+- Fan-in from producers that come and go → `gochan` `mpsc` with `WithKeepOpen`, a sender per producer, closed when it ends: without the option the hub closes for good once no sender is open (`services/logs`' `fanIn`).
 - Work to do is a queue, not a bus: `internal/lib/workqueue`, one `Queue` per job. `Done` is owed for every key taken.
 - Subscription resolvers emit the current snapshot first, then deltas (`mapStream`), and honor `ctx.Done()`.
 - Unexported functional options for test seams; exported `New` takes production knobs only.
