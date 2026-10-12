@@ -2139,6 +2139,11 @@ A body the claim cut answers its reason, `ErrRevoked` or `errRetired`, never a b
 stream's, since access to `pods/log` is granted per namespace. Each read is one raw `GET` of the
 pod's `log` path through the connection's `HTTPClient`; no typed clientset.
 
+**A follow's claim also watches the record**, revoking it (`ErrRevoked`) once the cluster is
+disabled or deleted, as the bash tool's upstream does. A watch that ends after its snapshot is
+opened again after the service's retry; one that cannot be, or whose snapshot lacks the record,
+revokes. A fetch's claim watches nothing, since the connection's retirement already bounds a page.
+
 **`fetcher.go` is kubetail's algorithm**: forward with `sinceTime` rounded down to its second;
 backward in growing `tailLines` windows until one reaches the log's first line, or under an `until`
 (a `before` cursor's page) in doubling windows of time ending there, each read forward from its

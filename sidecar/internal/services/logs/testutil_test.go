@@ -36,15 +36,20 @@ import (
 // cache, its health, its statements run over a real store, and the lease
 // AcquireConnection hands out. Every method it
 // does not set panics on the nil embedded service. Each call answers its error
-// when one is set, and Health and Query answer no cache when told so.
+// when one is set, and Health and Query answer no cache when told so. A test that
+// changes a field while a follow runs does so through set.
 type fakeService struct {
 	cluster.Service
+	mu     sync.Mutex
 	active cluster.ActiveCluster
 	health cluster.ClusterCacheHealth
 	store  *clustertest.Store
 	lease  *fakeLease
+	// frames is what the record's watch sends, the watch failing once it is closed;
+	// nil sends nothing.
+	frames chan cluster.ClusterWatchFrame
 
-	acquireErr, readActiveErr, healthErr, queryErr error
+	acquireErr, watchErr, readActiveErr, healthErr, queryErr error
 	// queryErrOn is the statement text queryErr applies to, "" for every one.
 	queryErrOn        string
 	noHealth, noQuery bool
@@ -53,6 +58,13 @@ type fakeService struct {
 	// statements is every statement the mirror was asked, its args inlined, in
 	// order.
 	statements []string
+}
+
+// set runs change under the fake's lock.
+func (f *fakeService) set(change func()) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	change()
 }
 
 func (f *fakeService) Caches() cluster.Caches         { return fakeCaches{f: f} }
@@ -111,6 +123,32 @@ func (fc fakeClusters) ReadActive(ctx context.Context, _ cluster.ClusterID, read
 		return fc.f.readActiveErr
 	}
 	return read(ctx, fc.f.active)
+}
+
+func (fc fakeClusters) Watch(ctx context.Context, _ cluster.ClusterID) (*cluster.Stream[cluster.ClusterWatchFrame], error) {
+	fc.f.mu.Lock()
+	frames, err := fc.f.frames, fc.f.watchErr
+	fc.f.mu.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- cluster.ClusterWatchFrame) error {
+		if frames == nil {
+			<-ctx.Done()
+			return nil
+		}
+		for {
+			select {
+			case f, ok := <-frames:
+				if !ok {
+					return fmt.Errorf("watch failed")
+				}
+				out <- f
+			case <-ctx.Done():
+				return nil
+			}
+		}
+	}), nil
 }
 
 // fakeLease is a claim on a cluster whose connection is conn, reached by serverUID
@@ -221,6 +259,14 @@ type chunkedBody struct {
 
 func (b chunkedBody) Read(p []byte) (int, error) {
 	return b.ReadCloser.Read(p[:min(len(p), b.n)])
+}
+
+// enabledCluster is a record Kstack connects to.
+func enabledCluster() *cluster.Cluster {
+	return &cluster.Cluster{Spec: cluster.ClusterSpec{
+		Enabled: true,
+		Source:  cluster.ClusterSpecSource{Kubeconfig: &cluster.ClusterSpecSourceKubeconfig{Context: "dev"}},
+	}}
 }
 
 // logServer is the API server's log endpoint over containers' logs held in
