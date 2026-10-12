@@ -2132,6 +2132,13 @@ container's lines at the moment, so a page can end at any line and the next star
 time alone names a moment, which the viewer's `At` anchor sends; `since` and `until` keep the
 cursor's line where `after` and `before` drop it.
 
+**A container's log is read over a claim** (`claim.go`), outside the mirror's reading:
+`AcquireConnection`, which checks the record once, and `Lease.ConnFor` by the cache's `ServerUID`.
+A body the claim cut answers its reason, `ErrRevoked` or `errRetired`, never a bare cancel. A 401
+(`fatal`) fails a whole read: it is the user's credentials, not one pod's state; a 403 is one
+stream's, since access to `pods/log` is granted per namespace. Each read is one raw `GET` of the
+pod's `log` path through the connection's `HTTPClient`; no typed clientset.
+
 **KubeQuery (`tools/kubequery`) is read-only SQL over the chat's cluster's cache, run without
 asking.** It is `Custom` and `Bounded` (10 s, whatever the input), never `Gated`. `parse` is the
 strict walk: `sql`, `limit` (200 unless given, read as 2000 past it) and `description`; a `;`

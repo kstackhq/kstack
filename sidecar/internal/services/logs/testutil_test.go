@@ -17,8 +17,12 @@ package logs
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -27,7 +31,8 @@ import (
 )
 
 // fakeService is the cluster service as the logs service reads it: one active
-// cache, its health, and its statements run over a real store. Every method it
+// cache, its health, its statements run over a real store, and the lease
+// AcquireConnection hands out. Every method it
 // does not set panics on the nil embedded service. Each call answers its error
 // when one is set, and Health and Query answer no cache when told so.
 type fakeService struct {
@@ -35,8 +40,9 @@ type fakeService struct {
 	active cluster.ActiveCluster
 	health cluster.ClusterCacheHealth
 	store  *clustertest.Store
+	lease  *fakeLease
 
-	readActiveErr, healthErr, queryErr error
+	acquireErr, readActiveErr, healthErr, queryErr error
 	// queryErrOn is the statement text queryErr applies to, "" for every one.
 	queryErrOn        string
 	noHealth, noQuery bool
@@ -50,6 +56,13 @@ type fakeService struct {
 func (f *fakeService) Caches() cluster.Caches         { return fakeCaches{f: f} }
 func (f *fakeService) CachedData() cluster.CachedData { return fakeCachedData{f: f} }
 func (f *fakeService) Clusters() cluster.Clusters     { return fakeClusters{f: f} }
+
+func (f *fakeService) AcquireConnection(context.Context, cluster.ClusterID) (cluster.Lease, error) {
+	if f.acquireErr != nil {
+		return nil, f.acquireErr
+	}
+	return f.lease, nil
+}
 
 type fakeCaches struct {
 	cluster.Caches
@@ -96,6 +109,41 @@ func (fc fakeClusters) ReadActive(ctx context.Context, _ cluster.ClusterID, read
 		return fc.f.readActiveErr
 	}
 	return read(ctx, fc.f.active)
+}
+
+// fakeLease is a claim on a cluster whose connection is conn, reached by serverUID
+// alone; any other UID answers a mismatch.
+type fakeLease struct {
+	cluster.Lease
+	serverUID string
+	conn      *cluster.Connection
+	released  atomic.Int32
+}
+
+func (l *fakeLease) ConnFor(_ context.Context, serverUID string) (*cluster.Connection, error) {
+	if serverUID != l.serverUID {
+		return nil, fmt.Errorf("%w: another cluster", cluster.ErrIdentityMismatch)
+	}
+	return l.conn, nil
+}
+
+func (l *fakeLease) Release() { l.released.Add(1) }
+
+// serving is a service whose cluster uid-1 is reached at h.
+func serving(t *testing.T, h http.Handler) *fakeService {
+	t.Helper()
+	// HTTP/2, as an API server speaks it: a read that closes its body early drops
+	// one stream rather than its connection, so a test paging many logs dials a
+	// handful of connections, not one per GET, and leaves the machine's ports alone.
+	srv := httptest.NewUnstartedServer(h)
+	srv.EnableHTTP2 = true
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+	base, err := url.Parse(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &fakeService{lease: &fakeLease{serverUID: "uid-1", conn: &cluster.Connection{BaseURL: base, HTTPClient: srv.Client()}}}
 }
 
 // newMirror is a cluster whose cache is watching, its server uid-1, holding objects.
