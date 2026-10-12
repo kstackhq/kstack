@@ -14,19 +14,11 @@
 // What one log viewer has on screen, readable on demand. The viewer writes it here
 // as it changes; a reader pulls it once when it needs it — the composer at send,
 // for the snapshot that rides the question — so nothing streams it anywhere. It
-// never holds the lines: those are the viewer's. The shape is useSyncExternalStore's.
-import type { LogLine } from '@/lib/log-viewer';
+// never holds the lines: those are the core's. The shape is useSyncExternalStore's.
+import type { CoreState, LogLine } from '@/lib/log-viewer';
 
-/** What the viewer has on screen, and the lines the user selected, in order. */
-export type Viewport = {
-  /** Timestamps of the first and last visible lines; null before any is drawn. */
-  range: { from: string; to: string } | null;
-  /** Whether the newest line is on screen. */
-  atEnd: boolean;
-  /** Whether the viewport keeps the end in view. The user's hand changes it. */
-  pinnedToEnd: boolean;
-  /** How many lines are on screen. */
-  visible: number;
+/** What the core publishes about the screen, and the lines the user selected, in order. */
+export type Viewport = Pick<CoreState, 'range' | 'atEnd' | 'pinnedToEnd' | 'visible'> & {
   selection: LogLine[];
 };
 

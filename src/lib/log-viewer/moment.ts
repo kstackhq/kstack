@@ -15,7 +15,19 @@
 // lets the core mint. It is read off the clock, never off a cursor.
 import type { Cursor } from './types';
 
+/** A timestamp's milliseconds. The fraction past three digits goes first: `Date.parse` reads no more. */
+function millis(timestamp: string): number {
+  const ms = Date.parse(timestamp.replace(/(\.\d{3})\d+/, '$1'));
+  if (Number.isNaN(ms)) throw new RangeError(`not a timestamp: ${timestamp}`);
+  return ms;
+}
+
 /** This moment, to the millisecond, on the webview's clock. */
 export function momentNow(): Cursor {
   return new Date().toISOString();
+}
+
+/** The moment `ms` before `timestamp`, and no earlier than `floor`, to the millisecond. */
+export function momentBefore(timestamp: string, ms: number, floor: string): Cursor {
+  return new Date(Math.max(millis(timestamp) - ms, millis(floor))).toISOString();
 }

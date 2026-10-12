@@ -13,7 +13,7 @@
 // limitations under the License.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { momentNow } from './moment';
+import { momentBefore, momentNow } from './moment';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -24,5 +24,21 @@ describe('momentNow', () => {
     vi.useFakeTimers();
     vi.setSystemTime(Date.parse('2026-10-08T14:00:00.250Z'));
     expect(momentNow()).toBe('2026-10-08T14:00:00.250Z');
+  });
+});
+
+describe('momentBefore', () => {
+  it('steps back by the milliseconds, reading a timestamp to the millisecond', () => {
+    expect(momentBefore('2026-10-08T14:00:10.123456789Z', 5000, '2026-10-08T14:00:00Z')).toBe(
+      '2026-10-08T14:00:05.123Z',
+    );
+  });
+
+  it('goes no earlier than the floor', () => {
+    expect(momentBefore('2026-10-08T14:00:02Z', 5000, '2026-10-08T14:00:00.5Z')).toBe('2026-10-08T14:00:00.500Z');
+  });
+
+  it('throws on a timestamp it cannot read', () => {
+    expect(() => momentBefore('soon', 1, '2026-10-08T14:00:00Z')).toThrow(RangeError);
   });
 });

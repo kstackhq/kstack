@@ -18,17 +18,18 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
 
 import { HIDDEN_FLUSH_MS, LogViewerCore } from './core';
+import { FakeClient } from './fake-client';
 import type { CoreHandle, CoreRows } from './core';
-import type { Anchor, Client, FetchResult, LogLine } from './types';
+import type { Anchor, Client, Cursor, FetchResult, LogLine } from './types';
 
 // Layout ---------------------------------------------------------------
 //
 // jsdom lays nothing out. The scroller is VIEW tall, every row ROW tall, and its
 // scrollHeight is the sizer the render function draws; scrollTop clamps as a
-// browser's does and fires `scroll`, which is how the virtualizer learns of a
-// move. A test's own write to scrollTop is the user's hand. Content shrinking
-// under the scroll clamps it too, on the next read, with its `scroll` a task
-// later, as a browser's layout does.
+// browser's does and fires `scroll`, which is how the virtualizer and the pin
+// learn of a move. A test's own write to scrollTop is the user's hand. Content
+// shrinking under the scroll clamps it too, on the next read, with its `scroll`
+// a task later, as a browser's layout does.
 
 const ROW = 20;
 const VIEW = 100;
@@ -135,19 +136,37 @@ function page(pageLines: LogLine[], nextCursor: string | null = null, skipped: s
   return { lines: pageLines, nextCursor, skipped };
 }
 
+type Subscription = { after: Cursor | null; onLine: (line: LogLine) => void; open: boolean };
+
 type ScriptedClient = {
   [K in 'fetchSince' | 'fetchUntil' | 'fetchAfter' | 'fetchBefore']: Mock<Client[K]>;
 } & {
   subscribe: Mock<Client['subscribe']>;
+  subscriptions: Subscription[];
+  /** The one subscription open now; fails the test when there is not exactly one. */
+  live: () => Subscription;
 };
 
 function scriptedClient(): ScriptedClient {
+  const subscriptions: Subscription[] = [];
   return {
     fetchSince: vi.fn(async () => page([])),
     fetchUntil: vi.fn(async () => page([])),
     fetchAfter: vi.fn(async () => page([])),
     fetchBefore: vi.fn(async () => page([])),
-    subscribe: vi.fn(() => () => {}),
+    subscribe: vi.fn((after: Cursor | null, onLine: (line: LogLine) => void) => {
+      const subscription = { after, onLine, open: true };
+      subscriptions.push(subscription);
+      return () => {
+        subscription.open = false;
+      };
+    }),
+    subscriptions,
+    live: () => {
+      const open = subscriptions.filter((s) => s.open);
+      expect(open).toHaveLength(1);
+      return open[0];
+    },
   };
 }
 
@@ -155,6 +174,7 @@ function scriptedClient(): ScriptedClient {
 
 type MountOptions = {
   anchor?: Anchor;
+  pinToEnd?: boolean;
   onError?: (error: unknown) => void;
   loadMoreThreshold?: number;
   edgeRowHeight?: number;
@@ -201,6 +221,7 @@ function mount(client: Client, options: MountOptions = {}) {
   const ref = createRef<CoreHandle>();
   const props = {
     anchor: options.anchor ?? HEAD,
+    pinToEnd: options.pinToEnd ?? false,
     onError: options.onError,
     loadMoreThreshold: options.loadMoreThreshold ?? 1,
     edgeRowHeight: options.edgeRowHeight ?? 0,
@@ -210,6 +231,7 @@ function mount(client: Client, options: MountOptions = {}) {
       ref={ref}
       client={viewClient}
       anchor={props.anchor}
+      pinToEnd={props.pinToEnd}
       onError={props.onError}
       estimateRowHeight={() => ROW}
       overscan={0}
@@ -245,6 +267,12 @@ function mount(client: Client, options: MountOptions = {}) {
   };
 }
 
+/** Sends follow frames, then lets the core flush them. */
+async function deliver(subscription: Subscription, ...frames: LogLine[]) {
+  act(() => frames.forEach((frame) => subscription.onLine(frame)));
+  await flush();
+}
+
 function lineCount() {
   return Number(screen.getByTestId('sizer').dataset.count);
 }
@@ -254,7 +282,7 @@ function messages() {
 }
 
 // React commits an act's updates as it ends, and a commit can schedule the next
-// frame's work (a landing's end, a page's flight), so run until no timer is left.
+// frame's work (a landing's end, a follow's flush), so run until no timer is left.
 async function flush() {
   for (let round = 0; round < 10; round += 1) {
     // eslint-disable-next-line no-await-in-loop -- each round waits on the commit before it
@@ -314,6 +342,28 @@ describe('LogViewerCore', () => {
       expect(shown()[0]).toEqual([0, 'pod-1 line 20']);
     });
 
+    it('lands unpinned at Head when asked to pin with more after, rather than following from there', async () => {
+      const client = scriptedClient();
+      client.fetchSince.mockResolvedValueOnce(page(lines(0, 10), line(9).cursor));
+      const { state, scroller } = mount(client, { anchor: HEAD, pinToEnd: true });
+      await flush();
+
+      expect(client.subscribe).not.toHaveBeenCalled();
+      expect(scroller().scrollTop).toBe(0);
+      expect(state()).toMatchObject({ pinnedToEnd: false, following: false, atEnd: false });
+    });
+
+    it('lands pinned at Head when the first page holds the whole log, and follows', async () => {
+      const client = scriptedClient();
+      client.fetchSince.mockResolvedValueOnce(page(lines(0, 3)));
+      const { state } = mount(client, { anchor: HEAD, pinToEnd: true });
+      await flush();
+
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: true });
+      // Five seconds back would be before the oldest line held, which bounds it.
+      expect(client.live().after).toBe(line(0).timestamp);
+    });
+
     it('reports nothing from a landing a jump replaced while it was in flight', async () => {
       const client = scriptedClient();
       const onError = vi.fn();
@@ -330,7 +380,7 @@ describe('LogViewerCore', () => {
       await act(async () => refuse(new Error('refused')));
       await flush();
       expect(onError).not.toHaveBeenCalled();
-      expect(state()).toMatchObject({ loading: false, failed: false });
+      expect(state()).toMatchObject({ loading: false, following: true });
     });
 
     it('ends loading on a timer while no frame comes, as in a minimized window', async () => {
@@ -459,13 +509,20 @@ describe('LogViewerCore', () => {
       expect(state().loading).toBe(false);
     });
 
-    it('says it failed, and not that it is at the end, after a failed landing', async () => {
+    it('neither follows nor says it is at the end after a failed pinned landing', async () => {
       const client = scriptedClient();
       client.fetchUntil.mockRejectedValueOnce(new Error('refused'));
-      const { state } = mount(client, { anchor: TAIL, onError: vi.fn() });
+      const { state } = mount(client, { anchor: TAIL, pinToEnd: true, onError: vi.fn() });
       await flush();
 
-      expect(state()).toMatchObject({ loading: false, failed: true, atEnd: false });
+      expect(client.subscribe).not.toHaveBeenCalled();
+      expect(state()).toMatchObject({
+        loading: false,
+        failed: true,
+        pinnedToEnd: false,
+        following: false,
+        atEnd: false,
+      });
       expect(latestRows!.failed).toBe(true);
     });
 
@@ -473,13 +530,12 @@ describe('LogViewerCore', () => {
       const client = scriptedClient();
       client.fetchUntil.mockRejectedValueOnce(new Error('refused'));
       client.fetchUntil.mockResolvedValueOnce(page(lines(0, 3)));
-      const { ref, state } = mount(client, { anchor: TAIL, onError: vi.fn() });
+      const { ref, state } = mount(client, { anchor: TAIL, pinToEnd: true, onError: vi.fn() });
       await flush();
 
       act(() => ref.current!.jumpTo(TAIL));
       await flush();
-      expect(state().failed).toBe(false);
-      expect(messages()).toEqual(lines(0, 3).map((l) => l.message));
+      expect(state()).toMatchObject({ failed: false, pinnedToEnd: true, following: true });
     });
 
     it('keeps the rows in view when an empty last page removes the edge row above them', async () => {
@@ -551,7 +607,100 @@ describe('LogViewerCore', () => {
     });
   });
 
-  describe('what it publishes', () => {
+  describe('following', () => {
+    async function pinnedAtTail(client: ScriptedClient, options: MountOptions = {}) {
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10), 'older'));
+      const mounted = mount(client, { anchor: TAIL, pinToEnd: true, ...options });
+      await flush();
+      return mounted;
+    }
+
+    it('opens the follow five seconds before the newest line while pinned, and keeps the end in view as lines arrive', async () => {
+      const client = scriptedClient();
+      const { state, scroller } = await pinnedAtTail(client);
+
+      expect(client.live().after).toBe(line(4).timestamp);
+      await deliver(client.live(), line(10), line(11));
+
+      expect(shown().at(-1)).toEqual([2, 'pod-1 line 11']);
+      expect(scroller().scrollTop).toBe(12 * ROW - VIEW);
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: true, atEnd: true });
+    });
+
+    it('opens no follow when the view says not to pin, and pages toward the end instead', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10), 'older'));
+      const { state } = mount(client, { anchor: TAIL, pinToEnd: false });
+      await flush();
+
+      // A Tail landing scrolls to the bottom, and that must not pin it. Landed at
+      // the edge of a window with more after, it reads the next page.
+      expect(client.subscribe).not.toHaveBeenCalled();
+      expect(client.fetchSince).toHaveBeenCalledWith({ cursor: line(9).cursor, limit: 10 });
+      expect(state()).toMatchObject({ pinnedToEnd: false, following: false });
+    });
+
+    it('appends a follow batch on a timer while no frame comes, as in a minimized window', async () => {
+      const client = scriptedClient();
+      await pinnedAtTail(client);
+      const follow = client.live();
+      vi.spyOn(window, 'requestAnimationFrame').mockImplementation(() => 0);
+
+      act(() => follow.onLine(line(10)));
+      await act(() => vi.advanceTimersByTimeAsync(HIDDEN_FLUSH_MS - 1));
+      expect(lineCount()).toBe(10);
+
+      await act(() => vi.advanceTimersByTimeAsync(1));
+      expect(lineCount()).toBe(11);
+    });
+
+    it('hands a follow it cannot open to onError, and opens none', async () => {
+      const client = scriptedClient();
+      const onError = vi.fn();
+      client.fetchUntil.mockResolvedValueOnce(page([...lines(0, 9), { ...line(9), timestamp: 'soon' }], 'older'));
+      mount(client, { anchor: TAIL, pinToEnd: true, onError });
+      await flush();
+
+      expect(onError).toHaveBeenCalledWith(expect.any(RangeError));
+      expect(client.subscribe).not.toHaveBeenCalled();
+    });
+
+    it('brings the lines written while an empty landing was in flight', async () => {
+      const log = new FakeClient({ lines: 0, delayMs: 100 });
+      const { state } = mount(log, { anchor: TAIL, pinToEnd: true });
+
+      await act(() => vi.advanceTimersByTimeAsync(50));
+      log.append();
+      await flush();
+      expect(state().following).toBe(true);
+      expect(messages()).toEqual(['line 0']);
+    });
+
+    it('drops a replayed line by its cursor, and keeps an older line from another container', async () => {
+      const client = scriptedClient();
+      await pinnedAtTail(client);
+      const follow = client.live();
+
+      await deliver(follow, line(10), line(11));
+      // A reconnect replays from the cursor the follow opened with.
+      await deliver(follow, line(10), line(11), line(12));
+      await deliver(follow, line(11, 'pod-2'));
+
+      expect(client.subscribe).toHaveBeenCalledOnce();
+      expect(messages().slice(-4)).toEqual(['pod-1 line 10', 'pod-1 line 11', 'pod-1 line 12', 'pod-2 line 11']);
+    });
+
+    it('keeps a line a container wrote twice at one moment, by its cursor, and drops a replay', async () => {
+      const client = scriptedClient();
+      await pinnedAtTail(client);
+      const follow = client.live();
+
+      await deliver(follow, line(10));
+      await deliver(follow, { ...line(10), cursor: 'pod-1#10#1' }, line(10));
+      expect(messages().slice(-2)).toEqual(['pod-1 line 10', 'pod-1 line 10']);
+      expect(lineCount()).toBe(12);
+    });
+
     it('follows the viewport: the visible range, how many lines, and whether the newest is on screen', async () => {
       const client = scriptedClient();
       client.fetchSince.mockResolvedValueOnce(page(lines(0, 20)));
@@ -578,16 +727,18 @@ describe('LogViewerCore', () => {
   });
 
   describe('the handle', () => {
-    it('jumps to each kind of anchor', async () => {
+    it('jumps to each kind of anchor, pinning at Tail alone', async () => {
       const client = scriptedClient();
       client.fetchSince.mockResolvedValue(page(lines(0, 3)));
       client.fetchUntil.mockResolvedValue(page(lines(0, 3)));
-      const { ref } = mount(client, { anchor: HEAD });
+      const { ref, state } = mount(client, { anchor: HEAD });
       await flush();
 
       act(() => ref.current!.jumpTo(TAIL));
       await flush();
       expect(client.fetchUntil).toHaveBeenCalledWith({ limit: 10 });
+      expect(state()).toMatchObject({ pinnedToEnd: true, following: true });
+      const follow = client.live();
 
       // Each landing's own fetch is the first after the jump; pages after it may follow.
       const at = line(1).timestamp;
@@ -596,12 +747,25 @@ describe('LogViewerCore', () => {
       await flush();
       expect(client.fetchBefore).toHaveBeenCalledWith({ cursor: at, limit: 10 });
       expect(client.fetchSince.mock.calls[since]).toEqual([{ cursor: at, limit: 10 }]);
+      expect(follow.open).toBe(false);
+      expect(state().pinnedToEnd).toBe(false);
 
       since = client.fetchSince.mock.calls.length;
       act(() => ref.current!.jumpTo(HEAD));
       await flush();
       expect(client.fetchSince.mock.calls[since]).toEqual([{ limit: 10 }]);
       expect(shown()[0]).toEqual([0, 'pod-1 line 0']);
+    });
+
+    it('re-measures and keeps the end in view', async () => {
+      const client = scriptedClient();
+      client.fetchUntil.mockResolvedValueOnce(page(lines(0, 10)));
+      const { ref, scroller } = mount(client, { anchor: TAIL, pinToEnd: true });
+      await flush();
+
+      act(() => ref.current!.measure());
+      await flush();
+      expect(scroller().scrollTop).toBe(10 * ROW - VIEW);
     });
 
     it('re-measures and keeps the reader where they were inside the first visible row', async () => {
