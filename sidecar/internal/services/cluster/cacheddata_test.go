@@ -324,6 +324,42 @@ func TestWatchObjectsSendsADeletedFrameWithoutABody(t *testing.T) {
 	assert.Empty(t, gone.Object.RawJSON, "a removal carries no body")
 }
 
+// A watch narrowed to namespaces sends only their objects, with no body, and a
+// change elsewhere sends nothing.
+func TestWatchObjectsInSendsOnlyItsNamespaces(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := newDataFixture(t)
+	podKind := kubestore.Kind{APIVersion: "v1", Kind: "Pod", Resource: "pods"}
+	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{
+		{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: kubestore.ScopeNamespaced},
+	}, true, 7))
+	elsewhere := func(uid, name, rv string) *unstructured.Unstructured {
+		pod := dataPod(uid, name, rv)
+		pod.SetNamespace("staging")
+		return pod
+	}
+	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Added, dataPod("uid-1", "api-0", "42")))
+	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Added, elsewhere("uid-2", "api-0", "43")))
+
+	stream, err := f.data().WatchObjectsIn(ctx, f.clusterID, f.cacheID, "v1", "pods", []string{"prod"})
+	require.NoError(t, err)
+
+	first := testutil.Recv(t, stream.Frames, "the object")
+	require.NotNil(t, first.Object)
+	assert.Equal(t, "uid-1", first.Object.UID)
+	assert.Empty(t, first.Object.RawJSON, "a narrowed watch carries no body")
+	require.Equal(t, DeltaFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
+
+	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Added, elsewhere("uid-3", "api-1", "44")))
+	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Deleted, elsewhere("uid-2", "api-0", "43")))
+	require.NoError(t, f.store.ApplyChange(ctx, podKind, watch.Added, dataPod("uid-4", "api-1", "45")))
+
+	next := testutil.Recv(t, stream.Frames, "the next object in prod")
+	assert.Equal(t, DeltaFrameAdded, next.Type)
+	assert.Equal(t, "uid-4", next.Object.UID)
+}
+
 // A guard on the split's cost: the diff read and the body fetch are two queries against a
 // moving table, so a row can go between them. The frame serves a null body and the watch
 // carries on — the next resync's Deleted frame is the real answer, and failing the stream

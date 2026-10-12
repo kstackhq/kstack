@@ -311,6 +311,10 @@ type CachedData interface {
 	// WatchObjects streams one kind's cached objects as a delta watch keyed by UID.
 	// No frames while that kind hasn't synced.
 	WatchObjects(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, apiVersion, resource string) (*Stream[ClusterCachedDataObjectWatchFrame], error)
+	// WatchObjectsIn is WatchObjects narrowed to the objects in namespaces, each
+	// frame carrying no body: a watcher that wants to know what moved, not what it
+	// holds, pays for neither the rest of the cluster nor the bodies.
+	WatchObjectsIn(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, apiVersion, resource string, namespaces []string) (*Stream[ClusterCachedDataObjectWatchFrame], error)
 	// WatchEvents streams one cache's cached Kubernetes Events, newest first, as a
 	// delta watch keyed by event UID. Woken separately from WatchKinds, so an event
 	// burst never drives the kind-catalog re-read.

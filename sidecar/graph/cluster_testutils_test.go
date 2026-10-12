@@ -502,6 +502,10 @@ func (f fakeCachedData) WatchEvents(ctx context.Context, clusterID cluster.Clust
 	}), nil
 }
 
+func (f fakeCachedData) WatchObjectsIn(ctx context.Context, clusterID cluster.ClusterID, cacheID cluster.ClusterCacheID, apiVersion, resource string, _ []string) (*cluster.Stream[cluster.ClusterCachedDataObjectWatchFrame], error) {
+	return f.WatchObjects(ctx, clusterID, cacheID, apiVersion, resource)
+}
+
 func (f fakeCachedData) WatchObjects(ctx context.Context, clusterID cluster.ClusterID, _ cluster.ClusterCacheID, _, _ string) (*cluster.Stream[cluster.ClusterCachedDataObjectWatchFrame], error) {
 	f.s.mu.Lock()
 	snap := append([]cluster.ClusterCachedDataObject(nil), f.s.dataObjects[clusterID]...)
@@ -1010,6 +1014,10 @@ func (e errCachedData) WatchEvents(context.Context, cluster.ClusterID, cluster.C
 }
 
 func (e errCachedData) WatchObjects(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string, string) (*cluster.Stream[cluster.ClusterCachedDataObjectWatchFrame], error) {
+	return nil, e.err
+}
+
+func (e errCachedData) WatchObjectsIn(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string, string, []string) (*cluster.Stream[cluster.ClusterCachedDataObjectWatchFrame], error) {
 	return nil, e.err
 }
 

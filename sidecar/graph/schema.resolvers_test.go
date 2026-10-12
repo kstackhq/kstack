@@ -33,6 +33,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -3230,4 +3231,108 @@ func TestSandboxExecutableRemoveWorksWithNoSandbox(t *testing.T) {
 	data, _ := mutation(t, srv.URL, `mutation { sandboxExecutableRemove(name: "k9s") { name } }`)
 	assert.Equal(t, []any{}, data["sandboxExecutableRemove"])
 	assert.Empty(t, store.Get().Executables)
+}
+
+// --- Logs ---
+
+// fakeLogs is the log service answering page and stream, and keeping what it was
+// asked.
+type fakeLogs struct {
+	page   logs.Page
+	stream *cluster.Stream[logs.FollowFrame]
+	view   logs.View
+	query  logs.FetchQuery
+	after  *string
+}
+
+func (f *fakeLogs) Fetch(_ context.Context, _ cluster.ClusterID, view logs.View, q logs.FetchQuery) (logs.Page, error) {
+	f.view, f.query = view, q
+	return f.page, nil
+}
+
+func (f *fakeLogs) Follow(_ context.Context, _ cluster.ClusterID, view logs.View, after *string) (*cluster.Stream[logs.FollowFrame], error) {
+	f.view, f.after = view, after
+	return f.stream, nil
+}
+
+// logsView is a view's input as the client sends it.
+const logsView = `{sources: [{namespace: "prod", kind: Deployment, name: "web", containers: ["app"], previous: false}],
+filters: [{field: Zone, values: ["eu-1a"]}], grep: "error"}`
+
+// logsFetch serves a page, its skipped streams included, from the view asked.
+func TestLogsFetchServesAPage(t *testing.T) {
+	stamp := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
+	cursor := "2026-10-08T10:00:00Z"
+	fake := &fakeLogs{page: logs.Page{
+		Records:    []logs.Record{{Timestamp: stamp, Message: "error: disk", Source: logs.RecordSource{Namespace: "prod", Pod: "web-1", Container: "app", Zone: "eu-1a"}}},
+		NextCursor: &cursor,
+		Skipped:    []string{"web-2/app: container is waiting to start"},
+	}}
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: fake}))
+	defer srv.Close()
+
+	raw := postGQL(t, srv.URL, fmt.Sprintf(`{"query":%q}`, `{ logsFetch(id: "7", view: `+logsView+`, mode: Tail, before: "x", limit: 20) {
+		records { timestamp message source { pod container previous node zone } cursor } nextCursor skipped } }`))
+
+	assert.JSONEq(t, `{"data":{"logsFetch":{
+		"records":[{"timestamp":"2026-10-08T10:00:00Z","message":"error: disk","source":{"pod":"web-1","container":"app","previous":false,"node":"","zone":"eu-1a"},
+			"cursor":"2026-10-08T10:00:00Z\tprod\tweb-1\tapp\tfalse\t0"}],
+		"nextCursor":"2026-10-08T10:00:00Z","skipped":["web-2/app: container is waiting to start"]}}}`, string(raw))
+	assert.Equal(t, logs.View{
+		Sources: []logs.ViewSource{{Namespace: "prod", Kind: logs.SourceDeployment, Name: "web", Containers: []string{"app"}}},
+		Filters: []logs.ViewFilter{{Field: logs.FilterZone, Values: []string{"eu-1a"}}},
+		Grep:    "error",
+	}, fake.view)
+	assert.Equal(t, logs.FetchTail, fake.query.Mode)
+	assert.Equal(t, "x", *fake.query.Before)
+	assert.Equal(t, 20, fake.query.Limit)
+}
+
+// logsFetch refuses a limit past 500 as a validation error, saying so.
+func TestLogsFetchRefusesALimitPast500(t *testing.T) {
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: logs.New(nil)}))
+	defer srv.Close()
+
+	raw := postGQL(t, srv.URL, fmt.Sprintf(`{"query":%q}`, `{ logsFetch(id: "7", view: `+logsView+`, mode: Head, limit: 501) { skipped } }`))
+
+	assert.Contains(t, string(raw), `"code":"KSTACK_VALIDATION_ERROR"`)
+	assert.Contains(t, string(raw), "a limit must be between 1 and 500")
+}
+
+// logsFollow streams each line, then the frame that ends it with its reason.
+func TestLogsFollowStreamsUntilItEnds(t *testing.T) {
+	stamp := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
+	release := make(chan struct{})
+	fake := &fakeLogs{stream: cluster.NewStream(t.Context(), func(ctx context.Context, out chan<- logs.FollowFrame) error {
+		out <- logs.FollowFrame{Type: logs.FollowLine, Record: &logs.Record{Timestamp: stamp, Message: "hello", Source: logs.RecordSource{Pod: "web-1", Container: "app"}}}
+		<-release
+		out <- logs.FollowFrame{Type: logs.FollowEnded, Reason: "every container of this view has stopped"}
+		return nil
+	})}
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: fake}))
+	defer srv.Close()
+
+	resp, events := chatFrames(t, srv, `subscription { logsFollow(id: "7", view: `+logsView+`, after: "c") { type record { message source { pod } } reason } }`)
+	defer resp.Body.Close()
+
+	assert.Contains(t, testutil.Recv(t, events, "the line").data, `"type":"Line","record":{"message":"hello"`)
+	assert.Equal(t, "c", *fake.after)
+	close(release)
+	ev := testutil.Recv(t, events, "the end")
+	assert.Contains(t, ev.data, `"type":"Ended","record":null,"reason":"every container of this view has stopped"`)
+	assert.NotContains(t, ev.data, `"watchFailed"`)
+}
+
+// A follow whose Err is set ends with the reason under the watchFailed extension.
+func TestLogsFollowReportsItsFailure(t *testing.T) {
+	fake := &fakeLogs{stream: cluster.NewStream(t.Context(), func(context.Context, chan<- logs.FollowFrame) error {
+		return errors.New("db closed")
+	})}
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: fake}))
+	defer srv.Close()
+
+	resp, events := chatFrames(t, srv, `subscription { logsFollow(id: "7", view: `+logsView+`) { type } }`)
+	defer resp.Body.Close()
+
+	assert.Contains(t, testutil.Recv(t, events, "the failure frame").data, `"watchFailed":true`)
 }

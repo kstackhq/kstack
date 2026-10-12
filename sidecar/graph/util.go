@@ -17,6 +17,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/kubeproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
@@ -157,6 +158,16 @@ func chatErr(err error) error {
 		if errors.Is(err, r.err) {
 			return gqlerrors.Clone(r.wire)
 		}
+	}
+	return err
+}
+
+// logsErr is what both log resolvers return an error through: a refusal in the
+// user's words is a validation error carrying them.
+func logsErr(err error) error {
+	var refusal *logs.Refusal
+	if errors.As(err, &refusal) {
+		return gqlerrors.NewValidationError("logs", refusal.Reason)
 	}
 	return err
 }

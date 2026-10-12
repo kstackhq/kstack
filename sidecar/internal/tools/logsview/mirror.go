@@ -15,21 +15,12 @@
 package logsview
 
 import (
-	"context"
 	"encoding/json"
-	"strings"
 
-	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/mirrorsql"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
-
-// query reads one cache's views, as KubeQuery does, inside one reading of the cluster.
-type query struct {
-	data      cluster.CachedData
-	ctx       context.Context
-	clusterID cluster.ClusterID
-	cacheID   cluster.ClusterCacheID
-}
 
 // found is what the mirror holds of a source's object: its containers first and
 // its init containers after them, the default-container annotation's value, and
@@ -41,77 +32,65 @@ type found struct {
 	restarted map[string]bool
 }
 
-// apiOf is each kind's api_version and Kind in the mirror, and where its pod
-// template is, "" for a pod's own spec.
-var apiOf = map[tools.LogsSourceKind]struct{ apiVersion, kind, template string }{
-	tools.LogsSourcePod:         {"v1", "Pod", ""},
-	tools.LogsSourceDeployment:  {"apps/v1", "Deployment", "$.spec.template"},
-	tools.LogsSourceStatefulSet: {"apps/v1", "StatefulSet", "$.spec.template"},
-	tools.LogsSourceDaemonSet:   {"apps/v1", "DaemonSet", "$.spec.template"},
-	tools.LogsSourceReplicaSet:  {"apps/v1", "ReplicaSet", "$.spec.template"},
-	tools.LogsSourceJob:         {"batch/v1", "Job", "$.spec.template"},
-	tools.LogsSourceCronJob:     {"batch/v1", "CronJob", "$.spec.jobTemplate.spec.template"},
-}
-
-// run runs one statement over the cache; a cache gone under the read is errNoCache.
-func (q query) run(sql string) (cluster.ClusterCachedDataQueryResult, error) {
-	res, ok, err := q.data.Query(q.ctx, q.clusterID, q.cacheID, sql, maxRows, maxBytes)
-	if err != nil {
-		return res, err
+// templateOf is where kind's pod template is in its body, "" for a pod's own spec.
+func templateOf(kind tools.LogsSourceKind) string {
+	switch kind {
+	case tools.LogsSourcePod:
+		return ""
+	case tools.LogsSourceCronJob:
+		return "$.spec.jobTemplate.spec.template"
 	}
-	if !ok {
-		return res, errNoCache
-	}
-	return res, nil
+	return "$.spec.template"
 }
 
 // object is the source's object as the mirror holds it, a zero uid for none: a
 // pod's containers off the containers table, with their restarts; a workload's
 // off its pod template.
-func (q query) object(s source) (found, error) {
-	api := apiOf[s.kind]
-	where := " WHERE o.api_version = " + literal(api.apiVersion) + " AND o.kind = " + literal(api.kind) +
-		" AND o.namespace = " + literal(s.namespace) + " AND o.name = " + literal(s.name)
-	if api.template == "" {
-		res, err := q.run(`SELECT o.uid, o.body ->> '$.metadata.annotations."` + defaultContainerAnnotation + `"', c.name, coalesce(c.restarts, 0)
+func object(q mirrorsql.Query, s source) (found, error) {
+	apiVersion, kind := logs.MirrorKind(s.kind)
+	template := templateOf(s.kind)
+	where := " WHERE o.api_version = " + mirrorsql.Literal(apiVersion) + " AND o.kind = " + mirrorsql.Literal(kind) +
+		" AND o.namespace = " + mirrorsql.Literal(s.namespace) + " AND o.name = " + mirrorsql.Literal(s.name)
+	if template == "" {
+		res, err := q.Run(`SELECT o.uid, o.body ->> '$.metadata.annotations."` + defaultContainerAnnotation + `"', c.name, coalesce(c.restarts, 0)
 FROM objects o LEFT JOIN containers c ON c.pod_uid = o.uid` + where + ` ORDER BY c.init, c.position`)
 		if err != nil || len(res.Rows) == 0 {
 			return found{}, err
 		}
-		f := found{uid: text(res.Rows[0][0]), annotated: text(res.Rows[0][1]), restarted: map[string]bool{}}
+		f := found{uid: mirrorsql.Text(res.Rows[0][0]), annotated: mirrorsql.Text(res.Rows[0][1]), restarted: map[string]bool{}}
 		for _, row := range res.Rows {
-			if name := text(row[2]); name != "" {
+			if name := mirrorsql.Text(row[2]); name != "" {
 				f.names = append(f.names, name)
-				f.restarted[name] = integer(row[3]) > 0
+				f.restarted[name] = mirrorsql.Integer(row[3]) > 0
 			}
 		}
 		return f, nil
 	}
-	res, err := q.run(`SELECT o.uid, o.body ->> '` + api.template + `.metadata.annotations."` + defaultContainerAnnotation + `"',
-o.body -> '` + api.template + `.spec.containers', o.body -> '` + api.template + `.spec.initContainers'
+	res, err := q.Run(`SELECT o.uid, o.body ->> '` + template + `.metadata.annotations."` + defaultContainerAnnotation + `"',
+o.body -> '` + template + `.spec.containers', o.body -> '` + template + `.spec.initContainers'
 FROM objects o` + where)
 	if err != nil || len(res.Rows) == 0 {
 		return found{}, err
 	}
-	f := found{uid: text(res.Rows[0][0]), annotated: text(res.Rows[0][1])}
-	f.names = append(containerNames(text(res.Rows[0][2])), containerNames(text(res.Rows[0][3]))...)
+	f := found{uid: mirrorsql.Text(res.Rows[0][0]), annotated: mirrorsql.Text(res.Rows[0][1])}
+	f.names = append(containerNames(mirrorsql.Text(res.Rows[0][2])), containerNames(mirrorsql.Text(res.Rows[0][3]))...)
 	return f, nil
 }
 
 // previousPods counts the pods under the workload uid, and those with a
 // restarted container among shown: every container when shown is empty.
-func (q query) previousPods(uid string, shown []string) (pods, restarted int, err error) {
+func previousPods(q mirrorsql.Query, uid string, shown []string) (pods, restarted int, err error) {
 	among := ""
 	if len(shown) > 0 {
-		among = " AND c.name IN (" + literals(shown) + ")"
+		among = " AND c.name IN (" + mirrorsql.Literals(shown) + ")"
 	}
-	res, err := q.run(`SELECT count(*), coalesce(sum(EXISTS (SELECT 1 FROM containers c WHERE c.pod_uid = p.uid AND c.restarts > 0` + among + `)), 0)
+	res, err := q.Run(`SELECT count(*), coalesce(sum(EXISTS (SELECT 1 FROM containers c WHERE c.pod_uid = p.uid AND c.restarts > 0` + among + `)), 0)
 FROM objects p WHERE p.api_version = 'v1' AND p.kind = 'Pod'
-AND p.uid IN (SELECT uid FROM ancestors WHERE ancestor_uid = ` + literal(uid) + `)`)
+AND p.uid IN (SELECT uid FROM ancestors WHERE ancestor_uid = ` + mirrorsql.Literal(uid) + `)`)
 	if err != nil || len(res.Rows) == 0 {
 		return 0, 0, err
 	}
-	return int(integer(res.Rows[0][0])), int(integer(res.Rows[0][1])), nil
+	return int(mirrorsql.Integer(res.Rows[0][0])), int(mirrorsql.Integer(res.Rows[0][1])), nil
 }
 
 // containerNames is each container's name in a template's list, as JSON.
@@ -127,28 +106,4 @@ func containerNames(list string) []string {
 		}
 	}
 	return names
-}
-
-// literal is s as a SQL string literal.
-func literal(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
-
-// literals is each of list as a SQL string literal, comma-separated.
-func literals(list []string) string {
-	out := make([]string, len(list))
-	for i, s := range list {
-		out[i] = literal(s)
-	}
-	return strings.Join(out, ", ")
-}
-
-// text is a cell as text, "" for any other.
-func text(v any) string {
-	s, _ := v.(string)
-	return s
-}
-
-// integer is a cell as an integer, 0 for any other.
-func integer(v any) int64 {
-	n, _ := v.(int64)
-	return n
 }

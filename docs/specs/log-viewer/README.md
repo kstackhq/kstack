@@ -74,8 +74,8 @@ These are decided across the sequence. A step that needs to change one says so i
 section.
 
 - **The `Client` is the seam.** Four fetches — since, until, after, before, each a cursor and a
-  limit answering records and a next cursor — and one `subscribe(after)`. A cursor is a line's
-  timestamp. The core knows nothing else, and the sidebar and a future inline card share the
+  limit answering records and a next cursor — and one `subscribe(after)`. A cursor names a
+  line and is opaque to the client. The core knows nothing else, and the sidebar and a future inline card share the
   client, not the component.
 - **Lines come through GraphQL.** A `logsFetch` query and a `logsFollow` subscription on the
   sidecar's schema, carrying a `LogsViewInput` built field by field from the `LogsViewAction` the
@@ -163,8 +163,9 @@ Fixed here so the steps agree. Go paths are under `sidecar/internal/`.
   own word (`LogsViewAnchor` on the wire), and the only position the core's props and handle
   speak of.
 - **A cursor**: how the client asks for more — the token the sidecar hands back with a page
-  (`nextCursor`) and the client sends back for the lines before or after it. A line's timestamp
-  today, opaque in principle. It never leaves the client and the core.
+  (`nextCursor`) and the client sends back for the lines before or after it. Opaque: it names a
+  line by its moment, container and place among the container's lines at that moment, and a
+  time alone names a moment. It never leaves the client and the core.
 - **The client**: an object with the five methods of the `Client` type, built from a cluster id
   and a `LogsViewAction`. `src/lib/logs-client.ts`.
 - **The core**: the headless component in `src/lib/log-viewer/`, which keeps the lines, pages,

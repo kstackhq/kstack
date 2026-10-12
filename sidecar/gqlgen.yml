@@ -303,25 +303,62 @@ models:
     model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsViewAction
 
   LogsViewSource:
-    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsViewSource
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.ViewSource
 
   LogsViewSourceKind:
-    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourceKind
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.SourceKind
     enum_values:
       Pod:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourcePod
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.SourcePod
       Deployment:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourceDeployment
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.SourceDeployment
       StatefulSet:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourceStatefulSet
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.SourceStatefulSet
       DaemonSet:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourceDaemonSet
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.SourceDaemonSet
       Job:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourceJob
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.SourceJob
       CronJob:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourceCronJob
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.SourceCronJob
       ReplicaSet:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsSourceReplicaSet
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.SourceReplicaSet
+
+  LogRecord:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.Record
+
+  LogSource:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.RecordSource
+
+  LogRecordsPage:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.Page
+
+  LogsViewInput:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.View
+
+  LogsViewSourceInput:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.ViewSource
+
+  LogsViewFilterInput:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.ViewFilter
+
+  LogsFollowFrame:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.FollowFrame
+
+  LogsFollowFrameType:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.FollowFrameType
+    enum_values:
+      Line:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FollowLine
+      Ended:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FollowEnded
+
+  LogsFetchMode:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.FetchMode
+    enum_values:
+      Head:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FetchHead
+      Tail:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FetchTail
 
   LogsViewAnchor:
     model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsViewAnchor
@@ -337,21 +374,21 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsAnchorAt
 
   LogsViewFilter:
-    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsViewFilter
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.ViewFilter
 
   LogsViewFilterField:
-    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsFilterField
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.FilterField
     enum_values:
       Node:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsFilterNode
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FilterNode
       Region:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsFilterRegion
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FilterRegion
       Zone:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsFilterZone
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FilterZone
       Os:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsFilterOS
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FilterOS
       Arch:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsFilterArch
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FilterArch
 
   Citation:
     model: github.com/kstackhq/kstack/sidecar/internal/llm.Citation

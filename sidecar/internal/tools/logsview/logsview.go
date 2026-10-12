@@ -32,6 +32,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/mirrorsql"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -126,9 +127,9 @@ func refusal(err error) string {
 			out["containers"] = rf.containers
 		}
 		return result(out)
-	case errors.Is(err, errNoCache):
+	case errors.Is(err, mirrorsql.ErrNoCache):
 		return `{"error":"no-cache"}`
-	case errors.Is(err, errSyncing):
+	case errors.Is(err, mirrorsql.ErrSyncing):
 		return `{"error":"syncing"}`
 	}
 	return `{"error":"read-failed"}`

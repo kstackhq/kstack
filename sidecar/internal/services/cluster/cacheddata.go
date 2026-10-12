@@ -23,6 +23,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/rawjson"
@@ -320,6 +321,50 @@ func (a cachedDataAPI) WatchObjects(ctx context.Context, clusterID ClusterID, ca
 		},
 		frame: func(ctx context.Context, s *kubestore.Store, t DeltaFrameType, r kubestore.ObjectRow) ClusterCachedDataObjectWatchFrame {
 			obj := hydrateObject(ctx, s, t, r)
+			return ClusterCachedDataObjectWatchFrame{
+				Type: t, Object: &obj, CacheID: cacheID, APIVersion: apiVersion, Resource: resource,
+			}
+		},
+		bookmark: bookmark,
+	}), nil
+}
+
+func (a cachedDataAPI) WatchObjectsIn(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, apiVersion, resource string, namespaces []string) (*Stream[ClusterCachedDataObjectWatchFrame], error) {
+	bookmark := ClusterCachedDataObjectWatchFrame{
+		Type: DeltaFrameBookmark, CacheID: cacheID, APIVersion: apiVersion, Resource: resource,
+	}
+	live, err := a.gate(ctx, clusterID, cacheID)
+	if err != nil {
+		return nil, err
+	}
+	if !live {
+		return emptyStream(ctx, bookmark), nil
+	}
+	// A row outside the namespaces is never held, so its delete sends nothing either.
+	in := func(rows []kubestore.ObjectRow) []kubestore.ObjectRow {
+		return slices.DeleteFunc(rows, func(r kubestore.ObjectRow) bool { return !slices.Contains(namespaces, r.Namespace) })
+	}
+	return runCachedDataWatch(ctx, cachedDataWatchSpec[kubestore.ObjectRow, ClusterCachedDataObjectWatchFrame]{
+		stores:   a.s.kubestoreMgr,
+		cacheID:  int64(cacheID),
+		busKeys:  []string{kubestore.ObjectsKey(apiVersion, resource)},
+		debounce: dataObjectsDebounce,
+		retry:    dataRetryInterval,
+		key:      func(r kubestore.ObjectRow) string { return r.UID },
+		read: func(ctx context.Context, s *kubestore.Store) ([]kubestore.ObjectRow, kubestore.Cursor, error) {
+			rows, at, err := s.ObjectsWithCursor(ctx, apiVersion, resource)
+			return in(rows), at, err
+		},
+		changes: func(ctx context.Context, s *kubestore.Store, since int64) (kubestore.Changes[kubestore.ObjectRow], error) {
+			c, err := s.ObjectChanges(ctx, apiVersion, resource, since)
+			c.Written = in(c.Written)
+			return c, err
+		},
+		frame: func(_ context.Context, _ *kubestore.Store, t DeltaFrameType, r kubestore.ObjectRow) ClusterCachedDataObjectWatchFrame {
+			obj := ClusterCachedDataObject{
+				UID: r.UID, APIVersion: r.APIVersion, Kind: r.Kind, Namespace: r.Namespace, Name: r.Name,
+				CreationTimestamp: millisToTime(r.CreatedAt),
+			}
 			return ClusterCachedDataObjectWatchFrame{
 				Type: t, Object: &obj, CacheID: cacheID, APIVersion: apiVersion, Resource: resource,
 			}

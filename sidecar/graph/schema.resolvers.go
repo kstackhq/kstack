@@ -21,6 +21,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -546,6 +547,15 @@ func (r *queryResolver) ChatGrants(ctx context.Context, chatID apimeta.ChatID) (
 	return rulePointers(rules), nil
 }
 
+// LogsFetch is the resolver for the logsFetch field.
+func (r *queryResolver) LogsFetch(ctx context.Context, id apimeta.ClusterID, view logs.View, mode logs.FetchMode, since *string, until *string, after *string, before *string, limit int) (*logs.Page, error) {
+	page, err := r.Logs.Fetch(ctx, id, view, logs.FetchQuery{Mode: mode, Since: since, Until: until, After: after, Before: before, Limit: limit})
+	if err != nil {
+		return nil, logsErr(err)
+	}
+	return &page, nil
+}
+
 // AuthState is the resolver for the authState field. auth.State binds directly to the
 // GraphQL type, so only schema fields are exposed — State.Tokens never reaches the wire.
 func (r *queryResolver) AuthState(ctx context.Context) (*auth.State, error) {
@@ -706,6 +716,15 @@ func (r *subscriptionResolver) MemoriesWatch(ctx context.Context, clusterID apim
 	st, err := r.MemorySvc.Watch(ctx, clusterID)
 	if err != nil {
 		return nil, memoryErr(err)
+	}
+	return watchStream(ctx, st.Frames, st.Err), nil
+}
+
+// LogsFollow is the resolver for the logsFollow field.
+func (r *subscriptionResolver) LogsFollow(ctx context.Context, id apimeta.ClusterID, view logs.View, after *string) (<-chan *logs.FollowFrame, error) {
+	st, err := r.Logs.Follow(ctx, id, view, after)
+	if err != nil {
+		return nil, logsErr(err)
 	}
 	return watchStream(ctx, st.Frames, st.Err), nil
 }
