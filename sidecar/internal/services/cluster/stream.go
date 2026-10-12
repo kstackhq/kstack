@@ -39,6 +39,9 @@ import (
 type Stream[T any] struct {
 	Frames <-chan T
 	err    atomic.Pointer[error]
+	// done closes once a NewStream pump has returned, which a test can wait on without
+	// reading Frames: a read would free a send parked on the buffer.
+	done chan struct{}
 }
 
 // Err returns why the stream ended, or nil if it ended cleanly. Read it once
@@ -196,9 +199,10 @@ func (w deltaWatch[Spec, Status, Frame]) pumpAfterSnapshot(
 // this package — a fake in the resolver tests — has to be able to build one.
 func NewStream[T any](ctx context.Context, pump func(ctx context.Context, out chan<- T) error) *Stream[T] {
 	ch := make(chan T, 1)
-	s := &Stream[T]{Frames: ch}
+	s := &Stream[T]{Frames: ch, done: make(chan struct{})}
 	go func() {
 		defer close(ch)
+		defer close(s.done)
 		// Filing a cancellation would put an error in front of a user who has already
 		// navigated away — it reaches the webview as a watch failure, and suppresses the
 		// transport's backoff reset on the reconnect.
