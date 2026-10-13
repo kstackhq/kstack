@@ -292,9 +292,10 @@ func TestAWorkloadOpensWhateverItsPodsAre(t *testing.T) {
 	assert.NotContains(t, text, "Nothing to read")
 }
 
-// A view the logs service refuses is refused by code: one past the cap, and a
-// source whose kind the cache does not mirror, or a cache mirroring no pods,
-// since nothing could ever appear to follow.
+// A view the logs service refuses is refused by code: one past the cap, a source
+// whose kind the cache does not mirror, or a cache mirroring no pods, since
+// nothing could ever appear to follow, and a label filter over a mirror with no
+// nodes.
 func TestAViewTheServiceRefusesIsRefused(t *testing.T) {
 	many := webappObjects()[:2:2]
 	for i := range 101 {
@@ -307,6 +308,8 @@ func TestAViewTheServiceRefusesIsRefused(t *testing.T) {
 	s := clustertest.NewStore(t)
 	s.Apply(t, webappObjects()[0])
 	assert.JSONEq(t, `{"error":"not-mirrored"}`, refusalOf(t, over(t, s), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}]}`))
+
+	assert.JSONEq(t, `{"error":"no-nodes"}`, refusalOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"filters":{"zone":["eu-west-1a"]}}`))
 }
 
 func TestAGrepThatDoesNotCompileIsRefused(t *testing.T) {
@@ -353,14 +356,18 @@ func TestPinToEndAbsentIsFalse(t *testing.T) {
 // The receipt with everything set: every source and its note, the anchor, the
 // pin, and the grep.
 func TestTheReceiptSpellsTheWholeView(t *testing.T) {
-	text, view := viewOf(t, watching(t), `{"description":"Why it crashed","sources":[
+	node := map[string]any{"apiVersion": "v1", "kind": "Node", "metadata": map[string]any{"uid": "node-1", "name": "ip-10-0-1-5", "resourceVersion": "1",
+		"labels": map[string]any{"topology.kubernetes.io/zone": "eu-west-1a"}}}
+	text, view := viewOf(t, mirrorOf(t, append(webappObjects(), node)...), `{"description":"Why it crashed","sources":[
 		{"namespace":"prod","resource":"deployments/webapp","previous":true},
 		{"namespace":"prod","resource":"pods/webapp-7f9c","containers":["app","istio-proxy"]}],
 		"filters":{"zone":["eu-west-1a"],"node":["ip-10-0-1-5"]},"grep":"error|panic","anchor":"head","pin_to_end":true}`)
 
 	assert.Equal(t, "Viewing deployments/webapp in prod and 1 more source from the start, pinned to the end. "+
 		"deployments/webapp: defaulted container app out of app, istio-proxy, setup. deployments/webapp: previous instance of 2 of 3 pods. "+
-		"pods/webapp-7f9c: containers app, istio-proxy. Matching /error|panic/.", text)
+		"deployments/webapp: nothing to read yet; the view picks up its containers as they restart. "+
+		"pods/webapp-7f9c: containers app, istio-proxy. pods/webapp-7f9c: nothing to read yet; the view picks up its containers as they start. "+
+		"Matching /error|panic/.", text, "no pod runs on the node the filters keep")
 	assert.Equal(t, []tools.LogsViewFilter{{Field: tools.LogsFilterNode, Values: []string{"ip-10-0-1-5"}}, {Field: tools.LogsFilterZone, Values: []string{"eu-west-1a"}}},
 		view.Filters, "in the action's order, whatever the call's")
 	assert.Equal(t, "error|panic", view.Grep)

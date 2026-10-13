@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
@@ -48,7 +49,7 @@ var (
 	// may still exist.
 	ErrSyncing = Refusal{"this cluster's cache is still syncing"}
 	// ErrTooMany is a view of more than maxStreams containers.
-	ErrTooMany = Refusal{fmt.Sprintf("this view reads more than %d containers, the most Kstack reads at once; narrow it to fewer sources, containers or pods", maxStreams)}
+	ErrTooMany = Refusal{fmt.Sprintf("this view reads more than %d containers, the most Kstack reads at once; filter it by node, or narrow it to fewer sources, containers or pods", maxStreams)}
 	// errCut is a mirror answer cut at its bounds. Asking again does not shrink it.
 	errCut = Refusal{"the cluster's cache answered more than Kstack reads at once"}
 )
@@ -70,10 +71,13 @@ const (
 	// Missing is a source whose object the mirror does not hold yet.
 	Missing
 	// Idle is a source whose object the mirror holds with nothing to read yet: no
-	// pods, none with a log of a container named, or none of those with a previous
-	// instance.
+	// pods, none with a log of a container named, none of those with a previous
+	// instance, or none on a node the filters keep.
 	Idle
 )
+
+// NoNodes is a filter on a node label over a mirror with no nodes.
+type NoNodes struct{ Refusal }
 
 // The well-known labels a node's place is read from.
 const (
@@ -141,7 +145,8 @@ func Check(q cluster.CacheReading, view View) ([]SourceState, error) {
 type reading struct{ cluster.CacheReading }
 
 // rows is sql's rows with args bound to its placeholders, refusing an answer cut
-// at its bounds: read as every row, it would drop sources without a word.
+// at its bounds: read as every row, it would drop sources, or nodes a filter
+// needs, without a word.
 func (r reading) rows(sql string, args ...any) ([][]any, error) {
 	res, err := r.Query(sql, args...)
 	if err != nil {
@@ -154,8 +159,11 @@ func (r reading) rows(sql string, args ...any) ([][]any, error) {
 }
 
 // streamsOf is every stream of view's sources, each once, in the order asked,
-// and each source's state.
+// with the filters applied, and each source's state.
 func (r reading) streamsOf(view View) ([]stream, []SourceState, error) {
+	if err := checkFilters(view.Filters); err != nil {
+		return nil, nil, err
+	}
 	mirrored, err := r.mirrors(mirrorKinds[SourcePod])
 	if err != nil {
 		return nil, nil, err
@@ -167,7 +175,7 @@ func (r reading) streamsOf(view View) ([]stream, []SourceState, error) {
 	var states []SourceState
 	seen := map[StreamKey]bool{}
 	for i, src := range view.Sources {
-		found, state, err := r.streams(i, src)
+		found, state, err := r.streams(i, src, view.Filters)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -182,7 +190,45 @@ func (r reading) streamsOf(view View) ([]stream, []SourceState, error) {
 			return nil, nil, ErrTooMany
 		}
 	}
+	if len(streams) == 0 {
+		if err := r.nodesListed(view.Filters); err != nil {
+			return nil, nil, err
+		}
+	}
 	return streams, states, nil
+}
+
+// checkFilters refuses a filter on a field Kstack has no label for.
+func checkFilters(filters []ViewFilter) error {
+	for _, f := range filters {
+		if _, ok := filterLabels[f.Field]; !ok && f.Field != FilterNode {
+			return Refusal{fmt.Sprintf("Kstack cannot filter by %q", f.Field)}
+		}
+	}
+	return nil
+}
+
+// nodesListed refuses a filter on a label over a mirror with no nodes: the
+// credentials could not list them, and an empty answer would read as no lines.
+// Only an empty target asks, since every label filter leaves out every pod then.
+func (r reading) nodesListed(filters []ViewFilter) error {
+	var byLabel []string
+	for _, f := range filters {
+		if f.Field != FilterNode {
+			byLabel = append(byLabel, string(f.Field))
+		}
+	}
+	if len(byLabel) == 0 {
+		return nil
+	}
+	rows, err := r.rows(`SELECT n.name FROM objects n WHERE n.api_version = 'v1' AND n.kind = 'Node' LIMIT 1`)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 {
+		return NoNodes{Refusal{"Kstack cannot read this cluster's nodes, so it cannot filter by " + strings.Join(byLabel, " or ")}}
+	}
+	return nil
 }
 
 // mirrors is whether the cache mirrors kind: the kinds view lists what its sync
@@ -192,11 +238,11 @@ func (r reading) mirrors(kind mirrorKind) (bool, error) {
 	return len(rows) > 0, err
 }
 
-// streams is one stream per container of each of src's pods, the source at
-// index i, and src's state. A kind the cache does not mirror is refused, since no
-// object of it could ever appear to follow. The statement reads at most one row
-// past maxStreams, which is enough to refuse the view.
-func (r reading) streams(i int, src ViewSource) ([]stream, SourceState, error) {
+// streams is one stream per container of each of src's pods that the filters
+// keep, the source at index i, and src's state. A kind the cache does not mirror
+// is refused, since no object of it could ever appear to follow. The statement
+// reads at most one row past maxStreams, which is enough to refuse the view.
+func (r reading) streams(i int, src ViewSource, filters []ViewFilter) ([]stream, SourceState, error) {
 	kind, err := kindOf(src)
 	if err != nil {
 		return nil, 0, err
@@ -208,7 +254,7 @@ func (r reading) streams(i int, src ViewSource) ([]stream, SourceState, error) {
 	if !mirrored {
 		return nil, 0, Unmirrored{Refusal: Refusal{fmt.Sprintf("Kstack's cache of this cluster holds no %s, so it cannot follow %s/%s in %s", kind.resource, kind.resource, src.Name, src.Namespace)}, Source: i}
 	}
-	sql, args := podsStatement(src, kind)
+	sql, args := podsStatement(src, kind, filters)
 	rows, err := r.rows(sql, args...)
 	if err != nil {
 		return nil, 0, err
@@ -279,12 +325,12 @@ FROM objects n WHERE n.api_version = 'v1' AND n.kind = 'Node' AND n.name IN (`+c
 
 // podsStatement is the statement of src's pods' containers, each row the pod's
 // name, the container's name and the pod's node, init containers first, as they
-// run and as kubectl lists them. The containers src names, and having a log the
+// run and as kubectl lists them. The containers src names, having a log the
 // kubelet serves — a previous instance when src asks for one, else a running or
 // finished instance, the last one standing in while the container waits, as
-// kubectl logs reads it — narrow it, so the row cap counts only what the view
-// reads.
-func podsStatement(src ViewSource, kind mirrorKind) (string, []any) {
+// kubectl logs reads it — and the filters narrow it, so the row cap counts only
+// what the view reads, and nothing else applies them.
+func podsStatement(src ViewSource, kind mirrorKind, filters []ViewFilter) (string, []any) {
 	pods, args := podsOf(src, kind)
 	containers, containerArgs := containersOf(src)
 	where := pods + containers
@@ -293,6 +339,11 @@ func podsStatement(src ViewSource, kind mirrorKind) (string, []any) {
 		where += " AND c.last_container_id <> ''"
 	} else {
 		where += " AND (c.container_id <> '' OR c.last_container_id <> '')"
+	}
+	for _, f := range filters {
+		cond, condArgs := filterWhere(f)
+		where += " AND " + cond
+		args = append(args, condArgs...)
 	}
 	return `SELECT p.name, c.name, p.node FROM objects p JOIN containers c ON c.pod_uid = p.uid
 WHERE p.api_version = 'v1' AND p.kind = 'Pod' AND ` + where + fmt.Sprintf(` ORDER BY p.name, c.init DESC, c.position LIMIT %d`, maxStreams+1), args
@@ -361,6 +412,27 @@ FROM objects p WHERE p.api_version = 'v1' AND p.kind = 'Pod' AND `+pods, slices.
 		return PodCount{}, err
 	}
 	return PodCount{Pods: int(cluster.CellInteger(rows[0][0])), Previous: int(cluster.CellInteger(rows[0][1]))}, nil
+}
+
+// filterLabels is the node label each filter field other than the node reads.
+var filterLabels = map[FilterField]string{
+	FilterRegion: labelRegion,
+	FilterZone:   labelZone,
+	FilterOS:     labelOS,
+	FilterArch:   labelArch,
+}
+
+// filterWhere is f as a condition on the pod p, with the args it binds: its node
+// among f's values, or a node the mirror holds whose label f reads holds one of
+// them, which leaves out a pod whose node the mirror lacks.
+func filterWhere(f ViewFilter) (string, []any) {
+	in := cluster.Placeholders(len(f.Values))
+	if f.Field == FilterNode {
+		return "p.node IN (" + in + ")", asArgs(f.Values)
+	}
+	return `p.node IN (SELECT n.name FROM objects n JOIN labels l ON l.uid = n.uid
+WHERE n.api_version = 'v1' AND n.kind = 'Node' AND l.key = ? AND l.value IN (` + in + "))",
+		append([]any{filterLabels[f.Field]}, asArgs(f.Values)...)
 }
 
 // asArgs is list as a statement's args.

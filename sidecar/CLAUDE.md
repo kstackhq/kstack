@@ -2071,13 +2071,13 @@ workload's off its pod template in `body`, the default the receipt names the ann
 the source has it, else the first. **A source the mirror does not hold yet opens**, checking
 nothing: a view waits for a workload or a fixed-name pod to start. Then the whole view goes through
 `logs.Check`, the logs service's own resolve over the same reading, so a view the tool opens is one
-the service reads; each source's `SourceState` becomes a receipt line, and `ErrTooMany` and
-`Unmirrored` the tool's codes. For `previous` on a workload, `logs.CountPods` counts the receipt's
+the service reads; each source's `SourceState` becomes a receipt line, and `ErrTooMany`,
+`Unmirrored` and `NoNodes` the tool's codes. For `previous` on a workload, `logs.CountPods` counts the receipt's
 `previous instance of N of M pods`. `mirror_test.go` and the tests in `logsview_test.go` run every
 read over a real store (`cluster/clustertest`). A refusal is one JSON line: `bad-input` with the
 `field` and, inside a source, its `source` index, never the model's text; `no-container` (with the
 `containers` it has) by `source`; `too-many`; `not-mirrored`, by `source` unless the cache holds
-no pods; `no-cache`; `syncing`; `read-failed` with none of its text. **The receipt** is the first source,
+no pods; `no-nodes`; `no-cache`; `syncing`; `read-failed` with none of its text. **The receipt** is the first source,
 how many more, the anchor (`from the start`, `at the newest line`, `from <time>`) and `pinned to
 the end`, then each source's note — `defaulted container app out of app, istio-proxy`,
 `containers …` for the ones named or all, `every container`, `default container`, `previous instance`, `previous
@@ -2105,12 +2105,14 @@ which is what two sources reading one container agree on. Its `Place` (`record.g
 pod runs: the node, then the region, zone, OS and architecture read off that `Node` object's
 labels. `Refusal` is a value, so no caller can change a sentinel's words.
 
-The containers narrow the pods statement. **A view follows each source as its object and pods
-come and go**, so no source is refused for reading nothing now. Each carries a `SourceState`
-instead: `Reading`, `Missing` (its object is not in the cache yet) or `Idle` (its object is there
-with nothing to read yet). A view is refused as `Unmirrored` when the cache does not mirror pods or
-a source's kind (the `kinds` view), since nothing could ever appear to follow, and a kind outside
-the enum is refused. `Check` runs the same resolve for the LogsView tool. `clustertest`'s `Apply`
+The containers and the filters narrow the pods statement, the one place they are applied. **A
+view follows each source as its object and pods come and go**, so no source is refused for reading
+nothing now. Each carries a `SourceState` instead: `Reading`, `Missing` (its object is not in the
+cache yet) or `Idle` (its object is there with nothing to read yet, the filters' doing included).
+A view is refused as `Unmirrored` when the cache does not mirror pods or a source's kind (the
+`kinds` view), since nothing could ever appear to follow. A label filter that leaves the whole
+view empty over a mirror with no nodes is refused as `NoNodes`, naming each label. A kind or
+filter field outside the enums is refused too. `Check` runs the same resolve for the LogsView tool. `clustertest`'s `Apply`
 mirrors the kind it applies, cluster-scoped when the body names no namespace, and stamps the body
 with a fresh `resourceVersion`, so applying a body again is a change the store keeps, and `Mirror`
 mirrors a namespaced kind with no object.

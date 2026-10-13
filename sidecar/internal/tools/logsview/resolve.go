@@ -48,6 +48,7 @@ const (
 	codeNoContainer = "no-container"
 	codeTooMany     = "too-many"
 	codeNotMirrored = "not-mirrored"
+	codeNoNodes     = "no-nodes"
 )
 
 // note is what the receipt says of one source beyond its name: what the mirror
@@ -126,6 +127,8 @@ func refusedBy(err error) error {
 		return &refused{code: codeNotMirrored, source: unmirrored.Source}
 	case errors.Is(err, logs.ErrTooMany):
 		return &refused{code: codeTooMany, source: -1}
+	case errors.As(err, new(logs.NoNodes)):
+		return &refused{code: codeNoNodes, source: -1}
 	}
 	return err
 }

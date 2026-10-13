@@ -138,6 +138,66 @@ func TestCountPodsCountsTheViewsPods(t *testing.T) {
 	assert.Equal(t, PodCount{Pods: 2}, count(ViewSource{Namespace: "prod", Kind: SourceDeployment, Name: "web", Containers: []string{"db"}}))
 }
 
+// A filter on a node's label leaves a pod out before any stream opens.
+func TestALabelFilterLeavesAPodOut(t *testing.T) {
+	for _, f := range []ViewFilter{
+		{Field: FilterZone, Values: []string{"eu-1b"}},
+		{Field: FilterArch, Values: []string{"arm64"}},
+		{Field: FilterRegion, Values: []string{"eu"}},
+		{Field: FilterOS, Values: []string{"linux"}},
+	} {
+		got, err := resolveOf(t, webMirror(t), View{Sources: webView.Sources, Filters: []ViewFilter{f}})
+
+		require.NoError(t, err, f.Field)
+		switch f.Field {
+		case FilterZone, FilterArch:
+			require.Len(t, keysOf(got), 1, f.Field)
+			assert.Equal(t, "web-2", keysOf(got)[0].Pod)
+		default:
+			assert.Len(t, keysOf(got), 2, f.Field)
+		}
+	}
+}
+
+// A Node filter reads the pod's node and needs no Node object.
+func TestANodeFilterNeedsNoNodeObject(t *testing.T) {
+	got, err := resolveOf(t, newMirror(t, webObjects()...), View{
+		Sources: webView.Sources,
+		Filters: []ViewFilter{{Field: FilterNode, Values: []string{"node-a"}}},
+	})
+
+	require.NoError(t, err)
+	require.Len(t, keysOf(got), 1)
+	assert.Equal(t, "web-1", keysOf(got)[0].Pod)
+}
+
+// A label filter on a mirror with no nodes is refused, naming every label.
+func TestALabelFilterWithNoNodesIsRefused(t *testing.T) {
+	_, err := resolveOf(t, newMirror(t, webObjects()...), View{
+		Sources: webView.Sources,
+		Filters: []ViewFilter{{Field: FilterZone, Values: []string{"eu-1a"}}, {Field: FilterArch, Values: []string{"arm64"}}},
+	})
+
+	assert.EqualError(t, err, "Kstack cannot read this cluster's nodes, so it cannot filter by zone or arch")
+}
+
+// A pod whose node the mirror does not hold, while it holds others, is left out
+// by a label filter, and the view reads no node.
+func TestAPodOnAnUnknownNodeIsLeftOut(t *testing.T) {
+	f := webMirror(t)
+	got, err := resolveOf(t, f, View{
+		Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "job-1"}},
+		Filters: []ViewFilter{{Field: FilterOS, Values: []string{"linux"}}},
+	})
+
+	require.NoError(t, err)
+	assert.Empty(t, keysOf(got))
+	assert.Equal(t, []SourceState{Idle}, got.states)
+	for _, s := range f.statements {
+		assert.NotContains(t, s, "n.name IN")
+	}
+}
+
 // A previous instance is read only of a container that restarted.
 func TestAPreviousInstanceIsReadOnlyWhereItRestarted(t *testing.T) {
 	f := webMirror(t)
@@ -233,6 +293,12 @@ func TestAnUnknownKindIsRefused(t *testing.T) {
 	assert.EqualError(t, err, `Kstack cannot read the logs of a "cronjobs"`)
 }
 
+// A filter field Kstack does not know is refused, never read as matching nothing.
+func TestAnUnknownFilterFieldIsRefused(t *testing.T) {
+	_, err := resolveOf(t, webMirror(t), View{Sources: webView.Sources, Filters: []ViewFilter{{Field: "rack", Values: []string{"a"}}}})
+	assert.EqualError(t, err, `Kstack cannot filter by "rack"`)
+}
+
 // A cluster with no cache, or a cache still syncing, is refused as the tool
 // refuses it, and so is a cluster gone or moved under the read, or a cache gone
 // under one of its statements.
@@ -288,13 +354,36 @@ func TestACutAnswerIsRefused(t *testing.T) {
 	}
 }
 
+// A view's containers and filters narrow the pods statement itself, so the row cap
+// counts only what the view reads, and the nodes statement reads only the nodes
+// its streams run on.
+func TestTheFiltersNarrowTheStatement(t *testing.T) {
+	f := webMirror(t)
+	got, err := resolveOf(t, f, View{
+		Sources: webView.Sources,
+		Filters: []ViewFilter{
+			{Field: FilterNode, Values: []string{"node-a"}},
+			{Field: FilterZone, Values: []string{"eu-1a", "eu-1b"}},
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, keysOf(got), 1)
+
+	n := len(f.statements)
+	pods := f.statements[n-2]
+	assert.Contains(t, pods, "c.name IN ('app')")
+	assert.Contains(t, pods, "p.node IN ('node-a')")
+	assert.Contains(t, pods, "l.key = 'topology.kubernetes.io/zone' AND l.value IN ('eu-1a', 'eu-1b')")
+	assert.Contains(t, f.statements[n-1], "n.name IN ('node-a')")
+}
+
 // A view of more containers than Kstack reads at once is refused, reading no more
 // than one past the limit and no node; one at the limit is not.
 func TestAViewOfTooManyContainersIsRefused(t *testing.T) {
 	f := webMirror(t)
 	addPods(t, f, maxStreams-1)
 	_, err := resolveOf(t, f, webView)
-	require.EqualError(t, err, "this view reads more than 100 containers, the most Kstack reads at once; narrow it to fewer sources, containers or pods")
+	require.EqualError(t, err, "this view reads more than 100 containers, the most Kstack reads at once; filter it by node, or narrow it to fewer sources, containers or pods")
 	pods := f.statements[len(f.statements)-1]
 	assert.True(t, strings.HasSuffix(pods, "LIMIT 101"), pods)
 
