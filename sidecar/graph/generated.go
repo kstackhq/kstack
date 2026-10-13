@@ -450,11 +450,12 @@ type ComplexityRoot struct {
 	}
 
 	LogsViewSource struct {
-		Containers func(childComplexity int) int
-		Kind       func(childComplexity int) int
-		Name       func(childComplexity int) int
-		Namespace  func(childComplexity int) int
-		Previous   func(childComplexity int) int
+		AllContainers func(childComplexity int) int
+		Containers    func(childComplexity int) int
+		Kind          func(childComplexity int) int
+		Name          func(childComplexity int) int
+		Namespace     func(childComplexity int) int
+		Previous      func(childComplexity int) int
 	}
 
 	Memory struct {
@@ -2361,6 +2362,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.LogsViewFilter.Values(childComplexity), true
 
+	case "LogsViewSource.allContainers":
+		if e.ComplexityRoot.LogsViewSource.AllContainers == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsViewSource.AllContainers(childComplexity), true
 	case "LogsViewSource.containers":
 		if e.ComplexityRoot.LogsViewSource.Containers == nil {
 			break
@@ -4783,6 +4790,8 @@ func (ec *executionContext) childFields_LogsViewSource(ctx context.Context, fiel
 		return ec.fieldContext_LogsViewSource_name(ctx, field)
 	case "containers":
 		return ec.fieldContext_LogsViewSource_containers(ctx, field)
+	case "allContainers":
+		return ec.fieldContext_LogsViewSource_allContainers(ctx, field)
 	case "previous":
 		return ec.fieldContext_LogsViewSource_previous(ctx, field)
 	}
@@ -12414,6 +12423,29 @@ func (ec *executionContext) _LogsViewSource_containers(ctx context.Context, fiel
 }
 func (ec *executionContext) fieldContext_LogsViewSource_containers(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("LogsViewSource", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _LogsViewSource_allContainers(ctx context.Context, field graphql.CollectedField, obj *logs.ViewSource) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsViewSource_allContainers(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.AllContainers, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v bool) graphql.Marshaler {
+			return ec.marshalNBoolean2bool(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsViewSource_allContainers(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LogsViewSource", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
 func (ec *executionContext) _LogsViewSource_previous(ctx context.Context, field graphql.CollectedField, obj *logs.ViewSource) (ret graphql.Marshaler) {
@@ -23024,6 +23056,11 @@ func (ec *executionContext) _LogsViewSource(ctx context.Context, sel ast.Selecti
 			}
 		case "containers":
 			out.Values[i] = ec._LogsViewSource_containers(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "allContainers":
+			out.Values[i] = ec._LogsViewSource_allContainers(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

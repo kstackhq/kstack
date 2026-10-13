@@ -32,6 +32,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -121,7 +122,10 @@ func refusal(err error) string {
 		}
 		return result(out)
 	case errors.As(err, &rf):
-		out := map[string]any{"error": rf.code, "source": rf.source}
+		out := map[string]any{"error": rf.code}
+		if rf.source >= 0 {
+			out["source"] = rf.source
+		}
 		if rf.containers != nil {
 			out["containers"] = rf.containers
 		}
@@ -200,25 +204,38 @@ func anchorText(a tools.LogsViewAnchor) string {
 
 // noteLines is what the receipt says of one source beyond its name: the
 // container defaulted among several and the others, the containers named or
-// every one, and the previous instance, of how many of a workload's pods.
+// every one, the default container of an object it cannot see yet, the previous instance, of how many of a workload's pods, and
+// whether its object is missing or has nothing to read yet.
 func noteLines(typed source, src tools.LogsViewSource, n note) []string {
 	var lines []string
 	switch {
-	case n.defaulted:
-		lines = append(lines, "defaulted container "+src.Containers[0]+" out of "+strings.Join(n.containers, ", "))
-	case typed.allContainers:
+	case n.defaulted != "":
+		lines = append(lines, "defaulted container "+n.defaulted+" out of "+strings.Join(n.containers, ", "))
+	case src.AllContainers && len(n.containers) > 0:
 		lines = append(lines, "containers "+strings.Join(n.containers, ", "))
+	case src.AllContainers:
+		lines = append(lines, "every container")
 	case len(src.Containers) > 1:
 		lines = append(lines, "containers "+strings.Join(src.Containers, ", "))
-	case len(typed.containers) == 1:
+	case len(src.Containers) == 1:
 		lines = append(lines, "container "+src.Containers[0])
+	case len(n.containers) == 0:
+		lines = append(lines, "default container")
 	}
 	switch {
 	case !src.Previous:
-	case typed.kind == tools.LogsSourcePod:
+	case typed.kind == tools.LogsSourcePod, n.state == logs.Missing:
 		lines = append(lines, "previous instance")
 	default:
 		lines = append(lines, fmt.Sprintf("previous instance of %d of %d pods", n.restarted, n.pods))
+	}
+	switch {
+	case n.state == logs.Missing:
+		lines = append(lines, "not in Kstack's cache of the cluster yet; the view picks it up when it appears")
+	case n.state == logs.Idle && src.Previous:
+		lines = append(lines, "nothing to read yet; the view picks up its containers as they restart")
+	case n.state == logs.Idle:
+		lines = append(lines, "nothing to read yet; the view picks up its containers as they start")
 	}
 	return lines
 }

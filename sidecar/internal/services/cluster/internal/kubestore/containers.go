@@ -20,23 +20,25 @@ import "k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 // status joined by name. The JSON names are the columns, since the rows bind as one JSON
 // argument; a nil is a field the body did not say.
 type containerRow struct {
-	Init          int      `json:"init"`
-	Position      int      `json:"position"`
-	Name          string   `json:"name"`
-	Sidecar       int      `json:"sidecar"`
-	Image         *string  `json:"image"`
-	ImageID       *string  `json:"image_id"`
-	Ready         *int     `json:"ready"`
-	Restarts      *int64   `json:"restarts"`
-	State         *string  `json:"state"`
-	Reason        *string  `json:"reason"`
-	ExitCode      *int64   `json:"exit_code"`
-	LastReason    *string  `json:"last_reason"`
-	LastExitCode  *int64   `json:"last_exit_code"`
-	CPURequest    *float64 `json:"cpu_request"`
-	CPULimit      *float64 `json:"cpu_limit"`
-	MemoryRequest *float64 `json:"memory_request"`
-	MemoryLimit   *float64 `json:"memory_limit"`
+	Init            int      `json:"init"`
+	Position        int      `json:"position"`
+	Name            string   `json:"name"`
+	Sidecar         int      `json:"sidecar"`
+	Image           *string  `json:"image"`
+	ImageID         *string  `json:"image_id"`
+	ContainerID     *string  `json:"container_id"`
+	Ready           *int     `json:"ready"`
+	Restarts        *int64   `json:"restarts"`
+	State           *string  `json:"state"`
+	Reason          *string  `json:"reason"`
+	ExitCode        *int64   `json:"exit_code"`
+	LastReason      *string  `json:"last_reason"`
+	LastExitCode    *int64   `json:"last_exit_code"`
+	LastContainerID *string  `json:"last_container_id"`
+	CPURequest      *float64 `json:"cpu_request"`
+	CPULimit        *float64 `json:"cpu_limit"`
+	MemoryRequest   *float64 `json:"memory_request"`
+	MemoryLimit     *float64 `json:"memory_limit"`
 }
 
 // containersOf reads a core Pod's containers, init containers first, each in spec order.
@@ -117,8 +119,26 @@ func readStatus(row *containerRow, st map[string]any) {
 		row.Reason = nestedStringPtr(st, "state", "terminated", "reason")
 	}
 	row.ExitCode = nestedInt64Ptr(st, "state", "terminated", "exitCode")
+	row.ContainerID = stateContainerID(st, row.State)
 	row.LastReason = nestedStringPtr(st, "lastState", "terminated", "reason")
 	row.LastExitCode = nestedInt64Ptr(st, "lastState", "terminated", "exitCode")
+	row.LastContainerID = nestedStringPtr(st, "lastState", "terminated", "containerID")
+}
+
+// stateContainerID is the runtime id of the instance st's state describes: the
+// status's own while it runs, the terminated state's once it ends, and none while it
+// waits, whatever the status's own still names. The kubelet serves a log by the same
+// rule, so the id is the log's.
+func stateContainerID(st map[string]any, state *string) *string {
+	switch {
+	case state == nil:
+		return nil
+	case *state == "running":
+		return nestedStringPtr(st, "containerID")
+	case *state == "terminated":
+		return nestedStringPtr(st, "state", "terminated", "containerID")
+	}
+	return nil
 }
 
 // nestedInt64Ptr is the integer at fields, or nil where there is none.

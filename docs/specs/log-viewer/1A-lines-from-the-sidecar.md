@@ -84,6 +84,7 @@ input LogsViewSourceInput {
   kind: LogsViewSourceKind!
   name: String!
   containers: [String!]!
+  allContainers: Boolean!
   previous: Boolean!
 }
 
@@ -160,7 +161,8 @@ nothing in `kubeconn` changes.
 
 **Resolving sources.** A `Pod` source is one pod. A workload source is the pods under it in the
 mirror's `ancestors` table, read as `tools/logsview`'s `mirror.go` reads them. Each pod gives one
-stream per container the source names, or per container the pod has when the list is empty. The
+stream per container the source names; with none named, per container the pod has when
+`allContainers` is set, else for the pod's own default container, as `kubectl logs` picks it. The
 `previous` flag goes through to `PodLogOptions.Previous`.
 
 **Filters.** A pod's node is `spec.nodeName`; the node's region, zone, OS and architecture are its
@@ -313,8 +315,8 @@ Go, beside the files they cover:
   after it opened; `after` a cursor inside a second sends that second and drops the lines at and
   before the cursor; a backward grep for a pattern that never matches stops at the budget with
   fewer lines and `nextCursor` set. Kubetail's tests are the starting point.
-- `services/logs/sources_test.go`: a deployment's pods off a seeded mirror; a container list
-  empty reads every container; a filter on `zone` leaves a pod out; a `Node` filter works with
+- `services/logs/sources_test.go`: a deployment's pods off a seeded mirror; `allContainers`
+  reads every container, and none named reads each pod's own default; a filter on `zone` leaves a pod out; a `Node` filter works with
   no `Node` object; a `zone` filter on a mirror with no nodes is refused with the sentence.
 - `services/logs/merge_test.go`: a fetch's lines from three streams come out in time order; a
   tie keeps a fixed order; `limit` cuts at the right end for `Head` and `Tail` and hands back

@@ -1231,8 +1231,10 @@ type LogsViewSource {
   namespace: String!
   kind: LogsViewSourceKind!
   name: String!
-  "The containers read, by exact name: the default container the sidecar resolved, or the ones named. Empty reads every container."
+  "The containers read, by exact name. Empty reads each pod's default container, as `kubectl logs` picks it, unless allContainers is set."
   containers: [String!]!
+  "Every container of each pod, when no container is named."
+  allContainers: Boolean!
   "The instance before the last restart, rather than the running one. Finished: nothing arrives on it."
   previous: Boolean!
 }
