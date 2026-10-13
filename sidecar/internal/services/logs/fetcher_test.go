@@ -37,6 +37,7 @@ var web = stream{key: StreamKey{Namespace: "prod", Pod: "web", Container: "app"}
 
 // A forward read since a moment asks for its second and keeps that moment's line.
 func TestAForwardReadSinceAMoment(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(500*time.Millisecond, "zero"), stamped(1200*time.Millisecond, "one"), stamped(2*time.Second, "two"))
 
@@ -58,6 +59,7 @@ func TestAForwardReadSinceAMoment(t *testing.T) {
 // After a moment inside a second, the read asks for that second and drops the
 // lines at and before the moment.
 func TestAfterAMomentDropsItsLines(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(time.Second, "a"), stamped(1200*time.Millisecond, "cursor"), stamped(1200*time.Millisecond, "cursor too"), stamped(1500*time.Millisecond, "b"))
 
@@ -70,6 +72,7 @@ func TestAfterAMomentDropsItsLines(t *testing.T) {
 // Lines of one moment are numbered in order, and a bound at one of them keeps or
 // drops that line alone.
 func TestLinesOfOneMomentAreNumbered(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(time.Second, "a"), stamped(time.Second, "b"), stamped(time.Second, "c"), stamped(2*time.Second, "d"))
 	get := s.get
@@ -89,6 +92,7 @@ func TestLinesOfOneMomentAreNumbered(t *testing.T) {
 
 // A read stops at its until, which keeps its own line.
 func TestAForwardReadStopsAtUntil(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(0, "a"), stamped(time.Second, "b"), stamped(2*time.Second, "c"))
 
@@ -99,6 +103,7 @@ func TestAForwardReadStopsAtUntil(t *testing.T) {
 
 // The previous instance is asked for, and its lines say so.
 func TestThePreviousInstanceIsSent(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app/previous", stamped(0, "before the restart"))
 	src := web
@@ -114,6 +119,7 @@ func TestThePreviousInstanceIsSent(t *testing.T) {
 
 // A follow since a moment reads the lines from it, then one written after it opened.
 func TestAFollowDeliversALineWrittenLater(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(0, "old"))
 
@@ -128,6 +134,7 @@ func TestAFollowDeliversALineWrittenLater(t *testing.T) {
 // A follow numbers a moment's lines from the top of its second, as a read opened
 // again from a cursor in it does, so a line keeps its ordinal across the two.
 func TestAFollowNumbersAMomentFromItsSecond(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(100*time.Millisecond, "a"), stamped(100*time.Millisecond, "b"))
 
@@ -143,6 +150,7 @@ func TestAFollowNumbersAMomentFromItsSecond(t *testing.T) {
 // A read the connection's retirement cut stops short at the last line it read
 // whole, and says why.
 func TestARetiredReadStopsShort(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(0, "a"), stamped(time.Second, "b"))
 	get := func(ctx context.Context, path string, q url.Values) (io.ReadCloser, error) {
@@ -164,6 +172,7 @@ func TestARetiredReadStopsShort(t *testing.T) {
 // A read that fails past its first line in range stops short at the last line it
 // read whole, keeping its failure; one that fails before any line is not short.
 func TestAReadThatFailsPartwayStopsShort(t *testing.T) {
+	t.Parallel()
 	reset := errors.New("connection reset")
 	for n, short := range map[int]bool{1: true, 0: false} {
 		s := newLogServer()
@@ -205,6 +214,7 @@ func (b cutAfter) Read(p []byte) (int, error) {
 
 // A message is cleaned before it is sent, and grep matches the cleaned text.
 func TestALineIsCleanedAndGrepped(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(0, "\x1b[31merror\x1b[0m: disk"), stamped(time.Second, "ok"))
 
@@ -216,6 +226,7 @@ func TestALineIsCleanedAndGrepped(t *testing.T) {
 // A line with no timestamp, or one that is not a time, is skipped, as kubetail's
 // reader skips it.
 func TestALineWithNoTimestampIsSkipped(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", "garbage", "not a time x", stamped(0, "a"))
 
@@ -227,6 +238,7 @@ func TestALineWithNoTimestampIsSkipped(t *testing.T) {
 // A line past 64 KiB is read to there and the rest skipped, so the cleaned message
 // is cut at 16 KiB, and the line after it is read whole.
 func TestALongLineIsCut(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(0, strings.Repeat("x", maxLine+100)), stamped(time.Second, "after"))
 
@@ -240,6 +252,7 @@ func TestALongLineIsCut(t *testing.T) {
 
 // A container the API server refuses ends the read with its status.
 func TestARefusedReadEndsWithItsStatus(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.refuse["prod/web/app"] = refusal{400, "container is waiting to start"}
 
@@ -251,6 +264,7 @@ func TestARefusedReadEndsWithItsStatus(t *testing.T) {
 
 // A read whose context ends while a line waits to be taken ends clean.
 func TestACancelledReadEndsClean(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", lineEvery(3)...)
 	get := s.get
@@ -274,6 +288,7 @@ func TestACancelledReadEndsClean(t *testing.T) {
 
 // A read whose context ends before its GET answers ends clean.
 func TestAReadCancelledBeforeItsGetEndsClean(t *testing.T) {
+	t.Parallel()
 	get := func(ctx context.Context, _ string, _ url.Values) (io.ReadCloser, error) {
 		return nil, ctx.Err()
 	}
@@ -296,6 +311,7 @@ func TestAReadCancelledBeforeItsGetEndsClean(t *testing.T) {
 
 // A line each does not take is not counted as read.
 func TestALineNotTakenIsNotRead(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(0, "a"), stamped(time.Second, "b"))
 	rd := &reader{ctx: t.Context(), get: s.get, key: web.key}
@@ -309,6 +325,7 @@ func TestALineNotTakenIsNotRead(t *testing.T) {
 // A forward read that spends its budget stops at the last line it read whole,
 // whether or not the grep kept it.
 func TestAForwardReadStopsAtTheBudget(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", lineEvery(1000)...)
 
@@ -325,6 +342,7 @@ func TestAForwardReadStopsAtTheBudget(t *testing.T) {
 // A forward read whose budget is spent before its first whole line has no stop: it
 // read nothing in range.
 func TestAForwardReadSpentBeforeItsFirstLineHasNoStop(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(time.Second, strings.Repeat("x", 8<<10)))
 
@@ -346,6 +364,7 @@ func lineEvery(n int) []string {
 
 // A body that fails under the read is the read's error.
 func TestABodyThatFailsEndsTheRead(t *testing.T) {
+	t.Parallel()
 	get := func(context.Context, string, url.Values) (io.ReadCloser, error) {
 		return io.NopCloser(io.MultiReader(strings.NewReader(stamped(0, "a")+"\n"), iotest.ErrReader(errors.New("reset")))), nil
 	}
@@ -375,6 +394,7 @@ func tails(s *logServer) []string {
 // the lines newest first; the window that reaches the first line is followed by a
 // read of the first moment.
 func TestABackwardReadNeedsTwoWindows(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", lineEvery(15)...)
 
@@ -392,6 +412,7 @@ func TestABackwardReadNeedsTwoWindows(t *testing.T) {
 // reaches the log's first line in its last window, and is not short: the first
 // window's reach is rounded up, so the doublings land on the first line.
 func TestABackwardReadUnderUntilReachesTheFirstLine(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(0, "first"), stamped(5*time.Hour, "last"))
 	o := backwardOpts()
@@ -407,6 +428,7 @@ func TestABackwardReadUnderUntilReachesTheFirstLine(t *testing.T) {
 // A backward read finds the first line from since's second, keeps since's line,
 // and under until reads no window from before since.
 func TestABackwardReadKeepsItsBounds(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", lineEvery(30)...)
 	o := backwardOpts()
@@ -428,6 +450,7 @@ func TestABackwardReadKeepsItsBounds(t *testing.T) {
 
 // An empty log reads nothing, and so does one emptied under the read.
 func TestABackwardReadOfAnEmptyLog(t *testing.T) {
+	t.Parallel()
 	t.Run("empty", func(t *testing.T) {
 		r := readBackward(t.Context(), claimOn(t, newLogServer()).get, web, backwardOpts())
 		assert.Empty(t, drain(r))
@@ -451,6 +474,7 @@ func TestABackwardReadOfAnEmptyLog(t *testing.T) {
 // A log emptied after a window was sent ends the read short at the oldest line
 // sent, since the lines before it were never read.
 func TestABackwardReadOfALogEmptiedAfterAWindowStopsShort(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", lineEvery(15)...)
 	s.onRequest = func(n int) {
@@ -470,6 +494,7 @@ func TestABackwardReadOfALogEmptiedAfterAWindowStopsShort(t *testing.T) {
 // A window that begins below a sub-second since holds every line in range, so
 // the read ends there rather than growing toward the second's first line.
 func TestABackwardReadEndsAtTheWindowThatPassesSince(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	for i := range 30 {
 		s.add("prod/web/app", stamped(5*time.Second+time.Duration(i)*10*time.Millisecond, strconv.Itoa(i)))
@@ -491,6 +516,7 @@ func TestABackwardReadEndsAtTheWindowThatPassesSince(t *testing.T) {
 // The read that finds the first line takes no more than it asked for, though a
 // server that ignores limitBytes sends the whole log.
 func TestFindingTheFirstLineReadsItsLimit(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", lineEvery(100)...)
 	var read int
@@ -531,6 +557,7 @@ func (c *countingReader) Read(p []byte) (int, error) {
 // A log that grows by a whole batch under the read is read in a larger window,
 // and the lines that arrived are left for the next page.
 func TestABackwardReadOutgrowsAGrowingLog(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", lineEvery(25)...)
 	s.onRequest = func(n int) {
@@ -554,6 +581,7 @@ func TestABackwardReadOutgrowsAGrowingLog(t *testing.T) {
 // window the budget cut short is left unsent, and a read that sent nothing has no
 // stop. Each line is 24 bytes, the first read 100, and a window of ten lines 240.
 func TestABackwardReadStopsAtTheBudget(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		budget   int64
 		until    bound
@@ -589,6 +617,7 @@ func TestABackwardReadStopsAtTheBudget(t *testing.T) {
 
 // A read past its window cap stops at the oldest line it sent.
 func TestABackwardReadStopsAtItsWindowCap(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", lineEvery(100)...)
 	o := backwardOpts()
@@ -607,6 +636,7 @@ func TestABackwardReadStopsAtItsWindowCap(t *testing.T) {
 // start, so it reaches until however much log follows it; with three windows the
 // first reaches halfway back to the first line.
 func TestABackwardReadUnderUntilReachesIt(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", lineEvery(1000)...)
 	o := backwardOpts()
@@ -630,6 +660,7 @@ func TestABackwardReadUnderUntilReachesIt(t *testing.T) {
 // A backward read under until keeps since to the nanosecond, though the log
 // endpoint finds its first line from since's second.
 func TestABackwardReadUnderUntilKeepsSince(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(time.Second, "before"), stamped(time.Second+300*time.Millisecond, "after"))
 	o := backwardOpts()
@@ -644,6 +675,7 @@ func TestABackwardReadUnderUntilKeepsSince(t *testing.T) {
 // Lines sharing a window's starting moment are held back for the next window,
 // which reads the whole moment, so none is lost at the seam.
 func TestABackwardWindowKeepsAMomentWhole(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	lines := lineEvery(20)
 	lines[9] = stamped(10*time.Second, "9'")
@@ -660,6 +692,7 @@ func TestABackwardWindowKeepsAMomentWhole(t *testing.T) {
 // A first moment longer than a window is read whole: a window starting in it
 // cannot tell whether it began at its top.
 func TestABackwardReadKeepsTheFirstMomentWhole(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	for i := range 25 {
 		s.add("prod/web/app", stamped(0, strconv.Itoa(i)))
@@ -679,6 +712,7 @@ func TestABackwardReadKeepsTheFirstMomentWhole(t *testing.T) {
 // moment whole, since the window numbers its lines from its own top: with 100
 // lines at one moment, after the 91st, it sends the nine after it.
 func TestABackwardReadAfterALineReadsItsMomentWhole(t *testing.T) {
+	t.Parallel()
 	for name, tail := range map[string][]string{
 		"alone":             nil,
 		"before later ones": {stamped(time.Second, "later")},
@@ -710,6 +744,7 @@ func TestABackwardReadAfterALineReadsItsMomentWhole(t *testing.T) {
 // A backward read with a sub-second since reads the first moment from since,
 // though the log endpoint finds that moment from since's second.
 func TestABackwardReadKeepsSinceInTheFirstMoment(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(100*time.Millisecond, "before"), stamped(500*time.Millisecond, "after"))
 	o := backwardOpts()
@@ -724,6 +759,7 @@ func TestABackwardReadKeepsSinceInTheFirstMoment(t *testing.T) {
 // A backward read the API server refuses ends with its status, on its first read
 // or on a later window.
 func TestARefusedBackwardReadEndsWithItsStatus(t *testing.T) {
+	t.Parallel()
 	for name, on := range map[string]int{"finding the first line": 0, "a window": 1} {
 		t.Run(name, func(t *testing.T) {
 			s := newLogServer()

@@ -49,6 +49,7 @@ func endless(lines <-chan string) http.Handler {
 
 // A claim reaches the API server the mirror's pods came from and no other.
 func TestAClaimIsRefusedAnotherServer(t *testing.T) {
+	t.Parallel()
 	svc := serving(t, endless(nil))
 	c, err := acquireClaim(t.Context(), svc, "7", "uid-2")
 	require.NoError(t, err)
@@ -62,6 +63,7 @@ func TestAClaimIsRefusedAnotherServer(t *testing.T) {
 // A cluster Kstack cannot connect to is refused before anything is read, and any
 // other failure to claim it is the failure.
 func TestAClaimOnACLusterKstackDoesNotConnectTo(t *testing.T) {
+	t.Parallel()
 	_, err := acquireClaim(t.Context(), &fakeService{acquireErr: cluster.ErrNotConnectable}, "7", "uid-1")
 	assert.ErrorIs(t, err, ErrRevoked)
 
@@ -72,6 +74,7 @@ func TestAClaimOnACLusterKstackDoesNotConnectTo(t *testing.T) {
 // A request in flight when the claim is revoked answers the revocation, not the
 // cut connection, and a revoked claim refuses the next.
 func TestARevokedClaimCutsAndRefusesItsRequests(t *testing.T) {
+	t.Parallel()
 	arrived := make(chan struct{})
 	svc := serving(t, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		close(arrived)
@@ -99,6 +102,7 @@ func TestARevokedClaimCutsAndRefusesItsRequests(t *testing.T) {
 // A 401 or a revoked claim fails a whole read; a 403 or any other failure is one
 // stream's.
 func TestFatalIsTheUsersCredentialsOrTheCluster(t *testing.T) {
+	t.Parallel()
 	assert.EqualError(t, fatal(&statusError{code: http.StatusUnauthorized, message: "Unauthorized"}), "the cluster refused to show this log: Unauthorized")
 	assert.ErrorIs(t, fatal(ErrRevoked), ErrRevoked)
 	assert.NoError(t, fatal(&statusError{code: http.StatusForbidden, message: "forbidden"}))
@@ -108,6 +112,7 @@ func TestFatalIsTheUsersCredentialsOrTheCluster(t *testing.T) {
 
 // A claim whose record's watch cannot open is refused, and releases its lease.
 func TestAClaimWhoseWatchCannotOpenIsRefused(t *testing.T) {
+	t.Parallel()
 	svc := serving(t, endless(nil))
 	svc.watchErr = errors.New("no watch")
 	_, err := openClaim(t.Context(), svc, "7", "uid-1", time.Millisecond)
@@ -118,6 +123,7 @@ func TestAClaimWhoseWatchCannotOpenIsRefused(t *testing.T) {
 // A record's watch that ends before the claim does revokes it: a claim nothing
 // watches could outlive the cluster.
 func TestAWatchThatEndsRevokesTheClaim(t *testing.T) {
+	t.Parallel()
 	svc := serving(t, endless(nil))
 	svc.frames = make(chan cluster.ClusterWatchFrame)
 	c, err := openClaim(t.Context(), svc, "7", "uid-1", time.Millisecond)
@@ -149,6 +155,7 @@ func synced(t *testing.T, frames chan<- cluster.ClusterWatchFrame) {
 // A record's watch that ends after its snapshot is opened again, and the claim
 // stands while the new snapshot holds the record Kstack connects to.
 func TestAWatchThatEndsIsOpenedAgain(t *testing.T) {
+	t.Parallel()
 	svc := serving(t, endless(nil))
 	first, second := make(chan cluster.ClusterWatchFrame), make(chan cluster.ClusterWatchFrame)
 	svc.frames = first
@@ -171,6 +178,7 @@ func TestAWatchThatEndsIsOpenedAgain(t *testing.T) {
 // A watch opened again whose snapshot lacks the record, or that cannot be opened,
 // revokes the claim.
 func TestAWatchOpenedAgainOnAGoneRecordRevokes(t *testing.T) {
+	t.Parallel()
 	for name, gone := range map[string]func(svc *fakeService){
 		"no record": func(svc *fakeService) {
 			again := make(chan cluster.ClusterWatchFrame, 1)
@@ -199,6 +207,7 @@ func TestAWatchOpenedAgainOnAGoneRecordRevokes(t *testing.T) {
 // A cluster disabled under a follow ends the body being read, and refuses the
 // next request.
 func TestADisabledClusterEndsTheClaim(t *testing.T) {
+	t.Parallel()
 	lines := make(chan string)
 	svc := serving(t, endless(lines))
 	svc.frames = make(chan cluster.ClusterWatchFrame)
@@ -224,6 +233,7 @@ func TestADisabledClusterEndsTheClaim(t *testing.T) {
 // The body goes on reading while the server goes on writing, and ends when the
 // context does.
 func TestTheBodyStreamsUntilTheContextEnds(t *testing.T) {
+	t.Parallel()
 	lines := make(chan string)
 	svc := serving(t, endless(lines))
 	c, err := acquireClaim(t.Context(), svc, "7", "uid-1")
@@ -249,6 +259,7 @@ func TestTheBodyStreamsUntilTheContextEnds(t *testing.T) {
 
 // A status the API server refuses with is its code and its message, cleaned.
 func TestARefusalIsItsStatus(t *testing.T) {
+	t.Parallel()
 	svc := serving(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -268,6 +279,7 @@ func TestARefusalIsItsStatus(t *testing.T) {
 
 // A refusal whose body is no Status is named by its code alone.
 func TestARefusalWithNoStatusIsItsCode(t *testing.T) {
+	t.Parallel()
 	svc := serving(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "upstream gone", http.StatusBadGateway)
 	}))
@@ -282,6 +294,7 @@ func TestARefusalWithNoStatusIsItsCode(t *testing.T) {
 
 // Close releases the lease.
 func TestCloseReleasesTheLease(t *testing.T) {
+	t.Parallel()
 	svc := serving(t, endless(nil))
 	c, err := acquireClaim(t.Context(), svc, "7", "uid-1")
 	require.NoError(t, err)
