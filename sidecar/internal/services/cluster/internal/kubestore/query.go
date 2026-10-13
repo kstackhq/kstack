@@ -102,14 +102,14 @@ type QueryError struct {
 
 func (e *QueryError) Error() string { return e.Message }
 
-// Query runs one statement over the views on a query connection, and answers at most
-// maxRows rows and maxBytes of text and blob cells.
+// Query runs one statement over the views on a query connection, with args bound to its
+// placeholders, and answers at most maxRows rows and maxBytes of text and blob cells.
 //
 // The statement runs wrapped: modernc interrupts a cancelled query only while it takes the
 // first row, and rows.Next never looks at the context, so a statement slow past its first
 // row would outlive its deadline. Materializing it makes all of it run in that first
 // step. The wrap also makes it a subquery, which only a query can be.
-func (s *Store) Query(ctx context.Context, sql string, maxRows, maxBytes int) (QueryResult, error) {
+func (s *Store) Query(ctx context.Context, sql string, maxRows, maxBytes int, args ...any) (QueryResult, error) {
 	f, done, err := s.use()
 	if err != nil {
 		return QueryResult{}, err
@@ -119,7 +119,7 @@ func (s *Store) Query(ctx context.Context, sql string, maxRows, maxBytes int) (Q
 	defer cancel()
 	defer context.AfterFunc(f.queryCtx, cancel)()
 
-	res, err := f.query(ctx, sql, maxRows, maxBytes)
+	res, err := f.query(ctx, sql, maxRows, maxBytes, args)
 	if err != nil && f.queryCtx.Err() != nil {
 		return QueryResult{}, fmt.Errorf("cache %d: %w", s.cacheID, ErrClosed)
 	}
@@ -127,7 +127,7 @@ func (s *Store) Query(ctx context.Context, sql string, maxRows, maxBytes int) (Q
 }
 
 // query is Query on its file, under a context the file's close cancels too.
-func (f *file) query(ctx context.Context, sql string, maxRows, maxBytes int) (QueryResult, error) {
+func (f *file) query(ctx context.Context, sql string, maxRows, maxBytes int, args []any) (QueryResult, error) {
 	sql = strings.TrimSpace(sql)
 	sql = strings.TrimSpace(strings.TrimSuffix(sql, ";"))
 	if strings.Contains(sql, ";") {
@@ -172,7 +172,7 @@ func (f *file) query(ctx context.Context, sql string, maxRows, maxBytes int) (Qu
 	if f.onQuery != nil {
 		f.onQuery()
 	}
-	rows, err := wrapped.QueryContext(ctx)
+	rows, err := wrapped.QueryContext(ctx, args...)
 	if err != nil {
 		return QueryResult{}, statementError(err)
 	}

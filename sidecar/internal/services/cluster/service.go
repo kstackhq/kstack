@@ -316,10 +316,11 @@ type CachedData interface {
 	// burst never drives the kind-catalog re-read.
 	WatchEvents(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID) (*Stream[ClusterCachedDataEventWatchFrame], error)
 	// Query runs one statement over the cache's views on a read-only connection of its
-	// own, and answers at most maxRows rows and maxBytes of cells. ok is false for a
+	// own, with args bound to its placeholders, and answers at most maxRows rows and
+	// maxBytes of cells. ok is false for a
 	// cache the pair does not resolve to, or one with no file. A statement SQLite
 	// refuses is a *QueryError.
-	Query(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, sql string, maxRows, maxBytes int) (ClusterCachedDataQueryResult, bool, error)
+	Query(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (ClusterCachedDataQueryResult, bool, error)
 }
 
 // The family accessors are stateless views onto the one *service: the split is
