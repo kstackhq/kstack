@@ -2,7 +2,7 @@
 title: Accept that a sandboxed command on macOS reads other processes' arguments
 date: 2026-10-02
 scope: sidecar
-status: Accepted
+status: Superseded by [2026-10-13-a-macos-run-leads-its-own-session-so-no-run-reads-another-processs-launch-strings](2026-10-13-a-macos-run-leads-its-own-session-so-no-run-reads-another-processs-launch-strings.md)
 ---
 
 # Accept that a sandboxed command on macOS reads other processes' arguments

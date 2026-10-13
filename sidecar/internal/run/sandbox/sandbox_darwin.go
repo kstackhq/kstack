@@ -28,6 +28,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -103,9 +104,10 @@ func probeFailure(stderr string, err error) string {
 // exec.CommandContext on ctx, or why r's policy cannot be enforced, a memory
 // limit included: sandbox-exec over r's profile, then the forwarder with
 // sandbox-shell its child, which execs the shell.
-// sandbox-exec execs into it, so the session the caller makes is the run's
-// process group, and the profile holds every descendant. The caller sets its
-// output, session and Cancel, and starts it.
+// sandbox-exec execs into it, so the run leads a session of its own, which the
+// profile keeps every descendant in: kern.procargs2 is refused only for a
+// process in another process group. A caller that replaces SysProcAttr keeps
+// Setsid. The caller sets its output and Cancel, and starts it.
 //
 // Check and the profile resolve paths, which can hang on a network mount, so
 // ctx bounds them too: ctx ending first answers its error.
@@ -144,6 +146,7 @@ func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 	cmd := exec.CommandContext(ctx, s.launcher, slices.Concat([]string{"-p", b.text}, b.params, []string{name}, args)...)
 	cmd.Dir = r.Dir
 	cmd.Env = r.Env
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	return cmd, nil
 }
 

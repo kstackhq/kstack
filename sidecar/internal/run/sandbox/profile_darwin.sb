@@ -19,8 +19,15 @@
 ;; can still start one in a new session or group (TestAProcessThatLeavesTheGroupStaysConfined).
 (deny syscall-unix (syscall-number SYS_setsid SYS_setpgid))
 (allow signal (target same-sandbox))
+;; Another process's arguments and environment (kern.procargs2) are refused
+;; only while both the explicit process-info deny and the sysctl deny hold,
+;; and only for a process in another process group: Command starts the run in
+;; a session of its own, and the rule above keeps it there. (deny default)
+;; does not count as the first (TestAnotherProcessesLaunchStringsAreRefused).
+(deny process-info* (target others))
 (allow process-info* (target same-sandbox))
 (allow sysctl-read)
+(deny sysctl-read (sysctl-name-prefix "kern.procargs"))
 ;; The policy's file rules (sandbox_darwin.go): its Files rules, every path
 ;; it always denies over them, then the run's own paths.
 ;; RULES

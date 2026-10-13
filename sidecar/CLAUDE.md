@@ -1603,8 +1603,10 @@ true; `Port` is a free loopback port, picked by listening on `127.0.0.1:0` and c
 Seatbelt has no private loopback; and `Command` is `sandbox-exec -p <profile> -D …` then the argv
 (`Sandbox.argv`: the forwarder, with its relay, and `sandbox-shell` its child, with the limits,
 for every run) — its ctx bounds building the profile too, since resolving a path can hang on a
-network mount, and a ctx that ends first is its error — which `sandbox-exec` execs into, so the session the Bash tool starts is the run's process group and
-the profile holds every descendant. **The profile is `profile_darwin.sb`**, embedded: fixed rules
+network mount, and a ctx that ends first is its error — which `sandbox-exec` execs into. **`Command`
+starts the run in a session of its own** (`Setsid`), and a caller that replaces `SysProcAttr`
+keeps it: the profile refuses `kern.procargs2` only for a process in another process group
+(`TestAnotherProcessesLaunchStringsAreRefused`). The profile holds every descendant. **The profile is `profile_darwin.sb`**, embedded: fixed rules
 with a marker line each for the policy's rules, the ancestors and the network (`;; RULES`,
 `;; ANCESTORS`, `;; NETWORK`), which `profile` replaces. **Every path is a parameter** (`-D
 RULE_3=…`, read as `(param "RULE_3")`), never text, since a path can hold `"` or `)`; the relay's
@@ -1614,9 +1616,10 @@ socket is passed both as given and resolved. A Deny holds for its path whether o
 In order, a later rule winning: `deny default`; processes, signals and process info within the
 sandbox, but no exec of `sudo`, `su`, `login` or `security_authtrampoline`, by path
 (`TestTheProfileRefusesSetuidPrograms`; macOS 27 runs no setuid program under a profile, `ps` and
-`top` included, `TestEverySetuidProgramIsRefused`, and `kern.procargs2` still reads any of the
-user's processes' arguments, and before macOS 27 their environment → [ADR](../docs/adr/2026-10-02-a-macos-sandboxed-command-reads-other-processes-arguments.md)), `setsid` and `setpgid` refused (`syscall-unix`) so a process stays in the run's group,
-`sysctl-read`; **the merged rules**, a Read as `allow file-read*` then `deny file-write*`, so it
+`top` included, `TestEverySetuidProgramIsRefused`), process info outside the run denied
+explicitly and `kern.procargs*` denied over the `sysctl-read` allow, since only the two together
+refuse another process's `kern.procargs2`, and only for a process in another process group
+(→ [ADR](../docs/adr/2026-10-13-a-macos-run-leads-its-own-session-so-no-run-reads-another-processs-launch-strings.md)), `setsid` and `setpgid` refused (`syscall-unix`) so a process stays in the run's group; **the merged rules**, a Read as `allow file-read*` then `deny file-write*`, so it
 decides a tie with a Write as a read-only mount does, a Write as `allow file-read* file-write*`,
 **a run's own Write followed by a denial of unlinking or creating its root's own entry**
 (`literal`, so what lies inside stays writable), since a run that could remove its workspace or

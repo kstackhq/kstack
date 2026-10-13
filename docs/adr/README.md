@@ -172,7 +172,7 @@ usually just documentation in the wrong place.
 | 2026-09-30 | [Leaving the sandbox is the user's switch for a chat, never the model's flag](2026-09-30-leaving-the-sandbox-is-the-users-switch-for-a-chat.md) | cross-cutting | Accepted |
 | 2026-10-02 | [The sandbox's zones are Kstack's lists, and its environment one table](2026-10-02-the-sandboxs-zones-are-kstacks-lists.md) | sidecar | Accepted |
 | 2026-10-02 | [Bound a sandboxed run's processes with resource limits set inside the run](2026-10-02-process-limits-are-set-inside-the-run.md) | sidecar | Accepted |
-| 2026-10-02 | [Accept that a sandboxed command on macOS reads other processes' arguments](2026-10-02-a-macos-sandboxed-command-reads-other-processes-arguments.md) | sidecar | Accepted |
+| 2026-10-02 | [Accept that a sandboxed command on macOS reads other processes' arguments](2026-10-02-a-macos-sandboxed-command-reads-other-processes-arguments.md) | sidecar | Superseded by [2026-10-13-a-macos-run-leads-its-own-session-so-no-run-reads-another-processs-launch-strings](2026-10-13-a-macos-run-leads-its-own-session-so-no-run-reads-another-processs-launch-strings.md) |
 | 2026-10-02 | [PATH is the login shell's, filtered and frozen](2026-10-02-path-is-the-login-shells-filtered-and-frozen.md) | sidecar, webview | Accepted |
 | 2026-10-02 | [A sandboxed cluster write runs, asks or is refused by its class, the context's mode and the user's rules](2026-10-02-permissions-are-classes-modes-and-rules-decided-at-the-proxy.md) | cross-cutting | Accepted |
 | 2026-10-03 | [Ignore the braces advisory until it has a patch](2026-10-03-ignore-the-braces-advisory-until-it-has-a-patch.md) | repo | Accepted |
@@ -190,3 +190,4 @@ usually just documentation in the wrong place.
 | 2026-10-06 | [Build every service into one runtime, in order, and never hand it to a service](2026-10-06-the-runtime-is-built-in-order.md) | sidecar | Accepted |
 | 2026-10-07 | [Group the sidecar's packages into layers](2026-10-07-sidecar-folders-are-layers.md) | sidecar | Accepted |
 | 2026-10-07 | [Keep the user's settings in one file, grouped by area](2026-10-07-settings-are-one-file-grouped-by-area.md) | sidecar | Accepted |
+| 2026-10-13 | [A macOS run leads its own session, so no run reads another process's launch strings](2026-10-13-a-macos-run-leads-its-own-session-so-no-run-reads-another-processs-launch-strings.md) | sidecar | Accepted |

@@ -481,8 +481,9 @@ func TestThePortIsAFreeLoopbackOne(t *testing.T) {
 
 // The test binary answers these when a run starts it as a process that tries
 // to leave its group (leaveGroup), as the process left behind (linger), to
-// send a byte (send), or to read a process's arguments (procArgs). init runs
-// them before TestMain, which knows nothing of macOS.
+// send a byte (send), to read a process's arguments (procArgs), or as a
+// process that waits for its stdin to close (holdEnv). init runs them before
+// TestMain, which knows nothing of macOS.
 const (
 	leaveEnv    = "KSTACK_SANDBOX_TEST_LEAVE"
 	lingerEnv   = "KSTACK_SANDBOX_TEST_LINGER"
@@ -490,6 +491,7 @@ const (
 	listenerEnv = "KSTACK_SANDBOX_TEST_LISTENER"
 	sendEnv     = "KSTACK_SANDBOX_TEST_SEND"
 	procArgsEnv = "KSTACK_SANDBOX_TEST_PROCARGS"
+	holdEnv     = "KSTACK_SANDBOX_TEST_HOLD"
 )
 
 func init() {
@@ -504,6 +506,10 @@ func init() {
 	}
 	if pid := os.Getenv(procArgsEnv); pid != "" {
 		os.Exit(procArgs(pid))
+	}
+	if os.Getenv(holdEnv) != "" {
+		_, _ = io.Copy(io.Discard, os.Stdin)
+		os.Exit(0)
 	}
 }
 
@@ -1125,31 +1131,39 @@ func TestNoServiceReadsForTheRun(t *testing.T) {
 	assert.NotContains(t, out, "kstack-value")
 }
 
-// The profile refuses process information outside the run, but not
-// kern.procargs2, which no Seatbelt rule reaches: a run reads another
-// process's arguments. Before macOS 27 it reads its environment too, which
-// docs/TODO.md tracks, so the test pins the arguments alone.
-func TestAnotherProcessesArgumentsAreRead(t *testing.T) {
+// A run reads neither the arguments nor the environment of a process outside
+// it, through kern.procargs2. The profile refuses the read only for a process
+// in another process group, so this pins that Command starts the run in a
+// session of its own. The target is this binary, since macOS 27 withholds an
+// Apple binary's environment whatever the profile says.
+func TestAnotherProcessesLaunchStringsAreRefused(t *testing.T) {
 	s := confining(t)
 	m := standIn(t)
 	arg := "kstack-arg-" + rand.Text()
-	// Two commands, so sh stays the process and keeps its arguments.
-	other := exec.Command("/bin/sh", "-c", "sleep 60; :", arg)
+	env := "kstack-env-" + rand.Text()
+	hold, release, err := os.Pipe()
+	require.NoError(t, err)
+	other := exec.Command(os.Args[0], arg)
+	other.Env = []string{holdEnv + "=1", "KSTACK_SANDBOX_TEST_SECRET=" + env}
+	other.Stdin = hold
 	require.NoError(t, other.Start())
-	t.Cleanup(func() { _ = other.Process.Kill(); _ = other.Wait() })
+	require.NoError(t, hold.Close())
+	t.Cleanup(func() { _ = release.Close(); _ = other.Process.Kill(); _ = other.Wait() })
 	pid := strconv.Itoa(other.Process.Pid)
 	read := exec.Command(os.Args[0])
 	read.Env = []string{procArgsEnv + "=" + pid}
 	outside, err := read.Output()
 	require.NoError(t, err)
 	require.Contains(t, string(outside), arg)
+	require.Contains(t, string(outside), env)
 
 	// ps is setuid, which no run can start, so the test binary reads what ps
 	// would.
 	out, ok := sh(t, s, m.on(s), procArgsEnv+`="$P" "$BIN"`, "P="+pid, "BIN="+os.Args[0])
 
-	require.True(t, ok, out)
-	assert.Contains(t, out, arg, "the arguments are read")
+	assert.False(t, ok, out)
+	assert.NotContains(t, out, arg, "the arguments are not read")
+	assert.NotContains(t, out, env, "the environment is not read")
 }
 
 // setuidPrograms are the programs that exist to escalate, which the profile
