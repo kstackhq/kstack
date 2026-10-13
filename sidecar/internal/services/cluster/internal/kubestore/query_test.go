@@ -476,7 +476,7 @@ func queryConnOf(t *testing.T, s *Store) *sql.Conn {
 	t.Helper()
 	f, err := s.file()
 	require.NoError(t, err)
-	conn, err := f.queryConn(context.Background())
+	conn, err := queryConn(context.Background(), f.queryDB)
 	require.NoError(t, err)
 	t.Cleanup(func() { conn.Close() })
 	return conn
@@ -535,6 +535,22 @@ func TestAQueryConnectionLeavesNothingForTheNext(t *testing.T) {
 
 	assert.Equal(t, [][]any{{"pods"}}, res.Rows)
 	assert.Equal(t, [][]any{{int64(0)}}, left.Rows)
+}
+
+// QueryOwn reads the views and binds its values as Query does, on a connection it keeps
+// for the next statement.
+func TestQueryOwnReadsTheViewsOnAKeptConnection(t *testing.T) {
+	s := populated(t)
+	for range 2 {
+		res, err := s.QueryOwn(context.Background(), `SELECT resource FROM objects WHERE uid = ?`, 100, 1<<20, "pod")
+		require.NoError(t, err)
+		assert.Equal(t, [][]any{{"pods"}}, res.Rows)
+	}
+
+	f, err := s.file()
+	require.NoError(t, err)
+	assert.Equal(t, 1, f.ownQueryDB.Stats().OpenConnections)
+	assert.Zero(t, f.queryDB.Stats().OpenConnections)
 }
 
 func TestAValuePastTheLengthLimitFails(t *testing.T) {

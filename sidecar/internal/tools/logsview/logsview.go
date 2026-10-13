@@ -126,9 +126,9 @@ func refusal(err error) string {
 			out["containers"] = rf.containers
 		}
 		return result(out)
-	case errors.Is(err, errNoCache):
+	case errors.Is(err, cluster.ErrNoCache):
 		return `{"error":"no-cache"}`
-	case errors.Is(err, errSyncing):
+	case errors.Is(err, cluster.ErrSyncing):
 		return `{"error":"syncing"}`
 	}
 	return `{"error":"read-failed"}`

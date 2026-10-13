@@ -16,7 +16,6 @@ package logsview
 
 import (
 	"context"
-	"errors"
 	"slices"
 	"time"
 
@@ -32,15 +31,6 @@ const defaultContainerAnnotation = "kubectl.kubernetes.io/default-container"
 const (
 	maxRows  = 10_000
 	maxBytes = tools.FileLimit
-)
-
-var (
-	// errNoCache is a cluster with no cache to check against: its record gone,
-	// its identity moving under both readings, or its cache gone under the reads.
-	errNoCache = errors.New("logsview: the cluster has no cache")
-	// errSyncing is a cache whose verdict withholds its rows: a source missing
-	// from it may still exist.
-	errSyncing = errors.New("logsview: the cache is syncing")
 )
 
 // refused is a source the mirror refuses: the code the model reads, the source
@@ -80,14 +70,11 @@ func (t *Tool) resolve(ctx context.Context, clusterID cluster.ClusterID, in inpu
 	}
 	var view tools.LogsViewAction
 	var notes []note
-	err = t.svc.Clusters().ReadActive(ctx, clusterID, func(ctx context.Context, active cluster.ActiveCluster) error {
+	err = t.svc.CachedData().ReadActive(ctx, clusterID, maxRows, maxBytes, func(q cluster.CacheReading, _ cluster.ActiveCluster) error {
 		var err error
-		view, notes, err = t.resolveIn(ctx, clusterID, active, in)
+		view, notes, err = resolveIn(q, in)
 		return err
 	})
-	if errors.Is(err, cluster.ErrNotFound) || errors.Is(err, cluster.ErrIdentityMoved) {
-		return tools.LogsViewAction{}, nil, errNoCache
-	}
 	if err != nil {
 		return tools.LogsViewAction{}, nil, err
 	}
@@ -95,24 +82,10 @@ func (t *Tool) resolve(ctx context.Context, clusterID cluster.ClusterID, in inpu
 	return view, notes, nil
 }
 
-// resolveIn is one reading's view: the cache's verdict, then each source. It
-// builds the view afresh, since ReadActive may run it twice.
-func (t *Tool) resolveIn(ctx context.Context, clusterID cluster.ClusterID, active cluster.ActiveCluster, in input) (tools.LogsViewAction, []note, error) {
-	if active.Cache == nil {
-		return tools.LogsViewAction{}, nil, errNoCache
-	}
-	health, ok, err := t.svc.Caches().Health(ctx, clusterID, active.Cache.ID)
-	if err != nil {
-		return tools.LogsViewAction{}, nil, err
-	}
-	if !ok {
-		return tools.LogsViewAction{}, nil, errNoCache
-	}
-	if !health.Trusted() {
-		return tools.LogsViewAction{}, nil, errSyncing
-	}
-	q := query{t.svc.CachedData(), ctx, clusterID, active.Cache.ID}
-	view := tools.LogsViewAction{Sources: []tools.LogsViewSource{}, Filters: in.filters, Grep: in.grep}
+// resolveIn is one reading's view, each source checked in turn. It builds the
+// view afresh, since ReadActive may run it twice.
+func resolveIn(q cluster.CacheReading, in input) (tools.LogsViewAction, []note, error) {
+	view := tools.LogsViewAction{LogsViewInput: tools.LogsViewInput{Sources: []tools.LogsViewSource{}, Filters: in.filters, Grep: in.grep}}
 	if view.Filters == nil {
 		view.Filters = []tools.LogsViewFilter{}
 	}
@@ -131,8 +104,8 @@ func (t *Tool) resolveIn(ctx context.Context, clusterID cluster.ClusterID, activ
 // resolveSource is one source checked against the mirror: the object is there,
 // each container named is one of its, else the default one is resolved, and a
 // previous instance exists where asked.
-func resolveSource(q query, i int, s source) (tools.LogsViewSource, note, error) {
-	f, err := q.object(s)
+func resolveSource(q cluster.CacheReading, i int, s source) (tools.LogsViewSource, note, error) {
+	f, err := object(q, s)
 	if err != nil {
 		return tools.LogsViewSource{}, note{}, err
 	}
@@ -163,7 +136,7 @@ func resolveSource(q query, i int, s source) (tools.LogsViewSource, note, error)
 		}
 		return src, n, nil
 	}
-	n.pods, n.restarted, err = q.previousPods(f.uid, src.Containers)
+	n.pods, n.restarted, err = previousPods(q, f.uid, src.Containers)
 	return src, n, err
 }
 

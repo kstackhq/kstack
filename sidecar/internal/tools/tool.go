@@ -32,6 +32,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 )
 
 const (
@@ -304,17 +305,14 @@ type KubeQueryAction struct {
 	Limit int    `json:"limit"`
 }
 
-// LogsViewAction is a live view of logs the user looks at, as the sidecar hands it
-// to the log backend: the Sources whose lines it merges by timestamp, in the order
-// asked; the Filters on those lines, none keeping every line; the Grep, a regular
-// expression each line's message must match, empty for none; the Anchor the view
-// opens at; and PinToEnd, whether the viewer keeps the end in view as lines arrive.
+// LogsViewAction is a live view of logs the user looks at: the LogsViewInput the
+// log backend reads, then the Anchor the view opens at and PinToEnd, whether the
+// viewer keeps the end in view as lines arrive. Those two are the viewer's, so the
+// backend never sees them.
 type LogsViewAction struct {
-	Sources  []LogsViewSource `json:"sources"`
-	Filters  []LogsViewFilter `json:"filters"`
-	Grep     string           `json:"grep"`
-	Anchor   LogsViewAnchor   `json:"anchor"`
-	PinToEnd bool             `json:"pinToEnd"`
+	LogsViewInput
+	Anchor   LogsViewAnchor `json:"anchor"`
+	PinToEnd bool           `json:"pinToEnd"`
 }
 
 // LogsViewAnchor is where a view opens: an edge of the stream, or the moment At,
@@ -334,50 +332,30 @@ const (
 	LogsAnchorAt   LogsAnchorKind = "at"
 )
 
-// LogsViewSource is one resource a view reads, in its Namespace, by Kind and Name:
-// its Containers by exact name — the default container resolved, or the ones
-// named; every one when empty — and Previous for the instance before the last
-// restart, which is finished.
-type LogsViewSource struct {
-	Namespace  string         `json:"namespace"`
-	Kind       LogsSourceKind `json:"kind"`
-	Name       string         `json:"name"`
-	Containers []string       `json:"containers"`
-	Previous   bool           `json:"previous"`
-}
-
-// LogsSourceKind is a kind the log backend reads: a pod, or a workload whose pods
-// it follows. The GraphQL LogsViewSourceKind enum binds member by member onto it.
-type LogsSourceKind string
-
-const (
-	LogsSourcePod         LogsSourceKind = "pod"
-	LogsSourceDeployment  LogsSourceKind = "deployment"
-	LogsSourceStatefulSet LogsSourceKind = "statefulset"
-	LogsSourceDaemonSet   LogsSourceKind = "daemonset"
-	LogsSourceJob         LogsSourceKind = "job"
-	LogsSourceCronJob     LogsSourceKind = "cronjob"
-	LogsSourceReplicaSet  LogsSourceKind = "replicaset"
+// The view's backend half is the log service's vocabulary, named here as the tool
+// spells it.
+type (
+	LogsViewInput   = logs.View
+	LogsViewSource  = logs.ViewSource
+	LogsSourceKind  = logs.SourceKind
+	LogsViewFilter  = logs.ViewFilter
+	LogsFilterField = logs.FilterField
 )
 
-// LogsViewFilter is one filter on a view's lines: the Values its Field may take,
-// never empty.
-type LogsViewFilter struct {
-	Field  LogsFilterField `json:"field"`
-	Values []string        `json:"values"`
-}
-
-// LogsFilterField is what a line can be filtered by: the node it ran on, and the
-// node's labels. The GraphQL LogsViewFilterField enum binds member by member onto
-// it.
-type LogsFilterField string
-
 const (
-	LogsFilterNode   LogsFilterField = "node"
-	LogsFilterRegion LogsFilterField = "region"
-	LogsFilterZone   LogsFilterField = "zone"
-	LogsFilterOS     LogsFilterField = "os"
-	LogsFilterArch   LogsFilterField = "arch"
+	LogsSourcePod         = logs.SourcePod
+	LogsSourceDeployment  = logs.SourceDeployment
+	LogsSourceStatefulSet = logs.SourceStatefulSet
+	LogsSourceDaemonSet   = logs.SourceDaemonSet
+	LogsSourceJob         = logs.SourceJob
+	LogsSourceCronJob     = logs.SourceCronJob
+	LogsSourceReplicaSet  = logs.SourceReplicaSet
+
+	LogsFilterNode   = logs.FilterNode
+	LogsFilterRegion = logs.FilterRegion
+	LogsFilterZone   = logs.FilterZone
+	LogsFilterOS     = logs.FilterOS
+	LogsFilterArch   = logs.FilterArch
 )
 
 // DelegateAction is a task handed to a subagent: Prompt, the brief the parent

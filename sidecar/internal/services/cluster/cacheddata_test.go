@@ -596,6 +596,21 @@ func TestQueryReadsTheCache(t *testing.T) {
 	assert.Equal(t, ClusterCachedDataQueryResult{Columns: []string{"name"}, Rows: [][]any{{"api-0"}}}, got)
 }
 
+// QueryOwn reads the cache's views as Query does, its values bound.
+func TestQueryOwnReadsTheCache(t *testing.T) {
+	ctx := context.Background()
+	f := newDataFixture(t)
+	require.NoError(t, f.store.ApplyChange(ctx, kubestore.Kind{APIVersion: "v1", Kind: "Pod", Resource: "pods"},
+		watch.Added, dataPod("uid-1", "api-0", "42")))
+	f.stopWorkers()
+
+	got, ok, err := f.data().QueryOwn(ctx, f.clusterID, f.cacheID, `SELECT name FROM objects WHERE uid = ?`, 10, 1<<20, "uid-1")
+
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, ClusterCachedDataQueryResult{Columns: []string{"name"}, Rows: [][]any{{"api-0"}}}, got)
+}
+
 func TestQueryOfACacheOfAnotherClusterIsNotOK(t *testing.T) {
 	f := newDataFixture(t)
 	other := createCluster(t, f.d, "other")
@@ -659,4 +674,14 @@ func TestQueryReportsAStoreThatWillNotOpen(t *testing.T) {
 	_, _, err := f.data().Query(context.Background(), f.clusterID, f.cacheID, `SELECT 1`, 10, 1<<20)
 
 	assert.ErrorIs(t, err, boom)
+}
+
+// ReadActive reads the service's own records: a cache that has synced nothing is
+// not trusted, and a cluster that is gone has no cache.
+func TestReadActiveReadsTheServicesCluster(t *testing.T) {
+	f := newDataFixture(t)
+	read := func(CacheReading, ActiveCluster) error { return nil }
+
+	assert.ErrorIs(t, f.data().ReadActive(context.Background(), f.clusterID, 10, 1<<20, read), ErrSyncing)
+	assert.ErrorIs(t, f.data().ReadActive(context.Background(), "404", 10, 1<<20, read), ErrNoCache)
 }
