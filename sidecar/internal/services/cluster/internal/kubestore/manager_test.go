@@ -883,8 +883,9 @@ func TestOpenReportsAReadStatementItCannotPrepare(t *testing.T) {
 			PRIMARY KEY(child_uid, owner_uid));
 		CREATE TABLE labels(uid TEXT, key TEXT, value TEXT, PRIMARY KEY(uid, key));
 		CREATE TABLE containers(pod_uid TEXT, init INT, position INT, name TEXT, sidecar INT,
-			image TEXT, image_id TEXT, ready INT, restarts INT, state TEXT, reason TEXT,
-			exit_code INT, last_reason TEXT, last_exit_code INT, cpu_request REAL,
+			image TEXT, image_id TEXT, container_id TEXT, ready INT, restarts INT, state TEXT,
+			reason TEXT, exit_code INT, last_reason TEXT, last_exit_code INT,
+			last_container_id TEXT, cpu_request REAL,
 			cpu_limit REAL, memory_request REAL, memory_limit REAL);
 		CREATE TABLE refs(uid TEXT, path TEXT, to_group TEXT, to_kind TEXT, to_namespace TEXT,
 			to_name TEXT, key TEXT, optional INT, PRIMARY KEY(uid, path));

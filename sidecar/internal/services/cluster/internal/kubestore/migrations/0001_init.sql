@@ -143,30 +143,34 @@ CREATE INDEX labels_kv ON labels(key, value);
 
 -- containers: one row per container of a core Pod, init containers included, its spec and
 -- its status joined by name, written with the Pod as its labels are. The quantities are
--- parsed: cores for CPU, bytes for memory. Read from the sanitized body, so the table holds
--- nothing the stored body does not.
+-- parsed: cores for CPU, bytes for memory. container_id is the runtime's id of the instance
+-- the state describes, NULL while it waits, and last_container_id that of the one before it:
+-- each names one log.
+-- Read from the sanitized body, so the table holds nothing the stored body does not.
 --
 -- A rowid table, as objects is: a row is about 250 bytes, past the size WITHOUT ROWID
 -- suits, and a column added later only widens it.
 CREATE TABLE containers (
-    pod_uid        TEXT NOT NULL,
-    init           INTEGER NOT NULL,
-    position       INTEGER NOT NULL,
-    name           TEXT NOT NULL,
-    sidecar        INTEGER NOT NULL,
-    image          TEXT,
-    image_id       TEXT,
-    ready          INTEGER,
-    restarts       INTEGER,
-    state          TEXT,
-    reason         TEXT,
-    exit_code      INTEGER,
-    last_reason    TEXT,
-    last_exit_code INTEGER,
-    cpu_request    REAL,
-    cpu_limit      REAL,
-    memory_request REAL,
-    memory_limit   REAL,
+    pod_uid           TEXT NOT NULL,
+    init              INTEGER NOT NULL,
+    position          INTEGER NOT NULL,
+    name              TEXT NOT NULL,
+    sidecar           INTEGER NOT NULL,
+    image             TEXT,
+    image_id          TEXT,
+    container_id      TEXT,
+    ready             INTEGER,
+    restarts          INTEGER,
+    state             TEXT,
+    reason            TEXT,
+    exit_code         INTEGER,
+    last_reason       TEXT,
+    last_exit_code    INTEGER,
+    last_container_id TEXT,
+    cpu_request       REAL,
+    cpu_limit         REAL,
+    memory_request    REAL,
+    memory_limit      REAL,
     PRIMARY KEY (pod_uid, init, position)
 ) STRICT;
 
