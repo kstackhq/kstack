@@ -79,6 +79,9 @@ type fakeService struct {
 	// statements is every statement the mirror was asked, its args inlined, in
 	// order.
 	statements []string
+	// beforeStatement, when set, runs before each statement a reading runs, handed
+	// its text with its args inlined.
+	beforeStatement func(text string)
 }
 
 // workload is the channel the watch of resource sends from.
@@ -137,27 +140,38 @@ type fakeCachedData struct {
 	f *fakeService
 }
 
-func (fc fakeCachedData) QueryOwn(ctx context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (cluster.ClusterCachedDataQueryResult, bool, error) {
-	text := inlined(sql, args)
+func (fc fakeCachedData) ReadOwn(ctx context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, read func(cluster.OwnQuery) error) (bool, error) {
 	fc.f.mu.Lock()
-	fc.f.statements = append(fc.f.statements, text)
-	queryErr, noQuery, more := fc.f.queryErr, fc.f.noQuery, fc.f.moreOn != "" && strings.Contains(text, fc.f.moreOn)
-	if !strings.Contains(text, fc.f.queryErrOn) {
-		queryErr = nil
-	}
+	noQuery := fc.f.noQuery
 	fc.f.mu.Unlock()
-	if queryErr != nil {
-		return cluster.ClusterCachedDataQueryResult{}, false, queryErr
-	}
 	if noQuery {
-		return cluster.ClusterCachedDataQueryResult{}, false, nil
+		return false, nil
 	}
-	res, err := fc.f.store.Query(ctx, sql, maxRows, maxBytes, args...)
-	if err != nil {
-		return cluster.ClusterCachedDataQueryResult{}, false, err
-	}
-	res.More = res.More || more
-	return res, true, nil
+	return true, fc.f.store.Read(ctx, func(query cluster.OwnQuery) error {
+		return read(func(sql string, maxRows, maxBytes int, args ...any) (cluster.ClusterCachedDataQueryResult, error) {
+			text := inlined(sql, args)
+			fc.f.mu.Lock()
+			fc.f.statements = append(fc.f.statements, text)
+			queryErr, more := fc.f.queryErr, fc.f.moreOn != "" && strings.Contains(text, fc.f.moreOn)
+			if !strings.Contains(text, fc.f.queryErrOn) {
+				queryErr = nil
+			}
+			before := fc.f.beforeStatement
+			fc.f.mu.Unlock()
+			if before != nil {
+				before(text)
+			}
+			if queryErr != nil {
+				return cluster.ClusterCachedDataQueryResult{}, queryErr
+			}
+			res, err := query(sql, maxRows, maxBytes, args...)
+			if err != nil {
+				return cluster.ClusterCachedDataQueryResult{}, err
+			}
+			res.More = res.More || more
+			return res, nil
+		})
+	})
 }
 
 func (fc fakeCachedData) ReadActive(ctx context.Context, id cluster.ClusterID, maxRows, maxBytes int, read func(cluster.CacheReading, cluster.ActiveCluster) error) error {

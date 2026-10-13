@@ -109,22 +109,52 @@ func (e *QueryError) Error() string { return e.Message }
 // first row, and rows.Next never looks at the context, so a statement slow past its first
 // row would outlive its deadline. Materializing it makes all of it run in that first
 // step. The wrap also makes it a subquery, which only a query can be.
-func (s *Store) Query(ctx context.Context, sql string, maxRows, maxBytes int, args ...any) (QueryResult, error) {
-	return s.query(ctx, false, sql, maxRows, maxBytes, args)
-}
-
-// QueryOwn is Query for a statement the sidecar wrote, on the pool that keeps its
-// connections between statements.
-func (s *Store) QueryOwn(ctx context.Context, sql string, maxRows, maxBytes int, args ...any) (QueryResult, error) {
-	return s.query(ctx, true, sql, maxRows, maxBytes, args)
-}
-
-// query runs sql on the file's own-query pool with own, else on KubeQuery's, under a
-// context the file's close cancels too.
-func (s *Store) query(ctx context.Context, own bool, sql string, maxRows, maxBytes int, args []any) (QueryResult, error) {
-	f, done, err := s.use()
+func (s *Store) Query(ctx context.Context, text string, maxRows, maxBytes int, args ...any) (QueryResult, error) {
+	var res QueryResult
+	err := s.onConn(ctx, false, func(ctx context.Context, f *file, conn *sql.Conn) error {
+		var err error
+		res, err = f.query(ctx, conn, text, maxRows, maxBytes, args)
+		return err
+	})
 	if err != nil {
 		return QueryResult{}, err
+	}
+	return res, nil
+}
+
+// Reading is statements the sidecar wrote, run by ReadOwn on one snapshot of the cache.
+type Reading struct {
+	ctx  context.Context
+	f    *file
+	conn *sql.Conn
+}
+
+// Query is Store.Query inside the reading.
+func (r Reading) Query(sql string, maxRows, maxBytes int, args ...any) (QueryResult, error) {
+	return r.f.query(r.ctx, r.conn, sql, maxRows, maxBytes, args)
+}
+
+// ReadOwn runs read's statements, which the sidecar wrote, inside one read transaction
+// on the pool that keeps its connections between readings, so every statement sees the
+// cache as the first one did: a reader that joins what several statements answer never
+// joins two states of the cache.
+func (s *Store) ReadOwn(ctx context.Context, read func(Reading) error) error {
+	return s.onConn(ctx, true, func(ctx context.Context, f *file, conn *sql.Conn) error {
+		if _, err := conn.ExecContext(ctx, "BEGIN"); err != nil {
+			return err
+		}
+		// A read-only transaction has nothing to undo; ending it frees the snapshot.
+		defer conn.ExecContext(context.Background(), "ROLLBACK") //nolint:errcheck
+		return read(Reading{ctx, f, conn})
+	})
+}
+
+// onConn runs use on a connection of the file's own-query pool with own, else of
+// KubeQuery's, under a context the file's close cancels too.
+func (s *Store) onConn(ctx context.Context, own bool, use func(context.Context, *file, *sql.Conn) error) error {
+	f, done, err := s.use()
+	if err != nil {
+		return err
 	}
 	defer done()
 	ctx, cancel := context.WithCancel(ctx)
@@ -135,25 +165,25 @@ func (s *Store) query(ctx context.Context, own bool, sql string, maxRows, maxByt
 	if own {
 		pool = f.ownQueryDB
 	}
-	res, err := f.query(ctx, pool, sql, maxRows, maxBytes, args)
-	if err != nil && f.queryCtx.Err() != nil {
-		return QueryResult{}, fmt.Errorf("cache %d: %w", s.cacheID, ErrClosed)
+	conn, err := queryConn(ctx, pool)
+	if err != nil {
+		return err
 	}
-	return res, err
+	defer conn.Close()
+	err = use(ctx, f, conn)
+	if err != nil && f.queryCtx.Err() != nil {
+		return fmt.Errorf("cache %d: %w", s.cacheID, ErrClosed)
+	}
+	return err
 }
 
-// query is Query on one of this file's query pools.
-func (f *file) query(ctx context.Context, pool *sql.DB, sql string, maxRows, maxBytes int, args []any) (QueryResult, error) {
+// query runs one statement on conn, a connection of one of this file's query pools.
+func (f *file) query(ctx context.Context, conn *sql.Conn, sql string, maxRows, maxBytes int, args []any) (QueryResult, error) {
 	sql = strings.TrimSpace(sql)
 	sql = strings.TrimSpace(strings.TrimSuffix(sql, ";"))
 	if strings.Contains(sql, ";") {
 		return QueryResult{}, &QueryError{Message: onlyOneQuery}
 	}
-	conn, err := queryConn(ctx, pool)
-	if err != nil {
-		return QueryResult{}, err
-	}
-	defer conn.Close()
 	if f.afterQuery != nil {
 		defer f.afterQuery()
 	}

@@ -18,6 +18,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -499,20 +500,67 @@ func TestAQueryConnectionLeavesNothingForTheNext(t *testing.T) {
 	assert.Equal(t, [][]any{{int64(0)}}, left.Rows)
 }
 
-// QueryOwn reads the views and binds its values as Query does, on a connection it keeps
-// for the next statement.
-func TestQueryOwnReadsTheViewsOnAKeptConnection(t *testing.T) {
+// A reading's statements read the views and bind their values as Query does, on a
+// connection the next reading takes again.
+func TestReadOwnReadsTheViewsOnAKeptConnection(t *testing.T) {
 	s := populated(t)
 	for range 2 {
-		res, err := s.QueryOwn(context.Background(), `SELECT resource FROM objects WHERE uid = ?`, 100, 1<<20, "pod")
-		require.NoError(t, err)
-		assert.Equal(t, [][]any{{"pods"}}, res.Rows)
+		require.NoError(t, s.ReadOwn(context.Background(), func(r Reading) error {
+			res, err := r.Query(`SELECT resource FROM objects WHERE uid = ?`, 100, 1<<20, "pod")
+			require.NoError(t, err)
+			assert.Equal(t, [][]any{{"pods"}}, res.Rows)
+			return nil
+		}))
 	}
 
 	f, err := s.file()
 	require.NoError(t, err)
 	assert.Equal(t, 1, f.ownQueryDB.Stats().OpenConnections)
 	assert.Zero(t, f.queryDB.Stats().OpenConnections)
+}
+
+// A reading's statements see the cache as its first did, whatever commits between
+// them, and the next reading sees the commit.
+func TestAReadingIsOneSnapshot(t *testing.T) {
+	ctx := context.Background()
+	s := populated(t)
+	pods := func(r Reading) [][]any {
+		res, err := r.Query(`SELECT name FROM objects WHERE kind = 'Pod' ORDER BY name`, 100, 1<<20)
+		require.NoError(t, err)
+		return res.Rows
+	}
+
+	require.NoError(t, s.ReadOwn(ctx, func(r Reading) error {
+		before := pods(r)
+		require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, owned(podKind, "pod-2", "api-7d9f-1", "rs")))
+		assert.Equal(t, before, pods(r))
+		return nil
+	}))
+	require.NoError(t, s.ReadOwn(ctx, func(r Reading) error {
+		assert.Equal(t, [][]any{{"api-7d9f-0"}, {"api-7d9f-1"}}, pods(r))
+		return nil
+	}))
+}
+
+// A reading that fails leaves its connection with no transaction open, so the next
+// reading on it sees the cache as it is.
+func TestAFailedReadingEndsItsTransaction(t *testing.T) {
+	ctx := context.Background()
+	s := populated(t)
+	failed := errors.New("failed")
+
+	require.ErrorIs(t, s.ReadOwn(ctx, func(r Reading) error {
+		_, err := r.Query(`SELECT 1`, 10, 1<<20)
+		require.NoError(t, err)
+		return failed
+	}), failed)
+	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, owned(podKind, "pod-2", "api-7d9f-1", "rs")))
+	require.NoError(t, s.ReadOwn(ctx, func(r Reading) error {
+		res, err := r.Query(`SELECT count(*) FROM objects WHERE kind = 'Pod'`, 10, 1<<20)
+		require.NoError(t, err)
+		assert.Equal(t, [][]any{{int64(2)}}, res.Rows)
+		return nil
+	}))
 }
 
 func TestAValuePastTheLengthLimitFails(t *testing.T) {
