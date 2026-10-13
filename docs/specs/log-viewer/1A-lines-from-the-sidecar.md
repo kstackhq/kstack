@@ -1,7 +1,7 @@
 ---
 title: Lines from the sidecar
 scope: sidecar
-status: Planned
+status: Built
 ---
 
 # Lines from the sidecar
@@ -47,6 +47,8 @@ type LogRecord {
   "The line, with terminal control sequences stripped and cut at 16 KiB."
   message: String!
   source: LogSource!
+  "Names this line: a fetch's cursor argument or a follow's `after` resumes past it. Opaque."
+  cursor: String!
 }
 
 "Where a line came from."
@@ -116,9 +118,21 @@ extend type Query {
   ): LogRecordsPage!
 }
 
+"One frame of a follow: a line, or the last frame, saying why the follow ended."
+type LogsFollowFrame {
+  type: LogsFollowFrameType!
+  record: LogRecord
+  reason: String!
+}
+
+enum LogsFollowFrameType {
+  Line
+  Ended
+}
+
 extend type Subscription {
   "A view's new lines as they are written, after the cursor, or from now with none."
-  logsFollow(id: ClusterID!, view: LogsViewInput!, after: String): LogRecord!
+  logsFollow(id: ClusterID!, view: LogsViewInput!, after: String): LogsFollowFrame!
 }
 ```
 
@@ -143,8 +157,8 @@ type Page struct {
     Skipped    []string
 }
 
-func (s *Service) Fetch(ctx context.Context, id cluster.ClusterID, view tools.LogsViewInput, q FetchQuery) (Page, error)
-func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, view tools.LogsViewInput, after *string) (*cluster.Stream[Record], error)
+func (s *Service) Fetch(ctx context.Context, id cluster.ClusterID, view View, q FetchQuery) (Page, error)
+func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, view View, after *string) (*cluster.Stream[FollowFrame], error)
 ```
 
 Each resolves the sources inside one `Clusters().ReadActive`, as the LogsView tool's resolve
@@ -160,7 +174,8 @@ goes through that connection's `BaseURL` and `HTTPClient`, as `kubeproxy.Endpoin
 nothing in `kubeconn` changes.
 
 **Resolving sources.** A `Pod` source is one pod. A workload source is the pods under it in the
-mirror's `ancestors` table, read as `tools/logsview`'s `mirror.go` reads them. Each pod gives one
+mirror, walked down its owner references from the workload, so a resolve never computes the whole
+cache's `ancestors`. Each pod gives one
 stream per container the source names; with none named, per container the pod has when
 `allContainers` is set, else for the pod's own default container, as `kubectl logs` picks it. The
 `previous` flag goes through to `PodLogOptions.Previous`.
@@ -184,14 +199,18 @@ is not imported, and nothing new from `client-go` is.
 
 What is copied from kubetail's `log-fetcher.go` is the algorithm, not its client: the forward
 stream that splits lines and parses the timestamp each starts with, and the backward stream that
-reads growing windows (`sinceTime` stepping back, `limitBytes` bounding each) until it has
-`limit` lines or reaches the start. Each call to `clientset.CoreV1().Pods().GetLogs(...)` in the
+finds the log's first line (`limitBytes`) and reads growing `tailLines` windows off the end until
+it has `limit` lines or reaches the start. Every byte read counts against the budget, which ends a
+window mid-read. Each call to `clientset.CoreV1().Pods().GetLogs(...)` in the
 original becomes a raw `GET` on the path above.
 
-**Merging a fetch.** One goroutine per stream, one merge that pops the oldest line across them
-(a heap keyed on timestamp, then pod and container for ties) and sends it on. Every stream of a
-fetch ends, so the heap never waits on one. The merge stops at `limit` and hands back the cursor
-of the last line, for `Tail` the oldest.
+**Merging a fetch.** One goroutine per stream, one merge that holds each stream's next line and
+sends the oldest on (ordered by timestamp, then pod, container and the line's ordinal among its
+container's lines at that timestamp). Every stream of a fetch ends, so the heap never waits
+on one. The merge stops at `limit` and hands back the cursor of the last line, for `Tail` the
+oldest. A cursor names that line — its timestamp, container and ordinal — so a page can end
+inside a run of lines stamped alike and the next page starts at the line after; a timestamp
+alone names a moment, which is what the `At` anchor sends.
 
 **Merging a follow.** Not a heap: a heap sends nothing until every stream has a line waiting,
 so one quiet container — a sidecar proxy, an idle replica — would hold back every other's lines
@@ -210,8 +229,9 @@ it, and the sidecar enforces the difference, never the API server.
 
 **A budget for a fetch.** A backward read for a rare grep pattern would otherwise pull every
 container's whole retained log through the API server in growing windows. Each fetch has a
-byte budget, 32 MiB read across its streams, and each stream a window cap of 16 reads. When
-either runs out, each stream has stopped at a time of its own, and a page holding every line
+byte budget, 32 MiB split evenly across its streams so a busy one cannot starve a quiet one, and
+each stream a window cap of 16 reads. When
+either runs out, each stream has stopped at a line of its own, and a page holding every line
 read would leave the next page skipping or repeating around them. So the page keeps only the
 lines on the far side of the **nearest** stopping point — on a backward read, newer than the
 newest point any stream stopped at; on a forward read, older than the oldest — and `nextCursor`
@@ -228,30 +248,36 @@ mirror read and the `GET` answers `404`. Such a stream is skipped and named: the
 `skipped` lists one line per stream, *api-7f9c/istio-proxy: container is waiting to start*, in
 the sidecar's words off the API server's. A page fails only when every stream failed, or on
 `401`, since that is the user's credentials and not one pod's state. A `403` is one stream's:
-access to `pods/log` is granted per namespace, so it is skipped and named like a `400`. A
-follow has no page to name a skipped stream on: it reopens one quietly when the pod's object
-changes in the mirror, and until then the user sees that container's lines missing and nothing
-saying so.
-That is accepted for this step; a follow-side notice is a later addition if it is missed.
+access to `pods/log` is granted per namespace, so it is skipped and named like a `400`. A follow
+has no page to name a skipped stream on. A stream that ends on a status under 500 has had the
+server's answer for that log, and reopens quietly when the pod's object changes in the mirror;
+until then the user sees that container's lines missing and nothing saying so. That is accepted
+for this step; a follow-side notice is a later addition if it is missed. A stream that ends on
+anything else — a `500`, a connection reset, a kubelet restart — was dropped, and reopens past its
+last line 2 s later.
 
 **Grep.** A regular expression over the message, compiled once per call with Go's `regexp`,
 applied after `stripControl` so a pattern matches what the user sees. The tool already refused a
 pattern that does not compile, so a failure here is a plain error.
 
-**A pod that comes or goes during a follow.** The follow opens `CachedData().WatchObjects` on
-`v1`/`pods` for the cache and checks each frame against the view's workloads through
-`ancestors`. A pod added under one opens its streams from the follow's start time; a pod
-deleted ends its streams, and the follow goes on. A `Pod` source whose pod is deleted ends when
-the API server closes it.
+**A pod that comes or goes during a follow.** The follow opens `CachedData().WatchObjectsIn` on
+`v1`/`pods` for the cache, narrowed to the view's namespaces and carrying no bodies, and resolves
+the view again after a burst of frames. A pod added under a workload opens its streams from the follow's cursor, or its start time with none; a pod
+deleted ends its streams, and the follow goes on. A `Pod` source whose pod is deleted leaves the
+view, and the follow ends once every source is such a pod. A watch the cache's clear ends clean is
+opened again.
 
-**How a follow ends.** `Follow` answers a `*cluster.Stream[Record]`, as every watch whose source
-can die does (`sidecar/CLAUDE.md`, *Streams and watches*), with `Err` set before `Frames`
-closes. `Err` is set when the claim is revoked (the cluster disabled or deleted), when a
-`401` arrives mid-stream, when every stream is gone, and when a `Pod` source's pod is
-deleted — each with its reason in the sidecar's words. The context ending is the one clean
-end. A bare channel close could not tell the webview any of these from a clean end, and the
-`watchFailed` reason step 2's error line and `subscribe-exchange`'s reconnect read would never
-arrive.
+**How a follow ends.** `Follow` answers a `*cluster.Stream[FollowFrame]`, as every watch whose
+source can die does (`sidecar/CLAUDE.md`, *Streams and watches*). An ending the user can read —
+the claim revoked (the cluster disabled or deleted), a `401` mid-stream, every container of the
+view ended (saying `403` when one ended on it),
+every source a `Pod` whose pod was deleted, the view grown past what Kstack reads at once, a kind
+the cache no longer mirrors — is one `Ended` frame carrying its reason in the sidecar's words,
+then a clean end. It is not a `watchFailed`: `subscribe-exchange` answers that by following again
+with the same variables, and a follow of a finished Job would end the same way each time. The
+webview stops subscribing on `Ended`. Any other ending sets `Err` before `Frames` closes, and
+reaches the webview as `watchFailed`, which reconnects. The context ending is a clean end with no
+frame.
 
 **Cleaning.** Every message goes through `stripControl` before it is sent: ESC-led CSI and OSC
 sequences and their one-character C1 forms (U+009B, U+009D), every other C1 control
@@ -263,9 +289,10 @@ what the user does not.
 
 `schema.resolvers.go`: `LogsFetch` calls `Fetch` and maps the page, `skipped` included;
 `LogsFollow` calls `Follow` and streams through `watchStream`, as every watch with an `Err`
-does — never `ptrStream`, which is for the schedule gauge, whose source cannot die. The input is mapped onto
-`tools.LogsViewInput` field by field. `LogsViewSourceKind` and `LogsViewFilterField` are bound
-in `gqlgen.yml` already; `LogsFetchMode` is new and binds to a type in `services/logs`.
+does — never `ptrStream`, which is for the schedule gauge, whose source cannot die. The input
+binds onto `logs.View` in `gqlgen.yml`, its two input types onto `logs.ViewSource` and
+`logs.ViewFilter`, and `LogsViewSourceKind`, `LogsViewFilterField` and the new `LogsFetchMode`
+onto `services/logs` types. A `*logs.Refusal` is a `KSTACK_VALIDATION_ERROR` carrying its words.
 
 ## Decisions this step asks for
 
@@ -287,26 +314,36 @@ in `gqlgen.yml` already; `LogsFetchMode` is new and binds to a type in `services
 - **A follow is ordered per container, not across them.** A total order needs a line from
   every stream, and a quiet stream would stall the rest. Arrival order is what `kubectl logs`
   gives for several pods, and the fetch, which is bounded, stays ordered.
+- **The view's vocabulary is the backend's.** A service may not import a tool
+  (`TestInternalFoldersAreLayers`), so `View`, `ViewSource`, `ViewFilter`, `SourceKind` and
+  `FilterField` live in `services/logs`, and `tools` names them as aliases: `LogsViewInput` is
+  `logs.View`, and `LogsViewAction` embeds it. The tool and the service still share one type.
+- **Backward windows grow by `tailLines`, as kubetail's do.** `sinceTime` has one-second precision,
+  so stepping it back cannot land a window on a line; the budget bounds what the windows re-read.
 - **A fetch has a budget.** 32 MiB and 16 windows per stream are large enough that an ordinary
   page never hits them and small enough that a rare grep cannot read the cluster's logs whole.
   Fewer lines with a cursor is honest; a page that never answers is not.
 
 ## Tasks
 
-1. **Schema.** §1 in `sidecar/graph/schema.graphqls`; `gqlgen generate`; root `pnpm codegen`.
-2. **The input type.** `tools.LogsViewInput` in `tools/tool.go`, the action's three fields, so
-   the tool and the service share it. `LogsViewAction` embeds it.
+Built as a stack of pull requests into `wip/log-views`; each task's status is **Built**.
+
+1. **Schema.** §1 in `sidecar/graph/schema.graphqls`; `gqlgen generate`; root `pnpm codegen`
+   (no operation reads them yet, so `src/gql/` is unchanged). **Built.**
+2. **The input type.** `logs.View` in `services/logs/view.go`, aliased as `tools.LogsViewInput`,
+   which `LogsViewAction` embeds. **Built.**
 3. **The claim.** `services/logs/claim.go`: the lease, `ConnFor` and the revocation watch, as
    `tools/bash/upstream.go`'s `claim` has them; the request over the connection's `BaseURL` and
-   `HTTPClient`, handing back the body as an `io.ReadCloser`.
+   `HTTPClient`, handing back the body as an `io.ReadCloser`. **Built.**
 4. **The fetcher.** `services/logs/fetcher.go`: the forward and backward streams from kubetail's
    `log-fetcher.go` and `helpers.go` over that request, with the agent fetcher left out, the
-   second rounding, the budget and the window cap.
+   second rounding, the budget and the window cap. **Built.**
 5. **Sources and filters.** `services/logs/sources.go`: pods off the mirror, node labels, filters.
-6. **The merge and the service.** `services/logs/service.go`, `merge.go`: §2.
-7. **Cleaning.** `services/logs/clean.go`: `stripControl`.
-8. **Resolvers.** §3. Built in `app/app.go` beside the tools.
-9. **Docs.** `sidecar/CLAUDE.md` gains a `services/logs` paragraph, per *When it lands*.
+   **Built.**
+6. **The merge and the service.** `services/logs/service.go`, `fetch.go`, `merge.go`, `follow.go` and `fanin.go`: §2. **Built.**
+7. **Cleaning.** `services/logs/clean.go`: `stripControl`. **Built.**
+8. **Resolvers.** §3. Built in `app/runtime.go` beside the cluster service. **Built.**
+9. **Docs.** `sidecar/CLAUDE.md` gains a `services/logs` paragraph, per *When it lands*. **Built.**
 
 ## Tests
 
@@ -328,22 +365,22 @@ Go, beside the files they cover:
   tie keeps a fixed order; `limit` cuts at the right end for `Head` and `Tail` and hands back
   the right cursor; a stream answering `400` or `404` is skipped and named in `skipped` while
   the others fill the page; every stream failing fails the page, one `401` fails it alone, and
-  a `403` is skipped;
-  a follow sends one stream's lines while another stays silent; a backward read that spends
-  its budget keeps only the lines newer than the newest stopping point and hands that point
-  back, and may answer no lines with a cursor; a stream that spends the budget before its first
-  line in range refuses the page.
+  a `403` is skipped; a backward read that spends its budget keeps only the lines newer than the
+  newest stopping point and hands that point back, and may answer no lines with a cursor; a
+  stream that spends the budget before its first line in range refuses the page.
+- `services/logs/fanin_test.go`: a follow sends one stream's lines while another stays silent.
 - `services/logs/clean_test.go`: ANSI colour and cursor sequences gone, the C1 forms gone, DEL
   gone, tabs kept, a line of 20 KiB cut to 16 with `…` on a character boundary (a multi-byte
   character astride the cut is dropped whole); grep matches the stripped text.
-- `services/logs/service_test.go`: a follow on a deployment picks up a pod added to the mirror
+- `services/logs/follow_test.go`: a follow on a deployment picks up a pod added to the mirror
   after it opened, and goes on after one is deleted; over a fake fetcher, since this is the
   merge's behaviour, not the API's.
 - `sidecar/graph/schema.resolvers_test.go`: `logsFetch` serves a page with its `skipped` and
-  refuses `limit: 501`; `logsFollow` streams, and a follow whose `Err` is set ends with a
-  `watchFailed` frame carrying the reason, as the other watches' tests pin it.
-- `services/logs/service_test.go` also: each ending in *How a follow ends* sets `Err` with its
-  reason, and a cancelled context sets none.
+  refuses `limit: 501`; `logsFollow` streams its lines, then the `Ended` frame, and a follow
+  whose `Err` is set ends with a `watchFailed` frame carrying the reason, as the other watches'
+  tests pin it.
+- `services/logs/follow_test.go` also: each ending in *How a follow ends* sends its `Ended`
+  frame, a failure sets `Err`, and a cancelled context sets neither.
 
 ## Security
 

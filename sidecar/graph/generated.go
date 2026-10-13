@@ -460,6 +460,12 @@ type ComplexityRoot struct {
 		Previous  func(childComplexity int) int
 	}
 
+	LogsFollowFrame struct {
+		Reason func(childComplexity int) int
+		Record func(childComplexity int) int
+		Type   func(childComplexity int) int
+	}
+
 	LogsViewAction struct {
 		Anchor   func(childComplexity int) int
 		Filters  func(childComplexity int) int
@@ -730,6 +736,7 @@ type ComplexityRoot struct {
 		ClusterScheduleWatch          func(childComplexity int, id apimeta.ClusterID) int
 		ClustersWatch                 func(childComplexity int) int
 		EventsWatch                   func(childComplexity int, id apimeta.ObjectID, category *string) int
+		LogsFollow                    func(childComplexity int, id apimeta.ClusterID, view logs.View, after *string) int
 		MemoriesWatch                 func(childComplexity int, clusterID apimeta.ClusterID) int
 		SandboxExecutablesWatch       func(childComplexity int) int
 	}
@@ -887,6 +894,7 @@ type SubscriptionResolver interface {
 	ChatsWatch(ctx context.Context) (<-chan *chat.ChatWatchFrame, error)
 	ChatMessagesWatch(ctx context.Context, chatID apimeta.ChatID) (<-chan *chat.ChatMessageWatchFrame, error)
 	MemoriesWatch(ctx context.Context, clusterID apimeta.ClusterID) (<-chan *memory.MemoryWatchFrame, error)
+	LogsFollow(ctx context.Context, id apimeta.ClusterID, view logs.View, after *string) (<-chan *logs.FollowFrame, error)
 	SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error)
 	AuthStateWatch(ctx context.Context) (<-chan *auth.State, error)
 }
@@ -2442,6 +2450,25 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.LogStream.Previous(childComplexity), true
 
+	case "LogsFollowFrame.reason":
+		if e.ComplexityRoot.LogsFollowFrame.Reason == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsFollowFrame.Reason(childComplexity), true
+	case "LogsFollowFrame.record":
+		if e.ComplexityRoot.LogsFollowFrame.Record == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsFollowFrame.Record(childComplexity), true
+	case "LogsFollowFrame.type":
+		if e.ComplexityRoot.LogsFollowFrame.Type == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsFollowFrame.Type(childComplexity), true
+
 	case "LogsViewAction.anchor":
 		if e.ComplexityRoot.LogsViewAction.Anchor == nil {
 			break
@@ -3804,6 +3831,17 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.Subscription.EventsWatch(childComplexity, args["id"].(apimeta.ObjectID), args["category"].(*string)), true
+	case "Subscription.logsFollow":
+		if e.ComplexityRoot.Subscription.LogsFollow == nil {
+			break
+		}
+
+		args, err := ec.field_Subscription_logsFollow_args(ctx, rawArgs)
+		if err != nil {
+			return 0, false
+		}
+
+		return e.ComplexityRoot.Subscription.LogsFollow(childComplexity, args["id"].(apimeta.ClusterID), args["view"].(logs.View), args["after"].(*string)), true
 	case "Subscription.memoriesWatch":
 		if e.ComplexityRoot.Subscription.MemoriesWatch == nil {
 			break
@@ -4951,6 +4989,18 @@ func (ec *executionContext) childFields_LogStream(ctx context.Context, field gra
 		return ec.fieldContext_LogStream_previous(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type LogStream", field.Name)
+}
+
+func (ec *executionContext) childFields_LogsFollowFrame(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "type":
+		return ec.fieldContext_LogsFollowFrame_type(ctx, field)
+	case "record":
+		return ec.fieldContext_LogsFollowFrame_record(ctx, field)
+	case "reason":
+		return ec.fieldContext_LogsFollowFrame_reason(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type LogsFollowFrame", field.Name)
 }
 
 func (ec *executionContext) childFields_LogsViewAction(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
@@ -6650,6 +6700,36 @@ func (ec *executionContext) field_Subscription_eventsWatch_args(ctx context.Cont
 		return nil, err
 	}
 	args["category"] = arg1
+	return args, nil
+}
+
+func (ec *executionContext) field_Subscription_logsFollow_args(ctx context.Context, rawArgs map[string]any) (map[string]any, error) {
+	var err error
+	args := map[string]any{}
+	arg0, err := graphql.ProcessArgField(ctx, rawArgs, "id",
+		func(ctx context.Context, v any) (apimeta.ClusterID, error) {
+			return ec.unmarshalNClusterID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋlibᚋapimetaᚐClusterID(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["id"] = arg0
+	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "view",
+		func(ctx context.Context, v any) (logs.View, error) {
+			return ec.unmarshalNLogsViewInput2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐView(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["view"] = arg1
+	arg2, err := graphql.ProcessArgField(ctx, rawArgs, "after",
+		func(ctx context.Context, v any) (*string, error) {
+			return ec.unmarshalOString2ᚖstring(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["after"] = arg2
 	return args, nil
 }
 
@@ -12796,6 +12876,84 @@ func (ec *executionContext) fieldContext_LogStream_previous(_ context.Context, f
 	return graphql.NewScalarFieldContext("LogStream", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
+func (ec *executionContext) _LogsFollowFrame_type(ctx context.Context, field graphql.CollectedField, obj *logs.FollowFrame) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsFollowFrame_type(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Type, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v logs.FollowFrameType) graphql.Marshaler {
+			return ec.marshalNLogsFollowFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐFollowFrameType(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsFollowFrame_type(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LogsFollowFrame", field, false, false, errors.New("field of type LogsFollowFrameType does not have child fields"))
+}
+
+func (ec *executionContext) _LogsFollowFrame_record(ctx context.Context, field graphql.CollectedField, obj *logs.FollowFrame) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsFollowFrame_record(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Record, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *logs.Record) graphql.Marshaler {
+			return ec.marshalOLogRecord2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐRecord(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_LogsFollowFrame_record(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LogsFollowFrame",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LogRecord(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LogsFollowFrame_reason(ctx context.Context, field graphql.CollectedField, obj *logs.FollowFrame) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsFollowFrame_reason(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Reason, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsFollowFrame_reason(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LogsFollowFrame", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
 func (ec *executionContext) _LogsViewAction_sources(ctx context.Context, field graphql.CollectedField, obj *tools.LogsViewAction) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -18297,6 +18455,50 @@ func (ec *executionContext) fieldContext_Subscription_memoriesWatch(ctx context.
 	}()
 	ctx = graphql.WithFieldContext(ctx, fc)
 	if fc.Args, err = ec.field_Subscription_memoriesWatch_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
+		ec.Error(ctx, err)
+		return fc, err
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _Subscription_logsFollow(ctx context.Context, field graphql.CollectedField) (ret func(ctx context.Context) graphql.Marshaler) {
+	return graphql.ResolveFieldStream(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_Subscription_logsFollow(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			fc := graphql.GetFieldContext(ctx)
+			return ec.Resolvers.Subscription().LogsFollow(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["view"].(logs.View), fc.Args["after"].(*string))
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *logs.FollowFrame) graphql.Marshaler {
+			return ec.marshalNLogsFollowFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐFollowFrame(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_Subscription_logsFollow(ctx context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "Subscription",
+		Field:      field,
+		IsMethod:   true,
+		IsResolver: true,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LogsFollowFrame(ctx, field)
+		},
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			err = ec.Recover(ctx, r)
+			ec.Error(ctx, err)
+		}
+	}()
+	ctx = graphql.WithFieldContext(ctx, fc)
+	if fc.Args, err = ec.field_Subscription_logsFollow_args(ctx, field.ArgumentMap(ec.Variables)); err != nil {
 		ec.Error(ctx, err)
 		return fc, err
 	}
@@ -23987,6 +24189,54 @@ func (ec *executionContext) _LogStream(ctx context.Context, sel ast.SelectionSet
 	return out
 }
 
+var logsFollowFrameImplementors = []string{"LogsFollowFrame"}
+
+func (ec *executionContext) _LogsFollowFrame(ctx context.Context, sel ast.SelectionSet, obj *logs.FollowFrame) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, logsFollowFrameImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("LogsFollowFrame")
+		case "type":
+			out.Values[i] = ec._LogsFollowFrame_type(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "record":
+			out.Values[i] = ec._LogsFollowFrame_record(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
+		case "reason":
+			out.Values[i] = ec._LogsFollowFrame_reason(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var logsViewActionImplementors = []string{"LogsViewAction"}
 
 func (ec *executionContext) _LogsViewAction(ctx context.Context, sel ast.SelectionSet, obj *tools.LogsViewAction) graphql.Marshaler {
@@ -26226,6 +26476,8 @@ func (ec *executionContext) _Subscription(ctx context.Context, sel ast.Selection
 		return ec._Subscription_chatMessagesWatch(ctx, fields[0])
 	case "memoriesWatch":
 		return ec._Subscription_memoriesWatch(ctx, fields[0])
+	case "logsFollow":
+		return ec._Subscription_logsFollow(ctx, fields[0])
 	case "sandboxExecutablesWatch":
 		return ec._Subscription_sandboxExecutablesWatch(ctx, fields[0])
 	case "authStateWatch":
@@ -27864,6 +28116,44 @@ var (
 	}
 )
 
+func (ec *executionContext) marshalNLogsFollowFrame2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐFollowFrame(ctx context.Context, sel ast.SelectionSet, v *logs.FollowFrame) graphql.Marshaler {
+	if v == nil {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+		return graphql.Null
+	}
+	return ec._LogsFollowFrame(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalNLogsFollowFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐFollowFrameType(ctx context.Context, v any) (logs.FollowFrameType, error) {
+	tmp, err := graphql.UnmarshalString(v)
+	res := unmarshalNLogsFollowFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐFollowFrameType[tmp]
+	return res, graphql.ErrorOnPath(ctx, err)
+}
+
+func (ec *executionContext) marshalNLogsFollowFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐFollowFrameType(ctx context.Context, sel ast.SelectionSet, v logs.FollowFrameType) graphql.Marshaler {
+	_ = sel
+	res := graphql.MarshalString(marshalNLogsFollowFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐFollowFrameType[v])
+	if res == graphql.Null {
+		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
+			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
+		}
+	}
+	return res
+}
+
+var (
+	unmarshalNLogsFollowFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐFollowFrameType = map[string]logs.FollowFrameType{
+		"Line":  logs.FollowLine,
+		"Ended": logs.FollowEnded,
+	}
+	marshalNLogsFollowFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐFollowFrameType = map[logs.FollowFrameType]string{
+		logs.FollowLine:  "Line",
+		logs.FollowEnded: "Ended",
+	}
+)
+
 func (ec *executionContext) marshalNLogsViewAnchor2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋtoolsᚐLogsViewAnchor(ctx context.Context, sel ast.SelectionSet, v tools.LogsViewAnchor) graphql.Marshaler {
 	return ec._LogsViewAnchor(ctx, sel, &v)
 }
@@ -29215,6 +29505,13 @@ var (
 		llm.DialectFake:            "Fake",
 	}
 )
+
+func (ec *executionContext) marshalOLogRecord2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐRecord(ctx context.Context, sel ast.SelectionSet, v *logs.Record) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._LogRecord(ctx, sel, v)
+}
 
 func (ec *executionContext) marshalOLogsViewAction2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋtoolsᚐLogsViewAction(ctx context.Context, sel ast.SelectionSet, v *tools.LogsViewAction) graphql.Marshaler {
 	if v == nil {

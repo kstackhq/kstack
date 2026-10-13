@@ -64,6 +64,9 @@ func comparePositions(a, b position) int {
 // compare orders rec against p.
 func compare(rec Record, p position) int { return comparePositions(positionOf(rec), p) }
 
+// compareLines orders two lines.
+func compareLines(a, b Record) int { return comparePositions(positionOf(a), positionOf(b)) }
+
 func comparePrevious(a, b bool) int {
 	switch {
 	case a == b:

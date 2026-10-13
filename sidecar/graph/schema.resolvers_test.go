@@ -3232,16 +3232,24 @@ func TestSandboxExecutableRemoveWorksWithNoSandbox(t *testing.T) {
 
 // --- Logs ---
 
-// fakeLogs is the log service answering a page, and keeping what it was asked.
+// fakeLogs is the log service answering page and stream, and keeping what it was
+// asked.
 type fakeLogs struct {
-	page  logs.Page
-	view  logs.View
-	query logs.FetchQuery
+	page   logs.Page
+	stream *cluster.Stream[logs.FollowFrame]
+	view   logs.View
+	query  logs.FetchQuery
+	after  *string
 }
 
 func (f *fakeLogs) Fetch(_ context.Context, _ cluster.ClusterID, view logs.View, q logs.FetchQuery) (logs.Page, error) {
 	f.view, f.query = view, q
 	return f.page, nil
+}
+
+func (f *fakeLogs) Follow(_ context.Context, _ cluster.ClusterID, view logs.View, after *string) (*cluster.Stream[logs.FollowFrame], error) {
+	f.view, f.after = view, after
+	return f.stream, nil
 }
 
 // logsView is a view's input as the client sends it.
@@ -3286,4 +3294,42 @@ func TestLogsFetchRefusesALimitPast500(t *testing.T) {
 
 	assert.Contains(t, string(raw), `"code":"KSTACK_VALIDATION_ERROR"`)
 	assert.Contains(t, string(raw), "a limit must be between 1 and 500")
+}
+
+// logsFollow streams each line, then the frame that ends it with its reason.
+func TestLogsFollowStreamsUntilItEnds(t *testing.T) {
+	stamp := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
+	release := make(chan struct{})
+	fake := &fakeLogs{stream: cluster.NewStream(t.Context(), func(ctx context.Context, out chan<- logs.FollowFrame) error {
+		out <- logs.FollowFrame{Type: logs.FollowLine, Record: &logs.Record{Timestamp: stamp, Message: "hello", Stream: logs.StreamKey{Pod: "web-1", Container: "app"}}}
+		<-release
+		out <- logs.FollowFrame{Type: logs.FollowEnded, Reason: "every container of this view has stopped"}
+		return nil
+	})}
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: fake}))
+	defer srv.Close()
+
+	resp, events := chatFrames(t, srv, `subscription { logsFollow(id: "7", view: `+logsView+`, after: "c") { type record { message stream { pod } } reason } }`)
+	defer resp.Body.Close()
+
+	assert.Contains(t, testutil.Recv(t, events, "the line").data, `"type":"Line","record":{"message":"hello"`)
+	assert.Equal(t, "c", *fake.after)
+	close(release)
+	ev := testutil.Recv(t, events, "the end")
+	assert.Contains(t, ev.data, `"type":"Ended","record":null,"reason":"every container of this view has stopped"`)
+	assert.NotContains(t, ev.data, `"watchFailed"`)
+}
+
+// A follow whose Err is set ends with the reason under the watchFailed extension.
+func TestLogsFollowReportsItsFailure(t *testing.T) {
+	fake := &fakeLogs{stream: cluster.NewStream(t.Context(), func(context.Context, chan<- logs.FollowFrame) error {
+		return errors.New("db closed")
+	})}
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: fake}))
+	defer srv.Close()
+
+	resp, events := chatFrames(t, srv, `subscription { logsFollow(id: "7", view: `+logsView+`) { type } }`)
+	defer resp.Body.Close()
+
+	assert.Contains(t, testutil.Recv(t, events, "the failure frame").data, `"watchFailed":true`)
 }
