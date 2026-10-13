@@ -115,6 +115,17 @@ func openFollowOf(t *testing.T, svc *Service, f *fakeService, view View) (*clust
 	return stream, cancel
 }
 
+// openEndingFollow opens a follow of webView over f that ends on its own. It
+// leaves the pods watch's snapshot open: the follow opens its streams before the
+// snapshot closes and can end before the test could close it, after which nothing
+// reads the watch.
+func openEndingFollow(t *testing.T, svc *Service) *cluster.Stream[FollowFrame] {
+	t.Helper()
+	stream, err := svc.Follow(t.Context(), "7", webView, nil)
+	require.NoError(t, err)
+	return stream
+}
+
 // closeSnapshot closes watch's snapshot and returns once the resolve that starts
 // has read the mirror, so a change the test makes next cannot race that read.
 func closeSnapshot(t *testing.T, f *fakeService, watch chan<- cluster.ClusterCachedDataObjectWatchFrame) {
@@ -242,9 +253,8 @@ func TestAFollowEndsWhenTheClusterIsDisabled(t *testing.T) {
 func TestAFollowEndsOnAnUnauthorizedStream(t *testing.T) {
 	s := newLogServer()
 	s.refuse["prod/web-1/app"] = refusal{http.StatusUnauthorized, "unauthorized"}
-	f := webMirror(t)
-	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollow(t, svc, f)
+	svc, _ := serviceOver(t, webMirror(t), s)
+	stream := openEndingFollow(t, svc)
 
 	assert.Equal(t, "the cluster refused to show this log: unauthorized", endedWith(t, stream))
 }
@@ -275,7 +285,7 @@ func TestAFollowThatEndsReleasesItsWatch(t *testing.T) {
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	f.podsDone = make(chan struct{})
-	stream, _ := openFollow(t, svc, f)
+	stream := openEndingFollow(t, svc)
 
 	assert.Equal(t, "the cluster refused to show this log: forbidden", endedWith(t, stream))
 	testutil.Wait(t, f.podsDone, "the pods watch to end")
