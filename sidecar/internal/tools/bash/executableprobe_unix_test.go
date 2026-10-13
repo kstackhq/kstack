@@ -344,11 +344,14 @@ func TestAProbesDiskReadIsBounded(t *testing.T) {
 // The run's build reads the disk again, after the PATH is built, and a read
 // that passes the deadline there fails the run the same way: the tool is
 // reported as run and could not start, and the next probe runs once the disk
-// answers. The hold lets the PATH build's read through and parks the run's.
+// answers. The hold lets the PATH build's read through and parks the run's,
+// and only the build's own bound is shrunk, so the parked read is the one
+// thing that can pass it.
 func TestAProbesRunBuildIsBounded(t *testing.T) {
+	assert.Equal(t, diskTimeout, newExecutableProbe().setupTimeout)
 	tl, fake, bin := probingTool(t)
 	writeExecutable(t, bin, "kubectl", "true")
-	tl.probe.diskTimeout = 50 * time.Millisecond
+	tl.probe.setupTimeout = 50 * time.Millisecond
 	fake.onSystem, fake.holdSys = func() {}, make(chan struct{}, 1)
 	fake.holdSys <- struct{}{}
 
@@ -359,7 +362,7 @@ func TestAProbesRunBuildIsBounded(t *testing.T) {
 	assert.NotEmpty(t, got[0].Resolved)
 
 	close(fake.holdSys)
-	tl.probe.diskTimeout = diskTimeout // a loaded runner can take 50ms to build a run
+	tl.probe.setupTimeout = diskTimeout // a loaded runner can take 50ms to build a run
 	next := tl.ProbeExecutables(t.Context(), nil)
 	assert.True(t, next[0].OK, next[0].Error)
 }

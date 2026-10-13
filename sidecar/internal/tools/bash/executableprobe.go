@@ -131,6 +131,9 @@ type executableProbe struct {
 	folders     func(context.Context) []session.Folder
 	timeout     time.Duration // probeTimeout, or a test's shorter one
 	diskTimeout time.Duration // diskTimeout, or a test's shorter one
+	// setupTimeout bounds a run's build, which reads the disk too: diskTimeout,
+	// or a test's shorter one that leaves the reads before it alone.
+	setupTimeout time.Duration
 
 	// ctx is what every probe runs on, ended by Close; wg counts the probes
 	// running.
@@ -161,7 +164,7 @@ func newExecutableProbe() *executableProbe {
 	ctx, stop := context.WithCancel(context.Background())
 	hub := watch.New(ProbeState{})
 	return &executableProbe{
-		ctx: ctx, stop: stop, timeout: probeTimeout, diskTimeout: diskTimeout,
+		ctx: ctx, stop: stop, timeout: probeTimeout, diskTimeout: diskTimeout, setupTimeout: diskTimeout,
 		hub: hub, tx: hub.Sender(),
 	}
 }
@@ -419,8 +422,8 @@ func (t *Tool) probeRun(ctx context.Context, argv []string) probeResult {
 	rt := tools.Runtime{Session: session.Session{Folders: t.probe.folders}, Dir: dir}
 	workspace := tools.WorkspacePath(dir)
 	// The run's build reads the disk as runProbe's PATH build does, and
-	// abandons the read only when its context ends, so it gets the same bound.
-	setup, cancel := context.WithTimeoutCause(ctx, t.probe.diskTimeout, errDiskTimeout)
+	// abandons the read only when its context ends, so it is bounded the same.
+	setup, cancel := context.WithTimeoutCause(ctx, t.probe.setupTimeout, errDiskTimeout)
 	sandboxed, err := t.sandboxedRunFor(setup, t.sandboxer, rt, workspace, false, session.NoNetwork)
 	// Read before the cancel, which sets a cause of its own; a failure of the
 	// build's own keeps its error.
