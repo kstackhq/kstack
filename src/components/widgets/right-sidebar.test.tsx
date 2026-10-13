@@ -47,7 +47,9 @@ const logsView: LogsView = {
   chatId: 'chat-1',
   callId: 'call-1',
   action: {
-    sources: [{ namespace: 'prod', kind: 'Deployment', name: 'webapp', containers: [], previous: false }],
+    sources: [
+      { namespace: 'prod', kind: 'Deployment', name: 'webapp', containers: [], allContainers: false, previous: false },
+    ],
     filters: [],
     grep: '',
     anchor: { kind: 'Tail', at: null },

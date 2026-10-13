@@ -203,15 +203,15 @@ var statements = []sqlstmt.Statement{
 	// it eighteen times. Read off one text, the extractions share SQLite's parse of it.
 	stmtInsertContainers: sqlstmt.OnWriter(`
 		INSERT INTO containers (
-			pod_uid, init, position, name, sidecar, image, image_id, ready, restarts, state,
-			reason, exit_code, last_reason, last_exit_code,
+			pod_uid, init, position, name, sidecar, image, image_id, container_id, ready, restarts,
+			state, reason, exit_code, last_reason, last_exit_code, last_container_id,
 			cpu_request, cpu_limit, memory_request, memory_limit
 		)
 		WITH c(v) AS MATERIALIZED (SELECT value FROM json_each(?2))
 		SELECT ?1, v ->> 'init', v ->> 'position', v ->> 'name', v ->> 'sidecar',
-			v ->> 'image', v ->> 'image_id', v ->> 'ready', v ->> 'restarts',
+			v ->> 'image', v ->> 'image_id', v ->> 'container_id', v ->> 'ready', v ->> 'restarts',
 			v ->> 'state', v ->> 'reason', v ->> 'exit_code', v ->> 'last_reason',
-			v ->> 'last_exit_code', v ->> 'cpu_request', v ->> 'cpu_limit',
+			v ->> 'last_exit_code', v ->> 'last_container_id', v ->> 'cpu_request', v ->> 'cpu_limit',
 			v ->> 'memory_request', v ->> 'memory_limit'
 		FROM c`),
 

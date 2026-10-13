@@ -227,7 +227,16 @@ const logsViewCall = (over: Partial<ChatToolCall> = {}) =>
       delegate: null,
       kubeQuery: null,
       logsView: {
-        sources: [{ namespace: 'prod', kind: 'Deployment', name: 'webapp', containers: ['app'], previous: false }],
+        sources: [
+          {
+            namespace: 'prod',
+            kind: 'Deployment',
+            name: 'webapp',
+            containers: ['app'],
+            allContainers: false,
+            previous: false,
+          },
+        ],
         filters: [],
         grep: '',
         anchor: { kind: 'Tail', at: null },

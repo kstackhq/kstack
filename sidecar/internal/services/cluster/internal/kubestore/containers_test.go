@@ -62,30 +62,52 @@ func TestContainersReadSpecAndStatus(t *testing.T) {
 		// Out of spec order, and nothing yet for the second container.
 		"initContainerStatuses": []any{
 			map[string]any{"name": "proxy", "ready": true, "restartCount": int64(0), "imageID": "envoy@sha256:b",
-				"state": map[string]any{"running": map[string]any{}}},
+				"containerID": "containerd://p1", "state": map[string]any{"running": map[string]any{}}},
 			map[string]any{"name": "migrate", "ready": false, "restartCount": int64(0), "imageID": "api@sha256:a",
-				"state": map[string]any{"terminated": map[string]any{"reason": "Completed", "exitCode": int64(0)}}},
+				"containerID": "containerd://m1",
+				"state": map[string]any{"terminated": map[string]any{
+					"reason": "Completed", "exitCode": int64(0), "containerID": "containerd://m1",
+				}}},
 		},
 		"containerStatuses": []any{
+			// A waiting state names no instance, whatever the status's own id says.
 			map[string]any{"name": "api", "ready": false, "restartCount": int64(4), "imageID": "api@sha256:a",
-				"state":     map[string]any{"waiting": map[string]any{"reason": "CrashLoopBackOff"}},
-				"lastState": map[string]any{"terminated": map[string]any{"reason": "OOMKilled", "exitCode": int64(137)}}},
+				"containerID": "containerd://a4",
+				"state":       map[string]any{"waiting": map[string]any{"reason": "CrashLoopBackOff"}},
+				"lastState":   map[string]any{"terminated": map[string]any{"reason": "OOMKilled", "exitCode": int64(137), "containerID": "containerd://a4"}}},
 		},
 		"ephemeralContainerStatuses": []any{map[string]any{"name": "debug", "ready": false}},
 	})
 
 	assert.Equal(t, []containerRow{
-		{Init: 1, Position: 0, Name: "migrate", Image: ptr("api:1"), ImageID: ptr("api@sha256:a"),
+		{Init: 1, Position: 0, Name: "migrate", Image: ptr("api:1"), ImageID: ptr("api@sha256:a"), ContainerID: ptr("containerd://m1"),
 			Ready: ptr(0), Restarts: ptr(int64(0)), State: ptr("terminated"), Reason: ptr("Completed"), ExitCode: ptr(int64(0)),
 			CPURequest: ptr(1.0), CPULimit: ptr(2.0), MemoryRequest: ptr(float64(1 << 30)), MemoryLimit: ptr(float64(2 << 30))},
-		{Init: 1, Position: 1, Name: "proxy", Sidecar: 1, Image: ptr("envoy:1"), ImageID: ptr("envoy@sha256:b"),
+		{Init: 1, Position: 1, Name: "proxy", Sidecar: 1, Image: ptr("envoy:1"), ImageID: ptr("envoy@sha256:b"), ContainerID: ptr("containerd://p1"),
 			Ready: ptr(1), Restarts: ptr(int64(0)), State: ptr("running")},
 		{Init: 0, Position: 0, Name: "api", Image: ptr("api:1"), ImageID: ptr("api@sha256:a"),
 			Ready: ptr(0), Restarts: ptr(int64(4)), State: ptr("waiting"), Reason: ptr("CrashLoopBackOff"),
-			LastReason: ptr("OOMKilled"), LastExitCode: ptr(int64(137)),
+			LastReason: ptr("OOMKilled"), LastExitCode: ptr(int64(137)), LastContainerID: ptr("containerd://a4"),
 			CPURequest: ptr(0.25), MemoryRequest: ptr(float64(512 << 20))},
 		{Init: 0, Position: 1, Name: "sidecar", Image: ptr("log:1")},
 	}, containersOf(u))
+}
+
+// A terminated state with no id of its own names none, whatever the status's own
+// id says: the kubelet then serves the last instance's log.
+func TestATerminatedStateNamesItsOwnInstance(t *testing.T) {
+	u := podOf(map[string]any{
+		"containers": []any{map[string]any{"name": "api", "image": "api:1"}},
+	}, map[string]any{
+		"containerStatuses": []any{map[string]any{"name": "api", "restartCount": int64(1), "containerID": "containerd://a2",
+			"state":     map[string]any{"terminated": map[string]any{"exitCode": int64(137)}},
+			"lastState": map[string]any{"terminated": map[string]any{"exitCode": int64(1), "containerID": "containerd://a1"}}}},
+	})
+
+	rows := containersOf(u)
+	require.Len(t, rows, 1)
+	assert.Nil(t, rows[0].ContainerID)
+	assert.Equal(t, ptr("containerd://a1"), rows[0].LastContainerID)
 }
 
 // An entry that is not an object says nothing, in either list: the container is skipped,

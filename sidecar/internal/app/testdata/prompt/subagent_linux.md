@@ -149,8 +149,8 @@ events: rowid, uid, involved_uid, involved_kind, involved_namespace, involved_na
   type, reason, message, first_seen, last_seen, count, body (JSON)
 status_history: uid, at, status
 kinds: api_version, api_group, version, kind, resource, scope, is_crd, count
-containers: pod_uid, name, init, position, sidecar, image, image_id, ready, restarts, state, reason,
-  exit_code, last_reason, last_exit_code, cpu_request, cpu_limit, memory_request, memory_limit
+containers: pod_uid, name, init, position, sidecar, image, image_id, container_id, ready, restarts, state, reason,
+  exit_code, last_reason, last_exit_code, last_container_id, cpu_request, cpu_limit, memory_request, memory_limit
   (cores and bytes)
 selects: selector_uid, uid (the Pods each selector matches in its namespace)
 refs: uid, path, to_group, to_kind, to_namespace, to_name, key, optional, to_uid, to_listed
@@ -160,7 +160,7 @@ refs: uid, path, to_group, to_kind, to_namespace, to_name, key, optional, to_uid
 - `status`, `ready`, `total`, `restarts`, `node`: Kstack's readings where a kind has one (a Pod's phase or waiting reason, ready and total containers, restarts, node; a workload's ready and desired replicas; a Node's condition), else null. `owner_uid` is the controller owner.
 - `changed_at` is when the cache last saw the object change, or first listed it. Leases, Nodes and EndpointSlices change every few seconds. `status_history` is every change of `status`.
 - `events` keeps an event after the cluster expires it. `events_fts` searches `reason` and `message`: `SELECT * FROM events WHERE rowid IN (SELECT rowid FROM events_fts('ImagePullBackOff'))`.
-- `containers` is one row per container of each Pod, init containers included (`init` 1), from its spec and status; ephemeral containers are not in it. `position` is its index in its list. `sidecar` 1 is an init container that runs beside the others. `last_reason` and `last_exit_code` are the run before, where an OOMKilled crash shows.
+- `containers` is one row per container of each Pod, init containers included (`init` 1), from its spec and status; ephemeral containers are not in it. `position` is its index in its list. `sidecar` 1 is an init container that runs beside the others. `last_reason` and `last_exit_code` are the run before, where an OOMKilled crash shows. `container_id` is the runtime's id of the instance the state describes, null while it waits; `last_container_id` is the run before's.
 - What a Pod asks of its node, per resource, is the larger of its containers and sidecars summed and, for each other init container, its request plus the sidecars at a lower `position` (a window over `position` sums them); then `body ->> '$.spec.overhead'` added. A Pod that sets `body ->> '$.spec.resources'` asks that for what it sets, plus its overhead. `containers` reads the spec, so a resize in progress can hold more. A Pod whose phase (`body ->> '$.status.phase'`, not `status`) is `Succeeded` or `Failed` holds nothing.
 - `quantity(text)` is a Kubernetes quantity as a number: `quantity('250m')` is 0.25, `quantity('1Gi')` is 1073741824, and text that is not a quantity is null.
 - `selects` covers a Service's selector, a workload's, a PodDisruptionBudget's and a NetworkPolicy's `podSelector`.

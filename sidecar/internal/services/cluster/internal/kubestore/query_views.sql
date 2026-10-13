@@ -34,8 +34,9 @@ CREATE TEMP VIEW labels AS
 SELECT uid, key, value FROM main.labels;
 
 CREATE TEMP VIEW containers AS
-SELECT pod_uid, name, init, position, sidecar, image, image_id, ready, restarts, state, reason,
-       exit_code, last_reason, last_exit_code, cpu_request, cpu_limit, memory_request, memory_limit
+SELECT pod_uid, name, init, position, sidecar, image, image_id, container_id, ready, restarts, state,
+       reason, exit_code, last_reason, last_exit_code, last_container_id,
+       cpu_request, cpu_limit, memory_request, memory_limit
 FROM main.containers;
 
 -- Each selector beside each Pod of its namespace for which no term fails. A NotIn or

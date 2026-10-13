@@ -23,8 +23,15 @@ import { LogsViewCard } from './logs-view-card';
 
 const action: LogsViewAction = {
   sources: [
-    { namespace: 'prod', kind: 'Deployment', name: 'web‮app', containers: ['app'], previous: false },
-    { namespace: 'prod', kind: 'Pod', name: 'db-0', containers: [], previous: true },
+    {
+      namespace: 'prod',
+      kind: 'Deployment',
+      name: 'web‮app',
+      containers: ['app'],
+      allContainers: false,
+      previous: false,
+    },
+    { namespace: 'prod', kind: 'Pod', name: 'db-0', containers: [], allContainers: false, previous: true },
   ],
   filters: [],
   grep: 'error',
