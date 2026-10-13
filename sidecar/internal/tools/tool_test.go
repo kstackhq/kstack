@@ -70,7 +70,7 @@ func TestLogsViewActionEmbedsTheInput(t *testing.T) {
 	raw, err := json.Marshal(action)
 
 	require.NoError(t, err)
-	assert.JSONEq(t, `{"sources":[{"namespace":"prod","kind":"deployment","name":"web","containers":["app"],"previous":false}],
+	assert.JSONEq(t, `{"sources":[{"namespace":"prod","kind":"deployment","name":"web","containers":["app"],"allContainers":false,"previous":false}],
 "filters":[{"field":"zone","values":["a"]}],"grep":"err","anchor":{"kind":"at","at":"2026-10-08T14:00:00Z"},"pinToEnd":true}`, string(raw))
 	var view logs.View = action.LogsViewInput
 	assert.Equal(t, "err", view.Grep)

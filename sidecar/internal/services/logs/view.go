@@ -29,15 +29,21 @@ type View struct {
 }
 
 // ViewSource is one resource a view reads, in its Namespace, by Kind and Name: its
-// Containers by exact name, every one when empty, and Previous for the instance
+// Containers by exact name; with none named, every container when AllContainers
+// is set, else each pod's default container; and Previous for the instance
 // before the last restart, which is finished.
 type ViewSource struct {
-	Namespace  string     `json:"namespace"`
-	Kind       SourceKind `json:"kind"`
-	Name       string     `json:"name"`
-	Containers []string   `json:"containers"`
-	Previous   bool       `json:"previous"`
+	Namespace     string     `json:"namespace"`
+	Kind          SourceKind `json:"kind"`
+	Name          string     `json:"name"`
+	Containers    []string   `json:"containers"`
+	AllContainers bool       `json:"allContainers"`
+	Previous      bool       `json:"previous"`
 }
+
+// DefaultContainerAnnotation is kubectl's: the container a pod's author made the
+// default, on the pod or on a workload's pod template.
+const DefaultContainerAnnotation = "kubectl.kubernetes.io/default-container"
 
 // SourceKind is a kind the backend reads: a pod, or a workload whose pods it
 // follows. The GraphQL LogsViewSourceKind enum binds member by member onto it.
@@ -72,15 +78,19 @@ const (
 	FilterArch   FilterField = "arch"
 )
 
-// mirrorKinds is each source kind's api_version and Kind in the mirror.
-var mirrorKinds = map[SourceKind]struct{ apiVersion, kind string }{
-	SourcePod:         {"v1", "Pod"},
-	SourceDeployment:  {"apps/v1", "Deployment"},
-	SourceStatefulSet: {"apps/v1", "StatefulSet"},
-	SourceDaemonSet:   {"apps/v1", "DaemonSet"},
-	SourceReplicaSet:  {"apps/v1", "ReplicaSet"},
-	SourceJob:         {"batch/v1", "Job"},
-	SourceCronJob:     {"batch/v1", "CronJob"},
+// mirrorKind is a source kind's api_version and Kind in the mirror, and its
+// plural resource, as kubectl and a refusal name it.
+type mirrorKind struct{ apiVersion, kind, resource string }
+
+// mirrorKinds is each source kind's mirrorKind.
+var mirrorKinds = map[SourceKind]mirrorKind{
+	SourcePod:         {"v1", "Pod", "pods"},
+	SourceDeployment:  {"apps/v1", "Deployment", "deployments"},
+	SourceStatefulSet: {"apps/v1", "StatefulSet", "statefulsets"},
+	SourceDaemonSet:   {"apps/v1", "DaemonSet", "daemonsets"},
+	SourceReplicaSet:  {"apps/v1", "ReplicaSet", "replicasets"},
+	SourceJob:         {"batch/v1", "Job", "jobs"},
+	SourceCronJob:     {"batch/v1", "CronJob", "cronjobs"},
 }
 
 // MirrorKind is kind's api_version and Kind in the mirror.

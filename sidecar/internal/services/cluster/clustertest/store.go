@@ -19,6 +19,7 @@ package clustertest
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -31,7 +32,11 @@ import (
 )
 
 // Store is one cache's store, open for the test's life.
-type Store struct{ s *kubestore.Store }
+type Store struct {
+	s *kubestore.Store
+	// applied counts the bodies applied, the resourceVersion the next one takes.
+	applied int
+}
 
 // NewStore opens an empty store in a directory of the test's.
 func NewStore(t testing.TB) *Store {
@@ -41,16 +46,38 @@ func NewStore(t testing.TB) *Store {
 	s, err := m.OpenOrCreate(1)
 	require.NoError(t, err)
 	t.Cleanup(s.Release)
-	return &Store{s}
+	return &Store{s: s}
 }
 
-// Apply adds or replaces body, as a watch's Added would. Its resource is its kind's
-// lower-case plural.
+// Apply adds or replaces body, as a watch's Added would, and mirrors its kind,
+// cluster-scoped when the body names no namespace. Its resource is its kind's
+// lower-case plural, and its resourceVersion a fresh one, written into body,
+// since a body applied again under the one it had is no change to the store.
 func (s *Store) Apply(t testing.TB, body map[string]any) {
 	t.Helper()
 	u := &unstructured.Unstructured{Object: body}
+	s.applied++
+	u.SetResourceVersion(strconv.Itoa(s.applied))
+	scope := kubestore.ScopeNamespaced
+	if u.GetNamespace() == "" {
+		scope = kubestore.ScopeCluster
+	}
+	s.mirror(t, u.GetAPIVersion(), u.GetKind(), scope)
 	k := kubestore.Kind{APIVersion: u.GetAPIVersion(), Kind: u.GetKind(), Resource: strings.ToLower(u.GetKind()) + "s"}
 	require.NoError(t, s.s.ApplyChange(context.Background(), k, watch.Added, u))
+}
+
+// Mirror adds a namespaced kind to the kinds the cache mirrors, as its sync does
+// when it starts, so the kinds view holds it with no object of it applied.
+func (s *Store) Mirror(t testing.TB, apiVersion, kind string) {
+	t.Helper()
+	s.mirror(t, apiVersion, kind, kubestore.ScopeNamespaced)
+}
+
+func (s *Store) mirror(t testing.TB, apiVersion, kind, scope string) {
+	t.Helper()
+	row := kubestore.KindRow{APIVersion: apiVersion, Kind: kind, Resource: strings.ToLower(kind) + "s", Scope: scope}
+	require.NoError(t, s.s.SyncKinds(context.Background(), []kubestore.KindRow{row}, false, 0))
 }
 
 // Query runs sql over the query views, as CachedData's QueryOwn does for a

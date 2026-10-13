@@ -96,7 +96,7 @@ files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
 - `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.Settings` is `settings.Service`, the settings store with the frozen `PATH` kept in it; its resolvers are `settingsRefused`, and `sandboxPath`, `sandboxPathFault` and the three `sandboxPath*` mutations, which answer an empty list, no fault and a refusal on a machine with no sandbox. A `settings.PathRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxPathErr`). Its permission resolvers are `permissionSettings` and the six `permission*` mutations, each answering the settings it left (`permissionSettings` in `util.go`, the known contexts read off `Clusters().List`), and a refused one `KSTACK_VALIDATION_ERROR` with the reason (`permissionsAfter`); a rule's id is `appdb.NewID()`. The folder resolvers are `sandboxFolders(chatID)` and `folderGrant` and `folderRevoke`, each answering the whole `SandboxFolders` (the always grants and the chat's with each `refused` reason, the never-readable list and the wide folders; empty lists on a machine with no sandbox), through `agent/chat`, where an empty chat id is no chat: a `Chat` grant with no `chatID`, or an empty one, is `KSTACK_VALIDATION_ERROR`, so it never widens to every chat, and an `Always` one ignores it. A `FolderRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` whose `rule` is the check's, with a link's `target` beside it (`folderErr`). The executable resolvers are `sandboxExecutables`, `sandboxExecutablesProbe`, `sandboxExecutableRegister` and `sandboxExecutableRemove`, each answering the whole report through `Resolver.Executables` (an `ExecutableProber`, the Bash tool), `Report` laying the last probe over the list; `sandboxExecutablesProbe` only starts one (`StartProbe`), since a probe can outlast the host's request budget, and **`sandboxExecutablesWatch` is the gauge its end reaches**: `WatchProbe`'s `ProbeState` and the settings store's settings, each a current-on-subscribe receiver, folded into one `SandboxExecutablesReport` — `probing`, and `bash.ReportOver` the state's last report and the settings' registered executables — on either's change. With no sandbox or no shell the query is empty, the watch answers one empty report, and the probe and a register are refused. A `settings.ExecutableRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxExecutableErr`).
 - `grpc/` — `AuthService`, `PokeService`, committed protoc output in `authpb/`, `pokepb/`. Regenerate with `make proto`; **never hand-edit `*.pb.go`**. `IsGRPCRequest` lives here.
 - `internal/` groups its packages by one rule → [ADR: services, lib and the rest](../docs/adr/2026-10-06-sidecar-packages-group-into-services-lib-and-the-rest.md), and every folder is a layer (*Where a new package goes*, below):
-  - `internal/services/` — a package that owns state outliving a request (rows, a watch, a connection, goroutines), is reached from `graph/` or `grpc/`, and sits below the tools — the services a tool may import; `chat`, the one service built on the tools, is `agent/chat`: `auth`, `cluster` (with `cluster/clustercard` under it, the cluster as a run is told it: a projection of the service, below the tools that name the context and the freshness as it does; and `cluster/clustertest`, test-only, a real cache store with the query views for a test outside the package: `NewStore`, `Apply` a body, `Query`), `kubeconfig`, `logs` (a view's log lines, under *Tools* beside LogsView), `memory` (the notes a chat's cluster sees, below), `poke`, `settings` (the user's settings and the sandbox state derived from them, below).
+  - `internal/services/` — a package that owns state outliving a request (rows, a watch, a connection, goroutines), is reached from `graph/` or `grpc/`, and sits below the tools — the services a tool may import; `chat`, the one service built on the tools, is `agent/chat`: `auth`, `cluster` (with `cluster/clustercard` under it, the cluster as a run is told it: a projection of the service, below the tools that name the context and the freshness as it does; and `cluster/clustertest`, test-only, a real cache store with the query views for a test outside the package: `NewStore`, `Apply` a body, `Mirror` a kind, `Query`), `kubeconfig`, `logs` (a view's log lines, under *Tools* beside LogsView), `memory` (the notes a chat's cluster sees, below), `poke`, `settings` (the user's settings and the sandbox state derived from them, below).
   - `internal/lib/` — a building block that knows nothing of Kstack's domain; `lib` is a folder, never a package name: `apimeta` (wire vocabulary no service owns — the delta-frame type, `ObjectID`, `ClusterID`, which `services/cluster` aliases, and `ChatID`, which `agent/chat` aliases and `services/memory` and `tools.Runtime` name), `atomicjson`, `deltafold` (a watch's memory: `Snapshot`/`Diff`/`Upsert`/`Has` over a caller's key, equality and frame, plus `Send`; imports `apimeta` alone), `drain`, `ipc`, `jsonsettings` (a settings struct kept in one hand-editable JSON file, under *Settings*), `lifecycle`, `logging`, `rawjson`, `rootdir` (a directory opened and removed through an `os.Root`, under *Tools*), `safe` (an error rendered for a log line, and a command's output redacted: `Redact` line by line, `RedactJSON` a JSON text by its structure, for text that is one line with its newlines escaped; the field and flag rules read a credential's name off `credentialNames`, with or without the separator inside it, so camelCase keys match), `sqlitemigrate` (the migration runner, `Apply`), `sqlitepool` (the one home of the SQLite open contract: `OpenWriter` a store's one writer connection, `OpenReader` a reader pool, `OpenQuery` read-only connections through a caller's driver with none kept idle, and `OpenOwnQuery` the same connections, kept, for statements the caller wrote), `sqlstmt` (a store's statement table, prepared once on a file's writer and reader pools and routed per call: a `[]sqlstmt.Statement` indexed by the store's own id type, each entry its text and pool — `OnWriter`, `OnReader`, or `OnBoth` for a read some caller runs inside a write transaction; `Prepare[ID]` compiles it at open, since modernc caches nothing and a text handed to a pool at a call site is compiled every time; `Set.Stmts()` issues on the pools, `Set.InTx` inside one write transaction, `Set.InReadTx` inside one read-only transaction on the reader, always rolled back; inside a transaction the copy rebound, once per id, is the one prepared on that transaction's pool, and an id its pool does not hold panics; `Set.Close` finalizes the statements alone, and a closed set refuses `InTx`/`InReadTx` with `ErrClosed`, since `Tx.StmtContext` would quietly re-prepare a closed statement; imports nothing of ours; → [ADR: one statement set](../docs/adr/2026-09-16-sqlstmt-prepares-a-services-statements.md)), `supervisor`, `testutil` (test-only, imported by no production code), `version` (`Version` is `dev` unless the linker stamped it: `scripts/build-sidecar.go` passes `-X …/internal/lib/version.Version=$SIDECAR_VERSION` when set, `release.yml` sets it to the release version, and `main` logs it on the `sidecar starting` line; nothing reads a version from the environment or a file), `workqueue`.
   - `internal/llm/` — a call to a model, importing nothing of ours (*Models*, below).
   - `internal/run/` — what confines one run, the leaves the tools stand on: `permissions` (the classes, modes and rules a cluster write is decided by, under *Tools*), `sandbox` (the machine's sandbox and a run's forwarder, under *Tools*), `session` (one agent run's identity and policy, under *Tools*), `kubeproxy` (the cluster proxy a sandboxed run reaches its cluster through, under *Tools*), `loginshell` (below).
@@ -2050,9 +2050,9 @@ and answers a one-line receipt, reading no log line. Its `Action(input)` answers
 view is the run's. The action is what the log backend takes. `Sources`, whose lines
 the backend merges by timestamp: each a namespace, a `LogsSourceKind` (a pod, or a workload whose
 pods the backend follows) and a name, parsed once from the `<kind>/<name>` the model types; its
-`Containers` by exact name — the default container, resolved off the mirror as `kubectl logs`
-resolves it (the `kubectl.kubernetes.io/default-container` annotation, else the first), unless
-the call names some or asks for `all_containers`, the empty list — and `Previous`, the finished
+`Containers` by exact name, the ones the call names, else empty; `AllContainers`, the call's
+`all_containers`; and with neither, each pod's default container, which the backend picks per pod
+as `kubectl logs` does — and `Previous`, the finished
 instance before the last restart, checked off the mirror's `containers` table. `Filters`, each a
 `LogsFilterField` (node, region, zone, os, arch: where a line ran, never its container) and the
 values allowed. `Grep`, a regular expression over each line's message. Those three are `LogsViewInput`, which the action embeds: `services/logs`' `View`, aliased in `tools` with its source kind and filter field, since a service cannot import a tool. `Anchor`, a
@@ -2064,18 +2064,24 @@ each value's type off its token, a resource as kubectl spells it (plural, singul
 namespace, name and container a DNS name, `all_containers` refused beside `containers`, a filter's
 list never empty, a `grep` that compiles on one line of at most 1,000 bytes. `resolve`
 (`resolve.go`) reads the anchor on the tool's clock — `tail` (the default), `head`, an RFC 3339
-time, or a positive Go duration back from now — then, inside one `CachedData().ReadActive`, each source off the cache's views (`mirror.go`, every value bound to a
-placeholder, each kind's `api_version` and `Kind` off `logs.MirrorKind`): a pod's containers and restarts off the
-`containers` table, a workload's off its pod template in `body`, the default container the
-annotation's when the source has it, else the first, and for `previous` on a workload the pods
-under it in `ancestors` with a restarted container among those shown. A refusal is one JSON line:
-`bad-input` with the `field` and, inside a source, its `source` index, never the model's text;
-`not-found`, `no-container` (with the `containers` it has) and `no-previous` by `source`;
-`no-cache`; `syncing`; `read-failed` with none of its text. **The receipt** is the first source,
+time, or a positive Go duration back from now — then, inside one `CachedData().ReadActive`, each
+source off the cache's views (`mirror.go`, every value bound to a placeholder, each kind's
+`api_version` and `Kind` off `logs.MirrorKind`): a pod's containers off the `containers` table, a
+workload's off its pod template in `body`, the default the receipt names the annotation's when
+the source has it, else the first. **A source the mirror does not hold yet opens**, checking
+nothing: a view waits for a workload or a fixed-name pod to start. Then the whole view goes through
+`logs.Check`, the logs service's own resolve over the same reading, so a view the tool opens is one
+the service reads; each source's `SourceState` becomes a receipt line, and `ErrTooMany` and
+`Unmirrored` the tool's codes. For `previous` on a workload, `logs.CountPods` counts the receipt's
+`previous instance of N of M pods`. `mirror_test.go` and the tests in `logsview_test.go` run every
+read over a real store (`cluster/clustertest`). A refusal is one JSON line: `bad-input` with the
+`field` and, inside a source, its `source` index, never the model's text; `no-container` (with the
+`containers` it has) by `source`; `too-many`; `not-mirrored`, by `source` unless the cache holds
+no pods; `no-cache`; `syncing`; `read-failed` with none of its text. **The receipt** is the first source,
 how many more, the anchor (`from the start`, `at the newest line`, `from <time>`) and `pinned to
 the end`, then each source's note — `defaulted container app out of app, istio-proxy`,
-`containers …` for the ones named or all, `previous instance`, `previous instance of 2 of 3
-pods` — under its name when there are several, then `Matching /<grep>/`, the whole through
+`containers …` for the ones named or all, `every container`, `default container`, `previous instance`, `previous
+instance of 2 of 3 pods`, `not in Kstack's cache of the cluster yet`, `nothing to read yet` — under its name when there are several, then `Matching /<grep>/`, the whole through
 `safe.Redact`. It is in `catalog`'s `ours` and `app.go`'s box after KubeQuery, and out of
 `SubagentBox` and `MonitorBox`: a view is the user's window. → `docs/specs/log-views/`.
 
@@ -2084,6 +2090,34 @@ pods` — under its name when there are several, then `Matching /<grep>/`, the w
 `api_version` and `Kind` in the mirror. The LogsView tool's action embeds `View`, and `tools`
 aliases the types, since a service cannot import a tool. The root `.gitignore` ignores `logs`, so
 the package has its own exception there. → `docs/specs/log-viewer/`.
+
+**A view resolves inside one `CachedData().ReadActive`** (`sources.go`), as LogsView's does, and
+answers `ErrNoCache` or `ErrSyncing` when it cannot. A `Pod` source is its pod. A workload's pods
+are walked down its controller references from it (`podsOf`), which `CountPods` shares. Each pod
+gives one stream per container named; with none named, per container when `AllContainers` is
+set, else for its default container (`containersOf`: the
+`kubectl.kubernetes.io/default-container` annotation's when it names one of the pod's containers,
+else its first container, never an init container), its init containers first,
+each with a log the kubelet serves: a `container_id`, or a `last_container_id` standing in while
+the container waits, as `kubectl logs` reads it. A previous instance reads only the containers
+with one (a `last_container_id`). A stream is named by its `StreamKey` (namespace, pod, container, previous),
+which is what two sources reading one container agree on. Its `Place` (`record.go`) is where its
+pod runs: its node. `Refusal` is a value, so no caller can change a sentinel's words.
+
+The containers narrow the pods statement. **A view follows each source as its object and pods
+come and go**, so no source is refused for reading nothing now. Each carries a `SourceState`
+instead: `Reading`, `Missing` (its object is not in the cache yet) or `Idle` (its object is there
+with nothing to read yet). A view is refused as `Unmirrored` when the cache does not mirror pods or
+a source's kind (the `kinds` view), since nothing could ever appear to follow, and a kind outside
+the enum is refused. `Check` runs the same resolve for the LogsView tool. `clustertest`'s `Apply`
+mirrors the kind it applies, cluster-scoped when the body names no namespace, and stamps the body
+with a fresh `resourceVersion`, so applying a body again is a change the store keeps, and `Mirror`
+mirrors a namespaced kind with no object.
+
+Each pods statement reads at most `maxStreams` (100) plus one rows, and a view past `maxStreams`
+containers is refused, since each is its own request to the API server. The reading's row cap is
+the same `maxStreams` plus one; an answer cut at it or at the byte cap is refused, never read as
+every source. The tests run every statement over a real store (`cluster/clustertest`).
 
 **KubeQuery (`tools/kubequery`) is read-only SQL over the chat's cluster's cache, run without
 asking.** It is `Custom` and `Bounded` (10 s, whatever the input), never `Gated`. `parse` is the

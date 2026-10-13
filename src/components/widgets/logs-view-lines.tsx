@@ -31,7 +31,8 @@ export function Names({ names }: { names: string[] }) {
   ));
 }
 
-// `Deployment webapp in prod (app, istio-proxy), previous instance`.
+// `Deployment webapp in prod (app, istio-proxy), previous instance`. A source
+// naming no container reads each pod's default, which needs no words.
 export function SourceLine({ source }: { source: Source }) {
   return (
     <>
@@ -42,6 +43,7 @@ export function SourceLine({ source }: { source: Source }) {
           <Names names={source.containers} />)
         </>
       )}
+      {source.allContainers && ' (every container)'}
       {source.previous && ', previous instance'}
     </>
   );

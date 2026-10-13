@@ -120,6 +120,7 @@ const ChatMessagesWatchSubscription = graphql(`
                 kind
                 name
                 containers
+                allContainers
                 previous
               }
               filters {

@@ -1,0 +1,247 @@
+// Copyright 2026 The Kstack Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package logs
+
+import (
+	"context"
+	"fmt"
+	"strconv"
+	"strings"
+	"testing"
+
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustertest"
+)
+
+// fakeService is the cluster service as the logs service reads it: one active
+// cache, its health, and its statements run over a real store. Every method it
+// does not set panics on the nil embedded service. Each call answers its error
+// when one is set, and Health and Query answer no cache when told so.
+type fakeService struct {
+	cluster.Service
+	active cluster.ActiveCluster
+	health cluster.ClusterCacheHealth
+	store  *clustertest.Store
+
+	readActiveErr, healthErr, queryErr error
+	noHealth, noQuery                  bool
+	// moreOn is the statement text whose answer says rows were left out.
+	moreOn string
+	// statements is every statement the mirror was asked, its args inlined, in
+	// order.
+	statements []string
+}
+
+func (f *fakeService) Caches() cluster.Caches         { return fakeCaches{f: f} }
+func (f *fakeService) CachedData() cluster.CachedData { return fakeCachedData{f: f} }
+func (f *fakeService) Clusters() cluster.Clusters     { return fakeClusters{f: f} }
+
+type fakeCaches struct {
+	cluster.Caches
+	f *fakeService
+}
+
+func (fc fakeCaches) Health(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheHealth, bool, error) {
+	return fc.f.health, !fc.f.noHealth, fc.f.healthErr
+}
+
+type fakeCachedData struct {
+	cluster.CachedData
+	f *fakeService
+}
+
+func (fc fakeCachedData) QueryOwn(ctx context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (cluster.ClusterCachedDataQueryResult, bool, error) {
+	text := inlined(sql, args)
+	fc.f.statements = append(fc.f.statements, text)
+	if fc.f.queryErr != nil {
+		return cluster.ClusterCachedDataQueryResult{}, false, fc.f.queryErr
+	}
+	if fc.f.noQuery {
+		return cluster.ClusterCachedDataQueryResult{}, false, nil
+	}
+	res, err := fc.f.store.Query(ctx, sql, maxRows, maxBytes, args...)
+	if err != nil {
+		return cluster.ClusterCachedDataQueryResult{}, false, err
+	}
+	res.More = res.More || fc.f.moreOn != "" && strings.Contains(text, fc.f.moreOn)
+	return res, true, nil
+}
+
+func (fc fakeCachedData) ReadActive(ctx context.Context, id cluster.ClusterID, maxRows, maxBytes int, read func(cluster.CacheReading, cluster.ActiveCluster) error) error {
+	return cluster.ReadActiveCache(ctx, fc.f, id, maxRows, maxBytes, read)
+}
+
+type fakeClusters struct {
+	cluster.Clusters
+	f *fakeService
+}
+
+func (fc fakeClusters) ReadActive(ctx context.Context, _ cluster.ClusterID, read func(context.Context, cluster.ActiveCluster) error) error {
+	if fc.f.readActiveErr != nil {
+		return fc.f.readActiveErr
+	}
+	return read(ctx, fc.f.active)
+}
+
+// newMirror is a cluster whose cache is watching, its server uid-1, holding objects.
+func newMirror(t *testing.T, objects ...map[string]any) *fakeService {
+	t.Helper()
+	f := &fakeService{
+		active: cluster.ActiveCluster{Cluster: &cluster.Cluster{}, Cache: &cluster.ClusterCache{RecordMeta: cluster.RecordMeta{ID: 11}, Spec: cluster.ClusterCacheSpec{ServerUID: "uid-1"}}},
+		health: cluster.ClusterCacheHealth{Reason: "Watching"},
+		store:  clustertest.NewStore(t),
+	}
+	for _, o := range objects {
+		f.store.Apply(t, o)
+	}
+	return f
+}
+
+// webObjects is a deployment web in prod whose replica set runs two pods, each
+// with app and istio-proxy, on node-a and node-b, and a lone pod job-1 on no node
+// yet. The mirror holds neither node.
+func webObjects() []map[string]any {
+	return []map[string]any{
+		workload("apps/v1", "Deployment", "web", "dep-web", nil),
+		workload("apps/v1", "ReplicaSet", "web-7d9f", "rs-web", controller("apps/v1", "Deployment", "web", "dep-web")),
+		pod("web-1", "uid-web-1", "node-a", webReplicaSet(), container{name: "app"}, container{name: "istio-proxy"}),
+		pod("web-2", "uid-web-2", "node-b", webReplicaSet(), container{name: "app"}, container{name: "istio-proxy"}),
+		pod("job-1", "uid-job-1", "", nil, container{name: "main"}),
+	}
+}
+
+// webReplicaSet is the controller reference onto web's replica set.
+func webReplicaSet() map[string]any {
+	return controller("apps/v1", "ReplicaSet", "web-7d9f", "rs-web")
+}
+
+// webMirror is a mirror holding webObjects.
+func webMirror(t *testing.T) *fakeService {
+	t.Helper()
+	return newMirror(t, webObjects()...)
+}
+
+// webView reads the app container of deployment web in prod.
+var webView = View{Sources: []ViewSource{{Namespace: "prod", Kind: SourceDeployment, Name: "web", Containers: []string{"app"}}}}
+
+// addPods adds n pods under web's replica set, each with one app container.
+func addPods(t *testing.T, f *fakeService, n int) {
+	t.Helper()
+	for i := range n {
+		name := "many-" + strconv.Itoa(i)
+		f.store.Apply(t, pod(name, "uid-"+name, "node-a", webReplicaSet(), container{name: "app"}))
+	}
+}
+
+// container is one running container of a fixture pod, with a previous instance
+// when restarted is set.
+type container struct {
+	name      string
+	restarted bool
+}
+
+// controller is an owner reference that controls its object.
+func controller(apiVersion, kind, name, uid string) map[string]any {
+	return map[string]any{"apiVersion": apiVersion, "kind": kind, "name": name, "uid": uid, "controller": true}
+}
+
+// workload is a body of kind in prod, owned by owner when it is not nil.
+func workload(apiVersion, kind, name, uid string, owner map[string]any) map[string]any {
+	meta := map[string]any{"uid": uid, "name": name, "namespace": "prod"}
+	if owner != nil {
+		meta["ownerReferences"] = []any{owner}
+	}
+	return map[string]any{"apiVersion": apiVersion, "kind": kind, "metadata": meta}
+}
+
+// pod is a Pod in prod on node ("" for none yet), owned by owner, running
+// containers.
+func pod(name, uid, node string, owner map[string]any, containers ...container) map[string]any {
+	body := workload("v1", "Pod", name, uid, owner)
+	var specs, statuses []any
+	for _, c := range containers {
+		specs = append(specs, map[string]any{"name": c.name, "image": c.name + ":1"})
+		statuses = append(statuses, containerStatus(uid, c))
+	}
+	spec := map[string]any{"containers": specs}
+	if node != "" {
+		spec["nodeName"] = node
+	}
+	body["spec"] = spec
+	body["status"] = map[string]any{"phase": "Running", "containerStatuses": statuses}
+	return body
+}
+
+// containerStatus is c's status in the pod uid, with a runtime id per instance,
+// as a runtime gives them: the last one's beside the running one's when it
+// restarted.
+func containerStatus(uid string, c container) map[string]any {
+	id := func(instance int) string { return fmt.Sprintf("containerd://%s-%s-%d", uid, c.name, instance) }
+	status := map[string]any{"name": c.name, "restartCount": int64(0), "containerID": id(0), "state": map[string]any{"running": map[string]any{}}}
+	if c.restarted {
+		status["restartCount"] = int64(1)
+		status["containerID"] = id(1)
+		status["lastState"] = map[string]any{"terminated": map[string]any{"containerID": id(0)}}
+	}
+	return status
+}
+
+// withInit is body, a pod, with a terminated init container named name.
+func withInit(body map[string]any, name string) map[string]any {
+	body["spec"].(map[string]any)["initContainers"] = []any{map[string]any{"name": name, "image": name + ":1"}}
+	body["status"].(map[string]any)["initContainerStatuses"] = []any{map[string]any{"name": name, "restartCount": int64(0), "state": map[string]any{"terminated": map[string]any{"containerID": "containerd://" + name}}}}
+	return body
+}
+
+// waiting is body, a pod, with every container waiting to start: no instance
+// yet, so no log.
+func waiting(body map[string]any) map[string]any {
+	for _, s := range body["status"].(map[string]any)["containerStatuses"].([]any) {
+		status := s.(map[string]any)
+		delete(status, "containerID")
+		status["state"] = map[string]any{"waiting": map[string]any{"reason": "ContainerCreating"}}
+	}
+	return body
+}
+
+// inlined is sql with each placeholder replaced by its arg as a SQL literal, so a
+// test reads a statement whole.
+func inlined(sql string, args []any) string {
+	if n := strings.Count(sql, "?"); n != len(args) {
+		panic(fmt.Sprintf("%d placeholders and %d args in %s", n, len(args), sql))
+	}
+	for _, a := range args {
+		sql = strings.Replace(sql, "?", "'"+strings.ReplaceAll(fmt.Sprint(a), "'", "''")+"'", 1)
+	}
+	return sql
+}
+
+// keysOf is each of t's streams' key, in order.
+func keysOf(t target) []StreamKey {
+	keys := make([]StreamKey, len(t.streams))
+	for i, s := range t.streams {
+		keys[i] = s.key
+	}
+	return keys
+}
+
+// placesOf is each of t's streams' place, in order.
+func placesOf(t target) []Place {
+	places := make([]Place, len(t.streams))
+	for i, s := range t.streams {
+		places[i] = s.place
+	}
+	return places
+}

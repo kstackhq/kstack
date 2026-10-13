@@ -23,13 +23,11 @@ import (
 )
 
 // found is what the mirror holds of a source's object: its containers first and
-// its init containers after them, the default-container annotation's value, and
-// for a pod, each container that restarted.
+// its init containers after them, and the default-container annotation's value.
 type found struct {
 	uid       string
 	names     []string
 	annotated string
-	restarted map[string]bool
 }
 
 // templateOf is where kind's pod template is in its body, "" for a pod's own spec.
@@ -44,29 +42,27 @@ func templateOf(kind tools.LogsSourceKind) string {
 }
 
 // object is the source's object as the mirror holds it, a zero uid for none: a
-// pod's containers off the containers table, with their restarts; a workload's
-// off its pod template.
+// pod's containers off the containers table, a workload's off its pod template.
 func object(q cluster.CacheReading, s source) (found, error) {
 	apiVersion, kind := logs.MirrorKind(s.kind)
 	template := templateOf(s.kind)
 	const where = " WHERE o.api_version = ? AND o.kind = ? AND o.namespace = ? AND o.name = ?"
 	args := []any{apiVersion, kind, s.namespace, s.name}
 	if template == "" {
-		res, err := q.Query(`SELECT o.uid, o.body ->> '$.metadata.annotations."`+defaultContainerAnnotation+`"', c.name, coalesce(c.restarts, 0)
+		res, err := q.Query(`SELECT o.uid, o.body ->> '$.metadata.annotations."`+logs.DefaultContainerAnnotation+`"', c.name
 FROM objects o LEFT JOIN containers c ON c.pod_uid = o.uid`+where+` ORDER BY c.init, c.position`, args...)
 		if err != nil || len(res.Rows) == 0 {
 			return found{}, err
 		}
-		f := found{uid: cluster.CellText(res.Rows[0][0]), annotated: cluster.CellText(res.Rows[0][1]), restarted: map[string]bool{}}
+		f := found{uid: cluster.CellText(res.Rows[0][0]), annotated: cluster.CellText(res.Rows[0][1])}
 		for _, row := range res.Rows {
 			if name := cluster.CellText(row[2]); name != "" {
 				f.names = append(f.names, name)
-				f.restarted[name] = cluster.CellInteger(row[3]) > 0
 			}
 		}
 		return f, nil
 	}
-	res, err := q.Query(`SELECT o.uid, o.body ->> '`+template+`.metadata.annotations."`+defaultContainerAnnotation+`"',
+	res, err := q.Query(`SELECT o.uid, o.body ->> '`+template+`.metadata.annotations."`+logs.DefaultContainerAnnotation+`"',
 o.body -> '`+template+`.spec.containers', o.body -> '`+template+`.spec.initContainers'
 FROM objects o`+where, args...)
 	if err != nil || len(res.Rows) == 0 {
@@ -75,26 +71,6 @@ FROM objects o`+where, args...)
 	f := found{uid: cluster.CellText(res.Rows[0][0]), annotated: cluster.CellText(res.Rows[0][1])}
 	f.names = append(containerNames(cluster.CellText(res.Rows[0][2])), containerNames(cluster.CellText(res.Rows[0][3]))...)
 	return f, nil
-}
-
-// previousPods counts the pods under the workload uid, and those with a
-// restarted container among shown: every container when shown is empty.
-func previousPods(q cluster.CacheReading, uid string, shown []string) (pods, restarted int, err error) {
-	among := ""
-	args := []any{}
-	for _, name := range shown {
-		args = append(args, name)
-	}
-	if len(shown) > 0 {
-		among = " AND c.name IN (" + cluster.Placeholders(len(shown)) + ")"
-	}
-	res, err := q.Query(`SELECT count(*), coalesce(sum(EXISTS (SELECT 1 FROM containers c WHERE c.pod_uid = p.uid AND c.restarts > 0`+among+`)), 0)
-FROM objects p WHERE p.api_version = 'v1' AND p.kind = 'Pod'
-AND p.uid IN (SELECT uid FROM ancestors WHERE ancestor_uid = ?)`, append(args, uid)...)
-	if err != nil || len(res.Rows) == 0 {
-		return 0, 0, err
-	}
-	return int(cluster.CellInteger(res.Rows[0][0])), int(cluster.CellInteger(res.Rows[0][1])), nil
 }
 
 // containerNames is each container's name in a template's list, as JSON.

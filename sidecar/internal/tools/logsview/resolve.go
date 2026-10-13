@@ -16,46 +16,48 @@ package logsview
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
-// defaultContainerAnnotation is kubectl's: the container a pod's author made the
-// default, on the pod or on a workload's pod template.
-const defaultContainerAnnotation = "kubectl.kubernetes.io/default-container"
-
-// The mirror reads' bounds: a source's containers, and the pods under a workload.
+// The reading's bounds: a source's containers, and the statements logs.Check
+// runs, each of which the service limits itself.
 const (
 	maxRows  = 10_000
 	maxBytes = tools.FileLimit
 )
 
-// refused is a source the mirror refuses: the code the model reads, the source
-// it concerns, and for a container it does not have, the ones it does.
+// refused is a view the mirror refuses: the code the model reads, the source it
+// concerns (-1 for the whole view), and for a container it does not have, the
+// ones it does.
 type refused struct {
 	code       string
 	source     int
 	containers []string
 }
 
-func (e *refused) Error() string { return "logsview: source refused: " + e.code }
+func (e *refused) Error() string { return "logsview: refused: " + e.code }
 
-// The codes a source is refused with.
+// The codes a view is refused with.
 const (
-	codeNotFound    = "not-found"
 	codeNoContainer = "no-container"
-	codeNoPrevious  = "no-previous"
+	codeTooMany     = "too-many"
+	codeNotMirrored = "not-mirrored"
 )
 
-// note is what the receipt says of one source beyond its name: the containers
-// it has, whether the one shown was defaulted among several, and for a
-// workload with previous, how many of its pods have an instance to show.
+// note is what the receipt says of one source beyond its name: what the mirror
+// holds of it now, the containers it has, the default container the mirror shows
+// now when it was picked among several, and for a workload with previous, how
+// many of its pods have an instance to show.
 type note struct {
+	state      logs.SourceState
 	containers []string
-	defaulted  bool
+	defaulted  string
 	pods       int
 	restarted  int
 }
@@ -82,8 +84,9 @@ func (t *Tool) resolve(ctx context.Context, clusterID cluster.ClusterID, in inpu
 	return view, notes, nil
 }
 
-// resolveIn is one reading's view, each source checked in turn. It builds the
-// view afresh, since ReadActive may run it twice.
+// resolveIn is one reading's view, each source checked in turn, then the whole
+// as the logs service resolves it, so a view the tool opens is one it reads. It
+// builds the view afresh, since ReadActive may run it twice.
 func resolveIn(q cluster.CacheReading, in input) (tools.LogsViewAction, []note, error) {
 	view := tools.LogsViewAction{LogsViewInput: tools.LogsViewInput{Sources: []tools.LogsViewSource{}, Filters: in.filters, Grep: in.grep}}
 	if view.Filters == nil {
@@ -98,65 +101,68 @@ func resolveIn(q cluster.CacheReading, in input) (tools.LogsViewAction, []note, 
 		view.Sources = append(view.Sources, src)
 		notes = append(notes, n)
 	}
+	states, err := logs.Check(q, view.LogsViewInput)
+	if err != nil {
+		return tools.LogsViewAction{}, nil, refusedBy(err)
+	}
+	for i, src := range view.Sources {
+		notes[i].state = states[i]
+		if src.Previous && src.Kind != tools.LogsSourcePod {
+			count, err := logs.CountPods(q, src)
+			if err != nil {
+				return tools.LogsViewAction{}, nil, err
+			}
+			notes[i].pods, notes[i].restarted = count.Pods, count.Previous
+		}
+	}
 	return view, notes, nil
 }
 
-// resolveSource is one source checked against the mirror: the object is there,
-// each container named is one of its, else the default one is resolved, and a
-// previous instance exists where asked.
+// refusedBy is the logs service's refusal of a view as the model reads it.
+func refusedBy(err error) error {
+	var unmirrored logs.Unmirrored
+	switch {
+	case errors.As(err, &unmirrored):
+		return &refused{code: codeNotMirrored, source: unmirrored.Source}
+	case errors.Is(err, logs.ErrTooMany):
+		return &refused{code: codeTooMany, source: -1}
+	}
+	return err
+}
+
+// resolveSource is one source checked against the mirror: each container named
+// is one of its object's. With none named the backend reads each pod's default
+// container, and the receipt names the one the object has now. An object the
+// mirror does not hold yet checks nothing.
 func resolveSource(q cluster.CacheReading, i int, s source) (tools.LogsViewSource, note, error) {
 	f, err := object(q, s)
 	if err != nil {
 		return tools.LogsViewSource{}, note{}, err
 	}
-	if f.uid == "" {
-		return tools.LogsViewSource{}, note{}, &refused{code: codeNotFound, source: i}
-	}
-	src := tools.LogsViewSource{Namespace: s.namespace, Kind: s.kind, Name: s.name, Containers: []string{}, Previous: s.previous}
+	src := tools.LogsViewSource{Namespace: s.namespace, Kind: s.kind, Name: s.name, Containers: []string{}, AllContainers: s.allContainers, Previous: s.previous}
 	n := note{containers: f.names}
 	switch {
 	case s.allContainers:
 	case len(s.containers) > 0:
 		for _, c := range s.containers {
-			if !slices.Contains(f.names, c) {
+			if f.uid != "" && !slices.Contains(f.names, c) {
 				return tools.LogsViewSource{}, note{}, &refused{code: codeNoContainer, source: i, containers: f.names}
 			}
 		}
 		src.Containers = s.containers
-	case len(f.names) > 0:
-		src.Containers = []string{defaultContainer(f)}
-		n.defaulted = len(f.names) > 1
+	case len(f.names) > 1:
+		n.defaulted = defaultContainer(f)
 	}
-	if !s.previous {
-		return src, n, nil
-	}
-	if s.kind == tools.LogsSourcePod {
-		if !hasPrevious(src.Containers, f.restarted) {
-			return tools.LogsViewSource{}, note{}, &refused{code: codeNoPrevious, source: i}
-		}
-		return src, n, nil
-	}
-	n.pods, n.restarted, err = previousPods(q, f.uid, src.Containers)
-	return src, n, err
+	return src, n, nil
 }
 
 // defaultContainer is the one kubectl logs reads with none named: the one the
-// annotation names when the pod has it, else the first of its containers.
+// annotation names when the object has it, else the first of its containers.
 func defaultContainer(f found) string {
 	if f.annotated != "" && slices.Contains(f.names, f.annotated) {
 		return f.annotated
 	}
 	return f.names[0]
-}
-
-// hasPrevious is whether any container shown restarted: with none named, every one.
-func hasPrevious(shown []string, restarted map[string]bool) bool {
-	for name, ok := range restarted {
-		if ok && (len(shown) == 0 || slices.Contains(shown, name)) {
-			return true
-		}
-	}
-	return false
 }
 
 // anchorOf is the anchor the model typed on the clock: tail, head, an RFC 3339

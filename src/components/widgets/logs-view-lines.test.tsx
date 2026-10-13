@@ -33,6 +33,7 @@ describe('SourceLine', () => {
           kind: 'Pod',
           name: 'work‮er-1',
           containers: ['app', 'istio-proxy'],
+          allContainers: false,
           previous: true,
         }}
       />,
@@ -41,5 +42,13 @@ describe('SourceLine', () => {
     expect(container).toHaveTextContent('er-1 in prod (app, istio-proxy), previous instance');
     expect(container.querySelector('mark')).not.toBeNull();
     expect(screen.queryByText('‮')).not.toBeInTheDocument();
+  });
+
+  it('says every container for one that reads them all, and nothing for the default', () => {
+    const source = { namespace: 'prod', kind: 'Pod' as const, name: 'db-0', containers: [], previous: false };
+    const { container, rerender } = render(<SourceLine source={{ ...source, allContainers: true }} />);
+    expect(container).toHaveTextContent(/^Pod db-0 in prod \(every container\)$/);
+    rerender(<SourceLine source={{ ...source, allContainers: false }} />);
+    expect(container).toHaveTextContent(/^Pod db-0 in prod$/);
   });
 });

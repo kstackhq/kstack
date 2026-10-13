@@ -30,8 +30,15 @@ const view: LogsView = {
   callId: 'call-1',
   action: {
     sources: [
-      { namespace: 'prod', kind: 'Deployment', name: 'webapp', containers: ['app', 'istio-proxy'], previous: false },
-      { namespace: 'prod', kind: 'Pod', name: 'work\u202Eer-1', containers: [], previous: true },
+      {
+        namespace: 'prod',
+        kind: 'Deployment',
+        name: 'webapp',
+        containers: ['app', 'istio-proxy'],
+        allContainers: false,
+        previous: false,
+      },
+      { namespace: 'prod', kind: 'Pod', name: 'work\u202Eer-1', containers: [], allContainers: false, previous: true },
     ],
     filters: [{ field: 'Node', values: ['node-a', 'node-b'] }],
     grep: 'error|warn',

@@ -18,7 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -27,6 +27,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustertest"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -100,42 +101,10 @@ func (f fakeCachedData) QueryOwn(_ context.Context, _ cluster.ClusterID, _ clust
 	return f.answer(q), true, nil
 }
 
-// rows is a statement's answer.
-func rows(r ...[]any) cluster.ClusterCachedDataQueryResult {
-	return cluster.ClusterCachedDataQueryResult{Rows: r}
-}
-
-// pod is a container row of the pod read: the pod's uid and annotation, then
-// the container's name and restarts.
-func pod(annotated, name string, restarts int64) []any {
-	var a any
-	if annotated != "" {
-		a = annotated
-	}
-	return []any{"pod-1", a, name, restarts}
-}
-
-// watching is a cluster whose cache is watching, answering each statement by
-// what it asks: a pod named webapp-7f9c with app, istio-proxy and an init
-// container, a deployment named webapp with the same template, and three pods
-// under it, two with a restarted container.
-func watching() *fakeService {
-	f := &fakeService{
-		active: cluster.ActiveCluster{Cluster: &cluster.Cluster{}, Cache: &cluster.ClusterCache{RecordMeta: cluster.RecordMeta{ID: 11}}},
-		health: cluster.ClusterCacheHealth{Reason: "Watching"},
-	}
-	f.answer = func(q queried) cluster.ClusterCachedDataQueryResult {
-		switch {
-		case slices.Equal(q.args, []any{"v1", "Pod", "prod", "webapp-7f9c"}):
-			return rows(pod("", "app", 2), pod("", "istio-proxy", 0), pod("", "setup", 0))
-		case slices.Equal(q.args, []any{"apps/v1", "Deployment", "prod", "webapp"}):
-			return rows([]any{"deploy-1", nil, `[{"name":"app"},{"name":"istio-proxy"}]`, `[{"name":"setup"}]`})
-		case strings.Contains(q.sql, "ancestor_uid = ?") && q.args[len(q.args)-1] == "deploy-1":
-			return rows([]any{int64(3), int64(2)})
-		}
-		return rows()
-	}
-	return f
+// watching is a cluster whose cache is watching, holding webappObjects.
+func watching(t *testing.T) *fakeService {
+	t.Helper()
+	return mirrorOf(t, webappObjects()...)
 }
 
 // run calls the tool over f with raw, for cluster 7, and answers what the
@@ -190,13 +159,13 @@ func TestACallShowsNoActionOffItsArguments(t *testing.T) {
 }
 
 func TestASourceInTheMirrorOpens(t *testing.T) {
-	f := watching()
+	f := watching(t)
 	text, view := viewOf(t, f, webapp)
 
 	assert.Equal(t, "Viewing deployments/webapp in prod at the newest line. Defaulted container app out of app, istio-proxy, setup.", text)
 	assert.Equal(t, tools.LogsViewAction{
 		LogsViewInput: tools.LogsViewInput{
-			Sources: []tools.LogsViewSource{{Namespace: "prod", Kind: tools.LogsSourceDeployment, Name: "webapp", Containers: []string{"app"}}},
+			Sources: []tools.LogsViewSource{{Namespace: "prod", Kind: tools.LogsSourceDeployment, Name: "webapp", Containers: []string{}}},
 			Filters: []tools.LogsViewFilter{},
 		},
 		Anchor: tools.LogsViewAnchor{Kind: tools.LogsAnchorTail},
@@ -205,12 +174,26 @@ func TestASourceInTheMirrorOpens(t *testing.T) {
 	assert.Equal(t, []any{"apps/v1", "Deployment", "prod", "webapp"}, f.queried[0].args)
 }
 
-func TestASourceNotInTheMirrorIsRefused(t *testing.T) {
-	assert.JSONEq(t, `{"error":"not-found","source":0}`, refusalOf(t, watching(), `{"sources":[{"namespace":"prod","resource":"pods/gone"}]}`))
+// A source the mirror does not hold yet opens, so a view can wait for a pod with
+// a fixed name or a workload not yet created: with no container named it reads
+// each pod's default once one appears, and the receipt says it is not there yet.
+func TestASourceNotInTheMirrorYetOpens(t *testing.T) {
+	text, view := viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"pods/gone"}]}`)
+	assert.Equal(t, []string{}, view.Sources[0].Containers)
+	assert.False(t, view.Sources[0].AllContainers)
+	assert.Equal(t, "Viewing pods/gone in prod at the newest line. Default container. Not in Kstack's cache of the cluster yet; the view picks it up when it appears.", text)
+
+	text, view = viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"pods/gone","all_containers":true}]}`)
+	assert.True(t, view.Sources[0].AllContainers)
+	assert.Equal(t, "Viewing pods/gone in prod at the newest line. Every container. Not in Kstack's cache of the cluster yet; the view picks it up when it appears.", text)
+
+	text, view = viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/later","containers":["app"],"previous":true}]}`)
+	assert.Equal(t, []string{"app"}, view.Sources[0].Containers)
+	assert.Equal(t, "Viewing deployments/later in prod at the newest line. Container app. Previous instance. Not in Kstack's cache of the cluster yet; the view picks it up when it appears.", text)
 }
 
 func TestAKindTheBackendDoesNotReadIsRefused(t *testing.T) {
-	text := refusalOf(t, watching(), `{"sources":[{"namespace":"prod","resource":"services/webapp"}]}`)
+	text := refusalOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"services/webapp"}]}`)
 	assert.Contains(t, text, `"error":"bad-input"`)
 	assert.Contains(t, text, `"field":"resource"`)
 	assert.Contains(t, text, `"source":0`)
@@ -220,75 +203,114 @@ func TestAKindTheBackendDoesNotReadIsRefused(t *testing.T) {
 // A resource is read as kubectl spells one: plural, singular or short.
 func TestAResourceIsReadAsKubectlSpellsIt(t *testing.T) {
 	for _, resource := range []string{"deployments/webapp", "deployment/webapp", "deploy/webapp", "Deployments/webapp"} {
-		_, view := viewOf(t, watching(), `{"sources":[{"namespace":"prod","resource":"`+resource+`"}]}`)
+		_, view := viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"`+resource+`"}]}`)
 		assert.Equal(t, tools.LogsSourceDeployment, view.Sources[0].Kind, resource)
 	}
 }
 
 func TestAContainerNoPodHasIsRefused(t *testing.T) {
-	text := refusalOf(t, watching(), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","containers":["app","nope"]}]}`)
+	text := refusalOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","containers":["app","nope"]}]}`)
 	assert.JSONEq(t, `{"error":"no-container","source":0,"containers":["app","istio-proxy","setup"]}`, text)
 }
 
-// With no container named the annotation's is shown, else the first; the
-// receipt names the others, and a one-container pod reads no such line.
-func TestNoContainerNamedResolvesTheDefault(t *testing.T) {
-	f := watching()
+// With no container named the view leaves the default to the backend, which
+// picks it per pod; the receipt names the one the object has now, the
+// annotation's else the first, beside the others, and a one-container pod reads
+// no such line.
+func TestNoContainerNamedLeavesTheDefaultToEachPod(t *testing.T) {
+	f := watching(t)
 	text, view := viewOf(t, f, `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c"}]}`)
-	assert.Equal(t, []string{"app"}, view.Sources[0].Containers)
+	assert.Equal(t, []string{}, view.Sources[0].Containers)
+	assert.False(t, view.Sources[0].AllContainers)
 	assert.Equal(t, "Viewing pods/webapp-7f9c in prod at the newest line. Defaulted container app out of app, istio-proxy, setup.", text)
 
-	annotated := watching()
-	annotated.answer = func(queried) cluster.ClusterCachedDataQueryResult {
-		return rows(pod("istio-proxy", "app", 0), pod("istio-proxy", "istio-proxy", 0))
-	}
-	_, view = viewOf(t, annotated, `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c"}]}`)
-	assert.Equal(t, []string{"istio-proxy"}, view.Sources[0].Containers)
+	annotated := mirrorOf(t, podOf("webapp-7f9c", "istio-proxy", nil, container{name: "app"}, container{name: "istio-proxy"}))
+	text, _ = viewOf(t, annotated, `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c"}]}`)
+	assert.Equal(t, "Viewing pods/webapp-7f9c in prod at the newest line. Defaulted container istio-proxy out of app, istio-proxy.", text)
 
-	one := watching()
-	one.answer = func(queried) cluster.ClusterCachedDataQueryResult { return rows(pod("", "app", 0)) }
+	one := mirrorOf(t, podOf("webapp-7f9c", "", nil, container{name: "app"}))
 	text, view = viewOf(t, one, `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c"}]}`)
-	assert.Equal(t, []string{"app"}, view.Sources[0].Containers)
+	assert.Equal(t, []string{}, view.Sources[0].Containers)
 	assert.Equal(t, "Viewing pods/webapp-7f9c in prod at the newest line.", text)
 }
 
-func TestAllContainersWritesTheEmptyList(t *testing.T) {
-	text, view := viewOf(t, watching(), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","all_containers":true}]}`)
+func TestAllContainersIsSetOnTheSource(t *testing.T) {
+	text, view := viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","all_containers":true}]}`)
 	assert.Equal(t, []string{}, view.Sources[0].Containers)
+	assert.True(t, view.Sources[0].AllContainers)
 	assert.Equal(t, "Viewing pods/webapp-7f9c in prod at the newest line. Containers app, istio-proxy, setup.", text)
 
-	text = refusalOf(t, watching(), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","all_containers":true,"containers":["app"]}]}`)
+	text = refusalOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","all_containers":true,"containers":["app"]}]}`)
 	assert.JSONEq(t, `{"error":"bad-input","field":"all_containers","source":0,"message":"not with containers"}`, text)
 }
 
 func TestTheContainersNamedAreShown(t *testing.T) {
-	text, view := viewOf(t, watching(), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","containers":["istio-proxy","app"]}]}`)
+	text, view := viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","containers":["istio-proxy","app"]}]}`)
 	assert.Equal(t, []string{"istio-proxy", "app"}, view.Sources[0].Containers)
 	assert.Equal(t, "Viewing pods/webapp-7f9c in prod at the newest line. Containers istio-proxy, app.", text)
 }
 
-// previous on a pod needs a shown container that restarted; a sidecar that did
-// not shows nothing and refuses nothing; on a workload the receipt counts the pods.
+// previous on a pod reads the shown containers that restarted, and with none the
+// view waits for one; on a workload the receipt counts the pods.
 func TestPreviousNeedsARestartedContainer(t *testing.T) {
-	text, view := viewOf(t, watching(), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","previous":true}]}`)
+	text, view := viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","previous":true}]}`)
 	assert.True(t, view.Sources[0].Previous)
 	assert.Equal(t, "Viewing pods/webapp-7f9c in prod at the newest line. Defaulted container app out of app, istio-proxy, setup. Previous instance.", text)
 
-	text, _ = viewOf(t, watching(), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","previous":true,"containers":["app","istio-proxy"]}]}`)
+	text, _ = viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","previous":true,"containers":["app","istio-proxy"]}]}`)
 	assert.Equal(t, "Viewing pods/webapp-7f9c in prod at the newest line. Containers app, istio-proxy. Previous instance.", text)
 
-	text = refusalOf(t, watching(), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","previous":true,"containers":["istio-proxy"]}]}`)
-	assert.JSONEq(t, `{"error":"no-previous","source":0}`, text)
+	text, _ = viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","previous":true,"containers":["istio-proxy"]}]}`)
+	assert.Equal(t, "Viewing pods/webapp-7f9c in prod at the newest line. Container istio-proxy. Previous instance. Nothing to read yet; the view picks up its containers as they restart.", text)
 
-	f := watching()
-	text, _ = viewOf(t, f, `{"sources":[{"namespace":"prod","resource":"deployments/webapp","previous":true}]}`)
+	text, _ = viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp","previous":true}]}`)
 	assert.Equal(t, "Viewing deployments/webapp in prod at the newest line. Defaulted container app out of app, istio-proxy, setup. Previous instance of 2 of 3 pods.", text)
-	assert.Contains(t, f.queried[1].sql, "c.name IN (?)")
-	assert.Equal(t, []any{"app", "deploy-1"}, f.queried[1].args)
+
+	text, _ = viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp","previous":true,"containers":["istio-proxy","app"]}]}`)
+	assert.Equal(t, "Viewing deployments/webapp in prod at the newest line. Containers istio-proxy, app. Previous instance of 2 of 3 pods.", text)
+}
+
+// A workload's view follows its pods as they come and go, so it opens with none
+// yet, none running a container its template has, or none restarted, and the
+// receipt says it has nothing to read yet.
+func TestAWorkloadOpensWhateverItsPodsAre(t *testing.T) {
+	const webapp = `{"namespace":"prod","resource":"deployments/webapp"`
+	const idle = " Nothing to read yet; the view picks up its containers as they start."
+	objects := webappObjects()
+
+	text, _ := viewOf(t, mirrorOf(t, objects[:2]...), `{"sources":[`+webapp+`}]}`)
+	assert.Equal(t, "Viewing deployments/webapp in prod at the newest line. Defaulted container app out of app, istio-proxy, setup."+idle, text)
+
+	text, view := viewOf(t, mirrorOf(t, append(objects[:2:2], podOf("webapp-c", "", webappReplicaSet(), container{name: "web"}))...), `{"sources":[`+webapp+`,"containers":["app"]}]}`)
+	assert.Equal(t, []string{"app"}, view.Sources[0].Containers)
+	assert.True(t, strings.HasSuffix(text, idle), text)
+
+	text, _ = viewOf(t, mirrorOf(t, append(objects[:2:2], podOf("webapp-c", "", webappReplicaSet(), container{name: "app"}))...), `{"sources":[`+webapp+`,"previous":true}]}`)
+	assert.True(t, strings.HasSuffix(text, " Previous instance of 0 of 1 pods. Nothing to read yet; the view picks up its containers as they restart."), text)
+
+	text, _ = viewOf(t, watching(t), `{"sources":[`+webapp+`}]}`)
+	assert.NotContains(t, text, "Nothing to read")
+}
+
+// A view the logs service refuses is refused by code: one past the cap, and a
+// source whose kind the cache does not mirror, or a cache mirroring no pods,
+// since nothing could ever appear to follow.
+func TestAViewTheServiceRefusesIsRefused(t *testing.T) {
+	many := webappObjects()[:2:2]
+	for i := range 101 {
+		many = append(many, podOf("webapp-"+strconv.Itoa(i), "", webappReplicaSet(), container{name: "app"}))
+	}
+	assert.JSONEq(t, `{"error":"too-many"}`, refusalOf(t, mirrorOf(t, many...), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}]}`))
+
+	assert.JSONEq(t, `{"error":"not-mirrored","source":1}`, refusalOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c"},{"namespace":"prod","resource":"jobs/nightly"}]}`))
+
+	s := clustertest.NewStore(t)
+	s.Apply(t, webappObjects()[0])
+	assert.JSONEq(t, `{"error":"not-mirrored"}`, refusalOf(t, over(t, s), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}]}`))
 }
 
 func TestAGrepThatDoesNotCompileIsRefused(t *testing.T) {
-	text := refusalOf(t, watching(), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"grep":"("}`)
+	text := refusalOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"grep":"("}`)
 	assert.JSONEq(t, `{"error":"bad-input","field":"grep","message":"does not compile as a regular expression"}`, text)
 }
 
@@ -306,32 +328,32 @@ func TestTheAnchorIsReadOnTheClock(t *testing.T) {
 		`"2026-10-08T13:00:00+01:00"`: {Kind: tools.LogsAnchorAt, At: at("2026-10-08T12:00:00Z")},
 		`"2m"`:                        {Kind: tools.LogsAnchorAt, At: at("2026-10-08T14:02:00Z")},
 	} {
-		_, view := viewOf(t, watching(), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"anchor":`+anchor+`}`)
+		_, view := viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"anchor":`+anchor+`}`)
 		assert.Equal(t, want, view.Anchor, anchor)
 	}
-	_, view := viewOf(t, watching(), webapp)
+	_, view := viewOf(t, watching(t), webapp)
 	assert.Equal(t, tools.LogsViewAnchor{Kind: tools.LogsAnchorTail}, view.Anchor, "absent is tail")
 }
 
 func TestAnUnreadableAnchorIsRefused(t *testing.T) {
 	for _, anchor := range []string{`"yesterday"`, `"-2m"`, `"0s"`, `3`} {
-		text := refusalOf(t, watching(), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"anchor":`+anchor+`}`)
+		text := refusalOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"anchor":`+anchor+`}`)
 		assert.Contains(t, text, `"field":"anchor"`, anchor)
 		assert.NotContains(t, text, "yesterday")
 	}
 }
 
 func TestPinToEndAbsentIsFalse(t *testing.T) {
-	_, view := viewOf(t, watching(), webapp)
+	_, view := viewOf(t, watching(t), webapp)
 	assert.False(t, view.PinToEnd)
-	_, view = viewOf(t, watching(), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"pin_to_end":true}`)
+	_, view = viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"pin_to_end":true}`)
 	assert.True(t, view.PinToEnd)
 }
 
 // The receipt with everything set: every source and its note, the anchor, the
 // pin, and the grep.
 func TestTheReceiptSpellsTheWholeView(t *testing.T) {
-	text, view := viewOf(t, watching(), `{"description":"Why it crashed","sources":[
+	text, view := viewOf(t, watching(t), `{"description":"Why it crashed","sources":[
 		{"namespace":"prod","resource":"deployments/webapp","previous":true},
 		{"namespace":"prod","resource":"pods/webapp-7f9c","containers":["app","istio-proxy"]}],
 		"filters":{"zone":["eu-west-1a"],"node":["ip-10-0-1-5"]},"grep":"error|panic","anchor":"head","pin_to_end":true}`)
@@ -348,7 +370,7 @@ func TestTheReceiptSpellsTheWholeView(t *testing.T) {
 
 // A pod's previous instance is named alone, and more than one more source is counted.
 func TestTheReceiptCountsTheSources(t *testing.T) {
-	text, _ := viewOf(t, watching(), `{"sources":[
+	text, _ := viewOf(t, watching(t), `{"sources":[
 		{"namespace":"prod","resource":"pods/webapp-7f9c","previous":true},
 		{"namespace":"prod","resource":"deployments/webapp"},
 		{"namespace":"prod","resource":"pods/webapp-7f9c"}]}`)
@@ -358,7 +380,7 @@ func TestTheReceiptCountsTheSources(t *testing.T) {
 }
 
 func TestTheActionCarriesTheDescription(t *testing.T) {
-	_, _, shown := run(t, watching(), `{"description":"Tail the app","sources":[{"namespace":"prod","resource":"deployments/webapp"}]}`)
+	_, _, shown := run(t, watching(t), `{"description":"Tail the app","sources":[{"namespace":"prod","resource":"deployments/webapp"}]}`)
 	require.NotNil(t, shown)
 	assert.Equal(t, "Tail the app", shown.Description)
 }
@@ -390,7 +412,7 @@ func TestBadArgumentsAreRefusedByField(t *testing.T) {
 		`{"sources":[{"namespace":"prod","resource":"pods/a"}`:                           `{"error":"bad-input"}`,
 		`{"sources":[{"namespace":"prod","resource":"pods/a"}],"filters":{"node":["a"`:   `{"error":"bad-input","field":"filters.node"}`,
 	} {
-		text := refusalOf(t, watching(), raw)
+		text := refusalOf(t, watching(t), raw)
 		assert.JSONEq(t, want, text, raw)
 		assert.NotContains(t, text, "hunter2", raw)
 	}
@@ -399,23 +421,23 @@ func TestBadArgumentsAreRefusedByField(t *testing.T) {
 func TestNoCacheIsARefusal(t *testing.T) {
 	assert.JSONEq(t, `{"error":"no-cache"}`, refusalOf(t, &fakeService{readErr: cluster.ErrNotFound}, webapp))
 
-	none := watching()
+	none := watching(t)
 	none.active.Cache = nil
 	assert.JSONEq(t, `{"error":"no-cache"}`, refusalOf(t, none, webapp))
 
-	gone := watching()
+	gone := watching(t)
 	gone.answer = nil
 	assert.JSONEq(t, `{"error":"no-cache"}`, refusalOf(t, gone, webapp))
 }
 
 func TestASyncingCacheIsARefusal(t *testing.T) {
-	f := watching()
+	f := watching(t)
 	f.health.Reason = "Connecting"
 	assert.JSONEq(t, `{"error":"syncing"}`, refusalOf(t, f, webapp))
 }
 
 func TestAReadFailureCarriesNoText(t *testing.T) {
-	f := watching()
+	f := watching(t)
 	f.queryErr = errors.New("open cache 7: disk I/O error at /home/user")
 	text := refusalOf(t, f, webapp)
 	assert.JSONEq(t, `{"error":"read-failed"}`, text)
@@ -423,7 +445,7 @@ func TestAReadFailureCarriesNoText(t *testing.T) {
 
 // Run is RunShown with the action dropped.
 func TestRunAnswersTheReceipt(t *testing.T) {
-	text, isError := New(watching(), func() time.Time { return clock }).Run(t.Context(), tools.Runtime{ClusterID: "7"}, json.RawMessage(webapp))
+	text, isError := New(watching(t), func() time.Time { return clock }).Run(t.Context(), tools.Runtime{ClusterID: "7"}, json.RawMessage(webapp))
 	assert.False(t, isError)
 	assert.True(t, strings.HasPrefix(text, "Viewing deployments/webapp in prod"), text)
 }
