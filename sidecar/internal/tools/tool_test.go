@@ -15,9 +15,14 @@
 package tools
 
 import (
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 )
 
 // An action's kind is the field it sets, and none for an action that sets none.
@@ -46,4 +51,27 @@ func TestActionKindsIsTheSet(t *testing.T) {
 	assert.Len(t, ActionKinds, 11)
 	assert.False(t, ActionKind("").valid())
 	assert.False(t, ActionKind("unknown").valid())
+}
+
+// A view's backend half is the log service's input, and the action's JSON keeps
+// its flat shape: the row stores it as written.
+func TestLogsViewActionEmbedsTheInput(t *testing.T) {
+	at := time.Date(2026, 10, 8, 14, 0, 0, 0, time.UTC)
+	action := LogsViewAction{
+		LogsViewInput: LogsViewInput{
+			Sources: []LogsViewSource{{Namespace: "prod", Kind: LogsSourceDeployment, Name: "web", Containers: []string{"app"}}},
+			Filters: []LogsViewFilter{{Field: LogsFilterZone, Values: []string{"a"}}},
+			Grep:    "err",
+		},
+		Anchor:   LogsViewAnchor{Kind: LogsAnchorAt, At: &at},
+		PinToEnd: true,
+	}
+
+	raw, err := json.Marshal(action)
+
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"sources":[{"namespace":"prod","kind":"deployment","name":"web","containers":["app"],"previous":false}],
+"filters":[{"field":"zone","values":["a"]}],"grep":"err","anchor":{"kind":"at","at":"2026-10-08T14:00:00Z"},"pinToEnd":true}`, string(raw))
+	var view logs.View = action.LogsViewInput
+	assert.Equal(t, "err", view.Grep)
 }

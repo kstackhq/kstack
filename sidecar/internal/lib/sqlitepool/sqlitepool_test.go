@@ -171,6 +171,47 @@ func TestOpenQueryKeepsNoIdleConnection(t *testing.T) {
 	require.Zero(t, n)
 }
 
+// An own-query pool keeps what it opens, so a reader of its own statements does not
+// open a connection, and run the driver's hooks, per statement.
+func TestOpenOwnQueryKeepsItsConnections(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	w, err := OpenWriter(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { w.Close() })
+	opened := 0
+	d := &sqlite.Driver{}
+	d.RegisterConnectionHook(func(sqlite.ExecQuerierContext, string) error {
+		opened++
+		return nil
+	})
+
+	q := OpenOwnQuery(d, path, 2)
+	t.Cleanup(func() { q.Close() })
+
+	for range 3 {
+		var n int
+		require.NoError(t, q.QueryRow(`SELECT 1`).Scan(&n))
+	}
+	require.Equal(t, 1, opened)
+	require.Equal(t, 1, q.Stats().Idle)
+}
+
+// An own-query pool is read-only at open, as a query pool is.
+func TestOpenOwnQueryIsReadOnly(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.db")
+	w, err := OpenWriter(path)
+	require.NoError(t, err)
+	t.Cleanup(func() { w.Close() })
+	_, err = w.Exec(`CREATE TABLE t (id INTEGER PRIMARY KEY)`)
+	require.NoError(t, err)
+
+	q := OpenOwnQuery(&sqlite.Driver{}, path, 1)
+	t.Cleanup(func() { q.Close() })
+
+	_, err = q.Exec(`INSERT INTO t VALUES (1)`)
+	require.ErrorContains(t, err, "readonly")
+}
+
 // The pool opens through the driver it is handed, so that driver's functions reach its
 // connections and no other.
 func TestOpenQueryOpensThroughItsDriver(t *testing.T) {

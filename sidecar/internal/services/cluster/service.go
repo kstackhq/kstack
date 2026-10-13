@@ -321,6 +321,15 @@ type CachedData interface {
 	// cache the pair does not resolve to, or one with no file. A statement SQLite
 	// refuses is a *QueryError.
 	Query(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (ClusterCachedDataQueryResult, bool, error)
+	// QueryOwn is Query for a statement the sidecar wrote, on a connection kept between
+	// such statements. A statement a model wrote goes through Query.
+	QueryOwn(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (ClusterCachedDataQueryResult, bool, error)
+	// ReadActive runs read over one reading of cluster id's active cache, whose rows
+	// must be trusted, its statements bounded by maxRows and maxBytes: ErrNoCache for
+	// a cluster with no cache, ErrSyncing for one whose rows are not. Every statement
+	// read runs reads that one cache. read may run twice, as Clusters().ReadActive's
+	// does, so it sets what it returns and never appends to it.
+	ReadActive(ctx context.Context, id ClusterID, maxRows, maxBytes int, read func(CacheReading, ActiveCluster) error) error
 }
 
 // The family accessors are stateless views onto the one *service: the split is
