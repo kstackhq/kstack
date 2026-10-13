@@ -445,7 +445,7 @@ func millisToTime(ms int64) time.Time {
 	return time.UnixMilli(ms)
 }
 
-func (a cachedDataAPI) Query(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, sql string, maxRows, maxBytes int) (ClusterCachedDataQueryResult, bool, error) {
+func (a cachedDataAPI) Query(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (ClusterCachedDataQueryResult, bool, error) {
 	live, err := a.gate(ctx, clusterID, cacheID)
 	if err != nil || !live {
 		return ClusterCachedDataQueryResult{}, false, err
@@ -461,7 +461,7 @@ func (a cachedDataAPI) Query(ctx context.Context, clusterID ClusterID, cacheID C
 	}
 	defer store.Release()
 
-	res, err := store.Query(ctx, sql, maxRows, maxBytes)
+	res, err := store.Query(ctx, sql, maxRows, maxBytes, args...)
 	var qe *kubestore.QueryError
 	switch {
 	case errors.As(err, &qe):

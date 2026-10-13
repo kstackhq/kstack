@@ -55,6 +55,7 @@ type queried struct {
 	cacheID           cluster.ClusterCacheID
 	sql               string
 	maxRows, maxBytes int
+	args              []any
 }
 
 type (
@@ -104,8 +105,8 @@ func (f fakeCachedData) ListObjects(context.Context, cluster.ClusterID, cluster.
 	return nil, false, errRead
 }
 
-func (f fakeCachedData) Query(_ context.Context, _ cluster.ClusterID, cacheID cluster.ClusterCacheID, sql string, maxRows, maxBytes int) (cluster.ClusterCachedDataQueryResult, bool, error) {
-	f.queried = append(f.queried, queried{cacheID, sql, maxRows, maxBytes})
+func (f fakeCachedData) Query(_ context.Context, _ cluster.ClusterID, cacheID cluster.ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (cluster.ClusterCachedDataQueryResult, bool, error) {
+	f.queried = append(f.queried, queried{cacheID, sql, maxRows, maxBytes, args})
 	if f.queryErr != nil {
 		return cluster.ClusterCachedDataQueryResult{}, false, f.queryErr
 	}
@@ -146,7 +147,7 @@ func TestAQueryReadsInsideOneReading(t *testing.T) {
 		cluster: "prod", freshness: []byte(`{"status":"watching"}`),
 		rows: cluster.ClusterCachedDataQueryResult{Columns: []string{"name"}, Rows: [][]any{{"api-0"}}, More: true},
 	}, got)
-	assert.Equal(t, []queried{{11, `SELECT name FROM objects`, 5, tools.FileLimit}}, f.queried)
+	assert.Equal(t, []queried{{11, `SELECT name FROM objects`, 5, tools.FileLimit, nil}}, f.queried)
 
 	retried := healthy()
 	retried.attempts = 2

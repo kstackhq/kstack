@@ -458,7 +458,7 @@ func (f fakeCachedData) ListObjects(context.Context, cluster.ClusterID, cluster.
 	return nil, false, nil
 }
 
-func (f fakeCachedData) Query(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string, int, int) (cluster.ClusterCachedDataQueryResult, bool, error) {
+func (f fakeCachedData) Query(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string, int, int, ...any) (cluster.ClusterCachedDataQueryResult, bool, error) {
 	return cluster.ClusterCachedDataQueryResult{}, false, nil
 }
 
@@ -1017,7 +1017,7 @@ func (e errCachedData) ListObjects(context.Context, cluster.ClusterID, cluster.C
 	return nil, false, e.err
 }
 
-func (e errCachedData) Query(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string, int, int) (cluster.ClusterCachedDataQueryResult, bool, error) {
+func (e errCachedData) Query(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string, int, int, ...any) (cluster.ClusterCachedDataQueryResult, bool, error) {
 	return cluster.ClusterCachedDataQueryResult{}, false, e.err
 }
 

@@ -198,7 +198,7 @@ func TestRowsAreOneToALine(t *testing.T) {
 		`["shop","api-0",3],`+"\n"+
 		`["shop","api-1",null]`+"\n"+
 		`]}`, text)
-	assert.Equal(t, []queried{{11, "SELECT namespace, name, restarts FROM objects", 2, tools.FileLimit}}, m.queried)
+	assert.Equal(t, []queried{{11, "SELECT namespace, name, restarts FROM objects", 2, tools.FileLimit, nil}}, m.queried)
 	assert.True(t, json.Valid([]byte(text)))
 }
 

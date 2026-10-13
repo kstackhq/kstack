@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -33,18 +34,24 @@ import (
 var clock = time.Date(2026, 10, 8, 14, 4, 0, 0, time.UTC)
 
 // fakeService is the cluster service as the tool reads it: one reading handed
-// to read, the active cache's health, and each statement's answer by its text.
+// to read, the active cache's health, and each statement's answer by what it asks.
 type fakeService struct {
 	cluster.Service
 	active  cluster.ActiveCluster
 	readErr error
 	health  cluster.ClusterCacheHealth
 	// answer answers a statement; nil answers no cache.
-	answer func(sql string) cluster.ClusterCachedDataQueryResult
+	answer func(q queried) cluster.ClusterCachedDataQueryResult
 	// queryErr fails every statement.
 	queryErr error
 	// queried is every statement run.
-	queried []string
+	queried []queried
+}
+
+// queried is one statement a fake ran, and the args bound to it.
+type queried struct {
+	sql  string
+	args []any
 }
 
 type (
@@ -77,15 +84,16 @@ func (f fakeCaches) Health(context.Context, cluster.ClusterID, cluster.ClusterCa
 	return f.health, true, nil
 }
 
-func (f fakeCachedData) Query(_ context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, sql string, _, _ int) (cluster.ClusterCachedDataQueryResult, bool, error) {
-	f.queried = append(f.queried, sql)
+func (f fakeCachedData) Query(_ context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, sql string, _, _ int, args ...any) (cluster.ClusterCachedDataQueryResult, bool, error) {
+	q := queried{sql, args}
+	f.queried = append(f.queried, q)
 	if f.queryErr != nil {
 		return cluster.ClusterCachedDataQueryResult{}, false, f.queryErr
 	}
 	if f.answer == nil {
 		return cluster.ClusterCachedDataQueryResult{}, false, nil
 	}
-	return f.answer(sql), true, nil
+	return f.answer(q), true, nil
 }
 
 // rows is a statement's answer.
@@ -112,13 +120,13 @@ func watching() *fakeService {
 		active: cluster.ActiveCluster{Cluster: &cluster.Cluster{}, Cache: &cluster.ClusterCache{RecordMeta: cluster.RecordMeta{ID: 11}}},
 		health: cluster.ClusterCacheHealth{Reason: "Watching"},
 	}
-	f.answer = func(sql string) cluster.ClusterCachedDataQueryResult {
+	f.answer = func(q queried) cluster.ClusterCachedDataQueryResult {
 		switch {
-		case strings.Contains(sql, "o.kind = 'Pod'") && strings.Contains(sql, "o.name = 'webapp-7f9c'"):
+		case slices.Equal(q.args, []any{"v1", "Pod", "prod", "webapp-7f9c"}):
 			return rows(pod("", "app", 2), pod("", "istio-proxy", 0), pod("", "setup", 0))
-		case strings.Contains(sql, "o.kind = 'Deployment'") && strings.Contains(sql, "o.name = 'webapp'"):
+		case slices.Equal(q.args, []any{"apps/v1", "Deployment", "prod", "webapp"}):
 			return rows([]any{"deploy-1", nil, `[{"name":"app"},{"name":"istio-proxy"}]`, `[{"name":"setup"}]`})
-		case strings.Contains(sql, "ancestor_uid = 'deploy-1'"):
+		case strings.Contains(q.sql, "ancestor_uid = ?") && q.args[len(q.args)-1] == "deploy-1":
 			return rows([]any{int64(3), int64(2)})
 		}
 		return rows()
@@ -186,7 +194,8 @@ func TestASourceInTheMirrorOpens(t *testing.T) {
 		Sources: []tools.LogsViewSource{{Namespace: "prod", Kind: tools.LogsSourceDeployment, Name: "webapp", Containers: []string{"app"}}},
 		Filters: []tools.LogsViewFilter{}, Anchor: tools.LogsViewAnchor{Kind: tools.LogsAnchorTail},
 	}, view)
-	assert.Contains(t, f.queried[0], "o.api_version = 'apps/v1' AND o.kind = 'Deployment' AND o.namespace = 'prod' AND o.name = 'webapp'")
+	assert.Contains(t, f.queried[0].sql, "o.api_version = ? AND o.kind = ? AND o.namespace = ? AND o.name = ?")
+	assert.Equal(t, []any{"apps/v1", "Deployment", "prod", "webapp"}, f.queried[0].args)
 }
 
 func TestASourceNotInTheMirrorIsRefused(t *testing.T) {
@@ -223,14 +232,14 @@ func TestNoContainerNamedResolvesTheDefault(t *testing.T) {
 	assert.Equal(t, "Viewing pods/webapp-7f9c in prod at the newest line. Defaulted container app out of app, istio-proxy, setup.", text)
 
 	annotated := watching()
-	annotated.answer = func(string) cluster.ClusterCachedDataQueryResult {
+	annotated.answer = func(queried) cluster.ClusterCachedDataQueryResult {
 		return rows(pod("istio-proxy", "app", 0), pod("istio-proxy", "istio-proxy", 0))
 	}
 	_, view = viewOf(t, annotated, `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c"}]}`)
 	assert.Equal(t, []string{"istio-proxy"}, view.Sources[0].Containers)
 
 	one := watching()
-	one.answer = func(string) cluster.ClusterCachedDataQueryResult { return rows(pod("", "app", 0)) }
+	one.answer = func(queried) cluster.ClusterCachedDataQueryResult { return rows(pod("", "app", 0)) }
 	text, view = viewOf(t, one, `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c"}]}`)
 	assert.Equal(t, []string{"app"}, view.Sources[0].Containers)
 	assert.Equal(t, "Viewing pods/webapp-7f9c in prod at the newest line.", text)
@@ -267,7 +276,8 @@ func TestPreviousNeedsARestartedContainer(t *testing.T) {
 	f := watching()
 	text, _ = viewOf(t, f, `{"sources":[{"namespace":"prod","resource":"deployments/webapp","previous":true}]}`)
 	assert.Equal(t, "Viewing deployments/webapp in prod at the newest line. Defaulted container app out of app, istio-proxy, setup. Previous instance of 2 of 3 pods.", text)
-	assert.Contains(t, f.queried[1], "c.name IN ('app')")
+	assert.Contains(t, f.queried[1].sql, "c.name IN (?)")
+	assert.Equal(t, []any{"app", "deploy-1"}, f.queried[1].args)
 }
 
 func TestAGrepThatDoesNotCompileIsRefused(t *testing.T) {
