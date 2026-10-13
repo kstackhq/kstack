@@ -82,6 +82,9 @@ type fakeService struct {
 	// beforeStatement, when set, runs before each statement a reading runs, handed
 	// its text with its args inlined.
 	beforeStatement func(text string)
+	// answers, when not nil, keeps each statement's answer by its text and bounds,
+	// for a test whose mirror does not change while it reads it.
+	answers map[string]cluster.ClusterCachedDataQueryResult
 }
 
 // workload is the channel the watch of resource sends from.
@@ -150,6 +153,7 @@ func (fc fakeCachedData) ReadOwn(ctx context.Context, _ cluster.ClusterID, _ clu
 	return true, fc.f.store.Read(ctx, func(query cluster.OwnQuery) error {
 		return read(func(sql string, maxRows, maxBytes int, args ...any) (cluster.ClusterCachedDataQueryResult, error) {
 			text := inlined(sql, args)
+			key := fmt.Sprint(maxRows, " ", maxBytes, " ", text)
 			fc.f.mu.Lock()
 			fc.f.statements = append(fc.f.statements, text)
 			queryErr, more := fc.f.queryErr, fc.f.moreOn != "" && strings.Contains(text, fc.f.moreOn)
@@ -157,6 +161,7 @@ func (fc fakeCachedData) ReadOwn(ctx context.Context, _ cluster.ClusterID, _ clu
 				queryErr = nil
 			}
 			before := fc.f.beforeStatement
+			res, kept := fc.f.answers[key]
 			fc.f.mu.Unlock()
 			if before != nil {
 				before(text)
@@ -164,9 +169,16 @@ func (fc fakeCachedData) ReadOwn(ctx context.Context, _ cluster.ClusterID, _ clu
 			if queryErr != nil {
 				return cluster.ClusterCachedDataQueryResult{}, queryErr
 			}
-			res, err := query(sql, maxRows, maxBytes, args...)
-			if err != nil {
-				return cluster.ClusterCachedDataQueryResult{}, err
+			if !kept {
+				var err error
+				if res, err = query(sql, maxRows, maxBytes, args...); err != nil {
+					return cluster.ClusterCachedDataQueryResult{}, err
+				}
+				fc.f.mu.Lock()
+				if fc.f.answers != nil {
+					fc.f.answers[key] = res
+				}
+				fc.f.mu.Unlock()
 			}
 			res.More = res.More || more
 			return res, nil

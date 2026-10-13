@@ -39,6 +39,7 @@ func objectOf(t *testing.T, f *fakeService, src source) found {
 // A pod's containers come off the containers table, its own before its init
 // containers.
 func TestAPodIsReadOffTheContainersTable(t *testing.T) {
+	t.Parallel()
 	f := mirrorOf(t, podOf("web-1", "istio-proxy", nil, container{name: "app", restarted: true}, container{name: "istio-proxy"}, container{name: "setup", init: true}))
 
 	got := objectOf(t, f, source{namespace: "prod", kind: tools.LogsSourcePod, name: "web-1"})
@@ -49,6 +50,7 @@ func TestAPodIsReadOffTheContainersTable(t *testing.T) {
 // A workload's containers come off its pod template, and a CronJob's off its job
 // template's.
 func TestAWorkloadIsReadOffItsTemplate(t *testing.T) {
+	t.Parallel()
 	f := mirrorOf(t,
 		map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": meta("dep-1", "web", ""),
 			"spec": map[string]any{"template": template("istio-proxy")}},
@@ -66,6 +68,7 @@ func TestAWorkloadIsReadOffItsTemplate(t *testing.T) {
 
 // An object the mirror does not hold reads as none.
 func TestAMissingObjectReadsAsNone(t *testing.T) {
+	t.Parallel()
 	f := mirrorOf(t)
 	for _, kind := range []tools.LogsSourceKind{tools.LogsSourcePod, tools.LogsSourceStatefulSet} {
 		assert.Empty(t, objectOf(t, f, source{namespace: "prod", kind: kind, name: "web"}).uid, kind)

@@ -143,6 +143,7 @@ func refusalOf(t *testing.T, f *fakeService, raw string) string {
 const webapp = `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}]}`
 
 func TestTheDefinitionIsTheEmbeddedSchema(t *testing.T) {
+	t.Parallel()
 	def := New(nil, time.Now).Definition()
 
 	assert.Equal(t, Name, def.Name)
@@ -151,6 +152,7 @@ func TestTheDefinitionIsTheEmbeddedSchema(t *testing.T) {
 }
 
 func TestTheToolIsOfKindLogsView(t *testing.T) {
+	t.Parallel()
 	tool := New(nil, time.Now)
 
 	assert.Equal(t, Name, tool.Name())
@@ -161,11 +163,13 @@ func TestTheToolIsOfKindLogsView(t *testing.T) {
 // The view is the run's: read off its arguments a call shows no action, so a
 // call that never opened one shows its kind alone.
 func TestACallShowsNoActionOffItsArguments(t *testing.T) {
+	t.Parallel()
 	_, err := New(nil, time.Now).Action(json.RawMessage(webapp), "", false)
 	require.ErrorIs(t, err, errNotShown)
 }
 
 func TestASourceInTheMirrorOpens(t *testing.T) {
+	t.Parallel()
 	f := watching(t)
 	text, view := viewOf(t, f, webapp)
 
@@ -185,6 +189,7 @@ func TestASourceInTheMirrorOpens(t *testing.T) {
 // a fixed name or a workload not yet created: with no container named it reads
 // each pod's default once one appears, and the receipt says it is not there yet.
 func TestASourceNotInTheMirrorYetOpens(t *testing.T) {
+	t.Parallel()
 	text, view := viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"pods/gone"}]}`)
 	assert.Equal(t, []string{}, view.Sources[0].Containers)
 	assert.False(t, view.Sources[0].AllContainers)
@@ -200,6 +205,7 @@ func TestASourceNotInTheMirrorYetOpens(t *testing.T) {
 }
 
 func TestAKindTheBackendDoesNotReadIsRefused(t *testing.T) {
+	t.Parallel()
 	text := refusalOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"services/webapp"}]}`)
 	assert.Contains(t, text, `"error":"bad-input"`)
 	assert.Contains(t, text, `"field":"resource"`)
@@ -209,6 +215,7 @@ func TestAKindTheBackendDoesNotReadIsRefused(t *testing.T) {
 
 // A resource is read as kubectl spells one: plural, singular or short.
 func TestAResourceIsReadAsKubectlSpellsIt(t *testing.T) {
+	t.Parallel()
 	for _, resource := range []string{"deployments/webapp", "deployment/webapp", "deploy/webapp", "Deployments/webapp"} {
 		_, view := viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"`+resource+`"}]}`)
 		assert.Equal(t, tools.LogsSourceDeployment, view.Sources[0].Kind, resource)
@@ -216,6 +223,7 @@ func TestAResourceIsReadAsKubectlSpellsIt(t *testing.T) {
 }
 
 func TestAContainerNoPodHasIsRefused(t *testing.T) {
+	t.Parallel()
 	text := refusalOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","containers":["app","nope"]}]}`)
 	assert.JSONEq(t, `{"error":"no-container","source":0,"containers":["app","istio-proxy","setup"]}`, text)
 }
@@ -225,6 +233,7 @@ func TestAContainerNoPodHasIsRefused(t *testing.T) {
 // annotation's else the first, beside the others, and a one-container pod reads
 // no such line.
 func TestNoContainerNamedLeavesTheDefaultToEachPod(t *testing.T) {
+	t.Parallel()
 	f := watching(t)
 	text, view := viewOf(t, f, `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c"}]}`)
 	assert.Equal(t, []string{}, view.Sources[0].Containers)
@@ -242,6 +251,7 @@ func TestNoContainerNamedLeavesTheDefaultToEachPod(t *testing.T) {
 }
 
 func TestAllContainersIsSetOnTheSource(t *testing.T) {
+	t.Parallel()
 	text, view := viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","all_containers":true}]}`)
 	assert.Equal(t, []string{}, view.Sources[0].Containers)
 	assert.True(t, view.Sources[0].AllContainers)
@@ -252,6 +262,7 @@ func TestAllContainersIsSetOnTheSource(t *testing.T) {
 }
 
 func TestTheContainersNamedAreShown(t *testing.T) {
+	t.Parallel()
 	text, view := viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","containers":["istio-proxy","app"]}]}`)
 	assert.Equal(t, []string{"istio-proxy", "app"}, view.Sources[0].Containers)
 	assert.Equal(t, "Viewing pods/webapp-7f9c in prod at the newest line. Containers istio-proxy, app.", text)
@@ -260,6 +271,7 @@ func TestTheContainersNamedAreShown(t *testing.T) {
 // previous on a pod reads the shown containers that restarted, and with none the
 // view waits for one; on a workload the receipt counts the pods.
 func TestPreviousNeedsARestartedContainer(t *testing.T) {
+	t.Parallel()
 	text, view := viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"pods/webapp-7f9c","previous":true}]}`)
 	assert.True(t, view.Sources[0].Previous)
 	assert.Equal(t, "Viewing pods/webapp-7f9c in prod at the newest line. Defaulted container app out of app, istio-proxy, setup. Previous instance.", text)
@@ -281,6 +293,7 @@ func TestPreviousNeedsARestartedContainer(t *testing.T) {
 // yet, none running a container its template has, or none restarted, and the
 // receipt says it has nothing to read yet.
 func TestAWorkloadOpensWhateverItsPodsAre(t *testing.T) {
+	t.Parallel()
 	const webapp = `{"namespace":"prod","resource":"deployments/webapp"`
 	const idle = " Nothing to read yet; the view picks up its containers as they start."
 	objects := webappObjects()
@@ -304,6 +317,7 @@ func TestAWorkloadOpensWhateverItsPodsAre(t *testing.T) {
 // nothing could ever appear to follow, and a label filter over a mirror with no
 // nodes.
 func TestAViewTheServiceRefusesIsRefused(t *testing.T) {
+	t.Parallel()
 	many := webappObjects()[:2:2]
 	for i := range 101 {
 		many = append(many, podOf("webapp-"+strconv.Itoa(i), "", webappReplicaSet(), container{name: "app"}))
@@ -320,11 +334,13 @@ func TestAViewTheServiceRefusesIsRefused(t *testing.T) {
 }
 
 func TestAGrepThatDoesNotCompileIsRefused(t *testing.T) {
+	t.Parallel()
 	text := refusalOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"grep":"("}`)
 	assert.JSONEq(t, `{"error":"bad-input","field":"grep","message":"does not compile as a regular expression"}`, text)
 }
 
 func TestTheAnchorIsReadOnTheClock(t *testing.T) {
+	t.Parallel()
 	at := func(s string) *time.Time {
 		v, err := time.Parse(time.RFC3339, s)
 		require.NoError(t, err)
@@ -346,6 +362,7 @@ func TestTheAnchorIsReadOnTheClock(t *testing.T) {
 }
 
 func TestAnUnreadableAnchorIsRefused(t *testing.T) {
+	t.Parallel()
 	for _, anchor := range []string{`"yesterday"`, `"-2m"`, `"0s"`, `3`} {
 		text := refusalOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"anchor":`+anchor+`}`)
 		assert.Contains(t, text, `"field":"anchor"`, anchor)
@@ -354,6 +371,7 @@ func TestAnUnreadableAnchorIsRefused(t *testing.T) {
 }
 
 func TestPinToEndAbsentIsFalse(t *testing.T) {
+	t.Parallel()
 	_, view := viewOf(t, watching(t), webapp)
 	assert.False(t, view.PinToEnd)
 	_, view = viewOf(t, watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"pin_to_end":true}`)
@@ -363,6 +381,7 @@ func TestPinToEndAbsentIsFalse(t *testing.T) {
 // The receipt with everything set: every source and its note, the anchor, the
 // pin, and the grep.
 func TestTheReceiptSpellsTheWholeView(t *testing.T) {
+	t.Parallel()
 	node := map[string]any{"apiVersion": "v1", "kind": "Node", "metadata": map[string]any{"uid": "node-1", "name": "ip-10-0-1-5", "resourceVersion": "1",
 		"labels": map[string]any{"topology.kubernetes.io/zone": "eu-west-1a"}}}
 	text, view := viewOf(t, mirrorOf(t, append(webappObjects(), node)...), `{"description":"Why it crashed","sources":[
@@ -384,6 +403,7 @@ func TestTheReceiptSpellsTheWholeView(t *testing.T) {
 
 // A pod's previous instance is named alone, and more than one more source is counted.
 func TestTheReceiptCountsTheSources(t *testing.T) {
+	t.Parallel()
 	text, _ := viewOf(t, watching(t), `{"sources":[
 		{"namespace":"prod","resource":"pods/webapp-7f9c","previous":true},
 		{"namespace":"prod","resource":"deployments/webapp"},
@@ -394,6 +414,7 @@ func TestTheReceiptCountsTheSources(t *testing.T) {
 }
 
 func TestTheActionCarriesTheDescription(t *testing.T) {
+	t.Parallel()
 	_, _, shown := run(t, watching(t), `{"description":"Tail the app","sources":[{"namespace":"prod","resource":"deployments/webapp"}]}`)
 	require.NotNil(t, shown)
 	assert.Equal(t, "Tail the app", shown.Description)
@@ -402,6 +423,7 @@ func TestTheActionCarriesTheDescription(t *testing.T) {
 // A key the tool does not know is refused without naming it, so nothing the
 // model wrote comes back to it; a name that is not a DNS name is refused by its field.
 func TestBadArgumentsAreRefusedByField(t *testing.T) {
+	t.Parallel()
 	for raw, want := range map[string]string{
 		`{"sources":[{"namespace":"prod","resource":"pods/a","hunter2":1}]}`: `{"error":"bad-input","source":0}`,
 		`{"sources":[{"namespace":"prod","resource":"pods/a"}],"hunter2":1}`: `{"error":"bad-input"}`,
@@ -433,6 +455,7 @@ func TestBadArgumentsAreRefusedByField(t *testing.T) {
 }
 
 func TestNoCacheIsARefusal(t *testing.T) {
+	t.Parallel()
 	assert.JSONEq(t, `{"error":"no-cache"}`, refusalOf(t, &fakeService{readErr: cluster.ErrNotFound}, webapp))
 
 	none := watching(t)
@@ -445,12 +468,14 @@ func TestNoCacheIsARefusal(t *testing.T) {
 }
 
 func TestASyncingCacheIsARefusal(t *testing.T) {
+	t.Parallel()
 	f := watching(t)
 	f.health.Reason = "Connecting"
 	assert.JSONEq(t, `{"error":"syncing"}`, refusalOf(t, f, webapp))
 }
 
 func TestAReadFailureCarriesNoText(t *testing.T) {
+	t.Parallel()
 	f := watching(t)
 	f.queryErr = errors.New("open cache 7: disk I/O error at /home/user")
 	text := refusalOf(t, f, webapp)
@@ -459,6 +484,7 @@ func TestAReadFailureCarriesNoText(t *testing.T) {
 
 // Run is RunShown with the action dropped.
 func TestRunAnswersTheReceipt(t *testing.T) {
+	t.Parallel()
 	text, isError := New(watching(t), func() time.Time { return clock }).Run(t.Context(), tools.Runtime{ClusterID: "7"}, json.RawMessage(webapp))
 	assert.False(t, isError)
 	assert.True(t, strings.HasPrefix(text, "Viewing deployments/webapp in prod"), text)
