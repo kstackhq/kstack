@@ -29,16 +29,16 @@ var (
 	ErrSyncing = errors.New("cluster: the cache is syncing")
 )
 
-// CacheReading runs the sidecar's own statements over one cache inside one reading of
-// its cluster, each answer cut at the reading's row and byte bounds.
+// CacheReading runs the sidecar's own statements over one snapshot of one cache inside
+// one reading of its cluster, each answer cut at the reading's row and byte bounds.
 type CacheReading struct {
-	data      CachedData
-	ctx       context.Context
-	clusterID ClusterID
-	cacheID   ClusterCacheID
-	maxRows   int
-	maxBytes  int
+	query    OwnQuery
+	maxRows  int
+	maxBytes int
 }
+
+// OwnQuery runs one statement of a reading CachedData().ReadOwn holds open.
+type OwnQuery func(sql string, maxRows, maxBytes int, args ...any) (ClusterCachedDataQueryResult, error)
 
 // ReadActiveCache is CachedData().ReadActive over svc. Exported because a fake
 // CachedData outside this package answers ReadActive through it, over its own
@@ -58,7 +58,13 @@ func ReadActiveCache(ctx context.Context, svc Service, id ClusterID, maxRows, ma
 		if !health.Trusted() {
 			return ErrSyncing
 		}
-		return read(CacheReading{svc.CachedData(), ctx, id, active.Cache.ID, maxRows, maxBytes}, active)
+		ok, err = svc.CachedData().ReadOwn(ctx, id, active.Cache.ID, func(query OwnQuery) error {
+			return read(CacheReading{query, maxRows, maxBytes}, active)
+		})
+		if err == nil && !ok {
+			return ErrNoCache
+		}
+		return err
 	})
 	if errors.Is(err, ErrNotFound) || errors.Is(err, ErrIdentityMoved) {
 		return ErrNoCache
@@ -69,14 +75,7 @@ func ReadActiveCache(ctx context.Context, svc Service, id ClusterID, maxRows, ma
 // Query is sql's answer, with args bound to its placeholders; a cache gone under
 // the read is ErrNoCache.
 func (r CacheReading) Query(sql string, args ...any) (ClusterCachedDataQueryResult, error) {
-	res, ok, err := r.data.QueryOwn(r.ctx, r.clusterID, r.cacheID, sql, r.maxRows, r.maxBytes, args...)
-	if err != nil {
-		return res, err
-	}
-	if !ok {
-		return res, ErrNoCache
-	}
-	return res, nil
+	return r.query(sql, r.maxRows, r.maxBytes, args...)
 }
 
 // Placeholders is n comma-separated placeholders, for an IN list of n values.

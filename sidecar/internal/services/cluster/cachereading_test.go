@@ -71,9 +71,14 @@ type readingData struct {
 	f *readingService
 }
 
-func (fd readingData) QueryOwn(_ context.Context, _ ClusterID, _ ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (ClusterCachedDataQueryResult, bool, error) {
-	fd.f.asked.sql, fd.f.asked.maxRows, fd.f.asked.maxByte, fd.f.asked.args = sql, maxRows, maxBytes, args
-	return ClusterCachedDataQueryResult{Rows: [][]any{{"a", int64(2)}}}, !fd.f.noQuery, nil
+func (fd readingData) ReadOwn(_ context.Context, _ ClusterID, _ ClusterCacheID, read func(OwnQuery) error) (bool, error) {
+	if fd.f.noQuery {
+		return false, nil
+	}
+	return true, read(func(sql string, maxRows, maxBytes int, args ...any) (ClusterCachedDataQueryResult, error) {
+		fd.f.asked.sql, fd.f.asked.maxRows, fd.f.asked.maxByte, fd.f.asked.args = sql, maxRows, maxBytes, args
+		return ClusterCachedDataQueryResult{Rows: [][]any{{"a", int64(2)}}}, nil
+	})
 }
 
 // watching is a service whose active cache is live.

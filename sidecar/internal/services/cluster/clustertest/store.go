@@ -88,15 +88,19 @@ func (s *Store) mirror(t testing.TB, apiVersion, kind, scope string) {
 	require.NoError(t, s.s.SyncKinds(context.Background(), []kubestore.KindRow{row}, false, 0))
 }
 
-// Query runs sql over the query views, as CachedData's QueryOwn does for a
-// CacheReading.
-func (s *Store) Query(ctx context.Context, sql string, maxRows, maxBytes int, args ...any) (cluster.ClusterCachedDataQueryResult, error) {
-	res, err := s.s.QueryOwn(ctx, sql, maxRows, maxBytes, args...)
-	if qe := (*kubestore.QueryError)(nil); errors.As(err, &qe) {
-		return cluster.ClusterCachedDataQueryResult{}, &cluster.QueryError{Message: qe.Message}
-	}
-	if err != nil {
-		return cluster.ClusterCachedDataQueryResult{}, err
-	}
-	return cluster.ClusterCachedDataQueryResult{Columns: res.Columns, Rows: res.Rows, More: res.More}, nil
+// Read runs read over one snapshot of the query views, as CachedData's ReadOwn does
+// for a CacheReading.
+func (s *Store) Read(ctx context.Context, read func(cluster.OwnQuery) error) error {
+	return s.s.ReadOwn(ctx, func(r kubestore.Reading) error {
+		return read(func(sql string, maxRows, maxBytes int, args ...any) (cluster.ClusterCachedDataQueryResult, error) {
+			res, err := r.Query(sql, maxRows, maxBytes, args...)
+			if qe := (*kubestore.QueryError)(nil); errors.As(err, &qe) {
+				return cluster.ClusterCachedDataQueryResult{}, &cluster.QueryError{Message: qe.Message}
+			}
+			if err != nil {
+				return cluster.ClusterCachedDataQueryResult{}, err
+			}
+			return cluster.ClusterCachedDataQueryResult{Columns: res.Columns, Rows: res.Rows, More: res.More}, nil
+		})
+	})
 }

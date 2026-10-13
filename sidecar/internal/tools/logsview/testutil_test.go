@@ -18,8 +18,6 @@ import (
 	"maps"
 	"testing"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustertest"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
@@ -44,11 +42,7 @@ func over(t *testing.T, store *clustertest.Store) *fakeService {
 		active: cluster.ActiveCluster{Cluster: &cluster.Cluster{}, Cache: &cluster.ClusterCache{RecordMeta: cluster.RecordMeta{ID: 11}}},
 		health: cluster.ClusterCacheHealth{Reason: "Watching"},
 	}
-	f.answer = func(q queried) cluster.ClusterCachedDataQueryResult {
-		res, err := store.Query(t.Context(), q.sql, maxRows, maxBytes, q.args...)
-		require.NoError(t, err)
-		return res
-	}
+	f.store = store
 	return f
 }
 

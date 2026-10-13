@@ -462,8 +462,8 @@ func (f fakeCachedData) Query(context.Context, cluster.ClusterID, cluster.Cluste
 	return cluster.ClusterCachedDataQueryResult{}, false, nil
 }
 
-func (f fakeCachedData) QueryOwn(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string, int, int, ...any) (cluster.ClusterCachedDataQueryResult, bool, error) {
-	return cluster.ClusterCachedDataQueryResult{}, false, nil
+func (f fakeCachedData) ReadOwn(context.Context, cluster.ClusterID, cluster.ClusterCacheID, func(cluster.OwnQuery) error) (bool, error) {
+	return false, nil
 }
 
 func (f fakeCachedData) ReadActive(ctx context.Context, id cluster.ClusterID, maxRows, maxBytes int, read func(cluster.CacheReading, cluster.ActiveCluster) error) error {
@@ -1037,8 +1037,8 @@ func (e errCachedData) Query(context.Context, cluster.ClusterID, cluster.Cluster
 	return cluster.ClusterCachedDataQueryResult{}, false, e.err
 }
 
-func (e errCachedData) QueryOwn(context.Context, cluster.ClusterID, cluster.ClusterCacheID, string, int, int, ...any) (cluster.ClusterCachedDataQueryResult, bool, error) {
-	return cluster.ClusterCachedDataQueryResult{}, false, e.err
+func (e errCachedData) ReadOwn(context.Context, cluster.ClusterID, cluster.ClusterCacheID, func(cluster.OwnQuery) error) (bool, error) {
+	return false, e.err
 }
 
 // errAuth fails Current and Logout; the login flow's own failure arm is covered

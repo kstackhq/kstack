@@ -41,8 +41,8 @@ type fakeService struct {
 	active  cluster.ActiveCluster
 	readErr error
 	health  cluster.ClusterCacheHealth
-	// answer answers a statement; nil answers no cache.
-	answer func(q queried) cluster.ClusterCachedDataQueryResult
+	// store answers each reading's statements; nil answers no cache.
+	store *clustertest.Store
 	// queryErr fails every statement.
 	queryErr error
 	// queried is every statement run.
@@ -89,16 +89,23 @@ func (f fakeCaches) Health(context.Context, cluster.ClusterID, cluster.ClusterCa
 	return f.health, true, nil
 }
 
-func (f fakeCachedData) QueryOwn(_ context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, sql string, _, _ int, args ...any) (cluster.ClusterCachedDataQueryResult, bool, error) {
-	q := queried{sql, args}
-	f.queried = append(f.queried, q)
-	if f.queryErr != nil {
-		return cluster.ClusterCachedDataQueryResult{}, false, f.queryErr
+func (f fakeCachedData) ReadOwn(ctx context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, read func(cluster.OwnQuery) error) (bool, error) {
+	if f.store == nil && f.queryErr == nil {
+		return false, nil
 	}
-	if f.answer == nil {
-		return cluster.ClusterCachedDataQueryResult{}, false, nil
+	query := func(store cluster.OwnQuery) cluster.OwnQuery {
+		return func(sql string, maxRows, maxBytes int, args ...any) (cluster.ClusterCachedDataQueryResult, error) {
+			f.queried = append(f.queried, queried{sql, args})
+			if f.queryErr != nil {
+				return cluster.ClusterCachedDataQueryResult{}, f.queryErr
+			}
+			return store(sql, maxRows, maxBytes, args...)
+		}
 	}
-	return f.answer(q), true, nil
+	if f.store == nil {
+		return true, read(query(nil))
+	}
+	return true, f.store.Read(ctx, func(store cluster.OwnQuery) error { return read(query(store)) })
 }
 
 // watching is a cluster whose cache is watching, holding webappObjects.
@@ -433,7 +440,7 @@ func TestNoCacheIsARefusal(t *testing.T) {
 	assert.JSONEq(t, `{"error":"no-cache"}`, refusalOf(t, none, webapp))
 
 	gone := watching(t)
-	gone.answer = nil
+	gone.store = nil
 	assert.JSONEq(t, `{"error":"no-cache"}`, refusalOf(t, gone, webapp))
 }
 
