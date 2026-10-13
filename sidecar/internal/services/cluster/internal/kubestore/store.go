@@ -104,6 +104,9 @@ type file struct {
 	// queryDB is KubeQuery's pool: read-only connections through queryDriver, none kept
 	// idle, so nothing one statement leaves on its connection reaches the next.
 	queryDB *sql.DB
+	// ownQueryDB is the same kind of connection for the sidecar's own statements, kept
+	// between them: a statement the sidecar wrote leaves nothing on its connection.
+	ownQueryDB *sql.DB
 	// onQuery and afterQuery are seams for a test: onQuery runs as a query starts its
 	// statement, afterQuery as it is about to let go of its connection. Nil in production.
 	onQuery, afterQuery func()
@@ -229,7 +232,7 @@ func (f *file) close() error {
 		f.stopJanitor()
 	}
 	f.hub.Close()
-	return errors.Join(f.set.Close(), f.queryDB.Close(), f.db.Close(), f.readDB.Close())
+	return errors.Join(f.set.Close(), f.queryDB.Close(), f.ownQueryDB.Close(), f.db.Close(), f.readDB.Close())
 }
 
 // startJanitor spawns this file's sweeper, or nothing when no interval is set.
@@ -252,7 +255,7 @@ func (f *file) startJanitor(ret Retention) {
 // newFile wraps the open pools and their prepared set. Nothing else builds one —
 // openFile is the only caller.
 func newFile(
-	path string, cacheID int64, db, readDB, queryDB *sql.DB,
+	path string, cacheID int64, db, readDB, queryDB, ownQueryDB *sql.DB,
 	set *sqlstmt.Set[stmtID], sizeLimitSender *conflate.Sender[int64, struct{}],
 ) *file {
 	queryCtx, cancelQueries := context.WithCancel(context.Background())
@@ -264,6 +267,7 @@ func newFile(
 		db:              db,
 		readDB:          readDB,
 		queryDB:         queryDB,
+		ownQueryDB:      ownQueryDB,
 		set:             set,
 		hub:             conflate.New[string, struct{}](),
 		janitorWakeups:  make(chan struct{}, 1),

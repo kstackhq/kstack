@@ -71,7 +71,7 @@ type readingData struct {
 	f *readingService
 }
 
-func (fd readingData) Query(_ context.Context, _ ClusterID, _ ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (ClusterCachedDataQueryResult, bool, error) {
+func (fd readingData) QueryOwn(_ context.Context, _ ClusterID, _ ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (ClusterCachedDataQueryResult, bool, error) {
 	fd.f.asked.sql, fd.f.asked.maxRows, fd.f.asked.maxByte, fd.f.asked.args = sql, maxRows, maxBytes, args
 	return ClusterCachedDataQueryResult{Rows: [][]any{{"a", int64(2)}}}, !fd.f.noQuery, nil
 }

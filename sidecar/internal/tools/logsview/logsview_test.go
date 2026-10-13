@@ -88,7 +88,7 @@ func (f fakeCaches) Health(context.Context, cluster.ClusterID, cluster.ClusterCa
 	return f.health, true, nil
 }
 
-func (f fakeCachedData) Query(_ context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, sql string, _, _ int, args ...any) (cluster.ClusterCachedDataQueryResult, bool, error) {
+func (f fakeCachedData) QueryOwn(_ context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, sql string, _, _ int, args ...any) (cluster.ClusterCachedDataQueryResult, bool, error) {
 	q := queried{sql, args}
 	f.queried = append(f.queried, q)
 	if f.queryErr != nil {

@@ -507,7 +507,8 @@ func openFile(
 	}
 
 	f := newFile(path, cacheID, db, readDB,
-		sqlitepool.OpenQuery(queryDriver, path, queryPoolSize), set, sizeLimitSender)
+		sqlitepool.OpenQuery(queryDriver, path, queryPoolSize),
+		sqlitepool.OpenOwnQuery(queryDriver, path, queryPoolSize), set, sizeLimitSender)
 	f.startJanitor(ret)
 	return f, nil
 }

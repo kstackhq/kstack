@@ -29,8 +29,8 @@ var (
 	ErrSyncing = errors.New("cluster: the cache is syncing")
 )
 
-// CacheReading runs statements over one cache inside one reading of its cluster,
-// each answer cut at the reading's row and byte bounds.
+// CacheReading runs the sidecar's own statements over one cache inside one reading of
+// its cluster, each answer cut at the reading's row and byte bounds.
 type CacheReading struct {
 	data      CachedData
 	ctx       context.Context
@@ -69,7 +69,7 @@ func ReadActiveCache(ctx context.Context, svc Service, id ClusterID, maxRows, ma
 // Query is sql's answer, with args bound to its placeholders; a cache gone under
 // the read is ErrNoCache.
 func (r CacheReading) Query(sql string, args ...any) (ClusterCachedDataQueryResult, error) {
-	res, ok, err := r.data.Query(r.ctx, r.clusterID, r.cacheID, sql, r.maxRows, r.maxBytes, args...)
+	res, ok, err := r.data.QueryOwn(r.ctx, r.clusterID, r.cacheID, sql, r.maxRows, r.maxBytes, args...)
 	if err != nil {
 		return res, err
 	}

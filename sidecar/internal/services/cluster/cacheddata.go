@@ -446,6 +446,19 @@ func millisToTime(ms int64) time.Time {
 }
 
 func (a cachedDataAPI) Query(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (ClusterCachedDataQueryResult, bool, error) {
+	return a.query(ctx, (*kubestore.Store).Query, clusterID, cacheID, sql, maxRows, maxBytes, args)
+}
+
+func (a cachedDataAPI) QueryOwn(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (ClusterCachedDataQueryResult, bool, error) {
+	return a.query(ctx, (*kubestore.Store).QueryOwn, clusterID, cacheID, sql, maxRows, maxBytes, args)
+}
+
+// storeQuery is Store.Query or Store.QueryOwn: which pool a statement runs on.
+type storeQuery = func(*kubestore.Store, context.Context, string, int, int, ...any) (kubestore.QueryResult, error)
+
+// query runs sql over the cache through run, the two methods above differing in that
+// alone.
+func (a cachedDataAPI) query(ctx context.Context, run storeQuery, clusterID ClusterID, cacheID ClusterCacheID, sql string, maxRows, maxBytes int, args []any) (ClusterCachedDataQueryResult, bool, error) {
 	live, err := a.gate(ctx, clusterID, cacheID)
 	if err != nil || !live {
 		return ClusterCachedDataQueryResult{}, false, err
@@ -461,7 +474,7 @@ func (a cachedDataAPI) Query(ctx context.Context, clusterID ClusterID, cacheID C
 	}
 	defer store.Release()
 
-	res, err := store.Query(ctx, sql, maxRows, maxBytes, args...)
+	res, err := run(store, ctx, sql, maxRows, maxBytes, args...)
 	var qe *kubestore.QueryError
 	switch {
 	case errors.As(err, &qe):

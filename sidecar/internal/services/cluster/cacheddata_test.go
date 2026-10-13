@@ -596,6 +596,21 @@ func TestQueryReadsTheCache(t *testing.T) {
 	assert.Equal(t, ClusterCachedDataQueryResult{Columns: []string{"name"}, Rows: [][]any{{"api-0"}}}, got)
 }
 
+// QueryOwn reads the cache's views as Query does, its values bound.
+func TestQueryOwnReadsTheCache(t *testing.T) {
+	ctx := context.Background()
+	f := newDataFixture(t)
+	require.NoError(t, f.store.ApplyChange(ctx, kubestore.Kind{APIVersion: "v1", Kind: "Pod", Resource: "pods"},
+		watch.Added, dataPod("uid-1", "api-0", "42")))
+	f.stopWorkers()
+
+	got, ok, err := f.data().QueryOwn(ctx, f.clusterID, f.cacheID, `SELECT name FROM objects WHERE uid = ?`, 10, 1<<20, "uid-1")
+
+	require.NoError(t, err)
+	assert.True(t, ok)
+	assert.Equal(t, ClusterCachedDataQueryResult{Columns: []string{"name"}, Rows: [][]any{{"api-0"}}}, got)
+}
+
 func TestQueryOfACacheOfAnotherClusterIsNotOK(t *testing.T) {
 	f := newDataFixture(t)
 	other := createCluster(t, f.d, "other")

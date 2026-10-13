@@ -30,7 +30,7 @@ import (
 	sqlitelib "modernc.org/sqlite/lib"
 )
 
-// queryPoolSize caps a file's concurrent KubeQuery connections.
+// queryPoolSize caps a file's concurrent connections in each query pool.
 const queryPoolSize = 2
 
 //go:embed query_views.sql
@@ -110,6 +110,18 @@ func (e *QueryError) Error() string { return e.Message }
 // row would outlive its deadline. Materializing it makes all of it run in that first
 // step. The wrap also makes it a subquery, which only a query can be.
 func (s *Store) Query(ctx context.Context, sql string, maxRows, maxBytes int, args ...any) (QueryResult, error) {
+	return s.query(ctx, false, sql, maxRows, maxBytes, args)
+}
+
+// QueryOwn is Query for a statement the sidecar wrote, on the pool that keeps its
+// connections between statements.
+func (s *Store) QueryOwn(ctx context.Context, sql string, maxRows, maxBytes int, args ...any) (QueryResult, error) {
+	return s.query(ctx, true, sql, maxRows, maxBytes, args)
+}
+
+// query runs sql on the file's own-query pool with own, else on KubeQuery's, under a
+// context the file's close cancels too.
+func (s *Store) query(ctx context.Context, own bool, sql string, maxRows, maxBytes int, args []any) (QueryResult, error) {
 	f, done, err := s.use()
 	if err != nil {
 		return QueryResult{}, err
@@ -119,21 +131,25 @@ func (s *Store) Query(ctx context.Context, sql string, maxRows, maxBytes int, ar
 	defer cancel()
 	defer context.AfterFunc(f.queryCtx, cancel)()
 
-	res, err := f.query(ctx, sql, maxRows, maxBytes, args)
+	pool := f.queryDB
+	if own {
+		pool = f.ownQueryDB
+	}
+	res, err := f.query(ctx, pool, sql, maxRows, maxBytes, args)
 	if err != nil && f.queryCtx.Err() != nil {
 		return QueryResult{}, fmt.Errorf("cache %d: %w", s.cacheID, ErrClosed)
 	}
 	return res, err
 }
 
-// query is Query on its file, under a context the file's close cancels too.
-func (f *file) query(ctx context.Context, sql string, maxRows, maxBytes int, args []any) (QueryResult, error) {
+// query is Query on one of this file's query pools.
+func (f *file) query(ctx context.Context, pool *sql.DB, sql string, maxRows, maxBytes int, args []any) (QueryResult, error) {
 	sql = strings.TrimSpace(sql)
 	sql = strings.TrimSpace(strings.TrimSuffix(sql, ";"))
 	if strings.Contains(sql, ";") {
 		return QueryResult{}, &QueryError{Message: onlyOneQuery}
 	}
-	conn, err := f.queryConn(ctx)
+	conn, err := queryConn(ctx, pool)
 	if err != nil {
 		return QueryResult{}, err
 	}
@@ -207,10 +223,10 @@ func (f *file) query(ctx context.Context, sql string, maxRows, maxBytes int, arg
 // queryMaxLength bounds any value a statement builds.
 const queryMaxLength = 16 << 20
 
-// queryConn takes a query connection with its limits set: no attached database, since
+// queryConn takes a connection of pool with its limits set: no attached database, since
 // ATTACH and VACUUM INTO both open another file, and no value past queryMaxLength.
-func (f *file) queryConn(ctx context.Context) (*sql.Conn, error) {
-	conn, err := f.queryDB.Conn(ctx)
+func queryConn(ctx context.Context, pool *sql.DB) (*sql.Conn, error) {
+	conn, err := pool.Conn(ctx)
 	if err != nil {
 		return nil, err
 	}

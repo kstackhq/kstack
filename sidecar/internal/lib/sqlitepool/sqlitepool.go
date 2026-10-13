@@ -119,10 +119,25 @@ func OpenReader(path string, maxConns int) (*sql.DB, error) {
 // connection reaches the next checkout. The file must exist; nothing is opened until the
 // first checkout.
 func OpenQuery(d *sqlite.Driver, path string, maxConns int) *sql.DB {
-	db := sql.OpenDB(connector{d: d, dsn: "file:" + path + "?mode=ro&_pragma=busy_timeout(5000)"})
+	db := sql.OpenDB(queryConnector(d, path))
 	db.SetMaxOpenConns(maxConns)
 	db.SetMaxIdleConns(0)
 	return db
+}
+
+// OpenOwnQuery is OpenQuery for statements the caller wrote. Those leave nothing on a
+// connection, so the pool keeps every connection it opens until the idle timeout, as
+// OpenReader does, and d's hooks run once per connection rather than once per statement.
+func OpenOwnQuery(d *sqlite.Driver, path string, maxConns int) *sql.DB {
+	db := sql.OpenDB(queryConnector(d, path))
+	db.SetMaxOpenConns(maxConns)
+	db.SetMaxIdleConns(maxConns)
+	db.SetConnMaxIdleTime(5 * time.Minute)
+	return db
+}
+
+func queryConnector(d *sqlite.Driver, path string) connector {
+	return connector{d: d, dsn: "file:" + path + "?mode=ro&_pragma=busy_timeout(5000)"}
 }
 
 // connector opens through a caller's driver: modernc's own NewConnector always uses the
