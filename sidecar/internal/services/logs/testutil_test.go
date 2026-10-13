@@ -194,6 +194,35 @@ func webMirror(t *testing.T) *fakeService {
 	return newMirror(t, append(webObjects(), webNodes()...)...)
 }
 
+// chunk makes the cluster's responses hand out at most n bytes per Read, so a
+// fetch's budget can run out mid-line.
+func (f *fakeService) chunk(n int) {
+	c := f.lease.conn.HTTPClient
+	c.Transport = chunked{c.Transport, n}
+}
+
+type chunked struct {
+	next http.RoundTripper
+	n    int
+}
+
+func (c chunked) RoundTrip(req *http.Request) (*http.Response, error) {
+	resp, err := c.next.RoundTrip(req)
+	if err == nil {
+		resp.Body = chunkedBody{resp.Body, c.n}
+	}
+	return resp, err
+}
+
+type chunkedBody struct {
+	io.ReadCloser
+	n int
+}
+
+func (b chunkedBody) Read(p []byte) (int, error) {
+	return b.ReadCloser.Read(p[:min(len(p), b.n)])
+}
+
 // logServer is the API server's log endpoint over containers' logs held in
 // memory, honouring the parameters the fetcher sends.
 type logServer struct {
@@ -588,4 +617,30 @@ func placesOf(t target) []Place {
 		places[i] = s.place
 	}
 	return places
+}
+
+// line is a record of pod/container in prod at d past 10:00, the first of its
+// moment, and nth the ordinal-th.
+func line(pod, container string, d time.Duration, msg string) Record {
+	return nth(pod, container, d, 0, msg)
+}
+
+func nth(pod, container string, d time.Duration, ordinal int, msg string) Record {
+	return Record{Timestamp: at(d), Message: msg, Stream: StreamKey{Namespace: "prod", Pod: pod, Container: container}, Ordinal: ordinal}
+}
+
+// compareLines orders two lines.
+func compareLines(a, b Record) int { return comparePositions(positionOf(a), positionOf(b)) }
+
+// cursor is the cursor of the moment d past 10:00.
+func cursor(d time.Duration) *string {
+	return cursorOf(position{Timestamp: at(d)})
+}
+
+// serviceOver is the service over f's mirror and the API server h.
+func serviceOver(t *testing.T, f *fakeService, h http.Handler) (*Service, *fakeService) {
+	t.Helper()
+	f.lease = serving(t, h).lease
+	svc := New(f)
+	return svc, f
 }

@@ -323,6 +323,35 @@ models:
       ReplicaSet:
         value: github.com/kstackhq/kstack/sidecar/internal/services/logs.SourceReplicaSet
 
+  LogRecord:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.Record
+
+  LogStream:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.StreamKey
+
+  LogPlace:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.Place
+
+  LogRecordsPage:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.Page
+
+  LogsViewInput:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.View
+
+  LogsViewSourceInput:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.ViewSource
+
+  LogsViewFilterInput:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.ViewFilter
+
+  LogsFetchMode:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.FetchMode
+    enum_values:
+      Head:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FetchHead
+      Tail:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FetchTail
+
   LogsViewAnchor:
     model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsViewAnchor
 

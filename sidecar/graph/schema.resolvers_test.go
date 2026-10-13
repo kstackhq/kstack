@@ -34,6 +34,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -3227,4 +3228,62 @@ func TestSandboxExecutableRemoveWorksWithNoSandbox(t *testing.T) {
 	data, _ := mutation(t, srv.URL, `mutation { sandboxExecutableRemove(name: "k9s") { name } }`)
 	assert.Equal(t, []any{}, data["sandboxExecutableRemove"])
 	assert.Empty(t, store.Get().Executables)
+}
+
+// --- Logs ---
+
+// fakeLogs is the log service answering a page, and keeping what it was asked.
+type fakeLogs struct {
+	page  logs.Page
+	view  logs.View
+	query logs.FetchQuery
+}
+
+func (f *fakeLogs) Fetch(_ context.Context, _ cluster.ClusterID, view logs.View, q logs.FetchQuery) (logs.Page, error) {
+	f.view, f.query = view, q
+	return f.page, nil
+}
+
+// logsView is a view's input as the client sends it.
+const logsView = `{sources: [{namespace: "prod", kind: Deployment, name: "web", containers: ["app"], allContainers: false, previous: false}],
+filters: [{field: Zone, values: ["eu-1a"]}], grep: "error"}`
+
+// logsFetch serves a page, its skipped streams included, from the view asked.
+func TestLogsFetchServesAPage(t *testing.T) {
+	stamp := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
+	cursor := "2026-10-08T10:00:00Z"
+	fake := &fakeLogs{page: logs.Page{
+		Records:    []logs.Record{{Timestamp: stamp, Message: "error: disk", Stream: logs.StreamKey{Namespace: "prod", Pod: "web-1", Container: "app"}, Place: logs.Place{Zone: "eu-1a"}}},
+		NextCursor: &cursor,
+		Skipped:    []string{"web-2/app: container is waiting to start"},
+	}}
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: fake}))
+	defer srv.Close()
+
+	raw := postGQL(t, srv.URL, fmt.Sprintf(`{"query":%q}`, `{ logsFetch(id: "7", view: `+logsView+`, mode: Tail, before: "x", limit: 20) {
+		records { timestamp message stream { pod container previous } place { node zone } cursor } nextCursor skipped } }`))
+
+	assert.JSONEq(t, `{"data":{"logsFetch":{
+		"records":[{"timestamp":"2026-10-08T10:00:00Z","message":"error: disk","stream":{"pod":"web-1","container":"app","previous":false},"place":{"node":"","zone":"eu-1a"},
+			"cursor":"2026-10-08T10:00:00Z\tprod\tweb-1\tapp\tfalse\t0"}],
+		"nextCursor":"2026-10-08T10:00:00Z","skipped":["web-2/app: container is waiting to start"]}}}`, string(raw))
+	assert.Equal(t, logs.View{
+		Sources: []logs.ViewSource{{Namespace: "prod", Kind: logs.SourceDeployment, Name: "web", Containers: []string{"app"}}},
+		Filters: []logs.ViewFilter{{Field: logs.FilterZone, Values: []string{"eu-1a"}}},
+		Grep:    "error",
+	}, fake.view)
+	assert.Equal(t, logs.FetchTail, fake.query.Mode)
+	assert.Equal(t, "x", *fake.query.Before)
+	assert.Equal(t, 20, fake.query.Limit)
+}
+
+// logsFetch refuses a limit past 500 as a validation error, saying so.
+func TestLogsFetchRefusesALimitPast500(t *testing.T) {
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: logs.New(nil)}))
+	defer srv.Close()
+
+	raw := postGQL(t, srv.URL, fmt.Sprintf(`{"query":%q}`, `{ logsFetch(id: "7", view: `+logsView+`, mode: Head, limit: 501) { skipped } }`))
+
+	assert.Contains(t, string(raw), `"code":"KSTACK_VALIDATION_ERROR"`)
+	assert.Contains(t, string(raw), "a limit must be between 1 and 500")
 }
