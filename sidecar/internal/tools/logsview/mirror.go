@@ -53,9 +53,10 @@ var apiOf = map[tools.LogsSourceKind]struct{ apiVersion, kind, template string }
 	tools.LogsSourceCronJob:     {"batch/v1", "CronJob", "$.spec.jobTemplate.spec.template"},
 }
 
-// run runs one statement over the cache; a cache gone under the read is errNoCache.
-func (q query) run(sql string) (cluster.ClusterCachedDataQueryResult, error) {
-	res, ok, err := q.data.Query(q.ctx, q.clusterID, q.cacheID, sql, maxRows, maxBytes)
+// run runs one statement over the cache with args bound to its placeholders; a
+// cache gone under the read is errNoCache.
+func (q query) run(sql string, args ...any) (cluster.ClusterCachedDataQueryResult, error) {
+	res, ok, err := q.data.Query(q.ctx, q.clusterID, q.cacheID, sql, maxRows, maxBytes, args...)
 	if err != nil {
 		return res, err
 	}
@@ -70,11 +71,11 @@ func (q query) run(sql string) (cluster.ClusterCachedDataQueryResult, error) {
 // off its pod template.
 func (q query) object(s source) (found, error) {
 	api := apiOf[s.kind]
-	where := " WHERE o.api_version = " + literal(api.apiVersion) + " AND o.kind = " + literal(api.kind) +
-		" AND o.namespace = " + literal(s.namespace) + " AND o.name = " + literal(s.name)
+	const where = " WHERE o.api_version = ? AND o.kind = ? AND o.namespace = ? AND o.name = ?"
+	args := []any{api.apiVersion, api.kind, s.namespace, s.name}
 	if api.template == "" {
-		res, err := q.run(`SELECT o.uid, o.body ->> '$.metadata.annotations."` + defaultContainerAnnotation + `"', c.name, coalesce(c.restarts, 0)
-FROM objects o LEFT JOIN containers c ON c.pod_uid = o.uid` + where + ` ORDER BY c.init, c.position`)
+		res, err := q.run(`SELECT o.uid, o.body ->> '$.metadata.annotations."`+defaultContainerAnnotation+`"', c.name, coalesce(c.restarts, 0)
+FROM objects o LEFT JOIN containers c ON c.pod_uid = o.uid`+where+` ORDER BY c.init, c.position`, args...)
 		if err != nil || len(res.Rows) == 0 {
 			return found{}, err
 		}
@@ -87,9 +88,9 @@ FROM objects o LEFT JOIN containers c ON c.pod_uid = o.uid` + where + ` ORDER BY
 		}
 		return f, nil
 	}
-	res, err := q.run(`SELECT o.uid, o.body ->> '` + api.template + `.metadata.annotations."` + defaultContainerAnnotation + `"',
-o.body -> '` + api.template + `.spec.containers', o.body -> '` + api.template + `.spec.initContainers'
-FROM objects o` + where)
+	res, err := q.run(`SELECT o.uid, o.body ->> '`+api.template+`.metadata.annotations."`+defaultContainerAnnotation+`"',
+o.body -> '`+api.template+`.spec.containers', o.body -> '`+api.template+`.spec.initContainers'
+FROM objects o`+where, args...)
 	if err != nil || len(res.Rows) == 0 {
 		return found{}, err
 	}
@@ -102,12 +103,16 @@ FROM objects o` + where)
 // restarted container among shown: every container when shown is empty.
 func (q query) previousPods(uid string, shown []string) (pods, restarted int, err error) {
 	among := ""
-	if len(shown) > 0 {
-		among = " AND c.name IN (" + literals(shown) + ")"
+	args := []any{}
+	for _, name := range shown {
+		args = append(args, name)
 	}
-	res, err := q.run(`SELECT count(*), coalesce(sum(EXISTS (SELECT 1 FROM containers c WHERE c.pod_uid = p.uid AND c.restarts > 0` + among + `)), 0)
+	if len(shown) > 0 {
+		among = " AND c.name IN (" + placeholders(len(shown)) + ")"
+	}
+	res, err := q.run(`SELECT count(*), coalesce(sum(EXISTS (SELECT 1 FROM containers c WHERE c.pod_uid = p.uid AND c.restarts > 0`+among+`)), 0)
 FROM objects p WHERE p.api_version = 'v1' AND p.kind = 'Pod'
-AND p.uid IN (SELECT uid FROM ancestors WHERE ancestor_uid = ` + literal(uid) + `)`)
+AND p.uid IN (SELECT uid FROM ancestors WHERE ancestor_uid = ?)`, append(args, uid)...)
 	if err != nil || len(res.Rows) == 0 {
 		return 0, 0, err
 	}
@@ -129,16 +134,9 @@ func containerNames(list string) []string {
 	return names
 }
 
-// literal is s as a SQL string literal.
-func literal(s string) string { return "'" + strings.ReplaceAll(s, "'", "''") + "'" }
-
-// literals is each of list as a SQL string literal, comma-separated.
-func literals(list []string) string {
-	out := make([]string, len(list))
-	for i, s := range list {
-		out[i] = literal(s)
-	}
-	return strings.Join(out, ", ")
+// placeholders is n comma-separated placeholders, for an IN list of n values.
+func placeholders(n int) string {
+	return strings.TrimSuffix(strings.Repeat("?, ", n), ", ")
 }
 
 // text is a cell as text, "" for any other.
