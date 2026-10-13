@@ -217,18 +217,21 @@ lines on the far side of the **nearest** stopping point — on a backward read, 
 newest point any stream stopped at; on a forward read, older than the oldest — and `nextCursor`
 is that point. The page may then be empty with a cursor set, which is the honest answer: the
 client can ask again from there, and a slow grep shows progress rather than hanging.
-A stream that stopped before reading any line in range whole stopped where the page began,
-so the page is empty and `nextCursor` is the cursor it was asked with. Asking again from there
-makes no progress, so the client asks again only when the user does, never on its own.
+A stream that stopped before reading any line in range whole leaves no point the next page
+could go on from, so the page is refused rather than read as the end: out of budget, with a
+sentence asking the user to narrow the view or its grep; cut by the connection's retirement,
+with one asking them to read it again.
 
 **A stream that fails.** One bad container must not empty a page. A pod still creating answers
 `400`, so does `previous` on a container that never restarted, and a pod deleted between the
 mirror read and the `GET` answers `404`. Such a stream is skipped and named: the page's
 `skipped` lists one line per stream, *api-7f9c/istio-proxy: container is waiting to start*, in
 the sidecar's words off the API server's. A page fails only when every stream failed, or on
-`401`/`403`, since those are the user's credentials and not one pod's state. A follow has no
-page to name a skipped stream on: it reopens one quietly when the pod's object changes in the
-mirror, and until then the user sees that container's lines missing and nothing saying so.
+`401`, since that is the user's credentials and not one pod's state. A `403` is one stream's:
+access to `pods/log` is granted per namespace, so it is skipped and named like a `400`. A
+follow has no page to name a skipped stream on: it reopens one quietly when the pod's object
+changes in the mirror, and until then the user sees that container's lines missing and nothing
+saying so.
 That is accepted for this step; a follow-side notice is a later addition if it is missed.
 
 **Grep.** A regular expression over the message, compiled once per call with Go's `regexp`,
@@ -244,7 +247,7 @@ the API server closes it.
 **How a follow ends.** `Follow` answers a `*cluster.Stream[Record]`, as every watch whose source
 can die does (`sidecar/CLAUDE.md`, *Streams and watches*), with `Err` set before `Frames`
 closes. `Err` is set when the claim is revoked (the cluster disabled or deleted), when a
-`401`/`403` arrives mid-stream, when every stream is gone, and when a `Pod` source's pod is
+`401` arrives mid-stream, when every stream is gone, and when a `Pod` source's pod is
 deleted — each with its reason in the sidecar's words. The context ending is the one clean
 end. A bare channel close could not tell the webview any of these from a clean end, and the
 `watchFailed` reason step 2's error line and `subscribe-exchange`'s reconnect read would never
@@ -324,11 +327,12 @@ Go, beside the files they cover:
 - `services/logs/merge_test.go`: a fetch's lines from three streams come out in time order; a
   tie keeps a fixed order; `limit` cuts at the right end for `Head` and `Tail` and hands back
   the right cursor; a stream answering `400` or `404` is skipped and named in `skipped` while
-  the others fill the page; every stream failing fails the page, and one `403` fails it alone;
+  the others fill the page; every stream failing fails the page, one `401` fails it alone, and
+  a `403` is skipped;
   a follow sends one stream's lines while another stays silent; a backward read that spends
   its budget keeps only the lines newer than the newest stopping point and hands that point
   back, and may answer no lines with a cursor; a stream that spends the budget before its first
-  line in range answers no lines and the cursor the page was asked with.
+  line in range refuses the page.
 - `services/logs/clean_test.go`: ANSI colour and cursor sequences gone, the C1 forms gone, DEL
   gone, tabs kept, a line of 20 KiB cut to 16 with `…` on a character boundary (a multi-byte
   character astride the cut is dropped whole); grep matches the stripped text.

@@ -5,6 +5,8 @@ package graph
 // Hand-written; gqlgen never regenerates this file. Add resolver dependencies here.
 
 import (
+	"context"
+
 	"github.com/amorey/gochan/watch"
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
@@ -12,6 +14,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
@@ -44,6 +47,13 @@ type Resolver struct {
 	// Executables probes the executables sandboxed commands run: the Bash tool, nil where
 	// there is no shell.
 	Executables ExecutableProber
+	// Logs serves a view's lines: a page around a cursor.
+	Logs LogsService
+}
+
+// LogsService reads a view's lines: *logs.Service, or a test's fake.
+type LogsService interface {
+	Fetch(ctx context.Context, id cluster.ClusterID, view logs.View, q logs.FetchQuery) (logs.Page, error)
 }
 
 // ExecutableProber is the executable probe: *bash.Tool, or a test's fake. StartProbe

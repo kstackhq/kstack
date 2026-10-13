@@ -17,6 +17,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
@@ -32,9 +33,12 @@ type Runtime struct {
 	Poke       *poke.Service
 	Kubeconfig *kubeconfig.Service
 	Cluster    cluster.Service
-	Auth       auth.Service
-	Catalog    catalog.Catalog
-	LLM        *llm.Service
+	// Logs reads views' lines through the cluster service; it owns nothing that
+	// outlives a request, so it is no part.
+	Logs    *logs.Service
+	Auth    auth.Service
+	Catalog catalog.Catalog
+	LLM     *llm.Service
 	// Shell is nil on a machine with no shell.
 	Shell         *bash.Tool
 	SandboxStatus sandbox.Status
@@ -112,6 +116,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		return fail(err)
 	}
 	rt.add("cluster service", rt.Cluster)
+	rt.Logs = logs.New(rt.Cluster)
 
 	keychainService := cfg.KeychainService
 	if keychainService == "" {
@@ -213,5 +218,6 @@ func (rt *Runtime) resolver() *graph.Resolver {
 		Auth:          rt.Auth,
 		Settings:      rt.Settings,
 		Executables:   prober,
+		Logs:          rt.Logs,
 	}
 }

@@ -1430,6 +1430,76 @@ type ChatMessageWatchFrame {
   message: ChatMessage
 }
 
+# --- Logs ---
+# A view's lines, read through the API server with the user's own credentials. The
+# view is the backend's half of a LogsViewAction; the anchor and the pin are the
+# viewer's.
+
+"One log line, as the sidecar read it. Every string came from the cluster, so draw it as text."
+type LogRecord {
+  "When the container runtime stamped it."
+  timestamp: Time!
+  "The line, with terminal control sequences stripped and cut at 16 KiB."
+  message: String!
+  stream: LogStream!
+  place: LogPlace!
+  "Names this line: a fetch's cursor argument resumes past it. Opaque."
+  cursor: String!
+}
+
+"The log a line came from. Its four fields together name the stream."
+type LogStream {
+  namespace: String!
+  pod: String!
+  container: String!
+  "Whether the log is the instance before the last restart."
+  previous: Boolean!
+}
+
+"Where a stream's pod runs: its node and the node's labels. Empty where the mirror does not know. It takes no part in naming the stream."
+type LogPlace {
+  node: String!
+  region: String!
+  zone: String!
+  os: String!
+  arch: String!
+}
+
+"A page of lines, oldest first. `nextCursor` is set while there are more in the direction asked."
+type LogRecordsPage {
+  records: [LogRecord!]!
+  nextCursor: String
+  "Streams the page could not read, one line each, in the sidecar's words. Empty when every stream answered."
+  skipped: [String!]!
+}
+
+"What a view reads: the `LogsViewAction` fields the backend takes, as an input."
+input LogsViewInput {
+  sources: [LogsViewSourceInput!]!
+  filters: [LogsViewFilterInput!]!
+  grep: String!
+}
+
+input LogsViewSourceInput {
+  namespace: String!
+  kind: LogsViewSourceKind!
+  name: String!
+  containers: [String!]!
+  allContainers: Boolean!
+  previous: Boolean!
+}
+
+input LogsViewFilterInput {
+  field: LogsViewFilterField!
+  values: [String!]!
+}
+
+"Which end of the range a page is cut from when it holds more than `limit`."
+enum LogsFetchMode {
+  Head
+  Tail
+}
+
 # --- Memory ---
 
 """
@@ -1757,6 +1827,24 @@ type Query {
 
   "The chat's own rules, each as Settings spells a rule. Empty for a chat with none."
   chatGrants(chatID: ChatID!): [PermissionRule!]!
+
+  # --- Logs ---
+  """
+  A page of a view's lines on the cluster. A cursor names a line and is opaque: send
+  back the one a page handed out. A time alone names a moment. `since` and `until`
+  include the cursor's line, `after` and `before` do not. With no cursor, `Head` reads
+  from the oldest line and `Tail` from the newest. `limit` is at most 500.
+  """
+  logsFetch(
+    id: ClusterID!
+    view: LogsViewInput!
+    mode: LogsFetchMode!
+    since: String
+    until: String
+    after: String
+    before: String
+    limit: Int!
+  ): LogRecordsPage!
 
   # --- Cloud account ---
   "Current authentication state. Signed-out when no cloud account is configured; live updates via authStateWatch."

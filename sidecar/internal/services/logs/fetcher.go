@@ -50,9 +50,7 @@ const timestampSpan = 36
 // errShort is a read that ran out of budget or windows before the end of its range.
 var errShort = errors.New("logs: the read stopped short")
 
-// budget is the bytes a fetch's streams may still read between them, spent as each
-// reads, so a busy stream can spend what a quiet one would have read. A nil budget
-// is no bound.
+// budget is the bytes a stream of a fetch may still read. A nil budget is no bound.
 type budget struct{ left atomic.Int64 }
 
 func newBudget(n int64) *budget {
@@ -113,6 +111,8 @@ func (o readOpts) matches(rec Record) bool {
 type streamRead struct {
 	key   StreamKey
 	lines *spsc.Receiver[Record]
+	// cancel ends the read, which then closes lines.
+	cancel context.CancelFunc
 	// err is nil when the read ended clean.
 	err error
 	// short is whether the read stopped before the end of its range — out of budget
@@ -144,10 +144,12 @@ func readBackward(ctx context.Context, get getter, s stream, o readOpts) *stream
 // that failed past its first line in range stopped short there too, so a page ends
 // where its lines do and the next reads on from it.
 func start(ctx context.Context, get getter, s stream, o readOpts, read func(*reader) error) *streamRead {
+	ctx, cancel := context.WithCancel(ctx)
 	out, lines := spsc.New[Record](0)
-	r := &streamRead{key: s.key, lines: lines}
+	r := &streamRead{key: s.key, lines: lines, cancel: cancel}
 	go func() {
 		defer out.Close()
+		defer cancel()
 		rd := &reader{ctx: ctx, get: get, key: s.key, place: s.place, o: o, out: out}
 		err := read(rd)
 		switch {
