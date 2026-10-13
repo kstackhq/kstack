@@ -372,6 +372,20 @@ func TestOnlyAQueryRuns(t *testing.T) {
 	assert.Empty(t, entries)
 }
 
+// A value is bound to its placeholder, never pasted into the statement, so a quote
+// or a semicolon in it is matched as written.
+func TestAValueIsBoundToItsPlaceholder(t *testing.T) {
+	ctx := context.Background()
+	s := populated(t)
+	const odd = `it's; here`
+	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, owned(podKind, "odd", odd, "")))
+
+	res, err := s.Query(ctx, `SELECT uid, name FROM objects WHERE kind = ? AND name = ?`, 10, 1<<20, "Pod", odd)
+
+	require.NoError(t, err)
+	assert.Equal(t, [][]any{{"odd", odd}}, res.Rows)
+}
+
 func TestATrailingSemicolonRuns(t *testing.T) {
 	t.Parallel()
 
