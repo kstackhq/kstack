@@ -217,6 +217,9 @@ lines on the far side of the **nearest** stopping point — on a backward read, 
 newest point any stream stopped at; on a forward read, older than the oldest — and `nextCursor`
 is that point. The page may then be empty with a cursor set, which is the honest answer: the
 client can ask again from there, and a slow grep shows progress rather than hanging.
+A stream that stopped before reading any line in range whole stopped where the page began,
+so the page is empty and `nextCursor` is the cursor it was asked with. Asking again from there
+makes no progress, so the client asks again only when the user does, never on its own.
 
 **A stream that fails.** One bad container must not empty a page. A pod still creating answers
 `400`, so does `previous` on a container that never restarted, and a pod deleted between the
@@ -324,7 +327,8 @@ Go, beside the files they cover:
   the others fill the page; every stream failing fails the page, and one `403` fails it alone;
   a follow sends one stream's lines while another stays silent; a backward read that spends
   its budget keeps only the lines newer than the newest stopping point and hands that point
-  back, and may answer no lines with a cursor.
+  back, and may answer no lines with a cursor; a stream that spends the budget before its first
+  line in range answers no lines and the cursor the page was asked with.
 - `services/logs/clean_test.go`: ANSI colour and cursor sequences gone, the C1 forms gone, DEL
   gone, tabs kept, a line of 20 KiB cut to 16 with `…` on a character boundary (a multi-byte
   character astride the cut is dropped whole); grep matches the stripped text.
