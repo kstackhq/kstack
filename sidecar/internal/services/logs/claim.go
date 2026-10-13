@@ -22,6 +22,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
@@ -75,6 +76,76 @@ func acquireClaim(ctx context.Context, svc cluster.Service, id cluster.ClusterID
 		return nil, err
 	}
 	return &claim{lease: lease, serverUID: serverUID, stop: func() {}}, nil
+}
+
+// openClaim is acquireClaim watching the record until close, opening the watch
+// again retry after one that ends, for a follow that holds its claim for as long as
+// the user looks.
+func openClaim(ctx context.Context, svc cluster.Service, id cluster.ClusterID, serverUID string, retry time.Duration) (*claim, error) {
+	c, err := acquireClaim(ctx, svc, id, serverUID)
+	if err != nil {
+		return nil, err
+	}
+	watchCtx, stop := context.WithCancel(context.WithoutCancel(ctx))
+	stream, err := svc.Clusters().Watch(watchCtx, id)
+	if err != nil {
+		stop()
+		c.lease.Release()
+		return nil, err
+	}
+	revoked := make(chan struct{})
+	go func() {
+		if watchRevoked(watchCtx, svc, id, stream, retry) {
+			close(revoked)
+		}
+	}()
+	c.revoked, c.stop = revoked, stop
+	return c, nil
+}
+
+// watchRevoked is whether the record's watch showed the cluster Kstack no longer
+// connects to, watching until it does or ctx ends. A watch that ends is opened
+// again after retry, its snapshot saying whether the record still stands; one
+// that cannot be opened again, or ends before its snapshot closes, revokes, since
+// a claim nothing watches could outlive the cluster.
+func watchRevoked(ctx context.Context, svc cluster.Service, id cluster.ClusterID, stream *cluster.Stream[cluster.ClusterWatchFrame], retry time.Duration) bool {
+	for {
+		seen, synced := false, false
+		for f := range stream.Frames {
+			switch {
+			case f.Type == cluster.DeltaFrameDeleted || f.Cluster != nil && !connectable(f.Cluster):
+				return true
+			case f.Cluster != nil:
+				seen = true
+			case f.Type == cluster.DeltaFrameBookmark:
+				if !seen {
+					return true
+				}
+				synced = true
+			}
+		}
+		if ctx.Err() != nil {
+			return false
+		}
+		if !synced {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(retry):
+		}
+		var err error
+		if stream, err = svc.Clusters().Watch(ctx, id); err != nil {
+			return ctx.Err() == nil
+		}
+	}
+}
+
+// connectable is whether AcquireConnection would claim c: enabled, not marked for
+// deletion, and from the kubeconfig.
+func connectable(c *cluster.Cluster) bool {
+	return c.Spec.Enabled && c.DeletionRequestedAt == nil && c.KubeContext() != ""
 }
 
 // fatal is the error that fails a whole read when err ends one stream: the

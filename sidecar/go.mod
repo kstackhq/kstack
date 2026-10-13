@@ -8,7 +8,7 @@ require (
 	github.com/Microsoft/go-winio v0.6.2
 	github.com/amorey/beehive v0.33.1
 	github.com/amorey/gobus v0.7.0
-	github.com/amorey/gochan v0.3.0
+	github.com/amorey/gochan v0.4.0
 	github.com/anthropics/anthropic-sdk-go v1.72.0
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/fsnotify/fsnotify v1.10.1

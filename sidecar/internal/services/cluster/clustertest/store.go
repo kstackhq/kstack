@@ -67,6 +67,14 @@ func (s *Store) Apply(t testing.TB, body map[string]any) {
 	require.NoError(t, s.s.ApplyChange(context.Background(), k, watch.Added, u))
 }
 
+// Delete takes body out of the store, as a watch's Deleted would.
+func (s *Store) Delete(t testing.TB, body map[string]any) {
+	t.Helper()
+	u := &unstructured.Unstructured{Object: body}
+	k := kubestore.Kind{APIVersion: u.GetAPIVersion(), Kind: u.GetKind(), Resource: strings.ToLower(u.GetKind()) + "s"}
+	require.NoError(t, s.s.ApplyChange(context.Background(), k, watch.Deleted, u))
+}
+
 // Mirror adds a namespaced kind to the kinds the cache mirrors, as its sync does
 // when it starts, so the kinds view holds it with no object of it applied.
 func (s *Store) Mirror(t testing.TB, apiVersion, kind string) {

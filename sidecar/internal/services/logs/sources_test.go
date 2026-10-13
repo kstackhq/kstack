@@ -28,7 +28,7 @@ import (
 // resolveOf is what view resolves to over f.
 func resolveOf(t *testing.T, f *fakeService, view View) (target, error) {
 	t.Helper()
-	return resolve(t.Context(), f, "7", view)
+	return resolve(t.Context(), f, "7", view, false)
 }
 
 // A deployment's pods come off the mirror through its replica set, one stream per

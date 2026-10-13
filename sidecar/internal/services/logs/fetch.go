@@ -57,7 +57,7 @@ func (s *Service) Fetch(ctx context.Context, id cluster.ClusterID, view View, q 
 	if err != nil {
 		return Page{}, err
 	}
-	t, err := resolve(ctx, s.clusters, id, view)
+	t, err := resolve(ctx, s.clusters, id, view, false)
 	if err != nil {
 		return Page{}, err
 	}
