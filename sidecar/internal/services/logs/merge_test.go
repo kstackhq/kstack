@@ -81,6 +81,7 @@ func endedShort(key StreamKey, err error) *streamRead {
 
 // A fetch's lines from three streams come out in time order.
 func TestAFetchMergesByTime(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "a0"), line("a", "app", 3*time.Second, "a3")),
@@ -97,6 +98,7 @@ func TestAFetchMergesByTime(t *testing.T) {
 // Lines stamped alike come out by pod, then container, then ordinal, whichever
 // stream is first.
 func TestATieKeepsAFixedOrder(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	for _, mode := range []FetchMode{FetchHead, FetchTail} {
 		// A stream's lines come in the order the page reads them.
@@ -117,6 +119,7 @@ func TestATieKeepsAFixedOrder(t *testing.T) {
 
 // Head keeps the oldest lines and hands back the last one's cursor.
 func TestHeadCutsAtTheLimit(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "0"), line("a", "app", time.Second, "1"), line("a", "app", 2*time.Second, "2")),
@@ -130,6 +133,7 @@ func TestHeadCutsAtTheLimit(t *testing.T) {
 // Tail reads newest first, keeps the newest lines in time order, and hands back
 // the oldest one's cursor.
 func TestTailCutsAtTheLimit(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 2*time.Second, "2"), line("a", "app", time.Second, "1"), line("a", "app", 0, "0")),
@@ -143,6 +147,7 @@ func TestTailCutsAtTheLimit(t *testing.T) {
 // A page cut inside a moment hands back the cursor of the line it ended at, which
 // names that line among the moment's, so the next page goes on from the next.
 func TestAPageCutInsideAMomentNamesItsLine(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "a0"), nth("a", "app", 0, 1, "a0'"), line("a", "app", time.Second, "a1")),
@@ -161,6 +166,7 @@ func failed(ctx context.Context, pod, container string, err error) *streamRead {
 
 // A stream answering 400 or 404 is skipped and named, and the others fill the page.
 func TestAFailedStreamIsSkippedAndNamed(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "ok")),
@@ -176,6 +182,7 @@ func TestAFailedStreamIsSkippedAndNamed(t *testing.T) {
 // A stream's transport error is named in skipped as safe renders it, with its
 // controls stripped.
 func TestASkippedStreamsErrorIsCleaned(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "a0")),
@@ -190,6 +197,7 @@ func TestASkippedStreamsErrorIsCleaned(t *testing.T) {
 
 // Every stream failing fails the page, naming the first.
 func TestEveryStreamFailingFailsThePage(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	_, err := mergePage(ctx, []*streamRead{
 		failed(ctx, "a", "app", &statusError{http.StatusNotFound, "not found"}),
@@ -200,6 +208,7 @@ func TestEveryStreamFailingFailsThePage(t *testing.T) {
 
 // A 401 on any stream fails the page: the user's credentials, not a pod's state.
 func TestAnUnauthorizedStreamFailsThePage(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	_, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "ok")),
@@ -211,6 +220,7 @@ func TestAnUnauthorizedStreamFailsThePage(t *testing.T) {
 
 // A 403 is one namespace's, so the page skips that stream and keeps the rest.
 func TestAForbiddenStreamIsSkipped(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "ok")),
@@ -226,6 +236,7 @@ func TestAForbiddenStreamIsSkipped(t *testing.T) {
 // next page reads its lines rather than passing them; one cut before any line
 // refuses the page.
 func TestARetiredStreamEndsThePageWhereItStopped(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	a0 := line("a", "app", 0, "a0")
 	page, err := mergePage(ctx, []*streamRead{
@@ -245,6 +256,7 @@ func TestARetiredStreamEndsThePageWhereItStopped(t *testing.T) {
 // A stream that failed past a line in range ends the page where it stopped, as a
 // retired one does, rather than letting the page pass lines it never read.
 func TestAStreamThatFailedPartwayEndsThePageWhereItStopped(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	a0 := line("a", "app", 0, "a0")
 	page, err := mergePage(ctx, []*streamRead{
@@ -260,6 +272,7 @@ func TestAStreamThatFailedPartwayEndsThePageWhereItStopped(t *testing.T) {
 
 // A merge that has its lines asks its streams for none past them.
 func TestAFullMergeReadsNoFurther(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	more, lines := spsc.New[Record](0)
 	full := &streamRead{lines: lines}
@@ -275,6 +288,7 @@ func TestAFullMergeReadsNoFurther(t *testing.T) {
 // a next page could go on from, so the page is refused rather than read as the
 // end.
 func TestAStreamStoppedAtItsStartRefusesThePage(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	_, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "a0")),
@@ -287,6 +301,7 @@ func TestAStreamStoppedAtItsStartRefusesThePage(t *testing.T) {
 // A page whose context ends mid-merge fails with it rather than reading as the
 // end of the log.
 func TestAPageEndsWithItsContext(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(t.Context())
 	got := make(chan error, 1)
 	go func() {
@@ -300,6 +315,7 @@ func TestAPageEndsWithItsContext(t *testing.T) {
 
 // A full page cancels the readings still going, so it waits on none of them.
 func TestAFullPageCancelsItsReadings(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	got := make(chan Page, 1)
 	go func() {
@@ -317,6 +333,7 @@ func TestAFullPageCancelsItsReadings(t *testing.T) {
 
 // A merge ends at the first line past a stream's stop, asking no stream for more.
 func TestAMergeEndsAtAStop(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	a0 := line("a", "app", 0, "a0")
 	got := make(chan Page, 1)
@@ -341,6 +358,7 @@ var b = StreamKey{Namespace: "prod", Pod: "b", Container: "app"}
 // A backward read that spent its budget keeps only the lines at and after the
 // newest point any stream stopped at, and hands that point back.
 func TestABudgetKeepsTheNearSideOfTheNewestStop(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 5*time.Second, "a5"), line("a", "app", time.Second, "a1")),
@@ -354,6 +372,7 @@ func TestABudgetKeepsTheNearSideOfTheNewestStop(t *testing.T) {
 
 // A budget spent before any line matched answers no lines with a cursor.
 func TestABudgetCanAnswerNoLinesWithACursor(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	page, err := mergePage(ctx, []*streamRead{
 		cannedFrom(ctx, b, nil, nil, lineAt(b, 7*time.Second, 0)),
@@ -367,6 +386,7 @@ func TestABudgetCanAnswerNoLinesWithACursor(t *testing.T) {
 // A forward read that spent its budget keeps the lines at and before the oldest
 // stop.
 func TestABudgetKeepsTheNearSideOfTheOldestStop(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "a0"), line("a", "app", 5*time.Second, "a5")),

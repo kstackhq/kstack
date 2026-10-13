@@ -62,6 +62,7 @@ var bookmark = cluster.ClusterCachedDataObjectWatchFrame{Type: cluster.DeltaFram
 // A view of more containers than Kstack reads at once is refused before any is
 // read.
 func TestAFollowOfTooManyContainersIsRefused(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	addPods(t, f, 99)
@@ -76,6 +77,7 @@ func TestAFollowOfTooManyContainersIsRefused(t *testing.T) {
 // cluster that cannot be claimed, and a pods watch that cannot be opened, which
 // releases the claim.
 func TestFollowIsRefusedBeforeItOpens(t *testing.T) {
+	t.Parallel()
 	bad := "yesterday"
 	svc, _ := serviceOver(t, webMirror(t), newLogServer())
 	_, err := svc.Follow(t.Context(), "7", webView, &bad)
@@ -142,6 +144,7 @@ func closeSnapshot(t *testing.T, f *fakeService, watch chan<- cluster.ClusterCac
 // A follow on a deployment picks up a pod added to the mirror after it opened,
 // from the follow's start, and goes on after one is deleted.
 func TestAFollowTracksTheDeploymentsPods(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
@@ -171,6 +174,7 @@ func TestAFollowTracksTheDeploymentsPods(t *testing.T) {
 
 // A follow with no cursor reads each log from the moment it started.
 func TestAFollowOpensAtItsStart(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web-1/app", stamped(0, "old"))
 	f := webMirror(t)
@@ -185,6 +189,7 @@ func TestAFollowOpensAtItsStart(t *testing.T) {
 
 // A follow after a cursor reads every line past it first.
 func TestAFollowAfterACursor(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web-1/app", stamped(0, "seen"), stamped(time.Second, "missed"))
 	svc, _ := serviceOver(t, webMirror(t), s)
@@ -238,6 +243,7 @@ func awaitReadAgain(t *testing.T, s *logServer, key, since string) {
 
 // A cluster disabled under a follow ends it, saying so.
 func TestAFollowEndsWhenTheClusterIsDisabled(t *testing.T) {
+	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
 	f.frames = make(chan cluster.ClusterWatchFrame)
@@ -253,6 +259,7 @@ func TestAFollowEndsWhenTheClusterIsDisabled(t *testing.T) {
 // A 401 on a stream the follow opens ends it: the user's credentials, not a pod's
 // state.
 func TestAFollowEndsOnAnUnauthorizedStream(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.refuse["prod/web-1/app"] = refusal{http.StatusUnauthorized, "unauthorized"}
 	svc, _ := serviceOver(t, webMirror(t), s)
@@ -264,6 +271,7 @@ func TestAFollowEndsOnAnUnauthorizedStream(t *testing.T) {
 // A 403 is one namespace's, so it ends its own stream alone, and the follow ends
 // with it only once every stream has: then following again would end the same way.
 func TestAForbiddenStreamEndsItselfAlone(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.refuse["prod/web-2/app"] = refusal{http.StatusForbidden, "forbidden"}
 	f := webMirror(t)
@@ -281,6 +289,7 @@ func TestAForbiddenStreamEndsItselfAlone(t *testing.T) {
 // A follow that ends on its own, with its caller still waiting, ends its pods
 // watch too, and keeps the reason it ended.
 func TestAFollowThatEndsReleasesItsWatch(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.refuse["prod/web-1/app"] = refusal{http.StatusForbidden, "forbidden"}
 	s.refuse["prod/web-2/app"] = refusal{http.StatusForbidden, "forbidden"}
@@ -295,6 +304,7 @@ func TestAFollowThatEndsReleasesItsWatch(t *testing.T) {
 
 // A follow whose every container has finished ends, saying so.
 func TestAFollowEndsWhenEveryStreamIsGone(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
@@ -311,6 +321,7 @@ func TestAFollowEndsWhenEveryStreamIsGone(t *testing.T) {
 // A follow whose streams all end within the handoff still sends their lines, then
 // says every container stopped.
 func TestAFollowDeliversWhatItHeldBeforeItEnds(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web-1/app", stamped(time.Second, "a"))
 	s.add("prod/web-2/app", stamped(0, "b"))
@@ -331,6 +342,7 @@ func TestAFollowDeliversWhatItHeldBeforeItEnds(t *testing.T) {
 // A pod that joined the view between its resolving and the pods watch opening is
 // followed once the watch's snapshot closes, though no frame names it after.
 func TestAFollowReconcilesTheSnapshot(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
@@ -348,6 +360,7 @@ func TestAFollowReconcilesTheSnapshot(t *testing.T) {
 // A follow whose last pods leave the view waits for the next, as a Deployment
 // scaled to zero and back has it.
 func TestAFollowWaitsWhenItsLastPodsLeave(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
@@ -366,6 +379,7 @@ func TestAFollowWaitsWhenItsLastPodsLeave(t *testing.T) {
 // A follow of a view with no container yet waits for its pods rather than being
 // refused, and reads them from the moment it started.
 func TestAFollowOfAnEmptyViewWaitsForItsPods(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	f.store.Mirror(t, "batch/v1", "Job")
@@ -384,6 +398,7 @@ func TestAFollowOfAnEmptyViewWaitsForItsPods(t *testing.T) {
 // A stream that ends clean on a container the view sees running is opened again
 // past its last line: a proxy or the API server can close an idle stream.
 func TestAFollowReopensAStreamClosedOnARunningContainer(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
@@ -398,6 +413,7 @@ func TestAFollowReopensAStreamClosedOnARunningContainer(t *testing.T) {
 
 // A follow narrows its pods watch to the view's namespaces.
 func TestAFollowWatchesOnlyItsNamespaces(t *testing.T) {
+	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
 	view := View{Sources: []ViewSource{
@@ -416,6 +432,7 @@ func TestAFollowWatchesOnlyItsNamespaces(t *testing.T) {
 // A follow of a pod ends when the pod is deleted, and when a pod of the same name
 // with another UID stands in its place.
 func TestAFollowOfAPodEndsWithThePod(t *testing.T) {
+	t.Parallel()
 	for name, replacement := range map[string]map[string]any{
 		"gone":     nil,
 		"replaced": pod("web-1", "uid-other", "node-a", nil, container{name: "app"}),
@@ -439,6 +456,7 @@ func TestAFollowOfAPodEndsWithThePod(t *testing.T) {
 // A pod deleted under a view that names other sources leaves them followed, and a
 // pod of its name with another UID is not read in its place.
 func TestADeletedPodLeavesItsViewsOtherSources(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	soloOpens := testutil.NewProbe[string](4)
 	s.onOpen = func(key string) {
@@ -472,6 +490,7 @@ func TestADeletedPodLeavesItsViewsOtherSources(t *testing.T) {
 // A pod deleted under a view that also reads it through its workload leaves the
 // workload reading the pod that takes its name.
 func TestADeletedPodLeavesItsWorkloadReadingItsReplacement(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	db := controller("apps/v1", "StatefulSet", "db", "uid-db")
 	first := pod("db-0", "uid-db-0", "node-a", db, container{name: "app"})
@@ -498,6 +517,7 @@ func TestADeletedPodLeavesItsWorkloadReadingItsReplacement(t *testing.T) {
 // another UID stands in its place, with no Deleted frame naming it: before the
 // pods watch opened, or while a cache's clear had it closed.
 func TestAFollowOfAPodEndsWhenNoFrameNamesItsEnd(t *testing.T) {
+	t.Parallel()
 	for name, replacement := range map[string]map[string]any{
 		"deleted":  nil,
 		"replaced": pod("web-1", "uid-other", "node-a", nil, container{name: "app"}),
@@ -544,6 +564,7 @@ func TestAFollowOfAPodEndsWhenNoFrameNamesItsEnd(t *testing.T) {
 
 // A view of several pods ends once every one of them is deleted, naming them.
 func TestAFollowOfPodsEndsWhenEveryPodIsDeleted(t *testing.T) {
+	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
 	view := View{Sources: []ViewSource{
@@ -563,6 +584,7 @@ func TestAFollowOfPodsEndsWhenEveryPodIsDeleted(t *testing.T) {
 // A pod the watch deletes and the mirror still holds, as a cache's clear and
 // relist send it, is followed on.
 func TestAFollowOfAPodOutlastsAResync(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
@@ -578,6 +600,7 @@ func TestAFollowOfAPodOutlastsAResync(t *testing.T) {
 // A crash-looping container, waiting to start again, keeps the follow open after
 // its stream is refused, and is read once it runs.
 func TestAFollowWaitsForAWaitingContainer(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.refuse["prod/crash/app"] = refusal{http.StatusBadRequest, "container is waiting to start"}
 	f := newMirror(t, append(webObjects(), waiting(pod("crash", "uid-crash", "node-a", nil, container{name: "app", restarted: true})))...)
@@ -599,6 +622,7 @@ func TestAFollowWaitsForAWaitingContainer(t *testing.T) {
 // An init container that finishes while the main one has yet to start does not
 // end the follow of their pod: the main container has no log yet, but will.
 func TestAFinishedInitContainerLeavesItsPodFollowed(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	boot := func() map[string]any { return pod("boot", "uid-boot", "node-a", nil, container{name: "app"}) }
 	f := newMirror(t, append(webObjects(), withInit(waiting(boot()), "init"))...)
@@ -622,6 +646,7 @@ func TestAFinishedInitContainerLeavesItsPodFollowed(t *testing.T) {
 // waiting to it, never a container that neither runs nor starts, which would end
 // the follow.
 func TestAResolveReadsOneStateOfTheMirror(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	boot := func() map[string]any { return pod("boot", "uid-boot", "node-a", nil, container{name: "app"}) }
 	f := newMirror(t, append(webObjects(), withInit(waiting(boot()), "init"))...)
@@ -655,6 +680,7 @@ func TestAResolveReadsOneStateOfTheMirror(t *testing.T) {
 // A mirror answer cut at its bounds ends the follow, since asking again would be
 // cut the same way.
 func TestAFollowEndsOnACutMirrorAnswer(t *testing.T) {
+	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
 	stream, _ := openFollow(t, svc, f)
@@ -668,6 +694,7 @@ func TestAFollowEndsOnACutMirrorAnswer(t *testing.T) {
 // A mirror watch that ends clean, as a cache's clear ends it, is opened again after
 // the retry, and the follow goes on with what its new snapshot shows.
 func TestAFollowOutlastsACacheClear(t *testing.T) {
+	t.Parallel()
 	for _, watch := range []string{"pods", "nodes"} {
 		t.Run(watch, func(t *testing.T) {
 			s := newLogServer()
@@ -697,6 +724,7 @@ func TestAFollowOutlastsACacheClear(t *testing.T) {
 
 // A follow ends when a mirror watch fails, with the watch's reason.
 func TestAFollowEndsWithAFailedWatch(t *testing.T) {
+	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
 	f.podsErr = errors.New("watch failed")
@@ -707,6 +735,7 @@ func TestAFollowEndsWithAFailedWatch(t *testing.T) {
 
 // A follow ends when a workload kind's watch fails, with the watch's reason.
 func TestAFollowEndsWithAFailedWorkloadWatch(t *testing.T) {
+	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
 	f.workloadsErr = errors.New("watch failed")
@@ -718,6 +747,7 @@ func TestAFollowEndsWithAFailedWorkloadWatch(t *testing.T) {
 // A deployment's pod that reaches the mirror before its replica set is followed
 // once the replica set arrives, though no pod frame says so.
 func TestAFollowWatchesTheWorkloadsBetweenASourceAndItsPods(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := newMirror(t, append([]map[string]any{workload("apps/v1", "Deployment", "web", "dep-web", nil), web1()}, webNodes()...)...)
 	svc, _ := serviceOver(t, f, s)
@@ -737,6 +767,7 @@ func TestAFollowWatchesTheWorkloadsBetweenASourceAndItsPods(t *testing.T) {
 // The workload kinds a view watches are each source's own and the kind it
 // controls, once each, and none for a pod.
 func TestAViewWatchesTheKindsItsSourcesWalk(t *testing.T) {
+	t.Parallel()
 	view := View{Sources: []ViewSource{
 		{Namespace: "prod", Kind: SourcePod, Name: "web-1"},
 		{Namespace: "prod", Kind: SourceDeployment, Name: "web"},
@@ -755,6 +786,7 @@ func TestAViewWatchesTheKindsItsSourcesWalk(t *testing.T) {
 // a mirror that fails ends it, and a cluster whose identity moved is one Kstack no
 // longer connects to.
 func TestAFollowOnAMirrorThatChangesUnderIt(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
@@ -793,6 +825,7 @@ func TestAFollowOnAMirrorThatChangesUnderIt(t *testing.T) {
 // A frame with no object moves nothing: the follow resolves the view again only
 // for a pod.
 func TestAFrameWithNoObjectIsIgnored(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
@@ -808,6 +841,7 @@ func TestAFrameWithNoObjectIsIgnored(t *testing.T) {
 
 // A follow cancelled by its context ends clean.
 func TestACancelledFollowEndsClean(t *testing.T) {
+	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
 	stream, cancel := openFollow(t, svc, f)
@@ -820,6 +854,7 @@ func TestACancelledFollowEndsClean(t *testing.T) {
 // A container that restarts is read again past its last line once its old stream
 // ends, whether the restart reaches the mirror before that end or after it.
 func TestAFollowReopensARestartedContainer(t *testing.T) {
+	t.Parallel()
 	for name, frameFirst := range map[string]bool{"frame first": true, "end first": false} {
 		t.Run(name, func(t *testing.T) {
 			s := newLogServer()
@@ -853,6 +888,7 @@ func TestAFollowReopensARestartedContainer(t *testing.T) {
 // A container that ends and does not restart is not read again when its pod
 // changes for another reason.
 func TestAFinishedContainerIsNotReadAgain(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	web1Opens := testutil.NewProbe[string](4)
 	s.onOpen = func(key string) {
@@ -879,6 +915,7 @@ func TestAFinishedContainerIsNotReadAgain(t *testing.T) {
 // A pod whose node's labels move is read again past its last line, under the new
 // labels, not from the follow's start.
 func TestAFollowKeepsItsPlaceWhenANodesLabelsMove(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
@@ -899,6 +936,7 @@ func TestAFollowKeepsItsPlaceWhenANodesLabelsMove(t *testing.T) {
 // A node that leaves the zone a view filters on ends its pod's stream, and one
 // that enters it opens one, with no pod frame between.
 func TestAFollowTracksItsNodesLabels(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
@@ -930,6 +968,7 @@ func TestAFollowTracksItsNodesLabels(t *testing.T) {
 // carries, or whose body did not load; a node whose other fields moved resolves
 // nothing.
 func TestANodeFrameMovesTheViewOnlyForItsLabels(t *testing.T) {
+	t.Parallel()
 	a := node("node-a", "eu", "eu-1a", "linux", "amd64")
 	unloaded := nodeFrame(cluster.DeltaFrameModified, a)
 	unloaded.Object.RawJSON = ""
@@ -964,6 +1003,7 @@ func TestANodeFrameMovesTheViewOnlyForItsLabels(t *testing.T) {
 // With no filter on a label, only a node a stream runs on can move the view: a
 // frame for any other is not read.
 func TestANodeNoStreamRunsOnIsNotRead(t *testing.T) {
+	t.Parallel()
 	a, b := node("node-a", "eu", "eu-1a", "linux", "amd64"), node("node-b", "eu", "eu-1b", "linux", "arm64")
 	f := &follow{nodes: map[string]Place{}, nodesSynced: true, streams: map[StreamKey]*tracked{}}
 	key := StreamKey{Pod: "web-1", Container: "app"}
@@ -981,6 +1021,7 @@ func TestANodeNoStreamRunsOnIsNotRead(t *testing.T) {
 // A line a replaced stream still delivers is dropped, and moves nothing its
 // replacement resumes from: the replacement reads it again.
 func TestAFollowDropsALineFromAReplacedStream(t *testing.T) {
+	t.Parallel()
 	rec := line("web-1", "app", time.Second, "x")
 	old, current := &streamRead{key: rec.Stream}, &streamRead{key: rec.Stream}
 	f := &follow{streams: map[StreamKey]*tracked{}}
@@ -995,6 +1036,7 @@ func TestAFollowDropsALineFromAReplacedStream(t *testing.T) {
 // A pod that joins while the mirror is syncing is followed once it is ready
 // again, with no frame after.
 func TestAFollowAsksASyncingMirrorAgain(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
@@ -1014,6 +1056,7 @@ func TestAFollowAsksASyncingMirrorAgain(t *testing.T) {
 // A pod that leaves the view and comes back is read again, past the last line its
 // stream sent.
 func TestAFollowReopensAPodThatCameBack(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
@@ -1033,6 +1076,7 @@ func TestAFollowReopensAPodThatCameBack(t *testing.T) {
 // A pod that joins a follow opened after a cursor is read from the cursor, like
 // the pods it opened with, not from the moment the follow began.
 func TestAFollowAfterACursorReadsANewPodFromIt(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
@@ -1052,6 +1096,7 @@ func TestAFollowAfterACursorReadsANewPodFromIt(t *testing.T) {
 // A stream the server failed is opened again after the retry, and the follow
 // goes on; one the server refused for the log's sake is not.
 func TestAFollowReopensADroppedStream(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.refuse["prod/web-1/app"] = refusal{http.StatusInternalServerError, "kubelet restarting"}
 	f := webMirror(t)
@@ -1070,6 +1115,7 @@ func TestAFollowReopensADroppedStream(t *testing.T) {
 // closed, and keeps the follow open while it is the view's only stream, then
 // opens it once the hold is over.
 func TestAHeldStreamWaitsOutItsBackoff(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	svc, fake := serviceOver(t, webMirror(t), s)
 	ctx, cancel := context.WithCancel(t.Context())
@@ -1097,6 +1143,7 @@ func TestAHeldStreamWaitsOutItsBackoff(t *testing.T) {
 // a stream that ran for the cap, or a line from its successor, starts the count
 // again.
 func TestADroppingStreamBacksOff(t *testing.T) {
+	t.Parallel()
 	f := &follow{s: &Service{retry: time.Second, retryCap: time.Minute}, streams: map[StreamKey]*tracked{}}
 	tr := &tracked{}
 
@@ -1117,6 +1164,7 @@ func TestADroppingStreamBacksOff(t *testing.T) {
 // A stream ends quietly for the log's sake on a status under 500, and is dropped
 // on any other failure.
 func TestDropped(t *testing.T) {
+	t.Parallel()
 	assert.False(t, dropped(nil))
 	assert.False(t, dropped(&statusError{code: http.StatusBadRequest}))
 	assert.True(t, dropped(&statusError{code: http.StatusInternalServerError}))
@@ -1125,6 +1173,7 @@ func TestDropped(t *testing.T) {
 
 // A follow whose view grows past what Kstack reads at once ends, saying so.
 func TestAFollowEndsWhenItsViewGrowsTooLarge(t *testing.T) {
+	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
 	stream, _ := openFollow(t, svc, f)
@@ -1138,6 +1187,7 @@ func TestAFollowEndsWhenItsViewGrowsTooLarge(t *testing.T) {
 // Every refusal ends a follow with its words, bare or inside the refusals that
 // carry one.
 func TestAsRefusalReadsEveryRefusal(t *testing.T) {
+	t.Parallel()
 	for _, err := range []error{
 		ErrSyncing,
 		Unmirrored{Refusal: ErrSyncing, Source: 1},
@@ -1155,6 +1205,7 @@ func TestAsRefusalReadsEveryRefusal(t *testing.T) {
 // A pod frame resolves the view at once with no settle; with one, the first frame
 // arms one wait that the frames after it share, and a resolve clears it.
 func TestAPodFrameSettles(t *testing.T) {
+	t.Parallel()
 	f := &follow{s: &Service{}}
 	assert.True(t, f.settle())
 
@@ -1168,6 +1219,7 @@ func TestAPodFrameSettles(t *testing.T) {
 
 // A pod frame under a settle is followed once the settle has passed.
 func TestAFollowResolvesOnceThePodFramesSettle(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)

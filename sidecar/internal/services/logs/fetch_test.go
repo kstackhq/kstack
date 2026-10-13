@@ -34,6 +34,7 @@ import (
 // A deployment's last lines come back in time order, with the cursor of the
 // oldest.
 func TestFetchAnswersADeploymentsLastLines(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	for i := range 15 {
 		pod := "web-" + strconv.Itoa(1+i%2)
@@ -52,6 +53,7 @@ func TestFetchAnswersADeploymentsLastLines(t *testing.T) {
 
 // A head page after a cursor starts past it, and grep keeps the matching lines.
 func TestFetchReadsForwardAfterACursor(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web-1/app", stamped(0, "error a"), stamped(time.Second, "ok"), stamped(2*time.Second, "error b"), stamped(3*time.Second, "error c"))
 	svc, _ := serviceOver(t, webMirror(t), s)
@@ -68,6 +70,7 @@ func TestFetchReadsForwardAfterACursor(t *testing.T) {
 // A tail page before a cursor reaches the line before it however much log follows,
 // and a page that fills reads no further: limit 1 reads one window.
 func TestFetchPagesBackBeforeACursor(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web-1/app", lineEvery(1000)...)
 	svc, _ := serviceOver(t, webMirror(t), s)
@@ -95,6 +98,7 @@ func TestFetchPagesBackBeforeACursor(t *testing.T) {
 // Two containers writing at one moment are paged through one line at a time, each
 // cursor naming the line the page ended at.
 func TestFetchPagesThroughAMoment(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web-1/app", stamped(0, "a"), stamped(0, "a'"), stamped(time.Second, "c"))
 	s.add("prod/web-2/app", stamped(0, "b"))
@@ -123,15 +127,20 @@ func TestFetchPagesThroughAMoment(t *testing.T) {
 // SQL the store parses afresh, so under the race detector the full sweep takes
 // minutes; -short walks a prefix of the seeds, and the stress run walks them all.
 func TestPagesJoinWithoutLossOrRepeat(t *testing.T) {
+	t.Parallel()
 	seeds := 150
 	if testing.Short() {
 		seeds = 25
 	}
 	for seed := range seeds {
 		t.Run(strconv.Itoa(seed), func(t *testing.T) {
+			t.Parallel()
 			rng := rand.New(rand.NewSource(int64(seed)))
 			s, objects, all := randomLogs(rng)
 			svc, f := serviceOver(t, newMirror(t, objects...), s)
+			// Every page resolves the view again; the mirror holds still, and SQLite
+			// parsing the same statements is most of what the walks cost.
+			f.answers = map[string]cluster.ClusterCachedDataQueryResult{}
 			svc.budget = int64(2000 + rng.Intn(8000))
 			f.chunk(1 + rng.Intn(64))
 			view := View{Sources: []ViewSource{{Namespace: "prod", Kind: SourceDeployment, Name: "web", AllContainers: true}}}
@@ -250,6 +259,7 @@ func walk(t *testing.T, svc *Service, view View, mode FetchMode, limit int, star
 
 // A limit past 500, or under 1, is refused before anything is read.
 func TestFetchRefusesABadLimit(t *testing.T) {
+	t.Parallel()
 	svc, _ := serviceOver(t, webMirror(t), newLogServer())
 	for _, limit := range []int{0, 501} {
 		_, err := svc.Fetch(t.Context(), "7", webView, FetchQuery{Mode: FetchHead, Limit: limit})
@@ -261,6 +271,7 @@ func TestFetchRefusesABadLimit(t *testing.T) {
 // A cursor that names no moment is refused, whichever argument carries it, and so
 // is a grep that is no regular expression.
 func TestFetchRefusesABadCursor(t *testing.T) {
+	t.Parallel()
 	svc, _ := serviceOver(t, webMirror(t), newLogServer())
 	bad := "yesterday"
 	for name, q := range map[string]FetchQuery{
@@ -282,6 +293,7 @@ func TestFetchRefusesABadCursor(t *testing.T) {
 
 // A fetch is refused what resolving the view or claiming the cluster refuses.
 func TestFetchIsRefusedWhatItsReadsRefuse(t *testing.T) {
+	t.Parallel()
 	svc, f := serviceOver(t, webMirror(t), newLogServer())
 	f.active.Cache = nil
 	_, err := svc.Fetch(t.Context(), "7", webView, FetchQuery{Mode: FetchHead, Limit: 10})
@@ -295,6 +307,7 @@ func TestFetchIsRefusedWhatItsReadsRefuse(t *testing.T) {
 
 // A view no pod passes reads nothing, and answers an empty page.
 func TestFetchOfAViewWithNoContainerIsEmpty(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	svc, _ := serviceOver(t, webMirror(t), s)
 	view := webView
@@ -310,6 +323,7 @@ func TestFetchOfAViewWithNoContainerIsEmpty(t *testing.T) {
 // A view of more containers than Kstack reads at once is refused before any is
 // read.
 func TestAFetchOfTooManyContainersIsRefused(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	f := webMirror(t)
 	addPods(t, f, maxStreams-1)
@@ -323,6 +337,7 @@ func TestAFetchOfTooManyContainersIsRefused(t *testing.T) {
 // A fetch ends with its context. It checks the cluster once and watches nothing,
 // since the connection's retirement already bounds a page.
 func TestFetchEndsWithItsContextAndWatchesNothing(t *testing.T) {
+	t.Parallel()
 	svc, _ := serviceOver(t, webMirror(t), newLogServer())
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -340,6 +355,7 @@ func TestFetchEndsWithItsContextAndWatchesNothing(t *testing.T) {
 // Each stream of a fetch reads under its own share of the budget, so a stream whose
 // log is large cannot spend what a quiet one needs to read its start.
 func TestAFetchSharesItsBudgetPerStream(t *testing.T) {
+	t.Parallel()
 	s := newLogServer()
 	var noise []string
 	for i := range 200 {

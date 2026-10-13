@@ -24,6 +24,7 @@ import (
 
 // A line's cursor names it back; a time alone names a moment.
 func TestACursorNamesALineOrAMoment(t *testing.T) {
+	t.Parallel()
 	key := StreamKey{Namespace: "prod", Pod: "web-1", Container: "app", Previous: true}
 	p := lineAt(key, 1500*time.Millisecond, 3)
 
@@ -40,6 +41,7 @@ func TestACursorNamesALineOrAMoment(t *testing.T) {
 
 // A record's cursor names its line.
 func TestARecordsCursorNamesItsLine(t *testing.T) {
+	t.Parallel()
 	rec := Record{Timestamp: at(time.Second), Message: "hello", Stream: StreamKey{Namespace: "prod", Pod: "web-1", Container: "app"}, Ordinal: 2}
 
 	p, err := parseCursor(rec.Cursor())
@@ -50,6 +52,7 @@ func TestARecordsCursorNamesItsLine(t *testing.T) {
 
 // A cursor that is neither is refused.
 func TestABadCursorIsRefused(t *testing.T) {
+	t.Parallel()
 	for _, c := range []string{"yesterday", "2026-10-08T10:00:01Z\tprod", "2026-10-08T10:00:01Z\tprod\tweb\tapp\tmaybe\t0", "2026-10-08T10:00:01Z\tprod\tweb\tapp\tfalse\t-1", "2026-10-08T10:00:01Z\tprod\tweb\t\tfalse\t0"} {
 		_, err := parseCursor(c)
 		assert.EqualError(t, err, "a cursor must be an RFC 3339 time, or one a page handed back", c)
@@ -59,6 +62,7 @@ func TestABadCursorIsRefused(t *testing.T) {
 // Lines order by time, then namespace, pod, container, the previous instance
 // first, and ordinal; against a moment, by time alone.
 func TestPositionsOrder(t *testing.T) {
+	t.Parallel()
 	a := StreamKey{Namespace: "prod", Pod: "a", Container: "app"}
 	prev := a
 	prev.Previous = true
@@ -73,6 +77,7 @@ func TestPositionsOrder(t *testing.T) {
 // A bound keeps or drops the line it sits on as its inclusivity says, and a
 // moment bound every line of the moment.
 func TestBoundsKeepOrDropTheirLine(t *testing.T) {
+	t.Parallel()
 	a := StreamKey{Namespace: "prod", Pod: "a", Container: "app"}
 	rec := Record{Timestamp: at(0), Stream: a, Ordinal: 1}
 	assert.False(t, bound{lineAt(a, 0, 1), true}.below(rec))

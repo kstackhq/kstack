@@ -19,8 +19,11 @@ package clustertest
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -38,16 +41,42 @@ type Store struct {
 	applied int
 }
 
-// NewStore opens an empty store in a directory of the test's.
+// NewStore opens an empty store in a directory of the test's. The file starts as a
+// copy of one migrated once per process, since migrating is most of what opening a
+// store costs, many times over under the race detector.
 func NewStore(t testing.TB) *Store {
 	t.Helper()
-	m := kubestore.NewManager(t.TempDir(), kubestore.Retention{})
+	empty, err := emptyStore()
+	require.NoError(t, err)
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "1.db"), empty, 0o600))
+	m := kubestore.NewManager(dir, kubestore.Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
 	s, err := m.OpenOrCreate(1)
 	require.NoError(t, err)
 	t.Cleanup(s.Release)
 	return &Store{s: s}
 }
+
+// emptyStore is the bytes of cache 1's file, migrated and closed, made on first use.
+var emptyStore = sync.OnceValues(func() ([]byte, error) {
+	dir, err := os.MkdirTemp("", "clustertest-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(dir)
+	m := kubestore.NewManager(dir, kubestore.Retention{})
+	s, err := m.OpenOrCreate(1)
+	if err != nil {
+		m.Close()
+		return nil, err
+	}
+	s.Release()
+	if err := m.Close(); err != nil {
+		return nil, err
+	}
+	return os.ReadFile(filepath.Join(dir, "1.db"))
+})
 
 // Apply adds or replaces body, as a watch's Added would, and mirrors its kind,
 // cluster-scoped when the body names no namespace. Its resource is its kind's

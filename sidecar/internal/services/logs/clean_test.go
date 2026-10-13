@@ -25,6 +25,7 @@ import (
 
 // Colour and cursor sequences, in their ESC and C1 forms, leave the text alone.
 func TestStripControlRemovesSequences(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct{ in, want string }{
 		"colour":       {"\x1b[31mred\x1b[0m", "red"},
 		"cursor":       {"a\x1b[2Kb\x1b[1;1Hc", "abc"},
@@ -48,6 +49,7 @@ func TestStripControlRemovesSequences(t *testing.T) {
 
 // A line past 16 KiB is cut there on a character boundary and ends with an ellipsis.
 func TestStripControlCutsALongLine(t *testing.T) {
+	t.Parallel()
 	long := strings.Repeat("a", maxMessage-1) + "é" + strings.Repeat("b", 4096)
 
 	got := stripControl(long)
@@ -58,18 +60,21 @@ func TestStripControlCutsALongLine(t *testing.T) {
 
 // Tabs count toward the limit like any other character.
 func TestStripControlCutsALineOfTabs(t *testing.T) {
+	t.Parallel()
 	got := stripControl("\x1b[1m" + strings.Repeat("\t", maxMessage+10))
 	assert.Equal(t, strings.Repeat("\t", maxMessage)+"…", got)
 }
 
 // A line within the limit is kept whole.
 func TestStripControlKeepsAShortLine(t *testing.T) {
+	t.Parallel()
 	line := strings.Repeat("x", maxMessage)
 	assert.Equal(t, line, stripControl(line))
 }
 
 // Grep matches the text the user sees, not the escapes around it.
 func TestGrepMatchesTheStrippedText(t *testing.T) {
+	t.Parallel()
 	re := regexp.MustCompile(`^error: x$`)
 	assert.True(t, re.MatchString(stripControl("\x1b[31merror\x1b[0m: x")))
 }

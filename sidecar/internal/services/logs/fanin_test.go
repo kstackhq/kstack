@@ -29,6 +29,7 @@ import (
 
 // A follow sends one stream's lines while another stays silent.
 func TestAFollowDoesNotWaitOnASilentStream(t *testing.T) {
+	t.Parallel()
 	// Not t.Context, which ends before cleanup runs: the relays must still be able
 	// to report their ends there.
 	ctx, cancel := context.WithCancel(context.Background())
@@ -60,6 +61,7 @@ func TestAFollowDoesNotWaitOnASilentStream(t *testing.T) {
 
 // A fan-in whose follow ends drains the reading it was relaying.
 func TestAFanInDrainsOnceTheFollowEnds(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(t.Context())
 	f := newFanIn()
 	out, lines := spsc.New[Record](0)
@@ -75,6 +77,7 @@ func TestAFanInDrainsOnceTheFollowEnds(t *testing.T) {
 
 // A reading that ends is reported, with its error on it.
 func TestAFollowedReadingReportsItsEnd(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	f := newFanIn()
 	r := cannedFrom(ctx, StreamKey{Pod: "a", Container: "app"}, []Record{line("a", "app", time.Second, "x")}, errors.New("gone"), position{})
@@ -90,6 +93,7 @@ func TestAFollowedReadingReportsItsEnd(t *testing.T) {
 // The lines that arrive before the handoff closes go out sorted, and every later
 // one goes out as it comes.
 func TestTheHandoffSortsTheFirstLines(t *testing.T) {
+	t.Parallel()
 	var h handoff
 
 	assert.True(t, h.hold(line("b", "app", 2*time.Second, "b2")))
