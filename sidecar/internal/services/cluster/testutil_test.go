@@ -612,6 +612,10 @@ type fakeKubesync struct {
 	discoveryHub *conflate.Hub[int64, struct{}]
 	kindHub      *conflate.Hub[kubesync.KindKey, struct{}]
 	restarted    *testutil.Signal
+
+	// onDiscoveryRead runs inside GetDiscoveryState before it reads, so a test can tell
+	// when a reader asked, and move the state it is about to read.
+	onDiscoveryRead func(cacheID int64)
 }
 
 func newFakeKubesync() *fakeKubesync {
@@ -661,6 +665,9 @@ func (f *fakeKubesync) ForgetKind(cacheID int64, k kubestore.Kind) {
 }
 
 func (f *fakeKubesync) GetDiscoveryState(cacheID int64) (kubesync.DiscoveryState, bool) {
+	if f.onDiscoveryRead != nil {
+		f.onDiscoveryRead(cacheID)
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	state, ok := f.discoveryStates[cacheID]
