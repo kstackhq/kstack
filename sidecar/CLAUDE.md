@@ -2127,6 +2127,35 @@ containers is refused, since each is its own request to the API server. The read
 the same `maxStreams` plus one; an answer cut at it or at the byte cap is refused, never read as
 every source or node. The tests run every statement over a real store (`cluster/clustertest`).
 
+**Every message goes through `stripControl`** (`clean.go`) before grep and before the wire: CSI
+and OSC sequences in ESC and C1 forms, every other C1, DEL and every C0 but tab, invalid UTF-8
+replaced, cut at 16 KiB on a character boundary with `…`. A refusal's message is cleaned the same
+way.
+
+**A cursor names a line** (`cursor.go`): its moment, its container and its ordinal among that
+container's lines at the moment, so a page can end at any line and the next starts just past it. A
+time alone names a moment, which the viewer's `At` anchor sends; `since` and `until` keep the
+cursor's line where `after` and `before` drop it.
+
+**A container's log is read over a claim** (`claim.go`), outside the mirror's reading:
+`AcquireConnection`, which checks the record once, and `Lease.ConnFor` by the cache's `ServerUID`.
+A body the claim cut answers its reason, `ErrRevoked` or `errRetired`, never a bare cancel. A 401
+(`fatal`) fails a whole read: it is the user's credentials, not one pod's state; a 403 is one
+stream's, since access to `pods/log` is granted per namespace. Each read is one raw `GET` of the
+pod's `log` path through the connection's `HTTPClient`; no typed clientset.
+
+**`fetcher.go` is kubetail's algorithm**: forward with `sinceTime` rounded down to its second;
+backward in growing `tailLines` windows until one reaches the log's first line, or under an `until`
+(a `before` cursor's page) in doubling windows of time ending there, each read forward from its
+start, so a page reaches back however much log follows it.
+**`reader.lines` is the one place a bound is applied**, and it numbers each line within its moment;
+every `GET` goes through it, so no read can miss one.
+A `tailLines` window holds back the moment it starts in for the next window, since it cannot tell it
+began at the moment's top, and the window that reaches the first line, or begins in the moment of
+the line a `since` cursor names, is followed by a read of that moment, whole.
+A read that runs out of its budget or its `GET`s, that the retirement cut, or that failed past a
+line in range stops short at the last line it read whole (`streamRead.stop`).
+
 **KubeQuery (`tools/kubequery`) is read-only SQL over the chat's cluster's cache, run without
 asking.** It is `Custom` and `Bounded` (10 s, whatever the input), never `Gated`. `parse` is the
 strict walk: `sql`, `limit` (200 unless given, read as 2000 past it) and `description`; a `;`

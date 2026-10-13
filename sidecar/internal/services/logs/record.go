@@ -14,6 +14,21 @@
 
 package logs
 
+import "time"
+
+// Record is one log line as the sidecar read it: when the container runtime
+// stamped it, the message cleaned by stripControl, the log it came from and where
+// that log's pod runs, and its Ordinal, its index among its stream's lines at that
+// moment, which a cursor carries and the wire does not. Every string came from the
+// cluster.
+type Record struct {
+	Timestamp time.Time
+	Message   string
+	Stream    StreamKey
+	Place     Place
+	Ordinal   int
+}
+
 // StreamKey names one log a line came from: a pod's container, and whether it is
 // the instance before the last restart.
 type StreamKey struct {
@@ -33,3 +48,6 @@ type Place struct {
 	OS     string
 	Arch   string
 }
+
+// Cursor is the cursor naming rec, which a fetch or a follow resumes past.
+func (rec Record) Cursor() string { return *cursorOf(positionOf(rec)) }
