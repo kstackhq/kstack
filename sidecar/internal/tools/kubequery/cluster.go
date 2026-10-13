@@ -60,20 +60,20 @@ func (t *Tool) read(ctx context.Context, clusterID cluster.ClusterID, active clu
 	if name := active.Cluster.Spec.Name; name != nil && *name != "" {
 		a.cluster = *name
 	}
-	// No cache is syncing, which withholds, so the query below always has a cache.
-	fresh := clustercard.Freshness(nil)
+	// No cache withholds, so the query below always has a cache.
+	var health *cluster.ClusterCacheHealth
 	if active.Cache != nil {
-		health, ok, err := t.svc.Caches().Health(ctx, clusterID, active.Cache.ID)
+		h, ok, err := t.svc.Caches().Health(ctx, clusterID, active.Cache.ID)
 		if err != nil {
 			return answer{}, err
 		}
 		if !ok {
 			return answer{}, errNoCache
 		}
-		fresh = clustercard.Freshness(&health)
+		health = &h
 	}
-	a.freshness = clustercard.MarshalFreshness(fresh)
-	if fresh.Withholds() {
+	a.freshness = clustercard.MarshalFreshness(clustercard.Freshness(health))
+	if health == nil || !health.Trusted() {
 		a.withheld = true
 		return a, nil
 	}

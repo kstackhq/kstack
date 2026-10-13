@@ -82,6 +82,25 @@ func uidsOf(caches []*ClusterCache) []string {
 	return uids
 }
 
+// The rows are trusted once listed, under no cache-wide failure — stale, paused
+// or partly behind included.
+func TestClusterCacheHealthTrusted(t *testing.T) {
+	for reason, trusted := range map[string]bool{
+		"":                              false,
+		ReasonConnecting:                false,
+		ReasonSizeLimit:                 false,
+		kubesync.ReasonStoreFailed:      false,
+		kubesync.ReasonIdentityMismatch: false,
+		ReasonPaused:                    true,
+		kubesync.ReasonWatching:         true,
+	} {
+		assert.Equal(t, trusted, ClusterCacheHealth{Reason: reason}.Trusted(), reason)
+	}
+	lastKnown := ClusterCacheHealth{Reason: "Disconnected", TotalKinds: 1, UnhealthyKinds: 1,
+		UnhealthyKindRefs: []SyncedKindRef{{APIVersion: "v1", Resource: "pods"}}}
+	assert.True(t, lastKnown.Trusted())
+}
+
 func TestCachesGet(t *testing.T) {
 	d := newTestDeps(t)
 	cluster := createCluster(t, d, "prod")

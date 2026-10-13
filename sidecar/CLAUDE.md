@@ -2044,7 +2044,8 @@ strict walk: `sql`, `limit` (200 unless given, read as 2000 past it) and `descri
 may only end the statement, and is dropped there (`semicolonMessage`, the first `bad-input` to
 carry a `message`, names `char(59)`). `Run` reads the cluster service on `Runtime.ClusterID` (`cluster.go`): one
 `Clusters().ReadActive`, the active cache's health, and `CachedData().Query` unless
-`Freshness(&health).Withholds()` — `syncing` or `unknown`, and a cluster with no cache — so the
+`health.Trusted()` is false (`cluster.ClusterCacheHealth.Trusted`, the one rule a reader of the
+rows asks: still syncing, or under the cache's own failure), or the cluster has no cache — so the
 rows and the verdict describe one cache. It answers a `*cluster.QueryError` as
 `{"error":"sql","message":…}` through `safe.String`, a gone record, a moved identity or a gone
 cache as `no-cache`, and anything else as `read-failed` with none of its text. **The answer** is JSON:

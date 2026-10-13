@@ -605,21 +605,20 @@ func TestFreshnessOfNilIsSyncing(t *testing.T) {
 	assert.Equal(t, FreshnessSection{Status: StatusSyncing}, Freshness(nil))
 }
 
-// Syncing and unknown are the two verdicts under which nothing the cache holds is the
-// cluster's to trust.
-func TestSyncingAndUnknownWithhold(t *testing.T) {
-	for health, withholds := range map[string]bool{
-		"":           true,
-		"Connecting": true,
-		"SizeLimit":  true,
-		"Watching":   false,
-		"Paused":     false,
+// Syncing and unknown are the card's verdicts for rows that are not Trusted:
+// syncing until the cache has listed, unknown under its own failures.
+func TestUntrustedRowsAreSyncingOrUnknown(t *testing.T) {
+	for health, status := range map[string]string{
+		"":                 StatusSyncing,
+		"Connecting":       StatusSyncing,
+		"SizeLimit":        StatusUnknown,
+		"StoreFailed":      StatusUnknown,
+		"IdentityMismatch": StatusUnknown,
 	} {
-		assert.Equal(t, withholds, Freshness(&cluster.ClusterCacheHealth{Reason: health}).Withholds(), health)
+		h := cluster.ClusterCacheHealth{Reason: health}
+		require.False(t, h.Trusted(), health)
+		assert.Equal(t, status, Freshness(&h).Status, health)
 	}
-	lastKnown := Freshness(&cluster.ClusterCacheHealth{Reason: "Disconnected", TotalKinds: 1, UnhealthyKindRefs: refs("v1/pods")})
-	assert.Equal(t, StatusLastKnown, lastKnown.Status)
-	assert.False(t, lastKnown.Withholds())
 }
 
 // The verdict reads the health reading alone. A cluster with sync switched off

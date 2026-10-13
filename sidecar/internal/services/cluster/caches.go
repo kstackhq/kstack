@@ -146,6 +146,17 @@ type ClusterCacheHealth struct {
 	LastLiveAt   *time.Time
 }
 
+// Trusted reports whether the cache's rows are this cluster's to answer from:
+// listed at least once, under no cache-wide failure. Stale rows are trusted; a
+// reader says how stale.
+func (h ClusterCacheHealth) Trusted() bool {
+	switch h.Reason {
+	case "", ReasonConnecting, ReasonSizeLimit, kubesync.ReasonStoreFailed, kubesync.ReasonIdentityMismatch:
+		return false
+	}
+	return true
+}
+
 // ClusterCacheSyncStatus is one cache's sync detail: how discovery is doing, and a row per
 // kind actually being mirrored. A gauge, like the health rollup and for the same reason —
 // nothing in the object graph reacts to it, and its counts and freshness stamps move while

@@ -245,7 +245,8 @@ func build(f Facts) card {
 }
 
 // Freshness is the health verdict as the card states it, syncing for a cluster
-// with no cache (nil). The cache-wide arms read the rollup's reason; past them
+// with no cache (nil). A cache whose rows are not Trusted is syncing until it has
+// listed, else unknown. The cache-wide arms read the rollup's reason; past them
 // the reason is only the first offender's, so whether every kind is behind is
 // decided by count. A cluster with sync switched off reads Paused with no counts,
 // which answers before any count is read.
@@ -253,16 +254,17 @@ func Freshness(h *cluster.ClusterCacheHealth) FreshnessSection {
 	if h == nil {
 		return FreshnessSection{Status: StatusSyncing}
 	}
+	if !h.Trusted() {
+		if h.Reason == "" || h.Reason == cluster.ReasonConnecting {
+			return FreshnessSection{Status: StatusSyncing}
+		}
+		return FreshnessSection{Status: StatusUnknown, Reason: h.Reason}
+	}
 	switch h.Reason {
-	case "", "Connecting":
-		return FreshnessSection{Status: StatusSyncing}
 	case "Watching":
 		return FreshnessSection{Status: StatusWatching}
 	case "Paused":
 		return FreshnessSection{Status: StatusPaused}
-	case "SizeLimit", "StoreFailed", "IdentityMismatch":
-		// The cache's own verdicts: nothing under them is this cluster's to trust.
-		return FreshnessSection{Status: StatusUnknown, Reason: h.Reason}
 	}
 	allBehind := len(h.UnhealthyKindRefs) >= h.TotalKinds-h.PausedKinds
 	if !allBehind {
@@ -284,12 +286,6 @@ func Freshness(h *cluster.ClusterCacheHealth) FreshnessSection {
 // MarshalFreshness is the section as the card marshals it, for an answer that
 // carries it.
 func MarshalFreshness(f FreshnessSection) json.RawMessage { return marshal(f) }
-
-// Withholds reports the two verdicts under which nothing the cache holds is the
-// cluster's to trust, so a reader of the rows gets none.
-func (f FreshnessSection) Withholds() bool {
-	return f.Status == StatusSyncing || f.Status == StatusUnknown
-}
 
 func namespaces(cf *CacheFacts) *list {
 	names := sorted(cf.Namespaces)
