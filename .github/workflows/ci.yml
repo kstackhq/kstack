@@ -262,10 +262,11 @@ jobs:
       - name: Run tests
         working-directory: ./sidecar
         run: go test ./...
+      # -short: a sweep a test shrinks under it runs whole in the stress workflow.
       - name: Run race tests
         if: ${{ !(matrix.os == 'windows' && matrix.arch == 'arm64') }}
         working-directory: ./sidecar
-        run: go test -race ./...
+        run: go test -race -short ./...
       # After every test passed, so a failed job leaves its runner's last cache
       # the newest. The test flags must match a PR's, or a PR replays nothing.
       - name: Save Go cache

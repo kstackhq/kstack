@@ -119,9 +119,15 @@ func TestFetchPagesThroughAMoment(t *testing.T) {
 // in range once, in order, each within its limit; and a since or until keeps its
 // line where an after or before drops it. A page the budget refuses is the honest
 // answer to a view too wide for it, so the walk is asked again with twice the
-// budget, as a user would narrow the view.
+// budget, as a user would narrow the view. Every page resolves the view through
+// SQL the store parses afresh, so under the race detector the full sweep takes
+// minutes; -short walks a prefix of the seeds, and the stress run walks them all.
 func TestPagesJoinWithoutLossOrRepeat(t *testing.T) {
-	for seed := range 150 {
+	seeds := 150
+	if testing.Short() {
+		seeds = 25
+	}
+	for seed := range seeds {
 		t.Run(strconv.Itoa(seed), func(t *testing.T) {
 			rng := rand.New(rand.NewSource(int64(seed)))
 			s, objects, all := randomLogs(rng)

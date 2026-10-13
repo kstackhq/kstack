@@ -2163,7 +2163,8 @@ refuses the page, since no cursor could go on from it. The merge names in `skipp
 that failed before a line in range, its error through `safe` and `stripControl`, and fails the page
 on a 401, a revoked claim, or every stream failing. `TestPagesJoinWithoutLossOrRepeat` pages random
 logs — tied and sub-second moments, small limits, budgets spent mid-line, a grep — from both ends
-and holds the pages to the lines; a change to a read path answers to it.
+and holds the pages to the lines; a change to a read path answers to it. It walks 150 seeds, 25
+under `-short`, since each page parses the view's SQL afresh and the race detector makes that slow.
 
 **KubeQuery (`tools/kubequery`) is read-only SQL over the chat's cluster's cache, run without
 asking.** It is `Custom` and `Bounded` (10 s, whatever the input), never `Gated`. `parse` is the
@@ -4008,6 +4009,7 @@ Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-
 - Wait on channels through `internal/lib/testutil` (`Wait`, `Recv`, `RecvClosed`, `WaitClosed`); the one failsafe is `testutil.Timeout`. A negative assertion gets its own short window.
 - A fake that notifies the test uses `testutil.Signal` (single-shot, idempotent `Fire`) or `testutil.Probe[T]` (repeating, non-blocking, drops oldest). Exception: a consumer doing edge detection needs a lossless fan-out.
 - `make test-changed` while working (the changed packages), `make test-go` for the whole suite, `make lint-go` (gofmt), `make vet-go`. Run `gofmt -w` before committing.
+- **CI's race step runs `go test -race -short ./...`.** A sweep too slow for the race detector shrinks under `testing.Short()` and runs whole in the nightly stress run, which passes no `-short`; a test never skips under it.
 
 **A nightly stress run hunts concurrency bugs** (`.github/workflows/stress.yml`, 05:00 UTC, or
 dispatched with `count` and `cpu`). On each of `ci.yml`'s nine runners it runs the whole suite
