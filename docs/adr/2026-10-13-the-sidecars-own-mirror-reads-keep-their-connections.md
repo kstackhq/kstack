@@ -3,6 +3,8 @@ title: The sidecar's own mirror reads keep their connections
 date: 2026-10-13
 scope: sidecar
 status: Accepted
+amended_by:
+  - [A cache reading is one snapshot](2026-10-13-a-cache-reading-is-one-snapshot.md)
 ---
 
 # The sidecar's own mirror reads keep their connections

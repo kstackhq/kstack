@@ -632,19 +632,45 @@ func TestQueryReadsTheCache(t *testing.T) {
 	assert.Equal(t, ClusterCachedDataQueryResult{Columns: []string{"name"}, Rows: [][]any{{"api-0"}}}, got)
 }
 
-// QueryOwn reads the cache's views as Query does, its values bound.
-func TestQueryOwnReadsTheCache(t *testing.T) {
+// A reading's statements read the cache's views as Query does, their values bound.
+func TestReadOwnReadsTheCache(t *testing.T) {
 	ctx := context.Background()
 	f := newDataFixture(t)
 	require.NoError(t, f.store.ApplyChange(ctx, kubestore.Kind{APIVersion: "v1", Kind: "Pod", Resource: "pods"},
 		watch.Added, dataPod("uid-1", "api-0", "42")))
 	f.stopWorkers()
 
-	got, ok, err := f.data().QueryOwn(ctx, f.clusterID, f.cacheID, `SELECT name FROM objects WHERE uid = ?`, 10, 1<<20, "uid-1")
+	var got ClusterCachedDataQueryResult
+	ok, err := f.data().ReadOwn(ctx, f.clusterID, f.cacheID, func(query OwnQuery) error {
+		var err error
+		got, err = query(`SELECT name FROM objects WHERE uid = ?`, 10, 1<<20, "uid-1")
+		return err
+	})
 
 	require.NoError(t, err)
 	assert.True(t, ok)
 	assert.Equal(t, ClusterCachedDataQueryResult{Columns: []string{"name"}, Rows: [][]any{{"api-0"}}}, got)
+}
+
+// A reading's statement SQLite refuses is a *QueryError, and a reading of a cache of
+// another cluster is not ok.
+func TestReadOwnRefusesWhatQueryRefuses(t *testing.T) {
+	ctx := context.Background()
+	f := newDataFixture(t)
+	f.stopWorkers()
+
+	ok, err := f.data().ReadOwn(ctx, f.clusterID, f.cacheID, func(query OwnQuery) error {
+		_, err := query(`SELECT nope FROM objects`, 10, 1<<20)
+		return err
+	})
+	var qe *QueryError
+	require.ErrorAs(t, err, &qe)
+	assert.True(t, ok)
+
+	other := createCluster(t, f.d, "other")
+	ok, err = f.data().ReadOwn(ctx, clusterIDOf(other), f.cacheID, func(OwnQuery) error { return nil })
+	require.NoError(t, err)
+	assert.False(t, ok)
 }
 
 func TestQueryOfACacheOfAnotherClusterIsNotOK(t *testing.T) {

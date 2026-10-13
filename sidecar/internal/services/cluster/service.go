@@ -325,9 +325,13 @@ type CachedData interface {
 	// cache the pair does not resolve to, or one with no file. A statement SQLite
 	// refuses is a *QueryError.
 	Query(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (ClusterCachedDataQueryResult, bool, error)
-	// QueryOwn is Query for a statement the sidecar wrote, on a connection kept between
-	// such statements. A statement a model wrote goes through Query.
-	QueryOwn(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (ClusterCachedDataQueryResult, bool, error)
+	// ReadOwn runs read over one snapshot of the cache, each statement it runs one the
+	// sidecar wrote, on a connection kept between such readings: a reader joining
+	// what several statements answer never joins two states of the cache. ok is false
+	// for a cache the pair does not resolve to, or one with no file; a statement in a
+	// cache gone under the reading answers ErrNoCache. A statement a model wrote goes
+	// through Query.
+	ReadOwn(ctx context.Context, clusterID ClusterID, cacheID ClusterCacheID, read func(OwnQuery) error) (bool, error)
 	// ReadActive runs read over one reading of cluster id's active cache, whose rows
 	// must be trusted, its statements bounded by maxRows and maxBytes: ErrNoCache for
 	// a cluster with no cache, ErrSyncing for one whose rows are not. Every statement

@@ -21,6 +21,8 @@ import (
 	"net/http"
 	"net/url"
 	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -610,6 +612,41 @@ func TestAFinishedInitContainerLeavesItsPodFollowed(t *testing.T) {
 
 	f.store.Apply(t, withInit(boot(), "init"))
 	f.pods <- podFrame(cluster.DeltaFrameModified, "boot")
+	s.follow("prod/boot/app") <- stamped(time.Hour+time.Second, "started")
+
+	assert.Equal(t, "started", recvLine(t, stream, "app's line").Message)
+}
+
+// A resolve reads one state of the mirror, whatever commits between its statements:
+// a container that starts while the follow asks whether any is starting is still
+// waiting to it, never a container that neither runs nor starts, which would end
+// the follow.
+func TestAResolveReadsOneStateOfTheMirror(t *testing.T) {
+	s := newLogServer()
+	boot := func() map[string]any { return pod("boot", "uid-boot", "node-a", nil, container{name: "app"}) }
+	f := newMirror(t, append(webObjects(), withInit(waiting(boot()), "init"))...)
+	svc, _ := serviceOver(t, f, s)
+	stream, _ := openFollowOf(t, svc, f, View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "boot", AllContainers: true}}})
+	var started sync.Once
+	read := testutil.NewProbe[struct{}](1)
+	f.set(func() {
+		f.mirrorRead = read
+		f.beforeStatement = func(text string) {
+			if strings.Contains(text, "coalesce(c.container_id, '') = ''") {
+				started.Do(func() { f.store.Apply(t, withInit(boot(), "init")) })
+			}
+		}
+	})
+
+	close(s.follow("prod/boot/init"))
+	// Once the resolve the init container's end starts has read the mirror, the
+	// follow either ends or waits on its watches.
+	read.Await(t, "the resolve after init's end")
+	select {
+	case f.pods <- podFrame(cluster.DeltaFrameModified, "boot"):
+	case frame := <-stream.Frames:
+		t.Fatalf("the follow sent %s %q while its pod was starting", frame.Type, frame.Reason)
+	}
 	s.follow("prod/boot/app") <- stamped(time.Hour+time.Second, "started")
 
 	assert.Equal(t, "started", recvLine(t, stream, "app's line").Message)
