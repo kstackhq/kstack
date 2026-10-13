@@ -2102,7 +2102,8 @@ each with a log the kubelet serves: a `container_id`, or a `last_container_id` s
 the container waits, as `kubectl logs` reads it. A previous instance reads only the containers
 with one (a `last_container_id`). A stream is named by its `StreamKey` (namespace, pod, container, previous),
 which is what two sources reading one container agree on. Its `Place` (`record.go`) is where its
-pod runs: its node. `Refusal` is a value, so no caller can change a sentinel's words.
+pod runs: the node, then the region, zone, OS and architecture read off that `Node` object's
+labels. `Refusal` is a value, so no caller can change a sentinel's words.
 
 The containers narrow the pods statement. **A view follows each source as its object and pods
 come and go**, so no source is refused for reading nothing now. Each carries a `SourceState`
@@ -2117,7 +2118,7 @@ mirrors a namespaced kind with no object.
 Each pods statement reads at most `maxStreams` (100) plus one rows, and a view past `maxStreams`
 containers is refused, since each is its own request to the API server. The reading's row cap is
 the same `maxStreams` plus one; an answer cut at it or at the byte cap is refused, never read as
-every source. The tests run every statement over a real store (`cluster/clustertest`).
+every source or node. The tests run every statement over a real store (`cluster/clustertest`).
 
 **KubeQuery (`tools/kubequery`) is read-only SQL over the chat's cluster's cache, run without
 asking.** It is `Custom` and `Bounded` (10 s, whatever the input), never `Gated`. `parse` is the

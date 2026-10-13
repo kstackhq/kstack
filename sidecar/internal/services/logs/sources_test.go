@@ -32,7 +32,7 @@ func resolveOf(t *testing.T, f *fakeService, view View) (target, error) {
 }
 
 // A deployment's pods come off the mirror through its replica set, one stream per
-// container named, with the node each runs on.
+// container named, with where each runs.
 func TestADeploymentsPodsComeOffTheMirror(t *testing.T) {
 	got, err := resolveOf(t, webMirror(t), webView)
 
@@ -43,7 +43,10 @@ func TestADeploymentsPodsComeOffTheMirror(t *testing.T) {
 		{Namespace: "prod", Pod: "web-1", Container: "app"},
 		{Namespace: "prod", Pod: "web-2", Container: "app"},
 	}, keysOf(got))
-	assert.Equal(t, []Place{{Node: "node-a"}, {Node: "node-b"}}, placesOf(got))
+	assert.Equal(t, []Place{
+		{Node: "node-a", Region: "eu", Zone: "eu-1a", OS: "linux", Arch: "amd64"},
+		{Node: "node-b", Region: "eu", Zone: "eu-1b", OS: "linux", Arch: "arm64"},
+	}, placesOf(got))
 }
 
 // A workload is walked down through controller references alone: a pod that only
@@ -258,9 +261,10 @@ func TestACacheNotReadyIsRefused(t *testing.T) {
 // A read of the cluster that fails is the failure.
 func TestAFailedReadIsTheFailure(t *testing.T) {
 	for name, set := range map[string]func(f *fakeService){
-		"reading": func(f *fakeService) { f.readActiveErr = errors.New("db closed") },
-		"health":  func(f *fakeService) { f.healthErr = errors.New("db closed") },
-		"query":   func(f *fakeService) { f.queryErr = errors.New("db closed") },
+		"reading":        func(f *fakeService) { f.readActiveErr = errors.New("db closed") },
+		"health":         func(f *fakeService) { f.healthErr = errors.New("db closed") },
+		"every query":    func(f *fakeService) { f.queryErr = errors.New("db closed") },
+		"the node query": func(f *fakeService) { f.queryErr, f.queryErrOn = errors.New("db closed"), "kind = 'Node'" },
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := webMirror(t)
@@ -271,16 +275,21 @@ func TestAFailedReadIsTheFailure(t *testing.T) {
 	}
 }
 
-// An answer the mirror cut short is refused rather than read as every row.
+// An answer the mirror cut short is refused rather than read as every row: the
+// nodes, or a source's pods.
 func TestACutAnswerIsRefused(t *testing.T) {
-	f := webMirror(t)
-	f.moreOn = "kind = 'Pod'"
-	_, err := resolveOf(t, f, webView)
-	assert.EqualError(t, err, "the cluster's cache answered more than Kstack reads at once")
+	for name, on := range map[string]string{"nodes": "kind = 'Node'", "pods": "kind = 'Pod'"} {
+		t.Run(name, func(t *testing.T) {
+			f := webMirror(t)
+			f.moreOn = on
+			_, err := resolveOf(t, f, webView)
+			assert.EqualError(t, err, "the cluster's cache answered more than Kstack reads at once")
+		})
+	}
 }
 
 // A view of more containers than Kstack reads at once is refused, reading no more
-// than one past the limit; one at the limit is not.
+// than one past the limit and no node; one at the limit is not.
 func TestAViewOfTooManyContainersIsRefused(t *testing.T) {
 	f := webMirror(t)
 	addPods(t, f, maxStreams-1)

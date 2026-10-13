@@ -36,7 +36,9 @@ type fakeService struct {
 	store  *clustertest.Store
 
 	readActiveErr, healthErr, queryErr error
-	noHealth, noQuery                  bool
+	// queryErrOn is the statement text queryErr applies to, "" for every one.
+	queryErrOn        string
+	noHealth, noQuery bool
 	// moreOn is the statement text whose answer says rows were left out.
 	moreOn string
 	// statements is every statement the mirror was asked, its args inlined, in
@@ -65,7 +67,7 @@ type fakeCachedData struct {
 func (fc fakeCachedData) QueryOwn(ctx context.Context, _ cluster.ClusterID, _ cluster.ClusterCacheID, sql string, maxRows, maxBytes int, args ...any) (cluster.ClusterCachedDataQueryResult, bool, error) {
 	text := inlined(sql, args)
 	fc.f.statements = append(fc.f.statements, text)
-	if fc.f.queryErr != nil {
+	if fc.f.queryErr != nil && strings.Contains(text, fc.f.queryErrOn) {
 		return cluster.ClusterCachedDataQueryResult{}, false, fc.f.queryErr
 	}
 	if fc.f.noQuery {
@@ -111,7 +113,7 @@ func newMirror(t *testing.T, objects ...map[string]any) *fakeService {
 
 // webObjects is a deployment web in prod whose replica set runs two pods, each
 // with app and istio-proxy, on node-a and node-b, and a lone pod job-1 on no node
-// yet. The mirror holds neither node.
+// yet.
 func webObjects() []map[string]any {
 	return []map[string]any{
 		workload("apps/v1", "Deployment", "web", "dep-web", nil),
@@ -127,10 +129,18 @@ func webReplicaSet() map[string]any {
 	return controller("apps/v1", "ReplicaSet", "web-7d9f", "rs-web")
 }
 
-// webMirror is a mirror holding webObjects.
+// webNodes are node-a and node-b, in two zones of one region.
+func webNodes() []map[string]any {
+	return []map[string]any{
+		node("node-a", "eu", "eu-1a", "linux", "amd64"),
+		node("node-b", "eu", "eu-1b", "linux", "arm64"),
+	}
+}
+
+// webMirror is webObjects and webNodes.
 func webMirror(t *testing.T) *fakeService {
 	t.Helper()
-	return newMirror(t, webObjects()...)
+	return newMirror(t, append(webObjects(), webNodes()...)...)
 }
 
 // webView reads the app container of deployment web in prod.
@@ -214,6 +224,16 @@ func waiting(body map[string]any) map[string]any {
 		status["state"] = map[string]any{"waiting": map[string]any{"reason": "ContainerCreating"}}
 	}
 	return body
+}
+
+// node is a Node with the well-known topology, OS and architecture labels.
+func node(name, region, zone, os, arch string) map[string]any {
+	return map[string]any{
+		"apiVersion": "v1", "kind": "Node",
+		"metadata": map[string]any{"uid": "uid-" + name, "name": name, "labels": map[string]any{
+			labelRegion: region, labelZone: zone, labelOS: os, labelArch: arch,
+		}},
+	}
 }
 
 // inlined is sql with each placeholder replaced by its arg as a SQL literal, so a

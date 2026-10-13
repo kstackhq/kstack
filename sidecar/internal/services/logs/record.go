@@ -23,8 +23,13 @@ type StreamKey struct {
 	Previous  bool
 }
 
-// Place is where a pod runs: its node, empty when it has none yet. It describes a
-// stream and takes no part in naming it.
+// Place is where a pod runs: its node and the node's region, zone, OS and
+// architecture, empty where the mirror does not know. It describes a stream and
+// takes no part in naming it.
 type Place struct {
-	Node string
+	Node   string
+	Region string
+	Zone   string
+	OS     string
+	Arch   string
 }

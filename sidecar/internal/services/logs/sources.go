@@ -28,7 +28,8 @@ import (
 const maxStreams = 100
 
 // The mirror reads' bounds. No statement reads more than maxStreams plus one rows,
-// each a few names long, so neither bound cuts an answer the statement allows.
+// a view's nodes being no more than its streams, each a few names long, so neither
+// bound cuts an answer the statement allows.
 const (
 	maxRows  = maxStreams + 1
 	maxBytes = 1 << 20
@@ -74,6 +75,14 @@ const (
 	Idle
 )
 
+// The well-known labels a node's place is read from.
+const (
+	labelRegion = "topology.kubernetes.io/region"
+	labelZone   = "topology.kubernetes.io/zone"
+	labelOS     = "kubernetes.io/os"
+	labelArch   = "kubernetes.io/arch"
+)
+
 // target is what a view reads on one cluster: the server the mirror's pods came
 // from, one stream per container, in the order the sources were asked, and each
 // source's state.
@@ -97,8 +106,12 @@ type stream struct {
 func resolve(ctx context.Context, svc cluster.Service, id cluster.ClusterID, view View) (target, error) {
 	var t target
 	err := svc.CachedData().ReadActive(ctx, id, maxRows, maxBytes, func(q cluster.CacheReading, active cluster.ActiveCluster) error {
-		streams, states, err := reading{q}.streamsOf(view)
+		r := reading{q}
+		streams, states, err := r.streamsOf(view)
 		if err != nil {
+			return err
+		}
+		if err := r.place(streams); err != nil {
 			return err
 		}
 		// Set whole, never appended to: ReadActive may run this twice.
@@ -225,6 +238,43 @@ func (r reading) idleOrMissing(src ViewSource, kind mirrorKind) (SourceState, er
 		return Missing, nil
 	}
 	return Idle, nil
+}
+
+// place fills in each stream's node labels, reading only the nodes the streams
+// run on.
+func (r reading) place(streams []stream) error {
+	var names []string
+	seen := map[string]bool{}
+	for _, s := range streams {
+		if s.place.Node != "" && !seen[s.place.Node] {
+			seen[s.place.Node] = true
+			names = append(names, s.place.Node)
+		}
+	}
+	if len(names) == 0 {
+		return nil
+	}
+	args := append([]any{labelRegion, labelZone, labelOS, labelArch}, asArgs(names)...)
+	rows, err := r.rows(`SELECT n.name,
+(SELECT value FROM labels l WHERE l.uid = n.uid AND l.key = ?),
+(SELECT value FROM labels l WHERE l.uid = n.uid AND l.key = ?),
+(SELECT value FROM labels l WHERE l.uid = n.uid AND l.key = ?),
+(SELECT value FROM labels l WHERE l.uid = n.uid AND l.key = ?)
+FROM objects n WHERE n.api_version = 'v1' AND n.kind = 'Node' AND n.name IN (`+cluster.Placeholders(len(names))+`)`, args...)
+	if err != nil {
+		return err
+	}
+	nodes := map[string]Place{}
+	for _, row := range rows {
+		name := cluster.CellText(row[0])
+		nodes[name] = Place{Node: name, Region: cluster.CellText(row[1]), Zone: cluster.CellText(row[2]), OS: cluster.CellText(row[3]), Arch: cluster.CellText(row[4])}
+	}
+	for i := range streams {
+		if p, ok := nodes[streams[i].place.Node]; ok {
+			streams[i].place = p
+		}
+	}
+	return nil
 }
 
 // podsStatement is the statement of src's pods' containers, each row the pod's
