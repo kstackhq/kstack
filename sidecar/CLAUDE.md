@@ -3883,8 +3883,11 @@ Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-
 
 **A nightly stress run hunts concurrency bugs** (`.github/workflows/stress.yml`, 05:00 UTC, or
 dispatched with `count` and `cpu`). On each of `ci.yml`'s nine runners it runs the whole suite
-with `-race` (but on Windows arm64, which has no race detector), `-cpu 1,4`, `-shuffle=on` and
-`-count=3`. A red run means a test failed under some schedule, nothing else. A test that hangs
+with `-cpu 1,4`, `-shuffle=on` and `-count=3` in two jobs: one with `-race` (but on Windows arm64,
+which has no race detector), and one without it, at full speed, where a timing bug the detector's
+slowdown hides can show. Each job is named by its runner and `race` or `norace`
+(`ubuntu-24.04-norace`), and the issues name it so. A red run means a test failed under some
+schedule, nothing else. A test that hangs
 under `-cpu 1` assumes another goroutine runs beside it: that is a finding. `scripts/stress.go`
 reads the `-json` output into `stress/failures.json` — each failing test, the `-cpu` value it ran
 under and its package's shuffle seed — and the report job files one issue per test, labelled

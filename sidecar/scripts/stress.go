@@ -3,7 +3,7 @@
 // Reads the nightly stress run's `go test -json` output and writes the failures
 // to failures.json beside it, for the workflow's report job to file as issues.
 //
-//	go run scripts/stress.go -cpu 1,4 -count 3 -race=true -runner ubuntu-24.04 stress/stress.json
+//	go run scripts/stress.go -cpu 1,4 -count 3 -race=true -runner ubuntu-24.04-race stress/stress.json
 //
 // It also prints them to the log and to $GITHUB_STEP_SUMMARY. It exits 0
 // whatever it finds: the workflow fails on go test's own status.
@@ -62,7 +62,7 @@ func main() {
 	cpuFlag := flag.String("cpu", "", "the -cpu list go test ran with")
 	count := flag.Int("count", 1, "the -count go test ran with")
 	race := flag.Bool("race", true, "whether go test ran with -race")
-	runner := flag.String("runner", "", "the runner's name")
+	runner := flag.String("runner", "", "the job's name in the report")
 	flag.Parse()
 	if flag.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: go run scripts/stress.go [flags] stress.json")

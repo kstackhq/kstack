@@ -1,8 +1,10 @@
 name: stress
 
-# Runs every Go test under the race detector with the CPU count, the order and
-# the repetitions varied, to find ordering bugs a single PR run passes. A red
-# run means a concurrency bug was found and nothing else.
+# Runs every Go test with the CPU count, the order and the repetitions varied,
+# to find ordering bugs a single PR run passes. Each runner gets two jobs: one
+# under the race detector (but windows/arm64, which has none), and one without
+# it, at full speed, where a timing bug the detector's slowdown hides can show.
+# A red run means a concurrency bug was found and nothing else.
 
 permissions:
   contents: read
@@ -26,7 +28,8 @@ env:
 
 jobs:
   stress:
-    name: Go · Stress
+    # The report job reads the id back out of the name.
+    name: Go · Stress (${{ matrix.runner }}-${{ matrix.race && 'race' || 'norace' }})
     strategy:
       fail-fast: false
       # Keep in step with full-matrix in ci.yml; anchors do not cross files.
@@ -40,10 +43,17 @@ jobs:
         arch:
           - amd64
           - arm64
+        race:
+          - true
+          - false
         exclude:
           # The macOS 27 image is Apple silicon alone.
           - os: macos-27
             arch: amd64
+          # The race detector does not support windows/arm64.
+          - os: windows
+            arch: arm64
+            race: true
         include:
           - os: linux
             arch: amd64
@@ -75,17 +85,16 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     env:
-      # The race detector does not support windows/arm64.
-      RACE: ${{ !(matrix.os == 'windows' && matrix.arch == 'arm64') }}
-      MATRIX_RUNNER: ${{ matrix.runner }}
+      RACE: ${{ matrix.race }}
+      STRESS_ID: ${{ matrix.runner }}-${{ matrix.race && 'race' || 'norace' }}
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-environment
         with:
           setup-go: "true"
           setup-sandbox: "true"
-          # Go · Build and Test's cache, restored to skip compiling. This job
-          # never saves one: its flags differ from a PR's.
+          # Go · Build and Test's cache, restored to skip compiling what that
+          # job built. This job never saves one: its flags differ from a PR's.
           go-cache-key: go-test-${{ matrix.runner }}
       # -timeout sits under timeout-minutes, so a hang fails the test binary
       # with a goroutine dump rather than the runner killing the job.
@@ -102,13 +111,13 @@ jobs:
           go test $race_flag -cpu "$CPU" -shuffle=on -count="$COUNT" -timeout 90m -json ./... \
             > stress/stress.json || status=$?
           go run scripts/stress.go -cpu "$CPU" -count "$COUNT" -race="$RACE" \
-            -runner "$MATRIX_RUNNER" stress/stress.json
+            -runner "$STRESS_ID" stress/stress.json
           exit "$status"
       - name: Upload failures
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: stress-${{ matrix.runner }}
+          name: stress-${{ env.STRESS_ID }}
           path: sidecar/stress/
           retention-days: 14
 
@@ -154,11 +163,11 @@ jobs:
             fi
           }
 
-          # Every runner whose stress job did not pass, by its runs-on label.
+          # Every stress job that did not pass, by the id in its name.
           gh api --paginate "repos/$GH_REPO/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs" \
             --jq '.jobs[] | select(.name | startswith("Go · Stress"))
                   | select(.conclusion != "success" and .conclusion != "skipped")
-                  | .labels[0]' > failed-runners.txt
+                  | .name | capture("\\((?<id>[^)]+)\\)$").id' > failed-jobs.txt
 
           reports=(stress/*/failures.json)
           if [ ${#reports[@]} -gt 0 ]; then
@@ -185,16 +194,16 @@ jobs:
           # A failed job that names no failing test: setup, build, a package
           # that failed outside a test, or a timeout the test binary missed.
           : > outside.md
-          while read -r runner; do
-            report="stress/stress-$runner/failures.json"
+          while read -r id; do
+            report="stress/stress-$id/failures.json"
             if [ ! -f "$report" ]; then
-              echo "- **$runner**: no test report" >> outside.md
+              echo "- **$id**: no test report" >> outside.md
             elif jq -e '(.outside | length) > 0 or (.failures | length) == 0' "$report" > /dev/null; then
-              jq -r --arg r "$runner" '"- **\($r)**: " + (if (.outside | length) > 0
+              jq -r --arg r "$id" '"- **\($r)**: " + (if (.outside | length) > 0
                 then "failed outside a test in " + (.outside | map("`\(.)`") | join(", "))
                 else "failed with no failing test" end)' "$report" >> outside.md
             fi
-          done < failed-runners.txt
+          done < failed-jobs.txt
           if [ -s outside.md ]; then
             { echo "The [nightly stress run]($RUN_URL) failed outside a test on:"; echo; cat outside.md; } > body.md
             file_issue "Stress run failed outside a test" body.md
