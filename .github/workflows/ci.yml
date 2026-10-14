@@ -277,9 +277,13 @@ jobs:
         run: go test ./...
       # -race also turns on checkptr, which spends a quarter of agent/chat's
       # CPU checking modernc's SQLite. It is off there alone; our code keeps it.
+      # The login shell's tests read SSH_AUTH_SOCK, so its value keys their
+      # cached results, and on macOS launchd sets a new path on every boot.
       - name: Run race tests
         if: ${{ !(matrix.os == 'windows' && matrix.arch == 'arm64') }}
         working-directory: ./sidecar
+        env:
+          SSH_AUTH_SOCK: ""
         run: go test -race -gcflags='modernc.org/...=-d=checkptr=0' ./...
       # After every test passed, so a failed job leaves its runner's last cache
       # the newest. The test flags must match a PR's, or a PR replays nothing.
