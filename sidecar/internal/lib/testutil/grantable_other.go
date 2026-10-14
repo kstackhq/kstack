@@ -21,8 +21,8 @@ import (
 	"testing"
 )
 
-// GrantableDir is a fresh directory a folder grant can name, its path
-// resolved, removed when t ends.
+// GrantableDir is a fresh directory a folder grant can name and a sandboxed
+// run can see, its path resolved, removed when t ends.
 func GrantableDir(t testing.TB) string {
 	t.Helper()
 	dir, err := filepath.EvalSymlinks(t.TempDir())

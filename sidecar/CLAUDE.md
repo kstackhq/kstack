@@ -1704,8 +1704,9 @@ past the address-space limit is a runtime crash; a failed exec writes `sandbox-s
 `seccomp_data` laid out big-endian word by word, and `ShellMain` in a child.
 
 **Tests that start the chain call `sandbox.Main` from their `TestMain`**: `sandbox`, `loginshell`
-(whose tests run the login shell through the machine's sandbox, over a fixture under the package's
-own `testdata/`, since a Linux run's private `/tmp` would hide one under `t.TempDir()`), `bash`
+(whose tests run the login shell through the machine's sandbox, over a fixture under
+`testutil.GrantableDir`, since a Linux run's private `/tmp` would hide one under `t.TempDir()`
+and one inside the module would change what Go's test cache keys other packages on), `bash`
 (whose proxy tests run on the machine's sandbox, through `sandboxed` in
 `testutil_unix_test.go`, and write their coverage through `Tool.extraWritable`, a test's seam)
 and `app` (whose tests reach the real probe through `New`). A test binary that did not would
@@ -1714,6 +1715,8 @@ one, and finds none calls `testutil.RequireSandbox`, which fails under `KSTACK_R
 saying why; CI's Linux Go jobs set it through `setup-environment`'s `setup-sandbox`, with
 bubblewrap installed and the AppArmor restriction lifted, and on macOS, where Seatbelt needs
 nothing installed, it sets the variable alone; on both it installs `kubectl` and `jq`.
+**No test writes inside the module**: the cache keys a package on every file and directory it
+reads there, mtimes included, so a test that walks the tree would never replay.
 
 **`app`'s end-to-end tests run a chat through the real sandbox** (`startE2E`,
 `testutil_unix_test.go`): an app over a fake API server its kubeconfig names, which answers the

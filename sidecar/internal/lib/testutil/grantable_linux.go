@@ -20,10 +20,10 @@ import (
 	"testing"
 )
 
-// GrantableDir is a fresh directory a folder grant can name, its path
-// resolved, removed when t ends. On Linux it is under the user's cache
-// directory, since t.TempDir is under /tmp, which every sandboxed run mounts
-// its own of and no grant may name.
+// GrantableDir is a fresh directory a folder grant can name and a sandboxed
+// run can see, its path resolved, removed when t ends. On Linux it is under
+// the user's cache directory, since t.TempDir is under /tmp, which every
+// sandboxed run mounts its own of and no grant may name.
 func GrantableDir(t testing.TB) string {
 	t.Helper()
 	parent, err := os.UserCacheDir()

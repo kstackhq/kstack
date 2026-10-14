@@ -187,9 +187,9 @@ func confining(t *testing.T) *sandbox.Sandbox {
 	return sb
 }
 
-// fixture is a fake home and Kstack's three directories, under the package's
-// own directory: every Linux run mounts a private /tmp, so a fixture under it
-// would be invisible inside the run whatever the policy said.
+// fixture is a fake home and Kstack's three directories, outside /tmp: every
+// Linux run mounts a private /tmp, so a fixture under it would be invisible
+// inside the run whatever the policy said.
 type fixture struct {
 	root, home, tmpDir string
 	kstack             []string // data, cache, runtime
@@ -199,12 +199,7 @@ type fixture struct {
 // shell as /bin/sh, which as a login shell reads ~/.profile.
 func newFixture(t *testing.T) fixture {
 	t.Helper()
-	require.NoError(t, os.MkdirAll("testdata", 0o700))
-	rel, err := os.MkdirTemp("testdata", "tmp-")
-	require.NoError(t, err)
-	root, err := filepath.Abs(rel)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	root := testutil.GrantableDir(t)
 	f := fixture{root: root, home: filepath.Join(root, "home")}
 	for _, name := range []string{"data", "cache", "runtime"} {
 		f.kstack = append(f.kstack, filepath.Join(root, name))

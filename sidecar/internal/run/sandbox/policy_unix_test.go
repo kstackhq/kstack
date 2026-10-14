@@ -148,13 +148,7 @@ func TestEveryPairOfRulesAnswersAlike(t *testing.T) {
 // mounts privately.
 func TestTheLoginShellsPolicyAnswersAlike(t *testing.T) {
 	s := confining(t)
-	require.NoError(t, os.MkdirAll("testdata", 0o700))
-	rel, err := os.MkdirTemp("testdata", "tmp-")
-	require.NoError(t, err)
-	base, err := filepath.Abs(rel)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = os.RemoveAll(base) })
-	base = resolved(base)
+	base := testutil.GrantableDir(t)
 	kstack := mkdirs(t, base, "data", "cache", "runtime")
 	scratch := mkdirs(t, base, "cache/tmp/1-1")[0]
 	always := AlwaysPolicy{Kstack: kstack, Write: []string{scratch}}
