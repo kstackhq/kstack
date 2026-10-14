@@ -265,10 +265,12 @@ jobs:
         if: ${{ matrix.os == 'windows' && matrix.arch == 'arm64' }}
         working-directory: ./sidecar
         run: go test ./...
+      # -race also turns on checkptr, which spends a quarter of agent/chat's
+      # CPU checking modernc's SQLite. It is off there alone; our code keeps it.
       - name: Run race tests
         if: ${{ !(matrix.os == 'windows' && matrix.arch == 'arm64') }}
         working-directory: ./sidecar
-        run: go test -race ./...
+        run: go test -race -gcflags='modernc.org/...=-d=checkptr=0' ./...
       # After every test passed, so a failed job leaves its runner's last cache
       # the newest. The test flags must match a PR's, or a PR replays nothing.
       - name: Save Go cache
