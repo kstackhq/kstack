@@ -689,6 +689,18 @@ func TestStartWatchesTheKubeconfigUntilStopped(t *testing.T) {
 	require.NoError(t, stop(t.Context()))
 }
 
+// A second Start is refused, and the first one's stop still drains what it started.
+func TestStartRejectsASecondStart(t *testing.T) {
+	s := New(resolving("prod", "key-1"))
+	stop, err := s.Start(t.Context())
+	require.NoError(t, err)
+
+	_, err = s.Start(t.Context())
+	assert.ErrorContains(t, err, "already started")
+
+	require.NoError(t, stop(t.Context()))
+}
+
 // A pass can land after the last holder let go — the supervisor's Remove and this publish are not
 // one step. Announcing then would tell watchers on this name about a claim nobody holds, and
 // leave news behind for whatever claims it next to be compared against.

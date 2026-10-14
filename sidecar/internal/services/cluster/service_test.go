@@ -123,10 +123,10 @@ func TestStartRejectsASecondStart(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { assert.NoError(t, stop(context.Background())) }()
 
-	// kubesync is the first part in the order that refuses one; beehive refuses too, and the
-	// unwind never reaches it.
+	// kubeconn is the first part in the order that refuses one, so nothing with background
+	// work has started for the unwind to drain.
 	_, err = svc.Start(context.Background())
-	assert.ErrorContains(t, err, "start kubesync")
+	assert.ErrorContains(t, err, "start kubeconn")
 }
 
 // partNamed returns the service's part with that name.

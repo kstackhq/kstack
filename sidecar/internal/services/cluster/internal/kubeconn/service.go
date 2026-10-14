@@ -130,7 +130,8 @@ type Service struct {
 	// that moved only timing wakes nobody.
 	published map[string]news
 
-	wg sync.WaitGroup
+	started atomic.Bool
+	wg      sync.WaitGroup
 }
 
 // entry is a claimed context's holder count and the connection its probe built. A pointer per
@@ -293,6 +294,12 @@ func (s *Service) Subscribe() Subscription { return s.signalHub.Receiver() }
 // Start returns, so nothing it says in between is dropped; the supervisor's queues need no such
 // care, since they hold what a claim taken before Start asked for until its workers run.
 func (s *Service) Start(ctx context.Context) (func(context.Context) error, error) {
+	// Refused rather than tolerated: a second Start puts a second watch and a second pair of
+	// supervisor loops on the same wait groups, so its stop would wait on the first's.
+	if !s.started.CompareAndSwap(false, true) {
+		return nil, errors.New("kubeconn: already started")
+	}
+
 	stopEngine := s.supervisor.Start(ctx)
 
 	// Not Start's context, which bounds startup: this one bounds the watch, so it lives until
