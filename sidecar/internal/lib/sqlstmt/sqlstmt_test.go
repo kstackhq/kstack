@@ -18,11 +18,13 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitepool"
 )
@@ -234,4 +236,57 @@ func TestAClosedSetRefusesATransaction(t *testing.T) {
 	require.ErrorIs(t, s.InTx(t.Context(), fn), ErrClosed)
 	require.ErrorIs(t, s.InReadTx(t.Context(), fn), ErrClosed)
 	require.False(t, ran)
+}
+
+// A set answers each id with its own statement, on the pools and in read
+// transactions alike, however many goroutines share it.
+func TestEachIdAnswersItsOwnStatementUnderConcurrency(t *testing.T) {
+	const ids = 8
+	table := make([]Statement, ids)
+	for i := range table {
+		table[i] = OnReader(fmt.Sprintf(`SELECT %d`, i))
+	}
+	write, read := openPools(t)
+	s, err := Prepare[int](t.Context(), write, read, table)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	var g errgroup.Group
+	for range 16 {
+		g.Go(func() error {
+			for i := range 50 * ids {
+				id := i % ids
+				var pooled, inTx int
+				if err := s.Stmts().QueryRow(t.Context(), id).Scan(&pooled); err != nil {
+					return err
+				}
+				if err := s.InReadTx(t.Context(), func(st Stmts[int]) error {
+					return st.QueryRow(t.Context(), id).Scan(&inTx)
+				}); err != nil {
+					return err
+				}
+				if pooled != id || inTx != id {
+					return fmt.Errorf("id %d answered %d on the pools and %d in a transaction", id, pooled, inTx)
+				}
+			}
+			return nil
+		})
+	}
+	require.NoError(t, g.Wait())
+}
+
+// A set holds the statements its table named when it was prepared: a later change
+// to the table reaches only a set prepared after it.
+func TestASetKeepsTheTableItWasPreparedFrom(t *testing.T) {
+	table := []Statement{OnReader(`SELECT 1`)}
+	write, read := openPools(t)
+	s, err := Prepare[int](t.Context(), write, read, table)
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
+
+	table[0] = OnReader(`SELECT 2`)
+
+	var got int
+	require.NoError(t, s.Stmts().QueryRow(t.Context(), 0).Scan(&got))
+	assert.Equal(t, 1, got)
 }
