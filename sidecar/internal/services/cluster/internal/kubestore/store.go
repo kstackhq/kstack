@@ -123,6 +123,8 @@ type file struct {
 	// short; without the wait, a statement still unwinding holds a connection the pools'
 	// Close does not wait for, and Windows refuses to delete a file one holds open.
 	stopJanitor func()
+	// vacuumPages bounds what one sweep hands back: vacuumPagesPerSweep, or less in a test.
+	vacuumPages int64
 	// now is the wall clock in millis; a seam so a test can freeze it. Reads go through
 	// stamp, never here.
 	now func() int64
@@ -268,6 +270,7 @@ func newFile(
 		hub:             conflate.New[string, struct{}](),
 		janitorWakeups:  make(chan struct{}, 1),
 		sizeLimitSender: sizeLimitSender,
+		vacuumPages:     vacuumPagesPerSweep,
 		now:             func() int64 { return time.Now().UnixMilli() },
 	}
 }

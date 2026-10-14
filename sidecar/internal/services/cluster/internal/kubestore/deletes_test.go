@@ -61,6 +61,8 @@ func storeHead(t *testing.T, s *Store) int64 {
 // A reader learns of a delete after the row it would read is gone, so the delete leaves
 // the one thing the reader still needs: the uid, at a position above every stamp before it.
 func TestAWatchDeleteLogsTheObjectItRemoved(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, pod("uid-1", "api-0", "42")))
@@ -78,6 +80,8 @@ func TestAWatchDeleteLogsTheObjectItRemoved(t *testing.T) {
 // Events log under the fixed ('v1', 'Event') the count triggers already use: the table
 // conflates both spellings of an event into one row shape, so all of them roll into it.
 func TestAWatchDeleteLogsTheEventItRemoved(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, eventsKind, watch.Added, firing("ev-1", "10", 1)))
@@ -94,6 +98,8 @@ func TestAWatchDeleteLogsTheEventItRemoved(t *testing.T) {
 // The log follows the delete's own predicate, so a delete that takes no row logs nothing —
 // a phantom entry would have a reader drop a row it still holds.
 func TestADeleteOfAnAbsentRowLogsNothing(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 
@@ -105,6 +111,8 @@ func TestADeleteOfAnAbsentRowLogsNothing(t *testing.T) {
 // The relist prune takes every row the LIST did not carry, and each one is a delete a
 // reader has to hear about.
 func TestARelistPruneLogsEveryRowItTook(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	first := beginReplace(t, s, podKind)
@@ -129,6 +137,8 @@ func TestARelistPruneLogsEveryRowItTook(t *testing.T) {
 // The events prune is unscoped — the table is the events collection's outright — so it
 // logs under the same fixed key every other event delete does.
 func TestAnEventsPruneLogsEveryRowItTook(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	first := beginReplace(t, s, eventsKind)
@@ -149,6 +159,8 @@ func TestAnEventsPruneLogsEveryRowItTook(t *testing.T) {
 // A kind that has stopped being synced loses every row at once, and a watch still holding
 // them has to hear about each one.
 func TestClearingAKindLogsEveryRowItEvicted(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, pod("uid-1", "api-0", "42")))
@@ -163,6 +175,8 @@ func TestClearingAKindLogsEveryRowItEvicted(t *testing.T) {
 }
 
 func TestClearingTheEventsKindLogsEveryEvent(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, eventsKind, watch.Added, firing("ev-1", "10", 1)))
@@ -178,6 +192,8 @@ func TestClearingTheEventsKindLogsEveryEvent(t *testing.T) {
 // Clear logs a delete per row and the restarted sync lists the same objects back above it.
 // A reader that applies deletes before writes lands on the live row.
 func TestAClearedKindRelistedLeavesTheRowAboveItsDelete(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, pod("uid-1", "api-0", "42")))
@@ -194,6 +210,8 @@ func TestAClearedKindRelistedLeavesTheRowAboveItsDelete(t *testing.T) {
 // moved out of one has to leave an entry behind under the kind it left — it is gone from
 // that kind as surely as a deleted row is, and nothing else would say so.
 func TestAnObjectThatChangesKindLogsADeleteUnderTheKindItLeft(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	renamed := Kind{APIVersion: "v1beta1", Kind: "Pod", Resource: "pods"}
@@ -211,6 +229,8 @@ func TestAnObjectThatChangesKindLogsADeleteUnderTheKindItLeft(t *testing.T) {
 // so answering 0 would tell a reader every cursor it holds is still valid — the missed
 // delete the whole log exists to prevent. An error sends it down its own recovery path.
 func TestAnUnreadableTrimMarkIsAnError(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	st := openFileOf(t, s).set.Stmts()
@@ -225,6 +245,8 @@ func TestAnUnreadableTrimMarkIsAnError(t *testing.T) {
 // reported: the janitor logs it and the next sweep retries, where a silent failure would
 // leave the log growing and the marks describing a trim that never happened.
 func TestTrimDeletesReportsWhatItCouldNotDo(t *testing.T) {
+	t.Parallel()
+
 	t.Run("the transaction it could not open", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()

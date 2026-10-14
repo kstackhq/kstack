@@ -60,6 +60,8 @@ func listRequest(query string) *http.Request {
 // A kind sync holds its start slot until the watch is open, so one hung cold list costs a
 // permanent fraction of the fleet's start capacity and the kinds behind it never list a row.
 func TestIdleTimeoutCancelsAStalledBody(t *testing.T) {
+	t.Parallel()
+
 	base, _ := servingStall()
 	rt := newIdleTimeoutWrapper(30 * time.Millisecond)(base)
 
@@ -76,6 +78,8 @@ func TestIdleTimeoutCancelsAStalledBody(t *testing.T) {
 // A server that hangs before sending headers stalls just as hard, so the watchdog is armed
 // before the request is dialed rather than around the body alone.
 func TestIdleTimeoutCancelsAStallBeforeHeaders(t *testing.T) {
+	t.Parallel()
+
 	base := roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		<-req.Context().Done()
 		return nil, req.Context().Err()
@@ -132,6 +136,8 @@ func (b *chunkedBody) Close() error { return nil }
 // test is a sequence — a read between every two ticks, however long the machine takes —
 // rather than a race against a real timer.
 func TestIdleTimeoutLetsASlowButStreamingBodyFinish(t *testing.T) {
+	t.Parallel()
+
 	body := &chunkedBody{chunks: 8}
 	rt, timer := tickedByHand(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		body.ctx = req.Context()
@@ -161,6 +167,8 @@ func TestIdleTimeoutLetsASlowButStreamingBodyFinish(t *testing.T) {
 // The same watchdog, with the reads stopped: two ticks with nothing between them are the
 // stall, and the body reports it as the watchdog's own error.
 func TestIdleTimeoutCancelsABodyThatStoppedProgressing(t *testing.T) {
+	t.Parallel()
+
 	body := &chunkedBody{chunks: 8}
 	rt, timer := tickedByHand(roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		body.ctx = req.Context()
@@ -183,6 +191,8 @@ func TestIdleTimeoutCancelsABodyThatStoppedProgressing(t *testing.T) {
 // kill it. It is left with no watchdog at all rather than a longer one — RetryWatcher and
 // HTTP/2 keepalive are what govern a watch.
 func TestIdleTimeoutExemptsAWatch(t *testing.T) {
+	t.Parallel()
+
 	base, _ := servingStall()
 	rt := newIdleTimeoutWrapper(10 * time.Millisecond)(base)
 
@@ -195,6 +205,8 @@ func TestIdleTimeoutExemptsAWatch(t *testing.T) {
 
 // A follow is a stream like a watch: a quiet `logs -f` would otherwise be cut.
 func TestAFollowOutlivesTheIdleWindow(t *testing.T) {
+	t.Parallel()
+
 	base, _ := servingStall()
 	rt := newIdleTimeoutWrapper(10 * time.Millisecond)(base)
 
@@ -210,6 +222,8 @@ func TestAFollowOutlivesTheIdleWindow(t *testing.T) {
 // is otherwise right — the run's own context is untouched, so it reads as SyncFailed — so
 // only the message needs supplying.
 func TestIdleTimeoutSaysTheServerStoppedSending(t *testing.T) {
+	t.Parallel()
+
 	base, _ := servingStall()
 	rt := newIdleTimeoutWrapper(30 * time.Millisecond)(base)
 
@@ -225,6 +239,8 @@ func TestIdleTimeoutSaysTheServerStoppedSending(t *testing.T) {
 // A request cancelled by its CALLER reports what the caller did, not a stall the server
 // never had — the sentinel names the watchdog's own cancel and nothing else.
 func TestIdleTimeoutLeavesACallersCancelAlone(t *testing.T) {
+	t.Parallel()
+
 	base, _ := servingStall()
 	rt := newIdleTimeoutWrapper(time.Minute)(base)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -245,6 +261,8 @@ func TestIdleTimeoutLeavesACallersCancelAlone(t *testing.T) {
 // tuning. Asserted through the config's wrapper, since the production window is far longer
 // than a test should wait out.
 func TestNewConnectionBoundsItsNonWatchReads(t *testing.T) {
+	t.Parallel()
+
 	conn, err := NewConnection(&rest.Config{Host: "https://k8s.example"})
 	require.NoError(t, err)
 

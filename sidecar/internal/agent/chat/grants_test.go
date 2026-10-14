@@ -42,6 +42,8 @@ func seedGrant(t *testing.T, db *appdb.DB, chatID ChatID, rule string) {
 }
 
 func TestAChatsGrantsGoWithTheChat(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	other := seedChat(t, s.db, aChat("1", time.Now()))
@@ -66,6 +68,8 @@ func TestAChatsGrantsGoWithTheChat(t *testing.T) {
 // A key Rule does not name may be a narrowing field misspelled, so the row
 // refuses rather than reads as a wider grant.
 func TestAGrantWithAnUnknownKeyRefuses(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	seedGrant(t, s.db, c.ID, `{"id":"a","effect":"allow","class":4,"namepsace":"team-a"}`)
@@ -74,6 +78,8 @@ func TestAGrantWithAnUnknownKeyRefuses(t *testing.T) {
 }
 
 func TestTheSessionCarriesTheContextsMode(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	sess := s.sessionFor(c.ID, false, false)
@@ -98,6 +104,8 @@ func TestTheSessionCarriesTheContextsMode(t *testing.T) {
 // A read of the grants that fails may have hidden a Deny, so it refuses the
 // chat's cluster writes, and a grant that cannot read them is not written.
 func TestAGrantsReadThatFailsRefuses(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
@@ -112,6 +120,8 @@ func TestAGrantsReadThatFailsRefuses(t *testing.T) {
 
 // A grant's write or removal that fails reaches the caller.
 func TestAGrantsWriteThatFailsRefuses(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	rule := permissions.Rule{Effect: permissions.Allow, Class: permissions.UpstreamWrite, Context: "dev"}
@@ -134,6 +144,8 @@ func TestAGrantsWriteThatFailsRefuses(t *testing.T) {
 // A chat's rules are written, listed, changed in place and removed by id, and
 // the command's next decision reads each change.
 func TestAChatsGrantsAreListedAndRemoved(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	ctx := t.Context()
 	c := seedChat(t, s.db, aChat("1", time.Now()))
@@ -181,6 +193,8 @@ func TestAChatsGrantsAreListedAndRemoved(t *testing.T) {
 // mid-turn reaches the next command; a read that fails, or a chat that is gone,
 // gives no network.
 func TestTheSwitchIsReadLive(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
 	c := seedChat(t, s.db, aChat("1", time.Now()))
@@ -213,6 +227,8 @@ func folderRule(path string, write bool) permissions.Rule {
 }
 
 func TestFoldersForNoChatIsTheAlwaysOnes(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
@@ -230,6 +246,8 @@ func TestFoldersForNoChatIsTheAlwaysOnes(t *testing.T) {
 }
 
 func TestNoFolderAppliesWithoutASandbox(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
@@ -248,6 +266,8 @@ func TestNoFolderAppliesWithoutASandbox(t *testing.T) {
 }
 
 func TestFoldersForAnswersNoneWithNoSnapshot(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	s.sandboxStatus = sandbox.Status{Available: true}
 	dir := testutil.GrantableDir(t)
@@ -258,6 +278,8 @@ func TestFoldersForAnswersNoneWithNoSnapshot(t *testing.T) {
 }
 
 func TestAChatsFoldersJoinTheAlwaysOnes(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
@@ -297,6 +319,8 @@ func TestAChatsFoldersJoinTheAlwaysOnes(t *testing.T) {
 }
 
 func TestAGrantInTheSamePlaceChangesItsMode(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
@@ -322,6 +346,8 @@ func TestAGrantInTheSamePlaceChangesItsMode(t *testing.T) {
 }
 
 func TestAGrantIsCheckedWhenWritten(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
@@ -350,6 +376,8 @@ func TestAGrantIsCheckedWhenWritten(t *testing.T) {
 }
 
 func TestAGrantGoesWithTheChat(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
@@ -370,6 +398,8 @@ func TestAGrantGoesWithTheChat(t *testing.T) {
 // reaches a run; Settings lists each as refused for that reason rather than as
 // a folder commands can read, and none can be revoked until the hold ends.
 func TestAHeldRulesFieldRefusesEveryAlwaysGrant(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	home := grantableWith(t, s, `{"permissions": {"rules": [{"id": "r", "effect": "allow", "class": 1, "folder": "<home>/code"},
 		{"id": "b", "effect": "deny", "class": 9}]}}`)
@@ -388,6 +418,8 @@ func TestAHeldRulesFieldRefusesEveryAlwaysGrant(t *testing.T) {
 // and the write are one transaction for a chat's, one update for an always
 // one.
 func TestConcurrentGrantsOfOneFolderLeaveOneRule(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
@@ -407,6 +439,8 @@ func TestConcurrentGrantsOfOneFolderLeaveOneRule(t *testing.T) {
 // A chat's session asks and reads Secret data under its rules, and so does a
 // subagent's under it: only a monitor's session is built with either flag.
 func TestAChatsSessionAsksAndReadsSecretData(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	for _, sess := range []session.Session{s.sessionFor(c.ID, false, false), session.Narrow(s.sessionFor(c.ID, false, false))} {
@@ -420,6 +454,8 @@ func TestAChatsSessionAsksAndReadsSecretData(t *testing.T) {
 // data. Under the policy the proxy builds from it, every write, every Secret
 // read and every action a rule would ask about is refused.
 func TestTheMonitorSessionIsReadOnlyAndAsksNobody(t *testing.T) {
+	t.Parallel()
+
 	sess := monitorSession()
 
 	assert.Equal(t, session.Monitor, sess.Kind)

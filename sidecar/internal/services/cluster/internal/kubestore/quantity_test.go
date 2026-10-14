@@ -24,6 +24,8 @@ import (
 )
 
 func TestParseQuantityReadsAKubernetesQuantity(t *testing.T) {
+	t.Parallel()
+
 	for in, want := range map[string]float64{
 		"250m": 0.25,
 		"2":    2,
@@ -45,6 +47,8 @@ func TestParseQuantityReadsAKubernetesQuantity(t *testing.T) {
 // billion digits long. The bounds refuse such text before the parse, so each answer is
 // immediate.
 func TestParseQuantityRefusesWhatItCannotAfford(t *testing.T) {
+	t.Parallel()
+
 	for _, in := range []string{strings.Repeat("9", 64), "1e-1000"} {
 		_, ok := parseQuantity(in)
 		assert.True(t, ok, in)

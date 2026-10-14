@@ -37,6 +37,8 @@ func (stampTool) Run(_ context.Context, rt tools.Runtime, _ json.RawMessage) (st
 // A turn's tools stamp the files of their own chat; another chat never sees the
 // stamp, and it goes when its chat is deleted.
 func TestAChatsStampsGoWithIt(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, stampTool{testTool: testTool{name: "stamp"}})
 	fakeOf(s).SetToolCalls(llm.StagedCall("stamp", `{}`))
 	a := send(t, s, nil, "1", "hi")

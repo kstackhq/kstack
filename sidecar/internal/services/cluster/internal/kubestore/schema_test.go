@@ -38,6 +38,8 @@ func storesRowid(t *testing.T, s *Store, table string) bool {
 // The four all-key tables store their key once, in the table's own b-tree, rather than
 // under a rowid with a second copy in an autoindex.
 func TestTheAllKeyTablesHaveNoRowid(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	for _, table := range []string{"cluster_meta", "owner_refs", "labels", "kind_counts", "refs",
@@ -50,6 +52,8 @@ func TestTheAllKeyTablesHaveNoRowid(t *testing.T) {
 // table with no key at all. The schema states which beside each; this is what would notice
 // one of them being swept into the change.
 func TestTheWideAndKeylessTablesKeepTheirRowid(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	for _, table := range []string{"objects", "events", "status_history", "kind_catalog", "containers"} {
@@ -60,6 +64,8 @@ func TestTheWideAndKeylessTablesKeepTheirRowid(t *testing.T) {
 // kind_counts is reached only through triggers, so no other test's failure would name it:
 // a form that broke them leaves the nav's per-kind badge frozen while every write succeeds.
 func TestTheKindCounterMovesInBothDirections(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	counted := func() int {
@@ -98,6 +104,8 @@ func queryPlan(t *testing.T, s *Store, query string) string {
 // The index carries that tiebreak IN THE SAME DIRECTION: an ascending one leaves the last
 // term to a temp b-tree, which is a full sort of the table on every snapshot.
 func TestTheEventsOrderIsServedByItsIndex(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	plan := queryPlan(t, s, statements[stmtSelectEvents].Text)

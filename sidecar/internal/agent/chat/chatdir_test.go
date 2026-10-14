@@ -35,6 +35,8 @@ import (
 // A chat's directory is made only when a caller asks for it, and answers at the
 // path its results name.
 func TestAChatsDirectoryIsMadeOnlyWhenAsked(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	s := startService(t, dir)
 	d := s.chatDir("c1")
@@ -58,6 +60,8 @@ func TestAChatsDirectoryIsMadeOnlyWhenAsked(t *testing.T) {
 
 // A chat's entry that is not a directory is refused, not replaced.
 func TestOpenResultsRefusesAFile(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	d := s.chatDir("c1")
 	require.NoError(t, os.MkdirAll(filepath.Dir(d.Path()), 0o700))
@@ -79,6 +83,8 @@ func (whereTool) Run(_ context.Context, rt tools.Runtime, _ json.RawMessage) (st
 // A turn hands its tools the directory of the chat it runs in, under the
 // chats' directory whatever the chat's cluster.
 func TestAChatsDirectoryIsUnderTheChatsDirectory(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	box, lists := testBox(whereTool{testTool{name: "where"}})
 	s := startServiceWith(t, dir, fakeLLM(), &stubClusterCards{}, box, lists)
@@ -105,6 +111,8 @@ func makeChatDir(t *testing.T, s *service, id ChatID) string {
 
 // A chat's directory goes with it, and so do the directories of a cluster's chats.
 func TestDeletingAChatRemovesItsResults(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	msg := send(t, s, nil, "1", "hi")
 	awaitSettled(t, s, msg.ChatID, msg.ID)
@@ -126,6 +134,8 @@ func TestDeletingAChatRemovesItsResults(t *testing.T) {
 
 // A delete removes the chat's directory, and another chat's is left alone.
 func TestDeleteRemovesTheChatsDirectoryAlone(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	s := startService(t, dir)
 	c := seedChat(t, s.db, aChat("7", time.Now()))
@@ -142,6 +152,8 @@ func TestDeleteRemovesTheChatsDirectoryAlone(t *testing.T) {
 // A chat that never made its directory is deleted without a word: a directory
 // already gone is a removal done, not a failure.
 func TestDeletingAChatWithNoDirectoryLogsNothing(t *testing.T) {
+	// CaptureLogs swaps the process's default logger, so this test stays serial.
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("7", time.Now()))
 	logs := testutil.CaptureLogs(t)
@@ -153,6 +165,8 @@ func TestDeletingAChatWithNoDirectoryLogsNothing(t *testing.T) {
 
 // A delete whose write failed leaves the chat's directory with its rows.
 func TestAFailedDeleteKeepsTheResults(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	path := makeChatDir(t, s, c.ID)
@@ -165,6 +179,8 @@ func TestAFailedDeleteKeepsTheResults(t *testing.T) {
 // A delete takes a chat id, never a path: one reaching into a chat's directory
 // is refused and removes nothing.
 func TestADeleteOfAPathIsRefused(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	path := makeChatDir(t, s, c.ID)

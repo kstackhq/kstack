@@ -25,6 +25,8 @@ import (
 // The counter is the file's, so it needs no initialization at open and nothing between
 // goroutines: it starts at 0 with the schema and every taker gets the next number.
 func TestNextSeqHandsOutRisingPositions(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	st := openFileOf(t, newTestStore(t)).set.Stmts()
 
@@ -41,6 +43,8 @@ func TestNextSeqHandsOutRisingPositions(t *testing.T) {
 // The head is the counter itself, not the highest stamp in any table: a reader asks for
 // positions above its cursor, and nothing is ever stamped above the number last handed out.
 func TestHeadIsTheLastPositionHandedOut(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	st := openFileOf(t, newTestStore(t)).set.Stmts()
 
@@ -59,6 +63,8 @@ func TestHeadIsTheLastPositionHandedOut(t *testing.T) {
 // 0 would say nothing has ever been written, leaving a reader asking for nothing and
 // serving a stale table for as long as it holds the cache open.
 func TestAMissingCounterIsAnError(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	st := openFileOf(t, newTestStore(t)).set.Stmts()
 	_, err := st.Exec(ctx, stmtDeleteMeta, seqKey)
@@ -72,6 +78,8 @@ func TestAMissingCounterIsAnError(t *testing.T) {
 // The counter is what every write stamps from, so a file that cannot hand out a position
 // fails the write rather than stamping it with a zero every later cursor sits above.
 func TestNextSeqReportsACounterItCannotTake(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	dropTable(t, s, "cluster_meta")
 
@@ -81,6 +89,8 @@ func TestNextSeqReportsACounterItCannotTake(t *testing.T) {
 }
 
 func TestHeadReportsACounterItCannotRead(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	dropTable(t, s, "cluster_meta")
 

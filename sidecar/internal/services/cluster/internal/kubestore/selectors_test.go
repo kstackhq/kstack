@@ -28,6 +28,8 @@ import (
 var appWeb = map[string]any{"matchLabels": map[string]any{"app": "web"}}
 
 func TestSelectorOfReadsEachSelectingKind(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name       string
 		apiVersion string
@@ -62,6 +64,8 @@ func TestSelectorOfReadsEachSelectingKind(t *testing.T) {
 }
 
 func TestSelectorTermsReadEachForm(t *testing.T) {
+	t.Parallel()
+
 	expr := func(key, op string, vals ...string) map[string]any {
 		values := []any{}
 		for _, v := range vals {
@@ -149,6 +153,8 @@ func selectorTerms(t *testing.T, s *Store, uid string) []string {
 }
 
 func TestSelectorsFollowTheirObject(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, serviceKind, watch.Added, service("svc", "1", map[string]any{"app": "web", "tier": "front"})))

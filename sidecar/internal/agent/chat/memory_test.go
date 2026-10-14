@@ -64,6 +64,8 @@ func startServiceWithMemories(t *testing.T, cards ClusterCards, memories *stubMe
 // The index rides the context block beside the card, so a change to either is
 // resent the same way, and a question with nothing changed carries no block.
 func TestAMemoryChangeResendsTheContext(t *testing.T) {
+	t.Parallel()
+
 	memories := &stubMemories{section: `{"today":"2026-09-23","memories":[]}`}
 	s := startServiceWithMemories(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"}, memories)
 
@@ -83,6 +85,8 @@ func TestAMemoryChangeResendsTheContext(t *testing.T) {
 }
 
 func TestAnUnreadableMemoryStillSends(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithMemories(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"}, &stubMemories{section: `{"unavailable":true}`})
 
 	msg := sendAndSettle(t, s, nil, "1", "1", "one")
@@ -93,6 +97,8 @@ func TestAnUnreadableMemoryStillSends(t *testing.T) {
 // An index that is not one JSON value is sent as unavailable rather than failing
 // the send or forging the block.
 func TestAMalformedIndexIsSentAsUnavailable(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithMemories(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"}, &stubMemories{section: `{"a":1} {}`})
 
 	msg := sendAndSettle(t, s, nil, "1", "1", "one")

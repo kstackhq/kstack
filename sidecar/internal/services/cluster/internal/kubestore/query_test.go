@@ -98,6 +98,8 @@ func query(t *testing.T, s *Store, sql string) QueryResult {
 
 // The views are the contract the prompt states, column for column.
 func TestEveryViewReads(t *testing.T) {
+	t.Parallel()
+
 	s := populated(t)
 	for view, columns := range map[string][]string{
 		"objects": {"uid", "api_version", "api_group", "version", "kind", "resource", "namespace", "name",
@@ -124,6 +126,8 @@ func TestEveryViewReads(t *testing.T) {
 }
 
 func TestTheViewsReadTheTables(t *testing.T) {
+	t.Parallel()
+
 	s := populated(t)
 
 	pod := query(t, s, `SELECT api_group, version, resource, owner_uid, labels ->> '$."app.kubernetes.io/name"',
@@ -150,6 +154,8 @@ func TestTheViewsReadTheTables(t *testing.T) {
 // quantity() is a statement's own call, so its bounds are what keep it cheap: 16 MB of
 // digits built in the statement, or an exponent past the bound, answers NULL at once.
 func TestQuantityOnAQueryConnection(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	res := query(t, s, `SELECT quantity('250m'), quantity(3), quantity(1.5), quantity(NULL), quantity('junk'),
@@ -216,6 +222,8 @@ func scheduledPod(uid, node, phase string, inits, containers [][2]string, spec m
 }
 
 func TestTheContainersViewAnswersRequestsPerNode(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	nodeKind := Kind{APIVersion: "v1", Kind: "Node", Resource: "nodes"}
@@ -264,6 +272,8 @@ const ten = `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHER
 	SELECT i, printf('%010d', i) AS text FROM n`
 
 func TestAQueryStopsAtItsRowLimit(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	cut, err := s.Query(context.Background(), ten, 3, 1<<20)
@@ -279,6 +289,8 @@ func TestAQueryStopsAtItsRowLimit(t *testing.T) {
 
 // The byte limit counts text and blob cells; a row that would pass it is left out whole.
 func TestAQueryStopsAtItsByteLimit(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	res, err := s.Query(context.Background(), ten, 100, 25)
@@ -289,6 +301,8 @@ func TestAQueryStopsAtItsByteLimit(t *testing.T) {
 }
 
 func TestAStatementErrorIsAQueryError(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	_, err := s.Query(context.Background(), `SELECT nope FROM objects`, 10, 1<<20)
@@ -319,6 +333,8 @@ func queryError(t *testing.T, s *Store, sql string) *QueryError {
 // connection in the process, and SQLite applies them while preparing, so the process's
 // settings must be unchanged after each is refused.
 func TestOnlyAQueryRuns(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	dir := t.TempDir()
 	writer := db(t, s)
@@ -357,6 +373,8 @@ func TestOnlyAQueryRuns(t *testing.T) {
 }
 
 func TestATrailingSemicolonRuns(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	for _, sql := range []string{`SELECT 1;`, "SELECT 1 ;  \n"} {
 		assert.Equal(t, [][]any{{int64(1)}}, query(t, s, sql).Rows, sql)
@@ -366,6 +384,8 @@ func TestATrailingSemicolonRuns(t *testing.T) {
 // A trailing unclosed /* would hide the wrap's tail and let the rest of the text run
 // outside it; the statement prepared alone refuses the stray ")".
 func TestACommentCannotEscapeTheWrap(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	qe := queryError(t, s, `SELECT 1) LIMIT 1), r AS (`+slowPastTheFirstRow+`) SELECT * FROM r /*`)
@@ -374,11 +394,15 @@ func TestACommentCannotEscapeTheWrap(t *testing.T) {
 }
 
 func TestATrailingLineCommentRuns(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	assert.Equal(t, [][]any{{int64(1)}}, query(t, s, `SELECT 1 -- done`).Rows)
 }
 
 func TestAQueryKeepsItsOrder(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	res := query(t, s, `SELECT i FROM (`+ten+`) ORDER BY i DESC`)
 	assert.Equal(t, []any{int64(10)}, res.Rows[0])
@@ -386,12 +410,16 @@ func TestAQueryKeepsItsOrder(t *testing.T) {
 }
 
 func TestARepeatedColumnNameIsNumbered(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	assert.Equal(t, []string{"a", "a:1"}, query(t, s, `SELECT 1 AS a, 2 AS a`).Columns)
 }
 
 // An error while the statement runs is SQLite's own: the statement was a query.
 func TestARunTimeErrorIsSQLitesOwn(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	qe := queryError(t, s, `SELECT json('{')`)
@@ -403,6 +431,8 @@ func TestARunTimeErrorIsSQLitesOwn(t *testing.T) {
 // modernc interrupts only the step that fetches the first row, so a statement slow past it
 // ends at its deadline only because the wrap runs all of it in that step.
 func TestADeadlinePastTheFirstRowInterruptsTheQuery(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -416,6 +446,8 @@ func TestADeadlinePastTheFirstRowInterruptsTheQuery(t *testing.T) {
 
 // A query waits for one of the pool's connections only as long as its context allows.
 func TestAQueryEndsWithItsContextBeforeItHasAConnection(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -437,6 +469,8 @@ func queryConnOf(t *testing.T, s *Store) *sql.Conn {
 }
 
 func TestAQueryConnectionCannotWrite(t *testing.T) {
+	t.Parallel()
+
 	s := populated(t)
 	conn := queryConnOf(t, s)
 
@@ -449,6 +483,8 @@ func TestAQueryConnectionCannotWrite(t *testing.T) {
 // ATTACH and VACUUM INTO both open another file, which the attached-database limit
 // refuses: a read-only connection can still attach a file that exists and write a copy.
 func TestAQueryConnectionCannotAttach(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	dir := t.TempDir()
 	other, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "other.db"))
@@ -470,6 +506,8 @@ func TestAQueryConnectionCannotAttach(t *testing.T) {
 // objects.resource is a column of the view alone, so a reused connection, on which
 // objects then names the table, would fail it.
 func TestAQueryConnectionLeavesNothingForTheNext(t *testing.T) {
+	t.Parallel()
+
 	s := populated(t)
 	conn := queryConnOf(t, s)
 	_, err := conn.ExecContext(context.Background(), `DROP VIEW objects`)
@@ -486,6 +524,8 @@ func TestAQueryConnectionLeavesNothingForTheNext(t *testing.T) {
 }
 
 func TestAValuePastTheLengthLimitFails(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	qe := queryError(t, s, `SELECT length(zeroblob(17 * 1024 * 1024))`)
@@ -513,6 +553,8 @@ func runQuery(s *Store, sql string) <-chan queryResult {
 // A clear cancels the file's queries rather than waiting them out: this one runs for
 // minutes and has no deadline of its own.
 func TestAClearInterruptsARunningQuery(t *testing.T) {
+	t.Parallel()
+
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
 	s, err := m.OpenOrCreate(1)
@@ -533,6 +575,8 @@ func TestAClearInterruptsARunningQuery(t *testing.T) {
 // A close waits for its queries' connections before the file goes, which Windows needs to
 // delete it.
 func TestACloseWaitsForItsQueries(t *testing.T) {
+	t.Parallel()
+
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
 	s, err := m.OpenOrCreate(1)
@@ -561,6 +605,8 @@ func TestACloseWaitsForItsQueries(t *testing.T) {
 }
 
 func TestAQueryAfterACloseIsClosed(t *testing.T) {
+	t.Parallel()
+
 	_, err := closedStore(t).Query(context.Background(), `SELECT 1`, 10, 1<<20)
 	require.ErrorIs(t, err, ErrClosed)
 }
@@ -568,12 +614,16 @@ func TestAQueryAfterACloseIsClosed(t *testing.T) {
 // body() is JSON text for a stored body and NULL for anything else, as a watch serves a body
 // that will not load.
 func TestBodyIsNullForWhatIsNotABody(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	res := query(t, s, `SELECT body(NULL), body(x'00'), body('text')`)
 	assert.Equal(t, [][]any{{nil, nil, nil}}, res.Rows)
 }
 
 func TestTheByteLimitCountsBlobs(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	res, err := s.Query(context.Background(), `SELECT zeroblob(10) UNION ALL SELECT zeroblob(10)`, 10, 15)
@@ -584,6 +634,8 @@ func TestTheByteLimitCountsBlobs(t *testing.T) {
 }
 
 func TestACancelledQueryAnswersItsContext(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -596,6 +648,8 @@ func TestACancelledQueryAnswersItsContext(t *testing.T) {
 // A small blob can inflate to far more than a query may build, so body() stops at the
 // length limit rather than decompressing it all first.
 func TestBodyStopsAtTheLengthLimit(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	bomb, err := compressRaw(make([]byte, 2*queryMaxLength))
 	require.NoError(t, err)
@@ -623,6 +677,8 @@ func selecting(k Kind, uid, ns string, spec map[string]any) *unstructured.Unstru
 }
 
 func TestTheSelectsViewMatchesPods(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	networkPolicyKind := Kind{APIVersion: "networking.k8s.io/v1", Kind: "NetworkPolicy", Resource: "networkpolicies"}
@@ -689,6 +745,8 @@ func TestTheSelectsViewMatchesPods(t *testing.T) {
 }
 
 func TestTheRefsViewResolvesTargets(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	configMapKind := Kind{APIVersion: "v1", Kind: "ConfigMap", Resource: "configmaps"}
@@ -743,6 +801,8 @@ func TestTheRefsViewResolvesTargets(t *testing.T) {
 
 // to_listed is 1 only while the target's kind has a completed list on disk.
 func TestTheRefsViewSaysWhenItCannotTell(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	secretKind := Kind{APIVersion: "v1", Kind: "Secret", Resource: "secrets"}
@@ -891,6 +951,8 @@ func BenchmarkRefs(b *testing.B) {
 // known. With no statistics the planner prefers objects_ns_kind, which walks every object of
 // the namespace for each reference: twenty times slower over the benchmark's cache.
 func TestTheRefsViewFindsATargetByItsIndex(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	rows, err := queryConnOf(t, s).QueryContext(context.Background(),
 		`EXPLAIN QUERY PLAN SELECT count(*) FROM refs WHERE to_uid IS NULL`)

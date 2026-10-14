@@ -158,6 +158,8 @@ func countRows(t *testing.T, s *Store, q string, args ...any) int {
 // The last release closes the file under the manager's lock, so a Clear or Remove never
 // finds the entry gone while its file is still open — Windows refuses to unlink one.
 func TestTheLastReleaseClosesTheFileUnderTheLock(t *testing.T) {
+	t.Parallel()
+
 	var m *Manager
 	underLock := make(chan bool, 1)
 	m = newManagerWithOptions(t.TempDir(), withCloseFile(func(f *file) error {
@@ -180,6 +182,8 @@ func TestTheLastReleaseClosesTheFileUnderTheLock(t *testing.T) {
 // A remove waits for an operation on the file to end before it deletes it: sql.DB.Close
 // leaves a connection in use open, and Windows refuses to delete a file one holds.
 func TestARemoveWaitsForAnOperationInFlight(t *testing.T) {
+	t.Parallel()
+
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
 	s, err := m.OpenOrCreate(1)
@@ -203,6 +207,8 @@ func TestARemoveWaitsForAnOperationInFlight(t *testing.T) {
 // A replace session holds its file across pages, so one outliving a clear answers ErrClosed
 // rather than writing into a file the clear closed.
 func TestAReplaceSessionAfterAClearIsClosed(t *testing.T) {
+	t.Parallel()
+
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
 	s, err := m.OpenOrCreate(1)
@@ -220,6 +226,8 @@ func TestAReplaceSessionAfterAClearIsClosed(t *testing.T) {
 }
 
 func TestApplyChangeWritesTheObjectAndAdvancesTheCookie(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 
@@ -239,6 +247,8 @@ func TestApplyChangeWritesTheObjectAndAdvancesTheCookie(t *testing.T) {
 // advances over it all the same: the server replays from that position, so a run that failed
 // here would be handed the same body every time it resumed.
 func TestApplyChangeSkipsAnUnprojectableBodyAndMovesPast(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 
@@ -255,6 +265,8 @@ func TestApplyChangeSkipsAnUnprojectableBodyAndMovesPast(t *testing.T) {
 // The stored body is the sanitized one, and it round-trips through the codec — which is
 // what lets a read serve raw_json verbatim.
 func TestApplyChangeStoresTheBodyCompressed(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 
@@ -269,6 +281,8 @@ func TestApplyChangeStoresTheBodyCompressed(t *testing.T) {
 }
 
 func TestApplyChangeDeletedRemovesTheRowAndItsEdges(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, pod("uid-1", "api-0", "42")))
@@ -285,6 +299,8 @@ func TestApplyChangeDeletedRemovesTheRowAndItsEdges(t *testing.T) {
 // The Event kind is written to its own table: routing it to objects would leave the
 // events watch, its FTS index, and the event count with nothing.
 func TestApplyChangeRoutesCoreEventsToTheEventsTable(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 
@@ -298,6 +314,8 @@ func TestApplyChangeRoutesCoreEventsToTheEventsTable(t *testing.T) {
 // A relist reconciles by mark and sweep: what the pass rewrote survives, what it did not
 // is gone — which is where an object deleted while we were disconnected finally leaves.
 func TestReplacePrunesWhatTheListDidNotCarry(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, pod("gone", "old", "1")))
@@ -318,6 +336,8 @@ func TestReplacePrunesWhatTheListDidNotCarry(t *testing.T) {
 
 // A relist prunes only its own kind: every other kind's rows belong to another worker.
 func TestReplacePrunesOnlyItsOwnKind(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	deployments := Kind{APIVersion: "apps/v1", Kind: "Deployment", Resource: "deployments"}
@@ -339,6 +359,8 @@ func TestReplacePrunesOnlyItsOwnKind(t *testing.T) {
 // half a collection, and resuming a watch from that position would never reconcile
 // them. Only Commit writes one back.
 func TestReplaceClearsTheCookieOnItsFirstPage(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SetCookie(ctx, "v1", "pods", "old"))
@@ -354,6 +376,8 @@ func TestReplaceClearsTheCookieOnItsFirstPage(t *testing.T) {
 // A body that will not project is skipped rather than failing the page: one malformed
 // object must not stop a collection from syncing.
 func TestReplaceSkipsAnUnprojectableBody(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 
@@ -368,6 +392,8 @@ func TestReplaceSkipsAnUnprojectableBody(t *testing.T) {
 }
 
 func TestReplaceLandsEventsInTheEventsTable(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, eventsKind, watch.Added, event("gone", "2026-08-01T00:00:00Z")))
@@ -385,6 +411,8 @@ func TestReplaceLandsEventsInTheEventsTable(t *testing.T) {
 // The ping is what a read re-reads on. It is keyed per kind so an unrelated kind's
 // write costs a kind watch nothing.
 func TestAnObjectWriteNotifiesItsOwnKey(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	sub := subscribe(t, s)
@@ -398,6 +426,8 @@ func TestAnObjectWriteNotifiesItsOwnKey(t *testing.T) {
 // Events have their own bus key, so an event-storm cluster does not wake every object
 // watch in the cache.
 func TestAnEventWriteNotifiesTheEventsKey(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	sub := subscribe(t, s)
@@ -411,6 +441,8 @@ func TestAnEventWriteNotifiesTheEventsKey(t *testing.T) {
 // Aging out is not a write, so nothing would emit the Deleted a client needs for free.
 // The pruner is what keeps the window a window — and it pings, so the read sees it.
 func TestRollupCountsObjectsAndKindsExcludingEvents(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, pod("uid-1", "api-0", "1")))
@@ -426,6 +458,8 @@ func TestRollupCountsObjectsAndKindsExcludingEvents(t *testing.T) {
 
 // A kind emptied by deletes reads 0 rather than counting as a kind the cache holds.
 func TestRollupIgnoresAKindWithNoRowsLeft(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, pod("uid-1", "api-0", "1")))
@@ -440,6 +474,8 @@ func TestRollupIgnoresAKindWithNoRowsLeft(t *testing.T) {
 
 // CountKind is the worker's own tally — the number its observation carries.
 func TestCountKindReadsOneKindsTally(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, pod("uid-1", "api-0", "1")))
@@ -455,6 +491,8 @@ func TestCountKindReadsOneKindsTally(t *testing.T) {
 }
 
 func TestCountKindOfAnUnwrittenKindIsZero(t *testing.T) {
+	t.Parallel()
+
 	n, err := newTestStore(t).CountKind(context.Background(), podKind)
 
 	require.NoError(t, err)
@@ -464,6 +502,8 @@ func TestCountKindOfAnUnwrittenKindIsZero(t *testing.T) {
 // Closing the store ends every subscriber — which is how a Clear or a shutdown reaches
 // a live watch instead of leaving it waiting on a store that is gone.
 func TestClosingTheStoreEndsSubscribers(t *testing.T) {
+	t.Parallel()
+
 	m := NewManager(t.TempDir(), Retention{})
 	store, err := m.OpenOrCreate(1)
 	require.NoError(t, err)
@@ -480,6 +520,8 @@ func TestClosingTheStoreEndsSubscribers(t *testing.T) {
 }
 
 func TestCookieRoundtripIsPerKind(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -504,6 +546,8 @@ func TestCookieRoundtripIsPerKind(t *testing.T) {
 }
 
 func TestStoreClearKindRemovesOnlyThatKindsCookie(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -529,6 +573,8 @@ func TestStoreClearKindRemovesOnlyThatKindsCookie(t *testing.T) {
 }
 
 func TestStoreClearKindOnEmptyStoreSucceeds(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -543,6 +589,8 @@ func TestStoreClearKindOnEmptyStoreSucceeds(t *testing.T) {
 // ClearKind deletes the kind's objects and every row hanging off them — the schema
 // has no cascading foreign keys — and touches no other kind.
 func TestStoreClearKindDeletesObjectsAndTheirDependentRows(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -603,6 +651,8 @@ func TestStoreClearKindDeletesObjectsAndTheirDependentRows(t *testing.T) {
 // Event rows live in their own table, so clearing the Events kind has to empty it —
 // deleting from objects would leave every cached event behind.
 func TestStoreClearKindClearsTheEventsTable(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -632,6 +682,8 @@ func TestStoreClearKindClearsTheEventsTable(t *testing.T) {
 // ownerReference, and nothing would put it back — a re-synced owner kind writes owner
 // rows, not its children's edges.
 func TestStoreClearKindKeepsARetainedChildsEdgeIntoTheClearedKind(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -673,6 +725,8 @@ func TestStoreClearKindKeepsARetainedChildsEdgeIntoTheClearedKind(t *testing.T) 
 // Another group may serve a Kind called "Event"; its rows are ordinary objects, so
 // clearing it must leave the cached core events alone.
 func TestStoreClearKindLeavesEventsAloneForANonCoreEventKind(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -708,6 +762,8 @@ func TestStoreClearKindLeavesEventsAloneForANonCoreEventKind(t *testing.T) {
 // The events table is not keyed by kind, so its clear does not hang off the catalog
 // row: a retry after a partial failure has already dropped that row.
 func TestStoreClearKindClearsEventsWithNoCatalogRow(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -734,6 +790,8 @@ func TestStoreClearKindClearsEventsWithNoCatalogRow(t *testing.T) {
 // a worker is still holding one. Every method answers ErrClosed rather than reaching a
 // closed database, which is what turns a torn-down cache into one failed attempt.
 func TestAStoreWhoseFileIsGoneAnswersErrClosed(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -772,6 +830,8 @@ func TestAStoreWhoseFileIsGoneAnswersErrClosed(t *testing.T) {
 // standing: a pass that then fails would let the next start resume from it, skipping
 // the reconcile the rows still need.
 func TestReplaceClearsTheCookieOnAnEmptyFirstPage(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SetCookie(ctx, "v1", "pods", "old"))
@@ -787,6 +847,8 @@ func TestReplaceClearsTheCookieOnAnEmptyFirstPage(t *testing.T) {
 // A page carrying nothing is not a write: it must not ping the bus, or an empty relist
 // would wake every reader of that kind for no change.
 func TestAnEmptyPageDoesNotNotify(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	sub := subscribe(t, s)
@@ -805,6 +867,8 @@ func TestAnEmptyPageDoesNotNotify(t *testing.T) {
 // sweep owns that table), so a clear that resolved through it would leave every row, edge
 // and count behind for a kind that stopped being synced.
 func TestClearKindDeletesRowsWithNoCatalogRow(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, pod("uid-1", "api-0", "42")))
@@ -825,6 +889,8 @@ func TestClearKindDeletesRowsWithNoCatalogRow(t *testing.T) {
 // being served — a user emptying one kind must not have it vanish from the nav until the
 // next sweep. The row leaves through the sweep's prune alone.
 func TestClearKindKeepsTheCatalogRow(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow}, true, 7))
@@ -840,6 +906,8 @@ func TestClearKindKeepsTheCatalogRow(t *testing.T) {
 // write in the cache re-reads every open watch — which is what the per-kind bus keys exist
 // to prevent. conflate filters at enqueue, so the key belongs on the subscription.
 func TestSubscribeWithAKeyIgnoresOtherKeys(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	sub, err := s.Subscribe(ObjectsKey("v1", "pods"))
@@ -857,6 +925,8 @@ func TestSubscribeWithAKeyIgnoresOtherKeys(t *testing.T) {
 // No keys is the whole feed, which is what the kinds watch needs: object writes move counts
 // and event writes move the hardcoded ('v1','Event') count, and there is one hub.
 func TestSubscribeWithNoKeysTakesEveryKey(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	sub, err := s.Subscribe()
@@ -885,6 +955,8 @@ func podOwnedBy(uid, name, rv, ownerUID string) *unstructured.Unstructured {
 // swept object is a child of something and an owner of something, and its children outlive
 // it, so an inbound edge left behind points at a uid that is gone.
 func TestReplacePruneTakesEverySideTableRowWithIt(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	for _, uid := range []string{"gone-1", "gone-2", "gone-3"} {
@@ -944,6 +1016,8 @@ func breakStorage(t *testing.T, s *Store) {
 // empty. The distinction is load-bearing above: an empty answer is a cluster that serves
 // nothing, and a watch that took one for a broken file would blank a populated table.
 func TestEveryOperationReportsAStorageFault(t *testing.T) {
+	t.Parallel()
+
 	ops := map[string]func(context.Context, *Store) error{
 		"Cookie": func(ctx context.Context, s *Store) error {
 			_, _, err := s.Cookie(ctx, "v1", "pods")
@@ -1045,6 +1119,8 @@ func failWrites(t *testing.T, s *Store, table, op string) {
 // rewritten, and a BEFORE DELETE trigger fires per row: an object with no edges yet would
 // walk straight past the fault.
 func TestAnObjectWriteIsAllOrNothing(t *testing.T) {
+	t.Parallel()
+
 	steps := []struct{ table, op string }{
 		{"status_history", "INSERT"},
 		{"objects", "INSERT"},
@@ -1086,6 +1162,8 @@ func TestAnObjectWriteIsAllOrNothing(t *testing.T) {
 
 // An event write is the same bargain on its own table.
 func TestAnEventWriteIsAllOrNothing(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	failWrites(t, s, "events", "INSERT")
@@ -1098,6 +1176,8 @@ func TestAnEventWriteIsAllOrNothing(t *testing.T) {
 // A delete walks the side tables before the row itself; a failure part-way must not leave
 // the object half-removed, with edges pointing at a uid that is gone.
 func TestADeleteIsAllOrNothing(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	u := podOwnedBy("uid-1", "api-0", "1", "owner-1")
@@ -1115,6 +1195,8 @@ func TestADeleteIsAllOrNothing(t *testing.T) {
 // A core Event is deleted from its own table, not from objects — the two are separate
 // tables, and a delta that removed the wrong one would leave the event cached forever.
 func TestApplyChangeDeletedRemovesACoreEventFromTheEventsTable(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	ev := event("ev-1", "2026-08-01T00:00:00Z")
@@ -1128,6 +1210,8 @@ func TestApplyChangeDeletedRemovesACoreEventFromTheEventsTable(t *testing.T) {
 // A delete names its object by uid alone, so a body carrying none says nothing about what
 // to remove. Reported rather than skipped: the row it meant to take stays behind.
 func TestApplyChangeDeletedRefusesABodyWithNoUID(t *testing.T) {
+	t.Parallel()
+
 	u := pod("", "api-0", "1")
 
 	err := newTestStore(t).ApplyChange(context.Background(), podKind, watch.Deleted, u)
@@ -1137,6 +1221,8 @@ func TestApplyChangeDeletedRefusesABodyWithNoUID(t *testing.T) {
 
 // A nil body would panic on the projection, taking the worker's goroutine with it.
 func TestApplyChangeRefusesAnEmptyBody(t *testing.T) {
+	t.Parallel()
+
 	err := newTestStore(t).ApplyChange(context.Background(), podKind, watch.Added, nil)
 
 	assert.ErrorContains(t, err, "empty object")
@@ -1145,6 +1231,8 @@ func TestApplyChangeRefusesAnEmptyBody(t *testing.T) {
 // Bookmark and Error carry no row. Neither is a failure — the watch loop hands every
 // event through, and only the three that name an object mean a write.
 func TestApplyChangeIgnoresAnEventThatCarriesNoRow(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 
@@ -1156,6 +1244,8 @@ func TestApplyChangeIgnoresAnEventThatCarriesNoRow(t *testing.T) {
 // A relist page is one transaction: a failure part-way leaves the collection as the
 // previous pass left it, so a half-written page is never what a reader sees.
 func TestARelistPageIsAllOrNothing(t *testing.T) {
+	t.Parallel()
+
 	steps := []struct {
 		table, op string
 		kind      Kind
@@ -1190,6 +1280,8 @@ func TestARelistPageIsAllOrNothing(t *testing.T) {
 // cannot be resumed from a position its rows no longer back. Later empty pages have
 // nothing left to do.
 func TestAnEmptyFirstPageClearsTheCookieAndLaterOnesDoNothing(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SetCookie(ctx, podKind.APIVersion, podKind.Resource, "1"))
@@ -1209,6 +1301,8 @@ func TestAnEmptyFirstPageClearsTheCookieAndLaterOnesDoNothing(t *testing.T) {
 // A relist's prune and the position it hands on are one transaction: a prune that fails
 // must not leave the cookie claiming the collection is settled.
 func TestARelistCommitIsAllOrNothing(t *testing.T) {
+	t.Parallel()
+
 	steps := []struct {
 		table, op string
 		kind      Kind
@@ -1247,6 +1341,8 @@ func TestARelistCommitIsAllOrNothing(t *testing.T) {
 // Clearing a kind takes its rows, its tally and its cookie together — a partial clear
 // would leave a tally over rows that are gone, or a cookie resuming a kind with none.
 func TestClearKindIsAllOrNothing(t *testing.T) {
+	t.Parallel()
+
 	steps := []struct {
 		table, op string
 		kind      Kind
@@ -1282,6 +1378,8 @@ func TestClearKindIsAllOrNothing(t *testing.T) {
 // rows a reader can see under a fingerprint the sweep did not write would pass the
 // freshness check while carrying someone else's answer.
 func TestSyncKindsIsAllOrNothing(t *testing.T) {
+	t.Parallel()
+
 	rows := []KindRow{{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: "Namespaced"}}
 	steps := []struct{ table, op string }{
 		{"kind_catalog", "DELETE"},
@@ -1314,6 +1412,8 @@ func TestSyncKindsIsAllOrNothing(t *testing.T) {
 // A sweep that carried nothing empties the catalog: the cluster serves no kinds this
 // cache can reach, which is different from a partial answer that prunes nothing.
 func TestSyncKindsWithNoRowsEmptiesTheCatalog(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{
@@ -1331,6 +1431,8 @@ func TestSyncKindsWithNoRowsEmptiesTheCatalog(t *testing.T) {
 // malformed object must not stop a collection from syncing, and the next pass gets
 // another chance at it.
 func TestARelistPageSkipsABodyItCannotProject(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	bad := obj(map[string]any{"apiVersion": "v1", "kind": "Event", "metadata": map[string]any{}})
@@ -1347,6 +1449,8 @@ func TestARelistPageSkipsABodyItCannotProject(t *testing.T) {
 // still advances: a body the server will replay from that position forever is worse than
 // one missing event.
 func TestApplyChangeSkipsAnEventItCannotProject(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	bad := obj(map[string]any{
@@ -1368,6 +1472,8 @@ func TestApplyChangeSkipsAnEventItCannotProject(t *testing.T) {
 // Its commit is the same promise at the other end — the notify below it says the write
 // landed, and a client that took that word for it would never be told otherwise.
 func TestApplyChangeReportsWhatItCouldNotDo(t *testing.T) {
+	t.Parallel()
+
 	breaks := map[string]func(*testing.T, *Store){
 		"the position it could not take": func(t *testing.T, s *Store) { dropTable(t, s, "cluster_meta") },
 		"the commit that failed":         func(t *testing.T, s *Store) { failCommit(t, s, "INSERT", "objects") },
@@ -1388,6 +1494,8 @@ func TestApplyChangeReportsWhatItCouldNotDo(t *testing.T) {
 // through the log entries it writes first, so a half-done clear is the one outcome the
 // transaction exists to rule out.
 func TestClearKindReportsWhatItCouldNotDo(t *testing.T) {
+	t.Parallel()
+
 	cases := map[string]struct {
 		kind   Kind
 		break_ func(*testing.T, *Store)
@@ -1415,6 +1523,8 @@ func TestClearKindReportsWhatItCouldNotDo(t *testing.T) {
 // A page that fails is retried by the relist that owns it, so it has to say so: silence
 // would leave the sweep's mark covering rows no page rewrote.
 func TestWritePageReportsWhatItCouldNotDo(t *testing.T) {
+	t.Parallel()
+
 	breaks := map[string]func(*testing.T, *Store){
 		"the cookie it could not clear": func(t *testing.T, s *Store) { dropTable(t, s, "cluster_meta") },
 		"the commit that failed":        func(t *testing.T, s *Store) { failCommit(t, s, "INSERT", "objects") },
@@ -1451,6 +1561,8 @@ func TestWritePageReportsWhatItCouldNotDo(t *testing.T) {
 // failing has to reach the caller: a cookie persisted over a prune that did not run would
 // resume the next watch past rows that are still there.
 func TestCommitRelistReportsWhatItCouldNotDo(t *testing.T) {
+	t.Parallel()
+
 	cases := map[string]struct {
 		kind   Kind
 		break_ func(*testing.T, *Store)

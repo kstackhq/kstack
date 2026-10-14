@@ -35,6 +35,8 @@ func body(t *testing.T, row objectRow) map[string]any {
 }
 
 func TestProjectReadsTheIdentityColumns(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Pod",
 		"metadata": map[string]any{
@@ -61,6 +63,8 @@ func TestProjectReadsTheIdentityColumns(t *testing.T) {
 // object's bytes and nothing reads them — stripping is what lets the stored body be
 // served verbatim.
 func TestProjectStripsServerNoise(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "ConfigMap",
 		"metadata": map[string]any{
@@ -84,6 +88,8 @@ func TestProjectStripsServerNoise(t *testing.T) {
 // The cache file must never hold the cluster's credentials. Keys survive so a UI can
 // list what a Secret holds.
 func TestProjectRedactsSecretValues(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Secret",
 		"metadata":   map[string]any{"uid": "uid-1", "name": "creds"},
@@ -104,6 +110,8 @@ func TestProjectRedactsSecretValues(t *testing.T) {
 // Redaction reads the BODY's own kind, so it cannot be bypassed by how the collection
 // was addressed.
 func TestProjectRedactsOnlyCoreSecrets(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "example.com/v1", "kind": "Secret",
 		"metadata": map[string]any{"uid": "uid-1", "name": "not-a-secret"},
@@ -119,6 +127,8 @@ func TestProjectRedactsOnlyCoreSecrets(t *testing.T) {
 // A CRD that inlines a credential rather than referencing one is redacted at the path its
 // own schema names, and the rest of the body is left intact.
 func TestProjectRedactsInlineCRDCredentials(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "cert-manager.io/v1", "kind": "Certificate",
 		"metadata": map[string]any{"uid": "uid-1", "name": "tls"},
@@ -138,6 +148,8 @@ func TestProjectRedactsInlineCRDCredentials(t *testing.T) {
 
 // A map-valued entry keeps its keys, so a reader can still list what the object holds.
 func TestProjectRedactsCRDCredentialMapValuesKeepingKeys(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "grafana.integreatly.org/v1beta1", "kind": "GrafanaDatasource",
 		"metadata": map[string]any{"uid": "uid-1", "name": "prom"},
@@ -157,6 +169,8 @@ func TestProjectRedactsCRDCredentialMapValuesKeepingKeys(t *testing.T) {
 
 // A redaction whose path the body does not carry is a no-op, not an invented field.
 func TestSanitizeLeavesABodyMissingARedactedPath(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "cert-manager.io/v1", "kind": "Certificate",
 		"metadata": map[string]any{"uid": "uid-1", "name": "tls"},
@@ -169,6 +183,8 @@ func TestSanitizeLeavesABodyMissingARedactedPath(t *testing.T) {
 }
 
 func TestProjectKeepsOnlyOwnerRefsThatCarryAUID(t *testing.T) {
+	t.Parallel()
+
 	yes := true
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Pod",
@@ -187,12 +203,16 @@ func TestProjectKeepsOnlyOwnerRefsThatCarryAUID(t *testing.T) {
 // A body with no UID is unkeyable: nothing could address the row later, and a delta
 // for it would book progress against a row that was never written.
 func TestProjectRefusesAnObjectWithNoUID(t *testing.T) {
+	t.Parallel()
+
 	_, err := projectObject(obj(map[string]any{"apiVersion": "v1", "kind": "Pod"}))
 
 	assert.Error(t, err)
 }
 
 func TestProjectRefusesAnEmptyBody(t *testing.T) {
+	t.Parallel()
+
 	_, err := projectObject(&unstructured.Unstructured{})
 
 	assert.Error(t, err)
@@ -217,6 +237,8 @@ func owner(uid string, controller bool) map[string]any {
 }
 
 func TestInsertRoundTripsEveryOwnerRef(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	u := podWith("uid-1", []any{owner("o-1", true), owner("o-2", false), owner("o-3", false)}, nil)
 
@@ -231,6 +253,8 @@ func TestInsertRoundTripsEveryOwnerRef(t *testing.T) {
 
 // The insert upserts, so only the DELETE ahead of it can retire an edge the object dropped.
 func TestInsertDropsAnOwnerRefTheObjectNoLongerCarries(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added,
@@ -246,6 +270,8 @@ func TestInsertDropsAnOwnerRefTheObjectNoLongerCarries(t *testing.T) {
 // `null`, and json_each('null') yields one all-NULL row — a NOT NULL violation under
 // STRICT, inside the relist page's transaction, for every unowned object in the cluster.
 func TestInsertTakesAnObjectWithNoOwnerRefs(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	require.NoError(t, s.ApplyChange(context.Background(), podKind, watch.Added,
@@ -255,6 +281,8 @@ func TestInsertTakesAnObjectWithNoOwnerRefs(t *testing.T) {
 }
 
 func TestInsertRoundTripsEveryLabel(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	u := podWith("uid-1", nil, map[string]any{"app": "api", "tier": "web", "env": "prod"})
 
@@ -267,6 +295,8 @@ func TestInsertRoundTripsEveryLabel(t *testing.T) {
 
 // The insert upserts, so only the DELETE ahead of it can retire a label the object dropped.
 func TestInsertDropsALabelTheObjectNoLongerCarries(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added,
@@ -281,6 +311,8 @@ func TestInsertDropsALabelTheObjectNoLongerCarries(t *testing.T) {
 // The other half of the nil guard: an unlabelled object's Labels is the nil map
 // apimachinery returns, which marshals to `null` exactly as the ref slice does.
 func TestInsertTakesAnObjectWithNoLabels(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	require.NoError(t, s.ApplyChange(context.Background(), podKind, watch.Added,
@@ -292,6 +324,8 @@ func TestInsertTakesAnObjectWithNoLabels(t *testing.T) {
 // A body carrying a value JSON cannot represent is skipped, not fatal: a relist drops it
 // until the next pass, where failing would hand the same body back forever.
 func TestProjectObjectRefusesABodyThatWillNotMarshal(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Pod",
 		"metadata": map[string]any{"uid": "uid-1", "name": "api-0"},
@@ -307,6 +341,8 @@ func TestProjectObjectRefusesABodyThatWillNotMarshal(t *testing.T) {
 // A value we cannot read is a value we cannot prove is safe: the field goes, rather than
 // being stored because it did not parse.
 func TestSanitizeDropsASecretWhoseDataIsNotAMap(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Secret",
 		"metadata": map[string]any{"uid": "uid-1", "name": "creds"},
@@ -319,6 +355,8 @@ func TestSanitizeDropsASecretWhoseDataIsNotAMap(t *testing.T) {
 }
 
 func TestSanitizeDropsAPasswordThatIsNotAString(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "cert-manager.io/v1", "kind": "Certificate",
 		"metadata": map[string]any{"uid": "uid-1", "name": "tls"},
@@ -338,6 +376,8 @@ func TestSanitizeDropsAPasswordThatIsNotAString(t *testing.T) {
 // and "there but unreadable" are the same boolean, and only one of them is safe to skip.
 // Collapse this back into !ok and the two cases above store the value again.
 func TestNestedReadsDistinguishAnAbsentPathFromAnUnreadableOne(t *testing.T) {
+	t.Parallel()
+
 	body := map[string]any{"data": "not-a-map"}
 
 	_, missing, missingErr := unstructured.NestedMap(body, "absent")
@@ -353,6 +393,8 @@ func TestNestedReadsDistinguishAnAbsentPathFromAnUnreadableOne(t *testing.T) {
 // kind's worker is still redacted, and a body that merely claims a redacted kind's name in
 // another group is not.
 func TestSanitizeRedactsByTheBodysOwnGroupAndKind(t *testing.T) {
+	t.Parallel()
+
 	secret := sanitize(obj(map[string]any{
 		"apiVersion": "v1", "kind": "Secret",
 		"metadata": map[string]any{"uid": "uid-1", "name": "creds"},
@@ -377,6 +419,8 @@ func writeSeq(t *testing.T, s *Store, uid string) int64 {
 // The stamp is what a reader resumes from: it must move for a write that changed the
 // object, and stay put for one that did not.
 func TestAnObjectIsStampedWithItsWritePosition(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 
@@ -397,6 +441,8 @@ func TestAnObjectIsStampedWithItsWritePosition(t *testing.T) {
 // of its first write for the life of the cache and no reader past that position would
 // ever see it again.
 func TestAnObjectWithNoResourceVersionIsAlwaysAChange(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 
@@ -412,6 +458,8 @@ func TestAnObjectWithNoResourceVersionIsAlwaysAChange(t *testing.T) {
 // would otherwise leave the row below every reader of the kind it now belongs to, with no
 // delete logged under the kind it left.
 func TestAnObjectThatChangesKindMovesItsStamp(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	renamed := Kind{APIVersion: "v1beta1", Kind: "Pod", Resource: "pods"}
@@ -427,6 +475,8 @@ func TestAnObjectThatChangesKindMovesItsStamp(t *testing.T) {
 // cold list into one change per object, and a reader would take all of them to learn
 // that nothing moved.
 func TestARelistThatChangesNothingLeavesEveryStamp(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	rows := []*unstructured.Unstructured{pod("uid-1", "api-0", "42"), pod("uid-2", "api-1", "43")}
@@ -449,6 +499,8 @@ func TestARelistThatChangesNothingLeavesEveryStamp(t *testing.T) {
 // the write: a row whose labels or owners silently stopped being written would serve stale
 // edges for as long as the object lived.
 func TestInsertObjectRowReportsAnEdgeItCouldNotWrite(t *testing.T) {
+	t.Parallel()
+
 	for _, table := range []string{"owner_refs", "labels"} {
 		t.Run(table, func(t *testing.T) {
 			s := newTestStore(t)
@@ -481,6 +533,8 @@ func TestInsertObjectRowReportsAnEdgeItCouldNotWrite(t *testing.T) {
 // not take the entry must fail the delete outright — the alternative is a row gone with no
 // record that it went, which is the one thing a resuming reader cannot recover from.
 func TestADeleteThatCannotBeLoggedFails(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, pod("uid-1", "api-0", "42")))
@@ -494,6 +548,8 @@ func TestADeleteThatCannotBeLoggedFails(t *testing.T) {
 
 // The same promise for the relist's prune, which takes every row the list did not carry.
 func TestAPruneThatCannotBeLoggedFails(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, pod("uid-1", "api-0", "42")))
@@ -516,6 +572,8 @@ func changedAt(t *testing.T, s *Store, uid string) int64 {
 // write_seq on what a change is: a rewrite of the same version keeps it, and a new
 // version or a new identity moves it to that write's time.
 func TestChangedAtMovesOnlyWhenTheRowChanges(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	updatedAt := func() int64 {

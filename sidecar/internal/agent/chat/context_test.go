@@ -49,6 +49,8 @@ var (
 // The ceiling is the window less the cap every request asks for, less what the
 // turn adds, each term named so a change to a budget moves it.
 func TestContextCeilingLeavesRoomForTheAnswerAndTheTurn(t *testing.T) {
+	t.Parallel()
+
 	assert.Equal(t, (clustercard.Budget+2*memory.ScopeBudget+workspaceShare)/bytesPerToken, contextTokens)
 	base := contextTokens + questionTokens
 	results := MaxToolCalls * typicalResultBytes / bytesPerToken
@@ -71,6 +73,8 @@ func TestContextCeilingLeavesRoomForTheAnswerAndTheTurn(t *testing.T) {
 // Each provider tool the box holds adds its own allowance; a box without one adds
 // none for it.
 func TestTheCeilingFollowsTheOffers(t *testing.T) {
+	t.Parallel()
+
 	assert.Equal(t, turnInputAllowance(emptyBox, MaxToolCalls)+testSearch.Allowance(), turnInputAllowance(searchBox, MaxToolCalls))
 	assert.Equal(t, turnInputAllowance(runnerBox, MaxToolCalls)+testSearch.Allowance(), turnInputAllowance(runnerAndBoth, MaxToolCalls))
 }
@@ -78,6 +82,8 @@ func TestTheCeilingFollowsTheOffers(t *testing.T) {
 // Every stated window leaves room at the largest allowance a turn can take, so no
 // window in the catalog goes unchecked.
 func TestEveryStatedWindowLeavesACeiling(t *testing.T) {
+	t.Parallel()
+
 	keys := map[string]string{}
 	for id := range catalog.KeyVars() {
 		keys[id] = "k"
@@ -138,6 +144,8 @@ func reads(n int) llm.Usage { return llm.Usage{Reported: true, InputTokens: n} }
 // A chat whose last turn read more than the model's ceiling refuses the next send
 // before any row is written.
 func TestASendIntoAFullChatIsRefusedAndWritesNothing(t *testing.T) {
+	t.Parallel()
+
 	s, f := windowed(t, 200_000, 64_000, 0)
 	f.SetUsage(reads(150_000))
 
@@ -153,6 +161,8 @@ func TestASendIntoAFullChatIsRefusedAndWritesNothing(t *testing.T) {
 // The ceiling is the named model's: a chat full on one model is open on a model
 // with a larger window.
 func TestAChatFullOnOneModelIsOpenOnAnother(t *testing.T) {
+	t.Parallel()
+
 	s, f := windowed(t, 200_000, 64_000, 1_000_000)
 	f.SetUsage(reads(150_000))
 
@@ -168,6 +178,8 @@ func TestAChatFullOnOneModelIsOpenOnAnother(t *testing.T) {
 // its own shape, so a chat full on one provider is open on another, whose own
 // refusal is the judge.
 func TestAnotherProvidersCountDoesNotCarry(t *testing.T) {
+	t.Parallel()
+
 	s, f := windowed(t, 200_000, 64_000, 0)
 	f.SetUsage(reads(150_000), reads(150_000))
 
@@ -187,6 +199,8 @@ func TestAnotherProvidersCountDoesNotCarry(t *testing.T) {
 // A model that states no window is never refused for length; its provider is
 // the judge.
 func TestAModelWithNoWindowIsNeverRefusedForLength(t *testing.T) {
+	t.Parallel()
+
 	s, f := windowed(t, 0, 64_000, 0)
 	f.SetUsage(reads(5_000_000))
 
@@ -198,6 +212,8 @@ func TestAModelWithNoWindowIsNeverRefusedForLength(t *testing.T) {
 // The count is the newest succeeded turn's: a failed turn's rounds are not
 // replayed, so what its calls read does not count.
 func TestAFailedTurnsCallsDoNotCount(t *testing.T) {
+	t.Parallel()
+
 	t.Run("a failed turn is skipped", func(t *testing.T) {
 		var f *llm.Fake
 		// Its first round reads past the ceiling, and its second fails.
@@ -237,6 +253,8 @@ func overflow() error {
 // and another model is not. Once a turn on another model has succeeded, the
 // first is judged by its count again.
 func TestARepeatOnTheModelThatOverflowedIsRefused(t *testing.T) {
+	t.Parallel()
+
 	s, f := windowed(t, 1_000_000, 64_000, 1_000_000)
 	f.FailAfter(0, overflow())
 
@@ -256,6 +274,8 @@ func TestARepeatOnTheModelThatOverflowedIsRefused(t *testing.T) {
 // next request drops those rounds, so the chat still fits and the next send on
 // that model is admitted.
 func TestAnOverflowAfterAToolRoundLeavesTheModelOpen(t *testing.T) {
+	t.Parallel()
+
 	var f *llm.Fake
 	overflowNext := testTool{name: "echo", run: func(context.Context, json.RawMessage) (string, bool) {
 		f.FailAfter(0, overflow())
@@ -277,6 +297,8 @@ func TestAnOverflowAfterAToolRoundLeavesTheModelOpen(t *testing.T) {
 // samples again after each server call, and its usage may count the chat once per
 // sampling. An older call answers instead. A report of no searches still counts.
 func TestACallThatRanServerToolsDoesNotCount(t *testing.T) {
+	t.Parallel()
+
 	t.Run("a call that searched is skipped", func(t *testing.T) {
 		s, f := windowed(t, 200_000, 64_000, 0)
 		f.SetUsage(reads(10), reads(150_000))
@@ -300,6 +322,8 @@ func TestACallThatRanServerToolsDoesNotCount(t *testing.T) {
 
 // A chat with no turn yet has no newest run and no use to count, and is admitted.
 func TestAChatWithNoTurnHasNothingToCount(t *testing.T) {
+	t.Parallel()
+
 	s, _ := windowed(t, 200_000, 64_000, 0)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 	st := s.store.Stmts()
@@ -318,6 +342,8 @@ func TestAChatWithNoTurnHasNothingToCount(t *testing.T) {
 // A store that cannot answer either read fails the send rather than admitting it,
 // naming the read.
 func TestRoomForReportsAStoreItCannotRead(t *testing.T) {
+	t.Parallel()
+
 	s, _ := windowed(t, 200_000, 64_000, 0)
 	target, err := s.llmSvc.Resolve("fake", "fake", "")
 	require.NoError(t, err)
@@ -337,6 +363,8 @@ func TestRoomForReportsAStoreItCannotRead(t *testing.T) {
 // A count is its provider's: a switch to a provider of another dialect with no
 // count on the chat is not checked ahead, whatever the fake counted.
 func TestASwitchIsCheckedAgainstTheTargetsOwnCount(t *testing.T) {
+	t.Parallel()
+
 	s, f := windowed(t, 200_000, 64_000, 0)
 	f.SetUsage(reads(150_000))
 
@@ -349,6 +377,8 @@ func TestASwitchIsCheckedAgainstTheTargetsOwnCount(t *testing.T) {
 // A subagent's run has no message, so what it read does not count against its
 // parent's chat.
 func TestASubagentsCallsDoNotCount(t *testing.T) {
+	t.Parallel()
+
 	s, f := windowed(t, 200_000, 64_000, 0, agent.New())
 	f.Route("Look.").SetUsage(reads(150_000))
 	// The parent's calls, and the notice turn's after the agent ends, report

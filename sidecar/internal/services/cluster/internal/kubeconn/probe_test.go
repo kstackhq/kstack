@@ -45,6 +45,8 @@ func connect(t *testing.T, cfg *fakeKubeconfig, v connInfo) (supervisor.Result, 
 // that found nothing new must hand back nothing — or the four behind it re-run every cycle and
 // their intervals stop meaning anything.
 func TestTheConnectionProbeCommitsOnlyOnAChange(t *testing.T) {
+	t.Parallel()
+
 	cfg := resolving("prod", "key-1")
 	_, first := connect(t, cfg, connInfo{departed: true})
 	require.False(t, first.departed, "the context resolves, so it is back")
@@ -61,6 +63,8 @@ func TestTheConnectionProbeCommitsOnlyOnAChange(t *testing.T) {
 // re-runs them — even parked, as they are here: nothing answers, so they are suspended behind a
 // connection that never succeeds, and only the data edge can reach them.
 func TestAMovedConnectionReRunsTheProbesBehindIt(t *testing.T) {
+	t.Parallel()
+
 	cfg := resolving("prod", "key-1")
 	s := New(cfg)
 	startService(t, s)
@@ -89,6 +93,8 @@ func TestAMovedConnectionReRunsTheProbesBehindIt(t *testing.T) {
 // A context that left the file has nothing to reach, so its probe suspends — the file is the
 // whole truth about presence, and the watch reports it moving, so polling asks nothing new.
 func TestConnectionSuspendsADepartedContext(t *testing.T) {
+	t.Parallel()
+
 	cfg := resolving("staging", "key-1") // "prod" is not named
 
 	res, v := connect(t, cfg, connInfo{})
@@ -101,6 +107,8 @@ func TestConnectionSuspendsADepartedContext(t *testing.T) {
 // The file still names it, so the remedy is to fix the file — a failure on the retry ladder,
 // since nothing here can tell when the user has.
 func TestConnectionFailsWhenTheFileWillNotResolve(t *testing.T) {
+	t.Parallel()
+
 	cfg := resolving("prod", "key-1")
 	cfg.err = errors.New("open ca.crt: no such file")
 
@@ -115,6 +123,8 @@ func TestConnectionFailsWhenTheFileWillNotResolve(t *testing.T) {
 // An unread kubeconfig names nothing, and reporting that as anything would tell every holder
 // its context is gone for as long as the first read takes.
 func TestConnectionSkipsAnUnreadKubeconfig(t *testing.T) {
+	t.Parallel()
+
 	cfg := resolving("prod", "key-1")
 	cfg.err = kubeconfig.ErrNotRead
 
@@ -126,6 +136,8 @@ func TestConnectionSkipsAnUnreadKubeconfig(t *testing.T) {
 
 // The whole answer: reached, over TLS we trust, with credentials the server accepts.
 func TestConnectionSucceedsWhenTheServerAnswers(t *testing.T) {
+	t.Parallel()
+
 	srv := serveAPI(t)
 	cfg := serving(srv, "prod", "key-1")
 
@@ -141,6 +153,8 @@ func TestConnectionSucceedsWhenTheServerAnswers(t *testing.T) {
 // A server that will not have these credentials is not an outage: the failure names what the
 // user has to fix, and the four probes behind this one could not run either.
 func TestConnectionFailsWithWhatTheServerSaid(t *testing.T) {
+	t.Parallel()
+
 	srv := serve(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 	}))
@@ -153,6 +167,8 @@ func TestConnectionFailsWithWhatTheServerSaid(t *testing.T) {
 }
 
 func TestConnectionFailsWhenNothingAnswers(t *testing.T) {
+	t.Parallel()
+
 	res, _ := connect(t, resolving("prod", "key-1"), connInfo{})
 
 	assert.Equal(t, supervisor.VerdictFailed, res.Verdict())
@@ -163,6 +179,8 @@ func TestConnectionFailsWhenNothingAnswers(t *testing.T) {
 // captive portal answers everything, so what proves the far end is a Kubernetes API server is
 // its body.
 func TestConnectionFailsWhenTheAnswerIsNotKubernetes(t *testing.T) {
+	t.Parallel()
+
 	srv := serve(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{}`))
 	}))
@@ -177,6 +195,8 @@ func TestConnectionFailsWhenTheAnswerIsNotKubernetes(t *testing.T) {
 // same credentials keep the same connection — and commit nothing, since the four probes behind
 // it wake on a committed value.
 func TestConnectionKeepsItsConnectionWhileTheCredentialsHold(t *testing.T) {
+	t.Parallel()
+
 	cfg := serving(serveAPI(t), "prod", "key-1")
 	_, first := connect(t, cfg, connInfo{})
 	require.NotNil(t, first.conn)
@@ -192,6 +212,8 @@ func TestConnectionKeepsItsConnectionWhileTheCredentialsHold(t *testing.T) {
 // Credentials that moved are a different server as far as anything derived from them goes, so
 // the connection is rebuilt — and the new pointer is what wakes the probes reading it.
 func TestConnectionRebuildsWhenTheCredentialsMove(t *testing.T) {
+	t.Parallel()
+
 	cfg := serving(serveAPI(t), "prod", "key-1")
 	_, first := connect(t, cfg, connInfo{})
 	require.NotNil(t, first.conn)
@@ -209,6 +231,8 @@ func TestConnectionRebuildsWhenTheCredentialsMove(t *testing.T) {
 // connection vouches for nobody, and every identity-scoped caller is refused for as long as it
 // stands.
 func TestConnectionRebuildsWhenItsServerWasReplaced(t *testing.T) {
+	t.Parallel()
+
 	cfg := serving(serveAPI(t), "prod", "key-1")
 	_, first := connect(t, cfg, connInfo{})
 	require.NotNil(t, first.conn)
@@ -226,6 +250,8 @@ func TestConnectionRebuildsWhenItsServerWasReplaced(t *testing.T) {
 // A first identification is not a replaced server, so it rebuilds nothing — otherwise every
 // connection would be rebuilt once, as soon as the probe behind it answered.
 func TestConnectionKeepsItsConnectionThroughTheFirstStamp(t *testing.T) {
+	t.Parallel()
+
 	cfg := serving(serveAPI(t), "prod", "key-1")
 	_, first := connect(t, cfg, connInfo{})
 	require.NotNil(t, first.conn)
@@ -240,6 +266,8 @@ func TestConnectionKeepsItsConnectionThroughTheFirstStamp(t *testing.T) {
 // failed, which says nothing about whether the credentials behind the connection still work, and
 // an editor saving non-atomically is a read that fails for a moment.
 func TestConnectionKeepsItsConnectionThroughAResolveFailure(t *testing.T) {
+	t.Parallel()
+
 	cfg := serving(serveAPI(t), "prod", "key-1")
 	_, first := connect(t, cfg, connInfo{})
 	require.NotNil(t, first.conn)
@@ -259,6 +287,8 @@ func TestConnectionKeepsItsConnectionThroughAResolveFailure(t *testing.T) {
 // A context that left the file has no connection to hand out. Retiring the one it had is the
 // pool's, not the probe's — this only stops naming it.
 func TestConnectionDropsItsConnectionWhenTheContextDeparts(t *testing.T) {
+	t.Parallel()
+
 	cfg := serving(serveAPI(t), "prod", "key-1")
 	_, first := connect(t, cfg, connInfo{})
 	require.NotNil(t, first.conn)
@@ -275,6 +305,8 @@ func TestConnectionDropsItsConnectionWhenTheContextDeparts(t *testing.T) {
 // alone would find it unchanged and never build again — the probe would climb its ladder
 // retrying nothing.
 func TestConnectionBuildsAgainAfterABuildThatFailed(t *testing.T) {
+	t.Parallel()
+
 	srv := serveAPI(t)
 	cfg := serving(srv, "prod", "key-1")
 	cfg.host = "://nonsense"
@@ -296,6 +328,8 @@ func TestConnectionBuildsAgainAfterABuildThatFailed(t *testing.T) {
 // The four probes behind the connection are recorded rather than dialed while nothing has
 // succeeded at reaching the server: one timeout per cycle, not one per probe.
 func TestDependentsRecordDependencyFailedWhileTheServerIsUnreachable(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	startService(t, s)
 	lease := s.Acquire("prod")
@@ -318,6 +352,8 @@ func TestDependentsRecordDependencyFailedWhileTheServerIsUnreachable(t *testing.
 // A context that comes back is re-read and dialed again — with no failure streak, since a
 // departure was the user's edit, not a fault.
 func TestAReturningContextIsDialedAgain(t *testing.T) {
+	t.Parallel()
+
 	cfg := serving(serveAPI(t), "prod", "key-1")
 	s := New(cfg)
 	startService(t, s)
@@ -341,6 +377,8 @@ func TestAReturningContextIsDialedAgain(t *testing.T) {
 // A resolve failure keeps its cadence, and consecutive failures are one streak: FailingSince is
 // when it began, which the widening ladder means a count alone cannot give.
 func TestAResolveFailureKeepsAsking(t *testing.T) {
+	t.Parallel()
+
 	cfg := resolving("prod", "key-1")
 	cfg.err = errors.New("open ca.crt: no such file")
 	s := New(cfg)
@@ -369,6 +407,8 @@ func TestAResolveFailureKeepsAsking(t *testing.T) {
 // the context was released mid-run, a Skip, a panic. Nothing else can reach that connection: it
 // reached neither a snapshot nor an entry.
 func TestDiscardRetiresWhatTheRunBuilt(t *testing.T) {
+	t.Parallel()
+
 	conn := connTo(t, serveAPI(t))
 
 	(&connectionProbe{}).Discard(connInfo{conn: conn})
@@ -379,6 +419,8 @@ func TestDiscardRetiresWhatTheRunBuilt(t *testing.T) {
 // A context that resolves to nothing commits a value with no connection, which is the ordinary
 // shape of a dropped one.
 func TestDiscardOfAValueWithNoConnectionIsANoOp(t *testing.T) {
+	t.Parallel()
+
 	(&connectionProbe{}).Discard(connInfo{departed: true})
 }
 
@@ -388,6 +430,8 @@ func TestDiscardOfAValueWithNoConnectionIsANoOp(t *testing.T) {
 // even though it equals what Prev reads: the value is what dates the observation, and a cluster
 // that has never had a failing component would otherwise read as never observed.
 func TestReadinessCommitsItsFirstHealthyAnswer(t *testing.T) {
+	t.Parallel()
+
 	conn := connTo(t, serveCluster(t).Server)
 
 	res, v, committed := runProbe(t, readinessProbe{}, conn, nil)
@@ -400,6 +444,8 @@ func TestReadinessCommitsItsFirstHealthyAnswer(t *testing.T) {
 // Every healthy answer after it moves nothing, and the supervisor wakes whoever watches a committed
 // value — so a cluster that stays ready must stop committing.
 func TestReadinessCommitsNothingWhileTheServerStaysReady(t *testing.T) {
+	t.Parallel()
+
 	conn := connTo(t, serveCluster(t).Server)
 
 	res, _, committed := runProbe(t, readinessProbe{}, conn, &ComponentStatus{})
@@ -411,6 +457,8 @@ func TestReadinessCommitsNothingWhileTheServerStaysReady(t *testing.T) {
 // The endpoint's failure is its answer: a 500 names the checks that are not ok, which is the
 // whole reason to ask a server whether it is ready rather than whether it answers.
 func TestReadinessNamesTheComponentsThatFailed(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cs.fail(readyzPath, http.StatusInternalServerError,
 		"[+]ping ok\n[-]etcd failed: reason withheld\n[+]log ok\n[-]informer-sync failed: reason withheld\nreadyz check failed\n")
@@ -427,6 +475,8 @@ func TestReadinessNamesTheComponentsThatFailed(t *testing.T) {
 // A 500 from something that is not the readyz handler answered, but not with the one thing this
 // endpoint's failure is supposed to carry.
 func TestReadinessReportsA500ThatNamesNothing(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cs.fail(readyzPath, http.StatusInternalServerError, "internal server error\n")
 
@@ -439,6 +489,8 @@ func TestReadinessReportsA500ThatNamesNothing(t *testing.T) {
 // Some managed distributions do not serve it at all, and will not start: terminal for this
 // connection rather than a failure to retry.
 func TestReadinessSuspendsWhenTheEndpointIsAbsent(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cs.fail(readyzPath, http.StatusNotFound, "404 page not found")
 
@@ -449,6 +501,8 @@ func TestReadinessSuspendsWhenTheEndpointIsAbsent(t *testing.T) {
 }
 
 func TestReadinessClassifiesAnythingElse(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cs.fail(readyzPath, http.StatusForbidden, "no")
 
@@ -460,6 +514,8 @@ func TestReadinessClassifiesAnythingElse(t *testing.T) {
 // A cluster that recovers has to clear what it reported, or the last failure stands as the
 // answer for as long as the connection lives.
 func TestReadinessClearsWhatItReportedWhenTheServerRecovers(t *testing.T) {
+	t.Parallel()
+
 	conn := connTo(t, serveCluster(t).Server)
 
 	res, v, committed := runProbe(t, readinessProbe{}, conn, &ComponentStatus{Failing: []string{"etcd"}})
@@ -472,6 +528,8 @@ func TestReadinessClearsWhatItReportedWhenTheServerRecovers(t *testing.T) {
 // The supervisor wakes every probe watching a committed value, so a set that did not move must not
 // be committed again.
 func TestReadinessCommitsOnlyWhenTheSetMoves(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cs.fail(readyzPath, http.StatusInternalServerError, "[-]etcd failed: reason withheld\nreadyz check failed\n")
 
@@ -481,6 +539,8 @@ func TestReadinessCommitsOnlyWhenTheSetMoves(t *testing.T) {
 }
 
 func TestReadinessParksWithoutAConnection(t *testing.T) {
+	t.Parallel()
+
 	res, _, _ := runProbe(t, readinessProbe{}, nil, nil)
 
 	assert.True(t, res.IsSkip())
@@ -489,6 +549,8 @@ func TestReadinessParksWithoutAConnection(t *testing.T) {
 // --- serverUID ---
 
 func TestServerUIDReadsKubeSystem(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 
 	res, v, committed := runProbe(t, serverUIDProbe{}, connTo(t, cs.Server), nil)
@@ -500,6 +562,8 @@ func TestServerUIDReadsKubeSystem(t *testing.T) {
 }
 
 func TestServerUIDCommitsOnlyWhenTheUIDMoves(t *testing.T) {
+	t.Parallel()
+
 	uid := "uid-1"
 
 	res, _, committed := runProbe(t, serverUIDProbe{}, connTo(t, serveCluster(t).Server), &uid)
@@ -512,6 +576,8 @@ func TestServerUIDCommitsOnlyWhenTheUIDMoves(t *testing.T) {
 // commits nothing — and must still be stamped, or it stays unidentified forever and every
 // caller scoped to that cluster refuses it.
 func TestServerUIDStampsTheConnectionEvenWhenItCommitsNothing(t *testing.T) {
+	t.Parallel()
+
 	uid := "uid-1"
 	conn := connTo(t, serveCluster(t).Server)
 
@@ -526,6 +592,8 @@ func TestServerUIDStampsTheConnectionEvenWhenItCommitsNothing(t *testing.T) {
 // The identity is recorded on the connection the request went over, which is what makes it
 // safe to compare later: no other party knows which connection answered.
 func TestServerUIDStampsTheConnectionItRead(t *testing.T) {
+	t.Parallel()
+
 	conn := connTo(t, serveCluster(t).Server)
 
 	runProbe(t, serverUIDProbe{}, conn, nil)
@@ -538,6 +606,8 @@ func TestServerUIDStampsTheConnectionItRead(t *testing.T) {
 // A read that failed identifies nothing: stamping on the way past would pin an identity no
 // answer supports, and the stamp is set-once.
 func TestServerUIDStampsNothingWhenTheReadFails(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cs.fail(kubeSystemPath, http.StatusForbidden, "")
 	conn := connTo(t, cs.Server)
@@ -551,6 +621,8 @@ func TestServerUIDStampsNothingWhenTheReadFails(t *testing.T) {
 // The trap the reason vocabulary exists for: this 404 is the namespace, not the endpoint, so the
 // probe keeps asking — kube-system can be created.
 func TestServerUIDReportsAMissingNamespaceAsNotFound(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cs.fail(kubeSystemPath, http.StatusNotFound, `{"kind":"Status","reason":"NotFound"}`)
 
@@ -563,6 +635,8 @@ func TestServerUIDReportsAMissingNamespaceAsNotFound(t *testing.T) {
 // A namespace-scoped user reads this as a grant to fix, which is what tells a healthy cluster
 // with no cache from an unreachable one.
 func TestServerUIDReportsAForbiddenRead(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cs.fail(kubeSystemPath, http.StatusForbidden, "no")
 
@@ -572,6 +646,8 @@ func TestServerUIDReportsAForbiddenRead(t *testing.T) {
 }
 
 func TestServerUIDReportsANamespaceWithNoUID(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cs.answer(kubeSystemPath, `{"metadata":{"name":"kube-system"}}`)
 
@@ -582,6 +658,8 @@ func TestServerUIDReportsANamespaceWithNoUID(t *testing.T) {
 }
 
 func TestServerUIDParksWithoutAConnection(t *testing.T) {
+	t.Parallel()
+
 	res, _, _ := runProbe(t, serverUIDProbe{}, nil, nil)
 
 	assert.True(t, res.IsSkip())
@@ -590,6 +668,8 @@ func TestServerUIDParksWithoutAConnection(t *testing.T) {
 // --- serverVersion ---
 
 func TestServerVersionReadsTheReportedVersion(t *testing.T) {
+	t.Parallel()
+
 	res, v, committed := runProbe(t, serverVersionProbe{}, connTo(t, serveCluster(t).Server), nil)
 
 	assert.Equal(t, supervisor.VerdictSucceeded, res.Verdict())
@@ -598,6 +678,8 @@ func TestServerVersionReadsTheReportedVersion(t *testing.T) {
 }
 
 func TestServerVersionCommitsOnlyWhenTheVersionMoves(t *testing.T) {
+	t.Parallel()
+
 	prev := VersionInfo{GitVersion: "v1.31.4", Major: "1", Minor: "31"}
 
 	_, _, committed := runProbe(t, serverVersionProbe{}, connTo(t, serveCluster(t).Server), &prev)
@@ -606,6 +688,8 @@ func TestServerVersionCommitsOnlyWhenTheVersionMoves(t *testing.T) {
 }
 
 func TestServerVersionReportsAnAnswerWithNoVersion(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cs.answer(versionPath, `{"major":"1"}`)
 
@@ -615,6 +699,8 @@ func TestServerVersionReportsAnAnswerWithNoVersion(t *testing.T) {
 }
 
 func TestServerVersionClassifiesAFailure(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cs.fail(versionPath, http.StatusServiceUnavailable, "restarting")
 
@@ -624,6 +710,8 @@ func TestServerVersionClassifiesAFailure(t *testing.T) {
 }
 
 func TestServerVersionParksWithoutAConnection(t *testing.T) {
+	t.Parallel()
+
 	res, _, _ := runProbe(t, serverVersionProbe{}, nil, nil)
 
 	assert.True(t, res.IsSkip())
@@ -634,6 +722,8 @@ func TestServerVersionParksWithoutAConnection(t *testing.T) {
 // The server names the subject; a token does not name it to us. The review is a create, so it
 // carries a body — an empty POST is a 400 and the username silently comes back missing.
 func TestPrincipalAsksTheServerWhoWeAre(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	var got struct {
 		method, contentType, body string
@@ -658,6 +748,8 @@ func TestPrincipalAsksTheServerWhoWeAre(t *testing.T) {
 // Sorting is what makes the guard hold: the same groups in another order are not news any
 // watcher of this value has to be woken for.
 func TestPrincipalCommitsOnlyWhenTheSubjectMoves(t *testing.T) {
+	t.Parallel()
+
 	prev := Principal{Username: "admin@example", Groups: []string{"system:authenticated", "system:masters"}}
 
 	_, _, committed := runProbe(t, principalProbe{}, connTo(t, serveCluster(t).Server), &prev)
@@ -666,6 +758,8 @@ func TestPrincipalCommitsOnlyWhenTheSubjectMoves(t *testing.T) {
 }
 
 func TestPrincipalCommitsAChangedUsername(t *testing.T) {
+	t.Parallel()
+
 	prev := Principal{Username: "reader@example", Groups: []string{"system:authenticated", "system:masters"}}
 
 	_, v, committed := runProbe(t, principalProbe{}, connTo(t, serveCluster(t).Server), &prev)
@@ -676,6 +770,8 @@ func TestPrincipalCommitsAChangedUsername(t *testing.T) {
 
 // Before 1.27 the endpoint does not exist, and a server too old to serve it will not grow one.
 func TestPrincipalSuspendsOnAServerTooOldToAnswer(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cs.fail(selfSubjectReviewPath, http.StatusNotFound, "404 page not found")
 
@@ -686,6 +782,8 @@ func TestPrincipalSuspendsOnAServerTooOldToAnswer(t *testing.T) {
 }
 
 func TestPrincipalReportsAReviewWithNoUsername(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cs.answer(selfSubjectReviewPath, `{"status":{}}`)
 
@@ -695,6 +793,8 @@ func TestPrincipalReportsAReviewWithNoUsername(t *testing.T) {
 }
 
 func TestPrincipalClassifiesAFailure(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cs.fail(selfSubjectReviewPath, http.StatusUnauthorized, "no")
 
@@ -704,6 +804,8 @@ func TestPrincipalClassifiesAFailure(t *testing.T) {
 }
 
 func TestPrincipalParksWithoutAConnection(t *testing.T) {
+	t.Parallel()
+
 	res, _, _ := runProbe(t, principalProbe{}, nil, nil)
 
 	assert.True(t, res.IsSkip())
@@ -715,6 +817,8 @@ func TestPrincipalParksWithoutAConnection(t *testing.T) {
 // refused, so a run the supervisor's shutdown cut short must record nothing rather than opening a
 // failure streak against a healthy server.
 func TestACanceledRunRecordsNothing(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	conn := connTo(t, cs.Server)
 	ctx, cancel := context.WithCancel(t.Context())

@@ -32,6 +32,8 @@ import (
 )
 
 func TestOpenCreatesFreshStoreWithNoCookie(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -48,6 +50,8 @@ func TestOpenCreatesFreshStoreWithNoCookie(t *testing.T) {
 }
 
 func TestTwoOpensShareOneStore(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -70,6 +74,8 @@ func TestTwoOpensShareOneStore(t *testing.T) {
 }
 
 func TestCookiePersistsAcrossReleaseAndReacquire(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -92,6 +98,8 @@ func TestCookiePersistsAcrossReleaseAndReacquire(t *testing.T) {
 }
 
 func TestClearWithNoHandlesDeletesFiles(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -109,6 +117,8 @@ func TestClearWithNoHandlesDeletesFiles(t *testing.T) {
 }
 
 func TestClearOnNeverExistingCacheIsNotAnError(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -117,6 +127,8 @@ func TestClearOnNeverExistingCacheIsNotAnError(t *testing.T) {
 }
 
 func TestClearUnderLiveHandleReopensAndKeepsHandleWorking(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -144,6 +156,8 @@ func TestClearUnderLiveHandleReopensAndKeepsHandleWorking(t *testing.T) {
 }
 
 func TestOpenExistingClaimsACacheThatHasAFile(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -172,6 +186,8 @@ func TestOpenExistingClaimsACacheThatHasAFile(t *testing.T) {
 // The three files are measured apart so a reader can tell a cache that holds a lot from one whose
 // WAL is not being checkpointed. Bytes remains the sum, since that is what the cache costs on disk.
 func TestStatsReportsEachFileSeparately(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -195,6 +211,8 @@ func TestStatsReportsEachFileSeparately(t *testing.T) {
 }
 
 func TestManagerCloseClosesEveryOpenStoreWithoutPanicking(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 
@@ -211,6 +229,8 @@ func TestManagerCloseClosesEveryOpenStoreWithoutPanicking(t *testing.T) {
 // Remove deletes the files and, unlike Clear, leaves nothing open behind it: no
 // empty store is reopened for a cache that is going away.
 func TestRemoveDeletesTheFilesAndDropsTheOpenStore(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -232,6 +252,8 @@ func TestRemoveDeletesTheFilesAndDropsTheOpenStore(t *testing.T) {
 }
 
 func TestRemoveOnNeverExistingCacheIsNotAnError(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -242,6 +264,8 @@ func TestRemoveOnNeverExistingCacheIsNotAnError(t *testing.T) {
 // A deleted cache stays deleted: a straggler holding a view of it from before the
 // teardown must not open a fresh file nothing will ever name again.
 func TestOpenAfterRemoveIsRefused(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -273,6 +297,8 @@ func TestOpenAfterRemoveIsRefused(t *testing.T) {
 // A Delete whose cleanup failed still retires the id: the caller retries, and an
 // Acquire in the meantime would recreate the file the retry is there to remove.
 func TestRemoveRetiresTheCacheEvenWhenCleanupFails(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -301,6 +327,8 @@ func TestRemoveRetiresTheCacheEvenWhenCleanupFails(t *testing.T) {
 // A Clear whose files will not go still leaves the cache usable: the caller retries,
 // and until then a handle must not resolve to the store Clear closed.
 func TestClearKeepsTheCacheUsableWhenTheFilesWillNotGo(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	failDelete := errors.New("boom")
 	blocked := true
@@ -339,6 +367,8 @@ func TestClearKeepsTheCacheUsableWhenTheFilesWillNotGo(t *testing.T) {
 // the nil-store guard behind it covers the interleaving Acquire cannot see, a Delete
 // landing between the claim and the resolve.
 func TestManagerClearKindOnARetiredCacheIsAnError(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	// Delete leaves the file, so ClearKind gets past the existence check and reaches
 	// the store the delete retired.
@@ -363,6 +393,8 @@ func TestManagerClearKindOnARetiredCacheIsAnError(t *testing.T) {
 // entry's alone: they read no store, and releasing them must not count down — or
 // close — the store a fresh claim opened at the same id.
 func TestReleaseAfterAFailedClearLeavesAFreshClaimAlone(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	// The unlink also blocks the reopen: a store cannot be created where a directory
 	// already holds the name.
@@ -408,6 +440,8 @@ func TestReleaseAfterAFailedClearLeavesAFreshClaimAlone(t *testing.T) {
 // A cache that was never opened has no file to claim, and asking must not create one —
 // schema, sidecars and all.
 func TestOpenExistingCreatesNothingForACacheWithNoFile(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -429,6 +463,8 @@ func TestOpenExistingCreatesNothingForACacheWithNoFile(t *testing.T) {
 // The gauge borrows the feed of whatever is open, and borrowing must never create a file:
 // that is what would resurrect a cache whose teardown deleted it.
 func TestManagerSubscribeAnswersNothingForAnUnopenedCache(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -441,6 +477,8 @@ func TestManagerSubscribeAnswersNothingForAnUnopenedCache(t *testing.T) {
 // The feed comes with no claim, so a borrower cannot keep the cache alive: the writer's
 // release still closes the file.
 func TestManagerSubscribeTakesNoClaim(t *testing.T) {
+	t.Parallel()
+
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
 	store, err := m.OpenOrCreate(1)
@@ -489,6 +527,8 @@ func cacheIsOpen(m *Manager, cacheID int64) bool {
 // would read as data loss. Reading it opens the file read-only, so a cache that does
 // not exist stays not existing.
 func TestCountsReadsAClosedCacheWithoutOpeningItForWrites(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
@@ -511,6 +551,8 @@ func TestCountsReadsAClosedCacheWithoutOpeningItForWrites(t *testing.T) {
 }
 
 func TestCountsOfANeverExistingCacheIsEmpty(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -527,6 +569,8 @@ func TestCountsOfANeverExistingCacheIsEmpty(t *testing.T) {
 // the gauge behind it is meant to survive a clear — and the answer is on disk either
 // way.
 func TestStatsSurvivesTheFileClosingUnderIt(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -555,6 +599,8 @@ func TestStatsSurvivesTheFileClosingUnderIt(t *testing.T) {
 // be retired: a claim on it must answer ErrClosed rather than reach a dead database, and
 // the next open starts the cache fresh.
 func TestClearRetiresTheEntryWhenTheFileWillNotClose(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	boom := errors.New("close failed")
 	m := newManagerWithOptions(t.TempDir(), withCloseFile(closesAndFails(boom)))
@@ -576,6 +622,8 @@ func TestClearRetiresTheEntryWhenTheFileWillNotClose(t *testing.T) {
 // out rather than read what is there mid-way: the gauge above it is subscribed by the
 // very view holding the Clear button, and a failed read ends that subscription.
 func TestStatsWaitsOutAClear(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	clearing, release := make(chan struct{}), make(chan struct{})
 	m := newManagerWithOptions(t.TempDir(), withDeleteFiles(func(path string) error {
@@ -616,6 +664,8 @@ func TestStatsWaitsOutAClear(t *testing.T) {
 // before that must not follow the swap: a re-read of the new file would answer "no rows" for
 // a cache that was full, and the watch would emit a Deleted for every row it held.
 func TestAClaimTakenBeforeAClearDoesNotFollowTheSwap(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -641,6 +691,8 @@ func TestAClaimTakenBeforeAClearDoesNotFollowTheSwap(t *testing.T) {
 
 // A fresh claim after the clear is how a reconnecting watch reaches the new file.
 func TestAFreshClaimAfterAClearReadsTheNewFile(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -664,6 +716,8 @@ func TestAFreshClaimAfterAClearReadsTheNewFile(t *testing.T) {
 // but its rows are still on disk. A read that only bound to an already-open file would
 // report it empty.
 func TestOpenExistingReadsACacheNobodyHoldsOpen(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -687,6 +741,8 @@ func TestOpenExistingReadsACacheNobodyHoldsOpen(t *testing.T) {
 // A watch can open before anything has created the cache's file, and must go live the moment
 // one does rather than waiting out a poll.
 func TestWatchOpenFiresWhenTheStoreOpens(t *testing.T) {
+	t.Parallel()
+
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
 
@@ -703,6 +759,8 @@ func TestWatchOpenFiresWhenTheStoreOpens(t *testing.T) {
 // The signal is for a store that was not there yet; one already open needs no wait, and
 // OpenExisting is what the caller tries first.
 func TestWatchOpenDoesNotFireForAnAlreadyOpenStore(t *testing.T) {
+	t.Parallel()
+
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
 
@@ -723,6 +781,8 @@ func TestWatchOpenDoesNotFireForAnAlreadyOpenStore(t *testing.T) {
 // Opened with the writer's DSN it carries a write lock instead, which shows up as contention
 // rather than as an error — so the pool is opened by the opener that refuses writes.
 func TestTheReaderPoolRefusesWrites(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 	f, err := store.file()
 	require.NoError(t, err)
@@ -737,6 +797,8 @@ func TestTheReaderPoolRefusesWrites(t *testing.T) {
 // unreadable is a fault to show, and answering with a fresh empty one would silently
 // discard whatever is on disk.
 func TestOpenReportsAFileThatIsNotADatabase(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "1.db"), []byte("not a database"), 0o600))
 	m := NewManager(dir, Retention{})
@@ -749,6 +811,8 @@ func TestOpenReportsAFileThatIsNotADatabase(t *testing.T) {
 // The caches directory is created on demand, so a path that cannot become one is where
 // the open fails — before any of the file's own machinery is reached.
 func TestOpenReportsADirectoryItCannotCreate(t *testing.T) {
+	t.Parallel()
+
 	blocked := filepath.Join(t.TempDir(), "a-file")
 	require.NoError(t, os.WriteFile(blocked, []byte("x"), 0o600))
 	m := NewManager(blocked, Retention{})
@@ -761,6 +825,8 @@ func TestOpenReportsADirectoryItCannotCreate(t *testing.T) {
 // A migration that will not run leaves the file as it found it and says so — opening over
 // a schema nobody can read would put every later statement's failure in its place.
 func TestOpenReportsAMigrationItCannotRun(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	seedRawDB(t, filepath.Join(dir, "1.db"), `CREATE TABLE schema_migrations(wrong TEXT)`)
 	m := NewManager(dir, Retention{})
@@ -774,6 +840,8 @@ func TestOpenReportsAMigrationItCannotRun(t *testing.T) {
 // tables that are not there fails HERE — once, naming the statement — rather than on
 // whichever write happens to be first.
 func TestOpenReportsAStatementItCannotPrepare(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	seedRawDB(t, filepath.Join(dir, "1.db"),
 		`CREATE TABLE schema_migrations(version INTEGER NOT NULL);
@@ -788,6 +856,8 @@ func TestOpenReportsAStatementItCannotPrepare(t *testing.T) {
 // A stat that fails for a reason other than absence is a fault, not an absent cache:
 // answering "no such cache" would have the caller create one where it cannot.
 func TestOpenExistingReportsAPathItCannotStat(t *testing.T) {
+	t.Parallel()
+
 	m := NewManager(unstattableDir(t), Retention{})
 
 	_, _, err := m.OpenExisting(1)
@@ -798,6 +868,8 @@ func TestOpenExistingReportsAPathItCannotStat(t *testing.T) {
 // Stats answers a missing cache as absent, but anything else is a measurement that
 // failed — and the gauge above it must say so rather than render a zero.
 func TestStatsReportsAPathItCannotStat(t *testing.T) {
+	t.Parallel()
+
 	m := NewManager(unstattableDir(t), Retention{})
 
 	_, err := m.Stats(context.Background(), 1)
@@ -808,6 +880,8 @@ func TestStatsReportsAPathItCannotStat(t *testing.T) {
 // A file that exists and will not read is a fault of its own: the size is measurable and
 // the counts are not, and half a measurement is not one.
 func TestStatsReportsAFileItCannotRead(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(dir, "1.db"), []byte("not a database"), 0o600))
 	m := NewManager(dir, Retention{})
@@ -820,6 +894,8 @@ func TestStatsReportsAFileItCannotRead(t *testing.T) {
 // A cache removed between the stat and the read is gone, not broken. SQLite reports a
 // missing file as an ordinary error, so the file itself is what tells the two apart.
 func TestCountsFromDiskAnswersAVanishedFileAsEmpty(t *testing.T) {
+	t.Parallel()
+
 	m := NewManager(t.TempDir(), Retention{})
 
 	counts, err := m.countsFromDiskLocked(context.Background(), filepath.Join(t.TempDir(), "gone.db"))
@@ -831,6 +907,8 @@ func TestCountsFromDiskAnswersAVanishedFileAsEmpty(t *testing.T) {
 // Remove retires the entry whatever happens, but a close that fails is still reported —
 // the caller's next pass retries the unlink, and until it lands nothing may reopen.
 func TestRemoveReportsAFileThatWillNotClose(t *testing.T) {
+	t.Parallel()
+
 	boom := errors.New("close failed")
 	m := newManagerWithOptions(t.TempDir(), withCloseFile(closesAndFails(boom)))
 	store, err := m.OpenOrCreate(1)
@@ -843,6 +921,8 @@ func TestRemoveReportsAFileThatWillNotClose(t *testing.T) {
 // The manager has nothing to do at startup — the files open on demand — so it satisfies
 // the lifecycle contract without holding one open.
 func TestStartHasNothingToDo(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -868,6 +948,8 @@ func seedRawDB(t *testing.T, path, schema string) {
 // writers and not the readers fails at open rather than on the first watch — where an
 // empty table would be all the user saw.
 func TestOpenReportsAReadStatementItCannotPrepare(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	// Migrated to the current version so Apply skips, over tables the writers can use and
 	// the readers cannot: kind_counts without the column the nav's counts come from.
@@ -911,6 +993,8 @@ func TestOpenReportsAReadStatementItCannotPrepare(t *testing.T) {
 // the janitor's size check. Its error return is what keeps "not cached" and "cannot read
 // this file" apart — collapsing them would report a full cache as absent.
 func TestStatDiskUsageMeasuresTheThreeFiles(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -934,6 +1018,8 @@ func TestStatDiskUsageMeasuresTheThreeFiles(t *testing.T) {
 // os.IsNotExist rather than as zeroes: Stats reads it as "not cached", the janitor as a
 // file that went while it swept.
 func TestStatDiskUsageReportsAMissingFile(t *testing.T) {
+	t.Parallel()
+
 	_, err := statDiskUsage(filepath.Join(t.TempDir(), "nope.db"))
 
 	assert.True(t, os.IsNotExist(err), "got %v", err)
@@ -943,6 +1029,8 @@ func TestStatDiskUsageReportsAMissingFile(t *testing.T) {
 // a WAL-heavy file before deciding and a bare measurement does not, so two verdicts would
 // disagree mid-checkpoint — and the pause hangs off this one.
 func TestStatsReportsTheJanitorsVerdict(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	m := NewManager(t.TempDir(), Retention{SizeLimit: gib})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -962,6 +1050,8 @@ func TestStatsReportsTheJanitorsVerdict(t *testing.T) {
 // closed cache cannot grow — but it sits beside a Bytes of whatever the file holds, so it
 // has to be stated rather than discovered.
 func TestStatsReportsNoVerdictForAClosedCache(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	m := NewManager(t.TempDir(), Retention{SizeLimit: 1})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -980,6 +1070,8 @@ func TestStatsReportsNoVerdictForAClosedCache(t *testing.T) {
 // A manager with no interval runs no janitor, so nothing ever forms a verdict. Every test
 // that opens a manager for some other reason is in this state.
 func TestStatsReportsNoVerdictWithoutAJanitor(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	m := NewManager(t.TempDir(), Retention{SizeLimit: 1})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })

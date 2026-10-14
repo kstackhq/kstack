@@ -130,6 +130,8 @@ func (skipTool) Approval(context.Context, tools.Runtime, json.RawMessage) (tools
 // A gated call whose approval skips runs with nothing asked, and its row is an
 // ungated call's: no approval, is_mutating 0, running then succeeded.
 func TestASkippedApprovalRunsUnasked(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, skipTool{testTool{name: "Read"}})
 	fakeOf(s).SetToolCalls(llm.StagedCall("Read", `{"file_path":"/x"}`))
 
@@ -153,6 +155,8 @@ func TestASkippedApprovalRunsUnasked(t *testing.T) {
 // message waiting, and the list carrying the approval id beside the exact
 // command and the description shown with it.
 func TestACommandWaitsOnTheUser(t *testing.T) {
+	t.Parallel()
+
 	sh := &fakeBash{}
 	s := startServiceWithTool(t, sh)
 	command := `kubectl get pods > out && cat out | grep "é"`
@@ -182,6 +186,8 @@ func TestACommandWaitsOnTheUser(t *testing.T) {
 // A background command's request says so, on the live list and the stored read
 // alike.
 func TestABackgroundApprovalSaysSo(t *testing.T) {
+	t.Parallel()
+
 	sh := &fakeBash{}
 	s := startServiceWithTool(t, sh)
 	fakeOf(s).SetToolCalls(llm.StagedCall("Bash", `{"command":"make serve","run_in_background":true}`))
@@ -198,6 +204,8 @@ func TestABackgroundApprovalSaysSo(t *testing.T) {
 // The call's first write is awaiting_approval, with its approval; nothing writes
 // a pending row first.
 func TestACommandRowStartsAwaiting(t *testing.T) {
+	t.Parallel()
+
 	sh := &fakeBash{}
 	s := startServiceWithTool(t, sh)
 	_, err := s.db.Write.Exec(`CREATE TABLE first_status (status TEXT);
@@ -225,6 +233,8 @@ func TestACommandRowStartsAwaiting(t *testing.T) {
 // A decision that arrives before the turn reaches its wait is kept for it, and a
 // second decision finds no one waiting.
 func TestAFastDecisionFindsItsWaiter(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	id := newApprovalID()
 	w := s.await(id, "", nil)
@@ -244,6 +254,8 @@ func TestAFastDecisionFindsItsWaiter(t *testing.T) {
 
 // Approved, the command is shown running, then done, with what the model read.
 func TestAnApprovedCommandIsShownRunningThenDone(t *testing.T) {
+	t.Parallel()
+
 	release := make(chan struct{})
 	sh := &fakeBash{run: func(context.Context, string) (string, bool) {
 		<-release
@@ -273,6 +285,8 @@ func TestAnApprovedCommandIsShownRunningThenDone(t *testing.T) {
 // Denied, nothing runs: the model is answered denied, the row is denied with no
 // started_at, and the approval says what the user decided.
 func TestADeniedCommandDoesNotRun(t *testing.T) {
+	t.Parallel()
+
 	sh := &fakeBash{}
 	s := startServiceWithTool(t, sh)
 	fakeOf(s).SetToolCalls(bashCall("rm -rf ~"))
@@ -297,6 +311,8 @@ func TestADeniedCommandDoesNotRun(t *testing.T) {
 // The decision flips the run and the message back from waiting while the command
 // runs.
 func TestTheRunFlipsBackOnTheDecision(t *testing.T) {
+	t.Parallel()
+
 	release := make(chan struct{})
 	sh := &fakeBash{run: func(context.Context, string) (string, bool) {
 		<-release
@@ -318,6 +334,8 @@ func TestTheRunFlipsBackOnTheDecision(t *testing.T) {
 
 // A bash call the budget refused asks no one and is still listed, not run.
 func TestARefusedBashCallIsStillListed(t *testing.T) {
+	t.Parallel()
+
 	sh := &fakeBash{}
 	s := startServiceWithTool(t, sh)
 	calls := make([]llm.Block, MaxToolCalls+1)
@@ -341,6 +359,8 @@ func TestARefusedBashCallIsStillListed(t *testing.T) {
 // A cancel while the request is up runs nothing: the call is answered cancelled
 // with no started_at, and a decision that arrives after finds no one waiting.
 func TestACancelledWaitRunsNothing(t *testing.T) {
+	t.Parallel()
+
 	sh := &fakeBash{}
 	s := startServiceWithTool(t, sh)
 	fakeOf(s).SetToolCalls(bashCall("ls"))
@@ -364,6 +384,8 @@ func TestACancelledWaitRunsNothing(t *testing.T) {
 // A cancel while an approved command runs kills it: the row keeps started_at and
 // reads as interrupted, since it may have run.
 func TestACancelledRunIsInterrupted(t *testing.T) {
+	t.Parallel()
+
 	started := make(chan struct{})
 	sh := &fakeBash{run: func(ctx context.Context, _ string) (string, bool) {
 		close(started)
@@ -389,6 +411,8 @@ func TestACancelledRunIsInterrupted(t *testing.T) {
 // A cancel observed before the decision leaves the record of an unanswered
 // question: the approval pending and undecided, the call not run, the run cancelled.
 func TestACancelBeforeTheDecisionCommitsLeavesItPending(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, &fakeBash{})
 	fakeOf(s).SetToolCalls(bashCall("ls"))
 
@@ -411,6 +435,8 @@ func TestACancelBeforeTheDecisionCommitsLeavesItPending(t *testing.T) {
 // Once the decision is taken it commits and stands, and a cancel landing as it is
 // written stops the command before it starts: the user approved, and nothing ran.
 func TestACancelAfterTheDecisionCommitsKeepsItAndRunsNothing(t *testing.T) {
+	t.Parallel()
+
 	sh := &fakeBash{}
 	s := startServiceWithTool(t, sh)
 	fakeOf(s).SetToolCalls(bashCall("ls"))
@@ -454,6 +480,8 @@ func TestACancelAfterTheDecisionCommitsKeepsItAndRunsNothing(t *testing.T) {
 // A request that cannot be written is never shown and never runs: the call is
 // refused not-run and the turn fails.
 func TestAFailedApprovalWriteRefusesTheCommand(t *testing.T) {
+	t.Parallel()
+
 	sh := &fakeBash{}
 	s := startServiceWithTool(t, sh)
 	_, err := s.db.Write.Exec(`CREATE TRIGGER refuse BEFORE INSERT ON approvals BEGIN SELECT RAISE(ABORT, 'refused'); END`)
@@ -479,6 +507,8 @@ func TestAFailedApprovalWriteRefusesTheCommand(t *testing.T) {
 // A decision the store refuses ends the turn with the store's error; the approval
 // stays pending, the question recorded and its answer not, and nothing runs.
 func TestTheCommandWritesReportWhatTheStoreRefuses(t *testing.T) {
+	t.Parallel()
+
 	sh := &fakeBash{}
 	s := startServiceWithTool(t, sh)
 	_, err := s.db.Write.Exec(`CREATE TRIGGER refuse BEFORE UPDATE ON approvals WHEN NEW.status != 'pending'
@@ -502,6 +532,8 @@ func TestTheCommandWritesReportWhatTheStoreRefuses(t *testing.T) {
 // An approved command whose running write fails never starts: its row is closed
 // not-run with no started_at, and the shell is never called.
 func TestAFailedStartWriteLeavesTheCommandNotRun(t *testing.T) {
+	t.Parallel()
+
 	sh := &fakeBash{}
 	s := startServiceWithTool(t, sh)
 	_, err := s.db.Write.Exec(`CREATE TRIGGER refuse BEFORE UPDATE ON tool_calls WHEN NEW.status = 'running'
@@ -526,6 +558,8 @@ func TestAFailedStartWriteLeavesTheCommandNotRun(t *testing.T) {
 // Whichever way a gated call ends, it is one row under its seq with its approval
 // still joined.
 func TestEveryEndOfAGatedCallClosesItsOneRow(t *testing.T) {
+	t.Parallel()
+
 	for name, tc := range map[string]struct {
 		trigger string
 		end     func(t *testing.T, s *service, msg ChatMessage, id ApprovalID)
@@ -570,6 +604,8 @@ func TestEveryEndOfAGatedCallClosesItsOneRow(t *testing.T) {
 // A call queued behind a command whose wait was cancelled is answered cancelled
 // and never asked about, let alone run.
 func TestACallQueuedBehindACancelledWaitRunsNothing(t *testing.T) {
+	t.Parallel()
+
 	sh := &fakeBash{}
 	s := startServiceWithTool(t, sh)
 	fakeOf(s).SetToolCalls(bashCall("ls"), bashCall("rm -rf /tmp/x"))
@@ -613,6 +649,8 @@ func seedWait(t *testing.T, db *appdb.DB, chatID ChatID, command, content string
 // The directory a command runs in is on its request: in the tool_calls row, on
 // the live list, and on the stored read once the turn has settled.
 func TestTheToolCallRowHoldsTheCwd(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, &fakeBash{})
 	// Absolute on every OS; the request reads it without touching the disk.
 	workdir := filepath.Join(t.TempDir(), "app")
@@ -658,6 +696,8 @@ func cwdAndSandboxed(t *testing.T, s *service) (string, bool) {
 // Whether a sandbox confined a call is on its row beside the cwd, from the first
 // write through the settle, whether the call asked or skipped the question.
 func TestASandboxedCallIsRecordedAsSandboxed(t *testing.T) {
+	t.Parallel()
+
 	for _, skip := range []bool{false, true} {
 		var s *service
 		var whileRunning struct {
@@ -696,6 +736,8 @@ func TestASandboxedCallIsRecordedAsSandboxed(t *testing.T) {
 // A command that never ran reads back off its row once the turn has settled and
 // the overlay is gone: its request, and that it did not run.
 func TestAStoredReadKeepsAnUnrunCommand(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, &fakeBash{})
 	fakeOf(s).SetToolCalls(bashCall("kubectl delete pod web-0"))
 
@@ -717,6 +759,8 @@ func TestAStoredReadKeepsAnUnrunCommand(t *testing.T) {
 // A wait the process died in is failed at the next start: the row closed stranded
 // with no started_at, the approval left pending, and a decision on it finds no one.
 func TestStartupFailsAStrandedWait(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	db := openTestDB(t, dir)
 	c := seedChat(t, db, aChat("1", time.UnixMilli(1_000).UTC()))
@@ -742,6 +786,8 @@ func TestStartupFailsAStrandedWait(t *testing.T) {
 // The transcript reads a command off its row, never off the content, so a command
 // whose tool_use never reached the stored content is still shown.
 func TestACommandSurvivesACrashBeforeItsCheckpoint(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	db := openTestDB(t, dir)
 	c := seedChat(t, db, aChat("1", time.UnixMilli(1_000).UTC()))
@@ -762,6 +808,8 @@ func TestACommandSurvivesACrashBeforeItsCheckpoint(t *testing.T) {
 // A command whose own output spells a refusal ran and succeeded: the row is
 // judged by whether the result is an error, never by what its text happens to say.
 func TestACommandPrintingARefusalStillSucceeded(t *testing.T) {
+	t.Parallel()
+
 	sh := &fakeBash{run: func(context.Context, string) (string, bool) { return "{\"error\":\"denied\"}\n", false }}
 	s := startServiceWithTool(t, sh)
 	fakeOf(s).SetToolCalls(bashCall(`echo '{"error":"denied"}'`))
@@ -783,6 +831,8 @@ func TestACommandPrintingARefusalStillSucceeded(t *testing.T) {
 // no directory: one cancelled behind another's wait, and one on a box with no
 // shell, which the loop refuses unknown-tool.
 func TestAnUngatedBashCallShowsItsCommand(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, &fakeBash{})
 	fakeOf(s).SetToolCalls(bashCall("ls"), describedBashCall("rm -rf /tmp/x", "Clear the scratch"))
 	msg := send(t, s, nil, "1", "hi")
@@ -814,6 +864,8 @@ func TestAnUngatedBashCallShowsItsCommand(t *testing.T) {
 // A message awaits approval while its own run waits on the user, on the live
 // answer, and not once the decision is in.
 func TestAWaitingRequestMarksItsMessage(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, &fakeBash{})
 	fakeOf(s).SetToolCalls(bashCall("kubectl get pods"))
 
@@ -829,6 +881,8 @@ func TestAWaitingRequestMarksItsMessage(t *testing.T) {
 // A settled answer awaits approval while a run under it waits on the user: the
 // stored read looks at the subagents' runs too.
 func TestASubagentWaitingMarksItsSettledAnswer(t *testing.T) {
+	t.Parallel()
+
 	now := time.UnixMilli(1_000).UTC()
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", now))
@@ -856,6 +910,8 @@ func TestASubagentWaitingMarksItsSettledAnswer(t *testing.T) {
 // stopped_by unanswered: its slot is freed, the request can no longer be
 // decided, and its notice rides the next question.
 func TestAnUnansweredRequestStopsItsAgent(t *testing.T) {
+	t.Parallel()
+
 	sh := &fakeBash{}
 	s := startServiceWithAgent(t, sh)
 	s.unansweredLimit = time.Millisecond
@@ -882,6 +938,8 @@ func TestAnUnansweredRequestStopsItsAgent(t *testing.T) {
 // The parent's own request is not bounded: it holds the turn, which the user
 // sees and can cancel.
 func TestTheParentsOwnRequestWaits(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, &fakeBash{})
 	s.unansweredLimit = time.Millisecond
 	fakeOf(s).SetToolCalls(bashCall("kubectl get pods"))
@@ -903,6 +961,8 @@ func TestTheParentsOwnRequestWaits(t *testing.T) {
 // A chat with an agent waiting on the user is marked on the list, which a watch
 // hears, and the mark clears when the agent is stopped.
 func TestAWaitingAgentMarksItsChat(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithAgent(t, &fakeBash{})
 	fakeOf(s).SetToolCalls(agentCall("List the pods."))
 	subagentFake(s, "List the pods.").SetToolCalls(bashCall("kubectl get pods"))
@@ -928,6 +988,8 @@ func TestAWaitingAgentMarksItsChat(t *testing.T) {
 // A chat a restart left waiting is not marked: the start fails the run, and a
 // watch opened before it hears the mark clear.
 func TestAStrandedWaitClearsTheChatsMark(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	db := openTestDB(t, dir)
 	c := seedChat(t, db, aChat("1", time.UnixMilli(1_000).UTC()))
@@ -1038,6 +1100,8 @@ func awaitWrite(t *testing.T, s *service, msg ChatMessage, status ApprovalStatus
 // throughout. While it waits the list carries the write whole; once decided,
 // its method and path alone.
 func TestAWriteIsAskedUnderTheRunningCall(t *testing.T) {
+	t.Parallel()
+
 	hold := make(chan struct{})
 	s := startWriter(t, writerTool{hold: hold})
 
@@ -1076,6 +1140,8 @@ func TestAWriteIsAskedUnderTheRunningCall(t *testing.T) {
 
 // A denied write answers false to the command, which runs on.
 func TestADeniedWriteAnswersFalse(t *testing.T) {
+	t.Parallel()
+
 	s := startWriter(t, writerTool{})
 
 	msg := send(t, s, nil, "1", "hi")
@@ -1092,6 +1158,8 @@ func TestADeniedWriteAnswersFalse(t *testing.T) {
 // abandoned, flips the run back to running and publishes; a later decision on
 // it reaches no one.
 func TestAWriteWaitEndsWithTheRequest(t *testing.T) {
+	t.Parallel()
+
 	ctx, drop := context.WithCancel(t.Context())
 	hold := make(chan struct{})
 	s := startWriter(t, writerTool{hold: hold, ctx: ctx})
@@ -1115,6 +1183,8 @@ func TestAWriteWaitEndsWithTheRequest(t *testing.T) {
 // Cancelling the run ends a write's wait: the write is abandoned, and the run
 // settles cancelled.
 func TestAWriteWaitEndsWithTheRun(t *testing.T) {
+	t.Parallel()
+
 	s := startWriter(t, writerTool{})
 
 	msg := send(t, s, nil, "1", "hi")
@@ -1130,6 +1200,8 @@ func TestAWriteWaitEndsWithTheRun(t *testing.T) {
 // The settle writes each write's approval again from what the turn holds, so a
 // decision whose row was lost is healed.
 func TestTheSettleRewritesTheWrites(t *testing.T) {
+	t.Parallel()
+
 	hold := make(chan struct{})
 	s := startWriter(t, writerTool{hold: hold})
 
@@ -1148,6 +1220,8 @@ func TestTheSettleRewritesTheWrites(t *testing.T) {
 // A subagent asks its writes as its own, under its own run: past the bound its
 // write is abandoned and the agent stopped, stopped_by unanswered.
 func TestASubagentsWriteIsBoundedByItsLimit(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithAgent(t, writerTool{testTool: testTool{name: "Writer"}})
 	s.unansweredLimit = time.Millisecond
 	fakeOf(s).SetToolCalls(agentCall("Delete the pod."))
@@ -1166,6 +1240,8 @@ func TestASubagentsWriteIsBoundedByItsLimit(t *testing.T) {
 // A write whose request cannot be written is never shown: the command reads
 // the wait ended, and nothing waits on its id.
 func TestAWriteThatCannotBeRecordedIsNotAsked(t *testing.T) {
+	t.Parallel()
+
 	s := startWriter(t, writerTool{})
 	_, err := s.db.Write.Exec(`CREATE TRIGGER refuse BEFORE INSERT ON approvals BEGIN SELECT RAISE(ABORT, 'refused'); END`)
 	require.NoError(t, err)
@@ -1184,6 +1260,8 @@ func TestAWriteThatCannotBeRecordedIsNotAsked(t *testing.T) {
 // goes on a decision the record does not hold. The request still comes down,
 // since the command runs on, and the settle writes the decision.
 func TestADecisionThatCannotBeRecordedForwardsNothing(t *testing.T) {
+	t.Parallel()
+
 	hold := make(chan struct{})
 	s := startWriter(t, writerTool{hold: hold})
 	_, err := s.db.Write.Exec(`CREATE TRIGGER refuse BEFORE UPDATE ON approvals WHEN NEW.status != 'pending'
@@ -1209,6 +1287,8 @@ func TestADecisionThatCannotBeRecordedForwardsNothing(t *testing.T) {
 
 // A write asked while no call of the run is running is refused.
 func TestAWriteWithNoRunningCallIsRefused(t *testing.T) {
+	t.Parallel()
+
 	j := &runJournal{s: newTestService(t)}
 
 	answer, err := j.askAction(t.Context(), deleteX)
@@ -1251,6 +1331,8 @@ func (r recorderTool) Run(ctx context.Context, rt tools.Runtime, _ json.RawMessa
 // A write decided with nobody asked is recorded against the open call with its
 // reason, with no wait: the run stays streaming.
 func TestARecordedWriteNeedsNoWait(t *testing.T) {
+	t.Parallel()
+
 	hold := make(chan struct{})
 	s := startServiceWithTool(t, recorderTool{testTool: testTool{name: "Recorder"}, hold: hold})
 	fakeOf(s).SetToolCalls(llm.StagedCall("Recorder", `{}`))
@@ -1277,6 +1359,8 @@ func TestARecordedWriteNeedsNoWait(t *testing.T) {
 
 // A write recorded while no call of the run is running is refused.
 func TestARecordWithNoRunningCallIsRefused(t *testing.T) {
+	t.Parallel()
+
 	j := &runJournal{s: newTestService(t)}
 
 	err := j.recordAction(t.Context(), deleteX, permissions.Allowed, "auto mode")
@@ -1287,6 +1371,8 @@ func TestARecordWithNoRunningCallIsRefused(t *testing.T) {
 // Only an allowed or denied write is recorded, so a prompt passed by mistake
 // is refused rather than recorded as allowed.
 func TestARecordOfAPromptIsRefused(t *testing.T) {
+	t.Parallel()
+
 	j := &runJournal{s: newTestService(t), openTool: &toolCallEntry{}}
 
 	err := j.recordAction(t.Context(), deleteX, permissions.Prompted, "ask mode")
@@ -1319,6 +1405,8 @@ func actionRequests(t *testing.T, db *appdb.DB) (kinds []string, requests []tool
 // An asked action's row holds its request, the action included, and so do an
 // allowed and a refused one's.
 func TestAnActionIsRecordedWithItsRequest(t *testing.T) {
+	t.Parallel()
+
 	s := startWriter(t, writerTool{})
 	msg := send(t, s, nil, "1", "hi")
 	approve(t, s, toolCallsOf(t, awaitWrite(t, s, msg, ApprovalPending))[0].ClusterWrites[0].Approval.ID, false)
@@ -1402,6 +1490,8 @@ func startTwoRequests(t *testing.T, w twoRequestsTool) (*service, ChatMessage, f
 // Two asks of one run reach the journal one at a time: the second's row is
 // written only once the first is answered.
 func TestAsksTakeTheJournalOneAtATime(t *testing.T) {
+	t.Parallel()
+
 	second := make(chan struct{})
 	s, msg, withN := startTwoRequests(t, twoRequestsTool{second: second, done: make(chan error, 2)})
 
@@ -1420,6 +1510,8 @@ func TestAsksTakeTheJournalOneAtATime(t *testing.T) {
 // A record lands while an ask waits on the user, and the answer still says it
 // waits.
 func TestARecordNeverWaitsBehindAnAsk(t *testing.T) {
+	t.Parallel()
+
 	second := make(chan struct{})
 	done := make(chan error, 2)
 	s, msg, withN := startTwoRequests(t, twoRequestsTool{second: second, record: true, done: done})
@@ -1469,6 +1561,8 @@ func askOnce(t *testing.T, d ApprovalDecision) (*service, ChatMessage) {
 
 // Once approves the request alone: approved with once, and no rule anywhere.
 func TestOnceWritesTheDurationAndNoRule(t *testing.T) {
+	t.Parallel()
+
 	s, msg := askOnce(t, DecisionOnce)
 
 	assert.Equal(t, "true once", toolCallsOf(t, msg)[0].Output)
@@ -1479,6 +1573,8 @@ func TestOnceWritesTheDurationAndNoRule(t *testing.T) {
 
 // A denial is nobody's choice of how long: it records no duration.
 func TestADenialRecordsNoDuration(t *testing.T) {
+	t.Parallel()
+
 	s, msg := askOnce(t, DecisionDeny)
 
 	assert.Equal(t, "false ", toolCallsOf(t, msg)[0].Output)
@@ -1488,6 +1584,8 @@ func TestADenialRecordsNoDuration(t *testing.T) {
 // A call's own request, a raw command's, takes Once or Deny alone: an allow
 // answer is refused and the waiter stays, so Once then lands.
 func TestACallsOwnApprovalTakesOnceOrDenyAlone(t *testing.T) {
+	t.Parallel()
+
 	sh := &fakeBash{}
 	s := startServiceWithTool(t, sh)
 	fakeOf(s).SetToolCalls(bashCall("ls"))
@@ -1506,6 +1604,8 @@ func TestACallsOwnApprovalTakesOnceOrDenyAlone(t *testing.T) {
 
 // An action no rule may allow takes Once or Deny alone, as a raw command does.
 func TestAnUngrantableActionTakesOnceOrDenyAlone(t *testing.T) {
+	t.Parallel()
+
 	destructive := deleteX
 	destructive.Action.Class, destructive.Grantable = permissions.Destructive, false
 	destructive.CommandRule, destructive.ChatRule = "", ""
@@ -1526,6 +1626,8 @@ func TestAnUngrantableActionTakesOnceOrDenyAlone(t *testing.T) {
 // Command approves with command and writes no rule: the proxy keeps it for the
 // rest of the command.
 func TestCommandWritesNoRule(t *testing.T) {
+	t.Parallel()
+
 	s, msg := askOnce(t, DecisionCommand)
 
 	assert.Equal(t, "true command", toolCallsOf(t, msg)[0].Output)
@@ -1545,6 +1647,8 @@ func grantRows(t *testing.T, db *appdb.DB) int {
 // Chat writes the action's grant rule as one of the chat's, and the turn hears
 // the approval only once the row is there.
 func TestChatWritesAGrantBeforeTheDecisionLands(t *testing.T) {
+	t.Parallel()
+
 	var s *service
 	seen := make(chan int, 1)
 	s = startWriter(t, writerTool{after: func() { seen <- grantRows(t, s.db) }})
@@ -1563,6 +1667,8 @@ func TestChatWritesAGrantBeforeTheDecisionLands(t *testing.T) {
 // Always writes the action's grant rule into the settings, as Settings' own
 // add does, under a fresh id.
 func TestAlwaysWritesTheRuleIntoTheSettings(t *testing.T) {
+	t.Parallel()
+
 	s, msg := askOnce(t, DecisionAlways)
 
 	assert.Equal(t, "true always", toolCallsOf(t, msg)[0].Output)
@@ -1579,6 +1685,8 @@ func TestAlwaysWritesTheRuleIntoTheSettings(t *testing.T) {
 // The same answer twice on the same action leaves one rule, and both reach
 // their turn approved.
 func TestARuleAlreadyHeldIsWrittenOnce(t *testing.T) {
+	t.Parallel()
+
 	for _, d := range []ApprovalDecision{DecisionChat, DecisionAlways} {
 		s := startWriter(t, writerTool{})
 		first := send(t, s, nil, "1", "hi")
@@ -1616,6 +1724,8 @@ func askWith(t *testing.T, s *service, d ApprovalDecision) (*service, ChatMessag
 // While the settings hold rules Kstack cannot read, Always is refused, nothing
 // is written, and the request still waits for Once.
 func TestAlwaysWaitsWhileTheRulesAreHeld(t *testing.T) {
+	t.Parallel()
+
 	s := startWriter(t, writerTool{})
 	file := filepath.Join(t.TempDir(), "settings.json")
 	require.NoError(t, os.WriteFile(file, []byte(`{"permissions":{"rules":[{"id":"b","effect":"maybe","class":4}]}}`), 0o600))
@@ -1654,6 +1764,8 @@ func blockedRule(s *service) (entered chan struct{}, release chan error) {
 // waiter. A rule's write runs outside the lock, so another request is decided
 // while it is held.
 func TestApproveClaimsTheWaiterBeforeWriting(t *testing.T) {
+	t.Parallel()
+
 	second := make(chan struct{})
 	s, msg, withN := startTwoRequests(t, twoRequestsTool{second: second, record: true, done: make(chan error, 2)})
 	entered, release := blockedRule(s)
@@ -1680,6 +1792,8 @@ func TestApproveClaimsTheWaiterBeforeWriting(t *testing.T) {
 
 // A rule write that fails answers its error, and the request still waits.
 func TestAFailedRuleWriteLeavesTheRequestWaiting(t *testing.T) {
+	t.Parallel()
+
 	s := startWriter(t, writerTool{})
 	_, release := blockedRule(s)
 	release <- errors.New("store refused")
@@ -1697,6 +1811,8 @@ func TestAFailedRuleWriteLeavesTheRequestWaiting(t *testing.T) {
 
 // A rule write that fails after the turn stopped waiting puts no waiter back.
 func TestAFailedRuleWriteAfterTheTurnStoppedLeavesNoWaiter(t *testing.T) {
+	t.Parallel()
+
 	s := startWriter(t, writerTool{})
 	entered, release := blockedRule(s)
 	msg := send(t, s, nil, "1", "hi")
@@ -1734,6 +1850,8 @@ func networkOf(t *testing.T, s *service) sql.NullString {
 // waiting on the user, or one the user denied, never says it had any; the
 // settle's rewrite keeps it, and the wire serves it.
 func TestTheRecordSaysTheNetworkOnceTheCallRuns(t *testing.T) {
+	t.Parallel()
+
 	for _, c := range []struct {
 		approval tools.Approval
 		stored   string
@@ -1801,6 +1919,8 @@ var readDB = tools.ActionRequest{
 // grant for its context and namespace as one of the chat's, and Always writes
 // it into the settings.
 func TestAChatAnswerWritesAClassSixGrant(t *testing.T) {
+	t.Parallel()
+
 	want := permissions.Rule{Effect: permissions.Allow, Class: permissions.SecretRead, Context: "dev", Namespace: "web"}
 
 	s := startWriter(t, writerTool{request: &readDB})

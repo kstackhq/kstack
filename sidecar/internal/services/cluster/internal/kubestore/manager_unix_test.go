@@ -30,8 +30,8 @@ import (
 // owner-only even when the sidecar was started with a permissive umask. The test binary
 // never runs main, so this pins the chmod in sqlitepool.OpenWriter on the real path.
 //
-// syscall.Umask is process-global: this test must not be t.Parallel(), and nothing else
-// in this package may become parallel either.
+// syscall.Umask is process-global, so this test must not be t.Parallel(): Go runs every
+// serial test before it resumes the parallel ones, which keeps the umask from reaching them.
 func TestCacheFileIsOwnerOnly(t *testing.T) {
 	prev := syscall.Umask(0o022)
 	defer syscall.Umask(prev)
@@ -54,6 +54,8 @@ func TestCacheFileIsOwnerOnly(t *testing.T) {
 // the sweep would publish a release. A symlink to itself is a stat that fails with ELOOP
 // rather than ENOENT.
 func TestStatDiskUsageReportsASidecarItCannotStat(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	path := filepath.Join(dir, "1.db")
 	require.NoError(t, os.WriteFile(path, []byte("db"), 0o600))

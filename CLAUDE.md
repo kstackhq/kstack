@@ -67,6 +67,8 @@ These apply to `src/`, `sidecar/`, and `src-tauri/` alike; each area's `CLAUDE.m
 
 **Pace a timing-dependent unit by parameter, not by constant.** A production constant a test must outwait (a retry cadence, a poll interval) becomes an argument, and production passes the constant — see `appdb`'s `runJanitor`. Shrinking it in a test is then free, and the test never encodes the production number.
 
+**A test seam is a parameter or a field, never a package variable a test swaps.** A swapped variable reaches every test running beside it, so it keeps a whole package serial. In Go, `agent/chat`, `kubestore` and `kubeconn` call `t.Parallel()` in every test; one that must touch process state (`t.Setenv`, `syscall.Umask`) stays serial and says why.
+
 Two shapes are *not* magic sleeps, and both must say so in a comment:
 
 - **A negative assertion** ("must NOT happen") has no event to wait for, so it needs a bounded window. Write it as a `select` on the tripwire channel versus `time.After` — it fails the instant the thing happens rather than at the end — and size the window as a multiple of the (shrunk) cadence, never a bare guess. Sample the baseline off the same channel, not by polling a counter, or the baseline read races the bug and swallows it.

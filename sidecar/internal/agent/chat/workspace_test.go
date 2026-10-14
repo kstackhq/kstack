@@ -34,6 +34,8 @@ import (
 // card, and the path is fixed for the chat, so the next question with nothing
 // else changed carries no context block.
 func TestTheContextNamesTheWorkspace(t *testing.T) {
+	t.Parallel()
+
 	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
 
 	first := sendAndSettle(t, s, nil, "1", "1", "one")
@@ -50,6 +52,8 @@ func TestTheContextNamesTheWorkspace(t *testing.T) {
 // On a machine with a sandbox the context says where the chat's commands run,
 // after the workspace, and says it again once the user switches the chat.
 func TestTheContextSaysWhereCommandsRun(t *testing.T) {
+	t.Parallel()
+
 	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
 	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
 
@@ -73,6 +77,8 @@ func TestTheContextSaysWhereCommandsRun(t *testing.T) {
 // always its last, and hands the context back unchanged when there is nothing
 // to swap.
 func TestWithSandboxReplacedSwapsTheLastSection(t *testing.T) {
+	t.Parallel()
+
 	s := &service{sandboxStatus: sandbox.Status{Available: true, NetworkAvailable: true}}
 	card := "## Cluster\n\n```json\n{}\n```"
 	off, chat := sandboxState{}, sandboxState{networkEnabled: true}
@@ -110,6 +116,8 @@ func sandboxSectionOf(t *testing.T, s *service, chatID ChatID) map[string]string
 // It is sent again whenever it says something new, so a question after one
 // sent with the toggle says off.
 func TestTheContextSaysTheNetwork(t *testing.T) {
+	t.Parallel()
+
 	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
 	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
 
@@ -146,6 +154,8 @@ func TestTheContextSaysTheNetwork(t *testing.T) {
 }
 
 func TestTheSandboxSectionListsAtMostTwentyFolders(t *testing.T) {
+	t.Parallel()
+
 	s := &service{sandboxStatus: sandbox.Status{Available: true}}
 	var folders []session.Folder
 	for i := range 22 {
@@ -171,6 +181,8 @@ func sectionOf(t *testing.T, block string) map[string]any {
 }
 
 func TestTheContextListsTheGrants(t *testing.T) {
+	t.Parallel()
+
 	s := serviceWithClusterCards(t, &stubClusterCards{card: "## Cluster\n\n```json\n{}\n```"})
 	home := grantable(t, s)
 	code, svc := filepath.Join(home, "code"), filepath.Join(home, "code", "svc")

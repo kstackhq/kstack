@@ -31,6 +31,8 @@ import (
 // An answer with nothing written yet stores as the empty array, not as an empty
 // column: the content column is JSON and "" is not.
 func TestContentOfNoBlocksIsTheEmptyArray(t *testing.T) {
+	t.Parallel()
+
 	assert.Equal(t, emptyContent, marshalBlocks(nil))
 	assert.Equal(t, emptyContent, marshalBlocks([]llm.Block{}))
 }
@@ -38,6 +40,8 @@ func TestContentOfNoBlocksIsTheEmptyArray(t *testing.T) {
 // A message's thinking is what its blocks hold of it: empty for a question, for a
 // message with none, and for content that does not parse.
 func TestThinkingIsWhatTheContentHoldsOfIt(t *testing.T) {
+	t.Parallel()
+
 	answer := ChatMessage{Content: marshalBlocks(llm.AnswerBlocks("counting", "twelve"))}
 	assert.Equal(t, "counting", answer.Thinking())
 
@@ -48,6 +52,8 @@ func TestThinkingIsWhatTheContentHoldsOfIt(t *testing.T) {
 }
 
 func TestContentRoundTripsThroughTheColumn(t *testing.T) {
+	t.Parallel()
+
 	blocks := []llm.Block{llm.TextBlock("hi")}
 
 	back, err := unmarshalBlocks(marshalBlocks(blocks))
@@ -59,6 +65,8 @@ func TestContentRoundTripsThroughTheColumn(t *testing.T) {
 // A content column that is not JSON is the read's error, never an empty answer: a
 // message silently read as having nothing to say would leave the wire accepting it.
 func TestBlocksOfRefusesAColumnThatIsNotJSON(t *testing.T) {
+	t.Parallel()
+
 	_, err := unmarshalBlocks(rawjson.RawJSON("not json"))
 
 	assert.Error(t, err)
@@ -67,6 +75,8 @@ func TestBlocksOfRefusesAColumnThatIsNotJSON(t *testing.T) {
 // A block whose Input is not JSON fails loudly rather than writing a row the read
 // cannot parse. llm.ToolUseBlock is what keeps it from happening.
 func TestContentOfABlockWithBrokenInputPanics(t *testing.T) {
+	t.Parallel()
+
 	broken := []llm.Block{{Type: llm.BlockToolUse, Input: json.RawMessage("{")}}
 
 	assert.Panics(t, func() { marshalBlocks(broken) })
@@ -75,6 +85,8 @@ func TestContentOfABlockWithBrokenInputPanics(t *testing.T) {
 // The list a message carries parses back into its calls, and a string that is not
 // a list is an error rather than an empty list.
 func TestAToolCallListRoundTrips(t *testing.T) {
+	t.Parallel()
+
 	msg := ChatMessage{ToolCalls: marshalToolCalls([]toolCallEntry{{ID: "t", Name: "bash", Arguments: `{}`, Status: toolSucceeded, Result: "ok"}}, tools.Box{})}
 	calls, err := msg.ToolCallList()
 	require.NoError(t, err)
@@ -93,6 +105,8 @@ func TestAToolCallListRoundTrips(t *testing.T) {
 // A row reads whatever it holds: arguments that do not parse are the text as a
 // string, and a status the loop never writes reads as not run.
 func TestAToolCallRowReadsWhateverItHolds(t *testing.T) {
+	t.Parallel()
+
 	var calls []ToolCall
 	require.NoError(t, json.Unmarshal([]byte(marshalToolCalls([]toolCallEntry{{Arguments: "not json", Status: "pending"}}, tools.Box{})), &calls))
 	assert.Equal(t, rawjson.RawJSON(`"not json"`), calls[0].Arguments)
@@ -102,6 +116,8 @@ func TestAToolCallRowReadsWhateverItHolds(t *testing.T) {
 // A call whose tool has no way to show it, and one whose arguments its tool
 // refuses, are served with no action and the rest of the call as it is.
 func TestACallWithNoActionIsServedWithout(t *testing.T) {
+	t.Parallel()
+
 	var calls []ToolCall
 	require.NoError(t, json.Unmarshal([]byte(marshalToolCalls([]toolCallEntry{
 		{ID: "a", Name: "TaskStop", Arguments: `{"task_id":"t"}`, Status: toolSucceeded, Result: "Stopped t."},
@@ -120,6 +136,8 @@ func TestACallWithNoActionIsServedWithout(t *testing.T) {
 // A row is read by its name alone: a provider row keeps its contract beside
 // the action, a call of ours has none, and a name no tool has shows nothing.
 func TestAnActionIsReadByItsName(t *testing.T) {
+	t.Parallel()
+
 	var calls []ToolCall
 	require.NoError(t, json.Unmarshal([]byte(marshalToolCalls([]toolCallEntry{
 		{ID: "a", Name: testSearch.Name(), Contract: string(anthropicwebsearch.ContractName), ByProvider: true, Arguments: `{"query":"q"}`, Status: toolSucceeded},
@@ -141,6 +159,8 @@ func TestAnActionIsReadByItsName(t *testing.T) {
 // A call's kind is its tool's, whatever its arguments hold, and none for a tool
 // the box does not know.
 func TestACallsKindIsItsTools(t *testing.T) {
+	t.Parallel()
+
 	var calls []ToolCall
 	require.NoError(t, json.Unmarshal([]byte(marshalToolCalls([]toolCallEntry{
 		{ID: "a", Name: bash.Name, Arguments: `{"command":""}`, Status: toolFailed, Result: `{"error":"bad-input"}`, Error: `{"error":"bad-input"}`},

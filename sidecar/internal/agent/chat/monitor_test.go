@@ -107,6 +107,8 @@ func monitorRunOf(t *testing.T, db *appdb.DB, id RunID) monitorRunRow {
 // told the card then the brief, it is offered none of the five kinds it leaves
 // out, and its last reply is its report.
 func TestRunMonitorRecordsARun(t *testing.T) {
+	t.Parallel()
+
 	var seen RunStatus
 	var s *service
 	echo := testTool{name: "echo", run: func(_ context.Context, input json.RawMessage) (string, bool) {
@@ -154,6 +156,8 @@ func TestRunMonitorRecordsARun(t *testing.T) {
 // sandbox, on a cluster marked or not watched, for a brief it cannot take or a
 // model that takes no tools, and while the cluster already has one.
 func TestRunMonitorRefuses(t *testing.T) {
+	t.Parallel()
+
 	for name, c := range map[string]struct {
 		setup func(t *testing.T, s *service)
 		brief string
@@ -195,6 +199,8 @@ func TestRunMonitorRefuses(t *testing.T) {
 
 // A cluster holds one monitor run at a time; another cluster's runs meanwhile.
 func TestRunMonitorHoldsOneRunPerCluster(t *testing.T) {
+	t.Parallel()
+
 	s := startMonitorService(t, "", testTool{name: "echo"})
 	setMonitoring(t, s.db, "8", true)
 	gate, first := heldMonitor(t, s, "7")
@@ -213,6 +219,8 @@ func TestRunMonitorHoldsOneRunPerCluster(t *testing.T) {
 // A call that would ask the user is denied: nobody is there to answer. Its one
 // row is failed with the loop's denial and never started, and nothing waits.
 func TestAMonitorCallThatAsksIsDenied(t *testing.T) {
+	t.Parallel()
+
 	reader, err := read.New(nil, t.TempDir())
 	require.NoError(t, err)
 	s := startMonitorService(t, "", reader)
@@ -241,6 +249,8 @@ func TestAMonitorCallThatAsksIsDenied(t *testing.T) {
 // answers an ask with an error and writes nothing, so a write that reached it
 // would be refused rather than sent.
 func TestTheMonitorsAskerRecordsAndNeverAsks(t *testing.T) {
+	t.Parallel()
+
 	s := startMonitorService(t, "")
 	run := agentRun{ID: newRunID(), ClusterID: "7", ProviderID: "fake", ModelID: "fake", Dialect: "fake", Task: "look", AppVersion: "test"}
 	require.NoError(t, s.store.InTx(t.Context(), func(st stmts) error { return insertMonitorRun(t.Context(), st, run) }))
@@ -276,6 +286,8 @@ func (s startsTask) Run(_ context.Context, rt tools.Runtime, _ json.RawMessage) 
 // A monitor runs no background command: a start is refused in the words bash
 // answers it with, and no task row is written.
 func TestAMonitorBackgroundCommandIsRefused(t *testing.T) {
+	t.Parallel()
+
 	s := startMonitorService(t, "", startsTask{testTool{name: "bg"}})
 	setMonitoring(t, s.db, "7", true)
 	fakeOf(s).SetToolCalls(llm.StagedCall("bg", `{}`))
@@ -292,6 +304,8 @@ func TestAMonitorBackgroundCommandIsRefused(t *testing.T) {
 // The service's stop cancels a monitor run and waits for it: the run settles
 // cancelled, and stop returns.
 func TestAMonitorRunEndsWithTheService(t *testing.T) {
+	t.Parallel()
+
 	s := startMonitorService(t, "", testTool{name: "echo"})
 	_, done := heldMonitor(t, s, "7")
 

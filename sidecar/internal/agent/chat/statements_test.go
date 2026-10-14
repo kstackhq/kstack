@@ -37,6 +37,8 @@ import (
 // the text's to say; the service tests answer that by driving every in-transaction
 // path.
 func TestEveryStatementDeclaresWhatItDoes(t *testing.T) {
+	t.Parallel()
+
 	require.Len(t, statements, numStmts)
 	for _, st := range statements {
 		text := strings.TrimSpace(st.Text)
@@ -50,6 +52,8 @@ func TestEveryStatementDeclaresWhatItDoes(t *testing.T) {
 // table is upper-case, and the helpers' error wraps ("delete chat: %w") open
 // with the same verbs in lower case.
 func TestNoSQLTextLivesOutsideTheTable(t *testing.T) {
+	t.Parallel()
+
 	fset := token.NewFileSet()
 	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
 		return !strings.HasSuffix(fi.Name(), "_test.go") && fi.Name() != "statements.go"

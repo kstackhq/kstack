@@ -39,6 +39,8 @@ import (
 // Every row helper names the statement that failed. A closed pool is the one
 // failure every helper shares.
 func TestEveryRowHelperNamesItsFailure(t *testing.T) {
+	t.Parallel()
+
 	set := newTestSet(t)
 	require.NoError(t, set.Close())
 	st := set.Stmts()
@@ -95,6 +97,8 @@ func TestEveryRowHelperNamesItsFailure(t *testing.T) {
 // table is swapped under the helpers: each multi-row read is answered with two
 // columns, which no scanner here takes — the one-column reads included.
 func TestAReadWithTheWrongShapeIsReported(t *testing.T) {
+	t.Parallel()
+
 	ctx := t.Context()
 	swaps := map[stmtID]string{}
 	for _, id := range multiRowReads {
@@ -124,6 +128,8 @@ var multiRowReads = []stmtID{
 // keeps the wrapper indifferent to the statement's columns and parameters, and
 // stmtFailStrandedRuns is written out because SQLite takes no UPDATE in one.
 func TestAReadThatFailsPartwayIsReported(t *testing.T) {
+	t.Parallel()
+
 	ctx := t.Context()
 	const overflow = `abs(-9223372036854775808) IS NOT NULL`
 	swaps := map[stmtID]string{}
@@ -153,6 +159,8 @@ func TestAReadThatFailsPartwayIsReported(t *testing.T) {
 // busy_timeout bounds. So the read carries a deadline — the bounded window a "must not
 // block" assertion is allowed.
 func TestAReadDoesNotWaitForAHeldWriteTransaction(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	s := prepareOn(t, db)
 	c := seedChat(t, db, aChat("1", time.UnixMilli(1_000).UTC()))
@@ -179,6 +187,8 @@ func TestAReadDoesNotWaitForAHeldWriteTransaction(t *testing.T) {
 // The row carries its mode, its cluster and its title, and both reads see them: the
 // list is what the client filters by cluster and mode.
 func TestAChatRoundTrips(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	c := aChat("7", time.UnixMilli(1_000).UTC())
@@ -197,6 +207,8 @@ func TestAChatRoundTrips(t *testing.T) {
 
 // title is nullable in the table; the service reads a NULL as "".
 func TestAChatWithNoTitleReadsAsEmpty(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	_, err := db.Write.Exec(`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', '1', 'chat', 0, 0)`)
@@ -209,6 +221,8 @@ func TestAChatWithNoTitleReadsAsEmpty(t *testing.T) {
 }
 
 func TestChatModeIsCheckedByTheColumn(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	_, err := db.Write.Exec(`INSERT INTO chats (id, cluster_id, mode, created_at, updated_at) VALUES ('c', '1', 'sideways', 0, 0)`)
 	assert.ErrorContains(t, err, "CHECK")
@@ -216,6 +230,8 @@ func TestChatModeIsCheckedByTheColumn(t *testing.T) {
 
 // A run's dialect is checked non-empty alone: the set is llm.Dialects' to list.
 func TestARunDialectIsCheckedByTheColumn(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	_, err := db.Write.Exec(`INSERT INTO agent_runs (id, agent_type, app_version, trigger, cluster_id, provider, model, dialect, created_at)
 		VALUES ('r', 'monitor', 'test', 'monitor', '1', 'fake', 'fake', '', 0)`)
@@ -225,6 +241,8 @@ func TestARunDialectIsCheckedByTheColumn(t *testing.T) {
 // A monitor's run is filed under its cluster and no chat, queued, its task the
 // brief; the CHECKs keep a cluster on a monitor's run alone.
 func TestAMonitorRunIsFiledUnderItsClusterWithNoChat(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	run := agentRun{
@@ -264,6 +282,8 @@ func TestAMonitorRunIsFiledUnderItsClusterWithNoChat(t *testing.T) {
 
 // A cluster's delete takes its monitor's runs and their rows.
 func TestAClustersDeleteTakesItsMonitorRuns(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	run := agentRun{ID: newRunID(), ClusterID: "7", ProviderID: "fake", ModelID: "fake", Dialect: "fake", Task: "look", AppVersion: "test"}
@@ -281,6 +301,8 @@ func TestAClustersDeleteTakesItsMonitorRuns(t *testing.T) {
 // Whether a monitor may run on a cluster: a row that is there and unmarked,
 // and whose switch is on.
 func TestClusterMonitoring(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	setMonitoring(t, db, "7", true)
@@ -298,6 +320,8 @@ func TestClusterMonitoring(t *testing.T) {
 
 // The clusters a monitor may be kept under are the unmarked rows.
 func TestLiveClusterIDsAreTheUnmarkedRows(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	markCluster(t, db, "8")
@@ -309,6 +333,8 @@ func TestLiveClusterIDsAreTheUnmarkedRows(t *testing.T) {
 
 // The list sorts by updated_at: a chat moves to the top when its row is touched.
 func TestListChatsIsNewestActivityFirst(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	older := seedChat(t, db, aChat("1", time.UnixMilli(1_000).UTC()))
@@ -327,6 +353,8 @@ func TestListChatsIsNewestActivityFirst(t *testing.T) {
 }
 
 func TestRenameChatReturnsTheRowItWroteOrNothing(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	c := seedChat(t, db, aChat("1", time.UnixMilli(1_000).UTC()))
@@ -344,6 +372,8 @@ func TestRenameChatReturnsTheRowItWroteOrNothing(t *testing.T) {
 
 // What the cluster sweep reads: the ids of one cluster's chats and nobody else's.
 func TestChatIDsByClusterNamesOnlyThatClusters(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()
@@ -365,6 +395,8 @@ func TestChatIDsByClusterNamesOnlyThatClusters(t *testing.T) {
 // The messages, the runs and their call rows go with the chat: ON DELETE
 // CASCADE, with foreign keys on in the writer's DSN.
 func TestDeletingAChatRemovesItsCalls(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	s := prepareOn(t, db)
 	now := time.UnixMilli(1_000).UTC()
@@ -388,6 +420,8 @@ func TestDeletingAChatRemovesItsCalls(t *testing.T) {
 // Complete with nothing of a run on it, the answer Streaming with what its run was
 // asked to run.
 func TestATurnReadsBackAsItsTwoMessages(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()
@@ -419,6 +453,8 @@ func TestATurnReadsBackAsItsTwoMessages(t *testing.T) {
 
 // A model with no effort knob stores NULL, and the read gives it back as "".
 func TestARunWithNoEffortRoundTripsAsEmpty(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()
@@ -435,6 +471,8 @@ func TestARunWithNoEffortRoundTripsAsEmpty(t *testing.T) {
 // Each run status reads as the public status the transcript draws, and the finish
 // time reads as FinishedAt once the run has one.
 func TestAMessagesStatusIsItsRuns(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()
@@ -465,6 +503,8 @@ func TestAMessagesStatusIsItsRuns(t *testing.T) {
 }
 
 func TestFailStrandedRunsFailsEveryUnfinishedRun(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()
@@ -500,6 +540,8 @@ func TestFailStrandedRunsFailsEveryUnfinishedRun(t *testing.T) {
 // user message, with no calls, has none. The ids are minted against the seqs, so
 // a read that ordered by id would answer the other call.
 func TestFinishReasonIsTheLastModelCalls(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()
@@ -521,6 +563,8 @@ func TestFinishReasonIsTheLastModelCalls(t *testing.T) {
 // report, or one whose cache counts exceed its input, stores nothing; a reported
 // zero is a zero.
 func TestUsageIsStoredUncachedAndReadInclusive(t *testing.T) {
+	t.Parallel()
+
 	for name, tc := range map[string]struct {
 		u    llm.Usage
 		want [4]sql.NullInt64
@@ -545,6 +589,8 @@ func TestUsageIsStoredUncachedAndReadInclusive(t *testing.T) {
 // --- the send's rows ---
 
 func TestNextSeqCountsFromZeroPerChat(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()
@@ -561,6 +607,8 @@ func TestNextSeqCountsFromZeroPerChat(t *testing.T) {
 }
 
 func TestClaimRunTakesOnlyAQueuedRun(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()
@@ -574,6 +622,8 @@ func TestClaimRunTakesOnlyAQueuedRun(t *testing.T) {
 }
 
 func TestWriteContentLeavesTheRunAlone(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()
@@ -590,6 +640,8 @@ func TestWriteContentLeavesTheRunAlone(t *testing.T) {
 
 // The key alone finds the answer: neither the chat nor the content is part of it.
 func TestAnswerByRequestKeyIsFoundByTheKeyAlone(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()
@@ -612,6 +664,8 @@ func TestAnswerByRequestKeyIsFoundByTheKeyAlone(t *testing.T) {
 // What a settle writes is what the read serves: the content, the status, the
 // finish reason off the call row, the completion time.
 func TestASettledTurnEqualsItsOwnRoundTrip(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()
@@ -643,6 +697,8 @@ func TestASettledTurnEqualsItsOwnRoundTrip(t *testing.T) {
 // json_object spell differently in the arguments and the output — and a message
 // with no rows reads [].
 func TestToolCallsMatchTheStoredRead(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	set := prepareOn(t, db)
 	ctx := t.Context()
@@ -766,6 +822,8 @@ func providerSearchRow(callID LLMCallID) toolCallEntry {
 // A provider row carries none of the sidecar's lifecycle and a sidecar row always
 // has a status: the schema refuses either shape broken.
 func TestTheToolCallRowShapeIsChecked(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	callID := seedLLMCall(t, db, st)
@@ -790,6 +848,8 @@ func TestTheToolCallRowShapeIsChecked(t *testing.T) {
 // A provider row has no finish to be stranded without: the sweep that closes
 // what a previous process left open passes it by.
 func TestTheStrandedSweepLeavesProviderRows(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	callID := seedLLMCall(t, db, st)
@@ -817,6 +877,8 @@ func TestTheStrandedSweepLeavesProviderRows(t *testing.T) {
 // A task's row takes an agent's ends as well as a command's, and a stop for a
 // request that went unanswered.
 func TestATaskRowTakesAnAgentsEnds(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	now := time.UnixMilli(1_000).UTC()
@@ -845,6 +907,8 @@ func TestATaskRowTakesAnAgentsEnds(t *testing.T) {
 // A tool row references its model call: one naming a call that is not there is
 // refused, which is what makes the audit trail's parent real.
 func TestAToolRowNeedsItsModelCall(t *testing.T) {
+	t.Parallel()
+
 	s := newTestSet(t)
 
 	err := s.InTx(t.Context(), func(st stmts) error {
@@ -871,6 +935,8 @@ func (r flagReader) Action(raw json.RawMessage, cwd string, sandboxed bool) (too
 // A stored call's action is read with its row's sandboxed flag, on the
 // transcript's read and on the task-notice read alike.
 func TestTheActionCarriesTheRowsFlag(t *testing.T) {
+	t.Parallel()
+
 	ctx := t.Context()
 	now := time.UnixMilli(1_000).UTC()
 	db := openTestDB(t, t.TempDir())
@@ -923,6 +989,8 @@ func aWrite(call ToolCallID, millis int64) approval {
 
 // A call has at most one approval of its own, and any number of writes.
 func TestACallKeepsOneOwnApproval(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	row := sidecarRow(seedLLMCall(t, db, st))
@@ -940,6 +1008,8 @@ func TestACallKeepsOneOwnApproval(t *testing.T) {
 
 // Only a write is abandoned: a call's own approval is decided or left pending.
 func TestAbandonedIsOnlyAWrites(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	row := sidecarRow(seedLLMCall(t, db, st))
@@ -956,6 +1026,8 @@ func TestAbandonedIsOnlyAWrites(t *testing.T) {
 // approval beside them, the stored read spelling them as the live list does. A
 // write that waits carries its body; one that no longer waits does not.
 func TestACallWithWritesReadsOnce(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	set := prepareOn(t, db)
 	st := set.Stmts()
@@ -1006,6 +1078,8 @@ func TestACallWithWritesReadsOnce(t *testing.T) {
 // an action's one, only an action is abandoned, allowed or refused, and a
 // duration is the user's choice on an approval alone.
 func TestTheApprovalChecksHold(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	st := prepareOn(t, db).Stmts()
 	row := sidecarRow(seedLLMCall(t, db, st))

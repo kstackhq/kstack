@@ -86,6 +86,8 @@ func bodyOf(apiVersion, kind string, fields map[string]any) *unstructured.Unstru
 }
 
 func TestRefsOfReadsEveryRow(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name string
 		u    *unstructured.Unstructured
@@ -184,6 +186,8 @@ func TestRefsOfReadsEveryRow(t *testing.T) {
 
 // Every kind that carries a Pod template refers from it as a Pod does from its spec.
 func TestAPodTemplateIsAPodSpec(t *testing.T) {
+	t.Parallel()
+
 	template := map[string]any{"template": map[string]any{"spec": podSpec()}}
 	for _, kind := range [][2]string{
 		{"apps/v1", "Deployment"}, {"apps/v1", "ReplicaSet"}, {"apps/v1", "StatefulSet"},
@@ -199,6 +203,8 @@ func TestAPodTemplateIsAPodSpec(t *testing.T) {
 
 // A name that is empty, or not a string, names nothing.
 func TestAnEmptyNameIsNoReference(t *testing.T) {
+	t.Parallel()
+
 	for _, name := range []any{"", nil, int64(7)} {
 		u := bodyOf("v1", "Pod", map[string]any{"spec": map[string]any{
 			"serviceAccountName": name,
@@ -219,6 +225,8 @@ func TestAnEmptyNameIsNoReference(t *testing.T) {
 
 // optional is read where a reference can say it, and nowhere else.
 func TestRefsReadOptional(t *testing.T) {
+	t.Parallel()
+
 	optional := func(ref map[string]any, set bool) map[string]any {
 		out := map[string]any{"optional": set}
 		for k, v := range ref {
@@ -295,6 +303,8 @@ func podMounting(uid, rv string, configMaps ...string) *unstructured.Unstructure
 }
 
 func TestRefsFollowTheirObject(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, podMounting("pod", "1", "a", "b")))

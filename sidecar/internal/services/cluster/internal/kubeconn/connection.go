@@ -201,15 +201,24 @@ func (c *Connection) setServerUID(uid string) {
 	}
 }
 
-// newDynamic is the one seam in the build: every other failure here is reachable from a config
-// a caller can write, and this one is not — the host is already parsed and the rate limiter is
-// ours to set, so nothing a kubeconfig can say reaches it.
-var newDynamic = func(cfg *rest.Config, c *http.Client) (dynamic.Interface, error) {
-	return dynamic.NewForConfigAndClient(cfg, c)
-}
+// dynamicBuilder builds a connection's dynamic client.
+type dynamicBuilder func(cfg *rest.Config, c *http.Client) (dynamic.Interface, error)
 
 // NewConnection materializes the clients for one set of credentials.
+//
+// NewForConfigAndClient, never NewForConfig: the latter builds a fresh client and a fresh
+// pool, which is the whole thing one connection per context exists to avoid.
 func NewConnection(cfg *rest.Config) (*Connection, error) {
+	return newConnection(cfg, func(cfg *rest.Config, c *http.Client) (dynamic.Interface, error) {
+		return dynamic.NewForConfigAndClient(cfg, c)
+	})
+}
+
+// newConnection is NewConnection with the dynamic client's build passed in. It is the one
+// seam in the build: every other failure here is reachable from a config a caller can write,
+// and this one is not — the host is already parsed and the rate limiter is ours to set, so
+// nothing a kubeconfig can say reaches it.
+func newConnection(cfg *rest.Config, newDynamic dynamicBuilder) (*Connection, error) {
 	// A copy, because the tuning below is ours and the caller's config is not.
 	own := rest.CopyConfig(cfg)
 	own.QPS = defaultQPS
@@ -230,8 +239,6 @@ func NewConnection(cfg *rest.Config) (*Connection, error) {
 		return nil, fmt.Errorf("build http client: %w", err)
 	}
 
-	// NewForConfigAndClient, never NewForConfig: the latter builds a fresh client and a fresh
-	// pool, which is the whole thing one connection per context exists to avoid.
 	dyn, err := newDynamic(own, httpClient)
 	if err != nil {
 		return nil, fmt.Errorf("build dynamic client: %w", err)
@@ -470,12 +477,18 @@ const (
 // operator has not set a value. The vars are read lazily per transport build, so New
 // calling this is enough for every connection the pool goes on to build.
 func configureHTTP2Keepalive() {
-	setEnvIfUnset(readIdleTimeoutEnv, strconv.Itoa(readIdleTimeoutSeconds))
-	setEnvIfUnset(pingTimeoutEnv, strconv.Itoa(pingTimeoutSeconds))
+	setKeepaliveDefaults(os.LookupEnv, os.Setenv)
 }
 
-func setEnvIfUnset(key, val string) {
-	if _, ok := os.LookupEnv(key); !ok {
-		_ = os.Setenv(key, val)
+// setKeepaliveDefaults sets each keepalive var lookup does not find. The environment is
+// passed in so a test can use its own rather than the process's.
+func setKeepaliveDefaults(lookup func(string) (string, bool), set func(string, string) error) {
+	for key, val := range map[string]int{
+		readIdleTimeoutEnv: readIdleTimeoutSeconds,
+		pingTimeoutEnv:     pingTimeoutSeconds,
+	} {
+		if _, ok := lookup(key); !ok {
+			_ = set(key, strconv.Itoa(val))
+		}
 	}
 }

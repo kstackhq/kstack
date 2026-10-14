@@ -219,6 +219,8 @@ func toolCallIDOf(t *testing.T, db *appdb.DB, run RunID) string {
 // output file in the chat's directory, and the call answers while the
 // process runs on.
 func TestStartingATaskRecordsItAndAnswersAtOnce(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	msg, ft := startTaskTurn(t, s, tt, nil, "1")
@@ -268,6 +270,8 @@ func taskFiles(t *testing.T, s *service, chatID ChatID) []string {
 // A chat runs four tasks at once: the fifth is refused with the chat's limit,
 // and nothing of it is written.
 func TestAFifthTaskIsRefused(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	first, _ := startTaskTurn(t, s, tt, nil, "1")
@@ -287,6 +291,8 @@ func TestAFifthTaskIsRefused(t *testing.T) {
 // The app runs sixteen at once: four chats of four, then one more in a fifth
 // chat is refused with the app's limit.
 func TestASeventeenthTaskIsRefused(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	for c := range 4 {
@@ -307,6 +313,8 @@ func TestASeventeenthTaskIsRefused(t *testing.T) {
 
 // A start that fails leaves no row and no file, and its slot is free again.
 func TestAFailedStartLeavesNoTask(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	tt.fail = errors.New("no shell")
 	s := startServiceWithTool(t, tt)
@@ -334,6 +342,8 @@ func taskOf(t *testing.T, s *service, chatID ChatID) *task {
 // The file ends with the line that says how the task ended, on a line of its
 // own, and the row says the same.
 func TestTheOutputEndsWithTheExitLine(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	tt.write = "partial"
 	s := startServiceWithTool(t, tt)
@@ -354,6 +364,8 @@ func TestTheOutputEndsWithTheExitLine(t *testing.T) {
 
 // A stopped task's file ends [stopped], and its row names who stopped it.
 func TestAStoppedTaskEndsStopped(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	msg, ft := startTaskTurn(t, s, tt, nil, "1")
@@ -378,6 +390,8 @@ func TestAStoppedTaskEndsStopped(t *testing.T) {
 // A task holds its slot until its row is written, so a start after an exit is
 // refused until then: the count always matches the rows still running.
 func TestASlotFreesWhenTheRowIsWritten(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	reaped, release := make(chan struct{}), make(chan struct{})
@@ -430,6 +444,8 @@ func readFile(t *testing.T, path string) string {
 // Starting a task is not activity the list sorts by: the chat's updated_at is
 // the turn's to move.
 func TestStartingATaskDoesNotTouchTheChat(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	var before, after int64
@@ -450,6 +466,8 @@ func TestStartingATaskDoesNotTouchTheChat(t *testing.T) {
 // A task started in a turn still in flight reaches the watch as the live list
 // has it: running, then exited, before the turn settles.
 func TestTheLiveTurnShowsItsTask(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	gate := make(chan struct{})
@@ -506,6 +524,8 @@ func questionOf(t *testing.T, s *service, msg ChatMessage) []llm.Block {
 // A notice that starts no turn of its own rides the chat's next question, after
 // the card and ahead of the text, and is marked told in the same send.
 func TestANoticeRidesTheNextSend(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	cards := &stubClusterCards{card: "the card"}
 	box, lists := testBox(tt)
@@ -563,6 +583,8 @@ func runOf(t *testing.T, db *appdb.DB, id RunID) (trigger, triggerMessage, provi
 // is the notice alone, a chat run triggered by it on the last answer's model, the
 // notice told in the same transaction, and the chat moved up its list.
 func TestAnExitStartsATurn(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	first, ft := startTaskTurn(t, s, tt, nil, "1")
@@ -598,6 +620,8 @@ func TestAnExitStartsATurn(t *testing.T) {
 // An exit while a turn runs waits for it: the turn's settle kicks the chat, and
 // every notice that piled up meanwhile rides one message.
 func TestNoticesThatPileUpRideOneMessage(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	first, ft1 := startTaskTurn(t, s, tt, nil, "1")
@@ -625,6 +649,8 @@ func TestNoticesThatPileUpRideOneMessage(t *testing.T) {
 // A cancelled turn kicks nothing, so a Cancel stops the chat; the task it started
 // keeps running, and an exit's notice waits for the next question.
 func TestACancelledTurnKicksNothing(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	first, ft := startTaskTurn(t, s, tt, nil, "1")
@@ -657,6 +683,8 @@ func TestACancelledTurnKicksNothing(t *testing.T) {
 // A kick the send's checks refuse starts nothing and leaves the notices waiting:
 // a cluster marked for deletion, or a model the catalog no longer holds.
 func TestAKickTheSendRefusesStartsNothing(t *testing.T) {
+	t.Parallel()
+
 	for name, refuse := range map[string]func(*service, ChatMessage){
 		"marked cluster": func(s *service, _ ChatMessage) { markClusterIn(s, "1") },
 		"model gone": func(s *service, msg ChatMessage) {
@@ -696,6 +724,8 @@ func taskDoneOf(t *testing.T, s *service, chatID ChatID, ft *fakeTask) chan stru
 // written told, since TaskStop's result told it. Another chat's id, and a task
 // that has finished, are no task of this chat's.
 func TestTheModelStopsTheChatsOwnTask(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	a, ftA := startTaskTurn(t, s, tt, nil, "a")
@@ -722,6 +752,8 @@ func TestTheModelStopsTheChatsOwnTask(t *testing.T) {
 // that nothing is running, the model's and the user's alike: the row is the exit,
 // and its notice waits, so the model hears of the exit alone.
 func TestAStopAfterTheReapLeavesTheExit(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	msg, ft := startTaskTurn(t, s, tt, nil, "1")
@@ -749,6 +781,8 @@ func TestAStopAfterTheReapLeavesTheExit(t *testing.T) {
 // A model's stop that the process never felt — it exited on its own first — is
 // the exit too, and its notice waits.
 func TestAModelsStopThatMissedIsTheExit(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	msg, ft := startTaskTurn(t, s, tt, nil, "1")
@@ -773,6 +807,8 @@ func TestAModelsStopThatMissedIsTheExit(t *testing.T) {
 // so every row is written before the rows go and every file is closed before the
 // directory does; a start during the delete is refused.
 func TestDeletingAChatStopsAndJoinsItsTasks(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	first, ft := startTaskTurn(t, s, tt, nil, "1")
@@ -835,6 +871,8 @@ func stopNow(t *testing.T, s *service) {
 // the app, on a context its own cancel does not end; no exit notice follows and
 // no turn starts.
 func TestShutdownStopsEveryTask(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	a, ftA := startTaskTurn(t, s, tt, nil, "a")
@@ -858,6 +896,8 @@ func TestShutdownStopsEveryTask(t *testing.T) {
 // A task registered before the stop but started after its walk is killed the
 // moment it has a process, and the stop waits for its row.
 func TestATaskStartingDuringShutdownIsStopped(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	tt.holding, tt.hold = make(chan struct{}), make(chan struct{})
 	s := startServiceWithTool(t, tt)
@@ -889,6 +929,8 @@ func TestATaskStartingDuringShutdownIsStopped(t *testing.T) {
 // registration, and one after stopped closes at enter: nothing starts behind
 // the stop's walk.
 func TestAStartBehindTheStopIsRefused(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	require.NoError(t, s.enter())
 	stopped := make(chan error, 1)
@@ -911,6 +953,8 @@ func TestAStartBehindTheStopIsRefused(t *testing.T) {
 // watch opened before the start hears it, no turn starts, and its notice rides
 // the chat's next question.
 func TestTheStartSweepMarksRunningTasksLost(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	now := time.UnixMilli(1_000).UTC()
 	db := openTestDB(t, dir)
@@ -961,6 +1005,8 @@ func TestTheStartSweepMarksRunningTasksLost(t *testing.T) {
 // A start with no call running is refused: a task's row hangs off
 // its call.
 func TestATaskStartsOnlyFromARunningCall(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	_, _, err := s.chatTasks("c", nil).Start(func(*os.File) (tools.Task, error) {
 		t.Error("nothing starts")
@@ -972,6 +1018,8 @@ func TestATaskStartsOnlyFromARunningCall(t *testing.T) {
 // A start whose file or row cannot be made leaves nothing behind: no file, no
 // row, and its slot free.
 func TestAStartWhoseFileOrRowFailsLeavesNothing(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	tc := s.chatTasks(c.ID, &runJournal{openTool: &toolCallEntry{ID: "no-such-call"}})
@@ -1004,6 +1052,8 @@ func TestAStartWhoseFileOrRowFailsLeavesNothing(t *testing.T) {
 // An exit whose code could not be read says so in its file, and its row holds
 // no code.
 func TestAnUnreadExitSaysSo(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	msg, ft := startTaskTurn(t, s, tt, nil, "1")
@@ -1020,6 +1070,8 @@ func TestAnUnreadExitSaysSo(t *testing.T) {
 // A row write that fails still frees the slot: the row stays running, and the
 // next start marks it lost.
 func TestAFailedRowWriteStillFreesTheSlot(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	s.finishWrite = func(context.Context, TaskID, taskEnd) error { return errors.New("disk is full") }
@@ -1037,6 +1089,8 @@ func TestAFailedRowWriteStillFreesTheSlot(t *testing.T) {
 // A notice turn is refused while the chat's slot is held, and files nothing:
 // the turn holding it kicks when it settles.
 func TestANoticeTurnWaitsForTheSlot(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	first, ft := startTaskTurn(t, s, tt, nil, "1")
@@ -1058,6 +1112,8 @@ func TestANoticeTurnWaitsForTheSlot(t *testing.T) {
 
 // The live list keeps its own when either list does not parse.
 func TestWithStoredCallsKeepsAListItCannotRead(t *testing.T) {
+	t.Parallel()
+
 	assert.Equal(t, rawjson.RawJSON("nope"), withStoredCalls("nope", "[]"))
 	assert.Equal(t, rawjson.RawJSON("[]"), withStoredCalls("[]", "nope"))
 }
@@ -1074,6 +1130,8 @@ func refuse(t *testing.T, s *service, kind, table string) {
 // A notice turn whose writes fail files nothing, frees the slot it reserved,
 // and leaves the notices waiting.
 func TestANoticeTurnThatCannotWriteStartsNothing(t *testing.T) {
+	t.Parallel()
+
 	// Each trigger is armed before the task ends, since the first turn's own kick
 	// can start the notice turn the moment the row lands, and refuses only the
 	// turn's writes: the row's end leaves notified_at null and chats alone.
@@ -1104,6 +1162,8 @@ func TestANoticeTurnThatCannotWriteStartsNothing(t *testing.T) {
 // A send whose notices cannot be marked told is refused whole: the question does
 // not go without them, and they keep waiting.
 func TestASendThatCannotTakeItsNoticesIsRefused(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	first, _ := startTaskTurn(t, s, tt, nil, "1")
@@ -1124,6 +1184,8 @@ func TestASendThatCannotTakeItsNoticesIsRefused(t *testing.T) {
 // A file whose end line cannot be written still gets its row: the record of how
 // the task ended does not wait on the file.
 func TestAFileThatCannotBeEndedStillGetsItsRow(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	tt.closeOut = true
 	s := startServiceWithTool(t, tt)
@@ -1158,6 +1220,8 @@ func holdTasks(s *service, runs ...RunID) map[RunID]*fakeTask {
 // the result, so a subagent stopping a sibling or its own agent would leave the
 // parent waiting for a notice that never comes.
 func TestASubagentStopsOnlyWhatItStarted(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	sub := &runJournal{s: s, chatID: "c", runID: "sub", agentCallID: "agent-call"}
 	held := holdTasks(s, "sub", "parent", "sibling")
@@ -1173,6 +1237,8 @@ func TestASubagentStopsOnlyWhatItStarted(t *testing.T) {
 // The parent's TaskStop reaches every task of the chat, a subagent's command
 // included.
 func TestTheParentsTaskStopReachesASubagentsCommand(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	parent := &runJournal{s: s, chatID: "c", runID: "parent"}
 	held := holdTasks(s, "sub")

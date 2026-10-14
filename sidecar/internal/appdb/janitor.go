@@ -10,8 +10,8 @@ import (
 )
 
 // vacuumPagesPerSweep bounds the free pages one pass hands back (~8MiB at a 4KiB page),
-// so the writer is never held for the whole freelist. A var only so a test can shrink it.
-var vacuumPagesPerSweep int64 = 2048
+// so the writer is never held for the whole freelist.
+const vacuumPagesPerSweep = 2048
 
 // runJanitor sweeps until ctx is cancelled; a sweep that fails is retried by the next one.
 // The first sweep runs at once, so a freelist the last run left is swept at startup rather
@@ -46,7 +46,7 @@ func sweep(ctx context.Context, db *DB) {
 		return
 	}
 	if freePages > 0 {
-		pages := min(freePages, vacuumPagesPerSweep)
+		pages := min(freePages, db.vacuumPages)
 		if _, err := db.Write.ExecContext(ctx, fmt.Sprintf(`PRAGMA incremental_vacuum(%d)`, pages)); err != nil {
 			slog.Warn("appdb: incremental_vacuum failed", "err", err)
 		}

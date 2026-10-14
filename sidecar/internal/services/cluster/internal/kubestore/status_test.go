@@ -28,6 +28,8 @@ func obj(m map[string]any) *unstructured.Unstructured {
 // A crashing container's reason beats the phase: "Running" is what the phase says
 // while the only container restarts forever.
 func TestStatusPodReportsTheContainerReasonOverThePhase(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Pod",
 		"spec": map[string]any{"nodeName": "node-a"},
@@ -54,6 +56,8 @@ func TestStatusPodReportsTheContainerReasonOverThePhase(t *testing.T) {
 // spec.replicas, not status.replicas: the observed count lags a scale-up, and a
 // desired-3 workload must not read as scaled to zero.
 func TestStatusDeploymentCountsAgainstTheDesiredReplicas(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "apps/v1", "kind": "Deployment",
 		"spec":   map[string]any{"replicas": int64(3)},
@@ -66,6 +70,8 @@ func TestStatusDeploymentCountsAgainstTheDesiredReplicas(t *testing.T) {
 }
 
 func TestStatusNodeNamesThePressureBehindNotReady(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Node",
 		"status": map[string]any{"conditions": []any{
@@ -83,6 +89,8 @@ func TestStatusNodeNamesThePressureBehindNotReady(t *testing.T) {
 // A kind with no reader falls back to the conditions convention, which is what most
 // CRDs follow.
 func TestStatusFallsBackToTheConditionsConvention(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "argoproj.io/v1alpha1", "kind": "Application",
 		"status": map[string]any{"conditions": []any{
@@ -97,6 +105,8 @@ func TestStatusFallsBackToTheConditionsConvention(t *testing.T) {
 // group is that user's kind and must reach the fallback rather than a built-in
 // reader hunting fields it lacks.
 func TestStatusReadersKeyOnTheGroupToo(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "example.com/v1", "kind": "Pod",
 		"status": map[string]any{"phase": "Running"},
@@ -111,6 +121,8 @@ func TestStatusReadersKeyOnTheGroupToo(t *testing.T) {
 // A pod stuck in init reports its real reason there while containerStatuses still looks
 // ordinary, so the init reason wins — prefixed, as kubectl prefixes it.
 func TestStatusPodPrefixesAnInitContainersReason(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Pod",
 		"status": map[string]any{
@@ -139,6 +151,8 @@ func TestStatusPodPrefixesAnInitContainersReason(t *testing.T) {
 // A terminated container names its reason, unless it exited normally — "Completed" is a
 // finished job, not a fault.
 func TestStatusPodTakesATerminatedReasonButNotACleanExit(t *testing.T) {
+	t.Parallel()
+
 	terminated := func(reason string) *unstructured.Unstructured {
 		return obj(map[string]any{
 			"apiVersion": "v1", "kind": "Pod",
@@ -161,6 +175,8 @@ func TestStatusPodTakesATerminatedReasonButNotACleanExit(t *testing.T) {
 // The FIRST reason wins, so a pod whose containers fail in sequence keeps naming the one
 // that started it rather than flipping to whichever the list happens to end on.
 func TestStatusPodKeepsTheFirstContainerReason(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Pod",
 		"status": map[string]any{
@@ -178,6 +194,8 @@ func TestStatusPodKeepsTheFirstContainerReason(t *testing.T) {
 // A server that sends something other than an object in the list must not take the
 // reading down with it — the rest of the containers still count.
 func TestStatusPodSkipsAContainerEntryThatIsNotAnObject(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Pod",
 		"status": map[string]any{
@@ -197,6 +215,8 @@ func TestStatusPodSkipsAContainerEntryThatIsNotAnObject(t *testing.T) {
 // The three verdicts a replica controller reads as, including the one that keeps a
 // deliberately-zeroed workload from looking broken.
 func TestStatusReplicaControllerNamesItsVerdict(t *testing.T) {
+	t.Parallel()
+
 	deployment := func(spec map[string]any, ready int64) *unstructured.Unstructured {
 		return obj(map[string]any{
 			"apiVersion": "apps/v1", "kind": "Deployment",
@@ -215,6 +235,8 @@ func TestStatusReplicaControllerNamesItsVerdict(t *testing.T) {
 // A DaemonSet counts against what the scheduler wants, not a replica count it has none of.
 // desired 0 stays Progressing: a DaemonSet matching no node has nothing to be available.
 func TestStatusDaemonSetCountsAgainstTheDesiredNodes(t *testing.T) {
+	t.Parallel()
+
 	daemonSet := func(desired, ready int64) *unstructured.Unstructured {
 		return obj(map[string]any{
 			"apiVersion": "apps/v1", "kind": "DaemonSet",
@@ -230,6 +252,8 @@ func TestStatusDaemonSetCountsAgainstTheDesiredNodes(t *testing.T) {
 // A healthy node reads Ready and counts 1 of 1, so one "not ready" query spans nodes and
 // the workload kinds alike.
 func TestStatusNodeCountsAReadyNode(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Node",
 		"status": map[string]any{"conditions": []any{
@@ -249,6 +273,8 @@ func TestStatusNodeCountsAReadyNode(t *testing.T) {
 // A Service's type is what distinguishes it, and an omitted one is ClusterIP — the API's
 // default, so the summary matches what kubectl shows.
 func TestStatusServiceNamesItsTypeAndAddress(t *testing.T) {
+	t.Parallel()
+
 	service := func(spec map[string]any) *unstructured.Unstructured {
 		return obj(map[string]any{"apiVersion": "v1", "kind": "Service", "spec": spec})
 	}
@@ -262,6 +288,8 @@ func TestStatusServiceNamesItsTypeAndAddress(t *testing.T) {
 // A Namespace's phase is the whole of its status — no count means the columns stay NULL
 // rather than storing a zero that reads as "none ready".
 func TestStatusNamespaceIsItsPhaseAlone(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Namespace",
 		"status": map[string]any{"phase": "Terminating"},
@@ -276,6 +304,8 @@ func TestStatusNamespaceIsItsPhaseAlone(t *testing.T) {
 
 // A PVC is ready exactly when it is Bound; anything else is a claim nothing is serving.
 func TestStatusPVCIsReadyOnlyWhenBound(t *testing.T) {
+	t.Parallel()
+
 	claim := func(phase string) *unstructured.Unstructured {
 		return obj(map[string]any{
 			"apiVersion": "v1", "kind": "PersistentVolumeClaim",
@@ -295,6 +325,8 @@ func TestStatusPVCIsReadyOnlyWhenBound(t *testing.T) {
 // A Job's verdict is its first True condition; with none it is still running, and the
 // succeeded count is the progress worth showing.
 func TestStatusJobReadsItsTrueCondition(t *testing.T) {
+	t.Parallel()
+
 	job := func(status map[string]any) *unstructured.Unstructured {
 		return obj(map[string]any{"apiVersion": "batch/v1", "kind": "Job", "status": status})
 	}
@@ -328,6 +360,8 @@ func TestStatusJobReadsItsTrueCondition(t *testing.T) {
 // A CronJob's reading is what it is doing now plus when it last fired; a job that has
 // never run has no last time to name.
 func TestStatusCronJobCountsActiveJobsAndNamesTheLastRun(t *testing.T) {
+	t.Parallel()
+
 	cronJob := func(status map[string]any) *unstructured.Unstructured {
 		return obj(map[string]any{"apiVersion": "batch/v1", "kind": "CronJob", "status": status})
 	}
@@ -342,6 +376,8 @@ func TestStatusCronJobCountsActiveJobsAndNamesTheLastRun(t *testing.T) {
 // The most-recently-True condition is the CRD's current state, so a resource that became
 // Healthy after it became Synced reads Healthy.
 func TestStatusConditionsFallbackTakesTheLatestTrueCondition(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "example.com/v1", "kind": "Widget",
 		"status": map[string]any{"conditions": []any{
@@ -357,6 +393,8 @@ func TestStatusConditionsFallbackTakesTheLatestTrueCondition(t *testing.T) {
 // A True condition carrying no lastTransitionTime must still beat the empty string it
 // would otherwise be compared against, or it is dropped for a False summary.
 func TestStatusConditionsFallbackTakesATrueConditionWithNoTimestamp(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "example.com/v1", "kind": "Widget",
 		"status": map[string]any{"conditions": []any{

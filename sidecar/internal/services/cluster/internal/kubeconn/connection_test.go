@@ -38,6 +38,8 @@ import (
 // The trap: a hardcoded scheme turns a plain-HTTP port-forward into https:// and every request
 // fails at the handshake. The scheme follows the credentials the config actually carries.
 func TestNewConnectionResolvesTheBaseURLWithoutAssumingTLS(t *testing.T) {
+	t.Parallel()
+
 	plain, err := NewConnection(&rest.Config{Host: "localhost:8080"})
 	require.NoError(t, err)
 	assert.Equal(t, "http://localhost:8080", plain.BaseURL.String())
@@ -53,6 +55,8 @@ func TestNewConnectionResolvesTheBaseURLWithoutAssumingTLS(t *testing.T) {
 // The tuning is this package's, and the caller's config is not ours to edit — a caller that
 // reads its own config back must find what it wrote.
 func TestNewConnectionStampsItsTuningOnACopy(t *testing.T) {
+	t.Parallel()
+
 	caller := &rest.Config{Host: "https://one.example"}
 
 	conn, err := NewConnection(caller)
@@ -67,6 +71,8 @@ func TestNewConnectionStampsItsTuningOnACopy(t *testing.T) {
 // A host that will not parse fails the build, where a nil connection handed back as usable
 // would panic at the first request instead.
 func TestNewConnectionRefusesAHostItCannotParse(t *testing.T) {
+	t.Parallel()
+
 	_, err := NewConnection(&rest.Config{Host: "://nonsense"})
 
 	assert.Error(t, err)
@@ -75,6 +81,8 @@ func TestNewConnectionRefusesAHostItCannotParse(t *testing.T) {
 // Retiring is what tells every holder that what it derived over this connection no longer
 // holds. Idempotent because publish and Release can both reach one on the way out.
 func TestRetireClosesDoneOnce(t *testing.T) {
+	t.Parallel()
+
 	conn, err := NewConnection(&rest.Config{Host: "https://one.example"})
 	require.NoError(t, err)
 
@@ -87,6 +95,8 @@ func TestRetireClosesDoneOnce(t *testing.T) {
 // A connection nobody built has a nil channel, which blocks forever — reading as never retired,
 // where a closed one would tell every holder its connection had gone.
 func TestDoneOnAConnectionNobodyBuiltNeverFires(t *testing.T) {
+	t.Parallel()
+
 	var c Connection
 
 	select {
@@ -97,6 +107,8 @@ func TestDoneOnAConnectionNobodyBuiltNeverFires(t *testing.T) {
 }
 
 func TestGetJSONDecodesTheAnswer(t *testing.T) {
+	t.Parallel()
+
 	conn := connTo(t, serveAPI(t))
 
 	var body struct {
@@ -110,6 +122,8 @@ func TestGetJSONDecodesTheAnswer(t *testing.T) {
 // The status code is the whole evidence a raw endpoint leaves, so it travels as data — a
 // classifier reading it back out of a formatted string is one that breaks on a reworded message.
 func TestGetJSONReportsTheStatusCode(t *testing.T) {
+	t.Parallel()
+
 	conn := connTo(t, serve(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "no", http.StatusForbidden)
 	})))
@@ -125,6 +139,8 @@ func TestGetJSONReportsTheStatusCode(t *testing.T) {
 // A 200 that will not decode is a proxy or captive portal answering for the API server, which
 // is a different fault from either a transport failure or a status code.
 func TestGetJSONReportsABodyThatWillNotDecode(t *testing.T) {
+	t.Parallel()
+
 	conn := connTo(t, serve(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("<html>sign in to continue</html>"))
 	})))
@@ -136,6 +152,8 @@ func TestGetJSONReportsABodyThatWillNotDecode(t *testing.T) {
 
 // Nothing listening is the transport failing, and it must not read as a status.
 func TestGetJSONReportsATransportFailure(t *testing.T) {
+	t.Parallel()
+
 	conn, err := NewConnection(restConfigForHost(deadHost))
 	require.NoError(t, err)
 
@@ -153,6 +171,8 @@ func wrapped(err error) error {
 }
 
 func TestClassify(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		err  error
@@ -185,6 +205,8 @@ func TestClassify(t *testing.T) {
 // The forms above are hand-built, so one real rejection is what pins them to what the transport
 // actually emits — including that crypto/tls wraps the x509 error in its own.
 func TestClassifyReadsARealHostnameMismatchAsTLSInvalid(t *testing.T) {
+	t.Parallel()
+
 	srv := serveAPI(t)
 	// httptest's certificate covers 127.0.0.1 and example.com, so "localhost" reaches the same
 	// server with a name the certificate does not carry.
@@ -204,6 +226,8 @@ func TestClassifyReadsARealHostnameMismatchAsTLSInvalid(t *testing.T) {
 // unreachable-first classifier would report every rejected certificate as a server that never
 // answered — the opposite of the truth, and a different fix for the user.
 func TestClassifyTellsARejectedCertificateFromAServerThatNeverAnswered(t *testing.T) {
+	t.Parallel()
+
 	refused := wrapped(&net.OpError{Err: syscall.ECONNREFUSED})
 	rejected := wrapped(&net.OpError{Op: "remote error", Err: x509.UnknownAuthorityError{}})
 
@@ -211,35 +235,43 @@ func TestClassifyTellsARejectedCertificateFromAServerThatNeverAnswered(t *testin
 	assert.Equal(t, ReasonTLSInvalid, classify(rejected))
 }
 
+// fakeEnv is an environment of the test's own, so a keepalive test leaves the process's
+// alone.
+type fakeEnv map[string]string
+
+func (e fakeEnv) lookup(key string) (string, bool) {
+	v, ok := e[key]
+	return v, ok
+}
+
+func (e fakeEnv) set(key, val string) error {
+	e[key] = val
+	return nil
+}
+
 func TestKeepaliveTightensTheHealthCheck(t *testing.T) {
-	// t.Setenv restores on cleanup but leaves the var set, so unset it here: the
-	// unset path is the one production takes.
-	t.Setenv(readIdleTimeoutEnv, "")
-	t.Setenv(pingTimeoutEnv, "")
-	os.Unsetenv(readIdleTimeoutEnv)
-	os.Unsetenv(pingTimeoutEnv)
+	t.Parallel()
+	env := fakeEnv{}
 
-	configureHTTP2Keepalive()
+	setKeepaliveDefaults(env.lookup, env.set)
 
-	assert.Equal(t, "10", os.Getenv(readIdleTimeoutEnv))
-	assert.Equal(t, "5", os.Getenv(pingTimeoutEnv))
+	assert.Equal(t, fakeEnv{readIdleTimeoutEnv: "10", pingTimeoutEnv: "5"}, env)
 }
 
 // The values stay tunable: 0 disables the health check, which is how an operator turns
 // it off.
 func TestKeepalivePreservesAnOverride(t *testing.T) {
-	t.Setenv(readIdleTimeoutEnv, "0")
-	t.Setenv(pingTimeoutEnv, "42")
+	t.Parallel()
+	env := fakeEnv{readIdleTimeoutEnv: "0", pingTimeoutEnv: "42"}
 
-	configureHTTP2Keepalive()
+	setKeepaliveDefaults(env.lookup, env.set)
 
-	assert.Equal(t, "0", os.Getenv(readIdleTimeoutEnv))
-	assert.Equal(t, "42", os.Getenv(pingTimeoutEnv))
+	assert.Equal(t, fakeEnv{readIdleTimeoutEnv: "0", pingTimeoutEnv: "42"}, env)
 }
 
 // Building the pool is what applies it: the vars are read when a transport is built, and this
 // package is what builds them — a call the composition root has to remember is one that goes
-// missing.
+// missing. It reads the process's environment, so it stays serial.
 func TestNewConfiguresTheKeepalive(t *testing.T) {
 	t.Setenv(readIdleTimeoutEnv, "")
 	os.Unsetenv(readIdleTimeoutEnv)
@@ -253,6 +285,8 @@ func TestNewConfiguresTheKeepalive(t *testing.T) {
 // TLS material that will not load fails the build, where a connection handed back as usable
 // would fail at the first handshake instead.
 func TestNewConnectionRefusesCredentialsItCannotLoad(t *testing.T) {
+	t.Parallel()
+
 	_, err := NewConnection(&rest.Config{
 		Host:            "https://one.example",
 		TLSClientConfig: rest.TLSClientConfig{CAFile: "/nonexistent/ca.crt"},
@@ -262,12 +296,12 @@ func TestNewConnectionRefusesCredentialsItCannotLoad(t *testing.T) {
 }
 
 func TestNewConnectionReportsAClientItCannotBuild(t *testing.T) {
-	failing := errors.New("no dynamic client")
-	original := newDynamic
-	newDynamic = func(*rest.Config, *http.Client) (dynamic.Interface, error) { return nil, failing }
-	t.Cleanup(func() { newDynamic = original })
+	t.Parallel()
 
-	_, err := NewConnection(&rest.Config{Host: "https://one.example"})
+	failing := errors.New("no dynamic client")
+	build := func(*rest.Config, *http.Client) (dynamic.Interface, error) { return nil, failing }
+
+	_, err := newConnection(&rest.Config{Host: "https://one.example"}, build)
 
 	assert.ErrorIs(t, err, failing)
 }
@@ -275,6 +309,8 @@ func TestNewConnectionReportsAClientItCannotBuild(t *testing.T) {
 // A request that cannot be built is a bug here, not news about the cluster — so it classifies as
 // Internal rather than as a server that would not answer.
 func TestRequestReportsOneItCannotBuild(t *testing.T) {
+	t.Parallel()
+
 	conn := connTo(t, serveAPI(t))
 	var noCtx context.Context
 
@@ -287,6 +323,8 @@ func TestRequestReportsOneItCannotBuild(t *testing.T) {
 // A body that stops arriving mid-read is the same fault as one that will not parse: something
 // answered, and what it said cannot be used.
 func TestRequestReportsABodyThatStopsMidRead(t *testing.T) {
+	t.Parallel()
+
 	conn := connTo(t, serve(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Length", "64")
 		_, _ = io.WriteString(w, "{")
@@ -301,6 +339,8 @@ func TestRequestReportsABodyThatStopsMidRead(t *testing.T) {
 // The status line already arrived, and it is the stronger evidence: a 403 whose error page stops
 // mid-stream is still a grant to fix, not the proxy a malformed answer would point at.
 func TestRequestKeepsTheStatusWhenTheBodyStopsMidRead(t *testing.T) {
+	t.Parallel()
+
 	conn := connTo(t, serve(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Length", "64")
 		w.WriteHeader(http.StatusForbidden)
@@ -321,6 +361,8 @@ func TestRequestKeepsTheStatusWhenTheBodyStopsMidRead(t *testing.T) {
 // A connection nobody has identified must never read as a match: the caller scoped to one
 // cluster has to refuse it, and ("", false) is the only answer that lets it.
 func TestServerUIDIsUnsetUntilAProbeReadsOne(t *testing.T) {
+	t.Parallel()
+
 	conn := &Connection{}
 
 	uid, ok := conn.ServerUID()
@@ -331,6 +373,8 @@ func TestServerUIDIsUnsetUntilAProbeReadsOne(t *testing.T) {
 
 // Set once, and re-confirming the same server changes nothing.
 func TestSetServerUIDIsSetOnce(t *testing.T) {
+	t.Parallel()
+
 	conn := &Connection{}
 
 	conn.setServerUID("uid-1")
@@ -345,6 +389,8 @@ func TestSetServerUIDIsSetOnce(t *testing.T) {
 // the old stamp would go on vouching for the old cluster while the new one answers — so the
 // connection stops vouching for either, and every caller scoped to an identity is refused.
 func TestSetServerUIDStopsVouchingWhenTheServerChanges(t *testing.T) {
+	t.Parallel()
+
 	conn := &Connection{}
 	conn.setServerUID("uid-1")
 
@@ -358,6 +404,8 @@ func TestSetServerUIDStopsVouchingWhenTheServerChanges(t *testing.T) {
 // The conflict stands: a later read agreeing with the original stamp does not clear it, since
 // what answers over this connection has already been seen to change.
 func TestSetServerUIDKeepsTheConflict(t *testing.T) {
+	t.Parallel()
+
 	conn := &Connection{}
 	conn.setServerUID("uid-1")
 	conn.setServerUID("uid-2")
@@ -371,6 +419,8 @@ func TestSetServerUIDKeepsTheConflict(t *testing.T) {
 // The three refusals are told apart in one place, so a caller cannot re-derive them from the
 // parts and drift — and so the message names what actually moved.
 func TestIdentityForTellsTheThreeRefusalsApart(t *testing.T) {
+	t.Parallel()
+
 	unidentified := &Connection{}
 
 	identified := &Connection{}
@@ -396,6 +446,8 @@ func TestIdentityForTellsTheThreeRefusalsApart(t *testing.T) {
 // nobody apart: one nothing has identified yet is on its way to being usable, while one whose
 // server changed underneath it is finished. ServerUID answers ("", false) for both.
 func TestConflictedIsOnlyTheServerChangingUnderneath(t *testing.T) {
+	t.Parallel()
+
 	unidentified := &Connection{}
 
 	identified := &Connection{}

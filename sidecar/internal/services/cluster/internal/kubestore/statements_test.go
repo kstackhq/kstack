@@ -36,6 +36,8 @@ import (
 // does, so the text is what this checks. No read here runs inside a write transaction, so
 // none is OnBoth; adding one is a design decision, not a flag flip.
 func TestEveryStatementDeclaresWhatItDoes(t *testing.T) {
+	t.Parallel()
+
 	require.Len(t, statements, numStmts)
 	for _, st := range statements {
 		text := strings.TrimSpace(st.Text)
@@ -55,6 +57,8 @@ func TestEveryStatementDeclaresWhatItDoes(t *testing.T) {
 // match is case-sensitive: every statement in the table is upper-case, and the helpers'
 // error wraps ("delete rows: %w") open with the same verbs in lower case.
 func TestNoSQLTextLivesOutsideTheTable(t *testing.T) {
+	t.Parallel()
+
 	// Statements that cannot be prepared here, each with its reason.
 	exempt := map[string]string{
 		"SELECT COALESCE(SUM(count), 0)": "the stats read also serves a CLOSED cache, " +
@@ -99,6 +103,8 @@ func TestNoSQLTextLivesOutsideTheTable(t *testing.T) {
 // The relist prune's cascades used to re-derive the doomed set with the same subquery, so
 // the predicate ran once per side table and again for the delete itself.
 func TestTheSweepNamesObjectsOnce(t *testing.T) {
+	t.Parallel()
+
 	ids := []stmtID{stmtSweepObjects}
 	for _, c := range cascadeTables {
 		ids = append(ids, c.byUIDs)

@@ -57,6 +57,8 @@ func fileApprovals(t *testing.T, s *service, c ChatID, readPath, writePath strin
 // A rule hand-edited into settings.json passes the store's shape check, which
 // reads no disk; foldersFor's check refuses it.
 func TestFoldersForAnswersOnlyCheckedFolders(t *testing.T) {
+	// CaptureLogs swaps the process's default logger, so this test stays serial.
+
 	s := newTestService(t)
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
@@ -77,6 +79,8 @@ func TestFoldersForAnswersOnlyCheckedFolders(t *testing.T) {
 }
 
 func TestNoFolderAppliesWithoutASandboxThroughTheFileTools(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	home := grantable(t, s)
 	c := seedChat(t, s.db, aChat("1", time.Now()))

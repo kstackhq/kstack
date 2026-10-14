@@ -26,6 +26,8 @@ import (
 
 // A task's output file is owner-only.
 func TestATasksOutputIsOwnerOnly(t *testing.T) {
+	t.Parallel()
+
 	tt := newTaskTool()
 	s := startServiceWithTool(t, tt)
 	_, ft := startTaskTurn(t, s, tt, nil, "1")

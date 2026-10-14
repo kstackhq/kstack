@@ -23,9 +23,8 @@ import (
 	"time"
 )
 
-// vacuumPagesPerSweep bounds the free pages one pass hands back (~8MiB at a 4KiB page). A
-// var only so a test can shrink it.
-var vacuumPagesPerSweep int64 = 2048
+// vacuumPagesPerSweep bounds the free pages one pass hands back (~8MiB at a 4KiB page).
+const vacuumPagesPerSweep = 2048
 
 // Retention is what the janitor's own tables hold. Events are absent on purpose: their
 // retention is the server's, mirrored by the relist's prune, and the janitor sweeps only
@@ -121,11 +120,11 @@ func sweep(ctx context.Context, f *file, ret Retention) {
 	checkSizeLimit(ctx, f, ret.SizeLimit)
 }
 
-// vacuum hands at most vacuumPagesPerSweep free pages back to the OS. Bounded because the
+// vacuum hands at most f.vacuumPages free pages back to the OS. Bounded because the
 // argument-less form reclaims the whole freelist in one statement, holding the single
 // writer for as long as that takes.
 func vacuum(ctx context.Context, f *file, freePages int64) {
-	pages := min(freePages, vacuumPagesPerSweep)
+	pages := min(freePages, f.vacuumPages)
 	if _, err := f.db.ExecContext(ctx, fmt.Sprintf(`PRAGMA incremental_vacuum(%d)`, pages)); err != nil {
 		slog.Warn("kubestore: incremental_vacuum failed", "cacheID", f.cacheID, "err", err)
 	}

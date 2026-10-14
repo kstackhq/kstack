@@ -43,6 +43,8 @@ import (
 // A run a previous process left unfinished is failed at the next start, with its
 // content kept: the answer reads as Failed with the reason, not as Streaming forever.
 func TestStartFailsAStrandedRun(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	now := time.UnixMilli(1_000).UTC()
 	db := openTestDB(t, dir)
@@ -67,6 +69,8 @@ func TestStartFailsAStrandedRun(t *testing.T) {
 // A monitor run a previous process left running is failed at the next start, as
 // any run is, its open calls closed: the reconcile survives its NULL chat.
 func TestAStrandedMonitorRunIsFailed(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	db := openTestDB(t, dir)
 	run := agentRun{ID: newRunID(), ClusterID: "7", ProviderID: "fake", ModelID: "fake", Dialect: "fake", Task: "look", AppVersion: "test"}
@@ -91,6 +95,8 @@ func TestAStrandedMonitorRunIsFailed(t *testing.T) {
 // A watch opened before Start read the stranded answer as it was; the reconcile
 // pings its chat, so the watcher sees it fail rather than stream forever.
 func TestStartTellsAPreStartWatchOfAStrandedRun(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, db, aChat("1", now))
@@ -116,6 +122,8 @@ func TestStartTellsAPreStartWatchOfAStrandedRun(t *testing.T) {
 // A start that fails is the end of the service, so it joins the watches admitted
 // before it: nothing else will, since the lifecycle stops only what started.
 func TestAFailedStartEndsThePreStartWatches(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
 	require.NoError(t, err)
@@ -136,6 +144,8 @@ func TestAFailedStartEndsThePreStartWatches(t *testing.T) {
 // stranded them already did, and moving them again would put every interrupted
 // chat above ones the user touched since.
 func TestTheStartupReconcileLeavesTheListOrderAlone(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	older, newer := time.UnixMilli(1_000).UTC(), time.UnixMilli(2_000).UTC()
 	db := openTestDB(t, dir)
@@ -156,6 +166,8 @@ func TestTheStartupReconcileLeavesTheListOrderAlone(t *testing.T) {
 // A service whose statements will not prepare is not built: the app closes the
 // file behind it rather than running over a store that answers nothing.
 func TestNewFailsWhenTheStatementsWillNotPrepare(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	require.NoError(t, db.Close())
 
@@ -167,6 +179,8 @@ func TestNewFailsWhenTheStatementsWillNotPrepare(t *testing.T) {
 // A reconcile the service could not run is a failed start, not a service that
 // quietly left stranded rows behind.
 func TestStartReportsAReconcileItCouldNotRun(t *testing.T) {
+	t.Parallel()
+
 	db := openTestDB(t, t.TempDir())
 	s, err := newService(db, chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
 	require.NoError(t, err)
@@ -181,6 +195,8 @@ func TestStartReportsAReconcileItCouldNotRun(t *testing.T) {
 // The service's context exists from construction, so a watch that arrives before
 // Start is answered.
 func TestAWatchBeforeStartIsAnswered(t *testing.T) {
+	t.Parallel()
+
 	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
 	require.NoError(t, err)
 	t.Cleanup(func() {
@@ -198,6 +214,8 @@ func TestAWatchBeforeStartIsAnswered(t *testing.T) {
 // Nothing joins the WaitGroup once stop has run: work admitted after its Wait is
 // work Close pulls the connection out from under.
 func TestWorkArrivingAfterStopIsRefused(t *testing.T) {
+	t.Parallel()
+
 	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
 	require.NoError(t, err)
 	stop, err := s.Start(t.Context())
@@ -223,6 +241,8 @@ func TestWorkArrivingAfterStopIsRefused(t *testing.T) {
 // stop waits with drain.WithContext, so a deadline that expires with work still
 // running is reported rather than passed off as a clean drain.
 func TestStopReportsADrainItCouldNotFinish(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 	entered, release := make(chan struct{}), make(chan struct{})
@@ -248,6 +268,8 @@ func TestStopReportsADrainItCouldNotFinish(t *testing.T) {
 // A delete's write outlives its caller but not the service: stop cancels one parked
 // behind the writer, so the drain is not held by it.
 func TestADeletesWriteEndsWithTheService(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 	entered := make(chan struct{})
@@ -268,6 +290,8 @@ func TestADeletesWriteEndsWithTheService(t *testing.T) {
 // A store that will not answer reaches every caller as an error, never as an empty
 // list or a silent no-op. A closed pool is the one failure every entry point shares.
 func TestEveryEntryPointReportsAFailedStore(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	id := ChatID(appdb.NewID())
 	require.NoError(t, s.db.Close())
@@ -286,6 +310,8 @@ func TestEveryEntryPointReportsAFailedStore(t *testing.T) {
 // --- rename ---
 
 func TestRenameOfAnUnknownChatIsChatGone(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 
 	_, err := s.Rename(t.Context(), ChatID(appdb.NewID()), "title")
@@ -295,6 +321,8 @@ func TestRenameOfAnUnknownChatIsChatGone(t *testing.T) {
 // A rename is trimmed, and one left empty or longer than the cap is refused with
 // nothing written: the title reaches every window over the list watch.
 func TestRenameRefusesAnEmptyOrOverlongTitle(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 
@@ -313,6 +341,8 @@ func TestRenameRefusesAnEmptyOrOverlongTitle(t *testing.T) {
 
 // The rename moves the chat's recency, and what it returns is the row it committed.
 func TestRenameReturnsTheRecordItCommitted(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	s.now = func() time.Time { return time.UnixMilli(5_000) }
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
@@ -332,6 +362,8 @@ func TestRenameReturnsTheRecordItCommitted(t *testing.T) {
 // whole. Never a nil error over an empty record. A guard, not a proof — a run whose
 // delete lands outside the window passes with the bug present.
 func TestRenameNeverReportsSuccessOverAnEmptyRecord(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 
 	for range 50 {
@@ -357,6 +389,8 @@ func TestRenameNeverReportsSuccessOverAnEmptyRecord(t *testing.T) {
 // --- delete ---
 
 func TestDeleteTakesTheChatAndItsMessages(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, s.db, aChat("1", now))
@@ -382,6 +416,8 @@ func TestDeleteTakesTheChatAndItsMessages(t *testing.T) {
 }
 
 func TestDeleteOfAnUnknownChatIsANoOp(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	assert.NoError(t, s.Delete(t.Context(), ChatID(appdb.NewID())))
 }
@@ -390,6 +426,8 @@ func TestDeleteOfAnUnknownChatIsANoOp(t *testing.T) {
 // delete that removed one pings the clusters key — and one that found nothing does
 // not, since a no-op ping would wake the mirror for nothing.
 func TestDeleteTellsTheClusterMirrorWhenARowWent(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 	sub := s.db.Subscribe(appdb.KeyClusters)
@@ -406,6 +444,8 @@ func TestDeleteTellsTheClusterMirrorWhenARowWent(t *testing.T) {
 // A delete whose caller gave up still lands: the rows go on a context of the
 // service's own, so a chat is never left half-deleted.
 func TestDeleteOutlivesItsCallersContext(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 	ctx, cancel := context.WithCancel(t.Context())
@@ -423,6 +463,8 @@ func TestDeleteOutlivesItsCallersContext(t *testing.T) {
 // The transcript watch opens with the rows in seq order, then its Bookmark, and a
 // change to a row arrives as Modified.
 func TestMessagesWatchOpensWithASnapshotAndItsBookmark(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, s.db, aChat("1", now))
@@ -452,6 +494,8 @@ func TestMessagesWatchOpensWithASnapshotAndItsBookmark(t *testing.T) {
 // A watcher of one chat sees nothing of another's rows, and a change to the other
 // chat does not wake it: the keys are per chat.
 func TestMessagesWatchIsScopedToItsChat(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	now := time.UnixMilli(1_000).UTC()
 	mine := seedChat(t, s.db, aChat("1", now))
@@ -480,6 +524,8 @@ func TestMessagesWatchIsScopedToItsChat(t *testing.T) {
 // A watcher that never reads holds nothing but its own pump: another watcher of the
 // same chat, and every other operation, go on.
 func TestAStalledWatcherStallsNothingElse(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, s.db, aChat("1", now))
@@ -500,6 +546,8 @@ func TestAStalledWatcherStallsNothingElse(t *testing.T) {
 }
 
 func TestListWatchReportsCreatesAndRenames(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 
 	w, err := s.WatchList(t.Context())
@@ -521,6 +569,8 @@ func TestListWatchReportsCreatesAndRenames(t *testing.T) {
 }
 
 func TestListWatchReportsADelete(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 
@@ -537,6 +587,8 @@ func TestListWatchReportsADelete(t *testing.T) {
 // A watch whose re-read fails ends with the reason on Err — a consumer that ignored
 // it would turn a broken watch into a silent one.
 func TestAWatchWhoseReadFailsReportsWhy(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 
@@ -553,6 +605,8 @@ func TestAWatchWhoseReadFailsReportsWhy(t *testing.T) {
 }
 
 func TestAMessagesWatchReportsAFailedReRead(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, s.db, aChat("1", now))
@@ -571,6 +625,8 @@ func TestAMessagesWatchReportsAFailedReRead(t *testing.T) {
 
 // A snapshot the watch cannot read fails it rather than sending an empty list.
 func TestAWatchThatCannotReadItsSnapshotFails(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	require.NoError(t, s.store.Close())
 
@@ -589,6 +645,8 @@ func TestAWatchThatCannotReadItsSnapshotFails(t *testing.T) {
 // snapshot, the bookmark, or a change above it. One cancel per frame the pump would
 // send, so each send site is the one that finds the consumer gone.
 func TestAWatchEndsWhereverItsConsumerLeft(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, s.db, aChat("1", now))
@@ -610,6 +668,8 @@ func TestAWatchEndsWhereverItsConsumerLeft(t *testing.T) {
 // The same for the list watch. Two chats, so a consumer that reads nothing leaves
 // the pump inside the snapshot rather than at the bookmark.
 func TestListWatchEndsWhereverItsConsumerLeft(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	now := time.UnixMilli(1_000).UTC()
 	seedChat(t, s.db, aChat("1", now))
@@ -634,6 +694,8 @@ func TestListWatchEndsWhereverItsConsumerLeft(t *testing.T) {
 // parked on the third when the consumer leaves. The rows are written straight to the
 // store and announced once, so one fold carries all three.
 func TestAChangeTheConsumerNeverReadsEndsThePump(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, s.db, aChat("1", now))
@@ -675,6 +737,8 @@ func TestAChangeTheConsumerNeverReadsEndsThePump(t *testing.T) {
 
 // The list watch folds a burst the same way, whether the chats changed or went.
 func TestAListChangeTheConsumerNeverReadsEndsThePump(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 
 	var ids []ChatID
@@ -720,6 +784,8 @@ func TestAListChangeTheConsumerNeverReadsEndsThePump(t *testing.T) {
 // --- send ---
 
 func TestSendWritesTheQuestionItsRunAndTheAnswer(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 
 	msg := send(t, s, nil, "1", "what is a pod?\nsecond line")
@@ -753,6 +819,8 @@ func TestSendWritesTheQuestionItsRunAndTheAnswer(t *testing.T) {
 }
 
 func TestSendRejectsAKeyThatIsNotAUUID(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake", "high", "not-a-uuid", "hi")
 	assert.ErrorIs(t, err, ErrBadRequest)
@@ -760,6 +828,8 @@ func TestSendRejectsAKeyThatIsNotAUUID(t *testing.T) {
 }
 
 func TestSendRejectsAnEmptyRequestIDOrMessage(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake", "high", "", "hi")
 	assert.ErrorIs(t, err, ErrBadRequest)
@@ -769,6 +839,8 @@ func TestSendRejectsAnEmptyRequestIDOrMessage(t *testing.T) {
 }
 
 func TestSendRejectsAModeThatIsNeitherConstant(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	_, err := s.Send(t.Context(), nil, Mode("panel"), "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
 	assert.ErrorIs(t, err, ErrBadRequest)
@@ -776,6 +848,8 @@ func TestSendRejectsAModeThatIsNeitherConstant(t *testing.T) {
 }
 
 func TestSendCapsTheTitleItDerives(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	msg := send(t, s, nil, "1", strings.Repeat("x", 200))
 	c, ok, err := s.Get(t.Context(), msg.ChatID)
@@ -786,6 +860,8 @@ func TestSendCapsTheTitleItDerives(t *testing.T) {
 }
 
 func TestSendCapsTheTitleAtACharacterBoundary(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	msg := send(t, s, nil, "1", strings.Repeat("集", 100))
 	c, ok, err := s.Get(t.Context(), msg.ChatID)
@@ -797,6 +873,8 @@ func TestSendCapsTheTitleAtACharacterBoundary(t *testing.T) {
 }
 
 func TestSendSetsTheModeOnlyWhenItCreatesTheChat(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	first, err := s.Send(t.Context(), nil, ModeDashboard, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
 	require.NoError(t, err)
@@ -812,6 +890,8 @@ func TestSendSetsTheModeOnlyWhenItCreatesTheChat(t *testing.T) {
 }
 
 func TestSendSetsTheClusterOnlyWhenItCreatesTheChat(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	first, err := s.Send(t.Context(), nil, ModeChat, "7", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
 	require.NoError(t, err)
@@ -827,6 +907,8 @@ func TestSendSetsTheClusterOnlyWhenItCreatesTheChat(t *testing.T) {
 }
 
 func TestSendRefusesAProviderTheServiceDoesNotHold(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "nobody", "fake", "high", reqID("1"), "hi")
 	assert.ErrorIs(t, err, ErrBadRequest)
@@ -834,6 +916,8 @@ func TestSendRefusesAProviderTheServiceDoesNotHold(t *testing.T) {
 }
 
 func TestSendIntoAnUnknownChatIsChatGone(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	id := ChatID(appdb.NewID())
 	_, err := s.Send(t.Context(), &id, ModeChat, "1", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
@@ -842,6 +926,8 @@ func TestSendIntoAnUnknownChatIsChatGone(t *testing.T) {
 }
 
 func TestSendIntoAMarkedClusterIsClusterGone(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	markCluster(t, s.db, "9")
 	_, err := s.Send(t.Context(), nil, ModeChat, "9", false, false, false, "fake", "fake", "high", reqID("1"), "hi")
@@ -863,6 +949,8 @@ func runDialect(t *testing.T, db *appdb.DB, id RunID) string {
 // stored content after that provider has left the catalog: a chat's run, and a
 // subagent's under it.
 func TestARunRecordsItsDialect(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithAgent(t)
 	subagentFake(s, "Count the pods.")
 	fakeOf(s).SetToolCalls(agentCall("Count the pods."))
@@ -882,6 +970,8 @@ func TestARunRecordsItsDialect(t *testing.T) {
 // with nothing written. The replay lookup comes first, so a retry of a send that
 // already ran is answered whatever the catalog holds now.
 func TestSendRefusesAnEffortTheModelDoesNotList(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 
 	for _, ref := range [][3]string{{"nobody", "fake", "high"}, {"fake", "other", "high"}, {"fake", "fake", "max"}} {
@@ -901,6 +991,8 @@ func TestSendRefusesAnEffortTheModelDoesNotList(t *testing.T) {
 // it, which is what makes a wire strip another's payloads, and the new run
 // records the target's dialect.
 func TestAChatMovesAcrossDialects(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, s.db, aChat("1", now))
@@ -933,6 +1025,8 @@ func TestAChatMovesAcrossDialects(t *testing.T) {
 // key's unique index, reached by a question whose answer the replay lookup cannot
 // find.
 func TestASendWhoseRowsCannotBeWrittenReleasesItsTurn(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, s.db, aChat("1", now))
@@ -949,6 +1043,8 @@ func TestASendWhoseRowsCannotBeWrittenReleasesItsTurn(t *testing.T) {
 }
 
 func TestASecondSendIsRefusedWhileATurnIsInFlight(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	gate := make(chan struct{})
 	fakeOf(s).SetGate(gate)
@@ -965,6 +1061,8 @@ func TestASecondSendIsRefusedWhileATurnIsInFlight(t *testing.T) {
 // The answer grows on the watch, then settles: Complete, with the fake's sentence
 // and its stop reason, and the stored row says the same. The list moved with it.
 func TestASendStreamsItsAnswerToTheWatch(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	older := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 	gate := make(chan struct{})
@@ -1003,6 +1101,8 @@ func TestASendStreamsItsAnswerToTheWatch(t *testing.T) {
 // The model is shown the system prompt and the chat so far: the earlier question
 // and answer, then the new question — never the empty answer being written.
 func TestTheFakeIsAskedTheChatsHistory(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	first := send(t, s, nil, "1", "hi")
 	awaitSettled(t, s, first.ChatID, first.ID)
@@ -1022,6 +1122,8 @@ func TestTheFakeIsAskedTheChatsHistory(t *testing.T) {
 // A vendor that routes by a key keeps a chat's turns on the machine holding its
 // prefix, so every request of every turn names the chat.
 func TestATurnCarriesTheChatIDAsItsAffinityKey(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	first := send(t, s, nil, "1", "hi")
 	awaitSettled(t, s, first.ChatID, first.ID)
@@ -1038,6 +1140,8 @@ func TestATurnCarriesTheChatIDAsItsAffinityKey(t *testing.T) {
 // Each answer row says what wrote it and whether it thought, off its run; a
 // question has no run and says nothing.
 func TestHistoryNamesEachAnswersProviderAndEffort(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	first := send(t, s, nil, "1", "hi")
 	awaitSettled(t, s, first.ChatID, first.ID)
@@ -1051,6 +1155,8 @@ func TestHistoryNamesEachAnswersProviderAndEffort(t *testing.T) {
 }
 
 func TestARetriedSendStartsNothing(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	first := send(t, s, nil, "1", "hi")
 	awaitSettled(t, s, first.ChatID, first.ID)
@@ -1064,6 +1170,8 @@ func TestARetriedSendStartsNothing(t *testing.T) {
 }
 
 func TestARetryIgnoresItsOtherArguments(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	first := send(t, s, nil, "1", "hi")
 	awaitSettled(t, s, first.ChatID, first.ID)
@@ -1079,6 +1187,8 @@ func TestARetryIgnoresItsOtherArguments(t *testing.T) {
 // A read mid-answer, the fake gated inside its thought, sees the thinking so far
 // and no text: the overlay is what fills the disclosure while the model is silent.
 func TestTheLiveOverlayCarriesTheThinkingAheadOfTheText(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	gate := make(chan struct{})
 	fakeOf(s).SetGate(gate)
@@ -1094,6 +1204,8 @@ func TestTheLiveOverlayCarriesTheThinkingAheadOfTheText(t *testing.T) {
 // The turn stores the thinking ahead of the text, and the stored row reads the
 // thought back.
 func TestACompletedTurnStoresTheThinkingAheadOfTheText(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	msg := send(t, s, nil, "1", "hi")
 
@@ -1107,6 +1219,8 @@ func TestACompletedTurnStoresTheThinkingAheadOfTheText(t *testing.T) {
 // A retry landing mid-answer carries the content so far: the overlay, not the
 // empty stored row.
 func TestARetryMidAnswerCarriesTheLiveText(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	gate := make(chan struct{})
 	fakeOf(s).SetGate(gate)
@@ -1125,6 +1239,8 @@ func TestARetryMidAnswerCarriesTheLiveText(t *testing.T) {
 // The key went with the chat: a retry naming the deleted chat is refused, and a
 // create-shaped one is a fresh send.
 func TestARetryAfterADeleteIsAFreshSend(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	first := send(t, s, nil, "1", "hi")
 	awaitSettled(t, s, first.ChatID, first.ID)
@@ -1140,6 +1256,8 @@ func TestARetryAfterADeleteIsAFreshSend(t *testing.T) {
 }
 
 func TestCancelKeepsThePartialAnswer(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	fakeOf(s).SetGate(make(chan struct{}))
 	msg := send(t, s, nil, "1", "hi")
@@ -1156,6 +1274,8 @@ func TestCancelKeepsThePartialAnswer(t *testing.T) {
 }
 
 func TestCancelOfAnIdleChatIsANoOp(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	assert.NoError(t, s.Cancel(t.Context(), ChatID(appdb.NewID())))
 }
@@ -1163,6 +1283,8 @@ func TestCancelOfAnIdleChatIsANoOp(t *testing.T) {
 // A cancel that lands before the goroutine claims its run: the run settles
 // cancelled from queued, and the fake was never asked.
 func TestACancelBeforeTheClaimRunsNothing(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	// The turn is reserved and cancelled by hand, ahead of its goroutine.
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
@@ -1184,6 +1306,8 @@ func TestACancelBeforeTheClaimRunsNothing(t *testing.T) {
 // A stream that panics fails its turn alone: the answer settles failed with the
 // panic as its error, the call row closes, and the chat's slot is released.
 func TestAPanickingStreamFailsItsTurnAlone(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	fakeOf(s).PanicNext("the sdk blew up")
 	msg := send(t, s, nil, "1", "hi")
@@ -1197,6 +1321,8 @@ func TestAPanickingStreamFailsItsTurnAlone(t *testing.T) {
 }
 
 func TestAStreamFailureKeepsThePartialAnswer(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	fakeOf(s).FailAfter(1, errors.New("provider went away"))
 	msg := send(t, s, nil, "1", "hi")
@@ -1212,6 +1338,8 @@ func TestAStreamFailureKeepsThePartialAnswer(t *testing.T) {
 // A run that is not queued when the goroutine claims it — here settled by hand
 // under the send — asks no model and settles failed.
 func TestARefusedClaimAsksNoModel(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 	turn := seedTurn(t, s.db, c.ID, time.UnixMilli(1_000).UTC())
@@ -1234,6 +1362,8 @@ func TestARefusedClaimAsksNoModel(t *testing.T) {
 // The completion ping finds the settled row: the overlay is gone by the time the
 // watcher re-reads, so the frame it folds is Complete, and no ping follows.
 func TestATurnEndsWriteThenReleaseThenNotify(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	msg := send(t, s, nil, "1", "hi")
 	awaitTurnReleased(t, s, msg.ChatID)
@@ -1246,6 +1376,8 @@ func TestATurnEndsWriteThenReleaseThenNotify(t *testing.T) {
 // A delete mid-turn cancels the turn and joins it, so the settle lands before the
 // rows go and nothing is written to a deleted chat.
 func TestDeleteMidTurnCancelsAndJoinsIt(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	fakeOf(s).SetGate(make(chan struct{}))
 	msg := send(t, s, nil, "1", "hi")
@@ -1265,6 +1397,8 @@ func TestDeleteMidTurnCancelsAndJoinsIt(t *testing.T) {
 // A send between a delete's join and its write is refused: the chat is going, and a
 // turn reserved in that gap would run on rows that are about to vanish.
 func TestASendDuringADeleteIsRefused(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	msg := send(t, s, nil, "1", "hi")
 	awaitSettled(t, s, msg.ChatID, msg.ID)
@@ -1290,6 +1424,8 @@ func TestASendDuringADeleteIsRefused(t *testing.T) {
 
 // Stop cancels every turn and waits for its settle.
 func TestStopCancelsTheTurnsAndSettlesThem(t *testing.T) {
+	t.Parallel()
+
 	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
 	require.NoError(t, err)
 	stop, err := s.Start(t.Context())
@@ -1309,6 +1445,8 @@ func TestStopCancelsTheTurnsAndSettlesThem(t *testing.T) {
 }
 
 func TestASendAfterARestartContinuesTheSeq(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	first, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
 	require.NoError(t, err)
@@ -1328,6 +1466,8 @@ func TestASendAfterARestartContinuesTheSeq(t *testing.T) {
 
 // A call a previous process left open is closed at the next start, as stranded.
 func TestStartClosesTheCallsAPreviousRunLeftOpen(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	db := openTestDB(t, dir)
 	now := time.UnixMilli(1_000).UTC()
@@ -1347,6 +1487,8 @@ func TestStartClosesTheCallsAPreviousRunLeftOpen(t *testing.T) {
 // caught by the second lookup, the one inside the transaction: it answers with the row
 // that attempt wrote rather than asking the question twice.
 func TestARetryRacingTheFirstAttemptIsAnsweredInsideTheTransaction(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	now := time.UnixMilli(1_000).UTC()
 	c := seedChat(t, s.db, aChat("1", now))
@@ -1382,6 +1524,8 @@ func TestARetryRacingTheFirstAttemptIsAnsweredInsideTheTransaction(t *testing.T)
 // refuse every later send on that chat as one already in flight. Each case fails one
 // step — a read by giving it a shape no scanner takes, a write with a trigger.
 func TestASendWhoseStoreFailsWritesNothingAndLeavesTheChatFree(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct {
 		name    string
 		id      stmtID
@@ -1419,6 +1563,8 @@ func TestASendWhoseStoreFailsWritesNothingAndLeavesTheChatFree(t *testing.T) {
 // A rename the store refuses is the store's error, not a missing chat: the row is
 // still there and the caller is not told it is gone.
 func TestARenameTheStoreRefusesIsNotAMissingChat(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 	_, err := s.db.Write.Exec(`CREATE TRIGGER refuse BEFORE UPDATE ON chats BEGIN SELECT RAISE(ABORT, 'refused'); END`)
@@ -1433,6 +1579,8 @@ func TestARenameTheStoreRefusesIsNotAMissingChat(t *testing.T) {
 // A call that ran lands its row under the model call that asked, with what was
 // asked, what came back, and both timestamps.
 func TestACallThatRanLandsItsRow(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, testTool{name: "echo"})
 	fakeOf(s).SetToolCalls(llm.StagedCall("echo", `{"say":"hi"}`))
 
@@ -1448,6 +1596,8 @@ func TestACallThatRanLandsItsRow(t *testing.T) {
 // The running row is committed before the tool runs: the tool reads it from inside
 // its own Run.
 func TestARunningRowIsCommittedBeforeTheToolRuns(t *testing.T) {
+	t.Parallel()
+
 	var seen string
 	var s *service
 	s = startServiceWithTool(t, testTool{name: "echo", run: func(context.Context, json.RawMessage) (string, bool) {
@@ -1465,6 +1615,8 @@ func TestARunningRowIsCommittedBeforeTheToolRuns(t *testing.T) {
 // A refusal the loop wrote is a row of its own: failed, the code in error, and no
 // started_at — the record of a call that never ran.
 func TestARefusalTheLoopWroteLandsItsRow(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, testTool{name: "echo"})
 	fakeOf(s).SetToolCalls(llm.StagedCall("nosuch", `{}`))
 
@@ -1480,6 +1632,8 @@ func TestARefusalTheLoopWroteLandsItsRow(t *testing.T) {
 // A tool's own error is prose the model reads: the row keeps it in result, what the
 // model read, and marks error with the tool's own marker rather than the text again.
 func TestAToolsOwnErrorLandsAsAJSONObject(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, testTool{name: "echo", run: func(context.Context, json.RawMessage) (string, bool) {
 		return "no such namespace", true
 	}})
@@ -1498,6 +1652,8 @@ func TestAToolsOwnErrorLandsAsAJSONObject(t *testing.T) {
 // Each round is a call row of its own, numbered within the run, and the stop
 // reason the wire serves is the last round's.
 func TestATurnsModelCallsLandWithTheirSeq(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, testTool{name: "echo"})
 	fakeOf(s).SetToolCalls(llm.StagedCall("echo", `{}`))
 
@@ -1514,6 +1670,8 @@ func TestATurnsModelCallsLandWithTheirSeq(t *testing.T) {
 // A completed turn stores its rounds: the first reply, the call, its answer, then
 // the reply that followed. The thinking reads across both replies.
 func TestACompletedTurnStoresItsRounds(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, testTool{name: "echo"})
 	fakeOf(s).SetToolCalls(llm.StagedCall("echo", `{"say":"hi"}`))
 
@@ -1536,6 +1694,8 @@ func firstRound(input string) []llm.Block {
 // stream publishes, nor the row a watcher reads, nor the answer a retried send
 // returns carries one, and the history the next send replays does.
 func TestAPayloadStaysOutOfEveryRowAReaderGets(t *testing.T) {
+	t.Parallel()
+
 	gate := make(chan struct{})
 	release := sync.OnceFunc(func() { close(gate) })
 	t.Cleanup(release)
@@ -1571,6 +1731,8 @@ func TestAPayloadStaysOutOfEveryRowAReaderGets(t *testing.T) {
 // reply parks inside its thought with the call and its answer already in the
 // overlay.
 func TestAReadMidRoundSeesTheRound(t *testing.T) {
+	t.Parallel()
+
 	gate := make(chan struct{})
 	var s *service
 	s = startServiceWithTool(t, testTool{name: "echo", run: func(_ context.Context, input json.RawMessage) (string, bool) {
@@ -1595,6 +1757,8 @@ func TestAReadMidRoundSeesTheRound(t *testing.T) {
 // row keeps a payload that reasoned toward a call the history no longer sends.
 // Its text stays, since that is what the model reads.
 func TestAnUnsettledRowsPayloadsGoWithItsRounds(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	chat := seedChat(t, s.db, aChat("1", s.now()))
 	turn := seedTurn(t, s.db, chat.ID, s.now())
@@ -1618,6 +1782,8 @@ func TestAnUnsettledRowsPayloadsGoWithItsRounds(t *testing.T) {
 }
 
 func TestACancelledTurnKeepsItsRoundsAndSendsItsTextAlone(t *testing.T) {
+	t.Parallel()
+
 	gate := make(chan struct{})
 	var s *service
 	s = startServiceWithTool(t, testTool{name: "echo", run: func(_ context.Context, input json.RawMessage) (string, bool) {
@@ -1650,6 +1816,8 @@ func TestACancelledTurnKeepsItsRoundsAndSendsItsTextAlone(t *testing.T) {
 // the settle writes the run's status ahead of the rows, so the retry lands. The
 // model call's row keeps its own stop reason, and the run carries the error.
 func TestATransientFinishWriteIsHealedAtSettlement(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, testTool{name: "echo"})
 	_, err := s.db.Write.Exec(`CREATE TRIGGER refuse BEFORE UPDATE ON tool_calls
 		WHEN (SELECT r.status FROM agent_runs r JOIN llm_calls c ON c.run_id = r.id WHERE c.id = NEW.llm_call_id) = 'running'
@@ -1671,6 +1839,8 @@ func TestATransientFinishWriteIsHealedAtSettlement(t *testing.T) {
 
 // A tool call a previous process left open is closed at the next start.
 func TestStrandedToolCallsAreClosedOnStart(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	db := openTestDB(t, dir)
 	now := time.UnixMilli(1_000).UTC()
@@ -1698,6 +1868,8 @@ func TestStrandedToolCallsAreClosedOnStart(t *testing.T) {
 // The catalog's word decides: a model that takes no tools is offered none and
 // told so, whatever the box holds.
 func TestAModelThatTakesNoToolsIsOfferedNone(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, testTool{name: "echo"})
 
 	msg, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "fake-no-tools", "", reqID("1"), "hi")
@@ -1710,6 +1882,8 @@ func TestAModelThatTakesNoToolsIsOfferedNone(t *testing.T) {
 }
 
 func TestTheSystemPromptSaysWhatTheModelCanDo(t *testing.T) {
+	t.Parallel()
+
 	t.Run("no tools", func(t *testing.T) {
 		s := newTestService(t)
 		msg := send(t, s, nil, "1", "hi")
@@ -1735,6 +1909,8 @@ func TestTheSystemPromptSaysWhatTheModelCanDo(t *testing.T) {
 // its own row cannot land either, and the settle that would heal it fails too — so
 // the run is left for the next start to fail as stranded.
 func TestAToolRowTheStoreRefusesRunsNothing(t *testing.T) {
+	t.Parallel()
+
 	ran := false
 	s := startServiceWithTool(t, testTool{name: "echo", run: func(context.Context, json.RawMessage) (string, bool) {
 		ran = true
@@ -1757,6 +1933,8 @@ func TestAToolRowTheStoreRefusesRunsNothing(t *testing.T) {
 // A running row the store refused once is written again by the refusal that
 // follows, under the same seq: one row for the call, and a settle that lands.
 func TestAFailedStartWriteLeavesOneRowForTheCall(t *testing.T) {
+	t.Parallel()
+
 	ran := false
 	s := startServiceWithTool(t, testTool{name: "echo", run: func(context.Context, json.RawMessage) (string, bool) {
 		ran = true
@@ -1782,6 +1960,8 @@ func TestAFailedStartWriteLeavesOneRowForTheCall(t *testing.T) {
 // settle closes the tool row the recorder never did: failed, interrupted, with its
 // finish time, so nothing waits on a restart to close it.
 func TestAToolThatPanicsClosesItsRow(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, testTool{name: "echo", run: func(context.Context, json.RawMessage) (string, bool) {
 		panic("boom")
 	}})
@@ -1802,6 +1982,8 @@ func TestAToolThatPanicsClosesItsRow(t *testing.T) {
 // A start that cannot close a call a previous process left open is a failed start:
 // the sweep is part of it, whichever table refuses.
 func TestAStartThatCannotCloseAStrandedCallFails(t *testing.T) {
+	t.Parallel()
+
 	for _, tc := range []struct{ name, trigger string }{
 		{"the model call", `CREATE TRIGGER refuse BEFORE UPDATE ON llm_calls BEGIN SELECT RAISE(ABORT, 'refused'); END`},
 		{"the tool call", `CREATE TRIGGER refuse BEFORE UPDATE ON tool_calls BEGIN SELECT RAISE(ABORT, 'refused'); END`},
@@ -1832,6 +2014,8 @@ func TestAStartThatCannotCloseAStrandedCallFails(t *testing.T) {
 // A follow-up on another provider of the same dialect is accepted, and its run
 // names that provider.
 func TestAChatMovesWithinItsDialect(t *testing.T) {
+	t.Parallel()
+
 	p := llm.FakeProvider(llm.NewFake(0))
 	other := p
 	other.ID, other.Label = "fake-2", "Fake two"
@@ -1850,6 +2034,8 @@ func TestAChatMovesWithinItsDialect(t *testing.T) {
 
 // A retry with no content is still the same send, not a malformed one.
 func TestARetryWithNoContentIsStillTheSameSend(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	gate := make(chan struct{})
 	fakeOf(s).SetGate(gate)
@@ -1866,6 +2052,8 @@ func TestARetryWithNoContentIsStillTheSameSend(t *testing.T) {
 
 // A model the provider does not hold is a bad request, with nothing written.
 func TestSendRefusesAModelTheRegistryDoesNotHold(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 
 	_, err := s.Send(t.Context(), nil, ModeChat, "1", false, false, false, "fake", "nonesuch", "high", reqID("1"), "hello")
@@ -1877,6 +2065,8 @@ func TestSendRefusesAModelTheRegistryDoesNotHold(t *testing.T) {
 // A follow-up is checked against its chat's cluster, never the one its argument
 // names: a chat whose cluster is marked takes no more sends.
 func TestASendIntoAMarkedClusterIsRefused(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	existing, err := s.Send(t.Context(), nil, ModeChat, "7", false, false, false, "fake", "fake", "high", reqID("1"), "hello")
 	require.NoError(t, err)
@@ -1892,6 +2082,8 @@ func TestASendIntoAMarkedClusterIsRefused(t *testing.T) {
 // A retry of a send accepted before its cluster was marked is answered by its
 // key: the send happened.
 func TestAReplayIsAnsweredAheadOfTheClusterCheck(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	first, err := s.Send(t.Context(), nil, ModeChat, "7", false, false, false, "fake", "fake", "high", reqID("1"), "hello")
 	require.NoError(t, err)
@@ -1908,6 +2100,8 @@ func TestAReplayIsAnsweredAheadOfTheClusterCheck(t *testing.T) {
 // not a proof: two goroutines that happen to serialize pass it with the bug
 // present.
 func TestTwoSendsOnOneChatStartOneTurn(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	first := send(t, s, nil, "0", "opening")
 	awaitSettled(t, s, first.ChatID, first.ID)
@@ -1951,6 +2145,8 @@ func TestTwoSendsOnOneChatStartOneTurn(t *testing.T) {
 
 // A turn that fails still says what it was asked to run.
 func TestAFailedTurnKeepsWhatItWasAskedToRun(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	fakeOf(s).FailAfter(1, errors.New("boom"))
 	msg := send(t, s, nil, "1", "what is a pod?")
@@ -1963,6 +2159,8 @@ func TestAFailedTurnKeepsWhatItWasAskedToRun(t *testing.T) {
 
 // A call refused before its first chunk is a failed turn like any other.
 func TestATurnWhoseCallNeverStartedFails(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	fakeOf(s).FailAfter(0, errors.New("no model behind this"))
 	msg := send(t, s, nil, "1", "what is a pod?")
@@ -1977,6 +2175,8 @@ func TestATurnWhoseCallNeverStartedFails(t *testing.T) {
 // A model that stops sending is a failure, not a cancel: the turn's own context
 // was never cancelled.
 func TestATurnThatGoesQuietFails(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	fakeOf(s).FailAfter(1, llm.ErrStreamIdle)
 	msg := send(t, s, nil, "1", "what is a pod?")
@@ -1989,6 +2189,8 @@ func TestATurnThatGoesQuietFails(t *testing.T) {
 
 // A settled answer moves its chat up the list, past the send that asked it.
 func TestACompletedTurnMovesTheChatsRecency(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	stepClock(s)
 	msg := send(t, s, nil, "1", "what is a pod?")
@@ -2004,6 +2206,8 @@ func TestACompletedTurnMovesTheChatsRecency(t *testing.T) {
 // A failed delete of a chat with no turn writes nothing: no settle runs, no slot
 // is held, and the rows are as they were.
 func TestAFailedDeleteOfASettledChatWritesNothing(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	msg := send(t, s, nil, "1", "what is a pod?")
 	before := awaitSettled(t, s, msg.ChatID, msg.ID)
@@ -2025,6 +2229,8 @@ func TestAFailedDeleteOfASettledChatWritesNothing(t *testing.T) {
 // A delete of an idle chat holds no turn, and a read while its write is held
 // sees the stored rows.
 func TestAReadDuringADeleteOfAnIdleChatSeesTheStoredRows(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	msg := send(t, s, nil, "1", "what is a pod?")
 	settled := awaitSettled(t, s, msg.ChatID, msg.ID)
@@ -2051,6 +2257,8 @@ func TestAReadDuringADeleteOfAnIdleChatSeesTheStoredRows(t *testing.T) {
 // The watcher that saw the turn start is gone, and the answer is still there
 // when the next one looks.
 func TestATurnOutlivesTheWatcherThatSawItStart(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	gate := make(chan struct{})
 	fakeOf(s).SetGate(gate)
@@ -2076,6 +2284,8 @@ func TestATurnOutlivesTheWatcherThatSawItStart(t *testing.T) {
 // Both subscribers reach the same settled message, and neither is the caller.
 // Not every frame: conflation lets two watchers see different ones in between.
 func TestTwoSubscribersBothSeeTheTurnSettle(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	gate := make(chan struct{})
 	fakeOf(s).SetGate(gate)
@@ -2097,6 +2307,8 @@ func TestTwoSubscribersBothSeeTheTurnSettle(t *testing.T) {
 
 // A watch opened mid-answer snapshots the live text, not the empty stored row.
 func TestALateSubscriberSeesTheLiveText(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	s.checkpointEvery = time.Hour
 	gate := make(chan struct{})
@@ -2118,6 +2330,8 @@ func TestALateSubscriberSeesTheLiveText(t *testing.T) {
 // A finished answer does not spin: once the Complete frame is out, the watch
 // sends nothing more.
 func TestAFinishedAnswerSendsNoStreamingFrameAfterIt(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	gate := make(chan struct{})
 	fakeOf(s).SetGate(gate)
@@ -2143,6 +2357,8 @@ func TestAFinishedAnswerSendsNoStreamingFrameAfterIt(t *testing.T) {
 // the cancel with an error is failed cancelled, having started; one that returned
 // a real result is succeeded with it.
 func TestACallTheCancelCutIsClosedByWhatItDid(t *testing.T) {
+	t.Parallel()
+
 	run := func(t *testing.T, answer string, isError bool) storedToolCall {
 		t.Helper()
 		reached := make(chan struct{})
@@ -2183,6 +2399,8 @@ func TestACallTheCancelCutIsClosedByWhatItDid(t *testing.T) {
 // the next place in the run, and each tool call the place of its tool_use block
 // in the reply, a refused call holding its place between the ones that ran.
 func TestACallsSeqIsItsPlaceInTheRun(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, testTool{name: "echo"})
 	fakeOf(s).SetToolCalls(llm.StagedCall("nope", `{}`), llm.StagedCall("echo", `{}`), llm.StagedCall("nope", `{}`))
 	msg := send(t, s, nil, "1", "?")
@@ -2211,6 +2429,8 @@ func TestACallsSeqIsItsPlaceInTheRun(t *testing.T) {
 // row per call, each under the model call whose reply asked for it; only a call
 // that ran has started.
 func TestATurnsToolCallsLandInResultOrder(t *testing.T) {
+	t.Parallel()
+
 	s := startServiceWithTool(t, testTool{name: "echo"})
 	// Two calls a reply on a budget of eight: four rounds run both, the fifth is
 	// refused and the sixth, the synthesis, is refused too.
@@ -2233,6 +2453,8 @@ func TestATurnsToolCallsLandInResultOrder(t *testing.T) {
 // the app's, so the provider's never keys anything, within a reply and across
 // rounds alike, and the settle lands. At the production budget.
 func TestARepeatedToolUseIDLandsARowPerResult(t *testing.T) {
+	t.Parallel()
+
 	echo := testTool{name: "echo", run: func(_ context.Context, input json.RawMessage) (string, bool) { return string(input), false }}
 
 	t.Run("within a reply", func(t *testing.T) {
@@ -2275,6 +2497,8 @@ func TestARepeatedToolUseIDLandsARowPerResult(t *testing.T) {
 
 // A chat runs its commands in the sandbox until the user switches it.
 func TestAChatStartsSandboxed(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	msg := sendAndSettle(t, s, nil, "1", "1", "hi")
 
@@ -2291,6 +2515,8 @@ func TestAChatStartsSandboxed(t *testing.T) {
 // The switch is the chat's row: it reaches every window through the list watch,
 // and it is not activity, so the list's order stays.
 func TestTheSwitchIsWrittenAndWatched(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	s.sandboxStatus = sandbox.Status{Available: true}
 	s.now = func() time.Time { return time.UnixMilli(5_000) }
@@ -2322,6 +2548,8 @@ func TestTheSwitchIsWrittenAndWatched(t *testing.T) {
 // A send carries the switch its sender saw, and the turn runs only where they saw
 // it would: another window can switch the chat in between.
 func TestASendThatSawTheOtherSwitchIsRefused(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	s.sandboxStatus = sandbox.Status{Available: true}
 	first := sendAndSettle(t, s, nil, "1", "1", "hi")
@@ -2339,6 +2567,8 @@ func TestASendThatSawTheOtherSwitchIsRefused(t *testing.T) {
 
 // A chat starts sandboxed, so a create that says otherwise saw something else.
 func TestACreateThatSaysOutsideIsRefused(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	s.sandboxStatus = sandbox.Status{Available: true}
 
@@ -2349,6 +2579,8 @@ func TestACreateThatSaysOutsideIsRefused(t *testing.T) {
 // A replay is answered by its key alone, so a switch after the first attempt
 // does not refuse it.
 func TestAReplayIgnoresTheSwitch(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	s.sandboxStatus = sandbox.Status{Available: true}
 	first := sendAndSettle(t, s, nil, "1", "1", "hi")
@@ -2363,6 +2595,8 @@ func TestAReplayIgnoresTheSwitch(t *testing.T) {
 // A machine with no sandbox has nothing to switch, so the switch is refused and
 // the row stays as it was.
 func TestTheSwitchIsRefusedWithoutASandbox(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 
@@ -2377,6 +2611,8 @@ func TestTheSwitchIsRefusedWithoutASandbox(t *testing.T) {
 // window through the list watch, and it is not activity, so the list's order
 // stays.
 func TestTheNetworkSwitchIsTheChats(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
 	s.now = func() time.Time { return time.UnixMilli(5_000) }
@@ -2414,6 +2650,8 @@ func TestTheNetworkSwitchIsTheChats(t *testing.T) {
 // on or off in between, and a turn must not run with network nobody saw. A
 // replay is answered by its key alone, and a create says off.
 func TestASendWithAStaleNetworkSwitchIsRefused(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
 	first := sendAndSettle(t, s, nil, "1", "1", "hi")
@@ -2440,6 +2678,8 @@ func TestASendWithAStaleNetworkSwitchIsRefused(t *testing.T) {
 // off in the same write, and turning it on outside is refused, so a chat back
 // in the sandbox starts without network and the confirm is seen again.
 func TestLeavingTheSandboxTurnsNetworkOff(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	s.sandboxStatus = sandbox.Status{Available: true, NetworkAvailable: true}
 	first := sendAndSettle(t, s, nil, "1", "1", "hi")
@@ -2477,6 +2717,8 @@ func TestLeavingTheSandboxTurnsNetworkOff(t *testing.T) {
 // with the toggle are refused, nothing written; turning the switch off is
 // always accepted.
 func TestNothingTurnsNetworkOnWhereItIsUnavailable(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	s.sandboxStatus = sandbox.Status{Available: true, NetworkReason: "pasta not found"}
 	first := sendAndSettle(t, s, nil, "1", "1", "hi")

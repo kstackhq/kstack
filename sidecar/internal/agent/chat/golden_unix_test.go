@@ -44,6 +44,8 @@ var update = flag.Bool("update", false, "rewrite the golden files in testdata")
 // granted folders. `make prompts` rewrites it, beside the system prompt's goldens
 // in internal/app. Unix alone, since the paths it names are Unix paths.
 func TestTheContextBlockMatchesItsGolden(t *testing.T) {
+	t.Parallel()
+
 	root, err := os.OpenRoot(t.TempDir())
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = root.Close() })

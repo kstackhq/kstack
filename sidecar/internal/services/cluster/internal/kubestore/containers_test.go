@@ -46,6 +46,8 @@ func podOf(spec, status map[string]any) *unstructured.Unstructured {
 func ptr[T any](v T) *T { return &v }
 
 func TestContainersReadSpecAndStatus(t *testing.T) {
+	t.Parallel()
+
 	u := podOf(map[string]any{
 		"initContainers": []any{
 			map[string]any{"name": "migrate", "image": "api:1", "resources": resources("1", "1Gi", "2", "2Gi")},
@@ -89,6 +91,8 @@ func TestContainersReadSpecAndStatus(t *testing.T) {
 // An entry that is not an object says nothing, in either list: the container is skipped,
 // and a container whose status is not one reads as having none.
 func TestContainersSkipWhatIsNotAnObject(t *testing.T) {
+	t.Parallel()
+
 	u := podOf(map[string]any{
 		"containers": []any{"api", map[string]any{"name": "log", "image": "log:1"}},
 	}, map[string]any{
@@ -100,6 +104,8 @@ func TestContainersSkipWhatIsNotAnObject(t *testing.T) {
 
 // Only a core Pod has containers: another kind, or a Pod of another group, has none.
 func TestContainersOfANonPodIsNone(t *testing.T) {
+	t.Parallel()
+
 	spec := map[string]any{"containers": []any{map[string]any{"name": "api", "image": "api:1"}}}
 	for _, u := range []*unstructured.Unstructured{
 		obj(map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "spec": spec}),
@@ -141,6 +147,8 @@ func podWithContainers(uid, rv string, names ...string) *unstructured.Unstructur
 }
 
 func TestContainersFollowTheirPod(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, podWithContainers("pod", "1", "api", "log")))
@@ -158,6 +166,8 @@ func TestContainersFollowTheirPod(t *testing.T) {
 // Every way a Pod leaves the store takes its containers: a relist that no longer lists it,
 // and its kind's clear.
 func TestContainersLeaveWithTheirPod(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	for _, uid := range []string{"gone", "kept"} {
@@ -177,6 +187,8 @@ func TestContainersLeaveWithTheirPod(t *testing.T) {
 
 // Only a core Pod writes rows, whatever the worker that wrote it calls its kind.
 func TestOnlyAPodWritesContainers(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	spec := map[string]any{"containers": []any{map[string]any{"name": "api", "image": "api:1"}}}

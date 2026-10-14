@@ -151,6 +151,7 @@ func startSandboxRig(t *testing.T) sandboxRig {
 	if sb == nil || !sb.Confines() {
 		testutil.RequireSandbox(t, "no confining sandbox: "+v.Reason)
 	}
+	// The bash tool reads $SHELL from the process, so a test using this rig stays serial.
 	t.Setenv("SHELL", "")
 	data, cache := t.TempDir(), t.TempDir()
 	// Short, since a run's socket path must fit.

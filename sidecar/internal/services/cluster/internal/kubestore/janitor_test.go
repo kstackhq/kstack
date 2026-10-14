@@ -44,6 +44,8 @@ func addStatusRow(t *testing.T, s *Store, uid string, age time.Duration) {
 // status_history is the one table the store owns outright rather than mirroring from the
 // server, so nothing upstream ages it out and the janitor is the only bound it has.
 func TestSweepTrimsStatusHistoryPastItsTTL(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 	addStatusRow(t, store, "uid-old", 48*time.Hour)
 	addStatusRow(t, store, "uid-fresh", time.Minute)
@@ -83,6 +85,8 @@ func fillStatusHistory(t *testing.T, s *Store, rows int) {
 // file sits at its high-water mark until something runs the vacuum. Nothing else does, so the
 // size gauge would report the worst the cache has ever been rather than what it holds.
 func TestSweepHandsFreePagesBack(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 	fillStatusHistory(t, store, 5000)
 	require.Zero(t, freelist(t, store), "a file that has freed nothing yet")
@@ -96,32 +100,28 @@ func TestSweepHandsFreePagesBack(t *testing.T) {
 // is biggest exactly when that hurts most, right after a relist. A backlog drains over the
 // following sweeps instead.
 func TestSweepBoundsWhatOneVacuumHandsBack(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 	fillStatusHistory(t, store, 5000)
-	shrinkVacuumBound(t, 8)
+	f := openFileOf(t, store)
+	f.vacuumPages = 8 // so no assertion here encodes the production page count
 
-	sweep(context.Background(), openFileOf(t, store), Retention{StatusHistoryTTL: time.Hour})
+	sweep(context.Background(), f, Retention{StatusHistoryTTL: time.Hour})
 	before := freelist(t, store)
 	require.NotZero(t, before, "a bounded sweep leaves a backlog")
 
-	sweep(context.Background(), openFileOf(t, store), Retention{StatusHistoryTTL: time.Hour})
+	sweep(context.Background(), f, Retention{StatusHistoryTTL: time.Hour})
 
 	assert.Equal(t, before-8, freelist(t, store), "the backlog drains at the same bound")
-}
-
-// shrinkVacuumBound paces the vacuum by parameter for the test's life, so no assertion here
-// encodes the production page count.
-func shrinkVacuumBound(t *testing.T, pages int64) {
-	t.Helper()
-	prev := vacuumPagesPerSweep
-	vacuumPagesPerSweep = pages
-	t.Cleanup(func() { vacuumPagesPerSweep = prev })
 }
 
 // Nothing else runs a sweep, so a file that opens with a retention gets its own janitor —
 // and it sweeps first thing inside its goroutine rather than inline, since a cache should
 // not wait a full interval for its first pass and a vacuum must never run under m.mu.
 func TestAJanitorSweepsTheFileItWasOpenedFor(t *testing.T) {
+	t.Parallel()
+
 	m := NewManager(t.TempDir(), Retention{StatusHistoryTTL: time.Hour, Interval: time.Millisecond})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
 	store, err := m.OpenOrCreate(1)
@@ -139,6 +139,8 @@ func TestAJanitorSweepsTheFileItWasOpenedFor(t *testing.T) {
 // than in openFile silently leaves a cleared cache without one — the cache most likely to
 // need it, since a clear is what frees the pages.
 func TestAClearedCacheKeepsItsJanitor(t *testing.T) {
+	t.Parallel()
+
 	m := NewManager(t.TempDir(), Retention{StatusHistoryTTL: time.Hour, Interval: time.Millisecond})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
 	store, err := m.OpenOrCreate(1)
@@ -163,6 +165,8 @@ func sweptClean(t *testing.T, s *Store) bool {
 // the second one happen. Waiting for the first to finish before dirtying the file is what
 // separates them — a fill racing the opening sweep proves only that one ran.
 func TestAJanitorKeepsSweepingOnItsInterval(t *testing.T) {
+	t.Parallel()
+
 	m := NewManager(t.TempDir(), Retention{StatusHistoryTTL: time.Hour, Interval: time.Millisecond})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
 	store, err := m.OpenOrCreate(1)
@@ -182,6 +186,8 @@ func TestAJanitorKeepsSweepingOnItsInterval(t *testing.T) {
 // interval tries again. Failing louder would take down the only thing that hands pages
 // back, over a condition that is usually momentary.
 func TestASweepSurvivesAVacuumItCannotRun(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	dir := t.TempDir()
 	m := NewManager(dir, Retention{})
@@ -230,6 +236,8 @@ func trimmedMark(t *testing.T, s *Store, kind string) int64 {
 // it trims it must also announce: a cursor at or below the mark can no longer be trusted
 // to have seen every delete above it.
 func TestSweepTrimsTheDeletesLogPastItsTTL(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 	addDeleteEntry(t, store, "Pod", "uid-old", 7, 48*time.Hour)
 	addDeleteEntry(t, store, "Pod", "uid-older", 4, 49*time.Hour)
@@ -244,6 +252,8 @@ func TestSweepTrimsTheDeletesLogPastItsTTL(t *testing.T) {
 // Cursors are per kind, so the marks are too: a global one would have a busy kind's
 // deletes push every quiet kind's cursor into the diff within minutes.
 func TestSweepMarksEachKindSeparately(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 	addDeleteEntry(t, store, "Pod", "uid-1", 3, 48*time.Hour)
 	addDeleteEntry(t, store, "ConfigMap", "uid-2", 8, 48*time.Hour)
@@ -260,6 +270,8 @@ func TestSweepMarksEachKindSeparately(t *testing.T) {
 // leave the unset table alone. A cutoff of now trims the whole log and raises every kind's
 // mark to the head of it, invalidating every reader's cursor in one sweep.
 func TestAZeroTTLTrimsNothing(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 	addDeleteEntry(t, store, "Pod", "uid-1", 5, 48*time.Hour)
 	addStatusRow(t, store, "uid-1", 48*time.Hour)
@@ -274,6 +286,8 @@ func TestAZeroTTLTrimsNothing(t *testing.T) {
 // A mark only ever goes up: a later sweep that takes nothing from a kind must not lower
 // what an earlier one recorded, or a cursor below it would read as valid again.
 func TestASweepThatRemovesNothingLeavesTheMarkAlone(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 	addDeleteEntry(t, store, "Pod", "uid-1", 5, 48*time.Hour)
 	sweep(context.Background(), openFileOf(t, store), Retention{DeletesTTL: time.Hour})
@@ -290,6 +304,8 @@ func TestASweepThatRemovesNothingLeavesTheMarkAlone(t *testing.T) {
 // one. The mark must not follow it down — a cursor between the two marks would read as
 // valid over deletes that are already gone.
 func TestASweepNeverLowersAKindsMark(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 	addDeleteEntry(t, store, "Pod", "uid-high", 200, 90*time.Minute)
 	addDeleteEntry(t, store, "Pod", "uid-low", 100, 30*time.Minute)
@@ -305,6 +321,8 @@ func TestASweepNeverLowersAKindsMark(t *testing.T) {
 // A failed trim is logged and the sweep carries on to the vacuum: the next sweep retries,
 // and a cache whose log will not trim must still hand its free pages back.
 func TestSweepSurvivesATrimItCannotMake(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 	swapTable(t, store, "deletes",
 		`SELECT 1 AS seq, 'v1' AS api_version, 'Pod' AS kind, 'uid-1' AS uid, 0 AS at`)
@@ -318,6 +336,8 @@ func TestSweepSurvivesATrimItCannotMake(t *testing.T) {
 // against SizeLimit — measured after the vacuum, or the freelist would trip a limit
 // nothing is filling.
 func TestSweepMarksAFileOverItsLimit(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 	f := openFileOf(t, store)
 
@@ -327,6 +347,8 @@ func TestSweepMarksAFileOverItsLimit(t *testing.T) {
 }
 
 func TestSweepMarksAFileUnderItsLimit(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 	f := openFileOf(t, store)
 
@@ -339,6 +361,8 @@ func TestSweepMarksAFileUnderItsLimit(t *testing.T) {
 // what keeps the first sweep of a file always publishing while an unbounded manager never
 // does — and what leaves a limit that later becomes non-zero its own first edge.
 func TestSweepFormsNoVerdictWithoutALimit(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 	f := openFileOf(t, store)
 
@@ -350,6 +374,8 @@ func TestSweepFormsNoVerdictWithoutALimit(t *testing.T) {
 // A file gone from under a sweep is a clear or a teardown, and a verdict of "under" for it
 // would publish a release nothing released.
 func TestSweepLeavesTheVerdictOfAFileItCannotMeasure(t *testing.T) {
+	t.Parallel()
+
 	store := newTestStore(t)
 	f := openFileOf(t, store)
 	f.sizeVerdict.Store(sizeOver)
@@ -364,6 +390,8 @@ func TestSweepLeavesTheVerdictOfAFileItCannotMeasure(t *testing.T) {
 // ceiling on a log that is about to be reclaimed. Pausing a cache whose contents fit is the
 // wrong answer, so the sweep checkpoints first and judges the size that remains.
 func TestSweepCheckpointsBeforeJudgingAWALHeavyFile(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	store := newTestStore(t)
 	f := openFileOf(t, store)
@@ -385,6 +413,8 @@ func TestSweepCheckpointsBeforeJudgingAWALHeavyFile(t *testing.T) {
 // alone while it stands. A ping per sweep would wake a controller pass every interval per
 // cache to say what it already knew.
 func TestSweepPublishesOnlyWhenTheVerdictChanges(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -408,6 +438,8 @@ func TestSweepPublishesOnlyWhenTheVerdictChanges(t *testing.T) {
 // Unbounded publishes nothing at all. The memo stays unknown, so a limit that later becomes
 // non-zero still gets an edge off its own first sweep.
 func TestSweepPublishesNothingWithoutALimit(t *testing.T) {
+	t.Parallel()
+
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
 	store, err := m.OpenOrCreate(1)
@@ -425,6 +457,8 @@ func TestSweepPublishesNothingWithoutALimit(t *testing.T) {
 // so the first sweep of the new file reports the release. A two-state memo would read the
 // swap as "under, unchanged" and the cache would stay paused with nothing left to pause it.
 func TestAClearedFilePublishesItsFirstVerdict(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	m := NewManager(t.TempDir(), Retention{})
 	t.Cleanup(func() { require.NoError(t, m.Close()) })
@@ -448,6 +482,8 @@ func TestAClearedFilePublishesItsFirstVerdict(t *testing.T) {
 // expired status row is what says a sweep ran: no write below touches it, and only the
 // sweep trims it.
 func TestEveryCommitWakesTheJanitor(t *testing.T) {
+	t.Parallel()
+
 	pods := Kind{APIVersion: "v1", Kind: "Pod", Resource: "pods"}
 	writes := map[string]func(t *testing.T, ctx context.Context, store *Store){
 		"apply change": func(t *testing.T, ctx context.Context, store *Store) {

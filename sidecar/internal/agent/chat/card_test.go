@@ -81,6 +81,8 @@ func newestContextOf(t *testing.T, s *service, chatID ChatID) string {
 }
 
 func TestSendCarriesTheCardOnlyWhenItChanged(t *testing.T) {
+	t.Parallel()
+
 	clusterCards := &stubClusterCards{card: "card one"}
 	s := serviceWithClusterCards(t, clusterCards)
 
@@ -100,6 +102,8 @@ func TestSendCarriesTheCardOnlyWhenItChanged(t *testing.T) {
 }
 
 func TestSendSendsARunOfUnavailableCardsOnce(t *testing.T) {
+	t.Parallel()
+
 	clusterCards := &stubClusterCards{card: "healthy"}
 	s := serviceWithClusterCards(t, clusterCards)
 
@@ -118,6 +122,8 @@ func TestSendSendsARunOfUnavailableCardsOnce(t *testing.T) {
 // The withdrawal and the recovery are each a change: healthy, unavailable, healthy
 // is three clusterCards.
 func TestSendCarriesTheRecoveryAfterAnUnavailableCard(t *testing.T) {
+	t.Parallel()
+
 	clusterCards := &stubClusterCards{card: "healthy"}
 	s := serviceWithClusterCards(t, clusterCards)
 
@@ -146,6 +152,8 @@ func (blockingClusterCards) ClusterCard(ctx context.Context, _ apimeta.ClusterID
 // The timeout is the render's alone: the question is accepted with the unavailable
 // card, and its rows go in on the send's own context.
 func TestACardThatTimesOutIsUnavailable(t *testing.T) {
+	t.Parallel()
+
 	s := serviceWithClusterCards(t, blockingClusterCards{})
 	s.clusterCardTimeout = time.Millisecond
 
@@ -159,6 +167,8 @@ func TestACardThatTimesOutIsUnavailable(t *testing.T) {
 // A repeat of an accepted request is answered by its key before anything is read:
 // it asks the clusterCards nothing.
 func TestAReplayRendersNoCard(t *testing.T) {
+	t.Parallel()
+
 	clusterCards := &stubClusterCards{card: "card"}
 	s := serviceWithClusterCards(t, clusterCards)
 
@@ -171,6 +181,8 @@ func TestAReplayRendersNoCard(t *testing.T) {
 }
 
 func TestNewestCardIsReadOffTheRecord(t *testing.T) {
+	t.Parallel()
+
 	s := serviceWithClusterCards(t, &stubClusterCards{card: "card"})
 	first := sendAndSettle(t, s, nil, "1", "1", "one")
 
@@ -179,6 +191,8 @@ func TestNewestCardIsReadOffTheRecord(t *testing.T) {
 }
 
 func TestSendRendersTheCardForTheChatsStoredCluster(t *testing.T) {
+	t.Parallel()
+
 	clusterCards := &stubClusterCards{card: "card"}
 	s := serviceWithClusterCards(t, clusterCards)
 
@@ -190,6 +204,8 @@ func TestSendRendersTheCardForTheChatsStoredCluster(t *testing.T) {
 }
 
 func TestSendIsAcceptedWhenTheCardIsUnavailable(t *testing.T) {
+	t.Parallel()
+
 	s := serviceWithClusterCards(t, &stubClusterCards{card: clustercard.Unavailable})
 
 	msg := sendAndSettle(t, s, nil, "1", "1", "one")
@@ -198,6 +214,8 @@ func TestSendIsAcceptedWhenTheCardIsUnavailable(t *testing.T) {
 }
 
 func TestSendRefusedWhileATurnRunsWritesNoCard(t *testing.T) {
+	t.Parallel()
+
 	clusterCards := &stubClusterCards{card: "card one"}
 	s := serviceWithClusterCards(t, clusterCards)
 	gate := make(chan struct{})
@@ -215,6 +233,8 @@ func TestSendRefusedWhileATurnRunsWritesNoCard(t *testing.T) {
 // The card reaches the wire where it was stored: first on the question that
 // carried it, and on no other.
 func TestTheWireReceivesTheCardAheadOfTheText(t *testing.T) {
+	t.Parallel()
+
 	s := serviceWithClusterCards(t, &stubClusterCards{card: "the card"})
 
 	first := sendAndSettle(t, s, nil, "1", "1", "one")
@@ -244,6 +264,8 @@ func (c *deletingClusterCards) ClusterCard(ctx context.Context, _ apimeta.Cluste
 }
 
 func TestSendIntoAChatDeletedWhileItsCardRendersIsGone(t *testing.T) {
+	t.Parallel()
+
 	clusterCards := &deletingClusterCards{}
 	s := serviceWithClusterCards(t, clusterCards)
 	clusterCards.s = s

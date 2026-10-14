@@ -37,6 +37,8 @@ func uids(rows []ObjectRow) []string {
 // The whole point of the stamp: a reader asks for what moved past its cursor instead of
 // re-reading the collection, so a write to one row of a hundred returns one row.
 func TestObjectChangesReturnsOnlyWhatMovedPastTheCursor(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow}, true, 7))
@@ -56,6 +58,8 @@ func TestObjectChangesReturnsOnlyWhatMovedPastTheCursor(t *testing.T) {
 // A cursor at the head has nothing above it. The reader takes that answer and sends no
 // frames, which is what a ping for a kind that did not move costs.
 func TestObjectChangesAtTheHeadReturnsNothing(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow}, true, 7))
@@ -71,6 +75,8 @@ func TestObjectChangesAtTheHeadReturnsNothing(t *testing.T) {
 // The rows a relist wrote and the deletes it pruned are one transaction at one position, so
 // a reader whose cursor sits below it takes both halves of that relist together.
 func TestObjectChangesCarriesBothHalvesOfARelist(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow}, true, 7))
@@ -100,6 +106,8 @@ func TestObjectChangesCarriesBothHalvesOfARelist(t *testing.T) {
 // against the cursor it came in with to know whether the deletes above that cursor are all
 // still in the log, and a mark read separately could be raised between the two.
 func TestObjectChangesCarriesTheKindsTrimMark(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow}, true, 7))
@@ -119,6 +127,8 @@ func TestObjectChangesCarriesTheKindsTrimMark(t *testing.T) {
 // so an unresolved name matches nothing in either range — a reader holding rows under a
 // real Kind takes the empty one as the identity change it is, never as "nothing moved".
 func TestObjectChangesReportsAKindItCannotResolve(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 
@@ -132,6 +142,8 @@ func TestObjectChangesReportsAKindItCannotResolve(t *testing.T) {
 // Events are one collection with one cursor, and their deletes are logged under the fixed
 // ('v1', 'Event') every event delete uses.
 func TestEventChangesReturnsWhatMovedAndWhatWent(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, eventsKind, watch.Added, firing("ev-1", "10", 1)))
@@ -154,6 +166,8 @@ func TestEventChangesReturnsWhatMovedAndWhatWent(t *testing.T) {
 // to reach the caller: a watch retries in place on an error, where an empty answer would be
 // taken as "nothing moved" and advance its cursor past changes it never sent.
 func TestObjectChangesReportsAReadItCannotMake(t *testing.T) {
+	t.Parallel()
+
 	breaks := map[string]func(*testing.T, *Store){
 		"the kind": func(t *testing.T, s *Store) { dropTable(t, s, "kind_catalog") },
 		"the rows": func(t *testing.T, s *Store) { dropTable(t, s, "objects") },
@@ -179,6 +193,8 @@ func TestObjectChangesReportsAReadItCannotMake(t *testing.T) {
 }
 
 func TestEventChangesReportsAReadItCannotMake(t *testing.T) {
+	t.Parallel()
+
 	breaks := map[string]func(*testing.T, *Store){
 		"the rows": func(t *testing.T, s *Store) { dropTable(t, s, "events") },
 		"the log":  func(t *testing.T, s *Store) { dropTable(t, s, "deletes") },
@@ -205,6 +221,8 @@ func TestEventChangesReportsAReadItCannotMake(t *testing.T) {
 // caller has to hear about it for the same reason: silence here reads as "nothing was
 // deleted".
 func TestObjectChangesReportsALogEntryItCannotScan(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow}, true, 7))
@@ -221,6 +239,8 @@ func TestObjectChangesReportsALogEntryItCannotScan(t *testing.T) {
 // are not gone, the file this claim was bound to is. The watch reads that as the clean end
 // it is, where an empty answer would blank the client's table on the way out.
 func TestChangesReportACacheThatWentAway(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := closedStore(t)
 

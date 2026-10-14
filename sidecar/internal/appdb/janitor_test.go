@@ -99,15 +99,6 @@ func TestSweepShrinksTheDatabaseFile(t *testing.T) {
 	assert.Less(t, sizeOf(t, path), before)
 }
 
-// shrinkVacuumBound paces the vacuum by parameter for the test's life, so no assertion
-// here encodes the production page count.
-func shrinkVacuumBound(t *testing.T, pages int64) {
-	t.Helper()
-	prev := vacuumPagesPerSweep
-	vacuumPagesPerSweep = pages
-	t.Cleanup(func() { vacuumPagesPerSweep = prev })
-}
-
 // The argument-less vacuum reclaims the whole freelist in one statement, holding the
 // single writer for as long as that takes; a bounded one leaves a backlog that drains
 // over the sweeps that follow.
@@ -116,7 +107,7 @@ func TestSweepVacuumsAtMostItsBound(t *testing.T) {
 	fill(t, db, 500)
 	truncateLog(t, db)
 	clear(t, db)
-	shrinkVacuumBound(t, 8)
+	db.vacuumPages = 8 // so no assertion here encodes the production page count
 	before := freelist(t, db)
 
 	sweep(context.Background(), db)

@@ -185,6 +185,8 @@ func awaitState(t *testing.T, sub StateSubscription, cond func(State) bool) Stat
 // out on its own schedule, and a claim is how the holder hears about it — refusing would make a
 // transient fact permanent for the caller.
 func TestAcquireClaimsAContextTheKubeconfigDoesNotName(t *testing.T) {
+	t.Parallel()
+
 	s := New(&fakeKubeconfig{})
 
 	lease := s.Acquire("prod")
@@ -197,6 +199,8 @@ func TestAcquireClaimsAContextTheKubeconfigDoesNotName(t *testing.T) {
 // Contexts that resolve alike are deliberately not merged: each gets its own entry, so what is
 // read about one belongs to one context.
 func TestAcquireBuildsAnEntryPerContext(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1", "prod-admin", "key-1"))
 
 	defer s.Acquire("prod").Release()
@@ -208,6 +212,8 @@ func TestAcquireBuildsAnEntryPerContext(t *testing.T) {
 
 // An entry nobody holds is one nothing tracks, so the last release has to drop it.
 func TestReleaseDropsTheEntryTheLastHolderHeld(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 
 	s.Acquire("prod").Release()
@@ -218,6 +224,8 @@ func TestReleaseDropsTheEntryTheLastHolderHeld(t *testing.T) {
 // Two holders of one context — the cluster pass and a log tail — are two claims. The first to
 // finish must not stop the pool tracking it for the other.
 func TestReleaseKeepsTheEntryWhileAnotherHolderHoldsIt(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	pass := s.Acquire("prod")
 	tail := s.Acquire("prod")
@@ -231,6 +239,8 @@ func TestReleaseKeepsTheEntryWhileAnotherHolderHoldsIt(t *testing.T) {
 
 // Release is idempotent by contract, so it is safe to defer beside a path that also releases.
 func TestReleaseIsIdempotent(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	lease := s.Acquire("prod")
 	other := s.Acquire("prod")
@@ -245,6 +255,8 @@ func TestReleaseIsIdempotent(t *testing.T) {
 // A claim released twice — or one whose entry the pool no longer holds — is a no-op rather than
 // a decrement into the negative.
 func TestReleaseIsANoOpOnceTheEntryIsGone(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	lease := s.Acquire("prod")
 	lease.Release()
@@ -258,6 +270,8 @@ func TestReleaseIsANoOpOnceTheEntryIsGone(t *testing.T) {
 // Close drops entries out from under the leases still holding them, so a lease released
 // afterwards must not decrement whatever has claimed its name since.
 func TestAPreCloseReleaseDoesNotDropALaterClaim(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	stale := s.Acquire("prod")
 	require.NoError(t, s.Close())
@@ -273,6 +287,8 @@ func TestAPreCloseReleaseDoesNotDropALaterClaim(t *testing.T) {
 // A claim reads as departed once nothing holds its context: there is no entry left to answer
 // from, and reporting present would be a claim about a context the pool stopped tracking.
 func TestAReleasedClaimReadsAsDeparted(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	lease := s.Acquire("prod")
 	require.False(t, lease.Departed())
@@ -286,6 +302,8 @@ func TestAReleasedClaimReadsAsDeparted(t *testing.T) {
 // Close drops what the pool holds, so a claim outliving it reads as nothing known rather than
 // as a context the pool is still tracking.
 func TestCloseDropsWhatThePoolHolds(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	lease := s.Acquire("prod")
 	require.False(t, lease.Departed())
@@ -302,6 +320,8 @@ func TestCloseDropsWhatThePoolHolds(t *testing.T) {
 // retire the connection it is replacing, since its commit lands after it returns and holders
 // would reconnect against a Conn still handing out the dead one.
 func TestRecordHandsBackTheConnectionItReplaced(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	defer s.Acquire("prod").Release()
 	first, second := connTo(t, serveAPI(t)), connTo(t, serveAPI(t))
@@ -320,6 +340,8 @@ func TestRecordHandsBackTheConnectionItReplaced(t *testing.T) {
 // entry's connection, which is the *previous* one — the connection the run just built is held by
 // an entry that no longer exists, so nothing else can reach it.
 func TestRecordHandsBackAConnectionNothingHoldsAnyMore(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	s.Acquire("prod").Release()
 	built := connTo(t, serveAPI(t))
@@ -335,6 +357,8 @@ func TestRecordHandsBackAConnectionNothingHoldsAnyMore(t *testing.T) {
 // pass of the next claim compares equal to, telling the fleet nothing about a context that just
 // came back.
 func TestRecordFilesNothingForAContextNobodyHolds(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	lease := s.Acquire("prod")
 	probed := news{phase: PhaseProbed}
@@ -350,6 +374,8 @@ func TestRecordFilesNothingForAContextNobodyHolds(t *testing.T) {
 // An entry that goes takes its connection with it, or every released context leaves its sockets
 // behind.
 func TestReleaseRetiresTheConnectionTheEntryHeld(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	lease := s.Acquire("prod")
 	conn := connTo(t, serveAPI(t))
@@ -361,6 +387,8 @@ func TestReleaseRetiresTheConnectionTheEntryHeld(t *testing.T) {
 }
 
 func TestCloseRetiresEveryConnection(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	defer s.Acquire("prod").Release()
 	conn := connTo(t, serveAPI(t))
@@ -375,6 +403,8 @@ func TestCloseRetiresEveryConnection(t *testing.T) {
 
 // What the probe built is what a holder gets, without dialing anything of its own.
 func TestConnHandsOutWhatTheProbeBuilt(t *testing.T) {
+	t.Parallel()
+
 	srv := serveAPI(t)
 	s := New(serving(srv, "prod", "key-1"))
 	startService(t, s)
@@ -393,6 +423,8 @@ func TestConnHandsOutWhatTheProbeBuilt(t *testing.T) {
 // A context that resolves to nothing has no connection to hand out, and saying so is what stops
 // a holder interpreting a nil.
 func TestConnReportsThatThereIsNoConnection(t *testing.T) {
+	t.Parallel()
+
 	s := New(&fakeKubeconfig{})
 	lease := s.Acquire("prod")
 	defer lease.Release()
@@ -406,6 +438,8 @@ func TestConnReportsThatThereIsNoConnection(t *testing.T) {
 // A commit that lands after the pass worker has stopped leaves the connection in the supervisor and
 // nowhere else, so Close reads it back rather than retiring only what the entries hold.
 func TestCloseRetiresTheConnectionTheEngineHolds(t *testing.T) {
+	t.Parallel()
+
 	s := New(serving(serveCluster(t).Server, "prod", "key-1"))
 	startService(t, s)
 	lease := s.Acquire("prod")
@@ -424,6 +458,8 @@ func TestCloseRetiresTheConnectionTheEngineHolds(t *testing.T) {
 // A claim the pool no longer holds has no connection to answer with, and saying so is what stops
 // a holder reading one belonging to whatever claims the name next.
 func TestConnReportsNothingOnceTheClaimIsReleased(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	lease := s.Acquire("prod")
 	lease.Release()
@@ -438,6 +474,8 @@ func TestConnReportsNothingOnceTheClaimIsReleased(t *testing.T) {
 
 // The one thing a holder is told without asking. It learns what changed by asking the claim.
 func TestDepartureReachesTheHolder(t *testing.T) {
+	t.Parallel()
+
 	cfg := counting("prod", "key-1")
 	s := New(cfg)
 	startService(t, s)
@@ -464,6 +502,8 @@ func TestDepartureReachesTheHolder(t *testing.T) {
 // The claim outlives what it is a claim on: the file may name the context again, and this claim
 // is how the holder hears about that.
 func TestDepartureKeepsTheClaim(t *testing.T) {
+	t.Parallel()
+
 	cfg := resolving("prod", "key-1")
 	s := New(cfg)
 	startService(t, s)
@@ -485,6 +525,8 @@ func TestDepartureKeepsTheClaim(t *testing.T) {
 // A departed context is announced once. Announcing it on every kubeconfig write would wake its
 // holder forever for news it already has.
 func TestDepartureIsAnnouncedOnce(t *testing.T) {
+	t.Parallel()
+
 	cfg := counting("prod", "key-1")
 	s := New(cfg)
 	startService(t, s)
@@ -517,6 +559,8 @@ func TestDepartureIsAnnouncedOnce(t *testing.T) {
 // An unread kubeconfig names nothing. Reporting that as a departure would tell every holder its
 // context is gone for as long as the first read takes.
 func TestUnreadKubeconfigIsNotADeparture(t *testing.T) {
+	t.Parallel()
+
 	cfg := counting("prod", "key-1")
 	s := New(cfg)
 	startService(t, s)
@@ -535,6 +579,8 @@ func TestUnreadKubeconfigIsNotADeparture(t *testing.T) {
 // gone, credentials that will not load — has not departed. It is the file that is broken, and
 // saying otherwise reports a removal the user did not make.
 func TestAResolveFailureIsNotADeparture(t *testing.T) {
+	t.Parallel()
+
 	cfg := resolving("prod", "key-1")
 	cfg.err = errors.New("no such certificate authority file")
 	s := New(cfg)
@@ -554,6 +600,8 @@ func TestAResolveFailureIsNotADeparture(t *testing.T) {
 // A holder watching its own claim is told too, not just the fleet feed, and the value carries
 // why: a probe that suspends has to record its reason or nothing explains the suspension.
 func TestDepartureReachesAClaimWatcher(t *testing.T) {
+	t.Parallel()
+
 	cfg := resolving("prod", "key-1")
 	s := New(cfg)
 	startService(t, s)
@@ -578,6 +626,8 @@ func TestDepartureReachesAClaimWatcher(t *testing.T) {
 // A new context asks for its connection to be probed; the claim does not wait for it. Reading
 // the kubeconfig is not work to do on the caller's thread.
 func TestAcquireAsksForANewContextsPresence(t *testing.T) {
+	t.Parallel()
+
 	cfg := resolving("prod", "key-1")
 	s := New(cfg)
 	startService(t, s)
@@ -597,6 +647,8 @@ func TestAcquireAsksForANewContextsPresence(t *testing.T) {
 // Only the supervisor runs: the kubeconfig watch's subscription seed wakes a re-read this test must
 // not count, and coalescing makes that wake land as zero or one extra reads — so it stays off.
 func TestAcquireAsksOnlyForANewContext(t *testing.T) {
+	t.Parallel()
+
 	cfg := counting("prod", "key-1")
 	s := New(cfg)
 	stop := s.supervisor.Start(t.Context())
@@ -615,6 +667,8 @@ func TestAcquireAsksOnlyForANewContext(t *testing.T) {
 // A kubeconfig change landing while a read is in flight earns a read of its own: the one out
 // had already passed the file when it moved.
 func TestAChangeArrivingDuringAReadIsReadAgain(t *testing.T) {
+	t.Parallel()
+
 	cfg := counting("prod", "key-1")
 	s := New(cfg)
 	startService(t, s)
@@ -629,6 +683,8 @@ func TestAChangeArrivingDuringAReadIsReadAgain(t *testing.T) {
 // The ask a claim makes before Start waits in the supervisor's queues for its workers, so a context
 // that had already gone does not sit reported as present.
 func TestAClaimTakenBeforeStartIsChecked(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("staging", "key-1")) // "prod" is not named
 	lease := s.Acquire("prod")
 	defer lease.Release()
@@ -645,6 +701,8 @@ func TestAClaimTakenBeforeStartIsChecked(t *testing.T) {
 // A receiver is bound to its key for life, and a claim's key is its context — which never moves,
 // however the credentials behind it do.
 func TestWatchStateIsKeyedByContext(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	lease := s.Acquire("prod")
 	defer lease.Release()
@@ -662,6 +720,8 @@ func TestWatchStateIsKeyedByContext(t *testing.T) {
 // the contract says to. One kept past its claim holds a hub slot and reports whatever claims
 // that context next.
 func TestReleaseDoesNotCloseAStateWatcher(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	lease := s.Acquire("prod")
 	watched := lease.WatchState()
@@ -678,6 +738,8 @@ func TestReleaseDoesNotCloseAStateWatcher(t *testing.T) {
 // The subscriptions are taken before Start returns, so a config sent straight after it is read
 // rather than dropped, and stop joins the loops instead of leaving them running.
 func TestStartWatchesTheKubeconfigUntilStopped(t *testing.T) {
+	t.Parallel()
+
 	cfg := resolving("prod", "key-1")
 	s := New(cfg)
 
@@ -691,6 +753,8 @@ func TestStartWatchesTheKubeconfigUntilStopped(t *testing.T) {
 
 // A second Start is refused, and the first one's stop still drains what it started.
 func TestStartRejectsASecondStart(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	stop, err := s.Start(t.Context())
 	require.NoError(t, err)
@@ -705,6 +769,8 @@ func TestStartRejectsASecondStart(t *testing.T) {
 // one step. Announcing then would tell watchers on this name about a claim nobody holds, and
 // leave news behind for whatever claims it next to be compared against.
 func TestAPublishForAReleasedClaimIsDropped(t *testing.T) {
+	t.Parallel()
+
 	s := New(resolving("prod", "key-1"))
 	lease := s.Acquire("prod")
 	v, ok := s.supervisor.Read("prod")
@@ -721,6 +787,8 @@ func TestAPublishForAReleasedClaimIsDropped(t *testing.T) {
 // The feed ending is one of the two ways the watch is meant to finish; the other is its context
 // being cancelled. Neither leaves the goroutine parked.
 func TestTheKubeconfigWatchEndsWhenItsFeedCloses(t *testing.T) {
+	t.Parallel()
+
 	cfg := resolving("prod", "key-1")
 	s := New(cfg)
 	cfgs := cfg.Subscribe()
@@ -732,6 +800,8 @@ func TestTheKubeconfigWatchEndsWhenItsFeedCloses(t *testing.T) {
 // A cluster that has never been ready still has an answer worth reading: the failing components
 // are what a caller came for, and an observation nothing dates reads as never observed.
 func TestAFailingReadinessAnswerIsDated(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cs.fail(readyzPath, http.StatusInternalServerError, "[-]etcd failed: reason withheld\nreadyz check failed\n")
 	s := New(serving(cs.Server, "prod", "key-1"))
@@ -767,6 +837,8 @@ func probed(t *testing.T, lease Lease) {
 // All five, not the connection alone: a connection that is already up commits nothing, so
 // waking it would leave the probes behind it sitting on the answer the user just fixed.
 func TestRetryRerunsEveryProbe(t *testing.T) {
+	t.Parallel()
+
 	c := serveCluster(t)
 	s := New(serving(c.Server, "prod", "key-1"))
 	startService(t, s)
@@ -805,6 +877,8 @@ func TestRetryRerunsEveryProbe(t *testing.T) {
 // would wait out its ceiling for a run that is never dispatched. The claim is the call's, and
 // goes back when it returns.
 func TestRetryAndWaitClaimsTheContextItProbes(t *testing.T) {
+	t.Parallel()
+
 	c := serveCluster(t)
 	s := New(serving(c.Server, "prod", "key-1"))
 	startService(t, s)
@@ -835,6 +909,8 @@ func parkDials(t *testing.T, c *cluster) (dialing *testutil.Probe[struct{}], gat
 // finds the key held and is redelivered, so the run the caller asked for is the NEXT one to
 // begin — and the one already out must not answer for it.
 func TestRetryAndWaitIsNotSatisfiedByARunAlreadyInFlight(t *testing.T) {
+	t.Parallel()
+
 	c := serveCluster(t)
 	dialing, gate := parkDials(t, c)
 	s := New(serving(c.Server, "prod", "key-1"))
@@ -883,6 +959,8 @@ func awaitHolders(t *testing.T, s *Service, contextName string, n int) {
 // The wait is the caller's; the run is the supervisor's. A caller that goes away leaves the probe
 // running — a Wake is not a Restart, and cancelling it would tear down work another watcher wants.
 func TestRetryAndWaitLeavesTheRunAloneWhenItsCallerGoesAway(t *testing.T) {
+	t.Parallel()
+
 	c := serveCluster(t)
 	dialing, gate := parkDials(t, c)
 	s := New(serving(c.Server, "prod", "key-1"))
@@ -911,6 +989,8 @@ func TestRetryAndWaitLeavesTheRunAloneWhenItsCallerGoesAway(t *testing.T) {
 // A run that has begun and does not end is what the ceiling is for. Reporting success there would
 // tell the caller a probe finished when none had.
 func TestRetryAndWaitGivesUpOnARunThatNeverFinishes(t *testing.T) {
+	t.Parallel()
+
 	c := serveCluster(t)
 	dialing, gate := parkDials(t, c)
 	s := New(serving(c.Server, "prod", "key-1"))
@@ -933,6 +1013,8 @@ func TestRetryAndWaitGivesUpOnARunThatNeverFinishes(t *testing.T) {
 // kubeconfig rather than reporting every context gone. The probe the caller asked for has run, so
 // waiting it out would fail a retry that was already answered.
 func TestRetryAndWaitReturnsOnARunThatRecordedNothing(t *testing.T) {
+	t.Parallel()
+
 	cfg := resolving("prod", "key-1")
 	cfg.setErr(kubeconfig.ErrNotRead)
 	s := New(cfg)
@@ -947,6 +1029,8 @@ func TestRetryAndWaitReturnsOnARunThatRecordedNothing(t *testing.T) {
 // the requested run by however long those take — bounded by their own timeouts, but by no number
 // this call can name. A ceiling run from the ask reports a failure for a probe nobody has tried.
 func TestRetryAndWaitDoesNotGiveUpOnARunStillWaitingToStart(t *testing.T) {
+	t.Parallel()
+
 	c := serveCluster(t)
 	dialing, gate := parkDials(t, c)
 	s := New(serving(c.Server, "prod", "key-1"))
@@ -968,6 +1052,8 @@ func TestRetryAndWaitDoesNotGiveUpOnARunStillWaitingToStart(t *testing.T) {
 // The whole point of waiting: the call returns on a run of its own, not on whatever the last
 // one left behind.
 func TestRetryAndWaitReturnsOnARunItAskedFor(t *testing.T) {
+	t.Parallel()
+
 	c := serveCluster(t)
 	s := New(serving(c.Server, "prod", "key-1"))
 	startService(t, s)
@@ -992,6 +1078,8 @@ func awaitIdentified(t *testing.T, watched StateSubscription) {
 }
 
 func TestConnForHandsOutTheRequestedCluster(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	s := New(serving(cs.Server, "prod", "key-1"))
 	startService(t, s)
@@ -1010,6 +1098,8 @@ func TestConnForHandsOutTheRequestedCluster(t *testing.T) {
 // The whole point: a caller scoped to one cluster must not be handed the connection to
 // another, however the context came to point at it.
 func TestConnForRefusesAnotherCluster(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	s := New(serving(cs.Server, "prod", "key-1"))
 	startService(t, s)
@@ -1030,6 +1120,8 @@ func TestConnForRefusesAnotherCluster(t *testing.T) {
 // previous one's UID observation until the probe re-runs, and only the connection itself can
 // say it has not been read yet.
 func TestConnForRefusesAConnectionNoProbeHasIdentified(t *testing.T) {
+	t.Parallel()
+
 	// serveAPI answers the dial and 404s kube-system, so the connection comes up and the
 	// UID probe never succeeds over it.
 	srv := serveAPI(t)
@@ -1052,6 +1144,8 @@ func TestConnForRefusesAConnectionNoProbeHasIdentified(t *testing.T) {
 // A cluster nothing reached reports the outage rather than the identity it could not have
 // read either way — the two are different remedies, and an outage passes on its own.
 func TestConnForReportsTheOutageAheadOfTheIdentity(t *testing.T) {
+	t.Parallel()
+
 	s := New(&fakeKubeconfig{})
 	lease := s.Acquire("prod")
 	defer lease.Release()
@@ -1073,6 +1167,8 @@ func TestConnForReportsTheOutageAheadOfTheIdentity(t *testing.T) {
 // the conflict is also what the connection probe rebuilds on — once it has, uid-2 is served over
 // a fresh connection, so the lease is only stably refusing uid-1.
 func TestConnForRefusesAConnectionWhoseServerWasReplaced(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	s := New(serving(cs.Server, "prod", "key-1"))
 	startService(t, s)
@@ -1145,6 +1241,8 @@ func quiesce(t *testing.T, moved Subscription) {
 // it reads equals the one already recorded. Without the connection's own vouching in the news,
 // no signal fires and nothing ever tells that holder to try again.
 func TestRotationSignalsTheFleet(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cfg := serving(cs.Server, "prod", "key-1")
 	s := New(cfg)
@@ -1170,6 +1268,8 @@ func TestRotationSignalsTheFleet(t *testing.T) {
 // And the connection is usable again once the re-stamp lands, which is what the signal is for:
 // the holder woken by it finds an answer rather than the same refusal.
 func TestRotationRestoresTheStamp(t *testing.T) {
+	t.Parallel()
+
 	cs := serveCluster(t)
 	cfg := serving(cs.Server, "prod", "key-1")
 	s := New(cfg)
@@ -1201,6 +1301,8 @@ func kubeSystemAs(uid string) string {
 // rebuild arm alone would wait out the connection probe's interval, so the pass that records the
 // conflict wakes it.
 func TestAReplacedServerRebuildsTheConnection(t *testing.T) {
+	t.Parallel()
+
 	cl := serveCluster(t)
 	cfg := serving(cl.Server, "prod", "key-1")
 	s := New(cfg)
@@ -1255,6 +1357,8 @@ func settledReads(t *testing.T, reads *testutil.Probe[string]) {
 // resolving does exactly that, and on the level the pair would hot-loop: publish, wake, fail,
 // publish, with the backoff ladder bypassed and every state watcher flooded.
 func TestAConflictWhoseFileStoppedResolvingDoesNotSpin(t *testing.T) {
+	t.Parallel()
+
 	cl := serveCluster(t)
 	cfg := serving(cl.Server, "prod", "key-1")
 	cfg.reads = testutil.NewProbe[string](64)
@@ -1333,6 +1437,8 @@ func (l *stubLease) Release()                                  {}
 // Driven through record, which is where a pass's news is compared, so the ordering is
 // the test's rather than the scheduler's.
 func TestARebuiltConnectionIsNewsEvenWhenTheStampLandsFirst(t *testing.T) {
+	t.Parallel()
+
 	s := New(serving(serveCluster(t).Server, "prod", "key-1"))
 	lease := s.Acquire("prod")
 	defer lease.Release()

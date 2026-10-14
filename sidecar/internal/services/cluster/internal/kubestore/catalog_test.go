@@ -63,6 +63,8 @@ func metaValue(t *testing.T, s *Store, key string) string {
 
 // A sweep's answer lands as the table's rows.
 func TestSyncKindsWritesTheAnswer(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 
@@ -74,6 +76,8 @@ func TestSyncKindsWritesTheAnswer(t *testing.T) {
 // The fingerprint is what tells a table the sweep wrote from one wiped under it, so it
 // rides the rows' own transaction. Stored as its decimal string: the column is TEXT.
 func TestSyncKindsRecordsTheFingerprint(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	require.NoError(t, s.SyncKinds(context.Background(), []KindRow{podRow}, true, 42))
@@ -84,6 +88,8 @@ func TestSyncKindsRecordsTheFingerprint(t *testing.T) {
 // The atomicity the fold's whole fork rests on: a write that fails moves neither the rows
 // nor the fingerprint, so the pair never claims a sweep wrote a table it did not.
 func TestSyncKindsLeavesBothAloneWhenTheWriteFails(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow}, true, 42))
@@ -99,6 +105,8 @@ func TestSyncKindsLeavesBothAloneWhenTheWriteFails(t *testing.T) {
 // Pruning is the caller's call, because a partial answer has not seen every group: a kind
 // missing from an incomplete sweep has not stopped being served.
 func TestSyncKindsPrunesOnlyWhenAsked(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow, deploymentRow}, true, 42))
@@ -114,6 +122,8 @@ func TestSyncKindsPrunesOnlyWhenAsked(t *testing.T) {
 // row it replaces — on the index rather than on the primary key, which is the case a
 // single-target upsert cannot resolve.
 func TestSyncKindsResolvesARenamedKind(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	old := KindRow{APIVersion: "example.com/v1", Kind: "Widget", Resource: "widgets", Scope: ScopeNamespaced, IsCRD: true}
@@ -129,6 +139,8 @@ func TestSyncKindsResolvesARenamedKind(t *testing.T) {
 // A CRD's printer columns are the sweep's own data, so unlike schema_json they ride the update:
 // a definition that drops a column must stop serving it rather than keep it forever.
 func TestSyncKindsRoundTripsPrinterColumns(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	withColumns := KindRow{
@@ -152,6 +164,8 @@ func TestSyncKindsRoundTripsPrinterColumns(t *testing.T) {
 // Nothing on this path fills schema_json, so an upsert must leave it alone: writing NULL
 // on every sweep would quietly make the column unusable to whoever fills it.
 func TestSyncKindsLeavesTheSchemaAlone(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow}, true, 7))
@@ -172,6 +186,8 @@ func TestSyncKindsLeavesTheSchemaAlone(t *testing.T) {
 // answer with it — a catalog emptied under a fingerprint that says it was written would
 // read as a cluster serving nothing.
 func TestSyncKindsReportsAFailedPrune(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{

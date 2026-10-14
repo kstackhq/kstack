@@ -25,6 +25,8 @@ import (
 )
 
 func TestCompressRoundTrips(t *testing.T) {
+	t.Parallel()
+
 	body := []byte(`{"kind":"Pod","metadata":{"name":"api-0"}}`)
 
 	packed, err := compressRaw(body)
@@ -38,6 +40,8 @@ func TestCompressRoundTrips(t *testing.T) {
 // The stored blob is self-identifying: a zlib stream opens 0x78, plain JSON '{'.
 // That is what lets a version prefix be retrofitted without a migration.
 func TestCompressWritesAZlibStream(t *testing.T) {
+	t.Parallel()
+
 	packed, err := compressRaw([]byte(`{"a":1}`))
 	require.NoError(t, err)
 
@@ -47,6 +51,8 @@ func TestCompressWritesAZlibStream(t *testing.T) {
 // Both codecs pool their flate machinery, so a reused instance must carry no state
 // from the call before it.
 func TestCodecsAreReusable(t *testing.T) {
+	t.Parallel()
+
 	for _, body := range [][]byte{[]byte(`{"a":1}`), []byte(strings.Repeat("x", 4096)), {}} {
 		packed, err := compressRaw(body)
 		require.NoError(t, err)
@@ -57,6 +63,8 @@ func TestCodecsAreReusable(t *testing.T) {
 }
 
 func TestDecompressRejectsGarbage(t *testing.T) {
+	t.Parallel()
+
 	_, err := decompressRaw([]byte("not zlib"))
 
 	assert.Error(t, err)
@@ -66,6 +74,8 @@ func TestDecompressRejectsGarbage(t *testing.T) {
 // the format is self-identifying by its first byte, so anything that gets here claiming
 // to be compressed and is not is a corrupt row.
 func TestDecompressRejectsAStreamThatIsNotZlib(t *testing.T) {
+	t.Parallel()
+
 	// A zlib header the inflater accepts, then rubbish — so the failure lands in the read
 	// rather than at the header check.
 	_, err := decompressRaw([]byte{0x78, 0x01, 0xff, 0xff, 0xff})
@@ -77,6 +87,8 @@ func TestDecompressRejectsAStreamThatIsNotZlib(t *testing.T) {
 // reused one takes Reset, and both must reject the same bad stream. Running the good case
 // first is what puts a reader in the pool for the second.
 func TestDecompressRejectsABadStreamOnAPooledReaderToo(t *testing.T) {
+	t.Parallel()
+
 	good, err := compressRaw([]byte(`{"a":1}`))
 	require.NoError(t, err)
 	round, err := decompressRaw(good)
@@ -92,6 +104,8 @@ func TestDecompressRejectsABadStreamOnAPooledReaderToo(t *testing.T) {
 // the stream's header as it goes. A file whose stored body is not a zlib stream at all
 // must be rejected there too, not only on the pooled path.
 func TestDecompressRejectsABadStreamWithNoPooledReader(t *testing.T) {
+	t.Parallel()
+
 	zlibReaders = sync.Pool{}
 
 	_, err := decompressRaw([]byte("not a stream at all"))
@@ -102,6 +116,8 @@ func TestDecompressRejectsABadStreamWithNoPooledReader(t *testing.T) {
 // A limited read answers the body at the limit and refuses one a byte past it, without
 // inflating the rest.
 func TestDecompressRawUpToStopsAtTheLimit(t *testing.T) {
+	t.Parallel()
+
 	blob, err := compressRaw([]byte("0123456789"))
 	require.NoError(t, err)
 

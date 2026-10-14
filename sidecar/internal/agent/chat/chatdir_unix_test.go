@@ -30,6 +30,8 @@ import (
 
 // The service keeps every chat's directory under one owner-only directory.
 func TestTheServiceMakesTheChatsDirectory(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	startService(t, dir)
 
@@ -41,6 +43,8 @@ func TestTheServiceMakesTheChatsDirectory(t *testing.T) {
 
 // A chat's directory is made owner-only.
 func TestAChatsDirectoryIsOwnerOnly(t *testing.T) {
+	t.Parallel()
+
 	s := startService(t, t.TempDir())
 	d := s.chatDir("c1")
 
@@ -54,6 +58,8 @@ func TestAChatsDirectoryIsOwnerOnly(t *testing.T) {
 
 // A chats' directory the service cannot open fails its construction.
 func TestNewRefusesAChatsDirectoryItCannotOpen(t *testing.T) {
+	t.Parallel()
+
 	if os.Getuid() == 0 {
 		t.Skip("root opens an unreadable directory")
 	}
@@ -70,6 +76,8 @@ func TestNewRefusesAChatsDirectoryItCannotOpen(t *testing.T) {
 // A chat's entry swapped for a link to a directory outside the chats' directory
 // is refused, so nothing a command links in is written through.
 func TestOpenResultsRefusesALinkedDirectory(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	d := s.chatDir("c1")
 	require.NoError(t, os.MkdirAll(filepath.Dir(d.Path()), 0o700))
@@ -87,6 +95,8 @@ func TestOpenResultsRefusesALinkedDirectory(t *testing.T) {
 
 // Deleting a chat removes a link in its directory and never the link's target.
 func TestDeletingAChatRemovesALinkNotItsTarget(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("1", time.Now()))
 	path := makeChatDir(t, s, c.ID)
@@ -105,6 +115,8 @@ func TestDeletingAChatRemovesALinkNotItsTarget(t *testing.T) {
 // read-only chats' directory fails it in a way no chmod of the chat's own
 // entry undoes.
 func TestAFailedRemovalIsLeftForTheStartSweep(t *testing.T) {
+	t.Parallel()
+
 	if os.Getuid() == 0 {
 		t.Skip("root removes a read-only directory's entries")
 	}
@@ -128,6 +140,8 @@ func TestAFailedRemovalIsLeftForTheStartSweep(t *testing.T) {
 // cache. The chat's directory still goes with it, and a link in it pointing out
 // goes without its target.
 func TestAReadOnlyWorkspaceGoesWithTheChat(t *testing.T) {
+	t.Parallel()
+
 	if os.Getuid() == 0 {
 		t.Skip("root removes a read-only directory's entries")
 	}
@@ -155,6 +169,8 @@ func TestAReadOnlyWorkspaceGoesWithTheChat(t *testing.T) {
 // A chat's entry that is a link is removed, never walked: the walk that makes
 // a read-only tree removable would otherwise chmod what the link leads to.
 func TestAChatEntryThatIsALinkIsNeverWalked(t *testing.T) {
+	t.Parallel()
+
 	if os.Getuid() == 0 {
 		t.Skip("root removes a read-only directory's entries")
 	}
@@ -178,6 +194,8 @@ func TestAChatEntryThatIsALinkIsNeverWalked(t *testing.T) {
 
 // The monitor's directory is made owner-only, and so is each cluster's entry.
 func TestANewMonitorDirIsOwnerOnly(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	s := startService(t, dir)
 	d := s.monitorDir("7")

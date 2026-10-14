@@ -28,6 +28,8 @@ import (
 )
 
 func TestExtractEventReadsTheCoreSpelling(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Event",
 		"metadata":       map[string]any{"uid": "ev-1"},
@@ -54,6 +56,8 @@ func TestExtractEventReadsTheCoreSpelling(t *testing.T) {
 
 // The events.k8s.io spelling of the same data: `regarding`, `note`, `series.count`.
 func TestExtractEventReadsTheNewSpelling(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "events.k8s.io/v1", "kind": "Event",
 		"metadata":  map[string]any{"uid": "ev-2"},
@@ -74,6 +78,8 @@ func TestExtractEventReadsTheNewSpelling(t *testing.T) {
 // Which field group is present decides the spelling, never the UID: involvedObject.uid
 // is optional, so a missing one must not be read as the `regarding` shape.
 func TestExtractEventPrefersTheGroupThatIsPresent(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Event",
 		"metadata":       map[string]any{"uid": "ev-3"},
@@ -90,6 +96,8 @@ func TestExtractEventPrefersTheGroupThatIsPresent(t *testing.T) {
 
 // The first spelling PRESENT wins, so a genuine 0 is not read as absent.
 func TestExtractEventKeepsAnExplicitZeroCount(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Event",
 		"metadata": map[string]any{"uid": "ev-4"},
@@ -105,6 +113,8 @@ func TestExtractEventKeepsAnExplicitZeroCount(t *testing.T) {
 
 // An event carrying no time at all still needs a count; nothing else defaults it.
 func TestExtractEventDefaultsTheCountToOne(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Event",
 		"metadata": map[string]any{"uid": "ev-5"},
@@ -120,6 +130,8 @@ func TestExtractEventDefaultsTheCountToOne(t *testing.T) {
 // malformed series.lastObservedTime would otherwise store a null last_seen and sort
 // the cluster's newest event below every timestamped row.
 func TestExtractEventSkipsAnUnparseableTime(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Event",
 		"metadata":  map[string]any{"uid": "ev-6"},
@@ -136,6 +148,8 @@ func TestExtractEventSkipsAnUnparseableTime(t *testing.T) {
 }
 
 func TestExtractEventRefusesAnEventWithNoUID(t *testing.T) {
+	t.Parallel()
+
 	_, err := extractEvent(obj(map[string]any{"apiVersion": "v1", "kind": "Event"}))
 
 	assert.Error(t, err)
@@ -145,6 +159,8 @@ func TestExtractEventRefusesAnEventWithNoUID(t *testing.T) {
 // highest-volume table, so managedFields kept there is the most bytes nothing reads —
 // and a body shaped unlike every other kind's is one a reader has to special-case.
 func TestExtractEventStripsServerNoise(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Event",
 		"metadata": map[string]any{
@@ -170,6 +186,8 @@ func TestExtractEventStripsServerNoise(t *testing.T) {
 
 // A nil body would panic on the projection, taking the worker's goroutine with it.
 func TestExtractEventRefusesAnEmptyBody(t *testing.T) {
+	t.Parallel()
+
 	_, err := extractEvent(nil)
 
 	assert.ErrorIs(t, err, errUnprojectable)
@@ -178,6 +196,8 @@ func TestExtractEventRefusesAnEmptyBody(t *testing.T) {
 // An event carrying a value JSON cannot represent is skipped like any other unprojectable
 // body — events are the highest-volume stream, and one bad body must not stop the rest.
 func TestExtractEventRefusesABodyThatWillNotMarshal(t *testing.T) {
+	t.Parallel()
+
 	u := obj(map[string]any{
 		"apiVersion": "v1", "kind": "Event",
 		"metadata": map[string]any{"uid": "ev-1"},
@@ -192,6 +212,8 @@ func TestExtractEventRefusesABodyThatWillNotMarshal(t *testing.T) {
 // An event with no times stores NULL rather than the epoch, so "never seen" is absence
 // and not a 1970 instant sorting to the bottom of every window.
 func TestAnEventWithNoTimesStoresNull(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	u := obj(map[string]any{
@@ -228,6 +250,8 @@ func firing(uid, rv string, count int64) *unstructured.Unstructured {
 // Events carry the same "did it change" fact as objects, so the stamp answers the same
 // question on both tables: an event that re-fires moves it, a re-observed one does not.
 func TestAReFiringEventMovesItsStamp(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 
@@ -246,6 +270,8 @@ func TestAReFiringEventMovesItsStamp(t *testing.T) {
 // As on objects: an empty resourceVersion is equal to itself forever, so reading it as
 // "unchanged" would pin the row at the position of its first write.
 func TestAnEventWithNoResourceVersionIsAlwaysAChange(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 
@@ -257,6 +283,8 @@ func TestAnEventWithNoResourceVersionIsAlwaysAChange(t *testing.T) {
 }
 
 func TestExtractEventReadsTheResourceVersion(t *testing.T) {
+	t.Parallel()
+
 	row, err := extractEvent(firing("ev-1", "10", 1))
 
 	require.NoError(t, err)

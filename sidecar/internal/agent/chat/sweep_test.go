@@ -33,6 +33,8 @@ import (
 
 // Stopping ends a sweep's report nobody reads, so the hook cannot hold the stop.
 func TestStopEndsAnUnreadSweepReport(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	box, lists := testBox()
 	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), &stubClusterCards{}, nil, box, lists, sandbox.Status{}, testSettings(t))
@@ -50,6 +52,8 @@ func TestStopEndsAnUnreadSweepReport(t *testing.T) {
 // The sweeper subscribes before its startup sweep and runs on every clusters signal:
 // a marked cluster's chats go, and another cluster's stay.
 func TestTheSweeperDeletesAMarkedClustersChats(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	now := time.UnixMilli(1_000).UTC()
 	mine := seedChat(t, s.db, aChat("7", now))
@@ -83,6 +87,8 @@ func TestTheSweeperDeletesAMarkedClustersChats(t *testing.T) {
 // A sweep that finds nothing to do notifies nobody, or two subscribers of one key
 // would wake each other forever.
 func TestASweepThatCleansNothingNotifiesNobody(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	sub := s.db.Subscribe(appdb.KeyClusters)
 	defer sub.Close()
@@ -103,6 +109,8 @@ func TestASweepThatCleansNothingNotifiesNobody(t *testing.T) {
 
 // A marked cluster the last run left behind is swept at startup, with no signal.
 func TestTheSweeperRecoversAtStartup(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	db := openTestDB(t, dir)
 	c := seedChat(t, db, aChat("7", time.UnixMilli(1_000).UTC()))
@@ -119,6 +127,8 @@ func TestTheSweeperRecoversAtStartup(t *testing.T) {
 // A sweep that fails re-arms its own retry: no notification follows a failure, since
 // the mirror cannot remove a row while chats remain and notifies only on removal.
 func TestAFailedSweepRetriesOnItsOwn(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	c := seedChat(t, s.db, aChat("7", time.UnixMilli(1_000).UTC()))
 	failures := 2
@@ -148,6 +158,8 @@ func TestAFailedSweepRetriesOnItsOwn(t *testing.T) {
 
 // The read of the clusters table reports a store that will not answer.
 func TestTheClusterReadsReportAStorageFault(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	require.NoError(t, s.store.Close())
 
@@ -158,6 +170,8 @@ func TestTheClusterReadsReportAStorageFault(t *testing.T) {
 // A service that is stopping refuses to start its sweeper, the way every other
 // entrant is refused once stop has begun.
 func TestStartAfterStopRefusesTheSweeper(t *testing.T) {
+	t.Parallel()
+
 	s, err := newService(openTestDB(t, t.TempDir()), chatsDirIn(t.TempDir()), monitorDirIn(t.TempDir()), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, s.Close()) })
@@ -171,6 +185,8 @@ func TestStartAfterStopRefusesTheSweeper(t *testing.T) {
 // The sweep a cluster delete runs: every chat filed under it goes, and nothing
 // else is touched.
 func TestDeleteByClusterDeletesEachChat(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	now := time.UnixMilli(1_000).UTC()
 	first := seedChat(t, s.db, aChat("7", now))
@@ -192,6 +208,8 @@ func TestDeleteByClusterDeletesEachChat(t *testing.T) {
 }
 
 func TestDeleteByClusterOfAClusterWithNoChatsIsANoOp(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	n, err := s.deleteByCluster(t.Context(), "9")
 	assert.NoError(t, err)
@@ -201,6 +219,8 @@ func TestDeleteByClusterOfAClusterWithNoChatsIsANoOp(t *testing.T) {
 // The read that names the chats is the sweep's first statement, and its failure is
 // the caller's to see: a sweep that could not list is not a sweep that found none.
 func TestDeleteByClusterReportsAReadThatFailed(t *testing.T) {
+	t.Parallel()
+
 	s := newTestService(t)
 	require.NoError(t, s.store.Close())
 
@@ -210,6 +230,8 @@ func TestDeleteByClusterReportsAReadThatFailed(t *testing.T) {
 
 // A chats' directory the sweep cannot list is left for the next start.
 func TestTheStartSweepLeavesAChatsDirectoryItCannotList(t *testing.T) {
+	// CaptureLogs swaps the process's default logger, so this test stays serial.
+
 	dir := t.TempDir()
 	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), noClusterCards, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
 	require.NoError(t, err)
@@ -225,6 +247,8 @@ func TestTheStartSweepLeavesAChatsDirectoryItCannotList(t *testing.T) {
 // The start sweep removes every entry of the chats' directory that is not a
 // chat's: what a failed removal or a crash left.
 func TestTheStartSweepRemovesTheDirectoriesOfGoneChats(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	db := openTestDB(t, dir)
 	kept := seedChat(t, db, aChat("1", time.Now()))
@@ -258,6 +282,8 @@ func awaitSweepUntil(t *testing.T, s *service, cond func() bool) {
 // go, so a chat delete that fails leaves no monitor running; the row's delete
 // then takes the run's rows.
 func TestAMonitorRunEndsWithItsCluster(t *testing.T) {
+	t.Parallel()
+
 	s := startMonitorService(t, "", testTool{name: "echo"})
 	c := seedChat(t, s.db, aChat("7", time.UnixMilli(1_000).UTC()))
 	_, done := heldMonitor(t, s, "7")
@@ -292,6 +318,8 @@ func TestAMonitorRunEndsWithItsCluster(t *testing.T) {
 // A cluster whose row is gone before any pass saw it marked still loses its
 // monitor and its folder; a run on a live cluster is left alone.
 func TestAMonitorEndsWhenItsRowIsGone(t *testing.T) {
+	t.Parallel()
+
 	s := startMonitorService(t, "", testTool{name: "echo"})
 	_, gone := heldMonitor(t, s, "7")
 	liveGate, live := heldMonitor(t, s, "8")
@@ -315,6 +343,8 @@ func TestAMonitorEndsWhenItsRowIsGone(t *testing.T) {
 // The first pass removes every monitor folder that names no live cluster, and
 // keeps a live cluster's.
 func TestTheMonitorsFolderIsSwept(t *testing.T) {
+	t.Parallel()
+
 	dir := t.TempDir()
 	for _, name := range []string{"7", "gone"} {
 		require.NoError(t, os.MkdirAll(filepath.Join(monitorDirIn(dir), name, "workspace"), 0o700))
@@ -332,6 +362,8 @@ func TestTheMonitorsFolderIsSwept(t *testing.T) {
 // A run reserved for a cluster made after the sweep read the live rows is not
 // the sweep's to end: it took its slots before that read.
 func TestAMonitorSweepLeavesARunReservedAfterItsRead(t *testing.T) {
+	t.Parallel()
+
 	s := startMonitorService(t, "")
 	type reservation struct {
 		m   *monitor
@@ -364,6 +396,8 @@ func TestAMonitorSweepLeavesARunReservedAfterItsRead(t *testing.T) {
 // slots, its cluster marked before the live read, keeps its folder through that
 // pass; the mark's signal brings the pass that ends it and removes it.
 func TestAMonitorSweepKeepsTheFolderOfARunItDidNotEnd(t *testing.T) {
+	t.Parallel()
+
 	s := startMonitorService(t, "", testTool{name: "echo"})
 	require.NoError(t, os.MkdirAll(s.monitorDir("8").Path(), 0o700))
 	entered, proceed := make(chan struct{}), make(chan struct{})

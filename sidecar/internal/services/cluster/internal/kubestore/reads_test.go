@@ -27,6 +27,8 @@ import (
 // The watches re-read on every ping, so a read must not queue behind the single-connection
 // writer: a transaction held open would otherwise stall every open watch on the cache.
 func TestAReadDoesNotQueueBehindAHeldWriteTransaction(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow}, true, 7))
@@ -48,6 +50,8 @@ func TestAReadDoesNotQueueBehindAHeldWriteTransaction(t *testing.T) {
 // outer: an advertised kind with nothing synced yet reads with Count 0 rather than vanishing
 // from the nav.
 func TestKindsJoinsCountsAndKeepsAnEmptyKind(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow, deploymentRow}, true, 7))
@@ -65,6 +69,8 @@ func TestKindsJoinsCountsAndKeepsAnEmptyKind(t *testing.T) {
 // The pair the fold forks on: the rows and the fingerprint of the sweep that wrote them,
 // out of one read.
 func TestKindsWithFingerprintReadsThePairTheSweepWrote(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow}, true, 42))
@@ -81,6 +87,8 @@ func TestKindsWithFingerprintReadsThePairTheSweepWrote(t *testing.T) {
 // A file no sweep has written is the state a wipe leaves behind, and the fold must read it
 // as one — never as a cluster that serves nothing.
 func TestKindsWithFingerprintReportsAnUnwrittenTable(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	rows, _, ok, err := s.KindsWithFingerprint(context.Background())
@@ -93,6 +101,8 @@ func TestKindsWithFingerprintReportsAnUnwrittenTable(t *testing.T) {
 // A value that will not parse says as little about the sweep as an absent one, and reading
 // it as a fingerprint would compare a number nothing wrote.
 func TestKindsWithFingerprintReadsGarbageAsUnwritten(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow}, true, 42))
@@ -108,6 +118,8 @@ func TestKindsWithFingerprintReadsGarbageAsUnwritten(t *testing.T) {
 // so rows tied on a second would reshuffle between two reads if the order were left to rowid.
 // The uid tiebreak is what makes the order total.
 func TestEventsBreaksLastSeenTiesByUID(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	for _, uid := range []string{"uid-a", "uid-c", "uid-b"} {
@@ -126,6 +138,8 @@ func TestEventsBreaksLastSeenTiesByUID(t *testing.T) {
 // kind_catalog. A kind the sweep has not registered resolves to nothing — which is why the
 // catalog's rows are load-bearing for this family rather than decoration.
 func TestObjectsResolveThePluralThroughTheCatalog(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, pod("uid-1", "api-0", "42")))
@@ -146,6 +160,8 @@ func TestObjectsResolveThePluralThroughTheCatalog(t *testing.T) {
 // The body is fetched by uid, decompressed, for the rows that become frames — the diff
 // keys on (uid, resource_version) and never loads one.
 func TestObjectBodyReturnsTheDecompressedBody(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow}, true, 7))
@@ -162,6 +178,8 @@ func TestObjectBodyReturnsTheDecompressedBody(t *testing.T) {
 // resync's Deleted frame is the real answer — so a body that is gone is reported, never
 // raised as a read failure.
 func TestObjectBodyReportsARowThatIsGone(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 
 	body, ok, err := s.ObjectBody(context.Background(), "uid-gone")
@@ -173,6 +191,8 @@ func TestObjectBodyReportsARowThatIsGone(t *testing.T) {
 
 // Ordered by (namespace, name), which is what the table renders and what the index serves.
 func TestObjectsAreOrderedByNamespaceAndName(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow}, true, 7))
@@ -199,6 +219,8 @@ func dropTable(t *testing.T, s *Store, table string) {
 // A read that cannot reach its table reports the fault. Answering empty would say the
 // cluster serves nothing, and the nav would empty over a storage problem.
 func TestKindsReportsATableItCannotRead(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	dropTable(t, s, "kind_catalog")
 
@@ -211,6 +233,8 @@ func TestKindsReportsATableItCannotRead(t *testing.T) {
 // be read fails the pair rather than handing back rows under a missing one — which a
 // caller would take for a wiped table.
 func TestKindsWithFingerprintReportsAnUnreadableFingerprint(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	dropTable(t, s, "cluster_meta")
 
@@ -222,6 +246,8 @@ func TestKindsWithFingerprintReportsAnUnreadableFingerprint(t *testing.T) {
 // A row the reader cannot make sense of is a fault, not a kind to skip: a catalog read
 // short by one kind is a nav missing an entry with nothing to say why.
 func TestKindsReportsARowItCannotScan(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	_, err := db(t, s).ExecContext(ctx,
@@ -237,6 +263,8 @@ func TestKindsReportsARowItCannotScan(t *testing.T) {
 // A body that will not decompress is reported rather than served: handing a caller half a
 // document, or the compressed bytes, would put nonsense in front of the user.
 func TestObjectBodyReportsAStoredBodyItCannotDecompress(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.ApplyChange(ctx, podKind, watch.Added, pod("uid-1", "api-0", "1")))
@@ -256,6 +284,8 @@ func TestObjectBodyReportsAStoredBodyItCannotDecompress(t *testing.T) {
 // cursor also carries the Kind the rows were read under, which is the other half of "what
 // is prev current with": a plural can be remapped onto a renamed Kind.
 func TestASnapshotIsReadAtACursor(t *testing.T) {
+	t.Parallel()
+
 	ctx := context.Background()
 	s := newTestStore(t)
 	require.NoError(t, s.SyncKinds(ctx, []KindRow{podRow}, true, 7))
@@ -279,6 +309,8 @@ func TestASnapshotIsReadAtACursor(t *testing.T) {
 // fault rather than answer empty: empty is a collection the cache no longer holds, which
 // the watch turns into a Deleted per row on screen.
 func TestObjectsWithCursorReportsAReadItCannotMake(t *testing.T) {
+	t.Parallel()
+
 	breaks := map[string]func(*testing.T, *Store){
 		"the kind": func(t *testing.T, s *Store) { dropTable(t, s, "kind_catalog") },
 		"the rows": func(t *testing.T, s *Store) { dropTable(t, s, "objects") },
@@ -303,6 +335,8 @@ func TestObjectsWithCursorReportsAReadItCannotMake(t *testing.T) {
 }
 
 func TestEventsWithCursorReportsAReadItCannotMake(t *testing.T) {
+	t.Parallel()
+
 	breaks := map[string]func(*testing.T, *Store){
 		"the rows": func(t *testing.T, s *Store) { dropTable(t, s, "events") },
 		"a row it cannot scan": func(t *testing.T, s *Store) {
@@ -327,6 +361,8 @@ func TestEventsWithCursorReportsAReadItCannotMake(t *testing.T) {
 // failure surfaces — the loop simply stops, so a missing check would serve however many
 // rows arrived before the fault as if they were the whole catalog.
 func TestKindsReportsAReadThatFailsMidway(t *testing.T) {
+	t.Parallel()
+
 	s := newTestStore(t)
 	// The first row reads; the second raises as it is computed, which is a fault the loop
 	// itself cannot see.

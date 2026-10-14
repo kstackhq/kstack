@@ -44,6 +44,8 @@ type DB struct {
 
 	// path is the database file, which the janitor measures beside its -wal.
 	path string
+	// vacuumPages bounds what one sweep hands back: vacuumPagesPerSweep, or less in a test.
+	vacuumPages int64
 	// stopJanitor cancels the janitor and janitorDone closes once it has returned; both
 	// nil when the DB opened with no interval.
 	stopJanitor context.CancelFunc
@@ -75,7 +77,13 @@ func Open(path string, sweepEvery time.Duration) (*DB, error) {
 		w.Close()
 		return nil, err
 	}
-	db := &DB{Write: w, Read: r, hub: conflate.New[string, struct{}](), path: path}
+	db := &DB{
+		Write:       w,
+		Read:        r,
+		hub:         conflate.New[string, struct{}](),
+		path:        path,
+		vacuumPages: vacuumPagesPerSweep,
+	}
 	if sweepEvery > 0 {
 		ctx, cancel := context.WithCancel(context.Background())
 		db.stopJanitor, db.janitorDone = cancel, make(chan struct{})

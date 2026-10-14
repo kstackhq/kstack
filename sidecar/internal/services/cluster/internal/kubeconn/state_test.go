@@ -26,6 +26,8 @@ var runAt = time.Date(2026, 8, 23, 10, 5, 0, 0, time.UTC)
 // A probe the prober records without dispatching has no duration: subtracting a zero
 // StartedAt would report the time since the zero year.
 func TestLatencyIsZeroForARunThatNeverStarted(t *testing.T) {
+	t.Parallel()
+
 	a := Attempt{ScheduledAt: runAt, FinishedAt: runAt, Reason: ReasonDependencyFailed}
 
 	assert.True(t, a.Done())
@@ -34,6 +36,8 @@ func TestLatencyIsZeroForARunThatNeverStarted(t *testing.T) {
 }
 
 func TestLatencyMeasuresADispatchedRun(t *testing.T) {
+	t.Parallel()
+
 	a := Attempt{ScheduledAt: runAt, StartedAt: runAt, FinishedAt: runAt.Add(2 * time.Second)}
 
 	assert.Equal(t, 2*time.Second, a.Latency())
@@ -41,6 +45,8 @@ func TestLatencyMeasuresADispatchedRun(t *testing.T) {
 
 // A suspended probe keeps its last answer and schedules nothing.
 func TestSuspendedProbeKeepsItsAnswer(t *testing.T) {
+	t.Parallel()
+
 	o := Observation[string]{
 		Value:      "abc-123",
 		LastSeenAt: runAt,
@@ -58,6 +64,8 @@ func TestSuspendedProbeKeepsItsAnswer(t *testing.T) {
 // Identity projects the three scalars a connection is scoped to out of the observations
 // carrying them, so retiring one stays a ==.
 func TestIdentityProjectsTheProbedScalars(t *testing.T) {
+	t.Parallel()
+
 	s := State{
 		ServerUID:     Observation[string]{Value: "uid-1", LastSeenAt: runAt},
 		ServerVersion: Observation[VersionInfo]{Value: VersionInfo{GitVersion: "v1.29.3"}, LastSeenAt: runAt},
@@ -77,6 +85,8 @@ func TestIdentityProjectsTheProbedScalars(t *testing.T) {
 // A part no probe could read is empty rather than absent, which is what lets two
 // connections missing the same part compare equal.
 func TestIdentityLeavesAnUnreadPartEmpty(t *testing.T) {
+	t.Parallel()
+
 	forbidden := State{
 		ServerUID: Observation[string]{Attempts: Attempts{LastAttempt: Attempt{FinishedAt: runAt, Reason: ReasonForbidden}}},
 		Principal: Observation[Principal]{Value: Principal{Username: "reader@example"}, LastSeenAt: runAt},
@@ -92,6 +102,8 @@ func TestIdentityLeavesAnUnreadPartEmpty(t *testing.T) {
 // The phase a connection that answered reports, and the case every reader of Phase is waiting
 // for.
 func TestPhaseReadsASucceededConnectionAsProbed(t *testing.T) {
+	t.Parallel()
+
 	s := State{Connection: Observation[string]{
 		Attempts: Attempts{LastAttempt: Attempt{FinishedAt: runAt, Verdict: VerdictSucceeded, Reason: ReasonSucceeded}},
 	}}
