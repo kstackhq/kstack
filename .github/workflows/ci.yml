@@ -248,7 +248,10 @@ jobs:
       matrix: *full-matrix
     runs-on: ${{ matrix.runner }}
     steps:
+      # The whole history, so every file has the commit that last changed it.
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
       - id: setup
         uses: ./.github/actions/setup-environment
         with:
@@ -256,9 +259,16 @@ jobs:
           setup-sandbox: "true"
           go-cache-key: ${{ github.job }}-${{ matrix.runner }}
           go-cache-mode: ${{ env.CACHE_MODE }}
+      # Go's test cache keys a test on the files it reads by modification time,
+      # which a checkout resets, so a test reading a repo file would never
+      # replay a restored result.
+      - name: Date files by their last commit
+        run: go run scripts/restore-mtime.go
+      # Outside the tree: a test that lists sidecar/ would see a new binary on
+      # every run.
       - name: Build
         working-directory: ./sidecar
-        run: go build
+        run: go build -o ${{ runner.temp }}
       # The race detector does not support windows/arm64, so it alone runs the
       # tests without -race.
       - name: Run tests
