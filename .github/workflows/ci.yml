@@ -259,7 +259,10 @@ jobs:
       - name: Build
         working-directory: ./sidecar
         run: go build
+      # The race detector does not support windows/arm64, so it alone runs the
+      # tests without -race.
       - name: Run tests
+        if: ${{ matrix.os == 'windows' && matrix.arch == 'arm64' }}
         working-directory: ./sidecar
         run: go test ./...
       - name: Run race tests
