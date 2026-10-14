@@ -126,7 +126,7 @@ func TestAFollowDeliversALineWrittenLater(t *testing.T) {
 	r := readForward(t.Context(), claimOn(t, s).get, web, readOpts{since: from(0), follow: true})
 
 	assert.Equal(t, "old", testutil.Recv(t, r.lines.Chan(), "the old line").Message)
-	s.follow("prod/web/app") <- stamped(time.Second, "new")
+	s.add("prod/web/app", stamped(time.Second, "new"))
 	assert.Equal(t, "new", testutil.Recv(t, r.lines.Chan(), "the new line").Message)
 	assert.Equal(t, "true", s.requests()[0].Get("follow"))
 }

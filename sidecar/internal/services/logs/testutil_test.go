@@ -405,13 +405,18 @@ func enabledCluster() *cluster.Cluster {
 type logServer struct {
 	mu sync.Mutex
 	// logs is each container's lines, "<ts> <message>", keyed "<ns>/<pod>/<container>",
-	// with "/previous" for the instance before.
+	// with "/previous" for the instance before. A follow streams the lines added
+	// after its read, so a line reaches every follow still open, and one opened
+	// later reads it as part of the log: a follow the client has abandoned, whose
+	// handler has not noticed yet, cannot take a line from the follow that
+	// replaced it.
 	logs map[string][]string
 	// refuse answers a container's requests with a status and a message.
 	refuse map[string]refusal
-	// follows is what each container's follow writes after the log it opened on,
-	// by key; closing one ends that follow.
-	follows map[string]chan string
+	// grew is closed and replaced when a container's log grows or its follows
+	// end, by key. ended is the containers whose follows end, and any opened after.
+	grew  map[string]chan struct{}
+	ended map[string]bool
 	// queries is every request's query, in order, and keys each one's container.
 	queries []url.Values
 	keys    []string
@@ -430,24 +435,44 @@ type refusal struct {
 }
 
 func newLogServer() *logServer {
-	return &logServer{logs: map[string][]string{}, refuse: map[string]refusal{}, follows: map[string]chan string{}, opened: map[string]int{}, closed: map[string]int{}}
+	return &logServer{logs: map[string][]string{}, refuse: map[string]refusal{}, grew: map[string]chan struct{}{}, ended: map[string]bool{}, opened: map[string]int{}, closed: map[string]int{}}
 }
 
-// follow is what key's follow writes after the log it opened on.
-func (s *logServer) follow(key string) chan string {
+// end ends key's follows, and any opened after.
+func (s *logServer) end(key string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.follows[key] == nil {
-		s.follows[key] = make(chan string)
-	}
-	return s.follows[key]
+	s.ended[key] = true
+	s.wake(key)
 }
 
-// add appends lines to key's log.
+// wake tells key's follows its log changed. Call it holding s.mu.
+func (s *logServer) wake(key string) {
+	if grew := s.grew[key]; grew != nil {
+		close(grew)
+	}
+	s.grew[key] = make(chan struct{})
+}
+
+// next is a copy of key's lines from the nth, whether its follows have ended,
+// and a channel closed when either changes. A log emptied under a follow has
+// fewer lines than the follow has sent.
+func (s *logServer) next(key string, n int) ([]string, bool, <-chan struct{}) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.grew[key] == nil {
+		s.grew[key] = make(chan struct{})
+	}
+	lines := s.logs[key]
+	return append([]string(nil), lines[min(n, len(lines)):]...), s.ended[key], s.grew[key]
+}
+
+// add appends lines to key's log, as a running container writes them.
 func (s *logServer) add(key string, lines ...string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.logs[key] = append(s.logs[key], lines...)
+	s.wake(key)
 }
 
 // clear empties key's log.
@@ -519,7 +544,7 @@ func keyOf(path string, q url.Values) string {
 // get reads s in memory, as a claim's get reads the API server, so a read's
 // bytes arrive as the server wrote them. It never follows.
 func (s *logServer) get(_ context.Context, path string, q url.Values) (io.ReadCloser, error) {
-	text, refused := s.serve(keyOf(path, q), q)
+	text, _, refused := s.serve(keyOf(path, q), q)
 	if refused != nil {
 		return nil, &statusError{refused.code, refused.message}
 	}
@@ -532,7 +557,7 @@ func (s *logServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	text, refused := s.serve(key, r.URL.Query())
+	text, n, refused := s.serve(key, r.URL.Query())
 	if refused != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(refused.code)
@@ -555,24 +580,28 @@ func (s *logServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer s.mu.Unlock()
 		s.closed[key]++
 	}()
-	follow := s.follow(key)
 	for {
-		select {
-		case line, ok := <-follow:
-			if !ok {
-				return
-			}
+		lines, ended, grew := s.next(key, n)
+		for _, line := range lines {
 			_, _ = w.Write([]byte(line + "\n"))
 			w.(http.Flusher).Flush()
+		}
+		n += len(lines)
+		if ended {
+			return
+		}
+		select {
+		case <-grew:
 		case <-r.Context().Done():
 			return
 		}
 	}
 }
 
-// serve is key's log as the request's parameters cut it, or the refusal set for
-// key, after the request is counted and the hook has run.
-func (s *logServer) serve(key string, q url.Values) (string, *refusal) {
+// serve is key's log as the request's parameters cut it, and how many lines the
+// log held, or the refusal set for key, after the request is counted and the
+// hook has run.
+func (s *logServer) serve(key string, q url.Values) (string, int, *refusal) {
 	s.mu.Lock()
 	n := len(s.queries)
 	s.queries = append(s.queries, q)
@@ -584,10 +613,11 @@ func (s *logServer) serve(key string, q url.Values) (string, *refusal) {
 	}
 	s.mu.Lock()
 	lines := append([]string(nil), s.logs[key]...)
+	held := len(lines)
 	refused, isRefused := s.refuse[key]
 	s.mu.Unlock()
 	if isRefused {
-		return "", &refused
+		return "", 0, &refused
 	}
 	if since := q.Get("sinceTime"); since != "" {
 		at, _ := time.Parse(time.RFC3339, since)
@@ -612,7 +642,7 @@ func (s *logServer) serve(key string, q url.Values) (string, *refusal) {
 		n, _ := strconv.Atoi(limit)
 		text = text[:min(n, len(text))]
 	}
-	return text, nil
+	return text, held, nil
 }
 
 // claimOn is a claim on a cluster whose API server serves s.
