@@ -1057,10 +1057,17 @@ func TestTheKeychainIsDenied(t *testing.T) {
 	require.NoError(t, security("add-generic-password", "-a", "kstack", "-s", service, "-w", "secret", keychain))
 	require.NoError(t, security("find-generic-password", "-s", service, keychain), "found outside")
 
-	// A negative assertion: a lookup that reached the Keychain would answer at once.
-	out, ok, late := shWithin(t, s, m.on(s), time.Second, `security find-generic-password -s "$S" "$K"`, "S="+service, "K="+keychain)
+	// A negative assertion bounded at a minute: a lookup that reached the
+	// Keychain would answer at once, and the Mach denial is immediate too, but
+	// security is a real process and its refusal on a loaded Intel runner has
+	// taken over fifteen seconds.
+	start := time.Now()
+	out, ok, late := shWithin(t, s, m.on(s), time.Minute, `security find-generic-password -s "$S" "$K"`, "S="+service, "K="+keychain)
+	if late {
+		logDenials(t, start)
+	}
 
-	assert.False(t, late, "the lookup did not fail within a second")
+	assert.False(t, late, "the lookup did not end within a minute")
 	assert.False(t, ok, out)
 }
 
