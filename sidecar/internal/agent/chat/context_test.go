@@ -29,7 +29,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
-	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
@@ -329,10 +328,8 @@ func TestRoomForReportsAStoreItCannotRead(t *testing.T) {
 
 	// The first read answers, the second cannot: it is swapped for a read of the
 	// wrong shape, so only the count fails.
-	saved := statements[stmtSelectLastContextUse]
-	statements[stmtSelectLastContextUse] = sqlstmt.OnBoth(`SELECT 'text', 0, 0, 0`)
-	t.Cleanup(func() { statements[stmtSelectLastContextUse] = saved })
-	open := newTestSet(t).Stmts()
+	table := swapped(map[stmtID]string{stmtSelectLastContextUse: `SELECT 'text', 0, 0, 0`})
+	open := prepareTable(t, openTestDB(t, t.TempDir()), table).Stmts()
 
 	assert.ErrorContains(t, roomFor(t.Context(), open, "c", target, s.boxFor(target)), "last context use")
 }

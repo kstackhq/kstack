@@ -94,10 +94,27 @@ func newTestSet(t *testing.T) *sqlstmt.Set[stmtID] {
 // prepareOn is the statement set over db, for a test that also reads db directly.
 func prepareOn(t *testing.T, db *appdb.DB) *sqlstmt.Set[stmtID] {
 	t.Helper()
-	s, err := sqlstmt.Prepare[stmtID](t.Context(), db.Write, db.Read, statements)
+	return prepareTable(t, db, statements)
+}
+
+// prepareTable is prepareOn over a table of the test's own, from swapped.
+func prepareTable(t *testing.T, db *appdb.DB, table []sqlstmt.Statement) *sqlstmt.Set[stmtID] {
+	t.Helper()
+	s, err := sqlstmt.Prepare[stmtID](t.Context(), db.Write, db.Read, table)
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = s.Close() })
 	return s
+}
+
+// swapped is a copy of statements with each id in swaps given that text, on the
+// pool the original names. A test that swaps a statement prepares its own copy:
+// the package's table is read by every test running beside it.
+func swapped(swaps map[stmtID]string) []sqlstmt.Statement {
+	table := slices.Clone(statements)
+	for id, text := range swaps {
+		table[id].Text = text
+	}
+	return table
 }
 
 // The rows a send writes, seeded by hand, for the tests of what reads and removes
@@ -193,6 +210,20 @@ func startServiceWith(t *testing.T, dir string, llmSvc *llm.Service, clusterCard
 	t.Helper()
 	s, err := newService(openTestDB(t, dir), chatsDirIn(dir), monitorDirIn(dir), llmSvc, clusterCards, nil, box, lists, sandbox.Status{}, testSettings(t))
 	require.NoError(t, err)
+	startPrepared(t, s)
+	return s
+}
+
+// startServiceOn is a started service over a fresh data dir whose statements are
+// prepared from table.
+func startServiceOn(t *testing.T, table []sqlstmt.Statement) *service {
+	t.Helper()
+	dir := t.TempDir()
+	db := openTestDB(t, dir)
+	s, err := newService(db, chatsDirIn(dir), monitorDirIn(dir), fakeLLM(), &stubClusterCards{}, nil, testReaders, noLists, sandbox.Status{}, testSettings(t))
+	require.NoError(t, err)
+	require.NoError(t, s.store.Close())
+	s.store = prepareTable(t, db, table)
 	startPrepared(t, s)
 	return s
 }

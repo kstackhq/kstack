@@ -31,7 +31,6 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/agent/loop"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
@@ -1396,12 +1395,11 @@ func TestASendWhoseStoreFailsWritesNothingAndLeavesTheChatFree(t *testing.T) {
 		{name: "the answer insert", trigger: `CREATE TRIGGER refuse BEFORE INSERT ON messages WHEN NEW.role = 'assistant' BEGIN SELECT RAISE(ABORT, 'refused'); END`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			table := statements
 			if tc.swap != "" {
-				saved := statements[tc.id]
-				statements[tc.id] = sqlstmt.Statement{Text: tc.swap, On: saved.On}
-				t.Cleanup(func() { statements[tc.id] = saved })
+				table = swapped(map[stmtID]string{tc.id: tc.swap})
 			}
-			s := newTestService(t)
+			s := startServiceOn(t, table)
 			c := seedChat(t, s.db, aChat("1", time.UnixMilli(1_000).UTC()))
 			if tc.trigger != "" {
 				_, err := s.db.Write.Exec(tc.trigger)

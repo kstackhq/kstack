@@ -29,7 +29,6 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/rawjson"
-	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -97,12 +96,11 @@ func TestEveryRowHelperNamesItsFailure(t *testing.T) {
 // columns, which no scanner here takes — the one-column reads included.
 func TestAReadWithTheWrongShapeIsReported(t *testing.T) {
 	ctx := t.Context()
+	swaps := map[stmtID]string{}
 	for _, id := range multiRowReads {
-		saved := statements[id]
-		statements[id] = sqlstmt.Statement{Text: `SELECT 1, 2`, On: saved.On}
-		t.Cleanup(func() { statements[id] = saved })
+		swaps[id] = `SELECT 1, 2`
 	}
-	st := newTestSet(t).Stmts()
+	st := prepareTable(t, openTestDB(t, t.TempDir()), swapped(swaps)).Stmts()
 
 	_, err := listChats(ctx, st)
 	assert.ErrorContains(t, err, "list chats")
@@ -128,17 +126,13 @@ var multiRowReads = []stmtID{
 func TestAReadThatFailsPartwayIsReported(t *testing.T) {
 	ctx := t.Context()
 	const overflow = `abs(-9223372036854775808) IS NOT NULL`
+	swaps := map[stmtID]string{}
 	for _, id := range multiRowReads {
-		saved := statements[id]
-		text := `WITH q AS (` + saved.Text + `) SELECT * FROM q UNION ALL SELECT * FROM q WHERE ` + overflow
-		if id == stmtFailStrandedRuns {
-			text = `SELECT chat_id FROM agent_runs UNION ALL SELECT '' WHERE ` + overflow
-		}
-		statements[id] = sqlstmt.Statement{Text: text, On: saved.On}
-		t.Cleanup(func() { statements[id] = saved })
+		swaps[id] = `WITH q AS (` + statements[id].Text + `) SELECT * FROM q UNION ALL SELECT * FROM q WHERE ` + overflow
 	}
+	swaps[stmtFailStrandedRuns] = `SELECT chat_id FROM agent_runs UNION ALL SELECT '' WHERE ` + overflow
 	db := openTestDB(t, t.TempDir())
-	st := prepareOn(t, db).Stmts()
+	st := prepareTable(t, db, swapped(swaps)).Stmts()
 	c := seedChat(t, db, aChat("1", time.UnixMilli(1_000).UTC()))
 	seedTurn(t, db, c.ID, time.UnixMilli(1_000).UTC())
 
