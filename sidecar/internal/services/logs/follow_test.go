@@ -150,17 +150,17 @@ func TestAFollowTracksTheDeploymentsPods(t *testing.T) {
 	svc, _ := serviceOver(t, f, s)
 	stream, _ := openFollow(t, svc, f)
 
-	s.follow("prod/web-1/app") <- stamped(time.Hour+time.Second, "from web-1")
+	s.add("prod/web-1/app", stamped(time.Hour+time.Second, "from web-1"))
 	assert.Equal(t, "from web-1", recvLine(t, stream, "web-1's line").Message)
 
 	f.store.Apply(t, web3())
 	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
-	s.follow("prod/web-3/app") <- stamped(time.Hour+2*time.Second, "from web-3")
+	s.add("prod/web-3/app", stamped(time.Hour+2*time.Second, "from web-3"))
 	assert.Equal(t, "from web-3", recvLine(t, stream, "web-3's line").Message)
 
 	f.store.Delete(t, web1())
 	f.pods <- podFrame(cluster.DeltaFrameDeleted, "web-1")
-	s.follow("prod/web-2/app") <- stamped(time.Hour+3*time.Second, "from web-2")
+	s.add("prod/web-2/app", stamped(time.Hour+3*time.Second, "from web-2"))
 	assert.Equal(t, "from web-2", recvLine(t, stream, "web-2's line").Message)
 
 	var sinces []string
@@ -181,7 +181,7 @@ func TestAFollowOpensAtItsStart(t *testing.T) {
 	svc, _ := serviceOver(t, f, s)
 	stream, _ := openFollow(t, svc, f)
 
-	s.follow("prod/web-1/app") <- stamped(time.Hour, "new")
+	s.add("prod/web-1/app", stamped(time.Hour, "new"))
 
 	assert.Equal(t, "new", recvLine(t, stream, "the new line").Message)
 	assert.Equal(t, "2026-10-08T11:00:00Z", s.requests()[0].Get("sinceTime"))
@@ -278,11 +278,11 @@ func TestAForbiddenStreamEndsItselfAlone(t *testing.T) {
 	svc, _ := serviceOver(t, f, s)
 	stream, _ := openFollow(t, svc, f)
 
-	s.follow("prod/web-1/app") <- stamped(time.Hour+time.Second, "from web-1")
+	s.add("prod/web-1/app", stamped(time.Hour+time.Second, "from web-1"))
 	assert.Equal(t, "from web-1", recvLine(t, stream, "web-1's line").Message)
 
 	s.setRefusal("prod/web-1/app", &refusal{http.StatusForbidden, "forbidden"})
-	close(s.follow("prod/web-1/app"))
+	s.end("prod/web-1/app")
 	assert.Equal(t, "the cluster refused to show this log: forbidden", endedWith(t, stream))
 }
 
@@ -312,8 +312,8 @@ func TestAFollowEndsWhenEveryStreamIsGone(t *testing.T) {
 
 	f.store.Apply(t, finished(web1()))
 	f.store.Apply(t, finished(web2()))
-	close(s.follow("prod/web-1/app"))
-	close(s.follow("prod/web-2/app"))
+	s.end("prod/web-1/app")
+	s.end("prod/web-2/app")
 
 	assert.Equal(t, errStopped.Reason, endedWith(t, stream))
 }
@@ -328,8 +328,8 @@ func TestAFollowDeliversWhatItHeldBeforeItEnds(t *testing.T) {
 	f := newMirror(t, append(webObjects(), finished(web1()), finished(web2()))...)
 	svc, _ := serviceOver(t, f, s)
 	svc.handoff = time.Hour
-	close(s.follow("prod/web-1/app"))
-	close(s.follow("prod/web-2/app"))
+	s.end("prod/web-1/app")
+	s.end("prod/web-2/app")
 
 	stream, err := svc.Follow(t.Context(), "7", webView, cursor(-time.Second))
 	require.NoError(t, err)
@@ -353,7 +353,7 @@ func TestAFollowReconcilesTheSnapshot(t *testing.T) {
 	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
 	f.pods <- bookmark
 
-	s.follow("prod/web-3/app") <- stamped(time.Hour+time.Second, "from web-3")
+	s.add("prod/web-3/app", stamped(time.Hour+time.Second, "from web-3"))
 	assert.Equal(t, "from web-3", recvLine(t, stream, "web-3's line").Message)
 }
 
@@ -372,7 +372,7 @@ func TestAFollowWaitsWhenItsLastPodsLeave(t *testing.T) {
 
 	f.store.Apply(t, web3())
 	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
-	s.follow("prod/web-3/app") <- stamped(time.Hour+time.Second, "from web-3")
+	s.add("prod/web-3/app", stamped(time.Hour+time.Second, "from web-3"))
 	assert.Equal(t, "from web-3", recvLine(t, stream, "web-3's line").Message)
 }
 
@@ -389,7 +389,7 @@ func TestAFollowOfAnEmptyViewWaitsForItsPods(t *testing.T) {
 	f.store.Apply(t, workload("batch/v1", "Job", "batch", "uid-batch", nil))
 	f.store.Apply(t, pod("batch-1", "uid-batch-1", "", controller("batch/v1", "Job", "batch", "uid-batch"), container{name: "main"}))
 	f.pods <- podFrame(cluster.DeltaFrameAdded, "batch-1")
-	s.follow("prod/batch-1/main") <- stamped(time.Hour+time.Second, "started")
+	s.add("prod/batch-1/main", stamped(time.Hour+time.Second, "started"))
 
 	assert.Equal(t, "started", recvLine(t, stream, "batch-1's line").Message)
 	assert.Equal(t, "2026-10-08T11:00:00Z", s.requests()[0].Get("sinceTime"))
@@ -403,10 +403,10 @@ func TestAFollowReopensAStreamClosedOnARunningContainer(t *testing.T) {
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	stream, _ := openFollow(t, svc, f)
-	s.follow("prod/web-1/app") <- stamped(time.Hour+time.Second, "before")
+	s.add("prod/web-1/app", stamped(time.Hour+time.Second, "before"))
 	recvLine(t, stream, "web-1's line")
 
-	close(s.follow("prod/web-1/app"))
+	s.end("prod/web-1/app")
 
 	awaitReadAgain(t, s, "prod/web-1/app", "2026-10-08T11:00:01Z")
 }
@@ -476,11 +476,11 @@ func TestADeletedPodLeavesItsViewsOtherSources(t *testing.T) {
 	f.store.Apply(t, pod("solo", "uid-b", "node-a", nil, container{name: "app"}))
 	f.pods <- uidFrame(cluster.DeltaFrameDeleted, "solo", "uid-a")
 	// The API server ends a deleted pod's stream.
-	close(s.follow("prod/solo/app"))
+	s.end("prod/solo/app")
 	f.store.Apply(t, web3())
 	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
 
-	s.follow("prod/web-3/app") <- stamped(time.Hour+time.Second, "from web-3")
+	s.add("prod/web-3/app", stamped(time.Hour+time.Second, "from web-3"))
 	assert.Equal(t, "from web-3", recvLine(t, stream, "web-3's line").Message)
 	// A negative assertion, so a bounded window: a reopen would follow the stream's
 	// end after one retry, and a hundred retries is far past a local request's round trip.
@@ -500,7 +500,7 @@ func TestADeletedPodLeavesItsWorkloadReadingItsReplacement(t *testing.T) {
 		{Namespace: "prod", Kind: SourceStatefulSet, Name: "db"},
 		{Namespace: "prod", Kind: SourcePod, Name: "db-0"},
 	}})
-	s.follow("prod/db-0/app") <- stamped(time.Hour+time.Second, "from db-0")
+	s.add("prod/db-0/app", stamped(time.Hour+time.Second, "from db-0"))
 	recvLine(t, stream, "db-0's line")
 
 	// On another node, so the follow ends the first pod's stream and opens the
@@ -592,7 +592,7 @@ func TestAFollowOfAPodOutlastsAResync(t *testing.T) {
 
 	f.pods <- uidFrame(cluster.DeltaFrameDeleted, "web-1", "uid-web-1")
 	f.pods <- uidFrame(cluster.DeltaFrameAdded, "web-1", "uid-web-1")
-	s.follow("prod/web-1/app") <- stamped(time.Hour+time.Second, "still here")
+	s.add("prod/web-1/app", stamped(time.Hour+time.Second, "still here"))
 
 	assert.Equal(t, "still here", recvLine(t, stream, "web-1's line").Message)
 }
@@ -614,7 +614,7 @@ func TestAFollowWaitsForAWaitingContainer(t *testing.T) {
 	s.setRefusal("prod/crash/app", nil)
 	f.store.Apply(t, pod("crash", "uid-crash", "node-a", nil, container{name: "app", restarted: true}))
 	f.pods <- podFrame(cluster.DeltaFrameModified, "crash")
-	s.follow("prod/crash/app") <- stamped(time.Hour+time.Second, "started")
+	s.add("prod/crash/app", stamped(time.Hour+time.Second, "started"))
 
 	assert.Equal(t, "started", recvLine(t, stream, "crash's line").Message)
 }
@@ -628,7 +628,7 @@ func TestAFinishedInitContainerLeavesItsPodFollowed(t *testing.T) {
 	f := newMirror(t, append(webObjects(), withInit(waiting(boot()), "init"))...)
 	svc, _ := serviceOver(t, f, s)
 	stream, _ := openFollowOf(t, svc, f, View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "boot", AllContainers: true}}})
-	close(s.follow("prod/boot/init"))
+	s.end("prod/boot/init")
 	awaitClosed(t, s, "prod/boot/init")
 	// A negative assertion, so a bounded window: the follow would end on the init
 	// container's end at once, and a hundred retries is far past it.
@@ -636,7 +636,7 @@ func TestAFinishedInitContainerLeavesItsPodFollowed(t *testing.T) {
 
 	f.store.Apply(t, withInit(boot(), "init"))
 	f.pods <- podFrame(cluster.DeltaFrameModified, "boot")
-	s.follow("prod/boot/app") <- stamped(time.Hour+time.Second, "started")
+	s.add("prod/boot/app", stamped(time.Hour+time.Second, "started"))
 
 	assert.Equal(t, "started", recvLine(t, stream, "app's line").Message)
 }
@@ -663,7 +663,7 @@ func TestAResolveReadsOneStateOfTheMirror(t *testing.T) {
 		}
 	})
 
-	close(s.follow("prod/boot/init"))
+	s.end("prod/boot/init")
 	// Once the resolve the init container's end starts has read the mirror, the
 	// follow either ends or waits on its watches.
 	read.Await(t, "the resolve after init's end")
@@ -672,7 +672,7 @@ func TestAResolveReadsOneStateOfTheMirror(t *testing.T) {
 	case frame := <-stream.Frames:
 		t.Fatalf("the follow sent %s %q while its pod was starting", frame.Type, frame.Reason)
 	}
-	s.follow("prod/boot/app") <- stamped(time.Hour+time.Second, "started")
+	s.add("prod/boot/app", stamped(time.Hour+time.Second, "started"))
 
 	assert.Equal(t, "started", recvLine(t, stream, "app's line").Message)
 }
@@ -716,7 +716,7 @@ func TestAFollowOutlastsACacheClear(t *testing.T) {
 			close(ended)
 			pods <- bookmark
 
-			s.follow("prod/web-3/app") <- stamped(time.Hour+time.Second, "from web-3")
+			s.add("prod/web-3/app", stamped(time.Hour+time.Second, "from web-3"))
 			assert.Equal(t, "from web-3", recvLine(t, stream, "web-3's line").Message)
 		})
 	}
@@ -760,7 +760,7 @@ func TestAFollowWatchesTheWorkloadsBetweenASourceAndItsPods(t *testing.T) {
 		APIVersion: "apps/v1", Kind: "ReplicaSet", Namespace: "prod", Name: "web-7d9f",
 	}}
 
-	s.follow("prod/web-1/app") <- stamped(time.Hour+time.Second, "from web-1")
+	s.add("prod/web-1/app", stamped(time.Hour+time.Second, "from web-1"))
 	assert.Equal(t, "from web-1", recvLine(t, stream, "web-1's line").Message)
 }
 
@@ -800,7 +800,7 @@ func TestAFollowOnAMirrorThatChangesUnderIt(t *testing.T) {
 	f.store.Delete(t, nodes[1])
 	f.store.Delete(t, nodes[0])
 	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
-	s.follow("prod/web-1/app") <- stamped(time.Hour, "still here")
+	s.add("prod/web-1/app", stamped(time.Hour, "still here"))
 	assert.Equal(t, "still here", recvLine(t, stream, "web-1's line").Message)
 
 	f = webMirror(t)
@@ -835,7 +835,7 @@ func TestAFrameWithNoObjectIsIgnored(t *testing.T) {
 	f.store.Apply(t, web3())
 	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
 
-	s.follow("prod/web-3/app") <- stamped(time.Hour+time.Second, "from web-3")
+	s.add("prod/web-3/app", stamped(time.Hour+time.Second, "from web-3"))
 	assert.Equal(t, "from web-3", recvLine(t, stream, "web-3's line").Message)
 }
 
@@ -861,7 +861,7 @@ func TestAFollowReopensARestartedContainer(t *testing.T) {
 			f := webMirror(t)
 			svc, _ := serviceOver(t, f, s)
 			stream, _ := openFollow(t, svc, f)
-			s.follow("prod/web-1/app") <- stamped(time.Hour+time.Second, "before")
+			s.add("prod/web-1/app", stamped(time.Hour+time.Second, "before"))
 			recvLine(t, stream, "web-1's line")
 
 			restarted := func() {
@@ -873,9 +873,9 @@ func TestAFollowReopensARestartedContainer(t *testing.T) {
 				f.set(func() { f.healthRead = read })
 				restarted()
 				read.Await(t, "the follow to resolve the view again")
-				close(s.follow("prod/web-1/app"))
+				s.end("prod/web-1/app")
 			} else {
-				close(s.follow("prod/web-1/app"))
+				s.end("prod/web-1/app")
 				awaitClosed(t, s, "prod/web-1/app")
 				restarted()
 			}
@@ -900,11 +900,11 @@ func TestAFinishedContainerIsNotReadAgain(t *testing.T) {
 	svc, _ := serviceOver(t, f, s)
 	stream, _ := openFollow(t, svc, f)
 	web1Opens.Await(t, "web-1's first follow")
-	close(s.follow("prod/web-1/app"))
+	s.end("prod/web-1/app")
 	awaitClosed(t, s, "prod/web-1/app")
 
 	f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
-	s.follow("prod/web-2/app") <- stamped(time.Hour+time.Second, "from web-2")
+	s.add("prod/web-2/app", stamped(time.Hour+time.Second, "from web-2"))
 
 	assert.Equal(t, "from web-2", recvLine(t, stream, "web-2's line").Message)
 	// A negative assertion, so a bounded window: a reopen would follow the pod frame's
@@ -921,7 +921,7 @@ func TestAFollowKeepsItsPlaceWhenANodesLabelsMove(t *testing.T) {
 	svc, _ := serviceOver(t, f, s)
 	stream, _ := openFollow(t, svc, f)
 	closeSnapshot(t, f, f.nodes)
-	s.follow("prod/web-1/app") <- stamped(time.Hour+time.Second, "before")
+	s.add("prod/web-1/app", stamped(time.Hour+time.Second, "before"))
 	recvLine(t, stream, "web-1's line")
 
 	moved := node("node-a", "eu", "eu-1c", "linux", "amd64")
@@ -929,7 +929,7 @@ func TestAFollowKeepsItsPlaceWhenANodesLabelsMove(t *testing.T) {
 	f.nodes <- nodeFrame(cluster.DeltaFrameModified, moved)
 
 	awaitReadAgain(t, s, "prod/web-1/app", "2026-10-08T11:00:01Z")
-	s.follow("prod/web-1/app") <- stamped(time.Hour+2*time.Second, "after")
+	s.add("prod/web-1/app", stamped(time.Hour+2*time.Second, "after"))
 	assert.Equal(t, "eu-1c", recvLine(t, stream, "web-1's next line").Place.Zone)
 }
 
@@ -947,7 +947,7 @@ func TestAFollowTracksItsNodesLabels(t *testing.T) {
 		f.nodes <- nodeFrame(cluster.DeltaFrameAdded, n)
 	}
 	closeSnapshot(t, f, f.nodes)
-	s.follow("prod/web-1/app") <- stamped(time.Hour+time.Second, "from web-1")
+	s.add("prod/web-1/app", stamped(time.Hour+time.Second, "from web-1"))
 	recvLine(t, stream, "web-1's line")
 
 	a, b := node("node-a", "eu", "eu-1c", "linux", "amd64"), node("node-b", "eu", "eu-1a", "linux", "arm64")
@@ -957,7 +957,7 @@ func TestAFollowTracksItsNodesLabels(t *testing.T) {
 	f.nodes <- nodeFrame(cluster.DeltaFrameModified, b)
 
 	awaitClosed(t, s, "prod/web-1/app")
-	s.follow("prod/web-2/app") <- stamped(time.Hour+2*time.Second, "from web-2")
+	s.add("prod/web-2/app", stamped(time.Hour+2*time.Second, "from web-2"))
 	rec := recvLine(t, stream, "web-2's line")
 	assert.Equal(t, "from web-2", rec.Message)
 	assert.Equal(t, "eu-1a", rec.Place.Zone)
@@ -1049,7 +1049,7 @@ func TestAFollowAsksASyncingMirrorAgain(t *testing.T) {
 	read.Await(t, "the follow to read the syncing cache")
 	f.set(func() { f.health = cluster.ClusterCacheHealth{Reason: "Watching"} })
 
-	s.follow("prod/web-3/app") <- stamped(time.Hour+time.Second, "from web-3")
+	s.add("prod/web-3/app", stamped(time.Hour+time.Second, "from web-3"))
 	assert.Equal(t, "from web-3", recvLine(t, stream, "web-3's line").Message)
 }
 
@@ -1061,7 +1061,7 @@ func TestAFollowReopensAPodThatCameBack(t *testing.T) {
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	stream, _ := openFollow(t, svc, f)
-	s.follow("prod/web-1/app") <- stamped(time.Hour+time.Second, "before")
+	s.add("prod/web-1/app", stamped(time.Hour+time.Second, "before"))
 	recvLine(t, stream, "web-1's first line")
 
 	f.store.Delete(t, web1())
@@ -1106,7 +1106,7 @@ func TestAFollowReopensADroppedStream(t *testing.T) {
 
 	s.setRefusal("prod/web-1/app", nil)
 	require.Eventually(t, func() bool { return s.followsOpened("prod/web-1/app") == 1 }, testutil.Timeout, time.Millisecond, "web-1 open")
-	s.follow("prod/web-1/app") <- stamped(time.Hour+time.Second, "back")
+	s.add("prod/web-1/app", stamped(time.Hour+time.Second, "back"))
 
 	assert.Equal(t, "back", recvLine(t, stream, "web-1's line").Message)
 }
@@ -1228,7 +1228,7 @@ func TestAFollowResolvesOnceThePodFramesSettle(t *testing.T) {
 
 	f.store.Apply(t, web3())
 	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
-	s.follow("prod/web-3/app") <- stamped(time.Hour+time.Second, "from web-3")
+	s.add("prod/web-3/app", stamped(time.Hour+time.Second, "from web-3"))
 
 	assert.Equal(t, "from web-3", recvLine(t, stream, "web-3's line").Message)
 }
