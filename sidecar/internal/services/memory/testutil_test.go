@@ -16,7 +16,6 @@ package memory
 
 import (
 	"context"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
@@ -24,6 +23,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 )
 
@@ -65,9 +65,7 @@ type harness struct {
 // clusters seeded.
 func newHarness(t *testing.T) *harness {
 	t.Helper()
-	db, err := appdb.Open(filepath.Join(t.TempDir(), "app.db"), 0)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db := appdbtest.Open(t)
 	for _, id := range []apimeta.ClusterID{clusterA, clusterB} {
 		exec(t, db, `INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES (?, 'kubeconfig', ?, 0, 0)`, string(id), "ctx-"+string(id))
 	}

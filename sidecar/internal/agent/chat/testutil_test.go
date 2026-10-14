@@ -33,6 +33,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/rawjson"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
@@ -51,9 +52,7 @@ import (
 // the file can name it — and finds the rows it seeded.
 func openTestDB(t *testing.T, dir string) *appdb.DB {
 	t.Helper()
-	db, err := appdb.Open(filepath.Join(dir, "app.db"), 0)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db := appdbtest.OpenIn(t, dir)
 	seedClusters(t, db, testClusterIDs...)
 	return db
 }

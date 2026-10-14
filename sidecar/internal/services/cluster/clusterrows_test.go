@@ -16,7 +16,6 @@ package cluster
 
 import (
 	"context"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -24,16 +23,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
 )
 
 // openTestDB is an app.db of this test's own, with no janitor.
 func openTestDB(t *testing.T) *appdb.DB {
 	t.Helper()
-	db, err := appdb.Open(filepath.Join(t.TempDir(), "app.db"), 0)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	return db
+	return appdbtest.Open(t)
 }
 
 // openTestStore prepares the cluster statements over a fresh app.db.

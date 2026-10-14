@@ -29,6 +29,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/appdb/appdbtest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
@@ -1619,10 +1620,8 @@ func newChatServerWith(t *testing.T, status sandbox.Status) (*httptest.Server, *
 // newChatServerOn is newChatServerWith over the settings store svc.
 func newChatServerOn(t *testing.T, status sandbox.Status, svc *settings.Service) (*httptest.Server, *appdb.DB, *llm.Fake) {
 	t.Helper()
-	db, err := appdb.Open(filepath.Join(t.TempDir(), "app.db"), 0)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	_, err = db.Write.Exec(`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES ('1', 'kubeconfig', 'ctx', 0, 0)`)
+	db := appdbtest.Open(t)
+	_, err := db.Write.Exec(`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES ('1', 'kubeconfig', 'ctx', 0, 0)`)
 	require.NoError(t, err)
 	fake := llm.NewFake(0)
 	cat := catalog.New(catalog.Config{Fake: fake})
@@ -2439,11 +2438,9 @@ func newMemoryServer(t *testing.T) *httptest.Server {
 // fails the store by closing it, and the service's stop.
 func newMemoryServerOver(t *testing.T) (*httptest.Server, *appdb.DB, func(context.Context) error) {
 	t.Helper()
-	db, err := appdb.Open(filepath.Join(t.TempDir(), "app.db"), 0)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	db := appdbtest.Open(t)
 	for _, id := range []string{"1", "2"} {
-		_, err = db.Write.Exec(`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES (?, 'kubeconfig', ?, 0, 0)`, id, "ctx-"+id)
+		_, err := db.Write.Exec(`INSERT INTO clusters (id, source, source_key, created_at, updated_at) VALUES (?, 'kubeconfig', ?, 0, 0)`, id, "ctx-"+id)
 		require.NoError(t, err)
 	}
 	memorySvc, err := memory.New(db, noUIDs{})
