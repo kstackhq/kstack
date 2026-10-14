@@ -290,8 +290,12 @@ jobs:
         with:
           setup-go: "true"
           setup-sandbox: "true"
+      # Built as scripts/build-sidecar.go ships it, so one run tests the
+      # pure-Go os/user and net resolver the release uses.
       - name: Check coverage against the threshold
         working-directory: ./sidecar
+        env:
+          CGO_ENABLED: "0"
         run: go run scripts/coverage.go -report
 
   # Builds Kstack's own bwrap and pasta, loads their AppArmor profiles through

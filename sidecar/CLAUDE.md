@@ -3907,6 +3907,9 @@ the generated files, and fails below `scripts/coverage-threshold`. `make cover-g
 ARGS=-report` lists every file with a gap. The gate is one number in one file: **raise it
 when a change lifts coverage, and never lower it without saying why in the commit body.**
 
+CI runs it with `CGO_ENABLED=0`, as the release is built, so the pure-Go `os/user` and net
+resolver the sidecar ships are tested somewhere: every other CI run has cgo, which `-race` needs.
+
 It measures what the platform builds, so run it on one OS — a `_windows.go` file is not
 compiled on Linux and never enters the denominator. What stays uncovered is deliberate:
 `main()` itself, the `serve returned` arm main can't provoke from a test, `testutil`'s
