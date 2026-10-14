@@ -110,7 +110,7 @@ func chatReplay(t *testing.T, events []event) (Provider, *recorded) {
 func askChat(t *testing.T, req Request) (string, Response, error) {
 	t.Helper()
 	var text strings.Builder
-	resp, err := streamChatCompletions(t.Context(), req, testutil.Timeout, func(c Chunk) { text.WriteString(c.Text) })
+	resp, err := streamChatCompletions(t.Context(), req, testutil.Timeout, wallClock, func(c Chunk) { text.WriteString(c.Text) })
 	return text.String(), resp, err
 }
 
@@ -315,7 +315,7 @@ func TestChatCompletionsReadsEitherSpellingOfTheThinking(t *testing.T) {
 	})
 	var chunks []Chunk
 
-	resp, err := streamChatCompletions(t.Context(), chatRequest(p), testutil.Timeout, func(c Chunk) { chunks = append(chunks, c) })
+	resp, err := streamChatCompletions(t.Context(), chatRequest(p), testutil.Timeout, wallClock, func(c Chunk) { chunks = append(chunks, c) })
 
 	require.NoError(t, err)
 	assert.Equal(t, []Chunk{
@@ -364,7 +364,7 @@ func TestChatCompletionsReadsARefusalAsTheAnswer(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		var text strings.Builder
 
-		_, err := streamChatCompletions(ctx, chatRequest(p), testutil.Timeout, func(c Chunk) {
+		_, err := streamChatCompletions(ctx, chatRequest(p), testutil.Timeout, wallClock, func(c Chunk) {
 			text.WriteString(c.Text)
 			cancel()
 		})
@@ -442,28 +442,31 @@ func TestChatCompletionsKeepsAMalformedReplyOutOfTheRecordAndTheLog(t *testing.T
 // The bound measures the wire: a stream that thinks in silence trips it, one that
 // only sends bytes does not.
 func TestChatCompletionsIdleBound(t *testing.T) {
-	const bound = 500 * time.Millisecond
+	const bound = time.Minute
 
 	t.Run("a stream that only sends bytes", func(t *testing.T) {
-		p := groqAt(newServer(t, func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/event-stream")
-			sse(w, chatStream[0])
-			// Latency injected into the code under test: comments at a fraction of
-			// the bound, for longer than it, so the wire is busy while the loop
-			// sees no chunk.
-			for range 15 {
-				time.Sleep(bound / 10)
+		beats := make(chan struct{})
+		p := groqAt(newServer(t, serveBeats(beats,
+			func(w http.ResponseWriter) { sse(w, chatStream[0]) },
+			func(w http.ResponseWriter) {
 				fmt.Fprint(w, ": keep reading\n\n")
 				w.(http.Flusher).Flush()
-			}
-			for _, e := range chatStream[2:] {
-				sse(w, e)
-			}
-		}))
+			},
+			func(w http.ResponseWriter) {
+				for _, e := range chatStream[2:] {
+					sse(w, e)
+				}
+			},
+		)))
+		timer := newFakeTimer()
 
-		_, err := streamChatCompletions(t.Context(), chatRequest(p), bound, func(Chunk) {})
+		done := goStream(func() (Response, error) {
+			return streamChatCompletions(t.Context(), chatRequest(p), bound, timer.clock, func(Chunk) {})
+		})
+		beat(t, timer, beats)
+		got := testutil.Recv(t, done, "the stream's end")
 
-		require.NoError(t, err)
+		require.NoError(t, got.err)
 	})
 
 	t.Run("a stream that goes silent", func(t *testing.T) {
@@ -472,11 +475,17 @@ func TestChatCompletionsIdleBound(t *testing.T) {
 			sse(w, chatStream[0])
 			<-r.Context().Done()
 		}))
+		timer := newFakeTimer()
 
-		_, err := streamChatCompletions(t.Context(), chatRequest(p), bound, func(Chunk) {})
+		done := goStream(func() (Response, error) {
+			return streamChatCompletions(t.Context(), chatRequest(p), bound, timer.clock, func(Chunk) {})
+		})
+		timer.awaitReset(t)
+		timer.trip()
+		got := testutil.Recv(t, done, "the stream's end")
 
-		assert.ErrorIs(t, err, ErrStreamIdle)
-		assert.NotErrorIs(t, err, context.Canceled)
+		assert.ErrorIs(t, got.err, ErrStreamIdle)
+		assert.NotErrorIs(t, got.err, context.Canceled)
 	})
 }
 
@@ -491,7 +500,7 @@ func TestChatCompletionsEndsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	var text strings.Builder
 
-	_, err := streamChatCompletions(ctx, chatRequest(p), testutil.Timeout, func(c Chunk) {
+	_, err := streamChatCompletions(ctx, chatRequest(p), testutil.Timeout, wallClock, func(c Chunk) {
 		text.WriteString(c.Text)
 		cancel()
 	})

@@ -26,7 +26,9 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/stretchr/testify/require"
 )
 
@@ -101,4 +103,96 @@ func newRawServer(t *testing.T, line string) string {
 var openAIEnv = []string{
 	"OPENAI_BASE_URL", "OPENAI_API_KEY", "OPENAI_ADMIN_KEY", "OPENAI_ORG_ID",
 	"OPENAI_PROJECT_ID", "OPENAI_WEBHOOK_SECRET", "OPENAI_CUSTOM_HEADERS",
+}
+
+// fakeTimer is the idle guard's timer under a test's hand: it fires only when
+// the test says so, and reports every reset, so a test can wait for a read to
+// reach the guard before it goes on.
+type fakeTimer struct {
+	mu     sync.Mutex
+	fire   func()
+	resets *testutil.Probe[struct{}]
+}
+
+func newFakeTimer() *fakeTimer {
+	return &fakeTimer{resets: testutil.NewProbe[struct{}](1)}
+}
+
+// clock is the idleClock a wire is handed.
+func (f *fakeTimer) clock(_ time.Duration, fire func()) idleTimer {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fire = fire
+	return f
+}
+
+func (f *fakeTimer) Reset(time.Duration) bool {
+	f.resets.Fire(struct{}{})
+	return true
+}
+
+func (f *fakeTimer) Stop() bool { return true }
+
+// trip fires the guard, as the bound passing would.
+func (f *fakeTimer) trip() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fire()
+}
+
+// awaitReset waits for the next reset: a read that reached the guard.
+func (f *fakeTimer) awaitReset(t *testing.T) {
+	t.Helper()
+	f.resets.Await(t, "the idle guard's reset")
+}
+
+// beat asks the server for one beat after another, each seen to reset the guard
+// before the next is asked for, then ends the stream. There are more beats than
+// the stream's opening reads, so those cannot stand in for them.
+func beat(t *testing.T, timer *fakeTimer, beats chan<- struct{}) {
+	t.Helper()
+	for range 15 {
+		timer.resets.Drain()
+		beats <- struct{}{}
+		timer.awaitReset(t)
+	}
+	close(beats)
+}
+
+// serveBeats answers with head, then calls beat each time the test sends on
+// beats, then tail once the test closes it.
+func serveBeats(beats <-chan struct{}, head, beat, tail func(http.ResponseWriter)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		head(w)
+		for {
+			select {
+			case _, ok := <-beats:
+				if !ok {
+					tail(w)
+					return
+				}
+				beat(w)
+			case <-r.Context().Done():
+				return
+			}
+		}
+	}
+}
+
+// streamResult is what a stream run on its own goroutine answered.
+type streamResult struct {
+	resp Response
+	err  error
+}
+
+// goStream runs a stream on a goroutine of its own, so the test can move its
+// clock while it reads.
+func goStream(stream func() (Response, error)) <-chan streamResult {
+	done := make(chan streamResult, 1)
+	go func() {
+		resp, err := stream()
+		done <- streamResult{resp, err}
+	}()
+	return done
 }

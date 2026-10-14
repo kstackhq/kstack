@@ -63,17 +63,30 @@ func (j *sectionJoiner[K]) join(k K, delta string) string {
 // tell that from a dead socket, since only it sees the traffic between.
 type idleGuard struct {
 	bound  time.Duration
-	timer  *time.Timer
+	timer  idleTimer
 	cancel context.CancelCauseFunc
 }
+
+// idleTimer is what the guard needs of a *time.Timer.
+type idleTimer interface {
+	Reset(time.Duration) bool
+	Stop() bool
+}
+
+// idleClock arms the guard's timer: wallClock in production, and a test's own
+// so it can move the guard's clock by hand.
+type idleClock func(d time.Duration, f func()) idleTimer
+
+// wallClock is time.AfterFunc as the guard's clock.
+func wallClock(d time.Duration, f func()) idleTimer { return time.AfterFunc(d, f) }
 
 // newIdleGuard starts the clock over ctx. The context it returns ends with
 // ErrStreamIdle as its cause once bound passes with no event, so a trip and a
 // caller's cancel read apart after the stream has ended on it.
-func newIdleGuard(ctx context.Context, bound time.Duration) (*idleGuard, context.Context) {
+func newIdleGuard(ctx context.Context, bound time.Duration, clock idleClock) (*idleGuard, context.Context) {
 	ctx, cancel := context.WithCancelCause(ctx)
 	g := &idleGuard{bound: bound, cancel: cancel}
-	g.timer = time.AfterFunc(bound, func() { cancel(ErrStreamIdle) })
+	g.timer = clock(bound, func() { cancel(ErrStreamIdle) })
 	return g, ctx
 }
 

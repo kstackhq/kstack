@@ -143,11 +143,11 @@ func (t Target) Stream(ctx context.Context, systemPrompt string, messages []Mess
 	}
 	switch t.Provider.Dialect {
 	case DialectMessages:
-		return streamMessages(ctx, req, messagesIdle, emit)
+		return streamMessages(ctx, req, messagesIdle, wallClock, emit)
 	case DialectResponses:
-		return streamResponses(ctx, req, responsesIdle, emit)
+		return streamResponses(ctx, req, responsesIdle, wallClock, emit)
 	case DialectChatCompletions:
-		return streamChatCompletions(ctx, req, chatCompletionsIdle, emit)
+		return streamChatCompletions(ctx, req, chatCompletionsIdle, wallClock, emit)
 	case DialectFake:
 		return t.Provider.fake.Stream(ctx, req, emit)
 	}

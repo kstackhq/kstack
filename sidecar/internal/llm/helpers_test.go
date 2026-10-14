@@ -33,17 +33,21 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// The guard ends its context with ErrStreamIdle once the bound passes with
-// nothing arriving; stopped before, it ends it with no cause.
+// The guard ends its context with ErrStreamIdle when its timer fires; an event
+// resets the timer; stopped, it ends the context with no cause.
 func TestIdleGuardTripsOnlyWhenNothingArrives(t *testing.T) {
-	const bound = 20 * time.Millisecond
+	const bound = time.Minute
 
-	_, ctx := newIdleGuard(t.Context(), bound)
+	timer := newFakeTimer()
+	_, ctx := newIdleGuard(t.Context(), bound, timer.clock)
+	timer.trip()
 	testutil.Wait(t, ctx.Done(), "the guard's trip")
 	assert.ErrorIs(t, context.Cause(ctx), ErrStreamIdle)
 
-	g, quiet := newIdleGuard(t.Context(), bound)
+	timer = newFakeTimer()
+	g, quiet := newIdleGuard(t.Context(), bound, timer.clock)
 	g.event()
+	timer.awaitReset(t)
 	g.stop()
 	testutil.Wait(t, quiet.Done(), "the stopped guard's release")
 	assert.NotErrorIs(t, context.Cause(quiet), ErrStreamIdle)
@@ -52,7 +56,7 @@ func TestIdleGuardTripsOnlyWhenNothingArrives(t *testing.T) {
 // Every read off the wire that carried bytes is an event, so a heartbeat the SDK
 // swallows still counts; a response with no body is passed through untouched.
 func TestIdleGuardCountsBytesOffTheWire(t *testing.T) {
-	g, _ := newIdleGuard(t.Context(), testutil.Timeout)
+	g, _ := newIdleGuard(t.Context(), testutil.Timeout, wallClock)
 	t.Cleanup(g.stop)
 
 	resp, err := g.watchBody(&http.Response{Body: io.NopCloser(strings.NewReader("ping"))}, nil)

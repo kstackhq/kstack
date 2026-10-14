@@ -450,7 +450,7 @@ One SQLite file per cache behind a refcounted `Manager`; a `Store` is a claim. â
 >   enum binds member by member onto it.
 > - **One package, grouped by file prefix**: `dialect_*.go` is one wire, as one function
 >   (`streamMessages`, `streamResponses`, `streamChatCompletions`, each
->   `(ctx, req, idle, emit)`), and those and `helpers.go` are the only files of `llm` that import
+>   `(ctx, req, idle, clock, emit)`), and those and `helpers.go` are the only files of `llm` that import
 >   a model SDK (the boundary, below); `provider.go` is
 >   the `Provider` type alone, since the rows are `catalog`'s. **Inside a wire's file, every helper is a
 >   method on the wire's type** (`messagesWire`, `responsesWire`, `chatWire`: one request's
@@ -1109,7 +1109,9 @@ sub-package names they had; the layout they land in is the one above.
   nothing between `response.in_progress` and the first summary part, which is not promised early
   and at high effort can be minutes (ten). Chat Completions is five: a cold local model loads
   its weights and reads the whole prompt before its first token, sending nothing until then, not
-  even response headers. **A Chat Completions stream ends on `[DONE]` and on a closed socket
+  even response headers. **The guard's clock is a parameter too** (`idleClock`): `Target.Stream`
+  passes `wallClock`, and a test passes a `fakeTimer` it fires by hand, so no idle test waits
+  on the wall clock or fails on a stalled runner. **A Chat Completions stream ends on `[DONE]` and on a closed socket
   alike**, so the encoder decides from what it saw: no `finish_reason` is `io.ErrUnexpectedEOF`,
   and a finish with no usage completes unreported â€” the usage the request asks for rides a
   trailing chunk with `choices: []`, and on some vendors other chunks too, and the last report

@@ -43,11 +43,11 @@ type chatWire struct {
 // streamChatCompletions speaks the OpenAI Chat Completions API. Text and tool
 // rounds in, text, calls and whatever the vendor shows of its thinking out, with
 // the cache mark and affinity key the model and row call for. It sends one
-// request and streams the reply, ending a stream quiet
-// for longer than idle. emit is called with each chunk as it arrives, on the
+// request and streams the reply, ending a stream quiet for longer than idle,
+// as clock measures it. emit is called with each chunk as it arrives, on the
 // calling goroutine. An error means the response is incomplete: what was
 // streamed is what there is.
-func streamChatCompletions(ctx context.Context, req Request, idle time.Duration, emit func(Chunk)) (Response, error) {
+func streamChatCompletions(ctx context.Context, req Request, idle time.Duration, clock idleClock, emit func(Chunk)) (Response, error) {
 	cache := cacheOptions(req.Provider, req.Model, req.AffinityKey, option.WithHeader, option.WithJSONSet)
 	client := openai.NewChatCompletionService(openAIOptions(req.Provider, cache...)...)
 
@@ -74,7 +74,7 @@ func streamChatCompletions(ctx context.Context, req Request, idle time.Duration,
 		params.MaxTokens = openai.Int(int64(req.Model.MaxOutputTokens))
 	}
 
-	guard, ctx := newIdleGuard(ctx, idle)
+	guard, ctx := newIdleGuard(ctx, idle, clock)
 	defer guard.stop()
 
 	stream := client.NewStreaming(ctx, params, option.WithMiddleware(func(r *http.Request, next option.MiddlewareNext) (*http.Response, error) {

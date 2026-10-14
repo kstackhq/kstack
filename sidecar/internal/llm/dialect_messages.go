@@ -70,13 +70,13 @@ type MessagesServerTool interface {
 
 // streamMessages speaks the Anthropic Messages API. Text and tool rounds in,
 // thinking, text and calls out, the prompt cached for an hour. It sends one
-// request and streams the reply, ending a stream quiet
-// for longer than idle. The client is built from the provider alone, never the
+// request and streams the reply, ending a stream quiet for longer than idle,
+// as clock measures it. The client is built from the provider alone, never the
 // environment, with retries off: a retry repeats a paid call, and after an
 // ambiguous failure can run a turn twice. emit is called with each chunk as it
 // arrives, on the calling goroutine. An error means the response is incomplete:
 // what was streamed is what there is.
-func streamMessages(ctx context.Context, req Request, idle time.Duration, emit func(Chunk)) (Response, error) {
+func streamMessages(ctx context.Context, req Request, idle time.Duration, clock idleClock, emit func(Chunk)) (Response, error) {
 	if req.Model.MaxOutputTokens <= 0 {
 		return Response{}, fmt.Errorf("messages: model %q states no output cap", req.Model.ID)
 	}
@@ -127,7 +127,7 @@ func streamMessages(ctx context.Context, req Request, idle time.Duration, emit f
 		params.OutputConfig = anthropic.OutputConfigParam{Effort: anthropic.OutputConfigEffort(req.Effort)}
 	}
 
-	guard, ctx := newIdleGuard(ctx, idle)
+	guard, ctx := newIdleGuard(ctx, idle, clock)
 	defer guard.stop()
 
 	stream := client.NewStreaming(ctx, params, option.WithMiddleware(func(r *http.Request, next option.MiddlewareNext) (*http.Response, error) {

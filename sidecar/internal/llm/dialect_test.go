@@ -178,7 +178,7 @@ func TestOnlyAWireFileImportsAModelSDK(t *testing.T) {
 // and what it shares with the wires its own tests pin.
 type wire struct {
 	name   string
-	stream func(context.Context, Request, time.Duration, func(Chunk)) (Response, error)
+	stream func(context.Context, Request, time.Duration, idleClock, func(Chunk)) (Response, error)
 	replay func(*testing.T, []event) (Provider, *recorded)
 	serve  func(*testing.T, http.HandlerFunc) Provider
 	at     func(baseURL string) Provider
@@ -318,7 +318,7 @@ func TestEveryDialectStreamsAReply(t *testing.T) {
 		p, _ := w.replay(t, w.text)
 		var text strings.Builder
 
-		resp, err := w.stream(t.Context(), w.req(p), testutil.Timeout, func(c Chunk) { text.WriteString(c.Text) })
+		resp, err := w.stream(t.Context(), w.req(p), testutil.Timeout, wallClock, func(c Chunk) { text.WriteString(c.Text) })
 
 		require.NoError(t, err)
 		require.Len(t, resp.Blocks, 1)
@@ -335,13 +335,13 @@ func TestEveryDialectSendsTheEffortOfAModelThatListsOne(t *testing.T) {
 		req := w.req(p)
 		req.Effort = "high"
 
-		_, err := w.stream(t.Context(), req, testutil.Timeout, func(Chunk) {})
+		_, err := w.stream(t.Context(), req, testutil.Timeout, wallClock, func(Chunk) {})
 
 		require.NoError(t, err)
 		assert.Equal(t, "high", w.effort(rec.body))
 
 		plain, plainRec := w.replay(t, w.text)
-		_, err = w.stream(t.Context(), w.req(plain), testutil.Timeout, func(Chunk) {})
+		_, err = w.stream(t.Context(), w.req(plain), testutil.Timeout, wallClock, func(Chunk) {})
 		require.NoError(t, err)
 		assert.Empty(t, w.effort(plainRec.body))
 	})
@@ -355,7 +355,7 @@ func TestEveryDialectKeepsTheThinkingApartFromTheText(t *testing.T) {
 		p, _ := w.replay(t, w.thinks)
 		var chunks []Chunk
 
-		resp, err := w.stream(t.Context(), w.req(p), testutil.Timeout, func(c Chunk) { chunks = append(chunks, c) })
+		resp, err := w.stream(t.Context(), w.req(p), testutil.Timeout, wallClock, func(c Chunk) { chunks = append(chunks, c) })
 
 		require.NoError(t, err)
 		assertRecordReadsTheStream(t, chunks, resp.Blocks)
@@ -369,7 +369,7 @@ func TestEveryDialectReadsTheThinkingInTheRepliesOrder(t *testing.T) {
 		p, _ := w.replay(t, w.thinksAgain)
 		var chunks []Chunk
 
-		resp, err := w.stream(t.Context(), w.req(p), testutil.Timeout, func(c Chunk) { chunks = append(chunks, c) })
+		resp, err := w.stream(t.Context(), w.req(p), testutil.Timeout, wallClock, func(c Chunk) { chunks = append(chunks, c) })
 
 		require.NoError(t, err)
 		kinds := make([]ChunkKind, 0, len(chunks))
@@ -417,35 +417,51 @@ func joinText(blocks []Block) string {
 // The bound is on the wire, so a stream parked after its headers and one that
 // stalls before them both end as an idle stream and not as a cancel.
 func TestEveryDialectBoundsAnIdleStream(t *testing.T) {
-	const bound = 50 * time.Millisecond
+	const bound = time.Minute
 	eachWire(t, func(t *testing.T, w wire) {
 		t.Run("parked after its headers", func(t *testing.T) {
+			parked := testutil.NewSignal()
 			p := w.serve(t, func(rw http.ResponseWriter, r *http.Request) {
 				rw.Header().Set("Content-Type", "text/event-stream")
 				rw.WriteHeader(http.StatusOK)
 				rw.(http.Flusher).Flush()
+				parked.Fire()
 				<-r.Context().Done()
 			})
+			timer := newFakeTimer()
 
-			_, err := w.stream(t.Context(), w.req(p), bound, func(Chunk) {})
+			done := goStream(func() (Response, error) {
+				return w.stream(t.Context(), w.req(p), bound, timer.clock, func(Chunk) {})
+			})
+			parked.Wait(t, "the headers")
+			timer.trip()
+			got := testutil.Recv(t, done, "the stream's end")
 
-			assert.ErrorIs(t, err, ErrStreamIdle)
-			assert.NotErrorIs(t, err, context.Canceled)
+			assert.ErrorIs(t, got.err, ErrStreamIdle)
+			assert.NotErrorIs(t, got.err, context.Canceled)
 		})
 
 		t.Run("stalled before its headers", func(t *testing.T) {
+			stalled := testutil.NewSignal()
 			p := w.serve(t, func(rw http.ResponseWriter, r *http.Request) {
 				// The request is read before the stall: a server with a body still
 				// unread never notices the client leave, and the handler outlives
 				// the test.
 				io.Copy(io.Discard, r.Body)
+				stalled.Fire()
 				<-r.Context().Done()
 			})
+			timer := newFakeTimer()
 
-			_, err := w.stream(t.Context(), w.req(p), bound, func(Chunk) {})
+			done := goStream(func() (Response, error) {
+				return w.stream(t.Context(), w.req(p), bound, timer.clock, func(Chunk) {})
+			})
+			stalled.Wait(t, "the request")
+			timer.trip()
+			got := testutil.Recv(t, done, "the stream's end")
 
-			assert.ErrorIs(t, err, ErrStreamIdle)
-			assert.NotErrorIs(t, err, context.Canceled)
+			assert.ErrorIs(t, got.err, ErrStreamIdle)
+			assert.NotErrorIs(t, got.err, context.Canceled)
 		})
 	})
 }
@@ -464,7 +480,7 @@ func TestEveryDialectEndsOnCancel(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		var text strings.Builder
 
-		_, err := w.stream(ctx, w.req(p), testutil.Timeout, func(c Chunk) {
+		_, err := w.stream(ctx, w.req(p), testutil.Timeout, wallClock, func(c Chunk) {
 			text.WriteString(c.Text)
 			cancel()
 		})
@@ -485,7 +501,7 @@ func TestEveryDialectRendersAFailureWithoutTheBody(t *testing.T) {
 			fmt.Fprintf(rw, `{"type":"error","error":{"type":"rate_limit_error","message":%q}}`, marker+" sk-ant-test")
 		})
 
-		_, err := w.stream(t.Context(), w.req(p), testutil.Timeout, func(Chunk) {})
+		_, err := w.stream(t.Context(), w.req(p), testutil.Timeout, wallClock, func(Chunk) {})
 
 		require.Error(t, err)
 		assert.NotContains(t, err.Error(), marker)
@@ -501,7 +517,7 @@ func TestEveryDialectRendersAFailureWithNoResponse(t *testing.T) {
 		addr := ln.Addr().String()
 		require.NoError(t, ln.Close())
 
-		_, err = w.stream(t.Context(), w.req(w.at("http://"+addr)), testutil.Timeout, func(Chunk) {})
+		_, err = w.stream(t.Context(), w.req(w.at("http://"+addr)), testutil.Timeout, wallClock, func(Chunk) {})
 
 		var llmErr *Error
 		require.ErrorAs(t, err, &llmErr)
@@ -517,7 +533,7 @@ func TestEveryDialectSendsAContextBlockAheadOfTheText(t *testing.T) {
 		p, rec := w.replay(t, w.text)
 		req := w.req(p, Message{Role: "user", Blocks: []Block{ContextBlock("the card"), TextBlock("what is a pod?")}})
 
-		_, err := w.stream(t.Context(), req, testutil.Timeout, func(Chunk) {})
+		_, err := w.stream(t.Context(), req, testutil.Timeout, wallClock, func(Chunk) {})
 
 		require.NoError(t, err)
 		sent := fmt.Sprint(w.convo(rec.body))
@@ -540,7 +556,7 @@ func TestEveryDialectSendsAProvidersKeyHeaderQueryAndOmits(t *testing.T) {
 		keyless.Key, keyless.KeyHeader = "", "api-key"
 
 		for _, p := range []Provider{named, keyless} {
-			_, err := w.stream(t.Context(), w.req(p), testutil.Timeout, func(Chunk) {})
+			_, err := w.stream(t.Context(), w.req(p), testutil.Timeout, wallClock, func(Chunk) {})
 			require.NoError(t, err)
 		}
 
@@ -570,7 +586,7 @@ func TestEveryDialectRendersATurnAsAPrefixOfTheNext(t *testing.T) {
 		bodies := make([]map[string]any, 2)
 		for i, msgs := range [][]Message{first, second} {
 			p, rec := w.replay(t, w.text)
-			_, err := w.stream(t.Context(), w.req(p, msgs...), testutil.Timeout, func(Chunk) {})
+			_, err := w.stream(t.Context(), w.req(p, msgs...), testutil.Timeout, wallClock, func(Chunk) {})
 			require.NoError(t, err)
 			bodies[i] = rec.body
 		}
@@ -677,7 +693,7 @@ func TestEveryDialectOffersToolsAsFunctions(t *testing.T) {
 		req := w.req(p)
 		req.Tools = []ToolDefinition{listObjects}
 
-		_, err := w.stream(t.Context(), req, testutil.Timeout, func(Chunk) {})
+		_, err := w.stream(t.Context(), req, testutil.Timeout, wallClock, func(Chunk) {})
 
 		require.NoError(t, err)
 		offered := w.tools(rec.body)
@@ -685,7 +701,7 @@ func TestEveryDialectOffersToolsAsFunctions(t *testing.T) {
 		assert.Equal(t, "list_objects", w.toolName(offered[0]))
 
 		none, noneRec := w.replay(t, w.text)
-		_, err = w.stream(t.Context(), w.req(none), testutil.Timeout, func(Chunk) {})
+		_, err = w.stream(t.Context(), w.req(none), testutil.Timeout, wallClock, func(Chunk) {})
 		require.NoError(t, err)
 		assert.NotContains(t, noneRec.body, "tools")
 	})
@@ -701,7 +717,7 @@ func TestEveryDialectReadsACallIntoTheRecord(t *testing.T) {
 		req.Tools = []ToolDefinition{listObjects}
 		var chunks []Chunk
 
-		resp, err := w.stream(t.Context(), req, testutil.Timeout, func(c Chunk) { chunks = append(chunks, c) })
+		resp, err := w.stream(t.Context(), req, testutil.Timeout, wallClock, func(c Chunk) { chunks = append(chunks, c) })
 
 		require.NoError(t, err)
 		require.NotEmpty(t, resp.Blocks)
@@ -729,7 +745,7 @@ func TestEveryDialectFailsAMalformedCallThatEndedNormally(t *testing.T) {
 		req := w.req(p)
 		req.Tools = []ToolDefinition{listObjects}
 
-		resp, err := w.stream(t.Context(), req, testutil.Timeout, func(Chunk) {})
+		resp, err := w.stream(t.Context(), req, testutil.Timeout, wallClock, func(Chunk) {})
 
 		var e *Error
 		require.ErrorAs(t, err, &e)
@@ -761,7 +777,7 @@ func TestEveryDialectRendersARoundAsAPrefixOfTheNext(t *testing.T) {
 			}
 			req := w.req(p, msgs...)
 			req.Tools = []ToolDefinition{listObjects}
-			_, err := w.stream(t.Context(), req, testutil.Timeout, func(Chunk) {})
+			_, err := w.stream(t.Context(), req, testutil.Timeout, wallClock, func(Chunk) {})
 			require.NoError(t, err)
 			bodies[i] = rec.body
 		}
@@ -794,7 +810,7 @@ func TestEveryDialectSendsNothingForARowTheStripEmpties(t *testing.T) {
 		bodies := make([]map[string]any, 2)
 		for i, msgs := range [][]Message{{first, foreign, second}, {first, second}} {
 			p, rec := w.replay(t, w.text)
-			_, err := w.stream(t.Context(), w.req(p, msgs...), testutil.Timeout, func(Chunk) {})
+			_, err := w.stream(t.Context(), w.req(p, msgs...), testutil.Timeout, wallClock, func(Chunk) {})
 			require.NoError(t, err)
 			bodies[i] = rec.body
 		}
@@ -829,7 +845,7 @@ func TestEveryDialectReplaysEveryOtherDialectsTurn(t *testing.T) {
 						p, rec := target.replay(t, target.text)
 						req := target.req(p, msgs...)
 						req.Tools, req.Effort = []ToolDefinition{listObjects}, effort
-						_, err := target.stream(t.Context(), req, testutil.Timeout, func(Chunk) {})
+						_, err := target.stream(t.Context(), req, testutil.Timeout, wallClock, func(Chunk) {})
 						require.NoError(t, err)
 						return rec.body
 					}
@@ -882,7 +898,7 @@ func TestEveryDialectRendersASwitchedChatAsAPrefixOfTheNext(t *testing.T) {
 			p, rec := w.replay(t, w.text)
 			req := w.req(p, msgs...)
 			req.Tools = []ToolDefinition{listObjects}
-			_, err := w.stream(t.Context(), req, testutil.Timeout, func(Chunk) {})
+			_, err := w.stream(t.Context(), req, testutil.Timeout, wallClock, func(Chunk) {})
 			require.NoError(t, err)
 			bodies[i] = rec.body
 		}
@@ -903,7 +919,7 @@ func switchedRows(t *testing.T, w wire) []Message {
 	var rows []Message
 	for _, events := range [][]event{w.thinks, w.call, w.call, w.text} {
 		p, _ := w.replay(t, events)
-		resp, err := w.stream(t.Context(), w.req(p), testutil.Timeout, func(Chunk) {})
+		resp, err := w.stream(t.Context(), w.req(p), testutil.Timeout, wallClock, func(Chunk) {})
 		require.NoError(t, err)
 		blocks := resp.Blocks
 		for _, b := range resp.Blocks {
@@ -978,12 +994,12 @@ func chatPairs(body map[string]any) (calls, results []string) {
 func TestEveryDialectReportsItsUsage(t *testing.T) {
 	eachWire(t, func(t *testing.T, w wire) {
 		p, _ := w.replay(t, w.reported)
-		resp, err := w.stream(t.Context(), w.req(p), testutil.Timeout, func(Chunk) {})
+		resp, err := w.stream(t.Context(), w.req(p), testutil.Timeout, wallClock, func(Chunk) {})
 		require.NoError(t, err)
 		assert.Equal(t, w.usage, resp.Usage)
 
 		p, _ = w.replay(t, w.unreported)
-		resp, err = w.stream(t.Context(), w.req(p), testutil.Timeout, func(Chunk) {})
+		resp, err = w.stream(t.Context(), w.req(p), testutil.Timeout, wallClock, func(Chunk) {})
 		require.NoError(t, err)
 		assert.Equal(t, Usage{}, resp.Usage)
 	})
@@ -994,7 +1010,7 @@ func TestEveryDialectReportsItsUsage(t *testing.T) {
 func TestEveryDialectReportsTheModelServed(t *testing.T) {
 	eachWire(t, func(t *testing.T, w wire) {
 		p, _ := w.replay(t, w.text)
-		resp, err := w.stream(t.Context(), w.req(p), testutil.Timeout, func(Chunk) {})
+		resp, err := w.stream(t.Context(), w.req(p), testutil.Timeout, wallClock, func(Chunk) {})
 		require.NoError(t, err)
 		assert.Equal(t, w.served, resp.Model)
 	})

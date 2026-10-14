@@ -45,10 +45,11 @@ type responsesWire struct {
 // streamResponses speaks the OpenAI Responses API. Text and tool rounds in, a
 // summary of the reasoning, text and calls out; OpenAI caches the prefix on its
 // own. It sends one
-// request and streams the reply, ending a stream quiet for longer than idle.
+// request and streams the reply, ending a stream quiet for longer than idle,
+// as clock measures it.
 // emit is called with each chunk as it arrives, on the calling goroutine. An
 // error means the response is incomplete: what was streamed is what there is.
-func streamResponses(ctx context.Context, req Request, idle time.Duration, emit func(Chunk)) (Response, error) {
+func streamResponses(ctx context.Context, req Request, idle time.Duration, clock idleClock, emit func(Chunk)) (Response, error) {
 	if req.Model.MaxOutputTokens <= 0 {
 		return Response{}, fmt.Errorf("responses: model %q states no output cap", req.Model.ID)
 	}
@@ -81,7 +82,7 @@ func streamResponses(ctx context.Context, req Request, idle time.Duration, emit 
 		params.Include = []responses.ResponseIncludable{responses.ResponseIncludableReasoningEncryptedContent}
 	}
 
-	guard, ctx := newIdleGuard(ctx, idle)
+	guard, ctx := newIdleGuard(ctx, idle, clock)
 	defer guard.stop()
 
 	stream := client.NewStreaming(ctx, params, option.WithMiddleware(func(r *http.Request, next option.MiddlewareNext) (*http.Response, error) {

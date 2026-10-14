@@ -135,7 +135,7 @@ func responsesReplay(t *testing.T, events []event) (Provider, *recorded) {
 func askResponses(t *testing.T, req Request) (string, Response, error) {
 	t.Helper()
 	var text strings.Builder
-	resp, err := streamResponses(t.Context(), req, testutil.Timeout, func(c Chunk) { text.WriteString(c.Text) })
+	resp, err := streamResponses(t.Context(), req, testutil.Timeout, wallClock, func(c Chunk) { text.WriteString(c.Text) })
 	return text.String(), resp, err
 }
 
@@ -183,7 +183,7 @@ func TestResponsesKeepsSummarySectionsApart(t *testing.T) {
 	p, _ := responsesReplay(t, responsesThinkingStream)
 	var chunks []Chunk
 
-	resp, err := streamResponses(t.Context(), responsesRequest(p), testutil.Timeout, func(c Chunk) { chunks = append(chunks, c) })
+	resp, err := streamResponses(t.Context(), responsesRequest(p), testutil.Timeout, wallClock, func(c Chunk) { chunks = append(chunks, c) })
 
 	require.NoError(t, err)
 	assert.Equal(t, []Chunk{
@@ -332,26 +332,27 @@ func TestResponsesKeepsAMalformedReplyOutOfTheRecordAndTheLog(t *testing.T) {
 // The bound measures the wire: a stream that reasons in silence trips it, one
 // that only sends bytes does not.
 func TestResponsesIdleBound(t *testing.T) {
-	const bound = 500 * time.Millisecond
+	const bound = time.Minute
 
 	t.Run("a stream that only sends bytes", func(t *testing.T) {
-		p := openAIAt(newServer(t, func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/event-stream")
-			sse(w, responsesStream[0])
-			// Latency injected into the code under test: comments at a fraction of
-			// the bound, for longer than it, so the wire is busy while the loop
-			// sees no event.
-			for range 15 {
-				time.Sleep(bound / 10)
+		beats := make(chan struct{})
+		p := openAIAt(newServer(t, serveBeats(beats,
+			func(w http.ResponseWriter) { sse(w, responsesStream[0]) },
+			func(w http.ResponseWriter) {
 				fmt.Fprint(w, ": keep reading\n\n")
 				w.(http.Flusher).Flush()
-			}
-			sse(w, responsesStream[3])
-		}))
+			},
+			func(w http.ResponseWriter) { sse(w, responsesStream[3]) },
+		)))
+		timer := newFakeTimer()
 
-		_, err := streamResponses(t.Context(), responsesRequest(p), bound, func(Chunk) {})
+		done := goStream(func() (Response, error) {
+			return streamResponses(t.Context(), responsesRequest(p), bound, timer.clock, func(Chunk) {})
+		})
+		beat(t, timer, beats)
+		got := testutil.Recv(t, done, "the stream's end")
 
-		require.NoError(t, err)
+		require.NoError(t, got.err)
 	})
 
 	t.Run("a stream that goes silent", func(t *testing.T) {
@@ -360,11 +361,17 @@ func TestResponsesIdleBound(t *testing.T) {
 			sse(w, responsesStream[0])
 			<-r.Context().Done()
 		}))
+		timer := newFakeTimer()
 
-		_, err := streamResponses(t.Context(), responsesRequest(p), bound, func(Chunk) {})
+		done := goStream(func() (Response, error) {
+			return streamResponses(t.Context(), responsesRequest(p), bound, timer.clock, func(Chunk) {})
+		})
+		timer.awaitReset(t)
+		timer.trip()
+		got := testutil.Recv(t, done, "the stream's end")
 
-		assert.ErrorIs(t, err, ErrStreamIdle)
-		assert.NotErrorIs(t, err, context.Canceled)
+		assert.ErrorIs(t, got.err, ErrStreamIdle)
+		assert.NotErrorIs(t, got.err, context.Canceled)
 	})
 }
 
@@ -381,7 +388,7 @@ func TestResponsesEndsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	var text strings.Builder
 
-	_, err := streamResponses(ctx, responsesRequest(p), testutil.Timeout, func(c Chunk) {
+	_, err := streamResponses(ctx, responsesRequest(p), testutil.Timeout, wallClock, func(c Chunk) {
 		text.WriteString(c.Text)
 		cancel()
 	})
@@ -593,7 +600,7 @@ func TestResponsesReadsACallIntoTheRecord(t *testing.T) {
 	req.Tools = []ToolDefinition{listObjects}
 
 	var chunks []Chunk
-	resp, err := streamResponses(t.Context(), req, testutil.Timeout, func(c Chunk) { chunks = append(chunks, c) })
+	resp, err := streamResponses(t.Context(), req, testutil.Timeout, wallClock, func(c Chunk) { chunks = append(chunks, c) })
 
 	require.NoError(t, err)
 	assert.Equal(t, []Chunk{

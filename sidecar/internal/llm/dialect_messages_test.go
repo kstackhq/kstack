@@ -162,7 +162,7 @@ func refuse(t *testing.T, status int, body string) Provider {
 func ask(t *testing.T, req Request) (string, Response, error) {
 	t.Helper()
 	var text strings.Builder
-	resp, err := streamMessages(t.Context(), req, testutil.Timeout, func(c Chunk) { text.WriteString(c.Text) })
+	resp, err := streamMessages(t.Context(), req, testutil.Timeout, wallClock, func(c Chunk) { text.WriteString(c.Text) })
 	return text.String(), resp, err
 }
 
@@ -378,28 +378,29 @@ func TestMessagesEndsAtMessageStop(t *testing.T) {
 // A stream that only beats past the bound is alive; one that goes silent is ended
 // by the bound and says so, not as a cancel.
 func TestMessagesIdleBound(t *testing.T) {
-	const bound = 500 * time.Millisecond
+	const bound = time.Minute
 
 	t.Run("a stream that only beats", func(t *testing.T) {
-		p := serve(t, func(w http.ResponseWriter, r *http.Request) {
-			w.Header().Set("Content-Type", "text/event-stream")
-			sse(w, textStream[0])
-			// Latency injected into the code under test: pings at a fraction of the
-			// bound, for longer than it, so the wire is busy while nothing is written.
-			for range 15 {
-				time.Sleep(bound / 10)
-				sse(w, event{"ping", `{"type":"ping"}`})
-			}
-			sse(w, textStream[5])
-			sse(w, textStream[6])
-		})
-
+		beats := make(chan struct{})
+		p := serve(t, serveBeats(beats,
+			func(w http.ResponseWriter) { sse(w, textStream[0]) },
+			func(w http.ResponseWriter) { sse(w, event{"ping", `{"type":"ping"}`}) },
+			func(w http.ResponseWriter) {
+				sse(w, textStream[5])
+				sse(w, textStream[6])
+			}))
+		timer := newFakeTimer()
 		var text strings.Builder
-		resp, err := streamMessages(t.Context(), request(p), bound, func(c Chunk) { text.WriteString(c.Text) })
 
-		require.NoError(t, err)
+		done := goStream(func() (Response, error) {
+			return streamMessages(t.Context(), request(p), bound, timer.clock, func(c Chunk) { text.WriteString(c.Text) })
+		})
+		beat(t, timer, beats)
+		got := testutil.Recv(t, done, "the stream's end")
+
+		require.NoError(t, got.err)
 		assert.Empty(t, text.String())
-		assert.Equal(t, "end_turn", resp.StopReason)
+		assert.Equal(t, "end_turn", got.resp.StopReason)
 	})
 
 	t.Run("a stream that goes silent", func(t *testing.T) {
@@ -408,11 +409,17 @@ func TestMessagesIdleBound(t *testing.T) {
 			sse(w, textStream[0])
 			<-r.Context().Done()
 		})
+		timer := newFakeTimer()
 
-		_, err := streamMessages(t.Context(), request(p), bound, func(Chunk) {})
+		done := goStream(func() (Response, error) {
+			return streamMessages(t.Context(), request(p), bound, timer.clock, func(Chunk) {})
+		})
+		timer.awaitReset(t)
+		timer.trip()
+		got := testutil.Recv(t, done, "the stream's end")
 
-		assert.ErrorIs(t, err, ErrStreamIdle)
-		assert.NotErrorIs(t, err, context.Canceled)
+		assert.ErrorIs(t, got.err, ErrStreamIdle)
+		assert.NotErrorIs(t, got.err, context.Canceled)
 	})
 }
 
@@ -429,7 +436,7 @@ func TestMessagesEndsOnCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	var text strings.Builder
 
-	_, err := streamMessages(ctx, request(p), testutil.Timeout, func(c Chunk) {
+	_, err := streamMessages(ctx, request(p), testutil.Timeout, wallClock, func(c Chunk) {
 		text.WriteString(c.Text)
 		cancel()
 	})
@@ -539,7 +546,7 @@ func TestMessagesKeepsThinkingBlocksApart(t *testing.T) {
 	p, _ := replay(t, thinkingStream)
 	var chunks []Chunk
 
-	resp, err := streamMessages(t.Context(), request(p), testutil.Timeout, func(c Chunk) { chunks = append(chunks, c) })
+	resp, err := streamMessages(t.Context(), request(p), testutil.Timeout, wallClock, func(c Chunk) { chunks = append(chunks, c) })
 
 	require.NoError(t, err)
 	assert.Equal(t, []Chunk{
@@ -797,7 +804,7 @@ func TestMessagesReadsASearchIntoTheRecord(t *testing.T) {
 	p, _ := replay(t, searchStream)
 	var chunks []Chunk
 
-	resp, err := streamMessages(t.Context(), searching(p), testutil.Timeout, func(c Chunk) { chunks = append(chunks, c) })
+	resp, err := streamMessages(t.Context(), searching(p), testutil.Timeout, wallClock, func(c Chunk) { chunks = append(chunks, c) })
 
 	require.NoError(t, err)
 	assert.Equal(t, []Chunk{
@@ -944,7 +951,7 @@ func TestMessagesSendsAChunkForEveryCall(t *testing.T) {
 			p, _ := replay(t, events)
 			var chunks []Chunk
 
-			resp, err := streamMessages(t.Context(), searching(p), testutil.Timeout, func(c Chunk) { chunks = append(chunks, c) })
+			resp, err := streamMessages(t.Context(), searching(p), testutil.Timeout, wallClock, func(c Chunk) { chunks = append(chunks, c) })
 
 			require.NoError(t, err)
 			call := ServerUseBlock("srv_1", searchName, json.RawMessage(`{}`))
@@ -996,7 +1003,7 @@ func TestMessagesReadsOnlyTheServerToolsItOffers(t *testing.T) {
 	p, _ := replay(t, searchStream)
 	var chunks []Chunk
 
-	resp, err := streamMessages(t.Context(), request(p), testutil.Timeout, func(c Chunk) { chunks = append(chunks, c) })
+	resp, err := streamMessages(t.Context(), request(p), testutil.Timeout, wallClock, func(c Chunk) { chunks = append(chunks, c) })
 
 	require.NoError(t, err)
 	assert.Equal(t, []Chunk{{Text: "Let me search."}, {Text: "It shipped."}}, chunks)
@@ -1028,7 +1035,7 @@ func TestMessagesSpeaksAServerToolThroughItsBinding(t *testing.T) {
 	req.NativeTools = []NativeOffer{search, {Tool: messagesFetch, Server: true, MaxUses: 2}}
 	var chunks []Chunk
 
-	resp, err := streamMessages(t.Context(), req, testutil.Timeout, func(c Chunk) { chunks = append(chunks, c) })
+	resp, err := streamMessages(t.Context(), req, testutil.Timeout, wallClock, func(c Chunk) { chunks = append(chunks, c) })
 
 	require.NoError(t, err)
 	tools := rec.body["tools"].([]any)
