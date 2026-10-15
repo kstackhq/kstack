@@ -137,6 +137,14 @@ describe('LogViewerRow', () => {
     expect(cellOf('Message')!.querySelector('mark')).not.toBeNull();
   });
 
+  it('draws markup in a line as its text', () => {
+    const markup = '<img src=x onerror="alert(1)"><b>bold</b>';
+    render(<Row columns={ALL} of={line({ message: markup, stream: { ...line().stream, pod: '<i>pod</i>' } })} />);
+    expect(row().querySelector('img, b, i')).toBeNull();
+    expect(cellOf('Message')).toHaveTextContent(markup);
+    expect(cellOf('Pod')).toHaveTextContent('<i>pod</i>');
+  });
+
   it('puts the date before a time from another day', () => {
     render(<Row of={line({ timestamp: local(2026, 9, 14, 23, 59, 59, 5) })} />);
     expect(cellOf('Timestamp')).toHaveTextContent('Oct 14 23:59:59.005');

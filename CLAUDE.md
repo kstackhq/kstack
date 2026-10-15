@@ -47,6 +47,10 @@ The failure mode to watch for is a comment addressed to a *reviewer* — someone
 
 A `UserPromptSubmit` hook (`scripts/writing-standards-hook.sh`, wired in `.claude/settings.json`) restates this at the start of every turn, since the rule has to be in mind *before* anything is composed. Keep the script's short form in sync with this section.
 
+## Code ported from kubetail
+
+Both projects are Apache 2.0, and kubetail's files are copyright "The Kubetail Authors", which includes contributors outside this team. A file that carries kubetail's code, whole or reshaped, opens with both lines, kstack's first, over the one license block (`// Copyright 2026 The Kstack Authors`, then `// Copyright 2024 The Kubetail Authors`). A file written fresh carries kstack's line alone, however closely it read kubetail. There is no `NOTICE` file, since kubetail has none to carry forward. The log viewer (`src/lib/log-viewer/`, `components/widgets/log-viewer/`) and `services/logs`' fetcher are the ported code so far.
+
 ## Testing conventions (all three languages)
 
 These apply to `src/`, `sidecar/`, and `src-tauri/` alike; each area's `CLAUDE.md` adds its own tooling on top.
@@ -119,7 +123,7 @@ The whole picture is [`docs/security-model.md`](docs/security-model.md). What an
 - **The model's description of a command is its claim, never the app's.** It rides above the command on the request and under it in the transcript, and it is cluster data at one remove: one line, spelled through `VisibleText`, italic and quoted, labelled *The model says:* on the request, never in place of the command and never brighter than it. → [the command description](docs/security/2026-09-23-the-command-description.md).
 - **Cluster data is attacker-controlled text.** Names, labels, annotations and event messages come from whoever controls the cluster. `src/` has no HTML sink — no `innerHTML`, no `dangerouslySetInnerHTML`, no `eval` — and the `custom/cluster-data-is-text` config object in `eslint.config.ts` fails the lint on one. Printer columns go through the restricted reader in `src/lib/jsonpath.ts`; the same config object refuses a template engine, by import and by call.
 - **A chat answer inherits this.** The model has read the cluster, so its text is cluster data at one remove: `markdown.tsx` renders it to React elements with raw HTML left as text, and no rehype plugin may put HTML back.
-- **The log-tail and exec windows inherit this.** When they land, treat their output as untrusted bytes: no HTML interpretation, and strip terminal control sequences.
+- **The log viewer and the exec window inherit this.** Their output is untrusted bytes: no HTML interpretation, and terminal control sequences stripped. The sidecar strips a log line before it leaves (`services/logs`), and the viewer draws every cell as text, through `VisibleText`. The exec window, when it lands, brings both.
 
 ## Frontend (`src/`)
 

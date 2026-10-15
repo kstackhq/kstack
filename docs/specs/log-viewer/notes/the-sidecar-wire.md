@@ -1,11 +1,10 @@
 # The sidecar's wire: a plan for later
 
-**This is a note, not a spec. Nothing in it is built in the log viewer sequence**, and no step
-of that sequence changes `sidecar/`. The wire itself — the schema the webview's `Client` type
-mirrors and `FakeClient` serves — is the log viewer README's [*The wire*](../README.md#the-wire).
-This note keeps the sidecar's plan for serving it, as it was last worked, so the work starts from
-it once the log viewer sequence has landed. It becomes a numbered spec then, and is reviewed again first: *Open problems* below lists
-what a review found.
+**This is a note, not a spec, and nothing in it is built.** The wire itself — the schema the
+webview's `Client` type mirrors and `FakeClient` serves — is the log viewer README's
+[*The wire*](../README.md#the-wire). This note keeps the sidecar's plan for serving it, as it was
+last worked, so the work starts from it. It becomes a spec before it is built, and is reviewed
+again first: *Open problems* below lists what a review found.
 
 Go paths are under `sidecar/internal/`.
 
@@ -25,14 +24,14 @@ Four pull requests into `wip/log-views`, in the order of the tasks below.
 ## What is not in this step
 
 - **No webview change.** The real client over this wire is sketched in the log viewer
-  README's *Not in this sequence*.
+  README's *What is left*.
 - **No session.** The hint is stateless: every page carries what the next needs, and the sidecar
   keeps nothing between requests.
-- **No change to how a follow orders lines.** Per container, as step 1A has it.
+- **No change to how a follow orders lines.** Per container, as the sidecar has it.
 - **No change to the reads themselves** beyond what the hint shortens. The forward stream, the
-  backward windows, the budget and the merge stay as 1A built them.
-- **No change to a follow opened with no cursor.** It reads from the sidecar's clock, as in step
-  1A; the webview always sends one.
+  backward windows, the budget and the merge stay as they are.
+- **No change to a follow opened with no cursor.** It reads from the sidecar's clock, as it does
+  today; the webview always sends one.
 
 ## Design
 
@@ -96,7 +95,7 @@ says nothing about the lines past it. `Around` without `at`, or with a cursor, i
 no cursor names an inclusive line.
 
 A page with no record and `more: true` stays the honest answer for a read that spent its
-budget, as in step 1A.
+budget, as today.
 
 ### 3. The follow's checkpoints
 
@@ -181,7 +180,7 @@ not a time, when `c` is present and empty, when `n` is negative, when an `s` ent
 `c`, or when an `upto`'s `t` is not a time or its `n` is negative. A key it does not know is
 ignored. It answers the `position` and a `[]streamEntry`, which `Fetch` and `Follow` hand each
 stream's `readOpts` by `StreamKey`: the hint, and for a read forward from the cursor the `upto`
-as that stream's exclusive bound in place of the cursor's moment. A tab-separated cursor of 1A's
+as that stream's exclusive bound in place of the cursor's moment. A tab-separated cursor of today's
 form is refused like any other text: a cursor lives in a viewer's memory and nowhere on disk.
 `errBadCursor`'s words become *a cursor must be one a page handed back*.
 
@@ -202,7 +201,7 @@ it, costs windows that read nothing and ends on the same test as today, a window
 one, and a cursor is only text the sidecar wrote. `fetcher_test.go` pins an earlier `first` and an
 `spl` off by ten.
 
-**What a before-page costs**, per stream, for the quiet log a day old that 1A's doubling
+**What a before-page costs**, per stream, for the quiet log a day old that today's doubling
 windows handle worst:
 
 | | today | with the hint |
@@ -329,14 +328,14 @@ narrows a forward read. A response's `Date` only moves where a stream with no li
 reading; a cluster that lies in it hides its own lines, which it can do anyway. A checkpoint
 carries stream names and line positions, all of which the page already carries.
 
-**Residual:** as step 1A's.
+**Residual:** as the sidecar's reads have today.
 
 ## When it lands
 
 - `sidecar/CLAUDE.md`, *A cursor names a line*: the encoding, the entries, the edges, the live
   end's moment and the checkpoint.
 - The log viewer README's *The wire* moves into `sidecar/CLAUDE.md` and root `CLAUDE.md`, and its
-  *Not in this sequence* loses its first item.
+  *What is left* loses its first item.
 
 ## Verification
 

@@ -603,8 +603,8 @@ describe('setVisibleRange', () => {
   });
 });
 
-// The walk: a seeded random walk drives a window over the fake's log, modelling the adapter
-// that step 2 builds around it, and checks the window's rules after every step.
+// The walk: a seeded random walk drives a window over the fake's log, modelling the core
+// around it, and checks the window's rules after every step.
 
 // Runs `count` async steps one after another.
 function inTurn(count: number, run: (n: number) => Promise<void>): Promise<void> {
