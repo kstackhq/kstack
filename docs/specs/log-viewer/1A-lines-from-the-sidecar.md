@@ -6,8 +6,8 @@ status: Built
 
 # Lines from the sidecar
 
-**Needs:** `wip/log-views` as it stands after rung 1. **Unblocks:** step 2. Can be built beside
-step 1B.
+**Needs:** `wip/log-views` as it stands after rung 1. **Unblocks:** the sidecar's side of the wire ([the note](notes/the-sidecar-wire.md)), after
+this sequence.
 
 Go paths below are under `sidecar/internal/` unless they say otherwise.
 
@@ -219,7 +219,7 @@ container's own order; across containers the order is arrival. Kubetail's `runFo
 the same, and its handoff is copied: the follow opens `after` the cursor and the lines that
 arrive in its first 50 ms are sorted before they go. *Cursors and the second* below is what
 keeps the page the client holds and the follow's first frames from overlapping; what a
-reconnect repeats is step 1B's to drop, and its rule is written against this order.
+reconnect repeats is the viewer's to drop (the README's [*The wire*](README.md#the-wire)), and its rule is written against this order.
 
 **Cursors and the second.** The log endpoint's `sinceTime` has one-second precision and a
 line's timestamp has nanoseconds, so a request for lines after a cursor rounds the cursor down
