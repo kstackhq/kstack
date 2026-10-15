@@ -1,7 +1,7 @@
 ---
 title: The core
 scope: frontend
-status: Planned
+status: Built
 ---
 
 # The core
@@ -152,8 +152,9 @@ follow through §5's effect, and playing opens it again if the window is pinned.
 `useVirtualizer` over `window.length`, with `getItemKey` answering the window's keys, so a row
 keeps its key as pages land above it; `estimateSize` off `estimateRowHeight`; `scrollMargin`
 the edge row's height while the before edge has more; `overscan`; `useFlushSync: false`.
-`getItemKey` is a new function whenever `length` changes, since the virtualizer caches its
-measurements on the function's identity and the count, and keys shift on every prepend.
+`getItemKey` answers the first key plus the index, with the first key read in render beside the
+count, so a commit's keys and count reach the virtualizer together; it lays every row out again
+when either changes.
 
 `useFlushSync: false` makes the virtualizer re-render as an ordinary update rather than a
 synchronous commit inside the scroll event. So every scroll listener has run before the commit
@@ -249,9 +250,8 @@ a hold performed on the user's next scroll would pull the reader back to where i
   the commit it sets `scrollTop` to that row's new `start` plus the offset. Only the first hold
   before a commit counts, since a second is read against lines the screen does not show yet.
 - `toEnd`: `scrollTop = scrollHeight`.
-- `toKey(key)`: `virtualizer.scrollToIndex(index, { align: 'start' })`, which corrects itself
-  over the next frames as the rows around it are measured; a `scrollTop` set once would land
-  off by every estimate above it that turned out wrong.
+- `toKey(key)`: `virtualizer.scrollToIndex(index, { align: 'start' })`, which keeps the row at
+  the top over the next frames as the rows around it are measured.
 
 While following, every commit sets `scrollTop = scrollHeight`, whatever the effect, since lines
 arriving keep the end in view. A `ResizeObserver` on the scroller does the same while following,
@@ -308,23 +308,24 @@ gate and its landing at a row, and none of its code is carried.
 
 1. **The scroller and the landing.** `src/lib/log-viewer/core.tsx`: `LogViewerCore`, `Landing`,
    `createCoreStore`, the scroller, the virtualizer, the landing, the pause, loading (§1–§3).
-   **Planned.**
-2. **Paging and the follow.** §4, §5, `onNextFrame`. **Planned.**
-3. **Intent.** §6, as a hook `useIntent(scrollElRef, logWindow, pinTolerance)` in `core.tsx`.
-   **Planned.**
-4. **Effects.** §7, as a hook `useEffects(scrollElRef, virtualizer, logWindow)` in `core.tsx`.
-   **Planned.**
-5. **The index and the README.** `index.ts`, `README.md`. **Planned.**
-6. **Docs.** Root `CLAUDE.md`, per *When it lands*. **Planned.**
+   **Done.**
+2. **Paging and the follow.** §4, §5, `onNextFrame`. What the landing asks of the client — the
+   landing, each page, the follow — is one hook, `useClient`, in `core.tsx`. **Done.**
+3. **Intent.** §6, as a hook `useIntent(scrollRef, logWindow, pinTolerance, loadMore)` in
+   `core.tsx`. **Done.**
+4. **Effects.** §7, as a hook `useAnswers(scrollRef, virtualizer, logWindow)` in `core.tsx`, and
+   `measure` as `useMeasure(virtualizer, perform)` beside it. **Done.**
+5. **The index and the README.** `index.ts`, `README.md`. **Done.**
+6. **Docs.** Root `CLAUDE.md`, per *When it lands*. **Done.**
 
 ## Tests
 
 `core.test.tsx`, over a jsdom layout stub of its own: the scroller is a fixed height, every row
-a fixed height, `scrollHeight` the sizer the render function draws, `scrollTop` clamped as a
-browser's and firing `scroll`, and content shrinking under the scroll clamping it a task later.
-jsdom has no `ResizeObserver` and measures every element at zero, and the virtualizer draws no
-row without both, so the stub supplies a `ResizeObserver` the test can fire and gives the
-scroller its size through `getBoundingClientRect`.
+a fixed height, `scrollHeight` the sizer the render function draws, and `scrollTop` clamped as a
+browser's and firing `scroll`. jsdom has no `ResizeObserver` and measures every element at
+zero, and the virtualizer draws no row without both, so the stub supplies a `ResizeObserver`
+that delivers on the next frame and when the test fires it, and gives the scroller and the rows
+their sizes through `offsetWidth` and `offsetHeight`, which the virtualizer reads.
 A scripted `Client` answers `Page`s by hand; the `FakeClient` serves the longer cases. Fake
 timers throughout.
 
@@ -361,7 +362,7 @@ timers throughout.
   leaves it; pointer intent ending on `pointercancel` and on `blur` with no `pointerup`, after
   which a core scroll up changes nothing; a touch drag up; a wheel down reaching the bottom of a window behind asks for a page and pins
   when it finds no more; a wheel down on a scroller already at the bottom does the same; `End`; a core scroll with no input behind it changes nothing, and so
-  does the clamp when an edge row goes.
+  does the clamp as content shrinks.
 - `measure` keeps the row, or the end while following; `jumpTo` to each kind, a jump to `Tail`
   pinning whatever `pinToEnd` said; `retry` lands at the mount's anchor, pinned as `pinToEnd`
   says; a new client lands where the last jump did.
