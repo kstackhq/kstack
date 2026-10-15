@@ -31,6 +31,7 @@
   --chart-3: #155dfc;
   --chart-4: #1447e6;
   --chart-5: #193cb8;
+  --selection-band: color-mix(in srgb, var(--chart-4) 30%, transparent);
   --sidebar: #f1f4f9;
   --sidebar-foreground: #414c5c;
   --sidebar-primary: #9f5436;
@@ -69,6 +70,7 @@
   --chart-3: #155dfc;
   --chart-4: #1447e6;
   --chart-5: #193cb8;
+  --selection-band: color-mix(in srgb, var(--chart-4) 50%, transparent);
   --sidebar: #1c2028;
   --sidebar-foreground: #c2c8d2;
   --sidebar-primary: #dec1b7;
