@@ -6,8 +6,8 @@ status: Planned
 
 # Select and copy
 
-**Needs:** step 3. **Unblocks:** rungs 3 and 5 of the log views ladder, which read the
-selection. Can be built beside step 4A.
+**Needs:** step 4A, whose columns a cell selection is over. **Unblocks:** rungs 3 and 5 of the
+log views ladder, which read the selection.
 
 TypeScript paths are under `src/`.
 
@@ -80,8 +80,13 @@ from kubetail's `SelectionOverlay`).
 
 The colour is `--selection-band`, added to `index.css` for light and dark.
 
-The position cell — the row's offset from the landing, `-12`, `0`, `+3` — is the row's handle
-and is drawn in every column set.
+The position cell (step 4A) is the row's handle: this step gives it `role="button"` and
+`tabIndex={0}`, a mouse down that selects its row, and Enter or Space, which act as that mouse
+down. The overlay reads its width from the widths map under its own key, like every column's,
+where kubetail's reads a fixed 48px.
+
+The dot (step 4A) has no text: it takes no cell selection, no context menu, and nothing of it is
+copied.
 
 ### 4. Copying
 

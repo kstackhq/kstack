@@ -56,9 +56,8 @@ sees — rows, columns, selection — sits above the core and never talks to the
 ## The shape of the work
 
 **Steps are numbered in waves.** `1A`, `1B` and `2` are built. Step 2 puts the window behind a
-scroller, step 3 puts the viewer on screen over the fake, and `4A` and `4B` can be built at
-the same time, since each adds to the rows step 3 draws and neither needs the other. Prose says
-"step 1B".
+scroller, step 3 puts the viewer on screen over the fake, `4A` gives the rows columns, and `4B`
+selects over those columns. Prose says "step 1B".
 
 **Every step can ship onto `wip/log-views`.** Step 1B is a class with tests and no screen. Step
 2 is a component with tests and no screen. Step 3 is the first thing a user sees, over the fake's
