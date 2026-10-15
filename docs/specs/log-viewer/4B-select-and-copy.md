@@ -54,8 +54,8 @@ beside the viewer, not in the library, since it knows columns and cells:
 - `useRowDrag`, `useCellDrag`: mouse down on a position cell or a cell starts, moving extends,
   up ends; shift-click extends from the anchor; `Cmd/Ctrl`-click adds or removes a row. A drag
   that reaches the scroller's edge scrolls it, which the core reads as the user's (a pointer is
-  down on the scroller), so a drag past the bottom unpins nothing: the pointer-down test for a
-  scrollbar drag in step 2 §6 reads `clientX`, and a drag over the rows is outside the gutter.
+  down on the scroller, step 2 §6): a drag past the top unpins, as a scroll up does, and a drag
+  past the bottom moves down, which never unpins.
 - `useSelectionKeyboard`: shift and the arrows grow a selection from the anchor; Escape clears
   it; `Cmd/Ctrl+C` copies. The listener goes on the viewer's scroller, which is already
   `tabIndex={0}`, so the keys reach the viewer that has focus and a second viewer on the page is
