@@ -1,4 +1,5 @@
 // Copyright 2026 The Kstack Authors
+// Copyright 2024 The Kubetail Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -15,8 +16,8 @@
 // The log viewer: the library's core behind a view's props. It builds the view's client
 // once per mount (the caller keys it on the call's id, so a new call is a fresh landing
 // and a re-render of the same call moves nothing), lands at `openAt`, starts pinned as
-// `pinToEnd` says, draws each line as a row, and writes what is on screen into
-// `viewport` for whoever pulls it.
+// `pinToEnd` says, draws each line as a row, and writes what is on screen and what is
+// selected into `viewport` for whoever pulls it.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@kubetail/ui/elements/button';
@@ -28,6 +29,7 @@ import { reportError } from '@/lib/error-bus';
 import {
   type Client,
   type CoreHandle,
+  type CoreRow,
   type CoreRows,
   type Edge,
   type EdgeState,
@@ -46,6 +48,7 @@ import { LogViewerToolbar } from './toolbar';
 import { useMessageWidth } from './message-width';
 import { LogViewerHeader } from './header';
 import { type Column, useLogViewerColumns } from './columns';
+import { hasMultipleSelectedCells, useSelection } from './selection';
 
 export type LogViewerProps = {
   /** The view's cluster, which the client reads. */
@@ -146,16 +149,71 @@ function LoadingOverlay() {
   );
 }
 
+type SelectionBand = { top: number; height: number };
+
+// Kubetail's: one band per run of selected rows on screen, painted behind them, so
+// neighbouring rows leave no seam between their fills.
+function computeSelectionBands(rows: CoreRow[], selectedKeys: Set<number>): SelectionBand[] {
+  const bands: SelectionBand[] = [];
+  let start: CoreRow | null = null;
+  let end: CoreRow | null = null;
+  const flush = () => {
+    if (start && end) bands.push({ top: start.start, height: end.start + end.size - start.start });
+    start = null;
+    end = null;
+  };
+  rows.forEach((row) => {
+    if (!selectedKeys.has(row.key)) {
+      flush();
+      return;
+    }
+    const adjacent = end !== null && row.key === end.key + 1 && Math.abs(row.start - (end.start + end.size)) < 0.5;
+    if (adjacent) {
+      end = row;
+    } else {
+      flush();
+      start = row;
+      end = row;
+    }
+  });
+  flush();
+  return bands;
+}
+
 type RowsProps = {
   rows: CoreRows;
   columns: Column[];
   gridTemplate: string;
   widths: ReturnType<typeof useMeasureWidths>;
   wrap: boolean;
+  scroller: HTMLDivElement | null;
+  onSelectionChange: (lines: LogLine[]) => void;
   onRetry: () => void;
 };
 
-function Rows({ rows, columns, gridTemplate: template, widths, wrap, onRetry }: RowsProps) {
+// Drawn by the core's render function under the landing's key, so a landing — whose keys
+// start again at 0 — mounts a fresh selection.
+function Rows({
+  rows,
+  columns,
+  gridTemplate: template,
+  widths,
+  wrap,
+  scroller,
+  onSelectionChange,
+  onRetry,
+}: RowsProps) {
+  const {
+    selectedKeys,
+    selectionTopKeys,
+    selectionBottomKeys,
+    selectedCells,
+    anchorCell,
+    handleRowMouseDown,
+    handleCellMouseDown,
+  } = useSelection(rows, scroller, columns, onSelectionChange);
+  const isMultiCellSelection = hasMultipleSelectedCells(selectedCells);
+
   // While loading, the overlay over the header and the rows says so.
   let status = null;
   if (rows.failed) {
@@ -181,6 +239,15 @@ function Rows({ rows, columns, gridTemplate: template, widths, wrap, onRetry }: 
         </div>
       )}
       {rows.before.more && <EdgeRow edge="before" state={rows.before} loadMore={rows.loadMore} />}
+      {computeSelectionBands(rows.rows, selectedKeys).map((band) => (
+        <div
+          key={band.top}
+          aria-hidden
+          data-selection-band
+          className="pointer-events-none absolute inset-x-0"
+          style={{ top: band.top, height: band.height, backgroundColor: 'var(--selection-band)' }}
+        />
+      ))}
       {rows.rows.map((row) => (
         <LogViewerRow
           key={row.key}
@@ -196,6 +263,15 @@ function Rows({ rows, columns, gridTemplate: template, widths, wrap, onRetry }: 
           measureCell={widths.measureCell}
           measureRow={widths.measureRow}
           measureElement={wrap ? rows.measureElement : undefined}
+          selected={selectedKeys.has(row.key)}
+          selectionTop={selectionTopKeys.has(row.key)}
+          selectionBottom={selectionBottomKeys.has(row.key)}
+          selectedCellCols={selectedCells.get(row.key)}
+          selectedCellColsAbove={selectedCells.get(row.key - 1)}
+          selectedCellColsBelow={selectedCells.get(row.key + 1)}
+          anchorCol={isMultiCellSelection && anchorCell?.rowKey === row.key ? anchorCell.col : undefined}
+          onRowMouseDown={handleRowMouseDown}
+          onCellMouseDown={handleCellMouseDown}
         />
       ))}
       {rows.after.more && <EdgeRow edge="after" state={rows.after} loadMore={rows.loadMore} />}
@@ -238,19 +314,29 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
     core.current?.measure();
   };
 
+  // The range moves with the store and the selection with the rows; each write carries both.
+  const selection = useRef<LogLine[]>([]);
+  const writeViewport = useCallback(() => {
+    const { range, atEnd, pinnedToEnd, visible } = store.getSnapshot();
+    viewport.set({ range, atEnd, pinnedToEnd, visible, selection: selection.current });
+  }, [store, viewport]);
+  const onSelectionChange = useCallback(
+    (lines: LogLine[]) => {
+      selection.current = lines;
+      writeViewport();
+    },
+    [writeViewport],
+  );
+
   // A closed view leaves no range behind for the composer to pull.
   useEffect(() => {
-    const write = () => {
-      const { range, atEnd, pinnedToEnd, visible } = store.getSnapshot();
-      viewport.set({ range, atEnd, pinnedToEnd, visible, selection: [] });
-    };
-    write();
-    const unsubscribe = store.subscribe(write);
+    writeViewport();
+    const unsubscribe = store.subscribe(writeViewport);
     return () => {
       unsubscribe();
       viewport.set(EMPTY_LOG_VIEWPORT);
     };
-  }, [store, viewport]);
+  }, [store, viewport, writeViewport]);
 
   const muted = 'border-b px-3 py-1 text-xs text-muted-foreground';
   return (
@@ -324,6 +410,8 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
               gridTemplate={template}
               widths={widths}
               wrap={wrap}
+              scroller={scroller}
+              onSelectionChange={onSelectionChange}
               onRetry={() => core.current?.retry()}
             />
           )}

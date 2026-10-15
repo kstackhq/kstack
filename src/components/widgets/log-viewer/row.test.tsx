@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { useEffect, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LogLine } from '@/lib/log-viewer';
 import { type Column, DEFAULT_COLUMNS, dotColor } from './columns';
-import { LOG_ROW_H, LogViewerRow, gridTemplate } from './row';
+import { LOG_ROW_H, LogViewerRow, type LogViewerRowProps, gridTemplate } from './row';
 
 // Built in local time, since the row draws local time.
 const local = (...parts: [number, number, number, number, number, number, number]) => new Date(...parts).toISOString();
@@ -40,14 +40,16 @@ function Row({
   columns = DEFAULT_COLUMNS,
   wrap = false,
   of = line(),
+  ...selection
 }: {
   rowKey?: number;
   columns?: Column[];
   wrap?: boolean;
   of?: LogLine;
-}) {
+} & Partial<LogViewerRowProps>) {
   return (
     <LogViewerRow
+      {...selection}
       line={of}
       rowKey={rowKey}
       columns={columns}
@@ -196,5 +198,82 @@ describe('LogViewerRow', () => {
     act(() => controls.setTop(20));
     expect(row()).toHaveStyle({ transform: 'translateY(20px)' });
     expect(reads).toBe(mounted);
+  });
+});
+
+describe('LogViewerRow selection', () => {
+  it('carries its key and whether it is selected', () => {
+    const { rerender } = render(<Row rowKey={-4} />);
+    expect(row().dataset.rowKey).toBe('-4');
+    expect(row()).toHaveAttribute('aria-selected', 'false');
+    rerender(<Row rowKey={-4} selected />);
+    expect(row()).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it("draws a line at a run's top and bottom edges", () => {
+    const { rerender } = render(<Row selected selectionTop />);
+    expect(row().style.boxShadow).toBe('inset 0 1px 0 0 var(--ring)');
+    rerender(<Row selected selectionBottom />);
+    expect(row().style.boxShadow).toBe('inset 0 -1px 0 0 var(--ring)');
+    rerender(<Row selected selectionTop selectionBottom />);
+    expect(row().style.boxShadow).toBe('inset 0 1px 0 0 var(--ring), inset 0 -1px 0 0 var(--ring)');
+    rerender(<Row selected />);
+    expect(row().style.boxShadow).toBe('');
+  });
+
+  it('makes the position cell a button that selects its row by mouse, Enter or Space', () => {
+    const onRowMouseDown = vi.fn();
+    render(<Row rowKey={2} onRowMouseDown={onRowMouseDown} />);
+    const pos = cellOf('Pos')!;
+    expect(pos).toHaveAttribute('role', 'button');
+    expect(pos).toHaveAttribute('tabindex', '0');
+    fireEvent.mouseDown(pos);
+    fireEvent.keyDown(pos, { key: 'Enter' });
+    fireEvent.keyDown(pos, { key: ' ' });
+    expect(onRowMouseDown).toHaveBeenCalledTimes(3);
+    expect(onRowMouseDown.mock.calls.map((c) => c[0])).toEqual([2, 2, 2]);
+  });
+
+  it("keeps a Space that selects from the scroller's own key listener", () => {
+    const outer = vi.fn();
+    const { container } = render(<Row onRowMouseDown={vi.fn()} onCellMouseDown={vi.fn()} />);
+    container.addEventListener('keydown', outer);
+    fireEvent.keyDown(cellOf('Pos')!, { key: ' ' });
+    fireEvent.keyDown(cellOf('Message')!, { key: ' ' });
+    expect(outer).not.toHaveBeenCalled();
+    fireEvent.keyDown(cellOf('Message')!, { key: 'ArrowDown' });
+    expect(outer).toHaveBeenCalledTimes(1);
+  });
+
+  it('makes every cell but the dot a focusable gridcell that selects by mouse or Enter', () => {
+    const onCellMouseDown = vi.fn();
+    render(<Row rowKey={3} columns={['Pod', 'Dot', 'Message']} onCellMouseDown={onCellMouseDown} />);
+    expect(cellOf('Pod')).toHaveAttribute('role', 'gridcell');
+    expect(cellOf('Pod')).toHaveAttribute('tabindex', '0');
+    expect(cellOf('Dot')).not.toHaveAttribute('role');
+    expect(cellOf('Dot')).not.toHaveAttribute('tabindex');
+    fireEvent.mouseDown(cellOf('Pod')!);
+    fireEvent.keyDown(cellOf('Message')!, { key: 'Enter' });
+    fireEvent.mouseDown(cellOf('Dot')!);
+    expect(onCellMouseDown.mock.calls.map((c) => [c[0], c[1]])).toEqual([
+      [3, 'Pod'],
+      [3, 'Message'],
+    ]);
+  });
+
+  it('draws the overlay over its selected cells, with the anchor marked', () => {
+    const { rerender } = render(<Row />);
+    expect(row().querySelector('[data-overlay-col]')).toBeNull();
+    rerender(<Row selectedCellCols={new Set(['Message'])} anchorCol="Message" />);
+    expect(row().querySelector('[data-overlay-col="Message"]')).toHaveAttribute('data-overlay-anchor', 'true');
+  });
+
+  it('offers to copy a cell on right-click', async () => {
+    // The menu opens on its own timers.
+    vi.useRealTimers();
+    render(<Row />);
+    fireEvent.contextMenu(cellOf('Message')!);
+    await waitFor(() => expect(screen.getByRole('menu')).toBeInTheDocument());
+    expect(screen.getByText('Copy message')).toBeInTheDocument();
   });
 });

@@ -1,7 +1,7 @@
 ---
 title: Select and copy
 scope: frontend
-status: Planned
+status: Built
 ---
 
 # Select and copy
@@ -23,7 +23,7 @@ viewer's `LogViewport`, in order, so a later rung can attach them to a question.
 
 **This step is a port of kubetail's selection.** `selection.ts`, `selection-overlay.tsx`,
 `context-menu.tsx`, and the band and edge drawing in `main.tsx` copy across with their logic
-unchanged. They change in only four ways: jotai becomes React state, kubetail's virtualizer
+unchanged. They change in only four ways: jotai becomes a small store per hook, kubetail's virtualizer
 becomes the core's `CoreRows`, the keyboard listens on the scroller instead of `document`, and
 text-select mode is left out. Every other place this step differs from kubetail is named where
 it happens, with its reason.
@@ -48,7 +48,8 @@ it happens, with its reason.
 
 ### 1. What a selection is
 
-Kubetail's state, as `useState` in one hook instead of jotai atoms (`state.ts`):
+Kubetail's state (`state.ts`), in a small store the hook holds instead of jotai atoms, so
+each handler reads what the last one wrote in the same event, as kubetail's `store.get` does:
 
 - **Rows**: `selectedKeys: Set<number>`, and `lastClickedKey`, the key shift-click extends from.
 - **Cells**: `selectedCells: Map<number, Set<Column>>`, and `anchorCell`, which is always a
@@ -92,7 +93,7 @@ It also holds the hooks:
   clears the selection unless something already handled it; `Cmd/Ctrl+C` copies the cells,
   else the rows; an arrow with no modifier moves the anchor cell one cell and selects only that
   cell. An arrow with no cell selected is not handled, so it scrolls.
-- `useSelection(rows, scroller, columns)`, which puts all of these together.
+- `useSelection(rows, scroller, columns, onLines)`, which puts all of these together.
 
 **Where it is called.** `Rows` in `log-viewer.tsx` calls `useSelection`. `Rows` is what the
 core's render function returns, so it gets `rows: CoreRows` directly and is remounted for each
@@ -123,8 +124,10 @@ This is kubetail's drawing, copied from `main.tsx` and `selection-overlay.tsx`.
   arithmetic would draw the ring the wrong width.
 - **The row** gains `data-row-key` and `aria-selected`. The position cell gains
   `role="button"`, `tabIndex={0}`, a mouse down that selects its row, and an Enter or Space
-  that acts like that mouse down. **That key handler stops propagation.** The scroller's intent
-  reader treats Space as a scroll down, and at the bottom it would pin. Each cell but the dot
+  that acts like that mouse down. **That key handler runs in the capture phase and stops
+  propagation.** The scroller's intent reader treats Space as a scroll down, and at the bottom
+  it would pin. React runs capture handlers before the scroller's own listener, and bubble
+  handlers after it. Each cell but the dot
   gains `role="gridcell"`, `tabIndex={0}` and the same Enter and Space handling. The dot takes
   no selection, no context menu, and nothing of it is copied.
 - **The row memo** gains kubetail's selection props: `selected`, `selectionTop`,
@@ -139,7 +142,8 @@ mark uses `bg-primary` in place of kubetail's `bg-blue-500`, so it stays in the 
 ### 4. Copying
 
 - **What a cell's text is.** `getPlainAttribute` returns the cell's text as the cell draws it:
-  the timestamp through `lineTime`, the pod, the container and the place fields as they are,
+  the timestamp through `lineTime` (moved to `log-viewer/line-time.ts`, since the row now
+  imports the selection), the pod, the container and the place fields as they are,
   and the message as it is. It returns the raw string, not the `VisibleText` spelling.
 - **`Cmd/Ctrl+C`.** This is kubetail's handler. For cells, `formatCellsForCopy` writes, for
   each row in key order, that row's selected cells in column order, joined by tabs. For rows,
@@ -195,14 +199,14 @@ copyright lines, per the README's *Attribution*. So does `log-viewer.tsx` and `r
 they carry kubetail's bands and edge shadow. The viewport write is kstack's alone.
 
 1. **The selection.** `log-viewer/selection.ts` and `selection.test.tsx`, ported from
-   kubetail's (§1, §2). **Planned.**
+   kubetail's (§1, §2). **Built.**
 2. **Drawing.** The bands in `log-viewer.tsx`; the row's attributes, edge shadow, handlers and
    memo props in `row.tsx`; `log-viewer/selection-overlay.tsx`; `--selection-band` in
-   `index.css` (§3). **Planned.**
-3. **Copying.** The keyboard copy in the hook; `log-viewer/context-menu.tsx` (§4). **Planned.**
+   `index.css` (§3). **Built.**
+3. **Copying.** The keyboard copy in the hook; `log-viewer/context-menu.tsx` (§4). **Built.**
 4. **The viewport.** `onSelectionChange` from `Rows` to the viewport write in `log-viewer.tsx`
-   (§5). **Planned.**
-5. **Docs.** Root `CLAUDE.md`, per *When it lands*. **Planned.**
+   (§5). **Built.**
+5. **Docs.** Root `CLAUDE.md`, per *When it lands*. **Built.**
 
 ## Tests
 
