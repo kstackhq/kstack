@@ -603,4 +603,129 @@ describe('LogViewer', () => {
       'Message',
     ]);
   });
+
+  describe('selection', () => {
+    const rowOf = (text: string, root: ParentNode = document) =>
+      [...root.querySelectorAll<HTMLElement>('[data-testid="log-row"]')].find((row) =>
+        row.textContent?.includes(text),
+      )!;
+    const posOf = (text: string, root?: ParentNode) =>
+      rowOf(text, root).querySelector<HTMLElement>('[data-col="Pos"]')!;
+    const cellOf = (text: string, col: string) => rowOf(text).querySelector<HTMLElement>(`[data-col="${col}"]`)!;
+    const scrollerIn = (root: ParentNode) => root.querySelector<HTMLElement>(SCROLLER)!;
+    const bands = () => document.querySelectorAll<HTMLElement>('[data-selection-band]');
+
+    beforeEach(() => {
+      Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
+    });
+
+    async function landed() {
+      const s = scripted();
+      const view = mount();
+      await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
+      return { s, ...view };
+    }
+
+    function selectRows(from: string, to: string) {
+      fireEvent.mouseDown(posOf(from));
+      fireEvent.mouseUp(document);
+      fireEvent.mouseDown(posOf(to), { shiftKey: true });
+    }
+
+    it('paints one band behind a run of selected rows, and outlines its ends', async () => {
+      await landed();
+      selectRows('line 17', 'line 19');
+      expect(bands()).toHaveLength(1);
+      expect(bands()[0].style.height).toBe(`${3 * LOG_ROW_PX}px`);
+      expect(rowOf('line 17')).toHaveAttribute('aria-selected', 'true');
+      expect(rowOf('line 17').style.boxShadow).toBe('inset 0 1px 0 0 var(--ring)');
+      expect(rowOf('line 19').style.boxShadow).toBe('inset 0 -1px 0 0 var(--ring)');
+    });
+
+    it('rings a selected cell', async () => {
+      await landed();
+      fireEvent.mouseDown(cellOf('line 18', 'Message'));
+      fireEvent.mouseUp(document);
+      expect(rowOf('line 18').querySelector('[data-overlay-col="Message"]')).not.toBeNull();
+    });
+
+    it('copies the selected rows on Cmd+C as tab-separated lines', async () => {
+      const { container } = await landed();
+      selectRows('line 18', 'line 19');
+      fireEvent.keyDown(scrollerIn(container), { key: 'c', metaKey: true });
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith('09:00:18.000\tline 18\n09:00:19.000\tline 19');
+    });
+
+    it('reports a refused copy to the error bus', async () => {
+      vi.mocked(navigator.clipboard.writeText).mockRejectedValue(new Error('denied'));
+      const { container } = await landed();
+      selectRows('line 19', 'line 19');
+      fireEvent.keyDown(scrollerIn(container), { key: 'c', metaKey: true });
+      await act(async () => {});
+      expect(reportError).toHaveBeenCalledWith(expect.objectContaining({ message: 'log viewer: copy: denied' }));
+    });
+
+    it('puts the selected lines in the viewport, in order, and empties it on Escape', async () => {
+      const { container, viewport } = await landed();
+      fireEvent.mouseDown(posOf('line 19'));
+      fireEvent.mouseUp(document);
+      fireEvent.mouseDown(posOf('line 16'), { metaKey: true });
+      expect(viewport.get().selection).toEqual([line(16), line(19)]);
+      expect(viewport.get().pinnedToEnd).toBe(true);
+
+      fireEvent.keyDown(scrollerIn(container), { key: 'Escape' });
+      expect(viewport.get().selection).toEqual([]);
+    });
+
+    it("puts a block of cells' lines in the viewport", async () => {
+      const { viewport } = await landed();
+      fireEvent.mouseDown(cellOf('line 17', 'Message'));
+      fireEvent.mouseUp(document);
+      fireEvent.mouseDown(cellOf('line 18', 'Timestamp'), { shiftKey: true });
+      expect(viewport.get().selection).toEqual([line(17), line(18)]);
+    });
+
+    it('clears the selection with a jump, and the viewport with it', async () => {
+      const { s, viewport } = await landed();
+      selectRows('line 18', 'line 19');
+      expect(viewport.get().selection).toHaveLength(2);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Jump to the end' }));
+      await frame();
+      await answer(s.last(), page(0, 20, { before: START, after: END }));
+      expect(bands()).toHaveLength(0);
+      expect(viewport.get().selection).toEqual([]);
+    });
+
+    it('copies only the viewer the key reached', async () => {
+      const s = scripted();
+      const a = mount();
+      const b = mount();
+      await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
+      await answer(s.fetches[1], page(0, 20, { before: START, after: END }));
+
+      fireEvent.mouseDown(posOf('line 19', a.container));
+      fireEvent.mouseUp(document);
+      fireEvent.mouseDown(posOf('line 18', b.container));
+      fireEvent.mouseUp(document);
+
+      fireEvent.keyDown(scrollerIn(a.container), { key: 'c', metaKey: true });
+      expect(navigator.clipboard.writeText).toHaveBeenCalledTimes(1);
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith('09:00:19.000\tline 19');
+      expect(b.viewport.get().selection).toEqual([line(18)]);
+    });
+
+    it('selects with Space on a position cell without reading it as a scroll to the bottom', async () => {
+      const s = scripted();
+      const { viewport } = mount(action({ anchor: { kind: 'Head', at: null }, pinToEnd: false }));
+      await answer(s.fetches[0], page(0, 5, { before: START, after: END }));
+      // A short Head landing sits at the bottom, unpinned, paging after.
+      expect(s.last().query).toMatchObject({ mode: 'Head', cursor: 'live-end' });
+
+      fireEvent.keyDown(posOf('line 4'), { key: ' ' });
+      await answer(s.last(), page(5, 5, { before: { cursor: 'live-end', more: true }, after: END }));
+      expect(viewport.get().selection).toEqual([line(4)]);
+      expect(viewport.get().pinnedToEnd).toBe(false);
+    });
+  });
 });

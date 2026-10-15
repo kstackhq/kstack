@@ -686,8 +686,11 @@ function useIntent(
       if (event.key === 'Home') logWindow.scrolledUp();
       else if (event.key === 'End' || (down && atBottom())) reachedBottom();
     };
+    // A pointer down on the lines is the user's hand on them, which the pin yields to at once:
+    // a row clicked while pinned would otherwise scroll away as lines arrive.
     const onPointerDown = () => {
       pointerDown = true;
+      logWindow.scrolledUp();
     };
     const onPointerEnd = () => {
       pointerDown = false;

@@ -33,8 +33,8 @@ Its rules, one each:
 
 - **Keys are stable.** Key 0 is where the view landed, and a prepend lowers nothing held.
 - **Only a `Tail` landing pins**, and only with `pinToEnd`. After that the pin is the user's
-  hand: a scroll up unpins, and a scroll to the bottom pins once the page it asks for finds no
-  more.
+  hand: a scroll up or a pointer down on the lines unpins, and a scroll to the bottom pins once
+  the page it asks for finds no more.
 - **Following is derived**: landed, pinned, not paused, not ended. Frames that arrive while not
   following are dropped.
 - **A window that is not following is behind**: its after edge always has more. A paused one
@@ -61,8 +61,8 @@ the window what the DOM and the client did and performs what the window answers.
 - **The follow is open exactly while the window follows**, its frames handed over once per
   animation frame, or after 250 ms when no frame comes.
 - **Intent comes from input events.** A scroll is the user's within 150 ms of a wheel or a
-  scrolling key on the scroller, or while a pointer or a touch is down on it. Only the pin is
-  read off it.
+  scrolling key on the scroller, or while a pointer or a touch is down on it, and a pointer down
+  unpins by itself. Only the pin is read off it.
 - **Answers are state**, so each brings its own commit, performed in the layout effect after
   it: a hold keeps the first visible row by its key, `toEnd`, and `toKey` through
   `scrollToIndex`. While following, every commit that changes the sizer and every resize keeps

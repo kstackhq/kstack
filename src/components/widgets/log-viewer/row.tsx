@@ -1,4 +1,5 @@
 // Copyright 2026 The Kstack Authors
+// Copyright 2024 The Kubetail Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -14,37 +15,25 @@
 
 // One log line as a row: its position from where the view landed, then the columns the user
 // picked, as a grid. Every cell but the position and the dot is cluster text, so each goes
-// through `VisibleText`. It is memoized over primitives, the line's own object and the column
-// state's, so a frame that adds a line draws the new row alone, and a prepend that moves every
-// row re-renders them without laying them out again.
-import { type ReactNode, memo } from 'react';
+// through `VisibleText`. It is memoized over primitives, the line's own object, the column
+// state's and its share of the selection, so a frame that adds a line draws the new row
+// alone, and a prepend that moves every row re-renders them without laying them out again.
+import { type KeyboardEvent, type MouseEvent, memo } from 'react';
 
 import { cn } from '@kubetail/ui/lib/utils';
 
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { LogLine } from '@/lib/log-viewer';
 import { type Column, dotColor } from './columns';
+import { CellContextMenu } from './context-menu';
+import { getPlainAttribute } from './selection';
+import { SelectionOverlay } from './selection-overlay';
 import { POS_MIN_PX, type WidthKey } from './widths';
 
 /** The class every row and edge row carries: kubetail's row height, its line height with it. */
 export const LOG_ROW_H = 'h-6';
 /** `LOG_ROW_H` in pixels, read off a rendered row: jsdom has no layout to check it against. */
 export const LOG_ROW_PX = 24;
-
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-
-const pad = (n: number, width = 2) => String(n).padStart(width, '0');
-
-// Local time, with the date before it for a line not from today. The wire allows nine
-// fraction digits, and how many `Date` parses is the engine's choice, so it gets three.
-export function lineTime(timestamp: string): string {
-  const at = new Date(timestamp.replace(/(\.\d{3})\d+/, '$1'));
-  const now = new Date();
-  const time = `${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}.${pad(at.getMilliseconds(), 3)}`;
-  const today =
-    at.getFullYear() === now.getFullYear() && at.getMonth() === now.getMonth() && at.getDate() === now.getDate();
-  return today ? time : `${MONTHS[at.getMonth()]} ${at.getDate()} ${time}`;
-}
 
 /**
  * The grid every row and the header share: the position, a track per column, the message
@@ -60,27 +49,6 @@ export const gridTemplate = (columns: Column[]) =>
 export function cellStyle(widths: Map<WidthKey, number>, key: WidthKey) {
   const px = widths.get(key);
   return px ? { minWidth: px } : undefined;
-}
-
-function cellText(line: LogLine, col: Exclude<Column, 'Dot' | 'Message'>): string {
-  switch (col) {
-    case 'Timestamp':
-      return lineTime(line.timestamp);
-    case 'Pod':
-      return line.stream.pod;
-    case 'Container':
-      return line.stream.container;
-    case 'Node':
-      return line.place.node;
-    case 'Region':
-      return line.place.region;
-    case 'Zone':
-      return line.place.zone;
-    case 'OS':
-      return line.place.os;
-    default:
-      return line.place.arch;
-  }
 }
 
 // A container's colour, drawn inline so no CSS name is built from cluster text. The dot is
@@ -101,6 +69,26 @@ function Dot({ line }: { line: LogLine }) {
   );
 }
 
+// A run of selected rows is outlined at its first row's top and its last row's bottom.
+function selectionBoxShadow(isTop: boolean, isBottom: boolean): string | undefined {
+  if (isTop && isBottom) return 'inset 0 1px 0 0 var(--ring), inset 0 -1px 0 0 var(--ring)';
+  if (isTop) return 'inset 0 1px 0 0 var(--ring)';
+  if (isBottom) return 'inset 0 -1px 0 0 var(--ring)';
+  return undefined;
+}
+
+type Press = MouseEvent | KeyboardEvent;
+
+// Enter and Space act as the mouse down. They are taken in the capture phase, which React
+// runs before the scroller's own key listener, so the scroller never reads a Space that
+// selected as a scroll down — at the bottom, that would pin.
+const pressOnKey = (press: (event: KeyboardEvent) => void) => (event: KeyboardEvent) => {
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  event.preventDefault();
+  event.stopPropagation();
+  press(event);
+};
+
 export type LogViewerRowProps = {
   line: LogLine;
   /** The core's key: 0 where the view landed, counting down before it and up after. */
@@ -120,6 +108,19 @@ export type LogViewerRowProps = {
   measureCell?: (el: HTMLElement | null) => void;
   measureRow?: (el: HTMLElement | null) => void;
   measureElement?: (el: Element | null) => void;
+  selected?: boolean;
+  /** The first row of a run of selected rows. */
+  selectionTop?: boolean;
+  /** The last row of a run of selected rows. */
+  selectionBottom?: boolean;
+  /** The columns selected in this row, and in the rows above and below it, for the overlay's edges. */
+  selectedCellCols?: Set<Column>;
+  selectedCellColsAbove?: Set<Column>;
+  selectedCellColsBelow?: Set<Column>;
+  /** The anchor's column when it is in this row and more than one cell is selected. */
+  anchorCol?: Column;
+  onRowMouseDown?: (key: number, event: Press) => void;
+  onCellMouseDown?: (key: number, col: Column, event: Press) => void;
 };
 
 export const LogViewerRow = memo(
@@ -136,6 +137,15 @@ export const LogViewerRow = memo(
     measureCell,
     measureRow,
     measureElement,
+    selected = false,
+    selectionTop = false,
+    selectionBottom = false,
+    selectedCellCols,
+    selectedCellColsAbove,
+    selectedCellColsBelow,
+    anchorCol,
+    onRowMouseDown,
+    onCellMouseDown,
   }: LogViewerRowProps) => {
     const landed = rowKey === 0;
 
@@ -143,28 +153,37 @@ export const LogViewerRow = memo(
       // A wrapped message takes what is left of the row and as many lines as it needs, so
       // neither its width nor the row's is measured. `min-w-0` lets its track shrink below an
       // unbroken token's width, which `break-word` alone does not.
-      if (col === 'Message' && wrap) {
-        return (
-          <div key={col} data-col={col} className="min-w-0 px-2 whitespace-pre-wrap wrap-break-word">
-            <VisibleText text={line.message} />
-          </div>
-        );
-      }
-      let content: ReactNode;
-      if (col === 'Dot') content = <Dot line={line} />;
-      else if (col === 'Message') content = <VisibleText text={line.message} />;
-      else content = <VisibleText text={cellText(line, col)} />;
-      return (
+      const wrapped = col === 'Message' && wrap;
+      // The dot takes no selection and no menu; every other cell is a `gridcell` with both.
+      const dot = col === 'Dot';
+      // What is measured is the content, so it is an inline-block of its own; the dot's already
+      // is, and a wrapped message is not measured.
+      const content = dot ? <Dot line={line} /> : <VisibleText text={getPlainAttribute(line, col)} />;
+      const cell = (
         <div
           key={col}
-          ref={measureCell}
+          ref={wrapped ? undefined : measureCell}
           data-col={col}
-          className={cn('px-2', col === 'Message' ? 'whitespace-pre' : 'whitespace-nowrap text-muted-foreground')}
-          style={cellStyle(widths, col)}
+          role={dot ? undefined : 'gridcell'}
+          tabIndex={dot ? undefined : 0}
+          onMouseDown={dot ? undefined : (e) => onCellMouseDown?.(rowKey, col, e)}
+          onKeyDownCapture={dot ? undefined : pressOnKey((e) => onCellMouseDown?.(rowKey, col, e))}
+          className={cn(
+            'cursor-default px-2 outline-none select-none',
+            wrapped && 'min-w-0 whitespace-pre-wrap wrap-break-word',
+            !wrapped && (col === 'Message' ? 'whitespace-pre' : 'whitespace-nowrap text-muted-foreground'),
+          )}
+          style={wrapped ? undefined : cellStyle(widths, col)}
         >
-          {/* The content is what is measured, so it is an inline-block of its own; the dot's already is. */}
-          {col === 'Dot' ? content : <span className="inline-block">{content}</span>}
+          {dot || wrapped ? content : <span className="inline-block">{content}</span>}
         </div>
+      );
+      return dot ? (
+        cell
+      ) : (
+        <CellContextMenu key={col} col={col} line={line}>
+          {cell}
+        </CellContextMenu>
       );
     });
 
@@ -176,16 +195,21 @@ export const LogViewerRow = memo(
         }}
         data-testid="log-row"
         data-index={index}
+        data-row-key={rowKey}
+        role="row"
+        aria-selected={selected}
         style={{
           gridTemplateColumns: template,
           minWidth: wrap ? '100%' : rowWidth || '100%',
           ...(top === undefined ? {} : { transform: `translateY(${top}px)` }),
+          boxShadow: selectionBoxShadow(selectionTop, selectionBottom),
         }}
         className={cn(
           // The font and its size are the scroller's, inherited.
           'grid leading-6',
           wrap ? '' : LOG_ROW_H,
-          top === undefined ? '' : 'absolute top-0 left-0',
+          // The overlay is positioned against the row.
+          top === undefined ? 'relative' : 'absolute top-0 left-0',
         )}
       >
         {/* The sign is its own span, larger, so `+` and `-` read at a glance beside the digits.
@@ -193,8 +217,12 @@ export const LogViewerRow = memo(
         <div
           ref={measureCell}
           data-col="Pos"
+          role="button"
+          tabIndex={0}
+          onMouseDown={(e) => onRowMouseDown?.(rowKey, e)}
+          onKeyDownCapture={pressOnKey((e) => onRowMouseDown?.(rowKey, e))}
           className={cn(
-            'cursor-default pr-1.5 text-center text-[0.65rem] whitespace-nowrap tabular-nums select-none',
+            'cursor-default pr-1.5 text-center text-[0.65rem] whitespace-nowrap tabular-nums outline-none select-none',
             landed ? 'border-l-2 border-primary pl-[7px] font-extrabold' : 'text-muted-foreground',
           )}
           style={cellStyle(widths, 'Pos')}
@@ -205,6 +233,16 @@ export const LogViewerRow = memo(
           </span>
         </div>
         {cells}
+        {selectedCellCols && (
+          <SelectionOverlay
+            selectedCols={selectedCellCols}
+            selectedColsAbove={selectedCellColsAbove}
+            selectedColsBelow={selectedCellColsBelow}
+            anchorCol={anchorCol}
+            columns={columns}
+            widths={widths}
+          />
+        )}
       </div>
     );
   },
