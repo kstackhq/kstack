@@ -37,6 +37,7 @@ import { useActiveCluster } from '@/lib/active-cluster';
 import { useActiveKubeContext } from '@/lib/active-kube-context';
 import { useDialog } from '@/lib/dialog';
 import { tlsUnverifiedReason } from '@/lib/kube-config';
+import { useLogsView } from '@/lib/logs-view';
 import { useMemories } from '@/lib/memories';
 
 const UNVERIFIED_TLS_TITLE: Record<'skip-verify' | 'plain-http', string> = {
@@ -113,6 +114,7 @@ function ClusterDot() {
 function ClusterSegment() {
   const { context, active, contexts, phase } = useActiveKubeContext();
   const navigate = useNavigate();
+  const { clear: clearView } = useLogsView();
   // Subscribed via `useLocation` (re-renders per navigation): the bar stays mounted
   // across every navigation, and `useMatchRoute` would read stale until a reload.
   const pathname = useLocation({ select: (location) => location.pathname });
@@ -120,11 +122,13 @@ function ClusterSegment() {
 
   // Not `setContext`: a chat belongs to a cluster, so a switch leaves whichever chat
   // the window is on — the dashboard panel's `chat` param, and chat mode's open chat,
-  // which is the route itself. The out-of-scope notice is for arriving at such a chat
-  // (a deep link, Back), never for stepping off one.
+  // which is the route itself — and the log view that chat focused. The out-of-scope
+  // notice is for arriving at such a chat (a deep link, Back), never for stepping off one.
   const openChat = pathname.startsWith('/chat/');
-  const select = (name: string) =>
+  const select = (name: string) => {
+    clearView();
     navigate({ to: openChat ? '/chat' : '.', search: (prev) => ({ ...prev, kubeContext: name, chat: undefined }) });
+  };
 
   if (contexts.length === 0) {
     // Split the reason so a stalled initial dial doesn't read as a permanent

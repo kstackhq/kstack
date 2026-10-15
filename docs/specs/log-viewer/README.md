@@ -346,7 +346,7 @@ Fixed here so the steps agree. Go paths are under `sidecar/internal/`.
   before it has been sent.
 - **The client**: an object with the two methods of the `Client` type, built from a cluster id
   and a `LogsViewAction` by `createLogsClient` in `src/lib/logs-client.ts`, which answers it
-  with a `close` its mount calls. The fake, in this sequence.
+  with a `start` its mount calls and whose stop its unmount runs. The fake, in this sequence.
 - **The fake**: `FakeClient` in `src/lib/log-viewer/fake-client.ts`, a `Client` over a log it
   invents, with knobs for what the real wire does to a viewer.
 - **The window**: `LogWindow` in `src/lib/log-viewer/window.ts`, which keeps the lines and

@@ -16,19 +16,21 @@
 // resolved, held beside the right sidebar's state. It is chrome, not what the window
 // is looking at, so it is out of the URL and not persisted: a new window opens with
 // none. `set` also opens the right sidebar, since a view set with the panel closed is
-// a view nobody sees. `viewer` is the store the viewer writes its state into, one
+// a view nobody sees. `viewport` is where the viewer writes what is on screen, one
 // per window, which the composer pulls at send.
 import { createContext, useContext, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import type { ChatToolCall } from '@/lib/chats';
-import type { ViewerStore } from '@/lib/log-viewer-store';
-import { createViewerStore } from '@/lib/log-viewer-store';
+import type { LogViewportHandle } from '@/lib/log-viewport';
+import { createLogViewportHandle } from '@/lib/log-viewport';
 import { useRightSidebar } from '@/lib/right-sidebar';
 
 export type LogsViewAction = NonNullable<NonNullable<ChatToolCall['action']>['logsView']>;
 
 export type LogsView = {
+  /** The chat's cluster: the action does not carry it, and the client reads it. */
+  clusterId: string;
   chatId: string;
   callId: string;
   action: LogsViewAction;
@@ -38,14 +40,14 @@ type LogsViewContextValue = {
   view: LogsView | null;
   set: (view: LogsView) => void;
   clear: () => void;
-  viewer: ViewerStore;
+  viewport: LogViewportHandle;
 };
 
 const LogsViewContext = createContext<LogsViewContextValue | null>(null);
 
 export function LogsViewProvider({ children }: { children: ReactNode }) {
   const [view, setView] = useState<LogsView | null>(null);
-  const [viewer] = useState(createViewerStore);
+  const [viewport] = useState(createLogViewportHandle);
   const { show } = useRightSidebar();
   const value = useMemo<LogsViewContextValue>(
     () => ({
@@ -55,9 +57,9 @@ export function LogsViewProvider({ children }: { children: ReactNode }) {
         show();
       },
       clear: () => setView(null),
-      viewer,
+      viewport,
     }),
-    [view, show, viewer],
+    [view, show, viewport],
   );
   return <LogsViewContext.Provider value={value}>{children}</LogsViewContext.Provider>;
 }

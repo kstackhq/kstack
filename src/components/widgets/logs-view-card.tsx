@@ -15,7 +15,8 @@
 // where it opened, the model's description, the receipt it read, and Expand,
 // which makes this call the focused view. The focused call's card says so in
 // Expand's place, and on the dashboard, which has no panel for a view yet, there
-// is no Expand at all.
+// is no Expand at all. Expand waits for the chat's cluster, so a view is never
+// focused without it.
 import { Button } from '@kubetail/ui/elements/button';
 
 import { anchorLine, SourceLine } from '@/components/widgets/logs-view-lines';
@@ -31,11 +32,14 @@ export function LogsViewCard({
   call,
   action,
   chatID,
+  clusterID,
   mode,
 }: {
   call: ChatToolCall;
   action: LogsViewAction;
   chatID: string;
+  /** The chat's cluster. Undefined until the list watch delivers the chat. */
+  clusterID: string | undefined;
   mode: AppMode;
 }) {
   const { view, set } = useLogsView();
@@ -77,7 +81,10 @@ export function LogsViewCard({
             variant="outline"
             size="sm"
             className="shrink-0"
-            onClick={() => set({ chatId: chatID, callId: call.id, action })}
+            disabled={clusterID === undefined}
+            onClick={() => {
+              if (clusterID !== undefined) set({ clusterId: clusterID, chatId: chatID, callId: call.id, action });
+            }}
           >
             Expand
           </Button>

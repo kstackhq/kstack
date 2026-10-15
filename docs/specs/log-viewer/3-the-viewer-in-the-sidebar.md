@@ -1,7 +1,7 @@
 ---
 title: The viewer in the sidebar
 scope: frontend
-status: Planned
+status: Built
 ---
 
 # The viewer in the sidebar
@@ -40,7 +40,7 @@ puts the core behind the props the sidebar already mounts it by.
 `src/lib/logs-client.ts`:
 
 ```ts
-export type LogsClient = { client: Client; close: () => void };
+export type LogsClient = { client: Client; start: () => () => void };
 
 export function createLogsClient(clusterId: string, action: LogsViewAction): LogsClient;
 ```
@@ -54,19 +54,19 @@ The log is 5,000 lines two seconds apart, ending now, growing at 2 a second, eac
 and paging and following both show on screen with no page instant. `clusterId` is taken and
 unused, since the real client needs it and the panel passes it either way.
 
-`close` stops the fake's timer. The real client's will cancel nothing the core has not already
-cancelled, but the seam has it so that swapping the client changes no caller.
+`start` begins what the client does on its own and answers its stop. The fake is built with no
+`rate`: `start` sets the interval that appends a line every 500 ms, and the stop clears it. The
+real client's will do nothing, but the seam has it so that swapping the client changes no caller.
 
 **The fake spaces its history.** `FakeClientOptions` gains `spacingMs`: how far apart the
 lines the fake starts with are stamped, 1 by default, so every existing test keeps its log.
 This is the one change to `fake-client.ts`.
 
-**The viewer owns the client's life.** It builds the client in an effect on mount, holds it in
-state, and calls `close` in that effect's cleanup. Until the client is set it draws the spinner.
-The viewer is keyed on the call's id, so a new call is a new client and a re-render of the same
-call keeps it. StrictMode's second run builds a second client after closing the first, so no
-timer outlives its mount; a client built in render or in a `useState` initializer would leak the
-one StrictMode throws away.
+**The viewer owns the client's life.** It builds the client in a `useState` initializer and
+calls `start` in an effect, whose cleanup runs the stop. The viewer is keyed on the call's id, so
+a new call is a new client and a re-render of the same call keeps it. A client built that way
+holds no timer until it starts, so the copy StrictMode's double render throws away leaks
+nothing, and StrictMode's start, stop, start leaves one timer running.
 
 ### 2. The viewport
 
@@ -109,8 +109,8 @@ without the tag a reader could take the fake's lines for the cluster's.
 
 `src/components/widgets/log-viewer.tsx` becomes the composition:
 
-- Builds the client from `clusterId` and `query`, once per mount, and closes it on unmount
-  (§1). The core gets it wrapped (§5).
+- Builds the client from `clusterId` and `query`, once per mount, starts it once mounted and
+  stops it on unmount (§1). The core gets it wrapped (§5).
 - Hands `openAt` to the core as its `anchor` and passes `pinToEnd`. The two shapes are the same,
   so there is nothing to map.
 - Sets `firstPageSize` to 300 and `pageSize` to 250, and `edgeRowHeight` and
@@ -122,7 +122,9 @@ without the tag a reader could take the fake's lines for the cluster's.
   pod, muted, with its container after a `/` when it does; then the message. Every cell through
   `VisibleText`, mono, `whitespace-pre`, no wrap. The row at key 0 — where the view landed — has
   a left border. The row is its own file so that a card with no scroller (rung 2 of the ladder)
-  draws the same row over the same client without the core.
+  draws the same row over the same client without the core. It is memoized over its line and
+  `top`, and placed by `translateY`, so a frame that adds a line draws the new row alone and a
+  prepend that moves every row lays none out again.
 - **The time** is in the window's local zone: `HH:mm:ss.SSS` for a line written today, and
   `MMM d HH:mm:ss.SSS` for any other day, so a view of yesterday never reads as today. The
   timestamp's fraction is cut to three digits before it is parsed, since the wire allows nine
@@ -160,9 +162,8 @@ columns have widths of their own.
 `loading`: the edge has `more` and a page that way holds a ticket. `edges()` reads it off the
 tickets the window already keeps. Each method that sets or clears a ticket emits: `startPage`
 and `pageFailed` gain the call, and `paged`, `landed`, `setPaused` and `followOpened` already
-make it or leave the after edge with no `more`. `more` is in the rule because a window that
-pins holds its after ticket until `followOpened` runs a commit later, while `edges()` already
-answers `NO_MORE` that way. This is the one change to the core.
+make it or leave the after edge with no `more`. `more` is in the rule so an edge never says both
+that nothing is that way and that a page is coming. This is the one change to the core.
 
 ### 5. Errors
 
@@ -172,7 +173,7 @@ for a follow, since the real client will put the sidecar's reason there.
 
 The core's `onError` cannot draw that line: it reports once per run of failures, does not say
 what failed, and nothing reports a success. So the viewer hands the core the client wrapped
-(`watchClient`, in `log-viewer.tsx`, built with the client in the same effect):
+(`watchClient`, in `log-viewer.tsx`, built with the client in the same initializer):
 
 - a `fetch` that rejects records *Could not load more lines.*;
 - a `follow` that throws records the error's message and throws it on, so the core still
@@ -201,9 +202,10 @@ of the bus.
 - **`clusterId` on the focused view.** The action does not carry the cluster, and the panel has
   to say which one.
 - **Local time, no setting.** A setting is kubetail's; nobody has asked for it here.
-- **The client has a `close`.** The fake runs a timer, and a `Client` has no way to stop one.
-  `close` is on what `createLogsClient` answers, not on `Client`: the core never ends a client,
-  its mount does.
+- **The client has a `start`.** The fake runs a timer, and a `Client` has no way to start or
+  stop one. `start` is on what `createLogsClient` answers, not on `Client`: the core never runs a
+  client's timer, its mount does. A `close` called from an effect's cleanup needs the client
+  built in that effect and set into state, which `react-hooks/set-state-in-effect` refuses.
 - **The viewer wraps the client to see errors.** The core reports a failure once and never a
   success, and it stays as built. What the viewer draws about errors is the viewer's, so it
   watches the client itself.
@@ -226,20 +228,20 @@ of the bus.
 Every file is kstack's alone.
 
 1. **The client.** `spacingMs` on `FakeClientOptions` and its test; `src/lib/logs-client.ts`
-   and its test (§1). **Planned.**
+   and its test (§1). **Done.**
 2. **The viewport.** `src/lib/log-viewport.ts` and its test; `logs-view.tsx` and the panel renamed
-   to it (§2). **Planned.**
+   to it (§2). **Done.**
 3. **The cluster and the tag.** `clusterId` on `LogsView`; `clusterID` on `LogsViewCard`, from
    `ChatTranscript` through `ToolCalls` and `AgentBody`, gating Expand and riding the card's
    `set`; on `LogViewerProps` and the panel's mount; the omnibox's switch clearing the view;
-   *Fake lines* in the panel's header (§3). **Planned.**
-4. **The row.** `src/components/widgets/log-viewer-row.tsx` and its test (§4). **Planned.**
+   *Fake lines* in the panel's header (§3). **Done.**
+4. **The row.** `src/components/widgets/log-viewer-row.tsx` and its test (§4). **Done.**
 5. **The edges in flight.** `loading` on `EdgeState` in `src/lib/log-viewer/window.ts`, and
-   its test (§4). **Planned.**
-6. **The viewer.** `src/components/widgets/log-viewer.tsx` and its test (§4, §5). **Planned.**
+   its test (§4). **Done.**
+6. **The viewer.** `src/components/widgets/log-viewer.tsx` and its test (§4, §5). **Done.**
 7. **Docs.** Root `CLAUDE.md`, per *When it lands*; the library's `README.md` for `loading` on
    an edge; the log viewer README's *Shared vocabulary* entry for the client, which gains
-   `close`. **Planned.**
+   `start`. **Done.**
 
 ## Tests
 
@@ -251,13 +253,12 @@ talks to the sidecar.
 - `src/lib/log-viewer/fake-client.test.ts`: with `spacingMs`, the history's lines are that far
   apart and end now; an `Around` page at a moment inside it holds lines on both sides.
 - `src/lib/log-viewer/window.test.ts`: an edge is `loading` from `startPage` until `paged` or
-  `pageFailed`, each publishing a snapshot; a landing and a pause clear it; a window that pins
-  with a page after in flight answers the after edge not `loading`; the seeded walk checks
-  that `loading` is set exactly while that edge has `more` and holds a ticket.
+  `pageFailed`, each publishing a snapshot; a landing and a pause clear it; the seeded walk
+  checks that `loading` is set exactly while that edge has `more` and holds a ticket.
 - `src/lib/logs-client.test.ts`: a view with two sources, one naming two containers, seeds one
   stream per source and container in the source's namespace under the source's name, `previous`
-  as the source says; a source naming none seeds `app`; the client answers a page; after
-  `close` no line is written.
+  as the source says; a source naming none seeds `app`; the client answers a page; no line is
+  written before `start` or after its stop, and two a second between.
 - `src/lib/log-viewport.test.ts`: as the store's test, renamed.
 - `src/components/widgets/log-viewer-row.test.tsx`: time, pod and message through `VisibleText`
   (a message with a reordering character is spelled out); a line from today shows the time
@@ -275,7 +276,7 @@ talks to the sidecar.
   the edge row says *Loading…* only while a page that way is in flight; the edge row's button
   pages; a skipped stream is drawn under the header; a view with a source reading every
   container hands the row the flag, and two sources naming one container each do not;
-  unmounting closes the client and empties the viewport.
+  mounting starts the client, and unmounting stops it and empties the viewport.
 - `src/components/widgets/logs-view-panel.test.tsx`: the viewer is mounted with the view's
   cluster and the provider's viewport; the header carries *Fake lines*.
 - `src/components/widgets/logs-view-card.test.tsx`: Expand sets the chat's cluster, and is
