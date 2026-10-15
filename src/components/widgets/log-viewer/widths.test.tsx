@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, renderHook } from '@testing-library/react';
+import { act, render, renderHook, screen } from '@testing-library/react';
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CELL_PADDING_PX, POS_MIN_PX, useMeasureWidths } from './widths';
@@ -45,6 +46,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 
 describe('useMeasureWidths', () => {
@@ -107,5 +109,24 @@ describe('useMeasureWidths', () => {
     result.current.measureRow(row(300));
     await frame();
     expect(result.current.rowWidth).toBe(400);
+  });
+
+  it('publishes what a ref measured before StrictMode replayed the effect', async () => {
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({ width: 80 } as DOMRect);
+    function Probe() {
+      const { widths, measureCell } = useMeasureWidths();
+      return (
+        <div ref={measureCell} data-col="Pod">
+          <span>{widths.get('Pod') ?? 'none'}</span>
+        </div>
+      );
+    }
+    render(
+      <StrictMode>
+        <Probe />
+      </StrictMode>,
+    );
+    await frame();
+    expect(screen.getByText(String(80 + CELL_PADDING_PX))).toBeInTheDocument();
   });
 });

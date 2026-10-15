@@ -40,13 +40,6 @@ export function useMeasureWidths() {
   const measured = useRef(new WeakSet<Element>());
   const frame = useRef<number | null>(null);
 
-  useEffect(
-    () => () => {
-      if (frame.current !== null) cancelAnimationFrame(frame.current);
-    },
-    [],
-  );
-
   // One publish per frame, and a new map only when a width moved: a new map re-renders every
   // row memoized over it.
   const flush = useCallback(() => {
@@ -58,6 +51,16 @@ export function useMeasureWidths() {
       dirty.current = { widths: false, rowWidth: false };
     });
   }, []);
+
+  // Refs measure before effects run, so StrictMode's replay cancels a frame already asked for;
+  // the setup asks again for whatever it left unpublished.
+  useEffect(() => {
+    if (dirty.current.widths || dirty.current.rowWidth) flush();
+    return () => {
+      if (frame.current !== null) cancelAnimationFrame(frame.current);
+      frame.current = null;
+    };
+  }, [flush]);
 
   // A cell is measured by its content, never by itself: its own width is its track and its
   // `minWidth`, so it would report the clamp, or grow on every render.

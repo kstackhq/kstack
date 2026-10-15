@@ -135,10 +135,11 @@ export const LogViewerRow = memo(
 
     const cells = columns.map((col) => {
       // A wrapped message takes what is left of the row and as many lines as it needs, so
-      // neither its width nor the row's is measured.
+      // neither its width nor the row's is measured. `min-w-0` lets its track shrink below an
+      // unbroken token's width, which `break-word` alone does not.
       if (col === 'Message' && wrap) {
         return (
-          <div key={col} data-col={col} className="px-2 whitespace-pre-wrap wrap-break-word">
+          <div key={col} data-col={col} className="min-w-0 px-2 whitespace-pre-wrap wrap-break-word">
             <VisibleText text={line.message} />
           </div>
         );
