@@ -14,7 +14,7 @@
 
 // The library's surface. The fake client is left out: a test imports it by its file, and so
 // does the one place in the app that mounts it.
-export { LogViewerCore, createCoreStore } from './core';
+export { LogViewerCore, createCoreStore, useCoreFields } from './core';
 export type { CoreHandle, CoreRow, CoreRows, CoreStore, LogViewerCoreProps } from './core';
 export { CORE_INITIAL_STATE, LogWindow } from './window';
 export type { CoreState, Edge, EdgeState, Effect, LogWindowOptions } from './window';

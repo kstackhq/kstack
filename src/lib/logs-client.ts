@@ -31,8 +31,8 @@ const HISTORY_LINES = 5000;
 const SPACING_MS = 2000;
 /** Two lines a second. */
 const GROWTH_MS = 500;
-/** Long enough that a page arriving shows on screen. */
-const DELAY_MS = 150;
+/** Long enough to watch a page arrive: the loading overlay and the edge rows' *Loading…* stay on screen. */
+export const DELAY_MS = 2000;
 
 // `clusterId` is the real client's; the fake reads only the action.
 export function createLogsClient(_clusterId: string, action: LogsViewAction): LogsClient {

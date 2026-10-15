@@ -6,8 +6,8 @@ status: Planned
 
 # Select and copy
 
-**Needs:** step 3. **Unblocks:** rungs 3 and 5 of the log views ladder, which read the
-selection. Can be built beside step 4A.
+**Needs:** step 4A, whose columns a cell selection is over. **Unblocks:** rungs 3 and 5 of the
+log views ladder, which read the selection.
 
 TypeScript paths are under `src/`.
 
@@ -47,7 +47,7 @@ so a key in the selection always names a line the window holds.
 
 ### 2. Making one
 
-From kubetail's `selection.ts`, copied into `src/components/widgets/log-viewer-selection.ts` —
+From kubetail's `selection.ts`, copied into `src/components/widgets/log-viewer/selection.ts` —
 beside the viewer, not in the library, since it knows columns and cells:
 
 - `useSelectionState`: the two kinds and their anchors, as React state.
@@ -80,8 +80,13 @@ from kubetail's `SelectionOverlay`).
 
 The colour is `--selection-band`, added to `index.css` for light and dark.
 
-The position cell — the row's offset from the landing, `-12`, `0`, `+3` — is the row's handle
-and is drawn in every column set.
+The position cell (step 4A) is the row's handle: this step gives it `role="button"` and
+`tabIndex={0}`, a mouse down that selects its row, and Enter or Space, which act as that mouse
+down. The overlay reads its width from the widths map under its own key, like every column's,
+where kubetail's reads a fixed 48px.
+
+The dot (step 4A) has no text: it takes no cell selection, no context menu, and nothing of it is
+copied.
 
 ### 4. Copying
 
@@ -113,14 +118,14 @@ rows in the block are what the viewport gets, since a line is the unit the ladde
 ## Tasks
 
 `log-viewer-selection.ts`, `log-viewer-selection-overlay.tsx` and `log-viewer-context-menu.tsx`
-carry both copyright lines, per the README's *Attribution*; the viewport write and the band drawing in `log-viewer.tsx` are kstack's alone.
+carry both copyright lines, per the README's *Attribution*; the viewport write and the band drawing in `log-viewer/log-viewer.tsx` are kstack's alone.
 
-1. **The selection.** `src/components/widgets/log-viewer-selection.ts` and its test (§1, §2).
+1. **The selection.** `src/components/widgets/log-viewer/selection.ts` and its test (§1, §2).
    **Planned.**
-2. **Drawing.** The bands and the overlay in `log-viewer.tsx` and
+2. **Drawing.** The bands and the overlay in `log-viewer/log-viewer.tsx` and
    `log-viewer-selection-overlay.tsx` (§3); `--selection-band` in `index.css`. **Planned.**
 3. **Copying.** The keyboard copy in the hook; `log-viewer-context-menu.tsx` (§4). **Planned.**
-4. **The viewport.** `selection` written from `log-viewer.tsx` (§5). **Planned.**
+4. **The viewport.** `selection` written from `log-viewer/log-viewer.tsx` (§5). **Planned.**
 5. **Docs.** Root `CLAUDE.md`, per *When it lands*. **Planned.**
 
 ## Tests

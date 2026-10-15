@@ -85,7 +85,7 @@ export function AppLayout() {
                     header={<ModeNav />}
                     nav={onDashboard ? <DashboardResourceNav /> : <ChatNav mode="chat" />}
                   />
-                  <main className="flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+                  <main className="flex min-h-0 min-w-[min(480px,50%)] flex-1 flex-col overflow-hidden bg-background">
                     <Outlet />
                   </main>
                   <RightSidebar />

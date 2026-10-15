@@ -31,15 +31,16 @@ import { DashboardChat } from '@/components/widgets/dashboard-chat';
 import { LogsViewPanel } from '@/components/widgets/logs-view-panel';
 import { ResizeHandle } from '@/components/widgets/resize-handle';
 import { useLogsView } from '@/lib/logs-view';
-import { usePersistedWidth } from '@/lib/persisted-width';
+import { type WidthBounds, usePersistedWidth } from '@/lib/persisted-width';
 import { useRightSidebar } from '@/lib/right-sidebar';
 
-// Drag-resize bounds (px). Wider than the left card's: this one holds detail, not
-// a list of names.
-// `initial` is wide enough for a transcript to read on first open.
-const WIDTH = { min: 240, max: 640, initial: 400 };
-// Per mode, like the open state: the two panels hold different things, so a width
-// that suits one need not suit the other.
+// Drag-resize bounds (px), per mode like the width itself: the two panels hold different
+// things. Chat mode's holds the log viewer, whose columns want room; the dashboard's holds
+// a transcript. `initial` is wide enough for a transcript to read on first open.
+const WIDTH: Record<AppMode, WidthBounds> = {
+  chat: { min: 240, max: 1200, initial: 400 },
+  dashboard: { min: 240, max: 640, initial: 400 },
+};
 const widthKey = (mode: AppMode) => `right-sidebar-width:${mode}`;
 
 function Placeholder({ title, detail }: { title: string; detail: string }) {
@@ -76,7 +77,7 @@ export function RightSidebarToggle() {
 
 export function RightSidebar() {
   const { mode, open } = useRightSidebar();
-  const [width, setWidth] = usePersistedWidth(widthKey(mode), WIDTH);
+  const [width, setWidth] = usePersistedWidth(widthKey(mode), WIDTH[mode]);
   if (!open) return null;
 
   const onDashboard = mode === 'dashboard';
@@ -84,12 +85,14 @@ export function RightSidebar() {
   return (
     // An ordinary item in the content row, so it takes its width from the page
     // rather than covering it, and the row's height makes it flush top and bottom.
-    // `relative` anchors the resize handle on its inner edge.
+    // `relative` anchors the resize handle on its inner edge. It shrinks before the page
+    // does (`app-layout.tsx` gives `<main>` its floor), down to its minimum; the stored width
+    // is left alone for a wider window.
     <aside
       data-testid="right-sidebar"
       aria-label={onDashboard ? 'Dashboard chat' : 'Chat details'}
-      className="relative flex shrink-0 flex-col overflow-hidden bg-card"
-      style={{ width }}
+      className="relative flex flex-col overflow-hidden bg-card"
+      style={{ width, minWidth: WIDTH[mode].min }}
     >
       {onDashboard ? <DashboardChat /> : <ChatPanel />}
       {/* The panel ends at the window's right edge, so what is left of the window
