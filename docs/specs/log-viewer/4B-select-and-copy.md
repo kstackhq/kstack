@@ -101,7 +101,7 @@ landing (§1). `CoreRows` already has what kubetail reads off its virtualizer: `
 `getRecord`, `keyAt` is `getKeyAtIndex`, and `indexOfKey` is `getIndexOfKey`. The keyboard
 handler reads the latest `rows` through `useEffectEvent`. It does not write a ref during render
 the way kubetail's `virtualizerRef.current = virtualizer` does, because the compiler's lint
-refuses that. The library does not change.
+refuses that. The library changes in one place, the pin (§3).
 
 ### 3. Drawing it
 
@@ -130,6 +130,10 @@ This is kubetail's drawing, copied from `main.tsx` and `selection-overlay.tsx`.
   handlers after it. Each cell but the dot
   gains `role="gridcell"`, `tabIndex={0}` and the same Enter and Space handling. The dot takes
   no selection, no context menu, and nothing of it is copied.
+- **A click unpins.** The core's intent reader (`lib/log-viewer/core.tsx`) calls the window's
+  `scrolledUp` on a pointer down on the scroller, as kubetail's auto-scroll turns off on
+  `mousedown`. A row clicked while pinned would otherwise scroll away as lines arrive, and a
+  drag would shift under the pointer. Scrolling back to the bottom pins again, as before.
 - **The row memo** gains kubetail's selection props: `selected`, `selectionTop`,
   `selectionBottom`, the row's selected columns and those of the rows above and below, and the
   anchor's column. All of them are primitives or shared `Set`s, so `memo`'s shallow compare
@@ -202,7 +206,7 @@ they carry kubetail's bands and edge shadow. The viewport write is kstack's alon
    kubetail's (§1, §2). **Built.**
 2. **Drawing.** The bands in `log-viewer.tsx`; the row's attributes, edge shadow, handlers and
    memo props in `row.tsx`; `log-viewer/selection-overlay.tsx`; `--selection-band` in
-   `index.css` (§3). **Built.**
+   `index.css`; the pointer-down unpin in `lib/log-viewer/core.tsx` (§3). **Built.**
 3. **Copying.** The keyboard copy in the hook; `log-viewer/context-menu.tsx` (§4). **Built.**
 4. **The viewport.** `onSelectionChange` from `Rows` to the viewport write in `log-viewer.tsx`
    (§5). **Built.**
@@ -231,6 +235,7 @@ mock becomes a stub `CoreRows`, and keyboard events are sent to the scroller ins
   focused one copies its selection and leaves the other's alone; Space on a position cell at the
   bottom does not pin.
 - `row.test.tsx`: `data-row-key`, `aria-selected`, and the position cell's Enter and Space.
+- `lib/log-viewer/core.test.tsx`: a pointer down unpins and closes the follow before any scroll.
 
 ## Security
 
