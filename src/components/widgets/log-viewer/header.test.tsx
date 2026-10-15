@@ -17,12 +17,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Column } from './columns';
 import { LogViewerHeader } from './header';
+import { gridTemplate } from './row';
 
 // jsdom keeps no scroll offsets, so `scrollLeft` is stored per element here.
 const lefts = new WeakMap<Element, number>();
 const original = Object.getOwnPropertyDescriptor(Element.prototype, 'scrollLeft');
 
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] });
   Object.defineProperty(Element.prototype, 'scrollLeft', {
     configurable: true,
     get(this: Element) {
@@ -50,7 +52,19 @@ beforeEach(() => {
 afterEach(() => {
   if (original) Object.defineProperty(Element.prototype, 'scrollLeft', original);
   vi.unstubAllGlobals();
+  vi.useRealTimers();
 });
+
+const frame = () =>
+  act(async () => {
+    await vi.advanceTimersByTimeAsync(16);
+  });
+
+// A user's scroll: the offset moves, then the element says so.
+function userScroll(el: HTMLElement, left: number) {
+  lefts.set(el, left);
+  el.dispatchEvent(new Event('scroll'));
+}
 
 function scrollerOf({ offsetWidth = 300, clientWidth = 300 } = {}) {
   const el = document.createElement('div');
@@ -60,7 +74,14 @@ function scrollerOf({ offsetWidth = 300, clientWidth = 300 } = {}) {
 }
 
 const header = (columns: Column[], scroller: HTMLElement | null = null) => (
-  <LogViewerHeader columns={columns} widths={new Map()} rowWidth={0} wrap={false} scroller={scroller} />
+  <LogViewerHeader
+    gridTemplate={gridTemplate(columns)}
+    columns={columns}
+    widths={new Map()}
+    rowWidth={0}
+    wrap={false}
+    scroller={scroller}
+  />
 );
 
 describe('LogViewerHeader', () => {
@@ -73,17 +94,40 @@ describe('LogViewerHeader', () => {
     expect(screen.getByText('Source')).toHaveClass('sr-only');
   });
 
-  it('cannot be scrolled by the user, and follows the scroller sideways', () => {
+  it('follows the scroller sideways on the next frame', async () => {
     const scroller = scrollerOf();
     const { container } = render(header(['Message'], scroller));
     const wrapper = container.firstElementChild as HTMLElement;
-    expect(wrapper).toHaveClass('overflow-x-hidden');
+    expect(wrapper).toHaveClass('overflow-x-scroll', 'no-scrollbar');
 
-    scroller.scrollLeft = 120;
-    act(() => {
-      scroller.dispatchEvent(new Event('scroll'));
-    });
+    userScroll(scroller, 120);
+    expect(wrapper.scrollLeft).toBe(0);
+    await frame();
     expect(wrapper.scrollLeft).toBe(120);
+  });
+
+  it('lines up with a new scroller at once, before it scrolls', () => {
+    const scroller = scrollerOf();
+    const { container, rerender } = render(header(['Message'], scroller));
+    const wrapper = container.firstElementChild as HTMLElement;
+    lefts.set(wrapper, 120);
+    rerender(header(['Message'], scrollerOf()));
+    expect(wrapper.scrollLeft).toBe(0);
+  });
+
+  it('moves the scroller when the user scrolls it, and ignores the echo', async () => {
+    const scroller = scrollerOf();
+    const { container } = render(header(['Message'], scroller));
+    const wrapper = container.firstElementChild as HTMLElement;
+
+    userScroll(wrapper, 80);
+    await frame();
+    expect(scroller.scrollLeft).toBe(80);
+    // The scroller's own scroll event, fired by the write above, must not write back.
+    lefts.set(wrapper, 70);
+    scroller.dispatchEvent(new Event('scroll'));
+    await frame();
+    expect(wrapper.scrollLeft).toBe(70);
   });
 
   it('reserves the scroller’s scrollbar width at its right edge', () => {

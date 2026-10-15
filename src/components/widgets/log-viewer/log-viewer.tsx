@@ -17,10 +17,11 @@
 // and a re-render of the same call moves nothing), lands at `openAt`, starts pinned as
 // `pinToEnd` says, draws each line as a row, and writes what is on screen into
 // `viewport` for whoever pulls it.
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { Button } from '@kubetail/ui/elements/button';
 import { Spinner } from '@kubetail/ui/elements/spinner';
+import { cn } from '@kubetail/ui/lib/utils';
 
 import { VisibleText } from '@/components/widgets/visible-text';
 import { reportError } from '@/lib/error-bus';
@@ -33,13 +34,14 @@ import {
   type LogLine,
   LogViewerCore,
   createCoreStore,
+  useCoreFields,
 } from '@/lib/log-viewer';
 import { createLogsClient } from '@/lib/logs-client';
 import type { LogsViewAction } from '@/lib/logs-view';
 import { EMPTY_LOG_VIEWPORT, type LogViewportHandle } from '@/lib/log-viewport';
 import { usePersistedFlag } from '@/lib/persisted-flag';
 import { useMeasureWidths } from './widths';
-import { LOG_ROW_H, LOG_ROW_PX, LogViewerRow } from './row';
+import { LOG_ROW_H, LOG_ROW_PX, LogViewerRow, gridTemplate } from './row';
 import { LogViewerToolbar } from './toolbar';
 import { useMessageWidth } from './message-width';
 import { LogViewerHeader } from './header';
@@ -101,19 +103,11 @@ const onError = (error: unknown) =>
     cause: error,
   });
 
-// Drawn while that edge has more. The core pages again only on the user's next scroll, so
-// after an empty page — a read that spent its budget — the button reads on by hand.
-function EdgeRow({
-  edge,
-  state,
-  top,
-  loadMore,
-}: {
-  edge: Edge;
-  state: EdgeState;
-  top: number;
-  loadMore: (edge: Edge) => void;
-}) {
+// Drawn at the top of the sizer while the before edge has more, and at its foot while the
+// after edge does, each the height the core leaves for it. The core pages again only on the
+// user's next scroll, so after an empty page — a read that spent its budget — the button
+// reads on by hand.
+function EdgeRow({ edge, state, loadMore }: { edge: Edge; state: EdgeState; loadMore: (edge: Edge) => void }) {
   let body = null;
   if (state.loading) {
     body = 'Loading…';
@@ -129,10 +123,25 @@ function EdgeRow({
   }
   return (
     <div
-      className={`${LOG_ROW_H} absolute inset-x-0 flex items-center gap-2 px-3 text-xs text-muted-foreground`}
-      style={{ top }}
+      className={cn(
+        LOG_ROW_H,
+        'absolute left-0 flex items-center gap-2 text-muted-foreground',
+        edge === 'before' ? 'top-0' : 'bottom-0',
+      )}
     >
       {body}
+    </div>
+  );
+}
+
+// Over the header and the rows while a landing is in flight (kubetail's `LoadingOverlay`).
+function LoadingOverlay() {
+  return (
+    <div className="absolute inset-0 z-50 flex items-center justify-center bg-muted opacity-85">
+      <div className="flex items-center space-x-4 rounded-md border bg-background p-3">
+        <div>Loading</div>
+        <Spinner size="xs" />
+      </div>
     </div>
   );
 }
@@ -140,16 +149,16 @@ function EdgeRow({
 type RowsProps = {
   rows: CoreRows;
   columns: Column[];
+  gridTemplate: string;
   widths: ReturnType<typeof useMeasureWidths>;
   wrap: boolean;
   onRetry: () => void;
 };
 
-function Rows({ rows, columns, widths, wrap, onRetry }: RowsProps) {
+function Rows({ rows, columns, gridTemplate: template, widths, wrap, onRetry }: RowsProps) {
+  // While loading, the overlay over the header and the rows says so.
   let status = null;
-  if (rows.loading) {
-    status = <Spinner size="sm" />;
-  } else if (rows.failed) {
+  if (rows.failed) {
     status = (
       <>
         <p>Could not load lines.</p>
@@ -158,7 +167,7 @@ function Rows({ rows, columns, widths, wrap, onRetry }: RowsProps) {
         </Button>
       </>
     );
-  } else if (rows.count === 0) {
+  } else if (!rows.loading && rows.count === 0) {
     status = <p>No lines.</p>;
   }
   return (
@@ -171,13 +180,14 @@ function Rows({ rows, columns, widths, wrap, onRetry }: RowsProps) {
           {status}
         </div>
       )}
-      {rows.before.more && <EdgeRow edge="before" state={rows.before} top={0} loadMore={rows.loadMore} />}
+      {rows.before.more && <EdgeRow edge="before" state={rows.before} loadMore={rows.loadMore} />}
       {rows.rows.map((row) => (
         <LogViewerRow
           key={row.key}
           line={row.line}
           rowKey={row.key}
           columns={columns}
+          gridTemplate={template}
           widths={widths.widths}
           rowWidth={widths.rowWidth}
           wrap={wrap}
@@ -188,12 +198,13 @@ function Rows({ rows, columns, widths, wrap, onRetry }: RowsProps) {
           measureElement={wrap ? rows.measureElement : undefined}
         />
       ))}
-      {rows.after.more && (
-        <EdgeRow edge="after" state={rows.after} top={rows.totalSize - rows.edgeRowHeight} loadMore={rows.loadMore} />
-      )}
+      {rows.after.more && <EdgeRow edge="after" state={rows.after} loadMore={rows.loadMore} />}
     </div>
   );
 }
+
+/** What the viewer draws from the core's state; the visible range is the viewport's alone. */
+const VIEWER_FIELDS = ['loading', 'failed', 'pinnedToEnd', 'ended', 'skipped'] as const;
 
 export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogViewerProps) {
   // Built once per mount. What the client runs on its own starts in the effect, so the
@@ -204,9 +215,10 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
   useEffect(() => logs.start(), [logs]);
 
   const [store] = useState(createCoreStore);
-  const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
+  const state = useCoreFields(store, VIEWER_FIELDS);
   const core = useRef<CoreHandle>(null);
   const [columns, setColumns] = useLogViewerColumns();
+  const template = useMemo(() => gridTemplate(columns), [columns]);
   const widths = useMeasureWidths();
   const [wrap, persistWrap] = usePersistedFlag('log-viewer-wrap', false);
   // Chrome like the pin: a new view starts playing, which the mount's key gives for free.
@@ -214,7 +226,7 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
   // Each landing mounts its own scroller; the header and the message width follow whichever is mounted.
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
 
-  const messageWidth = useMessageWidth(scroller, widths.widths, columns);
+  const messageWidth = useMessageWidth(scroller, widths.widths, columns, wrap);
   const wrapped = useCallback(
     (line: LogLine) => Math.max(1, Math.ceil((line.message.length * CHAR_PX) / messageWidth)) * LOG_ROW_PX,
     [messageWidth],
@@ -270,22 +282,25 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
           No new lines: <VisibleText text={state.ended} />
         </p>
       )}
-      {/* A failed landing says so over the rows, and the landing Try again starts shows the spinner alone. */}
+      {/* A failed landing says so over the rows, and the landing Try again starts shows the overlay alone. */}
       {error !== null && !state.loading && !state.failed && (
         <p className={muted}>
           <VisibleText text={error} />
         </p>
       )}
-      <LogViewerHeader
-        columns={columns}
-        widths={widths.widths}
-        rowWidth={widths.rowWidth}
-        wrap={wrap}
-        scroller={scroller}
-        measureCell={widths.measureCell}
-      />
-      {/* `relative` anchors Jump to now over the bottom of the lines. */}
+      {/* `relative` anchors the loading overlay over the header and the lines, and Jump to now
+          over the bottom of the lines. */}
       <div className="relative flex min-h-0 flex-1 flex-col">
+        {state.loading && <LoadingOverlay />}
+        <LogViewerHeader
+          gridTemplate={template}
+          columns={columns}
+          widths={widths.widths}
+          rowWidth={widths.rowWidth}
+          wrap={wrap}
+          scroller={scroller}
+          measureCell={widths.measureCell}
+        />
         <LogViewerCore
           ref={core}
           scrollerRef={setScroller}
@@ -300,10 +315,17 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
           estimateRowHeight={wrap ? wrapped : oneLine}
           measureElement={wrap ? measureHeight : undefined}
           onError={onError}
-          className="min-h-0 flex-1"
+          className="relative min-h-0 w-full flex-1 font-mono text-xs leading-6"
         >
           {(rows) => (
-            <Rows rows={rows} columns={columns} widths={widths} wrap={wrap} onRetry={() => core.current?.retry()} />
+            <Rows
+              rows={rows}
+              columns={columns}
+              gridTemplate={template}
+              widths={widths}
+              wrap={wrap}
+              onRetry={() => core.current?.retry()}
+            />
           )}
         </LogViewerCore>
         {/* Unpinned, the follow is closed and nothing knows whether lines arrived, so the button

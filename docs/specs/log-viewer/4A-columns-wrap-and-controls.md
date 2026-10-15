@@ -111,9 +111,11 @@ so the columns do not move under a jump. Hiding a column keeps its width for whe
 A row above the scroller naming each visible column, in the same grid, in
 `log-viewer-header.tsx` (from kubetail's `HeaderRow`). Its first cell, over the position
 column, has no visible name and an `sr-only` *Position*. It sits outside the scroller, in a
-wrapper with `overflow-x-hidden`, and its `scrollLeft` follows the scroller's on every scroll
-event. Hidden overflow still takes a `scrollLeft` from code but none from the user, so a swipe
-over the header cannot scroll it out of line with the rows. A spacer at its right edge is the
+wrapper that is a scroll container of its own with no bar drawn (`overflow-x-scroll
+no-scrollbar`), 19px tall with a border above and below and one between cells, as kubetail's is.
+The two follow each other sideways: a scroll of either sets the other's `scrollLeft` on the next
+frame, and the side that moved ignores the echo until the frame after, so a swipe over the
+header moves the rows too. A spacer at its right edge is the
 scroller's vertical scrollbar width, `offsetWidth - clientWidth` read through a
 `ResizeObserver`, so the names stay over their columns at the far right.
 

@@ -46,7 +46,17 @@ function Row({
   wrap?: boolean;
   of?: LogLine;
 }) {
-  return <LogViewerRow line={of} rowKey={rowKey} columns={columns} widths={widths} rowWidth={0} wrap={wrap} />;
+  return (
+    <LogViewerRow
+      line={of}
+      rowKey={rowKey}
+      columns={columns}
+      gridTemplate={gridTemplate(columns)}
+      widths={widths}
+      rowWidth={0}
+      wrap={wrap}
+    />
+  );
 }
 
 const row = () => screen.getByTestId('log-row');
@@ -167,6 +177,7 @@ describe('LogViewerRow', () => {
           line={counted}
           rowKey={1}
           columns={DEFAULT_COLUMNS}
+          gridTemplate={gridTemplate(DEFAULT_COLUMNS)}
           widths={widths}
           rowWidth={0}
           wrap={false}

@@ -108,6 +108,29 @@ export type CoreRows = {
   loadMore: (edge: Edge) => void;
 };
 
+/**
+ * The fields of a store's state a component draws from, re-rendering only when one of them
+ * moves: the visible range moves the state on every row scrolled past, and a component that
+ * draws nothing from it should not render for it. `keys` must be stable.
+ */
+export function useCoreFields<K extends keyof CoreState>(
+  store: Pick<CoreStore, 'subscribe' | 'getSnapshot'>,
+  keys: readonly K[],
+): Pick<CoreState, K> {
+  const picked = useRef<Pick<CoreState, K> | null>(null);
+  const getPicked = useCallback(() => {
+    const state = store.getSnapshot();
+    const last = picked.current;
+    if (last !== null && keys.every((key) => Object.is(last[key], state[key]))) return last;
+    const next = Object.fromEntries(keys.map((key) => [key, state[key]])) as Pick<CoreState, K>;
+    picked.current = next;
+    return next;
+  }, [store, keys]);
+  return useSyncExternalStore(store.subscribe, getPicked);
+}
+
+const LANDING_FIELDS = ['length', 'loading', 'following', 'failed', 'before', 'after'] as const;
+
 export function createCoreStore(): CoreStore {
   let state = CORE_INITIAL_STATE;
   const listeners = new Set<() => void>();
@@ -258,7 +281,7 @@ function Landing({
   children,
 }: LandingProps) {
   const [logWindow] = useState(() => new LogWindow({ pinToEnd, firstPageSize, pageSize }));
-  const state = useSyncExternalStore(logWindow.subscribe, logWindow.getSnapshot);
+  const state = useCoreFields(logWindow, LANDING_FIELDS);
   const scrollRef = useRef<HTMLDivElement>(null);
   const setScroller = useCallback(
     (el: HTMLDivElement | null) => {
@@ -295,10 +318,13 @@ function Landing({
     scrollMargin: beforeRow,
     overscan,
     useFlushSync: false,
+    // The end of a scroll from the browser, not a debounce reset on every scroll event.
+    useScrollendEvent: true,
     ...(measureElement ? { measureElement } : {}),
   });
 
-  const perform = useAnswers(scrollRef, virtualizer, logWindow);
+  const totalSize = virtualizer.getTotalSize() + beforeRow + afterRow;
+  const perform = useAnswers(scrollRef, virtualizer, logWindow, totalSize, following);
   const { loadMore, held } = useClient({ client, logWindow, anchor, paused, following, perform, onError });
   const { measuring, measure } = useMeasure(virtualizer, perform);
   useImperativeHandle(ref, () => ({ measure }), [measure]);
@@ -329,7 +355,7 @@ function Landing({
     before: state.before,
     after: state.after,
     edgeRowHeight,
-    totalSize: virtualizer.getTotalSize() + beforeRow + afterRow,
+    totalSize,
     rows: virtualizer.getVirtualItems().map((item) => ({
       key: item.key as number,
       index: item.index,
@@ -533,6 +559,8 @@ function useAnswers(
   scrollRef: RefObject<HTMLDivElement | null>,
   virtualizer: Virtualizer<HTMLDivElement, Element>,
   logWindow: LogWindow,
+  totalSize: number,
+  following: boolean,
 ): (effect: Effect) => void {
   const [answer, setAnswer] = useState<Answer | null>(null);
   const pending = useRef<Answer | null>(null);
@@ -572,12 +600,13 @@ function useAnswers(
     }
   }, [answer, scrollRef, virtualizer, logWindow]);
 
-  // While following, every commit keeps the end in view, whatever the answer, and so does a
-  // resize: a scrollbar appearing or the panel resizing must not hide the last row.
+  // While following, a commit that changes the sizer keeps the end in view, whatever the
+  // answer, and so does a resize: a scrollbar appearing or the panel resizing must not hide
+  // the last row. A commit that leaves the sizer alone reads no layout for it.
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (el !== null && logWindow.following()) el.scrollTop = el.scrollHeight;
-  });
+    if (el !== null && following) el.scrollTop = el.scrollHeight;
+  }, [scrollRef, totalSize, following]);
   useEffect(() => {
     const el = scrollRef.current;
     if (el === null) return undefined;
@@ -637,10 +666,16 @@ function useIntent(
       else if (moved > 0 && atBottom()) reachedBottom();
     };
     // A scroller at its bottom sends no scroll event for a move down, so a move down there
-    // reaches the bottom directly.
+    // reaches the bottom directly. A trackpad sends wheel events faster than frames, so the
+    // layout is read once a frame for all of them.
+    let wheelFrame: number | null = null;
     const onWheel = (event: WheelEvent) => {
       mark();
-      if (event.deltaY > 0 && atBottom()) reachedBottom();
+      if (event.deltaY <= 0 || wheelFrame !== null) return;
+      wheelFrame = requestAnimationFrame(() => {
+        wheelFrame = null;
+        if (atBottom()) reachedBottom();
+      });
     };
     const onKeyDown = (event: KeyboardEvent) => {
       const up = UP_KEYS.has(event.key) || (event.key === ' ' && event.shiftKey);
@@ -677,6 +712,7 @@ function useIntent(
     window.addEventListener('pointercancel', onPointerEnd);
     window.addEventListener('blur', onPointerEnd);
     return () => {
+      if (wheelFrame !== null) cancelAnimationFrame(wheelFrame);
       el.removeEventListener('scroll', onScroll);
       el.removeEventListener('wheel', onWheel);
       el.removeEventListener('keydown', onKeyDown);

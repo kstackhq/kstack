@@ -22,6 +22,7 @@ import {
   LogViewerCore,
   type LogViewerCoreProps,
   createCoreStore,
+  useCoreFields,
 } from './core';
 import type { Anchor, Client, Cursor, FetchQuery, FollowFrame, LogLine, Page } from './types';
 import { CORE_INITIAL_STATE, type CoreState } from './window';
@@ -342,6 +343,29 @@ describe('the store', () => {
     unsubscribe();
     store.set(CORE_INITIAL_STATE);
     expect(listener).toHaveBeenCalledTimes(1);
+  });
+});
+
+const LOADING: readonly 'loading'[] = ['loading'];
+
+describe('useCoreFields', () => {
+  it('re-renders its reader only when a field it reads moves', () => {
+    const store = createCoreStore();
+    let renders = 0;
+    function FieldsReader() {
+      useCoreFields(store, LOADING);
+      useLayoutEffect(() => {
+        renders += 1;
+      });
+      return null;
+    }
+    render(<FieldsReader />);
+    const mounted = renders;
+
+    act(() => store.set({ ...store.getSnapshot(), visible: 5, range: { from: 'a', to: 'b' } }));
+    expect(renders).toBe(mounted);
+    act(() => store.set({ ...store.getSnapshot(), loading: false }));
+    expect(renders).toBe(mounted + 1);
   });
 });
 
@@ -1043,6 +1067,22 @@ describe('the user’s intent', () => {
       await flush();
       expect(s.fetches.length).toBe(2);
       await input(el, () => fireEvent.wheel(el, { deltaY: 100 }));
+      // The wheel's layout read waits for the frame.
+      await frame();
+      await answer(s.last(), page(150, 160, { after: END }));
+      expect(m.state().pinnedToEnd).toBe(true);
+    });
+
+    it('reads no layout per wheel event, and reaches the bottom on the next frame', async () => {
+      const { s, m, el } = await behind();
+      await scrollTo(el, BOTTOM);
+      await flush();
+      const reads = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get');
+      await input(el, () => {
+        for (let i = 0; i < 5; i += 1) fireEvent.wheel(el, { deltaY: 20 });
+      });
+      expect(reads).not.toHaveBeenCalled();
+      await frame();
       await answer(s.last(), page(150, 160, { after: END }));
       expect(m.state().pinnedToEnd).toBe(true);
     });
@@ -1076,7 +1116,7 @@ describe('the user’s intent', () => {
       expect(m.state().pinnedToEnd).toBe(false);
       const el = m.scroller();
       await input(el, () => fireEvent.wheel(el, { deltaY: 100 }));
-      await flush();
+      await frame();
       expect(s.last().query).toEqual({ mode: 'Head', cursor: 'live-end', at: null, limit: 100 });
       await answer(s.last(), page(150, 150, { after: END }));
       expect(m.state().following).toBe(true);

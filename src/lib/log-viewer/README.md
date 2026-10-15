@@ -65,10 +65,12 @@ the window what the DOM and the client did and performs what the window answers.
   read off it.
 - **Answers are state**, so each brings its own commit, performed in the layout effect after
   it: a hold keeps the first visible row by its key, `toEnd`, and `toKey` through
-  `scrollToIndex`. While following, every commit and every resize keeps the end in view.
+  `scrollToIndex`. While following, every commit that changes the sizer and every resize keeps
+  the end in view.
 - **The store** (`createCoreStore`) is where the core publishes the window's `CoreState`. A
-  parent holds it and reads it with `useSyncExternalStore`; each landing writes it before its
-  first paint.
+  parent holds it and reads it with `useCoreFields`, which re-renders only when a field it names
+  moves: the visible range moves the state on every row scrolled past. Each landing writes it
+  before its first paint.
 - **`scrollerRef`** gets each landing's scroller, a callback since each landing mounts a new
   one, for a caller that reads its size or its sideways scroll. It is the DOM node and nothing
   else: the core still knows no columns.

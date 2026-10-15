@@ -26,10 +26,10 @@ import type { LogLine } from '@/lib/log-viewer';
 import { type Column, dotColor } from './columns';
 import { POS_MIN_PX, type WidthKey } from './widths';
 
-/** The class every row and edge row carries. */
-export const LOG_ROW_H = 'h-5';
+/** The class every row and edge row carries: kubetail's row height, its line height with it. */
+export const LOG_ROW_H = 'h-6';
 /** `LOG_ROW_H` in pixels, read off a rendered row: jsdom has no layout to check it against. */
-export const LOG_ROW_PX = 20;
+export const LOG_ROW_PX = 24;
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -46,7 +46,10 @@ export function lineTime(timestamp: string): string {
   return today ? time : `${MONTHS[at.getMonth()]} ${at.getDate()} ${time}`;
 }
 
-/** The grid every row and the header share: the position, a track per column, the message taking the rest. */
+/**
+ * The grid every row and the header share: the position, a track per column, the message
+ * taking the rest. The viewer builds it once per column set and hands every row the string.
+ */
 export const gridTemplate = (columns: Column[]) =>
   [`minmax(${POS_MIN_PX}px, auto)`, ...columns.map((col) => (col === 'Message' ? '1fr' : 'auto'))].join(' ');
 
@@ -103,6 +106,8 @@ export type LogViewerRowProps = {
   /** The core's key: 0 where the view landed, counting down before it and up after. */
   rowKey: number;
   columns: Column[];
+  /** `gridTemplate(columns)`, built once by the caller. */
+  gridTemplate: string;
   /** Each column's measured width, which every cell carries as `minWidth` so rows line up. */
   widths: Map<WidthKey, number>;
   /** The widest row measured: every row's `minWidth` while wrap is off. */
@@ -122,6 +127,7 @@ export const LogViewerRow = memo(
     line,
     rowKey,
     columns,
+    gridTemplate: template,
     widths,
     rowWidth,
     wrap,
@@ -171,12 +177,13 @@ export const LogViewerRow = memo(
         data-testid="log-row"
         data-index={index}
         style={{
-          gridTemplateColumns: gridTemplate(columns),
+          gridTemplateColumns: template,
           minWidth: wrap ? '100%' : rowWidth || '100%',
           ...(top === undefined ? {} : { transform: `translateY(${top}px)` }),
         }}
         className={cn(
-          'grid font-mono text-xs leading-5',
+          // The font and its size are the scroller's, inherited.
+          'grid leading-6',
           wrap ? '' : LOG_ROW_H,
           top === undefined ? '' : 'absolute top-0 left-0',
         )}

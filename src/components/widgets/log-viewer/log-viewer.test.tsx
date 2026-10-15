@@ -34,6 +34,7 @@ const { reportError } = vi.hoisted(() => ({ reportError: vi.fn() }));
 vi.mock('@/lib/error-bus', () => ({ reportError }));
 
 const { LogViewer } = await import('./log-viewer');
+const { LOG_ROW_PX } = await import('./row');
 
 // --- Layout. jsdom lays nothing out: the scroller is 200px tall, its content the sizer the
 // viewer draws, and `scrollTop` clamps and fires `scroll` as a browser's does. ---
@@ -269,6 +270,14 @@ describe('LogViewer', () => {
     expect(rowTexts().at(-1)).toContain('09:00:19.000');
   });
 
+  it('draws Loading over the header and the rows until the landing ends', async () => {
+    const s = scripted();
+    mount();
+    expect(screen.getByText('Loading')).toBeInTheDocument();
+    await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
+    expect(screen.queryByText('Loading')).not.toBeInTheDocument();
+  });
+
   it('opens at a moment with that line marked as where it landed', async () => {
     const s = scripted();
     const at = line(30).timestamp;
@@ -301,11 +310,13 @@ describe('LogViewer', () => {
     const { viewport } = mount();
     await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
 
+    // Pinned to the end of 20 lines, the view shows the last it has room for.
+    const shown = Math.ceil(VIEW / LOG_ROW_PX);
     expect(viewport.get()).toEqual({
-      range: { from: line(10).timestamp, to: line(19).timestamp },
+      range: { from: line(20 - shown).timestamp, to: line(19).timestamp },
       atEnd: true,
       pinnedToEnd: true,
-      visible: 10,
+      visible: shown,
       selection: [],
     });
   });
@@ -617,7 +628,7 @@ describe('LogViewer', () => {
       mount();
       await answer(s.fetches[0], withLong());
       const start = Number(/translateY\((\d+)px\)/.exec(topOf('long'))![1]);
-      expect(topOf('line 19')).toBe(`translateY(${start + 20}px)`);
+      expect(topOf('line 19')).toBe(`translateY(${start + LOG_ROW_PX}px)`);
     });
   });
 

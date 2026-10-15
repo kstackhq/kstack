@@ -74,7 +74,7 @@ const columns: Column[] = ['Timestamp', 'Message'];
 describe('useMessageWidth', () => {
   it('is the scroller’s width less the position and the other visible columns', async () => {
     const { el } = scrollerOf(600);
-    const { result } = renderHook(() => useMessageWidth(el, widths, columns));
+    const { result } = renderHook(() => useMessageWidth(el, widths, columns, true));
     await frame();
     // The pod is hidden, so its width does not count.
     expect(result.current).toBe(600 - 48 - 100);
@@ -82,7 +82,7 @@ describe('useMessageWidth', () => {
 
   it('follows the scroller as it resizes, once per frame', async () => {
     const scroller = scrollerOf(600);
-    const { result } = renderHook(() => useMessageWidth(scroller.el, widths, columns));
+    const { result } = renderHook(() => useMessageWidth(scroller.el, widths, columns, true));
     await frame();
     scroller.setWidth(800);
     act(() => resize());
@@ -91,9 +91,17 @@ describe('useMessageWidth', () => {
     expect(result.current).toBe(800 - 148);
   });
 
+  it('observes nothing while wrap is off', async () => {
+    const observe = vi.spyOn(ResizeObserver.prototype, 'observe');
+    const { el } = scrollerOf(600);
+    renderHook(() => useMessageWidth(el, widths, columns, false));
+    await frame();
+    expect(observe).not.toHaveBeenCalled();
+  });
+
   it('never goes under its floor', async () => {
     const { el } = scrollerOf(120);
-    const { result } = renderHook(() => useMessageWidth(el, widths, columns));
+    const { result } = renderHook(() => useMessageWidth(el, widths, columns, true));
     await frame();
     expect(result.current).toBe(MIN_MESSAGE_PX);
   });

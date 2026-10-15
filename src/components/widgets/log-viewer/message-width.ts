@@ -27,11 +27,12 @@ export const MIN_MESSAGE_PX = 100;
 const UNMEASURED_PX = 400;
 
 // A `ResizeObserver` reports once on attach, so the scroller's width is read the frame it
-// mounts and on every resize after, coalesced per frame.
-function useScrollerWidth(scroller: HTMLElement | null): number {
+// mounts and on every resize after, coalesced per frame. Only a wrapped message reads it, so
+// nothing is observed while wrap is off.
+function useScrollerWidth(scroller: HTMLElement | null, wrap: boolean): number {
   const [width, setWidth] = useState(UNMEASURED_PX);
   useEffect(() => {
-    if (!scroller) return undefined;
+    if (!scroller || !wrap) return undefined;
     let frame: number | null = null;
     const observer = new ResizeObserver(() => {
       if (frame !== null) return;
@@ -45,7 +46,7 @@ function useScrollerWidth(scroller: HTMLElement | null): number {
       if (frame !== null) cancelAnimationFrame(frame);
       observer.disconnect();
     };
-  }, [scroller]);
+  }, [scroller, wrap]);
   return width;
 }
 
@@ -53,8 +54,9 @@ export function useMessageWidth(
   scroller: HTMLElement | null,
   widths: Map<WidthKey, number>,
   columns: Column[],
+  wrap: boolean,
 ): number {
-  const width = useScrollerWidth(scroller);
+  const width = useScrollerWidth(scroller, wrap);
   let others = widths.get('Pos') ?? 0;
   columns.forEach((col) => {
     if (col !== 'Message') others += widths.get(col) ?? 0;
