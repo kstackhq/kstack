@@ -20,10 +20,13 @@ import type { LogsView } from '@/lib/logs-view';
 import { RightSidebarProvider } from '@/lib/right-sidebar';
 import type { AppMode } from '@/lib/app-mode';
 
-// The panel's contents have a suite of their own, and the real widget wants a router,
-// a urql client and the Tauri bridge. This file is about which one is mounted.
+// The panel's contents have a suite of their own, and the real widgets want a router,
+// a urql client, the Tauri bridge and a layout. This file is about which one is mounted.
 vi.mock('@/components/widgets/dashboard-chat', () => ({
   DashboardChat: () => <div data-testid="dashboard-chat" />,
+}));
+vi.mock('@/components/widgets/log-viewer', () => ({
+  LogViewer: () => <div data-testid="log-viewer" />,
 }));
 
 const { RightSidebar, RightSidebarToggle } = await import('./right-sidebar');
@@ -44,6 +47,7 @@ const renderPanel = ({ mode = 'chat' }: { mode?: AppMode } = {}) =>
   );
 
 const logsView: LogsView = {
+  clusterId: 'cluster-1',
   chatId: 'chat-1',
   callId: 'call-1',
   action: {

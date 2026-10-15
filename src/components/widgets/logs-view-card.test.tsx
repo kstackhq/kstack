@@ -72,14 +72,15 @@ const call = {
 // What the focused view is, as the card set it.
 function Focused() {
   const { view } = useLogsView();
-  return <output data-testid="focused">{view ? `${view.chatId}/${view.callId}` : 'none'}</output>;
+  return <output data-testid="focused">{view ? `${view.clusterId}/${view.chatId}/${view.callId}` : 'none'}</output>;
 }
 
-const draw = (mode: AppMode = 'chat') =>
+// A null cluster draws the card before the list watch names the chat's.
+const draw = (mode: AppMode = 'chat', clusterID: string | null = 'cluster-1') =>
   render(
     <RightSidebarProvider mode={mode}>
       <LogsViewProvider>
-        <LogsViewCard call={call} action={action} chatID="chat-1" mode={mode} />
+        <LogsViewCard call={call} action={action} chatID="chat-1" clusterID={clusterID ?? undefined} mode={mode} />
         <Focused />
       </LogsViewProvider>
     </RightSidebarProvider>,
@@ -102,9 +103,14 @@ describe('LogsViewCard', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
 
-    expect(screen.getByTestId('focused')).toHaveTextContent('chat-1/call-1');
+    expect(screen.getByTestId('focused')).toHaveTextContent('cluster-1/chat-1/call-1');
     expect(screen.queryByRole('button', { name: 'Expand' })).not.toBeInTheDocument();
     expect(screen.getByText('Showing in the sidebar')).toBeInTheDocument();
+  });
+
+  it('holds Expand until the chat’s cluster is known', () => {
+    draw('chat', null);
+    expect(screen.getByRole('button', { name: 'Expand' })).toBeDisabled();
   });
 
   it('has no Expand on the dashboard', () => {

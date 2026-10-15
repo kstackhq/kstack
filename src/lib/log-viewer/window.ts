@@ -27,7 +27,12 @@ export type EdgeState = {
   more: boolean;
   /** Whether the last page that way held no line at all but said there are more: a budget spent, read on by hand. */
   empty: boolean;
+  /** Whether a page that way is in flight. Only an edge with more has one. */
+  loading: boolean;
 };
+
+/** What the last page that way said; `loading` comes from the tickets. */
+type PageSaid = Omit<EdgeState, 'loading'>;
 
 export type Effect =
   | { kind: 'none' }
@@ -70,7 +75,7 @@ export type LogWindowOptions = {
   pageSize: number;
 };
 
-const NO_MORE: EdgeState = { more: false, empty: false };
+const NO_MORE: EdgeState = { more: false, empty: false, loading: false };
 
 export const CORE_INITIAL_STATE: CoreState = {
   loading: true,
@@ -90,7 +95,7 @@ export const CORE_INITIAL_STATE: CoreState = {
 const NONE: Effect = { kind: 'none' };
 
 // An edge's state off a page's edge that way: empty when the page held no line and said more.
-function edgeOf(page: Page, edge: Edge): EdgeState {
+function edgeOf(page: Page, edge: Edge): PageSaid {
   const { more } = page[edge];
   return { more, empty: more && page.lines.length === 0 };
 }
@@ -111,7 +116,7 @@ export class LogWindow {
   private ended: string | null = null;
 
   /** The server's word on each edge, off the last page that way. `edges()` derives the after side's `more`, so only its `empty` is read. */
-  private edge: Record<Edge, EdgeState> = { before: NO_MORE, after: NO_MORE };
+  private edge: Record<Edge, PageSaid> = { before: NO_MORE, after: NO_MORE };
 
   /** Where the before edge continues. */
   private beforeCursor: Cursor | null = null;
@@ -167,10 +172,15 @@ export class LogWindow {
   }
 
   // A window that is not following is behind the live end whatever its last page said, and a
-  // paused one asks for nothing, since Pause stops lines arriving.
+  // paused one asks for nothing, since Pause stops lines arriving. An edge loads only while it
+  // has more, so it never says both that nothing is that way and that a page is coming.
   edges(): Record<Edge, EdgeState> {
     const after = this.following() || this.paused ? NO_MORE : { more: this.isLanded, empty: this.edge.after.empty };
-    return { before: this.edge.before, after };
+    const { before } = this.edge;
+    return {
+      before: { ...before, loading: before.more && this.ticket.before !== null },
+      after: { ...after, loading: after.more && this.ticket.after !== null },
+    };
   }
 
   query(edge: Edge): FetchQuery | null {
@@ -227,6 +237,7 @@ export class LogWindow {
     if (!this.isLanded || this.ticket[edge] !== null || this.query(edge) === null) return null;
     this.nextTicket += 1;
     this.ticket[edge] = this.nextTicket;
+    this.emit();
     return this.nextTicket;
   }
 
@@ -266,6 +277,7 @@ export class LogWindow {
     if (edge === null) return;
     this.ticket[edge] = null;
     this.repeats[edge] = false;
+    this.emit();
   }
 
   /** The adapter pages that way again at once: a page of repeats moved the edge but brought no row to scroll to. */

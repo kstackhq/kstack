@@ -44,14 +44,10 @@ to the lettered naming in [Naming](../README.md#naming).
 closed disclosure like any other tool call, which is what the transcript does today for a kind it
 does not know.
 
-**The viewer is its own sequence.** The log viewer itself — give it a timestamp, it lands there,
-scroll either way, follow at the end — is ported from kubetail in
-[`docs/specs/log-viewer/`](../log-viewer/README.md), outside the rungs and on this branch. Rung 2
-needs its step 2. Until then `LogViewer` (`src/components/widgets/log-viewer.tsx`) is a
-placeholder, and its props are the contract it is mounted by. That sequence builds the webview
-over a fake client, tagged on screen. Its wire is a contract there alone: the sidecar's
-side is not built there and comes after it, and this branch merges into `main` only once the
-real client is in.
+**The viewer is its own sequence**, ported from kubetail in
+[`docs/specs/log-viewer/`](../log-viewer/README.md) on this branch: `LogViewer` draws a view's
+lines over a fake client, tagged on screen, and the branch merges into `main` only once the real
+client is in.
 
 **Every rung's spec has the same sections, in the same order**, as the retired agent-security
 sequence had: *In short*, *What is not in this rung*, *Design*, *Decisions this rung asks for*,
