@@ -38,7 +38,8 @@ never redesigned.
 ## The shape of the work
 
 **Steps are numbered in waves.** `1A` and `1B` can be built at the same time: one is the sidecar,
-the other the webview, and they meet only in step 2. `3A` and `3B` can be built at the same time
+the other the webview, and they meet only in step 2. `1C` changes the sidecar's cursor text
+behind step 2's client, which never reads one, so it can be built beside either. `3A` and `3B` can be built at the same time
 too, since each adds to the rows step 2 draws and neither needs the other. Prose says "step 1A".
 
 **Every step can ship.** Step 1A serves lines nothing reads yet. Step 1B is a core with tests and
@@ -75,7 +76,8 @@ section.
 
 - **The `Client` is the seam.** Four fetches — since, until, after, before, each a cursor and a
   limit answering records and a next cursor — and one `subscribe(after)`. A cursor names a
-  line and is opaque to the client. The core knows nothing else, and the sidebar and a future inline card share the
+  line and is opaque to the client; a bare RFC 3339 time names a moment, the one form a
+  client mints. The core knows nothing else, and the sidebar and a future inline card share the
   client, not the component.
 - **Lines come through GraphQL.** A `logsFetch` query and a `logsFollow` subscription on the
   sidecar's schema, carrying a `LogsViewInput` built field by field from the `LogsViewAction` the
@@ -125,6 +127,7 @@ section.
 | --- | --- | --- |
 | 1A | Lines from the sidecar | [1A-lines-from-the-sidecar.md](1A-lines-from-the-sidecar.md) |
 | 1B | The headless core | [1B-the-headless-core.md](1B-the-headless-core.md) |
+| 1C | Opaque cursors | [1C-opaque-cursors.md](1C-opaque-cursors.md) |
 | 2 | The viewer in the sidebar | [2-the-viewer-in-the-sidebar.md](2-the-viewer-in-the-sidebar.md) |
 | 3A | Columns, wrap and controls | [3A-columns-wrap-and-controls.md](3A-columns-wrap-and-controls.md) |
 | 3B | Select and copy | [3B-select-and-copy.md](3B-select-and-copy.md) |
