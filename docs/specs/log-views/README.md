@@ -44,10 +44,10 @@ to the lettered naming in [Naming](../README.md#naming).
 closed disclosure like any other tool call, which is what the transcript does today for a kind it
 does not know.
 
-**The viewer is its own sequence**, ported from kubetail in
-[`docs/specs/log-viewer/`](../log-viewer/README.md) on this branch: `LogViewer` draws a view's
-lines over a fake client, tagged on screen, and the branch merges into `main` only once the real
-client is in.
+**The viewer is built**, ported from kubetail: `LogViewer` draws a view's lines over a fake
+client, tagged on screen, and the branch merges into `main` only once the real client is in.
+What is left of it, the wire and the real client, is
+[`docs/specs/log-viewer/`](../log-viewer/README.md).
 
 **Every rung's spec has the same sections, in the same order**, as the retired agent-security
 sequence had: *In short*, *What is not in this rung*, *Design*, *Decisions this rung asks for*,
@@ -70,8 +70,8 @@ These are decided across the ladder. A rung that needs to revisit one says so in
   tail — so the model says it and the user unpins by hand, which leaves no row. It pins a
   *tail* view as it opens; a *head* or a moment opens at its anchor and pins once the user scrolls
   to the end. New lines arrive while the viewer is pinned: unpinned, it stops listening and
-  pages what it missed when the user scrolls back to the end (→ [the log viewer](../log-viewer/README.md),
-  *Lines arrive only while following, or by a page the user scrolled for*).
+  pages what it missed when the user scrolls back to the end (→ the log viewer's library,
+  `src/lib/log-viewer/README.md`).
 - **The view is what the log backend takes.** The backend reads any list of resources, each in
   its namespace, by its default container, the ones named or every one, its previous instance or
   its running one, and merges their lines by timestamp; it filters by node, region, zone, os and
