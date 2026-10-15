@@ -918,12 +918,11 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   anyway reads as something nobody noticed. **Fix:** an ADR accepting it, and a **By decision** row
   beside the badge's row in [`security-model.md`](security-model.md).
 
-- **The log viewer and the exec window arrive with an obligation.** They do not exist yet. When they
-  do, what they display is bytes from a cluster an attacker may control: no HTML interpretation, and
-  terminal control sequences stripped before anything renders them. The sidecar strips a log line
-  before it leaves (`services/logs`, with its row in [`security-model.md`](security-model.md)); an
-  exec stream has no such step, and nothing tests that the viewer draws a line as text. **Fix:** each
-  window brings its own test and its row.
+- **The exec window arrives with an obligation.** It does not exist yet. When it does, what it
+  displays is bytes from a cluster an attacker may control: no HTML interpretation, and terminal
+  control sequences stripped before anything renders them. An exec stream has no such step yet, as
+  a log line has (`services/logs`, and the viewer's row in [`security-model.md`](security-model.md)).
+  **Fix:** the window brings its own test and its row.
 
 ## Testing
 
