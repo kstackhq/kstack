@@ -1,7 +1,7 @@
 ---
 title: The window
 scope: frontend
-status: Planned
+status: Built
 ---
 
 # The window
@@ -122,8 +122,7 @@ of every held line's cursor. A cursor names one line, so a line whose cursor is 
 Lines stay in the order the client answered them: a page as the client sorted it, a follow as it
 arrived.
 
-- `reset(lines, zeroAt)`: starts over, key 0 at the first line, the last, or the index `zeroAt`
-  names.
+- `reset(lines, zeroAt)`: starts over, key 0 at the index `zeroAt`, kept within the lines.
 - `prepend(lines)` and `append(lines)`: add the lines not held, each once, and answer how many
   were added.
 - `length`, `at`, `keyAt`, `indexOfKey`, `first`, `last`.
@@ -385,15 +384,14 @@ reader who opens the directory cold.
 `window.ts` are written fresh from this spec, not ported from kubetail's viewer, so they and the
 rest carry kstack's line alone. `@tanstack/react-virtual` is not added here; step 2 adds it.
 
-1. **The contract.** `src/lib/log-viewer/types.ts` (§1). **Planned.**
-2. **The deque.** `src/lib/log-viewer/double-tailed-array.ts` and its test (§2). **Planned.**
-3. **The lines.** `src/lib/log-viewer/lines.ts` and its test (§3). **Planned.**
-4. **The fake client.** `src/lib/log-viewer/fake-client.ts` and its test (§5). **Planned.**
-5. **The window.** `src/lib/log-viewer/window.ts` and its test, with the walk (§4, *Tests*).
-   **Planned.**
+1. **The contract.** `src/lib/log-viewer/types.ts` (§1). **Done.**
+2. **The deque.** `src/lib/log-viewer/double-tailed-array.ts` and its test (§2). **Done.**
+3. **The lines.** `src/lib/log-viewer/lines.ts` and its test (§3). **Done.**
+4. **The fake client.** `src/lib/log-viewer/fake-client.ts` and its test (§5). **Done.**
+5. **The window.** `src/lib/log-viewer/window.ts` and its test, with the walk (§4, *Tests*). **Done.**
 6. **The index and the README.** `src/lib/log-viewer/index.ts`, `index.test.ts`, `README.md`
-   (§6). **Planned.**
-7. **Docs.** Root `CLAUDE.md`, per *When it lands*. **Planned.**
+   (§6). **Done.**
+7. **Docs.** Root `CLAUDE.md`, per *When it lands*. **Done.**
 
 ## Tests
 
