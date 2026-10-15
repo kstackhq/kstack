@@ -15,7 +15,7 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CELL_PADDING_PX, POS_MIN_PX, useMeasureWidths } from './log-viewer-widths';
+import { CELL_PADDING_PX, POS_MIN_PX, useMeasureWidths } from './widths';
 
 // A cell as the row draws it: the column on `data-col`, its content in an inline-block span
 // that jsdom says is `width` wide.

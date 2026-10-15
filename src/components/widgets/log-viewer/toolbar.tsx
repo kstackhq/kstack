@@ -21,7 +21,7 @@ import { Checkbox } from '@kubetail/ui/elements/checkbox';
 import { Label } from '@kubetail/ui/elements/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@kubetail/ui/elements/popover';
 
-import { COLUMNS, type Column } from '@/components/widgets/log-viewer-columns';
+import { COLUMNS, type Column } from './columns';
 
 export type LogViewerToolbarProps = {
   loading: boolean;

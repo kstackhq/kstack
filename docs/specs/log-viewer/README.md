@@ -25,7 +25,7 @@ its own, after this sequence, and its plan waits in a note,
 **Where it sits.** The [log views](../log-views/README.md) ladder says the viewer is its own
 work, outside its rungs. This is that work. It builds on `wip/log-views`, since the panel it
 mounts in exists there alone, and rung 2 of that ladder needs it done. Until step 3 lands,
-`LogViewer` (`src/components/widgets/log-viewer.tsx`) is a placeholder whose props are the
+`LogViewer` (`src/components/widgets/log-viewer/log-viewer.tsx`) is a placeholder whose props are the
 contract the sidebar mounts it by.
 
 **Where the sequence ends.** When the last step lands:
@@ -352,7 +352,7 @@ Fixed here so the steps agree. Go paths are under `sidecar/internal/`.
   decides what each event does.
 - **The core**: `LogViewerCore` in `src/lib/log-viewer/core.tsx`, the window behind a scroller,
   handing its rows to whoever draws them.
-- **The viewer**: `LogViewer` in `src/components/widgets/log-viewer.tsx`, the core plus the rows,
+- **The viewer**: `LogViewer` in `src/components/widgets/log-viewer/log-viewer.tsx`, the core plus the rows,
   columns and selection, behind the props the sidebar mounts.
 - **The viewport**: what one viewer has on screen — the visible range, whether it is at the
   end and pinned there, how many lines, and the selection — as a `LogViewport` value held by a

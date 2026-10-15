@@ -18,7 +18,7 @@
 // lines the rows up. Widths only grow, and the mount's key resets them with the view.
 import { useCallback, useEffect, useRef, useState } from 'react';
 
-import type { Column } from '@/components/widgets/log-viewer-columns';
+import type { Column } from './columns';
 
 /** A width's key: a column, or the position cell every row opens with. */
 export type WidthKey = Column | 'Pos';

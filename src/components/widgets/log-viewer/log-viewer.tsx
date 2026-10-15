@@ -22,12 +22,6 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from '
 import { Button } from '@kubetail/ui/elements/button';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 
-import { type Column, useLogViewerColumns } from '@/components/widgets/log-viewer-columns';
-import { LogViewerHeader } from '@/components/widgets/log-viewer-header';
-import { useMessageWidth } from '@/components/widgets/log-viewer-message-width';
-import { LogViewerToolbar } from '@/components/widgets/log-viewer-toolbar';
-import { LOG_ROW_H, LOG_ROW_PX, LogViewerRow } from '@/components/widgets/log-viewer-row';
-import { useMeasureWidths } from '@/components/widgets/log-viewer-widths';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { reportError } from '@/lib/error-bus';
 import {
@@ -44,6 +38,12 @@ import { createLogsClient } from '@/lib/logs-client';
 import type { LogsViewAction } from '@/lib/logs-view';
 import { EMPTY_LOG_VIEWPORT, type LogViewportHandle } from '@/lib/log-viewport';
 import { usePersistedFlag } from '@/lib/persisted-flag';
+import { useMeasureWidths } from './widths';
+import { LOG_ROW_H, LOG_ROW_PX, LogViewerRow } from './row';
+import { LogViewerToolbar } from './toolbar';
+import { useMessageWidth } from './message-width';
+import { LogViewerHeader } from './header';
+import { type Column, useLogViewerColumns } from './columns';
 
 export type LogViewerProps = {
   /** The view's cluster, which the client reads. */

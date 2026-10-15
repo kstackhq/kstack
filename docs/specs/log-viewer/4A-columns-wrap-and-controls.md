@@ -57,7 +57,7 @@ and the cell is measured like the columns are, under its own key in the widths m
 read widens it rather than spilling into the next cell. It is `select-none` and `cursor-default`.
 It takes no role and no focus in this step: 4B makes it the row's handle.
 
-`Column` in `src/components/widgets/log-viewer-columns.ts`: `Timestamp`, `Dot`, `Pod`,
+`Column` in `src/components/widgets/log-viewer/columns.ts`: `Timestamp`, `Dot`, `Pod`,
 `Container`, `Node`, `Region`, `Zone`, `OS`, `Arch`, `Message`, in that order, `Message` always
 last and always on. The default set is `Timestamp`, `Dot`, `Message`. Each column's cell but the
 dot reads one field of the line: the time as `lineTime` draws it, `stream.pod`,
@@ -88,7 +88,7 @@ message. Rows are positioned apart, so `auto` alone would size each row to its o
 lines them up is that every cell carries `minWidth` set to its column's measured width, so each
 row's tracks come out the same.
 
-The widths are measured in `log-viewer-widths.ts`, from kubetail's `useMeasureWidths`:
+The widths are measured in `widths.ts`, from kubetail's `useMeasureWidths`:
 
 - **A cell is measured by its content**, an `inline-block` span inside it, never by the cell
   itself: the cell's width is its track and its own `minWidth`, so measuring it reports the
@@ -139,7 +139,7 @@ A toggle. Off, every row is one line tall and the scroller scrolls sideways. On:
 
 `messageWidth` is the scroller's `clientWidth` less the position's and the other visible
 columns' widths, at least 100px, read through a `ResizeObserver` once per frame
-(`log-viewer-message-width.ts`, from kubetail's `useMessageContainerWidth`). The scroller is
+(`log-viewer/message-width.ts`, from kubetail's `useMessageContainerWidth`). The scroller is
 watched whether or not wrap is on — one observer on one element — so the width is already
 read when wrap is turned on.
 
@@ -217,22 +217,22 @@ minimum always fit. The stored width is left alone, and a wider window draws it 
 
 ## Tasks
 
-`log-viewer-widths.ts`, `log-viewer-header.tsx` and `log-viewer-message-width.ts` carry both
+`widths.ts`, `log-viewer-header.tsx` and `log-viewer/message-width.ts` carry both
 copyright lines, per the README's *Attribution*, and so does `log-viewer-columns.ts`, which holds
 kubetail's dot palette; the toolbar, *Jump to now*, `scrollerRef` and the width change are
 kstack's alone.
 
 1. **`scrollerRef`.** `LogViewerCoreProps.scrollerRef` in `src/lib/log-viewer/core.tsx`, its
    test, and a line in the library's `README.md`. **Done.**
-2. **Columns.** `src/components/widgets/log-viewer-columns.ts` (§1); `log-viewer-widths.ts`;
+2. **Columns.** `src/components/widgets/log-viewer/columns.ts` (§1); `widths.ts`;
    `LogViewerRow` takes the row's key in place of `landed`, draws the position cell and the
    visible columns in the grid, and moves the landed marker onto the position cell.
    **Done.**
-3. **The header row.** `src/components/widgets/log-viewer-header.tsx` (§2). **Done.**
-4. **Wrap.** The estimate and the measure in `log-viewer.tsx` (§3);
-   `log-viewer-message-width.ts`. **Done.**
-5. **The toolbar.** `src/components/widgets/log-viewer-toolbar.tsx` (§4), drawn by
-   `log-viewer.tsx`; *Jump to now* in `log-viewer.tsx`. **Done.**
+3. **The header row.** `src/components/widgets/log-viewer/header.tsx` (§2). **Done.**
+4. **Wrap.** The estimate and the measure in `log-viewer/log-viewer.tsx` (§3);
+   `log-viewer/message-width.ts`. **Done.**
+5. **The toolbar.** `src/components/widgets/log-viewer/toolbar.tsx` (§4), drawn by
+   `log-viewer/log-viewer.tsx`; *Jump to now* in `log-viewer/log-viewer.tsx`. **Done.**
 6. **Width.** `right-sidebar.tsx` and `app-layout.tsx` (§5). **Done.**
 7. **Docs.** Root `CLAUDE.md`, per *When it lands*. **Done.**
 

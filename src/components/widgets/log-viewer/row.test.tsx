@@ -16,9 +16,9 @@ import { act, render, screen } from '@testing-library/react';
 import { useEffect, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { type Column, DEFAULT_COLUMNS, dotColor } from '@/components/widgets/log-viewer-columns';
 import type { LogLine } from '@/lib/log-viewer';
-import { LOG_ROW_H, LogViewerRow, gridTemplate } from './log-viewer-row';
+import { type Column, DEFAULT_COLUMNS, dotColor } from './columns';
+import { LOG_ROW_H, LogViewerRow, gridTemplate } from './row';
 
 // Built in local time, since the row draws local time.
 const local = (...parts: [number, number, number, number, number, number, number]) => new Date(...parts).toISOString();

@@ -15,9 +15,9 @@
 import { act, renderHook } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { Column } from '@/components/widgets/log-viewer-columns';
-import type { WidthKey } from '@/components/widgets/log-viewer-widths';
-import { MIN_MESSAGE_PX, useMessageWidth } from './log-viewer-message-width';
+import type { Column } from './columns';
+import type { WidthKey } from './widths';
+import { MIN_MESSAGE_PX, useMessageWidth } from './message-width';
 
 let resize: () => void = () => {};
 

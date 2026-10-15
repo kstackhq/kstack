@@ -15,8 +15,8 @@
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { Column } from '@/components/widgets/log-viewer-columns';
-import { LogViewerHeader } from './log-viewer-header';
+import type { Column } from './columns';
+import { LogViewerHeader } from './header';
 
 // jsdom keeps no scroll offsets, so `scrollLeft` is stored per element here.
 const lefts = new WeakMap<Element, number>();

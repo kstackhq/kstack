@@ -18,8 +18,8 @@
 // of the scroller.
 import { useEffect, useState } from 'react';
 
-import type { Column } from '@/components/widgets/log-viewer-columns';
-import type { WidthKey } from '@/components/widgets/log-viewer-widths';
+import type { Column } from './columns';
+import type { WidthKey } from './widths';
 
 export const MIN_MESSAGE_PX = 100;
 

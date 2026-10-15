@@ -23,7 +23,7 @@ import {
   readColumns,
   useLogViewerColumns,
   writeColumns,
-} from './log-viewer-columns';
+} from './columns';
 
 afterEach(() => {
   localStorage.clear();

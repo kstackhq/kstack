@@ -16,8 +16,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { Column } from '@/components/widgets/log-viewer-columns';
-import { LogViewerToolbar, type LogViewerToolbarProps } from './log-viewer-toolbar';
+import type { Column } from './columns';
+import { LogViewerToolbar, type LogViewerToolbarProps } from './toolbar';
 
 function renderToolbar(over: Partial<LogViewerToolbarProps> = {}) {
   const props: LogViewerToolbarProps = {

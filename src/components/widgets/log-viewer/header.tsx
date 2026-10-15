@@ -18,9 +18,9 @@
 // right edge so the names stay over their columns at the far right.
 import { useEffect, useRef, useState } from 'react';
 
-import type { Column } from '@/components/widgets/log-viewer-columns';
-import { cellStyle, gridTemplate } from '@/components/widgets/log-viewer-row';
-import type { WidthKey } from '@/components/widgets/log-viewer-widths';
+import type { Column } from './columns';
+import { cellStyle, gridTemplate } from './row';
+import type { WidthKey } from './widths';
 
 // The position and the dot draw no name; a screen reader still gets one. `Container` names a
 // column of its own, so the dot's is the source.

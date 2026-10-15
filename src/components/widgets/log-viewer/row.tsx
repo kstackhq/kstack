@@ -21,10 +21,10 @@ import { type ReactNode, memo } from 'react';
 
 import { cn } from '@kubetail/ui/lib/utils';
 
-import { type Column, dotColor } from '@/components/widgets/log-viewer-columns';
-import { POS_MIN_PX, type WidthKey } from '@/components/widgets/log-viewer-widths';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { LogLine } from '@/lib/log-viewer';
+import { type Column, dotColor } from './columns';
+import { POS_MIN_PX, type WidthKey } from './widths';
 
 /** The class every row and edge row carries. */
 export const LOG_ROW_H = 'h-5';

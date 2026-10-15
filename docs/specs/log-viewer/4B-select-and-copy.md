@@ -47,7 +47,7 @@ so a key in the selection always names a line the window holds.
 
 ### 2. Making one
 
-From kubetail's `selection.ts`, copied into `src/components/widgets/log-viewer-selection.ts` —
+From kubetail's `selection.ts`, copied into `src/components/widgets/log-viewer/selection.ts` —
 beside the viewer, not in the library, since it knows columns and cells:
 
 - `useSelectionState`: the two kinds and their anchors, as React state.
@@ -118,14 +118,14 @@ rows in the block are what the viewport gets, since a line is the unit the ladde
 ## Tasks
 
 `log-viewer-selection.ts`, `log-viewer-selection-overlay.tsx` and `log-viewer-context-menu.tsx`
-carry both copyright lines, per the README's *Attribution*; the viewport write and the band drawing in `log-viewer.tsx` are kstack's alone.
+carry both copyright lines, per the README's *Attribution*; the viewport write and the band drawing in `log-viewer/log-viewer.tsx` are kstack's alone.
 
-1. **The selection.** `src/components/widgets/log-viewer-selection.ts` and its test (§1, §2).
+1. **The selection.** `src/components/widgets/log-viewer/selection.ts` and its test (§1, §2).
    **Planned.**
-2. **Drawing.** The bands and the overlay in `log-viewer.tsx` and
+2. **Drawing.** The bands and the overlay in `log-viewer/log-viewer.tsx` and
    `log-viewer-selection-overlay.tsx` (§3); `--selection-band` in `index.css`. **Planned.**
 3. **Copying.** The keyboard copy in the hook; `log-viewer-context-menu.tsx` (§4). **Planned.**
-4. **The viewport.** `selection` written from `log-viewer.tsx` (§5). **Planned.**
+4. **The viewport.** `selection` written from `log-viewer/log-viewer.tsx` (§5). **Planned.**
 5. **Docs.** Root `CLAUDE.md`, per *When it lands*. **Planned.**
 
 ## Tests
