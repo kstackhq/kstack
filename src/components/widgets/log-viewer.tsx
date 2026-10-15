@@ -17,12 +17,17 @@
 // and a re-render of the same call moves nothing), lands at `openAt`, starts pinned as
 // `pinToEnd` says, draws each line as a row, and writes what is on screen into
 // `viewport` for whoever pulls it.
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { Button } from '@kubetail/ui/elements/button';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 
+import { type Column, useLogViewerColumns } from '@/components/widgets/log-viewer-columns';
+import { LogViewerHeader } from '@/components/widgets/log-viewer-header';
+import { useMessageWidth } from '@/components/widgets/log-viewer-message-width';
+import { LogViewerToolbar } from '@/components/widgets/log-viewer-toolbar';
 import { LOG_ROW_H, LOG_ROW_PX, LogViewerRow } from '@/components/widgets/log-viewer-row';
+import { useMeasureWidths } from '@/components/widgets/log-viewer-widths';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { reportError } from '@/lib/error-bus';
 import {
@@ -31,12 +36,14 @@ import {
   type CoreRows,
   type Edge,
   type EdgeState,
+  type LogLine,
   LogViewerCore,
   createCoreStore,
 } from '@/lib/log-viewer';
 import { createLogsClient } from '@/lib/logs-client';
 import type { LogsViewAction } from '@/lib/logs-view';
 import { EMPTY_LOG_VIEWPORT, type LogViewportHandle } from '@/lib/log-viewport';
+import { usePersistedFlag } from '@/lib/persisted-flag';
 
 export type LogViewerProps = {
   /** The view's cluster, which the client reads. */
@@ -49,7 +56,12 @@ export type LogViewerProps = {
   viewport: LogViewportHandle;
 };
 
-const estimateRowHeight = () => LOG_ROW_PX;
+/** The advance of one `text-xs` mono character, for the wrap estimate; the measure corrects it. */
+const CHAR_PX = 7.2;
+
+const oneLine = () => LOG_ROW_PX;
+
+const measureHeight = (el: Element) => el.getBoundingClientRect().height;
 
 const PAGE_FAILED = 'Could not load more lines.';
 
@@ -125,11 +137,15 @@ function EdgeRow({
   );
 }
 
-// Two sources naming one container each are told apart by the pod.
-const readsManyContainers = (query: LogsViewAction) =>
-  query.sources.some((source) => source.allContainers || source.containers.length > 1);
+type RowsProps = {
+  rows: CoreRows;
+  columns: Column[];
+  widths: ReturnType<typeof useMeasureWidths>;
+  wrap: boolean;
+  onRetry: () => void;
+};
 
-function Rows({ rows, showContainer, onRetry }: { rows: CoreRows; showContainer: boolean; onRetry: () => void }) {
+function Rows({ rows, columns, widths, wrap, onRetry }: RowsProps) {
   let status = null;
   if (rows.loading) {
     status = <Spinner size="sm" />;
@@ -146,7 +162,10 @@ function Rows({ rows, showContainer, onRetry }: { rows: CoreRows; showContainer:
     status = <p>No lines.</p>;
   }
   return (
-    <div className="relative min-w-full w-max" style={{ height: rows.totalSize }}>
+    <div
+      className="relative"
+      style={{ height: rows.totalSize, minWidth: wrap ? undefined : widths.rowWidth || '100%' }}
+    >
       {status && (
         <div className="absolute inset-x-0 top-0 flex flex-col items-center gap-2 p-4 text-sm text-muted-foreground">
           {status}
@@ -157,9 +176,16 @@ function Rows({ rows, showContainer, onRetry }: { rows: CoreRows; showContainer:
         <LogViewerRow
           key={row.key}
           line={row.line}
-          showContainer={showContainer}
-          landed={row.key === 0}
+          rowKey={row.key}
+          columns={columns}
+          widths={widths.widths}
+          rowWidth={widths.rowWidth}
+          wrap={wrap}
           top={row.start}
+          index={row.index}
+          measureCell={widths.measureCell}
+          measureRow={widths.measureRow}
+          measureElement={wrap ? rows.measureElement : undefined}
         />
       ))}
       {rows.after.more && (
@@ -180,7 +206,25 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
   const [store] = useState(createCoreStore);
   const state = useSyncExternalStore(store.subscribe, store.getSnapshot);
   const core = useRef<CoreHandle>(null);
-  const showContainer = readsManyContainers(query);
+  const [columns, setColumns] = useLogViewerColumns();
+  const widths = useMeasureWidths();
+  const [wrap, persistWrap] = usePersistedFlag('log-viewer-wrap', false);
+  // Chrome like the pin: a new view starts playing, which the mount's key gives for free.
+  const [paused, setPaused] = useState(false);
+  // Each landing mounts its own scroller; the header and the message width follow whichever is mounted.
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+
+  const messageWidth = useMessageWidth(scroller, widths.widths, columns);
+  const wrapped = useCallback(
+    (line: LogLine) => Math.max(1, Math.ceil((line.message.length * CHAR_PX) / messageWidth)) * LOG_ROW_PX,
+    [messageWidth],
+  );
+  // Flipping wrap changes every row's height. The core measures again in the same commit,
+  // holding the reader's row as it was before the flip.
+  const setWrap = (on: boolean) => {
+    persistWrap(on);
+    core.current?.measure();
+  };
 
   // A closed view leaves no range behind for the composer to pull.
   useEffect(() => {
@@ -199,6 +243,17 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
   const muted = 'border-b px-3 py-1 text-xs text-muted-foreground';
   return (
     <>
+      <LogViewerToolbar
+        loading={state.loading}
+        paused={paused}
+        columns={columns}
+        wrap={wrap}
+        onStart={() => core.current?.jumpTo({ kind: 'Head', at: null })}
+        onEnd={() => core.current?.jumpTo({ kind: 'Tail', at: null })}
+        onPausedChange={setPaused}
+        onColumnsChange={setColumns}
+        onWrapChange={setWrap}
+      />
       {state.skipped.length > 0 && (
         <p className={muted}>
           Not read:{' '}
@@ -221,21 +276,49 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
           <VisibleText text={error} />
         </p>
       )}
-      <LogViewerCore
-        ref={core}
-        client={client}
-        anchor={openAt}
-        pinToEnd={pinToEnd}
-        store={store}
-        firstPageSize={300}
-        pageSize={250}
-        edgeRowHeight={LOG_ROW_PX}
-        estimateRowHeight={estimateRowHeight}
-        onError={onError}
-        className="min-h-0 flex-1"
-      >
-        {(rows) => <Rows rows={rows} showContainer={showContainer} onRetry={() => core.current?.retry()} />}
-      </LogViewerCore>
+      <LogViewerHeader
+        columns={columns}
+        widths={widths.widths}
+        rowWidth={widths.rowWidth}
+        wrap={wrap}
+        scroller={scroller}
+        measureCell={widths.measureCell}
+      />
+      {/* `relative` anchors Jump to now over the bottom of the lines. */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        <LogViewerCore
+          ref={core}
+          scrollerRef={setScroller}
+          client={client}
+          anchor={openAt}
+          pinToEnd={pinToEnd}
+          paused={paused}
+          store={store}
+          firstPageSize={300}
+          pageSize={250}
+          edgeRowHeight={LOG_ROW_PX}
+          estimateRowHeight={wrap ? wrapped : oneLine}
+          measureElement={wrap ? measureHeight : undefined}
+          onError={onError}
+          className="min-h-0 flex-1"
+        >
+          {(rows) => (
+            <Rows rows={rows} columns={columns} widths={widths} wrap={wrap} onRetry={() => core.current?.retry()} />
+          )}
+        </LogViewerCore>
+        {/* Unpinned, the follow is closed and nothing knows whether lines arrived, so the button
+          says where the live end is, not that anything is new. */}
+        {!state.loading && !state.failed && !state.pinnedToEnd && (
+          <Button
+            variant="secondary"
+            size="sm"
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 shadow"
+            onClick={() => core.current?.jumpTo({ kind: 'Tail', at: null })}
+          >
+            Jump to now
+          </Button>
+        )}
+      </div>
     </>
   );
 }

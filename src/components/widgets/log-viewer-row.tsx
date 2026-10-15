@@ -12,15 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// One log line as a row: the time, the pod and the message, in mono on one line. Every
-// cell is cluster text, so each goes through `VisibleText`. It takes a line and nothing of
-// the scroller's, so a card can draw the same row with no core around it. It is memoized
-// over primitives and the line's own object, so a frame that adds a line draws the new row
-// alone, and a prepend that moves every row re-renders them without laying them out again.
-import { memo } from 'react';
+// One log line as a row: its position from where the view landed, then the columns the user
+// picked, as a grid. Every cell but the position and the dot is cluster text, so each goes
+// through `VisibleText`. It is memoized over primitives, the line's own object and the column
+// state's, so a frame that adds a line draws the new row alone, and a prepend that moves every
+// row re-renders them without laying them out again.
+import { type ReactNode, memo } from 'react';
 
 import { cn } from '@kubetail/ui/lib/utils';
 
+import { type Column, dotColor } from '@/components/widgets/log-viewer-columns';
+import { POS_MIN_PX, type WidthKey } from '@/components/widgets/log-viewer-widths';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { LogLine } from '@/lib/log-viewer';
 
@@ -44,42 +46,157 @@ export function lineTime(timestamp: string): string {
   return today ? time : `${MONTHS[at.getMonth()]} ${at.getDate()} ${time}`;
 }
 
+/** The grid every row and the header share: the position, a track per column, the message taking the rest. */
+export const gridTemplate = (columns: Column[]) =>
+  [`minmax(${POS_MIN_PX}px, auto)`, ...columns.map((col) => (col === 'Message' ? '1fr' : 'auto'))].join(' ');
+
+/**
+ * A cell's measured width as its `minWidth`. Rows are positioned apart, each its own grid, so
+ * this is what lines their tracks up.
+ */
+export function cellStyle(widths: Map<WidthKey, number>, key: WidthKey) {
+  const px = widths.get(key);
+  return px ? { minWidth: px } : undefined;
+}
+
+function cellText(line: LogLine, col: Exclude<Column, 'Dot' | 'Message'>): string {
+  switch (col) {
+    case 'Timestamp':
+      return lineTime(line.timestamp);
+    case 'Pod':
+      return line.stream.pod;
+    case 'Container':
+      return line.stream.container;
+    case 'Node':
+      return line.place.node;
+    case 'Region':
+      return line.place.region;
+    case 'Zone':
+      return line.place.zone;
+    case 'OS':
+      return line.place.os;
+    default:
+      return line.place.arch;
+  }
+}
+
+// A container's colour, drawn inline so no CSS name is built from cluster text. The dot is
+// the default set's only word on the stream, so a screen reader hears the names.
+function Dot({ line }: { line: LogLine }) {
+  const { namespace, pod, container } = line.stream;
+  return (
+    <span className="inline-flex items-center">
+      <span
+        aria-hidden
+        className="inline-block size-2 rounded-full"
+        style={{ backgroundColor: dotColor(namespace, pod, container) }}
+      />
+      <span className="sr-only">
+        <VisibleText text={`${pod}/${container}`} />
+      </span>
+    </span>
+  );
+}
+
+export type LogViewerRowProps = {
+  line: LogLine;
+  /** The core's key: 0 where the view landed, counting down before it and up after. */
+  rowKey: number;
+  columns: Column[];
+  /** Each column's measured width, which every cell carries as `minWidth` so rows line up. */
+  widths: Map<WidthKey, number>;
+  /** The widest row measured: every row's `minWidth` while wrap is off. */
+  rowWidth: number;
+  wrap: boolean;
+  /** Where the row sits under a scroller, from the top of its sizer. A row with none is in the flow. */
+  top?: number;
+  /** The core's index, for its `measureElement`. */
+  index?: number;
+  measureCell?: (el: HTMLElement | null) => void;
+  measureRow?: (el: HTMLElement | null) => void;
+  measureElement?: (el: Element | null) => void;
+};
+
 export const LogViewerRow = memo(
   ({
     line,
-    showContainer,
-    landed,
+    rowKey,
+    columns,
+    widths,
+    rowWidth,
+    wrap,
     top,
-  }: {
-    line: LogLine;
-    /** Whether the view reads more than one container, so the pod alone does not name the stream. */
-    showContainer: boolean;
-    /** Whether this is the line the view landed on. */
-    landed: boolean;
-    /** Where the row sits under a scroller, from the top of its sizer. A row with none is in the flow. */
-    top?: number;
-  }) => {
-    const { pod, container } = line.stream;
+    index,
+    measureCell,
+    measureRow,
+    measureElement,
+  }: LogViewerRowProps) => {
+    const landed = rowKey === 0;
+
+    const cells = columns.map((col) => {
+      // A wrapped message takes what is left of the row and as many lines as it needs, so
+      // neither its width nor the row's is measured.
+      if (col === 'Message' && wrap) {
+        return (
+          <div key={col} data-col={col} className="px-2 whitespace-pre-wrap wrap-break-word">
+            <VisibleText text={line.message} />
+          </div>
+        );
+      }
+      let content: ReactNode;
+      if (col === 'Dot') content = <Dot line={line} />;
+      else if (col === 'Message') content = <VisibleText text={line.message} />;
+      else content = <VisibleText text={cellText(line, col)} />;
+      return (
+        <div
+          key={col}
+          ref={measureCell}
+          data-col={col}
+          className={cn('px-2', col === 'Message' ? 'whitespace-pre' : 'whitespace-nowrap text-muted-foreground')}
+          style={cellStyle(widths, col)}
+        >
+          {/* The content is what is measured, so it is an inline-block of its own; the dot's already is. */}
+          {col === 'Dot' ? content : <span className="inline-block">{content}</span>}
+        </div>
+      );
+    });
+
     return (
       <div
+        ref={(el) => {
+          measureElement?.(el);
+          if (!wrap) measureRow?.(el);
+        }}
         data-testid="log-row"
-        style={top === undefined ? undefined : { transform: `translateY(${top}px)` }}
+        data-index={index}
+        style={{
+          gridTemplateColumns: gridTemplate(columns),
+          minWidth: wrap ? '100%' : rowWidth || '100%',
+          ...(top === undefined ? {} : { transform: `translateY(${top}px)` }),
+        }}
         className={cn(
-          LOG_ROW_H,
-          'flex min-w-full w-max items-center gap-3 px-3 font-mono text-xs leading-5 whitespace-pre',
+          'grid font-mono text-xs leading-5',
+          wrap ? '' : LOG_ROW_H,
           top === undefined ? '' : 'absolute top-0 left-0',
-          landed ? 'border-l-2 border-primary pl-2.5' : '',
         )}
       >
-        <span className="text-muted-foreground">
-          <VisibleText text={lineTime(line.timestamp)} />
-        </span>
-        <span className="text-muted-foreground">
-          <VisibleText text={showContainer ? `${pod}/${container}` : pod} />
-        </span>
-        <span>
-          <VisibleText text={line.message} />
-        </span>
+        {/* The sign is its own span, larger, so `+` and `-` read at a glance beside the digits.
+            The landed row's marker sits here, its padding keeping the digits where the other rows' are. */}
+        <div
+          ref={measureCell}
+          data-col="Pos"
+          className={cn(
+            'cursor-default pr-1.5 text-center text-[0.65rem] whitespace-nowrap tabular-nums select-none',
+            landed ? 'border-l-2 border-primary pl-[7px] font-extrabold' : 'text-muted-foreground',
+          )}
+          style={cellStyle(widths, 'Pos')}
+        >
+          <span className="inline-block">
+            {!landed && <span className="text-[0.9rem] text-muted-foreground">{rowKey > 0 ? '+' : '-'}</span>}
+            {Math.abs(rowKey)}
+          </span>
+        </div>
+        {cells}
       </div>
     );
   },

@@ -470,6 +470,20 @@ describe('landing again', () => {
     expect(s.last().query.mode).toBe('Head');
   });
 
+  it('hands each landing’s scroller to scrollerRef', async () => {
+    const s = scripted();
+    const seen: (HTMLDivElement | null)[] = [];
+    const m = mount({ client: s.client, anchor: HEAD, scrollerRef: (el: HTMLDivElement | null) => seen.push(el) });
+    await flush();
+    const first = m.scroller();
+    expect(seen.at(-1)).toBe(first);
+
+    act(() => m.ref.current!.jumpTo(TAIL));
+    await flush();
+    expect(m.scroller()).not.toBe(first);
+    expect(seen.at(-1)).toBe(m.scroller());
+  });
+
   it('retries at the mount’s anchor, pinned as pinToEnd says', async () => {
     const s = scripted();
     const m = mount({ client: s.client, anchor: TAIL, pinToEnd: false });

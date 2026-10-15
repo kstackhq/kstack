@@ -56,6 +56,8 @@ export type LogViewerCoreProps = Partial<Settings> & {
   paused?: boolean;
   /** Where the core publishes its state. The core makes its own when none is given. */
   store?: CoreStore;
+  /** Each landing's scroller, for a caller that reads its size or its sideways scroll. A landing mounts a new one. */
+  scrollerRef?: (el: HTMLDivElement | null) => void;
   onError?: (error: unknown) => void;
   estimateRowHeight: (line: LogLine) => number;
   measureElement?: (
@@ -154,6 +156,7 @@ export function LogViewerCore({
   pinToEnd,
   paused = false,
   store,
+  scrollerRef,
   onError,
   estimateRowHeight,
   measureElement,
@@ -198,6 +201,7 @@ export function LogViewerCore({
       pinToEnd={landing.pinToEnd}
       paused={paused}
       store={store ?? ownStore}
+      scrollerRef={scrollerRef}
       onError={onError}
       estimateRowHeight={estimateRowHeight}
       measureElement={measureElement}
@@ -223,6 +227,7 @@ type LandingProps = Settings & {
   pinToEnd: boolean;
   paused: boolean;
   store: CoreStore;
+  scrollerRef?: (el: HTMLDivElement | null) => void;
   onError?: (error: unknown) => void;
   estimateRowHeight: (line: LogLine) => number;
   measureElement?: LogViewerCoreProps['measureElement'];
@@ -239,6 +244,7 @@ function Landing({
   pinToEnd,
   paused,
   store,
+  scrollerRef,
   onError,
   estimateRowHeight,
   measureElement,
@@ -254,6 +260,13 @@ function Landing({
   const [logWindow] = useState(() => new LogWindow({ pinToEnd, firstPageSize, pageSize }));
   const state = useSyncExternalStore(logWindow.subscribe, logWindow.getSnapshot);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const setScroller = useCallback(
+    (el: HTMLDivElement | null) => {
+      scrollRef.current = el;
+      scrollerRef?.(el);
+    },
+    [scrollerRef],
+  );
 
   // Published from the first layout effect, before paint, so no frame shows the last landing's
   // state under this one.
@@ -340,7 +353,7 @@ function Landing({
 
   return (
     <div
-      ref={scrollRef}
+      ref={setScroller}
       className={className}
       // Focusable so the keys reach the scroller, and its intent with them.
       // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex

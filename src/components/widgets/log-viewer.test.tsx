@@ -39,7 +39,9 @@ const { LogViewer } = await import('./log-viewer');
 // viewer draws, and `scrollTop` clamps and fires `scroll` as a browser's does. ---
 
 const VIEW = 200;
-const isScroller = (el: HTMLElement) => el.getAttribute('tabindex') === '0';
+// The core's scroller: focusable, with its own overflow. A popover trigger is focusable too.
+const SCROLLER = '[tabindex="0"][style*="overflow"]';
+const isScroller = (el: HTMLElement) => el.matches(SCROLLER);
 const sizerHeight = (el: HTMLElement) =>
   parseFloat((el.firstElementChild as HTMLElement | null)?.style.height ?? '') || 0;
 const tops = new WeakMap<HTMLElement, number>();
@@ -249,6 +251,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
   unstubLayout();
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -273,8 +276,9 @@ describe('LogViewer', () => {
     expect(s.fetches[0].query).toEqual({ mode: 'Around', cursor: null, at, limit: 300 });
 
     await answer(s.fetches[0], page(20, 40, { anchor: 10 }));
-    const landed = screen.getAllByTestId('log-row').find((row) => row.textContent?.includes('line 30'));
-    expect(landed).toHaveClass('border-l-2');
+    const landed = screen.getAllByTestId('log-row').find((row) => row.textContent?.includes('line 30'))!;
+    expect(landed.querySelector('[data-col="Pos"]')).toHaveTextContent(/^0$/);
+    expect(landed.querySelector('[data-col="Pos"]')).toHaveClass('border-l-2');
   });
 
   it('adds a row for a followed line and keeps the bottom while pinned', async () => {
@@ -288,7 +292,7 @@ describe('LogViewer', () => {
     });
     await frame(2);
     expect(rowTexts().at(-1)).toContain('line 20');
-    const scroller = container.querySelector<HTMLElement>('[tabindex="0"]')!;
+    const scroller = container.querySelector<HTMLElement>(SCROLLER)!;
     expect(scroller.scrollTop).toBe(scroller.scrollHeight - VIEW);
   });
 
@@ -422,17 +426,218 @@ describe('LogViewer', () => {
     expect(screen.getByText(/Not read:/)).toHaveTextContent('Not read: prod/db-0/app: forbidden');
   });
 
-  it('names the container beside the pod when the view reads more than one', async () => {
+  it('draws the pod and the container as separate cells once both are picked', async () => {
+    localStorage.setItem('kstack:log-viewer-columns', '["Pod","Container"]');
     const s = scripted();
     mount(action({ sources: [source({ allContainers: true })] }));
     await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
-    expect(rowTexts().at(-1)).toContain('webapp/app');
+    const last = screen.getAllByTestId('log-row').at(-1)!;
+    expect(last.querySelector('[data-col="Pod"]')).toHaveTextContent(/^webapp$/);
+    expect(last.querySelector('[data-col="Container"]')).toHaveTextContent(/^app$/);
   });
 
-  it('names the pod alone when each source reads one container', async () => {
+  describe('the toolbar', () => {
+    const press = (name: string) => fireEvent.click(screen.getByRole('button', { name }));
+    const open = (s: ReturnType<typeof scripted>) => s.follows.filter((f) => !f.closed);
+
+    it('is disabled while the view loads', () => {
+      scripted();
+      mount();
+      expect(screen.getByRole('button', { name: 'Jump to the start' })).toBeDisabled();
+    });
+
+    it('jumps to the start, and to the end, which pins', async () => {
+      const s = scripted();
+      const { viewport } = mount(action({ pinToEnd: false }));
+      await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
+
+      press('Jump to the start');
+      await frame();
+      expect(s.last().query).toMatchObject({ mode: 'Head', cursor: null });
+      await answer(s.last(), page(0, 20, { before: START, after: END }));
+      expect(viewport.get().pinnedToEnd).toBe(false);
+
+      press('Jump to the end');
+      await frame();
+      expect(s.last().query).toMatchObject({ mode: 'Tail', cursor: null });
+      await answer(s.last(), page(0, 20, { before: START, after: END }));
+      expect(viewport.get().pinnedToEnd).toBe(true);
+    });
+
+    it('pauses at the bottom with no lines arriving, and plays again from there', async () => {
+      const s = scripted();
+      mount();
+      await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
+      expect(open(s)).toHaveLength(1);
+
+      press('Pause');
+      await frame();
+      expect(open(s)).toHaveLength(0);
+      expect(rowTexts().at(-1)).toContain('line 19');
+
+      press('Play');
+      await frame();
+      expect(open(s)).toHaveLength(1);
+      await act(async () => {
+        open(s)[0].onFrame({ kind: 'Line', line: line(20) });
+      });
+      await frame(2);
+      expect(rowTexts().at(-1)).toContain('line 20');
+    });
+
+    it('keeps the columns and wrap the user picks for the next window', async () => {
+      const s = scripted();
+      mount();
+      await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
+      press('View');
+      await frame(2);
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Pod' }));
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Wrap' }));
+      await frame();
+      expect(screen.getAllByTestId('log-row').at(-1)!.querySelector('[data-col="Pod"]')).not.toBeNull();
+      expect(localStorage.getItem('kstack:log-viewer-columns')).toBe('["Timestamp","Dot","Pod"]');
+      expect(localStorage.getItem('kstack:log-viewer-wrap')).toBe('true');
+    });
+  });
+
+  describe('Jump to now', () => {
+    const jump = () => screen.queryByRole('button', { name: 'Jump to now' });
+    const scroller = (container: HTMLElement) => container.querySelector<HTMLElement>(SCROLLER)!;
+
+    async function scrollBy(target: HTMLElement, by: number) {
+      fireEvent.wheel(target, { deltaY: by });
+      Object.assign(target, { scrollTop: target.scrollTop + by });
+      await frame(2);
+    }
+
+    it('is absent before the landing and while pinned', async () => {
+      const s = scripted();
+      mount();
+      expect(jump()).not.toBeInTheDocument();
+      await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
+      expect(jump()).not.toBeInTheDocument();
+    });
+
+    it('shows once the user scrolls up, and lands at the end, pinned, when pressed', async () => {
+      const s = scripted();
+      const { container, viewport } = mount();
+      await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
+      await scrollBy(scroller(container), -100);
+      expect(jump()).toBeInTheDocument();
+
+      fireEvent.click(jump()!);
+      await frame();
+      expect(s.last().query).toMatchObject({ mode: 'Tail', cursor: null });
+      await answer(s.last(), page(0, 20, { before: START, after: END }));
+      expect(viewport.get().pinnedToEnd).toBe(true);
+      expect(jump()).not.toBeInTheDocument();
+    });
+
+    it('shows from the start of a Head landing', async () => {
+      const s = scripted();
+      mount(action({ anchor: { kind: 'Head', at: null }, pinToEnd: false }));
+      await answer(s.fetches[0], page(0, 20, { before: START }));
+      expect(jump()).toBeInTheDocument();
+    });
+
+    it('goes when scrolling reaches the end', async () => {
+      const s = scripted();
+      const { container } = mount();
+      await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
+      const el = scroller(container);
+      await scrollBy(el, -100);
+      expect(jump()).toBeInTheDocument();
+
+      // Unpinned, the after edge has more, and its edge row lengthens the sizer: scroll past it.
+      await scrollBy(el, 1000);
+      // A page takes longer than the core's intent window, so the clamp its edge row's removal
+      // causes is not read as the user's.
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(200);
+      });
+      const after = s.fetches.find((f) => f.query.mode === 'Head' && f.query.cursor !== null)!;
+      await answer(after, page(20, 20, { before: START, after: { cursor: 'live', more: false } }));
+      expect(jump()).not.toBeInTheDocument();
+    });
+  });
+
+  describe('wrap', () => {
+    // A wrapped row measures by its box; the long one is three lines tall here.
+    const rowHeight = (el: Element) => (el.textContent?.includes('long') ? 60 : 20);
+
+    beforeEach(() => {
+      stub('getBoundingClientRect', {
+        value: function rect(this: HTMLElement) {
+          return { height: this.dataset.testid === 'log-row' ? rowHeight(this) : 0, width: 0 } as DOMRect;
+        },
+      });
+      // A browser's observer reports a size a frame after it starts watching, which is when
+      // the virtualizer takes a row it skipped while its own scroll settled.
+      vi.stubGlobal(
+        'ResizeObserver',
+        class {
+          constructor(private readonly callback: ResizeObserverCallback) {}
+
+          observe(target: Element) {
+            requestAnimationFrame(() => this.callback([{ target } as ResizeObserverEntry], this));
+          }
+
+          // eslint-disable-next-line class-methods-use-this -- the stub's sizes never change
+          unobserve() {}
+
+          // eslint-disable-next-line class-methods-use-this -- a fake has nothing to release
+          disconnect() {}
+        },
+      );
+    });
+
+    const withLong = () =>
+      page(0, 20, {
+        before: START,
+        after: END,
+        lines: lines(0, 20).map((l, i) => (i === 18 ? { ...l, message: `long ${'x'.repeat(300)}` } : l)),
+      });
+    const topOf = (text: string) =>
+      screen.getAllByTestId('log-row').find((row) => row.textContent?.includes(text))!.style.transform;
+
+    it('lets a long message’s row grow, and the next row starts below it', async () => {
+      localStorage.setItem('kstack:log-viewer-wrap', 'true');
+      const s = scripted();
+      mount();
+      await answer(s.fetches[0], withLong());
+      const start = Number(/translateY\((\d+)px\)/.exec(topOf('long'))![1]);
+      expect(topOf('line 19')).toBe(`translateY(${start + 60}px)`);
+      expect(screen.getAllByTestId('log-row')[0].querySelector('[data-col="Message"]')).toHaveClass(
+        'whitespace-pre-wrap',
+      );
+    });
+
+    it('keeps every row one line tall with wrap off', async () => {
+      const s = scripted();
+      mount();
+      await answer(s.fetches[0], withLong());
+      const start = Number(/translateY\((\d+)px\)/.exec(topOf('long'))![1]);
+      expect(topOf('line 19')).toBe(`translateY(${start + 20}px)`);
+    });
+  });
+
+  it('names the columns over the rows', async () => {
     const s = scripted();
-    mount(action({ sources: [source({ containers: ['app'] }), source({ name: 'db', containers: ['pg'] })] }));
+    mount();
     await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
-    expect(rowTexts().at(-1)).not.toContain('webapp/app');
+    expect(screen.getByTestId('log-header')).toHaveTextContent('PositionTimestampSourceMessage');
+  });
+
+  it('draws the default columns, with no pod', async () => {
+    const s = scripted();
+    mount();
+    await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
+    const last = screen.getAllByTestId('log-row').at(-1)!;
+    expect([...last.querySelectorAll<HTMLElement>('[data-col]')].map((el) => el.dataset.col)).toEqual([
+      'Pos',
+      'Timestamp',
+      'Dot',
+      'Message',
+    ]);
   });
 });

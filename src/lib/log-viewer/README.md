@@ -69,6 +69,9 @@ the window what the DOM and the client did and performs what the window answers.
 - **The store** (`createCoreStore`) is where the core publishes the window's `CoreState`. A
   parent holds it and reads it with `useSyncExternalStore`; each landing writes it before its
   first paint.
+- **`scrollerRef`** gets each landing's scroller, a callback since each landing mounts a new
+  one, for a caller that reads its size or its sideways scroll. It is the DOM node and nothing
+  else: the core still knows no columns.
 
 ## The fake
 

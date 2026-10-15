@@ -1,0 +1,103 @@
+// Copyright 2026 The Kstack Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
+
+import type { Column } from '@/components/widgets/log-viewer-columns';
+import { LogViewerToolbar, type LogViewerToolbarProps } from './log-viewer-toolbar';
+
+function renderToolbar(over: Partial<LogViewerToolbarProps> = {}) {
+  const props: LogViewerToolbarProps = {
+    loading: false,
+    paused: false,
+    columns: ['Timestamp', 'Dot', 'Message'],
+    wrap: false,
+    onStart: vi.fn(),
+    onEnd: vi.fn(),
+    onPausedChange: vi.fn(),
+    onColumnsChange: vi.fn(),
+    onWrapChange: vi.fn(),
+    ...over,
+  };
+  render(<LogViewerToolbar {...props} />);
+  return props;
+}
+
+const button = (name: string) => screen.getByRole('button', { name });
+
+describe('LogViewerToolbar', () => {
+  it('jumps to the start and the end', async () => {
+    const props = renderToolbar();
+    await userEvent.click(button('Jump to the start'));
+    expect(props.onStart).toHaveBeenCalledOnce();
+    await userEvent.click(button('Jump to the end'));
+    expect(props.onEnd).toHaveBeenCalledOnce();
+  });
+
+  it('offers Pause while playing and Play while paused', async () => {
+    const playing = renderToolbar();
+    await userEvent.click(button('Pause'));
+    expect(playing.onPausedChange).toHaveBeenCalledWith(true);
+  });
+
+  it('plays again from paused', async () => {
+    const paused = renderToolbar({ paused: true });
+    expect(screen.queryByRole('button', { name: 'Pause' })).not.toBeInTheDocument();
+    await userEvent.click(button('Play'));
+    expect(paused.onPausedChange).toHaveBeenCalledWith(false);
+  });
+
+  it('disables every control while loading', () => {
+    renderToolbar({ loading: true });
+    ['Jump to the start', 'Pause', 'Jump to the end', 'View'].forEach((name) => expect(button(name)).toBeDisabled());
+  });
+
+  it('lists every column but the message, and no position, then Wrap', async () => {
+    renderToolbar();
+    await userEvent.click(button('View'));
+    const boxes = await screen.findAllByRole('checkbox');
+    expect(boxes.map((box) => box.getAttribute('aria-label') ?? box.closest('label')?.textContent)).toEqual([
+      'Timestamp',
+      'Dot',
+      'Pod',
+      'Container',
+      'Node',
+      'Region',
+      'Zone',
+      'OS',
+      'Arch',
+      'Wrap',
+    ]);
+    expect(screen.getByRole('checkbox', { name: 'Timestamp' })).toBeChecked();
+    expect(screen.getByRole('checkbox', { name: 'Pod' })).not.toBeChecked();
+  });
+
+  it('adds and removes a column, keeping column order and the message', async () => {
+    const props = renderToolbar();
+    await userEvent.click(button('View'));
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Pod' }));
+    expect(props.onColumnsChange).toHaveBeenLastCalledWith<[Column[]]>(['Timestamp', 'Dot', 'Pod', 'Message']);
+    await userEvent.click(screen.getByRole('checkbox', { name: 'Timestamp' }));
+    expect(props.onColumnsChange).toHaveBeenLastCalledWith<[Column[]]>(['Dot', 'Message']);
+  });
+
+  it('toggles wrap', async () => {
+    const props = renderToolbar();
+    await userEvent.click(button('View'));
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Wrap' }));
+    expect(props.onWrapChange).toHaveBeenCalledWith(true);
+  });
+});

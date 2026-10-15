@@ -1,7 +1,7 @@
 ---
 title: Columns, wrap and controls
 scope: frontend
-status: Planned
+status: Built
 ---
 
 # Columns, wrap and controls
@@ -137,11 +137,14 @@ A toggle. Off, every row is one line tall and the scroller scrolls sideways. On:
 - `measureElement` is `(el) => el.getBoundingClientRect().height`, passed to the core only while
   wrap is on. Each row then carries `ref={rows.measureElement}` and `data-index`.
 
-`messageWidth` is the scroller's `clientWidth` less the other visible columns' widths, at least
-100px, read through a `ResizeObserver` and once per frame, while wrap is on
-(`log-viewer-message-width.ts`, from kubetail's `useMessageContainerWidth`).
+`messageWidth` is the scroller's `clientWidth` less the position's and the other visible
+columns' widths, at least 100px, read through a `ResizeObserver` once per frame
+(`log-viewer-message-width.ts`, from kubetail's `useMessageContainerWidth`). The scroller is
+watched whether or not wrap is on — one observer on one element — so the width is already
+read when wrap is turned on.
 
-Flipping the toggle calls the core's `measure`, which keeps the reader's row or the end.
+Flipping the toggle calls the core's `measure` in the same handler, so the hold it performs
+reads the reader's row off the layout before the flip, and keeps it, or the end.
 
 The choice is `kstack:log-viewer-wrap`, a flag through `usePersistedFlag`.
 
@@ -215,22 +218,23 @@ minimum always fit. The stored width is left alone, and a wider window draws it 
 ## Tasks
 
 `log-viewer-widths.ts`, `log-viewer-header.tsx` and `log-viewer-message-width.ts` carry both
-copyright lines, per the README's *Attribution*; the columns, the toolbar, *Jump to now*,
-`scrollerRef` and the width change are kstack's alone.
+copyright lines, per the README's *Attribution*, and so does `log-viewer-columns.ts`, which holds
+kubetail's dot palette; the toolbar, *Jump to now*, `scrollerRef` and the width change are
+kstack's alone.
 
 1. **`scrollerRef`.** `LogViewerCoreProps.scrollerRef` in `src/lib/log-viewer/core.tsx`, its
-   test, and a line in the library's `README.md`. **Planned.**
+   test, and a line in the library's `README.md`. **Done.**
 2. **Columns.** `src/components/widgets/log-viewer-columns.ts` (§1); `log-viewer-widths.ts`;
    `LogViewerRow` takes the row's key in place of `landed`, draws the position cell and the
    visible columns in the grid, and moves the landed marker onto the position cell.
-   **Planned.**
-3. **The header row.** `src/components/widgets/log-viewer-header.tsx` (§2). **Planned.**
+   **Done.**
+3. **The header row.** `src/components/widgets/log-viewer-header.tsx` (§2). **Done.**
 4. **Wrap.** The estimate and the measure in `log-viewer.tsx` (§3);
-   `log-viewer-message-width.ts`. **Planned.**
+   `log-viewer-message-width.ts`. **Done.**
 5. **The toolbar.** `src/components/widgets/log-viewer-toolbar.tsx` (§4), drawn by
-   `log-viewer.tsx`; *Jump to now* in `log-viewer.tsx`. **Planned.**
-6. **Width.** `right-sidebar.tsx` and `app-layout.tsx` (§5). **Planned.**
-7. **Docs.** Root `CLAUDE.md`, per *When it lands*. **Planned.**
+   `log-viewer.tsx`; *Jump to now* in `log-viewer.tsx`. **Done.**
+6. **Width.** `right-sidebar.tsx` and `app-layout.tsx` (§5). **Done.**
+7. **Docs.** Root `CLAUDE.md`, per *When it lands*. **Done.**
 
 ## Tests
 

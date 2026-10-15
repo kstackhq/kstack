@@ -13,11 +13,12 @@
 // limitations under the License.
 
 import { act, render, screen } from '@testing-library/react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { type Column, DEFAULT_COLUMNS, dotColor } from '@/components/widgets/log-viewer-columns';
 import type { LogLine } from '@/lib/log-viewer';
-import { LOG_ROW_H, LogViewerRow } from './log-viewer-row';
+import { LOG_ROW_H, LogViewerRow, gridTemplate } from './log-viewer-row';
 
 // Built in local time, since the row draws local time.
 const local = (...parts: [number, number, number, number, number, number, number]) => new Date(...parts).toISOString();
@@ -27,9 +28,30 @@ const line = (over: Partial<LogLine> = {}): LogLine => ({
   cursor: 'c1',
   message: 'GET /healthz 200',
   stream: { namespace: 'prod', pod: 'webapp-7f9c', container: 'istio-proxy', previous: false },
-  place: { node: 'n', region: '', zone: '', os: '', arch: '' },
+  place: { node: 'node-a', region: 'eu-west-1', zone: 'eu-west-1b', os: 'linux', arch: 'arm64' },
   ...over,
 });
+
+const ALL: Column[] = ['Timestamp', 'Dot', 'Pod', 'Container', 'Node', 'Region', 'Zone', 'OS', 'Arch', 'Message'];
+const widths = new Map();
+
+function Row({
+  rowKey = 1,
+  columns = DEFAULT_COLUMNS,
+  wrap = false,
+  of = line(),
+}: {
+  rowKey?: number;
+  columns?: Column[];
+  wrap?: boolean;
+  of?: LogLine;
+}) {
+  return <LogViewerRow line={of} rowKey={rowKey} columns={columns} widths={widths} rowWidth={0} wrap={wrap} />;
+}
+
+const row = () => screen.getByTestId('log-row');
+const cellOf = (col: string) => row().querySelector<HTMLElement>(`[data-col="${col}"]`);
+const cols = () => [...row().querySelectorAll<HTMLElement>('[data-col]')].map((el) => el.dataset.col);
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -41,41 +63,85 @@ afterEach(() => {
 });
 
 describe('LogViewerRow', () => {
-  it('draws the time, the pod and the message', () => {
-    render(<LogViewerRow line={line()} showContainer={false} landed={false} />);
-    const row = screen.getByTestId('log-row');
-    expect(row).toHaveTextContent('09:05:03.123');
-    expect(row).toHaveTextContent('webapp-7f9c');
-    expect(row).toHaveTextContent('GET /healthz 200');
-    expect(row).not.toHaveTextContent('istio-proxy');
-    expect(row).toHaveClass(LOG_ROW_H);
+  it('draws the position, then the default columns: the time, the dot and the message', () => {
+    render(<Row />);
+    expect(cols()).toEqual(['Pos', 'Timestamp', 'Dot', 'Message']);
+    expect(cellOf('Timestamp')).toHaveTextContent('09:05:03.123');
+    expect(cellOf('Message')).toHaveTextContent('GET /healthz 200');
+    expect(row()).toHaveClass(LOG_ROW_H);
+  });
+
+  it('draws every column as its own cell, the pod and the container apart', () => {
+    render(<Row columns={ALL} />);
+    expect(cols()).toEqual(['Pos', ...ALL]);
+    expect(cellOf('Pod')).toHaveTextContent(/^webapp-7f9c$/);
+    expect(cellOf('Container')).toHaveTextContent(/^istio-proxy$/);
+    expect(cellOf('Node')).toHaveTextContent('node-a');
+    expect(cellOf('Region')).toHaveTextContent('eu-west-1');
+    expect(cellOf('Zone')).toHaveTextContent('eu-west-1b');
+    expect(cellOf('OS')).toHaveTextContent('linux');
+    expect(cellOf('Arch')).toHaveTextContent('arm64');
+  });
+
+  it('draws no cell for a hidden column', () => {
+    render(<Row columns={['Pod', 'Message']} />);
+    expect(cols()).toEqual(['Pos', 'Pod', 'Message']);
+  });
+
+  it('lays the row out as a grid: the position, a track per column, the message taking the rest', () => {
+    expect(gridTemplate(['Timestamp', 'Pod', 'Message'])).toBe('minmax(48px, auto) auto auto 1fr');
+    render(<Row />);
+    expect(row()).toHaveStyle({ gridTemplateColumns: 'minmax(48px, auto) auto auto 1fr' });
+  });
+
+  it('draws the position as a sign and a magnitude, and a bare 0 where the view landed', () => {
+    const { rerender } = render(<Row rowKey={3} />);
+    expect(cellOf('Pos')).toHaveTextContent(/^\+3$/);
+    rerender(<Row rowKey={-12} />);
+    expect(cellOf('Pos')).toHaveTextContent(/^-12$/);
+    rerender(<Row rowKey={0} />);
+    expect(cellOf('Pos')).toHaveTextContent(/^0$/);
+  });
+
+  it('marks the landed row on its position cell, not the row', () => {
+    const { rerender } = render(<Row rowKey={1} />);
+    expect(cellOf('Pos')).not.toHaveClass('border-l-2');
+    rerender(<Row rowKey={0} />);
+    expect(cellOf('Pos')).toHaveClass('border-l-2');
+    expect(row()).not.toHaveClass('border-l-2');
+  });
+
+  it('colours the dot by its container, hides it, and names the stream to a screen reader', () => {
+    render(<Row />);
+    const dot = cellOf('Dot')!;
+    const circle = dot.querySelector<HTMLElement>('[aria-hidden="true"]')!;
+    expect(circle.style.backgroundColor).not.toBe('');
+    expect(circle).toHaveStyle({ backgroundColor: dotColor('prod', 'webapp-7f9c', 'istio-proxy') });
+    expect(dot.querySelector('.sr-only')).toHaveTextContent('webapp-7f9c/istio-proxy');
   });
 
   it('spells out what cluster text could hide', () => {
-    render(<LogViewerRow line={line({ message: 'ok‮evil' })} showContainer={false} landed={false} />);
-    expect(screen.getByTestId('log-row').querySelector('mark')).not.toBeNull();
+    render(<Row of={line({ message: 'ok\u202Eevil' })} />);
+    expect(cellOf('Message')!.querySelector('mark')).not.toBeNull();
   });
 
   it('puts the date before a time from another day', () => {
-    render(
-      <LogViewerRow
-        line={line({ timestamp: local(2026, 9, 14, 23, 59, 59, 5) })}
-        showContainer={false}
-        landed={false}
-      />,
-    );
-    expect(screen.getByTestId('log-row')).toHaveTextContent('Oct 14 23:59:59.005');
+    render(<Row of={line({ timestamp: local(2026, 9, 14, 23, 59, 59, 5) })} />);
+    expect(cellOf('Timestamp')).toHaveTextContent('Oct 14 23:59:59.005');
   });
 
   it('draws the milliseconds of a time with nine fraction digits', () => {
     const nine = line().timestamp.replace(/Z$/, '456789Z');
-    render(<LogViewerRow line={line({ timestamp: nine })} showContainer={false} landed={false} />);
-    expect(screen.getByTestId('log-row')).toHaveTextContent('09:05:03.123');
+    render(<Row of={line({ timestamp: nine })} />);
+    expect(cellOf('Timestamp')).toHaveTextContent('09:05:03.123');
   });
 
-  it('draws the container after the pod when asked', () => {
-    render(<LogViewerRow line={line()} showContainer landed={false} />);
-    expect(screen.getByTestId('log-row')).toHaveTextContent('webapp-7f9c/istio-proxy');
+  it('wraps the message and drops the fixed height when asked', () => {
+    const { rerender } = render(<Row />);
+    expect(cellOf('Message')).not.toHaveClass('whitespace-pre-wrap');
+    rerender(<Row wrap />);
+    expect(cellOf('Message')).toHaveClass('whitespace-pre-wrap');
+    expect(row()).not.toHaveClass(LOG_ROW_H);
   });
 
   it('re-renders only when what it draws changes', () => {
@@ -88,30 +154,36 @@ describe('LogViewerRow', () => {
         return 'GET /healthz 200';
       },
     };
-    let setTop: (top: number) => void = () => {};
-    let bump: () => void = () => {};
+    const controls = { setTop: (_top: number) => {}, bump: () => {} };
     function Parent() {
       const [top, set] = useState(0);
       const [, tick] = useState(0);
-      setTop = set;
-      bump = () => tick((n) => n + 1);
-      return <LogViewerRow line={counted} showContainer={false} landed={false} top={top} />;
+      useEffect(() => {
+        controls.setTop = set;
+        controls.bump = () => tick((n) => n + 1);
+      }, []);
+      return (
+        <LogViewerRow
+          line={counted}
+          rowKey={1}
+          columns={DEFAULT_COLUMNS}
+          widths={widths}
+          rowWidth={0}
+          wrap={false}
+          top={top}
+        />
+      );
     }
     render(<Parent />);
     const mounted = reads;
+    expect(mounted).toBeGreaterThan(0);
 
-    act(() => bump());
+    act(() => controls.bump());
     expect(reads).toBe(mounted);
 
-    act(() => setTop(20));
-    expect(reads).toBeGreaterThan(mounted);
-    expect(screen.getByTestId('log-row')).toHaveStyle({ transform: 'translateY(20px)' });
-  });
-
-  it('marks the row the view landed on', () => {
-    const { rerender } = render(<LogViewerRow line={line()} showContainer={false} landed={false} />);
-    expect(screen.getByTestId('log-row')).not.toHaveClass('border-l-2');
-    rerender(<LogViewerRow line={line()} showContainer={false} landed />);
-    expect(screen.getByTestId('log-row')).toHaveClass('border-l-2');
+    // A move places the row again and reads no cell.
+    act(() => controls.setTop(20));
+    expect(row()).toHaveStyle({ transform: 'translateY(20px)' });
+    expect(reads).toBe(mounted);
   });
 });
