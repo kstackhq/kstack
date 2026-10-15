@@ -204,7 +204,7 @@ function Rows({ rows, columns, gridTemplate: template, widths, wrap, onRetry }: 
 }
 
 /** What the viewer draws from the core's state; the visible range is the viewport's alone. */
-const VIEWER_FIELDS = ['loading', 'failed', 'pinnedToEnd', 'ended', 'skipped'] as const;
+const VIEWER_FIELDS = ['loading', 'failed', 'ended', 'skipped'] as const;
 
 export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogViewerProps) {
   // Built once per mount. What the client runs on its own starts in the effect, so the
@@ -288,8 +288,7 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
           <VisibleText text={error} />
         </p>
       )}
-      {/* `relative` anchors the loading overlay over the header and the lines, and Jump to now
-          over the bottom of the lines. */}
+      {/* `relative` anchors the loading overlay over the header and the lines. */}
       <div className="relative flex min-h-0 flex-1 flex-col">
         {state.loading && <LoadingOverlay />}
         <LogViewerHeader
@@ -328,18 +327,6 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
             />
           )}
         </LogViewerCore>
-        {/* Unpinned, the follow is closed and nothing knows whether lines arrived, so the button
-          says where the live end is, not that anything is new. */}
-        {!state.loading && !state.failed && !state.pinnedToEnd && (
-          <Button
-            variant="secondary"
-            size="sm"
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 shadow"
-            onClick={() => core.current?.jumpTo({ kind: 'Tail', at: null })}
-          >
-            Jump to now
-          </Button>
-        )}
       </div>
     </>
   );

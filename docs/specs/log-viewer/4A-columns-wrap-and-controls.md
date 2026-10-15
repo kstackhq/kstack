@@ -17,13 +17,11 @@ The viewer gets a header row, a position column and a small toolbar. Each row op
 offset from the line the view landed on — `-12`, `0`, `+3`. The user picks which other columns
 to see — timestamp, a colour dot per container, pod, container, node, region, zone, OS,
 architecture, message — wraps long messages or lets them run off the edge, jumps to the start
-or the end, and pauses the stream. While the viewer is not pinned, a *Jump to now* button waits
-at the bottom of the lines. The pin stays the user's hand: a scroll up unpins, a scroll to the
-end pins.
+or the end, and pauses the stream. The pin stays the user's hand: a scroll up unpins, a scroll
+to the end pins.
 
 The columns, the measured widths, the header and the wrap follow kubetail's console page
-(`dashboard-ui/src/pages/console/main.tsx`). The toolbar's buttons follow its `header.tsx`;
-*Jump to now* is kstack's own.
+(`dashboard-ui/src/pages/console/main.tsx`). The toolbar's buttons follow its `header.tsx`.
 
 ## What is not in this step
 
@@ -103,7 +101,7 @@ The widths are measured in `widths.ts`, from kubetail's `useMeasureWidths`:
   only then.
 
 The widths grow and never shrink, and they reset only when the view changes, which the mount's
-key does for free. A landing inside one view — Start, End, Jump to now, Try again — keeps them,
+key does for free. A landing inside one view — Start, End, Try again — keeps them,
 so the columns do not move under a jump. Hiding a column keeps its width for when it returns.
 
 ### 2. The header row
@@ -115,9 +113,9 @@ wrapper that is a scroll container of its own with no bar drawn (`overflow-x-scr
 no-scrollbar`), 19px tall with a border above and below and one between cells, as kubetail's is.
 The two follow each other sideways: a scroll of either sets the other's `scrollLeft` on the next
 frame, and the side that moved ignores the echo until the frame after, so a swipe over the
-header moves the rows too. A spacer at its right edge is the
-scroller's vertical scrollbar width, `offsetWidth - clientWidth` read through a
-`ResizeObserver`, so the names stay over their columns at the far right.
+header moves the rows too. A spacer at its right edge is the scroller's vertical
+scrollbar width, `offsetWidth - clientWidth` read through a `ResizeObserver`, so the names stay
+over their columns at the far right.
 
 **It needs the scroller, which the core owns.** `LogViewerCoreProps` gains
 `scrollerRef?: Ref<HTMLDivElement>`, passed to each landing's scroller. Each landing mounts a
@@ -169,14 +167,6 @@ handle, its store and `paused` are the viewer's, and the viewer is keyed per cal
 Each is an icon button with a label for the screen reader, `size="icon-sm"` as the panel's close
 is, and each is disabled while the core is `loading`.
 
-**Jump to now** floats over the bottom of the scroller, centred, while the viewer has landed
-(`!loading && !failed`) and is not pinned — after the user scrolls up, and from the start of a
-`Head` or `At` landing, or a `Tail` one that did not pin: a small labelled button calling
-`jumpTo({ kind: 'Tail', at: null })`, as End does. Unpinned, the follow is closed and the window
-cannot know whether lines arrived, so the button says where the live end is rather than that
-anything is new. It goes as the viewer pins again, by the button or by scrolling down to the
-end.
-
 ### 5. Width
 
 A viewer with four columns on wants more than 640px. `WIDTH.max` in `right-sidebar.tsx` becomes
@@ -202,15 +192,14 @@ minimum always fit. The stored width is left alone, and a wider window draws it 
 - **Pod and container are two columns.** One field per cell, as kubetail has it, and 4B copies a
   cell as the field it names.
 - **The pin stays the scroll's.** Scrolling up unpins and scrolling to the end pins, as in step
-  3; End and *Jump to now* re-pin without a scroll. A button for it would be a second way to say
+  3; End re-pins without a scroll. A button for it would be a second way to say
   the same thing.
 - **Widths are kept across landings.** Kubetail resets them on every load; keeping them means a
   jump does not move the columns.
 - **The core hands out its scroller.** The header and the wrap need its width and its sideways
   scroll; a ref is the smallest thing that gives them both.
-- **Jump to now beside the lines, not only in the toolbar.** Catching up by scrolling reads a
-  page at a time, which after a long read is slow; the way back to the live end sits where the
-  reader's eyes are. It names no count, since a closed follow has none to give.
+- **End is the one way back to the live end.** The toolbar sits directly over the lines, so a
+  second button floating over them would only cover the last line.
 - **Pause is separate from the pin.** Unpinning also stops the stream, so the two overlap, but
   only Pause lets the viewer rest at the bottom.
 - **1200px for chat mode, and the panel yields to the page.** Enough for timestamp, pod,
@@ -221,7 +210,7 @@ minimum always fit. The stored width is left alone, and a wider window draws it 
 
 `widths.ts`, `log-viewer-header.tsx` and `log-viewer/message-width.ts` carry both
 copyright lines, per the README's *Attribution*, and so does `log-viewer-columns.ts`, which holds
-kubetail's dot palette; the toolbar, *Jump to now*, `scrollerRef` and the width change are
+kubetail's dot palette; the toolbar, `scrollerRef` and the width change are
 kstack's alone.
 
 1. **`scrollerRef`.** `LogViewerCoreProps.scrollerRef` in `src/lib/log-viewer/core.tsx`, its
@@ -234,7 +223,7 @@ kstack's alone.
 4. **Wrap.** The estimate and the measure in `log-viewer/log-viewer.tsx` (§3);
    `log-viewer/message-width.ts`. **Done.**
 5. **The toolbar.** `src/components/widgets/log-viewer/toolbar.tsx` (§4), drawn by
-   `log-viewer/log-viewer.tsx`; *Jump to now* in `log-viewer/log-viewer.tsx`. **Done.**
+   `log-viewer/log-viewer.tsx`. **Done.**
 6. **Width.** `right-sidebar.tsx` and `app-layout.tsx` (§5). **Done.**
 7. **Docs.** Root `CLAUDE.md`, per *When it lands*. **Done.**
 
@@ -260,9 +249,7 @@ height stubs it.
   the viewer stops at the bottom with lines no longer arriving; Play again catches up; every
   button is disabled while loading; the View popover adds and removes a column and toggles Wrap,
   and both persist; the popover lists no position column.
-- `log-viewer.test.tsx`: *Jump to now* is absent while pinned and before the landing, shows once
-  the user scrolls up and from the start of a `Head` landing, lands at the end and pins when
-  pressed, and goes when scrolling reaches the end; with wrap on and `measureElement` answering
+- `log-viewer.test.tsx`: with wrap on and `measureElement` answering
   a stubbed height, a long message's row is taller than one line and the next row starts below
   it; with wrap off, one line each; a hidden column is not drawn; the pod and the container are
   separate cells; the dot's circle is hidden from the screen reader and its cell names
@@ -280,7 +267,7 @@ localStorage value cannot name a column that does not exist.
 ## When it lands
 
 - Root `CLAUDE.md`, *Chat*: the viewer's paragraph gains the columns and the dot, wrap, the
-  toolbar and *Jump to now*, and the position cell with the landed marker on it, and loses
+  toolbar, and the position cell with the landed marker on it, and loses
   `/container` on the pod and the row's own border; *The log viewer's library* gains
   `scrollerRef`; *Theming & window frame* gains the two storage keys; the right sidebar's
   paragraph gains the per-mode maximum and the panel yielding to the page.
@@ -296,8 +283,8 @@ down and the ones the follow brings counting up; press Start, and the first line
 `0`; open a view over two containers, and each draws its own dot colour, the same in a
 second window; turn on Pod, Node and Container, and the header and the rows line up as lines
 arrive and as the panel scrolls sideways; turn on Wrap over a line longer than the panel, and it
-wraps with no overlap; scroll up, and *Jump to now* appears; press it, and the viewer lands at
-the newest lines and follows; press Pause at the bottom, and the last lines stay put while the
+wraps with no overlap; scroll up and press End, and the viewer lands at the newest lines and
+follows; press Pause at the bottom, and the last lines stay put while the
 pod writes; press Play, and the missed lines arrive and the end stays in view; drag the panel to
 1200px and narrow the window, and the panel gives way before the page; open a second window, and
 it opens with the same columns and wrap.

@@ -511,67 +511,6 @@ describe('LogViewer', () => {
     });
   });
 
-  describe('Jump to now', () => {
-    const jump = () => screen.queryByRole('button', { name: 'Jump to now' });
-    const scroller = (container: HTMLElement) => container.querySelector<HTMLElement>(SCROLLER)!;
-
-    async function scrollBy(target: HTMLElement, by: number) {
-      fireEvent.wheel(target, { deltaY: by });
-      Object.assign(target, { scrollTop: target.scrollTop + by });
-      await frame(2);
-    }
-
-    it('is absent before the landing and while pinned', async () => {
-      const s = scripted();
-      mount();
-      expect(jump()).not.toBeInTheDocument();
-      await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
-      expect(jump()).not.toBeInTheDocument();
-    });
-
-    it('shows once the user scrolls up, and lands at the end, pinned, when pressed', async () => {
-      const s = scripted();
-      const { container, viewport } = mount();
-      await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
-      await scrollBy(scroller(container), -100);
-      expect(jump()).toBeInTheDocument();
-
-      fireEvent.click(jump()!);
-      await frame();
-      expect(s.last().query).toMatchObject({ mode: 'Tail', cursor: null });
-      await answer(s.last(), page(0, 20, { before: START, after: END }));
-      expect(viewport.get().pinnedToEnd).toBe(true);
-      expect(jump()).not.toBeInTheDocument();
-    });
-
-    it('shows from the start of a Head landing', async () => {
-      const s = scripted();
-      mount(action({ anchor: { kind: 'Head', at: null }, pinToEnd: false }));
-      await answer(s.fetches[0], page(0, 20, { before: START }));
-      expect(jump()).toBeInTheDocument();
-    });
-
-    it('goes when scrolling reaches the end', async () => {
-      const s = scripted();
-      const { container } = mount();
-      await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
-      const el = scroller(container);
-      await scrollBy(el, -100);
-      expect(jump()).toBeInTheDocument();
-
-      // Unpinned, the after edge has more, and its edge row lengthens the sizer: scroll past it.
-      await scrollBy(el, 1000);
-      // A page takes longer than the core's intent window, so the clamp its edge row's removal
-      // causes is not read as the user's.
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(200);
-      });
-      const after = s.fetches.find((f) => f.query.mode === 'Head' && f.query.cursor !== null)!;
-      await answer(after, page(20, 20, { before: START, after: { cursor: 'live', more: false } }));
-      expect(jump()).not.toBeInTheDocument();
-    });
-  });
-
   describe('wrap', () => {
     // A wrapped row measures by its box; the long one is three lines tall here.
     const rowHeight = (el: Element) => (el.textContent?.includes('long') ? 60 : 20);
