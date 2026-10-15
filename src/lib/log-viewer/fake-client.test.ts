@@ -58,6 +58,23 @@ describe('the log', () => {
     ]);
   });
 
+  it('spaces its history `spacingMs` apart, the last stamped with the clock', () => {
+    const fake = new FakeClient({ lines: 3, streams: [stream('a')], spacingMs: 2000 });
+    expect([0, 1, 2].map((i) => fake.lineAt(i).timestamp)).toEqual([
+      '2026-10-15T11:59:56.000Z',
+      '2026-10-15T11:59:58.000Z',
+      '2026-10-15T12:00:00.000Z',
+    ]);
+  });
+
+  it('answers Around at a moment inside a spaced history with lines on both sides', async () => {
+    const fake = new FakeClient({ lines: 5000, streams: [stream('a')], spacingMs: 2000 });
+    const page = await fetchNow(fake, q({ mode: 'Around', at: '2026-10-15T11:00:00Z', limit: 5 }));
+    expect(page.lines).toHaveLength(10);
+    expect(page.anchor).toBe(5);
+    expect(page.lines[5].timestamp).toBe('2026-10-15T11:00:00.000Z');
+  });
+
   it('gives every line a cursor of its own', () => {
     const fake = new FakeClient({ lines: 50, streams: [stream('a'), stream('b')] });
     const cursors = new Set(Array.from({ length: 50 }, (_, i) => fake.lineAt(i).cursor));

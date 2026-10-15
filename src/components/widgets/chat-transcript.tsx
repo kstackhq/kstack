@@ -493,12 +493,14 @@ function ToolCalls({
   byAgent,
   modelLabel,
   chatID,
+  clusterID,
   mode,
 }: {
   calls: ChatToolCall[];
   byAgent: SubagentCalls;
   modelLabel: ModelLabel;
   chatID: string;
+  clusterID: string | undefined;
   mode: AppMode;
 }) {
   return (
@@ -506,7 +508,16 @@ function ToolCalls({
       {calls.map((call) => {
         // A view that opened is a card, not a disclosure: the user looks at it.
         if (call.action?.logsView) {
-          return <LogsViewCard key={call.id} call={call} action={call.action.logsView} chatID={chatID} mode={mode} />;
+          return (
+            <LogsViewCard
+              key={call.id}
+              call={call}
+              action={call.action.logsView}
+              chatID={chatID}
+              clusterID={clusterID}
+              mode={mode}
+            />
+          );
         }
         const summary = summaryOf(call);
         const line = descriptionLine(call.action?.description ?? '');
@@ -565,6 +576,7 @@ function ToolCalls({
                   report={call.background?.report ?? ''}
                   modelLabel={modelLabel}
                   chatID={chatID}
+                  clusterID={clusterID}
                   mode={mode}
                 />
               ) : (
@@ -704,6 +716,7 @@ function AgentBody({
   report,
   modelLabel,
   chatID,
+  clusterID,
   mode,
 }: {
   delegate: DelegateAction;
@@ -711,6 +724,7 @@ function AgentBody({
   report: string;
   modelLabel: ModelLabel;
   chatID: string;
+  clusterID: string | undefined;
   mode: AppMode;
 }) {
   const kind = delegate.model === '' ? delegate.agentType : `${delegate.agentType} · ${modelLabel(delegate.model)}`;
@@ -721,7 +735,14 @@ function AgentBody({
       </p>
       <FoldedBlock text={delegate.prompt} className="mt-1 border-l-2 border-muted pl-3 break-all whitespace-pre-wrap" />
       {calls.length > 0 && (
-        <ToolCalls calls={calls} byAgent={NO_SUBAGENT_CALLS} modelLabel={modelLabel} chatID={chatID} mode={mode} />
+        <ToolCalls
+          calls={calls}
+          byAgent={NO_SUBAGENT_CALLS}
+          modelLabel={modelLabel}
+          chatID={chatID}
+          clusterID={clusterID}
+          mode={mode}
+        />
       )}
       {report !== '' && (
         <div className="mt-1 border-l-2 border-muted pl-3 text-foreground">
@@ -1162,6 +1183,7 @@ function Notices({ notices }: { notices: TaskNotice[] }) {
 function Message({
   message,
   chatID,
+  clusterID,
   mode,
   label,
   labelOf,
@@ -1171,6 +1193,8 @@ function Message({
 }: {
   message: ChatMessage;
   chatID: string;
+  /** The chat's cluster, which a view's card sets with it. */
+  clusterID: string | undefined;
   mode: AppMode;
   approveArmMs: number;
   sandboxAvailable: boolean | undefined;
@@ -1234,7 +1258,14 @@ function Message({
           </span>
         )}
         {done.length > 0 && (
-          <ToolCalls calls={done} byAgent={byAgent} modelLabel={modelLabel} chatID={chatID} mode={mode} />
+          <ToolCalls
+            calls={done}
+            byAgent={byAgent}
+            modelLabel={modelLabel}
+            chatID={chatID}
+            clusterID={clusterID}
+            mode={mode}
+          />
         )}
         {waiting.map(({ call, approval, change }) => (
           // Keyed on the approval, never the call or the message, so a decided
@@ -1372,6 +1403,7 @@ export function ChatTranscript({
         key={message.id}
         message={message}
         chatID={chatID}
+        clusterID={clusterID}
         mode={mode}
         label={label}
         labelOf={labelOf}

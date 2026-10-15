@@ -26,7 +26,7 @@ vi.mock('urql', () => ({ useMutation: () => [{}, sendMock], useQuery: () => [cat
 
 const { ChatOutboxProvider } = await import('@/lib/chat-outbox');
 const { chatGrantsContext } = await import('@/lib/chat-grants');
-const { LogsViewProvider } = await import('@/lib/logs-view');
+const { LogsViewProvider, useLogsView } = await import('@/lib/logs-view');
 const { RightSidebarProvider } = await import('@/lib/right-sidebar');
 const { APPROVE_ARM_MS, ChatTranscript } = await import('./chat-transcript');
 
@@ -721,6 +721,30 @@ describe('ChatTranscript', () => {
       const nested = within(disclosure).getByText('wc -l ~/.kube/config').closest('details')!;
       expect(disclosure).toContainElement(nested);
       expect(within(disclosure).getByText('twelve').tagName).toBe('STRONG');
+    });
+
+    it('hands a subagent’s view the chat’s cluster', () => {
+      function Focused() {
+        const { view } = useLogsView();
+        return <output data-testid="focused">{view ? `${view.clusterId}/${view.callId}` : 'none'}</output>;
+      }
+      render(
+        wrap(
+          <>
+            <ChatTranscript
+              messages={[msg({ toolCalls: [agent(), logsViewCall({ agentCallID: 'ag1' })] })]}
+              phase="live"
+              mode="chat"
+              chatID="c1"
+              clusterID="1"
+            />
+            <Focused />
+          </>,
+        ),
+      );
+
+      fireEvent.click(screen.getByRole('button', { name: 'Expand' }));
+      expect(screen.getByTestId('focused')).toHaveTextContent('1/lv-1');
     });
 
     it('draws the report off its task, never the launch text the model read', () => {

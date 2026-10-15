@@ -20,6 +20,7 @@ import { LogsViewProvider, useLogsView } from './logs-view';
 import type { LogsView } from './logs-view';
 
 const view: LogsView = {
+  clusterId: 'cluster-1',
   chatId: 'chat-1',
   callId: 'call-1',
   action: {
@@ -71,11 +72,12 @@ describe('useLogsView', () => {
     expect(result.current.sidebar.open).toBe(true);
   });
 
-  it('holds one viewer store for the window, whichever view is set', () => {
+  it('holds one viewport for the window, whichever view is set', () => {
     const { result } = renderBoth();
-    const { viewer } = result.current.logs;
+    const { viewport } = result.current.logs;
+    expect(viewport.get().range).toBeNull();
     act(() => result.current.logs.set(view));
-    expect(result.current.logs.viewer).toBe(viewer);
+    expect(result.current.logs.viewport).toBe(viewport);
   });
 
   it('needs its provider', () => {
