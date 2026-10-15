@@ -55,8 +55,8 @@ sees — rows, columns, selection — sits above the core and never talks to the
 
 ## The shape of the work
 
-**Steps are numbered in waves.** `1A` and `1B` are built, so wave 1 is done. Step 2 puts the window
-behind a scroller, step 3 puts the viewer on screen over the fake, and `4A` and `4B` can be built at
+**Steps are numbered in waves.** `1A`, `1B` and `2` are built. Step 2 puts the window behind a
+scroller, step 3 puts the viewer on screen over the fake, and `4A` and `4B` can be built at
 the same time, since each adds to the rows step 3 draws and neither needs the other. Prose says
 "step 1B".
 
@@ -287,7 +287,7 @@ webview drops by cursor. Lines arrive per stream, not merged.
 | 4A | Columns, wrap and controls | [4A-columns-wrap-and-controls.md](4A-columns-wrap-and-controls.md) |
 | 4B | Select and copy | [4B-select-and-copy.md](4B-select-and-copy.md) |
 
-Steps 1A and 1B are built; their specs stay as the record of what shipped.
+Steps 1A, 1B and 2 are built; their specs stay as the record of what shipped.
 
 ## Not in this sequence
 

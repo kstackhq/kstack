@@ -1,7 +1,8 @@
 # The log viewer's library
 
-The headless part of the log viewer: what feeds it, the lines it holds, and the window that
-decides what every event does. Nothing here draws.
+The headless part of the log viewer: what feeds it, the lines it holds, the window that
+decides what every event does, and the core that puts the window behind a scroller. Nothing
+here draws a row.
 
 ## The contract
 
@@ -43,6 +44,31 @@ Its rules, one each:
 - **One page per edge is in flight**, named by a ticket. A stale ticket's page changes nothing.
 - **A refused follow unpins**, so the next scroll to the bottom tries again through a page.
 
+## The core
+
+`LogViewerCore` (`core.tsx`) is a React component with a render function as its child. It
+renders the scroller, a focusable `div` with its own overflow, and hands the render function
+`CoreRows`: the rows on screen, each with its key, line and `start`, the sizer's `totalSize`,
+both edges, and `loadMore` for an edge row's button. It decides nothing about lines; it tells
+the window what the DOM and the client did and performs what the window answers.
+
+- **One landing, one window.** Each landing — the mount, `jumpTo`, `retry`, a new `client` — is
+  a fresh window, scroller and `@tanstack/react-virtual` virtualizer. Loading ends a frame
+  after the landing settles.
+- **Paging follows the visible range**, once loading has ended and while no re-measure is in
+  flight. A page that landed holds its edge until the next frame; a page of repeats reads on.
+- **The follow is open exactly while the window follows**, its frames handed over once per
+  animation frame, or after 250 ms when no frame comes.
+- **Intent comes from input events.** A scroll is the user's within 150 ms of a wheel or a
+  scrolling key on the scroller, or while a pointer or a touch is down on it. Only the pin is
+  read off it.
+- **Answers are state**, so each brings its own commit, performed in the layout effect after
+  it: a hold keeps the first visible row by its key, `toEnd`, and `toKey` through
+  `scrollToIndex`. While following, every commit and every resize keeps the end in view.
+- **The store** (`createCoreStore`) is where the core publishes the window's `CoreState`. A
+  parent holds it and reads it with `useSyncExternalStore`; each landing writes it before its
+  first paint.
+
 ## The fake
 
 `FakeClient` (`fake-client.ts`) is a `Client` over a log it invents, the one client the viewer
@@ -53,6 +79,6 @@ streams, grows by `append` or at a `rate`, and models what the wire does to a vi
 
 ## The boundary
 
-This directory imports its own files and nothing else: no `@/` import, and no relative import
-that leaves it. It knows lines, cursors and anchors, and nothing about columns, the viewport,
+This directory imports `react`, `@tanstack/react-virtual` and its own files, and nothing else:
+no `@/` import, and no relative import that leaves it. It knows lines, cursors and anchors, and nothing about columns, the viewport,
 GraphQL or the error bus.
