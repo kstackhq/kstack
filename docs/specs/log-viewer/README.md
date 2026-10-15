@@ -55,7 +55,7 @@ sees — rows, columns, selection — sits above the core and never talks to the
 
 ## The shape of the work
 
-**Steps are numbered in waves.** `1A`, `1B` and `2` are built. Step 2 puts the window behind a
+**Steps are numbered in waves.** `1A` to `4A` are built. Step 2 puts the window behind a
 scroller, step 3 puts the viewer on screen over the fake, `4A` gives the rows columns, and `4B`
 selects over those columns. Prose says "step 1B".
 
@@ -286,7 +286,7 @@ webview drops by cursor. Lines arrive per stream, not merged.
 | 4A | Columns, wrap and controls | [4A-columns-wrap-and-controls.md](4A-columns-wrap-and-controls.md) |
 | 4B | Select and copy | [4B-select-and-copy.md](4B-select-and-copy.md) |
 
-Steps 1A, 1B and 2 are built; their specs stay as the record of what shipped.
+Steps 1A to 4A are built; their specs stay as the record of what shipped.
 
 ## Not in this sequence
 
@@ -307,7 +307,7 @@ Steps 1A, 1B and 2 are built; their specs stay as the record of what shipped.
   already works.
 - **The inline card with lines.** Rung 2 of the log views ladder. It is not a smaller `LogViewer`:
   a fixed window of lines with no scroller needs neither the virtualizer nor the paging, so the
-  card is a second consumer of the client (`logs-client.ts`) and the row (`log-viewer-row.tsx`)
+  card is a second consumer of the client (`logs-client.ts`) and the row (`log-viewer/row.tsx`)
   this sequence builds, and never mounts the core.
 - **`LogsRead`.** Rung 4 of that ladder. It will reuse the fetch.
 - **Facets.** Kubetail's sidebar lists each region, zone, OS, architecture and node the open
