@@ -987,26 +987,45 @@ describe('the user’s intent', () => {
     expect(m.state().pinnedToEnd).toBe(false);
   });
 
+  it('unpins on a pointer down, before any scroll', async () => {
+    const { s, m, el } = await following();
+    const [follow] = s.open();
+    await input(el, () => fireEvent.pointerDown(el));
+    expect(m.state()).toMatchObject({ pinnedToEnd: false, following: false });
+    expect(follow.closed).toBe(true);
+  });
+
   it('reads a pointer drag as the user’s for as long as the pointer is down, with an overlay scrollbar', async () => {
-    const { m, el } = await following();
+    const { s, m, el } = await following();
     expect(el.clientWidth).toBe(300);
     await input(el, () => fireEvent.pointerDown(el));
+    const asked = s.fetches.length;
     await act(async () => {
       await vi.advanceTimersByTimeAsync(500);
     });
+    // Back to the bottom under the pointer is the user's scroll, so the page it asks for pins.
     await input(el, () => {}, BOTTOM - 300);
-    expect(m.state().pinnedToEnd).toBe(false);
+    await input(el, () => {}, BOTTOM);
+    expect(s.fetches.length).toBe(asked + 1);
+    await answer(s.last(), page(150, 160, { after: END }));
+    expect(m.state().pinnedToEnd).toBe(true);
   });
 
   it.each(['pointercancel', 'blur'])('ends pointer intent on %s with no pointerup', async (end) => {
-    const { m, el } = await following();
+    const { s, m, el } = await following();
     await input(el, () => fireEvent.pointerDown(el));
+    const asked = s.fetches.length;
     await act(async () => {
       window.dispatchEvent(new Event(end));
       await vi.advanceTimersByTimeAsync(200);
     });
+    // The window behind pages off the visible range, but a scroll that is not the user's asks
+    // the page for no pin.
     await scrollTo(el, BOTTOM - 100);
-    expect(m.state().pinnedToEnd).toBe(true);
+    await scrollTo(el, BOTTOM);
+    expect(s.fetches.length).toBe(asked + 1);
+    await answer(s.last(), page(150, 160, { after: END }));
+    expect(m.state().pinnedToEnd).toBe(false);
   });
 
   it('reads a touch drag as the user’s until it ends', async () => {
