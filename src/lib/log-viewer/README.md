@@ -26,6 +26,14 @@ to the contract below. Files that came from kubetail carry its copyright line be
 
 Anything that implements `Client` can feed the viewer: a GraphQL client, a file, a fake.
 
+## The lines
+
+`lines.ts` is what a viewer holds: a window onto the log that grows at either edge, over the
+keyed deque in `double-tailed-array.ts`, so every line keeps its key as pages land above it and
+key 0 is where the view landed. Lines stay in the order the client answered them: a page as the
+client sorted it, a follow as it arrived. A line whose cursor is held is dropped, since a cursor
+names one line; that is what makes a follow's replay and an overlapping page harmless.
+
 ## The boundary
 
 The library imports `react`, its own files, and nothing else: no `@/` import, no relative

@@ -12,4 +12,5 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // The library's public surface. The app imports from here and nowhere else in the directory.
+export type { Edge } from './lines';
 export type { Anchor, Client, Cursor, FetchOptions, FetchResult, LogLine } from './types';
