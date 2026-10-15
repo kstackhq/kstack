@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The log viewer's controls: jump to the start or the end, pause and play, and a View popover
-// for the columns and wrap. The pin has no button: scrolling pins and unpins.
+// The log viewer's controls: jump to a time, to the start or to the end, pause and play, and a
+// View popover for the columns and wrap. The pin has no button: scrolling pins and unpins.
 import { Columns3, Pause, Play, SkipBack, SkipForward } from 'lucide-react';
 
 import { Button } from '@kubetail/ui/elements/button';
@@ -22,12 +22,14 @@ import { Label } from '@kubetail/ui/elements/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@kubetail/ui/elements/popover';
 
 import { COLUMNS, type Column } from './columns';
+import { JumpToTime } from './jump-to-time';
 
 export type LogViewerToolbarProps = {
   loading: boolean;
   paused: boolean;
   columns: Column[];
   wrap: boolean;
+  onJumpTo: (at: Date) => void;
   onStart: () => void;
   onEnd: () => void;
   onPausedChange: (paused: boolean) => void;
@@ -52,6 +54,7 @@ export function LogViewerToolbar({
   paused,
   columns,
   wrap,
+  onJumpTo,
   onStart,
   onEnd,
   onPausedChange,
@@ -68,6 +71,7 @@ export function LogViewerToolbar({
 
   return (
     <div className="flex shrink-0 items-center gap-1 border-b px-2 py-1">
+      <JumpToTime disabled={loading} onJump={onJumpTo} />
       <Button variant="ghost" size="icon-sm" aria-label="Jump to the start" disabled={loading} onClick={onStart}>
         <SkipBack aria-hidden />
       </Button>

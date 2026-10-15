@@ -260,6 +260,7 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
         paused={paused}
         columns={columns}
         wrap={wrap}
+        onJumpTo={(at) => core.current?.jumpTo({ kind: 'At', at: at.toISOString() })}
         onStart={() => core.current?.jumpTo({ kind: 'Head', at: null })}
         onEnd={() => core.current?.jumpTo({ kind: 'Tail', at: null })}
         onPausedChange={setPaused}

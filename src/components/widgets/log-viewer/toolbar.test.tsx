@@ -25,6 +25,7 @@ function renderToolbar(over: Partial<LogViewerToolbarProps> = {}) {
     paused: false,
     columns: ['Timestamp', 'Dot', 'Message'],
     wrap: false,
+    onJumpTo: vi.fn(),
     onStart: vi.fn(),
     onEnd: vi.fn(),
     onPausedChange: vi.fn(),
@@ -47,6 +48,13 @@ describe('LogViewerToolbar', () => {
     expect(props.onEnd).toHaveBeenCalledOnce();
   });
 
+  it('jumps to a time picked in its popover', async () => {
+    const props = renderToolbar();
+    await userEvent.click(button('Jump to a time'));
+    await userEvent.click(button('5'));
+    expect(props.onJumpTo).toHaveBeenCalledOnce();
+  });
+
   it('offers Pause while playing and Play while paused', async () => {
     const playing = renderToolbar();
     await userEvent.click(button('Pause'));
@@ -62,7 +70,9 @@ describe('LogViewerToolbar', () => {
 
   it('disables every control while loading', () => {
     renderToolbar({ loading: true });
-    ['Jump to the start', 'Pause', 'Jump to the end', 'View'].forEach((name) => expect(button(name)).toBeDisabled());
+    ['Jump to a time', 'Jump to the start', 'Pause', 'Jump to the end', 'View'].forEach((name) =>
+      expect(button(name)).toBeDisabled(),
+    );
   });
 
   it('lists every column but the message, and no position, then Wrap', async () => {

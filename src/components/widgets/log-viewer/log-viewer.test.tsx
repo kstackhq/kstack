@@ -278,6 +278,19 @@ describe('LogViewer', () => {
     expect(screen.queryByText('Loading')).not.toBeInTheDocument();
   });
 
+  it('lands around a time picked from the toolbar, unpinned', async () => {
+    const s = scripted();
+    const { viewport } = mount();
+    await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
+    fireEvent.click(screen.getByRole('button', { name: 'Jump to a time' }));
+    fireEvent.change(screen.getByPlaceholderText('Timestamp'), { target: { value: line(5).timestamp } });
+    fireEvent.keyDown(screen.getByPlaceholderText('Timestamp'), { key: 'Enter' });
+    await frame();
+    expect(s.last().query).toEqual({ mode: 'Around', cursor: null, at: line(5).timestamp, limit: 300 });
+    await answer(s.last(), page(0, 20, { anchor: 5 }));
+    expect(viewport.get().pinnedToEnd).toBe(false);
+  });
+
   it('opens at a moment with that line marked as where it landed', async () => {
     const s = scripted();
     const at = line(30).timestamp;
