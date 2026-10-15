@@ -6,19 +6,21 @@ status: Planned
 
 # Select and copy
 
-**Needs:** step 2. **Unblocks:** rungs 3 and 5 of the log views ladder, which read the selection.
-Can be built beside step 3A.
+**Needs:** step 3. **Unblocks:** rungs 3 and 5 of the log views ladder, which read the
+selection. Can be built beside step 4A.
+
+TypeScript paths are under `src/`.
 
 ## In short
 
 The user can select rows and cells in the viewer and copy them. Click a row's position cell to
 select it, shift-click or drag for a range, shift and the arrow keys to grow it; click a cell
-for one cell, drag for a block. `Cmd/Ctrl+C` copies what is selected as plain text. A right-click
-offers *Copy message* and *Copy timestamp*. The selected lines go into the viewer's `Viewport`,
-in order, so a later rung can attach them to a question.
+for one cell, drag for a block. `Cmd/Ctrl+C` copies what is selected as plain text. A
+right-click offers *Copy message* and *Copy timestamp*. The selected lines go into the viewer's
+`LogViewport`, in order, so a later rung can attach them to a question.
 
-The selection logic comes from kubetail's `selection.ts`, which is already a set of hooks over
-the core's virtualizer and copies across with little change. The overlay drawing comes with it.
+The selection logic comes from kubetail's `selection.ts`, a set of hooks over the core's rows
+that copies across with little change. The overlay drawing comes with it.
 
 ## What is not in this step
 
@@ -26,21 +28,22 @@ the core's virtualizer and copies across with little change. The overlay drawing
   cursor inside a selected cell. It can come later if someone misses it; copying the cell gets
   the text.
 - **No *Ask about this*.** Rung 5 of the ladder adds it over this step's selection.
-- **No cap on the selection.** The viewport holds what was selected; the rung that sends it caps
-  what it sends.
+- **No cap on the selection.** The viewport holds what was selected; the rung that sends it
+  caps what it sends.
 
 ## Design
 
 ### 1. What a selection is
 
-Two kinds, never both at once, as kubetail has them:
+Two kinds, never both at once:
 
 - **Rows**: a set of row keys, with the key last clicked as the anchor.
-- **Cells**: a map of row key to the set of columns selected in it, forming a rectangle, with the
-  cell first clicked as the anchor.
+- **Cells**: a map of row key to the set of columns selected in it, forming a rectangle, with
+  the cell first clicked as the anchor.
 
 The keys are the core's, so a selection survives rows loading above it: key 0 is where the view
-landed, and a prepend does not renumber.
+landed, and a prepend does not renumber. The window keeps every line it is given,
+so a key in the selection always names a line the window holds.
 
 ### 2. Making one
 
@@ -49,29 +52,31 @@ beside the viewer, not in the library, since it knows columns and cells:
 
 - `useSelectionState`: the two kinds and their anchors, as React state.
 - `useRowDrag`, `useCellDrag`: mouse down on a position cell or a cell starts, moving extends,
-  up ends; shift-click extends from the anchor; `Cmd/Ctrl`-click adds or removes a row.
+  up ends; shift-click extends from the anchor; `Cmd/Ctrl`-click adds or removes a row. A drag
+  that reaches the scroller's edge scrolls it, which the core reads as the user's (a pointer is
+  down on the scroller), so a drag past the bottom unpins nothing: the pointer-down test for a
+  scrollbar drag in step 2 §6 reads `clientX`, and a drag over the rows is outside the gutter.
 - `useSelectionKeyboard`: shift and the arrows grow a selection from the anchor; Escape clears
-  it; `Cmd/Ctrl+C` copies. Kubetail listens on `document`; here the listener goes on the
-  viewer's scroller, which is already `tabIndex={0}`, so the keys reach the viewer that has
-  focus and a second viewer on the page is left alone. The modifier-key attribute kubetail
-  toggles off `document` keydown goes on the scroller the same way. The drag listeners stay on
-  `document`: they are installed on mouse down and removed on mouse up, so two viewers cannot
-  both be dragging.
+  it; `Cmd/Ctrl+C` copies. The listener goes on the viewer's scroller, which is already
+  `tabIndex={0}`, so the keys reach the viewer that has focus and a second viewer on the page is
+  left alone. The modifier-key attribute kubetail toggles off `document` keydown goes on the
+  scroller the same way. The drag listeners stay on `document`: they are installed on mouse
+  down and removed on mouse up, so two viewers cannot both be dragging.
 - `computeSelection`, `computeCellRange`: the pure functions behind them.
 - `formatRowsForCopy`, `formatCellsForCopy`: rows as one line each — the timestamp, the pod and
   the message with a tab between — and cells as a tab-separated block, in column order.
 
-`useSelection(virtualizerRef)` wraps them, as it does in kubetail, and `LogViewer` calls it. The
-jotai atoms kubetail keeps the state in become `useState` inside the hook; nothing outside the
-viewer reads it but the viewport.
+`useSelection(rows)` wraps them over the core's `CoreRows`, and `LogViewer` calls it. The jotai
+atoms kubetail keeps the state in become `useState` inside the hook; nothing outside the viewer
+reads it but the viewport.
 
 ### 3. Drawing it
 
 A selected row's cells lose their background, and one band per run of selected rows is painted
 behind them, full width, so neighbours leave no seam (kubetail's `computeSelectionBands`). The
-first and last rows of a run get an inset line at the top and the bottom. A selected cell draws a
-ring, and a block of cells one ring around the block (kubetail's `SelectionOverlay`, copied to
-`src/components/widgets/log-viewer-selection-overlay.tsx`).
+first and last rows of a run get an inset line at the top and the bottom. A selected cell draws
+a ring, and a block of cells one ring around the block (`log-viewer-selection-overlay.tsx`,
+from kubetail's `SelectionOverlay`).
 
 The colour is `--selection-band`, added to `index.css` for light and dark.
 
@@ -85,53 +90,53 @@ With none, the browser's own copy runs, which copies nothing, since cells are `s
 
 The context menu (`log-viewer-context-menu.tsx`, from kubetail's `context-menu.tsx`, over
 `@kubetail/ui`'s `ContextMenu`): on any cell, *Copy message* and *Copy timestamp*; on a cell of
-another column, *Copy* for that cell's text. The timestamp is copied as the sidecar gave it.
+another column, *Copy* for that cell's text. The timestamp is copied as the client gave it.
 
 ### 5. The viewport
 
-The selected lines, in row order, go into the viewport's `selection` on every change, and an empty list
-when the selection clears. A selection is rows or cells; for cells the lines of the rows in the
-block are what the viewport gets, since a line is the unit the ladder reads.
+The selected lines, in row order, go into the viewport's `selection` on every change, and an
+empty list when the selection clears. A selection is rows or cells; for cells the lines of the
+rows in the block are what the viewport gets, since a line is the unit the ladder reads.
 
 ## Decisions this step asks for
 
-- **State inside the hook, not in a provider.** Only the viewer and the viewport read it, and the
-  mount's key clears it with the view, which is right: a new view has nothing selected.
-- **Rows, not cells, in the viewport.** The ladder attaches lines, and a cell block says nothing a
-  line does not.
+- **State inside the hook, not in a provider.** Only the viewer and the viewport read it, and
+  the mount's key clears it with the view, which is right: a new view has nothing selected.
+- **Rows, not cells, in the viewport.** The ladder attaches lines, and a cell block says nothing
+  a line does not.
 - **The clipboard API, with nothing behind it.** `navigator.clipboard.writeText` works in every
-  webview kstack ships on, from a user's keypress or click. If one platform refuses it, the fix is
-  a host command, never a hidden element the webview writes HTML into.
+  webview kstack ships on, from a user's keypress or click. If one platform refuses it, the fix
+  is a host command, never a hidden element the webview writes HTML into.
 - **No text-select mode.** The copy actions cover the need, and the mode is the most involved
   piece of kubetail's selection code.
 
 ## Tasks
 
 `log-viewer-selection.ts`, `log-viewer-selection-overlay.tsx` and `log-viewer-context-menu.tsx`
-are copied from kubetail and open with both copyright lines, per the README's *Attribution*; the
-viewport write and the band drawing in `log-viewer.tsx` are kstack's alone.
+carry both copyright lines, per the README's *Attribution*; the viewport write and the band drawing in `log-viewer.tsx` are kstack's alone.
 
-1. **The selection.** `src/components/widgets/log-viewer-selection.ts` and its test, from
-   kubetail (§2).
+1. **The selection.** `src/components/widgets/log-viewer-selection.ts` and its test (§1, §2).
+   **Planned.**
 2. **Drawing.** The bands and the overlay in `log-viewer.tsx` and
-   `log-viewer-selection-overlay.tsx` (§3); `--selection-band` in `index.css`.
-3. **Copying.** The keyboard copy in the hook; `log-viewer-context-menu.tsx` (§4).
-4. **The viewport.** `selection` written from `log-viewer.tsx` (§5).
-5. **Docs.** Root `CLAUDE.md`, per *When it lands*.
+   `log-viewer-selection-overlay.tsx` (§3); `--selection-band` in `index.css`. **Planned.**
+3. **Copying.** The keyboard copy in the hook; `log-viewer-context-menu.tsx` (§4). **Planned.**
+4. **The viewport.** `selection` written from `log-viewer.tsx` (§5). **Planned.**
+5. **Docs.** Root `CLAUDE.md`, per *When it lands*. **Planned.**
 
 ## Tests
 
-TypeScript, beside the files they cover. Kubetail's `selection.test.tsx` is large and most of it
-copies across.
+TypeScript, beside the files they cover. Kubetail's `selection.test.tsx` is large and most of
+it copies across.
 
-- `log-viewer-selection.test.ts`: click, shift-click, drag and modifier-click on rows; click and drag on
-  cells; the arrows grow from the anchor; Escape clears; a selection keeps its keys after a
-  prepend; `formatRowsForCopy` and `formatCellsForCopy` spell what they should.
+- `log-viewer-selection.test.ts`: click, shift-click, drag and modifier-click on rows; click and
+  drag on cells; the arrows grow from the anchor; Escape clears; a selection keeps its keys
+  after a prepend; `formatRowsForCopy` and
+  `formatCellsForCopy` spell what they should.
 - `log-viewer.test.tsx`: a selected run draws one band; a selected cell draws the ring;
   `Cmd/Ctrl+C` writes the rows to a mocked clipboard; the viewport holds the selected lines in
   order and empties on Escape; a block of cells puts its rows' lines in the viewport; with two
   viewers mounted, `Cmd/Ctrl+C` on the focused one copies its selection and leaves the other's
-  untouched.
+  untouched; a drag past the bottom edge does not unpin.
 - `log-viewer-context-menu.test.tsx`: *Copy message* writes the message, *Copy timestamp* the
   timestamp as given.
 
@@ -146,8 +151,8 @@ pbcopy` would.
 
 ## When it lands
 
-- Root `CLAUDE.md`, *Chat*: the viewer's paragraph gains selection, copy, and what the viewport's
-  `selection` holds.
+- Root `CLAUDE.md`, *Chat*: the viewer's paragraph gains selection, copy, and what the
+  viewport's `selection` holds.
 - This README's row keeps its link until the sequence lands.
 
 ## Verification
