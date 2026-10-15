@@ -108,8 +108,10 @@ without the tag a reader could take the fake's lines for the cluster's.
   `ended` through `VisibleText`, since the client's words can name pods.
 - While the core is loading, a spinner over the rows; after it, with no line, *No lines.*;
   after a failed landing, *Could not load lines.* with a *Try again* button that calls
-  `jumpTo(openAt)`.
-- Writes the core's published state into `viewport` on every change, with `selection: []`. The
+  `retry()`, which lands at `openAt` pinned as `pinToEnd` says.
+- Makes a `CoreStore` once (`createCoreStore()`, held in `useState`), passes it to the core as
+  `store`, and reads it with `useSyncExternalStore` for the spinner and the lines under the
+  header. An effect writes it into `viewport` on every change, with `selection: []`. The
   viewport is the mount's: the panel passes the one `LogsViewProvider` holds, since that is the
   focused view's and what the composer reads; a second viewer on the page would be handed one
   of its own.
@@ -175,7 +177,8 @@ talks to the sidecar.
   rows; opens at a moment with that line at key 0; a follow frame adds a row and, pinned, keeps
   the bottom; the viewport holds `range`, `visible`, `atEnd` and `pinnedToEnd` after the first
   paint and `selection` empty; a failed fetch keeps the rows and draws the line; a follow that
-  throws draws its message; a follow that ended draws its reason; a failed landing offers *Try again*; the edge row's button pages; a
+  throws draws its message; a follow that ended draws its reason; a failed landing offers *Try again*, which lands at the view's anchor without pinning a view
+  that said not to; the edge row's button pages; a
   skipped stream is drawn under the header; a view reading two containers hands the row the
   flag.
 - `src/components/widgets/logs-view-panel.test.tsx`: the viewer is mounted with the view's
@@ -214,7 +217,8 @@ first; `pnpm build`, `make test-js`, `make lint-js`; `make test-changed` while w
 
 By hand, in chat mode on any cluster: *tail webapp logs*, Expand, and the panel fills with the
 fake's lines under the view's pods, tagged *Fake lines*, and keeps up at two a second; scroll up
-and it stops listening, scroll to the bottom and what was written meanwhile pages in and it
+with the wheel, and again by dragging the scrollbar, on each platform you can reach (macOS and
+Linux draw it as an overlay), and it stops listening, scroll to the bottom and what was written meanwhile pages in and it
 follows again; *logs from an hour ago* lands on that moment with lines above and below, and
 scrolling either way loads more, each page after a visible beat; close and Expand again, and it
 lands fresh; a view naming two containers draws the container after the pod.
