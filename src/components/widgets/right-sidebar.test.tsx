@@ -124,7 +124,6 @@ describe('RightSidebar', () => {
     clickToggle();
     // Not floating: it takes width from the page and the row's height makes it
     // flush with the bar above and the window's bottom edge.
-    expect(panel()).toHaveClass('shrink-0');
     expect(panel()).not.toHaveClass('absolute', 'fixed', 'rounded-lg');
   });
 
@@ -146,15 +145,31 @@ describe('RightSidebar', () => {
     expect(panelWidth()).toBe('400px');
   });
 
-  it('clamps the dragged width to the min/max bounds', () => {
+  it('clamps the dragged width to 240px and, in chat mode, 1200px for the log viewer’s columns', () => {
     renderPanel();
     clickToggle();
 
     fireEvent.pointerDown(handle(), { pointerId: 1 });
-    fireEvent.pointerMove(window, { clientX: 10 });
-    expect(panelWidth()).toBe('640px');
+    fireEvent.pointerMove(window, { clientX: -500 });
+    expect(panelWidth()).toBe('1200px');
     fireEvent.pointerMove(window, { clientX: 990 });
     expect(panelWidth()).toBe('240px');
+  });
+
+  it('clamps the dashboard’s panel, which holds a transcript, at 640px', () => {
+    renderPanel({ mode: 'dashboard' });
+    clickToggle();
+
+    fireEvent.pointerDown(handle(), { pointerId: 1 });
+    fireEvent.pointerMove(window, { clientX: -500 });
+    expect(panelWidth()).toBe('640px');
+  });
+
+  it('gives way to the page on a narrow window, down to its minimum', () => {
+    renderPanel();
+    clickToggle();
+    expect(screen.getByTestId('right-sidebar')).not.toHaveClass('shrink-0');
+    expect(screen.getByTestId('right-sidebar')).toHaveStyle({ minWidth: '240px' });
   });
 
   it('restores the last-saved width on mount (new windows inherit it)', () => {
