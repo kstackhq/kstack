@@ -15,7 +15,7 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { LogsView } from '@/lib/logs-view';
-import { createViewerStore } from '@/lib/log-viewer-store';
+import { createViewportHandle } from '@/lib/viewport';
 import { LogsViewPanel } from './logs-view-panel';
 
 // The viewer has a suite of its own; this file is about the panel around it.
@@ -49,7 +49,7 @@ const view: LogsView = {
 
 describe('LogsViewPanel', () => {
   it('names the first source and how many more, then every source, the filters and the grep', () => {
-    render(<LogsViewPanel view={view} viewer={createViewerStore()} onClose={() => {}} />);
+    render(<LogsViewPanel view={view} viewport={createViewportHandle()} onClose={() => {}} />);
     expect(screen.getByRole('heading')).toHaveTextContent(
       'Logs: Deployment webapp in prod (app, istio-proxy) and 1 more',
     );
@@ -64,16 +64,16 @@ describe('LogsViewPanel', () => {
 
   it('says where the view opens and whether it is pinned', () => {
     const tail = { ...view, action: { ...view.action, anchor: { kind: 'Tail' as const, at: null }, pinToEnd: true } };
-    render(<LogsViewPanel view={tail} viewer={createViewerStore()} onClose={() => {}} />);
+    render(<LogsViewPanel view={tail} viewport={createViewportHandle()} onClose={() => {}} />);
     expect(screen.getByText(/newest line/)).toHaveTextContent('at the newest line, pinned to the end');
 
     const head = { ...view, action: { ...view.action, anchor: { kind: 'Head' as const, at: null } } };
-    render(<LogsViewPanel view={head} viewer={createViewerStore()} onClose={() => {}} />);
+    render(<LogsViewPanel view={head} viewport={createViewportHandle()} onClose={() => {}} />);
     expect(screen.getByText(/^from the start$/)).toBeInTheDocument();
   });
 
   it('spells a reordering character in a name out, never drawing it', () => {
-    render(<LogsViewPanel view={view} viewer={createViewerStore()} onClose={() => {}} />);
+    render(<LogsViewPanel view={view} viewport={createViewportHandle()} onClose={() => {}} />);
     expect(screen.getByTitle('An invisible character')).toBeInTheDocument();
   });
 
@@ -84,7 +84,7 @@ describe('LogsViewPanel', () => {
           ...view,
           action: { ...view.action, sources: [view.action.sources[0]], filters: [], grep: '' },
         }}
-        viewer={createViewerStore()}
+        viewport={createViewportHandle()}
         onClose={() => {}}
       />,
     );
@@ -95,13 +95,13 @@ describe('LogsViewPanel', () => {
 
   it('closes from its button', () => {
     const onClose = vi.fn();
-    render(<LogsViewPanel view={view} viewer={createViewerStore()} onClose={onClose} />);
+    render(<LogsViewPanel view={view} viewport={createViewportHandle()} onClose={onClose} />);
     fireEvent.click(screen.getByRole('button', { name: 'Close log view' }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('mounts the viewer at the action’s anchor, pinned as the action says', () => {
-    render(<LogsViewPanel view={view} viewer={createViewerStore()} onClose={() => {}} />);
+    render(<LogsViewPanel view={view} viewport={createViewportHandle()} onClose={() => {}} />);
     expect(screen.getByTestId('log-viewer')).toHaveAttribute('data-open-at', '2026-10-08T14:02:00Z');
     expect(screen.getByTestId('log-viewer')).toHaveAttribute('data-pinned', 'false');
   });

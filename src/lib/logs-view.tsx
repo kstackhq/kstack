@@ -16,15 +16,15 @@
 // resolved, held beside the right sidebar's state. It is chrome, not what the window
 // is looking at, so it is out of the URL and not persisted: a new window opens with
 // none. `set` also opens the right sidebar, since a view set with the panel closed is
-// a view nobody sees. `viewer` is the store the viewer writes its state into, one
-// per window, which the composer pulls at send.
+// a view nobody sees. `viewport` is the handle the viewer writes what it has on
+// screen into, one per window, which the composer pulls at send.
 import { createContext, useContext, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
 import type { ChatToolCall } from '@/lib/chats';
-import type { ViewerStore } from '@/lib/log-viewer-store';
-import { createViewerStore } from '@/lib/log-viewer-store';
 import { useRightSidebar } from '@/lib/right-sidebar';
+import type { ViewportHandle } from '@/lib/viewport';
+import { createViewportHandle } from '@/lib/viewport';
 
 export type LogsViewAction = NonNullable<NonNullable<ChatToolCall['action']>['logsView']>;
 
@@ -38,14 +38,14 @@ type LogsViewContextValue = {
   view: LogsView | null;
   set: (view: LogsView) => void;
   clear: () => void;
-  viewer: ViewerStore;
+  viewport: ViewportHandle;
 };
 
 const LogsViewContext = createContext<LogsViewContextValue | null>(null);
 
 export function LogsViewProvider({ children }: { children: ReactNode }) {
   const [view, setView] = useState<LogsView | null>(null);
-  const [viewer] = useState(createViewerStore);
+  const [viewport] = useState(createViewportHandle);
   const { show } = useRightSidebar();
   const value = useMemo<LogsViewContextValue>(
     () => ({
@@ -55,9 +55,9 @@ export function LogsViewProvider({ children }: { children: ReactNode }) {
         show();
       },
       clear: () => setView(null),
-      viewer,
+      viewport,
     }),
-    [view, show, viewer],
+    [view, show, viewport],
   );
   return <LogsViewContext.Provider value={value}>{children}</LogsViewContext.Provider>;
 }

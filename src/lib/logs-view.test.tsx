@@ -71,11 +71,11 @@ describe('useLogsView', () => {
     expect(result.current.sidebar.open).toBe(true);
   });
 
-  it('holds one viewer store for the window, whichever view is set', () => {
+  it('holds one viewport handle for the window, whichever view is set', () => {
     const { result } = renderBoth();
-    const { viewer } = result.current.logs;
+    const { viewport } = result.current.logs;
     act(() => result.current.logs.set(view));
-    expect(result.current.logs.viewer).toBe(viewer);
+    expect(result.current.logs.viewport).toBe(viewport);
   });
 
   it('needs its provider', () => {

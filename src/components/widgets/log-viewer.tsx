@@ -15,14 +15,15 @@
 // record holds it, lands at `openAt` on mount and never again (the caller keys it
 // on the call's id, so a new call is a fresh landing and a re-render of the same
 // call moves nothing), starts pinned to the end or not as `pinToEnd` says, and
-// writes what it knows into `store` for whoever pulls it. Lines arrive whether or
-// not it is pinned; pinning is only whether the viewport keeps the end in view.
+// writes what it has on screen into `viewport` for whoever pulls it. Lines arrive
+// while it is pinned to the end and not paused; unpinned, it pages what it missed
+// as the user scrolls back down.
 //
 // The viewer is not in this repository yet: the props are its contract, and the
 // body holds its place. Its data layer is a hook over the sidecar's GraphQL, never
 // a transport of its own.
 import type { LogsViewAction } from '@/lib/logs-view';
-import type { ViewerStore } from '@/lib/log-viewer-store';
+import type { ViewportHandle } from '@/lib/viewport';
 
 export type LogViewerProps = {
   query: LogsViewAction;
@@ -30,7 +31,7 @@ export type LogViewerProps = {
   openAt: LogsViewAction['anchor'];
   /** Whether it starts pinned to the end. */
   pinToEnd: boolean;
-  store: ViewerStore;
+  viewport: ViewportHandle;
 };
 
 export function LogViewer(_: LogViewerProps) {

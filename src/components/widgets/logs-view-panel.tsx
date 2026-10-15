@@ -22,7 +22,7 @@ import { LogViewer } from '@/components/widgets/log-viewer';
 import { anchorLine, Names, SourceLine } from '@/components/widgets/logs-view-lines';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { LogsView } from '@/lib/logs-view';
-import type { ViewerStore } from '@/lib/log-viewer-store';
+import type { ViewportHandle } from '@/lib/viewport';
 
 function Header({ view, onClose }: { view: LogsView; onClose: () => void }) {
   const { sources, filters, grep, anchor, pinToEnd } = view.action;
@@ -71,7 +71,15 @@ function Header({ view, onClose }: { view: LogsView; onClose: () => void }) {
   );
 }
 
-export function LogsViewPanel({ view, viewer, onClose }: { view: LogsView; viewer: ViewerStore; onClose: () => void }) {
+export function LogsViewPanel({
+  view,
+  viewport,
+  onClose,
+}: {
+  view: LogsView;
+  viewport: ViewportHandle;
+  onClose: () => void;
+}) {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <Header view={view} onClose={onClose} />
@@ -82,7 +90,7 @@ export function LogsViewPanel({ view, viewer, onClose }: { view: LogsView; viewe
         query={view.action}
         openAt={view.action.anchor}
         pinToEnd={view.action.pinToEnd}
-        store={viewer}
+        viewport={viewport}
       />
     </div>
   );
