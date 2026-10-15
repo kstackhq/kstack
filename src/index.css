@@ -186,3 +186,11 @@ html.frameless.frame-maximized [data-slot='dialog-overlay'] {
   inset: 0;
   border-radius: 0;
 }
+
+/* A scroll container the user still scrolls, with no bar drawn: the log viewer's header. */
+@utility no-scrollbar {
+  &::-webkit-scrollbar {
+    display: none;
+  }
+  scrollbar-width: none;
+}

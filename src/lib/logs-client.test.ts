@@ -15,7 +15,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LogsViewAction } from '@/lib/logs-view';
-import { createLogsClient } from './logs-client';
+import { DELAY_MS, createLogsClient } from './logs-client';
 
 const NOW = Date.parse('2026-10-15T12:00:00.000Z');
 
@@ -40,7 +40,7 @@ const source = (over: Partial<LogsViewAction['sources'][number]>): LogsViewActio
 // The newest page, with the fake's latency run out.
 async function newest(logs: ReturnType<typeof createLogsClient>, limit = 300) {
   const pending = logs.client.fetch({ mode: 'Tail', cursor: null, at: null, limit });
-  await vi.advanceTimersByTimeAsync(150);
+  await vi.advanceTimersByTimeAsync(DELAY_MS);
   return pending;
 }
 
@@ -82,7 +82,7 @@ describe('createLogsClient', () => {
     expect(page.before.more).toBe(true);
 
     const pending = logs.client.fetch({ mode: 'Head', cursor: null, at: null, limit: 1 });
-    await vi.advanceTimersByTimeAsync(150);
+    await vi.advanceTimersByTimeAsync(DELAY_MS);
     expect((await pending).lines[0].timestamp).toBe('2026-10-15T09:13:22.000Z');
   });
 

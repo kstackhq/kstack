@@ -25,7 +25,7 @@ its own, after this sequence, and its plan waits in a note,
 **Where it sits.** The [log views](../log-views/README.md) ladder says the viewer is its own
 work, outside its rungs. This is that work. It builds on `wip/log-views`, since the panel it
 mounts in exists there alone, and rung 2 of that ladder needs it done. Until step 3 lands,
-`LogViewer` (`src/components/widgets/log-viewer.tsx`) is a placeholder whose props are the
+`LogViewer` (`src/components/widgets/log-viewer/log-viewer.tsx`) is a placeholder whose props are the
 contract the sidebar mounts it by.
 
 **Where the sequence ends.** When the last step lands:
@@ -56,9 +56,8 @@ sees — rows, columns, selection — sits above the core and never talks to the
 ## The shape of the work
 
 **Steps are numbered in waves.** `1A`, `1B` and `2` are built. Step 2 puts the window behind a
-scroller, step 3 puts the viewer on screen over the fake, and `4A` and `4B` can be built at
-the same time, since each adds to the rows step 3 draws and neither needs the other. Prose says
-"step 1B".
+scroller, step 3 puts the viewer on screen over the fake, `4A` gives the rows columns, and `4B`
+selects over those columns. Prose says "step 1B".
 
 **Every step can ship onto `wip/log-views`.** Step 1B is a class with tests and no screen. Step
 2 is a component with tests and no screen. Step 3 is the first thing a user sees, over the fake's
@@ -353,7 +352,7 @@ Fixed here so the steps agree. Go paths are under `sidecar/internal/`.
   decides what each event does.
 - **The core**: `LogViewerCore` in `src/lib/log-viewer/core.tsx`, the window behind a scroller,
   handing its rows to whoever draws them.
-- **The viewer**: `LogViewer` in `src/components/widgets/log-viewer.tsx`, the core plus the rows,
+- **The viewer**: `LogViewer` in `src/components/widgets/log-viewer/log-viewer.tsx`, the core plus the rows,
   columns and selection, behind the props the sidebar mounts.
 - **The viewport**: what one viewer has on screen — the visible range, whether it is at the
   end and pinned there, how many lines, and the selection — as a `LogViewport` value held by a
