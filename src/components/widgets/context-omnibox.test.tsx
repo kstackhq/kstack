@@ -27,6 +27,10 @@ const { useActiveKubeContextMock, setContext, openDialog } = vi.hoisted(() => ({
 vi.mock('@/lib/active-kube-context', () => ({ useActiveKubeContext: useActiveKubeContextMock }));
 vi.mock('@/lib/dialog', () => ({ useDialog: () => ({ openDialog }) }));
 
+// The focused log view, which a switch clears.
+const { clearView } = vi.hoisted(() => ({ clearView: vi.fn() }));
+vi.mock('@/lib/logs-view', () => ({ useLogsView: () => ({ clear: clearView }) }));
+
 // What the window's cluster remembers, which lights the memory button. A save
 // notifies like the real watch does, so a memoized button re-renders for it.
 const { memoriesState } = vi.hoisted(() => ({
@@ -184,6 +188,16 @@ describe('ContextOmnibox', () => {
       chat: undefined,
     });
     expect(setContext).not.toHaveBeenCalled();
+  });
+
+  it('clears the focused log view on a switch', async () => {
+    const user = userEvent.setup();
+    render(<ContextOmnibox />);
+
+    await user.click(clusterSegment());
+    await user.click(await menuItem('staging'));
+
+    expect(clearView).toHaveBeenCalledTimes(1);
   });
 
   // In chat mode the open chat is the route, so the switch has to leave it: a chat of

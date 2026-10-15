@@ -31,6 +31,8 @@ export type FakeStream = {
 export type FakeClientOptions = {
   /** How many lines the log holds when the fake is made. */
   lines?: number;
+  /** How far apart those lines are stamped, the last at the clock's time. 1 by default. */
+  spacingMs?: number;
   /** Who writes the log. */
   streams?: FakeStream[];
   /** Lines written per second, on a timer, until `close()`. */
@@ -121,8 +123,9 @@ export class FakeClient implements Client {
     this.delayMs = options.delayMs ?? 0;
     this.repeat = options.repeat ?? 20;
     const count = options.lines ?? 1000;
+    const spacing = options.spacingMs ?? 1;
     const now = Date.now();
-    for (let i = 0; i < count; i += 1) this.addLine(now - (count - 1 - i));
+    for (let i = 0; i < count; i += 1) this.addLine(now - (count - 1 - i) * spacing);
     const rate = options.rate ?? 0;
     if (rate > 0) this.timer = setInterval(() => this.append(1), 1000 / rate);
   }

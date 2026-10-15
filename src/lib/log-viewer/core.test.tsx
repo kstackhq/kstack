@@ -810,7 +810,7 @@ describe('keeping the reader’s place across pages', () => {
     await answer(s.last(), { ...page(0, 0), after: { cursor: 'after-empty', more: true } });
     await frame(3);
     expect(s.fetches.length).toBe(2);
-    expect(m.state().after).toEqual({ more: true, empty: true });
+    expect(m.state().after).toEqual({ more: true, empty: true, loading: false });
     await scrollTo(m.scroller(), 2020);
     await flush();
     expect(s.fetches.length).toBe(3);

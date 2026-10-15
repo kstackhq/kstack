@@ -52,8 +52,8 @@ function Placeholder({ title, detail }: { title: string; detail: string }) {
 }
 
 function ChatPanel() {
-  const { view, viewer, clear } = useLogsView();
-  if (view) return <LogsViewPanel view={view} viewer={viewer} onClose={clear} />;
+  const { view, viewport, clear } = useLogsView();
+  if (view) return <LogsViewPanel view={view} viewport={viewport} onClose={clear} />;
   return <Placeholder title="Conversation" detail="What the chat is working from will appear here." />;
 }
 
