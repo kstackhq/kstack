@@ -141,15 +141,16 @@ with the rows to draw. These change:
   subscription is open while `following = pinnedToEnd && !paused` and closed otherwise: unpinning, or pausing, unsubscribes and sets `hasMoreAfter`, so the
   viewer is in the paged state it is in when anchored mid-stream, and scrolling to the bottom
   runs `loadMoreAfter` as it does there. Re-pinning while not paused, or un-pausing while
-  pinned, subscribes `after` the newest cursor the core holds **less `REOPEN_OVERLAP`, five
-  seconds**: lines arrive per container, so a container a moment behind has lines older than
-  the single newest cursor, and a subscription opened exactly there would lose them with no
-  page to find them in. The overlap re-sends a few seconds the core already holds, and the
-  duplicate rule below drops them; a follow's first open overlaps the same way, since the rule
-  makes it free and one rule is simpler than two. The first `loadMoreAfter` after an unpin has the same gap
-  and the same fix: it asks `after` the newest cursor less `REOPEN_OVERLAP`, and the lines it
-  brings back go through the duplicate rule, since that page is the follow's catch-up and not
-  a page of history. Nothing is appended while the user is not at the end, which is
+  pinned, subscribes `after` a moment **`REOPEN_OVERLAP`, five seconds, before the newest line the
+  core holds, and no earlier than the first line it holds**: lines arrive per container, so a
+  container a moment behind has lines older than the single newest line, and a subscription
+  opened exactly there would lose them with no page to find them in; nothing older than the
+  first held line can be such a line, since a page is a merge of every stream, and reading below
+  it would bring back history the next page before reads. The overlap re-sends lines the core
+  already holds, which it drops by their cursors; a follow's first open overlaps the same way.
+  The first `loadMoreAfter` after an unpin has the same gap and the same fix: it asks `after`
+  that moment, and what it brings back is dropped the same way, since that page is the follow's
+  catch-up and not a page of history. Nothing is appended while the user is not at the end, which is
   what a bounded buffer needs: a line appended behind a reader's back would evict the lines
   they are reading. `useFollow` owns the subscription and reads `following`; `usePinToEnd` owns
   the flag.
@@ -161,24 +162,19 @@ with the rows to draw. These change:
 - **The handle is `jumpTo(anchor)` and `measure`.** Kubetail's three jumps become one that takes
   an anchor, so a toolbar's End and a later *View around this* call the same thing. The ref is a
   prop, since React 19 has no need for `forwardRef`.
-- **A repeated line is dropped by its own stream's newest cursor.** A follow's lines arrive in
-  each container's own order, not in time order across containers (step 1A), so a line cannot
-  be dropped for being older than the last line seen from anyone: an earlier line from one
-  container landing after a later line from another is real. What repeats is a whole stretch —
-  `subscribe-exchange` reconnects with the variables it was given, so after a dropped connection
-  the follow replays from the cursor it first opened with, and the reopen overlap above replays
-  a few seconds on purpose. So the core keeps the newest cursor it holds **per stream** — keyed
-  on the line's `stream`, never its `place`, which moves when a node's labels do — and how many
-  lines with each message are held at it, and drops a follow line before its own
-  stream's newest, or at that moment while the read has not passed as many lines with its
-  message as are held there. A read is a page, or a follow across its batches; a stream going
-  back in time within a follow is its reconnect's replay, and the count starts over. That is
-  exact, because each container's lines arrive in order, but for a replay whose first line of a
-  stream falls at that stream's newest moment, which reads as lines written twice. **The rule applies to lines from the follow,
-  and to the catch-up fetch after an unpin, and to nothing else**: a page of history from
-  `loadMoreBefore` is older than every stream's newest by definition, and is placed by its
-  cursors as kubetail places it, never filtered. Kubetail's `lastTSMap` keeps the same
-  per-stream map for its handoff; here it is kept for the whole follow.
+- **A repeated line is dropped by its cursor.** A cursor names one line — the sidecar
+  numbers a moment's lines within their container (step 1A) — so a line whose cursor the core
+  holds is a repeat, whatever order it arrives in. A follow's lines arrive in each container's
+  own order, not in time order across containers, so an earlier line from one container landing
+  after a later line from another is real and is kept where it lands. What repeats is a whole
+  stretch — `subscribe-exchange` reconnects with the variables it was given, so after a dropped
+  connection the follow replays from the cursor it first opened with, and the reopen overlap
+  above replays a few seconds on purpose — and every line of it is held already. A page of
+  history from `loadMoreBefore` is prepended as the client sorted it, less the lines held, which
+  a page read from the edge line sends again. The core reads nothing from a cursor, not a time
+  and not a stream, and holds no order of its own. Kubetail's `lastTSMap` drops by each
+  source's last timestamp, which cannot tell two lines of one container at one moment apart;
+  the cursor can.
 - **Errors go to an `onError` prop.** Kubetail's `console.error` calls become a call to it, and
   the core keeps what it has. The library does not know the error bus; step 2 wires the prop to
   `reportError`.
@@ -215,12 +211,13 @@ it is copied rather than written smaller; steps 3A and 3B mount the viewer over 
   `initialPosition`; keeping them apart means the viewer's public surface never names a cursor.
 - **Pinning is state the core publishes.** The viewport needs it, and the viewer's header
   will show it. A ref cannot be read by either.
-- **Drop a repeated line by its stream's newest cursor.** Simpler than teaching the exchange a
-  cursor, and the only rule a per-container follow allows; two lines with one timestamp from one
-  container are not told apart, which `kubectl logs` cannot do either.
-- **Reopen five seconds back.** A container behind the newest cursor would otherwise lose lines
-  on every re-pin. Five seconds costs a few repeated frames the per-stream rule drops, and is
-  longer than any pause the merge or the API server adds between containers.
+- **Drop a repeated line by its cursor.** Simpler than teaching the exchange a cursor, and
+  exact: two lines with one timestamp from one container have two cursors, which `kubectl logs`
+  cannot tell apart.
+- **Reopen five seconds back, and never below the first line held.** A container behind the
+  newest line would otherwise lose lines on every re-pin. Five seconds costs a few repeated
+  frames the cursor rule drops, and is longer than any pause the merge or the API server adds
+  between containers; below the first line held is history, which the next page before reads.
 - **The subscription is open only while following.** A viewer appending lines nobody is
   looking at fills a buffer for nothing, and a bounded buffer could not allow it at all. The
   paged state the core already has for a mid-stream anchor covers an unpinned viewer with no
@@ -259,15 +256,16 @@ TypeScript, beside the files they cover. Kubetail's suites are the starting poin
   reaches an edge; pinned, a follow frame appends and the bottom stays in view; `pinToEnd` false
   opens no subscription and sets `hasMoreAfter`; scrolling up unpins, unsubscribes, and the
   published state says so with `atEnd` false; scrolling back to the bottom pages what arrived
-  meanwhile, re-pins and resubscribes five seconds before the newest cursor with no row
-  repeated; `paused: true` while pinned
+  meanwhile, re-pins and resubscribes five seconds before the newest line, and no earlier than
+  the first, with no row repeated; `paused: true` while pinned
   unsubscribes and leaves the viewport where it is, and `paused: false` again catches up the
   same way; `range`,
   `visible` and `atEnd` follow the viewport; `jumpTo` with each anchor kind lands there; a
-  reconnect that replays the follow from its opening cursor adds no row; a follow line at or
-  before its stream's newest is dropped and an older one from another stream is kept; a
+  reconnect that replays the follow from its opening cursor adds no row; a follow line the core
+  holds is dropped and an older one from another container is kept where it lands; a
   backward page fetched after follow lines still prepends every line it holds; the catch-up
-  fetch after an unpin asks five seconds back and adds no row twice; an empty page
+  fetch after an unpin asks five seconds back, no earlier than the first line held, and adds no
+  row twice; an empty page
   with a cursor leaves the edge row saying *No more in the last read; scroll to keep looking*
   and fetches again only on the user's next scroll, never by itself; a fetch that rejects calls
   `onError` once and keeps the rows.
