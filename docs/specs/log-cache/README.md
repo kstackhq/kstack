@@ -67,7 +67,7 @@ to show a log across two restarts.
 ### 1. The file
 
 One file per cluster cache: `<cache>/logs/<cache id>.db`. It sits next to the mirror's
-`kubestore/<cache id>.db` and lives as long as it does. It is created on the first read of a view
+`kube/<cache id>.db` and lives as long as it does. It is created on the first read of a view
 over that cache. It is removed when the cache is removed.
 
 `services/logs` owns the file through a manager shaped like `kubestore`'s: a refcounted open

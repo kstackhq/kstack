@@ -22,7 +22,7 @@ sweeps it and removes it:
   chats/<chat id>/                     agent/chat: results/, tasks/, workspace/, toolhome/
   monitor/<cluster id>/                agent/chat: a monitor's results/, workspace/, toolhome/
 <cache>/                               what Kstack rebuilds
-  kubestore/<cache id>.db              services/cluster: the mirror
+  kube/<cache id>.db                   services/cluster: the mirror
   logs/<cache id>.db                   services/logs: the cache's log lines
   kubectl/<cluster id>/<server>/       bash: the kubectl cache
   tmp/<pid>-*/, tmp/<pid>.lock         bash: a sandboxed run's or the login shell's TMPDIR, the sidecar's lock

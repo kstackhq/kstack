@@ -45,7 +45,7 @@ func newTestService(t *testing.T) Service {
 // mirror apart, since it is what Kstack can lose.
 func TestTheMirrorIsInTheCacheDirectory(t *testing.T) {
 	data, cache := t.TempDir(), t.TempDir()
-	paths := Paths{BeehiveDBFile: filepath.Join(data, "beehive.db"), KubestoreDir: filepath.Join(cache, "kubestore")}
+	paths := Paths{BeehiveDBFile: filepath.Join(data, "beehive.db"), KubestoreDir: filepath.Join(cache, "kube")}
 	svc, err := New(openTestDB(t), paths, newTestKubeconfig(t), nil, noCacheFiles{})
 	require.NoError(t, err)
 	defer func() { assert.NoError(t, svc.Close()) }()
@@ -55,7 +55,7 @@ func TestTheMirrorIsInTheCacheDirectory(t *testing.T) {
 	store.Release()
 
 	assert.FileExists(t, paths.BeehiveDBFile)
-	assert.FileExists(t, filepath.Join(cache, "kubestore", "1.db"))
+	assert.FileExists(t, filepath.Join(cache, "kube", "1.db"))
 }
 
 // The accessors are stateless views onto the one service, so each returns something

@@ -636,7 +636,7 @@ func newKstackRun(t *testing.T) kstackRun {
 	cache := filepath.Join(home, ".cache", "kstack")
 	runtime := resolved(t.TempDir())
 	write(t, filepath.Join(data, "app.db"), "secret")
-	write(t, filepath.Join(cache, "kubestore", "c.db"), "secret")
+	write(t, filepath.Join(cache, "kube", "c.db"), "secret")
 	write(t, filepath.Join(runtime, "host.sock"), "secret")
 	sibling := write(t, filepath.Join(runtime, "runs", "2", "kubeconfig"), "secret")
 	snapshot := write(t, filepath.Join(runtime, "shell", "snapshot.sh"), "snapshot")
@@ -659,7 +659,7 @@ func newKstackRun(t *testing.T) kstackRun {
 func TestKstacksDirectoriesAreUnreadable(t *testing.T) {
 	s := confining(t)
 	k := newKstackRun(t)
-	k.Args[1] = fmt.Sprintf("tool; cached; cat %s/app.db %s/kubestore/c.db %s/host.sock; cat %s %s/kubeconfig; touch %s/w %s/w %s/w && echo wrote",
+	k.Args[1] = fmt.Sprintf("tool; cached; cat %s/app.db %s/kube/c.db %s/host.sock; cat %s %s/kubeconfig; touch %s/w %s/w %s/w && echo wrote",
 		k.data, k.cache, k.runtime, k.snapshot, k.runDir, k.ws, k.tmp, k.kubectl)
 
 	_, out := run(t, s, k.testRun)

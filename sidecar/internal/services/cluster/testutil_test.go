@@ -440,7 +440,7 @@ func newTestDepsAndBeehive(t *testing.T) (deps, *beehive.Beehive) {
 func testPaths(t *testing.T) Paths {
 	t.Helper()
 	dir := t.TempDir()
-	return Paths{BeehiveDBFile: filepath.Join(dir, "beehive.db"), KubestoreDir: filepath.Join(dir, "kubestore")}
+	return Paths{BeehiveDBFile: filepath.Join(dir, "beehive.db"), KubestoreDir: filepath.Join(dir, "kube")}
 }
 
 // newTestDepsOver is newDeps over bh, a fresh app.db and the test fakes.
