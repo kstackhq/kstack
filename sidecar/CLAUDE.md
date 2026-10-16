@@ -2737,7 +2737,8 @@ error is all the report says of a path the sandbox refused it: the user reads th
 grants the folder in Settings. **Every read of the disk outside Kstack's directories runs under a
 bound** (`onDisk`): the PATH built from `System`, `Never` and `runPath`, and an executable's resolution,
 each run on a goroutine abandoned past `diskTimeout` (5s, a field a test shrinks) or when the probe's context ends, and the
-run's build through `sandboxedRunFor` gets the same deadline as its context, so a dead
+run's build through `sandboxedRunFor` gets the same deadline as its context
+(`buildTimeout`, a field of its own, so a test cuts the build alone), so a dead
 network mount fails that probe — *could not start: the disk did not answer in time* — and
 holds neither the probes queued behind it nor `Close` (`TestAProbesDiskReadIsBounded`,
 `TestAProbesRunBuildIsBounded`, `TestCloseEndsAProbeReadingTheDisk`). A report the PATH build
