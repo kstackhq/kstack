@@ -21,7 +21,22 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/amorey/gobus"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
+
+// pingEvent is one ping off the file's bus.
+type pingEvent = gobus.Event[int64, struct{}]
+
+// subscribe is a receiver of the pings for ids, closed when the test ends.
+func subscribe(t *testing.T, s *Store, ids ...int64) <-chan pingEvent {
+	t.Helper()
+	rx, err := s.Subscribe(ids...)
+	require.NoError(t, err)
+	t.Cleanup(rx.Close)
+	return rx.Chan()
+}
 
 // openTestFile opens a fresh file under a temp directory, closed when the test ends.
 func openTestFile(t *testing.T) *file {
@@ -129,23 +144,6 @@ func TestAPositionHoldsOneLine(t *testing.T) {
 	assert.Zero(t, n)
 }
 
-// A follow reads by id past the last one it saw, so an id handed out twice would put a
-// new tail line below a live follow's mark and the follow would never send it. Deleting
-// the newest row is when an implicit rowid would be handed out again.
-func TestALineIDIsNeverReused(t *testing.T) {
-	t.Parallel()
-	f := openTestFile(t)
-	stream := insertStream(t, f)
-	insertLine(t, f, stream, 100, 0)
-	newest := insertLine(t, f, stream, 200, 0)
-	_, err := f.db.Exec(`DELETE FROM lines WHERE id = ?`, newest)
-	require.NoError(t, err)
-
-	next := insertLine(t, f, stream, 300, 0)
-
-	assert.Greater(t, next, newest)
-}
-
 // A flag column takes 0 or 1 and nothing else.
 func TestAFlagIsZeroOrOne(t *testing.T) {
 	t.Parallel()
@@ -196,4 +194,52 @@ func TestEveryOperationOnAClosedClaimIsRefused(t *testing.T) {
 		assert.ErrorIs(t, err, ErrClosed, name)
 		assert.ErrorContains(t, err, name+": ", name)
 	}
+}
+
+// A follow reads by id past the last one it saw, so an id handed out twice would put a
+// new tail line below a live follow's mark and the follow would never send it. Deleting
+// the newest row is when an implicit rowid would be handed out again.
+func TestALineIDIsNeverReused(t *testing.T) {
+	t.Parallel()
+	f := openTestFile(t)
+	stream := insertStream(t, f)
+	insertLine(t, f, stream, 100, 0)
+	newest := insertLine(t, f, stream, 200, 0)
+	_, err := f.db.Exec(`DELETE FROM lines WHERE id = ?`, newest)
+	require.NoError(t, err)
+
+	next := insertLine(t, f, stream, 300, 0)
+
+	assert.Greater(t, next, newest)
+}
+
+// twoStreams files app and a second container of its pod in s and answers their ids.
+func twoStreams(t *testing.T, s *Store) (int64, int64) {
+	t.Helper()
+	sidecar := app()
+	sidecar.Container, sidecar.ContainerID, sidecar.Default = "proxy", "containerd://2", false
+	ids, err := s.PutStreams(t.Context(), []Stream{app(), sidecar})
+	require.NoError(t, err)
+	return ids[0], ids[1]
+}
+
+// A commit of lines pings each stream it wrote, after the commit, and none it wrote
+// no line to; the file closing ends the receiver.
+func TestAWriteOfLinesPingsItsStreams(t *testing.T) {
+	t.Parallel()
+	m, _ := newTestManager(t)
+	s := open(t, m, 1)
+	t.Cleanup(func() { assert.NoError(t, s.Close()) })
+	a, b := twoStreams(t, s)
+	pings := subscribe(t, s, a, b)
+
+	write(t, s, Fill{Stream: b, Origin: "kubelet", Next: ptr(at(1, 0))})
+	write(t, s, Fill{Stream: a, Origin: "kubelet", Lines: lines(at(1, 0))})
+
+	// First touch orders the pings, so b's would come first.
+	assert.Equal(t, a, testutil.Recv(t, pings, "a's ping").Key)
+	assert.Len(t, positions(t, s, a), 1, "the ping follows the commit")
+
+	require.NoError(t, m.Clear(1))
+	testutil.RecvClosed(t, pings, "the receiver to end")
 }

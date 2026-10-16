@@ -56,10 +56,17 @@ type Fill struct {
 
 // Write files every fill in one transaction, so a reader sees a fill's lines and the
 // chunks claiming them together or not at all. A line two fills found is stored once.
-// A stream that has finished is trimmed after its fills.
+// A stream that has finished is trimmed after its fills. Each stream a fill wrote lines
+// to is pinged once the transaction commits.
 func (s *Store) Write(ctx context.Context, fills []Fill) error {
 	now := time.Now().UnixMilli()
-	err := s.inTx(ctx, func(ctx context.Context, st stmts) error { return writeFills(ctx, st, s.m.ret, fills, now) })
+	err := s.operate(ctx, func(ctx context.Context, f *file) error {
+		err := f.set.InTx(ctx, func(st stmts) error { return writeFills(ctx, st, s.m.ret, fills, now) })
+		if err == nil {
+			f.ping(streamsWithLines(fills))
+		}
+		return err
+	})
 	if err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
@@ -205,6 +212,17 @@ func putChunk(ctx context.Context, st stmts, stream int64, c Chunk, now int64) e
 	_, err := st.Exec(ctx, stmtInsertChunk, stream, c.Pattern, c.From.TS, c.From.Ord, c.To.TS, c.To.Ord,
 		prevNS, prevOrd, c.Origin, c.Head, c.AtEnd, c.Bytes, now)
 	return err
+}
+
+// streamsWithLines is each stream fills write a line to, once.
+func streamsWithLines(fills []Fill) []int64 {
+	var ids []int64
+	for _, f := range fills {
+		if len(f.Lines) > 0 {
+			ids = append(ids, f.Stream)
+		}
+	}
+	return distinct(ids)
 }
 
 // streamsOf is each stream fills write to, once.

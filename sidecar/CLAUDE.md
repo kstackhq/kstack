@@ -2123,7 +2123,9 @@ and trims it; each reads first and takes no write when the file already holds it
 chunks for a pattern, its own and the unlabelled ones; `Write` files buffered `Fill`s in one
 transaction; `Read` runs walks over one snapshot (`Reader.Lines`, one walk of
 `lines_position` each way); `Evict` drops one chunk, by id, and the lines no other chunk
-claims, reading its bounds in its own transaction. **Coverage is a pure
+claims, reading its bounds in its own transaction; `Subscribe` is a `gobus/conflate` receiver
+keyed by stream id, pinged after every commit that writes a stream lines, so a reader learns of
+a fill as it lands. **Coverage is a pure
 function** (`CoverageOf`, `coverage.go`): a stream's chunks for a pattern as spans, joined by
 overlap or by a link (`prev_ns`, `prev_ord`) that lands inside the span, and the gaps between,
 each with the tier of the first backend that may hold it and `Lost` when none can: older than
