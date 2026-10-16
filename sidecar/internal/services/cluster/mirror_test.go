@@ -148,18 +148,14 @@ func awaitPass(t *testing.T, passed <-chan struct{}, check func() bool) {
 }
 
 // A marked row's object is asked to go, and the row goes once the object has: with
-// the cache finalizer, an absent object proves every cache file is gone. The removal
-// wakes the watchers.
+// the cache finalizer, an absent object proves every cache file is gone.
 func TestMirrorTearsDownAMarkedRow(t *testing.T) {
 	d := newRunningStandInDeps(t)
 	row := importCluster(t, d, "prod")
 	_, passed := startMirror(t, d)
 	testutil.Recv(t, passed, "the first pass")
-	sub := d.db.Subscribe(appdb.KeyClusters)
-	defer sub.Close()
 
 	require.NoError(t, serviceOver(t, d).Clusters().Delete(context.Background(), row.ID))
-	testutil.Recv(t, sub.Chan(), "the mark's signal")
 
 	awaitPass(t, passed, func() bool {
 		_, ok, err := getCluster(context.Background(), d.store.Stmts(), row.ID)
@@ -167,7 +163,27 @@ func TestMirrorTearsDownAMarkedRow(t *testing.T) {
 		return !ok
 	})
 	assert.Nil(t, runtimeObjectOf(t, d, row.ID))
-	testutil.Recv(t, sub.Chan(), "the removal's signal")
+}
+
+// The removal wakes the watchers. The bus merges a ping still waiting, so the row is
+// marked without a notify and the mirror is never started: the removal is the only
+// thing that can ping.
+func TestMirrorRemovalWakesTheWatchers(t *testing.T) {
+	d := newRunningStandInDeps(t)
+	row := importCluster(t, d, "prod")
+	_, err := markCluster(context.Background(), d.store.Stmts(), row.ID, t0)
+	require.NoError(t, err)
+	m := newClusterMirror(d, time.Hour, time.Hour, time.Hour)
+	sub := d.db.Subscribe(appdb.KeyClusters)
+	defer sub.Close()
+	pings := sub.Chan()
+
+	require.NoError(t, m.reconcile(context.Background()))
+
+	testutil.Recv(t, pings, "the removal's signal")
+	_, ok, err := getCluster(context.Background(), d.store.Stmts(), row.ID)
+	require.NoError(t, err)
+	assert.False(t, ok)
 }
 
 // A chat still filed under the row holds it, object or no object; the chat sweeper's
