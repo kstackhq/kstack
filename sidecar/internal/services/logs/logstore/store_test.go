@@ -176,6 +176,14 @@ func TestEveryOperationOnAClosedClaimIsRefused(t *testing.T) {
 		"write": func() error { return s.Write(ctx, nil) },
 		"read":  func() error { return s.Read(ctx, func(Reader) error { return nil }) },
 		"evict": func() error { return s.Evict(ctx, 1) },
+		"subscribe": func() error {
+			_, err := s.Subscribe(1)
+			return err
+		},
+		"context": func() error {
+			_, err := s.Context()
+			return err
+		},
 	} {
 		err := op()
 		assert.ErrorIs(t, err, ErrClosed, name)

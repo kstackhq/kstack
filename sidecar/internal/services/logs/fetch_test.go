@@ -735,3 +735,13 @@ func TestAPageEveryStreamFailedIsRefused(t *testing.T) {
 
 	assert.ErrorContains(t, err, "no container of this view could be read: ")
 }
+
+// An Around page names a stream both halves skipped once, and anchors at the Tail
+// half's length.
+func TestAnAroundPageNamesASkippedStreamOnce(t *testing.T) {
+	t.Parallel()
+	page := around(merge{records: make([]Record, 3), skipped: []string{"a"}}, merge{skipped: []string{"a", "b"}})
+	assert.Equal(t, []string{"a", "b"}, page.Skipped)
+	require.NotNil(t, page.Anchor)
+	assert.Equal(t, 3, *page.Anchor)
+}

@@ -471,3 +471,32 @@ func TestSegmentsKeepOrderAcrossACutGap(t *testing.T) {
 	}
 	assert.Equal(t, []string{"gap tailed=false", "span 0", "gap tailed=false", "gap tailed=true", "span 20", "gap tailed=true"}, edges)
 }
+
+// A read leaves a hole below its first line only when it continued a chunk: never
+// with no chunk to continue, and from a chunk, when a whole read found nothing, when
+// a forward read's GET began past the chunk's end, or when a whole backward read's
+// oldest line lies past it.
+func TestAHoleIsJudgedByWhatTheReadContinued(t *testing.T) {
+	t.Parallel()
+	prev := logstore.Pos{TS: at(time.Second).UnixNano()}
+	line := logstore.Line{Pos: logstore.Pos{TS: at(3 * time.Second).UnixNano()}}
+	for name, c := range map[string]struct {
+		mode  FetchMode
+		read  *streamRead
+		lines []logstore.Line
+		whole bool
+		prev  *logstore.Pos
+		want  bool
+	}{
+		"no chunk":           {mode: FetchHead, read: &streamRead{oldest: at(2 * time.Second)}, lines: []logstore.Line{line}, whole: true, want: false},
+		"nothing read whole": {mode: FetchTail, read: &streamRead{}, whole: true, prev: &prev, want: true},
+		"nothing read short": {mode: FetchTail, read: &streamRead{}, prev: &prev, want: false},
+		"forward past prev":  {mode: FetchHead, read: &streamRead{oldest: at(2 * time.Second)}, lines: []logstore.Line{line}, prev: &prev, want: true},
+		"forward at prev":    {mode: FetchHead, read: &streamRead{oldest: at(time.Second)}, lines: []logstore.Line{line}, prev: &prev, want: false},
+		"backward whole":     {mode: FetchTail, read: &streamRead{}, lines: []logstore.Line{line}, whole: true, prev: &prev, want: true},
+		"backward short":     {mode: FetchTail, read: &streamRead{}, lines: []logstore.Line{line}, prev: &prev, want: false},
+	} {
+		f := &filler{q: pageQuery{mode: c.mode}}
+		assert.Equal(t, c.want, f.hole(c.read, c.lines, c.whole, c.prev), name)
+	}
+}

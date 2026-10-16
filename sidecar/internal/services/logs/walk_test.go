@@ -347,3 +347,39 @@ func TestAWalkCrossesALostGap(t *testing.T) {
 	assert.Equal(t, []string{"0", "1", "5"}, messages(page.Records))
 	assert.False(t, page.After.More)
 }
+
+// A line is held by the page's chunks when it lies in one of them, two that touch or
+// overlap read as one run, and a line in the gap between two runs is nobody's.
+func TestHeldByJoinsChunksThatTouch(t *testing.T) {
+	t.Parallel()
+	pos := func(ts int64) logstore.Pos { return logstore.Pos{TS: ts} }
+	held := heldBy([]logstore.Chunk{
+		{From: pos(0), To: pos(10)},
+		{From: pos(5), To: pos(8)},
+		{From: pos(10), To: pos(20)},
+		{From: pos(30), To: pos(40)},
+	})
+	for ts, want := range map[int64]bool{0: true, 7: true, 10: true, 15: true, 20: true, 25: false, 30: true, 40: true, 41: false} {
+		assert.Equal(t, want, held(pos(ts)), ts)
+	}
+}
+
+// A walk that spends its share of the walk budget stops short, and the page is cut
+// at its last line rather than passing lines it did not read.
+func TestAWalkThatSpendsItsBudgetCutsThePage(t *testing.T) {
+	t.Parallel()
+	svc, f := serviceOver(t, webMirror(t), newLogServer())
+	var cached []time.Duration
+	for i := range 50 {
+		cached = append(cached, time.Duration(i)*time.Second)
+	}
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(cached...), Head: true})
+	svc.walkBudget = 64
+
+	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 100})
+
+	require.NoError(t, err)
+	assert.NotEmpty(t, page.Records)
+	assert.Less(t, len(page.Records), 50)
+	assert.True(t, page.After.More)
+}

@@ -422,3 +422,25 @@ func TestAFailedLastWriteStillClosesTheChunk(t *testing.T) {
 	assert.Equal(t, []Chunk{chunk(at(1, 0), at(1, 0))}, chunksOfStream(t, s, id))
 	assert.Equal(t, []Pos{at(1, 0)}, positions(t, s, id))
 }
+
+// A tail still open when its stream's trim cuts its chunk goes on in a chunk of its
+// own, since the trim cut what the chunk covered past the instance's end.
+func TestATailPastATrimGoesOnInAChunkOfItsOwn(t *testing.T) {
+	t.Parallel()
+	s, tick := newWriterStore(t, testRetention)
+	row := app()
+	row.FinishedAt = second(2)
+	ids, err := s.PutStreams(t.Context(), []Stream{row})
+	require.NoError(t, err)
+	pings := subscribe(t, s, ids[0])
+	tail := openTail(t, s, ids[0], nil, false)
+
+	require.NoError(t, tail.Write(t.Context(), lines(at(1, 0), at(9, 0))))
+	fire(t, tick)
+	testutil.Recv(t, pings, "the first batch's ping")
+	assert.Equal(t, []Chunk{chunk(at(1, 0), at(1, 0))}, chunksOfStream(t, s, ids[0]), "the trimmed chunk is closed")
+
+	require.NoError(t, tail.Close(t.Context(), lines(at(1, 1))))
+	assert.Equal(t, []Pos{at(1, 0), at(1, 1)}, positions(t, s, ids[0]))
+	assert.Equal(t, []Chunk{chunk(at(1, 0), at(1, 0)), chunk(at(1, 1), at(1, 1))}, chunksOfStream(t, s, ids[0]))
+}

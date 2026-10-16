@@ -15,6 +15,7 @@
 package logs
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 )
 
@@ -412,4 +414,158 @@ func TestATailPageCutBelowAQuietTailersStart(t *testing.T) {
 	page, err := svc.Fetch(t.Context(), "7", podView("web-1"), FetchQuery{Mode: FetchTail, Limit: 1})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"5"}, messages(page.Records))
+}
+
+// heldBackend is a fake backend whose Tail reads begin only once open closes, and
+// end only once done closes, their cancel ignored, so a test can hold a tailer in
+// its start or in its stop. entered fires as each read is asked for.
+type heldBackend struct {
+	*fakeBackend
+	entered    *testutil.Probe[struct{}]
+	open, done chan struct{}
+}
+
+func newHeldBackend() *heldBackend {
+	b := &heldBackend{fakeBackend: newFakeBackend(), entered: testutil.NewProbe[struct{}](8), open: make(chan struct{}), done: make(chan struct{})}
+	b.set("web-1/app", fakeRead{wait: b.done})
+	return b
+}
+
+func (b *heldBackend) Tail(ctx context.Context, st stream, opts readOpts) *streamRead {
+	b.entered.Fire(struct{}{})
+	<-b.open
+	return b.fakeBackend.Tail(context.WithoutCancel(ctx), st, opts)
+}
+
+// attachment is what one attach answered.
+type attachment struct {
+	h   *handle
+	err error
+}
+
+// attachAsync attaches to st's tailer on r from watermark on a goroutine, answering
+// on the channel returned.
+func attachAsync(ctx context.Context, r *registry, st stream, row int64, watermark logstore.Pos) <-chan attachment {
+	out := make(chan attachment, 1)
+	go func() {
+		h, err := r.attach(ctx, st, row, watermark)
+		out <- attachment{h, err}
+	}()
+	return out
+}
+
+// A follow attaching while another starts the stream's tailer waits for that start
+// and joins the tailer it made, and one whose context ends meanwhile gives up.
+func TestAnAttachWaitsOnTheStartInProgress(t *testing.T) {
+	t.Parallel()
+	backend := newHeldBackend()
+	svc, f := serviceOn(t, backend)
+	// Ends the tailer before the file closes under it.
+	t.Cleanup(func() { close(backend.done) })
+	tg, st, row := filed(t, svc, f)
+	r := svc.registryFor("7", tg)
+
+	first := attachAsync(t.Context(), r, st, row, web1Since(0))
+	backend.entered.Await(t, "the first attach to start the tailer")
+	second := attachAsync(t.Context(), r, st, row, web1Since(0))
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	third := testutil.Recv(t, attachAsync(cancelled, r, st, row, web1Since(0)), "the cancelled attach")
+	assert.ErrorIs(t, third.err, context.Canceled)
+
+	close(backend.open)
+	a, b := testutil.Recv(t, first, "the first attach"), testutil.Recv(t, second, "the second attach")
+	require.NoError(t, a.err)
+	require.NoError(t, b.err)
+	t.Cleanup(a.h.Release)
+	t.Cleanup(b.h.Release)
+	assert.Same(t, a.h.t, b.h.t, "one tailer")
+	backend.opened.Await(t, "the tailer's read")
+	_, again := backend.opened.TryAwait()
+	assert.False(t, again, "a second read")
+}
+
+// A follow attaching to a tailer that is stopping waits for it to end and starts
+// one afresh, since a tailer started beside it would race its chunk's close; one
+// whose context ends meanwhile gives up.
+func TestAnAttachWaitsOnAStoppingTailer(t *testing.T) {
+	t.Parallel()
+	backend := newHeldBackend()
+	close(backend.open)
+	svc, f := serviceOn(t, backend)
+	tg, st, row := filed(t, svc, f)
+	r := svc.registryFor("7", tg)
+
+	first := attach(t, svc, f, web1Since(0))
+	backend.opened.Await(t, "the first tailer's read")
+	first.Release()
+	// The read ignores its cancel, so the tailer stays stopping until done closes.
+	cancelled, cancel := context.WithCancel(t.Context())
+	cancel()
+	third := testutil.Recv(t, attachAsync(cancelled, r, st, row, web1Since(0)), "the cancelled attach")
+	assert.ErrorIs(t, third.err, context.Canceled)
+	second := attachAsync(t.Context(), r, st, row, web1Since(0))
+
+	close(backend.done)
+	testutil.Wait(t, first.Done(), "the stopping tailer to end")
+	b := testutil.Recv(t, second, "the second attach")
+	require.NoError(t, b.err)
+	t.Cleanup(b.h.Release)
+	assert.NotSame(t, first.t, b.h.t, "a tailer afresh")
+	backend.opened.Await(t, "a read afresh")
+}
+
+// A start that cannot take the registry's claims — the cluster's, or the file's —
+// fails the attach, drops the tailer and gives back whatever it took, so the next
+// attach starts afresh.
+func TestAStartThatCannotHoldItsClaimsFails(t *testing.T) {
+	t.Parallel()
+	t.Run("cluster", func(t *testing.T) {
+		t.Parallel()
+		backend := newFakeBackend()
+		backend.set("web-1/app", fakeRead{wait: never})
+		svc, f := serviceOn(t, backend)
+		tg, st, row := filed(t, svc, f)
+		r := svc.registryFor("7", tg)
+		f.set(func() { f.acquireErr = cluster.ErrNotConnectable })
+
+		_, err := r.attach(t.Context(), st, row, web1Since(0))
+		require.ErrorIs(t, err, ErrRevoked)
+		assert.Empty(t, r.tailers)
+		assert.Nil(t, r.file, "the file given back")
+
+		f.set(func() { f.acquireErr = nil })
+		h, err := r.attach(t.Context(), st, row, web1Since(0))
+		require.NoError(t, err)
+		t.Cleanup(h.Release)
+		backend.opened.Await(t, "the tailer's read")
+	})
+	t.Run("file", func(t *testing.T) {
+		t.Parallel()
+		backend := newFakeBackend()
+		backend.set("web-1/app", fakeRead{wait: never})
+		svc, f := serviceOn(t, backend)
+		tg, st, row := filed(t, svc, f)
+		require.NoError(t, svc.files.Close())
+
+		_, err := svc.registryFor("7", tg).attach(t.Context(), st, row, web1Since(0))
+		require.ErrorIs(t, err, logstore.ErrClosed)
+		_, opened := backend.opened.TryAwait()
+		assert.False(t, opened, "a read")
+	})
+}
+
+// A tailer let go of ends once its grace has passed with no follow holding it.
+func TestATailerStopsAtTheEndOfItsGrace(t *testing.T) {
+	t.Parallel()
+	backend := newFakeBackend()
+	backend.set("web-1/app", fakeRead{wait: never})
+	svc, f := serviceOn(t, backend)
+	// The grace is the cadence under test, shrunk from the file's TailGrace.
+	svc.grace = time.Millisecond
+	h := attach(t, svc, f, web1Since(0))
+	backend.opened.Await(t, "the tailer's read")
+
+	h.Release()
+	testutil.Wait(t, h.Done(), "the tailer to end at its grace")
 }
