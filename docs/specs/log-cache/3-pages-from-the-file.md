@@ -6,7 +6,7 @@ status: Planned
 
 # Pages from the file
 
-**Needs:** step 1, the store; step 2, the cursor and the `Source` seam. **Unblocks:** step 4,
+**Needs:** step 1, the store; step 2, the cursor and the `Backend` seam. **Unblocks:** step 4,
 whose follow reads the chunks this step's fills write; step 5, whose eviction needs something
 to evict.
 
@@ -17,7 +17,7 @@ and the fetch half of §9; this file says what to build and how to know it is bu
 
 `Service.Fetch` answers from the file. It resolves the view, adds the streams the file holds
 that the mirror no longer does, reads what the file covers, fills the gaps from the cluster's
-sources in order, and answers one statement over `lines`. Grep runs in that statement through
+backends in order, and answers one statement over `lines`. Grep runs in that statement through
 `kstack_grep`. The page's edges are the README's table. `logsFetch` takes `mode`, `cursor`,
 `at` and `limit`, and the webview's generated types follow. The pages walk runs over the store,
 and a new walk pins the invariant.
@@ -27,8 +27,8 @@ and a new walk pins the invariant.
 - **No follow over the file.** `Follow` still reads the kubelet through the seam. Step 4.
 - **No tailers**, so a page's live end is always a forward fill to each running stream's end.
 - **No eviction, no `read_at_ms` stamps.** Step 5. Chunks only grow in this step.
-- **No production source but the kubelet.** Labelled chunks and the tier rules are exercised by
-  test-only sources, since no real source writes a label or sits behind another yet.
+- **No production backend but the kubelet.** Labelled chunks and the tier rules are exercised by
+  test-only backends, since no real backend writes a label or sits behind another yet.
 - **No webview change.** The generated types change; nothing in `src/` uses `logsFetch` yet.
 
 ## Design
@@ -37,28 +37,28 @@ and a new walk pins the invariant.
 
 The README's §3, built in `logstore` as `Coverage(stream, pattern, from, to)`: the chunks
 covering a range for a pattern, which are the chunks labelled with it and the unlabelled ones,
-and the gaps between them. A fill writes as §3 says: a chunk from the first line returned, merged
-with the one ending at the moment it began in only when that moment came back whole; `head` when
-the source said so; `at_end` when a finished instance's forward read reached its last line. Rows
-and the chunk change in one `InTx`.
+and the gaps between them. A fill writes as §3 says, its `origin` the backend that read it: a
+chunk from the first line returned, merged with the one ending at the moment it began in only
+when that moment came back whole; `head` when the backend said so; `at_end` when a finished
+instance's forward read reached its last line. Rows and the chunk change in one `InTx`.
 
 ### 2. The page
 
-`Service.Fetch` in `fetch.go`, over `logstore` and the `Source`:
+`Service.Fetch` in `fetch.go`, over `logstore` and the `Backend`:
 
 1. Resolve the view inside `CachedData().ReadActive` as today, map each stream onto a
    `streams` row and insert the missing ones with their snapshot (place, `labels`,
    `started_at`), then add the file's streams for the view's sources that the mirror no longer
    has, with the label filters run over `streams` for those.
-2. Per stream and direction, read the coverage and offer each gap to the cluster's sources in
-   order: the first source whole, the next only for the range the one before answered `head`
-   for. The kubelet source's budget split and `maxGets` are unchanged. Write each read.
+2. Per stream and direction, read the coverage and offer each gap to the cluster's backends in
+   order: the first backend whole, the next only for the range the one before answered `head`
+   for. The kubelet backend's budget split and `maxGets` are unchanged. Write each read.
 3. Answer one statement over `lines` joined to `streams` for the view's streams, ordered by
    `(ts_ns, namespace, pod, container, container_id, ord)` — `comparePositions`' order, so the
    pages join without losing or repeating a line — bounded by the cursor and `limit`, in one
    read transaction.
    Compute the edges: the cut, the live end, and `before` null only when every stream's oldest
-   chunk is `head` from the last source.
+   chunk is `head` from the last backend.
 
 The fills are `INSERT OR IGNORE`, so `ReadActive` running the reading twice writes nothing new.
 `Record.stream.previous` is computed here: true when the stream's `container_id` is not the
@@ -87,7 +87,7 @@ until step 4. Run `gqlgen generate` and `pnpm codegen`; the webview builds, sinc
 1. **Coverage and fills.** `logstore/coverage.go` and `logstore/fill.go`: the lookup, the chunk
    rules, the tier offer, and the statements they run, added to `statements.go` here, with
    `OnBoth` for a read a fill makes inside its write transaction. `logs.New` takes the manager.
-   Tests over a temporary file with a fake source.
+   Tests over a temporary file with a fake backend.
 2. **The page.** `fetch.go` over the store: the three steps above, the edges, `previous`
    computed. `TestPagesJoinWithoutLossOrRepeat` runs over the store.
 3. **`kstack_grep`.** `logstore/grep.go`, the registration, the cache, the bound.
@@ -102,13 +102,13 @@ to rotate its files and restart its pods.
 
 - `coverage_test.go`: a read from a moment claims from its first returned line; a read that
   began in a chunk's last moment and returned it whole merges; one that did not leaves a gap;
-  `head` only from the source's word; `at_end` only on a finished instance; a chunk closes at
+  `head` only from the backend's word; `at_end` only on a finished instance; a chunk closes at
   `ChunkBytes` or `ChunkSpan`; a page for pattern `P` reads `P` and unlabelled chunks and treats
-  `Q` as a gap; an unfiltered page treats every labelled chunk as a gap; with two sources in
+  `Q` as a gap; an unfiltered page treats every labelled chunk as a gap; with two backends in
   order, the second is asked only for what the first answered `head` for, the edge moment belongs
   to one of them whole, and `before` is null only when the second says `head` too.
 - `fetch_test.go`: `TestPagesJoinWithoutLossOrRepeat` over the store, unchanged in its cases; a
-  page over a gap fills it; a second page over the same range makes no source read; a line found
+  page over a gap fills it; a second page over the same range makes no backend read; a line found
   by a grepped fill and again by an unfiltered one is stored once; a deleted pod's streams,
   lines and place survive and a node filter still finds them; an instance followed as current
   and read as previous after a restart has one row and one copy of each line; a finished
@@ -137,7 +137,7 @@ file.
 ## When it lands
 
 - `sidecar/CLAUDE.md`: the `logsFetch` paragraph says the file, the coverage, the tiered
-  sources and `kstack_grep`; the cursor paragraph says a cursor is a bare position because the
+  backends and `kstack_grep`; the cursor paragraph says a cursor is a bare position because the
   file holds each stream's extent.
 - `docs/security-model.md`: the row above.
 - This README's row reads Built, with the pull request.

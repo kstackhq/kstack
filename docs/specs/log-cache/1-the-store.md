@@ -30,7 +30,7 @@ line yet: this step is the shelf, not what goes on it.
 - **No statements for later steps.** This step prepares what it needs to open, check and
   remove a file. Each later step adds the statements its reads and writes need, in its own
   change, so no SQL is written for a design that may still move.
-- **No `Source`.** Step 2.
+- **No `Backend`.** Step 2.
 
 ## Design
 

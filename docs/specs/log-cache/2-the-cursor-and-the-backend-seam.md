@@ -1,22 +1,22 @@
 ---
-title: The cursor and the Source seam
+title: The cursor and the Backend seam
 scope: sidecar
 status: Planned
 ---
 
-# The cursor and the `Source` seam
+# The cursor and the `Backend` seam
 
 **Needs:** nothing in this sequence. **Unblocks:** steps 3 and 4, which each move one read onto
 the store and would otherwise each carry the other's cursor change.
 
 Go paths are under `sidecar/internal/services/logs/`. The design is the README's §4 (the
-`Source`) and §8 (the cursor); this file says what to build and how to know it is built.
+`Backend`) and §8 (the cursor); this file says what to build and how to know it is built.
 
 ## In short
 
 Two changes that alter what a page and a follow do in one corner alone. A position names its
 stream's instance by `container_id` in place of `previous`, so a line keeps its key across a
-restart. And the code that reads lines from the kubelet moves behind a `Source` interface, so a
+restart. And the code that reads lines from the kubelet moves behind a `Backend` interface, so a
 read has one shape whoever serves it. `Fetch` and `Follow` both run over the seam when this step
 lands. The fetch and follow behaviour tests pass over it; the tests that spell a cursor or build
 a position change with the encoding, and one that pins how a 400 ends a stream changes with the
@@ -26,17 +26,17 @@ failure kinds below.
 
 - **No store.** Nothing here touches `logstore`. The fetcher and the follow still read the
   kubelet directly and hold nothing between requests.
-- **No second source.** The kubelet is the only implementation. A test-only source lives in the
+- **No second backend.** The kubelet is the only implementation. A test-only backend lives in the
   test files and nowhere else.
 - **No resolve behind the seam.** `resolve` in `sources.go` stays where it is and keeps its
-  signature. Which streams a view holds is the mirror's answer today, and a source's answer only
-  once there is a second source; step 3 adds `Streams` to the interface when it needs it.
+  signature. Which streams a view holds is the mirror's answer today, and a backend's answer only
+  once there is a second backend; step 3 adds `Streams` to the interface when it needs it.
 - **No claim behind the seam.** A claim belongs to one request, not one cluster: `Fetch` takes
   it with `acquireClaim` under the server UID its own resolve read and closes it with the page,
   and `Follow` holds it for its life, waiting on `revoked`, checking `isRevoked` as each stream
-  ends and handing `get` to every read. Both keep doing so, and build the kubelet source over
-  the claim's `get`, per request. One source per cluster waits for step 3, where the cluster's
-  list of sources is what a fill walks.
+  ends and handing `get` to every read. Both keep doing so, and build the kubelet backend over
+  the claim's `get`, per request. One backend per cluster waits for step 3, where the cluster's
+  list of backends is what a fill walks.
 - **No wire change.** `LogRecord.stream.previous` keeps its meaning on the wire; it is computed
   at the record, as today, from the resolve.
 
@@ -73,12 +73,12 @@ go out twice under two keys — and, from step 3 on, be stored twice. Nothing in
 it; step 4's tailer, which reads one instance from its own last line, is where it is judged
 again. Recorded here so it is not read as a bug in the seam.
 
-### 2. The `Source`
+### 2. The `Backend`
 
-In `source.go`:
+In `backend.go`:
 
 ```go
-type Source interface {
+type Backend interface {
     Forward(ctx, stream, readOpts) *streamRead
     Backward(ctx, stream, readOpts) *streamRead
     Tail(ctx, stream, readOpts) *streamRead
@@ -95,10 +95,10 @@ unchanged — `since`, `until`, `grep`, `budget`, `batch`, `windows` — so the 
 split and `maxGets` stay where they are and the grep still runs inside the reader. `Tail` is
 `Forward` with `follow` set, kept as its own method because an archive will not offer it.
 
-**A failure is one of four kinds**, and `failureKind(err)` in `source.go` is the one
+**A failure is one of four kinds**, and `failureKind(err)` in `backend.go` is the one
 classification, with `fatal` and `dropped` folded into it:
 
-| Kind | The kubelet source | What it means |
+| Kind | The kubelet backend | What it means |
 | --- | --- | --- |
 | `Fatal` | a 401, a revoked claim | the user's credentials, or Kstack no longer connecting: fails the whole page or follow |
 | `Denied` | a 403 | this stream's alone: a page's `skipped` entry; a follow ends the stream as `Ended` does, reopening it at a later generation, and remembers the reason, which ends the follow once every stream has ended |
@@ -110,30 +110,30 @@ container the view sees running, a drop. `errRetired` stays a short read, not a 
 `Ended` is what keeps `TestAFollowWaitsForAWaitingContainer` and `TestDropped` true: a 400 is
 not retried on backoff, it waits for the generation to move.
 
-The kubelet source is `kubelet.go`: `Forward` and `Backward` are the two halves of `fetcher.go`,
+The kubelet backend is `kubelet.go`: `Forward` and `Backward` are the two halves of `fetcher.go`,
 each `GET` over a claim as today, and `Tail` is the forward stream `follow.go` opens. This is a
 move, not a rewrite: the fetcher's tests keep their cases.
 
-`Fetch` builds its readings over `Source.Forward` and `Source.Backward`, and `Follow`'s reconcile
-opens streams through `Source.Tail`. Each builds its source once its claim is made, through a
-`func(get getter) Source` field on the service, a test seam like `now` and `retry`: `logs.New`
-sets it to the kubelet source and a test sets it to its fake, so nothing outside the package
+`Fetch` builds its readings over `Backend.Forward` and `Backend.Backward`, and `Follow`'s reconcile
+opens streams through `Backend.Tail`. Each builds its backend once its claim is made, through a
+`func(get getter) Backend` field on the service, a test seam like `now` and `retry`: `logs.New`
+sets it to the kubelet backend and a test sets it to its fake, so nothing outside the package
 changes.
 
 The interface names `stream`, `readOpts` and `*streamRead`, all unexported, so only code in
-`logs` can implement it — the kubelet source and the test fake, the two there are. "One shape
+`logs` can implement it — the kubelet backend and the test fake, the two there are. "One shape
 whoever serves it" holds inside the package for now; exporting the types is step 3's call, when
-the first source outside the kubelet's shape is designed.
+the first backend outside the kubelet's shape is designed.
 
 ## Tasks
 
 1. **The position.** `cursor.go` and its test: `ContainerID` in `Previous`'s place,
    `comparePrevious` gone, `parseCursor`'s id check, and the resolve handing each stream its id.
    The `position{…}` literals in the other tests move with it.
-2. **The interface and the kubelet source.** `source.go` with `failureKind`, `kubelet.go`, the
+2. **The interface and the kubelet backend.** `backend.go` with `failureKind`, `kubelet.go`, the
    fetcher and the follow moved behind it, `Fetch` and `Follow` over it, `logs.New` taking the
-   source function.
-3. **The seam's tests.** A fake `Source` in `testutil_test.go` and the tests under *Tests* that
+   backend function.
+3. **The seam's tests.** A fake `Backend` in `testutil_test.go` and the tests under *Tests* that
    drive it.
 
 ## Tests
@@ -149,7 +149,7 @@ Go, beside the files they cover.
   over the seam; the cases that spell a cursor or build a `position{…}` change with the encoding,
   and `TestDropped` becomes a test of `failureKind`. `TestPagesJoinWithoutLossOrRepeat` and
   `TestAFollowWaitsForAWaitingContainer` are the gate.
-- `source_test.go`: over the fake, a `Fatal` read fails the page, and a `Denied` or `Ended` one
+- `backend_test.go`: over the fake, a `Fatal` read fails the page, and a `Denied` or `Ended` one
   becomes a `skipped` entry with the merge of the other streams untouched; a `Fatal` tailer ends
   the follow, a `Denied` one ends its stream alone and is the reason once every stream has ended,
   an `Ended` one holds the stream until the generation moves, and a `Transient` one is reopened
@@ -160,7 +160,7 @@ Go, beside the files they cover.
 **Widens:** nothing. A cursor is still text the server wrote, and `parseCursor` still refuses one
 that names neither a moment nor a line; the id check refuses what no server writes — an empty
 id, a control character, 256 bytes — and no more, since a stricter shape would refuse the
-server's own ids. The claim stays with `Fetch` and `Follow`, and the kubelet source reads only
+server's own ids. The claim stays with `Fetch` and `Follow`, and the kubelet backend reads only
 through its `get`, so a disabled or deleted cluster still cuts every read.
 
 **Residual:** a line keyed with the resolve's id around a restart can go out twice under two
@@ -169,7 +169,7 @@ keys (§1). A repeat on the wire, never a missing line.
 ## When it lands
 
 - `sidecar/CLAUDE.md`: the cursor paragraph says a position names its stream's instance by
-  `container_id` beside the names; the `services/logs` paragraphs name the `Source`, its four
+  `container_id` beside the names; the `services/logs` paragraphs name the `Backend`, its four
   failure kinds, and that the kubelet is the one behind it.
 - This README's row reads Built, with the pull request.
 
