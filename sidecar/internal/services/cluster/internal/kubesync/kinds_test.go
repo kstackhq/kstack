@@ -164,9 +164,11 @@ func TestAQuietWatchsReplacementMustProveItself(t *testing.T) {
 		return state.Reason == ReasonStale
 	})
 	require.False(t, windowed.LastLiveAt.IsZero(), "the quiet window proves the stream it closed")
+	// Stopped before it is handed over, so it closes before its own window can elapse.
+	stream.stopNext()
 	release()
 
-	stream.opened.Await(t, "the quiet watch to be reopened").Stop()
+	stream.opened.Await(t, "the quiet watch to be reopened")
 	failed := awaitKindState(t, svc, 1, podKind, "the replacement's death to be reported and paced", func(state KindState) bool {
 		return state.Reason == ReasonSyncFailed &&
 			strings.Contains(state.Message, errWatchProvedNothing.Error()) &&

@@ -612,17 +612,28 @@ func (c *fakeCluster) refuseList(k kubestore.Kind, err error) {
 type streams struct {
 	opened *testutil.Probe[*watch.RaceFreeFakeWatcher]
 
-	// Guarded, because refuse and hold are answers a test changes while a stream is already
-	// running — the reactor below reads them from whichever goroutine is opening a watch.
-	mu   sync.Mutex
-	err  error
-	held chan struct{}
+	// Guarded, because refuse, hold and stopNext are answers a test changes while a stream is
+	// already running — the reactor below reads them from whichever goroutine is opening a watch.
+	mu      sync.Mutex
+	err     error
+	held    chan struct{}
+	stopped bool
 }
 
 func (s *streams) answer() (error, chan struct{}) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.err, s.held
+}
+
+// takeStop consumes a stopNext. Read after the hold, so an open parked before stopNext was
+// called still takes it.
+func (s *streams) takeStop() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	stopped := s.stopped
+	s.stopped = false
+	return stopped
 }
 
 // streamKind installs the watch for one collection. Call before the kind is tracked.
@@ -637,6 +648,9 @@ func (c *fakeCluster) streamKind(k kubestore.Kind) *streams {
 			<-held
 		}
 		w := watch.NewRaceFreeFake()
+		if s.takeStop() {
+			w.Stop()
+		}
 		s.opened.Fire(w)
 		return true, w, nil
 	})
@@ -648,6 +662,14 @@ func (s *streams) refuse(err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.err = err
+}
+
+// stopNext answers the next open with a watcher already stopped — a stream that closes before
+// its first frame, whatever the run's clock does meanwhile.
+func (s *streams) stopNext() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stopped = true
 }
 
 // hold parks every later open until the returned func lets it go — a server slow to
