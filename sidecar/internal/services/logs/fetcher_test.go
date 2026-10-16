@@ -33,7 +33,7 @@ import (
 )
 
 // web is the container app of pod web in prod, on node-a.
-var web = stream{key: StreamKey{Namespace: "prod", Pod: "web", Container: "app"}, place: Place{Node: "node-a"}}
+var web = stream{key: StreamKey{Namespace: "prod", Pod: "web", Container: "app"}, place: Place{Node: "node-a"}, gen: generation{instance: containerID("uid-web", "app", 0)}}
 
 // A forward read since a moment asks for its second and keeps that moment's line.
 func TestAForwardReadSinceAMoment(t *testing.T) {
@@ -49,6 +49,7 @@ func TestAForwardReadSinceAMoment(t *testing.T) {
 	assert.Equal(t, []string{"one", "two"}, messages(recs))
 	assert.Equal(t, web.key, recs[0].Stream)
 	assert.Equal(t, web.place, recs[0].Place)
+	assert.Equal(t, web.gen.instance, recs[0].ContainerID)
 	assert.Equal(t, at(1200*time.Millisecond), recs[0].Timestamp)
 	q := s.requests()[0]
 	assert.Equal(t, "2026-10-08T10:00:01Z", q.Get("sinceTime"))
@@ -314,7 +315,7 @@ func TestALineNotTakenIsNotRead(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(0, "a"), stamped(time.Second, "b"))
-	rd := &reader{ctx: t.Context(), get: s.get, key: web.key}
+	rd := &reader{ctx: t.Context(), get: s.get, key: web.key, instance: web.gen.instance}
 
 	read, err := rd.lines(rd.query(time.Time{}), readOpts{}, func(rec Record) bool { return rec.Message == "a" })
 

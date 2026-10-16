@@ -150,12 +150,12 @@ func start(ctx context.Context, get getter, s stream, o readOpts, read func(*rea
 	go func() {
 		defer out.Close()
 		defer cancel()
-		rd := &reader{ctx: ctx, get: get, key: s.key, place: s.place, o: o, out: out}
+		rd := &reader{ctx: ctx, get: get, key: s.key, place: s.place, instance: s.gen.instance, o: o, out: out}
 		err := read(rd)
 		switch {
 		case errors.Is(err, errShort), errors.Is(err, errRetired):
 			r.short, r.stop = true, rd.edge
-		case err != nil && fatal(err) == nil && !rd.edge.isZero():
+		case err != nil && failureKind(err) != failFatal && !rd.edge.isZero():
 			r.short, r.stop = true, rd.edge
 		}
 		if !errors.Is(err, errShort) {
@@ -165,17 +165,18 @@ func start(ctx context.Context, get getter, s stream, o readOpts, read func(*rea
 	return r
 }
 
-// reader is one stream's read: what it reads with, where its lines go, and
-// its edge, the last line in range it read whole — forward the newest, backward
-// the oldest taken, matched or not.
+// reader is one stream's read: what it reads with, the instance it reads, where
+// its lines go, and its edge, the last line in range it read whole — forward the
+// newest, backward the oldest taken, matched or not.
 type reader struct {
-	ctx   context.Context
-	get   getter
-	key   StreamKey
-	place Place
-	o     readOpts
-	out   *spsc.Sender[Record]
-	edge  position
+	ctx      context.Context
+	get      getter
+	key      StreamKey
+	place    Place
+	instance string
+	o        readOpts
+	out      *spsc.Sender[Record]
+	edge     position
 }
 
 // forward reads the log oldest first over one GET.
@@ -426,10 +427,10 @@ type span struct {
 	oldest      time.Time
 }
 
-// lines reads one GET of the log, every line cleaned, stamped with its source and
-// numbered within its moment, and hands each one in o's bounds to each, until the
-// body ends, a line passes the upper bound, or each answers false, spending what
-// it reads from o's budget. The bounds are applied here and nowhere else, so no
+// lines reads one GET of the log, every line cleaned, stamped with its source
+// and instance and numbered within its moment, and hands each one in o's bounds
+// to each, until the body ends, a line passes the upper bound, or each answers
+// false, spending what it reads from o's budget. The bounds are applied here and nowhere else, so no
 // read can miss one. A read its context ended is a clean one.
 func (r *reader) lines(q url.Values, o readOpts, each func(Record) bool) (span, error) {
 	var read span
@@ -448,7 +449,7 @@ func (r *reader) lines(q url.Values, o readOpts, each func(Record) bool) (span, 
 	for {
 		line, err := readLine(br)
 		if rec, ok := parseLine(line); ok {
-			rec.Stream, rec.Place = r.key, r.place
+			rec.Stream, rec.Place, rec.ContainerID = r.key, r.place, r.instance
 			if rec.Timestamp.Equal(moment) {
 				ordinal++
 			} else {

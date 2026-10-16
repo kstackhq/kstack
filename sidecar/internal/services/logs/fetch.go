@@ -69,14 +69,15 @@ func (s *Service) Fetch(ctx context.Context, id cluster.ClusterID, view View, q 
 		return Page{}, err
 	}
 	defer c.close()
+	src := s.source(c.get)
 	o.batch, o.windows = int64(q.Limit)+1, maxWindows
 	readings := make([]*streamRead, len(t.streams))
 	for i, st := range t.streams {
 		o.budget = newBudget(s.budget / int64(len(t.streams)))
 		if q.Mode == FetchTail {
-			readings[i] = readBackward(ctx, c.get, st, o)
+			readings[i] = src.Backward(ctx, st, o)
 		} else {
-			readings[i] = readForward(ctx, c.get, st, o)
+			readings[i] = src.Forward(ctx, st, o)
 		}
 	}
 	return mergePage(ctx, readings, q.Mode, q.Limit)

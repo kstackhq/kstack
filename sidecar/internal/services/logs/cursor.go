@@ -19,20 +19,22 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
-// position is a line's place in a view's order: its moment, then its container,
-// then its ordinal, its index among its container's lines at that moment. Every
-// line has one and no two share one, so a page can end at any line and the next
-// can start just past it. A position with no container is a moment: it stands
-// before, or after, every line of that moment at once.
+// position is a line's place in a view's order: its moment, then its container
+// and the runtime id of the instance it came from, then its ordinal, its index
+// among that instance's lines at that moment. Every line has one and no two share
+// one, so a page can end at any line and the next can start just past it. A
+// position with no container is a moment: it stands before, or after, every line
+// of that moment at once.
 type position struct {
-	Timestamp time.Time
-	Namespace string
-	Pod       string
-	Container string
-	Previous  bool
-	Ordinal   int
+	Timestamp   time.Time
+	Namespace   string
+	Pod         string
+	Container   string
+	ContainerID string
+	Ordinal     int
 }
 
 // isZero is whether p names nothing.
@@ -43,11 +45,11 @@ func (p position) moment() bool { return p.Container == "" }
 
 // positionOf is rec's position.
 func positionOf(rec Record) position {
-	return position{rec.Timestamp, rec.Stream.Namespace, rec.Stream.Pod, rec.Stream.Container, rec.Stream.Previous, rec.Ordinal}
+	return position{rec.Timestamp, rec.Stream.Namespace, rec.Stream.Pod, rec.Stream.Container, rec.ContainerID, rec.Ordinal}
 }
 
 // comparePositions orders a against b: by time, then, unless either is a moment,
-// by namespace, pod, container, the previous instance first, and ordinal.
+// by namespace, pod, container, instance id and ordinal.
 func comparePositions(a, b position) int {
 	if c := a.Timestamp.Compare(b.Timestamp); c != 0 || a.moment() || b.moment() {
 		return c
@@ -56,7 +58,7 @@ func comparePositions(a, b position) int {
 		cmp.Compare(a.Namespace, b.Namespace),
 		cmp.Compare(a.Pod, b.Pod),
 		cmp.Compare(a.Container, b.Container),
-		comparePrevious(a.Previous, b.Previous),
+		cmp.Compare(a.ContainerID, b.ContainerID),
 		cmp.Compare(a.Ordinal, b.Ordinal),
 	)
 }
@@ -67,22 +69,13 @@ func compare(rec Record, p position) int { return comparePositions(positionOf(re
 // compareLines orders two lines.
 func compareLines(a, b Record) int { return comparePositions(positionOf(a), positionOf(b)) }
 
-func comparePrevious(a, b bool) int {
-	switch {
-	case a == b:
-		return 0
-	case a:
-		return -1
-	}
-	return 1
-}
-
 // cursorOf is p as a cursor: its time with nanoseconds, then, for a line, its
-// container and ordinal, each field behind a tab, which no name holds.
+// container, instance id and ordinal, each field behind a tab, which no name
+// holds.
 func cursorOf(p position) *string {
 	c := p.Timestamp.UTC().Format(time.RFC3339Nano)
 	if !p.moment() {
-		c += "\t" + p.Namespace + "\t" + p.Pod + "\t" + p.Container + "\t" + strconv.FormatBool(p.Previous) + "\t" + strconv.Itoa(p.Ordinal)
+		c += "\t" + p.Namespace + "\t" + p.Pod + "\t" + p.Container + "\t" + p.ContainerID + "\t" + strconv.Itoa(p.Ordinal)
 	}
 	return &c
 }
@@ -102,14 +95,21 @@ func parseCursor(c string) (position, error) {
 	if len(fields) == 1 {
 		return p, nil
 	}
-	p.Namespace, p.Pod, p.Container = fields[1], fields[2], fields[3]
-	if p.Previous, err = strconv.ParseBool(fields[4]); err != nil {
-		return position{}, errBadCursor
-	}
-	if p.Ordinal, err = strconv.Atoi(fields[5]); err != nil || p.Ordinal < 0 || p.Container == "" {
+	p.Namespace, p.Pod, p.Container, p.ContainerID = fields[1], fields[2], fields[3], fields[4]
+	if p.Ordinal, err = strconv.Atoi(fields[5]); err != nil || p.Ordinal < 0 || p.Container == "" || !validContainerID(p.ContainerID) {
 		return position{}, errBadCursor
 	}
 	return p, nil
+}
+
+// maxContainerID is the longest runtime id a position takes.
+const maxContainerID = 256
+
+// validContainerID is whether id is one a position takes: what the resolve
+// guarantees of every id it hands out, and nothing more, since a runtime spells
+// its ids as it likes. A tab would split a cursor.
+func validContainerID(id string) bool {
+	return id != "" && len(id) <= maxContainerID && !strings.ContainsFunc(id, unicode.IsControl)
 }
 
 // bound is one end of a read's range: a position, and whether a line at it is in

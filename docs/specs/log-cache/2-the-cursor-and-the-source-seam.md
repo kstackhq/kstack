@@ -115,9 +115,10 @@ each `GET` over a claim as today, and `Tail` is the forward stream `follow.go` o
 move, not a rewrite: the fetcher's tests keep their cases.
 
 `Fetch` builds its readings over `Source.Forward` and `Source.Backward`, and `Follow`'s reconcile
-opens streams through `Source.Tail`. Each builds its source once its claim is made, from a
-function `logs.New` takes beside the cluster service, `func(get getter) Source`, which `app`
-answers with the kubelet source and a test with its fake; `logs.New` alone changes signature.
+opens streams through `Source.Tail`. Each builds its source once its claim is made, through a
+`func(get getter) Source` field on the service, a test seam like `now` and `retry`: `logs.New`
+sets it to the kubelet source and a test sets it to its fake, so nothing outside the package
+changes.
 
 The interface names `stream`, `readOpts` and `*streamRead`, all unexported, so only code in
 `logs` can implement it — the kubelet source and the test fake, the two there are. "One shape

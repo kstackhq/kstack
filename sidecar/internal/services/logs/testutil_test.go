@@ -739,7 +739,7 @@ func pod(name, uid, node string, owner map[string]any, containers ...container) 
 // as a runtime gives them: the last one's beside the running one's when it
 // restarted.
 func containerStatus(uid string, c container) map[string]any {
-	id := func(instance int) string { return fmt.Sprintf("containerd://%s-%s-%d", uid, c.name, instance) }
+	id := func(instance int) string { return containerID(uid, c.name, instance) }
 	status := map[string]any{"name": c.name, "restartCount": int64(0), "containerID": id(0), "state": map[string]any{"running": map[string]any{}}}
 	if c.restarted {
 		status["restartCount"] = int64(1)
@@ -747,6 +747,12 @@ func containerStatus(uid string, c container) map[string]any {
 		status["lastState"] = map[string]any{"terminated": map[string]any{"containerID": id(0)}}
 	}
 	return status
+}
+
+// containerID is the runtime id of the instance-th instance of the container
+// name in the pod uid, as containerStatus writes it.
+func containerID(uid, name string, instance int) string {
+	return fmt.Sprintf("containerd://%s-%s-%d", uid, name, instance)
 }
 
 // withInit is body, a pod, with a terminated init container named name.
@@ -828,14 +834,14 @@ func after(d time.Duration) bound  { return bound{position{Timestamp: at(d)}, fa
 func to(d time.Duration) bound     { return bound{position{Timestamp: at(d)}, true} }
 func before(d time.Duration) bound { return bound{position{Timestamp: at(d)}, false} }
 
-// lineAt is the position of key's line at d past 10:00, the ordinal-th of its
-// moment.
+// lineAt is the position of key's line at d past 10:00, from the first instance
+// of a fixture pod, the ordinal-th of its moment.
 func lineAt(key StreamKey, d time.Duration, ordinal int) position {
-	return position{at(d), key.Namespace, key.Pod, key.Container, key.Previous, ordinal}
+	return position{Timestamp: at(d), Namespace: key.Namespace, Pod: key.Pod, Container: key.Container, ContainerID: containerID("uid-"+key.Pod, key.Container, 0), Ordinal: ordinal}
 }
 
 // lineCursor is the cursor of pod/container's line at d past 10:00, in prod, the
-// ordinal-th of its moment.
+// ordinal-th of its moment, from the first instance of a fixture pod.
 func lineCursor(pod, container string, d time.Duration, ordinal int) *string {
 	return cursorOf(lineAt(StreamKey{Namespace: "prod", Pod: pod, Container: container}, d, ordinal))
 }
@@ -858,14 +864,15 @@ func placesOf(t target) []Place {
 	return places
 }
 
-// line is a record of pod/container in prod at d past 10:00, the first of its
-// moment, and nth the ordinal-th.
+// line is a record of pod/container in prod at d past 10:00, from the first
+// instance of a fixture pod, the first line of its moment, and nth the
+// ordinal-th.
 func line(pod, container string, d time.Duration, msg string) Record {
 	return nth(pod, container, d, 0, msg)
 }
 
 func nth(pod, container string, d time.Duration, ordinal int, msg string) Record {
-	return Record{Timestamp: at(d), Message: msg, Stream: StreamKey{Namespace: "prod", Pod: pod, Container: container}, Ordinal: ordinal}
+	return Record{Timestamp: at(d), Message: msg, Stream: StreamKey{Namespace: "prod", Pod: pod, Container: container}, ContainerID: containerID("uid-"+pod, container, 0), Ordinal: ordinal}
 }
 
 // cursor is the cursor of the moment d past 10:00.
@@ -882,5 +889,70 @@ func serviceOver(t *testing.T, f *fakeService, h http.Handler) (*Service, *fakeS
 	svc := New(f)
 	svc.now, svc.handoff, svc.settle = func() time.Time { return at(time.Hour) }, 0, 0
 	svc.retry, svc.retryCap = time.Millisecond, 8*time.Millisecond
+	return svc, f
+}
+
+// fakeSource is a Source that reads each stream as reads says, by
+// "<pod>/<container>", and fires opened with that key on every read.
+type fakeSource struct {
+	mu     sync.Mutex
+	reads  map[string]fakeRead
+	opened *testutil.Probe[string]
+}
+
+// fakeRead is one read of a fake source: lines, each stamped with its stream,
+// then, once wait closes, an end with err. A nil wait ends at once, and never
+// ends only once the read is cancelled.
+type fakeRead struct {
+	lines []Record
+	err   error
+	wait  <-chan struct{}
+}
+
+// never is a wait that never closes.
+var never = make(chan struct{})
+
+func newFakeSource() *fakeSource {
+	return &fakeSource{reads: map[string]fakeRead{}, opened: testutil.NewProbe[string](64)}
+}
+
+// set makes every later read of key read as r.
+func (s *fakeSource) set(key string, r fakeRead) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reads[key] = r
+}
+
+func (s *fakeSource) read(ctx context.Context, st stream) *streamRead {
+	key := st.key.Pod + "/" + st.key.Container
+	s.mu.Lock()
+	r := s.reads[key]
+	s.mu.Unlock()
+	recs := make([]Record, len(r.lines))
+	for i, rec := range r.lines {
+		rec.Stream, rec.Place, rec.ContainerID = st.key, st.place, st.gen.instance
+		recs[i] = rec
+	}
+	s.opened.Fire(key)
+	return cannedUntil(ctx, st.key, recs, r.wait, r.err, position{})
+}
+
+func (s *fakeSource) Forward(ctx context.Context, st stream, _ readOpts) *streamRead {
+	return s.read(ctx, st)
+}
+
+func (s *fakeSource) Backward(ctx context.Context, st stream, _ readOpts) *streamRead {
+	return s.read(ctx, st)
+}
+
+func (s *fakeSource) Tail(ctx context.Context, st stream, _ readOpts) *streamRead {
+	return s.read(ctx, st)
+}
+
+// serviceOn is the service over the web mirror, reading through src.
+func serviceOn(t *testing.T, src Source) (*Service, *fakeService) {
+	t.Helper()
+	svc, f := serviceOver(t, webMirror(t), newLogServer())
+	svc.source = func(getter) Source { return src }
 	return svc, f
 }

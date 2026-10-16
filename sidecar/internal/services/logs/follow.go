@@ -18,7 +18,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"net/http"
 	"slices"
 	"strings"
 	"time"
@@ -120,7 +119,6 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, view View, a
 	if err != nil {
 		return nil, err
 	}
-	o.follow = true
 	t, err := resolve(ctx, s.clusters, id, view, true)
 	if err != nil {
 		return nil, err
@@ -133,7 +131,7 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, view View, a
 	// stream itself runs on ctx: one ended by its own context files no error.
 	owned, stop := context.WithCancel(ctx)
 	f := &follow{
-		s: s, id: id, view: view, o: o, claim: c, target: t, start: s.now(),
+		s: s, id: id, view: view, o: o, claim: c, src: s.source(c.get), target: t, start: s.now(),
 		fan: newFanIn(), streams: map[StreamKey]*tracked{}, nodes: map[string]Place{},
 		deleted: map[string]string{}, podUIDs: map[string]string{}, gone: map[string]bool{},
 		dueHub: mpsc.New[StreamKey](0, mpsc.WithKeepOpen()),
@@ -247,11 +245,13 @@ func (f *follow) watchEnded(w objectWatch) error {
 // retry — by one rule: a container the view wants runs unless it ended at the
 // generation the view sees now.
 type follow struct {
-	s      *Service
-	id     cluster.ClusterID
-	view   View
-	o      readOpts
-	claim  *claim
+	s     *Service
+	id    cluster.ClusterID
+	view  View
+	o     readOpts
+	claim *claim
+	// src tails the follow's streams over the claim.
+	src    Source
 	target target
 	start  time.Time
 	fan    *fanIn
@@ -474,7 +474,7 @@ func (f *follow) since() bound {
 func (f *follow) open(ctx context.Context, st stream, since bound) {
 	o := f.o
 	o.since = since
-	r := readForward(ctx, f.claim.get, st, o)
+	r := f.src.Tail(ctx, st, o)
 	t := f.track(st.key)
 	t.stream, t.ended = &opened{st, f.s.now(), r}, false
 	f.fan.add(ctx, r)
@@ -518,14 +518,19 @@ func (f *follow) ended(ctx context.Context, r *streamRead) (bool, error) {
 	if f.claim.isRevoked() {
 		return true, ErrRevoked
 	}
-	if err := fatal(r.err); err != nil {
-		return true, err
-	}
-	if dropped(r.err) || r.err == nil && !r.key.Previous && gen.state == stateRunning {
+	kind := failureKind(r.err)
+	switch {
+	case kind == failFatal:
+		return true, fatalError(r.err)
+	case kind == failTransient, kind == failNone && !r.key.Previous && gen.state == stateRunning:
 		f.hold(ctx, r.key, t, f.s.now().Sub(at))
 		return false, nil
 	}
-	t.ended, t.endedAt, t.refused = true, gen, refusalOf(r.err)
+	refused := ""
+	if kind == failDenied {
+		refused = r.err.Error()
+	}
+	t.ended, t.endedAt, t.refused = true, gen, refused
 	return true, nil
 }
 
@@ -558,22 +563,6 @@ const (
 	stateRunning = "running"
 	stateWaiting = "waiting"
 )
-
-// refusalOf is the cluster's message when err is it refusing to show the log.
-func refusalOf(err error) string {
-	var se *statusError
-	if errors.As(err, &se) && se.code == http.StatusForbidden {
-		return se.Error()
-	}
-	return ""
-}
-
-// dropped is whether err ended a stream for a reason of the connection's or the
-// server's, not the log's: anything but a status under 500.
-func dropped(err error) bool {
-	var se *statusError
-	return err != nil && !(errors.As(err, &se) && se.code < http.StatusInternalServerError)
-}
 
 // podsMoved takes frame and every frame already waiting behind it, and is whether
 // the view is to be resolved again: when the watch's opening snapshot closed among

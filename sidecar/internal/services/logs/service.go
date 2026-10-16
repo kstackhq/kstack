@@ -23,7 +23,10 @@ import (
 // Service reads views' lines off the clusters the cluster service connects to.
 type Service struct {
 	clusters cluster.Service
-	now      func() time.Time
+	// source is the Source a request reads its lines through, built over its
+	// claim's get: the kubelet, or a test's fake.
+	source func(get getter) Source
+	now    func() time.Time
 	// handoff is how long a follow holds its first lines, retry how long it waits
 	// to resolve its view again after the mirror refused it, to open its watches
 	// again or to reopen a dropped stream, retryCap the longest a stream that keeps
@@ -38,5 +41,5 @@ type Service struct {
 
 // New is the service over the cluster service.
 func New(clusters cluster.Service) *Service {
-	return &Service{clusters: clusters, now: time.Now, handoff: followHandoff, retry: followRetry, retryCap: followRetryCap, settle: followSettle, budget: maxBudget}
+	return &Service{clusters: clusters, source: newKubelet, now: time.Now, handoff: followHandoff, retry: followRetry, retryCap: followRetryCap, settle: followSettle, budget: maxBudget}
 }

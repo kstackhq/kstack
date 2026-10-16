@@ -2129,7 +2129,9 @@ else its first container, never an init container), its init containers first,
 each with a log the kubelet serves: a `container_id`, or a `last_container_id` standing in while
 the container waits, as `kubectl logs` reads it. A previous instance reads only the containers
 with one (a `last_container_id`). A stream is named by its `StreamKey` (namespace, pod, container, previous),
-which is what two sources reading one container agree on. Its `Place` (`record.go`) is where its
+which is what two sources reading one container agree on, and carries the runtime id of the
+instance it reads, which names it in each line's position; a stream whose id a cursor could not
+carry is skipped, as one with no id is. Its `Place` (`record.go`) is where its
 pod runs: the node, then the region, zone, OS and architecture read off that `Node` object's
 labels. `Refusal` is a value, so no caller can change a sentinel's words.
 
@@ -2155,17 +2157,33 @@ and OSC sequences in ESC and C1 forms, every other C1, DEL and every C0 but tab,
 replaced, cut at 16 KiB on a character boundary with `…`. A refusal's message is cleaned the same
 way.
 
-**A cursor names a line** (`cursor.go`): its moment, its container and its ordinal among that
-container's lines at the moment, so a page can end at any line and the next starts just past it. A
-time alone names a moment, which the viewer's `At` anchor sends; `since` and `until` keep the
-cursor's line where `after` and `before` drop it.
+**A cursor names a line** (`cursor.go`): its moment, its container, the runtime id of the
+instance it came from (`container_id`, or `last_container_id` for a previous instance) and its
+ordinal among that instance's lines at the moment, so a page can end at any line and the next
+starts just past it, and a line keeps its key once its instance is the previous one. Lines order by
+time, then namespace, pod and container name, then id. `parseCursor` takes any id that is not
+empty, holds no control character and is at most 256 bytes (`validContainerID`), since a runtime
+spells its ids as it likes. A time alone names a moment, which the viewer's `At` anchor sends;
+`since` and `until` keep the cursor's line where `after` and `before` drop it. The id is the
+resolve's, not the read's: around a restart a line can go out twice under two ids.
 
 **A container's log is read over a claim** (`claim.go`), outside the mirror's reading:
 `AcquireConnection`, which checks the record once, and `Lease.ConnFor` by the cache's `ServerUID`.
-A body the claim cut answers its reason, `ErrRevoked` or `errRetired`, never a bare cancel. A 401
-(`fatal`) fails a whole read: it is the user's credentials, not one pod's state; a 403 is one
-stream's, since access to `pods/log` is granted per namespace. Each read is one raw `GET` of the
-pod's `log` path through the connection's `HTTPClient`; no typed clientset.
+A body the claim cut answers its reason, `ErrRevoked` or `errRetired`, never a bare cancel. Each
+read is one raw `GET` of the pod's `log` path through the connection's `HTTPClient`; no typed
+clientset. `Fetch` takes its claim per page and `Follow` holds one for its life, and each builds
+its `Source` over the claim's `get` through `Service.source`.
+
+**A read goes through a `Source`** (`source.go`): `Forward`, `Backward` and `Tail`, each a
+`streamRead` the caller pulls a line at a time and cancels, keeping within its `readOpts`. The
+kubelet is the one source (`kubelet.go`, over `fetcher.go`), which `New` sets `Service.source`
+to build; a test sets the field to build its fake. **`failureKind` is the one classification of how a read failed**: `failFatal`
+(a 401, the user's credentials, or a revoked claim) fails the whole page or follow, through
+`fatalError`; `failDenied` (a 403, since access to `pods/log` is granted per namespace) and
+`failEnded` (any other status under 500, the server's answer for this log now) are one stream's, a
+page's `skipped` entry, and a follow ends the stream until its generation moves, a 403 remembered
+as its reason; `failTransient` (a 5xx or a transport error) is skipped by a page and retried by a
+follow under its backoff.
 
 **A follow's claim also watches the record**, revoking it (`ErrRevoked`) once the cluster is
 disabled or deleted, as the bash tool's upstream does. A watch that ends after its snapshot is
