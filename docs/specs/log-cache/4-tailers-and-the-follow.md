@@ -1,7 +1,7 @@
 ---
 title: Tailers and the follow
 scope: sidecar
-status: Planned
+status: Built
 ---
 
 # Tailers and the follow

@@ -421,8 +421,9 @@ type logServer struct {
 	// handler has not noticed yet, cannot take a line from the follow that
 	// replaced it.
 	logs map[string][]string
-	// refuse answers a container's requests with a status and a message.
-	refuse map[string]refusal
+	// refuse answers a container's requests with a status and a message, and
+	// refuseReads its requests that follow nothing.
+	refuse, refuseReads map[string]refusal
 	// grew is closed and replaced when a container's log grows or its follows
 	// end, by key. ended is the containers whose follows end, and any opened after.
 	grew  map[string]chan struct{}
@@ -445,7 +446,7 @@ type refusal struct {
 }
 
 func newLogServer() *logServer {
-	return &logServer{logs: map[string][]string{}, refuse: map[string]refusal{}, grew: map[string]chan struct{}{}, ended: map[string]bool{}, opened: map[string]int{}, closed: map[string]int{}}
+	return &logServer{logs: map[string][]string{}, refuse: map[string]refusal{}, refuseReads: map[string]refusal{}, grew: map[string]chan struct{}{}, ended: map[string]bool{}, opened: map[string]int{}, closed: map[string]int{}}
 }
 
 // end ends key's follows, and any opened after.
@@ -454,6 +455,13 @@ func (s *logServer) end(key string) {
 	defer s.mu.Unlock()
 	s.ended[key] = true
 	s.wake(key)
+}
+
+// resume lets key's follows run again after end.
+func (s *logServer) resume(key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.ended, key)
 }
 
 // wake tells key's follows its log changed. Call it holding s.mu.
@@ -625,6 +633,9 @@ func (s *logServer) serve(key string, q url.Values) (string, int, *refusal) {
 	lines := append([]string(nil), s.logs[key]...)
 	held := len(lines)
 	refused, isRefused := s.refuse[key]
+	if read, ok := s.refuseReads[key]; ok && !isRefused && q.Get("follow") != "true" {
+		refused, isRefused = read, true
+	}
 	s.mu.Unlock()
 	if isRefused {
 		return "", 0, &refused
@@ -900,8 +911,8 @@ var testRetention = func() logstore.Retention {
 }()
 
 // serviceOver is the service over f's mirror and the API server h, on a clock
-// reading 11:00, its follows handing off and resolving at once, and retrying within
-// milliseconds however often a stream drops.
+// reading 11:00, its follows resolving at once and retrying within milliseconds
+// however often a stream drops.
 func serviceOver(t *testing.T, f *fakeService, h http.Handler) (*Service, *fakeService) {
 	t.Helper()
 	return serviceIn(t, f, h, t.TempDir(), testRetention)
@@ -914,7 +925,7 @@ func serviceIn(t *testing.T, f *fakeService, h http.Handler, dir string, ret log
 	files := logstore.NewManager(dir, ret)
 	t.Cleanup(func() { assert.NoError(t, files.Close()) })
 	svc := New(f, files)
-	svc.now, svc.handoff, svc.settle = func() time.Time { return at(time.Hour) }, 0, 0
+	svc.now, svc.settle = func() time.Time { return at(time.Hour) }, 0
 	svc.retry, svc.retryCap = time.Millisecond, 8*time.Millisecond
 	return svc, f
 }

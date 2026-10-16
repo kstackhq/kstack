@@ -535,7 +535,7 @@ holds what they share.
 | [1 The store](1-the-store.md) | The file, its schema and manager, and its lifetime with the cluster cache | Built, [#293](https://github.com/kstackhq/kstack/pull/293) |
 | [2 The cursor and the `Backend` seam](2-the-cursor-and-the-backend-seam.md) | A position names its instance; the fetcher behind an interface; no behaviour change | Built, [#295](https://github.com/kstackhq/kstack/pull/295) |
 | [3 Pages from the file](3-pages-from-the-file.md) | `Fetch` over coverage, fills and the file; the grep; `logsFetch`'s wire | Built, [#301](https://github.com/kstackhq/kstack/pull/301) |
-| [4 Tailers and the follow](4-tailers-and-the-follow.md) | One tailer per stream, the writer, the commit bus, `Follow` as a read; `logsFollow`'s wire | Planned |
+| [4 Tailers and the follow](4-tailers-and-the-follow.md) | One tailer per stream, the writer, the commit bus, `Follow` as a read; `logsFollow`'s wire | Built |
 | [5 Eviction and backpressure](5-eviction-and-backpressure.md) | The live janitor, the budget, shedding; the sequence's integration gate | Planned |
 | [6 The docs](6-the-docs.md) | The ADRs, the note's retirement, the coherence pass | Planned |
 

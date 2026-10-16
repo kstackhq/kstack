@@ -59,8 +59,8 @@ of the logs service, which will import it.
   `set.InTx`, and a statement run both inside a fill's write transaction and alone is declared
   `OnBoth`.
 - **The schema**, `migrations/0001_init.sql`, exactly the README's §2: `streams`, `chunks`,
-  `lines` with its `AUTOINCREMENT` id and `lines_position`, every table `STRICT`. The id must
-  never be reused, since the follow reads by it, and the test below pins that.
+  `lines` with a plain rowid and `lines_position`, every table `STRICT`. Nothing reads a line
+  by its id: every read walks the position index (step 4).
 - **`Retention`**: `Bytes`, `StreamShare`, `ReadTTL`, `ChunkBytes`, `ChunkSpan`, `TailGrace`,
   `WriteBatch`, `WriteBatchBytes`, `WriteTick`, `WriteWait`, `WriteQueue`, `VacuumPages`, `Interval`, each
   with a comment saying what it bounds, and `DefaultRetention` with the README's §7 numbers. The
@@ -100,9 +100,7 @@ of the logs service, which will import it.
 Go, beside the files they cover, each over `t.TempDir()`.
 
 - `store_test.go`: a file opens `0600` under the directory and reopens; `STRICT` refuses a text
-  in an integer column; `lines_position` refuses a duplicate position and `OR IGNORE` skips one;
-  **ids are never reused**: insert lines, delete the newest, insert again, and the new id is
-  above every id ever handed out.
+  in an integer column; `lines_position` refuses a duplicate position and `OR IGNORE` skips one.
 - `manager_test.go`: two opens share one store and the second close releases it; `Clear` retires
   the open store, whose handle answers `ErrClosed`, deletes the file, and the next open creates a
   fresh one; **releasing the old handle after a `Clear` leaves the new entry's count alone**, so

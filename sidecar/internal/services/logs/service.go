@@ -32,12 +32,11 @@ type Service struct {
 	// tails through the first.
 	backends []namedBackend
 	now      func() time.Time
-	// handoff is how long a follow holds its first lines, retry how long it waits
-	// to resolve its view again after the mirror refused it, to open its watches
-	// again or to reopen a dropped stream, retryCap the longest a stream that keeps
-	// dropping waits, settle how long it waits after a pod frame, and budget the
-	// bytes one page's fills may read from the backends.
-	handoff  time.Duration
+	// retry is how long a follow waits to resolve its view again after the mirror
+	// refused it, to open its watches again or to tail a dropped stream again,
+	// retryCap the longest a stream that keeps dropping waits, settle how long it
+	// waits after a pod frame, and budget the bytes one page's fills may read from
+	// the backends.
 	retry    time.Duration
 	retryCap time.Duration
 	settle   time.Duration
@@ -65,7 +64,7 @@ type namedBackend struct {
 func New(clusters cluster.Service, files *logstore.Manager) *Service {
 	return &Service{
 		clusters: clusters, files: files, backends: []namedBackend{{"kubelet", newKubelet}}, now: time.Now,
-		handoff: followHandoff, retry: followRetry, retryCap: followRetryCap, settle: followSettle,
+		retry: followRetry, retryCap: followRetryCap, settle: followSettle,
 		budget: maxBudget, walkBudget: maxWalkBudget, grace: files.Retention().TailGrace,
 		tails: map[cluster.ClusterCacheID]*registry{},
 	}

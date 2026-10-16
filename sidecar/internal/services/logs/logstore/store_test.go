@@ -183,23 +183,6 @@ func TestEveryOperationOnAClosedClaimIsRefused(t *testing.T) {
 	}
 }
 
-// A follow reads by id past the last one it saw, so an id handed out twice would put a
-// new tail line below a live follow's mark and the follow would never send it. Deleting
-// the newest row is when an implicit rowid would be handed out again.
-func TestALineIDIsNeverReused(t *testing.T) {
-	t.Parallel()
-	f := openTestFile(t)
-	stream := insertStream(t, f)
-	insertLine(t, f, stream, 100, 0)
-	newest := insertLine(t, f, stream, 200, 0)
-	_, err := f.db.Exec(`DELETE FROM lines WHERE id = ?`, newest)
-	require.NoError(t, err)
-
-	next := insertLine(t, f, stream, 300, 0)
-
-	assert.Greater(t, next, newest)
-}
-
 // twoStreams files app and a second container of its pod in s and answers their ids.
 func twoStreams(t *testing.T, s *Store) (int64, int64) {
 	t.Helper()

@@ -1505,18 +1505,23 @@ input LogsViewFilterInput {
 }
 
 """
-One frame of a follow. `Line` carries a line; `Ended` is the last frame, carrying why
-the follow ended in the user's words, and following again would end the same way.
-Detect the end as `type === 'Ended'`, never as a missing record.
+One frame of a follow: a line, a checkpoint, or the last frame, saying why the follow ended.
+Following again after `Ended` would end the same way. Detect each frame by `type`, never by
+which field is missing.
 """
 type LogsFollowFrame {
   type: LogsFollowFrameType!
+  "The line. Null on `Checkpoint` and `Ended`."
   record: LogRecord
+  "A follow opened `after` it misses no line. Null on `Line` and `Ended`."
+  cursor: String
+  "Why the follow ended, in the user's words. Empty on `Line` and `Checkpoint`."
   reason: String!
 }
 
 enum LogsFollowFrameType {
   Line
+  Checkpoint
   Ended
 }
 

@@ -2096,8 +2096,7 @@ instance of 2 of 3 pods`, `not in Kstack's cache of the cluster yet`, `nothing t
 `migrations/0001_init.sql`: `streams`, one runtime instance of a container, its place and
 labels a snapshot from the mirror since the lines outlive the pod; `chunks`, the unit of
 coverage and of eviction; and `lines`, keyed by position through `lines_position`, with an
-`AUTOINCREMENT` id since a follow reads by commit order and a reused id would hide a line from
-it. `Manager` (`manager.go`) hands out refcounted `Store`s by cache id. Its lock guards the
+a plain rowid, since every read walks the position index. `Manager` (`manager.go`) hands out refcounted `Store`s by cache id. Its lock guards the
 bookkeeping alone: an open, a close or a delete runs outside it, one at a time per cache
 (`acquireLocked`), so a slow disk on one cache stalls no other. An operation reaches the file
 through `Store.use`, which counts it, and a close cancels the file's context and waits for every
@@ -2123,33 +2122,17 @@ and trims it; each reads first and takes no write when the file already holds it
 chunks for a pattern, its own and the unlabelled ones; `Write` files buffered `Fill`s in one
 transaction; `Read` runs walks over one snapshot (`Reader.Lines`, one walk of
 `lines_position` each way); `Evict` drops one chunk, by id, never an open one, and the lines no
-other chunk claims, reading its bounds in its own transaction; `Subscribe` is a `gobus/conflate` receiver
-keyed by stream id, pinged after every commit that writes a stream lines, so a reader learns of
-a fill as it lands. **Coverage is a pure
+other chunk claims, reading its bounds in its own transaction. **Coverage is a pure
 function** (`CoverageOf`, `coverage.go`): a stream's chunks for a pattern as spans, joined by
 overlap or by a link (`prev_ns`, `prev_ord`) that lands inside the span, and the gaps between,
 each with the tier of the first backend that may hold it and `Lost` when none can: older than
 a `head` chunk of the last backend, past an `at_end` chunk, or in a stream no backend serves.
-It takes the start of the tailer running on the stream, nil with none: every gap past the
-start is the tailer's (`Gap.Tailed`), crossed and never filled, since the tailer reads on from
-there and writes its first chunk only on its first commit; the gap the start falls inside is cut
-at it, the range up to the start (`Gap.Tail`) still live and the newest a fill may read
-(`Gap.Newest`), which a walk crosses once a fill read it whole, since no chunk sits at the start
-to link. `Pos.Next` and `Pos.Prev` are the first place past a position and the last before it
-that a line can sit at. **A `Fill` is one read of one gap** (`fill.go`): its lines claimed from the first one returned,
+**A `Fill` is one read of one gap** (`fill.go`): its lines claimed from the first one returned,
 `Prev` and `Merge` to continue the chunk the gap starts at, `Next` to link the chunk it ran
 into when it read the whole range, and `Head` and `AtEnd`, written onto the chunk next to it
 when it read nothing; a link or a mark reaches its own pattern's chunks alone, and two fills,
 or a fill and a tail, starting at one line leave one chunk, with the later end, open while the
-tail writes it. **A `Tail` is a tailer's way into the file's writer** (`writer.go`, one goroutine
-per open file): `OpenTail` hands out an `mpsc` sender, `Write` hands over a batch of lines, and
-`Close` the last batch; the writer writes what has arrived on `WriteTick`, or at once for a full
-or last batch, in one transaction, extending the tail's `open` chunk by the chunk rules, closing
-it in the write that ends the tail, and trimming a finished stream. No fill extends an open
-chunk. A write that fails fails each tail it held a batch of (`Tail.Failed`): the writer takes
-no more of its lines, and `Tail.Committed` is the last line it landed. The manager's open closes
-every chunk a crash left open, the one point at which no tailer can be running. **The trim**
-(`trim.go`) cuts a finished stream at the end of
+tail writes it. **The trim** (`trim.go`) cuts a finished stream at the end of
 `finished_at`'s second, since a container status's times are whole seconds, and clears
 `at_end` when it removed anything; it runs when `finished_at` is first set and after every
 write to a finished stream.
@@ -2315,47 +2298,66 @@ in every mode, appends, whole-second rotations, restarts and evictions by hand, 
 every line a page answered is in a chunk covering its pattern and no chunk is missing a line its
 instance wrote into its range.
 
-**A tailer is a `Backend.Tail` read written into the file** (`tailer.go`), one per stream,
-shared through the file's **registry** (`registry.go`, `Service.tails` by cache id): an attach
-joins a running tailer or starts one at the later of the stream's newest line and the asking
-watermark, a released tailer runs on `TailGrace` (`Service.grace`), one that ends is dropped, and
-the registry holds its own claims on the file and the cluster while any runs. A tailer hands its
-lines to the file's writer through an `OpenTail`, in batches of what has arrived up to `WriteBatch`
-or `WriteBatchBytes`; one the writer cannot take a batch from within `WriteWait` closes its chunk
-and reads again from now, and one whose write failed ends with the failure, so what was lost is
-a live gap rather than the tailer's. A page reads a running tailer's start through
-`Service.tailStart` as its stream's tail bound. A walk reads a tailer's start with no lock,
-holding a reader connection, and a start takes the file, the claim and the stream's chunks with
-the registry's lock released, so no page waits behind it. Nothing attaches but the tests yet.
-
-**`logsFollow` is `Service.Follow`** (`follow.go`): a fan-in (`fanin.go`), each line sent as its
-stream delivers it, the first 50 ms sorted and sent before any ending, and only a line the grep
-passes, since its reads take every line. Each line carries its
-`Cursor`, and a follow opened `after` one skips every container's lines up to its moment. Lines
-arrive per container, so a container that was behind that line when the client reopens loses what
-it had not sent: a client reopening a follow asks a few seconds before its newest cursor and drops
-each container's repeats. A follow with no cursor reads from the moment it
-started (`sinceTime`, never `tailLines=0`), so a moment's lines are numbered from its second as any
-later read of them is. Its pods watch is `WatchObjectsIn` over the view's namespaces, with no
+**`logsFollow` is `Service.Follow`** (`follow.go`), **a walk of the file from a watermark per
+stream**. One **tailer** per stream (`tailer.go`), a `Backend.Tail` read, is shared by every
+follow of it through the file's **registry** (`registry.go`, `Service.tails` by cache id): an
+attach joins a running tailer or starts one at the later of the stream's newest line and the
+asking follow's watermark, a released tailer runs on `TailGrace` (`Service.grace`), one that
+ends is dropped, and the registry holds its own claims on the file and the cluster while any
+runs. A tailer hands its lines to **the file's writer** (`logstore/writer.go`, one goroutine per
+open file) through an `OpenTail`'s `mpsc` sender, in batches of what has arrived up to
+`WriteBatch` or `WriteBatchBytes`; the writer writes on `WriteTick`, or at once for a full or
+last batch, in one transaction, extending the tail's `open` chunk by the chunk rules, closing it
+in the write that ends the tail, and trimming a finished stream. A tailer the writer cannot take
+a batch from within `WriteWait` closes its chunk and reads again from now. A write that fails
+fails each tail it held a batch of (`Tail.Failed`): the writer takes no more of its lines, and
+its tailer ends with the failure, so what was lost is a live gap rather than the tailer's. **Every commit of
+lines pings the file's bus** (`Store.Subscribe`, a `gobus/conflate` receiver keyed by stream
+id), a fill's as a tailer's. `CoverageOf` cuts the gap a running tailer's start falls inside
+at the start (its tail bound, which a page reads through `Service.tailStart`): the range past it
+is its tailer's (`Gap.Tailed`), crossed and never filled, and no fill extends an open chunk; the
+range up to it (`Gap.Tail`) is live, the newest a fill may read (`Gap.Newest`), and a walk
+crosses it once a fill read it whole, since no chunk sits at the start to link. A walk reads
+a tailer's start with no lock, holding a reader connection. The manager's open closes every
+chunk a crash left open. A follow subscribes under the view's streams' rows and the row of every tailer it still
+holds, a restarted container's old one included, attaches to each tailer, and walks each stream
+from its watermark on every ping to it and once after every reconcile:
+along its spans and across every gap no fill may be offered, the lines the grep passes sent in
+position order, the watermark moved to the last line read, at most `followBatch` lines read
+and `followBatchBytes` kept across the view's streams between two sends, fills included. It
+crosses a tailer's gap only up to what the tailer had committed before the walk read the
+chunks (`Tail.Committed`, the last line landed, else the start; it holds once the tailer
+ends): a span past that is a page's, and the walk waits before it for the tailer's ping. A
+tailer whose log ended with its instance leaves the stream walked to its end as a finished
+instance is, so a page's chunk past its last line still reaches the follow. At a live gap it holds the watermark
+and fills the gap as a `Head` page would, then walks on; a fill that fails holds or ends the
+stream as a tailer's failure does. After each walk that sent a line it sends a `Checkpoint`
+naming the oldest watermark across the view, and a follow opened `after` it misses no line; a
+stream that joins starts at the last checkpoint, or the follow's cursor or start before one. A
+finished instance gets no tailer: it is walked to its end once. A follow with no cursor reads
+from the moment it started (`sinceTime`, never `tailLines=0`), so a moment's lines are numbered
+from its second as any later read of them is. The file closing ends a follow with an error and
+no frame. Its pods watch is `WatchObjectsIn` over the view's namespaces, with no
 bodies, and so is a watch of each kind its workload sources walk through to their pods
 (`workloadKinds`: a source's own, and a Deployment's ReplicaSets or a CronJob's Jobs), since one
 arriving after its pods or changing owner sends no pod frame. **Its streams are one reconcile** (`follow.reconcile`), run after every event — a mirror
 watch's snapshot closing, since the view resolved before the watches opened; a burst of pod or workload
 frames in its namespaces, 250 ms after the first (`followSettle`); a node that came, went or moved a
 label a line carries, since that sends no pod frame, and with no label filter only a node a stream
-runs on is read; a stream's end; a retry — by one rule: a container the view wants runs unless it
+runs on is read; a stream's end; a retry — by one rule: a container the view wants is tailed unless it
 ended at the generation the view sees now (`generation`: the pod's UID, the runtime id of the
-instance it reads and the container's state), resuming past the last line its container sent, or, having sent none, from the
-follow's cursor or its start; one that left the view, or whose node's labels moved, ends, and a
-line it still delivers is dropped, since its successor reads it again. So a restart reopens a
-stream whichever reaches the follow first, the pod's frame or the stream's end, and a container
-that finished is not read again. A stream that ends on a status under 500 has had the server's
+instance it reads and the container's state); one that left the view lets go of its tailer, one
+whose node's labels moved keeps it and carries the new place, and a restarted container's old
+tailer runs until its log ends, the new instance tailed after: that end is the log's, not a drop,
+and a drop the view then explains as a restart waits out no backoff. So a restart reaches the
+follow whichever comes first, the pod's frame or the stream's end, and a container that finished
+is not read again. A stream that ends on a status under 500 has had the server's
 answer for its log, a 403 remembered as the reason the follow ends with if every container ends;
 one that ends on any other failure was dropped, and so was a clean end on a container the view sees
 running (not a `previous` one), since a proxy can close an idle stream. A dropped container is held
 for its backoff — 2 s, doubled for each drop in a row up to a minute (`followRetryCap`), the count
 starting again on a line from it or after a stream that ran a minute — and a reconcile leaves a
-held container closed and the follow open, then opens it once the hold ends. A view with no
+held container untailed and the follow open, then tails it once the hold ends. A view with no
 container — a Job not scheduled, a Deployment at zero — waits for one, and so does a view whose
 only containers left are waiting to start (not `previous` ones), whatever their streams answered,
 or one holding a container with no log yet: a follow's resolve also reads whether one is
@@ -4211,7 +4213,7 @@ Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-
 
 - A type's methods live in the type's file; a helper belongs to whoever calls it, and only what more than one needs goes on the service.
 - Pub/sub: unkeyed → `gochan` (`watch` for latest-value with a seed, `broadcast` for fan-out); keyed → `gobus` (`watch` delivers nothing until the next send; `conflate` for bursts). Never hand-roll a subscriber map.
-- Fan-in from producers that come and go → `gochan` `mpsc` with `WithKeepOpen`, a sender per producer, closed when it ends: without the option the hub closes for good once no sender is open (`services/logs`' `fanIn`).
+- Fan-in from producers that come and go → `gochan` `mpsc` with `WithKeepOpen`, a sender per producer, closed when it ends: without the option the hub closes for good once no sender is open (`logstore`'s writer, which every tail reaches through its own sender).
 - Work to do is a queue, not a bus: `internal/lib/workqueue`, one `Queue` per job. `Done` is owed for every key taken.
 - Subscription resolvers emit the current snapshot first, then deltas (`mapStream`), and honor `ctx.Done()`.
 - Unexported functional options for test seams; exported `New` takes production knobs only.
