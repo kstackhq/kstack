@@ -112,6 +112,8 @@ CREATE TABLE streams (
   finished_at   INTEGER,                   -- when it stopped; NULL while it runs
   node TEXT NOT NULL, region TEXT NOT NULL, zone TEXT NOT NULL, os TEXT NOT NULL, arch TEXT NOT NULL,
   labels        TEXT NOT NULL,             -- the pod's labels as a JSON object; '{}' when unknown
+  pod_uid       TEXT NOT NULL,             -- the pod the instance ran in; '' when unknown
+  default_container INTEGER NOT NULL,      -- 1: the pod's default container, as kubectl picks it
   UNIQUE (namespace, pod, container, container_id)
 ) STRICT;
 
@@ -123,6 +125,8 @@ CREATE TABLE chunks (
   from_ord    INTEGER NOT NULL,            -- and its ordinal: a chunk's edges are positions
   to_ns       INTEGER NOT NULL,            -- the last line's moment
   to_ord      INTEGER NOT NULL,
+  prev_ns     INTEGER,                     -- the position this chunk continues from: the last line of the
+  prev_ord    INTEGER,                     --   chunk before it, nothing between; NULL when it opened on a gap
   origin      TEXT NOT NULL,               -- the backend that filled it, by name
   head        INTEGER NOT NULL,            -- 1: the backend has nothing older than from_ns
   at_end      INTEGER NOT NULL,            -- 1: to_ns is the log's last line (a finished instance)
@@ -147,7 +151,8 @@ its `container_id`. A restart makes a new stream, and the old instance's lines s
 one. **`previous` is not stored.** It is how the kubelet is asked for an instance, not a property
 of the instance: the same `container_id` is the current one while it runs and the previous one
 after a restart, and storing it under both would keep its lines twice. A view with `Previous`
-resolves to the pod's `last_container_id`, as today, and that is simply a stream row. The wire's
+resolves to the pod's `last_container_id`, as today, and that is simply a stream row; the file
+adds what it holds of the instances the resolve handed out for no source, each once (§4). The wire's
 `stream.previous` is computed when a page is read: true when the stream's `container_id` is not
 the pod's current one. It describes the line and no longer names it.
 
@@ -155,10 +160,12 @@ the pod's current one. It describes the line and no longer names it.
 still holds, the node and its labels are there too. But the cache keeps lines after the pod is
 gone, and the mirror holds only what is in the cluster now, so a gone pod's lines would have no
 place to join to. The place is also where the pod ran *then*: a node's labels can change later.
-So `node`, `region`, `zone`, `os`, `arch`, `labels`, `started_at` and `finished_at` are written
-from the mirror when the stream row is created, and the place and the labels are updated in
-place if they change while the instance runs. They describe the stream and never name it, the
-same rule as `previous`. `labels` is the pod's labels, kept so a filter by label can select a
+So `node`, `region`, `zone`, `os`, `arch`, `labels`, `pod_uid`, `default_container`,
+`started_at` and `finished_at` are written from the mirror when the stream row is created, and
+the place and the labels are updated in place if they change while the instance runs. `pod_uid`
+is what tells a gone pod's streams from a later pod of its name, and `default_container` is
+which of a gone pod's streams a view naming no container reads; neither can be read once the pod
+is gone. They describe the stream and never name it, the same rule as `previous`. `labels` is the pod's labels, kept so a filter by label can select a
 gone pod's streams later; nothing reads it in this sequence, and it is taken now because it cannot
 be taken after the pod is gone. Annotations are not kept: they can run to kilobytes, and a
 filter over them can read the mirror for the pods still there. `finished_at` is set from the container status's `terminated.finishedAt`
@@ -209,9 +216,18 @@ numbers each line within its moment and reads each moment whole.
   has. A read after a rotation would otherwise claim lines it never saw. The new chunk joins the
   chunk that ends at `m` only if the read began inside `m`'s moment and returned that whole
   moment. When it does, the two chunks merge.
-- A backward read that reached the oldest line its backend holds marks its chunk `head`. No other
-  read does. `head` is the backend's, not the log's: the kubelet's first line is where its file
-  starts, and an archive may hold older ones.
+- A read that reached the oldest line its backend holds marks its chunk `head`: a backward read
+  that ran out of lines, or a forward read with no lower bound, which starts there. `head` is the
+  backend's, not the log's: the kubelet's first line is where its file starts, and an archive may
+  hold older ones.
+- **A chunk's link, `prev_ns` and `prev_ord`, is the backend's word that it holds nothing between
+  the chunk before and this one.** A fill that read its whole range links the chunk at its far
+  bound; a forward read whose first line is past where it was asked to start links across the
+  hole, since the kubelet has rotated those lines away for good; a chunk closed by size or time
+  links the next (step 3). Two linked chunks are one span for coverage.
+- **A gap is live or lost.** A gap older than a `head` chunk from the cluster's last backend, a
+  gap in a stream no backend serves, or one a link spans is lost: nothing can fill it, so a page
+  crosses it as it crosses a seam. Every other gap is live, and a page stops at it and fills it.
 - **Backends are tiered.** A gap is offered to the cluster's first backend. Only the range it
   answers with `head` for, the part older than its oldest line, is offered to the next. So one
   range has one backend, which the chunk records as its `origin`, and a stream's history is a run
@@ -227,8 +243,9 @@ numbers each line within its moment and reads each moment whole.
   starts a new chunk, and the gap between the two is one no page can cross without asking the
   API.
 - A chunk closes at `ChunkBytes` (1 MiB) or `ChunkSpan` (5 minutes), whichever comes first. The
-  next line opens the next chunk. Two adjacent chunks over one proven range count as one span for
-  coverage and two units for eviction.
+  next line opens the next chunk, linked to the closed one. Two chunks so linked count as one
+  span for coverage and two units for eviction; a chunk whose link names a chunk that is gone
+  starts a span.
 - **A chunk's pattern is the grep its fill ran under.** A page for pattern `P` is covered by a
   chunk labelled `P` and by an unlabelled one, since every line is a superset of the matches. A
   chunk labelled `Q` is a gap for it. An unfiltered page is covered by unlabelled chunks alone.
@@ -244,29 +261,33 @@ invariant the tests pin.
 
 `Service.Fetch` resolves the view inside one `CachedData().ReadActive`, as it does today. It
 answers `ErrNoCache`, `ErrSyncing` and the refusals as before. Each stream it resolves maps onto a
-`streams` row, including its `container_id`; missing rows are inserted. **Then it adds the
-streams the file holds for the view's sources that the mirror no longer does**: instances of a
-pod that is gone, or an older instance of a pod that is still there. The view's label filters
-run twice, once in the mirror's pods statement as today and once over `streams` for the rows the
-file adds, since a gone pod has no node left to join to. Then, per stream, in the mode's
-direction from the cursor:
+`streams` row, including its `container_id`; missing rows are inserted, outside the mirror
+reading, since nothing on the log file runs inside it. **Then it adds the streams the file holds
+for the view's Pod sources that the mirror no longer serves**: instances of a pod that is gone,
+or an older instance of a pod that is still there, by `pod_uid`, so a later pod of the same name
+is another pod, as the follow has it. A workload source reads the mirror's pods alone (step 3).
+The view's label filters run twice, once in the mirror's pods statement as today and once over
+`streams` for the rows the file adds, since a gone pod has no node left to join to. A stream no
+backend serves is exhausted at what the file holds: no fill, and on the merged page it counts as
+having nothing older than its oldest line and nothing newer than its newest. Then, per stream, in the mode's direction from the cursor:
 
 1. **Read the coverage.** Load the stream's chunks from the cursor's position outward. A `Head`
    page needs coverage from the cursor onward. A `Tail` page needs it from the cursor back to a
    `head` chunk, or back far enough to fill `limit` lines across the view. `Around` needs both.
 2. **Fill the gaps from the backends.** A `Backend` has `Streams(view)`, the streams it holds for
    a view, which for the kubelet is the mirror resolve above and for an archive is a query over
-   its labels, since a pod deleted before Kstack saw the cluster is in no mirror (step 3 adds
-   it; step 2's seam carries the reads alone, the resolve staying where it is); two reads,
+   its labels, since a pod deleted before Kstack saw the cluster is in no mirror (it lands with
+   the first backend that answers it differently; step 2's seam carries the reads alone, the
+   resolve staying where it is); two reads,
    `Forward` and `Backward` under the read's bounds; and a `Tail` for §5, which an archive does
    not offer. A read is a stream the caller pulls a line at a time and cancels, as the fetcher's
    is today (step 2): its lines carry the backend's own `ord`, and its end says whether it
    reached the oldest or the last line the backend holds, and the pattern it filtered by, empty
-   for the kubelet. The gaps go to the cluster's backends in order, as §3 says. **A failure is
-   one of four kinds, and the backend classifies it**: `Fatal`, which fails the whole page or
-   follow, since it is the user's credentials; `Denied`, which is one stream's and caches nothing
-   for it; `Ended`, the backend's answer for that log now, which caches nothing and is asked again
-   at a later generation; and `Transient`, which is retried as today. The kubelet backend maps a
+   for the kubelet, which is handed none. The gaps go to the cluster's backends in order, as §3
+   says. **A failure is one of four kinds, and the backend classifies it**: `Fatal`, which fails
+   the whole page or follow, since it is the user's credentials; `Denied`, which is one stream's
+   and caches nothing for it; `Ended`, the backend's answer for that log now, which caches
+   nothing and is asked again at a later generation; and `Transient`, which is retried as today. The kubelet backend maps a
    401 onto `Fatal`, a 403 onto `Denied`, a 408 and a 429 onto `Transient`, since a request the
    server timed out or throttled says nothing about the log, any other status under 500 onto
    `Ended` and the rest onto `Transient`; another backend maps its own errors. The kubelet backend is the fetcher as it stands: a forward
@@ -277,21 +298,27 @@ direction from the cursor:
    the only one this sequence builds. Each read writes what it returned as §3 says, in batches on the
    writer. A stream that fails before any line in range becomes the page's `skipped` entry, as
    today, and its coverage is left alone.
-3. **Answer from the file.** One statement over `lines` joined to `streams` for the view's
-   streams, ordered by `(ts_ns, namespace, pod, container, ord, container_id)` — the order
-   `comparePositions` keeps (§8), so a page's edges and the cursor agree with the statement —
-   bounded by the cursor and `limit`, in one read transaction on the reader pool. It runs after
-   the fills commit, so it sees them. Two instances of one container never tie on `ts_ns` in
-   practice, and when they do the ordinal orders them, then the id; `started_at` is for the viewer, which draws
-   the instances of a container in start order.
+3. **Answer from the file.** One walk of `lines_position` per stream from the cursor's
+   position in the page's direction, bounded by the span the cursor sits in with lost gaps
+   crossed, so a walk never crosses a live gap, cut at `limit + 1` lines or the stream's share of the walk's own byte budget,
+   each read whole inside one read transaction on the reader pool, merged by `mergePage` in the order `comparePositions`
+   keeps (§8), so a page's edges and the cursor agree with what was read. One statement across
+   the streams ordered by position cannot walk the index and would sort every line in range,
+   and a merge of per-stream walks is the one shape whose cut can say where each stream stopped.
+   It runs after the fills commit, so it sees them. A fill runs until the stream's walk holds a
+   page's worth past the cursor, has no gap left that way, or has spent its budget (step 3). Two
+   instances of one container never tie on `ts_ns` in practice, and when they do the ordinal
+   orders them, then the id; `started_at` is for the viewer, which draws the instances of a
+   container in start order.
 
-**Grep** runs where the page is read. `kstack_grep(text)` is a Go function registered on the
-reader connections. It is compiled once per statement from the view's pattern and runs over text
-the cache stored after `stripControl`. It runs over every chunk the page reads, labelled or not:
-a labelled chunk's lines already match, and running it again costs little and keeps one path. A
-grep with few matches scans far, so the scan is bounded by the reading's byte budget. A page cut
-short by that bound is an honest short page (`more: true`), the same as a page cut by a spent
-`GET` budget today. The label filters narrow the streams, never the lines.
+**Grep** runs in Go where the page is read, over each stream's walk and each fill's lines, with
+the one compiled pattern a page holds, over text the cache stored after `stripControl`. It runs
+over every chunk a walk reads, labelled or not: a labelled chunk's lines already match, and
+running it again costs little and keeps one path. A backend read is never handed the grep. A
+grep with few matches walks far, so each stream's walk is bounded by its share of the walk's own
+byte budget, and a walk cut there stops the stream where it reached, which the merge reads as a
+cut: an honest short page (`more: true`), the same as a page cut by a spent `GET` budget today.
+The label filters narrow the streams, never the lines.
 
 The edges follow the README's table. **The cut** is the nearest point up to which every stream
 is covered in the direction read, or `limit`, whichever comes first. **The live end** is the
@@ -300,9 +327,12 @@ its end; a finished stream with an `at_end` chunk is already there. Its cursor i
 A `before` edge is null with `more: false` when every stream's oldest chunk is `head` from the
 cluster's last backend; a `head` from an earlier backend means only that the next one is asked.
 
-A page runs inside the view's `ReadActive`, which may run the reading twice if the identity
-moves. The fills are idempotent (`INSERT OR IGNORE` on the position), so a second run writes
-nothing new.
+The resolve runs inside the view's `ReadActive`, which may run it twice if the identity moves,
+and carries its snapshot out; the rows, the fills and the walks run outside it, so no mirror
+connection is held across a read of the kubelet. The fills are idempotent (`INSERT OR IGNORE` on
+the position). A fill is filed under the instance the kubelet served: a restart between the
+resolve and the read is caught by reading the instance again before the write, and one the
+mirror reports late by trimming the old instance to its `finished_at` (step 3).
 
 ### 5. A follow
 
@@ -447,7 +477,7 @@ README's wire says. `gqlgen.yml` binds the new types. The four old bound argumen
   not portable. The path that fits, if the budget's reach turns out short, is `sqlite-zstd`'s:
   zstd with a dictionary trained per stream on its own lines, which gains a lot on short rows,
   applied per row behind a view with triggers, with the compressor and the dictionary builder as
-  Go functions registered on the connection like `kstack_grep`. The row layout, the position
+  Go functions registered on the driver, as `kubestore` registers `body()`. The row layout, the position
   index and eviction by chunk stay as they are, and `bytes` stays the uncompressed size, so adding
   it changes nothing above the store. Measure first.
 - **`at_end` mirrors `head`.** Without it a page over a finished instance could not tell "read to
@@ -455,8 +485,10 @@ README's wire says. `gqlgen.yml` binds the new types. The four old bound argumen
 - **Eviction is LRU by read under a byte budget, protecting open and recently read chunks.** Not
   by age. A quiet pod's hour-old lines that someone is looking at are worth more than a firehose's
   minute-old lines nobody opened.
-- **Grep is a registered SQL function, not a Go filter over a scan.** One statement answers a
-  page, and the scan is bounded by the reading's budget.
+- **Grep is a Go filter over each stream's walk, not a SQL function.** A page is per-stream
+  index walks read in Go and merged, so the filter sits where the rows already are, and the walk
+  is bounded by its budget. A SQL function would copy each message into Go before matching it
+  and gain nothing.
 - **A grepped fill is a labelled chunk in the same file, not a webview cache and not a session.**
   A backend that greps on its side returns some of the lines, so its chunk can only vouch for the
   matches. Labelling the chunk keeps the promise honest, keeps eviction and protection as they
@@ -492,14 +524,15 @@ holds what they share.
 
 | Step | Builds | Status |
 | --- | --- | --- |
-| [1 The store](1-the-store.md) | The file, its schema and manager, and its lifetime with the cluster cache | Built |
-| [2 The cursor and the `Backend` seam](2-the-cursor-and-the-backend-seam.md) | A position names its instance; the fetcher behind an interface; no behaviour change | Planned |
-| [3 Pages from the file](3-pages-from-the-file.md) | `Fetch` over coverage, fills and the file; `kstack_grep`; `logsFetch`'s wire | Planned |
+| [1 The store](1-the-store.md) | The file, its schema and manager, and its lifetime with the cluster cache | Built, [#293](https://github.com/kstackhq/kstack/pull/293) |
+| [2 The cursor and the `Backend` seam](2-the-cursor-and-the-backend-seam.md) | A position names its instance; the fetcher behind an interface; no behaviour change | Built, [#295](https://github.com/kstackhq/kstack/pull/295) |
+| [3 Pages from the file](3-pages-from-the-file.md) | `Fetch` over coverage, fills and the file; the grep; `logsFetch`'s wire | Planned |
 | [4 Tailers and the follow](4-tailers-and-the-follow.md) | One tailer per stream, the writer, the commit bus, `Follow` as a read; `logsFollow`'s wire | Planned |
 | [5 Eviction and backpressure](5-eviction-and-backpressure.md) | The live janitor, the budget, shedding; the sequence's integration gate | Planned |
 | [6 The docs](6-the-docs.md) | The ADRs, the note's retirement, the coherence pass | Planned |
 
-Record each step's status and its pull request in this table as the work moves.
+Record each step's status and its pull request in this table as the work moves. A built step
+stays listed until the sequence lands (*When it lands*).
 
 ## The invariant
 
@@ -525,7 +558,7 @@ Every test in the sequence waits on a channel or on the janitor's notify. A nega
   every stream over a claim as today, so a disabled or deleted cluster's tailers end with it, and
   a backend added later must hold the same two lines: a denied stream caches nothing, and a
   cluster that is disabled or deleted stops every read.
-- **`kstack_grep` runs the user's pattern over text the cluster wrote.** Go's `regexp` runs in
+- **The grep runs the user's pattern over text the cluster wrote.** Go's `regexp` runs in
   linear time, and the text was cut at 16 KiB before it was stored.
 - **A cursor is still opaque text the server wrote.** `parseCursor` refuses anything it does not
   spell.
@@ -540,7 +573,9 @@ Every test in the sequence waits on a channel or on the janitor's notify. A nega
 - `docs/security-model.md`: the row above.
 - `docs/specs/log-viewer/README.md`: *What is left* loses the sidecar half of its first bullet.
   `notes/the-sidecar-wire.md` is deleted.
-- Each step's file is deleted as it lands, and this README with the last.
+- A built step keeps its file and its row, marked Built with its pull request, so a later step
+  can read what it settled. Every step's file goes with this README in the change that lands the
+  sequence on `main`, as the log viewer's did.
 
 ## Verification
 

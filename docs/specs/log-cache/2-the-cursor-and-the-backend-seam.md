@@ -1,7 +1,7 @@
 ---
 title: The cursor and the Backend seam
 scope: sidecar
-status: Planned
+status: Built
 ---
 
 # The cursor and the `Backend` seam
