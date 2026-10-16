@@ -121,6 +121,13 @@ type generation struct {
 	state    string
 }
 
+// finished is whether the instance st reads has stopped, so its log never grows:
+// a previous instance, or a container terminated or waiting, whose log is the last
+// instance's.
+func (st stream) finished() bool {
+	return st.key.Previous || st.gen.state == "terminated" || st.gen.state == "waiting"
+}
+
 // resolve reads view over one reading of cluster id's active cache, and for a
 // follow whether a container of it is starting. A cache missing or withholding its
 // rows is refused as the LogsView tool refuses it, and so is a kind the cache does

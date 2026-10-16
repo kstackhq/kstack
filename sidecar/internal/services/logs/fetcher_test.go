@@ -57,6 +57,44 @@ func TestAForwardReadSinceAMoment(t *testing.T) {
 	assert.Equal(t, "app", q.Get("container"))
 }
 
+// A forward read with no lower bound starts at the backend's oldest line, so it
+// says head however far it read; one from a moment does not.
+func TestAForwardReadWithNoLowerBoundSaysHead(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web/app", lineEvery(5)...)
+
+	r := readForward(t.Context(), s.get, web, readOpts{until: to(2 * time.Second)})
+	drain(r)
+	assert.True(t, r.head)
+
+	r = readForward(t.Context(), s.get, web, readOpts{since: from(time.Second)})
+	drain(r)
+	assert.False(t, r.head)
+}
+
+// A forward read that reaches a finished instance's last line says so; one of a
+// running instance, or one stopped at until, does not.
+func TestAForwardReadOfAFinishedInstanceSaysAtEnd(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web/app", lineEvery(5)...)
+	done := web
+	done.gen.state = "terminated"
+	read := func(st stream, o readOpts) *streamRead {
+		r := readForward(t.Context(), s.get, st, o)
+		drain(r)
+		return r
+	}
+
+	assert.True(t, read(done, readOpts{since: from(time.Second)}).atEnd, "finished")
+	assert.False(t, read(web, readOpts{}).atEnd, "running")
+	assert.False(t, read(done, readOpts{until: to(2 * time.Second)}).atEnd, "until")
+	previous := web
+	previous.key.Previous = true
+	assert.True(t, read(previous, readOpts{}).atEnd, "previous")
+}
+
 // After a moment inside a second, the read asks for that second and drops the
 // lines at and before the moment.
 func TestAfterAMomentDropsItsLines(t *testing.T) {
@@ -447,6 +485,32 @@ func TestABackwardReadKeepsItsBounds(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, since.Before(o.since.at.Timestamp))
 	}
+}
+
+// A backward read that reaches the log's first line says the backend holds nothing
+// older, under until too; one that stops at since or runs short does not.
+func TestABackwardReadThatReachesTheFirstLineSaysHead(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web/app", lineEvery(30)...)
+	read := func(o readOpts) *streamRead {
+		r := readBackward(t.Context(), s.get, web, o)
+		drain(r)
+		return r
+	}
+
+	assert.True(t, read(backwardOpts()).head, "to the first line")
+	o := backwardOpts()
+	o.until = to(20 * time.Second)
+	assert.True(t, read(o).head, "under until")
+	o = backwardOpts()
+	o.since = from(5 * time.Second)
+	assert.False(t, read(o).head, "stopped at since")
+	o = backwardOpts()
+	o.windows = 3
+	r := read(o)
+	assert.True(t, r.short)
+	assert.False(t, r.head, "short")
 }
 
 // An empty log reads nothing, and so does one emptied under the read.
