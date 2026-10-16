@@ -137,7 +137,7 @@ CREATE TABLE chunks (
 ) STRICT;
 
 CREATE TABLE lines (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT, -- commit order; never reused, see below
+  id          INTEGER PRIMARY KEY,
   stream_id   INTEGER NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
   ts_ns       INTEGER NOT NULL,
   ord         INTEGER NOT NULL,            -- the backend's number for the line within its moment
@@ -197,12 +197,9 @@ carry such a stream yet: `parseCursor` refuses an empty id (§8), so an archive 
 cursor change of its own, decided when it lands. A page's
 statement walks `lines_position`. Nothing else is indexed. `lines` is a rowid table, not
 `WITHOUT ROWID`, for the reason `kubestore`'s `objects` is: a line is often past the row size at
-which `WITHOUT ROWID` pays and can reach 16 KiB. Its `id` is commit order, which the follow reads
-by (§5), and it is `AUTOINCREMENT` because an implicit rowid is reused: SQLite hands a new row
-the largest id in the table plus one, so deleting the newest rows, which eviction and a stream's
-removal both do, would give the next tail line an id below a live follow's mark and the follow
-would never send it; a `VACUUM` can renumber implicit rowids too. `AUTOINCREMENT` never reuses
-an id. A chunk's edges are positions, moment and ordinal, since a chunk closes at `ChunkBytes`
+which `WITHOUT ROWID` pays and can reach 16 KiB. Its `id` is the rowid, and nothing orders by it:
+a follow walks `lines_position` from a watermark (§5). A chunk's edges are positions, moment and
+ordinal, since a chunk closes at `ChunkBytes`
 wherever that falls, inside a moment included. Every table is `STRICT`, as every table in the
 repo is.
 
@@ -237,11 +234,14 @@ numbers each line within its moment and reads each moment whole.
   its chunk `at_end`. A running instance has no end to reach, so no read of one sets it. A stream
   with an `at_end` chunk is read in full at its newest side: a page over it never fills forward,
   and its live end is that chunk's last line with no read at all.
-- A tailer's chunk is `open` while the tailer writes to it. When the tailer stops, for any
-  reason, the chunk closes at its last line. The next tailer starts reading in that line's
-  moment. If it resumes cleanly, it extends the chunk. If a rotation happened in between, it
-  starts a new chunk, and the gap between the two is one no page can cross without asking the
-  API.
+- A tailer's chunk is `open` while the tailer writes to it, and every gap past a running
+  tailer's start is the tailer's, crossed and never filled, chunk written yet or not: the
+  registry says where each tailer started, the tailer reads continuously from there, and a
+  page's live end for the stream is the newest line the file holds, with no forward read. A gap
+  below the start stays live. When the tailer stops, for any reason, the chunk closes at its last
+  line; one left open by a crash is closed the next time the file is opened. The next tailer starts reading in that line's moment. If it resumes
+  cleanly, it extends the chunk. If a rotation happened in between, it starts a new chunk linked
+  across the hole, since the kubelet has rotated those lines away for good.
 - A chunk closes at `ChunkBytes` (1 MiB) or `ChunkSpan` (5 minutes), whichever comes first. The
   next line opens the next chunk, linked to the closed one. Two chunks so linked count as one
   span for coverage and two units for eviction; a chunk whose link names a chunk that is gone
@@ -336,64 +336,72 @@ mirror reports late by trimming the old instance to its `finished_at` (step 3).
 
 ### 5. A follow
 
-`Service.Follow` resolves the view and opens its watches as today. Its reconcile still decides
-which streams the view wants at each generation. What changes is who does the reading. A
-reconcile asks the file's **tailer registry** for each stream. The registry runs one tailer per
-`streams` row and pattern, shared by every follow that wants it, with a refcount. An unlabelled
-tailer serves every pattern, since the grep runs where the lines are read, and it is the only
-kind the kubelet backend runs. **A tailer stays alive for `TailGrace` (30 seconds) after its last
-follow lets go**, and so do the view's pods and workload watches, held by the registry under the
-same grace and keyed by the view's namespaces and kinds. This is what makes a viewer's scroll up
-and back an attach rather than a restart: the webview's window closes its follow the moment it
-unpins and opens one when it pins again, and the sidecar answers the new one from reads it never
-stopped, with the first frame on the next commit tick. Thirty seconds is sized for reading
+`Service.Follow` resolves the view and opens its mirror watches as today, and its reconcile
+still decides which streams the view wants at each generation. What changes is who does the
+reading. A reconcile asks the file's **tailer registry** for each stream. The registry runs one
+tailer per `streams` row and pattern, shared by every follow that wants it, with a refcount. An
+unlabelled tailer serves every pattern, since the grep runs where the lines are read, and it is
+the only kind the kubelet backend runs. **A tailer stays alive for `TailGrace` (30 seconds)
+after its last follow lets go.** This is what makes a viewer's scroll up and back an attach
+rather than a restart: the webview's window closes its follow the moment it unpins and opens one
+when it pins again, and the sidecar answers the new one from the file, which the tailer never
+stopped writing, with the first frame on the first walk. Thirty seconds is sized for reading
 something above and coming back; a longer absence pays one restart, which is what every scroll
-pays today. The registry's contract is per stream, since that is what the refcount is for; what
-a backend opens underneath is its own business, so a backend that would rather carry many streams
-over one connection may.
+pays today. The registry reconciles nothing: a tailer in its grace that ends is dropped, and the
+next follow asking for the stream starts one afresh. The mirror watches stay each follow's own,
+since opening them is a local read. The registry's contract is per stream, since that is what
+the refcount is for; what a backend opens underneath is its own business, so a backend that
+would rather carry many streams over one connection may.
 
 A tailer is the backend's `Tail` read, which for the kubelet is the forward stream the follow runs
-today. It starts at the moment of the last line in the stream's newest chunk, or at the follow's
-`after` position, or at now if there is neither.
-A finished instance gets no tailer: its last read is a forward fill that marks the `at_end` chunk,
-and the reconcile that sees it finish sets `finished_at` and ends its tailer, as a stream's end
-ends it today.
-It hands lines to the writer in batches of at most `WriteBatch` lines or every `WriteTick`
-(50 ms), extending its `open` chunk. The tailers reach the writer through a `gochan` `mpsc` with
-`WithKeepOpen`, one sender per tailer, closed when it ends, bounded to `WriteQueue` batches:
-fan-in from producers that come and go, as `fanIn` is today. After each commit the writer sends
-on a `gobus/conflate` bus keyed by stream id, one coalesced ping per stream written, as `app.db`'s
-change bus does per key. Its failures are the backend's four kinds (§4): a `Fatal` one ends every follow on the
-file, an `Ended` one holds the stream until its generation moves, a `Denied` one the same with
-the reason remembered, and a `Transient` one is retried as the follow retries today.
-The kubelet backend's tailer is the forward stream over a claim, so a revoked claim ends it.
+today. It starts at the later of the last line in the stream's newest chunk and the watermark
+of the follow asking, its `after` or its opening moment, and its first read merges or links as a forward
+fill's does (§3), so a resume after a rotation links across the hole. A finished instance gets
+no tailer: the kubelet closes its log when the container ends, the tailer ends with it, its
+chunk closed at its last line, and the reconcile that sees it finish sets `finished_at`, as a
+stream's end ends it today; the next page's forward fill reads nothing more and marks the chunk
+`at_end`. A tailer hands lines to the writer in batches of at most `WriteBatch` lines or every
+`WriteTick` (50 ms), extending its `open` chunk. The tailers reach the writer through a `gochan`
+`mpsc` with `WithKeepOpen`, one sender per tailer, closed when it ends, bounded to `WriteQueue`
+batches: fan-in from producers that come and go, as `fanIn` is today. After every commit of
+lines, a tailer's batch or a page's fill, the file sends on a `gobus/conflate` bus keyed by
+stream id, one coalesced ping per stream written, as `app.db`'s change bus does per key. Its
+failures are the backend's four kinds (§4): a `Fatal` one ends every follow on the file, an
+`Ended` one holds the stream until its generation moves, a `Denied` one the same with the reason
+remembered, and a `Transient` one is retried as the follow retries today. The kubelet backend's
+tailer is the forward stream over a claim, so a revoked claim ends it.
 
-A follow is then **a read of the file after a watermark per stream, run again on every commit**.
-It subscribes to the commit bus under its streams' ids, before its first read, and subscribes
-again as the reconcile changes them, so a noisy stream wakes only the follows reading it. Each
-run reads the rows past the last `id` it saw, one walk in commit order, and keeps those
-past their stream's position watermark; a fill inserts rows too, and the watermark is what keeps
-a backfilled line out of a follow. It sends each stream's kept lines in position order, per
-stream as the README says. Then it sends a `Checkpoint` whose cursor is the oldest watermark across its streams. A
-follow opened `after` that checkpoint misses nothing and repeats only lines the webview already
-holds. A follow with `after` sets each stream's watermark to that position. A stream that joins
-the view later starts from the follow's cursor, as the reconcile resumes it today. `Ended` is
-sent on a `Fatal` failure, when the cluster is disabled or deleted, when the file closes, or
-when the reconcile ends the follow for a reason it already has, with the reason in the user's
-words.
+A follow is then **a walk of the file from a watermark per stream, run again on every commit to
+its streams**. It subscribes to the bus under its streams' ids, before its first walk, and
+subscribes again as the reconcile changes them, so a noisy stream wakes only the follows reading
+it. A follow with `after` sets each stream's watermark to that position, and one with none to
+its opening moment. Each run walks each stream named from its watermark by position, along the
+span the watermark sits in, lost gaps crossed, sends the lines the grep passes in position
+order, per stream as the README says, and moves the watermark to the last line read. A fill
+inserts rows too, and a line below the watermark is never read, which is what keeps a
+backfilled line out of a follow. **A walk that reaches a live gap holds the watermark there, and
+the follow fills the gap** as a `Head` page would before it walks on: a tailer that reopened
+from now (§6), or started past the stream's newest chunk, leaves such a gap, and a follow that
+crossed it would send lines past ones the file lacks. Then it sends a `Checkpoint` whose cursor
+is the oldest watermark across its streams. A follow opened `after` that checkpoint misses
+nothing and repeats only lines the webview already holds. A stream that joins the view later
+starts from the follow's cursor, as the reconcile resumes it today. `Ended` is sent on a `Fatal`
+failure, when the cluster is disabled or deleted, or when the reconcile ends the follow for a
+reason it already has, with the reason in the user's words; the file closing ends the follow
+with an error and no frame, since following again would not end the same way.
 
-The follow's first frame waits for its tailers' first commit, at most one `WriteTick`. So the
-sidecar's own batching is the follow's only latency, and no line is ever read from both the
-tailer and the file.
+The follow's first walk reads what the file already holds past its watermarks, and after that a
+line reaches it on the ping of the commit that wrote it. So the sidecar's own batching is the
+follow's only latency, and no line is ever read from both the tailer and the file.
 
 ### 6. Backpressure
 
 The writer takes batches from the `mpsc` in §5, `WriteQueue` deep. If a tailer cannot send its
 batch within `WriteTick`, it **stops its read, closes its chunk at the last committed line, and
-reopens from now**. The lines in between become a gap that §3's coverage shows. A later page
-fills that gap from the API if the kubelet still has the lines. There is no separate "lossy"
-state: dropped means not covered. The viewer learns of it the way it learns of any gap, by paging
-into it.
+reopens from now**. The lines in between are a live gap in §3's coverage, past every watermark
+on the stream: each follow fills it before it goes on, and a page that reaches it fills it too,
+from the kubelet while it still has the lines (§5). There is no separate "lossy" state: dropped
+means not covered.
 
 **A tailer in its grace is shed first.** When the queue is full, a tailer with no follow attached
 stops before one that has, so the grace costs nothing while the writer keeps up and is the first
@@ -526,7 +534,7 @@ holds what they share.
 | --- | --- | --- |
 | [1 The store](1-the-store.md) | The file, its schema and manager, and its lifetime with the cluster cache | Built, [#293](https://github.com/kstackhq/kstack/pull/293) |
 | [2 The cursor and the `Backend` seam](2-the-cursor-and-the-backend-seam.md) | A position names its instance; the fetcher behind an interface; no behaviour change | Built, [#295](https://github.com/kstackhq/kstack/pull/295) |
-| [3 Pages from the file](3-pages-from-the-file.md) | `Fetch` over coverage, fills and the file; the grep; `logsFetch`'s wire | Planned |
+| [3 Pages from the file](3-pages-from-the-file.md) | `Fetch` over coverage, fills and the file; the grep; `logsFetch`'s wire | Built, [#301](https://github.com/kstackhq/kstack/pull/301) |
 | [4 Tailers and the follow](4-tailers-and-the-follow.md) | One tailer per stream, the writer, the commit bus, `Follow` as a read; `logsFollow`'s wire | Planned |
 | [5 Eviction and backpressure](5-eviction-and-backpressure.md) | The live janitor, the budget, shedding; the sequence's integration gate | Planned |
 | [6 The docs](6-the-docs.md) | The ADRs, the note's retirement, the coherence pass | Planned |
