@@ -2,7 +2,7 @@
 # so it doesn't belong in package.json scripts; this Makefile is the
 # place where Go, Rust, and JS commands meet.
 
-.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js vet vet-go vet-rust check-cache check-switch prompts clean
+.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js vet vet-go vet-rust check-cache check-switch prompts clean clean-data
 
 # Build the Go sidecar into src-tauri/binaries/ with the Tauri-required
 # `<name>-<rust-host-triple>` filename. Tauri's externalBin picks it up.
@@ -134,3 +134,9 @@ clean:
 	rm -rf src-tauri/binaries
 	rm -rf src-tauri/target
 	cd sidecar && go clean -testcache
+
+# Delete the dev app's data and cache directories (the database, chats,
+# settings and mirror). Separate from `clean` so clearing build outputs never
+# deletes a developer's chats.
+clean-data:
+	go run scripts/clean-dev-data.go

@@ -64,6 +64,7 @@ make test-changed  # only the tests this branch's changes touch
 make lint
 make vet
 make proto   # regenerate the gRPC bindings after editing proto/
+make clean-data  # delete the dev app's data and cache (chats, database, mirror)
 ```
 
 If you develop inside a Linux sandbox against a macOS host checkout, run
