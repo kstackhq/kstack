@@ -106,14 +106,14 @@ CREATE TABLE streams (
   id            INTEGER PRIMARY KEY,
   namespace     TEXT NOT NULL,
   pod           TEXT NOT NULL,
+  pod_uid       TEXT NOT NULL,             -- the pod the instance ran in; '' when unknown
   container     TEXT NOT NULL,
+  is_default    INTEGER NOT NULL,          -- 1: the pod's default container, as kubectl picks it
   container_id  TEXT NOT NULL,             -- the runtime instance whose log these lines are; '' when the backend knows only the name
   started_at    INTEGER,                   -- when the instance started, unix ns; NULL when unknown
   finished_at   INTEGER,                   -- when it stopped; NULL while it runs
   node TEXT NOT NULL, region TEXT NOT NULL, zone TEXT NOT NULL, os TEXT NOT NULL, arch TEXT NOT NULL,
   labels        TEXT NOT NULL,             -- the pod's labels as a JSON object; '{}' when unknown
-  pod_uid       TEXT NOT NULL,             -- the pod the instance ran in; '' when unknown
-  default_container INTEGER NOT NULL,      -- 1: the pod's default container, as kubectl picks it
   UNIQUE (namespace, pod, container, container_id)
 ) STRICT;
 
@@ -128,7 +128,7 @@ CREATE TABLE chunks (
   prev_ns     INTEGER,                     -- the position this chunk continues from: the last line of the
   prev_ord    INTEGER,                     --   chunk before it, nothing between; NULL when it opened on a gap
   origin      TEXT NOT NULL,               -- the backend that filled it, by name
-  head        INTEGER NOT NULL,            -- 1: the backend has nothing older than from_ns
+  at_head     INTEGER NOT NULL,            -- 1: the backend has nothing older than from_ns
   at_end      INTEGER NOT NULL,            -- 1: to_ns is the log's last line (a finished instance)
   open        INTEGER NOT NULL,            -- 1: a tailer is still writing into it
   bytes       INTEGER NOT NULL,
@@ -160,10 +160,10 @@ the pod's current one. It describes the line and no longer names it.
 still holds, the node and its labels are there too. But the cache keeps lines after the pod is
 gone, and the mirror holds only what is in the cluster now, so a gone pod's lines would have no
 place to join to. The place is also where the pod ran *then*: a node's labels can change later.
-So `node`, `region`, `zone`, `os`, `arch`, `labels`, `pod_uid`, `default_container`,
+So `node`, `region`, `zone`, `os`, `arch`, `labels`, `pod_uid`, `is_default`,
 `started_at` and `finished_at` are written from the mirror when the stream row is created, and
 the place and the labels are updated in place if they change while the instance runs. `pod_uid`
-is what tells a gone pod's streams from a later pod of its name, and `default_container` is
+is what tells a gone pod's streams from a later pod of its name, and `is_default` is
 which of a gone pod's streams a view naming no container reads; neither can be read once the pod
 is gone. They describe the stream and never name it, the same rule as `previous`. `labels` is the pod's labels, kept so a filter by label can select a
 gone pod's streams later; nothing reads it in this sequence, and it is taken now because it cannot
@@ -480,7 +480,7 @@ README's wire says. `gqlgen.yml` binds the new types. The four old bound argumen
   Go functions registered on the driver, as `kubestore` registers `body()`. The row layout, the position
   index and eviction by chunk stay as they are, and `bytes` stays the uncompressed size, so adding
   it changes nothing above the store. Measure first.
-- **`at_end` mirrors `head`.** Without it a page over a finished instance could not tell "read to
+- **`at_end` mirrors `at_head`.** Without it a page over a finished instance could not tell "read to
   the end" from "read to where the tailer stopped", and would fill forward on every read.
 - **Eviction is LRU by read under a byte budget, protecting open and recently read chunks.** Not
   by age. A quiet pod's hour-old lines that someone is looking at are worth more than a firehose's

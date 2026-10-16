@@ -279,7 +279,7 @@ until step 4. Run `gqlgen generate` and `pnpm codegen`; the webview builds, sinc
    backend holds nothing older, from a backward read or a forward one with no lower bound;
    `atEnd`, it reached a finished instance's last line, beside `short` and `stop`. `readOpts`
    loses `grep`, and the kubelet backend filters nothing. `follow.go` takes its `after` bound
-   without `readOptsOf`. The schema gains `pod_uid` and `default_container` on `streams` and
+   without `readOptsOf`. The schema gains `pod_uid` and `is_default` on `streams` and
    `prev_ns`, `prev_ord` on `chunks`, edited in place.
 2. **Coverage and fills.** `logstore/coverage.go` and `logstore/fill.go`: the lookup with live
    and lost gaps, the chunk rules, the link and its three writers, the tier offer, the trim, and

@@ -2109,9 +2109,33 @@ refuses the id with `ErrRemoved` for the manager's life, idempotently; `Close` c
 file and refuses every open, while `Clear` and `Remove` still delete after it, since the cache
 pass clears the finalizer on `Remove`'s answer. The manager is `services/cluster`'s
 `CacheFileOwner`, and a `lifecycle.Part` with no background work. `Retention` (`retention.go`)
-is every knob the log cache names, `DefaultRetention` its numbers; nothing takes them until the
-janitor lands. A delete removes the `-wal` and `-shm` before the database, since a `-wal` left
-beside a fresh database would be replayed into it. Nothing reads or writes a line yet.
+is every knob the log cache names, `DefaultRetention` its numbers; `NewManager` takes it, and a
+fill closes its chunks at its `ChunkBytes` and `ChunkSpan`, while the rest wait for the janitor.
+A delete removes the `-wal` and `-shm` before the database, since a `-wal` left beside a fresh
+database would be replayed into it. **A `Store` is the file's statements** (`statements.go`, a
+`sqlstmt.Set` prepared at open, a read a write makes inside its transaction `OnBoth`):
+`PutStreams` files streams by instance, inserting the missing rows and updating the place, the
+labels, the default mark and the times of the rest, moves the default mark onto every instance
+of a container it files as the default and off the pod's other containers, and trims a stream
+whose `finished_at` it sets; `FinishStreams` sets an instance's `finished_at` the file holds
+and trims it; each reads first and takes no write when the file already holds its rows so;
+`PodStreams` is a pod's rows, by UID or, for a gone pod, by name alone; `Chunks` a stream's
+chunks for a pattern, its own and the unlabelled ones; `Write` files buffered `Fill`s in one
+transaction; `Read` runs walks over one snapshot (`Reader.Lines`, one walk of
+`lines_position` each way); `Evict` drops one chunk, by id, and the lines no other chunk
+claims, reading its bounds in its own transaction. **Coverage is a pure
+function** (`CoverageOf`, `coverage.go`): a stream's chunks for a pattern as spans, joined by
+overlap or by a link (`prev_ns`, `prev_ord`) that lands inside the span, and the gaps between,
+each with the tier of the first backend that may hold it and `Lost` when none can: older than
+a `head` chunk of the last backend, past an `at_end` chunk, or in a stream no backend serves.
+**A `Fill` is one read of one gap** (`fill.go`): its lines claimed from the first one returned,
+`Prev` and `Merge` to continue the chunk the gap starts at, `Next` to link the chunk it ran
+into when it read the whole range, and `Head` and `AtEnd`, written onto the chunk next to it
+when it read nothing; a link or a mark reaches its own pattern's chunks alone, and two fills
+starting at one line leave one chunk, with the later end. **The trim** (`trim.go`) cuts a finished stream at the end of
+`finished_at`'s second, since a container status's times are whole seconds, and clears
+`at_end` when it removed anything; it runs when `finished_at` is first set and after every
+write to a finished stream.
 
 **`services/logs` holds a view's vocabulary** (`view.go`): `View`, its `ViewSource`s and
 `ViewFilter`s, the `SourceKind` and `FilterField` enums, and `MirrorKind`, each source kind's

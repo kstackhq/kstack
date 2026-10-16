@@ -21,15 +21,20 @@
 -- times are a snapshot from the mirror taken while the pod is still there, since the
 -- lines outlive it; they describe the stream and never name it.
 --
--- container_id is the runtime instance, '' for a backend that knows only the name.
--- started_at is when the instance started, NULL when unknown; finished_at is when it
--- stopped, NULL while it runs. labels is the pod's labels as a JSON object, '{}' when
--- unknown.
+-- pod_uid is the pod the instance ran in, '' when unknown, which tells a gone pod's
+-- streams from a later pod of its name. is_default is 1 for the pod's default
+-- container as kubectl picks it, which a view naming no container reads once the pod
+-- is gone. container_id is the runtime instance, '' for a backend that knows only the
+-- name. started_at is when the instance started, NULL when unknown; finished_at is when
+-- it stopped, NULL while it runs. labels is the pod's labels as a JSON object, '{}'
+-- when unknown.
 CREATE TABLE streams (
   id           INTEGER PRIMARY KEY,
   namespace    TEXT    NOT NULL,
   pod          TEXT    NOT NULL,
+  pod_uid      TEXT    NOT NULL,
   container    TEXT    NOT NULL,
+  is_default   INTEGER NOT NULL CHECK (is_default IN (0, 1)),
   container_id TEXT    NOT NULL,
   started_at   INTEGER,
   finished_at  INTEGER,
@@ -47,10 +52,14 @@ CREATE TABLE streams (
 -- Its edges are positions, (from_ns, from_ord) and (to_ns, to_ord), since a chunk closes
 -- at a byte budget wherever that falls, inside a moment included.
 --
--- pattern is the grep the fill ran under, '' for every line. origin is the
--- backend that filled it, by name. head is 1 when that backend holds nothing older than
--- from_ns; at_end is 1 when to_ns is the last line of a finished instance's log; open is 1
--- while a tailer is still writing into it. read_at_ms is the last read or write in unix
+-- prev_ns and prev_ord are the position the chunk continues from: the last line of the
+-- chunk before it, with no line between that the origin backend holds. NULL when the
+-- chunk opened on a gap. Two chunks so linked are one span of coverage.
+--
+-- pattern is the grep the fill ran under, '' for every line. origin is the backend that
+-- filled it, by name. at_head is 1 when that backend holds nothing older than from_ns;
+-- at_end is 1 when to_ns is the last line of a finished instance's log; open is 1 while
+-- a tailer is still writing into it. read_at_ms is the last read or write in unix
 -- milliseconds: a clock, not a line's moment.
 CREATE TABLE chunks (
   id         INTEGER PRIMARY KEY,
@@ -60,10 +69,12 @@ CREATE TABLE chunks (
   from_ord   INTEGER NOT NULL,
   to_ns      INTEGER NOT NULL,
   to_ord     INTEGER NOT NULL,
+  prev_ns    INTEGER,
+  prev_ord   INTEGER,
   origin     TEXT    NOT NULL,
-  head       INTEGER NOT NULL,
-  at_end     INTEGER NOT NULL,
-  open       INTEGER NOT NULL,
+  at_head    INTEGER NOT NULL CHECK (at_head IN (0, 1)),
+  at_end     INTEGER NOT NULL CHECK (at_end IN (0, 1)),
+  open       INTEGER NOT NULL CHECK (open IN (0, 1)),
   bytes      INTEGER NOT NULL,
   read_at_ms INTEGER NOT NULL,
   UNIQUE (stream_id, pattern, from_ns, from_ord)
