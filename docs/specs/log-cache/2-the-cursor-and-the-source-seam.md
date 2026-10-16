@@ -14,11 +14,13 @@ Go paths are under `sidecar/internal/services/logs/`. The design is the README's
 
 ## In short
 
-Two changes that alter no behaviour. A position names its stream by `container_id` instead of
-the container's name and `previous`, so a line keeps its key across a restart. And the code that
-reads lines from the kubelet moves behind a `Source` interface, so a read has one shape whoever
-serves it. `Fetch` and `Follow` both run over the seam when this step lands, and every existing
-test passes unchanged over it.
+Two changes that alter what a page and a follow do in one corner alone. A position names its
+stream's instance by `container_id` in place of `previous`, so a line keeps its key across a
+restart. And the code that reads lines from the kubelet moves behind a `Source` interface, so a
+read has one shape whoever serves it. `Fetch` and `Follow` both run over the seam when this step
+lands. The fetch and follow behaviour tests pass over it; the tests that spell a cursor or build
+a position change with the encoding, and one that pins how a 400 ends a stream changes with the
+failure kinds below.
 
 ## What is not in this step
 
@@ -26,6 +28,15 @@ test passes unchanged over it.
   kubelet directly and hold nothing between requests.
 - **No second source.** The kubelet is the only implementation. A test-only source lives in the
   test files and nowhere else.
+- **No resolve behind the seam.** `resolve` in `sources.go` stays where it is and keeps its
+  signature. Which streams a view holds is the mirror's answer today, and a source's answer only
+  once there is a second source; step 3 adds `Streams` to the interface when it needs it.
+- **No claim behind the seam.** A claim belongs to one request, not one cluster: `Fetch` takes
+  it with `acquireClaim` under the server UID its own resolve read and closes it with the page,
+  and `Follow` holds it for its life, waiting on `revoked`, checking `isRevoked` as each stream
+  ends and handing `get` to every read. Both keep doing so, and build the kubelet source over
+  the claim's `get`, per request. One source per cluster waits for step 3, where the cluster's
+  list of sources is what a fill walks.
 - **No wire change.** `LogRecord.stream.previous` keeps its meaning on the wire; it is computed
   at the record, as today, from the resolve.
 
@@ -33,16 +44,34 @@ test passes unchanged over it.
 
 ### 1. The position
 
-`position` in `cursor.go` is a moment, a stream and an ordinal. The stream field becomes the
-`container_id`, which the resolve already has for every stream it hands out (`container_id`, or
-`last_container_id` for a previous instance). `comparePrevious` goes: two instances of one
-container differ by id. The encoding stays as it is, the id in the container's place, and
-`parseCursor` checks the id's shape: the runtime's prefix, a separator, hex, and at most 256
-bytes, refusing anything else. A cursor is longer than before and still opaque.
+`position` in `cursor.go` is a moment, a stream and an ordinal. The stream half keeps
+`Namespace`, `Pod` and `Container` and takes `ContainerID` in `Previous`'s place: the id the
+resolve already has for every stream it hands out (`container_id`, or `last_container_id` for a
+previous instance). `comparePositions` orders by time, then namespace, pod and container name as
+today, then the id, then the ordinal; `comparePrevious` goes. So lines at one moment keep their
+order on the wire, and the one order that moves is two instances of one container at one moment,
+which sort by id where they sorted the previous first — a tie a restart within one second makes,
+and nothing else. The encoding stays as it is, the id in `previous`'s field, and `parseCursor`
+checks what the resolve guarantees of an id and nothing more: not empty, no tab or control
+character, at most 256 bytes. A runtime's id is text the server wrote — `containerd://<hex>` on a
+real node, whatever a virtual kubelet or a test fixture spells — so a shape check would refuse
+cursors the server itself handed out. The id is the cluster's own status text, so the resolve
+applies the same three checks to each `container_id` and `last_container_id` it reads and skips
+a stream whose id fails one, as it skips one with no id: the server never hands out a cursor it
+would refuse. A cursor is longer than before and still opaque.
 
 `StreamKey` on the wire keeps `namespace`, `pod`, `container` and `previous`. The record carries
-the id too, since the follow's `tracked` map and the merge key on the position, and nothing on
-the wire changes.
+the id too, since the merge keys on the position, and nothing on the wire changes. The follow's
+`tracked` map stays keyed by `StreamKey`; its `last` is a position compared by time first, so a
+stream reopened past a restart resumes past its last line as today, the id deciding only a tie
+at one moment.
+
+**The id is the resolve's, not the read's.** A read of the current log answers whichever
+instance the kubelet serves now, and the mirror lags it: around a restart, the new instance's
+first lines can be keyed with the old id, then with the new one on a later read, so a line can
+go out twice under two keys — and, from step 3 on, be stored twice. Nothing in this step closes
+it; step 4's tailer, which reads one instance from its own last line, is where it is judged
+again. Recorded here so it is not read as a bug in the seam.
 
 ### 2. The `Source`
 
@@ -50,64 +79,97 @@ In `source.go`:
 
 ```go
 type Source interface {
-    Streams(ctx, reading *cluster.CacheReading, view View) ([]Stream, error)
-    Forward(ctx, Stream, from position, opts) (Read, error)
-    Backward(ctx, Stream, until position, want int, opts) (Read, error)
-    Tail(ctx, Stream, from position) (Tailer, error)
+    Forward(ctx, stream, readOpts) *streamRead
+    Backward(ctx, stream, readOpts) *streamRead
+    Tail(ctx, stream, readOpts) *streamRead
 }
 ```
 
-A `Read` is the lines with the source's own `ord`, whether it reached the oldest line the
-source holds (`Head`) or, for a finished instance, the last (`End`), and the `Pattern` it
-filtered by, empty for the kubelet. A `Tailer` delivers `Line`s and ends with a `Failure` or
-nil. A `Failure` has a `Kind`, one of `Fatal`, `Denied` or `Transient`, and the reason in the
-user's words; `Fatal` fails the whole page or follow, `Denied` is one stream's, `Transient` is
-retried as today. The kubelet source maps a 401 and a revoked claim onto `Fatal`, a 403 onto
-`Denied`, and the rest onto `Transient`.
+**A read is a stream, not a batch.** It answers today's `streamRead`: lines on a channel the
+caller pulls one at a time, a `cancel`, and once the channel closes how it ended — `err`, and
+`short` with its `stop` edge. That is what the merge needs: `mergePage` asks a reading for a line
+only when the merge wants one and cancels every reading once the page is cut, so a page of a
+busy stream reads nothing past its last line, and `trimToStops` reads each stream's edge. A
+finished batch would read every stream to its budget and lose the edge. `readOpts` goes through
+unchanged — `since`, `until`, `grep`, `budget`, `batch`, `windows` — so the bounds, the budget
+split and `maxGets` stay where they are and the grep still runs inside the reader. `Tail` is
+`Forward` with `follow` set, kept as its own method because an archive will not offer it.
 
-The kubelet source is `kubelet.go`: `Streams` is the resolve in `sources.go`, `Forward` and
-`Backward` are the two halves of `fetcher.go`, each `GET` over a claim as today, and `Tail` is
-the forward stream `follow.go` opens. The budget and `maxGets` stay where they are, passed in
-`opts`. This is a move, not a rewrite: the fetcher's tests keep their cases.
+**A failure is one of four kinds**, and `failureKind(err)` in `source.go` is the one
+classification, with `fatal` and `dropped` folded into it:
+
+| Kind | The kubelet source | What it means |
+| --- | --- | --- |
+| `Fatal` | a 401, a revoked claim | the user's credentials, or Kstack no longer connecting: fails the whole page or follow |
+| `Denied` | a 403 | this stream's alone: a page's `skipped` entry; a follow ends the stream as `Ended` does, reopening it at a later generation, and remembers the reason, which ends the follow once every stream has ended |
+| `Ended` | any other status under 500 | the server's answer for this log now (`container is waiting to start`, a 404): a page's `skipped` entry; a follow ends the stream and reopens it at a later generation |
+| `Transient` | a 5xx, a transport error | dropped and retried as today, under the follow's backoff |
+
+A clean end stays what it is today: for a fetch the end of the range, and for a follow on a
+container the view sees running, a drop. `errRetired` stays a short read, not a failure kind.
+`Ended` is what keeps `TestAFollowWaitsForAWaitingContainer` and `TestDropped` true: a 400 is
+not retried on backoff, it waits for the generation to move.
+
+The kubelet source is `kubelet.go`: `Forward` and `Backward` are the two halves of `fetcher.go`,
+each `GET` over a claim as today, and `Tail` is the forward stream `follow.go` opens. This is a
+move, not a rewrite: the fetcher's tests keep their cases.
 
 `Fetch` builds its readings over `Source.Forward` and `Source.Backward`, and `Follow`'s reconcile
-opens streams through `Source.Tail`. `Service` holds one `Source` per cluster, from a function
-`app` passes, which this step answers with the kubelet source for every cluster.
+opens streams through `Source.Tail`. Each builds its source once its claim is made, from a
+function `logs.New` takes beside the cluster service, `func(get getter) Source`, which `app`
+answers with the kubelet source and a test with its fake; `logs.New` alone changes signature.
+
+The interface names `stream`, `readOpts` and `*streamRead`, all unexported, so only code in
+`logs` can implement it — the kubelet source and the test fake, the two there are. "One shape
+whoever serves it" holds inside the package for now; exporting the types is step 3's call, when
+the first source outside the kubelet's shape is designed.
 
 ## Tasks
 
-1. **The position.** `cursor.go` and its test: the id in the stream field, `comparePrevious`
-   gone, `parseCursor`'s new checks, and the resolve handing each stream its id.
-2. **The interface and the kubelet source.** `source.go`, `kubelet.go`, the fetcher and the
-   follow moved behind it, `Fetch` and `Follow` over it, `logs.New` taking the source function.
-3. **The seam's tests.** A fake `Source` in `testutil_test.go` and the two tests under *Tests*
-   that drive it.
+1. **The position.** `cursor.go` and its test: `ContainerID` in `Previous`'s place,
+   `comparePrevious` gone, `parseCursor`'s id check, and the resolve handing each stream its id.
+   The `position{…}` literals in the other tests move with it.
+2. **The interface and the kubelet source.** `source.go` with `failureKind`, `kubelet.go`, the
+   fetcher and the follow moved behind it, `Fetch` and `Follow` over it, `logs.New` taking the
+   source function.
+3. **The seam's tests.** A fake `Source` in `testutil_test.go` and the tests under *Tests* that
+   drive it.
 
 ## Tests
 
 Go, beside the files they cover.
 
 - `cursor_test.go`: a cursor round-trips the id; a line's cursor is the same before and after
-  its instance becomes the previous one; `parseCursor` refuses an id without the prefix, with a
-  non-hex body, or past 256 bytes; two instances of one container order by id.
-- `fetch_test.go`, `follow_test.go`, `fetcher_test.go`, `merge_test.go`: pass unchanged over the
-  seam. `TestPagesJoinWithoutLossOrRepeat` is the gate.
-- `source_test.go`: over the fake, a `Fatal` read fails the page and a `Denied` one becomes a
-  `skipped` entry with its coverage of the merge untouched; a `Fatal` tailer ends the follow and
-  a `Denied` one ends its stream alone.
+  its instance becomes the previous one; `parseCursor` refuses an empty id, one holding a tab or
+  a control character, and one past 256 bytes, and takes the fixtures' `containerd://<uid>-<name>-<n>`;
+  two instances of one container at one moment order by id, and lines of two containers at one
+  moment order by name as before.
+- `fetch_test.go`, `follow_test.go`, `fetcher_test.go`, `merge_test.go`: the behaviour cases pass
+  over the seam; the cases that spell a cursor or build a `position{…}` change with the encoding,
+  and `TestDropped` becomes a test of `failureKind`. `TestPagesJoinWithoutLossOrRepeat` and
+  `TestAFollowWaitsForAWaitingContainer` are the gate.
+- `source_test.go`: over the fake, a `Fatal` read fails the page, and a `Denied` or `Ended` one
+  becomes a `skipped` entry with the merge of the other streams untouched; a `Fatal` tailer ends
+  the follow, a `Denied` one ends its stream alone and is the reason once every stream has ended,
+  an `Ended` one holds the stream until the generation moves, and a `Transient` one is reopened
+  after the backoff.
 
 ## Security
 
-**Widens:** nothing. A cursor is still text the server wrote and `parseCursor` refuses more
-than it did. The claim stays in the kubelet source, so a disabled or deleted cluster still cuts
-every read.
+**Widens:** nothing. A cursor is still text the server wrote, and `parseCursor` still refuses one
+that names neither a moment nor a line; the id check refuses what no server writes — an empty
+id, a control character, 256 bytes — and no more, since a stricter shape would refuse the
+server's own ids. The claim stays with `Fetch` and `Follow`, and the kubelet source reads only
+through its `get`, so a disabled or deleted cluster still cuts every read.
 
-**Residual:** none.
+**Residual:** a line keyed with the resolve's id around a restart can go out twice under two
+keys (§1). A repeat on the wire, never a missing line.
 
 ## When it lands
 
-- `sidecar/CLAUDE.md`: the cursor paragraph says a position names its stream by `container_id`;
-  the `services/logs` paragraphs name the `Source` and that the kubelet is the one behind it.
+- `sidecar/CLAUDE.md`: the cursor paragraph says a position names its stream's instance by
+  `container_id` beside the names; the `services/logs` paragraphs name the `Source`, its four
+  failure kinds, and that the kubelet is the one behind it.
 - This README's row reads Built, with the pull request.
 
 ## Verification

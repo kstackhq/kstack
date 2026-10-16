@@ -185,7 +185,9 @@ by the archives configured for it: a local cluster reads the kubelet first, a cl
 elsewhere reads whatever serves it, and an archive is asked only for a range the source before it
 has said it does not hold (§3). A stream an archive knows only by name has `''` for its
 `container_id` and NULL for `started_at`; it is one row across every restart, which is what the
-archive knows, and its derived `previous` is unknown rather than guessed. A page's
+archive knows, and its derived `previous` is unknown rather than guessed. The cursor does not
+carry such a stream yet: an empty id is how a position names a moment (§8), so an archive
+source brings a cursor change of its own, decided when it lands. A page's
 statement walks `lines_position`. Nothing else is indexed. `lines` is a rowid table, not
 `WITHOUT ROWID`, for the reason `kubestore`'s `objects` is: a line is often past the row size at
 which `WITHOUT ROWID` pays and can reach 16 KiB. Its `id` is commit order, which the follow reads
@@ -254,15 +256,19 @@ direction from the cursor:
    `head` chunk, or back far enough to fill `limit` lines across the view. `Around` needs both.
 2. **Fill the gaps from the sources.** A `Source` has `Streams(view)`, the streams it holds for
    a view, which for the kubelet is the mirror resolve above and for an archive is a query over
-   its labels, since a pod deleted before Kstack saw the cluster is in no mirror; two reads,
-   `Forward(stream, from)` and `Backward(stream, until, want)`; and a `Tail(stream, from)` for
-   §5, which an archive does not offer. Each read answers lines with the source's own `ord`,
-   whether it reached the oldest or the last line the source holds, and the pattern it filtered
-   by, empty for the kubelet. The gaps go to the cluster's sources in order, as §3 says. **A failure is one of three kinds, and the source
-   classifies it**: `Fatal`, which fails the whole page or follow, since it is the user's
-   credentials; `Denied`, which is one stream's and caches nothing for it; and transient, which
-   is retried as today. The kubelet source maps a 401 onto `Fatal` and a 403 onto `Denied`;
-   another source maps its own errors. The kubelet source is the fetcher as it stands: a forward
+   its labels, since a pod deleted before Kstack saw the cluster is in no mirror (step 3 adds
+   it; step 2's seam carries the reads alone, the resolve staying where it is); two reads,
+   `Forward` and `Backward` under the read's bounds; and a `Tail` for §5, which an archive does
+   not offer. A read is a stream the caller pulls a line at a time and cancels, as the fetcher's
+   is today (step 2): its lines carry the source's own `ord`, and its end says whether it
+   reached the oldest or the last line the source holds, and the pattern it filtered by, empty
+   for the kubelet. The gaps go to the cluster's sources in order, as §3 says. **A failure is
+   one of four kinds, and the source classifies it**: `Fatal`, which fails the whole page or
+   follow, since it is the user's credentials; `Denied`, which is one stream's and caches nothing
+   for it; `Ended`, the source's answer for that log now, which caches nothing and is asked again
+   at a later generation; and `Transient`, which is retried as today. The kubelet source maps a
+   401 onto `Fatal`, a 403 onto `Denied`, any other status under 500 onto `Ended` and the rest
+   onto `Transient`; another source maps its own errors. The kubelet source is the fetcher as it stands: a forward
    read for a gap that starts at a chunk's end, kubetail's backward windows for history older
    than the oldest chunk, the budget split evenly across the streams that need a read, `maxGets`
    per stream, each `GET` over a claim (`claim.go`), so a disabled or deleted cluster cuts its
@@ -270,11 +276,13 @@ direction from the cursor:
    the only one this sequence builds. Each read writes what it returned as §3 says, in batches on the
    writer. A stream that fails before any line in range becomes the page's `skipped` entry, as
    today, and its coverage is left alone.
-3. **Answer from the file.** One statement over `lines` for the view's streams, ordered by
-   `(ts_ns, container_id, ord)`, bounded by the cursor and `limit`, in one read transaction on
-   the reader pool. It runs after the fills commit, so it sees them. Two instances of one
-   container never tie on `ts_ns` in practice, and when they do the id orders them; `started_at`
-   is for the viewer, which draws the instances of a container in start order.
+3. **Answer from the file.** One statement over `lines` joined to `streams` for the view's
+   streams, ordered by `(ts_ns, namespace, pod, container, container_id, ord)` — the order
+   `comparePositions` keeps (§8), so a page's edges and the cursor agree with the statement —
+   bounded by the cursor and `limit`, in one read transaction on the reader pool. It runs after
+   the fills commit, so it sees them. Two instances of one container never tie on `ts_ns` in
+   practice, and when they do the id orders them; `started_at` is for the viewer, which draws
+   the instances of a container in start order.
 
 **Grep** runs where the page is read. `kstack_grep(text)` is a Go function registered on the
 reader connections. It is compiled once per statement from the view's pattern and runs over text
@@ -324,8 +332,9 @@ It hands lines to the writer in batches of at most `WriteBatch` lines or every `
 `WithKeepOpen`, one sender per tailer, closed when it ends, bounded to `WriteQueue` batches:
 fan-in from producers that come and go, as `fanIn` is today. After each commit the writer sends
 on a `gobus/conflate` bus keyed by stream id, one coalesced ping per stream written, as `app.db`'s
-change bus does per key. Its failures are the source's three kinds (§4): a `Fatal` one ends every follow on the
-file, a `Denied` one ends the stream, and a transient one is retried as the follow retries today.
+change bus does per key. Its failures are the source's four kinds (§4): a `Fatal` one ends every follow on the
+file, an `Ended` one holds the stream until its generation moves, a `Denied` one the same with
+the reason remembered, and a `Transient` one is retried as the follow retries today.
 The kubelet source's tailer is the forward stream over a claim, so a revoked claim ends it.
 
 A follow is then **a read of the file after a watermark per stream, run again on every commit**.
@@ -395,15 +404,18 @@ drives.
 ### 8. The cursor
 
 A cursor is a position, `cursor.go`'s type: a moment alone, or a moment with a stream and an
-ordinal. **The stream field becomes the `container_id`**, where today it is the container's name
-and `previous`. The name and `previous` can both change for one instance across a restart, and a
-line's key must not; the id cannot. `comparePrevious` goes with it. A `container_id` is longer
-than a name, which a cursor can afford, and it stays valid across a cache clear, which a
-file-local stream id would not. The ordinal is the source's number for the line (§2), which for
-the kubelet is the count `reader.lines` keeps today. A page cursor at the live end carries the
-moment alone. Nothing per stream rides in it, because the
-file holds each stream's extent. So `parseCursor` checks what it checks today, and the note's §4
-and its open problems 1, 6, 7 and 9 go away.
+ordinal. **The stream's instance is its `container_id`**, in the place `previous` holds today,
+beside the namespace, pod and container name. `previous` can change for one instance across a
+restart, and a line's key must not; the id cannot. `comparePrevious` goes with it, and the order
+is time, then the names as today, then the id, then the ordinal, so lines at one moment keep
+their order and only two instances of one container at one moment sort differently (step 2). A
+`container_id` is longer than a name, which a cursor can afford, and it stays valid across a
+cache clear, which a file-local stream id would not. The ordinal is the source's number for the
+line (§2), which for the kubelet is the count `reader.lines` keeps today. A page cursor at the
+live end carries the moment alone. Nothing per stream rides in it, because the file holds each
+stream's extent. So `parseCursor` checks what it checks today and that the id is one the
+resolve could have handed out — not empty, no tab or control character, at most 256 bytes — and
+the note's §4 and its open problems 1, 6, 7 and 9 go away.
 
 Open problem 4 is clock skew between the API server and a node. For a stream the file has read,
 it is solved: its tailer resumes from its own last line's moment, which is the kubelet's clock. A

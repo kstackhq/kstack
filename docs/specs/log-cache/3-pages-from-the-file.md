@@ -53,8 +53,10 @@ and the chunk change in one `InTx`.
 2. Per stream and direction, read the coverage and offer each gap to the cluster's sources in
    order: the first source whole, the next only for the range the one before answered `head`
    for. The kubelet source's budget split and `maxGets` are unchanged. Write each read.
-3. Answer one statement over `lines` for the view's streams, ordered by
-   `(ts_ns, container_id, ord)`, bounded by the cursor and `limit`, in one read transaction.
+3. Answer one statement over `lines` joined to `streams` for the view's streams, ordered by
+   `(ts_ns, namespace, pod, container, container_id, ord)` — `comparePositions`' order, so the
+   pages join without losing or repeating a line — bounded by the cursor and `limit`, in one
+   read transaction.
    Compute the edges: the cut, the live end, and `before` null only when every stream's oldest
    chunk is `head` from the last source.
 
