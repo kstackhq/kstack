@@ -17,6 +17,7 @@ package logstore
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -58,21 +59,24 @@ type Fill struct {
 // A stream that has finished is trimmed after its fills.
 func (s *Store) Write(ctx context.Context, fills []Fill) error {
 	now := time.Now().UnixMilli()
-	err := s.inTx(ctx, func(ctx context.Context, st stmts) error {
-		for _, f := range fills {
-			if err := writeFill(ctx, st, s.m.ret, f, now); err != nil {
-				return err
-			}
-		}
-		for _, id := range streamsOf(fills) {
-			if err := trimFinished(ctx, st, id); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
+	err := s.inTx(ctx, func(ctx context.Context, st stmts) error { return writeFills(ctx, st, s.m.ret, fills, now) })
 	if err != nil {
 		return fmt.Errorf("write: %w", err)
+	}
+	return nil
+}
+
+// writeFills files every fill, then trims each stream they wrote that has finished.
+func writeFills(ctx context.Context, st stmts, ret Retention, fills []Fill, now int64) error {
+	for _, f := range fills {
+		if err := writeFill(ctx, st, ret, f, now); err != nil {
+			return err
+		}
+	}
+	for _, id := range streamsOf(fills) {
+		if _, err := trimFinished(ctx, st, id); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -80,10 +84,8 @@ func (s *Store) Write(ctx context.Context, fills []Fill) error {
 // writeFill files f's lines, the chunks claiming them, and the links and marks its
 // read proved.
 func writeFill(ctx context.Context, st stmts, ret Retention, f Fill, now int64) error {
-	for _, l := range f.Lines {
-		if _, err := st.Exec(ctx, stmtInsertLine, f.Stream, l.TS, l.Ord, l.Message); err != nil {
-			return err
-		}
+	if err := insertLines(ctx, st, f.Stream, f.Lines); err != nil {
+		return err
 	}
 	last := f.Prev
 	if len(f.Lines) > 0 {
@@ -116,34 +118,61 @@ func writeFill(ctx context.Context, st stmts, ret Retention, f Fill, now int64) 
 	return nil
 }
 
+// insertLines stores lines under the stream id; a line already stored is kept once.
+func insertLines(ctx context.Context, st stmts, stream int64, lines []Line) error {
+	for _, l := range lines {
+		if _, err := st.Exec(ctx, stmtInsertLine, stream, l.TS, l.Ord, l.Message); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // chunksFor is f's lines cut into chunks at ret's ChunkBytes and ChunkSpan, each linked
 // to the one before it: the first continuing from Prev, and extending the chunk that ends
 // there when f merges and that chunk has room.
 func chunksFor(ctx context.Context, st stmts, ret Retention, f Fill) ([]Chunk, error) {
-	cur := Chunk{Pattern: f.Pattern, Origin: f.Origin, From: f.Lines[0].Pos, Prev: f.Prev, Head: f.Head}
-	fresh := true
-	if f.Merge && f.Prev != nil {
-		c, ok, err := chunkEndingAt(ctx, st, f.Stream, f.Pattern, f.Origin, *f.Prev)
-		if err != nil {
-			return nil, err
-		}
-		if ok && !full(ret, c, f.Lines[0].TS) {
-			cur, fresh = c, false
+	cur, fresh, err := startChunk(ctx, st, ret, f.Stream, f.Pattern, f.Origin, f.Prev, f.Merge, f.Lines[0])
+	if err != nil {
+		return nil, err
+	}
+	if fresh {
+		cur.Head = f.Head
+	}
+	out := cutChunks(ret, cur, fresh, f.Lines)
+	out[len(out)-1].AtEnd = f.AtEnd
+	return out, nil
+}
+
+// startChunk is the chunk a run of lines from first goes in: the closed chunk of
+// pattern and origin ending at prev when the run merges and that chunk has room, else
+// a fresh one linked to prev, which fresh says.
+func startChunk(ctx context.Context, st stmts, ret Retention, stream int64, pattern, origin string, prev *Pos, merge bool, first Line) (Chunk, bool, error) {
+	if merge && prev != nil {
+		c, ok, err := chunkEndingAt(ctx, st, stream, pattern, origin, *prev)
+		if err != nil || ok && !full(ret, c, first.TS) {
+			return c, false, err
 		}
 	}
+	return Chunk{Pattern: pattern, Origin: origin, From: first.Pos, Prev: prev}, true, nil
+}
+
+// cutChunks is lines added to cur, fresh when it holds none yet, cut at ret's
+// ChunkBytes and ChunkSpan: each next chunk opens at the line after, linked to the one
+// before. The last chunk is the one the next line would go in.
+func cutChunks(ret Retention, cur Chunk, fresh bool, lines []Line) []Chunk {
 	var out []Chunk
-	for _, l := range f.Lines {
+	for _, l := range lines {
 		if !fresh && full(ret, cur, l.TS) {
 			out = append(out, cur)
 			prev := cur.To
-			cur = Chunk{Pattern: f.Pattern, Origin: f.Origin, From: l.Pos, Prev: &prev}
+			cur = Chunk{Pattern: cur.Pattern, Origin: cur.Origin, From: l.Pos, Prev: &prev}
 		}
 		cur.To = l.Pos
 		cur.Bytes += int64(len(l.Message))
 		fresh = false
 	}
-	cur.AtEnd = f.AtEnd
-	return append(out, cur), nil
+	return append(out, cur)
 }
 
 // full is whether c is closed to a line at ts: it holds ChunkBytes, or ts is ChunkSpan
@@ -180,12 +209,19 @@ func putChunk(ctx context.Context, st stmts, stream int64, c Chunk, now int64) e
 
 // streamsOf is each stream fills write to, once.
 func streamsOf(fills []Fill) []int64 {
-	seen := map[int64]bool{}
+	ids := make([]int64, len(fills))
+	for i, f := range fills {
+		ids[i] = f.Stream
+	}
+	return distinct(ids)
+}
+
+// distinct is ids with each repeat dropped, in order.
+func distinct(ids []int64) []int64 {
 	var out []int64
-	for _, f := range fills {
-		if !seen[f.Stream] {
-			seen[f.Stream] = true
-			out = append(out, f.Stream)
+	for _, id := range ids {
+		if !slices.Contains(out, id) {
+			out = append(out, id)
 		}
 	}
 	return out

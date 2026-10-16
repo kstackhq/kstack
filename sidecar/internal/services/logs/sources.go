@@ -149,6 +149,11 @@ func (st stream) finished() bool {
 	return st.key.Previous || st.gen.state == "terminated" || st.gen.state == "waiting"
 }
 
+// instance is st's place in the order of lines at one moment.
+func (st stream) instance() instance {
+	return instance{st.key.Namespace, st.key.Pod, st.key.Container, st.gen.instance}
+}
+
 // resolve reads view over one reading of cluster id's active cache, and for a
 // follow whether a container of it is starting. A cache missing or withholding its
 // rows is refused as the LogsView tool refuses it, and so is a kind the cache does

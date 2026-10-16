@@ -232,7 +232,7 @@ func (f *filler) pull(ctx context.Context, tier int, lower, upper *logstore.Pos)
 	var lines []logstore.Line
 	cut := false
 	for rec := range r.lines.Chan() {
-		lines = append(lines, logstore.Line{Pos: logstore.Pos{TS: rec.Timestamp.UnixNano(), Ord: rec.Ordinal}, Message: rec.Message})
+		lines = append(lines, lineOf(rec))
 		if matches(f.q.grep, rec.Message) {
 			f.count++
 		}
@@ -264,7 +264,7 @@ func (f *filler) fillOf(tier int, r *streamRead, lines []logstore.Line, whole bo
 		// A forward read starts at the line after prev or at the first the backend
 		// still has, so its first line continues prev's chunk either way.
 		fill.Prev = prev
-		fill.Merge = prev != nil && !r.oldest.IsZero() && r.oldest.UnixNano() <= prev.TS
+		fill.Merge = returnedWhole(r.oldest, prev)
 		if whole {
 			fill.Next = next
 		}
@@ -279,6 +279,17 @@ func (f *filler) fillOf(tier int, r *streamRead, lines []logstore.Line, whole bo
 	}
 	fill.AtEnd = upper == nil && f.ps.st.finished() && r.err == nil && len(lines) > 0
 	return fill
+}
+
+// returnedWhole is whether a forward read from prev's second, whose GET's first line
+// came at oldest, returned prev's moment whole, so it extends the chunk ending there.
+func returnedWhole(oldest time.Time, prev *logstore.Pos) bool {
+	return prev != nil && !oldest.IsZero() && oldest.UnixNano() <= prev.TS
+}
+
+// lineOf is rec as the file stores it.
+func lineOf(rec Record) logstore.Line {
+	return logstore.Line{Pos: logstore.Pos{TS: rec.Timestamp.UnixNano(), Ord: rec.Ordinal}, Message: rec.Message}
 }
 
 // boundAt is the read's bound at p, a position of the stream, excluded; zero with

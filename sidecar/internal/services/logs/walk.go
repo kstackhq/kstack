@@ -119,9 +119,15 @@ func (w walker) reach(chunks []logstore.Chunk, key logstore.Pos) (logstore.Pos, 
 
 // record is l as a line of the page.
 func (w walker) record(l logstore.Line) Record {
+	return recordOf(l, w.ps.key, w.ps.place, w.ps.row.ContainerID)
+}
+
+// recordOf is l, a line of the instance containerID of key's stream running in place,
+// as a page or a follow answers it.
+func recordOf(l logstore.Line, key StreamKey, place Place, containerID string) Record {
 	return Record{
-		Timestamp: time.Unix(0, l.TS).UTC(), Message: l.Message, Stream: w.ps.key, Place: w.ps.place,
-		ContainerID: w.ps.row.ContainerID, Ordinal: l.Ord,
+		Timestamp: time.Unix(0, l.TS).UTC(), Message: l.Message, Stream: key, Place: place,
+		ContainerID: containerID, Ordinal: l.Ord,
 	}
 }
 
