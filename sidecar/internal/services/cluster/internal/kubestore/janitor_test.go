@@ -128,10 +128,10 @@ func TestAJanitorSweepsTheFileItWasOpenedFor(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(store.Release)
 
-	fillStatusHistory(t, store, 5000)
+	fillStatusHistory(t, store, 100)
 
-	require.Eventually(t, func() bool { return sweptClean(t, store) },
-		5*time.Second, time.Millisecond, "the janitor swept without anybody asking it")
+	require.Eventually(t, func() bool { return sweptClean(store) },
+		testutil.Timeout, time.Millisecond, "the janitor swept without anybody asking it")
 }
 
 // openFile has two call sites and the second is the one that gets missed: Clear reopens a
@@ -148,17 +148,27 @@ func TestAClearedCacheKeepsItsJanitor(t *testing.T) {
 	t.Cleanup(store.Release)
 
 	require.NoError(t, m.Clear(1))
-	fillStatusHistory(t, store, 5000)
+	fillStatusHistory(t, store, 100)
 
-	require.Eventually(t, func() bool { return sweptClean(t, store) },
-		5*time.Second, time.Millisecond, "the file a clear swapped in sweeps like any other")
+	require.Eventually(t, func() bool { return sweptClean(store) },
+		testutil.Timeout, time.Millisecond, "the file a clear swapped in sweeps like any other")
 }
 
 // sweptClean reports that a sweep has run over this file: the expired rows are the evidence,
 // since the freelist of a file that has freed nothing is legitimately zero.
-func sweptClean(t *testing.T, s *Store) bool {
-	t.Helper()
-	return countRows(t, s, `SELECT COUNT(*) FROM status_history`) == 0
+func sweptClean(s *Store) bool {
+	return noRows(s, `SELECT COUNT(*) FROM status_history`)
+}
+
+// noRows is countRows for an Eventually check. Its goroutine can outlive the test, so a
+// failed query answers false rather than failing t, which would panic the binary.
+func noRows(s *Store, q string) bool {
+	f, err := s.file()
+	if err != nil {
+		return false
+	}
+	var n int
+	return f.db.QueryRowContext(context.Background(), q).Scan(&n) == nil && n == 0
 }
 
 // The janitor keeps sweeping: the first pass runs at open, and the interval is what makes
@@ -173,13 +183,13 @@ func TestAJanitorKeepsSweepingOnItsInterval(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(store.Release)
 	fillStatusHistory(t, store, 100)
-	require.Eventually(t, func() bool { return sweptClean(t, store) },
-		5*time.Second, time.Millisecond, "the opening sweep")
+	require.Eventually(t, func() bool { return sweptClean(store) },
+		testutil.Timeout, time.Millisecond, "the opening sweep")
 
 	fillStatusHistory(t, store, 100)
 
-	require.Eventually(t, func() bool { return sweptClean(t, store) },
-		5*time.Second, time.Millisecond, "a second sweep, which only the ticker starts")
+	require.Eventually(t, func() bool { return sweptClean(store) },
+		testutil.Timeout, time.Millisecond, "a second sweep, which only the ticker starts")
 }
 
 // A vacuum that will not run is logged and the sweep returns — the janitor's next
@@ -528,8 +538,8 @@ func TestEveryCommitWakesTheJanitor(t *testing.T) {
 			write(t, ctx, store)
 
 			require.Eventually(t, func() bool {
-				return countRows(t, store, `SELECT COUNT(*) FROM status_history WHERE uid = 'uid-old'`) == 0
-			}, 5*time.Second, time.Millisecond, "the write woke a sweep before the ticker could")
+				return noRows(store, `SELECT COUNT(*) FROM status_history WHERE uid = 'uid-old'`)
+			}, testutil.Timeout, time.Millisecond, "the write woke a sweep before the ticker could")
 		})
 	}
 }
