@@ -167,6 +167,11 @@ webview drops by cursor. Lines arrive per stream, not merged.
   `Ended` frame unsubscribes and reports its reason. Both ride the transports the app has
   (`graphql_query`, `subscribe-exchange`); no new one. The fake goes from the app in the same
   change, and `wip/log-views` may merge after it.
+- **The `LogsView` prompt says a source shows the instances before it.** A plain view's page
+  shows the running instance and what the log cache holds of the instances before it, and the
+  prompt (`tools/logsview/prompts/logsview.md`) says a source shows the running instance alone.
+  Nothing the model opens reads the new wire until the real client lands, so the prompt and its
+  goldens change with it.
 - **The bounded window.** A cap of `maxLines` lines, dropped at the edge farther from the
   reader and never on screen, with what that asks of the virtualizer. Until it lands a long
   follow grows without end. It is proposed in a pull request of its own, over a viewer that

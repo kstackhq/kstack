@@ -180,15 +180,23 @@ func TestANodeFilterNeedsNoNodeObject(t *testing.T) {
 	assert.Equal(t, "web-1", keysOf(got)[0].Pod)
 }
 
-// A label filter on a mirror with no nodes is refused, naming every label.
+// A label filter on a mirror with no nodes is refused, naming every label: by a
+// follow at once, and by a page once the file holds nothing the filter keeps.
 func TestALabelFilterWithNoNodesIsRefused(t *testing.T) {
 	t.Parallel()
-	_, err := resolveOf(t, newMirror(t, webObjects()...), View{
+	f := newMirror(t, webObjects()...)
+	view := View{
 		Sources: webView.Sources,
 		Filters: []ViewFilter{{Field: FilterZone, Values: []string{"eu-1a"}}, {Field: FilterArch, Values: []string{"arm64"}}},
-	})
+	}
+	const refused = "Kstack cannot read this cluster's nodes, so it cannot filter by zone or arch"
 
-	assert.EqualError(t, err, "Kstack cannot read this cluster's nodes, so it cannot filter by zone or arch")
+	_, err := resolve(t.Context(), f, "7", view, true)
+	assert.EqualError(t, err, refused)
+
+	got, err := resolveOf(t, f, view)
+	require.NoError(t, err, "a page looks in the file before it refuses")
+	assert.EqualError(t, got.noNodes, refused)
 }
 
 // A pod whose node the mirror does not hold, while it holds others, is left out
@@ -241,8 +249,9 @@ func TestAStreamCarriesItsInstancesID(t *testing.T) {
 }
 
 // Each stream carries the snapshot its file row keeps once the pod is gone: the
-// pod's UID and labels, whether the container is the pod's default, and when the
-// instance read started and finished.
+// pod's UID and labels, whether the container is the pod's default, when the
+// instance read started and finished, and the pod's current instance; a fetch
+// learns each Pod source's pod and its current instances too.
 func TestResolveCarriesEachStreamsSnapshot(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
@@ -273,6 +282,12 @@ func TestResolveCarriesEachStreamsSnapshot(t *testing.T) {
 	assert.Equal(t, containerID("uid-api", "app", 0), last.gen.instance)
 	assert.Equal(t, at(0).UnixNano(), last.startedAt)
 	assert.Equal(t, at(5*time.Minute-time.Second).UnixNano(), last.finishedAt)
+	assert.Equal(t, map[string]string{"prod/api": "uid-api"}, got.pods)
+	assert.Equal(t, map[string]string{"prod/api": "app"}, got.defaults)
+	assert.Equal(t, map[string]string{
+		"prod/api/app":     containerID("uid-api", "app", 1),
+		"prod/api/sidecar": containerID("uid-api", "sidecar", 0),
+	}, got.current)
 }
 
 // A container waiting to start has no log, so its source is idle until it does;
@@ -400,6 +415,9 @@ func TestACacheNotReadyIsRefused(t *testing.T) {
 // A read of the cluster that fails is the failure, whichever statement it fails on.
 func TestAFailedReadIsTheFailure(t *testing.T) {
 	t.Parallel()
+	// web1Elsewhere reads a container web-1 lacks, so only the pod's own reading
+	// asks where it runs.
+	web1Elsewhere := podSource("web-1", false, "db")
 	// starting opens with a previous instance, which never starts, so the check
 	// asks of the source after it.
 	starting := View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "web-2", Previous: true}, webView.Sources[0]}}
@@ -415,6 +433,10 @@ func TestAFailedReadIsTheFailure(t *testing.T) {
 		"every query":     {set: func(f *fakeService) { f.queryErr = errors.New("db closed") }, view: webView},
 		"the node query":  {set: func(f *fakeService) { f.queryErr, f.queryErrOn = errors.New("db closed"), "kind = 'Node'" }, view: webView},
 		"the kinds query": {set: func(f *fakeService) { f.queryErr, f.queryErrOn = errors.New("db closed"), "FROM kinds" }, view: webView},
+		"a pod source's query": {set: func(f *fakeService) {
+			f.queryErr, f.queryErrOn = errors.New("db closed"), "json_group_object"
+		}, view: web1View},
+		"a pod source's node": {set: func(f *fakeService) { f.queryErr, f.queryErrOn = errors.New("db closed"), "kind = 'Node'" }, view: web1Elsewhere},
 		"the nodes listed": {set: func(f *fakeService) {
 			f.queryErr, f.queryErrOn = errors.New("db closed"), "n.kind = 'Node' LIMIT 1"
 		}, view: nowhere},

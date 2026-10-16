@@ -2159,7 +2159,11 @@ carry is skipped, as one with no id is. Its `Place` (`record.go`) is where its
 pod runs: the node, then the region, zone, OS and architecture read off that `Node` object's
 labels. A stream also carries the snapshot its file row keeps once the pod is gone — the pod's
 UID and labels, whether the container is the pod's default, and when the instance started and
-finished, off the container status in the pod's body. A stream of a restarted container's current instance also
+finished, off the container status in the pod's body — and the pod's current instance; a
+resolve also reads each Pod source's pod UID, its default container, where it runs and the
+current instance of each of its containers (`target.pods`, `target.defaults`,
+`target.places`, `target.current`), one row per pod with its containers folded into it,
+after the streams, so the row cap bounds what a view selects and never what its pod holds. A stream of a restarted container's current instance also
 carries when the one before it finished, and a page sets that on the file's row of it
 (`FinishStreams`), so a restart the mirror reported late is trimmed under a plain view. `Refusal` is a value, so no caller can change a sentinel's
 words.
@@ -2255,7 +2259,14 @@ edges follow the log viewer README's table: the cut while a page was cut, else n
 `Head`; a given cursor is the edge behind the page. Both halves of an `Around` page read one
 resolve, one claim and one write, the `Tail` half filled first so the `Head` half's read continues
 its chunk at `at`. **A page** (`page` in `fetch.go`) resolves the view, files
-the resolve's streams in the cache's file. **Then it fills** (`fill.go`): each stream the resolve
+the resolve's streams in the cache's file, and adds each Pod source's streams the file holds that
+the resolve handed out for no source (`filestreams.go`): the pod's by UID, or a gone pod's by name,
+each once across the view, its containers as the resolve names them (a held pod's
+default the mirror's, a gone pod's the rows marked default), the node filters run over
+where the pod runs now while the mirror holds it and over the row once it is gone, at most
+`maxInstances` (8) per container, newest first. A label filter the mirror has no nodes for
+refuses the page only when the file adds no stream either. Such a stream is exhausted: no
+backend serves it, so its gaps are lost. **Then it fills** (`fill.go`): each stream the resolve
 handed out walks the file from its bound, counting the lines its chunks hold that the grep passes, and offers each
 live gap it meets to the backends in order, the next only for what the one before lacks — older
 than its `head`, or a hole between the gap's edge and its first line — until the stream holds `limit` plus one past its bound, has no live gap left that way, or

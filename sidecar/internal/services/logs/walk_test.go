@@ -43,7 +43,8 @@ func TestAWalkStopsAtALiveGap(t *testing.T) {
 
 // A walk crosses a lost gap as it crosses a seam: a Tail page that reached the
 // kubelet's oldest line over a stream with an older chunk below reads on into that
-// chunk and answers nothing older.
+// chunk and answers nothing older, and a Head page over a stream no backend serves
+// reads past the gaps inside it, so no page answers more at one spot twice.
 func TestAWalkCrossesALostGap(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
@@ -58,4 +59,14 @@ func TestAWalkCrossesALostGap(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"0", "1", "5", "6", "7", "8", "9"}, messages(page.Records))
 	assert.Equal(t, PageEdge{}, page.Before)
+
+	gone := View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "old-1"}}}
+	seed(t, svc, f, rowOf("old-1", "app"),
+		logstore.Fill{Lines: fileLines(0, time.Second)},
+		logstore.Fill{Lines: fileLines(5 * time.Second)})
+	page, err = svc.Fetch(t.Context(), "7", gone, FetchQuery{Mode: FetchHead, Limit: 100})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"0", "1", "5"}, messages(page.Records))
+	assert.False(t, page.After.More)
 }

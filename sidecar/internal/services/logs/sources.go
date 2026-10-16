@@ -91,9 +91,13 @@ const (
 
 // target is what a view reads on one cluster: the server the mirror's pods came
 // from, one stream per container, in the order the sources were asked, and each
-// source's state. For a follow, starting is whether a container the view reads has
-// no log yet, which the follow waits for, and pods is the UID of each Pod source's
-// pod the mirror holds, by "<ns>/<name>", whether or not it has a log to read.
+// source's state. pods is the UID of each Pod source's pod the mirror holds, by
+// "<ns>/<name>", whether or not it has a log to read, defaults its default container,
+// places where it runs now, and current the runtime id of each of its containers'
+// current instance, by "<ns>/<pod>/<container>". noNodes is a label filter a page
+// could not apply for want of nodes, which it answers only when the file holds
+// nothing of the view either. For a follow, starting is whether a container the view
+// reads has no log yet, which the follow waits for.
 type target struct {
 	cacheID   cluster.ClusterCacheID
 	serverUID string
@@ -101,6 +105,10 @@ type target struct {
 	states    []SourceState
 	starting  bool
 	pods      map[string]string
+	defaults  map[string]string
+	places    map[string]Place
+	noNodes   error
+	current   map[string]string
 }
 
 // stream is one container a view reads: the log it names, where its pod runs,
@@ -150,24 +158,31 @@ func resolve(ctx context.Context, svc cluster.Service, id cluster.ClusterID, vie
 	err := svc.CachedData().ReadActive(ctx, id, maxRows, maxBytes, func(q cluster.CacheReading, active cluster.ActiveCluster) error {
 		r := reading{q}
 		streams, states, err := r.streamsOf(view)
+		var noNodes NoNodes
+		var deferred error
+		if !follow && errors.As(err, &noNodes) {
+			// A page may still find the filter's place in the file's rows of a gone pod.
+			deferred, err = err, nil
+		}
 		if err != nil {
 			return err
 		}
 		if err := r.place(streams); err != nil {
 			return err
 		}
+		// After the streams, so a view of too many containers is refused as that.
+		pods, current, defaults, places, err := r.podSources(view)
+		if err != nil {
+			return err
+		}
 		starting := false
-		var pods map[string]string
 		if follow {
 			if starting, err = r.starting(view); err != nil {
 				return err
 			}
-			if pods, err = r.podUIDs(view); err != nil {
-				return err
-			}
 		}
 		// Set whole, never appended to: ReadActive may run this twice.
-		t = target{cacheID: active.Cache.ID, serverUID: active.Cache.Spec.ServerUID, streams: streams, states: states, starting: starting, pods: pods}
+		t = target{cacheID: active.Cache.ID, serverUID: active.Cache.Spec.ServerUID, streams: streams, states: states, starting: starting, pods: pods, current: current, defaults: defaults, places: places, noNodes: deferred}
 		return nil
 	})
 	if err != nil {
@@ -486,23 +501,51 @@ WHERE p.api_version = 'v1' AND p.kind = 'Pod' AND `+where+` AND coalesce(c.conta
 	return false, nil
 }
 
-// podUIDs is the UID of each of view's Pod sources' pods the mirror holds, by
-// "<ns>/<name>".
-func (r reading) podUIDs(view View) (map[string]string, error) {
-	uids := map[string]string{}
+// podSources is the UID, the default container and the place of each of view's Pod
+// sources' pods the mirror holds, by "<ns>/<name>", and the runtime id of the current
+// instance of each of their containers, by "<ns>/<pod>/<container>": the one a read
+// with no Previous serves, so the instance before while the container waits. Each pod is one
+// row, its containers folded into it, so what a pod holds never counts against the
+// row cap, which bounds what a view selects.
+func (r reading) podSources(view View) (uids, current, defaults map[string]string, places map[string]Place, err error) {
+	uids, current, defaults, places = map[string]string{}, map[string]string{}, map[string]string{}, map[string]Place{}
+	var held []stream
 	for _, src := range view.Sources {
 		if src.Kind != SourcePod {
 			continue
 		}
-		rows, err := r.rows(`SELECT uid FROM objects WHERE api_version = 'v1' AND kind = 'Pod' AND namespace = ? AND name = ?`, src.Namespace, src.Name)
+		rows, err := r.rows(`SELECT p.uid, coalesce(`+defaultContainer+`, ''), p.node,
+(SELECT json_group_object(c.name, coalesce(nullif(c.container_id, ''), c.last_container_id, '')) FROM containers c WHERE c.pod_uid = p.uid)
+FROM objects p WHERE p.api_version = 'v1' AND p.kind = 'Pod' AND p.namespace = ? AND p.name = ?`, src.Namespace, src.Name)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, nil, err
 		}
-		if len(rows) > 0 {
-			uids[src.Namespace+"/"+src.Name] = cluster.CellText(rows[0][0])
+		if len(rows) == 0 {
+			continue
+		}
+		key := src.Namespace + "/" + src.Name
+		uids[key], defaults[key] = cluster.CellText(rows[0][0]), cluster.CellText(rows[0][1])
+		held = append(held, stream{key: StreamKey{Namespace: src.Namespace, Pod: src.Name}, place: Place{Node: cluster.CellText(rows[0][2])}})
+		var ids map[string]string
+		if err := json.Unmarshal([]byte(cluster.CellText(rows[0][3])), &ids); err != nil {
+			return nil, nil, nil, nil, err
+		}
+		for name, id := range ids {
+			current[containerKey(src.Namespace, src.Name, name)] = id
 		}
 	}
-	return uids, nil
+	if err := r.place(held); err != nil {
+		return nil, nil, nil, nil, err
+	}
+	for _, st := range held {
+		places[st.key.Namespace+"/"+st.key.Pod] = st.place
+	}
+	return uids, current, defaults, places, nil
+}
+
+// containerKey is how target.current names a container: "<ns>/<pod>/<container>".
+func containerKey(namespace, pod, container string) string {
+	return namespace + "/" + pod + "/" + container
 }
 
 // instanceTimes is when the instance a container's status names started and

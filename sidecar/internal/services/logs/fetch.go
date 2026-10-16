@@ -218,12 +218,15 @@ func (s *Service) page(ctx context.Context, id cluster.ClusterID, qs ...pageQuer
 		return nil, err
 	}
 	defer file.Close()
-	streams, err := pageStreams(ctx, file, t)
+	streams, err := pageStreams(ctx, file, t, qs[0].view)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]merge, len(qs))
 	if len(streams) == 0 {
+		if t.noNodes != nil {
+			return nil, t.noNodes
+		}
 		for i := range out {
 			out[i] = merge{records: []Record{}, skipped: []string{}, end: position{Timestamp: s.now()}}
 		}

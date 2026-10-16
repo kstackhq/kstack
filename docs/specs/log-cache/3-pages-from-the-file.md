@@ -231,8 +231,10 @@ them again. Two rules close it:
    its coverage, or being exhausted. Every gap a page stops at is live and the next page fills
    it, so no page answers `more: true` at the same spot twice.
 
-`Record.stream.previous` is computed here: true when the stream's `container_id` is not the
-pod's current one, which for a gone pod is every stream. The wire's `LogStream` does not tell
+`Record.stream.previous` is the view's for a stream the resolve handed out, as the follow keys
+it. For a stream only the file holds it is computed here: true when its `container_id` is not
+the instance a read with no `previous` serves now — the running one, or the one before while the
+container waits — which for a gone pod is every stream. The wire's `LogStream` does not tell
 two earlier instances of one container apart; a line's cursor does, and the viewer draws by the
 container. It is a residual for the real client, which may ask for `startedAt` on the stream.
 

@@ -16,9 +16,15 @@ package logs
 
 import (
 	"context"
+	"slices"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 )
+
+// maxInstances is the most of a container's instances a page reads from the file
+// beside what the resolve hands out: a pod that crash-looped for days can hold
+// hundreds, each a walk of its own.
+const maxInstances = 8
 
 // pageStream is one stream a page reads: its file row, the stream the resolve
 // handed out for it, nil for one only the file holds, and its lines' stream and
@@ -40,8 +46,9 @@ func (ps pageStream) instance() instance {
 }
 
 // pageStreams files t's streams in file, each as its instance's row, and answers
-// them.
-func pageStreams(ctx context.Context, file *logstore.Store, t target) ([]pageStream, error) {
+// them, then each of view's Pod sources' streams the file holds that the resolve
+// handed out for no source, each once across the view.
+func pageStreams(ctx context.Context, file *logstore.Store, t target, view View) ([]pageStream, error) {
 	rows := make([]logstore.Stream, len(t.streams))
 	for i, st := range t.streams {
 		rows[i] = logstore.Stream{
@@ -73,9 +80,109 @@ func pageStreams(ctx context.Context, file *logstore.Store, t target) ([]pageStr
 		}
 	}
 	out := make([]pageStream, len(t.streams))
+	seen := map[int64]bool{}
 	for i, st := range t.streams {
 		rows[i].ID = ids[i]
+		seen[ids[i]] = true
 		out[i] = pageStream{row: rows[i], st: &t.streams[i], key: st.key, place: st.place}
 	}
+	for _, src := range view.Sources {
+		if src.Kind != SourcePod {
+			continue
+		}
+		held, err := file.PodStreams(ctx, src.Namespace, src.Name, t.pods[src.Namespace+"/"+src.Name])
+		if err != nil {
+			return nil, err
+		}
+		key := src.Namespace + "/" + src.Name
+		_, live := t.pods[key]
+		pod := podNow{live: live, def: t.defaults[key], place: t.places[key]}
+		for _, row := range fileRows(held, src, view.Filters, t.current, pod) {
+			if seen[row.ID] {
+				continue
+			}
+			seen[row.ID] = true
+			current := t.current[containerKey(row.Namespace, row.Pod, row.Container)]
+			out = append(out, pageStream{
+				row:   row,
+				key:   StreamKey{Namespace: row.Namespace, Pod: row.Pod, Container: row.Container, Previous: row.ContainerID != current},
+				place: pod.placeOf(row),
+			})
+		}
+	}
 	return out, nil
+}
+
+// podNow is what the mirror says of a Pod source's pod now: whether it holds the pod,
+// and if so its default container and where it runs. A gone pod's rows keep what was
+// filed of them.
+type podNow struct {
+	live  bool
+	def   string
+	place Place
+}
+
+// placeOf is where row's instance ran: where the pod runs now while the mirror holds
+// it, since a node's labels can move, else where it was filed.
+func (p podNow) placeOf(row logstore.Stream) Place {
+	if p.live {
+		return p.place
+	}
+	return Place{Node: row.Node, Region: row.Region, Zone: row.Zone, OS: row.OS, Arch: row.Arch}
+}
+
+// isDefault is whether row's container is the pod's default: the one the mirror names
+// while it holds the pod, since its annotation can move, else the rows marked so.
+func (p podNow) isDefault(row logstore.Stream) bool {
+	if p.live {
+		return row.Container == p.def
+	}
+	return row.Default
+}
+
+// fileRows is the rows of held, a Pod source's streams in the file newest first per
+// container, that src reads: the containers it names, every one, or the pod's
+// default, as the resolve names them; with Previous, not the pod's current instance;
+// in a place the filters keep; and each container's newest maxInstances.
+func fileRows(held []logstore.Stream, src ViewSource, filters []ViewFilter, current map[string]string, pod podNow) []logstore.Stream {
+	var out []logstore.Stream
+	count := map[string]int{}
+	for _, row := range held {
+		switch {
+		case len(src.Containers) > 0 && !slices.Contains(src.Containers, row.Container),
+			len(src.Containers) == 0 && !src.AllContainers && !pod.isDefault(row),
+			src.Previous && row.ContainerID == current[containerKey(row.Namespace, row.Pod, row.Container)],
+			!keptByFilters(pod.placeOf(row), filters):
+			continue
+		}
+		if count[row.Container] == maxInstances {
+			continue
+		}
+		count[row.Container]++
+		out = append(out, row)
+	}
+	return out
+}
+
+// keptByFilters is whether every filter keeps an instance that ran in place.
+func keptByFilters(place Place, filters []ViewFilter) bool {
+	for _, f := range filters {
+		var value string
+		switch f.Field {
+		case FilterNode:
+			value = place.Node
+		case FilterRegion:
+			value = place.Region
+		case FilterZone:
+			value = place.Zone
+		case FilterOS:
+			value = place.OS
+		case FilterArch:
+			value = place.Arch
+		}
+		if !slices.Contains(f.Values, value) {
+			return false
+		}
+	}
+	return true
 }
