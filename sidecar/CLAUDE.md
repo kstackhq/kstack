@@ -2292,7 +2292,11 @@ random logs — tied and sub-second moments, small limits, budgets spent mid-lin
 both ends and from a line's cursor and holds the pages to the lines; a change to a read path
 answers to it. It walks 150 seeds, 25 under `-short`, each in parallel, and its fake keeps each
 statement's answer: every page resolves the view again over a mirror that holds still, and SQLite
-parsing the same statements is what the race detector makes slow.
+parsing the same statements is what the race detector makes slow. **`TestTheFileKeepsItsInvariant`**
+(`walk_test.go`) holds the README's invariant over 100 seeds of 60 steps, 25 under `-short`: pages
+in every mode, appends, whole-second rotations, restarts and evictions by hand, and after each,
+every line a page answered is in a chunk covering its pattern and no chunk is missing a line its
+instance wrote into its range.
 
 **`logsFollow` is `Service.Follow`** (`follow.go`): a fan-in (`fanin.go`), each line sent as its
 stream delivers it, the first 50 ms sorted and sent before any ending, and only a line the grep
