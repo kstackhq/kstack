@@ -97,22 +97,27 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 	return walked{readingOf(w.ps.key, recs, short, stop, failed), newestOf(chunks), left}, nil
 }
 
-// reach is how far from key the walk may read: through the spans, across the lost
-// gaps, the gap the fill read from key and the newest gap it read to the end, up to
-// the first live gap, and whether it stops at one.
+// reach is how far from key the walk may read: through the spans, across the gaps no
+// fill may be offered, the first live gap when the fill read it from where the walk
+// starts, and the newest when the fill read it to its end, up to the first live gap
+// left, and whether it stops at one.
 func (w walker) reach(chunks []logstore.Chunk, key logstore.Pos) (logstore.Pos, bool) {
 	head := w.q.mode == FetchHead
 	reach := key
-	for i, seg := range segmentsFrom(logstore.CoverageOf(chunks, w.names), key, w.q.mode) {
+	first := true
+	for _, seg := range segmentsFrom(logstore.CoverageOf(chunks, w.names, w.ps.tail), key, w.q.mode) {
 		switch {
 		case seg.span != nil && head:
 			reach = seg.span.To
 		case seg.span != nil:
 			reach = seg.span.From
-		case seg.gap.Lost, i == 0 && w.fill.fromKey, head && seg.gap.Before == nil && w.fill.toEnd:
+		case !seg.gap.Live():
+			continue
+		case first && w.fill.fromKey, w.fill.toEnd && seg.gap.Newest():
 		default:
 			return reach, true
 		}
+		first = false
 	}
 	return reach, false
 }

@@ -314,7 +314,7 @@ func TestAWalkStopsAtALiveGap(t *testing.T) {
 
 	assert.Greater(t, len(got), 1, "the budget cuts the first page")
 	assert.Equal(t, messages(linesOf(lineEvery(100))), recordsOf(got, FetchHead))
-	assert.Len(t, logstore.CoverageOf(chunksOf(t, svc, f, "web-1", "app"), []string{"kubelet"}).Spans, 1,
+	assert.Len(t, logstore.CoverageOf(chunksOf(t, svc, f, "web-1", "app"), []string{"kubelet"}, nil).Spans, 1,
 		"each page's fill continues the chunk the one before it wrote")
 }
 

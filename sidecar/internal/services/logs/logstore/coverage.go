@@ -19,6 +19,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
 	"slices"
 )
 
@@ -32,6 +33,23 @@ type Pos struct {
 // Compare orders p against q.
 func (p Pos) Compare(q Pos) int {
 	return cmp.Or(cmp.Compare(p.TS, q.TS), cmp.Compare(p.Ord, q.Ord))
+}
+
+// Next and Prev are the first place past p and the last before it that a line can
+// sit at: an ordinal is never negative, and one at its bound steps the moment, since
+// a bound that reads none of its moment sits at math.MaxInt.
+func (p Pos) Next() Pos {
+	if p.Ord == math.MaxInt {
+		return Pos{p.TS + 1, 0}
+	}
+	return Pos{p.TS, p.Ord + 1}
+}
+
+func (p Pos) Prev() Pos {
+	if p.Ord <= 0 {
+		return Pos{p.TS - 1, math.MaxInt}
+	}
+	return Pos{p.TS, p.Ord - 1}
 }
 
 // Chunk is one chunks row: every line its Origin backend served for the stream
@@ -61,17 +79,30 @@ type Span struct{ From, To Pos }
 // exclusive: After nil for the range older than every span, Before nil for the
 // range newer. Tier is the first of the cluster's backends that may hold it, by
 // index, and the gap is Lost when none can: older than a head chunk of the last
-// backend, past an at_end chunk, or in a stream no backend serves.
+// backend, past an at_end chunk, or in a stream no backend serves. Tailed is a gap
+// past the start of the tailer running on the stream, to be crossed and never filled:
+// the tailer reads on from its start, and writes its first chunk only on its first
+// commit. Tail is that start on the gap that ends at it, whose Before is then the
+// place just past the start, where the tailer's first chunk may begin.
 type Gap struct {
 	After  *Pos
 	Before *Pos
 	Tier   int
 	Lost   bool
+	Tailed bool
+	Tail   *Pos
 }
 
+// Live is whether a fill may be offered the gap: it is neither lost nor its tailer's.
+func (g Gap) Live() bool { return !g.Lost && !g.Tailed }
+
+// Newest is whether the gap is the newest a fill may read: the range newer than
+// every span, or the one up to the tailer's start. No chunk sits at its newer edge.
+func (g Gap) Newest() bool { return g.Before == nil || g.Tail != nil }
+
 // Coverage is a stream's chunks for one pattern read as spans, oldest first, and
-// the gaps around them: Gaps[i] is the range just older than Spans[i], and the last
-// gap the range newer than every span.
+// the gaps around them, oldest first: one before each span and one after the last,
+// the one a tailer's start falls inside cut in two at the start.
 type Coverage struct {
 	Spans []Span
 	Gaps  []Gap
@@ -79,8 +110,9 @@ type Coverage struct {
 
 // CoverageOf reads chunks, the stream's for one pattern, against backends, the
 // cluster's in the order a gap is offered to them by name, none for a stream no
-// backend serves.
-func CoverageOf(chunks []Chunk, backends []string) Coverage {
+// backend serves, and tail, the start of the tailer running on the stream, nil with
+// none.
+func CoverageOf(chunks []Chunk, backends []string, tail *Pos) Coverage {
 	chunks = slices.SortedFunc(slices.Values(chunks), func(a, b Chunk) int {
 		return cmp.Or(a.From.Compare(b.From), a.To.Compare(b.To))
 	})
@@ -108,9 +140,27 @@ func CoverageOf(chunks []Chunk, backends []string) Coverage {
 			g.Tier = len(backends)
 		}
 		g.Lost = g.Tier >= len(backends)
-		cov.Gaps = append(cov.Gaps, g)
+		cov.Gaps = append(cov.Gaps, cutAtTail(g, tail)...)
 	}
 	return cov
+}
+
+// cutAtTail is g read against tail, the tailer's start: as it is when it lies below
+// the start, tailed when it lies past it, and cut in two when the start falls inside
+// it, the range up to the start and the tailer's past it.
+func cutAtTail(g Gap, tail *Pos) []Gap {
+	switch {
+	case tail == nil, g.Before != nil && g.Before.Compare(tail.Next()) <= 0:
+		return []Gap{g}
+	case g.After != nil && g.After.Compare(*tail) >= 0:
+		g.Tailed = true
+		return []Gap{g}
+	}
+	start, cut := *tail, tail.Next()
+	below, past := g, g
+	below.Before, below.Tail = &cut, &start
+	past.After, past.Tailed = &start, true
+	return []Gap{below, past}
 }
 
 // joins is whether c continues s: it overlaps it, or its link names a line in it.

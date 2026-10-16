@@ -27,13 +27,14 @@ import (
 const maxInstances = 8
 
 // pageStream is one stream a page reads: its file row, the stream the resolve
-// handed out for it, nil for one only the file holds, and its lines' stream and
-// place as the page answers them.
+// handed out for it, nil for one only the file holds, its lines' stream and place as
+// the page answers them, and the start of the tailer running on it, nil with none.
 type pageStream struct {
 	row   logstore.Stream
 	st    *stream
 	key   StreamKey
 	place Place
+	tail  *logstore.Pos
 }
 
 // exhausted is whether no backend serves ps: it is read from the file alone, and

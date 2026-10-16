@@ -36,10 +36,11 @@ type streamFill struct {
 	// retired is whether the connection's retirement cut a read before its first
 	// line, which refuses the page as the merge refuses a live read so cut.
 	retired bool
-	// fromKey is whether the gap the page's bound sits in was read from the bound,
-	// so nothing lies between the bound and the first line past it: the walk crosses
-	// that gap. toEnd is whether the newest gap was read to the stream's end, which
-	// ends the walk there.
+	// fromKey is whether the first gap a fill may be offered was read from where the
+	// walk starts in it, the page's bound or the tailer's start, so nothing lies
+	// between there and the first line past it: the walk crosses that gap. toEnd is
+	// whether a Head page read the newest gap it may fill whole, to the stream's end
+	// or to the tailer's start, which no chunk sits at: the walk crosses it.
 	fromKey bool
 	toEnd   bool
 }
@@ -76,28 +77,34 @@ func (f *filler) run(ctx context.Context, key logstore.Pos) (streamFill, error) 
 		return streamFill{}, err
 	}
 	f.held = heldBy(chunks)
-	segs := segmentsFrom(logstore.CoverageOf(chunks, f.names), key, f.q.mode)
+	segs := segmentsFrom(logstore.CoverageOf(chunks, f.names, f.ps.tail), key, f.q.mode)
 	// Counting a span only decides whether to fill a gap past it, so the fill ends
 	// at the last live gap.
 	segs = segs[:lastLiveGap(segs)+1]
-	for i, seg := range segs {
+	first := true
+	for _, seg := range segs {
 		var more bool
-		if seg.span != nil {
+		switch {
+		case seg.span != nil:
 			more, err = f.countSpan(ctx, *seg.span, key)
-		} else {
-			more, err = f.fillGap(ctx, *seg.gap, key, i == 0)
+		case seg.gap.Live():
+			more, err = f.fillGap(ctx, *seg.gap, key, first)
+		default:
+			continue
 		}
 		if err != nil || !more {
 			return f.out, err
 		}
+		first = false
 	}
 	return f.out, nil
 }
 
-// lastLiveGap is the index of the last gap of segs a backend may hold, -1 with none.
+// lastLiveGap is the index of the last gap of segs that a fill may be offered, -1
+// with none.
 func lastLiveGap(segs []segment) int {
 	for i := len(segs) - 1; i >= 0; i-- {
-		if segs[i].gap != nil && !segs[i].gap.Lost {
+		if segs[i].gap != nil && segs[i].gap.Live() {
 			return i
 		}
 	}
@@ -111,9 +118,9 @@ func (f *filler) filled() bool { return f.count >= f.q.need() }
 // fill may go on past the span: the stream still needs lines, and the walks' budget
 // is not spent.
 func (f *filler) countSpan(ctx context.Context, sp logstore.Span, key logstore.Pos) (bool, error) {
-	from, to := logstore.MaxPos(key, justBefore(sp.From)), sp.To
+	from, to := logstore.MaxPos(key, sp.From.Prev()), sp.To
 	if f.q.mode == FetchTail {
-		from, to = logstore.MinPos(key, justAfter(sp.To)), sp.From
+		from, to = logstore.MinPos(key, sp.To.Next()), sp.From
 	}
 	counted := true
 	err := f.file.Read(ctx, func(r logstore.Reader) error {
@@ -131,13 +138,11 @@ func (f *filler) countSpan(ctx context.Context, sp logstore.Span, key logstore.P
 	return counted && !f.filled(), err
 }
 
-// fillGap reads g from the backends unless it is lost, and is whether the fill may
-// go on past it: the gap was read whole, the stream still needs lines, and the
-// read neither failed nor spent the budget. first is whether key sits in g.
+// fillGap reads g, a live gap, from the backends, and is whether the fill may go on
+// past it: the gap was read whole, the stream still needs lines, and the read neither
+// failed nor spent the budget. first is whether g is the first gap the fill is
+// offered, the one the walk starts in.
 func (f *filler) fillGap(ctx context.Context, g logstore.Gap, key logstore.Pos, first bool) (bool, error) {
-	if g.Lost {
-		return true, nil
-	}
 	lower, upper, prev, next := gapRange(g, key, f.q.mode)
 	if f.q.mode == FetchHead && lower != nil && prev == nil {
 		// The read starts at the bound, inside the gap.
@@ -150,7 +155,7 @@ func (f *filler) fillGap(ctx context.Context, g logstore.Gap, key logstore.Pos, 
 	if first && (whole || got) {
 		f.out.fromKey = true
 	}
-	if whole && f.q.mode == FetchHead && g.Before == nil {
+	if whole && f.q.mode == FetchHead && g.Newest() {
 		f.out.toEnd = true
 	}
 	return whole && !f.filled() && f.out.err == nil && !f.budget.spent(), nil
@@ -313,14 +318,19 @@ type segment struct {
 }
 
 // segmentsFrom is cov's spans and gaps in the order a page reading mode from key
-// meets them, less the ones wholly behind key.
+// meets them, less the ones wholly behind key: a span, or a gap with no place left
+// for a line between key and its far edge.
 func segmentsFrom(cov logstore.Coverage, key logstore.Pos, mode FetchMode) []segment {
 	var all []segment
+	spans := cov.Spans
 	for i := range cov.Gaps {
-		all = append(all, segment{gap: &cov.Gaps[i]})
-		if i < len(cov.Spans) {
-			all = append(all, segment{span: &cov.Spans[i]})
+		// A span goes before the first gap that starts at or past its end.
+		g := &cov.Gaps[i]
+		for len(spans) > 0 && g.After != nil && spans[0].To.Compare(*g.After) <= 0 {
+			all = append(all, segment{span: &spans[0]})
+			spans = spans[1:]
 		}
+		all = append(all, segment{gap: g})
 	}
 	head := mode == FetchHead
 	if !head {
@@ -335,9 +345,9 @@ func segmentsFrom(cov logstore.Coverage, key logstore.Pos, mode FetchMode) []seg
 		case seg.span != nil:
 			behind = seg.span.From.Compare(key) >= 0
 		case head:
-			behind = seg.gap.Before != nil && seg.gap.Before.Compare(key) <= 0
+			behind = seg.gap.Before != nil && seg.gap.Before.Prev().Compare(key) <= 0
 		default:
-			behind = seg.gap.After != nil && seg.gap.After.Compare(key) >= 0
+			behind = seg.gap.After != nil && seg.gap.After.Next().Compare(key) >= 0
 		}
 		if !behind {
 			out = append(out, seg)
@@ -359,11 +369,6 @@ func gapRange(g logstore.Gap, key logstore.Pos, mode FetchMode) (lower, upper, p
 	}
 	return lower, upper, prev, next
 }
-
-// justBefore and justAfter are the positions just before and just after p in its
-// stream, between p and the lines next to it.
-func justBefore(p logstore.Pos) logstore.Pos { return logstore.Pos{TS: p.TS, Ord: p.Ord - 1} }
-func justAfter(p logstore.Pos) logstore.Pos  { return logstore.Pos{TS: p.TS, Ord: p.Ord + 1} }
 
 // checkInstances throws away the reads of each stream whose pod no longer runs the
 // instance it was resolved as, and skips it in every direction: the mirror lags a

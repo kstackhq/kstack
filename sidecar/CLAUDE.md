@@ -2130,7 +2130,13 @@ function** (`CoverageOf`, `coverage.go`): a stream's chunks for a pattern as spa
 overlap or by a link (`prev_ns`, `prev_ord`) that lands inside the span, and the gaps between,
 each with the tier of the first backend that may hold it and `Lost` when none can: older than
 a `head` chunk of the last backend, past an `at_end` chunk, or in a stream no backend serves.
-**A `Fill` is one read of one gap** (`fill.go`): its lines claimed from the first one returned,
+It takes the start of the tailer running on the stream, nil with none: every gap past the
+start is the tailer's (`Gap.Tailed`), crossed and never filled, since the tailer reads on from
+there and writes its first chunk only on its first commit; the gap the start falls inside is cut
+at it, the range up to the start (`Gap.Tail`) still live and the newest a fill may read
+(`Gap.Newest`), which a walk crosses once a fill read it whole, since no chunk sits at the start
+to link. `Pos.Next` and `Pos.Prev` are the first place past a position and the last before it
+that a line can sit at. **A `Fill` is one read of one gap** (`fill.go`): its lines claimed from the first one returned,
 `Prev` and `Merge` to continue the chunk the gap starts at, `Next` to link the chunk it ran
 into when it read the whole range, and `Head` and `AtEnd`, written onto the chunk next to it
 when it read nothing; a link or a mark reaches its own pattern's chunks alone, and two fills,
