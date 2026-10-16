@@ -186,8 +186,8 @@ elsewhere reads whatever serves it, and an archive is asked only for a range the
 has said it does not hold (§3). A stream an archive knows only by name has `''` for its
 `container_id` and NULL for `started_at`; it is one row across every restart, which is what the
 archive knows, and its derived `previous` is unknown rather than guessed. The cursor does not
-carry such a stream yet: an empty id is how a position names a moment (§8), so an archive
-backend brings a cursor change of its own, decided when it lands. A page's
+carry such a stream yet: `parseCursor` refuses an empty id (§8), so an archive backend brings a
+cursor change of its own, decided when it lands. A page's
 statement walks `lines_position`. Nothing else is indexed. `lines` is a rowid table, not
 `WITHOUT ROWID`, for the reason `kubestore`'s `objects` is: a line is often past the row size at
 which `WITHOUT ROWID` pays and can reach 16 KiB. Its `id` is commit order, which the follow reads
@@ -267,8 +267,9 @@ direction from the cursor:
    follow, since it is the user's credentials; `Denied`, which is one stream's and caches nothing
    for it; `Ended`, the backend's answer for that log now, which caches nothing and is asked again
    at a later generation; and `Transient`, which is retried as today. The kubelet backend maps a
-   401 onto `Fatal`, a 403 onto `Denied`, any other status under 500 onto `Ended` and the rest
-   onto `Transient`; another backend maps its own errors. The kubelet backend is the fetcher as it stands: a forward
+   401 onto `Fatal`, a 403 onto `Denied`, a 408 and a 429 onto `Transient`, since a request the
+   server timed out or throttled says nothing about the log, any other status under 500 onto
+   `Ended` and the rest onto `Transient`; another backend maps its own errors. The kubelet backend is the fetcher as it stands: a forward
    read for a gap that starts at a chunk's end, kubetail's backward windows for history older
    than the oldest chunk, the budget split evenly across the streams that need a read, `maxGets`
    per stream, each `GET` over a claim (`claim.go`), so a disabled or deleted cluster cuts its
@@ -277,11 +278,11 @@ direction from the cursor:
    writer. A stream that fails before any line in range becomes the page's `skipped` entry, as
    today, and its coverage is left alone.
 3. **Answer from the file.** One statement over `lines` joined to `streams` for the view's
-   streams, ordered by `(ts_ns, namespace, pod, container, container_id, ord)` — the order
+   streams, ordered by `(ts_ns, namespace, pod, container, ord, container_id)` — the order
    `comparePositions` keeps (§8), so a page's edges and the cursor agree with the statement —
    bounded by the cursor and `limit`, in one read transaction on the reader pool. It runs after
    the fills commit, so it sees them. Two instances of one container never tie on `ts_ns` in
-   practice, and when they do the id orders them; `started_at` is for the viewer, which draws
+   practice, and when they do the ordinal orders them, then the id; `started_at` is for the viewer, which draws
    the instances of a container in start order.
 
 **Grep** runs where the page is read. `kstack_grep(text)` is a Go function registered on the
@@ -407,7 +408,7 @@ A cursor is a position, `cursor.go`'s type: a moment alone, or a moment with a s
 ordinal. **The stream's instance is its `container_id`**, in the place `previous` holds today,
 beside the namespace, pod and container name. `previous` can change for one instance across a
 restart, and a line's key must not; the id cannot. `comparePrevious` goes with it, and the order
-is time, then the names as today, then the id, then the ordinal, so lines at one moment keep
+is time, then the names as today, then the ordinal, then the id, so lines at one moment keep
 their order and only two instances of one container at one moment sort differently (step 2). A
 `container_id` is longer than a name, which a cursor can afford, and it stays valid across a
 cache clear, which a file-local stream id would not. The ordinal is the backend's number for the

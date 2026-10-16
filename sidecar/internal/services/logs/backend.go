@@ -48,7 +48,9 @@ const (
 	// failEnded is any other status under 500, the server's answer for this log
 	// now (a container waiting to start, a pod gone).
 	failEnded
-	// failTransient is a 5xx or a transport error, which a follow retries.
+	// failTransient is a 5xx, a 408, a 429 or a transport error, which a follow
+	// retries: a request the server timed out or throttled says nothing about
+	// the log.
 	failTransient
 )
 
@@ -60,7 +62,8 @@ func failureKind(err error) failure {
 		return failNone
 	case errors.Is(err, ErrRevoked):
 		return failFatal
-	case !errors.As(err, &se) || se.code >= http.StatusInternalServerError:
+	case !errors.As(err, &se) || se.code >= http.StatusInternalServerError,
+		se.code == http.StatusRequestTimeout, se.code == http.StatusTooManyRequests:
 		return failTransient
 	case se.code == http.StatusUnauthorized:
 		return failFatal

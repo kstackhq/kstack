@@ -22,12 +22,12 @@ import (
 	"unicode"
 )
 
-// position is a line's place in a view's order: its moment, then its container
-// and the runtime id of the instance it came from, then its ordinal, its index
-// among that instance's lines at that moment. Every line has one and no two share
-// one, so a page can end at any line and the next can start just past it. A
-// position with no container is a moment: it stands before, or after, every line
-// of that moment at once.
+// position is a line's place in a view's order: its moment, then its container,
+// then its ordinal, its index among its instance's lines at that moment, then
+// the runtime id of the instance it came from. Every line has one and no two
+// share one, so a page can end at any line and the next can start just past it.
+// A position with no container is a moment: it stands before, or after, every
+// line of that moment at once.
 type position struct {
 	Timestamp   time.Time
 	Namespace   string
@@ -49,7 +49,11 @@ func positionOf(rec Record) position {
 }
 
 // comparePositions orders a against b: by time, then, unless either is a moment,
-// by namespace, pod, container, instance id and ordinal.
+// by namespace, pod, container, ordinal and instance id. The ordinal goes before
+// the id because the id is the resolve's, which lags a restart: a page can end on
+// a line keyed with the old id that the next page keys with the new one, and
+// with the id deciding the tie, the new instance's later lines at that moment
+// would all sort before the cursor and be lost.
 func comparePositions(a, b position) int {
 	if c := a.Timestamp.Compare(b.Timestamp); c != 0 || a.moment() || b.moment() {
 		return c
@@ -58,8 +62,8 @@ func comparePositions(a, b position) int {
 		cmp.Compare(a.Namespace, b.Namespace),
 		cmp.Compare(a.Pod, b.Pod),
 		cmp.Compare(a.Container, b.Container),
-		cmp.Compare(a.ContainerID, b.ContainerID),
 		cmp.Compare(a.Ordinal, b.Ordinal),
+		cmp.Compare(a.ContainerID, b.ContainerID),
 	)
 }
 

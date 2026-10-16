@@ -29,8 +29,8 @@ import (
 )
 
 // A read's failure is fatal for the user's credentials or a claim revoked, denied
-// for a 403, ended for any other status under 500, and transient for anything
-// else; a clean end is none.
+// for a 403, ended for any other status under 500 but a 408 or a 429, and
+// transient for anything else; a clean end is none.
 func TestFailureKind(t *testing.T) {
 	t.Parallel()
 	for err, want := range map[error]failure{
@@ -41,6 +41,8 @@ func TestFailureKind(t *testing.T) {
 		&statusError{code: http.StatusForbidden}:           failDenied,
 		&statusError{code: http.StatusBadRequest}:          failEnded,
 		&statusError{code: http.StatusNotFound}:            failEnded,
+		&statusError{code: http.StatusRequestTimeout}:      failTransient,
+		&statusError{code: http.StatusTooManyRequests}:     failTransient,
 		&statusError{code: http.StatusInternalServerError}: failTransient,
 		errors.New("connection reset"):                     failTransient,
 		errRetired:                                         failTransient,

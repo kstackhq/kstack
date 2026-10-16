@@ -33,14 +33,14 @@ follow from the file and never from the tailer. Checkpoints are true by construc
 
 ### 1. The writer and the commit bus
 
-`logstore/writer.go`. One goroutine per open file owns every tail write. Tailers reach it
-through a `gochan` `mpsc` with `WithKeepOpen`, one sender per tailer, closed when the tailer
-ends, bounded to `WriteQueue` batches. A batch closes at `WriteBatch` lines or
-`WriteBatchBytes`, whichever comes first, so the queue's worst case is bytes and not lines. The
-writer drains what has arrived every `WriteTick` or when a batch closes, writes it in one `InTx` extending each stream's `open` chunk, and after
-the commit sends on a `gobus/conflate` bus keyed by stream id, one coalesced ping per stream
-written. Fills from step 3 keep writing directly on the writer connection; SQLite's one writer
-serializes the two.
+`logstore/writer.go`. One goroutine per open file owns every tail write. Tailers reach it through a
+`gochan` `mpsc` with `WithKeepOpen`, one sender per tailer, closed when the tailer ends, bounded to
+`WriteQueue` batches. A batch closes at `WriteBatch` lines or `WriteBatchBytes`, whichever comes
+first, so the queue's worst case is bytes and not lines. The writer drains what has arrived every
+`WriteTick` or when a batch closes, writes it in one `InTx` extending each stream's `open` chunk,
+and after the commit sends on a `gobus/conflate` bus keyed by stream id, one coalesced ping per
+stream written. Fills from step 3 keep writing directly on the writer connection; SQLite's one
+writer serializes the two.
 
 ### 2. The registry and the tailers
 
@@ -49,11 +49,11 @@ serializes the two.
 kinds, each kept `TailGrace` after its last holder lets go. A follow's reconcile asks it for
 the streams the view wants at each generation; the registry starts a tailer that is not
 running, attaches to one that is, and detaches on the next reconcile for a stream the view no
-longer wants. A tailer is `Backend.Tail` from the moment of the stream's newest chunk's last
-line, or the follow's `after`, or now. It hands its lines to the writer. A `Fatal` failure ends
-every follow on the file, an `Ended` one holds the stream until its generation moves, a
-`Denied` one the same with the reason remembered, a `Transient` one is retried under the follow's backoff (the four kinds
-are step 2's). A reconcile that sees an instance finish sets `finished_at`, ends its tailer,
+longer wants. A tailer is `Backend.Tail` from the moment of the stream's newest chunk's last line,
+or the follow's `after`, or now. It hands its lines to the writer. A `Fatal` failure ends every
+follow on the file, an `Ended` one holds the stream until its generation moves, a `Denied` one the
+same with the reason remembered, a `Transient` one is retried under the follow's backoff (the four
+kinds are step 2's). A reconcile that sees an instance finish sets `finished_at`, ends its tailer,
 and the tailer's last read, reaching the end, marks the chunk `at_end`. The registry asks for one
 tailer per stream; a backend may share a connection underneath.
 

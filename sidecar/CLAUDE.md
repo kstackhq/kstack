@@ -2161,7 +2161,9 @@ way.
 instance it came from (`container_id`, or `last_container_id` for a previous instance) and its
 ordinal among that instance's lines at the moment, so a page can end at any line and the next
 starts just past it, and a line keeps its key once its instance is the previous one. Lines order by
-time, then namespace, pod and container name, then id. `parseCursor` takes any id that is not
+time, then namespace, pod and container name, then ordinal, then id: the id is the resolve's,
+which lags a restart, so a page can end on a line keyed with the old id that the next page keys
+with the new one, and the ordinal deciding the tie is what keeps that page from losing lines. `parseCursor` takes any id that is not
 empty, holds no control character and is at most 256 bytes (`validContainerID`), since a runtime
 spells its ids as it likes. A time alone names a moment, which the viewer's `At` anchor sends;
 `since` and `until` keep the cursor's line where `after` and `before` drop it. The id is the
@@ -2182,8 +2184,8 @@ to build; a test sets the field to build its fake. **`failureKind` is the one cl
 `fatalError`; `failDenied` (a 403, since access to `pods/log` is granted per namespace) and
 `failEnded` (any other status under 500, the server's answer for this log now) are one stream's, a
 page's `skipped` entry, and a follow ends the stream until its generation moves, a 403 remembered
-as its reason; `failTransient` (a 5xx or a transport error) is skipped by a page and retried by a
-follow under its backoff.
+as its reason; `failTransient` (a 5xx, a 408, a 429 or a transport error) is skipped by a page and
+retried by a follow under its backoff.
 
 **A follow's claim also watches the record**, revoking it (`ErrRevoked`) once the cluster is
 disabled or deleted, as the bash tool's upstream does. A watch that ends after its snapshot is

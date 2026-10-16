@@ -92,13 +92,13 @@ func TestACursorTakesARuntimesID(t *testing.T) {
 	}
 }
 
-// Lines order by time, then namespace, pod and container, then instance id, and
-// ordinal; against a moment, by time alone.
+// Lines order by time, then namespace, pod and container, then ordinal, and the
+// instance id decides only an equal ordinal; against a moment, by time alone.
 func TestPositionsOrder(t *testing.T) {
 	t.Parallel()
 	a := StreamKey{Namespace: "prod", Pod: "a", Container: "app"}
 	sidecar := StreamKey{Namespace: "prod", Pod: "a", Container: "sidecar"}
-	older, newer := lineAt(a, 0, 9), lineAt(a, 0, 0)
+	older, newer := lineAt(a, 0, 0), lineAt(a, 0, 0)
 	older.ContainerID, newer.ContainerID = "containerd://a-0", "containerd://a-1"
 	assert.Less(t, comparePositions(lineAt(a, 0, 5), lineAt(a, time.Second, 0)), 0)
 	assert.Less(t, comparePositions(lineAt(a, 0, 0), lineAt(a, 0, 1)), 0)
@@ -107,6 +107,20 @@ func TestPositionsOrder(t *testing.T) {
 	assert.Less(t, comparePositions(lineAt(a, 0, 9), lineAt(sidecar, 0, 0)), 0)
 	assert.Equal(t, 0, comparePositions(lineAt(a, 0, 7), position{Timestamp: at(0)}))
 	assert.Equal(t, 0, comparePositions(position{Timestamp: at(0)}, lineAt(a, 0, 7)))
+}
+
+// A line past a cursor's ordinal at the cursor's moment sorts after it whichever
+// instance id it carries: the resolve lags a restart, so a page can end on a
+// line keyed with the old id that the next page keys with the new one, and the
+// lines past it must not fall before the cursor.
+func TestALaterOrdinalFollowsTheCursorWhateverItsID(t *testing.T) {
+	t.Parallel()
+	a := StreamKey{Namespace: "prod", Pod: "a", Container: "app"}
+	for _, ids := range [][2]string{{"containerd://a-0", "containerd://a-1"}, {"containerd://a-1", "containerd://a-0"}} {
+		end, next := lineAt(a, 0, 3), lineAt(a, 0, 4)
+		end.ContainerID, next.ContainerID = ids[0], ids[1]
+		assert.Greater(t, comparePositions(next, end), 0, ids)
+	}
 }
 
 // A bound keeps or drops the line it sits on as its inclusivity says, and a

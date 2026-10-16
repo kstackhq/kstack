@@ -44,21 +44,25 @@ failure kinds below.
 
 ### 1. The position
 
-`position` in `cursor.go` is a moment, a stream and an ordinal. The stream half keeps
-`Namespace`, `Pod` and `Container` and takes `ContainerID` in `Previous`'s place: the id the
-resolve already has for every stream it hands out (`container_id`, or `last_container_id` for a
-previous instance). `comparePositions` orders by time, then namespace, pod and container name as
-today, then the id, then the ordinal; `comparePrevious` goes. So lines at one moment keep their
-order on the wire, and the one order that moves is two instances of one container at one moment,
-which sort by id where they sorted the previous first — a tie a restart within one second makes,
-and nothing else. The encoding stays as it is, the id in `previous`'s field, and `parseCursor`
-checks what the resolve guarantees of an id and nothing more: not empty, no tab or control
-character, at most 256 bytes. A runtime's id is text the server wrote — `containerd://<hex>` on a
-real node, whatever a virtual kubelet or a test fixture spells — so a shape check would refuse
-cursors the server itself handed out. The id is the cluster's own status text, so the resolve
-applies the same three checks to each `container_id` and `last_container_id` it reads and skips
-a stream whose id fails one, as it skips one with no id: the server never hands out a cursor it
-would refuse. A cursor is longer than before and still opaque.
+`position` in `cursor.go` is a moment, a stream and an ordinal. The stream half keeps `Namespace`,
+`Pod` and `Container` and takes `ContainerID` in `Previous`'s place: the id the resolve already has
+for every stream it hands out (`container_id`, or `last_container_id` for a previous instance).
+`comparePositions` orders by time, then namespace, pod and container name as today, then the
+ordinal, then the id; `comparePrevious` goes. So lines at one moment keep their order on the wire,
+and the one order that moves is two instances of one container at one moment, which interleave by
+ordinal where they sorted the previous first — a tie only equal timestamps make, to the nanosecond,
+and nothing else. The ordinal goes before the id because the id is the resolve's, which lags a
+restart: a page can end on a line keyed with the old id that the next page keys with the new one,
+and were the id to decide the tie, the new instance's later lines at that moment would all sort
+before the cursor and be lost; a follow reopening a stream would keep or drop them by how two ids
+happen to sort. With the ordinal first both do what they did before. The encoding stays as it is,
+the id in `previous`'s field, and `parseCursor` checks what the resolve guarantees of an id and
+nothing more: not empty, no tab or control character, at most 256 bytes. A runtime's id is text the
+server wrote — `containerd://<hex>` on a real node, whatever a virtual kubelet or a test fixture
+spells — so a shape check would refuse cursors the server itself handed out. The id is the cluster's
+own status text, so the resolve applies the same three checks to each `container_id` and
+`last_container_id` it reads and skips a stream whose id fails one, as it skips one with no id: the
+server never hands out a cursor it would refuse. A cursor is longer than before and still opaque.
 
 `StreamKey` on the wire keeps `namespace`, `pod`, `container` and `previous`. The record carries
 the id too, since the merge keys on the position, and nothing on the wire changes. The follow's
@@ -103,7 +107,7 @@ classification, with `fatal` and `dropped` folded into it:
 | `Fatal` | a 401, a revoked claim | the user's credentials, or Kstack no longer connecting: fails the whole page or follow |
 | `Denied` | a 403 | this stream's alone: a page's `skipped` entry; a follow ends the stream as `Ended` does, reopening it at a later generation, and remembers the reason, which ends the follow once every stream has ended |
 | `Ended` | any other status under 500 | the server's answer for this log now (`container is waiting to start`, a 404): a page's `skipped` entry; a follow ends the stream and reopens it at a later generation |
-| `Transient` | a 5xx, a transport error | dropped and retried as today, under the follow's backoff |
+| `Transient` | a 5xx, a 408, a 429, a transport error | dropped and retried as today, under the follow's backoff; a request the server timed out or throttled says nothing about the log, so a follow the API server's rate limiting refused does not wait for the pod to change |
 
 A clean end stays what it is today: for a fetch the end of the range, and for a follow on a
 container the view sees running, a drop. `errRetired` stays a short read, not a failure kind.
@@ -141,10 +145,12 @@ the first backend outside the kubelet's shape is designed.
 Go, beside the files they cover.
 
 - `cursor_test.go`: a cursor round-trips the id; a line's cursor is the same before and after
-  its instance becomes the previous one; `parseCursor` refuses an empty id, one holding a tab or
-  a control character, and one past 256 bytes, and takes the fixtures' `containerd://<uid>-<name>-<n>`;
-  two instances of one container at one moment order by id, and lines of two containers at one
-  moment order by name as before.
+  its instance becomes the previous one; `parseCursor` refuses an empty id, one holding a
+  control character, and one past 256 bytes, and takes the fixtures' `containerd://<uid>-<name>-<n>`
+  (a tab in the id splits the cursor, so the field count refuses it before the id check runs);
+  two instances of one container at one moment order by ordinal, the id deciding an equal
+  ordinal alone, a line past a cursor's ordinal at its moment sorts after it whichever id it
+  carries, and lines of two containers at one moment order by name as before.
 - `fetch_test.go`, `follow_test.go`, `fetcher_test.go`, `merge_test.go`: the behaviour cases pass
   over the seam; the cases that spell a cursor or build a `position{…}` change with the encoding,
   and `TestDropped` becomes a test of `failureKind`. `TestPagesJoinWithoutLossOrRepeat` and
