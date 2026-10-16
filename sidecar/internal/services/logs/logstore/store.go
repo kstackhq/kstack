@@ -50,6 +50,8 @@ type file struct {
 	readDB *sql.DB
 	set    *sqlstmt.Set[stmtID]
 	bus    *conflate.Hub[int64, struct{}]
+	// w is the file's writer, nil for a file opened outside a manager.
+	w *writer
 	// ctx is what an operation runs its statements under; close cancels it, so the wait
 	// for inUse is a wait for interrupted statements to unwind. inUse counts the
 	// operations running on the file, which close waits for, since sql.DB.Close does not
@@ -87,15 +89,26 @@ func openFile(path string) (*file, error) {
 		readDB.Close()
 		return nil, fmt.Errorf("prepare: %w", err)
 	}
+	// Closing a chunk is its tailer's last write, so a crash or a failed write leaves it
+	// open; no tailer runs before the file is open.
+	if _, err := set.Stmts().Exec(context.Background(), stmtCloseOpenChunks); err != nil {
+		set.Close()
+		db.Close()
+		readDB.Close()
+		return nil, fmt.Errorf("close open chunks: %w", err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &file{db: db, readDB: readDB, set: set, bus: conflate.New[int64, struct{}](), ctx: ctx, cancel: cancel}, nil
 }
 
-// close ends the bus's receivers, interrupts the file's operations, waits for them to
-// end, and closes both pools.
+// close ends the bus's receivers, interrupts the file's operations and its writer,
+// waits for them to end, and closes both pools.
 func (f *file) close() error {
 	f.bus.Close()
 	f.cancel()
+	if f.w != nil {
+		f.w.stop()
+	}
 	f.inUse.Wait()
 	return errors.Join(f.set.Close(), f.db.Close(), f.readDB.Close())
 }

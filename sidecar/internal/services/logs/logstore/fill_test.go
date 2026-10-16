@@ -115,6 +115,21 @@ func TestAWholeFillMergesIntoTheChunkItContinues(t *testing.T) {
 	assert.Len(t, CoverageOf(chunks, kubelet).Spans, 1)
 }
 
+// A tailer is the one writer of the chunk it holds open, so a fill that continues it
+// is a chunk of its own, linked to it: the two are still one span.
+func TestNoFillExtendsAnOpenChunk(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	id := streamOf(t, s)
+	openChunk(t, s, insertChunk(t, s, id, chunk(at(1, 0), at(2, 0))))
+
+	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(2, 1)), Prev: ptr(at(2, 0)), Merge: true})
+
+	tail := chunk(at(1, 0), at(2, 0))
+	tail.Open = true
+	assert.Equal(t, []Chunk{tail, linked(chunk(at(2, 1), at(2, 1)), at(2, 0))}, chunksOfStream(t, s, id))
+}
+
 // A fill closes its chunk at ChunkBytes or ChunkSpan and opens the next at the line
 // after, linked to it, so the seam is one span and a page over it reads nothing.
 func TestAFillClosesItsChunkAtChunkBytesOrChunkSpan(t *testing.T) {

@@ -2122,8 +2122,8 @@ and trims it; each reads first and takes no write when the file already holds it
 `PodStreams` is a pod's rows, by UID or, for a gone pod, by name alone; `Chunks` a stream's
 chunks for a pattern, its own and the unlabelled ones; `Write` files buffered `Fill`s in one
 transaction; `Read` runs walks over one snapshot (`Reader.Lines`, one walk of
-`lines_position` each way); `Evict` drops one chunk, by id, and the lines no other chunk
-claims, reading its bounds in its own transaction; `Subscribe` is a `gobus/conflate` receiver
+`lines_position` each way); `Evict` drops one chunk, by id, never an open one, and the lines no
+other chunk claims, reading its bounds in its own transaction; `Subscribe` is a `gobus/conflate` receiver
 keyed by stream id, pinged after every commit that writes a stream lines, so a reader learns of
 a fill as it lands. **Coverage is a pure
 function** (`CoverageOf`, `coverage.go`): a stream's chunks for a pattern as spans, joined by
@@ -2133,8 +2133,17 @@ a `head` chunk of the last backend, past an `at_end` chunk, or in a stream no ba
 **A `Fill` is one read of one gap** (`fill.go`): its lines claimed from the first one returned,
 `Prev` and `Merge` to continue the chunk the gap starts at, `Next` to link the chunk it ran
 into when it read the whole range, and `Head` and `AtEnd`, written onto the chunk next to it
-when it read nothing; a link or a mark reaches its own pattern's chunks alone, and two fills
-starting at one line leave one chunk, with the later end. **The trim** (`trim.go`) cuts a finished stream at the end of
+when it read nothing; a link or a mark reaches its own pattern's chunks alone, and two fills,
+or a fill and a tail, starting at one line leave one chunk, with the later end, open while the
+tail writes it. **A `Tail` is a tailer's way into the file's writer** (`writer.go`, one goroutine
+per open file): `OpenTail` hands out an `mpsc` sender, `Write` hands over a batch of lines, and
+`Close` the last batch; the writer writes what has arrived on `WriteTick`, or at once for a full
+or last batch, in one transaction, extending the tail's `open` chunk by the chunk rules, closing
+it in the write that ends the tail, and trimming a finished stream. No fill extends an open
+chunk. A write that fails fails each tail it held a batch of (`Tail.Failed`): the writer takes
+no more of its lines, and `Tail.Committed` is the last line it landed. The manager's open closes
+every chunk a crash left open, the one point at which no tailer can be running. **The trim**
+(`trim.go`) cuts a finished stream at the end of
 `finished_at`'s second, since a container status's times are whole seconds, and clears
 `at_end` when it removed anything; it runs when `finished_at` is first set and after every
 write to a finished stream.

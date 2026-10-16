@@ -378,3 +378,34 @@ func TestAnOpenThatCloseOvertakesClosesItsFile(t *testing.T) {
 
 	assert.ErrorIs(t, <-opened, ErrClosed)
 }
+
+// openChunk marks c, a chunk of the file behind s, open, as a tailer leaves the chunk it
+// writes into.
+func openChunk(t *testing.T, s *Store, c Chunk) {
+	t.Helper()
+	using(t, s, func(f *file) {
+		_, err := f.db.Exec(`UPDATE chunks SET open = 1 WHERE id = ?`, c.ID)
+		require.NoError(t, err)
+	})
+}
+
+// A chunk a crash or a failed write left open is closed when the file is opened again,
+// the one point at which no tailer can be running, and a tailer then extends it.
+func TestAStaleOpenChunkIsClosedWhenTheFileOpens(t *testing.T) {
+	t.Parallel()
+	m, _ := newTestManager(t)
+	s := open(t, m, 1)
+	id := streamOf(t, s)
+	openChunk(t, s, insertChunk(t, s, id, chunk(at(0, 0), at(1, 0))))
+	require.True(t, chunksOfStream(t, s, id)[0].Open)
+	require.NoError(t, s.Close())
+
+	s = open(t, m, 1)
+	t.Cleanup(func() { assert.NoError(t, s.Close()) })
+
+	assert.False(t, chunksOfStream(t, s, id)[0].Open)
+	tail, err := s.OpenTail(id, "kubelet", ptr(at(1, 0)), true)
+	require.NoError(t, err)
+	require.NoError(t, tail.Close(t.Context(), lines(at(1, 1))))
+	assert.Equal(t, []Chunk{chunk(at(0, 0), at(1, 1))}, chunksOfStream(t, s, id), "a tailer extends it")
+}

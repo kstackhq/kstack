@@ -63,7 +63,7 @@ func (s *Store) Write(ctx context.Context, fills []Fill) error {
 	err := s.operate(ctx, func(ctx context.Context, f *file) error {
 		err := f.set.InTx(ctx, func(st stmts) error { return writeFills(ctx, st, s.m.ret, fills, now) })
 		if err == nil {
-			f.ping(streamsWithLines(fills))
+			f.ping(streamsWithLines(fills, func(f Fill) (int64, int) { return f.Stream, len(f.Lines) }))
 		}
 		return err
 	})
@@ -101,7 +101,7 @@ func writeFill(ctx context.Context, st stmts, ret Retention, f Fill, now int64) 
 			return err
 		}
 		for _, c := range chunks {
-			if err := putChunk(ctx, st, f.Stream, c, now); err != nil {
+			if _, err := putChunk(ctx, st, f.Stream, c, now); err != nil {
 				return err
 			}
 		}
@@ -175,8 +175,12 @@ func cutChunks(ret Retention, cur Chunk, fresh bool, lines []Line) []Chunk {
 			prev := cur.To
 			cur = Chunk{Pattern: cur.Pattern, Origin: cur.Origin, From: l.Pos, Prev: &prev}
 		}
-		cur.To = l.Pos
-		cur.Bytes += int64(len(l.Message))
+		// A line at or before the end is one the row already holds, a fill's that
+		// merged into it; one past the end moves it off the instance's last line.
+		if fresh || l.Pos.Compare(cur.To) > 0 {
+			cur.To, cur.AtEnd = l.Pos, false
+			cur.Bytes += int64(len(l.Message))
+		}
 		fresh = false
 	}
 	return append(out, cur)
@@ -188,8 +192,8 @@ func full(ret Retention, c Chunk, ts int64) bool {
 	return c.Bytes >= ret.ChunkBytes || ts-c.From.TS >= int64(ret.ChunkSpan)
 }
 
-// chunkEndingAt is the stream's chunk of pattern and origin whose last line is at,
-// false with none.
+// chunkEndingAt is the stream's closed chunk of pattern and origin whose last line is
+// at, false with none.
 func chunkEndingAt(ctx context.Context, st stmts, stream int64, pattern, origin string, at Pos) (Chunk, bool, error) {
 	chunks, err := queryChunks(ctx, st, stmtSelectChunkEndingAt, stream, pattern, origin, at.TS, at.Ord)
 	if err != nil || len(chunks) == 0 {
@@ -198,28 +202,26 @@ func chunkEndingAt(ctx context.Context, st stmts, stream int64, pattern, origin 
 	return chunks[0], true, nil
 }
 
-// putChunk writes c: over its row when it has one, else as a new row, merged into
-// the chunk of its pattern that already starts at its first line.
-func putChunk(ctx context.Context, st stmts, stream int64, c Chunk, now int64) error {
+// putChunk writes c and answers its row as it now stands: a new row, or the row of
+// its pattern that already starts at its first line, which the write merges into.
+func putChunk(ctx context.Context, st stmts, stream int64, c Chunk, now int64) (Chunk, error) {
 	var prevNS, prevOrd any
 	if c.Prev != nil {
 		prevNS, prevOrd = c.Prev.TS, c.Prev.Ord
 	}
-	if c.ID != 0 {
-		_, err := st.Exec(ctx, stmtExtendChunk, c.ID, c.To.TS, c.To.Ord, c.AtEnd, c.Bytes, now)
-		return err
-	}
-	_, err := st.Exec(ctx, stmtInsertChunk, stream, c.Pattern, c.From.TS, c.From.Ord, c.To.TS, c.To.Ord,
-		prevNS, prevOrd, c.Origin, c.Head, c.AtEnd, c.Bytes, now)
-	return err
+	err := st.QueryRow(ctx, stmtInsertChunk, stream, c.Pattern, c.From.TS, c.From.Ord, c.To.TS, c.To.Ord,
+		prevNS, prevOrd, c.Origin, c.Head, c.AtEnd, c.Open, c.Bytes, now).
+		Scan(&c.ID, &c.To.TS, &c.To.Ord, &c.AtEnd, &c.Open, &c.Bytes)
+	return c, err
 }
 
-// streamsWithLines is each stream fills write a line to, once.
-func streamsWithLines(fills []Fill) []int64 {
+// streamsWithLines is each stream the items write a line to, once, in order: of
+// answers an item's stream and how many lines it writes.
+func streamsWithLines[T any](items []T, of func(T) (stream int64, lines int)) []int64 {
 	var ids []int64
-	for _, f := range fills {
-		if len(f.Lines) > 0 {
-			ids = append(ids, f.Stream)
+	for _, item := range items {
+		if stream, lines := of(item); lines > 0 {
+			ids = append(ids, stream)
 		}
 	}
 	return distinct(ids)

@@ -38,7 +38,8 @@ func (p Pos) Compare(q Pos) int {
 // from From to To that matches Pattern is in the file. Prev is the position it
 // continues from, the last line of the chunk before it with nothing between, nil
 // when it opened on a gap. Head is the backend holding nothing older than From,
-// and AtEnd To being a finished instance's last line.
+// AtEnd To being a finished instance's last line, and Open a tailer still writing
+// into it.
 type Chunk struct {
 	ID      int64
 	Pattern string
@@ -48,6 +49,7 @@ type Chunk struct {
 	Origin  string
 	Head    bool
 	AtEnd   bool
+	Open    bool
 	Bytes   int64
 }
 
@@ -174,7 +176,7 @@ func queryChunks(ctx context.Context, st stmts, stmt stmtID, args ...any) ([]Chu
 		var c Chunk
 		var prevNS, prevOrd sql.NullInt64
 		if err := rows.Scan(&c.ID, &c.Pattern, &c.From.TS, &c.From.Ord, &c.To.TS, &c.To.Ord, &prevNS, &prevOrd,
-			&c.Origin, &c.Head, &c.AtEnd, &c.Bytes); err != nil {
+			&c.Origin, &c.Head, &c.AtEnd, &c.Open, &c.Bytes); err != nil {
 			return nil, err
 		}
 		if prevNS.Valid {

@@ -22,21 +22,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/amorey/gobus"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
-
-// pingEvent is one ping off the file's bus.
-type pingEvent = gobus.Event[int64, struct{}]
-
-// subscribe is a receiver of the pings for ids, closed when the test ends.
-func subscribe(t *testing.T, s *Store, ids ...int64) <-chan pingEvent {
-	t.Helper()
-	rx, err := s.Subscribe(ids...)
-	require.NoError(t, err)
-	t.Cleanup(rx.Close)
-	return rx.Chan()
-}
 
 // openTestFile opens a fresh file under a temp directory, closed when the test ends.
 func openTestFile(t *testing.T) *file {
