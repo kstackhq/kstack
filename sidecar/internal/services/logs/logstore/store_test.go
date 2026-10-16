@@ -15,7 +15,9 @@
 package logstore
 
 import (
+	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -98,6 +100,57 @@ func TestAFileReopensWithWhatItHeld(t *testing.T) {
 	t.Cleanup(func() { assert.NoError(t, f.close()) })
 
 	assert.Equal(t, 1, countStreams(t, f))
+}
+
+// A file that cannot be opened is refused at the step that failed.
+func TestAFileThatCannotOpenIsRefused(t *testing.T) {
+	t.Parallel()
+	// prepared opens a file and runs stmt on it, leaving it closed for openFile to try.
+	prepared := func(stmt string) func(t *testing.T, path string) {
+		return func(t *testing.T, path string) {
+			f, err := openFile(path)
+			require.NoError(t, err)
+			id := insertStream(t, f)
+			_, err = f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, origin, at_head, at_end, open, bytes, read_at_ms)
+				VALUES (?, '', 1, 0, 1, 0, 'kubelet', 0, 0, 1, 0, 0)`, id)
+			require.NoError(t, err)
+			_, err = f.db.Exec(stmt)
+			require.NoError(t, err)
+			require.NoError(t, f.close())
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, path string)
+		want  string
+	}{
+		{"its directory is a file", func(t *testing.T, path string) {
+			require.NoError(t, os.WriteFile(filepath.Dir(path), nil, 0o600))
+		}, "mkdir"},
+		{"it is not a database", func(t *testing.T, path string) {
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+			require.NoError(t, os.WriteFile(path, []byte("not a database, not a database, not a database"), 0o600))
+		}, "open writer"},
+		{"its schema is another's", func(t *testing.T, path string) {
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+			db, err := sql.Open("sqlite", path)
+			require.NoError(t, err)
+			_, err = db.Exec(`CREATE TABLE streams (x)`)
+			require.NoError(t, err)
+			require.NoError(t, db.Close())
+		}, "migrate"},
+		{"a table it reads is gone", prepared(`DROP TABLE chunks`), "prepare"},
+		{"its open chunks cannot close", prepared(`CREATE TRIGGER refuse BEFORE UPDATE ON chunks BEGIN SELECT RAISE(ABORT, 'refused'); END`), "close open chunks"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "logs", "1.db")
+			tc.setup(t, path)
+
+			_, err := openFile(path)
+			assert.ErrorContains(t, err, tc.want)
+		})
+	}
 }
 
 // STRICT is what keeps a moment a number: a loose column would store the text and sort it
