@@ -62,7 +62,7 @@ of the logs service, which will import it.
   `lines` with its `AUTOINCREMENT` id and `lines_position`, every table `STRICT`. The id must
   never be reused, since the follow reads by it, and the test below pins that.
 - **`Retention`**: `Bytes`, `StreamShare`, `ReadTTL`, `ChunkBytes`, `ChunkSpan`, `TailGrace`,
-  `WriteBatch`, `WriteBatchBytes`, `WriteTick`, `WriteQueue`, `VacuumPages`, `Interval`, each
+  `WriteBatch`, `WriteBatchBytes`, `WriteTick`, `WriteWait`, `WriteQueue`, `VacuumPages`, `Interval`, each
   with a comment saying what it bounds, and `DefaultRetention` with the README's §7 numbers. The
   queue's worst case is `WriteQueue` times `WriteBatchBytes`, 16 MiB, and the comment on
   `WriteQueue` says so, since log text is the cluster's to write. A zero `Interval` runs no

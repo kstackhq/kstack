@@ -397,7 +397,7 @@ follow's only latency, and no line is ever read from both the tailer and the fil
 ### 6. Backpressure
 
 The writer takes batches from the `mpsc` in §5, `WriteQueue` deep. If a tailer cannot send its
-batch within `WriteTick`, it **stops its read, closes its chunk at the last committed line, and
+batch within `WriteWait`, it **stops its read, closes its chunk at the last committed line, and
 reopens from now**. The lines in between are a live gap in §3's coverage, past every watermark
 on the stream: each follow fills it before it goes on, and a page that reaches it fills it too,
 from the kubelet while it still has the lines (§5). There is no separate "lossy" state: dropped

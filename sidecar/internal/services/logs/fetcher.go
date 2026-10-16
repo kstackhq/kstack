@@ -96,6 +96,10 @@ type readOpts struct {
 	budget  *budget
 	batch   int64
 	windows int
+	// onOldest, when set, is told the moment of a GET's first line, in range or not,
+	// before any line of it goes out: a tail decides from it whether its first read
+	// returned its start's moment whole, and reads on.
+	onOldest func(time.Time)
 }
 
 // streamRead is one stream's read in progress: its lines in the order read, then,
@@ -488,6 +492,9 @@ func (r *reader) lines(q url.Values, o readOpts, each func(Record) bool) (span, 
 			rec.Ordinal = ordinal
 			if read.oldest.IsZero() {
 				read.oldest = rec.Timestamp
+				if o.onOldest != nil {
+					o.onOldest(rec.Timestamp)
+				}
 			}
 			switch {
 			case o.since.below(rec):

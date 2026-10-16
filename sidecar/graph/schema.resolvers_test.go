@@ -35,6 +35,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -3296,7 +3297,7 @@ func TestLogsFetchServesAPage(t *testing.T) {
 // logsFetch refuses a limit past 500, and a query its mode does not take, as a
 // validation error, saying so.
 func TestLogsFetchRefusesABadQuery(t *testing.T) {
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: logs.New(nil, nil)}))
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: logs.New(nil, logstore.NewManager(t.TempDir(), logstore.DefaultRetention))}))
 	defer srv.Close()
 
 	for query, reason := range map[string]string{

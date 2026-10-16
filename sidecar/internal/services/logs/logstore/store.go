@@ -232,3 +232,14 @@ func (s *Store) Subscribe(ids ...int64) (*conflate.Receiver[int64, struct{}], er
 	defer done()
 	return f.bus.Receiver(f.bus.WithKeyFilter(func(id int64) bool { return slices.Contains(ids, id) })), nil
 }
+
+// Context ends once the file behind the claim closes, by a Clear, a Remove or the
+// manager's Close.
+func (s *Store) Context() (context.Context, error) {
+	f, done, err := s.use()
+	if err != nil {
+		return nil, fmt.Errorf("context: %w", err)
+	}
+	defer done()
+	return f.ctx, nil
+}

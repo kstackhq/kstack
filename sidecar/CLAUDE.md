@@ -2315,6 +2315,19 @@ in every mode, appends, whole-second rotations, restarts and evictions by hand, 
 every line a page answered is in a chunk covering its pattern and no chunk is missing a line its
 instance wrote into its range.
 
+**A tailer is a `Backend.Tail` read written into the file** (`tailer.go`), one per stream,
+shared through the file's **registry** (`registry.go`, `Service.tails` by cache id): an attach
+joins a running tailer or starts one at the later of the stream's newest line and the asking
+watermark, a released tailer runs on `TailGrace` (`Service.grace`), one that ends is dropped, and
+the registry holds its own claims on the file and the cluster while any runs. A tailer hands its
+lines to the file's writer through an `OpenTail`, in batches of what has arrived up to `WriteBatch`
+or `WriteBatchBytes`; one the writer cannot take a batch from within `WriteWait` closes its chunk
+and reads again from now, and one whose write failed ends with the failure, so what was lost is
+a live gap rather than the tailer's. A page reads a running tailer's start through
+`Service.tailStart` as its stream's tail bound. A walk reads a tailer's start with no lock,
+holding a reader connection, and a start takes the file, the claim and the stream's chunks with
+the registry's lock released, so no page waits behind it. Nothing attaches but the tests yet.
+
 **`logsFollow` is `Service.Follow`** (`follow.go`): a fan-in (`fanin.go`), each line sent as its
 stream delivers it, the first 50 ms sorted and sent before any ending, and only a line the grep
 passes, since its reads take every line. Each line carries its

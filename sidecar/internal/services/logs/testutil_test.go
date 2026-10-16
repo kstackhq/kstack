@@ -891,10 +891,11 @@ func cursor(d time.Duration) *string {
 }
 
 // testRetention is the production setting with no janitor, which a test about
-// anything else opens its log files with.
+// anything else opens its log files with: no grace, so a tailer ends as its last
+// follow lets go, and a writer that writes within milliseconds.
 var testRetention = func() logstore.Retention {
 	r := logstore.DefaultRetention
-	r.Interval = 0
+	r.Interval, r.TailGrace, r.WriteTick, r.WriteWait = 0, 0, 5*time.Millisecond, 5*time.Millisecond
 	return r
 }()
 
@@ -903,8 +904,14 @@ var testRetention = func() logstore.Retention {
 // milliseconds however often a stream drops.
 func serviceOver(t *testing.T, f *fakeService, h http.Handler) (*Service, *fakeService) {
 	t.Helper()
+	return serviceIn(t, f, h, t.TempDir(), testRetention)
+}
+
+// serviceIn is serviceOver with its log files in dir, kept to ret.
+func serviceIn(t *testing.T, f *fakeService, h http.Handler, dir string, ret logstore.Retention) (*Service, *fakeService) {
+	t.Helper()
 	f.lease = serving(t, h).lease
-	files := logstore.NewManager(t.TempDir(), testRetention)
+	files := logstore.NewManager(dir, ret)
 	t.Cleanup(func() { assert.NoError(t, files.Close()) })
 	svc := New(f, files)
 	svc.now, svc.handoff, svc.settle = func() time.Time { return at(time.Hour) }, 0, 0

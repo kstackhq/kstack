@@ -15,6 +15,7 @@
 package logs
 
 import (
+	"sync"
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
@@ -44,6 +45,13 @@ type Service struct {
 	// walkBudget is the bytes one page's walks of the file may read, apart from what
 	// its fills spend, so a fill that spends everything leaves the walks their own.
 	walkBudget int64
+	// grace is how long a tailer runs on after its last follow lets go: the files'
+	// TailGrace, or a test's.
+	grace time.Duration
+
+	// tails is each log file's tailers, by cache id.
+	tailsMu sync.Mutex
+	tails   map[cluster.ClusterCacheID]*registry
 }
 
 // namedBackend is one of the cluster's backends: its name, which a chunk records as
@@ -55,5 +63,10 @@ type namedBackend struct {
 
 // New is the service over the cluster service and the log files.
 func New(clusters cluster.Service, files *logstore.Manager) *Service {
-	return &Service{clusters: clusters, files: files, backends: []namedBackend{{"kubelet", newKubelet}}, now: time.Now, handoff: followHandoff, retry: followRetry, retryCap: followRetryCap, settle: followSettle, budget: maxBudget, walkBudget: maxWalkBudget}
+	return &Service{
+		clusters: clusters, files: files, backends: []namedBackend{{"kubelet", newKubelet}}, now: time.Now,
+		handoff: followHandoff, retry: followRetry, retryCap: followRetryCap, settle: followSettle,
+		budget: maxBudget, walkBudget: maxWalkBudget, grace: files.Retention().TailGrace,
+		tails: map[cluster.ClusterCacheID]*registry{},
+	}
 }

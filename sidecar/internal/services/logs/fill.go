@@ -292,11 +292,6 @@ func returnedWhole(oldest time.Time, prev *logstore.Pos) bool {
 	return prev != nil && !oldest.IsZero() && oldest.UnixNano() <= prev.TS
 }
 
-// lineOf is rec as the file stores it.
-func lineOf(rec Record) logstore.Line {
-	return logstore.Line{Pos: logstore.Pos{TS: rec.Timestamp.UnixNano(), Ord: rec.Ordinal}, Message: rec.Message}
-}
-
 // boundAt is the read's bound at p, a position of the stream, excluded; zero with
 // none.
 func (f *filler) boundAt(p *logstore.Pos) bound {
