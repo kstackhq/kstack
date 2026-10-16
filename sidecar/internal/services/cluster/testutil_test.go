@@ -317,6 +317,38 @@ func (f *fakeKubestore) Remove(cacheID int64) error {
 	return f.err
 }
 
+// noCacheFiles owns nothing, for a test that builds the service with no log store.
+type noCacheFiles struct{}
+
+func (noCacheFiles) Clear(int64) error  { return nil }
+func (noCacheFiles) Remove(int64) error { return nil }
+
+// fakeCacheFiles stands in for the log store as the cache's other file owner: it records
+// which caches were cleared and removed, and answers err to both.
+type fakeCacheFiles struct {
+	cleared, removed []int64
+	err              error
+	// onClear and onRemove run inside the calls, so a test can see what had already
+	// happened by then.
+	onClear, onRemove func(cacheID int64)
+}
+
+func (f *fakeCacheFiles) Clear(cacheID int64) error {
+	if f.onClear != nil {
+		f.onClear(cacheID)
+	}
+	f.cleared = append(f.cleared, cacheID)
+	return f.err
+}
+
+func (f *fakeCacheFiles) Remove(cacheID int64) error {
+	if f.onRemove != nil {
+		f.onRemove(cacheID)
+	}
+	f.removed = append(f.removed, cacheID)
+	return f.err
+}
+
 // probedAt is when every fake probe landed. Fixed, so a test asserting the stamp names a
 // value rather than reading the clock the code under test would.
 var probedAt = time.Date(2026, 8, 22, 10, 0, 0, 0, time.UTC)
@@ -415,7 +447,7 @@ func testPaths(t *testing.T) Paths {
 func newTestDepsOver(t *testing.T, bh *beehive.Beehive) deps {
 	t.Helper()
 	db, store := openTestStore(t)
-	return newDeps(bh, db, store, newTestKubeconfig(t), &fakeKubeconn{}, newFakeKubestore(t), newFakeKubesync(), nil)
+	return newDeps(bh, db, store, newTestKubeconfig(t), &fakeKubeconn{}, newFakeKubestore(t), newFakeKubesync(), nil, noCacheFiles{})
 }
 
 // finalizerClearingCacheController stands in for the cache controller where a cache is
@@ -608,6 +640,8 @@ type fakeKubesync struct {
 	// stoppedCache/stoppedKind record what a clear ran inside.
 	stoppedCache []int64
 	stoppedKind  []kubesync.KindKey
+	// holding is set while RunWithCacheSyncStopped runs its fn.
+	holding bool
 
 	discoveryHub *conflate.Hub[int64, struct{}]
 	kindHub      *conflate.Hub[kubesync.KindKey, struct{}]
@@ -687,7 +721,13 @@ func (f *fakeKubesync) WatchKindNews() kubesync.KindNews           { return f.ki
 func (f *fakeKubesync) RunWithCacheSyncStopped(cacheID int64, fn func() error) error {
 	f.mu.Lock()
 	f.stoppedCache = append(f.stoppedCache, cacheID)
+	f.holding = true
 	f.mu.Unlock()
+	defer func() {
+		f.mu.Lock()
+		f.holding = false
+		f.mu.Unlock()
+	}()
 	return fn()
 }
 
@@ -741,6 +781,14 @@ func (f *fakeKubesync) publishDiscoveryNews(cacheID int64) {
 // publishKindNews is one kind's worker having something new to say.
 func (f *fakeKubesync) publishKindNews(key kubesync.KindKey) {
 	_ = f.kindHub.Sender().Send(key, struct{}{})
+}
+
+// inHold reports whether a RunWithCacheSyncStopped is running its fn now, for a test
+// pinning what runs inside the hold and what runs after it.
+func (f *fakeKubesync) inHold() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.holding
 }
 
 // stoppedCaches and stoppedKinds are what a clear ran inside, for a test pinning that the

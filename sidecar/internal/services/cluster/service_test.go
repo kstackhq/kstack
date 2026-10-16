@@ -35,7 +35,7 @@ import (
 // newTestService builds a service over a temp dir, closed on cleanup.
 func newTestService(t *testing.T) Service {
 	t.Helper()
-	svc, err := New(openTestDB(t), testPaths(t), newTestKubeconfig(t), nil)
+	svc, err := New(openTestDB(t), testPaths(t), newTestKubeconfig(t), nil, noCacheFiles{})
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, svc.Close()) })
 	return svc
@@ -46,7 +46,7 @@ func newTestService(t *testing.T) Service {
 func TestTheMirrorIsInTheCacheDirectory(t *testing.T) {
 	data, cache := t.TempDir(), t.TempDir()
 	paths := Paths{BeehiveDBFile: filepath.Join(data, "beehive.db"), KubestoreDir: filepath.Join(cache, "kubestore")}
-	svc, err := New(openTestDB(t), paths, newTestKubeconfig(t), nil)
+	svc, err := New(openTestDB(t), paths, newTestKubeconfig(t), nil, noCacheFiles{})
 	require.NoError(t, err)
 	defer func() { assert.NoError(t, svc.Close()) }()
 
@@ -72,7 +72,7 @@ func TestFamilyAccessors(t *testing.T) {
 // The full lifecycle the composition root drives: Start, the stop func it returns,
 // then Close. Anything left running here would outlive the process's drain.
 func TestStartStopClose(t *testing.T) {
-	svc, err := New(openTestDB(t), testPaths(t), newTestKubeconfig(t), nil)
+	svc, err := New(openTestDB(t), testPaths(t), newTestKubeconfig(t), nil, noCacheFiles{})
 	require.NoError(t, err)
 
 	stop, err := svc.Start(context.Background())
@@ -83,6 +83,23 @@ func TestStartStopClose(t *testing.T) {
 	assert.NoError(t, svc.Close())
 }
 
+// The log store is the app's part, built before this service and handed in.
+func TestNewTakesTheCacheFileOwner(t *testing.T) {
+	files := &fakeCacheFiles{}
+	svc, err := New(openTestDB(t), testPaths(t), newTestKubeconfig(t), nil, files)
+	require.NoError(t, err)
+	defer func() { assert.NoError(t, svc.Close()) }()
+
+	assert.Same(t, files, svc.(*service).cacheFiles)
+}
+
+// A nil owner would panic in the first cache teardown, long after startup.
+func TestNewRefusesANilCacheFileOwner(t *testing.T) {
+	_, err := New(openTestDB(t), testPaths(t), newTestKubeconfig(t), nil, nil)
+
+	assert.ErrorContains(t, err, "cache file owner")
+}
+
 // A path that cannot hold the store is a startup failure, not a
 // service running against a database it never opened.
 func TestNewRejectsAnUnopenableStore(t *testing.T) {
@@ -90,7 +107,7 @@ func TestNewRejectsAnUnopenableStore(t *testing.T) {
 	// A directory where the database file goes: sqlite cannot open it.
 	require.NoError(t, os.MkdirAll(paths.BeehiveDBFile, 0o700))
 
-	_, err := New(openTestDB(t), paths, newTestKubeconfig(t), nil)
+	_, err := New(openTestDB(t), paths, newTestKubeconfig(t), nil, noCacheFiles{})
 	assert.ErrorContains(t, err, "open beehive store")
 }
 
@@ -99,7 +116,7 @@ func TestNewRejectsADatabaseThatWillNotPrepare(t *testing.T) {
 	db := openTestDB(t)
 	require.NoError(t, db.Close())
 
-	_, err := New(db, testPaths(t), newTestKubeconfig(t), nil)
+	_, err := New(db, testPaths(t), newTestKubeconfig(t), nil, noCacheFiles{})
 	assert.ErrorContains(t, err, "prepare cluster statements")
 }
 
@@ -309,7 +326,7 @@ func TestTheConnectionSurfaceServesAnUnreachableCluster(t *testing.T) {
 // The sync seam is a lifecycle participant like every other, and its place in the order is the
 // contract: no pass can arm a cache that is stopping, and no worker outlives the store it writes.
 func TestKubesyncStopsBetweenBeehiveAndTheStore(t *testing.T) {
-	svc, err := New(openTestDB(t), testPaths(t), newTestKubeconfig(t), poke.New())
+	svc, err := New(openTestDB(t), testPaths(t), newTestKubeconfig(t), poke.New(), noCacheFiles{})
 	require.NoError(t, err)
 	// New opens the store even unstarted, and Windows will not unlink a file something
 	// still holds open.

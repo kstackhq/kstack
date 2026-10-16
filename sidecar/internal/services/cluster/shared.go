@@ -110,6 +110,15 @@ type kubestoreManager interface {
 	WatchSizeLimitNews() kubestore.SizeLimitNews
 }
 
+// CacheFileOwner keeps a file per cluster cache beside the mirror's, named by the cache's
+// id: the log store. The cache pass removes the file with the cache, and the user's clear
+// of the cache clears it too, so a clear means what it says. Both calls are idempotent,
+// and a cache that never had a file is not an error.
+type CacheFileOwner interface {
+	Clear(cacheID int64) error
+	Remove(cacheID int64) error
+}
+
 // kubesyncService is the seam that fills a cache, as this package reaches it. It speaks
 // cache ids, kube-contexts, server UIDs and GVRs; turning one of those into a record is
 // this package's business and never reaches back down.

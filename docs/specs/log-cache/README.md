@@ -71,7 +71,7 @@ One file per cluster cache: `<cache>/logs/<cache id>.db`. It sits next to the mi
 over that cache. It is removed when the cache is removed.
 
 `services/logs` owns the file through a manager shaped like `kubestore`'s: a refcounted open
-under one lock, `OpenOrCreate`, `Remove` (idempotent; the id stays tombstoned for the manager's
+whose lock is never held across a file's open, close or delete, `OpenOrCreate`, `Remove` (idempotent; the id stays tombstoned for the manager's
 life), `Close`, and one janitor per open file. The open settings are `sqlitepool`'s (WAL,
 `synchronous=NORMAL`, `busy_timeout`, incremental auto-vacuum). The statements are a
 `sqlstmt.Set`. The schema is one `0001_init.sql`, edited in place under the pre-release schema
@@ -88,9 +88,8 @@ user throwing a cluster's cached rows away, clears the log file too through the 
 answers `ErrClosed`, so every follow on the file ends and a page in flight fails, the next open
 creates a fresh file under a new entry, and releasing an old handle never touches the new entry's
 count. There is no tombstone, since the cache goes on. `clusterCacheClear` runs the log clear
-after `RunWithCacheSyncStopped` returns, outside it, since neither clear needs the sync stopped
-and the mirror's is already inside; if the mirror cleared and the log file did not, the mutation
-errors and the user runs it again, which both clears survive. Logs hold secrets more often than
+first, outside `RunWithCacheSyncStopped`, since no sync worker writes the log file; a log clear
+that fails errors before the mirror is touched, and the user runs it again. Logs hold secrets more often than
 object bodies do, so a clear that left them would surprise. **The manager is built before the
 cluster service and sits before it in `Runtime.parts`**, as `kubestore`'s manager sits before the
 controllers inside `cluster.New`, so it closes after the service whose cache pass calls it. A
@@ -126,7 +125,7 @@ CREATE TABLE chunks (
   to_ord      INTEGER NOT NULL,
   source      TEXT NOT NULL,               -- which of the cluster's sources filled it
   head        INTEGER NOT NULL,            -- 1: the source has nothing older than from_ns
-  end         INTEGER NOT NULL,            -- 1: to_ns is the log's last line (a finished instance)
+  at_end      INTEGER NOT NULL,            -- 1: to_ns is the log's last line (a finished instance)
   open        INTEGER NOT NULL,            -- 1: a tailer is still writing into it
   bytes       INTEGER NOT NULL,
   read_at_ms  INTEGER NOT NULL,            -- the last read or write, unix milliseconds: the one ms column, since it is a clock and not a line's moment
@@ -217,8 +216,8 @@ numbers each line within its moment and reads each moment whole.
   changes source once at each tier's edge. The edge falls on a moment and never inside one: the
   moment of a source's first line is that source's whole.
 - A forward read of a finished instance (`finished_at` set) that reached the end of its log marks
-  its chunk `end`. A running instance has no end to reach, so no read of one sets it. A stream
-  with an `end` chunk is read in full at its newest side: a page over it never fills forward,
+  its chunk `at_end`. A running instance has no end to reach, so no read of one sets it. A stream
+  with an `at_end` chunk is read in full at its newest side: a page over it never fills forward,
   and its live end is that chunk's last line with no read at all.
 - A tailer's chunk is `open` while the tailer writes to it. When the tailer stops, for any
   reason, the chunk closes at its last line. The next tailer starts reading in that line's
@@ -288,7 +287,7 @@ short by that bound is an honest short page (`more: true`), the same as a page c
 The edges follow the README's table. **The cut** is the nearest point up to which every stream
 is covered in the direction read, or `limit`, whichever comes first. **The live end** is the
 newest line of each stream's newest chunk, once a forward fill has read each running stream to
-its end; a finished stream with an `end` chunk is already there. Its cursor is that moment. What each stream holds up to it lives in the file, not in the cursor.
+its end; a finished stream with an `at_end` chunk is already there. Its cursor is that moment. What each stream holds up to it lives in the file, not in the cursor.
 A `before` edge is null with `more: false` when every stream's oldest chunk is `head` from the
 cluster's last source; a `head` from an earlier source means only that the next one is asked.
 
@@ -317,7 +316,7 @@ over one connection may.
 A tailer is the source's `Tail` read, which for the kubelet is the forward stream the follow runs
 today. It starts at the moment of the last line in the stream's newest chunk, or at the follow's
 `after` position, or at now if there is neither.
-A finished instance gets no tailer: its last read is a forward fill that marks the `end` chunk,
+A finished instance gets no tailer: its last read is a forward fill that marks the `at_end` chunk,
 and the reconcile that sees it finish sets `finished_at` and ends its tailer, as a stream's end
 ends it today.
 It hands lines to the writer in batches of at most `WriteBatch` lines or every `WriteTick`
@@ -438,7 +437,7 @@ README's wire says. `gqlgen.yml` binds the new types. The four old bound argumen
   Go functions registered on the connection like `kstack_grep`. The row layout, the position
   index and eviction by chunk stay as they are, and `bytes` stays the uncompressed size, so adding
   it changes nothing above the store. Measure first.
-- **`end` mirrors `head`.** Without it a page over a finished instance could not tell "read to
+- **`at_end` mirrors `head`.** Without it a page over a finished instance could not tell "read to
   the end" from "read to where the tailer stopped", and would fill forward on every read.
 - **Eviction is LRU by read under a byte budget, protecting open and recently read chunks.** Not
   by age. A quiet pod's hour-old lines that someone is looking at are worth more than a firehose's
@@ -480,7 +479,7 @@ holds what they share.
 
 | Step | Builds | Status |
 | --- | --- | --- |
-| [1 The store](1-the-store.md) | The file, its schema and manager, and its lifetime with the cluster cache | Planned |
+| [1 The store](1-the-store.md) | The file, its schema and manager, and its lifetime with the cluster cache | Built |
 | [2 The cursor and the `Source` seam](2-the-cursor-and-the-source-seam.md) | A position names its instance; the fetcher behind an interface; no behaviour change | Planned |
 | [3 Pages from the file](3-pages-from-the-file.md) | `Fetch` over coverage, fills and the file; `kstack_grep`; `logsFetch`'s wire | Planned |
 | [4 Tailers and the follow](4-tailers-and-the-follow.md) | One tailer per stream, the writer, the commit bus, `Follow` as a read; `logsFollow`'s wire | Planned |

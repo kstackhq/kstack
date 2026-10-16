@@ -64,7 +64,7 @@ grace.
 
 ### 4. Wiring
 
-`app` passes `logstore.DefaultRetention` to `NewManager`. Tests about anything else keep a zero
+`NewManager` takes a `Retention`, and `app` passes `logstore.DefaultRetention`. Tests about anything else keep a zero
 `Interval`.
 
 ## Tasks

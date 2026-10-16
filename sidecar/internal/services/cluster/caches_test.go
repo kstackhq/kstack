@@ -466,6 +466,43 @@ func TestCacheReconcileDeletesTheStoreForADyingCache(t *testing.T) {
 	assert.Equal(t, []int64{int64(cache.ID)}, kubestoreFake(d).removed)
 }
 
+// The log file goes with the cache, in the same pass as the mirror's and after it.
+func TestCacheReconcileRemovesTheLogFileAfterTheMirrors(t *testing.T) {
+	d, status := newClusterStatusDeps(t)
+	cluster := storedCluster(t, d, status, true, "uid-1")
+	cache := createCache(t, d.cacheClient, cluster, "uid-1")
+	var order []string
+	kubestoreFake(d).onRemove = func(int64) { order = append(order, "mirror") }
+	files := &fakeCacheFiles{onRemove: func(int64) { order = append(order, "logs") }}
+	d.cacheFiles = files
+	require.NoError(t, d.cacheClient.Delete(context.Background(), cache.ID))
+
+	obj, err := d.cacheClient.Get(context.Background(), cache.ID)
+	require.NoError(t, err)
+	reconcileCache(t, d, obj)
+
+	assert.Equal(t, []string{"mirror", "logs"}, order)
+	assert.Equal(t, []int64{int64(cache.ID)}, files.removed)
+}
+
+// A log file that will not go fails the pass as the mirror's does, with the finalizer
+// intact, so the pass runs again rather than leaving a file nothing names any more.
+func TestCacheReconcileKeepsTheFinalizerWhenTheLogFileWillNotGo(t *testing.T) {
+	d, status := newClusterStatusDeps(t)
+	cluster := storedCluster(t, d, status, true, "uid-1")
+	cache := createCache(t, d.cacheClient, cluster, "uid-1")
+	d.cacheFiles = &fakeCacheFiles{err: assert.AnError}
+	require.NoError(t, d.cacheClient.Delete(context.Background(), cache.ID))
+	obj, err := d.cacheClient.Get(context.Background(), cache.ID)
+	require.NoError(t, err)
+	client := &cacheControllerClient{}
+
+	res := (&clusterCacheController{deps: d}).Reconcile(context.Background(), client, obj)
+
+	assert.NotEqual(t, beehive.Settled(), res)
+	assert.Empty(t, client.finalizersCleared, "the finalizer holds the row for the retry")
+}
+
 func TestCacheReconcileLeavesTheStoreAloneForALiveCache(t *testing.T) {
 	d, status := newClusterStatusDeps(t)
 	cluster := storedCluster(t, d, status, true, "uid-1")
@@ -1172,6 +1209,44 @@ func TestCachesClearRunsInsideTheSyncsHold(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.True(t, heldAtClear, "the cache's workers are stopped across the swap")
+}
+
+// The user's clear throws the cache's lines away too, since logs hold secrets more often
+// than object bodies do. The log file needs no sync stopped, so its clear runs before the
+// hold the mirror's runs in.
+func TestCachesClearClearsTheLogFileFirstOutsideTheSyncsHold(t *testing.T) {
+	d, status := newClusterStatusDeps(t)
+	cluster := storedCluster(t, d, status, true, "uid-1")
+	cache := createCache(t, d.cacheClient, cluster, "uid-1")
+	var order []string
+	kubestoreFake(d).onClear = func(int64) { order = append(order, "mirror") }
+	heldAtClear := true
+	files := &fakeCacheFiles{onClear: func(int64) {
+		order = append(order, "logs")
+		heldAtClear = syncFake(d).inHold()
+	}}
+	d.cacheFiles = files
+
+	_, err := serviceOver(t, d).Caches().Clear(context.Background(), ClusterCacheID(cache.ID))
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"logs", "mirror"}, order)
+	assert.Equal(t, []int64{int64(cache.ID)}, files.cleared)
+	assert.False(t, heldAtClear, "the log file clears outside the sync's hold")
+}
+
+// A log file that will not clear fails the mutation before the mirror is touched, so the
+// error is the whole truth and the user runs it again.
+func TestCachesClearReportsALogFileThatWillNotClear(t *testing.T) {
+	d := newTestDeps(t)
+	cluster := createCluster(t, d, "prod")
+	cache := createCache(t, d.cacheClient, cluster, "uid-1")
+	d.cacheFiles = &fakeCacheFiles{err: assert.AnError}
+
+	_, err := serviceOver(t, d).Caches().Clear(context.Background(), ClusterCacheID(cache.ID))
+
+	assert.ErrorIs(t, err, assert.AnError)
+	assert.Empty(t, kubestoreFake(d).clearedCaches, "the mirror is left as it was")
 }
 
 // --- the health fold ---
