@@ -645,9 +645,10 @@ func (f *follow) hold(ctx context.Context, tr *tracked, ran time.Duration) {
 	wait := f.backoff(tr, ran)
 	tr.held = true
 	due := f.dueHub.Sender()
+	key := tr.st.key // read here: the follow's goroutine owns tr
 	time.AfterFunc(wait, func() {
 		defer due.Close()
-		_ = due.SendContext(ctx, tr.st.key) // an error is the follow ending, which no longer reads it
+		_ = due.SendContext(ctx, key) // an error is the follow ending, which no longer reads it
 	})
 }
 
