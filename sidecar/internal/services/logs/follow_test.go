@@ -1124,7 +1124,7 @@ func TestAHeldStreamWaitsOutItsBackoff(t *testing.T) {
 	require.NoError(t, err)
 	f := &follow{
 		s: svc, id: "7", view: View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}}}},
-		claim: c, src: kubelet{c.get}, target: target{serverUID: "uid-1"}, fan: newFanIn(), streams: map[StreamKey]*tracked{},
+		claim: c, backend: kubelet{c.get}, target: target{serverUID: "uid-1"}, fan: newFanIn(), streams: map[StreamKey]*tracked{},
 		nodes: map[string]Place{}, deleted: map[string]string{}, podUIDs: map[string]string{}, gone: map[string]bool{},
 		dueHub: mpsc.New[StreamKey](0, mpsc.WithKeepOpen()),
 	}

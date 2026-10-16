@@ -16,11 +16,11 @@ package logs
 
 import "context"
 
-// kubelet is the Source that reads each log as the kubelet serves it, through
+// kubelet is the Backend that reads each log as the kubelet serves it, through
 // the API server, over get.
 type kubelet struct{ get getter }
 
-func newKubelet(get getter) Source { return kubelet{get} }
+func newKubelet(get getter) Backend { return kubelet{get} }
 
 func (k kubelet) Forward(ctx context.Context, st stream, o readOpts) *streamRead {
 	return readForward(ctx, k.get, st, o)

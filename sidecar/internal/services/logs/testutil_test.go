@@ -892,15 +892,15 @@ func serviceOver(t *testing.T, f *fakeService, h http.Handler) (*Service, *fakeS
 	return svc, f
 }
 
-// fakeSource is a Source that reads each stream as reads says, by
+// fakeBackend is a Backend that reads each stream as reads says, by
 // "<pod>/<container>", and fires opened with that key on every read.
-type fakeSource struct {
+type fakeBackend struct {
 	mu     sync.Mutex
 	reads  map[string]fakeRead
 	opened *testutil.Probe[string]
 }
 
-// fakeRead is one read of a fake source: lines, each stamped with its stream,
+// fakeRead is one read of a fake backend: lines, each stamped with its stream,
 // then, once wait closes, an end with err. A nil wait ends at once, and never
 // ends only once the read is cancelled.
 type fakeRead struct {
@@ -912,18 +912,18 @@ type fakeRead struct {
 // never is a wait that never closes.
 var never = make(chan struct{})
 
-func newFakeSource() *fakeSource {
-	return &fakeSource{reads: map[string]fakeRead{}, opened: testutil.NewProbe[string](64)}
+func newFakeBackend() *fakeBackend {
+	return &fakeBackend{reads: map[string]fakeRead{}, opened: testutil.NewProbe[string](64)}
 }
 
 // set makes every later read of key read as r.
-func (s *fakeSource) set(key string, r fakeRead) {
+func (s *fakeBackend) set(key string, r fakeRead) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.reads[key] = r
 }
 
-func (s *fakeSource) read(ctx context.Context, st stream) *streamRead {
+func (s *fakeBackend) read(ctx context.Context, st stream) *streamRead {
 	key := st.key.Pod + "/" + st.key.Container
 	s.mu.Lock()
 	r := s.reads[key]
@@ -937,22 +937,22 @@ func (s *fakeSource) read(ctx context.Context, st stream) *streamRead {
 	return cannedUntil(ctx, st.key, recs, r.wait, r.err, position{})
 }
 
-func (s *fakeSource) Forward(ctx context.Context, st stream, _ readOpts) *streamRead {
+func (s *fakeBackend) Forward(ctx context.Context, st stream, _ readOpts) *streamRead {
 	return s.read(ctx, st)
 }
 
-func (s *fakeSource) Backward(ctx context.Context, st stream, _ readOpts) *streamRead {
+func (s *fakeBackend) Backward(ctx context.Context, st stream, _ readOpts) *streamRead {
 	return s.read(ctx, st)
 }
 
-func (s *fakeSource) Tail(ctx context.Context, st stream, _ readOpts) *streamRead {
+func (s *fakeBackend) Tail(ctx context.Context, st stream, _ readOpts) *streamRead {
 	return s.read(ctx, st)
 }
 
-// serviceOn is the service over the web mirror, reading through src.
-func serviceOn(t *testing.T, src Source) (*Service, *fakeService) {
+// serviceOn is the service over the web mirror, reading through backend.
+func serviceOn(t *testing.T, backend Backend) (*Service, *fakeService) {
 	t.Helper()
 	svc, f := serviceOver(t, webMirror(t), newLogServer())
-	svc.source = func(getter) Source { return src }
+	svc.backend = func(getter) Backend { return backend }
 	return svc, f
 }

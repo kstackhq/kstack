@@ -427,7 +427,7 @@ type span struct {
 	oldest      time.Time
 }
 
-// lines reads one GET of the log, every line cleaned, stamped with its source
+// lines reads one GET of the log, every line cleaned, stamped with its stream
 // and instance and numbered within its moment, and hands each one in o's bounds
 // to each, until the body ends, a line passes the upper bound, or each answers
 // false, spending what it reads from o's budget. The bounds are applied here and nowhere else, so no

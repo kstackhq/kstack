@@ -2172,11 +2172,11 @@ resolve's, not the read's: around a restart a line can go out twice under two id
 A body the claim cut answers its reason, `ErrRevoked` or `errRetired`, never a bare cancel. Each
 read is one raw `GET` of the pod's `log` path through the connection's `HTTPClient`; no typed
 clientset. `Fetch` takes its claim per page and `Follow` holds one for its life, and each builds
-its `Source` over the claim's `get` through `Service.source`.
+its `Backend` over the claim's `get` through `Service.backend`.
 
-**A read goes through a `Source`** (`source.go`): `Forward`, `Backward` and `Tail`, each a
+**A read goes through a `Backend`** (`backend.go`): `Forward`, `Backward` and `Tail`, each a
 `streamRead` the caller pulls a line at a time and cancels, keeping within its `readOpts`. The
-kubelet is the one source (`kubelet.go`, over `fetcher.go`), which `New` sets `Service.source`
+kubelet is the one backend (`kubelet.go`, over `fetcher.go`), which `New` sets `Service.backend`
 to build; a test sets the field to build its fake. **`failureKind` is the one classification of how a read failed**: `failFatal`
 (a 401, the user's credentials, or a revoked claim) fails the whole page or follow, through
 `fatalError`; `failDenied` (a 403, since access to `pods/log` is granted per namespace) and

@@ -60,10 +60,10 @@ func TestAFatalFailureSaysWhy(t *testing.T) {
 // A fatal read fails the page.
 func TestAFatalReadFailsThePage(t *testing.T) {
 	t.Parallel()
-	src := newFakeSource()
-	src.set("web-1/app", fakeRead{err: &statusError{code: http.StatusUnauthorized, message: "Unauthorized"}})
-	src.set("web-2/app", fakeRead{lines: []Record{{Timestamp: at(0), Message: "a"}}})
-	svc, _ := serviceOn(t, src)
+	backend := newFakeBackend()
+	backend.set("web-1/app", fakeRead{err: &statusError{code: http.StatusUnauthorized, message: "Unauthorized"}})
+	backend.set("web-2/app", fakeRead{lines: []Record{{Timestamp: at(0), Message: "a"}}})
+	svc, _ := serviceOn(t, backend)
 
 	_, err := svc.Fetch(t.Context(), "7", webView, FetchQuery{Mode: FetchHead, Limit: 10})
 
@@ -75,10 +75,10 @@ func TestAFatalReadFailsThePage(t *testing.T) {
 func TestADeniedOrEndedReadIsSkipped(t *testing.T) {
 	t.Parallel()
 	for _, refused := range []*statusError{{code: http.StatusForbidden, message: "forbidden"}, {code: http.StatusBadRequest, message: "container is waiting to start"}} {
-		src := newFakeSource()
-		src.set("web-1/app", fakeRead{err: refused})
-		src.set("web-2/app", fakeRead{lines: []Record{{Timestamp: at(0), Message: "a"}, {Timestamp: at(time.Second), Message: "b"}}})
-		svc, _ := serviceOn(t, src)
+		backend := newFakeBackend()
+		backend.set("web-1/app", fakeRead{err: refused})
+		backend.set("web-2/app", fakeRead{lines: []Record{{Timestamp: at(0), Message: "a"}, {Timestamp: at(time.Second), Message: "b"}}})
+		svc, _ := serviceOn(t, backend)
 
 		page, err := svc.Fetch(t.Context(), "7", webView, FetchQuery{Mode: FetchHead, Limit: 10})
 
@@ -88,27 +88,27 @@ func TestADeniedOrEndedReadIsSkipped(t *testing.T) {
 	}
 }
 
-// webPair is a source whose read of web-1's app is web1 and of web-2's web2.
-func webPair(web1, web2 fakeRead) *fakeSource {
-	src := newFakeSource()
-	src.set("web-1/app", web1)
-	src.set("web-2/app", web2)
-	return src
+// webPair is a backend whose read of web-1's app is web1 and of web-2's web2.
+func webPair(web1, web2 fakeRead) *fakeBackend {
+	backend := newFakeBackend()
+	backend.set("web-1/app", web1)
+	backend.set("web-2/app", web2)
+	return backend
 }
 
-// awaitOpens waits for src to open n reads.
-func awaitOpens(t *testing.T, src *fakeSource, n int) {
+// awaitOpens waits for backend to open n reads.
+func awaitOpens(t *testing.T, backend *fakeBackend, n int) {
 	t.Helper()
 	for range n {
-		src.opened.Await(t, "a read to open")
+		backend.opened.Await(t, "a read to open")
 	}
 }
 
 // A fatal tailer ends the follow, saying why.
 func TestAFatalTailerEndsTheFollow(t *testing.T) {
 	t.Parallel()
-	src := webPair(fakeRead{err: &statusError{code: http.StatusUnauthorized, message: "Unauthorized"}}, fakeRead{wait: never})
-	svc, _ := serviceOn(t, src)
+	backend := webPair(fakeRead{err: &statusError{code: http.StatusUnauthorized, message: "Unauthorized"}}, fakeRead{wait: never})
+	svc, _ := serviceOn(t, backend)
 
 	stream := openEndingFollow(t, svc)
 
@@ -118,12 +118,12 @@ func TestAFatalTailerEndsTheFollow(t *testing.T) {
 // A transient tailer is opened again once its backoff passes.
 func TestATransientTailerIsReopened(t *testing.T) {
 	t.Parallel()
-	src := webPair(fakeRead{err: errors.New("connection reset")}, fakeRead{wait: never})
-	svc, f := serviceOn(t, src)
+	backend := webPair(fakeRead{err: errors.New("connection reset")}, fakeRead{wait: never})
+	svc, f := serviceOn(t, backend)
 	openFollow(t, svc, f)
 
 	for of := 0; of < 2; {
-		if src.opened.Await(t, "a read to open") == "web-1/app" {
+		if backend.opened.Await(t, "a read to open") == "web-1/app" {
 			of++
 		}
 	}
@@ -133,15 +133,15 @@ func TestATransientTailerIsReopened(t *testing.T) {
 // then is read again.
 func TestAnEndedTailerWaitsForItsGeneration(t *testing.T) {
 	t.Parallel()
-	src := webPair(fakeRead{err: &statusError{code: http.StatusBadRequest, message: "container is waiting to start"}}, fakeRead{wait: never})
-	svc, f := serviceOn(t, src)
+	backend := webPair(fakeRead{err: &statusError{code: http.StatusBadRequest, message: "container is waiting to start"}}, fakeRead{wait: never})
+	svc, f := serviceOn(t, backend)
 	stream, _ := openFollow(t, svc, f)
-	awaitOpens(t, src, 2)
+	awaitOpens(t, backend, 2)
 	// A negative assertion, so a bounded window: a hundred retries is far past the
 	// backoff a dropped stream would wait.
-	testutil.NoRecv(t, src.opened.Chan(), 100*svc.retry, "web-1 to open again")
+	testutil.NoRecv(t, backend.opened.Chan(), 100*svc.retry, "web-1 to open again")
 
-	src.set("web-1/app", fakeRead{lines: []Record{{Timestamp: at(time.Hour + time.Second), Message: "started"}}, wait: never})
+	backend.set("web-1/app", fakeRead{lines: []Record{{Timestamp: at(time.Hour + time.Second), Message: "started"}}, wait: never})
 	f.store.Apply(t, webPod("web-1", "node-a", container{name: "app", restarted: true}, container{name: "istio-proxy"}))
 	f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
 
@@ -153,10 +153,10 @@ func TestAnEndedTailerWaitsForItsGeneration(t *testing.T) {
 func TestADeniedTailerEndsItsStreamAlone(t *testing.T) {
 	t.Parallel()
 	done := make(chan struct{})
-	src := webPair(fakeRead{err: &statusError{code: http.StatusForbidden, message: "forbidden"}}, fakeRead{err: &statusError{code: http.StatusBadRequest}, wait: done})
-	svc, f := serviceOn(t, src)
+	backend := webPair(fakeRead{err: &statusError{code: http.StatusForbidden, message: "forbidden"}}, fakeRead{err: &statusError{code: http.StatusBadRequest}, wait: done})
+	svc, f := serviceOn(t, backend)
 	stream, _ := openFollow(t, svc, f)
-	awaitOpens(t, src, 2)
+	awaitOpens(t, backend, 2)
 	// A negative assertion, so a bounded window: the follow would end on the 403
 	// at once, and a hundred retries is far past it.
 	testutil.NoRecv(t, stream.Frames, 100*svc.retry, "the follow to end")

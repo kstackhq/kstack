@@ -131,7 +131,7 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, view View, a
 	// stream itself runs on ctx: one ended by its own context files no error.
 	owned, stop := context.WithCancel(ctx)
 	f := &follow{
-		s: s, id: id, view: view, o: o, claim: c, src: s.source(c.get), target: t, start: s.now(),
+		s: s, id: id, view: view, o: o, claim: c, backend: s.backend(c.get), target: t, start: s.now(),
 		fan: newFanIn(), streams: map[StreamKey]*tracked{}, nodes: map[string]Place{},
 		deleted: map[string]string{}, podUIDs: map[string]string{}, gone: map[string]bool{},
 		dueHub: mpsc.New[StreamKey](0, mpsc.WithKeepOpen()),
@@ -250,11 +250,11 @@ type follow struct {
 	view  View
 	o     readOpts
 	claim *claim
-	// src tails the follow's streams over the claim.
-	src    Source
-	target target
-	start  time.Time
-	fan    *fanIn
+	// backend tails the follow's streams over the claim.
+	backend Backend
+	target  target
+	start   time.Time
+	fan     *fanIn
 	// w is the follow's mirror watches, nil while they are to be opened again.
 	w *watches
 	// streams is what the follow knows of each stream it has read.
@@ -474,7 +474,7 @@ func (f *follow) since() bound {
 func (f *follow) open(ctx context.Context, st stream, since bound) {
 	o := f.o
 	o.since = since
-	r := f.src.Tail(ctx, st, o)
+	r := f.backend.Tail(ctx, st, o)
 	t := f.track(st.key)
 	t.stream, t.ended = &opened{st, f.s.now(), r}, false
 	f.fan.add(ctx, r)
