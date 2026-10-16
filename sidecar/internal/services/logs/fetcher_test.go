@@ -19,7 +19,6 @@ import (
 	"errors"
 	"io"
 	"net/url"
-	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -251,15 +250,16 @@ func (b cutAfter) Read(p []byte) (int, error) {
 	return copy(p, strings.Join(lines[:b.n], "")), b.err
 }
 
-// A message is cleaned before it is sent, and grep matches the cleaned text.
-func TestALineIsCleanedAndGrepped(t *testing.T) {
+// A message is cleaned before it is sent, and every line is sent: the grep runs
+// where the lines are read, never in the backend.
+func TestALineIsCleaned(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", stamped(0, "\x1b[31merror\x1b[0m: disk"), stamped(time.Second, "ok"))
 
-	r := readForward(t.Context(), s.get, web, readOpts{grep: regexp.MustCompile(`^error: `)})
+	r := readForward(t.Context(), s.get, web, readOpts{})
 
-	assert.Equal(t, []string{"error: disk"}, messages(drain(r)))
+	assert.Equal(t, []string{"error: disk", "ok"}, messages(drain(r)))
 }
 
 // A line with no timestamp, or one that is not a time, is skipped, as kubetail's
@@ -361,16 +361,17 @@ func TestALineNotTakenIsNotRead(t *testing.T) {
 	assert.Equal(t, lineAt(web.key, 0, 0), read.last)
 }
 
-// A forward read that spends its budget stops at the last line it read whole,
-// whether or not the grep kept it.
+// A forward read that spends its budget stops at the last line it read whole.
 func TestAForwardReadStopsAtTheBudget(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", lineEvery(1000)...)
 
-	r := readForward(t.Context(), s.get, web, readOpts{budget: newBudget(4 << 10), grep: regexp.MustCompile(`never`)})
+	r := readForward(t.Context(), s.get, web, readOpts{budget: newBudget(4 << 10)})
 
-	assert.Empty(t, drain(r))
+	recs := drain(r)
+	assert.NotEmpty(t, recs)
+	assert.Equal(t, positionOf(recs[len(recs)-1]), r.stop)
 	assert.NoError(t, r.err)
 	assert.True(t, r.short)
 	assert.Equal(t, "app", r.stop.Container)
@@ -642,21 +643,18 @@ func TestABackwardReadOutgrowsAGrowingLog(t *testing.T) {
 }
 
 // A backward read that spends its budget stops at the oldest line it read whole
-// past the moment its last window started in, whether or not the grep kept it; a
-// window the budget cut short is left unsent, and a read that sent nothing has no
+// past the moment its last window started in; a window the budget cut short is left unsent, and a read that sent nothing has no
 // stop. Each line is 24 bytes, the first read 100, and a window of ten lines 240.
 func TestABackwardReadStopsAtTheBudget(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
 		budget   int64
 		until    bound
-		grep     *regexp.Regexp
 		lines    []string
 		stop     position
 		requests int
 	}{
 		"after a whole window":    {budget: 400, lines: []string{"99", "98", "97", "96", "95", "94", "93", "92", "91", "90", "89", "88", "87", "86", "85", "84", "83", "82", "81"}, stop: lineAt(web.key, 81*time.Second, 0), requests: 3},
-		"with a grep that misses": {budget: 400, grep: regexp.MustCompile(`never`), lines: []string{}, stop: lineAt(web.key, 81*time.Second, 0), requests: 3},
 		"inside the first window": {budget: 200, lines: []string{}, requests: 2},
 		"under until":             {budget: 200, until: to(50 * time.Second), lines: []string{"50", "49"}, stop: lineAt(web.key, 49*time.Second, 0), requests: 2},
 		"inside the first span":   {budget: 110, until: to(99 * time.Second), lines: []string{}, requests: 2},
@@ -666,7 +664,7 @@ func TestABackwardReadStopsAtTheBudget(t *testing.T) {
 			s := newLogServer()
 			s.add("prod/web/app", lineEvery(100)...)
 			o := backwardOpts()
-			o.budget, o.until, o.grep = newBudget(tc.budget), tc.until, tc.grep
+			o.budget, o.until = newBudget(tc.budget), tc.until
 
 			r := readBackward(t.Context(), s.get, web, o)
 

@@ -3256,44 +3256,59 @@ func (f *fakeLogs) Follow(_ context.Context, _ cluster.ClusterID, view logs.View
 const logsView = `{sources: [{namespace: "prod", kind: Deployment, name: "web", containers: ["app"], allContainers: false, previous: false}],
 filters: [{field: Zone, values: ["eu-1a"]}], grep: "error"}`
 
-// logsFetch serves a page, its skipped streams included, from the view asked.
+// logsFetch serves a page, its edges, its anchor and its skipped streams included,
+// from the view, mode, cursor, moment and limit asked.
 func TestLogsFetchServesAPage(t *testing.T) {
 	stamp := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
-	cursor := "2026-10-08T10:00:00Z"
+	before, after := "2026-10-08T09:00:00Z", "2026-10-08T10:00:00Z"
+	anchor := 1
 	fake := &fakeLogs{page: logs.Page{
-		Records:    []logs.Record{{Timestamp: stamp, Message: "error: disk", Stream: logs.StreamKey{Namespace: "prod", Pod: "web-1", Container: "app"}, Place: logs.Place{Zone: "eu-1a"}, ContainerID: "containerd://web-1-app"}},
-		NextCursor: &cursor,
-		Skipped:    []string{"web-2/app: container is waiting to start"},
+		Records: []logs.Record{{Timestamp: stamp, Message: "error: disk", Stream: logs.StreamKey{Namespace: "prod", Pod: "web-1", Container: "app"}, Place: logs.Place{Zone: "eu-1a"}, ContainerID: "containerd://web-1-app"}},
+		Before:  logs.PageEdge{Cursor: &before, More: true},
+		After:   logs.PageEdge{Cursor: &after},
+		Anchor:  &anchor,
+		Skipped: []string{"web-2/app: container is waiting to start"},
 	}}
 	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: fake}))
 	defer srv.Close()
 
-	raw := postGQL(t, srv.URL, fmt.Sprintf(`{"query":%q}`, `{ logsFetch(id: "7", view: `+logsView+`, mode: Tail, before: "x", limit: 20) {
-		records { timestamp message stream { pod container previous } place { node zone } cursor } nextCursor skipped } }`))
+	raw := postGQL(t, srv.URL, fmt.Sprintf(`{"query":%q}`, `{ logsFetch(id: "7", view: `+logsView+`, mode: Around, at: "2026-10-08T10:00:00Z", limit: 20) {
+		records { timestamp message stream { pod container previous } place { node zone } cursor }
+		before { cursor more } after { cursor more } anchor skipped } }`))
 
 	assert.JSONEq(t, `{"data":{"logsFetch":{
 		"records":[{"timestamp":"2026-10-08T10:00:00Z","message":"error: disk","stream":{"pod":"web-1","container":"app","previous":false},"place":{"node":"","zone":"eu-1a"},
 			"cursor":"2026-10-08T10:00:00Z\tprod\tweb-1\tapp\tcontainerd://web-1-app\t0"}],
-		"nextCursor":"2026-10-08T10:00:00Z","skipped":["web-2/app: container is waiting to start"]}}}`, string(raw))
+		"before":{"cursor":"2026-10-08T09:00:00Z","more":true},"after":{"cursor":"2026-10-08T10:00:00Z","more":false},
+		"anchor":1,"skipped":["web-2/app: container is waiting to start"]}}}`, string(raw))
 	assert.Equal(t, logs.View{
 		Sources: []logs.ViewSource{{Namespace: "prod", Kind: logs.SourceDeployment, Name: "web", Containers: []string{"app"}}},
 		Filters: []logs.ViewFilter{{Field: logs.FilterZone, Values: []string{"eu-1a"}}},
 		Grep:    "error",
 	}, fake.view)
-	assert.Equal(t, logs.FetchTail, fake.query.Mode)
-	assert.Equal(t, "x", *fake.query.Before)
-	assert.Equal(t, 20, fake.query.Limit)
+	assert.Equal(t, logs.FetchQuery{Mode: logs.FetchAround, At: &stamp, Limit: 20}, fake.query)
+
+	postGQL(t, srv.URL, fmt.Sprintf(`{"query":%q}`, `{ logsFetch(id: "7", view: `+logsView+`, mode: Tail, cursor: "x", limit: 5) { skipped } }`))
+	cursor := "x"
+	assert.Equal(t, logs.FetchQuery{Mode: logs.FetchTail, Cursor: &cursor, Limit: 5}, fake.query)
 }
 
-// logsFetch refuses a limit past 500 as a validation error, saying so.
-func TestLogsFetchRefusesALimitPast500(t *testing.T) {
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: logs.New(nil)}))
+// logsFetch refuses a limit past 500, and a query its mode does not take, as a
+// validation error, saying so.
+func TestLogsFetchRefusesABadQuery(t *testing.T) {
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: logs.New(nil, nil)}))
 	defer srv.Close()
 
-	raw := postGQL(t, srv.URL, fmt.Sprintf(`{"query":%q}`, `{ logsFetch(id: "7", view: `+logsView+`, mode: Head, limit: 501) { skipped } }`))
+	for query, reason := range map[string]string{
+		`mode: Head, limit: 501`:                                          "a limit must be between 1 and 500",
+		`mode: Head, at: "2026-10-08T10:00:00Z", limit: 5`:                "a Head page takes no at",
+		`mode: Around, cursor: "x", at: "2026-10-08T10:00:00Z", limit: 5`: "an Around page takes no cursor",
+	} {
+		raw := postGQL(t, srv.URL, fmt.Sprintf(`{"query":%q}`, `{ logsFetch(id: "7", view: `+logsView+`, `+query+`) { skipped } }`))
 
-	assert.Contains(t, string(raw), `"code":"KSTACK_VALIDATION_ERROR"`)
-	assert.Contains(t, string(raw), "a limit must be between 1 and 500")
+		assert.Contains(t, string(raw), `"code":"KSTACK_VALIDATION_ERROR"`, query)
+		assert.Contains(t, string(raw), reason, query)
+	}
 }
 
 // logsFollow streams each line, then the frame that ends it with its reason.

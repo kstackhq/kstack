@@ -123,7 +123,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		return fail(err)
 	}
 	rt.add("cluster service", rt.Cluster)
-	rt.Logs = logs.New(rt.Cluster)
+	rt.Logs = logs.New(rt.Cluster, rt.LogStore)
 
 	keychainService := cfg.KeychainService
 	if keychainService == "" {

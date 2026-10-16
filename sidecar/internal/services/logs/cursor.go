@@ -16,10 +16,13 @@ package logs
 
 import (
 	"cmp"
+	"math"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 )
 
 // position is a line's place in a view's order: its moment, then its container,
@@ -100,7 +103,8 @@ func parseCursor(c string) (position, error) {
 		return p, nil
 	}
 	p.Namespace, p.Pod, p.Container, p.ContainerID = fields[1], fields[2], fields[3], fields[4]
-	if p.Ordinal, err = strconv.Atoi(fields[5]); err != nil || p.Ordinal < 0 || p.Container == "" || !validContainerID(p.ContainerID) {
+	// streamBound steps one past the ordinal, so MaxInt has no position past it.
+	if p.Ordinal, err = strconv.Atoi(fields[5]); err != nil || p.Ordinal < 0 || p.Ordinal == math.MaxInt || p.Container == "" || !validContainerID(p.ContainerID) {
 		return position{}, errBadCursor
 	}
 	return p, nil
@@ -114,6 +118,16 @@ const maxContainerID = 256
 // its ids as it likes. A tab would split a cursor.
 func validContainerID(id string) bool {
 	return id != "" && len(id) <= maxContainerID && !strings.ContainsFunc(id, unicode.IsControl)
+}
+
+// boundAfter is the bound a read past the cursor after reads from, the cursor's own
+// line dropped; zero with none.
+func boundAfter(after *string) (bound, error) {
+	if after == nil {
+		return bound{}, nil
+	}
+	p, err := parseCursor(*after)
+	return bound{p, false}, err
 }
 
 // bound is one end of a read's range: a position, and whether a line at it is in
@@ -139,4 +153,55 @@ func (b bound) above(rec Record) bool {
 	}
 	c := compare(rec, b.at)
 	return c > 0 || c == 0 && !b.incl
+}
+
+// instance is what orders one stream's lines against another's at one moment: its
+// namespace, pod and container, then the runtime id of the instance.
+type instance struct{ namespace, pod, container, id string }
+
+// streamBound is where a page reading mode from b starts in one stream, as a
+// position of that stream alone: a Head page reads the stream's lines after it, a
+// Tail page those before it, and with a zero b the page reads from the start or
+// the end. It is the one cursor across the view read as comparePositions orders
+// lines, so the pages of one view join in every stream.
+func streamBound(b bound, in instance, mode FetchMode) logstore.Pos {
+	head := mode == FetchHead
+	if b.at.isZero() {
+		if head {
+			return logstore.Oldest
+		}
+		return logstore.Newest
+	}
+	moment := b.at.Timestamp.UnixNano()
+	at := func(ord int) logstore.Pos { return logstore.Pos{TS: moment, Ord: ord} }
+	// every and none read every line of the moment or none of it.
+	every, none := logstore.Pos{TS: moment, Ord: -1}, logstore.Pos{TS: moment, Ord: math.MaxInt}
+	if !head {
+		every, none = none, every
+	}
+	if b.at.moment() {
+		if b.incl {
+			return every
+		}
+		return none
+	}
+	names := cmp.Or(cmp.Compare(in.namespace, b.at.Namespace), cmp.Compare(in.pod, b.at.Pod), cmp.Compare(in.container, b.at.Container))
+	switch {
+	case names < 0 && head, names > 0 && !head:
+		return none
+	case names != 0:
+		return every
+	}
+	// The ordinal decides before the id, so the stream's line at the cursor's ordinal
+	// is the page's when the id puts it on the page's side, or when it is the
+	// cursor's own line and the bound keeps it.
+	ord := b.at.Ordinal
+	id := cmp.Compare(in.id, b.at.ContainerID)
+	switch {
+	case id == 0 && !b.incl, head && id < 0, !head && id > 0:
+		return at(ord)
+	case head:
+		return at(ord - 1)
+	}
+	return at(ord + 1)
 }

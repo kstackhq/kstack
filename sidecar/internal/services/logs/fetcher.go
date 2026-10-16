@@ -22,7 +22,6 @@ import (
 	"errors"
 	"io"
 	"net/url"
-	"regexp"
 	"slices"
 	"strconv"
 	"sync/atomic"
@@ -92,18 +91,11 @@ type readOpts struct {
 	// wherever it joined it, which a read from that moment's second would number
 	// differently.
 	follow bool
-	// grep is what each cleaned message must match, nil for every line.
-	grep *regexp.Regexp
 	// A fetch's bounds: the budget a read spends, and for a backward read, the
 	// lines its first window asks for and the GETs it may send.
 	budget  *budget
 	batch   int64
 	windows int
-}
-
-// matches is whether rec's message passes o's grep.
-func (o readOpts) matches(rec Record) bool {
-	return o.grep == nil || o.grep.MatchString(rec.Message)
 }
 
 // streamRead is one stream's read in progress: its lines in the order read, then,
@@ -179,8 +171,7 @@ func start(ctx context.Context, get getter, s stream, o readOpts, read func(*rea
 
 // reader is one stream's read: what it reads with, the instance it reads and
 // whether it has finished, where its lines go, and its edge, the last line in
-// range it read whole — forward the newest, backward the oldest taken, matched or
-// not.
+// range it read whole — forward the newest, backward the oldest taken.
 type reader struct {
 	ctx      context.Context
 	get      getter
@@ -364,15 +355,13 @@ func (r *reader) backwardUntil(first time.Time) error {
 	return errShort
 }
 
-// send puts rec on out when it matches the grep, and is false once the context
-// has ended.
+// send puts rec on out, and is false once the context has ended.
 func (r *reader) send(rec Record) bool {
-	return !r.o.matches(rec) || r.out.SendContext(r.ctx, rec) == nil
+	return r.out.SendContext(r.ctx, rec) == nil
 }
 
 // takeBack sends the lines after the moment after, newest first, every one in
-// range moving the edge whether or not the grep keeps it, and is false once the
-// context has ended.
+// range moving the edge, and is false once the context has ended.
 func (r *reader) takeBack(lines []Record, after time.Time) bool {
 	for _, rec := range slices.Backward(lines) {
 		if !rec.Timestamp.After(after) {
