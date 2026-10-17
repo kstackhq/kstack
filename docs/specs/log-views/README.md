@@ -94,7 +94,7 @@ These are decided across the ladder. A rung that needs to revisit one says so in
 
 | Rung | Builds | Spec |
 | --- | --- | --- |
-| 2 | The compact inline form | — |
+| 2 | The compact inline form | [2-the-compact-inline-form.md](2-the-compact-inline-form.md) |
 | 3 | The screen rides with the question | — |
 | 4 | `LogsRead`: what the model read, frozen | — |
 | 5 | Select, then ask | — |
@@ -106,12 +106,8 @@ a view against the mirror and answers a receipt, and the webview draws the call 
 Expand sets the focused view, which chat mode's right sidebar draws. A view opens on Expand alone.
 What is true now is in the root and `sidecar/` `CLAUDE.md`.
 
-**Rung 2 — the compact inline form.** The card grows a fixed window of lines around the anchor,
-with no scroller of its own, since the transcript owns the scroller. Only the newest view in the
-chat runs live inline; older ones freeze. The inline card of the focused view collapses to
-*Showing in the sidebar*, so one stream runs at a time. Open: how many lines, whether an
-older card can be made live again by hand, and whether a new view ever opens the sidebar by
-itself or stays inline until Expand.
+**Rung 2 — the compact inline form.** The card draws a fixed window of eight lines, live for
+the chat's newest pinned `Tail` view and frozen for every other.
 
 **Rung 3 — the screen rides with the question.** `chatSend` takes a snapshot of the open view:
 the resolved selector and grep, the id of the `LogsView` call that opened it, the visible range as

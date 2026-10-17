@@ -65,9 +65,10 @@ type note struct {
 
 // resolve is the view the call opens, over one reading of the cluster's active
 // cache: each source checked against the mirror, its containers defaulted, its
-// previous instance found, and the anchor on the tool's clock.
+// previous instance found, and the anchor and the moment on the tool's clock.
 func (t *Tool) resolve(ctx context.Context, clusterID cluster.ClusterID, in input) (tools.LogsViewAction, []note, error) {
-	anchor, err := anchorOf(in.anchor, t.now())
+	now := t.now()
+	anchor, err := anchorOf(in.anchor, now)
 	if err != nil {
 		return tools.LogsViewAction{}, nil, err
 	}
@@ -81,7 +82,7 @@ func (t *Tool) resolve(ctx context.Context, clusterID cluster.ClusterID, in inpu
 	if err != nil {
 		return tools.LogsViewAction{}, nil, err
 	}
-	view.Anchor, view.PinToEnd = anchor, in.pinToEnd
+	view.Anchor, view.PinToEnd, view.ResolvedAt = anchor, in.pinToEnd, now.UTC()
 	return view, notes, nil
 }
 

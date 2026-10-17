@@ -16,11 +16,12 @@ import { describe, expect, it } from 'vitest';
 import * as library from '.';
 
 describe('the library’s index', () => {
-  it('exports the core, its store and its reader, the window and its first snapshot, and leaves the fake out', () => {
+  it('exports the core, its store and its reader, the window and its first snapshot, the line order, and leaves the fake out', () => {
     expect(Object.keys(library).sort()).toEqual([
       'CORE_INITIAL_STATE',
       'LogViewerCore',
       'LogWindow',
+      'compareTimestamps',
       'createCoreStore',
       'useCoreFields',
     ]);

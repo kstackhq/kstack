@@ -69,7 +69,7 @@ export function cellStyle(widths: Map<WidthKey, number>, key: WidthKey) {
 
 // A container's colour, drawn inline so no CSS name is built from cluster text. The dot is
 // the default set's only word on the stream, so a screen reader hears the names.
-function Dot({ line }: { line: LogLine }) {
+export function Dot({ line }: { line: LogLine }) {
   const { namespace, pod, container } = line.stream;
   return (
     <span className="inline-flex items-center">
@@ -86,8 +86,9 @@ function Dot({ line }: { line: LogLine }) {
 }
 
 // The hole before a line, in a grid row of its own over every column past the position. It
-// is no cell: selection passes over it, and a row's copy writes it (`gapNotice`).
-function GapNotice({ line, gap }: { line: LogLine; gap: NonNullable<LogLine['gap']> }) {
+// is no cell: selection passes over it, and a row's copy writes it (`gapNotice`). Outside a
+// grid, its column is ignored.
+export function GapNotice({ line, gap }: { line: LogLine; gap: NonNullable<LogLine['gap']> }) {
   return (
     <div
       data-testid="log-gap"
