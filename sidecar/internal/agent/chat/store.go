@@ -524,9 +524,11 @@ func answerByRequestKey(ctx context.Context, st stmts, requestKey string, box to
 	return msgs[0], true, nil
 }
 
-// viewCall is the LogsView call id of chatID: the id its tool_use block carries
-// and the view its run showed. ok is false for a call of another chat, of
-// another tool, or one that showed nothing.
+// viewCall is the call id of chatID whose view the user has open: the id its
+// tool_use block carries and the view, a LogsView call's own or a LogsRead call's
+// View around this. ok is false for a call of another chat, of another tool, or
+// one that showed no view. A subagent's call is the chat's: its run carries the
+// chat's id.
 func viewCall(ctx context.Context, st stmts, chatID ChatID, id ToolCallID) (toolUseID string, view tools.LogsViewAction, ok bool, err error) {
 	var shown sql.NullString
 	err = st.QueryRow(ctx, stmtSelectViewCall, string(id), string(chatID)).Scan(&toolUseID, &shown)
@@ -540,10 +542,13 @@ func viewCall(ctx context.Context, st stmts, chatID ChatID, id ToolCallID) (tool
 	if err := json.Unmarshal([]byte(shown.String), &action); err != nil {
 		return "", view, false, fmt.Errorf("view call: %w", err)
 	}
-	if action.LogsView == nil {
-		return "", view, false, nil
+	switch {
+	case action.LogsView != nil:
+		return toolUseID, *action.LogsView, true, nil
+	case action.LogsRead != nil && action.LogsRead.ViewAround != nil:
+		return toolUseID, *action.LogsRead.ViewAround, true, nil
 	}
-	return toolUseID, *action.LogsView, true, nil
+	return "", view, false, nil
 }
 
 // newestContext is the context the model currently holds for the chat: the text

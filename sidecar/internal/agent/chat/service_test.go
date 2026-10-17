@@ -2854,3 +2854,61 @@ func TestTheViewSectionReSendsTheBlockWhenItChanges(t *testing.T) {
 	assert.Equal(t, []llm.BlockType{llm.BlockContext, llm.BlockText}, blockTypes(t, asked[len(asked)-1]))
 	assert.NotContains(t, newestContextOf(t, s, first.ChatID), viewHeading)
 }
+
+// readWebapp is a LogsRead action whose View around this is tailWebapp's view at a
+// moment, unpinned.
+func readWebapp() tools.LogsReadAction {
+	at := time.Date(2026, 10, 17, 9, 14, 0, 0, time.UTC)
+	around := tailWebapp()
+	around.Anchor, around.PinToEnd = tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: &at}, false
+	return tools.LogsReadAction{LogsViewInput: around.LogsViewInput, Mode: tools.LogsReadHead, Lines: []tools.LogsReadLine{}, ViewAround: &around}
+}
+
+// seedSubagentCall files a LogsRead call showing shown in a subagent of a settled
+// turn of chatID.
+func seedSubagentCall(t *testing.T, db *appdb.DB, chatID ChatID, toolUseID string, shown *tools.Action) ToolCallID {
+	t.Helper()
+	at := time.Now()
+	turn := seedTurn(t, db, chatID, at)
+	settleSeededRun(t, db, turn.Run, RunSucceeded, at)
+	sub, llmCall, id := appdb.NewID(), appdb.NewID(), ToolCallID(appdb.NewID())
+	_, err := db.Write.Exec(`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, chat_id, provider, model, dialect, task, status, created_at)
+		VALUES (?, ?, 'general-purpose', 'test', 'agent', ?, 'fake', 'fake', 'fake', 'p', 'succeeded', ?)`, sub, string(turn.Run), string(chatID), millis(at))
+	require.NoError(t, err)
+	_, err = db.Write.Exec(`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES (?, ?, 0, 'fake', 'fake', ?)`, llmCall, sub, millis(at))
+	require.NoError(t, err)
+	raw, err := json.Marshal(shown)
+	require.NoError(t, err)
+	_, err = db.Write.Exec(`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, status, shown_action, created_at)
+		VALUES (?, ?, 0, 'LogsRead', ?, '{}', 'succeeded', ?, ?)`, string(id), llmCall, toolUseID, string(raw), millis(at))
+	require.NoError(t, err)
+	return id
+}
+
+// A snapshot of a view opened from a LogsRead call restates the read's View around
+// this, a subagent's read too; a read with none is refused.
+func TestASendCarriesAReadsViewAround(t *testing.T) {
+	t.Parallel()
+
+	s := serviceWithClusterCards(t, &stubClusterCards{card: "card"})
+	first := sendAndSettle(t, s, nil, "1", "1", "why did it fail?")
+	read := readWebapp()
+	calls := map[string]ToolCallID{
+		"the chat's":   seedViewCall(t, s.db, first.ChatID, "toolu_read", &tools.Action{LogsRead: &read}),
+		"a subagent's": seedSubagentCall(t, s.db, first.ChatID, "toolu_sub", &tools.Action{LogsRead: &read}),
+	}
+	for name, call := range calls {
+		msg, err := sendWithView(t, s, &first.ChatID, name, &Snapshot{CallID: call, Lines: 2})
+		require.NoError(t, err, name)
+		awaitSettled(t, s, msg.ChatID, msg.ID)
+		context := newestContextOf(t, s, first.ChatID)
+		assert.Contains(t, context, `"anchor":"2026-10-17T09:14:00Z"`, name)
+		assert.Contains(t, context, `"pinToEnd":false`, name)
+	}
+
+	none := readWebapp()
+	none.ViewAround = nil
+	bare := seedViewCall(t, s.db, first.ChatID, "toolu_none", &tools.Action{LogsRead: &none})
+	_, err := sendWithView(t, s, &first.ChatID, "none", &Snapshot{CallID: bare})
+	assert.ErrorIs(t, err, ErrBadRequest)
+}

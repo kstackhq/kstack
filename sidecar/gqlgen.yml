@@ -376,6 +376,30 @@ models:
   LogsViewAnchor:
     model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsViewAnchor
 
+  LogsReadAction:
+    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadAction
+
+  LogsReadLine:
+    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadLine
+
+  LogsReadMode:
+    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadMode
+    enum_values:
+      Head:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadHead
+      Tail:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadTail
+
+  LogsReadEdge:
+    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadEdge
+    enum_values:
+      End:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadEnd
+      More:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadMore
+      Unread:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadUnread
+
   LogsViewAnchorKind:
     model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsAnchorKind
     enum_values:
@@ -434,6 +458,8 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/tools.ActionKubeQuery
       LogsView:
         value: github.com/kstackhq/kstack/sidecar/internal/tools.ActionLogsView
+      LogsRead:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.ActionLogsRead
 
   ToolCallNetwork:
     model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallNetwork

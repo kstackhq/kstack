@@ -110,6 +110,21 @@ func parseCursor(c string) (position, error) {
 	return p, nil
 }
 
+// LineCursor is the cursor a page hands back for the line at moment, of namespace,
+// pod and container's instance containerID, the ordinal-th of its moment: for a
+// caller that spells a line's cursor its own way. It refuses what a parsed cursor
+// refuses, and a name holding a tab, which would split it.
+func LineCursor(moment time.Time, namespace, pod, container, containerID string, ordinal int) (string, error) {
+	if moment.IsZero() || namespace == "" || pod == "" || container == "" || strings.ContainsFunc(namespace+pod+container, unicode.IsControl) {
+		return "", errBadCursor
+	}
+	c := cursorOf(position{moment, namespace, pod, container, containerID, ordinal})
+	if _, err := parseCursor(*c); err != nil {
+		return "", err
+	}
+	return *c, nil
+}
+
 // maxContainerID is the longest runtime id a position takes.
 const maxContainerID = 256
 

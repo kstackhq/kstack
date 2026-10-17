@@ -37,6 +37,8 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/agent"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/logsread"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/logsview"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/read"
 )
 
@@ -316,4 +318,15 @@ func TestAMonitorRunEndsWithTheService(t *testing.T) {
 	res := testutil.Recv(t, done, "the run to end")
 	assert.Equal(t, RunCancelled, res.Status)
 	assert.Equal(t, RunCancelled, runStatusOf(t, s.db, res.RunID))
+}
+
+// The monitor reads logs, with no screen behind the read, and opens no view, which is
+// the user's window.
+func TestTheMonitorReadsLogsAndOpensNoView(t *testing.T) {
+	t.Parallel()
+	box := MonitorBox(tools.NewBox([]tools.Tool{logsview.New(nil, time.Now), logsread.New(nil, nil, time.Now)}))
+	_, reads := box.Runner(logsread.Name)
+	_, views := box.Runner(logsview.Name)
+	assert.True(t, reads)
+	assert.False(t, views)
 }

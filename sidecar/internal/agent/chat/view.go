@@ -25,8 +25,9 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
-// Snapshot is what the user's open log view shows as they send: the LogsView call
-// that opened it, never its action, which the sidecar reads from the call's row.
+// Snapshot is what the user's open log view shows as they send: the LogsView or
+// LogsRead call that opened it, never its view, which the sidecar reads from the
+// call's row.
 // From and To are the first and last visible line's stamps, both nil with none on
 // screen. Selected holds the first selected lines, SelectedCount all of them.
 type Snapshot struct {

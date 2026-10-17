@@ -1,8 +1,9 @@
 # internal/services/logs — the log cache and its views
 
 The service reads container logs through the cluster's connection, keeps them in a file per cache
-(`logstore`), and answers pages and follows over the file. The model never reaches a line through
-it; the `LogsView` tool (`internal/tools/CLAUDE.md`) opens a view the user looks at. Specs:
+(`logstore`), and answers pages and follows over the file. A line reaches the model through
+`LogsRead` and the View section, both through `ForModel`; the `LogsView` tool
+(`internal/tools/CLAUDE.md`) opens a view the user looks at. Specs:
 `docs/specs/log-cache/`, `docs/specs/log-views/`.
 
 ## The file (`logstore`)
@@ -57,13 +58,14 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   and ended (other <500) end one stream; transient (5xx, 408, 429, transport) is skipped by a page
   and retried by a follow.
 - **`Service.Fetch` answers from the file** (`fetch.go`; built in `app` as `logs.New`, which owns
-  the log store and is the cluster service's `CacheFileOwner`). The model reaches no line through
-  it. Modes `Head`, `Tail`, `Around` (limit ≤500; `compileGrep` refuses a bad grep, on follows too).
-  **A page takes a range**: `Since` and `Until` in place of `Cursor`, a moment's lines in it, a
-  line's not (`boundIn`). The far bound is applied in the walk next to the near one
-  (`pageQuery.far`, `clampTo`), and the filler clamps each gap's download to the range by passing it
-  in through `readOpts` (`fillGap`), so `reader.lines` stays the one place a bound is applied. A
-  page that stopped at its far bound says nothing is left that way.
+  the log store and is the cluster service's `CacheFileOwner`). A line reaches the model through
+  `LogsRead` and the View section, both through `ForModel`. Modes `Head`, `Tail`, `Around` (limit
+  ≤500; `compileGrep` refuses a bad grep, on follows too). **A page takes a range**: `Since` and
+  `Until` in place of `Cursor`, a moment's lines in it, a line's not (`boundIn`). The far bound is
+  applied in the walk next to the near one (`pageQuery.far`, `clampTo`), and the filler clamps each
+  gap's download to the range by passing it in through `readOpts` (`fillGap`), so
+  `reader.lines` stays the one place a bound is applied. A page that stopped at its far bound says
+  nothing is left that way. `LineCursor` spells a line's cursor for a caller with its own form.
   A page resolves, files streams, adds gone pods' streams the file holds (`filestreams.go`), fills
   gaps from the backends (`fill.go`), walks (`walk.go`) and merges (`merge.go`). **A read is
   written a batch at a time as it arrives** (`window`, `WriteBatch`), each batch checked against

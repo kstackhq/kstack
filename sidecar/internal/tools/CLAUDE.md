@@ -2,7 +2,7 @@
 
 Each package directly under `tools/` is one tool; `box.go`, `tool.go`, `save.go` and
 `workspace.go` are what they share, `tools/internal/fileguard` is the file tools' checks, and
-`tools/internal/logsinput` is what the log tools share. What
+`tools/internal/logsinput` is what the two log tools share. What
 confines a run (sandbox, permissions, proxy, session) is `internal/run/CLAUDE.md`; who calls a tool
 and files its rows is `internal/agent/CLAUDE.md`.
 
@@ -44,7 +44,7 @@ session.
 - **`ActionAsker`** puts a sandboxed command's classified `ActionRequest` to the user, or
   `Record`s one decided unasked. Nil where nobody can be asked.
 - **A tool that acts through a service is built with it** (`memory.New`, `kubequery.New`,
-  `logsview.New`, in `app`'s `chatTools`) and maps the service's errors to the model's codes →
+  `logsview.New`, `logsread.New`, in `app`'s `chatTools`) and maps the service's errors to the model's codes →
   [ADR](../../../docs/adr/2026-09-27-a-tool-calls-its-service-directly.md).
 - `InlineLimit` (30,000) caps a result; `FileLimit` (8 MiB) caps saved output and Read.
 - **The chat's `defaultToolTimeout` is 2 s.** A tool that does I/O is `Bounded` and names its own
@@ -116,23 +116,50 @@ whose SDK it imports.
 against the mirror, hands back a `LogsViewAction` the row keeps, and answers a one-line receipt
 through `safe.Redact`. The action embeds `LogsViewInput` (`services/logs`' `View`, aliased in
 `tools`) plus an `Anchor`, `PinToEnd` and `ResolvedAt`, the moment it resolved on the tool's clock, which a frozen card reads up to; the enums bind member by member in `gqlgen.yml`.
-It reads its own `anchor` and `pin_to_end` through `logsinput.Parse`'s `extra`, then resolves the
-view with `logsinput.Resolve`. **A source
-the mirror does not hold yet opens**: a view waits for it. A refusal is one JSON line with a code,
-never the model's text. It is in `catalog`'s `ours` and `app.go`'s box, and out of `SubagentBox`
-and `MonitorBox`: a view is the user's window. The model sees no line of a view, except those the
-user selects and sends, which ride the question's View section (`internal/agent/CLAUDE.md`).
-The service it checks against is `internal/services/logs/CLAUDE.md`.
+It reads its own `anchor` and `pin_to_end` as `logsinput.Parse`'s `Fields`, then resolves the
+view with `logsinput.Resolve`. **A source the mirror does not hold yet opens**: a view waits for it.
+A refusal is one JSON line with a code, never the model's text. It is in `catalog`'s `ours` and
+`app.go`'s box, and out of `SubagentBox` and `MonitorBox`: a view is the user's window. The model
+reads lines through `LogsRead`, and those the user selects and sends ride the question's View
+section (`internal/agent/CLAUDE.md`). The service it checks against is
+`internal/services/logs/CLAUDE.md`.
+
+## LogsRead (`tools/logsread`)
+
+**LogsRead is the model's read of a range of logs.** It is `Custom`, `Shown` and `Bounded` (30 s),
+never `Gated`. `parse.go` takes the shared keys through `logsinput.Parse` and its own `since`,
+`until` (each a moment, a duration or a printed cursor), `mode` (`head`, `tail`) and `limit`
+(1–100, 50), refusing `anchor` and `pin_to_end` by name. `RunShown` resolves the view as LogsView
+does, then reads one page with `logs.Service.Fetch` (the `Fetcher` field, faked in tests) under its
+own `readTimeout` (25 s), so a slow read answers `timed-out` itself. A service `Refusal` answers
+`refused` with its words through `logs.ForModel`; any other failure is `read-failed`.
+
+- **`sample.go` is what the model reads.** Each message goes through `logs.ForModel`, then is cut
+  at 2 KiB. The lines are at most 16 KiB, kept from the end the read started at; the header names
+  skipped streams up to 2 KiB and notes up to 4 KiB. So the output fits `tools.InlineLimit` and is never
+  saved (`TestNoOutputPassesTheInlineLimit`). A record's line starts with its timestamp, a hole's
+  with `[`, and the header is the sidecar's.
+- **Each edge is `End`, `More` or `Unread`.** A printed cursor's side is `More`, a moment's
+  `Unread`; an end the page or the budget cut is `More`.
+- **The cursor the model sees is opaque** (`cursor.go`): the line's position as JSON, base64url,
+  turned into the service's own through `logs.LineCursor`. The header prints it after
+  `safe.Redact`, never through it.
+- **The action holds the lines the model read**, with `viewAround`, the read's view at its first
+  line's moment, unpinned. It is in `catalog`'s `ours`, `app.go`'s box after LogsView, and in
+  `SubagentBox` and `MonitorBox`.
+
+→ [the model reads logs](../../../docs/security/2026-10-17-the-model-reads-logs.md).
 
 ## The log tools' input (`tools/internal/logsinput`)
 
-**`tools/internal/logsinput` is what the log tools share.** `Parse(raw, extra)` is the strict walk
-(each key once, DNS names, at most 100 sources, `grep` compiled on one line of at most `MaxGrep`);
-a key it does not share goes to the tool's `extra`. `Resolve(ctx, svc, now, id, in)` checks each
-source inside one `ReadActive`, then runs `logs.Check`, so a view a tool takes is one the service
-reads. `MomentOf` is the shared moment grammar; `SourcesText`, `NotesText` and `NameOf` how a tool
-describes a source; `Refusal` and `Result` how it answers. `logsinputtest` is the fake cluster and
-the fixtures the tools' tests run over (`cluster/clustertest` beneath).
+**`tools/internal/logsinput` is what LogsView and LogsRead share.** `Parse(raw, own)` is the
+strict walk (each key once, DNS names, at most 100 sources, `grep` compiled on one line of at most
+`MaxGrep`); `own` is the tool's `Fields`, each key's typed destination or the refusal it earns.
+`Resolve(ctx, svc, now, id, in)` checks each source inside one `ReadActive`, then runs
+`logs.Check`, so a view a tool takes is one the service reads. `MomentOf` is the shared moment
+grammar; `SourcesText` and `NotesText` how a tool names its sources; `Refusal` and `Result` how it
+answers. `logsinputtest` is the fake cluster and
+the fixtures both tools' tests run over (`cluster/clustertest` beneath).
 
 ## KubeQuery (`tools/kubequery`)
 

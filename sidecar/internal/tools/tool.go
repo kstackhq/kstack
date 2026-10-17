@@ -185,10 +185,11 @@ const (
 	ActionDelegate  ActionKind = "delegate"   // hands a task to a subagent
 	ActionKubeQuery ActionKind = "kube-query" // SQL over the cluster's cache
 	ActionLogsView  ActionKind = "logs-view"  // a live view of logs the user looks at
+	ActionLogsRead  ActionKind = "logs-read"  // log lines the model read
 )
 
 // ActionKinds is every kind, in declaration order.
-var ActionKinds = []ActionKind{ActionCommand, ActionRead, ActionWrite, ActionEdit, ActionSearch, ActionFetch, ActionStop, ActionMemory, ActionDelegate, ActionKubeQuery, ActionLogsView}
+var ActionKinds = []ActionKind{ActionCommand, ActionRead, ActionWrite, ActionEdit, ActionSearch, ActionFetch, ActionStop, ActionMemory, ActionDelegate, ActionKubeQuery, ActionLogsView, ActionLogsRead}
 
 // valid reports whether k is one of ActionKinds.
 func (k ActionKind) valid() bool {
@@ -210,6 +211,7 @@ type Action struct {
 	Delegate    *DelegateAction  `json:"delegate"`
 	KubeQuery   *KubeQueryAction `json:"kubeQuery"`
 	LogsView    *LogsViewAction  `json:"logsView"`
+	LogsRead    *LogsReadAction  `json:"logsRead"`
 }
 
 // Kind is the kind whose field is set, or "" for none.
@@ -235,6 +237,8 @@ func (a Action) Kind() ActionKind {
 		return ActionKubeQuery
 	case a.LogsView != nil:
 		return ActionLogsView
+	case a.LogsRead != nil:
+		return ActionLogsRead
 	}
 	return ""
 }
@@ -334,6 +338,59 @@ const (
 	LogsAnchorAt   LogsAnchorKind = "at"
 )
 
+// LogsReadAction is log lines the model read: the LogsViewInput it read, the
+// range's ends as moments, nil for an open end, the Mode the sample came from, and
+// ResolvedAt, when the tool resolved it on its clock. Lines is what the model read,
+// oldest first, stripped, redacted and cut; Dropped the lines its budget left out;
+// Before and After what lies past each end; Skipped each stream it could not read,
+// one line each. ViewAround is the view View around this opens, nil with no line.
+// Every string but the view's is cluster text.
+type LogsReadAction struct {
+	LogsViewInput
+	Since      *time.Time      `json:"since"`
+	Until      *time.Time      `json:"until"`
+	Mode       LogsReadMode    `json:"mode"`
+	ResolvedAt time.Time       `json:"resolvedAt"`
+	Lines      []LogsReadLine  `json:"lines"`
+	Dropped    int             `json:"dropped"`
+	Before     LogsReadEdge    `json:"before"`
+	After      LogsReadEdge    `json:"after"`
+	Skipped    []string        `json:"skipped"`
+	ViewAround *LogsViewAction `json:"viewAround"`
+}
+
+// LogsReadMode is which end of its range a read's sample came from. The GraphQL
+// LogsReadMode enum binds member by member onto it.
+type LogsReadMode string
+
+const (
+	LogsReadHead LogsReadMode = "head"
+	LogsReadTail LogsReadMode = "tail"
+)
+
+// LogsReadEdge is what lies past one end of a sample: nothing, lines the read did
+// not return, or lines there may be past a moment the read stopped at. The GraphQL
+// LogsReadEdge enum binds member by member onto it.
+type LogsReadEdge string
+
+const (
+	LogsReadEnd    LogsReadEdge = "end"
+	LogsReadMore   LogsReadEdge = "more"
+	LogsReadUnread LogsReadEdge = "unread"
+)
+
+// LogsReadLine is one line of a sample, as the model read it, and the hole before
+// it, nil with none.
+type LogsReadLine struct {
+	Timestamp time.Time `json:"timestamp"`
+	Namespace string    `json:"namespace"`
+	Pod       string    `json:"pod"`
+	Container string    `json:"container"`
+	Previous  bool      `json:"previous"`
+	Message   string    `json:"message"`
+	Gap       *LogsGap  `json:"gap"`
+}
+
 // The view's backend half is the log service's vocabulary, named here as the tool
 // spells it.
 type (
@@ -342,6 +399,7 @@ type (
 	LogsSourceKind  = logs.SourceKind
 	LogsViewFilter  = logs.ViewFilter
 	LogsFilterField = logs.FilterField
+	LogsGap         = logs.Gap
 )
 
 const (
