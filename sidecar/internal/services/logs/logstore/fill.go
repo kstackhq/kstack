@@ -111,7 +111,8 @@ func (s *Store) write(ctx context.Context, fills []Fill, stamp, hold bool) (Writ
 		if err != nil {
 			return err
 		}
-		f.ping(streamsWithLines(kept, func(f Fill) (int64, int) { return f.Stream, len(f.Lines) }))
+		f.committed(streamsWithLines(kept, func(f Fill) (int64, int) { return f.Stream, len(f.Lines) }),
+			linesBytes(kept, func(f Fill) []Line { return f.Lines }))
 		if hold {
 			release = f.heldChunks.holdLocked(w.Chunks)
 		}
@@ -287,6 +288,24 @@ func putChunk(ctx context.Context, st stmts, stream int64, c Chunk) (Chunk, erro
 		prevNS, prevOrd, c.Origin, c.Head, c.AtEnd, c.Open, c.Bytes).
 		Scan(&c.ID, &c.To.TS, &c.To.Ord, &c.AtEnd, &c.Open, &c.Bytes)
 	return c, err
+}
+
+// messageBytes is the text of lines, the measure a chunk's bytes and SweepBytes count.
+func messageBytes(lines []Line) int64 {
+	var n int64
+	for _, l := range lines {
+		n += int64(len(l.Message))
+	}
+	return n
+}
+
+// linesBytes is the text of every item's lines.
+func linesBytes[T any](items []T, lines func(T) []Line) int64 {
+	var n int64
+	for _, item := range items {
+		n += messageBytes(lines(item))
+	}
+	return n
 }
 
 // streamsWithLines is each stream the items write a line to, once, in order: of

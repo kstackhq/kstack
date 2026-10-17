@@ -226,6 +226,11 @@ func (r *registry) release(t *tailer) {
 func (r *registry) ended(t *tailer) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// Ended in its grace, the timer would fire on a tailer the registry has dropped.
+	if t.grace != nil {
+		t.grace.Stop()
+		t.grace = nil
+	}
 	if r.tailers[t.row] == t {
 		delete(r.tailers, t.row)
 	}

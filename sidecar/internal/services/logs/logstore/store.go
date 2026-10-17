@@ -58,6 +58,13 @@ type file struct {
 	// leaves alone.
 	heldRows   holds
 	heldChunks holds
+	// written is the message bytes committed since the janitor last woke, and wake,
+	// of capacity one, wakes it once they pass sweepBytes, 0 for a file with no
+	// janitor; janitor joins it on close.
+	written    atomic.Int64
+	sweepBytes int64
+	wake       chan struct{}
+	janitor    sync.WaitGroup
 	// short is whether the last sweep stopped over budget with nothing to evict, so
 	// the log says so as the file enters that state and as it leaves, not every sweep.
 	short atomic.Bool
@@ -113,15 +120,16 @@ func openFile(path string) (*file, error) {
 	return &file{
 		path: path, db: db, readDB: readDB, set: set, bus: conflate.New[int64, struct{}](),
 		heldRows: holds{n: map[int64]int{}}, heldChunks: holds{n: map[int64]int{}},
-		ctx: ctx, cancel: cancel,
+		wake: make(chan struct{}, 1), ctx: ctx, cancel: cancel,
 	}, nil
 }
 
-// close ends the bus's receivers, interrupts the file's operations and its writer,
-// waits for them to end, and closes both pools.
+// close ends the bus's receivers, interrupts the file's operations, its janitor and
+// its writer, waits for them to end, and closes both pools.
 func (f *file) close() error {
 	f.bus.Close()
 	f.cancel()
+	f.janitor.Wait()
 	if f.w != nil {
 		f.w.stop()
 	}
@@ -140,10 +148,20 @@ func (f *file) bind(ctx context.Context) (context.Context, func()) {
 	}
 }
 
-// ping tells the bus each stream in ids was written, after the commit that wrote it.
-func (f *file) ping(ids []int64) {
-	for _, id := range ids {
+// committed follows every commit of lines, a tailer's batch or a fill: each stream in
+// streams is pinged on the bus, and the message bytes committed count toward waking
+// the janitor, which wakes once they pass sweepBytes.
+func (f *file) committed(streams []int64, bytes int64) {
+	for _, id := range streams {
 		_ = f.bus.Sender().Send(id, struct{}{}) // an error is the bus closed, whose receivers have ended
+	}
+	if f.sweepBytes <= 0 || f.written.Add(bytes) < f.sweepBytes {
+		return
+	}
+	f.written.Store(0)
+	select {
+	case f.wake <- struct{}{}:
+	default:
 	}
 }
 

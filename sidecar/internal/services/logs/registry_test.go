@@ -249,24 +249,11 @@ func TestAFinishedInstancesTailerEndsWithItsChunkClosed(t *testing.T) {
 	assert.True(t, chunksOf(t, svc, f, "web-1", "app")[0].AtEnd)
 }
 
-// A tailer whose batch the writer cannot take within WriteTick closes its chunk at
-// its last committed line and reads again from now: the lines between are a live gap
-// below its new start.
-func TestATailerTheWriterCannotKeepUpWithReadsFromNow(t *testing.T) {
-	t.Parallel()
-	s := newLogServer()
-	f := webMirror(t)
-	dir := t.TempDir()
-	ret := testRetention
-	ret.WriteBatch, ret.WriteQueue = 1, 1
-	svc, _ := serviceIn(t, f, s, dir, ret)
-	_, _, row := filed(t, svc, f)
-	committed := pinged(t, svc, f, row)
-	attach(t, svc, f, web1Since(0))
-	s.add("prod/web-1/app", stamped(time.Second, "kept"))
-	committed()
-
-	// Another connection's exclusive lock holds the writer inside SQLite's busy wait.
+// stallWriter holds the writer of the file in dir inside SQLite's busy wait, through
+// another connection's exclusive lock, while web-1's app writes until its tailer
+// falls behind and stops its read, then lets the writer go.
+func stallWriter(t *testing.T, s *logServer, dir string) {
+	t.Helper()
 	locker, err := sql.Open("sqlite", filepath.Join(dir, "11.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, locker.Close()) })
@@ -285,6 +272,26 @@ func TestATailerTheWriterCannotKeepUpWithReadsFromNow(t *testing.T) {
 	_, err = lock.ExecContext(t.Context(), "ROLLBACK")
 	require.NoError(t, err)
 	require.NoError(t, lock.Close())
+}
+
+// A tailer whose batch the writer cannot take within WriteTick closes its chunk at
+// its last committed line and reads again from now: the lines between are a live gap
+// below its new start.
+func TestATailerTheWriterCannotKeepUpWithReadsFromNow(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	f := webMirror(t)
+	dir := t.TempDir()
+	ret := testRetention
+	ret.WriteBatch, ret.WriteQueue = 1, 1
+	svc, _ := serviceIn(t, f, s, dir, ret)
+	_, _, row := filed(t, svc, f)
+	committed := pinged(t, svc, f, row)
+	attach(t, svc, f, web1Since(0))
+	s.add("prod/web-1/app", stamped(time.Second, "kept"))
+	committed()
+
+	stallWriter(t, s, dir)
 
 	awaitReadAgain(t, s, "prod/web-1/app", "2026-10-08T11:00:00Z")
 	start := svc.tailStart(f.active.Cache.ID, row)
@@ -293,6 +300,37 @@ func TestATailerTheWriterCannotKeepUpWithReadsFromNow(t *testing.T) {
 	for _, c := range chunksOf(t, svc, f, "web-1", "app") {
 		assert.False(t, c.Open, "the chunk the writer fell behind on is closed")
 	}
+}
+
+// A tailer in its grace that falls behind the writer ends instead of reading again
+// from now, its grace timer stopped: nobody is reading it, so it stops competing for
+// the writer. The next follow asking for its stream starts a tailer afresh.
+func TestATailerInItsGraceThatFallsBehindEnds(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	f := webMirror(t)
+	dir := t.TempDir()
+	ret := testRetention
+	ret.WriteBatch, ret.WriteQueue = 1, 1
+	svc, _ := serviceIn(t, f, s, dir, ret)
+	svc.grace = time.Hour
+	_, _, row := filed(t, svc, f)
+	committed := pinged(t, svc, f, row)
+	h := attach(t, svc, f, web1Since(0))
+	s.add("prod/web-1/app", stamped(time.Second, "kept"))
+	committed()
+	h.Release()
+
+	stallWriter(t, s, dir)
+
+	testutil.Wait(t, h.Done(), "the tailer to end")
+	require.NoError(t, h.Err())
+	assert.Nil(t, svc.tailStart(f.active.Cache.ID, row), "no tailer reads on")
+	h.t.r.mu.Lock()
+	assert.Nil(t, h.t.grace, "its grace timer is stopped")
+	h.t.r.mu.Unlock()
+	attach(t, svc, f, web1Since(0))
+	assert.NotNil(t, svc.tailStart(f.active.Cache.ID, row), "a tailer afresh")
 }
 
 // A tailer in its grace holds its stream's row, so a sweep that reads the pod as gone

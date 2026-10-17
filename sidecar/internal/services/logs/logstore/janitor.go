@@ -21,6 +21,7 @@ import (
 	"maps"
 	"os"
 	"slices"
+	"time"
 )
 
 // sweepPods is the most pods one sweep asks the service about.
@@ -54,7 +55,31 @@ type candidate struct {
 	id, stream, bytes int64
 }
 
-// Sweep runs one sweep of the claim's file.
+// startJanitor runs f's janitor until f closes: a sweep every Interval, and one each
+// time the commits of lines since the last wake pass SweepBytes. A sweep's own writes
+// count nothing, so a sweep never owes the next.
+func (m *Manager) startJanitor(cacheID int64, f *file) {
+	f.sweepBytes = m.ret.SweepBytes
+	f.janitor.Add(1)
+	go func() {
+		defer f.janitor.Done()
+		t := time.NewTicker(m.ret.Interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-f.ctx.Done():
+				return
+			case <-t.C:
+			case <-f.wake:
+			}
+			if _, err := m.sweep(f.ctx, cacheID, f); err != nil && f.ctx.Err() == nil {
+				slog.Warn("log store: a sweep failed", "cacheID", cacheID, "err", err)
+			}
+		}
+	}()
+}
+
+// Sweep runs one sweep of the claim's file, as its janitor does.
 func (s *Store) Sweep(ctx context.Context) error {
 	err := s.operate(ctx, func(ctx context.Context, f *file) error {
 		_, err := s.m.sweep(ctx, s.cacheID, f)

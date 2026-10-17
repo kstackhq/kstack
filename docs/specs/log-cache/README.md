@@ -552,7 +552,7 @@ holds what they share.
 | [2 The cursor and the `Backend` seam](2-the-cursor-and-the-backend-seam.md) | A position names its instance; the fetcher behind an interface; no behaviour change | Built, [#295](https://github.com/kstackhq/kstack/pull/295) |
 | [3 Pages from the file](3-pages-from-the-file.md) | `Fetch` over coverage, fills and the file; the grep; `logsFetch`'s wire | Built, [#301](https://github.com/kstackhq/kstack/pull/301) |
 | [4 Tailers and the follow](4-tailers-and-the-follow.md) | One tailer per stream, the writer, the commit bus, `Follow` as a read; `logsFollow`'s wire | Built |
-| [5 Eviction and backpressure](5-eviction-and-backpressure.md) | The live janitor, the budget, shedding; the sequence's integration gate | Planned |
+| [5 Eviction and backpressure](5-eviction-and-backpressure.md) | The live janitor, the budget, shedding; the sequence's integration gate | Built |
 | [6 The docs](6-the-docs.md) | The ADRs, the note's retirement, the coherence pass | Planned |
 
 Record each step's status and its pull request in this table as the work moves. A built step
@@ -607,4 +607,5 @@ hook.
 Per [Verification commands](../README.md#verification-commands): `bash scripts/sandbox-dev-setup.sh`
 first. Per step: `cd sidecar && go test ./internal/services/logs/...` and `make test-changed`.
 Steps 3 and 4 change the wire and add its checks. Step 5 runs the integration gate: `make test`,
-`make lint`, `make vet`, `make cover-go`, `make cover-js`, with no gate lowered.
+`make lint`, `make vet`, `make cover-go`, `make cover-js`, with no gate lowered. It passed for
+Go and the webview; the Rust targets are left to CI, since no Rust changed.

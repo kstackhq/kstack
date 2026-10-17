@@ -101,11 +101,7 @@ func (w *writer) run() {
 
 // full is whether b closed at WriteBatch lines or WriteBatchBytes.
 func (w *writer) full(b batch) bool {
-	n := int64(0)
-	for _, l := range b.lines {
-		n += int64(len(l.Message))
-	}
-	return len(b.lines) >= w.ret.WriteBatch || n >= w.ret.WriteBatchBytes
+	return len(b.lines) >= w.ret.WriteBatch || messageBytes(b.lines) >= w.ret.WriteBatchBytes
 }
 
 // flush writes the batches that have arrived in one transaction, up to WriteQueue of
@@ -142,7 +138,7 @@ func (w *writer) flush() {
 				b.tail.committed.Store(&b.lines[len(b.lines)-1].Pos)
 			}
 		}
-		w.f.ping(batchStreams(batches))
+		w.f.committed(batchStreams(batches), linesBytes(batches, func(b batch) []Line { return b.lines }))
 	}
 	for _, b := range batches {
 		if b.last != nil {

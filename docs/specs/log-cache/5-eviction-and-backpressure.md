@@ -1,7 +1,7 @@
 ---
 title: Eviction and backpressure
 scope: sidecar
-status: Planned
+status: Built
 ---
 
 # Eviction and backpressure
@@ -65,9 +65,8 @@ row inside the transaction, writes nothing for a fill whose row is gone, and ans
 it skipped; the page reads such a stream as having nothing, as it reads any stream with no
 chunks, and a follow's fill that is skipped fails that stream as a failed fill does (§4).
 
-The stamp is unix milliseconds from the manager's clock: `NewManager(dir, ret, now)` takes it
-as a parameter, `time.Now` in `app`, and the two `time.Now()` calls in `fill.go` and
-`writer.go` read it instead.
+The stamp is unix milliseconds from the manager's clock, a field that is `time.Now` unless a
+`logstore` test sets it, as `after` is.
 
 So the file holds a firehose only to its share: the open chunk is at most `ChunkBytes`, and the
 rest of a stream nobody pages is unprotected from the moment it is written. A viewer following
@@ -161,8 +160,8 @@ deletes between the neighbouring chunks' edges before the janitor lands.
 
 ### 5. Wiring
 
-`app` already passes `logstore.DefaultRetention`; it now passes `time.Now` beside it, and
-`logs.New` sets the manager's `PodsGone`. `Retention` gains `SweepBytes`, 16 MiB in
+`logs.New` builds the manager over `logstore.DefaultRetention`, which `app` passes it, and
+sets its `PodsGone`. `Retention` gains `SweepBytes`, 16 MiB in
 `DefaultRetention`, a sixteenth of `Bytes`. Tests about anything else keep a zero `Interval`.
 
 ## Tasks

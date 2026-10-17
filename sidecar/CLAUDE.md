@@ -2107,7 +2107,8 @@ held answers `ErrClosed` and the next open starts a fresh entry; `Remove` does t
 refuses the id with `ErrRemoved` for the manager's life, idempotently; `Close` closes every
 file and refuses every open, while `Clear` and `Remove` still delete after it, since the cache
 pass clears the finalizer on `Remove`'s answer. The logs service builds and closes the manager
-and is `services/cluster`'s `CacheFileOwner` over it; its files each run their own writer.
+and is `services/cluster`'s `CacheFileOwner` over it; its files each run their own writer and
+janitor.
 `Retention` (`retention.go`) is every knob the log cache names, `DefaultRetention` its numbers;
 `NewManager` takes it, the clock a chunk is stamped on is the manager's `now` (`time.Now`, or a test's), and a fill closes its chunks at its
 `ChunkBytes` and `ChunkSpan`. Ids never come back (`AUTOINCREMENT`): a tailer, a watermark and
@@ -2119,8 +2120,10 @@ and a follow stamp nothing: a follow's gap fill is written unstamped by `Store.W
 which holds its chunks from their commit until its walk returns, taking the holds' lock before
 the transaction so no sweep lands between the two, and a tailed stream nobody pages holds only
 its open chunk. `Write` skips a fill whose stream row is gone and answers it in `Written.Skipped`: a page
-reads that stream as having nothing, and a follow fails it as a failed fill. **A sweep**
-(`Store.Sweep`, `janitor.go`) sums `bytes` per stream (message
+reads that stream as having nothing, and a follow fails it as a failed fill. **The
+janitor** (`janitor.go`, one goroutine per open file with a non-zero `Interval`) sweeps every
+`Interval` and whenever the commits of lines since it last woke pass `SweepBytes`; its own
+writes count nothing. `Store.Sweep` runs one by hand. A sweep sums `bytes` per stream (message
 bytes, not the file's size), protects every `open` chunk and every chunk stamped within
 `ReadTTL`, and evicts while the file is over `Bytes` or a stream over `StreamShare`: an
 over-share stream's chunks first, a never-read chunk before a read one, the oldest first within
@@ -2336,7 +2339,9 @@ open file) through an `OpenTail`'s `mpsc` sender, in batches of what has arrived
 `WriteBatch` or `WriteBatchBytes`; the writer writes on `WriteTick`, or at once for a full or
 last batch, in one transaction, extending the tail's `open` chunk by the chunk rules, closing it
 in the write that ends the tail, and trimming a finished stream. A tailer the writer cannot take
-a batch from within `WriteWait` closes its chunk and reads again from now. A write that fails
+a batch from within `WriteWait` closes its chunk and reads again from now, or, with no follow
+holding it, ends, its grace timer stopped, so a tailer nobody reads stops competing for the
+writer. A write that fails
 fails each tail it held a batch of (`Tail.Failed`): the writer takes no more of its lines, and
 its tailer ends with the failure, so what was lost is a live gap rather than the tailer's. **Every commit of
 lines pings the file's bus** (`Store.Subscribe`, a `gobus/conflate` receiver keyed by stream

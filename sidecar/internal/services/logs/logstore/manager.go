@@ -35,9 +35,10 @@ var (
 )
 
 // Manager owns the logs directory and hands out refcounted Stores, one file per cluster
-// cache, named by the cache's id. It has no background work. The logs service builds
-// and closes it; the cluster service's cache pass clears and removes files through that
-// service, after the close too.
+// cache, named by the cache's id. Each open file runs its own writer and, with a
+// non-zero Interval, its own janitor, both ended by the file's close. The logs service
+// builds and closes it; the cluster service's cache pass clears and removes files
+// through that service, after the close too.
 type Manager struct {
 	// dir holds each cache's file as "<cacheID>.db".
 	dir string
@@ -135,6 +136,9 @@ func (m *Manager) OpenOrCreate(cacheID int64) (*Store, error) {
 		return nil, errors.Join(fmt.Errorf("open log store %d: %w", cacheID, ErrClosed), closeErr)
 	}
 	f.startWriter(m.ret, m.after)
+	if m.ret.Interval > 0 {
+		m.startJanitor(cacheID, f)
+	}
 	e := &entry{file: f, refs: 1}
 	m.entries[cacheID] = e
 	return &Store{m: m, cacheID: cacheID, e: e}, nil
@@ -223,7 +227,7 @@ func (m *Manager) releaseLocked(cacheID int64) {
 	delete(m.busy, cacheID)
 }
 
-// Start is the lifecycle shape; the manager has no background work.
+// Start is the lifecycle shape; each file's work starts with its open.
 func (m *Manager) Start(context.Context) (func(context.Context) error, error) {
 	return func(context.Context) error { return nil }, nil
 }

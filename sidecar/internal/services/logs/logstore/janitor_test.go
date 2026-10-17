@@ -238,6 +238,42 @@ func TestASweepVacuumsOnlyWithAFreelist(t *testing.T) {
 	assert.True(t, r.Vacuumed)
 }
 
+// With the janitor live, a write that carries the file's commits past SweepBytes is
+// followed by a sweep, and the sweep's own evictions owe no other; closing the file
+// joins the janitor.
+func TestTheJanitorSweepsAfterSweepBytes(t *testing.T) {
+	t.Parallel()
+	ret := sweepRetention()
+	ret.Interval, ret.SweepBytes, ret.ReadTTL = time.Hour, 3, 0
+	c := newClock(100_000)
+	m := NewManager(t.TempDir(), ret)
+	m.now = c.now
+	reports := make(chan sweepReport, 4)
+	m.sweeps = func(_ int64, r sweepReport) { reports <- r }
+	s := open(t, m, 1)
+	id := streamOf(t, s)
+
+	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0))})
+	select {
+	case r := <-reports:
+		t.Fatalf("a sweep under SweepBytes: %+v", r)
+	default:
+	}
+	c.set(200_000)
+	big := Line{Pos: at(9, 0), Message: strings.Repeat("x", 400)}
+	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: []Line{big}})
+
+	r := testutil.Recv(t, reports, "the sweep SweepBytes owes")
+	assert.Equal(t, 1, r.Evicted, "the chunk read before the cutoff")
+	using(t, s, func(f *file) {
+		assert.Zero(t, f.written.Load(), "an eviction's writes count nothing")
+		assert.Empty(t, f.wake, "and owe no sweep")
+	})
+
+	require.NoError(t, s.Close())
+	require.NoError(t, m.Close())
+}
+
 // A sweep whose statement the file refuses, or whose question about the pods fails,
 // fails whole, saying so.
 func TestASweepTheFileRefusesFails(t *testing.T) {
@@ -272,6 +308,40 @@ func TestASweepTheFileRefusesFails(t *testing.T) {
 	}
 }
 
+// With nothing written, the janitor still sweeps every Interval.
+func TestTheJanitorSweepsEveryInterval(t *testing.T) {
+	t.Parallel()
+	ret := sweepRetention()
+	ret.Interval = time.Millisecond
+	m := NewManager(t.TempDir(), ret)
+	reports := make(chan sweepReport, 1)
+	m.sweeps = func(_ int64, r sweepReport) {
+		select {
+		case reports <- r:
+		default:
+		}
+	}
+	t.Cleanup(func() { assert.NoError(t, m.Close()) })
+	s := open(t, m, 1)
+	t.Cleanup(func() { assert.NoError(t, s.Close()) })
+
+	testutil.Recv(t, reports, "a sweep on the ticker")
+}
+
+// Commits past SweepBytes while a wake is already owed owe no second one: a burst
+// owes one sweep.
+func TestABurstOwesOneSweep(t *testing.T) {
+	t.Parallel()
+	f := openTestFile(t)
+	f.sweepBytes = 3
+
+	f.committed(nil, 5)
+	f.committed(nil, 5)
+
+	assert.Len(t, f.wake, 1)
+	assert.Zero(t, f.written.Load())
+}
+
 // A sweep whose context has ended reads nothing and says why.
 func TestACancelledSweepFails(t *testing.T) {
 	t.Parallel()
@@ -299,6 +369,31 @@ func TestASweepTruncatesAnOutweighingLog(t *testing.T) {
 	sweep(t, s)
 
 	assert.LessOrEqual(t, fileSize(path+"-wal"), fileSize(path))
+}
+
+// A sweep the live janitor runs that fails is logged, and the janitor goes on. Serial:
+// it reads the process's logger.
+func TestTheJanitorLogsASweepThatFails(t *testing.T) {
+	logs := testutil.CaptureLogs(t)
+	ret := sweepRetention()
+	ret.Interval, ret.SweepBytes = time.Hour, 1
+	m := NewManager(t.TempDir(), ret)
+	reports := make(chan sweepReport, 4)
+	m.sweeps = func(_ int64, r sweepReport) { reports <- r }
+	t.Cleanup(func() { assert.NoError(t, m.Close()) })
+	s := open(t, m, 1)
+	t.Cleanup(func() { assert.NoError(t, s.Close()) })
+	m.SetPodsGone(func(context.Context, int64, []string) ([]string, error) { return nil, errors.New("refused") })
+	podStream(t, s, "gone", "uid-gone")
+
+	id := streamOf(t, s)
+	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0))})
+	require.Eventually(t, func() bool { return strings.Contains(logs.String(), "a sweep failed") },
+		testutil.Timeout, time.Millisecond, "the failed sweep's log line")
+
+	m.SetPodsGone(nil)
+	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(2, 0))})
+	testutil.Recv(t, reports, "the next sweep")
 }
 
 // A chunk held survives a sweep over budget, as a follow's gap fill does until its walk
