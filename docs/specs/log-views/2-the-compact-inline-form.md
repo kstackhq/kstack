@@ -65,9 +65,9 @@ the next `LogsView` call with an action in the chat, the moment it stopped being
 unpinned `Tail` view, its own `resolvedAt`, since it never ran.
 
 **A live card that freezes ends at *until* too.** The newer call resolves before the webview
-draws it, so a live card can hold lines stamped at or after *until* by the time it stops. It
-drops them. If fewer than eight lines remain, it reads its frozen page. Either way it ends on the
-lines a reload reads.
+draws it, so a live card can hold lines stamped at or after *until* by the time it stops, or its
+follow can still owe lines before it. It drops the lines at or past *until* and always reads its
+frozen page, so it ends on the lines a reload reads.
 
 | View | Live | Frozen |
 | --- | --- | --- |
@@ -183,8 +183,9 @@ TypeScript, beside the files they cover, over `FakeClient`:
   short page reads on in its direction until eight lines or no more, and stops at the cap with its
   notice on the side it stopped; an *until* arriving closes the follow and keeps the lines; a live
   window that freezes holding lines at or past *until* drops them, and ends on the lines its frozen
-  page reads, whether it kept eight or had to read; a failed first read answers the error; a
-  refused or ended follow keeps the lines with its notice.
+  page reads, even when its follow had not yet delivered lines before *until*; a followed window
+  that fills drops the short-read notice; a failed first read answers the error; a refused or
+  ended follow keeps the lines with its notice.
 - `src/components/widgets/logs-view-inline.test.tsx`: the window is eight rows high while
   loading, with fewer lines, and with none (*No lines*); a message and a pod name with a
   reordering character are spelled through `VisibleText`; a gap's notice displaces the oldest

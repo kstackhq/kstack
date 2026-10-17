@@ -186,18 +186,16 @@ export class InlineLines {
   }
 
   /**
-   * Stops a live window at `until`, the next view's moment. That view resolved before this
-   * card heard of it, so the follow may have brought lines at or past the moment, which a
-   * reload would not read: they go, and the window reads its frozen page.
+   * Stops a live window at `until`, the next view's moment, and reads the frozen page a reload
+   * reads. The follow may be behind, still owing lines before the moment, or ahead, holding
+   * lines at or past it; meanwhile the window keeps those before it.
    */
   freeze(until: string): void {
     if (!this.live) return;
     this.endFollow();
     this.until = until;
-    const { lines } = this.state;
-    const before = lines.filter((line) => compareTimestamps(line.timestamp, until) < 0);
-    if (!this.state.loading && before.length === lines.length) return;
-    this.set({ ...this.state, lines: before });
+    const lines = this.state.lines.filter((line) => compareTimestamps(line.timestamp, until) < 0);
+    this.set({ ...this.state, lines });
     this.start();
   }
 
@@ -208,8 +206,13 @@ export class InlineLines {
 
   private follow(after: Cursor): void {
     const onFrame = (frame: FollowFrame) => {
-      if (frame.kind === 'Line') this.set({ ...this.state, lines: appendLine(this.state.lines, frame.line) });
-      else if (frame.kind === 'Ended') this.stop();
+      if (frame.kind === 'Line') {
+        const lines = appendLine(this.state.lines, frame.line);
+        // A full window has no room for what a short read may have missed.
+        this.set({ ...this.state, lines, more: this.state.more && lines.length < INLINE_LINES });
+      } else if (frame.kind === 'Ended') {
+        this.stop();
+      }
     };
     try {
       this.stopFollow = this.client.follow(after, onFrame, () => this.stop());

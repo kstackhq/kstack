@@ -247,15 +247,31 @@ describe('InlineLines', () => {
     expect(reload.getSnapshot().lines).toEqual(lines.getSnapshot().lines);
   });
 
-  it('freezing with nothing past until keeps the lines and reads nothing', async () => {
+  it('freezing reads the frozen page even when every held line precedes until', async () => {
     const fake = log();
-    const fetch = vi.fn((query: Parameters<Client['fetch']>[0]) => fake.fetch(query));
-    const lines = await started({ fetch, follow: fake.follow.bind(fake) });
-    vi.advanceTimersByTime(1000);
-    lines.freeze(new Date().toISOString());
+    // A follow that has delivered nothing yet: lines before until are still on their way.
+    const lines = await started({ fetch: fake.fetch.bind(fake), follow: () => () => {} });
+    write(fake, 3);
+    lines.freeze(new Date(Date.now() + 1).toISOString());
     await settle();
-    expect(fetch).toHaveBeenCalledTimes(1);
-    expect(indexes(lines.getSnapshot().lines)).toEqual(range(92, 100));
+    expect(indexes(lines.getSnapshot().lines)).toEqual(range(95, 103));
+  });
+
+  it('drops the short-read notice once the follow fills the window', async () => {
+    // A follow that sends only lines written after it opened.
+    const fake = new FakeClient({ lines: 100, spacingMs: 1000, repeat: 0 });
+    // Every page comes back empty, as a selective grep's can, so the read stops at its cap.
+    const fetch = async (query: Parameters<Client['fetch']>[0]) => ({ ...(await fake.fetch(query)), lines: [] });
+    const lines = await started({ fetch, follow: fake.follow.bind(fake) });
+    // The read is five pages, one after another.
+    await vi.runAllTimersAsync();
+    expect(lines.getSnapshot()).toMatchObject({ lines: [], more: true });
+    write(fake, 3);
+    await settle();
+    expect(lines.getSnapshot().more).toBe(true);
+    write(fake, 5);
+    await settle();
+    expect(lines.getSnapshot().more).toBe(false);
   });
 
   it('an ended follow keeps its lines and stops', async () => {
