@@ -454,6 +454,170 @@ func TestABadQueryIsRefused(t *testing.T) {
 	}
 }
 
+// A Head page from a moment starts at its first line, the moment's own lines in, and
+// a Tail page to one ends at its last; the edge the page started from carries the
+// bound, with more past it, since the page never looked there.
+func TestAPageReadsFromItsNearBound(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(6)...)
+	svc, _ := serviceOver(t, webMirror(t), s)
+
+	page, err := svc.Fetch(t.Context(), "7", webView, FetchQuery{Mode: FetchHead, Since: cursor(2 * time.Second), Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"2", "3", "4", "5"}, messages(page.Records))
+	assert.Equal(t, PageEdge{Cursor: cursor(2 * time.Second), More: true}, page.Before)
+	assert.False(t, page.After.More)
+
+	page, err = svc.Fetch(t.Context(), "7", webView, FetchQuery{Mode: FetchTail, Until: cursor(3 * time.Second), Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"0", "1", "2", "3"}, messages(page.Records))
+	assert.Equal(t, PageEdge{Cursor: cursor(3 * time.Second), More: true}, page.After)
+	assert.Equal(t, PageEdge{}, page.Before)
+}
+
+// A page stops at its far bound, whose moment's lines are in, and says nothing is
+// left that way; one the limit cut first still says more. A line at either end is
+// out of the range.
+func TestAPageStopsAtItsFarBound(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(6)...)
+	svc, _ := serviceOver(t, webMirror(t), s)
+	fetch := func(q FetchQuery) Page {
+		t.Helper()
+		page, err := svc.Fetch(t.Context(), "7", webView, q)
+		require.NoError(t, err)
+		return page
+	}
+
+	page := fetch(FetchQuery{Mode: FetchHead, Since: cursor(time.Second), Until: cursor(3 * time.Second), Limit: 10})
+	assert.Equal(t, []string{"1", "2", "3"}, messages(page.Records))
+	assert.False(t, page.After.More)
+
+	page = fetch(FetchQuery{Mode: FetchTail, Since: cursor(2 * time.Second), Until: cursor(4 * time.Second), Limit: 10})
+	assert.Equal(t, []string{"2", "3", "4"}, messages(page.Records))
+	assert.False(t, page.Before.More)
+
+	page = fetch(FetchQuery{Mode: FetchHead, Since: cursor(time.Second), Until: cursor(3 * time.Second), Limit: 2})
+	assert.Equal(t, []string{"1", "2"}, messages(page.Records))
+	assert.Equal(t, PageEdge{Cursor: lineCursor("web-1", "app", 2*time.Second, 0), More: true}, page.After)
+
+	one, three := lineCursor("web-1", "app", time.Second, 0), lineCursor("web-1", "app", 3*time.Second, 0)
+	assert.Equal(t, []string{"2"}, messages(fetch(FetchQuery{Mode: FetchHead, Since: one, Until: three, Limit: 10}).Records))
+	assert.Equal(t, []string{"2"}, messages(fetch(FetchQuery{Mode: FetchTail, Since: one, Until: three, Limit: 10}).Records))
+}
+
+// A fill never asks for a line past the page's far bound: a range no line of which
+// passes the grep reads up to the bound and no further, however much log follows,
+// either way.
+func TestAFillStopsAtTheFarBound(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(3000)...)
+	svc, f := serviceOver(t, webMirror(t), s)
+	view := webView
+	view.Grep = "^none"
+
+	page, err := svc.Fetch(t.Context(), "7", view, FetchQuery{Mode: FetchHead, Since: cursor(100 * time.Second), Until: cursor(110 * time.Second), Limit: 10})
+	require.NoError(t, err)
+	assert.Empty(t, page.Records)
+	assert.False(t, page.After.More)
+	for _, c := range chunksOf(t, svc, f, "web-1", "app") {
+		assert.LessOrEqual(t, c.To.TS, at(110*time.Second).UnixNano())
+	}
+
+	page, err = svc.Fetch(t.Context(), "7", view, FetchQuery{Mode: FetchTail, Since: cursor(2000 * time.Second), Until: cursor(2010 * time.Second), Limit: 10})
+	require.NoError(t, err)
+	assert.Empty(t, page.Records)
+	assert.False(t, page.Before.More)
+	for _, c := range chunksOf(t, svc, f, "web-1", "app") {
+		if c.To.TS > at(110*time.Second).UnixNano() {
+			assert.GreaterOrEqual(t, c.From.TS, at(2000*time.Second).UnixNano())
+		}
+	}
+}
+
+// A page over a range the file holds whole asks the backend for nothing.
+func TestAPageInsideARangeTheFileHoldsReadsNothing(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(3000)...)
+	svc, _ := serviceOver(t, webMirror(t), s)
+
+	_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Since: cursor(100 * time.Second), Until: cursor(110 * time.Second), Limit: 50})
+	require.NoError(t, err)
+	before := len(s.requests())
+
+	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Since: cursor(102 * time.Second), Until: cursor(105 * time.Second), Limit: 50})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"102", "103", "104", "105"}, messages(page.Records))
+	assert.Len(t, s.requests(), before)
+}
+
+// A group of lines sharing one moment, larger than the page, is read across pages
+// of a range through each page's edge cursor, either way, losing and repeating
+// nothing: the cursor names a line, where a moment could not.
+func TestARangePagesThroughAMomentLargerThanThePage(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	var want []string
+	s.add("prod/web-1/app", stamped(4*time.Second, "before"))
+	for i := range 9 {
+		s.add("prod/web-1/app", stamped(5*time.Second, "a"+strconv.Itoa(i)))
+		want = append(want, "a"+strconv.Itoa(i))
+	}
+	s.add("prod/web-1/app", stamped(6*time.Second, "after"))
+	for i := range 4 {
+		s.add("prod/web-2/app", stamped(5*time.Second, "b"+strconv.Itoa(i)))
+		want = append(want, "b"+strconv.Itoa(i))
+	}
+	svc, _ := serviceOver(t, webMirror(t), s)
+	moment := cursor(5 * time.Second)
+
+	var got []string
+	q := FetchQuery{Mode: FetchHead, Since: moment, Until: moment, Limit: 4}
+	for range 10 {
+		page, err := svc.Fetch(t.Context(), "7", webView, q)
+		require.NoError(t, err)
+		got = append(got, messages(page.Records)...)
+		if !page.After.More {
+			break
+		}
+		q.Since = page.After.Cursor
+	}
+	assert.Equal(t, want, got)
+
+	got = nil
+	q = FetchQuery{Mode: FetchTail, Since: moment, Until: moment, Limit: 4}
+	for range 10 {
+		page, err := svc.Fetch(t.Context(), "7", webView, q)
+		require.NoError(t, err)
+		got = append(messages(page.Records), got...)
+		if !page.Before.More {
+			break
+		}
+		q.Until = page.Before.Cursor
+	}
+	assert.Equal(t, want, got)
+}
+
+// A range is the Head and Tail pages' alone, and never beside a cursor or at.
+func TestARangeIsRefusedBesideACursorOrAt(t *testing.T) {
+	t.Parallel()
+	svc, _ := serviceOver(t, webMirror(t), newLogServer())
+	now := at(0)
+	for want, q := range map[string]FetchQuery{
+		"an Around page takes no since or until": {Mode: FetchAround, At: &now, Since: cursor(0)},
+		"a Head page takes a cursor or a range":  {Mode: FetchHead, Cursor: cursor(0), Until: cursor(time.Second)},
+		"a Tail page takes a cursor or a range":  {Mode: FetchTail, Cursor: cursor(0), Since: cursor(0)},
+	} {
+		q.Limit = 10
+		_, err := svc.Fetch(t.Context(), "7", webView, q)
+		assert.EqualError(t, err, want)
+	}
+}
+
 // web1View reads the app container of the pod web-1 in prod.
 var web1View = View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}}}}
 

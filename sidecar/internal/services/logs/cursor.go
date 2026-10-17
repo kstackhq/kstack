@@ -130,6 +130,16 @@ func boundAfter(after *string) (bound, error) {
 	return bound{p, false}, err
 }
 
+// boundIn is the bound a range's end names, zero with none: a moment's lines are in
+// the range, a line is not.
+func boundIn(c *string) (bound, error) {
+	if c == nil {
+		return bound{}, nil
+	}
+	p, err := parseCursor(*c)
+	return bound{p, p.moment()}, err
+}
+
 // bound is one end of a read's range: a position, and whether a line at it is in
 // range. A zero bound is no bound.
 type bound struct {

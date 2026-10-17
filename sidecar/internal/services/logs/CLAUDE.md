@@ -59,6 +59,11 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
 - **`Service.Fetch` answers from the file** (`fetch.go`; built in `app` as `logs.New`, which owns
   the log store and is the cluster service's `CacheFileOwner`). The model reaches no line through
   it. Modes `Head`, `Tail`, `Around` (limit ≤500; `compileGrep` refuses a bad grep, on follows too).
+  **A page takes a range**: `Since` and `Until` in place of `Cursor`, a moment's lines in it, a
+  line's not (`boundIn`). The far bound is applied in the walk next to the near one
+  (`pageQuery.far`, `clampTo`), and the filler clamps each gap's download to the range by passing it
+  in through `readOpts` (`fillGap`), so `reader.lines` stays the one place a bound is applied. A
+  page that stopped at its far bound says nothing is left that way.
   A page resolves, files streams, adds gone pods' streams the file holds (`filestreams.go`), fills
   gaps from the backends (`fill.go`), walks (`walk.go`) and merges (`merge.go`). **A read is
   written a batch at a time as it arrives** (`window`, `WriteBatch`), each batch checked against
