@@ -68,6 +68,10 @@ type file struct {
 	// short is whether the last sweep stopped over budget with nothing to evict, so
 	// the log says so as the file enters that state and as it leaves, not every sweep.
 	short atomic.Bool
+	// unclosed is the chunks of ended tails whose close failed, which the janitor
+	// closes before it picks what to evict.
+	unclosedMu sync.Mutex
+	unclosed   []int64
 	// podsAfter is the last pod uid a sweep asked about, where the next one takes up.
 	podsMu    sync.Mutex
 	podsAfter string
