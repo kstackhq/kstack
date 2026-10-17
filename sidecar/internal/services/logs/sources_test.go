@@ -220,6 +220,25 @@ func TestAPreviousInstanceIsReadOnlyWhereItRestarted(t *testing.T) {
 	assert.Equal(t, []StreamKey{{Namespace: "prod", Pod: "web-2", Container: "app", Previous: true}}, keysOf(got))
 }
 
+// Each stream carries the runtime id of the instance it reads, and a container
+// whose id a cursor could not carry is not read: the cluster wrote the id, and a
+// page must never hand out a cursor it would refuse.
+func TestAStreamCarriesItsInstancesID(t *testing.T) {
+	t.Parallel()
+	f := webMirror(t)
+	body := pod("odd", "uid-odd", "node-a", nil, container{name: "app"}, container{name: "tabbed"}, container{name: "long"})
+	statuses := body["status"].(map[string]any)["containerStatuses"].([]any)
+	statuses[1].(map[string]any)["containerID"] = "containerd://a\tb"
+	statuses[2].(map[string]any)["containerID"] = "containerd://" + strings.Repeat("a", 244)
+	f.store.Apply(t, body)
+
+	got, err := resolveOf(t, f, View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "odd", AllContainers: true}}})
+
+	require.NoError(t, err)
+	assert.Equal(t, []StreamKey{{Namespace: "prod", Pod: "odd", Container: "app"}}, keysOf(got))
+	assert.Equal(t, containerID("uid-odd", "app", 0), got.streams[0].gen.instance)
+}
+
 // A container waiting to start has no log, so its source is idle until it does;
 // one restarting after a crash still has its last instance's, which kubectl logs
 // serves meanwhile.

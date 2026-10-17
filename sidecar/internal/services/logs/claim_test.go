@@ -99,17 +99,6 @@ func TestARevokedClaimCutsAndRefusesItsRequests(t *testing.T) {
 	assert.ErrorIs(t, err, ErrRevoked)
 }
 
-// A 401 or a revoked claim fails a whole read; a 403 or any other failure is one
-// stream's.
-func TestFatalIsTheUsersCredentialsOrTheCluster(t *testing.T) {
-	t.Parallel()
-	assert.EqualError(t, fatal(&statusError{code: http.StatusUnauthorized, message: "Unauthorized"}), "the cluster refused to show this log: Unauthorized")
-	assert.ErrorIs(t, fatal(ErrRevoked), ErrRevoked)
-	assert.NoError(t, fatal(&statusError{code: http.StatusForbidden, message: "forbidden"}))
-	assert.NoError(t, fatal(errors.New("connection reset")))
-	assert.NoError(t, fatal(nil))
-}
-
 // A claim whose record's watch cannot open is refused, and releases its lease.
 func TestAClaimWhoseWatchCannotOpenIsRefused(t *testing.T) {
 	t.Parallel()

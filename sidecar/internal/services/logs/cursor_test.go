@@ -15,6 +15,7 @@
 package logs
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -25,8 +26,7 @@ import (
 // A line's cursor names it back; a time alone names a moment.
 func TestACursorNamesALineOrAMoment(t *testing.T) {
 	t.Parallel()
-	key := StreamKey{Namespace: "prod", Pod: "web-1", Container: "app", Previous: true}
-	p := lineAt(key, 1500*time.Millisecond, 3)
+	p := lineAt(StreamKey{Namespace: "prod", Pod: "web-1", Container: "app"}, 1500*time.Millisecond, 3)
 
 	back, err := parseCursor(*cursorOf(p))
 	require.NoError(t, err)
@@ -42,7 +42,7 @@ func TestACursorNamesALineOrAMoment(t *testing.T) {
 // A record's cursor names its line.
 func TestARecordsCursorNamesItsLine(t *testing.T) {
 	t.Parallel()
-	rec := Record{Timestamp: at(time.Second), Message: "hello", Stream: StreamKey{Namespace: "prod", Pod: "web-1", Container: "app"}, Ordinal: 2}
+	rec := nth("web-1", "app", time.Second, 2, "hello")
 
 	p, err := parseCursor(rec.Cursor())
 
@@ -50,28 +50,77 @@ func TestARecordsCursorNamesItsLine(t *testing.T) {
 	assert.Equal(t, positionOf(rec), p)
 }
 
-// A cursor that is neither is refused.
+// A line keeps its cursor once its instance is the previous one: the id names the
+// instance, not whether it is the last.
+func TestALineKeepsItsCursorAcrossARestart(t *testing.T) {
+	t.Parallel()
+	rec := line("web-1", "app", time.Second, "")
+	prev := rec
+	prev.Stream.Previous = true
+
+	assert.Equal(t, rec.Cursor(), prev.Cursor())
+}
+
+// A cursor that is neither is refused, and so is one whose instance id no runtime
+// writes: empty, holding a control character, or past 256 bytes.
 func TestABadCursorIsRefused(t *testing.T) {
 	t.Parallel()
-	for _, c := range []string{"yesterday", "2026-10-08T10:00:01Z\tprod", "2026-10-08T10:00:01Z\tprod\tweb\tapp\tmaybe\t0", "2026-10-08T10:00:01Z\tprod\tweb\tapp\tfalse\t-1", "2026-10-08T10:00:01Z\tprod\tweb\t\tfalse\t0"} {
+	line := func(id string) string { return "2026-10-08T10:00:01Z\tprod\tweb\tapp\t" + id + "\t0" }
+	for _, c := range []string{
+		"yesterday",
+		"2026-10-08T10:00:01Z\tprod",
+		"2026-10-08T10:00:01Z\tprod\tweb\tapp\tcontainerd://a\t-1",
+		"2026-10-08T10:00:01Z\tprod\tweb\t\tcontainerd://a\t0",
+		line(""),
+		line("containerd://a\nb"),
+		line("containerd://a\x7fb"),
+		line("containerd://" + strings.Repeat("a", 244)),
+	} {
 		_, err := parseCursor(c)
 		assert.EqualError(t, err, "a cursor must be an RFC 3339 time, or one a page handed back", c)
 	}
 }
 
-// Lines order by time, then namespace, pod, container, the previous instance
-// first, and ordinal; against a moment, by time alone.
+// A cursor takes whatever id a runtime writes, up to 256 bytes: the server handed
+// it out.
+func TestACursorTakesARuntimesID(t *testing.T) {
+	t.Parallel()
+	for _, id := range []string{"containerd://uid-web-1-app-0", "docker://3f4e", "containerd://" + strings.Repeat("a", 243)} {
+		p, err := parseCursor("2026-10-08T10:00:01Z\tprod\tweb\tapp\t" + id + "\t0")
+		require.NoError(t, err, id)
+		assert.Equal(t, id, p.ContainerID)
+	}
+}
+
+// Lines order by time, then namespace, pod and container, then ordinal, and the
+// instance id decides only an equal ordinal; against a moment, by time alone.
 func TestPositionsOrder(t *testing.T) {
 	t.Parallel()
 	a := StreamKey{Namespace: "prod", Pod: "a", Container: "app"}
-	prev := a
-	prev.Previous = true
+	sidecar := StreamKey{Namespace: "prod", Pod: "a", Container: "sidecar"}
+	older, newer := lineAt(a, 0, 0), lineAt(a, 0, 0)
+	older.ContainerID, newer.ContainerID = "containerd://a-0", "containerd://a-1"
 	assert.Less(t, comparePositions(lineAt(a, 0, 5), lineAt(a, time.Second, 0)), 0)
 	assert.Less(t, comparePositions(lineAt(a, 0, 0), lineAt(a, 0, 1)), 0)
-	assert.Less(t, comparePositions(lineAt(prev, 0, 9), lineAt(a, 0, 0)), 0)
-	assert.Greater(t, comparePositions(lineAt(a, 0, 0), lineAt(prev, 0, 9)), 0)
+	assert.Less(t, comparePositions(older, newer), 0)
+	assert.Greater(t, comparePositions(newer, older), 0)
+	assert.Less(t, comparePositions(lineAt(a, 0, 9), lineAt(sidecar, 0, 0)), 0)
 	assert.Equal(t, 0, comparePositions(lineAt(a, 0, 7), position{Timestamp: at(0)}))
 	assert.Equal(t, 0, comparePositions(position{Timestamp: at(0)}, lineAt(a, 0, 7)))
+}
+
+// A line past a cursor's ordinal at the cursor's moment sorts after it whichever
+// instance id it carries: the resolve lags a restart, so a page can end on a
+// line keyed with the old id that the next page keys with the new one, and the
+// lines past it must not fall before the cursor.
+func TestALaterOrdinalFollowsTheCursorWhateverItsID(t *testing.T) {
+	t.Parallel()
+	a := StreamKey{Namespace: "prod", Pod: "a", Container: "app"}
+	for _, ids := range [][2]string{{"containerd://a-0", "containerd://a-1"}, {"containerd://a-1", "containerd://a-0"}} {
+		end, next := lineAt(a, 0, 3), lineAt(a, 0, 4)
+		end.ContainerID, next.ContainerID = ids[0], ids[1]
+		assert.Greater(t, comparePositions(next, end), 0, ids)
+	}
 }
 
 // A bound keeps or drops the line it sits on as its inclusivity says, and a
@@ -79,7 +128,7 @@ func TestPositionsOrder(t *testing.T) {
 func TestBoundsKeepOrDropTheirLine(t *testing.T) {
 	t.Parallel()
 	a := StreamKey{Namespace: "prod", Pod: "a", Container: "app"}
-	rec := Record{Timestamp: at(0), Stream: a, Ordinal: 1}
+	rec := nth("a", "app", 0, 1, "")
 	assert.False(t, bound{lineAt(a, 0, 1), true}.below(rec))
 	assert.True(t, bound{lineAt(a, 0, 1), false}.below(rec))
 	assert.True(t, bound{lineAt(a, 0, 2), true}.below(rec))

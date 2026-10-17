@@ -32,8 +32,8 @@ Two, in `docs/adr/`, each with the README's *Decisions this sequence asks for* a
 
 - **The log cache**: one file per cluster cache; coverage per stream and per chunk, claimed only
   from a read's first returned line; a stream is a runtime instance and `previous` is derived;
-  the place and labels are a snapshot; eviction is LRU by read under a byte budget; sources are
-  tiered and a range has one source; messages are text, with the dictionary path named for
+  the place and labels are a snapshot; eviction is LRU by read under a byte budget; backends are
+  tiered and a range has one backend; messages are text, with the dictionary path named for
   later. Alternatives considered: the webview keeping every line, a session table, coverage from
   the requested `sinceTime`, `previous` on the row, a line cap on the grace.
 - **A cursor is a position**: what the file holds in place of the per-stream hint the sidecar

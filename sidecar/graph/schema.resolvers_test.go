@@ -3261,7 +3261,7 @@ func TestLogsFetchServesAPage(t *testing.T) {
 	stamp := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
 	cursor := "2026-10-08T10:00:00Z"
 	fake := &fakeLogs{page: logs.Page{
-		Records:    []logs.Record{{Timestamp: stamp, Message: "error: disk", Stream: logs.StreamKey{Namespace: "prod", Pod: "web-1", Container: "app"}, Place: logs.Place{Zone: "eu-1a"}}},
+		Records:    []logs.Record{{Timestamp: stamp, Message: "error: disk", Stream: logs.StreamKey{Namespace: "prod", Pod: "web-1", Container: "app"}, Place: logs.Place{Zone: "eu-1a"}, ContainerID: "containerd://web-1-app"}},
 		NextCursor: &cursor,
 		Skipped:    []string{"web-2/app: container is waiting to start"},
 	}}
@@ -3273,7 +3273,7 @@ func TestLogsFetchServesAPage(t *testing.T) {
 
 	assert.JSONEq(t, `{"data":{"logsFetch":{
 		"records":[{"timestamp":"2026-10-08T10:00:00Z","message":"error: disk","stream":{"pod":"web-1","container":"app","previous":false},"place":{"node":"","zone":"eu-1a"},
-			"cursor":"2026-10-08T10:00:00Z\tprod\tweb-1\tapp\tfalse\t0"}],
+			"cursor":"2026-10-08T10:00:00Z\tprod\tweb-1\tapp\tcontainerd://web-1-app\t0"}],
 		"nextCursor":"2026-10-08T10:00:00Z","skipped":["web-2/app: container is waiting to start"]}}}`, string(raw))
 	assert.Equal(t, logs.View{
 		Sources: []logs.ViewSource{{Namespace: "prod", Kind: logs.SourceDeployment, Name: "web", Containers: []string{"app"}}},

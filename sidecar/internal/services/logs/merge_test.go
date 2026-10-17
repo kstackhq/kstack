@@ -38,6 +38,12 @@ func canned(ctx context.Context, recs ...Record) *streamRead {
 // cannedFrom is a reading of key that sends recs, then ends with err, and short
 // at stop when stop is set.
 func cannedFrom(ctx context.Context, key StreamKey, recs []Record, err error, stop position) *streamRead {
+	return cannedUntil(ctx, key, recs, nil, err, stop)
+}
+
+// cannedUntil is cannedFrom that, once it has sent recs, ends only once wait
+// closes, a nil wait at once.
+func cannedUntil(ctx context.Context, key StreamKey, recs []Record, wait <-chan struct{}, err error, stop position) *streamRead {
 	ctx, cancel := context.WithCancel(ctx)
 	out, lines := spsc.New[Record](0)
 	r := &streamRead{key: key, lines: lines, cancel: cancel}
@@ -45,6 +51,13 @@ func cannedFrom(ctx context.Context, key StreamKey, recs []Record, err error, st
 		defer out.Close()
 		for _, rec := range recs {
 			if out.SendContext(ctx, rec) != nil {
+				return
+			}
+		}
+		if wait != nil {
+			select {
+			case <-wait:
+			case <-ctx.Done():
 				return
 			}
 		}

@@ -44,20 +44,20 @@ to show a log across two restarts.
   file. A later tool will read through `Service.Fetch` under its own gate.
 - **No change to how a follow orders frames.** Still per stream, as the webview expects.
 - **No change to the reads themselves.** The forward read, the backward windows, the budget per
-  stream and `reader.lines` all stay. They become how a gap is filled, behind the `Source`
+  stream and `reader.lines` all stay. They become how a gap is filled, behind the `Backend`
   interface (§4).
 - **No cluster agent, and no archive.** kubetail's agent, which greps on the node, is a second
-  `Source` for later, and an archive such as Loki or Datadog, which holds lines the kubelet has
+  `Backend` for later, and an archive such as Loki or Datadog, which holds lines the kubelet has
   rotated away, is a third. The schema and the cursor are shaped so that each fits without a
   change to stored data (§3, §8), and that is all this sequence does for them.
 - **No filter by label.** Selecting pods by label is a new kind of view source, a change to
   `LogsViewInput`, the tool's parse, the resolve and the wire, and none of it gets harder by
   waiting. The cache only has to keep each pod's labels on its streams, which it does (§2), since
   that is the one part that cannot be added after a pod is gone.
-- **No stdout/stderr on a line.** The kubelet API strips the CRI tag, so no source this sequence
+- **No stdout/stderr on a line.** The kubelet API strips the CRI tag, so no backend this sequence
   builds knows it; the agent reads the file and does. It is an attribute, not part of a line's
   key, and the cache file is one Kstack rebuilds, so adding a `stream` column then is a schema
-  edit, not a migration. It lands with the first source that fills it, together with the
+  edit, not a migration. It lands with the first backend that fills it, together with the
   viewer's colouring and a filter for it.
 - **No encryption and no redaction of cached lines.** The file holds cluster data in the clear,
   like the mirror's file does (see *Security*).
@@ -107,7 +107,7 @@ CREATE TABLE streams (
   namespace     TEXT NOT NULL,
   pod           TEXT NOT NULL,
   container     TEXT NOT NULL,
-  container_id  TEXT NOT NULL,             -- the runtime instance whose log these lines are; '' when the source knows only the name
+  container_id  TEXT NOT NULL,             -- the runtime instance whose log these lines are; '' when the backend knows only the name
   started_at    INTEGER,                   -- when the instance started, unix ns; NULL when unknown
   finished_at   INTEGER,                   -- when it stopped; NULL while it runs
   node TEXT NOT NULL, region TEXT NOT NULL, zone TEXT NOT NULL, os TEXT NOT NULL, arch TEXT NOT NULL,
@@ -123,8 +123,8 @@ CREATE TABLE chunks (
   from_ord    INTEGER NOT NULL,            -- and its ordinal: a chunk's edges are positions
   to_ns       INTEGER NOT NULL,            -- the last line's moment
   to_ord      INTEGER NOT NULL,
-  source      TEXT NOT NULL,               -- which of the cluster's sources filled it
-  head        INTEGER NOT NULL,            -- 1: the source has nothing older than from_ns
+  origin      TEXT NOT NULL,               -- the backend that filled it, by name
+  head        INTEGER NOT NULL,            -- 1: the backend has nothing older than from_ns
   at_end      INTEGER NOT NULL,            -- 1: to_ns is the log's last line (a finished instance)
   open        INTEGER NOT NULL,            -- 1: a tailer is still writing into it
   bytes       INTEGER NOT NULL,
@@ -136,7 +136,7 @@ CREATE TABLE lines (
   id          INTEGER PRIMARY KEY AUTOINCREMENT, -- commit order; never reused, see below
   stream_id   INTEGER NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
   ts_ns       INTEGER NOT NULL,
-  ord         INTEGER NOT NULL,            -- the source's number for the line within its moment
+  ord         INTEGER NOT NULL,            -- the backend's number for the line within its moment
   message     TEXT NOT NULL                -- after stripControl, so at most 16 KiB
 ) STRICT;
 CREATE UNIQUE INDEX lines_position ON lines (stream_id, ts_ns, ord);
@@ -169,23 +169,25 @@ The first and last lines the cache holds are not stored on the stream. They are 
 of the chunk marked `head` and the largest `to_ns`, and a second copy would be one more thing
 to keep in step.
 
-A **chunk** is the unit of coverage and of eviction. It states a fact: *every line the source
+A **chunk** is the unit of coverage and of eviction. It states a fact: *every line the backend
 served for this stream between `from_ns` and `to_ns` that matches `pattern` is in `lines`*. An
-empty pattern means every line.
+empty pattern means every line. Its `origin` is the backend that filled it, by name.
 
-A **line**'s key is its position, the same three fields a cursor holds. `ord` is the source's
+A **line**'s key is its position, the same three fields a cursor holds. `ord` is the backend's
 own number for the line within its moment, so a line gets the same key whichever fill found it.
-The kubelet API has no such number, so the kubelet source counts lines within the moment itself,
+The kubelet API has no such number, so the kubelet backend counts lines within the moment itself,
 as `reader.lines` does today. That count is only right when the read saw every line of the
-moment, which is why a kubelet fill is always unfiltered. An agent source names a line by its
+moment, which is why a kubelet fill is always unfiltered. An agent backend names a line by its
 offset in the file it reads, which is right for a grepped read too. **A range of a stream is
-filled by one source**, so two sources never number the same line two ways. The cluster's
-sources are a list in priority order, picked by the `source` its clusters row carries and, later,
+filled by one backend**, so two backends never number the same line two ways. The cluster's
+backends are a list in priority order, picked by the `source` its clusters row carries and, later,
 by the archives configured for it: a local cluster reads the kubelet first, a cluster sourced
-elsewhere reads whatever serves it, and an archive is asked only for a range the source before it
+elsewhere reads whatever serves it, and an archive is asked only for a range the backend before it
 has said it does not hold (§3). A stream an archive knows only by name has `''` for its
 `container_id` and NULL for `started_at`; it is one row across every restart, which is what the
-archive knows, and its derived `previous` is unknown rather than guessed. A page's
+archive knows, and its derived `previous` is unknown rather than guessed. The cursor does not
+carry such a stream yet: `parseCursor` refuses an empty id (§8), so an archive backend brings a
+cursor change of its own, decided when it lands. A page's
 statement walks `lines_position`. Nothing else is indexed. `lines` is a rowid table, not
 `WITHOUT ROWID`, for the reason `kubestore`'s `objects` is: a line is often past the row size at
 which `WITHOUT ROWID` pays and can reach 16 KiB. Its `id` is commit order, which the follow reads
@@ -207,14 +209,14 @@ numbers each line within its moment and reads each moment whole.
   has. A read after a rotation would otherwise claim lines it never saw. The new chunk joins the
   chunk that ends at `m` only if the read began inside `m`'s moment and returned that whole
   moment. When it does, the two chunks merge.
-- A backward read that reached the oldest line its source holds marks its chunk `head`. No other
-  read does. `head` is the source's, not the log's: the kubelet's first line is where its file
+- A backward read that reached the oldest line its backend holds marks its chunk `head`. No other
+  read does. `head` is the backend's, not the log's: the kubelet's first line is where its file
   starts, and an archive may hold older ones.
-- **Sources are tiered.** A gap is offered to the cluster's first source. Only the range it
+- **Backends are tiered.** A gap is offered to the cluster's first backend. Only the range it
   answers with `head` for, the part older than its oldest line, is offered to the next. So one
-  range has one source, a chunk records which, and a stream's history is a run of chunks that
-  changes source once at each tier's edge. The edge falls on a moment and never inside one: the
-  moment of a source's first line is that source's whole.
+  range has one backend, which the chunk records as its `origin`, and a stream's history is a run
+  of chunks whose origin changes once at each tier's edge. The edge falls on a moment and never
+  inside one: the moment of a backend's first line is that backend's whole.
 - A forward read of a finished instance (`finished_at` set) that reached the end of its log marks
   its chunk `at_end`. A running instance has no end to reach, so no read of one sets it. A stream
   with an `at_end` chunk is read in full at its newest side: a page over it never fills forward,
@@ -230,8 +232,8 @@ numbers each line within its moment and reads each moment whole.
 - **A chunk's pattern is the grep its fill ran under.** A page for pattern `P` is covered by a
   chunk labelled `P` and by an unlabelled one, since every line is a superset of the matches. A
   chunk labelled `Q` is a gap for it. An unfiltered page is covered by unlabelled chunks alone.
-  Two chunks merge only when their labels are the same. Only a source that greps on its side
-  (the agent) fills a labelled chunk; the kubelet source fills unlabelled ones and the grep runs
+  Two chunks merge only when their labels are the same. Only a backend that greps on its side
+  (the agent) fills a labelled chunk; the kubelet backend fills unlabelled ones and the grep runs
   locally over them (§4).
 
 Rows and chunks change in one transaction. A reader's snapshot sees both or neither, so a range
@@ -252,29 +254,36 @@ direction from the cursor:
 1. **Read the coverage.** Load the stream's chunks from the cursor's position outward. A `Head`
    page needs coverage from the cursor onward. A `Tail` page needs it from the cursor back to a
    `head` chunk, or back far enough to fill `limit` lines across the view. `Around` needs both.
-2. **Fill the gaps from the sources.** A `Source` has `Streams(view)`, the streams it holds for
+2. **Fill the gaps from the backends.** A `Backend` has `Streams(view)`, the streams it holds for
    a view, which for the kubelet is the mirror resolve above and for an archive is a query over
-   its labels, since a pod deleted before Kstack saw the cluster is in no mirror; two reads,
-   `Forward(stream, from)` and `Backward(stream, until, want)`; and a `Tail(stream, from)` for
-   §5, which an archive does not offer. Each read answers lines with the source's own `ord`,
-   whether it reached the oldest or the last line the source holds, and the pattern it filtered
-   by, empty for the kubelet. The gaps go to the cluster's sources in order, as §3 says. **A failure is one of three kinds, and the source
-   classifies it**: `Fatal`, which fails the whole page or follow, since it is the user's
-   credentials; `Denied`, which is one stream's and caches nothing for it; and transient, which
-   is retried as today. The kubelet source maps a 401 onto `Fatal` and a 403 onto `Denied`;
-   another source maps its own errors. The kubelet source is the fetcher as it stands: a forward
+   its labels, since a pod deleted before Kstack saw the cluster is in no mirror (step 3 adds
+   it; step 2's seam carries the reads alone, the resolve staying where it is); two reads,
+   `Forward` and `Backward` under the read's bounds; and a `Tail` for §5, which an archive does
+   not offer. A read is a stream the caller pulls a line at a time and cancels, as the fetcher's
+   is today (step 2): its lines carry the backend's own `ord`, and its end says whether it
+   reached the oldest or the last line the backend holds, and the pattern it filtered by, empty
+   for the kubelet. The gaps go to the cluster's backends in order, as §3 says. **A failure is
+   one of four kinds, and the backend classifies it**: `Fatal`, which fails the whole page or
+   follow, since it is the user's credentials; `Denied`, which is one stream's and caches nothing
+   for it; `Ended`, the backend's answer for that log now, which caches nothing and is asked again
+   at a later generation; and `Transient`, which is retried as today. The kubelet backend maps a
+   401 onto `Fatal`, a 403 onto `Denied`, a 408 and a 429 onto `Transient`, since a request the
+   server timed out or throttled says nothing about the log, any other status under 500 onto
+   `Ended` and the rest onto `Transient`; another backend maps its own errors. The kubelet backend is the fetcher as it stands: a forward
    read for a gap that starts at a chunk's end, kubetail's backward windows for history older
    than the oldest chunk, the budget split evenly across the streams that need a read, `maxGets`
    per stream, each `GET` over a claim (`claim.go`), so a disabled or deleted cluster cuts its
-   reads as today. How another source authenticates is its own business. The kubelet source is
+   reads as today. How another backend authenticates is its own business. The kubelet backend is
    the only one this sequence builds. Each read writes what it returned as §3 says, in batches on the
    writer. A stream that fails before any line in range becomes the page's `skipped` entry, as
    today, and its coverage is left alone.
-3. **Answer from the file.** One statement over `lines` for the view's streams, ordered by
-   `(ts_ns, container_id, ord)`, bounded by the cursor and `limit`, in one read transaction on
-   the reader pool. It runs after the fills commit, so it sees them. Two instances of one
-   container never tie on `ts_ns` in practice, and when they do the id orders them; `started_at`
-   is for the viewer, which draws the instances of a container in start order.
+3. **Answer from the file.** One statement over `lines` joined to `streams` for the view's
+   streams, ordered by `(ts_ns, namespace, pod, container, ord, container_id)` — the order
+   `comparePositions` keeps (§8), so a page's edges and the cursor agree with the statement —
+   bounded by the cursor and `limit`, in one read transaction on the reader pool. It runs after
+   the fills commit, so it sees them. Two instances of one container never tie on `ts_ns` in
+   practice, and when they do the ordinal orders them, then the id; `started_at` is for the viewer, which draws
+   the instances of a container in start order.
 
 **Grep** runs where the page is read. `kstack_grep(text)` is a Go function registered on the
 reader connections. It is compiled once per statement from the view's pattern and runs over text
@@ -289,7 +298,7 @@ is covered in the direction read, or `limit`, whichever comes first. **The live 
 newest line of each stream's newest chunk, once a forward fill has read each running stream to
 its end; a finished stream with an `at_end` chunk is already there. Its cursor is that moment. What each stream holds up to it lives in the file, not in the cursor.
 A `before` edge is null with `more: false` when every stream's oldest chunk is `head` from the
-cluster's last source; a `head` from an earlier source means only that the next one is asked.
+cluster's last backend; a `head` from an earlier backend means only that the next one is asked.
 
 A page runs inside the view's `ReadActive`, which may run the reading twice if the identity
 moves. The fills are idempotent (`INSERT OR IGNORE` on the position), so a second run writes
@@ -302,7 +311,7 @@ which streams the view wants at each generation. What changes is who does the re
 reconcile asks the file's **tailer registry** for each stream. The registry runs one tailer per
 `streams` row and pattern, shared by every follow that wants it, with a refcount. An unlabelled
 tailer serves every pattern, since the grep runs where the lines are read, and it is the only
-kind the kubelet source runs. **A tailer stays alive for `TailGrace` (30 seconds) after its last
+kind the kubelet backend runs. **A tailer stays alive for `TailGrace` (30 seconds) after its last
 follow lets go**, and so do the view's pods and workload watches, held by the registry under the
 same grace and keyed by the view's namespaces and kinds. This is what makes a viewer's scroll up
 and back an attach rather than a restart: the webview's window closes its follow the moment it
@@ -310,10 +319,10 @@ unpins and opens one when it pins again, and the sidecar answers the new one fro
 stopped, with the first frame on the next commit tick. Thirty seconds is sized for reading
 something above and coming back; a longer absence pays one restart, which is what every scroll
 pays today. The registry's contract is per stream, since that is what the refcount is for; what
-a source opens underneath is its own business, so a source that would rather carry many streams
+a backend opens underneath is its own business, so a backend that would rather carry many streams
 over one connection may.
 
-A tailer is the source's `Tail` read, which for the kubelet is the forward stream the follow runs
+A tailer is the backend's `Tail` read, which for the kubelet is the forward stream the follow runs
 today. It starts at the moment of the last line in the stream's newest chunk, or at the follow's
 `after` position, or at now if there is neither.
 A finished instance gets no tailer: its last read is a forward fill that marks the `at_end` chunk,
@@ -324,9 +333,10 @@ It hands lines to the writer in batches of at most `WriteBatch` lines or every `
 `WithKeepOpen`, one sender per tailer, closed when it ends, bounded to `WriteQueue` batches:
 fan-in from producers that come and go, as `fanIn` is today. After each commit the writer sends
 on a `gobus/conflate` bus keyed by stream id, one coalesced ping per stream written, as `app.db`'s
-change bus does per key. Its failures are the source's three kinds (§4): a `Fatal` one ends every follow on the
-file, a `Denied` one ends the stream, and a transient one is retried as the follow retries today.
-The kubelet source's tailer is the forward stream over a claim, so a revoked claim ends it.
+change bus does per key. Its failures are the backend's four kinds (§4): a `Fatal` one ends every follow on the
+file, an `Ended` one holds the stream until its generation moves, a `Denied` one the same with
+the reason remembered, and a `Transient` one is retried as the follow retries today.
+The kubelet backend's tailer is the forward stream over a claim, so a revoked claim ends it.
 
 A follow is then **a read of the file after a watermark per stream, run again on every commit**.
 It subscribes to the commit bus under its streams' ids, before its first read, and subscribes
@@ -395,15 +405,18 @@ drives.
 ### 8. The cursor
 
 A cursor is a position, `cursor.go`'s type: a moment alone, or a moment with a stream and an
-ordinal. **The stream field becomes the `container_id`**, where today it is the container's name
-and `previous`. The name and `previous` can both change for one instance across a restart, and a
-line's key must not; the id cannot. `comparePrevious` goes with it. A `container_id` is longer
-than a name, which a cursor can afford, and it stays valid across a cache clear, which a
-file-local stream id would not. The ordinal is the source's number for the line (§2), which for
-the kubelet is the count `reader.lines` keeps today. A page cursor at the live end carries the
-moment alone. Nothing per stream rides in it, because the
-file holds each stream's extent. So `parseCursor` checks what it checks today, and the note's §4
-and its open problems 1, 6, 7 and 9 go away.
+ordinal. **The stream's instance is its `container_id`**, in the place `previous` holds today,
+beside the namespace, pod and container name. `previous` can change for one instance across a
+restart, and a line's key must not; the id cannot. `comparePrevious` goes with it, and the order
+is time, then the names as today, then the ordinal, then the id, so lines at one moment keep
+their order and only two instances of one container at one moment sort differently (step 2). A
+`container_id` is longer than a name, which a cursor can afford, and it stays valid across a
+cache clear, which a file-local stream id would not. The ordinal is the backend's number for the
+line (§2), which for the kubelet is the count `reader.lines` keeps today. A page cursor at the
+live end carries the moment alone. Nothing per stream rides in it, because the file holds each
+stream's extent. So `parseCursor` checks what it checks today and that the id is one the
+resolve could have handed out — not empty, no tab or control character, at most 256 bytes — and
+the note's §4 and its open problems 1, 6, 7 and 9 go away.
 
 Open problem 4 is clock skew between the API server and a node. For a stream the file has read,
 it is solved: its tailer resumes from its own last line's moment, which is the kubelet's clock. A
@@ -445,25 +458,25 @@ README's wire says. `gqlgen.yml` binds the new types. The four old bound argumen
 - **Grep is a registered SQL function, not a Go filter over a scan.** One statement answers a
   page, and the scan is bounded by the reading's budget.
 - **A grepped fill is a labelled chunk in the same file, not a webview cache and not a session.**
-  A source that greps on its side returns some of the lines, so its chunk can only vouch for the
+  A backend that greps on its side returns some of the lines, so its chunk can only vouch for the
   matches. Labelling the chunk keeps the promise honest, keeps eviction and protection as they
   are, and gives a searched view the same bounded webview as any other. The kubelet never fills
   one, so nothing in this sequence writes a label; the column is there so the agent can later.
-- **A line's ordinal is the source's.** The kubelet source counts lines within a moment, as today.
+- **A line's ordinal is the backend's.** The kubelet backend counts lines within a moment, as today.
   An agent names a line by its file offset. Both are stable within one stream, and a range of a
-  stream has one source, so a line keeps its key whichever fill found it. Deciding this now means
+  stream has one backend, so a line keeps its key whichever fill found it. Deciding this now means
   no stored key changes when the agent arrives.
-- **One `Source` interface, with the kubelet behind it.** The fill and the tailer are the only
+- **One `Backend` interface, with the kubelet behind it.** The fill and the tailer are the only
   places a line comes from outside, so it is the one seam the agent, a cluster sourced from
-  Kstack's cloud, or an archive needs. The sources are the cluster's, in order; each classifies
-  its own failures as `Fatal`, `Denied` or transient, and the claim is how the kubelet source
-  authenticates, not part of the contract. The registry asks a source for one tailer per stream
+  Kstack's cloud, or an archive needs. The backends are the cluster's, in order; each classifies
+  its own failures as `Fatal`, `Denied` or transient, and the claim is how the kubelet backend
+  authenticates, not part of the contract. The registry asks a backend for one tailer per stream
   and lets it share a connection underneath.
-- **Sources are tiered, and a range has one source.** An archive holds the same recent lines the
+- **Backends are tiered, and a range has one backend.** An archive holds the same recent lines the
   kubelet does, numbered its own way, so asking both for one range would store a line twice under
-  two keys. Asking the next source only for what the one before has said it lacks keeps one key
-  per line with no cross-source matching. `head` is therefore the source's, and a chunk records
-  its source so a later tier can be added under existing chunks. A stream known only by name,
+  two keys. Asking the next backend only for what the one before has said it lacks keeps one key
+  per line with no cross-backend matching. `head` is therefore the backend's, and a chunk records
+  its origin so a later tier can be added under existing chunks. A stream known only by name,
   the archive's usual case, is one row with an empty `container_id`.
 - **The follow reads the file, never the tailer.** One path for every line, and a checkpoint that
   is true by construction. The cost is one `WriteTick` of latency.
@@ -480,7 +493,7 @@ holds what they share.
 | Step | Builds | Status |
 | --- | --- | --- |
 | [1 The store](1-the-store.md) | The file, its schema and manager, and its lifetime with the cluster cache | Built |
-| [2 The cursor and the `Source` seam](2-the-cursor-and-the-source-seam.md) | A position names its instance; the fetcher behind an interface; no behaviour change | Planned |
+| [2 The cursor and the `Backend` seam](2-the-cursor-and-the-backend-seam.md) | A position names its instance; the fetcher behind an interface; no behaviour change | Planned |
 | [3 Pages from the file](3-pages-from-the-file.md) | `Fetch` over coverage, fills and the file; `kstack_grep`; `logsFetch`'s wire | Planned |
 | [4 Tailers and the follow](4-tailers-and-the-follow.md) | One tailer per stream, the writer, the commit bus, `Follow` as a read; `logsFollow`'s wire | Planned |
 | [5 Eviction and backpressure](5-eviction-and-backpressure.md) | The live janitor, the budget, shedding; the sequence's integration gate | Planned |
@@ -494,7 +507,7 @@ One sentence every step serves, pinned by a seeded walk in step 3 and held by ev
 it. The walk runs over a fake kubelet whose logs rotate and whose pods restart, under a shrunk
 `Retention`. After any sequence of pages, follows, tailer stops, evictions and fills:
 
-> Every line a page answers is in a chunk that covers its pattern, or came from the source on
+> Every line a page answers is in a chunk that covers its pattern, or came from the backend on
 > that call. No chunk is missing a line the fake served into its range that matches its pattern.
 
 Every test in the sequence waits on a channel or on the janitor's notify. A negative assertion
@@ -508,9 +521,9 @@ Every test in the sequence waits on a channel or on the janitor's notify. A nega
   new row in `docs/security-model.md` under the decision *the cache is ordinary application data*
   (see the ADR). It is not folded into the mirror's row.
 - **The model reaches no line through the file.** No KubeQuery view over `lines`, and no tool.
-- **Per-stream authorization holds.** A `Denied` stream caches nothing. The kubelet source reads
+- **Per-stream authorization holds.** A `Denied` stream caches nothing. The kubelet backend reads
   every stream over a claim as today, so a disabled or deleted cluster's tailers end with it, and
-  a source added later must hold the same two lines: a denied stream caches nothing, and a
+  a backend added later must hold the same two lines: a denied stream caches nothing, and a
   cluster that is disabled or deleted stops every read.
 - **`kstack_grep` runs the user's pattern over text the cluster wrote.** Go's `regexp` runs in
   linear time, and the text was cut at 16 KiB before it was stored.
