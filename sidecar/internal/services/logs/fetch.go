@@ -225,7 +225,7 @@ func (s *Service) page(ctx context.Context, id cluster.ClusterID, qs ...pageQuer
 		return nil, err
 	}
 	for i := range streams {
-		streams[i].tail = s.tailStart(t.cacheID, streams[i].row.ID)
+		streams[i].tail, streams[i].committed = s.tailOf(t.cacheID, streams[i].row.ID)
 	}
 	out := make([]merge, len(qs))
 	if len(streams) == 0 {
@@ -382,7 +382,10 @@ func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (mer
 	left := false
 	err := p.file.Read(ctx, func(r logstore.Reader) error {
 		for i, ps := range p.streams {
-			w := walker{r: r, ps: ps, names: p.backendsOf(ps), q: q, budget: newBudget(p.walkShare), fill: fills[i]}
+			w := walker{
+				r: r, ps: ps, names: p.backendsOf(ps), q: q, budget: newBudget(p.walkShare), fill: fills[i],
+				look: p.s.files.Retention().LookBytes,
+			}
 			walked, err := w.walk(q.key(ps))
 			if err != nil {
 				return err

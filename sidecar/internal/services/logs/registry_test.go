@@ -296,7 +296,7 @@ func TestATailerTheWriterCannotKeepUpWithReadsFromNow(t *testing.T) {
 	stallWriter(t, s, dir)
 
 	awaitReadAgain(t, s, "prod/web-1/app", "2026-10-08T11:00:00Z")
-	start := svc.tailStart(f.active.Cache.ID, row)
+	start := tailStart(svc, f.active.Cache.ID, row)
 	require.NotNil(t, start)
 	assert.Equal(t, logstore.Pos{TS: at(time.Hour).UnixNano(), Ord: -1}, *start)
 	for _, c := range chunksOf(t, svc, f, "web-1", "app") {
@@ -327,12 +327,12 @@ func TestATailerInItsGraceThatFallsBehindEnds(t *testing.T) {
 
 	testutil.Wait(t, h.Done(), "the tailer to end")
 	require.NoError(t, h.Err())
-	assert.Nil(t, svc.tailStart(f.active.Cache.ID, row), "no tailer reads on")
+	assert.Nil(t, tailStart(svc, f.active.Cache.ID, row), "no tailer reads on")
 	h.t.r.mu.Lock()
 	assert.Nil(t, h.t.grace, "its grace timer is stopped")
 	h.t.r.mu.Unlock()
 	attach(t, svc, f, web1Since(0))
-	assert.NotNil(t, svc.tailStart(f.active.Cache.ID, row), "a tailer afresh")
+	assert.NotNil(t, tailStart(svc, f.active.Cache.ID, row), "a tailer afresh")
 }
 
 // A tailer in its grace holds its stream's row, so a sweep that reads the pod as gone
@@ -376,7 +376,7 @@ func TestATailerWhoseWriteFailsEnds(t *testing.T) {
 	testutil.Wait(t, h.Done(), "the tailer to end")
 	require.Error(t, h.Err())
 	assert.Equal(t, failTransient, failureKind(h.Err()))
-	assert.Nil(t, svc.tailStart(f.active.Cache.ID, row), "no tailer holds the stream")
+	assert.Nil(t, tailStart(svc, f.active.Cache.ID, row), "no tailer holds the stream")
 
 	_, err = db.ExecContext(t.Context(), `DROP TRIGGER refuse`)
 	require.NoError(t, err)
@@ -626,4 +626,11 @@ func TestATailerStopsAtTheEndOfItsGrace(t *testing.T) {
 
 	h.Release()
 	testutil.Wait(t, h.Done(), "the tailer to end at its grace")
+}
+
+// tailStart is the start of the tailer running on the stream row of cacheID's file,
+// nil with none.
+func tailStart(svc *Service, cacheID cluster.ClusterCacheID, row int64) *logstore.Pos {
+	start, _ := svc.tailOf(cacheID, row)
+	return start
 }

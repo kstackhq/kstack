@@ -95,7 +95,10 @@ Never marked:
   one. See *What is not in this spec*.
 - **Newer than every span** (`Before` nil). That is the range past an `at_end` chunk, or the
   tailer's.
-- A tailer's gap and a live gap.
+- A live gap.
+- A tailer's gap, until the tailer has committed past it. A tailer resumed after a rotation
+  leaves its hole past its own start, where the tailer may still write lines. Once it has
+  written past the hole, the hole is marked like any other.
 
 Every mark says lines *may* be missing. A rotated file can end exactly at `prev`, and an evicted
 chunk can hold no line that passes the grep.
@@ -222,7 +225,7 @@ Two more:
 
 ## Tasks
 
-All Planned. One PR into `wip/log-views` per task, in order.
+All Done, in one PR into `wip/log-views`.
 
 1. **Record the hole** (§1). `fill.go`'s `hole` and `fillOf`, `fetcher.go`'s `reachedFirst`, and the
    writer's tail. Update `TestTheFileKeepsItsInvariant`'s model so a rotation leaves a lost gap

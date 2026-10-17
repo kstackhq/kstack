@@ -3257,14 +3257,19 @@ func (f *fakeLogs) Follow(_ context.Context, _ cluster.ClusterID, view logs.View
 const logsView = `{sources: [{namespace: "prod", kind: Deployment, name: "web", containers: ["app"], allContainers: false, previous: false}],
 filters: [{field: Zone, values: ["eu-1a"]}], grep: "error"}`
 
-// logsFetch serves a page, its edges, its anchor and its skipped streams included,
-// from the view, mode, cursor, moment and limit asked.
+// logsFetch serves a page, its edges, its anchor, its skipped streams and each
+// record's hole included, from the view, mode, cursor, moment and limit asked.
 func TestLogsFetchServesAPage(t *testing.T) {
 	stamp := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
 	before, after := "2026-10-08T09:00:00Z", "2026-10-08T10:00:00Z"
 	anchor := 1
+	web1 := logs.StreamKey{Namespace: "prod", Pod: "web-1", Container: "app"}
 	fake := &fakeLogs{page: logs.Page{
-		Records: []logs.Record{{Timestamp: stamp, Message: "error: disk", Stream: logs.StreamKey{Namespace: "prod", Pod: "web-1", Container: "app"}, Place: logs.Place{Zone: "eu-1a"}, ContainerID: "containerd://web-1-app"}},
+		Records: []logs.Record{
+			{Timestamp: stamp, Message: "error: disk", Stream: web1, Place: logs.Place{Zone: "eu-1a"}, ContainerID: "containerd://web-1-app"},
+			{Timestamp: stamp.Add(time.Minute), Message: "error: net", Stream: web1, ContainerID: "containerd://web-1-app",
+				Gap: &logs.Gap{After: stamp, Before: stamp.Add(time.Minute)}},
+		},
 		Before:  logs.PageEdge{Cursor: &before, More: true},
 		After:   logs.PageEdge{Cursor: &after},
 		Anchor:  &anchor,
@@ -3274,12 +3279,14 @@ func TestLogsFetchServesAPage(t *testing.T) {
 	defer srv.Close()
 
 	raw := postGQL(t, srv.URL, fmt.Sprintf(`{"query":%q}`, `{ logsFetch(id: "7", view: `+logsView+`, mode: Around, at: "2026-10-08T10:00:00Z", limit: 20) {
-		records { timestamp message stream { pod container previous } place { node zone } cursor }
+		records { timestamp message stream { pod container previous } place { node zone } cursor gap { after before } }
 		before { cursor more } after { cursor more } anchor skipped } }`))
 
 	assert.JSONEq(t, `{"data":{"logsFetch":{
 		"records":[{"timestamp":"2026-10-08T10:00:00Z","message":"error: disk","stream":{"pod":"web-1","container":"app","previous":false},"place":{"node":"","zone":"eu-1a"},
-			"cursor":"2026-10-08T10:00:00Z\tprod\tweb-1\tapp\tcontainerd://web-1-app\t0"}],
+			"cursor":"2026-10-08T10:00:00Z\tprod\tweb-1\tapp\tcontainerd://web-1-app\t0","gap":null},
+			{"timestamp":"2026-10-08T10:01:00Z","message":"error: net","stream":{"pod":"web-1","container":"app","previous":false},"place":{"node":"","zone":""},
+			"cursor":"2026-10-08T10:01:00Z\tprod\tweb-1\tapp\tcontainerd://web-1-app\t0","gap":{"after":"2026-10-08T10:00:00Z","before":"2026-10-08T10:01:00Z"}}],
 		"before":{"cursor":"2026-10-08T09:00:00Z","more":true},"after":{"cursor":"2026-10-08T10:00:00Z","more":false},
 		"anchor":1,"skipped":["web-2/app: container is waiting to start"]}}}`, string(raw))
 	assert.Equal(t, logs.View{

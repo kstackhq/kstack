@@ -373,7 +373,9 @@ type follow struct {
 // filling is set while a fill of its row's live gap is in flight, which no walk of
 // it waits on: its watermark stays at the gap until the fill ends. crossed and
 // release are what the walk after a fill takes: that the gap at its watermark was
-// read, and the hold on what the fill wrote.
+// read, and the hold on what the fill wrote. looked is set once the follow has sent
+// a line of the stream, the first looking back for its holes, and gap is the holes
+// its walks crossed since the last line it sent, which the next carries.
 type tracked struct {
 	st        stream
 	row       int64
@@ -390,6 +392,8 @@ type tracked struct {
 	filling   bool
 	crossed   bool
 	release   func()
+	looked    bool
+	gap       *Gap
 }
 
 // tail is where tr's tailer reads on from, every gap past which is the tailer's;
@@ -1027,11 +1031,20 @@ func (f *follow) walk(ctx context.Context, tr *tracked) (bool, error) {
 		if err != nil {
 			return err
 		}
-		reach, gap = f.reach(chunks, tr, crossed, committed)
+		cov := logstore.CoverageOf(chunks, f.names, tr.tail())
+		reach, gap = f.reach(cov, tr, crossed, committed)
 		held := heldBy(chunks)
-		return r.Lines(tr.row, tr.wm, reach, func(l logstore.Line) bool {
+		upto, first := tr.wm, -1
+		err = r.Lines(tr.row, tr.wm, reach, func(l logstore.Line) bool {
+			tr.gap, upto = joined(tr.gap, holesBetween(cov.Gaps, committed, upto, l.Pos)), l.Pos
 			if held(l.Pos) && matches(f.grep, l.Message) {
-				f.batch = append(f.batch, tr.record(l))
+				rec := tr.record(l)
+				rec.Gap = tr.gap
+				if !tr.looked {
+					first = len(f.batch)
+				}
+				tr.gap, tr.looked = nil, true
+				f.batch = append(f.batch, rec)
 				f.bytes -= len(l.Message)
 			}
 			if f.lines--; f.lines <= 0 || f.bytes <= 0 {
@@ -1040,6 +1053,23 @@ func (f *follow) walk(ctx context.Context, tr *tracked) (bool, error) {
 			}
 			return true
 		})
+		if err != nil {
+			return err
+		}
+		tr.gap = joined(tr.gap, holesBetween(cov.Gaps, committed, upto, reach))
+		if first < 0 {
+			return nil
+		}
+		// The follow may start past a hole no page carried: after the last line a
+		// page sent, or a checkpoint past the hole. A look its bytes cut keeps what
+		// the walk crossed.
+		l := looker{
+			r: r, row: tr.row, cov: cov, committed: committed, held: held, grep: f.grep,
+			bytes: f.s.files.Retention().LookBytes,
+		}
+		found, err := l.back(lineOf(f.batch[first]).Pos)
+		f.batch[first].Gap = joined(f.batch[first].Gap, found)
+		return err
 	})
 	if err != nil {
 		return false, err
@@ -1051,16 +1081,16 @@ func (f *follow) walk(ctx context.Context, tr *tracked) (bool, error) {
 	return more, nil
 }
 
-// reach is how far from tr's watermark a walk may read: along the spans of chunks,
+// reach is how far from tr's watermark a walk may read: along the spans of cov,
 // across every gap no fill may be offered, a lost gap or its tailer's, and, once a
 // fill read it, the gap the watermark sits in; and the live gap it stops at, nil for
 // none. A span past a tailer's gap that the tailer has not committed up to is a
 // page's, written ahead of it, and the lines before it are the tailer's, still to
 // come: the walk stops at the gap and waits for the tailer's ping. committed is what
 // the tailer had written before chunks were read.
-func (f *follow) reach(chunks []logstore.Chunk, tr *tracked, crossed bool, committed *logstore.Pos) (logstore.Pos, *logstore.Gap) {
+func (f *follow) reach(cov logstore.Coverage, tr *tracked, crossed bool, committed *logstore.Pos) (logstore.Pos, *logstore.Gap) {
 	reach := tr.wm
-	for i, seg := range segmentsFrom(logstore.CoverageOf(chunks, f.names, tr.tail()), tr.wm, FetchHead) {
+	for i, seg := range segmentsFrom(cov, tr.wm, FetchHead) {
 		switch {
 		case seg.span != nil:
 			reach = seg.span.To

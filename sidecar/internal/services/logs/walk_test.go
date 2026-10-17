@@ -16,6 +16,7 @@ package logs
 
 import (
 	"errors"
+	"fmt"
 	"math"
 	"math/rand"
 	"strconv"
@@ -409,4 +410,40 @@ func TestAWalkThatSpendsItsBudgetCutsThePage(t *testing.T) {
 	assert.NotEmpty(t, page.Records)
 	assert.Less(t, len(page.Records), 50)
 	assert.True(t, page.After.More)
+}
+
+// pagedMarks is marks of every page a walk of web-1 in mode at limit reads, oldest
+// first, over a file holding twoHoles.
+func pagedMarks(t *testing.T, grep string, mode FetchMode, limit int) []string {
+	t.Helper()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(9*time.Second, "y9"), stamped(10*time.Second, "x10"))
+	svc, f := serviceOver(t, webMirror(t), s)
+	seed(t, svc, f, rowOf("web-1", "app"), twoHoles...)
+	view := web1View
+	view.Grep = grep
+	var out []string
+	for _, page := range pages(t, svc, view, mode, limit) {
+		if mode == FetchHead {
+			out = append(out, marks(page.Records)...)
+		} else {
+			out = append(marks(page.Records), out...)
+		}
+	}
+	return out
+}
+
+// A record carries every marked hole between it and the line of its stream before it
+// that the view passes, wherever the pages cut, read either way.
+func TestARecordCarriesTheHolesBeforeIt(t *testing.T) {
+	t.Parallel()
+	every := []string{"x0", "y1", "y5 (1s-5s)", "y6", "y9 (6s-9s)", "x10"}
+	for _, mode := range []FetchMode{FetchHead, FetchTail} {
+		for _, limit := range []int{1, 2, 100} {
+			name := fmt.Sprintf("%s by %d", mode, limit)
+			assert.Equal(t, every, pagedMarks(t, "", mode, limit), name)
+			assert.Equal(t, []string{"x0", "x10 (1s-9s)"}, pagedMarks(t, "x", mode, limit), name+" under x")
+			assert.Equal(t, []string{"y1", "y5 (1s-5s)", "y6", "y9 (6s-9s)"}, pagedMarks(t, "y", mode, limit), name+" under y")
+		}
+	}
 }

@@ -963,7 +963,7 @@ func TestAFollowTailsARestartedContainer(t *testing.T) {
 				case <-stream.Frames:
 				default:
 				}
-				return svc.tailStart(f.active.Cache.ID, old) == nil && svc.tailStart(f.active.Cache.ID, current) != nil
+				return tailStart(svc, f.active.Cache.ID, old) == nil && tailStart(svc, f.active.Cache.ID, current) != nil
 			}, testutil.Timeout, time.Millisecond, "the new instance tailed alone")
 			s.resume("prod/web-1/app")
 
@@ -1755,19 +1755,22 @@ func TestAWalkWaitsForTheTailerBeforeAPagesSpan(t *testing.T) {
 	tr := &tracked{wm: start, h: &handle{t: tl}}
 	pos := func(d time.Duration) logstore.Pos { return logstore.Pos{TS: at(d).UnixNano()} }
 	page := logstore.Chunk{From: pos(10 * time.Second), To: pos(10 * time.Second), Origin: "kubelet"}
+	cov := func(chunks ...logstore.Chunk) logstore.Coverage {
+		return logstore.CoverageOf(chunks, f.names, tr.tail())
+	}
 
-	reach, gap := f.reach([]logstore.Chunk{page}, tr, false, &start)
+	reach, gap := f.reach(cov(page), tr, false, &start)
 	assert.Equal(t, start, reach, "nothing committed past the start")
 	assert.Nil(t, gap)
 
 	tailed := logstore.Chunk{From: pos(time.Second), To: pos(time.Second), Origin: "kubelet"}
 	first := pos(time.Second)
-	reach, _ = f.reach([]logstore.Chunk{tailed, page}, tr, false, &first)
+	reach, _ = f.reach(cov(tailed, page), tr, false, &first)
 	assert.Equal(t, pos(time.Second), reach, "the tailer's line, and no further")
 
 	tailed.To = pos(10 * time.Second)
 	last := pos(10 * time.Second)
-	reach, _ = f.reach([]logstore.Chunk{tailed, page}, tr, false, &last)
+	reach, _ = f.reach(cov(tailed, page), tr, false, &last)
 	assert.Equal(t, pos(10*time.Second), reach, "the tailer has reached the page's span")
 }
 
@@ -1893,4 +1896,107 @@ func TestARestartIsNotADrop(t *testing.T) {
 				testutil.Timeout, time.Millisecond, "the new instance's read")
 		})
 	}
+}
+
+// followHoles files twoHoles as web-1's stream, the kubelet serving its newest
+// moments, and follows it under grep after cursor.
+func followHoles(t *testing.T, s *logServer, grep string, cursor *string) *cluster.Stream[FollowFrame] {
+	t.Helper()
+	s.add("prod/web-1/app", stamped(9*time.Second, "y9"), stamped(10*time.Second, "x10"))
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, s)
+	seed(t, svc, f, rowOf("web-1", "app"), twoHoles...)
+	view := podView("web-1")
+	view.Grep = grep
+	stream, err := svc.Follow(t.Context(), "7", view, cursor)
+	require.NoError(t, err)
+	return stream
+}
+
+// A follow's first line on a stream looks back past where the follow started for the
+// holes before it, as a page's first does: opened after the last line a page sent, or
+// after a checkpoint past the hole, it carries them. Its next line carries none.
+func TestAFollowsFirstLineCarriesTheHolesBeforeIt(t *testing.T) {
+	t.Parallel()
+	for name, after := range map[string]*string{
+		"after the page's last match": lineCursor("web-1", "app", 0, 0),
+		"after a checkpoint past it":  lineCursor("web-1", "app", 9*time.Second, 0),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := newLogServer()
+			stream := followHoles(t, s, "x", after)
+
+			assert.Equal(t, "x10 (1s-9s)", marks([]Record{recvLine(t, stream, "the first match")})[0])
+			s.add("prod/web-1/app", stamped(11*time.Second, "x11"))
+			assert.Equal(t, "x11", marks([]Record{recvLine(t, stream, "the next match")})[0])
+		})
+	}
+}
+
+// A hole the follow crosses after its first line waits on the stream for the next
+// line it sends, across walks the send's allowance cuts.
+func TestAFollowKeepsAHoleItCrossesForItsNextLine(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	var quiet []logstore.Line
+	var served []string
+	for i := range followBatch + 100 {
+		d := 5*time.Second + time.Duration(i)*time.Millisecond
+		quiet = append(quiet, logstore.Line{Pos: logstore.Pos{TS: at(d).UnixNano()}, Message: "y"})
+		served = append(served, stamped(d, "y"))
+	}
+	s.add("prod/web-1/app", served...)
+	s.add("prod/web-1/app", stamped(7*time.Second, "x7"))
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, s)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: []logstore.Line{said(0, "x0"), said(1, "y1")}},
+		logstore.Fill{Lines: quiet, Head: true})
+	view := podView("web-1")
+	view.Grep = "x"
+	stream, err := svc.Follow(t.Context(), "7", view, cursor(-time.Second))
+	require.NoError(t, err)
+
+	assert.Equal(t, "x0", marks([]Record{recvLine(t, stream, "the first match")})[0])
+	assert.Equal(t, "x7 (1s-5s)", marks([]Record{recvLine(t, stream, "the match past the hole")})[0])
+}
+
+// A tailer that resumes from a cached line the kubelet has rotated away writes a head
+// chunk past its start, and the lost gap between is the hole: once the tailer has
+// committed past it, the follow's first line carries it, and so does a page while the
+// tailer runs.
+func TestAHoleBehindAResumedTailerIsMarked(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(5*time.Second, "x5"))
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, s)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: []logstore.Line{said(0, "x0"), said(1, "y1")}})
+	stream, err := svc.Follow(t.Context(), "7", podView("web-1"), lineCursor("web-1", "app", time.Second, 0))
+	require.NoError(t, err)
+
+	assert.Equal(t, "x5 (1s-5s)", marks([]Record{recvLine(t, stream, "the first line past the hole")})[0])
+	page, err := svc.Fetch(t.Context(), "7", podView("web-1"), FetchQuery{Mode: FetchTail, Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"x0", "y1", "x5 (1s-5s)"}, marks(page.Records))
+}
+
+// A hole a follow crosses before its first match rides on that match even when the
+// match's look back runs out of bytes before reaching it.
+func TestAFollowsFirstLineKeepsAHoleItsLookCannotReach(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(5*time.Second, "y5"), stamped(6*time.Second, "y6"), stamped(7*time.Second, "x7"))
+	f := webMirror(t)
+	ret := testRetention
+	ret.LookBytes = 1
+	svc, _ := serviceIn(t, f, s, t.TempDir(), ret)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: []logstore.Line{said(0, "y0"), said(1, "y1")}},
+		logstore.Fill{Lines: []logstore.Line{said(5, "y5"), said(6, "y6")}, Head: true})
+	view := podView("web-1")
+	view.Grep = "x"
+	stream, err := svc.Follow(t.Context(), "7", view, cursor(-time.Second))
+	require.NoError(t, err)
+
+	assert.Equal(t, "x7 (1s-5s)", marks([]Record{recvLine(t, stream, "the first match")})[0])
 }
