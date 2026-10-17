@@ -167,8 +167,8 @@ func TestATailerStartsAtItsNewestLineOrItsWatermark(t *testing.T) {
 }
 
 // A tailer resumed at its stream's newest line extends that line's chunk when its
-// read returns the line's moment whole, and links a chunk of its own across the hole
-// when the kubelet has rotated that moment away.
+// read returns the line's moment whole. When the kubelet has rotated that moment away
+// it opens a head chunk linked to nothing, which leaves the hole a lost gap.
 func TestATailerResumesTheChunkItContinues(t *testing.T) {
 	t.Parallel()
 	for name, rotated := range map[string]bool{"whole": false, "rotated": true} {
@@ -192,7 +192,9 @@ func TestATailerResumesTheChunkItContinues(t *testing.T) {
 				require.Len(t, chunks, 2)
 				assert.Equal(t, []logstore.Pos{first, second}, []logstore.Pos{chunks[0].From, chunks[0].To})
 				assert.Equal(t, []logstore.Pos{third, third}, []logstore.Pos{chunks[1].From, chunks[1].To})
-				assert.Equal(t, &second, chunks[1].Prev)
+				assert.Nil(t, chunks[1].Prev)
+				assert.True(t, chunks[1].Head)
+				assert.True(t, logstore.CoverageOf(chunks, kubeletOnly, nil).Gaps[1].Lost)
 			} else {
 				require.Len(t, chunks, 1)
 				assert.Equal(t, []logstore.Pos{first, third}, []logstore.Pos{chunks[0].From, chunks[0].To})

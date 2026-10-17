@@ -186,8 +186,9 @@ func (f *filler) read(ctx context.Context, tier int, lower, upper, prev, next *l
 	// What the backend lacks below its first line goes to the next before anything
 	// links across it: older than its oldest line, or a hole between prev and its
 	// first, which it may have rotated away.
-	offer := tier+1 < len(f.backends) && (r.head || f.hole(r, lines, whole, prev))
-	fill := f.fillOf(tier, r, lines, whole, prev, next, upper)
+	head := f.headRead(r, lower, prev)
+	offer := tier+1 < len(f.backends) && (head || f.hole(lines, whole, prev))
+	fill := f.fillOf(tier, r, lines, whole, head, prev, next, upper)
 	if offer {
 		fill.Prev = nil
 	}
@@ -205,19 +206,31 @@ func (f *filler) read(ctx context.Context, tier int, lower, upper, prev, next *l
 	return whole, got, nil
 }
 
-// hole is whether a read from prev left a range below its first line it did not
-// serve: a forward read whose GET began past prev's moment, a backward read that
-// reached back to prev with its oldest line past it, or one that found nothing at
-// all in a range it read whole. A backward read that stopped short of prev, cut by
-// the page filling or by its budget, says nothing of what lies below it.
-func (f *filler) hole(r *streamRead, lines []logstore.Line, whole bool, prev *logstore.Pos) bool {
+// headRead is whether r reached the backend's oldest line: r says so, or it is a
+// forward read from prev's second whose GET returned no line at or before prev, and
+// got a line or ended clean. Rotation drops the oldest lines first, so prev's line
+// gone means everything up to it is, and the GET began at the oldest line left. A
+// read from any other bound, a page's key, says nothing of rotation.
+func (f *filler) headRead(r *streamRead, lower, prev *logstore.Pos) bool {
+	fromPrev := f.q.mode == FetchHead && prev != nil && lower != nil && *lower == *prev
+	if r.head || !fromPrev {
+		return r.head
+	}
+	got, clean := !r.oldest.IsZero(), r.err == nil && !r.short
+	return !returnedWhole(r.oldest, prev) && (got || clean)
+}
+
+// hole is whether a backward read from prev left a range below its oldest line it
+// may not have served: it reached back to prev with its oldest line past it, or
+// found nothing at all in a range it read whole. A read that stopped short of prev,
+// cut by the page filling or by its budget, says nothing of what lies below it. A
+// forward read's hole is a head read.
+func (f *filler) hole(lines []logstore.Line, whole bool, prev *logstore.Pos) bool {
 	switch {
-	case prev == nil:
+	case prev == nil, f.q.mode == FetchHead:
 		return false
 	case len(lines) == 0:
 		return whole
-	case f.q.mode == FetchHead:
-		return r.oldest.UnixNano() > prev.TS
 	}
 	return whole && lines[0].TS > prev.TS
 }
@@ -262,12 +275,16 @@ func (f *filler) pull(ctx context.Context, tier int, lower, upper *logstore.Pos)
 
 // fillOf is the fill of lines, what the backend at tier read of the range between
 // prev and next, as Write files it: the chunk it continues, the chunk it links to,
-// and whether it reached the backend's oldest line or the instance's last.
-func (f *filler) fillOf(tier int, r *streamRead, lines []logstore.Line, whole bool, prev, next, upper *logstore.Pos) logstore.Fill {
-	fill := logstore.Fill{Stream: f.ps.row.ID, Origin: f.names[tier], Lines: lines, Head: r.head}
+// and whether it reached the backend's oldest line, head, or the instance's last. A
+// head read links to nothing below it, which leaves a lost gap there.
+func (f *filler) fillOf(tier int, r *streamRead, lines []logstore.Line, whole, head bool, prev, next, upper *logstore.Pos) logstore.Fill {
+	fill := logstore.Fill{Stream: f.ps.row.ID, Origin: f.names[tier], Lines: lines, Head: head}
+	if head {
+		prev = nil
+	}
 	if f.q.mode == FetchHead {
-		// A forward read starts at the line after prev or at the first the backend
-		// still has, so its first line continues prev's chunk either way.
+		// A forward read that is not head starts at the line after prev, so its first
+		// line continues prev's chunk.
 		fill.Prev = prev
 		fill.Merge = returnedWhole(r.oldest, prev)
 		if whole {

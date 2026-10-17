@@ -53,11 +53,12 @@ type batch struct {
 }
 
 // tailState is where a tail's next line goes: the chunk it extends, nil until its
-// first line, and the line a first chunk continues from.
+// first line, and the line a first chunk continues from, or whether it opens head.
 type tailState struct {
 	chunk *Chunk
 	prev  *Pos
 	merge bool
+	head  bool
 }
 
 // startWriter runs the file's writer, after waiting on after for its tick.
@@ -202,6 +203,11 @@ func writeBatches(ctx context.Context, st stmts, ret Retention, tails map[*Tail]
 		s, ok := tails[b.tail]
 		if !ok {
 			s = tailState{prev: b.tail.prev, merge: b.tail.merge}
+			if s.prev != nil && !s.merge {
+				// A tail reads from prev's second, so a read that did not return prev's
+				// moment found it rotated away and began at the backend's oldest line.
+				s = tailState{head: true}
+			}
 		}
 		if b.tail.Err() != nil {
 			// A failed tail's lines are left to a fill; its last batch still closes
@@ -260,6 +266,9 @@ func writeBatch(ctx context.Context, st stmts, ret Retention, b batch, s tailSta
 		if cur, fresh, err = startChunk(ctx, st, ret, b.tail.stream, "", b.tail.origin, s.prev, s.merge, b.lines[0]); err != nil {
 			return s, err
 		}
+		if fresh {
+			cur.Head = s.head
+		}
 	}
 	chunks := cutChunks(ret, cur, fresh, b.lines)
 	for i := range chunks {
@@ -300,7 +309,7 @@ type Tail struct {
 	origin string
 	// prev is the last line of the chunk the tail continues, nil when it starts on a
 	// gap, and merge whether its read returned prev's moment whole, which extends that
-	// chunk rather than linking a new one to it.
+	// chunk. A tail with prev that does not merge opens a head chunk linked to nothing.
 	prev  *Pos
 	merge bool
 	// committed is the last line of the tail's that has landed, nil before the first.
@@ -312,7 +321,7 @@ type Tail struct {
 }
 
 // OpenTail opens a tail of the stream id for the backend origin, continuing prev as a
-// forward fill continues it. Close it.
+// forward fill from prev's second continues it. Close it.
 func (s *Store) OpenTail(id int64, origin string, prev *Pos, merge bool) (*Tail, error) {
 	f, done, err := s.use()
 	if err != nil {

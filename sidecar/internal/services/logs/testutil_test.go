@@ -721,6 +721,9 @@ func messages(recs []Record) []string {
 	return out
 }
 
+// kubeletOnly is the backends of a cluster read through its API server.
+var kubeletOnly = []string{"kubelet"}
+
 // webView reads the app container of deployment web in prod.
 var webView = View{Sources: []ViewSource{{Namespace: "prod", Kind: SourceDeployment, Name: "web", Containers: []string{"app"}}}}
 

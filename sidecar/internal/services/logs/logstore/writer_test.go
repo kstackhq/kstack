@@ -209,8 +209,8 @@ func TestATailOfAClosedFileIsRefused(t *testing.T) {
 }
 
 // A tail resumed at a chunk's last line extends that chunk when its read returned the
-// line's moment whole, and otherwise links its own chunk across the hole the backend
-// rotated away, as a forward fill does.
+// line's moment whole. Otherwise the backend rotated the line away, and the tail opens
+// a head chunk linked to nothing, as a rotated forward fill does.
 func TestATailResumesTheChunkItContinues(t *testing.T) {
 	t.Parallel()
 	s, _ := newWriterStore(t, testRetention)
@@ -223,7 +223,7 @@ func TestATailResumesTheChunkItContinues(t *testing.T) {
 	require.NoError(t, openTail(t, s, b, ptr(at(2, 0)), false).Close(t.Context(), lines(at(3, 0))))
 
 	assert.Equal(t, []Chunk{chunk(at(1, 0), at(2, 1))}, chunksOfStream(t, s, a))
-	assert.Equal(t, []Chunk{chunk(at(1, 0), at(2, 0)), linked(chunk(at(3, 0), at(3, 0)), at(2, 0))}, chunksOfStream(t, s, b))
+	assert.Equal(t, []Chunk{chunk(at(1, 0), at(2, 0)), head(chunk(at(3, 0), at(3, 0)))}, chunksOfStream(t, s, b))
 }
 
 // A batch written to a stream past its finished_at, the next instance's lines under a

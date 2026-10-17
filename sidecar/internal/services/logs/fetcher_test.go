@@ -514,6 +514,28 @@ func TestABackwardReadThatReachesTheFirstLineSaysHead(t *testing.T) {
 	assert.False(t, r.head, "short")
 }
 
+// A backward read past since that reaches the log's first line, in range, says head:
+// the lines since names were rotated away. One whose first line is since's is not.
+func TestABackwardReadThatReachesAFirstLinePastSinceSaysHead(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web/app", lineEvery(30)[10:]...)
+	read := func(o readOpts) *streamRead {
+		r := readBackward(t.Context(), s.get, web, o)
+		drain(r)
+		return r
+	}
+
+	o := backwardOpts()
+	o.since = from(5 * time.Second)
+	assert.True(t, read(o).head, "past since")
+	o.until = to(20 * time.Second)
+	assert.True(t, read(o).head, "past since, under until")
+	o = backwardOpts()
+	o.since = from(10 * time.Second)
+	assert.False(t, read(o).head, "the first line is since's")
+}
+
 // An empty log reads nothing, and so does one emptied under the read.
 func TestABackwardReadOfAnEmptyLog(t *testing.T) {
 	t.Parallel()

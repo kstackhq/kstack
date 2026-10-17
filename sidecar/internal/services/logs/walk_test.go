@@ -287,7 +287,9 @@ func claims(chunks []logstore.Chunk, p logstore.Pos) bool {
 	return false
 }
 
-// checkChunks checks no chunk is missing a line its instance wrote into its range.
+// checkChunks checks no chunk is missing a line its instance wrote into its range,
+// and no span either: a link promises nothing lies between, so a rotation leaves a
+// gap.
 func (w *world) checkChunks() {
 	file := fileOf(w.t, w.svc, w.f)
 	for _, p := range w.pods {
@@ -302,9 +304,25 @@ func (w *world) checkChunks() {
 				if claims(chunks, at) {
 					require.Equal(w.t, rec.Message, held[at], "a chunk of %s claims %v", row.ContainerID, at)
 				}
+				for _, sp := range logstore.CoverageOf(unlabelled(chunks), kubeletOnly, nil).Spans {
+					if sp.From.Compare(at) <= 0 && at.Compare(sp.To) <= 0 {
+						require.Equal(w.t, rec.Message, held[at], "a span of %s covers %v", row.ContainerID, at)
+					}
+				}
 			}
 		}
 	}
+}
+
+// unlabelled is the chunks of chunks that claim every line, not a grep's.
+func unlabelled(chunks []logstore.Chunk) []logstore.Chunk {
+	var out []logstore.Chunk
+	for _, c := range chunks {
+		if c.Pattern == "" {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // A fill that runs out of budget halfway through a gap writes what it read, and the
