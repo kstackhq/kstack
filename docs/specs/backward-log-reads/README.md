@@ -134,7 +134,7 @@ and its tests passing.
 | --- | --- | --- |
 | [1 The file](1-the-file.md) | Each window written when it completes; the larger walk budget; the 1 GiB budget | Done |
 | [2 Streaming windows](2-streaming-windows.md) | A window's lines stream to the file; links only on completion; islands when cut; a backward read's `need` judged between windows | Done |
-| [3 The windows](3-the-windows.md) | Windows sized from nearby rates, stop and narrow, widen, doubling `tailLines`, `Around` | Planned |
+| [3 The windows](3-the-windows.md) | Windows sized from nearby rates, stop and narrow, widen, doubling `tailLines`, `Around` | Done |
 | [4 The limits](4-the-limits.md) | Cut and stop, `failLimit`, the old budgets and the refusal removed; the regression test | Planned |
 | [5 The docs](5-the-docs.md) | The ADR, `CLAUDE.md`, `TODO.md`; the sequence retired | Planned |
 

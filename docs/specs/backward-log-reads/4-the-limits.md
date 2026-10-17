@@ -36,7 +36,8 @@ The old budget, its even split and the *"ran out of budget"* refusal go.
 | Bytes one page downloads, all streams together | 64 MiB | the page is cut |
 
 They apply to every read a page makes: backward, forward, and the first `Tail` page's `tailLines`
-windows.
+windows. Bytes are counted as the body carries them, timestamp, space, message and newline, the
+unit `counted` spends and step 3's rates use.
 
 ### 2. Cut
 
@@ -45,10 +46,11 @@ The stream that reached the limit ends at the oldest line it wrote. The page is 
 `more: true`, and the next page goes on from it.
 
 Download limits are checked between windows, never inside one. So every stream reads at least one
-window, and every stream that read lines has a line to cut at. Step 3 sizes each stream's first
-window from the page's limit, 64 MiB ÷ the streams it reads, so the first windows together fit in
-it. A page downloads about 64 MiB at most. It goes over only by the part of a window read before that
-window was stopped as too busy: at most four times the window's byte target.
+window, and every stream that read lines has a line to cut at. Step 3 sizes a stream's first window
+under its share of `maxBudget`; this step replaces that share with the page's limit, 64 MiB ÷ the
+streams it reads, so the first windows together fit in it: 4 MiB each up to 16 streams, about 640 KiB
+each at 100. A page downloads about 64 MiB at most. It goes over only by the part of a window read
+before that window was stopped as too busy: at most four times the window's byte target.
 
 ### 3. Stop
 
@@ -69,7 +71,11 @@ changes its words.
 
 ### 4. What goes
 
-- `maxBudget` and the per-stream `share` in `fillQuery`.
+- `maxBudget` and the per-stream `share` in `fillQuery`, and with them step 3's budget stop, the
+  one check inside a window that measured a window against the share. The limits here are checked
+  between windows alone. A later window is sized to the smaller of 4 MiB and what is left of the
+  stream's 16 MiB, so the stream goes over only as the page does: by the part of a window read
+  before the too-busy stop, or by one loud second.
 - `maxWindows`, if step 3 left any use of it.
 - The *"ran out of budget"* refusal in `mergePage`. No backward read ends with nothing to show
   anymore. It either has a line to cut at or stopped with a reason.
@@ -94,6 +100,8 @@ changes its words.
 
 - **The regression.** A 100-stream view where one stream bursts at 5,000 lines/s just before the
   cursor pages back with no refusal and no stopped stream.
+- **First windows share the limit.** A sparse grep over a hundred 10 MiB logs: each stream's first
+  window is about 640 KiB, and the first page downloads about 64 MiB, not 400 MiB.
 - **A grep with no match.** One stream: the read reaches the log's first line, and the page answers no
   record and no more. A hundred streams: pages are cut at 64 MiB with `more: true` until every stream
   reaches its first line, and no stream stops.

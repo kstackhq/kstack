@@ -64,12 +64,24 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   written a batch at a time as it arrives** (`window`, `WriteBatch`), each batch checked against
   the mirror first and stamped. A forward read is one window, its batches linked down as they land,
   and is cancelled once the stream holds the page. A backward read's windows (`readItem.windowEnd`)
-  arrive newest first, each oldest first: a window links up only when it completes, one cut part
-  way is an island linked to nothing, and the read's link down is written once it ends. `AtEnd`
-  goes only on a completed first window. A backward read is stopped between windows
-  (`readOpts.more`, answered once the window's last batch is written), never inside one. The
-  walks read up to `maxWalkBudget` (64 MiB) across the page's streams. A page never passes lines a
-  stream did not read: a short stop becomes the cut. **A change to a read path answers to
+  arrive newest first, each oldest first: a window links up only when it completes, and counts
+  toward the page only then; one cut part way is an island linked to nothing, and the read's link
+  down is written once it ends. `AtEnd` goes only on a completed first window. A backward read is
+  stopped between windows (`readOpts.more`, answered once the window's last batch is written),
+  never inside one. **A backward read sizes its windows** (`windows.go`). Off the log's end,
+  `tailLines` windows double. Under an upper bound, windows of time start at the top of a second:
+  the first is sized from the rate of the lines just above the gap (`rateAbove`; ten seconds with
+  none), to hold about the page's kept lines with half again and at most 4 MiB, under half what
+  the stream's budget has left. A window counts each line as the body carried it, before
+  cleaning (`readLine`'s size); a rate from the file estimates that (`wireBytes`). A window
+  checks the rate of its newest second as it reads; one due to hold four times the page, four
+  times its byte target, or more than the stream has left is stopped (`readItem.windowCut`), left
+  as an island, and replaced by a narrower one ending where it would have. A window that leaves
+  the read short is followed by an older one sized from its own rate, eight times longer after
+  silence. An `Around` page fills its `Head` half first; its `Tail` half reads back at that
+  half's rate and links up to its first line (`streamFill.up`). The walks read up to
+  `maxWalkBudget` (64 MiB) across the page's streams. A page never passes lines a stream did not
+  read: a short stop becomes the cut. **A change to a read path answers to
   `TestPagesJoinWithoutLossOrRepeat` and `TestTheFileKeepsItsInvariant`** (seeded; fewer seeds
   under `-short`).
 - **A head read never links** (`rotatedAway`, which the filler and the tailer share;
