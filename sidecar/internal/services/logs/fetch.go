@@ -351,8 +351,8 @@ func (p *page) fillQuery(ctx context.Context, q pageQuery, backends []Backend, s
 	return fills, nil
 }
 
-// save writes one window's fills, stamped: a sweep between the write and the page's
-// walk would otherwise take what it fetched, and the stamp keeps the window's lines
+// save writes one batch's fills, stamped: a sweep between the write and the page's
+// walk would otherwise take what it fetched, and the stamp keeps the read's lines
 // past the page for the next scroll.
 func (p *page) save(ctx context.Context, fills []logstore.Fill) (logstore.Written, error) {
 	return p.file.Write(ctx, fills, true)

@@ -61,11 +61,17 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   it. Modes `Head`, `Tail`, `Around` (limit ≤500; `compileGrep` refuses a bad grep, on follows too).
   A page resolves, files streams, adds gone pods' streams the file holds (`filestreams.go`), fills
   gaps from the backends (`fill.go`), walks (`walk.go`) and merges (`merge.go`). **A read is
-  written a window at a time** (`readItem.windowEnd`): each window once the next starts, checked
-  against the mirror first, stamped, in batches of `WriteBatch`; the read's last window takes the
-  links its end proves. The walks read up to `maxWalkBudget` (64 MiB) across the page's streams.
-  A page never passes lines a stream did not read: a short stop becomes the cut. **A change to a read path answers to `TestPagesJoinWithoutLossOrRepeat` and
-  `TestTheFileKeepsItsInvariant`** (seeded; fewer seeds under `-short`).
+  written a batch at a time as it arrives** (`window`, `WriteBatch`), each batch checked against
+  the mirror first and stamped. A forward read is one window, its batches linked down as they land,
+  and is cancelled once the stream holds the page. A backward read's windows (`readItem.windowEnd`)
+  arrive newest first, each oldest first: a window links up only when it completes, one cut part
+  way is an island linked to nothing, and the read's link down is written once it ends. `AtEnd`
+  goes only on a completed first window. A backward read is stopped between windows
+  (`readOpts.more`, answered once the window's last batch is written), never inside one. The
+  walks read up to `maxWalkBudget` (64 MiB) across the page's streams. A page never passes lines a
+  stream did not read: a short stop becomes the cut. **A change to a read path answers to
+  `TestPagesJoinWithoutLossOrRepeat` and `TestTheFileKeepsItsInvariant`** (seeded; fewer seeds
+  under `-short`).
 - **A head read never links** (`rotatedAway`, which the filler and the tailer share;
   `reachedFirst`): a read from a chunk's last line that found it rotated away writes a head chunk
   with no link, so the hole is a lost gap. **A record carries the hole before it** (`Record.Gap`,
