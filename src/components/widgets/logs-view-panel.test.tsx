@@ -128,11 +128,6 @@ describe('LogsViewPanel', () => {
     expect(mountedWith.viewport).toBe(viewport);
   });
 
-  it('says the lines are invented', () => {
-    render(<LogsViewPanel view={view} viewport={createLogViewportHandle()} onClose={() => {}} />);
-    expect(screen.getByRole('banner')).toHaveTextContent('Fake lines');
-  });
-
   it('mounts the viewer at the action’s anchor, pinned as the action says', () => {
     render(<LogsViewPanel view={view} viewport={createLogViewportHandle()} onClose={() => {}} />);
     expect(screen.getByTestId('log-viewer')).toHaveAttribute('data-open-at', '2026-10-08T14:02:00Z');

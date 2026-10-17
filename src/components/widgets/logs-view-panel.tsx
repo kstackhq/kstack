@@ -35,15 +35,10 @@ function Header({ view, onClose }: { view: LogsView; onClose: () => void }) {
     // the toggle and 12px to its left.
     <header className="flex items-start gap-2 border-b p-4 pr-14">
       <div className="min-w-0 flex-1 text-sm">
-        <div className="flex items-baseline gap-2">
-          <h2 className="min-w-0 truncate font-semibold">
-            Logs: <SourceLine source={first} />
-            {more > 0 && ` and ${more} more`}
-          </h2>
-          {/* The lines are the fake's while `logs-client.ts` answers it, under the pods
-              the view names; the change that brings the real client removes this. */}
-          <span className="shrink-0 rounded border px-1 text-xs text-muted-foreground">Fake lines</span>
-        </div>
+        <h2 className="truncate font-semibold">
+          Logs: <SourceLine source={first} />
+          {more > 0 && ` and ${more} more`}
+        </h2>
         <ul className="text-xs text-muted-foreground">
           {sources.map((source) => (
             <li key={`${source.namespace}/${source.kind}/${source.name}`} className="truncate">

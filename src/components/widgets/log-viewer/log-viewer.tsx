@@ -19,13 +19,13 @@
 // `pinToEnd` says, draws each line as a row, and writes what is on screen and what is
 // selected into `viewport` for whoever pulls it.
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useClient } from 'urql';
 
 import { Button } from '@kubetail/ui/elements/button';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 import { cn } from '@kubetail/ui/lib/utils';
 
 import { VisibleText } from '@/components/widgets/visible-text';
-import { reportError } from '@/lib/error-bus';
 import {
   type Client,
   type CoreHandle,
@@ -71,8 +71,9 @@ const measureHeight = (el: Element) => el.getBoundingClientRect().height;
 const PAGE_FAILED = 'Could not load more lines.';
 
 // The client as the core sees it, recording the last failure for the viewer to draw: the
-// core's `onError` reports once per run of failures, never says what failed, and nothing
-// reports a success. A follow's error is thrown on, so the core still unpins.
+// core never says what failed, and nothing reports a success. `errorReportExchange` has
+// already reported the operation's error. A follow's error is thrown on, so the core still
+// unpins.
 function watchClient(client: Client, record: (error: string | null) => void): Client {
   return {
     fetch: (query) =>
@@ -98,13 +99,6 @@ function watchClient(client: Client, record: (error: string | null) => void): Cl
     },
   };
 }
-
-const onError = (error: unknown) =>
-  reportError({
-    source: 'network',
-    message: `log viewer: ${error instanceof Error ? error.message : String(error)}`,
-    cause: error,
-  });
 
 // Drawn at the top of the sizer while the before edge has more, and at its foot while the
 // after edge does, each the height the core leaves for it. The core pages again only on the
@@ -283,12 +277,10 @@ function Rows({
 const VIEWER_FIELDS = ['loading', 'failed', 'ended', 'skipped'] as const;
 
 export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogViewerProps) {
-  // Built once per mount. What the client runs on its own starts in the effect, so the
-  // copy StrictMode throws away never starts.
-  const [logs] = useState(() => createLogsClient(clusterId, query));
+  // Built once per mount; it opens nothing until the core asks.
+  const urql = useClient();
   const [error, setError] = useState<string | null>(null);
-  const [client] = useState(() => watchClient(logs.client, setError));
-  useEffect(() => logs.start(), [logs]);
+  const [client] = useState(() => watchClient(createLogsClient(urql, clusterId, query), setError));
 
   const [store] = useState(createCoreStore);
   const state = useCoreFields(store, VIEWER_FIELDS);
@@ -400,7 +392,6 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
           edgeRowHeight={LOG_ROW_PX}
           estimateRowHeight={wrap ? wrapped : oneLine}
           measureElement={wrap ? measureHeight : undefined}
-          onError={onError}
           className="relative min-h-0 w-full flex-1 font-mono text-xs leading-6"
         >
           {(rows) => (

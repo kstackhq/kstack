@@ -408,6 +408,36 @@ describe('tauriSubscriptionExchange', () => {
     expect(subscribeCalls()).toBe(1);
   });
 
+  it('dials a reconnect with the variables the context’s `reconnectVariables` answers', async () => {
+    vi.useFakeTimers();
+    const FROM = gql`
+      subscription From($after: String) {
+        from(after: $after)
+      }
+    `;
+    let resumeFrom = 'c1';
+    const sub = pipe(
+      makeClient().subscription(FROM, { after: 'c0' }, { reconnectVariables: () => ({ after: resumeFrom }) }),
+      subscribe(() => {}),
+    );
+    await flush();
+    const dialed = () =>
+      invokeMock.mock.calls
+        .filter((c) => c[0] === 'graphql_subscribe')
+        .map((c) => (c[1] as { variables: unknown }).variables);
+    expect(dialed()).toEqual([{ after: 'c0' }]);
+
+    liveChannel().onmessage!(OPEN);
+    liveChannel().onmessage!(CLOSED);
+    await vi.advanceTimersByTimeAsync(1_000);
+    resumeFrom = 'c2';
+    liveChannel().onmessage!(CLOSED);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(dialed()).toEqual([{ after: 'c0' }, { after: 'c1' }, { after: 'c2' }]);
+
+    sub.unsubscribe();
+  });
+
   it('reports the drop once per outage, not on every backoff retry', async () => {
     vi.useFakeTimers();
     const { unsubscribe } = start();

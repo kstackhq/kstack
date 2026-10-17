@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The library's surface. The fake client is left out: a test imports it by its file, and so
-// does the one place in the app that mounts it.
+// The library's surface. The fake client is left out: a test imports it by its file.
 export { LogViewerCore, createCoreStore, useCoreFields } from './core';
 export type { CoreHandle, CoreRow, CoreRows, CoreStore, LogViewerCoreProps } from './core';
 export { CORE_INITIAL_STATE, LogWindow } from './window';

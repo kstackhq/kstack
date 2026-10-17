@@ -12,42 +12,169 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The one place the app makes a log `Client`. It answers the fake until the sidecar
-// serves the wire: a log under the view's own pods, so every rule of the viewer shows on
-// screen, with the panel's header saying the lines are invented.
+// The one place the app makes a log `Client`: `logsFetch` and `logsFollow` over the app's
+// urql client, for one view of one cluster. Operation errors reach the error bus through
+// `errorReportExchange`; a fetch's also rejects, for the window to see.
 
-import type { Client } from '@/lib/log-viewer';
-import { FakeClient, type FakeStream } from '@/lib/log-viewer/fake-client';
+import type { Client as UrqlClient } from 'urql';
+
+import { graphql } from '@/gql';
+import type { LogsFetchQuery as LogsFetchResult, LogsViewInput } from '@/gql/graphql';
+import type { Client, Cursor, FollowFrame, LogLine } from '@/lib/log-viewer';
 import type { LogsViewAction } from '@/lib/logs-view';
 
-export type LogsClient = {
-  client: Client;
-  /** Starts what the client does on its own, and answers its stop. The viewer's mount calls it. */
-  start: () => () => void;
-};
+const LogsFetchQuery = graphql(`
+  query LogsFetch(
+    $id: ClusterID!
+    $view: LogsViewInput!
+    $mode: LogsFetchMode!
+    $cursor: String
+    $at: Time
+    $limit: Int!
+  ) {
+    logsFetch(id: $id, view: $view, mode: $mode, cursor: $cursor, at: $at, limit: $limit) {
+      records {
+        timestamp
+        message
+        cursor
+        stream {
+          namespace
+          pod
+          container
+          previous
+        }
+        place {
+          node
+          region
+          zone
+          os
+          arch
+        }
+      }
+      before {
+        cursor
+        more
+      }
+      after {
+        cursor
+        more
+      }
+      anchor
+      skipped
+    }
+  }
+`);
 
-/** Nearly three hours of history, so a moment an hour ago lands with lines on both sides. */
-const HISTORY_LINES = 5000;
-const SPACING_MS = 2000;
-/** Two lines a second. */
-const GROWTH_MS = 500;
-/** Long enough to watch a page arrive: the loading overlay and the edge rows' *Loading…* stay on screen. */
-export const DELAY_MS = 2000;
+const LogsFollowSubscription = graphql(`
+  subscription LogsFollow($id: ClusterID!, $view: LogsViewInput!, $after: String) {
+    logsFollow(id: $id, view: $view, after: $after) {
+      type
+      record {
+        timestamp
+        message
+        cursor
+        stream {
+          namespace
+          pod
+          container
+          previous
+        }
+        place {
+          node
+          region
+          zone
+          os
+          arch
+        }
+      }
+      cursor
+      reason
+    }
+  }
+`);
 
-// `clusterId` is the real client's; the fake reads only the action.
-export function createLogsClient(_clusterId: string, action: LogsViewAction): LogsClient {
-  const streams: FakeStream[] = action.sources.flatMap((source, i) =>
-    (source.containers.length > 0 ? source.containers : ['app']).map((container) => ({
-      stream: { namespace: source.namespace, pod: source.name, container, previous: source.previous },
-      place: { node: `fake-node-${i}`, region: '', zone: '', os: 'linux', arch: 'amd64' },
-    })),
-  );
-  const fake = new FakeClient({ lines: HISTORY_LINES, spacingMs: SPACING_MS, delayMs: DELAY_MS, streams });
+// Field by field, since the action came off a query and carries `__typename`s an input refuses.
+export function viewInput({ sources, filters, grep }: LogsViewAction): LogsViewInput {
   return {
-    client: fake,
-    start: () => {
-      const timer = setInterval(() => fake.append(1), GROWTH_MS);
-      return () => clearInterval(timer);
+    sources: sources.map(({ namespace, kind, name, containers, allContainers, previous }) => ({
+      namespace,
+      kind,
+      name,
+      containers,
+      allContainers,
+      previous,
+    })),
+    filters: filters.map(({ field, values }) => ({ field, values })),
+    grep,
+  };
+}
+
+// Field by field for the same reason: the library's types are the wire's without `__typename`.
+type LogRecord = LogsFetchResult['logsFetch']['records'][number];
+
+function lineOf({ timestamp, message, cursor, stream, place }: LogRecord): LogLine {
+  return {
+    timestamp,
+    message,
+    cursor,
+    stream: { namespace: stream.namespace, pod: stream.pod, container: stream.container, previous: stream.previous },
+    place: { node: place.node, region: place.region, zone: place.zone, os: place.os, arch: place.arch },
+  };
+}
+
+export function createLogsClient(urql: UrqlClient, clusterId: string, action: LogsViewAction): Client {
+  const view = viewInput(action);
+  return {
+    fetch: async ({ mode, cursor, at, limit }) => {
+      const result = await urql
+        .query(LogsFetchQuery, { id: clusterId, view, mode, cursor, at, limit }, { requestPolicy: 'network-only' })
+        .toPromise();
+      if (result.error) throw result.error;
+      if (!result.data) throw new Error('logsFetch answered no page');
+      const { records, before, after, anchor, skipped } = result.data.logsFetch;
+      return {
+        lines: records.map(lineOf),
+        before: { cursor: before.cursor ?? null, more: before.more },
+        after: { cursor: after.cursor ?? null, more: after.more },
+        anchor: anchor ?? null,
+        skipped,
+      };
+    },
+
+    follow: (after: Cursor, onFrame: (frame: FollowFrame) => void) => {
+      // A reconnect goes on from the last checkpoint: a line's cursor would skip the other
+      // streams' unsent lines older than it. What it sends again the window drops by cursor.
+      let resumeFrom = after;
+      let ended = false;
+      const subscription = urql
+        .subscription(
+          LogsFollowSubscription,
+          { id: clusterId, view, after },
+          { reconnectVariables: () => ({ id: clusterId, view, after: resumeFrom }) },
+        )
+        .subscribe(({ data }) => {
+          const frame = data?.logsFollow;
+          // A frame whose entity errored arrives null; it is dropped, not folded.
+          if (ended || !frame) return;
+          if (frame.type === 'Line') {
+            if (frame.record) onFrame({ kind: 'Line', line: lineOf(frame.record) });
+          } else if (frame.type === 'Checkpoint') {
+            if (frame.cursor) {
+              resumeFrom = frame.cursor;
+              onFrame({ kind: 'Checkpoint', cursor: frame.cursor });
+            }
+          } else {
+            // Following again would end the same way, so the reconnect the server's
+            // `complete` brings must not happen.
+            ended = true;
+            onFrame({ kind: 'Ended', reason: frame.reason });
+            subscription.unsubscribe();
+          }
+        });
+      return () => {
+        ended = true;
+        subscription.unsubscribe();
+      };
     },
   };
 }

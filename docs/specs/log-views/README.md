@@ -44,10 +44,8 @@ to the lettered naming in [Naming](../README.md#naming).
 closed disclosure like any other tool call, which is what the transcript does today for a kind it
 does not know.
 
-**The viewer is built**, ported from kubetail: `LogViewer` draws a view's lines over a fake
-client, tagged on screen, and the branch merges into `main` only once the real client is in.
-What is left of it, the wire and the real client, is
-[`docs/specs/log-viewer/`](../log-viewer/README.md).
+**The viewer is built**, ported from kubetail: `LogViewer` draws a view's lines from the
+sidecar's log cache. What is left of it is [`docs/specs/log-viewer/`](../log-viewer/README.md).
 
 **Every rung's spec has the same sections, in the same order**, as the retired agent-security
 sequence had: *In short*, *What is not in this rung*, *Design*, *Decisions this rung asks for*,

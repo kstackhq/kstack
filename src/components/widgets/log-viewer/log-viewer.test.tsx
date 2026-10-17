@@ -14,15 +14,15 @@
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { StrictMode } from 'react';
+import { Client as UrqlClient, Provider as UrqlProvider } from 'urql';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Client, FetchQuery, FollowFrame, LogLine, Page } from '@/lib/log-viewer';
-import type { LogsClient } from '@/lib/logs-client';
 import type { LogsViewAction } from '@/lib/logs-view';
 import { createLogViewportHandle } from '@/lib/log-viewport';
 
 // The seam: the client the viewer builds is the test's.
-const { built } = vi.hoisted(() => ({ built: { current: null as LogsClient | null, calls: [] as unknown[][] } }));
+const { built } = vi.hoisted(() => ({ built: { current: null as Client | null, calls: [] as unknown[][] } }));
 vi.mock('@/lib/logs-client', () => ({
   createLogsClient: (...args: unknown[]) => {
     built.calls.push(args);
@@ -164,10 +164,8 @@ function scripted() {
       };
     },
   };
-  const stop = vi.fn();
-  const start = vi.fn(() => stop);
-  built.current = { client, start };
-  return { fetches, follows, refusal, start, stop, last: () => fetches[fetches.length - 1] };
+  built.current = client;
+  return { fetches, follows, refusal, last: () => fetches[fetches.length - 1] };
 }
 
 // --- Mounting. ---
@@ -191,17 +189,22 @@ const action = (over: Partial<LogsViewAction> = {}): LogsViewAction => ({
   ...over,
 });
 
+// The viewer hands the app's urql client to `createLogsClient`, which the test replaces.
+const urql = new UrqlClient({ url: 'tauri://graphql', exchanges: [] });
+
 function mount(query: LogsViewAction = action()) {
   const viewport = createLogViewportHandle();
   const view = render(
     <StrictMode>
-      <LogViewer
-        clusterId="cluster-1"
-        query={query}
-        openAt={query.anchor}
-        pinToEnd={query.pinToEnd}
-        viewport={viewport}
-      />
+      <UrqlProvider value={urql}>
+        <LogViewer
+          clusterId="cluster-1"
+          query={query}
+          openAt={query.anchor}
+          pinToEnd={query.pinToEnd}
+          viewport={viewport}
+        />
+      </UrqlProvider>
     </StrictMode>,
   );
   return { ...view, viewport };
@@ -262,7 +265,7 @@ describe('LogViewer', () => {
   it('opens at the tail with the last page drawn as rows', async () => {
     const s = scripted();
     mount();
-    expect(built.calls[0]).toEqual(['cluster-1', action()]);
+    expect(built.calls[0]).toEqual([urql, 'cluster-1', action()]);
     expect(s.fetches[0].query).toEqual({ mode: 'Tail', cursor: null, at: null, limit: 300 });
 
     await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
@@ -334,15 +337,12 @@ describe('LogViewer', () => {
     });
   });
 
-  it('starts the client once mounted, and on unmount stops it and empties the viewport', async () => {
+  it('empties the viewport on unmount', async () => {
     const s = scripted();
     const { viewport, unmount } = mount();
     await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
-    expect(s.start).toHaveBeenCalled();
-    expect(s.stop.mock.calls.length).toBe(s.start.mock.calls.length - 1);
 
     unmount();
-    expect(s.stop.mock.calls.length).toBe(s.start.mock.calls.length);
     expect(viewport.get()).toEqual({ range: null, atEnd: false, pinnedToEnd: false, visible: 0, selection: [] });
   });
 
@@ -358,7 +358,8 @@ describe('LogViewer', () => {
       await refuse(before);
       expect(screen.getByText('Could not load more lines.')).toBeInTheDocument();
       expect(rowTexts().length).toBeGreaterThan(0);
-      expect(reportError).toHaveBeenCalledWith(expect.objectContaining({ source: 'network' }));
+      // The operation's error reached the bus through `errorReportExchange`, not the viewer.
+      expect(reportError).not.toHaveBeenCalled();
 
       await answer(after, page(120, 120, { after: { cursor: 'on', more: false } }));
       expect(screen.queryByText('Could not load more lines.')).not.toBeInTheDocument();

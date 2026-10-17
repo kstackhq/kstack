@@ -9,11 +9,8 @@ does. The design started from [kubetail](https://github.com/kubetail-org/kubetai
 viewer and keeps its reading algorithm and its data structures; the contract between the layers
 is kstack's own.
 
-**Every line on screen is the fake's.** The viewer is written to [*The wire*](#the-wire), which
-the sidecar serves, but no client reads it yet: `createLogsClient` (`src/lib/logs-client.ts`)
-answers `FakeClient`, and the panel's header says *Fake lines* while it does. `wip/log-views` does not merge into `main` until the real client stands in the fake's
-place, since a shipped build that drew invented lines under a pod's name would be a bug the user
-cannot tell from the truth. This README stays until then.
+**The viewer reads the sidecar.** `createLogsClient` (`src/lib/logs-client.ts`) runs
+[*The wire*](#the-wire) over the app's urql client; `FakeClient` is the tests' alone.
 
 The contract the wire holds, which the real client keeps:
 
@@ -154,20 +151,10 @@ webview drops by cursor. Lines arrive per stream, not merged.
 
 ## What is left
 
-- **The real client.** It reads [*The wire*](#the-wire), which the sidecar serves from its log
-  cache, and is designed no further than this paragraph: `createLogsClient`
-  runs `logsFetch` through `client.query(...).toPromise()` with `requestPolicy: 'network-only'`
-  and `logsFollow` through `client.subscription(...)`, `viewInput` builds the `LogsViewInput` from
-  the action field by field, the client keeps the last checkpoint and hands `subscribe-exchange` a
-  `reconnectVariables` function in the operation's context so a reconnect dials from it, and an
-  `Ended` frame unsubscribes and reports its reason. Both ride the transports the app has
-  (`graphql_query`, `subscribe-exchange`); no new one. The fake goes from the app in the same
-  change, and `wip/log-views` may merge after it.
 - **The `LogsView` prompt says a source shows the instances before it.** A plain view's page
   shows the running instance and what the log cache holds of the instances before it, and the
   prompt (`tools/logsview/prompts/logsview.md`) says a source shows the running instance alone.
-  Nothing the model opens reads the new wire until the real client lands, so the prompt and its
-  goldens change with it.
+  The real client has landed, so the prompt and its goldens are due.
 - **The bounded window.** A cap of `maxLines` lines, dropped at the edge farther from the
   reader and never on screen, with what that asks of the virtualizer. Until it lands a long
   follow grows without end. A dropped line comes back as a page from the sidecar's file, which

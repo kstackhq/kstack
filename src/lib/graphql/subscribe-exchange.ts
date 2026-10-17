@@ -76,6 +76,10 @@ const dropOp = (id: number) => {
 // always transient and a terminal error would kill the recovery path. Reporting
 // split: `closed`/`error` report to the error bus; `complete` (graceful, can be
 // legitimate — sidecar shutdown, chat's finite stream) reconnects silently.
+//
+// A reconnect dials with the operation's variables, unless its context carries
+// `reconnectVariables`: a stream that resumes from a cursor (`logsFollow`) hands
+// one in, so a reconnect goes on from where the stream got to.
 export const tauriSubscriptionExchange = subscriptionExchange({
   // `operation.key` is the same key useWatchSubscription derives from
   // query+variables — transport status is stamped under it.
@@ -83,6 +87,7 @@ export const tauriSubscriptionExchange = subscriptionExchange({
     return {
       subscribe(sink) {
         const { key } = operation;
+        const reconnectVariables = operation.context.reconnectVariables as (() => typeof request.variables) | undefined;
         let cancelled = false;
         let opId: number | null = null;
         let attempt = 0;
@@ -116,11 +121,11 @@ export const tauriSubscriptionExchange = subscriptionExchange({
           attempt += 1;
           retryTimer = setTimeout(() => {
             retryTimer = null;
-            if (!cancelled) connect();
+            if (!cancelled) connect(reconnectVariables?.() ?? request.variables);
           }, delay);
         }
 
-        function connect() {
+        function connect(variables: typeof request.variables) {
           const channel = new Channel<string>();
           let ended = false;
           // Stale = consumer tore down, or a later connect() took over — stop
@@ -179,7 +184,7 @@ export const tauriSubscriptionExchange = subscriptionExchange({
 
           invoke<number>('graphql_subscribe', {
             query: request.query,
-            variables: request.variables ?? {},
+            variables: variables ?? {},
             channel,
           })
             .then((id) => {
@@ -193,7 +198,7 @@ export const tauriSubscriptionExchange = subscriptionExchange({
             .catch((err: unknown) => end(errorMessage(err), err));
         }
 
-        connect();
+        connect(request.variables);
 
         return {
           unsubscribe() {
