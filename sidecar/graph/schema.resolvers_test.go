@@ -35,6 +35,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -3296,7 +3297,7 @@ func TestLogsFetchServesAPage(t *testing.T) {
 // logsFetch refuses a limit past 500, and a query its mode does not take, as a
 // validation error, saying so.
 func TestLogsFetchRefusesABadQuery(t *testing.T) {
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: logs.New(nil, nil)}))
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: logs.New(nil, logstore.NewManager(t.TempDir(), logstore.DefaultRetention))}))
 	defer srv.Close()
 
 	for query, reason := range map[string]string{
@@ -3311,12 +3312,15 @@ func TestLogsFetchRefusesABadQuery(t *testing.T) {
 	}
 }
 
-// logsFollow streams each line, then the frame that ends it with its reason.
+// logsFollow streams each line and checkpoint, each bound by its type, then the frame
+// that ends it with its reason.
 func TestLogsFollowStreamsUntilItEnds(t *testing.T) {
 	stamp := time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC)
+	checkpoint := "2026-10-08T10:00:00Z"
 	release := make(chan struct{})
 	fake := &fakeLogs{stream: cluster.NewStream(t.Context(), func(ctx context.Context, out chan<- logs.FollowFrame) error {
 		out <- logs.FollowFrame{Type: logs.FollowLine, Record: &logs.Record{Timestamp: stamp, Message: "hello", Stream: logs.StreamKey{Pod: "web-1", Container: "app"}}}
+		out <- logs.FollowFrame{Type: logs.FollowCheckpoint, Cursor: &checkpoint}
 		<-release
 		out <- logs.FollowFrame{Type: logs.FollowEnded, Reason: "every container of this view has stopped"}
 		return nil
@@ -3324,14 +3328,17 @@ func TestLogsFollowStreamsUntilItEnds(t *testing.T) {
 	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: fake}))
 	defer srv.Close()
 
-	resp, events := chatFrames(t, srv, `subscription { logsFollow(id: "7", view: `+logsView+`, after: "c") { type record { message stream { pod } } reason } }`)
+	resp, events := chatFrames(t, srv, `subscription { logsFollow(id: "7", view: `+logsView+`, after: "c") { type record { message stream { pod } } cursor reason } }`)
 	defer resp.Body.Close()
 
-	assert.Contains(t, testutil.Recv(t, events, "the line").data, `"type":"Line","record":{"message":"hello"`)
+	line := testutil.Recv(t, events, "the line").data
+	assert.Contains(t, line, `"type":"Line","record":{"message":"hello"`)
+	assert.Contains(t, line, `"cursor":null`)
 	assert.Equal(t, "c", *fake.after)
+	assert.Contains(t, testutil.Recv(t, events, "the checkpoint").data, `"type":"Checkpoint","record":null,"cursor":"2026-10-08T10:00:00Z","reason":""`)
 	close(release)
 	ev := testutil.Recv(t, events, "the end")
-	assert.Contains(t, ev.data, `"type":"Ended","record":null,"reason":"every container of this view has stopped"`)
+	assert.Contains(t, ev.data, `"type":"Ended","record":null,"cursor":null,"reason":"every container of this view has stopped"`)
 	assert.NotContains(t, ev.data, `"watchFailed"`)
 }
 

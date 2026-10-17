@@ -534,3 +534,35 @@ func TestTooManyAcrossSourcesIsRefused(t *testing.T) {
 	_, err := resolveOf(t, f, View{Sources: []ViewSource{webView.Sources[0], {Namespace: "prod", Kind: SourcePod, Name: "job-1"}}})
 	assert.ErrorIs(t, err, ErrTooMany)
 }
+
+// A container status the mirror serves that is not one Kstack can read dates the
+// instance at nothing, so a stream of it has no start and no end.
+func TestAnUnreadableStatusDatesNothing(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{"", "not json", `{"state":{"running":{"startedAt":7}}}`} {
+		started, finished := instanceTimes(status, false)
+		assert.Zero(t, started, status)
+		assert.Zero(t, finished, status)
+	}
+}
+
+// A resolve fails with whichever of its reads of the mirror fails, rather than
+// reading a refused answer as a kind not mirrored, an object missing or a pod gone.
+func TestAResolveFailsWithEachOfItsReads(t *testing.T) {
+	t.Parallel()
+	for name, on := range map[string]string{
+		"kinds":        "FROM kinds",
+		"object":       "SELECT 1 FROM objects WHERE api_version",
+		"pod's ids":    "json_group_object",
+		"first starts": "JOIN containers c ON c.pod_uid = p.uid",
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := webMirror(t)
+			f.queryErr, f.queryErrOn = errors.New("db closed"), on
+			view := View{Sources: []ViewSource{webView.Sources[0], {Namespace: "prod", Kind: SourcePod, Name: "nope"}}}
+			_, err := resolve(t.Context(), f, "7", view, true)
+			assert.EqualError(t, err, "db closed")
+		})
+	}
+}

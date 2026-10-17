@@ -112,7 +112,22 @@ func TestAWholeFillMergesIntoTheChunkItContinues(t *testing.T) {
 	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(9, 0)), Prev: ptr(at(3, 0))})
 	chunks := chunksOfStream(t, s, id)
 	assert.Equal(t, []Chunk{chunk(at(1, 0), at(3, 0)), linked(chunk(at(9, 0), at(9, 0)), at(3, 0))}, chunks)
-	assert.Len(t, CoverageOf(chunks, kubelet).Spans, 1)
+	assert.Len(t, CoverageOf(chunks, kubelet, nil).Spans, 1)
+}
+
+// A tailer is the one writer of the chunk it holds open, so a fill that continues it
+// is a chunk of its own, linked to it: the two are still one span.
+func TestNoFillExtendsAnOpenChunk(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	id := streamOf(t, s)
+	openChunk(t, s, insertChunk(t, s, id, chunk(at(1, 0), at(2, 0))))
+
+	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(2, 1)), Prev: ptr(at(2, 0)), Merge: true})
+
+	tail := chunk(at(1, 0), at(2, 0))
+	tail.Open = true
+	assert.Equal(t, []Chunk{tail, linked(chunk(at(2, 1), at(2, 1)), at(2, 0))}, chunksOfStream(t, s, id))
 }
 
 // A fill closes its chunk at ChunkBytes or ChunkSpan and opens the next at the line
@@ -136,7 +151,7 @@ func TestAFillClosesItsChunkAtChunkBytesOrChunkSpan(t *testing.T) {
 		chunk(at(1000, 0), at(1000, 0)),
 		linked(chunk(at(1300, 0), at(1301, 0)), at(1000, 0)),
 	}, chunks)
-	assert.Len(t, CoverageOf(chunks, kubelet).Spans, 2)
+	assert.Len(t, CoverageOf(chunks, kubelet, nil).Spans, 2)
 }
 
 // A fill that read its whole range up to the next chunk links that chunk to its last
@@ -160,7 +175,7 @@ func TestAFillLinksTheChunkItRanInto(t *testing.T) {
 		linked(chunk(at(5, 0), at(5, 0)), at(3, 0)),
 		linked(chunk(at(9, 0), at(9, 0)), at(5, 0)),
 	}, chunks)
-	assert.Equal(t, []Span{{at(1, 0), at(1, 0)}, {at(3, 0), at(9, 0)}}, CoverageOf(chunks, kubelet).Spans)
+	assert.Equal(t, []Span{{at(1, 0), at(1, 0)}, {at(3, 0), at(9, 0)}}, CoverageOf(chunks, kubelet, nil).Spans)
 }
 
 // A read that reached the backend's oldest line marks the oldest chunk it wrote

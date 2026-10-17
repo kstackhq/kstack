@@ -30,7 +30,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
+
+	"github.com/amorey/gobus/conflate"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitepool"
@@ -40,12 +43,15 @@ import (
 // readerPoolSize is how many reads run beside the one writer.
 const readerPoolSize = 4
 
-// file is one open log file: the writer, the reader pool beside it, and the
-// statements prepared on both.
+// file is one open log file: the writer, the reader pool beside it, the statements
+// prepared on both, and the bus every commit of lines pings by stream id.
 type file struct {
 	db     *sql.DB
 	readDB *sql.DB
 	set    *sqlstmt.Set[stmtID]
+	bus    *conflate.Hub[int64, struct{}]
+	// w is the file's writer, nil for a file opened outside a manager.
+	w *writer
 	// ctx is what an operation runs its statements under; close cancels it, so the wait
 	// for inUse is a wait for interrupted statements to unwind. inUse counts the
 	// operations running on the file, which close waits for, since sql.DB.Close does not
@@ -83,13 +89,26 @@ func openFile(path string) (*file, error) {
 		readDB.Close()
 		return nil, fmt.Errorf("prepare: %w", err)
 	}
+	// Closing a chunk is its tailer's last write, so a crash or a failed write leaves it
+	// open; no tailer runs before the file is open.
+	if _, err := set.Stmts().Exec(context.Background(), stmtCloseOpenChunks); err != nil {
+		set.Close()
+		db.Close()
+		readDB.Close()
+		return nil, fmt.Errorf("close open chunks: %w", err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &file{db: db, readDB: readDB, set: set, ctx: ctx, cancel: cancel}, nil
+	return &file{db: db, readDB: readDB, set: set, bus: conflate.New[int64, struct{}](), ctx: ctx, cancel: cancel}, nil
 }
 
-// close interrupts the file's operations, waits for them to end, and closes both pools.
+// close ends the bus's receivers, interrupts the file's operations and its writer,
+// waits for them to end, and closes both pools.
 func (f *file) close() error {
+	f.bus.Close()
 	f.cancel()
+	if f.w != nil {
+		f.w.stop()
+	}
 	f.inUse.Wait()
 	return errors.Join(f.set.Close(), f.db.Close(), f.readDB.Close())
 }
@@ -102,6 +121,13 @@ func (f *file) bind(ctx context.Context) (context.Context, func()) {
 	return ctx, func() {
 		stop()
 		cancel()
+	}
+}
+
+// ping tells the bus each stream in ids was written, after the commit that wrote it.
+func (f *file) ping(ids []int64) {
+	for _, id := range ids {
+		_ = f.bus.Sender().Send(id, struct{}{}) // an error is the bus closed, whose receivers have ended
 	}
 }
 
@@ -141,9 +167,14 @@ func (s *Store) operate(ctx context.Context, fn func(context.Context, *file) err
 		return err
 	}
 	defer done()
-	ctx, stop := f.bind(ctx)
+	bound, stop := f.bind(ctx)
 	defer stop()
-	return fn(ctx, f)
+	err = fn(bound, f)
+	if err != nil && ctx.Err() == nil && f.ctx.Err() != nil {
+		// The file's close interrupted the operation, which reads as a cancel.
+		return fmt.Errorf("log store %d: %w", s.cacheID, ErrClosed)
+	}
+	return err
 }
 
 // with runs fn as one operation on the claim's file, its statements on the pools.
@@ -188,4 +219,27 @@ func (s *Store) Close() error {
 	m.mu.Lock()
 	m.releaseLocked(s.cacheID)
 	return err
+}
+
+// Subscribe is a receiver of a ping per stream in ids each time a commit writes it
+// lines, coalesced per stream. Subscribe before the first read, or a commit between
+// the two is missed; close the receiver when done. The file closing ends it.
+func (s *Store) Subscribe(ids ...int64) (*conflate.Receiver[int64, struct{}], error) {
+	f, done, err := s.use()
+	if err != nil {
+		return nil, fmt.Errorf("subscribe: %w", err)
+	}
+	defer done()
+	return f.bus.Receiver(f.bus.WithKeyFilter(func(id int64) bool { return slices.Contains(ids, id) })), nil
+}
+
+// Context ends once the file behind the claim closes, by a Clear, a Remove or the
+// manager's Close.
+func (s *Store) Context() (context.Context, error) {
+	f, done, err := s.use()
+	if err != nil {
+		return nil, fmt.Errorf("context: %w", err)
+	}
+	defer done()
+	return f.ctx, nil
 }

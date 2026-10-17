@@ -15,6 +15,7 @@
 package logstore
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -48,7 +49,7 @@ func TestCoverageJoinsOverlappingAndLinkedChunks(t *testing.T) {
 		chunk(at(2, 0), at(5, 0)),
 		linked(chunk(at(7, 0), at(8, 1)), at(5, 0)),
 		chunk(at(10, 0), at(11, 0)),
-	}, kubelet)
+	}, kubelet, nil)
 
 	assert.Equal(t, []Span{{at(1, 0), at(8, 1)}, {at(10, 0), at(11, 0)}}, cov.Spans)
 	assert.Equal(t, []Gap{
@@ -65,7 +66,7 @@ func TestAChunkWhoseLinkNamesAGoneChunkStartsASpan(t *testing.T) {
 	cov := CoverageOf([]Chunk{
 		chunk(at(1, 0), at(3, 0)),
 		linked(chunk(at(7, 0), at(8, 0)), at(5, 0)),
-	}, kubelet)
+	}, kubelet, nil)
 
 	assert.Equal(t, []Span{{at(1, 0), at(3, 0)}, {at(7, 0), at(8, 0)}}, cov.Spans)
 }
@@ -73,7 +74,7 @@ func TestAChunkWhoseLinkNamesAGoneChunkStartsASpan(t *testing.T) {
 // A stream with no chunk is one gap, the whole log.
 func TestAStreamWithNoChunkIsOneGap(t *testing.T) {
 	t.Parallel()
-	cov := CoverageOf(nil, kubelet)
+	cov := CoverageOf(nil, kubelet, nil)
 
 	assert.Empty(t, cov.Spans)
 	assert.Equal(t, []Gap{{}}, cov.Gaps)
@@ -95,7 +96,7 @@ func TestAGapOlderThanTheLastBackendsHeadIsLost(t *testing.T) {
 		chunk(at(-300, 0), at(300, 0)),
 		head(chunk(at(1800, 0), at(1900, 0))),
 		chunk(at(2000, 0), at(2100, 0)),
-	}, kubelet)
+	}, kubelet, nil)
 
 	var lost []bool
 	for _, g := range cov.Gaps {
@@ -112,12 +113,12 @@ func TestAGapOlderThanAnEarlierBackendsHeadGoesToTheNext(t *testing.T) {
 	archive.Origin = "archive"
 	chunks := []Chunk{archive, head(chunk(at(20, 0), at(30, 0)))}
 
-	cov := CoverageOf(chunks, []string{"kubelet", "archive"})
+	cov := CoverageOf(chunks, []string{"kubelet", "archive"}, nil)
 	assert.Equal(t, []int{1, 1, 0}, tiers(cov), "the kubelet holds nothing before 20")
 	assert.False(t, cov.Gaps[0].Lost)
 
 	chunks[0] = head(archive)
-	cov = CoverageOf(chunks, []string{"kubelet", "archive"})
+	cov = CoverageOf(chunks, []string{"kubelet", "archive"}, nil)
 	assert.Equal(t, []int{2, 1, 0}, tiers(cov))
 	assert.True(t, cov.Gaps[0].Lost)
 }
@@ -138,9 +139,9 @@ func TestTheNewestGapIsLostPastAtEnd(t *testing.T) {
 	end := chunk(at(0, 0), at(10, 0))
 	end.AtEnd = true
 
-	assert.True(t, CoverageOf([]Chunk{end}, kubelet).Gaps[1].Lost)
-	assert.False(t, CoverageOf([]Chunk{chunk(at(0, 0), at(10, 0))}, kubelet).Gaps[1].Lost)
-	for _, g := range CoverageOf([]Chunk{chunk(at(0, 0), at(10, 0)), chunk(at(20, 0), at(30, 0))}, nil).Gaps {
+	assert.True(t, CoverageOf([]Chunk{end}, kubelet, nil).Gaps[1].Lost)
+	assert.False(t, CoverageOf([]Chunk{chunk(at(0, 0), at(10, 0))}, kubelet, nil).Gaps[1].Lost)
+	for _, g := range CoverageOf([]Chunk{chunk(at(0, 0), at(10, 0)), chunk(at(20, 0), at(30, 0))}, nil, nil).Gaps {
 		assert.True(t, g.Lost)
 	}
 }
@@ -187,4 +188,64 @@ func TestAPatternReadsItsOwnAndUnlabelledChunks(t *testing.T) {
 	got, err = s.Chunks(t.Context(), ids[0], "")
 	require.NoError(t, err)
 	assert.Equal(t, []Chunk{plain}, got)
+}
+
+// A running tailer reads on from its start, so every gap past it is the tailer's,
+// crossed and never filled, and a gap the start falls inside is cut there: the range
+// up to the start is still live.
+func TestAGapPastATailersStartIsTheTailers(t *testing.T) {
+	t.Parallel()
+	start := at(10, 0)
+	chunks := []Chunk{chunk(at(0, 0), at(5, 0)), chunk(at(12, 0), at(15, 0)), chunk(at(18, 0), at(20, 0))}
+
+	gaps := CoverageOf(chunks, kubelet, &start).Gaps
+	var tailed, newest, atTail []bool
+	var edges [][2]*Pos
+	for _, g := range gaps {
+		tailed, newest, atTail = append(tailed, g.Tailed), append(newest, g.Newest()), append(atTail, g.Tail != nil)
+		edges = append(edges, [2]*Pos{g.After, g.Before})
+	}
+	assert.Equal(t, []bool{false, false, true, true, true}, tailed)
+	assert.Equal(t, []bool{false, true, false, false, false}, atTail, "the gap up to the start ends at it")
+	assert.Equal(t, []bool{false, true, false, false, true}, newest, "the newest a fill may read, and the newest")
+	cut := at(10, 1)
+	assert.Equal(t, [2]*Pos{ptr(at(5, 0)), &cut}, edges[1], "the range up to the start")
+	assert.Equal(t, [2]*Pos{&start, ptr(at(12, 0))}, edges[2], "the range past it")
+
+	for _, g := range CoverageOf(chunks, kubelet, nil).Gaps {
+		assert.False(t, g.Tailed, "with no tailer")
+		assert.Nil(t, g.Tail)
+	}
+}
+
+// A tailer that has not committed yet leaves the range up to its start live, past the
+// newest chunk or in a stream with none.
+func TestTheNewestGapIsTheTailersPastItsStartAlone(t *testing.T) {
+	t.Parallel()
+	start := at(10, 0)
+	for _, chunks := range [][]Chunk{{chunk(at(0, 0), at(5, 0))}, nil} {
+		gaps := CoverageOf(chunks, kubelet, &start).Gaps
+		below, past := gaps[len(gaps)-2], gaps[len(gaps)-1]
+		assert.True(t, below.Live(), "up to the start")
+		assert.Equal(t, ptr(at(10, 1)), below.Before)
+		assert.True(t, past.Tailed, "past the start")
+		assert.Nil(t, past.Before)
+	}
+
+	newest := at(5, 0)
+	gaps := CoverageOf([]Chunk{chunk(at(0, 0), newest)}, kubelet, &newest).Gaps
+	assert.True(t, gaps[1].Tailed, "a tailer starting at the newest line holds the rest")
+}
+
+// A Head bound that reads none of its moment sits at the moment's last ordinal, so
+// a tailer starting there leaves every line of the moment below its start, and the
+// range up to the start takes them in.
+func TestATailerStartingAtAMomentsEndLeavesTheMomentBelow(t *testing.T) {
+	t.Parallel()
+	start := at(10, math.MaxInt)
+	gaps := CoverageOf([]Chunk{chunk(at(0, 0), at(5, 0))}, kubelet, &start).Gaps
+	require.Len(t, gaps, 3)
+	assert.Positive(t, gaps[1].Before.Compare(at(10, 7)), "a line of the start's moment is below the range's end")
+	assert.Equal(t, Pos{second(10) + 1, 0}, *gaps[1].Before)
+	assert.Equal(t, start, gaps[1].Before.Prev(), "the step back from the moment after lands at the start")
 }

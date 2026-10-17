@@ -15,6 +15,7 @@
 package logs
 
 import (
+	"sync"
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
@@ -31,12 +32,11 @@ type Service struct {
 	// tails through the first.
 	backends []namedBackend
 	now      func() time.Time
-	// handoff is how long a follow holds its first lines, retry how long it waits
-	// to resolve its view again after the mirror refused it, to open its watches
-	// again or to reopen a dropped stream, retryCap the longest a stream that keeps
-	// dropping waits, settle how long it waits after a pod frame, and budget the
-	// bytes one page's fills may read from the backends.
-	handoff  time.Duration
+	// retry is how long a follow waits to resolve its view again after the mirror
+	// refused it, to open its watches again or to tail a dropped stream again,
+	// retryCap the longest a stream that keeps dropping waits, settle how long it
+	// waits after a pod frame, and budget the bytes one page's fills may read from
+	// the backends.
 	retry    time.Duration
 	retryCap time.Duration
 	settle   time.Duration
@@ -44,6 +44,13 @@ type Service struct {
 	// walkBudget is the bytes one page's walks of the file may read, apart from what
 	// its fills spend, so a fill that spends everything leaves the walks their own.
 	walkBudget int64
+	// grace is how long a tailer runs on after its last follow lets go: the files'
+	// TailGrace, or a test's.
+	grace time.Duration
+
+	// tails is each log file's tailers, by cache id.
+	tailsMu sync.Mutex
+	tails   map[cluster.ClusterCacheID]*registry
 }
 
 // namedBackend is one of the cluster's backends: its name, which a chunk records as
@@ -55,5 +62,10 @@ type namedBackend struct {
 
 // New is the service over the cluster service and the log files.
 func New(clusters cluster.Service, files *logstore.Manager) *Service {
-	return &Service{clusters: clusters, files: files, backends: []namedBackend{{"kubelet", newKubelet}}, now: time.Now, handoff: followHandoff, retry: followRetry, retryCap: followRetryCap, settle: followSettle, budget: maxBudget, walkBudget: maxWalkBudget}
+	return &Service{
+		clusters: clusters, files: files, backends: []namedBackend{{"kubelet", newKubelet}}, now: time.Now,
+		retry: followRetry, retryCap: followRetryCap, settle: followSettle,
+		budget: maxBudget, walkBudget: maxWalkBudget, grace: files.Retention().TailGrace,
+		tails: map[cluster.ClusterCacheID]*registry{},
+	}
 }

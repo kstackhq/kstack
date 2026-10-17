@@ -43,9 +43,13 @@ type Retention struct {
 	// reaches first.
 	WriteBatch      int
 	WriteBatchBytes int64
-	// WriteTick is how long a tailer holds a batch before sending it, and how long it may
-	// wait for the writer to take one.
+	// WriteTick is how long the writer holds what has arrived before writing it, so a
+	// burst of batches is one transaction.
 	WriteTick time.Duration
+	// WriteWait is how long a tailer waits for the writer to take a batch before it reads
+	// again from now: well past a commit, so one slow commit under a full queue does not
+	// restart every tailer.
+	WriteWait time.Duration
 	// WriteQueue is how many batches may wait for the writer. The queue holds at most
 	// WriteQueue times WriteBatchBytes of text, 16 MiB by default: log text is the
 	// cluster's to write, so the bound is on bytes, never on lines.
@@ -68,6 +72,7 @@ var DefaultRetention = Retention{
 	WriteBatch:      1000,
 	WriteBatchBytes: mib,
 	WriteTick:       50 * time.Millisecond,
+	WriteWait:       time.Second,
 	WriteQueue:      16,
 	VacuumPages:     2048,
 	Interval:        5 * time.Minute,

@@ -20,17 +20,14 @@ import (
 	"time"
 )
 
-// trimFinished trims the stream id to its finished_at when it has one.
-func trimFinished(ctx context.Context, st stmts, id int64) error {
+// trimFinished trims the stream id to its finished_at when it has one, and is whether
+// it removed anything.
+func trimFinished(ctx context.Context, st stmts, id int64) (bool, error) {
 	var finished sql.NullInt64
-	if err := st.QueryRow(ctx, stmtSelectFinishedAt, id).Scan(&finished); err != nil {
-		return err
+	if err := st.QueryRow(ctx, stmtSelectFinishedAt, id).Scan(&finished); err != nil || !finished.Valid {
+		return false, err
 	}
-	if !finished.Valid {
-		return nil
-	}
-	_, err := trim(ctx, st, id, finished.Int64)
-	return err
+	return trim(ctx, st, id, finished.Int64)
 }
 
 // trim cuts the stream id to the instance that finished at finishedAt, and is

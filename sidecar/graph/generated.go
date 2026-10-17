@@ -468,6 +468,7 @@ type ComplexityRoot struct {
 	}
 
 	LogsFollowFrame struct {
+		Cursor func(childComplexity int) int
 		Reason func(childComplexity int) int
 		Record func(childComplexity int) int
 		Type   func(childComplexity int) int
@@ -2482,6 +2483,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.LogStream.Previous(childComplexity), true
 
+	case "LogsFollowFrame.cursor":
+		if e.ComplexityRoot.LogsFollowFrame.Cursor == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsFollowFrame.Cursor(childComplexity), true
 	case "LogsFollowFrame.reason":
 		if e.ComplexityRoot.LogsFollowFrame.Reason == nil {
 			break
@@ -5043,6 +5050,8 @@ func (ec *executionContext) childFields_LogsFollowFrame(ctx context.Context, fie
 		return ec.fieldContext_LogsFollowFrame_type(ctx, field)
 	case "record":
 		return ec.fieldContext_LogsFollowFrame_record(ctx, field)
+	case "cursor":
+		return ec.fieldContext_LogsFollowFrame_cursor(ctx, field)
 	case "reason":
 		return ec.fieldContext_LogsFollowFrame_reason(ctx, field)
 	}
@@ -13069,6 +13078,29 @@ func (ec *executionContext) fieldContext_LogsFollowFrame_record(_ context.Contex
 		},
 	}
 	return fc, nil
+}
+
+func (ec *executionContext) _LogsFollowFrame_cursor(ctx context.Context, field graphql.CollectedField, obj *logs.FollowFrame) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsFollowFrame_cursor(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Cursor, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *string) graphql.Marshaler {
+			return ec.marshalOString2ᚖstring(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_LogsFollowFrame_cursor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LogsFollowFrame", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
 func (ec *executionContext) _LogsFollowFrame_reason(ctx context.Context, field graphql.CollectedField, obj *logs.FollowFrame) (ret graphql.Marshaler) {
@@ -24404,6 +24436,11 @@ func (ec *executionContext) _LogsFollowFrame(ctx context.Context, sel ast.Select
 			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
+		case "cursor":
+			out.Values[i] = ec._LogsFollowFrame_cursor(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		case "reason":
 			out.Values[i] = ec._LogsFollowFrame_reason(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
@@ -28344,12 +28381,14 @@ func (ec *executionContext) marshalNLogsFollowFrameType2githubᚗcomᚋkstackhq�
 
 var (
 	unmarshalNLogsFollowFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐFollowFrameType = map[string]logs.FollowFrameType{
-		"Line":  logs.FollowLine,
-		"Ended": logs.FollowEnded,
+		"Line":       logs.FollowLine,
+		"Checkpoint": logs.FollowCheckpoint,
+		"Ended":      logs.FollowEnded,
 	}
 	marshalNLogsFollowFrameType2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐFollowFrameType = map[logs.FollowFrameType]string{
-		logs.FollowLine:  "Line",
-		logs.FollowEnded: "Ended",
+		logs.FollowLine:       "Line",
+		logs.FollowCheckpoint: "Checkpoint",
+		logs.FollowEnded:      "Ended",
 	}
 )
 

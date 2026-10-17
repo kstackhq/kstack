@@ -15,12 +15,16 @@
 package logstore
 
 import (
+	"database/sql"
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
 // openTestFile opens a fresh file under a temp directory, closed when the test ends.
@@ -98,6 +102,57 @@ func TestAFileReopensWithWhatItHeld(t *testing.T) {
 	assert.Equal(t, 1, countStreams(t, f))
 }
 
+// A file that cannot be opened is refused at the step that failed.
+func TestAFileThatCannotOpenIsRefused(t *testing.T) {
+	t.Parallel()
+	// prepared opens a file and runs stmt on it, leaving it closed for openFile to try.
+	prepared := func(stmt string) func(t *testing.T, path string) {
+		return func(t *testing.T, path string) {
+			f, err := openFile(path)
+			require.NoError(t, err)
+			id := insertStream(t, f)
+			_, err = f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, origin, at_head, at_end, open, bytes, read_at_ms)
+				VALUES (?, '', 1, 0, 1, 0, 'kubelet', 0, 0, 1, 0, 0)`, id)
+			require.NoError(t, err)
+			_, err = f.db.Exec(stmt)
+			require.NoError(t, err)
+			require.NoError(t, f.close())
+		}
+	}
+	for _, tc := range []struct {
+		name  string
+		setup func(t *testing.T, path string)
+		want  string
+	}{
+		{"its directory is a file", func(t *testing.T, path string) {
+			require.NoError(t, os.WriteFile(filepath.Dir(path), nil, 0o600))
+		}, "mkdir"},
+		{"it is not a database", func(t *testing.T, path string) {
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+			require.NoError(t, os.WriteFile(path, []byte("not a database, not a database, not a database"), 0o600))
+		}, "open writer"},
+		{"its schema is another's", func(t *testing.T, path string) {
+			require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o700))
+			db, err := sql.Open("sqlite", path)
+			require.NoError(t, err)
+			_, err = db.Exec(`CREATE TABLE streams (x)`)
+			require.NoError(t, err)
+			require.NoError(t, db.Close())
+		}, "migrate"},
+		{"a table it reads is gone", prepared(`DROP TABLE chunks`), "prepare"},
+		{"its open chunks cannot close", prepared(`CREATE TRIGGER refuse BEFORE UPDATE ON chunks BEGIN SELECT RAISE(ABORT, 'refused'); END`), "close open chunks"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "logs", "1.db")
+			tc.setup(t, path)
+
+			_, err := openFile(path)
+			assert.ErrorContains(t, err, tc.want)
+		})
+	}
+}
+
 // STRICT is what keeps a moment a number: a loose column would store the text and sort it
 // after every integer, putting the line out of position.
 func TestAMomentMustBeAnInteger(t *testing.T) {
@@ -127,23 +182,6 @@ func TestAPositionHoldsOneLine(t *testing.T) {
 	n, err := res.RowsAffected()
 	require.NoError(t, err)
 	assert.Zero(t, n)
-}
-
-// A follow reads by id past the last one it saw, so an id handed out twice would put a
-// new tail line below a live follow's mark and the follow would never send it. Deleting
-// the newest row is when an implicit rowid would be handed out again.
-func TestALineIDIsNeverReused(t *testing.T) {
-	t.Parallel()
-	f := openTestFile(t)
-	stream := insertStream(t, f)
-	insertLine(t, f, stream, 100, 0)
-	newest := insertLine(t, f, stream, 200, 0)
-	_, err := f.db.Exec(`DELETE FROM lines WHERE id = ?`, newest)
-	require.NoError(t, err)
-
-	next := insertLine(t, f, stream, 300, 0)
-
-	assert.Greater(t, next, newest)
 }
 
 // A flag column takes 0 or 1 and nothing else.
@@ -191,9 +229,48 @@ func TestEveryOperationOnAClosedClaimIsRefused(t *testing.T) {
 		"write": func() error { return s.Write(ctx, nil) },
 		"read":  func() error { return s.Read(ctx, func(Reader) error { return nil }) },
 		"evict": func() error { return s.Evict(ctx, 1) },
+		"subscribe": func() error {
+			_, err := s.Subscribe(1)
+			return err
+		},
+		"context": func() error {
+			_, err := s.Context()
+			return err
+		},
 	} {
 		err := op()
 		assert.ErrorIs(t, err, ErrClosed, name)
 		assert.ErrorContains(t, err, name+": ", name)
 	}
+}
+
+// twoStreams files app and a second container of its pod in s and answers their ids.
+func twoStreams(t *testing.T, s *Store) (int64, int64) {
+	t.Helper()
+	sidecar := app()
+	sidecar.Container, sidecar.ContainerID, sidecar.Default = "proxy", "containerd://2", false
+	ids, err := s.PutStreams(t.Context(), []Stream{app(), sidecar})
+	require.NoError(t, err)
+	return ids[0], ids[1]
+}
+
+// A commit of lines pings each stream it wrote, after the commit, and none it wrote
+// no line to; the file closing ends the receiver.
+func TestAWriteOfLinesPingsItsStreams(t *testing.T) {
+	t.Parallel()
+	m, _ := newTestManager(t)
+	s := open(t, m, 1)
+	t.Cleanup(func() { assert.NoError(t, s.Close()) })
+	a, b := twoStreams(t, s)
+	pings := subscribe(t, s, a, b)
+
+	write(t, s, Fill{Stream: b, Origin: "kubelet", Next: ptr(at(1, 0))})
+	write(t, s, Fill{Stream: a, Origin: "kubelet", Lines: lines(at(1, 0))})
+
+	// First touch orders the pings, so b's would come first.
+	assert.Equal(t, a, testutil.Recv(t, pings, "a's ping").Key)
+	assert.Len(t, positions(t, s, a), 1, "the ping follows the commit")
+
+	require.NoError(t, m.Clear(1))
+	testutil.RecvClosed(t, pings, "the receiver to end")
 }

@@ -355,6 +355,8 @@ models:
     enum_values:
       Line:
         value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FollowLine
+      Checkpoint:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FollowCheckpoint
       Ended:
         value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FollowEnded
 
