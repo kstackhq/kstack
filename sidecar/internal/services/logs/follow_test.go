@@ -189,6 +189,44 @@ func TestAFollowOpensAtItsStart(t *testing.T) {
 	assert.Equal(t, "2026-10-08T11:00:00Z", s.requests()[0].Get("sinceTime"))
 }
 
+// A follow's walk stamps nothing: what it sends is in the viewer's window, so the file
+// keeps it only while the budget allows.
+func TestAFollowStampsNothing(t *testing.T) {
+	t.Parallel()
+	f := webMirror(t)
+	svc, _ := serviceIn(t, f, newLogServer(), t.TempDir(), testRetention)
+	seedUnread(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0, time.Second), Head: true})
+
+	stream, err := svc.Follow(t.Context(), "7", web1View, cursor(-time.Second))
+	require.NoError(t, err)
+	assert.Equal(t, "0", recvLine(t, stream, "the first line").Message)
+	assert.Equal(t, "1", recvLine(t, stream, "the second line").Message)
+
+	assert.Zero(t, chunksOf(t, svc, f, "web-1", "app")[0].ReadAt)
+}
+
+// A follow and its tailers hold the rows of the streams they read until they end, so
+// a sweep while the follow runs leaves a row with nothing in it yet; once they have
+// ended, the sweep takes it.
+func TestAFollowHoldsItsRows(t *testing.T) {
+	t.Parallel()
+	backend := newFakeBackend()
+	backend.set("web-1/app", fakeRead{wait: never})
+	svc, f := serviceOn(t, backend)
+	everyPodGone(svc)
+	_, cancel := openFollowOf(t, svc, f, web1View)
+	backend.opened.Await(t, "the tailer's read")
+
+	sweepFile(t, svc, f)
+	assert.Len(t, rowsOf(t, svc, f, "web-1"), 1, "held while the follow runs")
+
+	cancel()
+	require.Eventually(t, func() bool {
+		sweepFile(t, svc, f)
+		return len(rowsOf(t, svc, f, "web-1")) == 0
+	}, testutil.Timeout, time.Millisecond, "let go once the follow and its tailer end")
+}
+
 // A follow after a cursor reads every line past it first.
 func TestAFollowAfterACursor(t *testing.T) {
 	t.Parallel()
@@ -1169,7 +1207,7 @@ func TestAHeldStreamWaitsOutItsBackoff(t *testing.T) {
 	f := &follow{
 		s: svc, id: "7", view: view, since: from(time.Hour), claim: c, file: fileOf(t, svc, fake), tails: svc.registryFor("7", tg),
 		target: target{serverUID: "uid-1"}, out: make(chan FollowFrame, 16), streams: map[StreamKey]*tracked{},
-		nodes: map[string]Place{}, deleted: map[string]string{}, podUIDs: map[string]string{}, gone: map[string]bool{},
+		nodes: map[string]Place{}, deleted: map[string]string{}, podUIDs: map[string]string{}, gone: map[string]bool{}, held: map[int64]func(){},
 		dueHub: mpsc.New[StreamKey](0, mpsc.WithKeepOpen()), endedHub: mpsc.New[*handle](0, mpsc.WithKeepOpen()),
 	}
 	// Held as a dropped stream is: at the row and instance the view wants.
@@ -1399,6 +1437,30 @@ func TestAFollowFillsALiveGapBeforeItGoesOn(t *testing.T) {
 	assert.Equal(t, 1, fills(s, "prod/web-1/app"))
 }
 
+// A follow's gap fill is not stamped, since what it fetched is in the viewer's window,
+// but it is held until the follow's walk returns: a sweep over budget between the
+// fill's commit and the walk leaves the follow's lines whole, and the chunk keeps no
+// stamp after.
+func TestAFollowsGapFillIsHeldUntilItsWalk(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(10*time.Minute, "in the gap"), stamped(30*time.Minute, "1800"))
+	f := webMirror(t)
+	ret := testRetention
+	ret.Bytes = 0
+	svc, _ := serviceIn(t, f, s, t.TempDir(), ret)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
+	svc.afterFill = func() { sweepFile(t, svc, f) }
+	stream, _ := followWeb1(t, svc, cursor(0))
+
+	assert.Equal(t, []string{"in the gap", "1800"}, recvLines(t, stream, 2))
+	for _, c := range chunksOf(t, svc, f, "web-1", "app") {
+		if c.From.TS == at(10*time.Minute).UnixNano() {
+			assert.Zero(t, c.ReadAt, "the gap fill's chunk")
+		}
+	}
+}
+
 // A gap read whole with no line in it is crossed, and not filled again on the next
 // ping.
 func TestAnEmptyGapIsFilledOnce(t *testing.T) {
@@ -1467,7 +1529,7 @@ func TestAFollowWhoseFileClosesFails(t *testing.T) {
 	svc, _ := serviceOver(t, f, newLogServer())
 	stream, _ := openFollow(t, svc, f)
 
-	require.NoError(t, svc.files.Clear(int64(f.active.Cache.ID)))
+	require.NoError(t, svc.Clear(int64(f.active.Cache.ID)))
 
 	assert.ErrorIs(t, failsWith(t, stream), logstore.ErrClosed)
 }

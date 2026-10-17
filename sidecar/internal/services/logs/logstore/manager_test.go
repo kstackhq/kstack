@@ -346,6 +346,58 @@ func TestAnOpenWaitsOutAClear(t *testing.T) {
 	assert.Zero(t, streamsIn(t, fresh))
 }
 
+// An open meeting another open of its cache waits for it, so the two never race to
+// create one file, and then joins the file it opened.
+func TestAnOpenWaitsOutAnotherAndJoinsIt(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	m := NewManager(dir, testRetention)
+	t.Cleanup(func() { assert.NoError(t, m.Close()) })
+	// Another connection's exclusive lock holds the first open inside SQLite's busy wait.
+	locker, err := sql.Open("sqlite", filepath.Join(dir, "1.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, locker.Close()) })
+	lock, err := locker.Conn(t.Context())
+	require.NoError(t, err)
+	_, err = lock.ExecContext(t.Context(), "BEGIN EXCLUSIVE")
+	require.NoError(t, err)
+	first := make(chan *Store, 1)
+	go func() { first <- open(t, m, 1) }()
+	require.Eventually(t, func() bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		_, opening := m.busy[1]
+		return opening
+	}, 5*time.Second, time.Millisecond)
+	second := make(chan *Store, 1)
+
+	go func() { second <- open(t, m, 1) }()
+
+	// A negative assertion: nothing marks the second open as waiting, so it gets a window.
+	select {
+	case <-second:
+		t.Fatal("the second open returned while the first was opening")
+	case <-time.After(50 * time.Millisecond):
+	}
+	_, err = lock.ExecContext(t.Context(), "ROLLBACK")
+	require.NoError(t, err)
+	require.NoError(t, lock.Close())
+	a, b := <-first, <-second
+	t.Cleanup(func() { assert.NoError(t, b.Close()) })
+	addStream(t, a)
+	require.NoError(t, a.Close())
+	assert.Equal(t, 1, streamsIn(t, b), "the second open joined the first's file")
+}
+
+// The manager starts nothing, so its stop has nothing to end.
+func TestStartStartsNothing(t *testing.T) {
+	t.Parallel()
+	m, _ := newTestManager(t)
+	stop, err := m.Start(t.Context())
+	require.NoError(t, err)
+	assert.NoError(t, stop(t.Context()))
+}
+
 // Close finds no entry for a file still opening, so the open closes what it opened.
 func TestAnOpenThatCloseOvertakesClosesItsFile(t *testing.T) {
 	t.Parallel()

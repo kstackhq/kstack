@@ -13,7 +13,9 @@
 -- limitations under the License.
 
 -- One cluster cache's log lines. Every moment is nanoseconds since the epoch, and NULL
--- is not zero: an unknown time is NULL.
+-- is not zero: an unknown time is NULL. A stream's and a chunk's id never come back
+-- (AUTOINCREMENT): a tailer, a watermark and the janitor name a row by id across
+-- transactions, and a reused one would hand them another stream's lines.
 
 -- streams: one runtime instance of a container. A restart makes a new one, and the
 -- old instance's lines stay under the old row. Whether it is the pod's previous instance
@@ -29,7 +31,7 @@
 -- it stopped, NULL while it runs. labels is the pod's labels as a JSON object, '{}'
 -- when unknown.
 CREATE TABLE streams (
-  id           INTEGER PRIMARY KEY,
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
   namespace    TEXT    NOT NULL,
   pod          TEXT    NOT NULL,
   pod_uid      TEXT    NOT NULL,
@@ -59,10 +61,12 @@ CREATE TABLE streams (
 -- pattern is the grep the fill ran under, '' for every line. origin is the backend that
 -- filled it, by name. at_head is 1 when that backend holds nothing older than from_ns;
 -- at_end is 1 when to_ns is the last line of a finished instance's log; open is 1 while
--- a tailer is still writing into it. read_at_ms is the last read or write in unix
--- milliseconds: a clock, not a line's moment.
+-- a tailer is still writing into it. read_at_ms is when a page last read from it or a
+-- fill wrote it, in unix milliseconds, NULL when neither has: a clock, not a line's
+-- moment. A tailer's write leaves it alone, so a tailed stream nobody pages is
+-- evictable from the moment it is written.
 CREATE TABLE chunks (
-  id         INTEGER PRIMARY KEY,
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
   stream_id  INTEGER NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
   pattern    TEXT    NOT NULL,
   from_ns    INTEGER NOT NULL,
@@ -76,7 +80,7 @@ CREATE TABLE chunks (
   at_end     INTEGER NOT NULL CHECK (at_end IN (0, 1)),
   open       INTEGER NOT NULL CHECK (open IN (0, 1)),
   bytes      INTEGER NOT NULL,
-  read_at_ms INTEGER NOT NULL,
+  read_at_ms INTEGER,
   UNIQUE (stream_id, pattern, from_ns, from_ord)
 ) STRICT;
 

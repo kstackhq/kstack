@@ -222,6 +222,7 @@ func TestAddAfterCloseIsDropped(t *testing.T) {
 	q := New[string]()
 	q.Close()
 	q.Add("prod")
+	q.AddIfAbsent("staging")
 
 	assert.False(t, testutil.Recv(t, next(t.Context(), q), "next after close").ok)
 }

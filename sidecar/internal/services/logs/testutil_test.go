@@ -71,6 +71,8 @@ type fakeService struct {
 	workloadsErr error
 
 	acquireErr, watchErr, watchObjectsErr, readActiveErr, healthErr, queryErr error
+	// onAcquire runs as a claim is acquired, before the lease is handed out.
+	onAcquire func()
 	// queryErrOn is the statement text queryErr applies to, "" for every one.
 	queryErrOn        string
 	noHealth, noQuery bool
@@ -125,6 +127,9 @@ func (f *fakeService) Clusters() cluster.Clusters     { return fakeClusters{f: f
 func (f *fakeService) AcquireConnection(context.Context, cluster.ClusterID) (cluster.Lease, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.onAcquire != nil {
+		f.onAcquire()
+	}
 	if f.acquireErr != nil {
 		return nil, f.acquireErr
 	}
@@ -134,6 +139,17 @@ func (f *fakeService) AcquireConnection(context.Context, cluster.ClusterID) (clu
 type fakeCaches struct {
 	cluster.Caches
 	f *fakeService
+}
+
+// goneCache is a cache id the fake's Caches().Get no longer knows.
+const goneCache = 404
+
+// Get is any cache but goneCache, filed under the cluster "7".
+func (fc fakeCaches) Get(_ context.Context, id cluster.ClusterCacheID) (*cluster.ClusterCache, error) {
+	if id == goneCache {
+		return nil, cluster.ErrNotFound
+	}
+	return &cluster.ClusterCache{RecordMeta: cluster.RecordMeta{ID: id}, Spec: cluster.ClusterCacheSpec{ClusterID: "7"}}, nil
 }
 
 func (fc fakeCaches) Health(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheHealth, bool, error) {
@@ -922,9 +938,8 @@ func serviceOver(t *testing.T, f *fakeService, h http.Handler) (*Service, *fakeS
 func serviceIn(t *testing.T, f *fakeService, h http.Handler, dir string, ret logstore.Retention) (*Service, *fakeService) {
 	t.Helper()
 	f.lease = serving(t, h).lease
-	files := logstore.NewManager(dir, ret)
-	t.Cleanup(func() { assert.NoError(t, files.Close()) })
-	svc := New(f, files)
+	svc := New(f, dir, ret)
+	t.Cleanup(func() { assert.NoError(t, svc.Close()) })
 	svc.now, svc.settle = func() time.Time { return at(time.Hour) }, 0
 	svc.retry, svc.retryCap = time.Millisecond, 8*time.Millisecond
 	return svc, f
@@ -1054,13 +1069,25 @@ func rowOf(pod, container string) logstore.Stream {
 // would have, and answers its id.
 func seed(t *testing.T, svc *Service, f *fakeService, row logstore.Stream, fills ...logstore.Fill) int64 {
 	t.Helper()
+	return seedStamped(t, svc, f, row, true, fills...)
+}
+
+// seedUnread is seed with its chunks left unstamped, as a follow's fill leaves them.
+func seedUnread(t *testing.T, svc *Service, f *fakeService, row logstore.Stream, fills ...logstore.Fill) int64 {
+	t.Helper()
+	return seedStamped(t, svc, f, row, false, fills...)
+}
+
+func seedStamped(t *testing.T, svc *Service, f *fakeService, row logstore.Stream, stamp bool, fills ...logstore.Fill) int64 {
+	t.Helper()
 	file := fileOf(t, svc, f)
 	ids, err := file.PutStreams(t.Context(), []logstore.Stream{row})
 	require.NoError(t, err)
 	for i := range fills {
 		fills[i].Stream, fills[i].Origin = ids[0], "kubelet"
 	}
-	require.NoError(t, file.Write(t.Context(), fills))
+	_, err = file.Write(t.Context(), fills, stamp)
+	require.NoError(t, err)
 	return ids[0]
 }
 

@@ -3297,7 +3297,9 @@ func TestLogsFetchServesAPage(t *testing.T) {
 // logsFetch refuses a limit past 500, and a query its mode does not take, as a
 // validation error, saying so.
 func TestLogsFetchRefusesABadQuery(t *testing.T) {
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: logs.New(nil, logstore.NewManager(t.TempDir(), logstore.DefaultRetention))}))
+	logsSvc := logs.New(nil, t.TempDir(), logstore.DefaultRetention)
+	t.Cleanup(func() { assert.NoError(t, logsSvc.Close()) })
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: logsSvc}))
 	defer srv.Close()
 
 	for query, reason := range map[string]string{

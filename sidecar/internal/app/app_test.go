@@ -430,20 +430,14 @@ func TestAppStartsKubeconfigBeforeTheClusterService(t *testing.T) {
 	assert.Less(t, partIndex(t, a, "kubeconfig service"), partIndex(t, a, "cluster service"))
 }
 
-// The cluster service's cache pass removes a cache's log file through the log store, so
-// the store must close after the service: it is built before it, since close order is the
-// reverse of build order. Its files sit under the cache directory.
-func TestAppBuildsTheLogStoreBeforeTheClusterService(t *testing.T) {
-	cfg := withDirs(t, Config{DataDir: t.TempDir()})
-	a, err := New(t.Context(), cfg)
+// The logs service owns the log files and is built over the cluster service, so it
+// closes first; the cache pass still removes a cache's file through it after that.
+func TestAppAddsTheLogsServiceAfterTheClusterService(t *testing.T) {
+	a, err := New(t.Context(), withDirs(t, Config{DataDir: t.TempDir()}))
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, a.Close()) })
 
-	assert.Less(t, partIndex(t, a, "log store"), partIndex(t, a, "cluster service"))
-	s, err := a.rt.LogStore.OpenOrCreate(1)
-	require.NoError(t, err)
-	require.NoError(t, s.Close())
-	assert.FileExists(t, filepath.Join(cfg.CacheDir, "logs", "1.db"))
+	assert.Greater(t, partIndex(t, a, "logs service"), partIndex(t, a, "cluster service"))
 }
 
 // The chat service is a part like the others: built by New, started and stopped

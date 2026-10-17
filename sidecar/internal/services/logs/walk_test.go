@@ -16,6 +16,7 @@ package logs
 
 import (
 	"errors"
+	"math"
 	"math/rand"
 	"strconv"
 	"strings"
@@ -83,7 +84,12 @@ func newWorld(t *testing.T, rng *rand.Rand) *world {
 		w.pods = append(w.pods, p)
 		objects = append(objects, w.body(p))
 	}
-	w.svc, w.f = serviceOver(t, newMirror(t, objects...), w.s)
+	// A budget a few pages' worth, with nothing kept for being read, so a sweep's own
+	// pick runs inside the invariant.
+	ret := testRetention
+	ret.Bytes = int64(200 + rng.Intn(2000))
+	ret.StreamShare, ret.ReadTTL = ret.Bytes/2, 0
+	w.svc, w.f = serviceIn(t, newMirror(t, objects...), w.s, t.TempDir(), ret)
 	w.svc.budget = int64(2000 + rng.Intn(8000))
 	w.f.chunk(1 + rng.Intn(64))
 	return w
@@ -106,7 +112,8 @@ func (w *world) body(p *walkPod) map[string]any {
 	return body
 }
 
-// step does one random thing to the world, then checks what a page answered.
+// step does one random thing to the world, then checks what a page answered: a
+// write, a rotation, a restart, an eviction by hand, a sweep or a page.
 func (w *world) step() {
 	p := w.pods[w.rng.Intn(len(w.pods))]
 	switch n := w.rng.Intn(10); {
@@ -118,6 +125,8 @@ func (w *world) step() {
 		w.restart(p)
 	case n < 6:
 		w.evict()
+	case n < 7:
+		require.NoError(w.t, fileOf(w.t, w.svc, w.f).Sweep(w.t.Context()))
 	default:
 		w.page()
 	}
@@ -199,7 +208,7 @@ func (w *world) evict() {
 	if len(chunks) == 0 {
 		return
 	}
-	require.NoError(w.t, file.Evict(w.t.Context(), chunks[w.rng.Intn(len(chunks))].ID))
+	require.NoError(w.t, file.Evict(w.t.Context(), chunks[w.rng.Intn(len(chunks))].ID, math.MaxInt64))
 }
 
 // page reads a random page of a random view, and checks every line it answered is

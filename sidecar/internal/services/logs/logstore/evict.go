@@ -26,26 +26,76 @@ import (
 // bounds are read in the same transaction, since a fill may have extended it since
 // the caller looked. A chunk linked to it starts a span from then on, since the lines
 // before it are gone. A chunk a tailer holds open is left as it is: the tail writes
-// it back from what it holds of it.
-func (s *Store) Evict(ctx context.Context, id int64) error {
-	err := s.inTx(ctx, func(ctx context.Context, st stmts) error {
-		var stream int64
-		var c Chunk
-		err := st.QueryRow(ctx, stmtSelectChunkBounds, id).Scan(&stream, &c.From.TS, &c.From.Ord, &c.To.TS, &c.To.Ord)
-		switch {
-		case errors.Is(err, sql.ErrNoRows):
-			return nil
-		case err != nil:
-			return err
-		}
-		if _, err := st.Exec(ctx, stmtEvictLines, stream, c.From.TS, c.From.Ord, c.To.TS, c.To.Ord, id); err != nil {
-			return err
-		}
-		_, err = st.Exec(ctx, stmtEvictChunk, id)
+// it back from what it holds of it. So is one stamped at or past cutoff, in unix
+// milliseconds: a page may have read it since the caller picked it.
+func (s *Store) Evict(ctx context.Context, id, cutoff int64) error {
+	err := s.operate(ctx, func(ctx context.Context, f *file) error {
+		_, err := f.evict(ctx, id, cutoff)
 		return err
 	})
 	if err != nil {
 		return fmt.Errorf("evict: %w", err)
 	}
 	return nil
+}
+
+// evict is Evict on f, answering whether it took the chunk.
+func (f *file) evict(ctx context.Context, id, cutoff int64) (bool, error) {
+	evicted := false
+	err := f.set.InTx(ctx, func(st stmts) error {
+		var stream int64
+		var c Chunk
+		err := st.QueryRow(ctx, stmtSelectChunkBounds, id, cutoff).Scan(&stream, &c.From.TS, &c.From.Ord, &c.To.TS, &c.To.Ord)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return nil
+		case err != nil:
+			return err
+		}
+		ranges, err := unclaimed(ctx, st, stream, id, c)
+		if err != nil {
+			return err
+		}
+		for _, r := range ranges {
+			if _, err := st.Exec(ctx, stmtEvictLines, stream, r.From.TS, r.From.Ord, r.To.TS, r.To.Ord); err != nil {
+				return err
+			}
+		}
+		if _, err = st.Exec(ctx, stmtEvictChunk, id); err != nil {
+			return err
+		}
+		evicted = true
+		return nil
+	})
+	return evicted, err
+}
+
+// unclaimed is the ranges of c, the chunk id of stream, that no other chunk claims,
+// oldest first. Each is one range delete on the position index; asking per line
+// whether another chunk claims it costs half a second on a chunk of short lines.
+func unclaimed(ctx context.Context, st stmts, stream, id int64, c Chunk) ([]Span, error) {
+	rows, err := st.Query(ctx, stmtSelectOverlapping, stream, c.From.TS, c.From.Ord, c.To.TS, c.To.Ord, id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Span
+	from := c.From
+	for rows.Next() {
+		var o Span
+		if err := rows.Scan(&o.From.TS, &o.From.Ord, &o.To.TS, &o.To.Ord); err != nil {
+			return nil, err
+		}
+		if o.From.Compare(from) > 0 {
+			out = append(out, Span{from, o.From.Prev()})
+		}
+		from = MaxPos(from, o.To.Next())
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if from.Compare(c.To) <= 0 {
+		out = append(out, Span{from, c.To})
+	}
+	return out, nil
 }

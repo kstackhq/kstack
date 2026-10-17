@@ -33,12 +33,9 @@ type Runtime struct {
 	DB         *appdb.DB
 	Poke       *poke.Service
 	Kubeconfig *kubeconfig.Service
-	// LogStore holds each cluster cache's log file; the cluster service clears and
-	// removes it with the cache, so it is built and listed before the service.
-	LogStore *logstore.Manager
-	Cluster  cluster.Service
-	// Logs reads views' lines through the cluster service; it owns nothing that
-	// outlives a request, so it is no part.
+	Cluster    cluster.Service
+	// Logs reads views' lines through the cluster service and owns each cluster
+	// cache's log file, which the cluster service clears and removes with the cache.
 	Logs    *logs.Service
 	Auth    auth.Service
 	Catalog catalog.Catalog
@@ -115,15 +112,17 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.Kubeconfig = kubeconfig.New(cfg.KubeconfigPath, rt.Poke)
 	rt.add("kubeconfig service", rt.Kubeconfig)
 
-	rt.LogStore = logstore.NewManager(p.LogsDir, logstore.DefaultRetention)
-	rt.add("log store", rt.LogStore)
-
-	rt.Cluster, err = cluster.New(db, p.Cluster, rt.Kubeconfig, rt.Poke, rt.LogStore)
+	rt.Cluster, err = cluster.New(db, p.Cluster, rt.Kubeconfig, rt.Poke)
 	if err != nil {
 		return fail(err)
 	}
 	rt.add("cluster service", rt.Cluster)
-	rt.Logs = logs.New(rt.Cluster, rt.LogStore)
+
+	// The edge back: the cluster service's cache pass clears and removes a cache's log
+	// file through the logs service, which closes first and still deletes after that.
+	rt.Logs = logs.New(rt.Cluster, p.LogsDir, logstore.DefaultRetention)
+	rt.add("logs service", lifecycle.CloseFunc(rt.Logs.Close))
+	rt.Cluster.SetCacheFiles(rt.Logs)
 
 	keychainService := cfg.KeychainService
 	if keychainService == "" {
