@@ -326,6 +326,9 @@ models:
   LogRecord:
     model: github.com/kstackhq/kstack/sidecar/internal/services/logs.Record
 
+  LogGap:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.Gap
+
   LogStream:
     model: github.com/kstackhq/kstack/sidecar/internal/services/logs.StreamKey
 

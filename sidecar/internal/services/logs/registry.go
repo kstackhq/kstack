@@ -66,21 +66,25 @@ func (s *Service) registryFor(id cluster.ClusterID, t target) *registry {
 	return r
 }
 
-// tailStart is the start of the tailer running on the stream row of cacheID's file,
-// nil with none.
-func (s *Service) tailStart(cacheID cluster.ClusterCacheID, row int64) *logstore.Pos {
+// tailOf is the start of the tailer running on the stream row of cacheID's file and
+// how far it has written, both nil with none or before the tailer's start has run.
+// Both are read under the one lock, so committed never runs ahead of the start it is
+// read against.
+func (s *Service) tailOf(cacheID cluster.ClusterCacheID, row int64) (start, committed *logstore.Pos) {
 	s.tailsMu.Lock()
 	r := s.tails[cacheID]
 	s.tailsMu.Unlock()
 	if r == nil {
-		return nil
+		return nil, nil
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if t := r.tailers[row]; t != nil && !t.stopping {
-		return t.start.Load()
+	t := r.tailers[row]
+	if t == nil || t.stopping || t.start.Load() == nil {
+		return nil, nil
 	}
-	return nil
+	c := t.committed()
+	return t.start.Load(), &c
 }
 
 // attach joins the tailer of st, the stream row of the file, starting it when none
@@ -256,15 +260,7 @@ func (h *handle) Start() logstore.Pos { return *h.t.start.Load() }
 
 // Committed is how far the tailer has written into the file: the last line its tail
 // has landed, or its start before that. It holds once the tailer has ended.
-func (h *handle) Committed() logstore.Pos {
-	p := h.Start()
-	if tail := h.t.current.Load(); tail != nil {
-		if c := tail.Committed(); c != nil {
-			p = logstore.MaxPos(p, *c)
-		}
-	}
-	return p
-}
+func (h *handle) Committed() logstore.Pos { return h.t.committed() }
 
 // Release lets go of the hold; a second call does nothing.
 func (h *handle) Release() { h.once.Do(func() { h.t.r.release(h.t) }) }

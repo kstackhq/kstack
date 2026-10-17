@@ -21,7 +21,8 @@ import "time"
 // that log's pod runs, the runtime id of the instance it came from, and its
 // Ordinal, its index among that instance's lines at that moment. A cursor carries
 // the id and the ordinal, and the wire neither. Every string came from the
-// cluster.
+// cluster. Gap is the hole before it, nil with none: every marked hole between it
+// and the line of its stream before it that the view passes.
 type Record struct {
 	Timestamp   time.Time
 	Message     string
@@ -29,6 +30,15 @@ type Record struct {
 	Place       Place
 	ContainerID string
 	Ordinal     int
+	Gap         *Gap
+}
+
+// Gap is a range of a stream whose lines may be missing: neither the cluster nor the
+// file holds them. After is the stamp of the last known line
+// before it, Before that of the first known line past it.
+type Gap struct {
+	After  time.Time
+	Before time.Time
 }
 
 // StreamKey names one log a line came from: a pod's container, and whether it is

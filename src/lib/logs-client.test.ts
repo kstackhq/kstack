@@ -62,6 +62,9 @@ const VIEW = {
   grep: 'error',
 };
 
+// Line 2 carries a hole before it.
+const hole = { after: '2026-10-17T11:00:00Z', before: '2026-10-17T12:00:02Z' };
+
 const record = (i: number) => ({
   __typename: 'LogRecord',
   timestamp: `2026-10-17T12:00:0${i}Z`,
@@ -69,6 +72,7 @@ const record = (i: number) => ({
   cursor: `c${i}`,
   stream: { __typename: 'LogStream', namespace: 'prod', pod: 'webapp-1', container: 'app', previous: false },
   place: { __typename: 'LogPlace', node: 'node-a', region: 'r', zone: 'z', os: 'linux', arch: 'amd64' },
+  gap: i === 2 ? { __typename: 'LogGap', ...hole } : null,
 });
 
 const line = (i: number) => ({
@@ -77,6 +81,7 @@ const line = (i: number) => ({
   cursor: `c${i}`,
   stream: { namespace: 'prod', pod: 'webapp-1', container: 'app', previous: false },
   place: { node: 'node-a', region: 'r', zone: 'z', os: 'linux', arch: 'amd64' },
+  gap: i === 2 ? hole : null,
 });
 
 const failed = vi.fn();
@@ -124,7 +129,7 @@ afterEach(() => {
 });
 
 describe('createLogsClient', () => {
-  it('fetches a page of the view, sent field by field, and answers its lines without typenames', async () => {
+  it('fetches a page of the view, sent field by field, and answers its lines and their holes without typenames', async () => {
     answer = {
       data: {
         logsFetch: {

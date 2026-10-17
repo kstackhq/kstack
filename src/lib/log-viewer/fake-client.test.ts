@@ -48,6 +48,12 @@ afterEach(() => {
 });
 
 describe('the log', () => {
+  it('lets a line carry a hole before it', () => {
+    const gap = { after: '2026-10-15T11:00:00.000Z', before: '2026-10-15T11:59:59.999Z' };
+    const fake = new FakeClient({ lines: 3, streams: [stream('a')], gaps: { 1: gap } });
+    expect([0, 1, 2].map((i) => fake.lineAt(i).gap)).toEqual([null, gap, null]);
+  });
+
   it('writes lines a millisecond apart, the last stamped with the clock', () => {
     const fake = new FakeClient({ lines: 3, streams: [stream('a')] });
     expect(fake.lineCount).toBe(3);

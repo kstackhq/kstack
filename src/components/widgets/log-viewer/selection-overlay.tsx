@@ -36,6 +36,8 @@ type Props = {
   anchorCol: Column | undefined;
   columns: Column[];
   widths: Map<WidthKey, number>;
+  /** Where the cells start in the row, below a hole's notice: 0 with none. */
+  top?: number;
 };
 
 function computeRowSelectionRects(
@@ -128,14 +130,14 @@ const ALL_EDGES: Edges = { top: true, bottom: true, left: true, right: true };
 
 // Real borders on empty divs rather than inset box-shadows, which Firefox stacks badly.
 export const SelectionOverlay = memo(
-  ({ selectedCols, selectedColsAbove, selectedColsBelow, anchorCol, columns, widths }: Props) => {
+  ({ selectedCols, selectedColsAbove, selectedColsBelow, anchorCol, columns, widths, top = 0 }: Props) => {
     const rects = useMemo(
       () => computeRowSelectionRects(selectedCols, selectedColsAbove, selectedColsBelow, columns, widths),
       [selectedCols, selectedColsAbove, selectedColsBelow, columns, widths],
     );
 
     return (
-      <div className="pointer-events-none absolute inset-0">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0" style={{ top }}>
         {rects.map((r) => {
           const isAnchor = r.col === anchorCol;
           return (

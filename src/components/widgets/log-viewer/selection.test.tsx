@@ -38,6 +38,7 @@ const makeLine = (overrides: Partial<LogLine> = {}): LogLine => ({
   message: 'ERROR: something failed',
   stream: { namespace: 'default', pod: 'my-pod-abc', container: 'my-container', previous: false },
   place: { node: 'node-1', region: 'us-east-1', zone: 'us-east-1a', os: 'linux', arch: 'amd64' },
+  gap: null,
   ...overrides,
 });
 
@@ -83,6 +84,17 @@ describe('formatRowsForCopy', () => {
 
   it('formats multiple rows separated by newlines', () => {
     expect(formatRowsForCopy(lines, ['Message'])).toBe('line one\nline two');
+  });
+
+  it("writes a line's hole in brackets above it, and a cell copy leaves it out", () => {
+    const gap = { after: '2024-06-15T10:00:00.000Z', before: '2024-06-15T10:30:02.000Z' };
+    const holed = [lines[0], { ...lines[1], gap }];
+    expect(formatRowsForCopy(holed, ['Message'])).toBe(
+      `line one\n[Lines may be missing from default/my-pod-abc/my-container between ${lineTime(gap.after)} and ${lineTime(gap.before)}: the cluster no longer holds them.]\nline two`,
+    );
+    expect(formatCellsForCopy(new Map([[1, new Set(['Message' as const])]]), ['Message'], () => holed[1])).toBe(
+      'line two',
+    );
   });
 
   it('skips Dot column', () => {

@@ -120,6 +120,7 @@ function line(i: number, over: Partial<LogLine['stream']> = {}): LogLine {
     message: `line ${i}`,
     stream: { namespace: 'prod', pod: 'webapp', container: 'app', previous: false, ...over },
     place: { node: '', region: '', zone: '', os: '', arch: '' },
+    gap: null,
   };
 }
 
@@ -662,6 +663,24 @@ describe('LogViewer', () => {
       fireEvent.mouseDown(cellOf('line 18', 'Message'));
       fireEvent.mouseUp(document);
       expect(rowOf('line 18').querySelector('[data-overlay-col="Message"]')).not.toBeNull();
+    });
+
+    it("rings a run of cells under a hole's notice, not through it", async () => {
+      const s = scripted();
+      mount();
+      const gap = { after: line(10).timestamp, before: line(18).timestamp };
+      const landing = page(0, 20, { before: START, after: END });
+      landing.lines[18] = { ...landing.lines[18], gap };
+      await answer(s.fetches[0], landing);
+      fireEvent.mouseDown(cellOf('line 17', 'Message'));
+      fireEvent.mouseUp(document);
+      fireEvent.mouseDown(cellOf('line 19', 'Message'), { shiftKey: true });
+      const ring = (msg: string) => rowOf(msg).querySelector<HTMLElement>('[data-overlay-col="Message"]')!;
+      expect(ring('line 17').style.borderBottomWidth).toBe('1px');
+      expect(ring('line 18').style.borderTopWidth).toBe('1px');
+      expect(ring('line 18').parentElement!.style.top).toBe(`${LOG_ROW_PX}px`);
+      expect(ring('line 18').style.borderBottomWidth).toBe('0px');
+      expect(ring('line 19').style.borderTopWidth).toBe('0px');
     });
 
     it('copies the selected rows on Cmd+C as tab-separated lines', async () => {

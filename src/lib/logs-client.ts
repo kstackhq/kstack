@@ -51,6 +51,10 @@ const LogsFetchQuery = graphql(`
           os
           arch
         }
+        gap {
+          after
+          before
+        }
       }
       before {
         cursor
@@ -87,6 +91,10 @@ const LogsFollowSubscription = graphql(`
           os
           arch
         }
+        gap {
+          after
+          before
+        }
       }
       cursor
       reason
@@ -113,13 +121,14 @@ export function viewInput({ sources, filters, grep }: LogsViewAction): LogsViewI
 // Field by field for the same reason: the library's types are the wire's without `__typename`.
 type LogRecord = LogsFetchResult['logsFetch']['records'][number];
 
-function lineOf({ timestamp, message, cursor, stream, place }: LogRecord): LogLine {
+function lineOf({ timestamp, message, cursor, stream, place, gap }: LogRecord): LogLine {
   return {
     timestamp,
     message,
     cursor,
     stream: { namespace: stream.namespace, pod: stream.pod, container: stream.container, previous: stream.previous },
     place: { node: place.node, region: place.region, zone: place.zone, os: place.os, arch: place.arch },
+    gap: gap ? { after: gap.after, before: gap.before } : null,
   };
 }
 

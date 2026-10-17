@@ -431,6 +431,11 @@ type ComplexityRoot struct {
 		SQL   func(childComplexity int) int
 	}
 
+	LogGap struct {
+		After  func(childComplexity int) int
+		Before func(childComplexity int) int
+	}
+
 	LogPlace struct {
 		Arch   func(childComplexity int) int
 		Node   func(childComplexity int) int
@@ -441,6 +446,7 @@ type ComplexityRoot struct {
 
 	LogRecord struct {
 		Cursor    func(childComplexity int) int
+		Gap       func(childComplexity int) int
 		Message   func(childComplexity int) int
 		Place     func(childComplexity int) int
 		Stream    func(childComplexity int) int
@@ -2352,6 +2358,19 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.KubeQueryAction.SQL(childComplexity), true
 
+	case "LogGap.after":
+		if e.ComplexityRoot.LogGap.After == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogGap.After(childComplexity), true
+	case "LogGap.before":
+		if e.ComplexityRoot.LogGap.Before == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogGap.Before(childComplexity), true
+
 	case "LogPlace.arch":
 		if e.ComplexityRoot.LogPlace.Arch == nil {
 			break
@@ -2389,6 +2408,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.LogRecord.Cursor(childComplexity), true
+	case "LogRecord.gap":
+		if e.ComplexityRoot.LogRecord.Gap == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogRecord.Gap(childComplexity), true
 	case "LogRecord.message":
 		if e.ComplexityRoot.LogRecord.Message == nil {
 			break
@@ -4972,6 +4997,16 @@ func (ec *executionContext) childFields_KubeQueryAction(ctx context.Context, fie
 	return nil, fmt.Errorf("no field named %q was found under type KubeQueryAction", field.Name)
 }
 
+func (ec *executionContext) childFields_LogGap(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "after":
+		return ec.fieldContext_LogGap_after(ctx, field)
+	case "before":
+		return ec.fieldContext_LogGap_before(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type LogGap", field.Name)
+}
+
 func (ec *executionContext) childFields_LogPlace(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "node":
@@ -5000,6 +5035,8 @@ func (ec *executionContext) childFields_LogRecord(ctx context.Context, field gra
 		return ec.fieldContext_LogRecord_place(ctx, field)
 	case "cursor":
 		return ec.fieldContext_LogRecord_cursor(ctx, field)
+	case "gap":
+		return ec.fieldContext_LogRecord_gap(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type LogRecord", field.Name)
 }
@@ -12497,6 +12534,52 @@ func (ec *executionContext) fieldContext_KubeQueryAction_limit(_ context.Context
 	return graphql.NewScalarFieldContext("KubeQueryAction", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
+func (ec *executionContext) _LogGap_after(ctx context.Context, field graphql.CollectedField, obj *logs.Gap) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogGap_after(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.After, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogGap_after(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LogGap", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _LogGap_before(ctx context.Context, field graphql.CollectedField, obj *logs.Gap) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogGap_before(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Before, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogGap_before(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LogGap", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
 func (ec *executionContext) _LogPlace_node(ctx context.Context, field graphql.CollectedField, obj *logs.Place) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -12743,6 +12826,38 @@ func (ec *executionContext) _LogRecord_cursor(ctx context.Context, field graphql
 }
 func (ec *executionContext) fieldContext_LogRecord_cursor(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("LogRecord", field, true, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _LogRecord_gap(ctx context.Context, field graphql.CollectedField, obj *logs.Record) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogRecord_gap(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Gap, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *logs.Gap) graphql.Marshaler {
+			return ec.marshalOLogGap2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐGap(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_LogRecord_gap(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LogRecord",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LogGap(ctx, field)
+		},
+	}
+	return fc, nil
 }
 
 func (ec *executionContext) _LogRecordsPage_records(ctx context.Context, field graphql.CollectedField, obj *logs.Page) (ret graphql.Marshaler) {
@@ -24144,6 +24259,49 @@ func (ec *executionContext) _KubeQueryAction(ctx context.Context, sel ast.Select
 	return out
 }
 
+var logGapImplementors = []string{"LogGap"}
+
+func (ec *executionContext) _LogGap(ctx context.Context, sel ast.SelectionSet, obj *logs.Gap) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, logGapImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("LogGap")
+		case "after":
+			out.Values[i] = ec._LogGap_after(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "before":
+			out.Values[i] = ec._LogGap_before(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var logPlaceImplementors = []string{"LogPlace"}
 
 func (ec *executionContext) _LogPlace(ctx context.Context, sel ast.SelectionSet, obj *logs.Place) graphql.Marshaler {
@@ -24237,6 +24395,11 @@ func (ec *executionContext) _LogRecord(ctx context.Context, sel ast.SelectionSet
 		case "cursor":
 			out.Values[i] = ec._LogRecord_cursor(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "gap":
+			out.Values[i] = ec._LogRecord_gap(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
 		default:
@@ -29743,6 +29906,13 @@ var (
 		llm.DialectFake:            "Fake",
 	}
 )
+
+func (ec *executionContext) marshalOLogGap2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐGap(ctx context.Context, sel ast.SelectionSet, v *logs.Gap) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._LogGap(ctx, sel, v)
+}
 
 func (ec *executionContext) marshalOLogRecord2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐRecord(ctx context.Context, sel ast.SelectionSet, v *logs.Record) graphql.Marshaler {
 	if v == nil {
