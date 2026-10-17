@@ -18,6 +18,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/poke"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
@@ -32,7 +33,10 @@ type Runtime struct {
 	DB         *appdb.DB
 	Poke       *poke.Service
 	Kubeconfig *kubeconfig.Service
-	Cluster    cluster.Service
+	// LogStore holds each cluster cache's log file; the cluster service clears and
+	// removes it with the cache, so it is built and listed before the service.
+	LogStore *logstore.Manager
+	Cluster  cluster.Service
 	// Logs reads views' lines through the cluster service; it owns nothing that
 	// outlives a request, so it is no part.
 	Logs    *logs.Service
@@ -111,7 +115,10 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.Kubeconfig = kubeconfig.New(cfg.KubeconfigPath, rt.Poke)
 	rt.add("kubeconfig service", rt.Kubeconfig)
 
-	rt.Cluster, err = cluster.New(db, p.Cluster, rt.Kubeconfig, rt.Poke)
+	rt.LogStore = logstore.NewManager(p.LogsDir)
+	rt.add("log store", rt.LogStore)
+
+	rt.Cluster, err = cluster.New(db, p.Cluster, rt.Kubeconfig, rt.Poke, rt.LogStore)
 	if err != nil {
 		return fail(err)
 	}
