@@ -196,3 +196,18 @@ usually just documentation in the wrong place.
 | 2026-10-13 | [A cache reading is one snapshot](2026-10-13-a-cache-reading-is-one-snapshot.md) | sidecar | Accepted |
 | 2026-10-17 | [Keep a cluster cache's log lines in a file of its own, evicted by read](2026-10-17-the-log-cache.md) | sidecar | Accepted |
 | 2026-10-17 | [A log cursor is a position, and a container's instance is its id](2026-10-17-a-log-cursor-is-a-position.md) | sidecar | Accepted |
+| 2026-10-17 | [Record a bash stop as the runner's act, and kill at once on a cancel](2026-10-17-a-bash-stop-is-the-runners-record.md) | sidecar | Accepted |
+| 2026-10-17 | [A cloud platform is how a vendor's wire is authenticated, never a dialect](2026-10-17-a-cloud-platform-is-auth-on-a-vendors-wire.md) | sidecar | Accepted |
+| 2026-10-17 | [A discovered model is listed only on its catalog's word](2026-10-17-a-discovered-model-is-listed-on-its-catalogs-word.md) | sidecar | Accepted |
+| 2026-10-17 | [Bound a model stream by wire silence, per dialect](2026-10-17-a-model-stream-is-bounded-by-wire-silence.md) | sidecar | Accepted |
+| 2026-10-17 | [Reclaim a gone sidecar's run directories by its lock, not its pid](2026-10-17-a-run-directory-is-reclaimed-by-its-sidecars-lock.md) | sidecar | Accepted |
+| 2026-10-17 | [Give a sandboxed run a kubeconfig whose server is fixed and whose proxy holds the token](2026-10-17-a-sandboxed-kubeconfig-names-a-fixed-server.md) | sidecar | Accepted |
+| 2026-10-17 | [Refuse a send the chat cannot fit, from the provider's own count](2026-10-17-a-send-the-chat-cannot-fit-is-refused-from-the-providers-count.md) | sidecar | Accepted |
+| 2026-10-17 | [Ollama is local, and OLLAMA_HOST says where](2026-10-17-ollama-is-local-and-ollama-host-says-where.md) | sidecar | Accepted |
+| 2026-10-17 | [The cluster proxy reads a request as the API server will](2026-10-17-the-cluster-proxy-reads-a-request-as-the-api-server-does.md) | sidecar | Accepted |
+| 2026-10-17 | [Read the login shell's answer by markers, from a session of its own](2026-10-17-the-login-shell-is-read-by-markers-in-a-session-of-its-own.md) | sidecar | Accepted |
+| 2026-10-17 | [Mark the prompt cache for an hour, and only where a provider needs marks](2026-10-17-the-messages-wire-caches-the-prompt-for-an-hour.md) | sidecar | Accepted |
+| 2026-10-17 | [Split tests by platform file, take seams as parameters, and never sleep](2026-10-17-tests-split-by-platform-take-seams-as-parameters-and-never-sleep.md) | cross-cutting | Accepted |
+| 2026-10-17 | [Let the virtual table correct its own scroll position](2026-10-17-the-virtual-table-owns-its-scroll-anchoring.md) | frontend | Accepted |
+| 2026-10-17 | [Keep the chrome's shape as an app-wide default in localStorage](2026-10-17-chrome-shape-is-an-app-wide-default-in-localstorage.md) | frontend | Accepted |
+| 2026-10-17 | [Hold each chat's draft and send in an outbox above the routes](2026-10-17-the-chat-outbox-holds-each-chats-send-above-the-routes.md) | frontend | Accepted |

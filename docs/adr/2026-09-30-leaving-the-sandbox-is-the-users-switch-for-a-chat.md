@@ -12,7 +12,7 @@ status: Accepted
 [The sandbox is the gate for a sandboxed command](2026-09-28-the-sandbox-is-the-gate-for-a-sandboxed-command.md)
 let a command out of the sandbox when the model set `dangerouslyDisableSandbox` on its Bash call,
 the flag Claude Code's own tool takes. That call then asked the user. The threat model in
-[the agent security sequence](../specs/agent-security/README.md) says the agent must not be able to
+[the agent security design note](../notes/sandbox-credentials-and-permissions.md) says the agent must not be able to
 run anything outside the sandbox. A prompt injection in cluster text can make the model ask, on
 any call and as persuasively as it likes. The only thing standing between that request and an
 unconfined shell was one Approve.
