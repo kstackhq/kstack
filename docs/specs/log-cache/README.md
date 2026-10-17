@@ -13,10 +13,11 @@ Go paths are under `sidecar/internal/`. This is a sequence of six steps, listed 
 ([`../log-viewer/README.md`](../log-viewer/README.md)). It serves that README's *The wire*
 section, and that README says `wip/log-views` may not merge until the sidecar serves the wire,
 so this sequence shares its branch on purpose rather than taking a `wip/log-cache` of its own. This README is the shared design; each step's file states only what is its own.
-It replaces §4 of [`../log-viewer/notes/the-sidecar-wire.md`](../log-viewer/notes/the-sidecar-wire.md),
-which planned to put per-stream hints inside a page's cursor. The cache holds that state
-instead, so a cursor stays a plain position. The note's §1 (the wire's types), §2 (the edges) and
-§5 (the resolvers) still stand, and this sequence builds them.
+It replaces §4 of the sidecar wire note, a plan beside the log viewer README that put
+per-stream hints inside a page's cursor. The cache holds that state instead, so a cursor stays a
+plain position. The note's §1 (the wire's types), §2 (the edges) and §5 (the resolvers) still
+stood, and this sequence built them; the note is deleted
+([ADR: a log cursor is a position](../../adr/2026-10-17-a-log-cursor-is-a-position.md)).
 
 ## Why
 
@@ -551,9 +552,9 @@ holds what they share.
 | [1 The store](1-the-store.md) | The file, its schema and manager, and its lifetime with the cluster cache | Built, [#293](https://github.com/kstackhq/kstack/pull/293) |
 | [2 The cursor and the `Backend` seam](2-the-cursor-and-the-backend-seam.md) | A position names its instance; the fetcher behind an interface; no behaviour change | Built, [#295](https://github.com/kstackhq/kstack/pull/295) |
 | [3 Pages from the file](3-pages-from-the-file.md) | `Fetch` over coverage, fills and the file; the grep; `logsFetch`'s wire | Built, [#301](https://github.com/kstackhq/kstack/pull/301) |
-| [4 Tailers and the follow](4-tailers-and-the-follow.md) | One tailer per stream, the writer, the commit bus, `Follow` as a read; `logsFollow`'s wire | Built |
-| [5 Eviction and backpressure](5-eviction-and-backpressure.md) | The live janitor, the budget, shedding; the sequence's integration gate | Built |
-| [6 The docs](6-the-docs.md) | The ADRs, the note's retirement, the coherence pass | Planned |
+| [4 Tailers and the follow](4-tailers-and-the-follow.md) | One tailer per stream, the writer, the commit bus, `Follow` as a read; `logsFollow`'s wire | Built, [#302](https://github.com/kstackhq/kstack/pull/302) |
+| [5 Eviction and backpressure](5-eviction-and-backpressure.md) | The live janitor, the budget, shedding; the sequence's integration gate | Built, [#303](https://github.com/kstackhq/kstack/pull/303) |
+| [6 The docs](6-the-docs.md) | The ADRs, the note's retirement, the coherence pass | Built, [#305](https://github.com/kstackhq/kstack/pull/305) |
 
 Record each step's status and its pull request in this table as the work moves. A built step
 stays listed until the sequence lands (*When it lands*).
@@ -597,7 +598,7 @@ hook.
   position* (what the cache holds instead of the hint). The second one closes the note's plan.
 - `docs/security-model.md`: the row above.
 - `docs/specs/log-viewer/README.md`: *What is left* loses the sidecar half of its first bullet.
-  `notes/the-sidecar-wire.md` is deleted.
+  The sidecar wire note is deleted.
 - A built step keeps its file and its row, marked Built with its pull request, so a later step
   can read what it settled. Every step's file goes with this README in the change that lands the
   sequence on `main`, as the log viewer's did.

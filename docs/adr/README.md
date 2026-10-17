@@ -194,3 +194,5 @@ usually just documentation in the wrong place.
 | 2026-10-13 | [A macOS run leads its own session, so no run reads another process's launch strings](2026-10-13-a-macos-run-leads-its-own-session-so-no-run-reads-another-processs-launch-strings.md) | sidecar | Accepted |
 | 2026-10-13 | [The sidecar's own mirror reads keep their connections](2026-10-13-the-sidecars-own-mirror-reads-keep-their-connections.md) | sidecar | Accepted |
 | 2026-10-13 | [A cache reading is one snapshot](2026-10-13-a-cache-reading-is-one-snapshot.md) | sidecar | Accepted |
+| 2026-10-17 | [Keep a cluster cache's log lines in a file of its own, evicted by read](2026-10-17-the-log-cache.md) | sidecar | Accepted |
+| 2026-10-17 | [A log cursor is a position, and a container's instance is its id](2026-10-17-a-log-cursor-is-a-position.md) | sidecar | Accepted |

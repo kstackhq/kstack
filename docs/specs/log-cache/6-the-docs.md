@@ -1,7 +1,7 @@
 ---
 title: The docs
 scope: docs
-status: Planned
+status: Built
 ---
 
 # The docs
@@ -46,8 +46,8 @@ Two, in `docs/adr/`, each with the README's *Decisions this sequence asks for* a
 - `docs/specs/log-viewer/README.md`: *What is left* loses the sidecar half of its first bullet,
   which now reads as the real client alone, and the paragraph above *The wire* no longer says
   the sidecar serves an older shape.
-- `docs/specs/log-viewer/notes/the-sidecar-wire.md` is deleted, and every link to it goes with
-  it.
+- The sidecar wire note, `docs/specs/log-viewer/notes/`, is deleted, and every link to it goes
+  with it.
 
 ### 3. The coherence pass
 
@@ -78,6 +78,6 @@ None. *Verification* is the check.
 ## Verification
 
 Each ADR has `title`, `date`, `scope` and `status: Accepted`, and `docs/adr/README.md` lists
-it. `grep -rn the-sidecar-wire docs sidecar src` finds nothing. Every `docs/adr/` link in a
+it. `grep -rln the-sidecar-wire docs sidecar src` lists this file alone. Every `docs/adr/` link in a
 `CLAUDE.md` resolves to a file whose status is not superseded. `make lint` passes, since the
 docs change nothing it checks.
