@@ -19,6 +19,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
 // lines is one line at each position, saying "m".
@@ -141,6 +143,55 @@ func TestAStampedFillStampsWhatItWrites(t *testing.T) {
 	_, err = s.Write(t.Context(), []Fill{{Stream: id, Origin: "kubelet", Lines: lines(at(2, 2)), Prev: ptr(at(2, 1)), Merge: true}}, false)
 	require.NoError(t, err)
 	assert.Equal(t, []*int64{ms(9_000)}, stamps(t, s, id), "an unstamped fill keeps the row's stamp")
+}
+
+// A fill whose stream row is gone is skipped, not failed: the janitor can remove a row
+// between a page's lookup and its hold, and that must not take the other streams'
+// fills down with it.
+func TestAWriteSkipsAFillWhoseRowIsGone(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	kept, gone := twoStreams(t, s)
+	using(t, s, func(f *file) {
+		_, err := f.db.Exec(`DELETE FROM streams WHERE id = ?`, gone)
+		require.NoError(t, err)
+	})
+
+	w, err := s.Write(t.Context(), []Fill{
+		{Stream: gone, Origin: "kubelet", Lines: lines(at(1, 0))},
+		{Stream: kept, Origin: "kubelet", Lines: lines(at(2, 0))},
+	}, true)
+
+	require.NoError(t, err)
+	assert.Equal(t, []int64{gone}, w.Skipped)
+	assert.Equal(t, []Pos{at(2, 0)}, positions(t, s, kept))
+	assert.Empty(t, positions(t, s, gone))
+}
+
+// A held write holds its chunks from their commit: a sweep its commit's ping starts
+// leaves them, so a follow's walk reads what its fill fetched, and they go once
+// released.
+func TestAHeldWriteHoldsFromItsCommit(t *testing.T) {
+	t.Parallel()
+	ret := sweepRetention()
+	ret.Bytes, ret.ReadTTL = 0, 0
+	s := newClockedStore(t, ret, newClock(100_000))
+	id := streamOf(t, s)
+	pings := subscribe(t, s, id)
+	swept := make(chan error, 1)
+	go func() {
+		<-pings
+		swept <- s.Sweep(t.Context())
+	}()
+
+	w, release, err := s.WriteHeld(t.Context(), []Fill{{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0))}})
+	require.NoError(t, err)
+	require.NoError(t, testutil.Recv(t, swept, "the sweep the commit started"))
+	assert.Equal(t, w.Chunks, idsIn(t, s, "chunks"))
+
+	release()
+	sweep(t, s)
+	assert.Empty(t, idsIn(t, s, "chunks"))
 }
 
 // A tailer is the one writer of the chunk it holds open, so a fill that continues it

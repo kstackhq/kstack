@@ -48,8 +48,8 @@ type Service struct {
 	// TailGrace, or a test's.
 	grace time.Duration
 
-	// afterFill runs once a page's fills have committed and before its walk: a test's,
-	// so a sweep can land between them; nil in production.
+	// afterFill runs once a page's or a follow's fills have committed and before its
+	// walk: a test's, so a sweep can land between them; nil in production.
 	afterFill func()
 
 	// tails is each log file's tailers, by cache id.
@@ -65,15 +65,17 @@ type namedBackend struct {
 }
 
 // New is the service over the cluster service, keeping its log files under dir to
-// ret. It owes a Close.
+// ret, whose sweeps it tells which pods are gone. It owes a Close.
 func New(clusters cluster.Service, dir string, ret logstore.Retention) *Service {
 	files := logstore.NewManager(dir, ret)
-	return &Service{
+	s := &Service{
 		clusters: clusters, files: files, backends: []namedBackend{{"kubelet", newKubelet}}, now: time.Now,
 		retry: followRetry, retryCap: followRetryCap, settle: followSettle,
 		budget: maxBudget, walkBudget: maxWalkBudget, grace: ret.TailGrace,
 		tails: map[cluster.ClusterCacheID]*registry{},
 	}
+	files.SetPodsGone(s.podsGone)
+	return s
 }
 
 // Close closes the log files. The cluster service's cache pass may still clear or

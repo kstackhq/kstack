@@ -16,6 +16,8 @@ package logstore
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"slices"
 )
@@ -53,23 +55,51 @@ type Fill struct {
 	AtEnd bool
 }
 
-// Written is what a Write did: the chunks it wrote or extended.
+// Written is what a Write did: the chunks it wrote or extended, and the streams
+// whose fills it skipped because their row was gone.
 type Written struct {
-	Chunks []int64
+	Chunks  []int64
+	Skipped []int64
 }
 
 // Write files every fill in one transaction, so a reader sees a fill's lines and the
 // chunks claiming them together or not at all. A line two fills found is stored once.
-// A stream that has finished is trimmed after its fills. With stamp,
+// A stream that has finished is trimmed after its fills. A fill whose stream row is
+// gone is skipped, not failed: the janitor can remove a row between a lookup and its
+// hold, and that must not take every other stream's fill down with it. With stamp,
 // a page's write, every chunk written or extended is stamped read now in the same
 // transaction, since a sweep before the page's walk would otherwise take what it
 // fetched. Each stream a fill wrote lines to is pinged once the transaction commits.
 func (s *Store) Write(ctx context.Context, fills []Fill, stamp bool) (Written, error) {
+	w, _, err := s.write(ctx, fills, stamp, false)
+	return w, err
+}
+
+// WriteHeld is an unstamped Write, a follow's, whose chunks are held from their commit
+// until release, which the caller owes once it has read them; on an error nothing is
+// held.
+func (s *Store) WriteHeld(ctx context.Context, fills []Fill) (Written, func(), error) {
+	return s.write(ctx, fills, false, true)
+}
+
+// write is Write, holding what it wrote when hold is set.
+func (s *Store) write(ctx context.Context, fills []Fill, stamp, hold bool) (Written, func(), error) {
 	var w Written
+	var kept []Fill
+	release := func() {}
 	err := s.operate(ctx, func(ctx context.Context, f *file) error {
+		if hold {
+			// From before the transaction until the hold is taken: a sweep evicts under
+			// the same lock, so it lands wholly before the write or after the hold.
+			f.heldChunks.mu.Lock()
+			defer f.heldChunks.mu.Unlock()
+		}
 		err := f.set.InTx(ctx, func(st stmts) error {
 			var err error
-			if w.Chunks, err = writeFills(ctx, st, s.m.ret, fills); err != nil {
+			if kept, w.Skipped, err = fillsWithRows(ctx, st, fills); err != nil {
+				return err
+			}
+			if w.Chunks, err = writeFills(ctx, st, s.m.ret, kept); err != nil {
 				return err
 			}
 			if !stamp || len(w.Chunks) == 0 {
@@ -78,15 +108,35 @@ func (s *Store) Write(ctx context.Context, fills []Fill, stamp bool) (Written, e
 			_, err = st.Exec(ctx, stmtStampChunks, s.m.now().UnixMilli(), idList(w.Chunks), 0)
 			return err
 		})
-		if err == nil {
-			f.ping(streamsWithLines(fills, func(f Fill) (int64, int) { return f.Stream, len(f.Lines) }))
+		if err != nil {
+			return err
 		}
-		return err
+		f.ping(streamsWithLines(kept, func(f Fill) (int64, int) { return f.Stream, len(f.Lines) }))
+		if hold {
+			release = f.heldChunks.holdLocked(w.Chunks)
+		}
+		return nil
 	})
 	if err != nil {
-		return Written{}, fmt.Errorf("write: %w", err)
+		return Written{}, func() {}, fmt.Errorf("write: %w", err)
 	}
-	return w, nil
+	return w, release, nil
+}
+
+// fillsWithRows is the fills whose stream row the file holds, and the streams of
+// the rest.
+func fillsWithRows(ctx context.Context, st stmts, fills []Fill) (kept []Fill, gone []int64, err error) {
+	for _, id := range streamsOf(fills) {
+		var one int
+		err := st.QueryRow(ctx, stmtStreamExists, id).Scan(&one)
+		if errors.Is(err, sql.ErrNoRows) {
+			gone = append(gone, id)
+		} else if err != nil {
+			return nil, nil, err
+		}
+	}
+	kept = slices.DeleteFunc(slices.Clone(fills), func(f Fill) bool { return slices.Contains(gone, f.Stream) })
+	return kept, gone, nil
 }
 
 // writeFills files every fill, then trims each stream they wrote that has finished,

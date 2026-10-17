@@ -91,9 +91,10 @@ func (t *tailer) stop() {
 }
 
 // run reads the stream until the read ends or the tailer stops, reading again from
-// now whenever the writer falls behind, and records how the read ended.
-func (t *tailer) run(ctx context.Context, file *logstore.Store, backend Backend, read *tailRead, prev *logstore.Pos) {
+// now whenever the writer falls behind, and records how the read ended. release is the registry's hold on its stream's row, let go as it ends.
+func (t *tailer) run(ctx context.Context, file *logstore.Store, backend Backend, read *tailRead, prev *logstore.Pos, release func()) {
 	defer func() {
+		release()
 		t.r.ended(t)
 		close(t.done)
 	}()

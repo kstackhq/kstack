@@ -21,6 +21,26 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// A hold is counted: the row stays held until every holder lets go, and a release
+// called twice lets go once.
+func TestAHoldIsCounted(t *testing.T) {
+	t.Parallel()
+	c := newClock(100_000)
+	s := newClockedStore(t, sweepRetention(), c)
+	s.m.SetPodsGone(goneAre("uid-gone"))
+	gone := podStream(t, s, "gone", "uid-gone")
+	first, second := s.Hold(gone), s.Hold(gone)
+
+	first()
+	first()
+	sweep(t, s)
+	assert.Equal(t, []int64{gone}, idsIn(t, s, "streams"))
+
+	second()
+	sweep(t, s)
+	assert.Empty(t, idsIn(t, s, "streams"))
+}
+
 // A hold on a closed claim holds nothing, and its release does nothing.
 func TestAHoldOnAClosedClaimHoldsNothing(t *testing.T) {
 	t.Parallel()
@@ -28,7 +48,7 @@ func TestAHoldOnAClosedClaimHoldsNothing(t *testing.T) {
 	s := open(t, m, 1)
 	require.NoError(t, s.Close())
 
-	s.HoldChunks(1)()
+	s.Hold(1)()
 }
 
 // An eviction runs under the holds' lock, so a hold taken meanwhile waits for it and

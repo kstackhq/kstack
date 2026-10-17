@@ -16,6 +16,8 @@ package logstore
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -140,6 +142,81 @@ func TestASweepWithNothingToEvictStopsShort(t *testing.T) {
 	assert.Equal(t, 1, strings.Count(logs.String(), "back within its budget"))
 }
 
+// podStream files a stream of pod with uid in s and answers its id.
+func podStream(t *testing.T, s *Store, pod, uid string) int64 {
+	t.Helper()
+	row := app()
+	row.Pod, row.PodUID = pod, uid
+	ids, err := s.PutStreams(t.Context(), []Stream{row})
+	require.NoError(t, err)
+	return ids[0]
+}
+
+// goneAre is a PodsGone that answers the uids it is asked about that are in gone.
+func goneAre(gone ...string) PodsGone {
+	return func(_ context.Context, _ int64, uids []string) ([]string, error) {
+		var out []string
+		for _, uid := range uids {
+			if slices.Contains(gone, uid) {
+				out = append(out, uid)
+			}
+		}
+		return out, nil
+	}
+}
+
+// A stream with no chunks goes once the service says its pod is gone, and only then:
+// not while something holds it, not while its pod is still there, not with no pod
+// uid to ask about, and not with chunks left.
+func TestASweepRemovesAGonePodsEmptyStreams(t *testing.T) {
+	t.Parallel()
+	c := newClock(100_000)
+	s := newClockedStore(t, sweepRetention(), c)
+	gone := podStream(t, s, "gone", "uid-gone")
+	held := podStream(t, s, "held", "uid-held")
+	live := podStream(t, s, "live", "uid-live")
+	unknown := podStream(t, s, "unknown", "")
+	full := podStream(t, s, "full", "uid-full")
+	put(t, s, full, 1, 10, 0, false)
+	release := s.Hold(held)
+
+	r := sweep(t, s)
+	assert.Zero(t, r.Removed, "no PodsGone set")
+	assert.Equal(t, []int64{gone, held, live, unknown, full}, idsIn(t, s, "streams"))
+
+	s.m.SetPodsGone(goneAre("uid-gone", "uid-held", "uid-unknown", "uid-full", ""))
+	r = sweep(t, s)
+	assert.Equal(t, 1, r.Removed)
+	assert.Equal(t, []int64{held, live, unknown, full}, idsIn(t, s, "streams"))
+
+	release()
+	sweep(t, s)
+	assert.Equal(t, []int64{live, unknown, full}, idsIn(t, s, "streams"), "once the hold is let go")
+}
+
+// A sweep asks about at most its limit of pods, taking up where the last one left
+// off: pods that stay never keep a gone one later in the order from being asked.
+func TestASweepAsksAboutThePodsInTurn(t *testing.T) {
+	t.Parallel()
+	c := newClock(100_000)
+	s := newClockedStore(t, sweepRetention(), c)
+	s.m.podsPerSweep = 2
+	var asked [][]string
+	s.m.SetPodsGone(func(ctx context.Context, cacheID int64, uids []string) ([]string, error) {
+		asked = append(asked, uids)
+		return goneAre("uid-c")(ctx, cacheID, uids)
+	})
+	podStream(t, s, "a", "uid-a")
+	podStream(t, s, "b", "uid-b")
+	gone := podStream(t, s, "c", "uid-c")
+
+	assert.Zero(t, sweep(t, s).Removed)
+	assert.Equal(t, 1, sweep(t, s).Removed)
+	assert.NotContains(t, idsIn(t, s, "streams"), gone)
+	sweep(t, s)
+	assert.Equal(t, [][]string{{"uid-a", "uid-b"}, {"uid-c", "uid-a"}, {"uid-b", "uid-a"}}, asked)
+}
+
 // A sweep hands freed pages back only when the file holds some: a sweep that evicted
 // nothing leaves the file alone, and one that just evicted vacuums in the same sweep.
 func TestASweepVacuumsOnlyWithAFreelist(t *testing.T) {
@@ -167,16 +244,25 @@ func TestASweepTheFileRefusesFails(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
 		op, table string
+		podsGone  PodsGone
 	}{
-		"an eviction": {op: "DELETE", table: "lines"},
+		"an eviction":        {op: "DELETE", table: "lines"},
+		"a stream's removal": {op: "DELETE", table: "streams", podsGone: goneAre("uid-gone")},
+		"the pods' question": {podsGone: func(context.Context, int64, []string) ([]string, error) {
+			return nil, errors.New("refused")
+		}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			c := newClock(100_000)
 			s := newClockedStore(t, sweepRetention(), c)
+			podStream(t, s, "gone", "uid-gone")
 			id := streamOf(t, s)
 			put(t, s, id, 1, 400, 0, false)
-			refuse(t, s, tc.op, tc.table)
+			if tc.op != "" {
+				refuse(t, s, tc.op, tc.table)
+			}
+			s.m.SetPodsGone(tc.podsGone)
 
 			err := s.Sweep(t.Context())
 

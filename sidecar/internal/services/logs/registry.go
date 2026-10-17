@@ -163,8 +163,9 @@ func (r *registry) run(ctx context.Context, t *tailer, watermark logstore.Pos) e
 	ctx, t.cancel = context.WithCancel(fileCtx)
 	t.start.Store(&start)
 	file, backend := r.file, r.backend
+	release := file.Hold(t.row)
 	first := t.read(ctx, backend, start)
-	go t.run(ctx, file, backend, first, prev)
+	go t.run(ctx, file, backend, first, prev, release)
 	return nil
 }
 

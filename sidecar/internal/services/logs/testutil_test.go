@@ -136,6 +136,17 @@ type fakeCaches struct {
 	f *fakeService
 }
 
+// goneCache is a cache id the fake's Caches().Get no longer knows.
+const goneCache = 404
+
+// Get is any cache but goneCache, filed under the cluster "7".
+func (fc fakeCaches) Get(_ context.Context, id cluster.ClusterCacheID) (*cluster.ClusterCache, error) {
+	if id == goneCache {
+		return nil, cluster.ErrNotFound
+	}
+	return &cluster.ClusterCache{RecordMeta: cluster.RecordMeta{ID: id}, Spec: cluster.ClusterCacheSpec{ClusterID: "7"}}, nil
+}
+
 func (fc fakeCaches) Health(context.Context, cluster.ClusterID, cluster.ClusterCacheID) (cluster.ClusterCacheHealth, bool, error) {
 	fc.f.mu.Lock()
 	defer fc.f.mu.Unlock()

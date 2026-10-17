@@ -50,6 +50,8 @@ type Manager struct {
 	after func(time.Duration) <-chan time.Time
 	// sweeps is told what each sweep did: nil, or a test's.
 	sweeps func(cacheID int64, r sweepReport)
+	// podsPerSweep is the most pods one sweep asks about: sweepPods, or a test's.
+	podsPerSweep int
 
 	// mu guards everything below. It is never held across a file's open, close or delete,
 	// so a slow disk or a long query on one cache stalls no other.
@@ -68,6 +70,8 @@ type Manager struct {
 	removed map[int64]bool
 	// closed is set by Close, after which nothing opens.
 	closed bool
+	// podsGone answers which pods the mirror no longer holds, nil until SetPodsGone.
+	podsGone PodsGone
 }
 
 // entry is one cache's open file and the claims on it. A Store keeps the entry it
@@ -82,13 +86,14 @@ type entry struct {
 // until OpenOrCreate.
 func NewManager(dir string, ret Retention) *Manager {
 	return &Manager{
-		dir:     dir,
-		ret:     ret,
-		now:     time.Now,
-		after:   time.After,
-		entries: map[int64]*entry{},
-		busy:    map[int64]chan struct{}{},
-		removed: map[int64]bool{},
+		dir:          dir,
+		ret:          ret,
+		now:          time.Now,
+		after:        time.After,
+		podsPerSweep: sweepPods,
+		entries:      map[int64]*entry{},
+		busy:         map[int64]chan struct{}{},
+		removed:      map[int64]bool{},
 	}
 }
 

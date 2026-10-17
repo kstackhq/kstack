@@ -54,11 +54,16 @@ type file struct {
 	bus    *conflate.Hub[int64, struct{}]
 	// w is the file's writer, nil for a file opened outside a manager.
 	w *writer
-	// heldChunks is the chunks in use, which a sweep leaves alone.
+	// heldRows and heldChunks are the stream rows and chunks in use, which a sweep
+	// leaves alone.
+	heldRows   holds
 	heldChunks holds
 	// short is whether the last sweep stopped over budget with nothing to evict, so
 	// the log says so as the file enters that state and as it leaves, not every sweep.
 	short atomic.Bool
+	// podsAfter is the last pod uid a sweep asked about, where the next one takes up.
+	podsMu    sync.Mutex
+	podsAfter string
 	// ctx is what an operation runs its statements under; close cancels it, so the wait
 	// for inUse is a wait for interrupted statements to unwind. inUse counts the
 	// operations running on the file, which close waits for, since sql.DB.Close does not
@@ -107,7 +112,8 @@ func openFile(path string) (*file, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &file{
 		path: path, db: db, readDB: readDB, set: set, bus: conflate.New[int64, struct{}](),
-		heldChunks: holds{n: map[int64]int{}}, ctx: ctx, cancel: cancel,
+		heldRows: holds{n: map[int64]int{}}, heldChunks: holds{n: map[int64]int{}},
+		ctx: ctx, cancel: cancel,
 	}, nil
 }
 

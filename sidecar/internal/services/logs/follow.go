@@ -159,7 +159,7 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, view View, a
 	f := &follow{
 		s: s, id: id, view: view, since: since, grep: grep, claim: c, file: file, tails: s.registryFor(id, t), target: t,
 		streams: map[StreamKey]*tracked{}, nodes: map[string]Place{},
-		deleted: map[string]string{}, podUIDs: map[string]string{}, gone: map[string]bool{},
+		deleted: map[string]string{}, podUIDs: map[string]string{}, gone: map[string]bool{}, held: map[int64]func(){},
 		dueHub: mpsc.New[StreamKey](0, mpsc.WithKeepOpen()), endedHub: mpsc.New[*handle](0, mpsc.WithKeepOpen()),
 	}
 	for _, b := range s.backends {
@@ -175,6 +175,7 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, view View, a
 	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- FollowFrame) error {
 		defer c.close()
 		defer file.Close()
+		defer f.letGo()
 		defer stop()
 		f.out = out
 		err := f.run(owned)
@@ -188,6 +189,13 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, view View, a
 		}
 		return err
 	}), nil
+}
+
+// letGo releases every row the follow holds.
+func (f *follow) letGo() {
+	for _, release := range f.held {
+		release()
+	}
 }
 
 // objectWatch is a watch of mirrored objects.
@@ -303,6 +311,9 @@ type follow struct {
 	// pings is the file's bus under pingRows, the rows of the streams the view wants.
 	pings    *conflate.Receiver[int64, struct{}]
 	pingRows []int64
+	// held is the release of each row the follow has filed, which it holds until it
+	// ends so no sweep takes a row it may fill.
+	held map[int64]func()
 	// batch is the lines walked and not yet sent, and checkpoint the last checkpoint
 	// sent, zero before the first.
 	batch      []Record
@@ -803,6 +814,11 @@ func (f *follow) bring(ctx context.Context, t target) error {
 	if err != nil {
 		return err
 	}
+	for _, row := range rows {
+		if f.held[row.ID] == nil {
+			f.held[row.ID] = f.file.Hold(row.ID)
+		}
+	}
 	want := map[StreamKey]int{}
 	for i, st := range t.streams {
 		want[st.key] = i
@@ -826,10 +842,7 @@ func (f *follow) bring(ctx context.Context, t target) error {
 			tr.restarted = true
 		}
 	}
-	ids := make([]int64, len(rows))
-	for i, row := range rows {
-		ids[i] = row.ID
-	}
+	ids := rowIDs(rows)
 	// A restarted container's old tailer writes its own row until its log ends.
 	for _, tr := range f.streams {
 		if tr.h != nil && !slices.Contains(ids, tr.row) {
@@ -972,6 +985,13 @@ func (f *follow) walkStreams(ctx context.Context, streams []*tracked) error {
 // allowance of lines or bytes with more to read. A fill that failed ends the walk,
 // the stream held or ended as the failure says.
 func (f *follow) walk(ctx context.Context, tr *tracked) (bool, error) {
+	// A gap fill's chunks are held, not stamped, until the walk has read them.
+	var releases []func()
+	defer func() {
+		for _, release := range releases {
+			release()
+		}
+	}()
 	crossed := false
 	for {
 		if f.lines <= 0 || f.bytes <= 0 {
@@ -1007,7 +1027,9 @@ func (f *follow) walk(ctx context.Context, tr *tracked) (bool, error) {
 		if more || gap == nil {
 			return more, nil
 		}
-		if ok, err := f.fill(ctx, tr, *gap); !ok || err != nil {
+		ok, release, err := f.fill(ctx, tr, *gap)
+		releases = append(releases, release)
+		if !ok || err != nil {
 			return false, err
 		}
 		crossed = true
@@ -1036,12 +1058,18 @@ func (f *follow) reach(chunks []logstore.Chunk, tr *tracked, crossed bool, commi
 	return reach, nil
 }
 
+// errRowGone is a gap fill whose stream row the janitor took: the stream's pod is
+// gone, so the stream waits out its backoff until a reconcile drops it.
+var errRowGone = errors.New("logs: the stream's row is gone from the log file")
+
 // fill reads the live gap g of tr's stream from its watermark as a Head page's fill
 // reads it, under the stream's share of a page's budget, and writes what it read. It
 // is false when the read got nothing, the stream then let go and held or ended as
 // its failure says, and fails only on a fatal failure or one of the file. What it
-// wrote is unstamped, since a follow's lines are in the viewer's window.
-func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) (bool, error) {
+// wrote is unstamped, since a follow's lines are in the viewer's window, and held
+// until release, which the caller owes once its walk has read them.
+func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) (ok bool, release func(), err error) {
+	release = func() {}
 	ps := tr.pageStream()
 	fl := &filler{
 		file: f.file, ps: ps, backends: f.backends, names: f.names,
@@ -1049,28 +1077,37 @@ func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) (bool, e
 		budget: newBudget(f.s.budget / int64(max(len(f.wanted), 1))),
 	}
 	if _, err := fl.fillGap(ctx, g, tr.wm, true); err != nil {
-		return false, err
+		return false, release, err
 	}
 	// One direction's fills of one stream, in the shape a page's check reads.
 	fills := [][]streamFill{{fl.out}}
 	if err := checkInstances(ctx, f.s.clusters, f.id, []pageStream{ps}, fills); err != nil {
-		return false, err
+		return false, release, err
 	}
 	out := fills[0][0]
 	if len(out.fills) > 0 {
-		if _, err := f.file.Write(ctx, out.fills, false); err != nil {
-			return false, err
+		w, held, err := f.file.WriteHeld(ctx, out.fills)
+		if err != nil {
+			return false, release, err
+		}
+		release = held
+		if f.s.afterFill != nil {
+			f.s.afterFill()
+		}
+		if len(w.Skipped) > 0 {
+			// The row went before the follow held it: its pod is gone.
+			return false, release, f.failed(ctx, tr, errRowGone)
 		}
 	}
 	if out.fromKey {
-		return true, nil
+		return true, release, nil
 	}
 	cause := out.err
 	if cause == nil {
 		// The connection's retirement or the budget cut the read before its first line.
 		cause = errRetired
 	}
-	return false, f.failed(ctx, tr, cause)
+	return false, release, f.failed(ctx, tr, cause)
 }
 
 // flush sends the lines walked in position order, then, when it sent any, a

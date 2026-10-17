@@ -53,8 +53,11 @@ const (
 	stmtCloseOpenChunks
 	stmtCloseChunk
 	stmtStampChunks
+	stmtStreamExists
 	stmtStreamBytes
 	stmtCandidates
+	stmtEmptyStreams
+	stmtRemoveStreams
 )
 
 // statements is every statement the store runs, each on the pool its callers need: a
@@ -191,6 +194,7 @@ var statements = []sqlstmt.Statement{
 		WHERE stream_id = ? AND pattern = ? AND origin = ? AND to_ns = ? AND to_ord = ? AND open = 0`),
 	stmtCloseOpenChunks: sqlstmt.OnWriter(`UPDATE chunks SET open = 0 WHERE open = 1`),
 	stmtCloseChunk:      sqlstmt.OnWriter(`UPDATE chunks SET open = 0 WHERE id = ?`),
+	stmtStreamExists:    sqlstmt.OnWriter(`SELECT 1 FROM streams WHERE id = ?`),
 	stmtStreamBytes:     sqlstmt.OnReader(`SELECT stream_id, sum(bytes) FROM chunks GROUP BY stream_id`),
 	// A never-read chunk goes before a read one: the oldest line first among the
 	// never-read, the oldest stamp first among the read.
@@ -198,6 +202,14 @@ var statements = []sqlstmt.Statement{
 		SELECT id, stream_id, bytes FROM chunks
 		WHERE open = 0 AND (read_at_ms IS NULL OR read_at_ms < ?1)
 		ORDER BY read_at_ms IS NOT NULL, read_at_ms, from_ns, from_ord, id`),
+	// A stream with no pod uid is never asked about, so never removed.
+	stmtEmptyStreams: sqlstmt.OnReader(`
+		SELECT id, pod_uid FROM streams s
+		WHERE pod_uid <> '' AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.stream_id = s.id)`),
+	// The chunk count is read again, since a fill may have written one since.
+	stmtRemoveStreams: sqlstmt.OnWriter(`
+		DELETE FROM streams
+		WHERE id IN (SELECT value FROM json_each(?)) AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.stream_id = streams.id)`),
 	// A chunk stamped within the interval keeps its stamp, so a page re-reading it
 	// writes nothing.
 	stmtStampChunks: sqlstmt.OnWriter(`

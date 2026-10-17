@@ -295,6 +295,24 @@ func TestATailerTheWriterCannotKeepUpWithReadsFromNow(t *testing.T) {
 	}
 }
 
+// A tailer in its grace holds its stream's row, so a sweep that reads the pod as gone
+// leaves it while the tailer may still write to it.
+func TestATailerInItsGraceHoldsItsRow(t *testing.T) {
+	t.Parallel()
+	backend := newFakeBackend()
+	backend.set("web-1/app", fakeRead{wait: never})
+	svc, f := serviceOn(t, backend)
+	svc.grace = time.Hour
+	everyPodGone(svc)
+	h := attach(t, svc, f, web1Since(0))
+	backend.opened.Await(t, "the tailer's read")
+	h.Release()
+
+	sweepFile(t, svc, f)
+
+	assert.Len(t, rowsOf(t, svc, f, "web-1"), 1)
+}
+
 // A tailer whose write fails ends with the failure, so the lines the writer lost are a
 // live gap a page fills rather than a range the tailer would cover as its own.
 func TestATailerWhoseWriteFailsEnds(t *testing.T) {

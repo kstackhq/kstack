@@ -2115,16 +2115,26 @@ a sweep name a row by id across transactions. **A chunk's `read_at_ms` is a page
 `putChunk` never touches it: a page's `Write(ctx, fills, true)` stamps what its fills wrote or
 extended in their transaction, and the page stamps what its walk read a line from
 (`Store.Stamp`, which takes no write for chunks stamped within a tenth of `ReadTTL`). A tailer
-and a follow stamp nothing, so a tailed stream nobody pages holds only its open chunk. **A sweep**
+and a follow stamp nothing: a follow's gap fill is written unstamped by `Store.WriteHeld`,
+which holds its chunks from their commit until its walk returns, taking the holds' lock before
+the transaction so no sweep lands between the two, and a tailed stream nobody pages holds only
+its open chunk. `Write` skips a fill whose stream row is gone and answers it in `Written.Skipped`: a page
+reads that stream as having nothing, and a follow fails it as a failed fill. **A sweep**
 (`Store.Sweep`, `janitor.go`) sums `bytes` per stream (message
 bytes, not the file's size), protects every `open` chunk and every chunk stamped within
 `ReadTTL`, and evicts while the file is over `Bytes` or a stream over `StreamShare`: an
 over-share stream's chunks first, a never-read chunk before a read one, the oldest first within
 each, each through `Evict` in its own transaction. A sweep over budget with nothing left to
-evict logs once entering that state and once leaving it; a chunk `Store.HoldChunks` holds is
+evict logs once entering that state and once leaving it; a chunk `HoldChunks` holds is
 skipped, and the check and the eviction run under the holds' lock, so a chunk goes before its
-hold or not at all. Then it vacuums, gated on the freelist, then checkpoints when the WAL
-outweighs the file.
+hold or not at all. Then it removes every stream with no chunks that nothing holds whose pod
+`PodsGone` says is gone — `Store.Hold` is a page's hold on its rows, a follow's and a tailer's,
+and the delete runs under the holds' lock — and vacuums,
+gated on the freelist, then checkpoints when the WAL outweighs the file. `SetPodsGone` is set by
+`logs.New` (`podsgone.go`): none gone unless the cache is its cluster's active one, trusted
+and mirroring pods; unset, no stream is removed. A sweep asks about at most `sweepPods` pods,
+taking up after the last one the previous sweep asked about, so pods that stay never starve the
+rest.
 A delete removes the `-wal` and `-shm` before the database, since a `-wal` left beside a fresh
 database would be replayed into it. **A `Store` is the file's statements** (`statements.go`, a
 `sqlstmt.Set` prepared at open, a read a write makes inside its transaction `OnBoth`):

@@ -18,15 +18,33 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
+	"slices"
 )
 
+// sweepPods is the most pods one sweep asks the service about.
+const sweepPods = 500
+
+// PodsGone answers which of the pod uids the mirror behind cache cacheID no longer
+// holds. It answers none when it cannot tell, since a stream removed is gone for good.
+type PodsGone func(ctx context.Context, cacheID int64, uids []string) ([]string, error)
+
+// SetPodsGone is how a sweep learns which pods are gone. Until it is set, no sweep
+// removes a stream. Files may be open and sweeping already, so it is read under mu.
+func (m *Manager) SetPodsGone(fn PodsGone) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.podsGone = fn
+}
+
 // sweepReport is what one sweep did: the chunks' bytes before and after it, how many
-// chunks it evicted, whether it stopped over budget with nothing left to evict, and
-// whether it handed free pages back.
+// chunks it evicted and streams it removed, whether it stopped over budget with
+// nothing left to evict, and whether it handed free pages back.
 type sweepReport struct {
 	Before, After int64
 	Evicted       int
+	Removed       int
 	Short         bool
 	Vacuumed      bool
 }
@@ -49,7 +67,7 @@ func (s *Store) Sweep(ctx context.Context) error {
 }
 
 // sweep evicts f's unprotected chunks until every stream is under its share and the
-// file under its budget, and vacuums. Each
+// file under its budget, removes the empty streams of gone pods, and vacuums. Each
 // eviction is its own transaction, so the tailers' batches land between them.
 func (m *Manager) sweep(ctx context.Context, cacheID int64, f *file) (sweepReport, error) {
 	var r sweepReport
@@ -109,11 +127,19 @@ func (m *Manager) sweep(ctx context.Context, cacheID int64, f *file) (sweepRepor
 			slog.Info("log store: the file is back within its budget", "cacheID", cacheID, "bytes", r.After)
 		}
 	}
+	m.mu.Lock()
+	podsGone := m.podsGone
+	m.mu.Unlock()
+	if podsGone != nil {
+		if r.Removed, err = removeStreams(ctx, cacheID, f, podsGone, m.podsPerSweep); err != nil {
+			return r, err
+		}
+	}
 	if r.Vacuumed, err = m.vacuum(ctx, f); err != nil {
 		return r, err
 	}
 	slog.Debug("log store: swept", "cacheID", cacheID, "before", r.Before, "after", r.After,
-		"evicted", r.Evicted, "short", r.Short, "vacuumed", r.Vacuumed)
+		"evicted", r.Evicted, "removed", r.Removed, "short", r.Short, "vacuumed", r.Vacuumed)
 	if m.sweeps != nil {
 		m.sweeps(cacheID, r)
 	}
@@ -132,6 +158,56 @@ func (m *Manager) over(sizes map[int64]int64, size int64) bool {
 		}
 	}
 	return false
+}
+
+// removeStreams deletes every stream with no chunks that nothing holds whose pod
+// podsGone says is gone, asking about at most limit pods, and answers how many it
+// deleted.
+func removeStreams(ctx context.Context, cacheID int64, f *file, podsGone PodsGone, limit int) (int, error) {
+	empty, err := emptyStreams(ctx, f)
+	if err != nil || len(empty) == 0 {
+		return 0, err
+	}
+	uids := f.nextPods(slices.Compact(slices.Sorted(maps.Values(empty))), limit)
+	answer, err := podsGone(ctx, cacheID, uids)
+	if err != nil {
+		return 0, err
+	}
+	// The delete runs under the holds' lock, so a row is removed before its hold or never.
+	h := &f.heldRows
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var ids []int64
+	for id, uid := range empty {
+		if slices.Contains(answer, uid) && h.n[id] == 0 {
+			ids = append(ids, id)
+		}
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	res, err := f.set.Stmts().Exec(ctx, stmtRemoveStreams, idList(ids))
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
+}
+
+// nextPods is at most limit of the sorted uids, taking up after the last one the
+// previous sweep asked about and wrapping round, so pods that stay never keep the
+// rest from being asked about.
+func (f *file) nextPods(uids []string, limit int) []string {
+	f.podsMu.Lock()
+	defer f.podsMu.Unlock()
+	i, found := slices.BinarySearch(uids, f.podsAfter)
+	if found {
+		i++
+	}
+	next := append(slices.Clone(uids[i:]), uids[:i]...)
+	next = next[:min(len(next), limit)]
+	f.podsAfter = next[len(next)-1]
+	return next
 }
 
 // vacuum hands at most VacuumPages free pages back to the filesystem, when the file
@@ -198,6 +274,25 @@ func candidates(ctx context.Context, f *file, cutoff int64) ([]candidate, error)
 			return nil, err
 		}
 		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// emptyStreams is each stream with no chunks and a pod uid, by id.
+func emptyStreams(ctx context.Context, f *file) (map[int64]string, error) {
+	rows, err := f.set.Stmts().Query(ctx, stmtEmptyStreams)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]string{}
+	for rows.Next() {
+		var id int64
+		var uid string
+		if err := rows.Scan(&id, &uid); err != nil {
+			return nil, err
+		}
+		out[id] = uid
 	}
 	return out, rows.Err()
 }

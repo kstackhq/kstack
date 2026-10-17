@@ -16,7 +16,7 @@ package logstore
 
 import "sync"
 
-// holds counts, by id, what is using a chunk, so a sweep leaves it alone.
+// holds counts, by id, what is using a row or a chunk, so a sweep leaves it alone.
 type holds struct {
 	mu sync.Mutex
 	n  map[int64]int
@@ -26,6 +26,11 @@ type holds struct {
 func (h *holds) hold(ids []int64) (release func()) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	return h.holdLocked(ids)
+}
+
+// holdLocked is hold with mu held.
+func (h *holds) holdLocked(ids []int64) (release func()) {
 	for _, id := range ids {
 		h.n[id]++
 	}
@@ -52,6 +57,18 @@ func (h *holds) unlessHeld(id int64, fn func() error) error {
 		return nil
 	}
 	return fn()
+}
+
+// Hold keeps the stream rows from the janitor until release is called. A row the
+// janitor removed before the hold stays removed: it was a gone pod's with nothing in
+// the file, which a walk reads nothing of. On a closed claim nothing is held.
+func (s *Store) Hold(rows ...int64) (release func()) {
+	f, done, err := s.use()
+	if err != nil {
+		return func() {}
+	}
+	defer done()
+	return f.heldRows.hold(rows)
 }
 
 // HoldChunks keeps the chunks from eviction until release is called. On a closed

@@ -219,7 +219,8 @@ func (s *Service) page(ctx context.Context, id cluster.ClusterID, qs ...pageQuer
 		return nil, err
 	}
 	defer file.Close()
-	streams, err := pageStreams(ctx, file, t, qs[0].view)
+	streams, release, err := pageStreams(ctx, file, t, qs[0].view)
+	defer release()
 	if err != nil {
 		return nil, err
 	}
@@ -254,8 +255,16 @@ func (s *Service) page(ctx context.Context, id cluster.ClusterID, qs ...pageQuer
 		}
 	}
 	if len(writes) > 0 {
-		if _, err := file.Write(ctx, writes, true); err != nil {
+		w, err := file.Write(ctx, writes, true)
+		if err != nil {
 			return nil, err
+		}
+		// A row the janitor took before the page held it was a gone pod's with nothing
+		// in the file, which the page reads as it reads any stream no backend serves.
+		for i := range streams {
+			if slices.Contains(w.Skipped, streams[i].row.ID) {
+				streams[i].st = nil
+			}
 		}
 		if s.afterFill != nil {
 			s.afterFill()
