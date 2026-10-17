@@ -25,6 +25,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"syscall"
@@ -309,6 +310,11 @@ func init() {
 	// machine. It prints how many it started and whether the kernel said
 	// EAGAIN, then waits for its input to end.
 	helpers["forks"] = func() int {
+		// Linux counts threads against the limit too, and a garbage collection
+		// wakes idle Ps, so the runtime may start a thread once the loop has
+		// filled the run, and dies when it cannot. With the collector off,
+		// nothing in this process needs a thread it does not already have.
+		debug.SetGCPercent(-1)
 		most, _ := strconv.Atoi(os.Getenv("KSTACK_SANDBOX_TEST_FORKS"))
 		n := 0
 		var err error
