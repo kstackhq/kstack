@@ -21,6 +21,11 @@ A page's edge cursor names where the next page that way continues.
 
 The types mirror the wire's `LogRecord`, `LogRecordsPage` and `LogsFollowFrame` field for field.
 
+**A line may carry a hole.** `LogLine.gap` is the stamps of the last known line before a range of
+its stream the cluster no longer holds, and of the first known line past it; null when none.
+The sidecar puts it on the first line past the hole that the view passes, so a repeat dropped by
+cursor drops nothing new. The library holds it as part of the line and draws nothing of it.
+
 ### The edges
 
 *The live end* is the edge of a page that read every stream to its end, with `more: false`: where
@@ -106,7 +111,7 @@ the window what the DOM and the client did and performs what the window answers.
 `FakeClient` (`fake-client.ts`) is a `Client` over a log it invents, for the tests. It writes its history `spacingMs` apart (a
 millisecond by default) from weighted streams, grows by `append` or at a `rate`, and models what
 the wire does to a viewer: a live end `repeat` lines back, a follow that sends per stream,
-checkpoints, latency (`delayMs`), and `failNext`, `emptyNext`, `skip` and `endFollows`. `index.ts` leaves it out: import it by its file.
+checkpoints, latency (`delayMs`), holes on chosen lines (`gaps`), and `failNext`, `emptyNext`, `skip` and `endFollows`. `index.ts` leaves it out: import it by its file.
 
 ## The boundary
 

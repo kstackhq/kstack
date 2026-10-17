@@ -84,8 +84,22 @@ function formatRow(line: LogLine, columns: Column[], filter?: Set<Column>): stri
     .join('\t');
 }
 
+/** A line's hole as its notice draws it, unspelled; null with none. */
+export function gapNotice(line: LogLine): string | null {
+  if (!line.gap) return null;
+  const { namespace, pod, container } = line.stream;
+  return `Lines may be missing from ${namespace}/${pod}/${container} between ${lineTime(line.gap.after)} and ${lineTime(line.gap.before)}: the cluster no longer holds them.`;
+}
+
+// A row's copy writes its hole too, so a pasted log still shows it.
 export function formatRowsForCopy(lines: LogLine[], columns: Column[]): string {
-  return lines.map((line) => formatRow(line, columns)).join('\n');
+  return lines
+    .map((line) => {
+      const notice = gapNotice(line);
+      const row = formatRow(line, columns);
+      return notice ? `[${notice}]\n${row}` : row;
+    })
+    .join('\n');
 }
 
 export function formatCellsForCopy(

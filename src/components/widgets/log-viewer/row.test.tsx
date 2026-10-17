@@ -18,7 +18,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { LogLine } from '@/lib/log-viewer';
 import { type Column, DEFAULT_COLUMNS, dotColor } from './columns';
-import { LOG_ROW_H, LogViewerRow, type LogViewerRowProps, gridTemplate } from './row';
+import {
+  LOG_GAP_ROW_H,
+  LOG_ROW_H,
+  LOG_ROW_PX,
+  LogViewerRow,
+  type LogViewerRowProps,
+  estimateRowHeight,
+  gridTemplate,
+} from './row';
 
 // Built in local time, since the row draws local time.
 const local = (...parts: [number, number, number, number, number, number, number]) => new Date(...parts).toISOString();
@@ -29,6 +37,7 @@ const line = (over: Partial<LogLine> = {}): LogLine => ({
   message: 'GET /healthz 200',
   stream: { namespace: 'prod', pod: 'webapp-7f9c', container: 'istio-proxy', previous: false },
   place: { node: 'node-a', region: 'eu-west-1', zone: 'eu-west-1b', os: 'linux', arch: 'arm64' },
+  gap: null,
   ...over,
 });
 
@@ -164,6 +173,29 @@ describe('LogViewerRow', () => {
     expect(row()).not.toHaveClass(LOG_ROW_H);
   });
 
+  it('draws a hole before the line as a notice over its cells, naming the stream and the hole', () => {
+    const gap = { after: local(2026, 9, 15, 9, 0, 0, 0), before: local(2026, 9, 15, 9, 5, 3, 123) };
+    render(<Row of={line({ gap })} />);
+    expect(screen.getByTestId('log-gap')).toHaveTextContent(
+      'Lines may be missing from prod/webapp-7f9c/istio-proxy between 09:00:00.000 and 09:05:03.123: the cluster no longer holds them.',
+    );
+    expect(screen.getByTestId('log-gap')).not.toHaveAttribute('role');
+    expect(cols()).toEqual(['Pos', 'Timestamp', 'Dot', 'Message']);
+    expect(row()).toHaveClass(LOG_GAP_ROW_H);
+  });
+
+  it('draws no notice for a line with no hole', () => {
+    render(<Row />);
+    expect(screen.queryByTestId('log-gap')).toBeNull();
+    expect(row()).toHaveClass(LOG_ROW_H);
+  });
+
+  it("spells out what cluster text could hide in a hole's notice", () => {
+    const gap = { after: local(2026, 9, 15, 9, 0, 0, 0), before: local(2026, 9, 15, 9, 5, 3, 123) };
+    render(<Row of={line({ gap, stream: { ...line().stream, pod: 'web\u202Eevil' } })} />);
+    expect(screen.getByTestId('log-gap').querySelector('mark')).not.toBeNull();
+  });
+
   it('re-renders only when what it draws changes', () => {
     // The row reads the message on every render, so a getter counts its renders.
     let reads = 0;
@@ -283,5 +315,22 @@ describe('LogViewerRow selection', () => {
     fireEvent.contextMenu(cellOf('Message')!);
     await waitFor(() => expect(screen.getByRole('menu')).toBeInTheDocument());
     expect(screen.getByText('Copy message')).toBeInTheDocument();
+  });
+});
+
+describe('estimateRowHeight', () => {
+  const gap = { after: local(2026, 9, 15, 9, 0, 0, 0), before: local(2026, 9, 15, 9, 5, 3, 123) };
+
+  it('is one row with wrap off, and one more for a hole', () => {
+    expect(estimateRowHeight(line({ message: 'x'.repeat(500) }))).toBe(LOG_ROW_PX);
+    expect(estimateRowHeight(line({ gap }))).toBe(2 * LOG_ROW_PX);
+  });
+
+  it('is the wrapped message with wrap on, and one more for a hole', () => {
+    const long = line({ message: 'x'.repeat(100) });
+    const width = 100 * 7.2;
+    expect(estimateRowHeight(long, width)).toBe(LOG_ROW_PX);
+    expect(estimateRowHeight(long, width / 3)).toBe(3 * LOG_ROW_PX);
+    expect(estimateRowHeight({ ...long, gap }, width / 3)).toBe(4 * LOG_ROW_PX);
   });
 });
