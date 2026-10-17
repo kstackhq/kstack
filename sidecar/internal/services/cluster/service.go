@@ -387,6 +387,8 @@ type deps struct {
 	kubestoreMgr  kubestoreManager
 	kubesyncSvc   kubesyncService
 	pokeSvc       *poke.Service
+	// cacheFiles is the log store, whose file a cache's clear and removal reach.
+	cacheFiles CacheFileOwner
 
 	// kindSpecMu serializes the read-modify-write on a ClusterCachedKind spec, which two
 	// writers share: the sync-enabled setter, and the sweep converging a catalog change
@@ -396,7 +398,7 @@ type deps struct {
 	kindSpecMu *sync.Mutex
 }
 
-func newDeps(bh *beehive.Beehive, db *appdb.DB, store *sqlstmt.Set[stmtID], kubeconfigSvc kubeconfigService, kubeconnSvc kubeconnService, kubestoreMgr kubestoreManager, kubesyncSvc kubesyncService, pokeSvc *poke.Service) deps {
+func newDeps(bh *beehive.Beehive, db *appdb.DB, store *sqlstmt.Set[stmtID], kubeconfigSvc kubeconfigService, kubeconnSvc kubeconnService, kubestoreMgr kubestoreManager, kubesyncSvc kubesyncService, pokeSvc *poke.Service, cacheFiles CacheFileOwner) deps {
 	return deps{
 		db:            db,
 		store:         store,
@@ -409,6 +411,7 @@ func newDeps(bh *beehive.Beehive, db *appdb.DB, store *sqlstmt.Set[stmtID], kube
 		kubestoreMgr:  kubestoreMgr,
 		kubesyncSvc:   kubesyncSvc,
 		pokeSvc:       pokeSvc,
+		cacheFiles:    cacheFiles,
 		kindSpecMu:    &sync.Mutex{},
 	}
 }
@@ -461,8 +464,12 @@ type Paths struct {
 
 // New builds the cluster boundary over the app's database and its files at
 // paths: it prepares its statements, opens the runtime store, registers the
-// controllers, and leaves everything stopped until Start.
-func New(db *appdb.DB, paths Paths, kubeconfigSvc kubeconfigService, pokeSvc *poke.Service) (Service, error) {
+// controllers, and leaves everything stopped until Start. cacheFiles is the log store;
+// the app builds it before this service, so it closes after the cache pass that calls it.
+func New(db *appdb.DB, paths Paths, kubeconfigSvc kubeconfigService, pokeSvc *poke.Service, cacheFiles CacheFileOwner) (Service, error) {
+	if cacheFiles == nil {
+		return nil, errors.New("cluster service: no cache file owner")
+	}
 	store, err := sqlstmt.Prepare[stmtID](context.Background(), db.Write, db.Read, statements)
 	if err != nil {
 		return nil, fmt.Errorf("prepare cluster statements: %w", err)
@@ -494,7 +501,7 @@ func New(db *appdb.DB, paths Paths, kubeconfigSvc kubeconfigService, pokeSvc *po
 	// What fills them: it discovers what each cluster serves and mirrors every served kind
 	// into that cluster's file. Armed by the cache and kind passes, never by a reader.
 	kubesyncSvc := kubesync.New(kubeconnSvc, kubestoreMgr)
-	d := newDeps(bh, db, store, kubeconfigSvc, kubeconnSvc, kubestoreMgr, kubesyncSvc, pokeSvc)
+	d := newDeps(bh, db, store, kubeconfigSvc, kubeconnSvc, kubestoreMgr, kubesyncSvc, pokeSvc, cacheFiles)
 
 	controllers, err := registerControllers(bh, d)
 	if err != nil {

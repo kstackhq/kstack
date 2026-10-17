@@ -761,9 +761,9 @@ func optionalTime(t time.Time) *time.Time {
 	return &t
 }
 
-// Clear empties a cache's store, swapping the file under whoever holds it open. The workers
-// writing through it are stopped for the whole swap and started again after — a clear that
-// failed leaves a cache that still syncs.
+// Clear empties a cache's log file, then its store, swapping the file under whoever holds
+// it open. The workers writing through the store are stopped for the whole swap and
+// started again after — a clear that failed leaves a cache that still syncs.
 func (a cachesAPI) Clear(ctx context.Context, id ClusterCacheID) (*ClusterCache, error) {
 	obj, err := a.s.cacheClient.Get(ctx, beehive.ObjectID(id), beehive.LoadOwner())
 	if errors.Is(err, beehive.ErrNotFound) {
@@ -771,6 +771,12 @@ func (a cachesAPI) Clear(ctx context.Context, id ClusterCacheID) (*ClusterCache,
 	}
 	if err != nil {
 		return nil, fmt.Errorf("get cluster cache %d: %w", id, err)
+	}
+
+	// The log file first, outside the hold since no sync worker writes it: a failure here
+	// leaves the cache as it was, and the error has the user clear again.
+	if err := a.s.cacheFiles.Clear(int64(id)); err != nil {
+		return nil, fmt.Errorf("clear cluster cache %d log file: %w", id, err)
 	}
 
 	// Inside the sync's hold: the manager swaps the file under whoever holds it open, and a
@@ -790,6 +796,7 @@ func (a cachesAPI) Clear(ctx context.Context, id ClusterCacheID) (*ClusterCache,
 	if err := a.s.cacheClient.Requeue(ctx, beehive.ObjectID(id), beehive.WithResetBackoff()); err != nil {
 		slog.Warn("cluster cache: requeue after clear failed", "cacheID", id, "err", err)
 	}
+
 	return toClusterCache(obj), nil
 }
 
@@ -945,6 +952,9 @@ func (c *clusterCacheController) Reconcile(
 		c.kubesyncSvc.ForgetCache(cacheID)
 		if err := c.kubestoreMgr.Remove(cacheID); err != nil {
 			return beehive.Fail(fmt.Errorf("remove cluster cache %d store: %w", obj.ID, err))
+		}
+		if err := c.cacheFiles.Remove(cacheID); err != nil {
+			return beehive.Fail(fmt.Errorf("remove cluster cache %d log file: %w", obj.ID, err))
 		}
 		if err := client.DeleteFinalizer(ctx, cacheFinalizer); err != nil {
 			return beehive.Fail(fmt.Errorf("clear cluster cache %d finalizer: %w", obj.ID, err))

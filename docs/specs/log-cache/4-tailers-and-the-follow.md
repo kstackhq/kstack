@@ -27,7 +27,7 @@ follow from the file and never from the tailer. Checkpoints are true by construc
   tailer stops first when the writer is behind is step 5's rule. Here they are equal.
 - **No `read_at_ms` stamps.** Step 5.
 - **No tailer for a finished instance**, as the README says; that is this step's rule, but the
-  `end` chunk it leaves is step 3's.
+  `at_end` chunk it leaves is step 3's.
 
 ## Design
 
@@ -53,7 +53,7 @@ longer wants. A tailer is `Source.Tail` from the moment of the stream's newest c
 line, or the follow's `after`, or now. It hands its lines to the writer. A `Fatal` failure ends
 every follow on the file, a `Denied` one ends the stream, a `Transient` one is retried under the
 follow's backoff. A reconcile that sees an instance finish sets `finished_at`, ends its tailer,
-and the tailer's last read, reaching the end, marks the chunk `end`. The registry asks for one
+and the tailer's last read, reaching the end, marks the chunk `at_end`. The registry asks for one
 tailer per stream; a source may share a connection underneath.
 
 ### 3. The follow
@@ -99,7 +99,7 @@ Go, beside the files they cover. Every wait is on a channel or the bus; `WriteTi
 - `registry_test.go`: two follows share one tailer; a tailer and its watches survive
   `TailGrace` and a follow attaching inside it causes no new `Source.Tail`, while one after it
   does; a stream the view drops detaches on the next reconcile; a finished instance ends its
-  tailer and leaves an `end` chunk; a `Fatal` tailer ends every follow and a `Denied` one ends
+  tailer and leaves an `at_end` chunk; a `Fatal` tailer ends every follow and a `Denied` one ends
   its stream alone.
 - `follow_test.go`: the existing cases over the file; a follow gets its first frame within one
   tick of a tailer's first line; a reopen `after` a checkpoint sends no line twice and misses

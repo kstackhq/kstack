@@ -1,7 +1,7 @@
 ---
 title: The store
 scope: sidecar
-status: Planned
+status: Built
 ---
 
 # The store
@@ -25,9 +25,8 @@ line yet: this step is the shelf, not what goes on it.
 - **No reads from `Fetch` or `Follow`.** They are unchanged, and `logs.New` does not take the
   manager yet; step 3 does that when something reads it.
 - **No janitor sweep.** `Retention` exists with every knob the README names and
-  `DefaultRetention` holds its numbers, but the manager starts no janitor in this step: step 5
-  adds the sweep and wires `DefaultRetention` in `app`. Until then `app` passes a `Retention`
-  whose `Interval` is zero.
+  `DefaultRetention` holds its numbers, but nothing takes them in this step: step 5 adds the
+  sweep, gives `NewManager` a `Retention` and wires `DefaultRetention` in `app`.
 - **No statements for later steps.** This step prepares what it needs to open, check and
   remove a file. Each later step adds the statements its reads and writes need, in its own
   change, so no SQL is written for a design that may still move.
@@ -42,8 +41,8 @@ cluster service, so the service's resolve and reads stay in `services/logs` and 
 mechanics stay out of them. It imports `sqlitepool`, `sqlitemigrate` and `sqlstmt`, and nothing
 of the logs service, which will import it.
 
-- **`Manager`**, shaped like `kubestore.Manager`: `NewManager(dir, Retention)`,
-  `OpenOrCreate(cacheID) (*Store, error)` refcounted under one lock, `Clear(cacheID) error`,
+- **`Manager`**, shaped like `kubestore.Manager`: `NewManager(dir)`,
+  `OpenOrCreate(cacheID) (*Store, error)` refcounted, `Clear(cacheID) error`,
   `Remove(cacheID) error` and `Close() error`. It is a `lifecycle.Part`; its `Start` does
   nothing in this step.
   - **`Clear`** is `kubestore.Clear`'s shape: the entry is retired and the file deleted, a handle
@@ -75,12 +74,12 @@ of the logs service, which will import it.
   `Clear(cacheID int64) error` and `Remove(cacheID int64) error`. One owner, passed to
   `cluster.New`; a list is for a second owner, when there is one. The cache pass's deleting arm
   calls `Remove` after `kubestoreMgr.Remove` and before it clears `cacheFinalizer`, and a failed
-  removal fails the pass as the mirror's does. `clusterCacheClear` calls `Clear` after
-  `RunWithCacheSyncStopped` returns, outside it; if the mirror cleared and the log did not, the
-  mutation errors and the user runs it again. A crash between the two removals needs no sweep:
+  removal fails the pass as the mirror's does. `clusterCacheClear` calls `Clear` first, outside
+  `RunWithCacheSyncStopped`; a log clear that fails errors before the mirror is touched, and the
+  user runs it again. A crash between the two removals needs no sweep:
   the finalizer is still set, so the arm runs again at the next start. `cluster.New` refuses a
   nil owner, as it refuses every nil dependency; a test that builds it passes a fake or the no-op
-  `cluster.NoCacheFiles`, which `newTestDepsOver` uses.
+  `noCacheFiles` in `testutil_test.go`, which `newTestDepsOver` uses.
 - **Order.** `app` builds the manager before `cluster.New`, hands it in, and appends it to
   `Runtime.parts` before the cluster service, so the reverse close order closes the service
   whose cache pass calls the manager before the manager itself. Build order is part order.

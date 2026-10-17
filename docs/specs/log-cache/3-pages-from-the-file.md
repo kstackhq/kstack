@@ -39,7 +39,7 @@ The README's §3, built in `logstore` as `Coverage(stream, pattern, from, to)`: 
 covering a range for a pattern, which are the chunks labelled with it and the unlabelled ones,
 and the gaps between them. A fill writes as §3 says: a chunk from the first line returned, merged
 with the one ending at the moment it began in only when that moment came back whole; `head` when
-the source said so; `end` when a finished instance's forward read reached its last line. Rows
+the source said so; `at_end` when a finished instance's forward read reached its last line. Rows
 and the chunk change in one `InTx`.
 
 ### 2. The page
@@ -100,7 +100,7 @@ to rotate its files and restart its pods.
 
 - `coverage_test.go`: a read from a moment claims from its first returned line; a read that
   began in a chunk's last moment and returned it whole merges; one that did not leaves a gap;
-  `head` only from the source's word; `end` only on a finished instance; a chunk closes at
+  `head` only from the source's word; `at_end` only on a finished instance; a chunk closes at
   `ChunkBytes` or `ChunkSpan`; a page for pattern `P` reads `P` and unlabelled chunks and treats
   `Q` as a gap; an unfiltered page treats every labelled chunk as a gap; with two sources in
   order, the second is asked only for what the first answered `head` for, the edge moment belongs
@@ -110,7 +110,7 @@ to rotate its files and restart its pods.
   by a grepped fill and again by an unfiltered one is stored once; a deleted pod's streams,
   lines and place survive and a node filter still finds them; an instance followed as current
   and read as previous after a restart has one row and one copy of each line; a finished
-  instance read to its end gets `end` and no forward fill after; `ReadActive` running twice
+  instance read to its end gets `at_end` and no forward fill after; `ReadActive` running twice
   writes nothing new; the `before` and `after` edges match the README's table in each mode.
 - `grep_test.go`: a pattern matches as Go's `regexp` does over stored text; the cache evicts past
   sixteen; a scan past the budget cuts the page with `more: true`.
