@@ -99,7 +99,7 @@ These are decided across the ladder. A rung that needs to revisit one says so in
 | --- | --- | --- |
 | 2 | The compact inline form | [2-the-compact-inline-form.md](2-the-compact-inline-form.md) |
 | 3 | The screen rides with the question | [3-the-screen-rides-with-the-question.md](3-the-screen-rides-with-the-question.md) |
-| 4 | `LogsRead`: what the model read, frozen | — |
+| 4 | `LogsRead`: what the model read, frozen | [4-logsread.md](4-logsread.md) |
 | 5 | Select, then ask | — |
 | 6 | A watch is a background task | — |
 | 7 | The dashboard's target | — |
@@ -116,12 +116,9 @@ the chat's newest pinned `Tail` view and frozen for every other.
 the viewer shows of it, and the sidecar writes a `## View` section into the question's context
 block.
 
-**Rung 4 — `LogsRead`.** The model reads a bounded sample over a selector, window and grep, and
-the transcript draws what it read as a frozen snippet, with *View around this* opening a view
-anchored at the sample's first timestamp — the user's click, not a call. The prompt gains its one
-rule: open a view when the user wants to see logs, read when you need them to answer. Open:
-the sample's caps, and whether a read of logs is ever a permissioned read like Secret data. A
-sample names the holes it crossed, from each line's `gap`.
+**Rung 4 — `LogsRead`.** The model reads a bounded sample of a view's sources over a range,
+through the log cache, and the transcript draws what it read as a frozen snippet, with *View
+around this*.
 
 **Rung 5 — select, then ask.** Selecting lines in the viewer and typing a question is the main
 gesture. An *Ask about this* on the selection focuses the composer, and the selection rides in
@@ -143,10 +140,10 @@ to the dashboard.
 Fixed here so the rungs agree. Go paths are under `sidecar/internal/`.
 
 - **A view**: what the user is looking at — its sources, their filters, an optional grep, an
-  anchor and whether it is pinned to the end. On the wire it is `LogsViewAction`; in the webview, the `action` of the `LogsView` call
-  that opened it.
+  anchor and whether it is pinned to the end. On the wire it is `LogsViewAction`; in the webview,
+  the `action` of the `LogsView` call that opened it, or the `viewAround` of a `LogsRead` call.
 - **The focused view**: the one view a window draws in full, held beside the right sidebar's state
-  as `{ chatId, callId, action }`.
+  as `{ clusterId, chatId, callId, action }`.
 - **A receipt**: a `LogsView` call's `output`, one line saying what is now on screen. The model
   reads nothing else from a view.
 - **A sample**: a `LogsRead` call's `output`, bounded lines the model read. Rung 4 introduces it.
