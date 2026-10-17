@@ -1,7 +1,7 @@
 ---
 title: The screen rides with the question
 scope: sidecar, frontend
-status: Proposed
+status: Implemented
 ---
 
 # The screen rides with the question
@@ -117,7 +117,7 @@ Sandbox stays last, since `withSandboxReplaced` finds it there. `withSection` ma
 again, so the keys sort, as in every section:
 
 ```json
-{"call":"toolu_01AbC","selected":[{"at":"2026-10-17T09:14:20.004Z","message":"panic: assignment to entry in nil map","stream":"payments/webapp-7d9f-x2k/app"}],"shown":{"atEnd":true,"from":"2026-10-17T09:14:02.118Z","lines":38,"paused":false,"pinned":true,"to":"2026-10-17T09:14:31.902Z"},"view":{"anchor":"tail","grep":"error","pinToEnd":true,"sources":[{"kind":"Deployment","name":"webapp","namespace":"payments"}]}}
+{"call":"toolu_01AbC","selected":[{"at":"2026-10-17T09:14:20.004Z","message":"panic: assignment to entry in nil map","stream":"payments/webapp-7d9f-x2k/app"}],"shown":{"atEnd":true,"from":"2026-10-17T09:14:02.118Z","lines":38,"paused":false,"pinned":true,"to":"2026-10-17T09:14:31.902Z"},"view":{"anchor":"tail","grep":"error","pinToEnd":true,"sources":[{"kind":"deployment","name":"webapp","namespace":"payments"}]}}
 ```
 
 - `call` is the row's `tool_use_id`, the id the model's own `tool_use` block carries.
@@ -208,7 +208,7 @@ card's names gain the same spelling. The text is drawn as stored, `fencejson`'s 
 
 ## Tasks
 
-All tasks start Planned.
+All six tasks are done, in one commit on `log-views-3`.
 
 1. **The wire.** `sidecar/graph/schema.graphqls` (§2); `gqlgen generate`; the resolver hands the
    snapshot to `Send` as a `chat.Snapshot`; root `pnpm codegen`.
