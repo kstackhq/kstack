@@ -23,6 +23,7 @@ function line(cursor: string, timestamp = '2026-10-15T00:00:00Z', container = 'a
     message: `m-${cursor}`,
     stream: { namespace: 'ns', pod: 'p', container, previous: false },
     place: { node: '', region: '', zone: '', os: '', arch: '' },
+    gap: null,
   };
 }
 

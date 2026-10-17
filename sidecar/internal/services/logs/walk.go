@@ -38,6 +38,8 @@ type walker struct {
 	q      pageQuery
 	budget *budget
 	fill   streamFill
+	// look is what the look past the walk's edge may read.
+	look int64
 }
 
 // walked is one stream's walk: the reading the merge takes, its lines in the order
@@ -61,7 +63,8 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 	if err != nil {
 		return walked{}, err
 	}
-	reach, gap := w.reach(chunks, key)
+	cov := logstore.CoverageOf(chunks, w.names, w.ps.tail)
+	reach, gap := w.reach(cov, key)
 	held := heldBy(chunks)
 	var recs []Record
 	var first, last logstore.Pos
@@ -87,6 +90,9 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 		return true
 	})
 	if err != nil {
+		return walked{}, err
+	}
+	if err := w.mark(recs, cov, held); err != nil {
 		return walked{}, err
 	}
 	var stop position
@@ -124,11 +130,11 @@ func readFrom(chunks []logstore.Chunk, a, b logstore.Pos) []logstore.Chunk {
 // fill may be offered, the first live gap when the fill read it from where the walk
 // starts, and the newest when the fill read it to its end, up to the first live gap
 // left, and whether it stops at one.
-func (w walker) reach(chunks []logstore.Chunk, key logstore.Pos) (logstore.Pos, bool) {
+func (w walker) reach(cov logstore.Coverage, key logstore.Pos) (logstore.Pos, bool) {
 	head := w.q.mode == FetchHead
 	reach := key
 	first := true
-	for _, seg := range segmentsFrom(logstore.CoverageOf(chunks, w.names, w.ps.tail), key, w.q.mode) {
+	for _, seg := range segmentsFrom(cov, key, w.q.mode) {
 		switch {
 		case seg.span != nil && head:
 			reach = seg.span.To
@@ -143,6 +149,29 @@ func (w walker) reach(chunks []logstore.Chunk, key logstore.Pos) (logstore.Pos, 
 		first = false
 	}
 	return reach, false
+}
+
+// mark sets the hole each of recs carries, recs in the walk's order. A hole between
+// two goes to the later in time. The record at the walk's older edge, a Head walk's
+// first or a Tail walk's last, looks back past the edge for its own, since the line
+// before it that the view passes may lie outside what the walk read.
+func (w walker) mark(recs []Record, cov logstore.Coverage, held func(logstore.Pos) bool) error {
+	if len(recs) == 0 {
+		return nil
+	}
+	edge, before := 0, -1
+	if w.q.mode == FetchTail {
+		edge, before = len(recs)-1, 1
+	}
+	for i := range recs {
+		if i != edge {
+			recs[i].Gap = holesBetween(cov.Gaps, w.ps.committed, lineOf(recs[i+before]).Pos, lineOf(recs[i]).Pos)
+		}
+	}
+	l := looker{r: w.r, row: w.ps.row.ID, cov: cov, committed: w.ps.committed, held: held, grep: w.q.grep, bytes: w.look}
+	var err error
+	recs[edge].Gap, err = l.back(lineOf(recs[edge]).Pos)
+	return err
 }
 
 // record is l as a line of the page.

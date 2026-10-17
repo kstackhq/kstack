@@ -196,6 +196,7 @@ usually just documentation in the wrong place.
 | 2026-10-13 | [A cache reading is one snapshot](2026-10-13-a-cache-reading-is-one-snapshot.md) | sidecar | Accepted |
 | 2026-10-17 | [Keep a cluster cache's log lines in a file of its own, evicted by read](2026-10-17-the-log-cache.md) | sidecar | Accepted |
 | 2026-10-17 | [A log cursor is a position, and a container's instance is its id](2026-10-17-a-log-cursor-is-a-position.md) | sidecar | Accepted |
+| 2026-10-17 | [A head read never links, and a line carries the hole before it](2026-10-17-a-head-read-never-links.md) | sidecar | Accepted |
 | 2026-10-17 | [Record a bash stop as the runner's act, and kill at once on a cancel](2026-10-17-a-bash-stop-is-the-runners-record.md) | sidecar | Accepted |
 | 2026-10-17 | [A cloud platform is how a vendor's wire is authenticated, never a dialect](2026-10-17-a-cloud-platform-is-auth-on-a-vendors-wire.md) | sidecar | Accepted |
 | 2026-10-17 | [A discovered model is listed only on its catalog's word](2026-10-17-a-discovered-model-is-listed-on-its-catalogs-word.md) | sidecar | Accepted |

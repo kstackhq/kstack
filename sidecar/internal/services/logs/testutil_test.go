@@ -721,6 +721,36 @@ func messages(recs []Record) []string {
 	return out
 }
 
+// marks is each record's message, with the time past 10:00 of each edge of the hole
+// it carries.
+func marks(recs []Record) []string {
+	out := []string{}
+	for _, r := range recs {
+		m := r.Message
+		if r.Gap != nil {
+			m += fmt.Sprintf(" (%v-%v)", r.Gap.After.Sub(at(0)), r.Gap.Before.Sub(at(0)))
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// kubeletOnly is the backends of a cluster read through its API server.
+var kubeletOnly = []string{"kubelet"}
+
+// sec is the position of a line s seconds past 10:00.
+func sec(s int) logstore.Pos { return logstore.Pos{TS: at(time.Duration(s) * time.Second).UnixNano()} }
+
+// said is a line s seconds past 10:00 saying msg.
+func said(s int, msg string) logstore.Line { return logstore.Line{Pos: sec(s), Message: msg} }
+
+// x0 y1 | y5 y6 | y9 x10, each bar a lost gap.
+var twoHoles = []logstore.Fill{
+	{Lines: []logstore.Line{said(0, "x0"), said(1, "y1")}},
+	{Lines: []logstore.Line{said(5, "y5"), said(6, "y6")}, Head: true},
+	{Lines: []logstore.Line{said(9, "y9"), said(10, "x10")}, Head: true},
+}
+
 // webView reads the app container of deployment web in prod.
 var webView = View{Sources: []ViewSource{{Namespace: "prod", Kind: SourceDeployment, Name: "web", Containers: []string{"app"}}}}
 

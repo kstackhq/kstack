@@ -124,7 +124,8 @@ caps, and what to attach when the sidebar is open on a view of another chat.
 the transcript draws what it read as a frozen snippet, with *View around this* opening a view
 anchored at the sample's first timestamp — the user's click, not a call. The prompt gains its one
 rule: open a view when the user wants to see logs, read when you need them to answer. Open:
-the sample's caps, and whether a read of logs is ever a permissioned read like Secret data.
+the sample's caps, and whether a read of logs is ever a permissioned read like Secret data. A
+sample names the holes it crossed, from each line's `gap`.
 
 **Rung 5 — select, then ask.** Selecting lines in the viewer and typing a question is the main
 gesture. An *Ask about this* on the selection focuses the composer, and the selection rides in

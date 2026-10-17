@@ -1445,6 +1445,19 @@ type LogRecord {
   place: LogPlace!
   "Names this line: a fetch's cursor argument or a follow's `after` resumes past it. Opaque."
   cursor: String!
+  "Set when lines of this stream may be missing just before this line. Null when none are."
+  gap: LogGap
+}
+
+"""
+Lines of a stream that neither the cluster nor the log cache holds. They lie before the line that
+carries the gap.
+"""
+type LogGap {
+  "When the last known line before the hole was stamped."
+  after: Time!
+  "When the first known line past the hole was stamped: the carrying line's own stamp, unless the grep hid the lines between."
+  before: Time!
 }
 
 "The log a line came from. Its four fields together name the stream."

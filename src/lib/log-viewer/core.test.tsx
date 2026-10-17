@@ -161,6 +161,7 @@ function line(i: number): LogLine {
     message: `line ${i}`,
     stream: { namespace: 'ns', pod: 'p', container: 'app', previous: false },
     place: { node: '', region: '', zone: '', os: '', arch: '' },
+    gap: null,
   };
 }
 

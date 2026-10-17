@@ -125,7 +125,9 @@ func TestFetchPagesThroughAMoment(t *testing.T) {
 // Pages join: walked from either end through random logs with tied and sub-second
 // moments, under small limits and budgets and a grep, the pages hold every line
 // in range once, in order, each within its limit, whether the walk starts at an end
-// or at a line's cursor. A page the budget refuses is the honest
+// or at a line's cursor. Some streams lost moments to a rotation the file never saw,
+// and each hole between two lines the file holds rides on exactly one record, the
+// first past it the grep passes, with the hole's own two times. A page the budget refuses is the honest
 // answer to a view too wide for it, so the walk is asked again with twice the
 // budget, as a user would narrow the view. Every page resolves the view through
 // SQL the store parses afresh, so under the race detector the full sweep takes
@@ -141,7 +143,19 @@ func TestPagesJoinWithoutLossOrRepeat(t *testing.T) {
 			t.Parallel()
 			rng := rand.New(rand.NewSource(int64(seed)))
 			s, objects, all := randomLogs(rng)
+			kept, runs := rotateAway(rng, s, all)
 			svc, f := serviceOver(t, newMirror(t, objects...), s)
+			for key, held := range runs {
+				var fills []logstore.Fill
+				for _, run := range held {
+					var lines []logstore.Line
+					for _, rec := range run {
+						lines = append(lines, lineOf(rec))
+					}
+					fills = append(fills, logstore.Fill{Lines: lines})
+				}
+				seedStamped(t, svc, f, rowOf(key.Pod, key.Container), true, fills...)
+			}
 			// Every page resolves the view again; the mirror holds still, and SQLite
 			// parsing the same statements is most of what the walks cost.
 			f.answers = map[string]cluster.ClusterCachedDataQueryResult{}
@@ -151,22 +165,23 @@ func TestPagesJoinWithoutLossOrRepeat(t *testing.T) {
 			view.Grep = []string{"", "odd", "#.*7"}[rng.Intn(3)]
 			grep := regexp.MustCompile(view.Grep)
 			var want []Record
-			for _, rec := range all {
+			for _, rec := range kept {
 				if grep.MatchString(rec.Message) {
 					want = append(want, rec)
 				}
 			}
+			want = carried(want, all, kept, grep)
 			limit := 1 + rng.Intn(25)
 
-			assert.Equal(t, messages(want), walk(t, svc, view, FetchHead, limit, nil), "head")
-			assert.Equal(t, messages(want), walk(t, svc, view, FetchTail, limit, nil), "tail")
+			assert.Equal(t, marks(want), marks(walk(t, svc, view, FetchHead, limit, nil)), "head")
+			assert.Equal(t, marks(want), marks(walk(t, svc, view, FetchTail, limit, nil)), "tail")
 			if len(want) == 0 {
 				return
 			}
 			i := rng.Intn(len(want))
 			c := cursorOf(positionOf(want[i]))
-			assert.Equal(t, messages(want[i+1:]), walk(t, svc, view, FetchHead, limit, c), "after")
-			assert.Equal(t, messages(want[:i]), walk(t, svc, view, FetchTail, limit, c), "before")
+			assert.Equal(t, marks(want[i+1:]), marks(walk(t, svc, view, FetchHead, limit, c)), "after")
+			assert.Equal(t, marks(want[:i]), marks(walk(t, svc, view, FetchTail, limit, c)), "before")
 		})
 	}
 }
@@ -224,13 +239,106 @@ func randomLogs(rng *rand.Rand) (*logServer, []map[string]any, []Record) {
 	return s, objects, all
 }
 
+// rotateAway drops, from about half of all's streams with three moments or more, the
+// lines at random moments, the newest never, as rotations the file never saw. Each
+// run of moments left but the newest is the file's alone, and the kubelet serves only
+// the newest run. It answers the lines left, in all's order, and each such stream's
+// runs the file holds.
+func rotateAway(rng *rand.Rand, s *logServer, all []Record) ([]Record, map[StreamKey][][]Record) {
+	byStream := map[StreamKey][]Record{}
+	var keys []StreamKey
+	for _, rec := range all {
+		if _, ok := byStream[rec.Stream]; !ok {
+			keys = append(keys, rec.Stream)
+		}
+		byStream[rec.Stream] = append(byStream[rec.Stream], rec)
+	}
+	dropped := map[StreamKey]map[time.Time]bool{}
+	runs := map[StreamKey][][]Record{}
+	for _, key := range keys {
+		lines := byStream[key]
+		var moments []time.Time
+		for _, rec := range lines {
+			if len(moments) == 0 || !moments[len(moments)-1].Equal(rec.Timestamp) {
+				moments = append(moments, rec.Timestamp)
+			}
+		}
+		if len(moments) < 3 || rng.Intn(2) == 0 {
+			continue
+		}
+		dropped[key] = map[time.Time]bool{}
+		for _, m := range moments[:len(moments)-1] {
+			if rng.Intn(4) == 0 {
+				dropped[key][m] = true
+			}
+		}
+		var cur []Record
+		var held [][]Record
+		for _, rec := range lines {
+			if dropped[key][rec.Timestamp] {
+				if cur != nil {
+					held, cur = append(held, cur), nil
+				}
+				continue
+			}
+			cur = append(cur, rec)
+		}
+		// The newest run is the kubelet's.
+		var served []string
+		for _, rec := range cur {
+			served = append(served, stamped(rec.Timestamp.Sub(at(0)), rec.Message))
+		}
+		s.mu.Lock()
+		s.logs[key.Namespace+"/"+key.Pod+"/"+key.Container] = served
+		s.mu.Unlock()
+		if len(held) > 0 {
+			runs[key] = held
+		}
+	}
+	kept := slices.DeleteFunc(slices.Clone(all), func(rec Record) bool { return dropped[rec.Stream][rec.Timestamp] })
+	return kept, runs
+}
+
+// carried is want, the lines of kept the grep passes, each carrying the holes between
+// it and the line of its stream before it that the grep passes: wherever all, the
+// lines before the rotations, held lines between two neighbours in kept.
+func carried(want, all, kept []Record, grep *regexp.Regexp) []Record {
+	left := map[string]bool{}
+	for _, rec := range kept {
+		left[rec.Message] = true
+	}
+	last := map[StreamKey]*Record{}
+	hole := map[StreamKey]bool{}
+	pending := map[StreamKey]*Gap{}
+	gaps := map[string]*Gap{}
+	for _, rec := range all {
+		if !left[rec.Message] {
+			hole[rec.Stream] = last[rec.Stream] != nil
+			continue
+		}
+		if hole[rec.Stream] {
+			pending[rec.Stream] = joined(pending[rec.Stream], &Gap{After: last[rec.Stream].Timestamp, Before: rec.Timestamp})
+			hole[rec.Stream] = false
+		}
+		last[rec.Stream] = &rec
+		if grep.MatchString(rec.Message) {
+			gaps[rec.Message], pending[rec.Stream] = pending[rec.Stream], nil
+		}
+	}
+	out := slices.Clone(want)
+	for i := range out {
+		out[i].Gap = gaps[out[i].Message]
+	}
+	return out
+}
+
 // walk pages through view in mode from the end mode starts at, or from the cursor
-// start, and is every line in the order read, each page within its limit. A page
+// start, and is every record in the order read, each page within its limit. A page
 // refused for budget starts the walk again with twice the budget.
-func walk(t *testing.T, svc *Service, view View, mode FetchMode, limit int, start *string) []string {
+func walk(t *testing.T, svc *Service, view View, mode FetchMode, limit int, start *string) []Record {
 	t.Helper()
 	q := FetchQuery{Mode: mode, Cursor: start, Limit: limit}
-	out := []string{}
+	out := []Record{}
 	for range 1000 {
 		page, err := svc.Fetch(t.Context(), "7", view, q)
 		if err != nil && strings.Contains(err.Error(), "ran out of budget") {
@@ -240,9 +348,9 @@ func walk(t *testing.T, svc *Service, view View, mode FetchMode, limit int, star
 		require.NoError(t, err)
 		require.LessOrEqual(t, len(page.Records), limit)
 		if mode == FetchHead {
-			out = append(out, messages(page.Records)...)
+			out = append(out, page.Records...)
 		} else {
-			out = append(messages(page.Records), out...)
+			out = append(slices.Clone(page.Records), out...)
 		}
 		edge := page.After
 		if mode == FetchTail {
