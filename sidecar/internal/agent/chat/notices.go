@@ -243,10 +243,11 @@ func (s *service) tryNoticeTurn(ctx context.Context, chatID ChatID) error {
 		}
 		// A notice turn renders no card, so a moved switch or a changed grant
 		// reaches the model by re-sending the newest context with its Sandbox
-		// section replaced. Its turn has no toggle.
+		// section replaced. It has no screen behind it, so it drops the View.
+		// Its turn has no toggle.
 		var question []llm.Block
 		state := sandboxState{outside: c.SandboxDisabled, networkEnabled: c.NetworkEnabled, folders: folders}
-		if replaced := s.withSandboxReplaced(newest, state); replaced != newest {
+		if replaced := s.withSandboxReplaced(withoutView(newest), state); replaced != newest {
 			question = []llm.Block{llm.ContextBlock(replaced)}
 		}
 		if err := roomFor(ctx, st, chatID, target, s.boxFor(target)); err != nil {

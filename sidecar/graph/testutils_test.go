@@ -144,11 +144,23 @@ type refusingChat struct {
 	err error
 }
 
-func (c refusingChat) Send(context.Context, *chat.ChatID, chat.Mode, apimeta.ClusterID, bool, bool, bool, string, string, string, string, string) (chat.ChatMessage, error) {
+func (c refusingChat) Send(context.Context, *chat.ChatID, chat.Mode, apimeta.ClusterID, bool, bool, bool, string, string, string, string, string, *chat.Snapshot) (chat.ChatMessage, error) {
 	return chat.ChatMessage{}, c.err
 }
 
 func (c refusingChat) Cancel(context.Context, chat.ChatID) error { return c.err }
+
+// recordingChat hands each send's snapshot to snaps and answers an empty message.
+// Like refusingChat, any other call panics.
+type recordingChat struct {
+	chat.Service
+	snaps chan *chat.Snapshot
+}
+
+func (c recordingChat) Send(_ context.Context, _ *chat.ChatID, _ chat.Mode, _ apimeta.ClusterID, _, _, _ bool, _, _, _, _, _ string, snap *chat.Snapshot) (chat.ChatMessage, error) {
+	c.snaps <- snap
+	return chat.ChatMessage{}, nil
+}
 
 func (c refusingChat) Approve(context.Context, chat.ApprovalID, chat.ApprovalDecision) (bool, error) {
 	return false, c.err

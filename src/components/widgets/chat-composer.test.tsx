@@ -16,6 +16,10 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { LogLine } from '@/lib/log-viewer';
+import { EMPTY_LOG_VIEWPORT } from '@/lib/log-viewport';
+import type { LogsViewAction } from '@/lib/logs-view';
+
 // One seam: urql's hooks. The outbox is the real one, since what the composer draws
 // is its entry, and so is the catalog it picks from.
 const { sendMock, cancelMock, catalog, reexecute } = vi.hoisted(() => ({
@@ -34,6 +38,8 @@ vi.mock('@/gql', () => ({
 }));
 
 const { ChatOutboxProvider, useChatOutbox } = await import('@/lib/chat-outbox');
+const { LogsViewProvider, useLogsView } = await import('@/lib/logs-view');
+const { RightSidebarProvider, useRightSidebar } = await import('@/lib/right-sidebar');
 const { ChatComposer } = await import('./chat-composer');
 
 const accepted = () => ({ data: { chatSend: { id: 'm2', chatID: 'c1', seq: 2, status: 'Streaming' } } });
@@ -44,26 +50,68 @@ const onCreated = vi.fn();
 
 type Props = Partial<Parameters<typeof ChatComposer>[0]>;
 
-// The provider outlives the composer, as the layout's does. `replaced` swaps the
+// A line the user selected in the focused view.
+const selectedLine = (i: number): LogLine => ({
+  timestamp: `2026-10-17T09:14:0${i}.000Z`,
+  cursor: `c${i}`,
+  message: `line ${i}`,
+  stream: { namespace: 'payments', pod: 'webapp-x', container: 'app', previous: false },
+  place: { node: '', region: '', zone: '', os: '', arch: '' },
+  gap: null,
+});
+
+// What a test does to the window's focused view and right sidebar, as the
+// transcript card's Expand and the viewer would.
+function ViewControls() {
+  const { set, viewport } = useLogsView();
+  const { close } = useRightSidebar();
+  const focus = (chatId: string) => set({ clusterId: '1', chatId, callId: 'call-1', action: {} as LogsViewAction });
+  return (
+    <>
+      <button type="button" onClick={() => focus('c1')}>
+        Focus c1
+      </button>
+      <button type="button" onClick={() => focus('c2')}>
+        Focus c2
+      </button>
+      <button
+        type="button"
+        onClick={() => viewport.set({ ...EMPTY_LOG_VIEWPORT, selection: [0, 1, 2].map(selectedLine) })}
+      >
+        Select three
+      </button>
+      <button type="button" onClick={close}>
+        Close sidebar
+      </button>
+    </>
+  );
+}
+
+// The providers outlive the composer, as the layout's do. `replaced` swaps the
 // key, so the composer unmounts and a fresh one opens on the same chat.
 function Harness({ replaced = false, ...props }: Props & { replaced?: boolean }) {
   return (
-    <ChatOutboxProvider>
-      <ChatComposer
-        key={replaced ? 'second' : 'first'}
-        chatID="c1"
-        mode="chat"
-        clusterID="1"
-        phase="live"
-        last={null}
-        onCreated={onCreated}
-        sandboxDisabled={false}
-        networkEnabled={false}
-        {...props}
-      />
-      {/* The entry the composer writes into, which the transcript's Ask again reads. */}
-      <SendStatus chatID={props.chatID ?? 'c1'} />
-    </ChatOutboxProvider>
+    <RightSidebarProvider mode={props.mode ?? 'chat'}>
+      <LogsViewProvider>
+        <ViewControls />
+        <ChatOutboxProvider>
+          <ChatComposer
+            key={replaced ? 'second' : 'first'}
+            chatID="c1"
+            mode="chat"
+            clusterID="1"
+            phase="live"
+            last={null}
+            onCreated={onCreated}
+            sandboxDisabled={false}
+            networkEnabled={false}
+            {...props}
+          />
+          {/* The entry the composer writes into, which the transcript's Ask again reads. */}
+          <SendStatus chatID={props.chatID ?? 'c1'} />
+        </ChatOutboxProvider>
+      </LogsViewProvider>
+    </RightSidebarProvider>
   );
 }
 
@@ -845,5 +893,60 @@ describe('ChatComposer', () => {
     catalog.current = answered;
     view.rerender({ phase: 'live' });
     expect(button('Send')).toBeEnabled();
+  });
+});
+
+// What the user looks at rides the send: the focused view, when it is this chat's
+// and the sidebar beside the chat shows it. The line above the box says so.
+describe('the view', () => {
+  beforeEach(() => localStorage.clear());
+
+  const sent = async () => {
+    type('what is this?');
+    await click('Send');
+    return sendMock.mock.calls[0][0];
+  };
+
+  it("rides with this chat's view open in the sidebar, with the selected lines", async () => {
+    renderComposer();
+    fireEvent.click(button('Focus c1'));
+    expect(screen.getByText('With the view in the sidebar')).toBeInTheDocument();
+    fireEvent.click(button('Select three'));
+    expect(screen.getByText('With the view in the sidebar and 3 selected lines')).toBeInTheDocument();
+
+    expect((await sent()).snapshot).toMatchObject({
+      callID: 'call-1',
+      selectedCount: 3,
+      selected: [{ message: 'line 0' }, { message: 'line 1' }, { message: 'line 2' }],
+    });
+  });
+
+  it('does not ride with the sidebar closed', async () => {
+    renderComposer();
+    fireEvent.click(button('Focus c1'));
+    fireEvent.click(button('Close sidebar'));
+    expect(screen.queryByText(/With the view/)).toBeNull();
+    expect((await sent()).snapshot).toBeNull();
+  });
+
+  it("does not ride with another chat's view", async () => {
+    renderComposer();
+    fireEvent.click(button('Focus c2'));
+    expect(screen.queryByText(/With the view/)).toBeNull();
+    expect((await sent()).snapshot).toBeNull();
+  });
+
+  it('does not ride on a send that creates a chat', async () => {
+    renderComposer({ chatID: null });
+    fireEvent.click(button('Focus c1'));
+    expect(screen.queryByText(/With the view/)).toBeNull();
+    expect((await sent()).snapshot).toBeNull();
+  });
+
+  it('does not ride on the dashboard', async () => {
+    renderComposer({ mode: 'dashboard' });
+    fireEvent.click(button('Focus c1'));
+    expect(screen.queryByText(/With the view/)).toBeNull();
+    expect((await sent()).snapshot).toBeNull();
   });
 });

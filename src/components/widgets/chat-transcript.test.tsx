@@ -571,6 +571,19 @@ describe('ChatTranscript', () => {
       expect(disclosure.querySelector('b')).toBeNull();
       expect(disclosure).toHaveTextContent('name: <b>prod</b>');
     });
+
+    // A selected line is the cluster's text, and JSON leaves a reordering
+    // character as it is.
+    it('spells a reordering character in a selected line', () => {
+      draw([
+        question([
+          { type: 'context', text: '## View\n\n```json\n{"selected":[{"message":"ok\u{202E}gnp.exe"}]}\n```' },
+          { type: 'text', text: "what's this?" },
+        ]),
+      ]);
+      const disclosure = screen.getByText('Context').closest('details')!;
+      expect(disclosure.querySelector('mark')).toHaveTextContent('\\u{202E}');
+    });
   });
 
   describe('the thinking disclosure', () => {

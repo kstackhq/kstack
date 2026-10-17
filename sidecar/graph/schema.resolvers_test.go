@@ -1724,6 +1724,34 @@ func TestChatSendAcceptsAModelOnAnotherDialect(t *testing.T) {
 	assert.Equal(t, map[string]any{"chatID": "c", "provider": map[string]any{"id": "fake"}}, data["chatSend"])
 }
 
+// chatSend hands the service the snapshot it was sent, field by field, and nil
+// for a send with none.
+func TestChatSendHandsItsSnapshotToTheService(t *testing.T) {
+	rec := recordingChat{snaps: make(chan *chat.Snapshot, 1)}
+	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ChatSvc: rec}))
+	defer srv.Close()
+	send := func(snapshot string) {
+		mutate(t, srv, `mutation { chatSend(chatID: "c", mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
+			requestID: "`+appdb.NewID()+`", content: "what's this?"`+snapshot+`) { id } }`)
+	}
+
+	send(`, snapshot: {callID: "call-1", from: "2026-10-17T09:14:02.118Z", to: "2026-10-17T09:14:31.902Z", lines: 38, atEnd: true, pinnedToEnd: true, paused: true,
+		selected: [{timestamp: "2026-10-17T09:14:20.004Z", namespace: "payments", pod: "webapp-x", container: "app", previous: true, message: "boom"}], selectedCount: 2}`)
+	from := time.Date(2026, 10, 17, 9, 14, 2, 118_000_000, time.UTC)
+	to := time.Date(2026, 10, 17, 9, 14, 31, 902_000_000, time.UTC)
+	assert.Equal(t, &chat.Snapshot{
+		CallID: "call-1", From: &from, To: &to, Lines: 38, AtEnd: true, PinnedToEnd: true, Paused: true,
+		Selected: []chat.SelectedLine{{
+			Timestamp: time.Date(2026, 10, 17, 9, 14, 20, 4_000_000, time.UTC),
+			Namespace: "payments", Pod: "webapp-x", Container: "app", Previous: true, Message: "boom",
+		}},
+		SelectedCount: 2,
+	}, testutil.Recv(t, rec.snaps, "the send"))
+
+	send("")
+	assert.Nil(t, testutil.Recv(t, rec.snaps, "the send without one"))
+}
+
 // chatFrames opens a subscription over the chat server and returns its events.
 // The caller closes the response body, which is what cancels the subscription.
 func chatFrames(t *testing.T, srv *httptest.Server, query string) (*http.Response, <-chan sseEvent) {

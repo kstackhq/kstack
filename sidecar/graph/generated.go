@@ -548,7 +548,7 @@ type ComplexityRoot struct {
 		ChatNetworkEnabledSet           func(childComplexity int, id apimeta.ChatID, enabled bool) int
 		ChatRename                      func(childComplexity int, id apimeta.ChatID, title string) int
 		ChatSandboxDisabledSet          func(childComplexity int, id apimeta.ChatID, sandboxDisabled bool) int
-		ChatSend                        func(childComplexity int, chatID *apimeta.ChatID, mode chat.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, networkEnabled bool, networkThisTurn bool, providerID string, modelID string, effort string, requestID string, content string) int
+		ChatSend                        func(childComplexity int, chatID *apimeta.ChatID, mode chat.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, networkEnabled bool, networkThisTurn bool, providerID string, modelID string, effort string, requestID string, content string, snapshot *model.LogsViewSnapshotInput) int
 		ClusterCacheClear               func(childComplexity int, id apimeta.ObjectID) int
 		ClusterCachedKindSyncEnabledSet func(childComplexity int, id apimeta.ObjectID, syncEnabled bool) int
 		ClusterConnectionRetry          func(childComplexity int, id apimeta.ClusterID) int
@@ -845,7 +845,7 @@ type MutationResolver interface {
 	ClusterDelete(ctx context.Context, id apimeta.ClusterID) (bool, error)
 	ClusterCacheClear(ctx context.Context, id apimeta.ObjectID) (*cluster.ClusterCache, error)
 	ClusterCachedKindSyncEnabledSet(ctx context.Context, id apimeta.ObjectID, syncEnabled bool) (*cluster.ClusterCachedKind, error)
-	ChatSend(ctx context.Context, chatID *apimeta.ChatID, mode chat.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, networkEnabled bool, networkThisTurn bool, providerID string, modelID string, effort string, requestID string, content string) (*chat.ChatMessage, error)
+	ChatSend(ctx context.Context, chatID *apimeta.ChatID, mode chat.Mode, clusterID apimeta.ClusterID, sandboxDisabled bool, networkEnabled bool, networkThisTurn bool, providerID string, modelID string, effort string, requestID string, content string, snapshot *model.LogsViewSnapshotInput) (*chat.ChatMessage, error)
 	ChatCancel(ctx context.Context, chatID apimeta.ChatID) (bool, error)
 	ApprovalDecide(ctx context.Context, id chat.ApprovalID, decision chat.ApprovalDecision) (bool, error)
 	BackgroundTaskStop(ctx context.Context, id chat.ToolCallID) (bool, error)
@@ -2850,7 +2850,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Mutation.ChatSend(childComplexity, args["chatID"].(*apimeta.ChatID), args["mode"].(chat.Mode), args["clusterID"].(apimeta.ClusterID), args["sandboxDisabled"].(bool), args["networkEnabled"].(bool), args["networkThisTurn"].(bool), args["providerID"].(string), args["modelID"].(string), args["effort"].(string), args["requestID"].(string), args["content"].(string)), true
+		return e.ComplexityRoot.Mutation.ChatSend(childComplexity, args["chatID"].(*apimeta.ChatID), args["mode"].(chat.Mode), args["clusterID"].(apimeta.ClusterID), args["sandboxDisabled"].(bool), args["networkEnabled"].(bool), args["networkThisTurn"].(bool), args["providerID"].(string), args["modelID"].(string), args["effort"].(string), args["requestID"].(string), args["content"].(string), args["snapshot"].(*model.LogsViewSnapshotInput)), true
 	case "Mutation.clusterCacheClear":
 		if e.ComplexityRoot.Mutation.ClusterCacheClear == nil {
 			break
@@ -4150,6 +4150,8 @@ func (e *executableSchema) Exec(ctx context.Context) graphql.ResponseHandler {
 	inputUnmarshalMap := graphql.BuildUnmarshalerMap(
 		ec.unmarshalInputLogsViewFilterInput,
 		ec.unmarshalInputLogsViewInput,
+		ec.unmarshalInputLogsViewSelectedLineInput,
+		ec.unmarshalInputLogsViewSnapshotInput,
 		ec.unmarshalInputLogsViewSourceInput,
 		ec.unmarshalInputMemorySaveInput,
 		ec.unmarshalInputPermissionRuleInput,
@@ -6033,6 +6035,14 @@ func (ec *executionContext) field_Mutation_chatSend_args(ctx context.Context, ra
 		return nil, err
 	}
 	args["content"] = arg10
+	arg11, err := graphql.ProcessArgField(ctx, rawArgs, "snapshot",
+		func(ctx context.Context, v any) (*model.LogsViewSnapshotInput, error) {
+			return ec.unmarshalOLogsViewSnapshotInput2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogsViewSnapshotInput(ctx, v)
+		})
+	if err != nil {
+		return nil, err
+	}
+	args["snapshot"] = arg11
 	return args, nil
 }
 
@@ -14372,7 +14382,7 @@ func (ec *executionContext) _Mutation_chatSend(ctx context.Context, field graphq
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Mutation().ChatSend(ctx, fc.Args["chatID"].(*apimeta.ChatID), fc.Args["mode"].(chat.Mode), fc.Args["clusterID"].(apimeta.ClusterID), fc.Args["sandboxDisabled"].(bool), fc.Args["networkEnabled"].(bool), fc.Args["networkThisTurn"].(bool), fc.Args["providerID"].(string), fc.Args["modelID"].(string), fc.Args["effort"].(string), fc.Args["requestID"].(string), fc.Args["content"].(string))
+			return ec.Resolvers.Mutation().ChatSend(ctx, fc.Args["chatID"].(*apimeta.ChatID), fc.Args["mode"].(chat.Mode), fc.Args["clusterID"].(apimeta.ClusterID), fc.Args["sandboxDisabled"].(bool), fc.Args["networkEnabled"].(bool), fc.Args["networkThisTurn"].(bool), fc.Args["providerID"].(string), fc.Args["modelID"].(string), fc.Args["effort"].(string), fc.Args["requestID"].(string), fc.Args["content"].(string), fc.Args["snapshot"].(*model.LogsViewSnapshotInput))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *chat.ChatMessage) graphql.Marshaler {
@@ -20931,6 +20941,157 @@ func (ec *executionContext) unmarshalInputLogsViewInput(ctx context.Context, obj
 				return it, err
 			}
 			it.Grep = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputLogsViewSelectedLineInput(ctx context.Context, obj any) (model.LogsViewSelectedLineInput, error) {
+	var it model.LogsViewSelectedLineInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"timestamp", "namespace", "pod", "container", "previous", "message"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "timestamp":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("timestamp"))
+			data, err := ec.unmarshalNTime2timeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Timestamp = data
+		case "namespace":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("namespace"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Namespace = data
+		case "pod":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("pod"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Pod = data
+		case "container":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("container"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Container = data
+		case "previous":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("previous"))
+			data, err := ec.unmarshalNBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Previous = data
+		case "message":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("message"))
+			data, err := ec.unmarshalNString2string(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Message = data
+		}
+	}
+	return it, nil
+}
+
+func (ec *executionContext) unmarshalInputLogsViewSnapshotInput(ctx context.Context, obj any) (model.LogsViewSnapshotInput, error) {
+	var it model.LogsViewSnapshotInput
+	if obj == nil {
+		return it, nil
+	}
+
+	asMap := map[string]any{}
+	for k, v := range obj.(map[string]any) {
+		asMap[k] = v
+	}
+
+	fieldsInOrder := [...]string{"callID", "from", "to", "lines", "atEnd", "pinnedToEnd", "paused", "selected", "selectedCount"}
+	for _, k := range fieldsInOrder {
+		v, ok := asMap[k]
+		if !ok {
+			continue
+		}
+		switch k {
+		case "callID":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("callID"))
+			data, err := ec.unmarshalNToolCallID2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐToolCallID(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.CallID = data
+		case "from":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("from"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.From = data
+		case "to":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("to"))
+			data, err := ec.unmarshalOTime2ᚖtimeᚐTime(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.To = data
+		case "lines":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("lines"))
+			data, err := ec.unmarshalNInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Lines = data
+		case "atEnd":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("atEnd"))
+			data, err := ec.unmarshalNBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.AtEnd = data
+		case "pinnedToEnd":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("pinnedToEnd"))
+			data, err := ec.unmarshalNBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.PinnedToEnd = data
+		case "paused":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("paused"))
+			data, err := ec.unmarshalNBoolean2bool(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Paused = data
+		case "selected":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selected"))
+			data, err := ec.unmarshalNLogsViewSelectedLineInput2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogsViewSelectedLineInputᚄ(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Selected = data
+		case "selectedCount":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selectedCount"))
+			data, err := ec.unmarshalNInt2int(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.SelectedCount = data
 		}
 	}
 	return it, nil
@@ -28704,6 +28865,25 @@ func (ec *executionContext) unmarshalNLogsViewInput2githubᚗcomᚋkstackhqᚋks
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) unmarshalNLogsViewSelectedLineInput2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogsViewSelectedLineInputᚄ(ctx context.Context, v any) ([]*model.LogsViewSelectedLineInput, error) {
+	vSlice := graphql.CoerceList(v)
+	var err error
+	res := make([]*model.LogsViewSelectedLineInput, len(vSlice))
+	for i := range vSlice {
+		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
+		res[i], err = ec.unmarshalNLogsViewSelectedLineInput2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogsViewSelectedLineInput(ctx, vSlice[i])
+		if err != nil {
+			return nil, err
+		}
+	}
+	return res, nil
+}
+
+func (ec *executionContext) unmarshalNLogsViewSelectedLineInput2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogsViewSelectedLineInput(ctx context.Context, v any) (*model.LogsViewSelectedLineInput, error) {
+	res, err := ec.unmarshalInputLogsViewSelectedLineInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
+}
+
 func (ec *executionContext) marshalNLogsViewSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewSource(ctx context.Context, sel ast.SelectionSet, v logs.ViewSource) graphql.Marshaler {
 	return ec._LogsViewSource(ctx, sel, &v)
 }
@@ -29963,6 +30143,14 @@ func (ec *executionContext) marshalOLogsViewAction2ᚖgithubᚗcomᚋkstackhqᚋ
 		return graphql.Null
 	}
 	return ec._LogsViewAction(ctx, sel, v)
+}
+
+func (ec *executionContext) unmarshalOLogsViewSnapshotInput2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogsViewSnapshotInput(ctx context.Context, v any) (*model.LogsViewSnapshotInput, error) {
+	if v == nil {
+		return nil, nil
+	}
+	res, err := ec.unmarshalInputLogsViewSnapshotInput(ctx, v)
+	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
 func (ec *executionContext) marshalOMemory2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemory(ctx context.Context, sel ast.SelectionSet, v *memory.Memory) graphql.Marshaler {

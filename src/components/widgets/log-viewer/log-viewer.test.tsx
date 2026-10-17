@@ -334,6 +334,7 @@ describe('LogViewer', () => {
       range: { from: line(20 - shown).timestamp, to: line(19).timestamp },
       atEnd: true,
       pinnedToEnd: true,
+      paused: false,
       visible: shown,
       selection: [],
     });
@@ -345,7 +346,14 @@ describe('LogViewer', () => {
     await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
 
     unmount();
-    expect(viewport.get()).toEqual({ range: null, atEnd: false, pinnedToEnd: false, visible: 0, selection: [] });
+    expect(viewport.get()).toEqual({
+      range: null,
+      atEnd: false,
+      pinnedToEnd: false,
+      paused: false,
+      visible: 0,
+      selection: [],
+    });
   });
 
   describe('errors', () => {
@@ -507,7 +515,7 @@ describe('LogViewer', () => {
 
     it('pauses at the bottom with no lines arriving, and plays again from there', async () => {
       const s = scripted();
-      mount();
+      const { viewport } = mount();
       await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
       expect(open(s)).toHaveLength(1);
 
@@ -515,10 +523,12 @@ describe('LogViewer', () => {
       await frame();
       expect(open(s)).toHaveLength(0);
       expect(rowTexts().at(-1)).toContain('line 19');
+      expect(viewport.get().paused).toBe(true);
 
       press('Play');
       await frame();
       expect(open(s)).toHaveLength(1);
+      expect(viewport.get().paused).toBe(false);
       await act(async () => {
         open(s)[0].onFrame({ kind: 'Line', line: line(20) });
       });

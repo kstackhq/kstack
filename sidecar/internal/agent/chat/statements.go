@@ -56,6 +56,7 @@ const (
 	stmtUpsertApproval
 	stmtSelectToolCalls
 	stmtSelectRunToolCalls
+	stmtSelectViewCall
 	stmtSelectClusterWrites
 	stmtSelectRunClusterWrites
 
@@ -236,6 +237,11 @@ var statements = []sqlstmt.Statement{
 	// A run's calls and its subagents', which its answer lists too.
 	stmtSelectRunToolCalls: sqlstmt.OnBoth(`SELECT ` + toolCallReadColumns + toolCallReadFrom + `
 	JOIN agent_runs r ON r.id = c.run_id WHERE r.id = ?1 OR r.parent_run_id = ?1 ORDER BY c.run_id, c.seq, t.seq`),
+	// A call of the chat by id, with what its run showed. OnBoth: Send reads it
+	// inside its write transaction.
+	stmtSelectViewCall: sqlstmt.OnBoth(`SELECT COALESCE(t.tool_use_id, ''), t.shown_action FROM tool_calls t
+	JOIN llm_calls l ON l.id = t.llm_call_id JOIN agent_runs r ON r.id = l.run_id
+	WHERE t.id = ? AND r.chat_id = ?`),
 	// The cluster writes of the same calls, in the order asked.
 	stmtSelectClusterWrites: sqlstmt.OnBoth(`SELECT ` + clusterWriteReadColumns + clusterWriteReadFrom + `
 	WHERE a.kind = 'action' AND r.chat_id = ? ORDER BY a.created_at, a.id`),
