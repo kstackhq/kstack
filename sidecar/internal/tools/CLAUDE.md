@@ -120,8 +120,9 @@ through `safe.Redact`. The action embeds `LogsViewInput` (`services/logs`' `View
 `ReadActive`, then runs `logs.Check` so a view the tool opens is one the service reads. **A source
 the mirror does not hold yet opens**: a view waits for it. A refusal is one JSON line with a code,
 never the model's text. It is in `catalog`'s `ours` and `app.go`'s box, and out of `SubagentBox`
-and `MonitorBox`: a view is the user's window. Tests run over a real store
-(`cluster/clustertest`). The service it checks against is `internal/services/logs/CLAUDE.md`.
+and `MonitorBox`: a view is the user's window. The model sees no line of a view, except those the
+user selects and sends, which ride the question's View section (`internal/agent/CLAUDE.md`).
+Tests run over a real store (`cluster/clustertest`). The service it checks against is `internal/services/logs/CLAUDE.md`.
 
 ## KubeQuery (`tools/kubequery`)
 

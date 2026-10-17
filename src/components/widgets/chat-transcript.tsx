@@ -137,14 +137,18 @@ function Thinking({ summary, stillThinking }: { summary: string; stillThinking: 
   );
 }
 
-// The context a question carries — the cluster card, then the memory notes —
-// closed: it is there so the user can see what the provider was told, at the
-// message it rode. Plain text, never markdown — its names came from the cluster.
+// The context a question carries — the cluster card, the memory notes, the
+// workspace, the view and the sandbox — closed: it is there so the user can see
+// what the provider was told, at the message it rode, escapes and all. Plain text,
+// never markdown, with every invisible or reordering character spelled: its names
+// and selected lines came from the cluster.
 function ClusterContext({ card }: { card: string }) {
   return (
     <details className="mb-2">
       <summary className="cursor-pointer text-xs text-muted-foreground select-none">Context</summary>
-      <div className="mt-1 border-l-2 border-muted pl-3 text-xs whitespace-pre-wrap text-muted-foreground">{card}</div>
+      <div className="mt-1 border-l-2 border-muted pl-3 text-xs whitespace-pre-wrap text-muted-foreground">
+        <VisibleText text={card} />
+      </div>
     </details>
   );
 }

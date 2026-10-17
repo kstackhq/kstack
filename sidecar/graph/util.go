@@ -215,6 +215,25 @@ func sandboxPathOf(entries []settings.PathEntry) []*model.SandboxPathEntry {
 	return out
 }
 
+// snapshotOf is the wire's snapshot as the chat service takes it; nil for none.
+func snapshotOf(in *model.LogsViewSnapshotInput) *chat.Snapshot {
+	if in == nil {
+		return nil
+	}
+	selected := make([]chat.SelectedLine, len(in.Selected))
+	for i, l := range in.Selected {
+		selected[i] = chat.SelectedLine{
+			Timestamp: l.Timestamp, Namespace: l.Namespace, Pod: l.Pod, Container: l.Container,
+			Previous: l.Previous, Message: l.Message,
+		}
+	}
+	return &chat.Snapshot{
+		CallID: in.CallID, From: in.From, To: in.To, Lines: in.Lines,
+		AtEnd: in.AtEnd, PinnedToEnd: in.PinnedToEnd, Paused: in.Paused,
+		Selected: selected, SelectedCount: in.SelectedCount,
+	}
+}
+
 // noSandboxExecutables refuses a probe or a register on a machine with no sandbox.
 func noSandboxExecutables() error {
 	return gqlerrors.NewValidationError("sandbox-executable", settings.ErrNoSandbox.Error())

@@ -31,8 +31,8 @@ import (
 const bytesPerToken = 2
 
 // contextTokens is the question's context block at its largest: the card and
-// both memory scopes at their budgets, and the workspace's path.
-const contextTokens = (clustercard.Budget + 2*memory.ScopeBudget + workspaceShare) / bytesPerToken
+// both memory scopes at their budgets, the workspace's path, and the View.
+const contextTokens = (clustercard.Budget + 2*memory.ScopeBudget + workspaceShare + viewBudget) / bytesPerToken
 
 // questionTokens is a long question.
 const questionTokens = 4_000

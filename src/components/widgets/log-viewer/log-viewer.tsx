@@ -304,12 +304,19 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
     core.current?.measure();
   };
 
-  // The range moves with the store and the selection with the rows; each write carries both.
+  // The range moves with the store, the selection with the rows and the pause with
+  // the toolbar; each write carries all three.
   const selection = useRef<LogLine[]>([]);
+  const pausedNow = useRef(false);
   const writeViewport = useCallback(() => {
     const { range, atEnd, pinnedToEnd, visible } = store.getSnapshot();
-    viewport.set({ range, atEnd, pinnedToEnd, visible, selection: selection.current });
+    viewport.set({ range, atEnd, pinnedToEnd, paused: pausedNow.current, visible, selection: selection.current });
   }, [store, viewport]);
+  const onPausedChange = (next: boolean) => {
+    setPaused(next);
+    pausedNow.current = next;
+    writeViewport();
+  };
   const onSelectionChange = useCallback(
     (lines: LogLine[]) => {
       selection.current = lines;
@@ -339,7 +346,7 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
         onJumpTo={(at) => core.current?.jumpTo({ kind: 'At', at: at.toISOString() })}
         onStart={() => core.current?.jumpTo({ kind: 'Head', at: null })}
         onEnd={() => core.current?.jumpTo({ kind: 'Tail', at: null })}
-        onPausedChange={setPaused}
+        onPausedChange={onPausedChange}
         onColumnsChange={setColumns}
         onWrapChange={setWrap}
       />

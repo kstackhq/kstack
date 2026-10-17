@@ -17,6 +17,12 @@
 {"path":"/home/ana/.local/share/kstack/chats/0195f1a0-5b6e-7c3d-8e4f-0a1b2c3d4e5f/workspace"}
 ```
 
+## View
+
+```json
+{"call":"toolu_01AbC","selected":[{"at":"2026-03-15T09:14:20.004Z","message":"panic: assignment to entry in nil map","stream":"payments/webapp-7d9f-x2k/app"}],"shown":{"atEnd":true,"from":"2026-03-15T09:14:02.118Z","lines":38,"paused":false,"pinned":true,"to":"2026-03-15T09:14:31.902Z"},"view":{"anchor":"tail","grep":"error","pinToEnd":true,"sources":[{"kind":"deployment","name":"webapp","namespace":"payments"}]}}
+```
+
 ## Sandbox
 
 ```json

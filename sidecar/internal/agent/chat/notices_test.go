@@ -27,6 +27,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
+	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
 // A notice turn renders no card, so it carries a context block only when the
@@ -242,4 +243,58 @@ func TestANoticeTurnListsAGrantMadeAsItStarts(t *testing.T) {
 	require.Len(t, q, 2, "a context block, then the notice")
 	require.Equal(t, []llm.BlockType{llm.BlockContext, llm.BlockTaskNotification}, []llm.BlockType{q[0].Type, q[1].Type})
 	assert.Equal(t, s.withSandboxReplaced(before, sandboxState{folders: []session.Folder{{Path: code}}}), newestContextOf(t, s, first.ChatID))
+}
+
+// answersOf is the chat's answers so far, which a notice turn's is not.
+func answersOf(t *testing.T, s *service, chatID ChatID) []MessageID {
+	t.Helper()
+	msgs, err := s.transcript(t.Context(), chatID)
+	require.NoError(t, err)
+	var ids []MessageID
+	for _, m := range msgs {
+		if m.Role == RoleAssistant {
+			ids = append(ids, m.ID)
+		}
+	}
+	return ids
+}
+
+// A notice turn has no screen behind it: it re-sends the newest block without
+// its View, the switch moved or not, so the model reads the view as closed.
+func TestANoticeTurnDropsTheView(t *testing.T) {
+	t.Parallel()
+
+	for name, leave := range map[string]bool{"the switch stayed": false, "the switch moved": true} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+
+			tt := newTaskTool()
+			s := startServiceWithTool(t, tt)
+			s.sandboxStatus = sandbox.Status{Available: true}
+			first := send(t, s, nil, "1", "tail it")
+			awaitSettled(t, s, first.ChatID, first.ID)
+			action := tailWebapp()
+			call := seedViewCall(t, s.db, first.ChatID, "toolu_view", &tools.Action{LogsView: &action})
+
+			fakeOf(s).SetToolCalls(taskCall())
+			msg, err := sendWithView(t, s, &first.ChatID, "2", &Snapshot{CallID: call, Lines: 1})
+			require.NoError(t, err)
+			ft := testutil.Recv(t, tt.ready, "the task to start")
+			awaitSettled(t, s, msg.ChatID, msg.ID)
+			before := newestContextOf(t, s, first.ChatID)
+			require.Contains(t, before, viewHeading)
+
+			if leave {
+				_, err := s.SetSandboxDisabled(t.Context(), first.ChatID, true)
+				require.NoError(t, err)
+			}
+			seen := answersOf(t, s, first.ChatID)
+			ft.exit(0)
+			answer := awaitNoticeTurn(t, s, first.ChatID, seen...)
+
+			q := questionOf(t, s, answer)
+			require.Equal(t, llm.BlockContext, q[0].Type)
+			assert.Equal(t, s.withSandboxReplaced(withoutView(before), sandboxState{outside: leave}), newestContextOf(t, s, first.ChatID))
+		})
+	}
 }

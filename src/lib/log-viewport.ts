@@ -20,6 +20,8 @@
 import type { CoreState, LogLine } from '@/lib/log-viewer';
 
 export type LogViewport = Pick<CoreState, 'range' | 'atEnd' | 'pinnedToEnd' | 'visible'> & {
+  /** Whether the user paused the viewer: no line arrives until they play it again. */
+  paused: boolean;
   /** The lines the user selected, in order. */
   selection: LogLine[];
 };
@@ -35,6 +37,7 @@ export const EMPTY_LOG_VIEWPORT: LogViewport = {
   range: null,
   atEnd: false,
   pinnedToEnd: false,
+  paused: false,
   visible: 0,
   selection: [],
 };

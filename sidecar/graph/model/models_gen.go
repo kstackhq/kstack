@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"time"
 
+	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
@@ -27,6 +29,37 @@ type ClusterPermissions struct {
 	NonResourceRules []*NonResourceRule `json:"nonResourceRules"`
 	// True if some authorizers couldn't be evaluated, so the rule set may be incomplete.
 	Incomplete bool `json:"incomplete"`
+}
+
+// One selected line, as the viewer holds it. Cluster text.
+type LogsViewSelectedLineInput struct {
+	Timestamp time.Time `json:"timestamp"`
+	Namespace string    `json:"namespace"`
+	Pod       string    `json:"pod"`
+	Container string    `json:"container"`
+	Previous  bool      `json:"previous"`
+	Message   string    `json:"message"`
+}
+
+// What the user's open log view shows as they send. The sidecar reads the view itself from the call.
+type LogsViewSnapshotInput struct {
+	// The `LogsView` call whose view is open. It must be a call of the chat the send is to.
+	CallID chat.ToolCallID `json:"callID"`
+	// The first and last visible line's timestamps. Both null when no line is on screen.
+	From *time.Time `json:"from,omitempty"`
+	To   *time.Time `json:"to,omitempty"`
+	// How many lines are on screen.
+	Lines int `json:"lines"`
+	// Whether the newest line is on screen and the viewer is following.
+	AtEnd bool `json:"atEnd"`
+	// Whether the viewer keeps the end in view.
+	PinnedToEnd bool `json:"pinnedToEnd"`
+	// Whether the user paused the viewer: no line arrives until they resume.
+	Paused bool `json:"paused"`
+	// The selected lines, in order, at most 50.
+	Selected []*LogsViewSelectedLineInput `json:"selected"`
+	// How many lines are selected, `selected` included.
+	SelectedCount int `json:"selectedCount"`
 }
 
 type MemorySaveInput struct {

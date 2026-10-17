@@ -17,6 +17,8 @@ import type { ReactNode } from 'react';
 import { act, renderHook } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { LogsViewSnapshotInput } from '@/gql/graphql';
+
 import type { ModelPick } from './models';
 
 const { sendMock } = vi.hoisted(() => ({ sendMock: vi.fn() }));
@@ -56,6 +58,19 @@ const renderOutbox = (
 
 /** The switches as a chat that has not started shows them: sandboxed, with no network. */
 const OFF = { sandboxDisabled: false, networkEnabled: false };
+
+/** A view of the chat with nothing on screen. */
+const SNAPSHOT: LogsViewSnapshotInput = {
+  callID: 'call-1',
+  from: null,
+  to: null,
+  lines: 0,
+  atEnd: false,
+  pinnedToEnd: false,
+  paused: false,
+  selected: [],
+  selectedCount: 0,
+};
 
 const submit = (result: { current: ReturnType<typeof useChatOutbox> }) =>
   act(async () => {
@@ -138,6 +153,7 @@ describe('a send', () => {
       effort: seeded.effort,
       requestID: expect.any(String),
       content: 'hello',
+      snapshot: null,
     });
   });
 
@@ -299,6 +315,22 @@ describe('a send', () => {
 
     expect(result.current.draft).toBe('hello');
     expect(result.current.send).toMatchObject({ status: 'held', content: 'hello' });
+  });
+
+  it('sends the snapshot it is handed, and retries a held send with it', async () => {
+    sendMock.mockResolvedValue(dropped());
+    const { result } = renderOutbox();
+    act(() => result.current.setDraft("what's this?"));
+    await act(async () => {
+      await result.current.submit(OFF, SNAPSHOT);
+    });
+    expect(sendMock.mock.calls[0][0].snapshot).toBe(SNAPSHOT);
+
+    sendMock.mockResolvedValue(accepted());
+    await act(async () => {
+      await result.current.retry();
+    });
+    expect(sendMock.mock.calls[1][0].snapshot).toBe(SNAPSHOT);
   });
 
   // Committed-but-lost is answered by the request id alone, so the retry goes back
@@ -562,6 +594,7 @@ describe('a send', () => {
       effort: seeded.effort,
       requestID: expect.any(String),
       content: 'what is a pod?',
+      snapshot: null,
     });
     // What submit sends is the draft; what this sends came off the failed row, so
     // clearing would take a follow-up the user typed and never sent.
