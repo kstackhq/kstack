@@ -20,7 +20,7 @@ import "time"
 const mib = 1 << 20
 
 // defaultBytes is the file's default budget; StreamShare is a quarter of it.
-const defaultBytes = 256 * mib
+const defaultBytes = 1024 * mib
 
 // Retention is every bound on what a log file holds and on how lines reach it. The
 // janitor sweeps to Bytes, StreamShare and ReadTTL, on SweepBytes and Interval, and
