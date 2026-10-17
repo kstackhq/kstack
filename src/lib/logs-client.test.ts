@@ -79,6 +79,8 @@ const line = (i: number) => ({
   place: { node: 'node-a', region: 'r', zone: 'z', os: 'linux', arch: 'amd64' },
 });
 
+const failed = vi.fn();
+
 // What the sidecar answers each `graphql_query`.
 let answer: unknown;
 
@@ -114,6 +116,7 @@ beforeEach(() => {
     return undefined;
   });
   reportError.mockReset();
+  failed.mockReset();
 });
 
 afterEach(() => {
@@ -185,15 +188,13 @@ describe('createLogsClient', () => {
   it('follows from the cursor, handing on lines and checkpoints', async () => {
     const logs = createLogsClient(createGraphqlClient(), 'cluster-1', action);
     const frames: FollowFrame[] = [];
-    const stop = logs.follow('live', (f) => frames.push(f));
+    const stop = logs.follow('live', (f) => frames.push(f), failed);
     await flush();
     expect(dialed()).toEqual([{ id: 'cluster-1', view: VIEW, after: 'live' }]);
 
     push({ type: 'open' });
     frame({ __typename: 'LogsFollowFrame', type: 'Line', record: record(3), cursor: null, reason: '' });
     frame({ __typename: 'LogsFollowFrame', type: 'Checkpoint', record: null, cursor: 'k1', reason: '' });
-    // A frame whose entity errored arrives null and is dropped.
-    push({ type: 'next', payload: { data: { logsFollow: null }, errors: [{ message: 'boom' }] } });
     expect(frames).toEqual([
       { kind: 'Line', line: line(3) },
       { kind: 'Checkpoint', cursor: 'k1' },
@@ -201,18 +202,20 @@ describe('createLogsClient', () => {
     stop();
   });
 
-  it('reconnects from the last checkpoint, not the last line', async () => {
+  it('reconnects a watch that died from the last checkpoint, not the last line', async () => {
     vi.useFakeTimers();
     const logs = createLogsClient(createGraphqlClient(), 'cluster-1', action);
-    const stop = logs.follow('live', () => {});
+    const stop = logs.follow('live', () => {}, failed);
     await flush();
     push({ type: 'open' });
     frame({ type: 'Checkpoint', record: null, cursor: 'k1', reason: '' });
     frame({ type: 'Line', record: record(4), cursor: null, reason: '' });
 
-    push({ type: 'closed' });
+    // A watch that dies once open is the exchange's to reconnect, not a failed follow.
+    push({ type: 'next', payload: { errors: [{ message: 'tailer lost' }], extensions: { watchFailed: true } } });
     await vi.advanceTimersByTimeAsync(1_000);
     expect(dialed().at(-1)).toEqual({ id: 'cluster-1', view: VIEW, after: 'k1' });
+    expect(failed).not.toHaveBeenCalled();
     stop();
   });
 
@@ -220,7 +223,7 @@ describe('createLogsClient', () => {
     vi.useFakeTimers();
     const logs = createLogsClient(createGraphqlClient(), 'cluster-1', action);
     const frames: FollowFrame[] = [];
-    logs.follow('live', (f) => frames.push(f));
+    logs.follow('live', (f) => frames.push(f), failed);
     await flush();
     push({ type: 'open' });
     frame({ type: 'Ended', record: null, cursor: null, reason: 'the cluster was removed' });
@@ -232,10 +235,27 @@ describe('createLogsClient', () => {
     expect(invokeMock).toHaveBeenCalledWith('graphql_unsubscribe', { id: 1 });
   });
 
+  it('fails a follow the sidecar could not open, in its words, and never follows again', async () => {
+    vi.useFakeTimers();
+    const logs = createLogsClient(createGraphqlClient(), 'cluster-1', action);
+    const frames: FollowFrame[] = [];
+    logs.follow('live', (f) => frames.push(f), failed);
+    await flush();
+    push({ type: 'open' });
+    push({ type: 'next', payload: { data: null, errors: [{ message: 'the cluster has no cache' }] } });
+    push({ type: 'complete' });
+    await vi.advanceTimersByTimeAsync(60_000);
+
+    expect(failed).toHaveBeenCalledOnce();
+    expect(failed.mock.calls[0][0]).toEqual(new Error('the cluster has no cache'));
+    expect(frames).toEqual([]);
+    expect(dialed()).toHaveLength(1);
+  });
+
   it('stops the subscription when the follow is stopped', async () => {
     const logs = createLogsClient(createGraphqlClient(), 'cluster-1', action);
     const frames: FollowFrame[] = [];
-    const stop = logs.follow('live', (f) => frames.push(f));
+    const stop = logs.follow('live', (f) => frames.push(f), failed);
     await flush();
     stop();
     expect(invokeMock).toHaveBeenCalledWith('graphql_unsubscribe', { id: 1 });

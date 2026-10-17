@@ -498,18 +498,30 @@ function useClient({ client, logWindow, anchor, paused, following, perform, onEr
       cancelFlush = null;
       perform(logWindow.followed(frames));
     };
-    let unsubscribe: () => void;
-    try {
-      unsubscribe = client.follow(logWindow.followFrom(), (frame) => {
-        batch.push(frame);
-        cancelFlush ??= onNextFrame(flush);
-      });
-    } catch (error) {
+    let closed = false;
+    const failed = (error: unknown) => {
       logWindow.followFailed();
       report.current?.(error);
+    };
+    let unsubscribe: () => void;
+    try {
+      unsubscribe = client.follow(
+        logWindow.followFrom(),
+        (frame) => {
+          batch.push(frame);
+          cancelFlush ??= onNextFrame(flush);
+        },
+        // Unpinning closes the follow through this effect's cleanup.
+        (error) => {
+          if (!closed) failed(error);
+        },
+      );
+    } catch (error) {
+      failed(error);
       return undefined;
     }
     return () => {
+      closed = true;
       unsubscribe();
       cancelFlush?.();
       batch = [];

@@ -68,7 +68,8 @@ Its rules, one each:
   the user reads on from by hand.
 - **One page per edge is in flight**, named by a ticket. A stale ticket's page changes nothing.
   Each edge in the state reads `loading` while it has more and a page that way holds a ticket.
-- **A refused follow unpins**, so the next scroll to the bottom tries again through a page.
+- **A refused follow unpins**, whether `follow` throws or calls `onFailed` later, so the next
+  scroll to the bottom tries again through a page.
 
 ## The core
 

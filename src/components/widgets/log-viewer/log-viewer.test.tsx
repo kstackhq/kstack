@@ -140,7 +140,7 @@ const START = { cursor: null, more: false };
 const END = { cursor: 'live-end', more: false };
 
 type Fetch = { query: FetchQuery; resolve: (p: Page) => void; reject: (error: unknown) => void };
-type Follow = { onFrame: (frame: FollowFrame) => void; closed: boolean };
+type Follow = { onFrame: (frame: FollowFrame) => void; onFailed: (error: unknown) => void; closed: boolean };
 
 function scripted() {
   const fetches: Fetch[] = [];
@@ -151,13 +151,13 @@ function scripted() {
       new Promise<Page>((resolve, reject) => {
         fetches.push({ query, resolve, reject });
       }),
-    follow: (_after, onFrame) => {
+    follow: (_after, onFrame, onFailed) => {
       if (refusal.next) {
         const error = refusal.next;
         refusal.next = null;
         throw error;
       }
-      const follow: Follow = { onFrame, closed: false };
+      const follow: Follow = { onFrame, onFailed, closed: false };
       follows.push(follow);
       return () => {
         follow.closed = true;
@@ -372,6 +372,20 @@ describe('LogViewer', () => {
       await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
       const reason = screen.getByText(/follow refused: pod/);
       expect(reason.querySelector('mark')).not.toBeNull();
+    });
+
+    it('draws why a follow failed after it opened, and stops following', async () => {
+      const s = scripted();
+      const { viewport } = mount();
+      await answer(s.fetches[0], page(0, 20, { before: START, after: END }));
+      const follow = s.follows.find((f) => !f.closed)!;
+      await act(async () => {
+        follow.onFailed(new Error('the cluster cache is gone'));
+      });
+      await frame(2);
+      expect(screen.getByText(/the cluster cache is gone/)).toBeInTheDocument();
+      expect(follow.closed).toBe(true);
+      expect(viewport.get().pinnedToEnd).toBe(false);
     });
 
     it('draws why the follow ended', async () => {

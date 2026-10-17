@@ -70,9 +70,11 @@ const measureHeight = (el: Element) => el.getBoundingClientRect().height;
 
 const PAGE_FAILED = 'Could not load more lines.';
 
+const errorText = (error: unknown) => (error instanceof Error ? error.message : String(error));
+
 // The client as the core sees it, recording the last failure for the viewer to draw: the
 // core never says what failed, and nothing reports a success. `errorReportExchange` has
-// already reported the operation's error. A follow's error is thrown on, so the core still
+// already reported the operation's error. A follow's error is passed on, so the core still
 // unpins.
 function watchClient(client: Client, record: (error: string | null) => void): Client {
   return {
@@ -87,13 +89,16 @@ function watchClient(client: Client, record: (error: string | null) => void): Cl
           throw error;
         },
       ),
-    follow: (after, onFrame) => {
+    follow: (after, onFrame, onFailed) => {
       try {
-        const stop = client.follow(after, onFrame);
+        const stop = client.follow(after, onFrame, (error) => {
+          record(errorText(error));
+          onFailed(error);
+        });
         record(null);
         return stop;
       } catch (error) {
-        record(error instanceof Error ? error.message : String(error));
+        record(errorText(error));
         throw error;
       }
     },

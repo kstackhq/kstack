@@ -14,7 +14,8 @@
 
 // The one place the app makes a log `Client`: `logsFetch` and `logsFollow` over the app's
 // urql client, for one view of one cluster. Operation errors reach the error bus through
-// `errorReportExchange`; a fetch's also rejects, for the window to see.
+// `errorReportExchange`; a fetch's also rejects, and a follow's calls `onFailed`, for the
+// window to see.
 
 import type { Client as UrqlClient } from 'urql';
 
@@ -141,7 +142,7 @@ export function createLogsClient(urql: UrqlClient, clusterId: string, action: Lo
       };
     },
 
-    follow: (after: Cursor, onFrame: (frame: FollowFrame) => void) => {
+    follow: (after: Cursor, onFrame: (frame: FollowFrame) => void, onFailed: (error: unknown) => void) => {
       // A reconnect goes on from the last checkpoint: a line's cursor would skip the other
       // streams' unsent lines older than it. What it sends again the window drops by cursor.
       let resumeFrom = after;
@@ -152,10 +153,20 @@ export function createLogsClient(urql: UrqlClient, clusterId: string, action: Lo
           { id: clusterId, view, after },
           { reconnectVariables: () => ({ id: clusterId, view, after: resumeFrom }) },
         )
-        .subscribe(({ data }) => {
+        .subscribe(({ data, error }) => {
+          if (ended) return;
           const frame = data?.logsFollow;
-          // A frame whose entity errored arrives null; it is dropped, not folded.
-          if (ended || !frame) return;
+          if (!frame) {
+            // A follow the sidecar could not open answers errors and no frame, then completes.
+            // Stop here, before the reconnect the `complete` brings: the window reopens it
+            // from a page. A watch that dies once open is the exchange's to reconnect.
+            if (error) {
+              ended = true;
+              subscription.unsubscribe();
+              onFailed(new Error(error.graphQLErrors[0]?.message ?? error.message));
+            }
+            return;
+          }
           if (frame.type === 'Line') {
             if (frame.record) onFrame({ kind: 'Line', line: lineOf(frame.record) });
           } else if (frame.type === 'Checkpoint') {
