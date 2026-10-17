@@ -234,7 +234,7 @@ describe('useChatMessages', () => {
   it("carries a message's tool calls off the frame", () => {
     const { result, rerender } = renderMessages();
     expect(print(lastArgs!.query!)).toMatch(
-      /toolCalls \{\s+id\s+name\s+actionKind\s+status\s+runsOn\s+action \{\s+description\s+command \{\s+text\s+cwd\s+background\s+sandboxed\s+network\s+\}\s+read \{\s+path\s+\}\s+write \{\s+path\s+content\s+\}\s+edit \{\s+path\s+oldString\s+newString\s+replaceAll\s+\}\s+search \{\s+query\s+\}\s+fetch \{\s+url\s+host\s+\}\s+memory \{\s+op\s+name\s+body\s+scope\s+\}\s+delegate \{\s+prompt\s+agentType\s+model\s+\}\s+kubeQuery \{\s+sql\s+limit\s+\}\s+logsView \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+anchor \{\s+kind\s+at\s+\}\s+pinToEnd\s+resolvedAt\s+\}\s+\}\s+agentCallID\s+approval \{\s+id\s+status\s+duration\s+\}\s+network\s+clusterWrites \{\s+approval \{\s+id\s+status\s+duration\s+\}\s+action \{\s+summary\s+class\s+context\s+namespace\s+verb\s+group\s+kind\s+grantable\s+commandRule\s+chatRule\s+\}\s+method\s+path\s+subresource\s+contentType\s+body\s+dryRun\s+diff\s+diffCut\s+diffError\s+reason\s+\}\s+output\s+background \{\s+status\s+exitCode\s+report\s+\}\s+\}/,
+      /toolCalls \{\s+id\s+name\s+actionKind\s+status\s+runsOn\s+action \{\s+description\s+command \{\s+text\s+cwd\s+background\s+sandboxed\s+network\s+\}\s+read \{\s+path\s+\}\s+write \{\s+path\s+content\s+\}\s+edit \{\s+path\s+oldString\s+newString\s+replaceAll\s+\}\s+search \{\s+query\s+\}\s+fetch \{\s+url\s+host\s+\}\s+memory \{\s+op\s+name\s+body\s+scope\s+\}\s+delegate \{\s+prompt\s+agentType\s+model\s+\}\s+kubeQuery \{\s+sql\s+limit\s+\}\s+logsView \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+anchor \{\s+kind\s+at\s+\}\s+pinToEnd\s+resolvedAt\s+\}\s+logsRead \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+since\s+until\s+mode\s+resolvedAt\s+lines \{\s+timestamp\s+namespace\s+pod\s+container\s+previous\s+message\s+gap \{\s+after\s+before\s+\}\s+\}\s+dropped\s+before\s+after\s+skipped\s+viewAround \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+anchor \{\s+kind\s+at\s+\}\s+pinToEnd\s+resolvedAt\s+\}\s+\}\s+\}\s+agentCallID\s+approval \{\s+id\s+status\s+duration\s+\}\s+network\s+clusterWrites \{\s+approval \{\s+id\s+status\s+duration\s+\}\s+action \{\s+summary\s+class\s+context\s+namespace\s+verb\s+group\s+kind\s+grantable\s+commandRule\s+chatRule\s+\}\s+method\s+path\s+subresource\s+contentType\s+body\s+dryRun\s+diff\s+diffCut\s+diffError\s+reason\s+\}\s+output\s+background \{\s+status\s+exitCode\s+report\s+\}\s+\}/,
     );
     expect(print(lastArgs!.query!)).toMatch(/citations \{\s+type\s+url\s+title\s+citedText\s+\}/);
     const call = {
@@ -477,6 +477,7 @@ function providerSearch(query: string): SearchFields {
       delegate: null,
       kubeQuery: null,
       logsView: null,
+      logsRead: null,
     },
     agentCallID: null,
   };
@@ -498,6 +499,7 @@ describe('actionKindLabel', () => {
     expect(actionKindLabel('Stop')).toBe('Stop task');
     expect(actionKindLabel('Delegate')).toBe('Agent');
     expect(actionKindLabel('KubeQuery')).toBe('Query');
+    expect(actionKindLabel('LogsRead')).toBe('Read logs');
   });
 });
 
