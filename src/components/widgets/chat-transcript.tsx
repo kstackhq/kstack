@@ -495,6 +495,7 @@ function ToolCalls({
   chatID,
   clusterID,
   mode,
+  ends,
 }: {
   calls: ChatToolCall[];
   byAgent: SubagentCalls;
@@ -502,6 +503,7 @@ function ToolCalls({
   chatID: string;
   clusterID: string | undefined;
   mode: AppMode;
+  ends: ViewEnds;
 }) {
   return (
     <div className="mt-1 text-xs text-muted-foreground">
@@ -516,6 +518,7 @@ function ToolCalls({
               chatID={chatID}
               clusterID={clusterID}
               mode={mode}
+              until={ends.get(call.id) ?? null}
             />
           );
         }
@@ -578,6 +581,7 @@ function ToolCalls({
                   chatID={chatID}
                   clusterID={clusterID}
                   mode={mode}
+                  ends={ends}
                 />
               ) : (
                 <pre className="mt-1 border-l-2 border-muted pl-3 font-mono break-all whitespace-pre-wrap">
@@ -687,6 +691,18 @@ type SubagentCalls = ReadonlyMap<string, ChatToolCall[]>;
 const NO_CALLS: ChatToolCall[] = [];
 const NO_SUBAGENT_CALLS: SubagentCalls = new Map();
 
+/** Where each opened view ends, by call id: the next view's `resolvedAt`, null for the chat's newest. */
+export type ViewEnds = ReadonlyMap<string, string | null>;
+
+/**
+ * The views the chat's calls opened, in transcript order. Only the newest may run live; each
+ * older one stopped being live when the next one resolved. A refused call opened none.
+ */
+export function viewEnds(messages: ChatMessage[]): ViewEnds {
+  const opened = messages.flatMap((message) => message.toolCalls.filter((call) => call.action?.logsView));
+  return new Map(opened.map((call, i) => [call.id, opened[i + 1]?.action?.logsView?.resolvedAt ?? null]));
+}
+
 // An answer's calls split into its own and its subagents', which are drawn
 // inside their Agent call. A subagent's call awaiting approval is in neither: it
 // is the request.
@@ -718,6 +734,7 @@ function AgentBody({
   chatID,
   clusterID,
   mode,
+  ends,
 }: {
   delegate: DelegateAction;
   calls: ChatToolCall[];
@@ -726,6 +743,7 @@ function AgentBody({
   chatID: string;
   clusterID: string | undefined;
   mode: AppMode;
+  ends: ViewEnds;
 }) {
   const kind = delegate.model === '' ? delegate.agentType : `${delegate.agentType} · ${modelLabel(delegate.model)}`;
   return (
@@ -742,6 +760,7 @@ function AgentBody({
           chatID={chatID}
           clusterID={clusterID}
           mode={mode}
+          ends={ends}
         />
       )}
       {report !== '' && (
@@ -1185,6 +1204,7 @@ function Message({
   chatID,
   clusterID,
   mode,
+  ends,
   label,
   labelOf,
   onAskAgain,
@@ -1196,6 +1216,7 @@ function Message({
   /** The chat's cluster, which a view's card sets with it. */
   clusterID: string | undefined;
   mode: AppMode;
+  ends: ViewEnds;
   approveArmMs: number;
   sandboxAvailable: boolean | undefined;
   /** The model this answer ran on, when it differs from the answer before it. */
@@ -1265,6 +1286,7 @@ function Message({
             chatID={chatID}
             clusterID={clusterID}
             mode={mode}
+            ends={ends}
           />
         )}
         {waiting.map(({ call, approval, change }) => (
@@ -1355,6 +1377,7 @@ export function ChatTranscript({
   );
 
   const drawn = messages.filter(isDrawn);
+  const ends = viewEnds(messages);
   // Labelled where the model changed, so a switch is visible where it happened and a
   // chat that stayed on one model — the first answer included — stays unlabelled.
   let ran: string | undefined;
@@ -1405,6 +1428,7 @@ export function ChatTranscript({
         chatID={chatID}
         clusterID={clusterID}
         mode={mode}
+        ends={ends}
         label={label}
         labelOf={labelOf}
         onAskAgain={message.id === last?.id ? onAskAgain : undefined}

@@ -65,6 +65,7 @@ const view: LogsView = {
     grep: 'error|warn',
     anchor: { kind: 'At', at: '2026-10-08T14:02:00Z' },
     pinToEnd: false,
+    resolvedAt: '2026-10-08T14:04:00Z',
   },
 };
 

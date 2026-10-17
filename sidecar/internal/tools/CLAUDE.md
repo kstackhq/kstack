@@ -114,9 +114,9 @@ whose SDK it imports.
 **LogsView is a live view of logs the user looks at, opened by the model's call.** It is `Custom` and `Shown`, never `Gated`, and reads no log line: it checks the call
 against the mirror, hands back a `LogsViewAction` the row keeps, and answers a one-line receipt
 through `safe.Redact`. The action embeds `LogsViewInput` (`services/logs`' `View`, aliased in
-`tools`) plus an `Anchor` and `PinToEnd`; the enums bind member by member in `gqlgen.yml`.
+`tools`) plus an `Anchor`, `PinToEnd` and `ResolvedAt`, the moment it resolved on the tool's clock, which a frozen card reads up to; the enums bind member by member in `gqlgen.yml`.
 `parse.go` is a strict walk (each key once, DNS names, `grep` compiled on one line of at most
-`MaxGrep`). `resolve.go` reads the anchor on the tool's clock, then each source inside one
+`MaxGrep`). `resolve.go` reads the anchor and the moment on the tool's clock, then each source inside one
 `ReadActive`, then runs `logs.Check` so a view the tool opens is one the service reads. **A source
 the mirror does not hold yet opens**: a view waits for it. A refusal is one JSON line with a code,
 never the model's text. It is in `catalog`'s `ours` and `app.go`'s box, and out of `SubagentBox`

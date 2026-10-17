@@ -1,7 +1,7 @@
 ---
 title: The compact inline form
 scope: sidecar, frontend
-status: Planned
+status: Implemented
 ---
 
 # The compact inline form
@@ -122,8 +122,8 @@ or focusing another call brings the window back, frozen or live by §2. On the d
 draws by the same rules, with no Expand.
 
 `ChatTranscript` walks the chat's `LogsView` calls with an action once per render and passes each
-card whether it is the newest, and its *until* moment: the next such call's `resolvedAt`. The
-window waits for the chat's cluster, as Expand does.
+card its *until* moment: the next such call's `resolvedAt`, null for the newest, which alone may
+run live. The window waits for the chat's cluster, as Expand does.
 
 ## Decisions this rung asks for
 
@@ -150,18 +150,21 @@ window waits for the chat's cluster, as Expand does.
 
 ## Tasks
 
+All five tasks are done, in one commit on `log-views-2`.
+
 1. **`resolvedAt`.** `sidecar/graph/schema.graphqls`, `tools/tool.go`'s `LogsViewAction`,
    `tools/logsview` setting it from its clock. `gqlgen generate`; root `pnpm codegen`;
    `src/lib/chats.tsx` selects it.
-2. **The plan.** `src/lib/inline-log-lines.ts`: `inlinePlan(action, live, until)` answers the
-   first read, the direction to read on and which lines to keep, per §2's table;
-   `useInlineLogLines(clusterId, action, live, until)` runs it over `createLogsClient` and holds
-   the eight lines, the notices, the follow and the error.
+2. **The plan.** `src/lib/inline-log-lines.ts`: `inlinePlan(action, until)` answers the first
+   read, the direction to read on and which lines to keep, per §2's table; `InlineLines` holds
+   the eight lines, the notices, the follow and the error; `useInlineLogLines(client, action,
+   until)` runs it over the client the card builds with `createLogsClient`, a parameter so the
+   tests pass `FakeClient`.
 3. **The window.** `src/components/widgets/logs-view-inline.tsx`: the rows of §3 at a fixed
-   height. It reuses the viewer's `LOG_ROW_PX`, stream dot and gap notice, which
+   height. It reuses the viewer's `LOG_ROW_PX`, stream dot, gap notice and `lineTime`, which
    `components/widgets/log-viewer/index.ts` exports beside `LogViewer`.
-4. **The card.** `logs-view-card.tsx` draws the window (§4); `chat-transcript.tsx` passes `live`
-   and `until`.
+4. **The card.** `logs-view-card.tsx` draws the window (§4); `chat-transcript.tsx` passes
+   `until`.
 5. **Docs.** Per *When it lands*.
 
 ## Tests
@@ -178,10 +181,10 @@ TypeScript, beside the files they cover, over `FakeClient`:
   `after` cursor, drops a repeated cursor, keeps the newest eight in timestamp order across
   streams; a live window whose first page was short follows from that page's `after` cursor; a
   short page reads on in its direction until eight lines or no more, and stops at the cap with its
-  notice on the side it stopped; turning `live` off closes the follow and keeps the lines; a live
+  notice on the side it stopped; an *until* arriving closes the follow and keeps the lines; a live
   window that freezes holding lines at or past *until* drops them, and ends on the lines its frozen
-  page reads, whether it kept eight or had to read; a failed first
-  read answers the error; a refused or ended follow keeps the lines with its notice.
+  page reads, whether it kept eight or had to read; a failed first read answers the error; a
+  refused or ended follow keeps the lines with its notice.
 - `src/components/widgets/logs-view-inline.test.tsx`: the window is eight rows high while
   loading, with fewer lines, and with none (*No lines*); a message and a pod name with a
   reordering character are spelled through `VisibleText`; a gap's notice displaces the oldest
@@ -191,8 +194,8 @@ TypeScript, beside the files they cover, over `FakeClient`:
   sidebar is open, and draws it when the sidebar is hidden or the focus clears; the dashboard
   draws the window with no Expand.
 - `src/components/widgets/chat-transcript.test.tsx`: only the newest `LogsView` call with an
-  action is live; each card's *until* is the next such call's `resolvedAt`; a refused newer call
-  neither freezes the older one nor sets its *until*.
+  action is live; each older card's *until* is the next such call's `resolvedAt`; a refused newer
+  call neither freezes the older one nor sets its *until*.
 
 ## Security
 
@@ -206,8 +209,8 @@ sequences before a line reaches the wire, and every message and name on the card
 - `src/CLAUDE.md`: the tool-calls paragraph says a `LogsView` card draws an eight-line window,
   live for the newest pinned `Tail` view, and points at `inline-log-lines.ts`; the focused-view
   paragraph says the card collapses only while the sidebar is open; the log viewer's paragraph
-  says its `index.ts` also exports `LOG_ROW_PX`, the stream dot and the gap notice.
-- `sidecar/CLAUDE.md`: the `LogsView` paragraph mentions `resolvedAt`.
+  says its `index.ts` also exports `LOG_ROW_PX`, the stream dot, the gap notice and `lineTime`.
+- `sidecar/internal/tools/CLAUDE.md`: the `LogsView` paragraph mentions `resolvedAt`.
 - The PR that lands task 1 says a dev `app.db` from before it is reset.
 - This README's row for rung 2 keeps its link until the sequence lands.
 

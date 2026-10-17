@@ -481,11 +481,12 @@ type ComplexityRoot struct {
 	}
 
 	LogsViewAction struct {
-		Anchor   func(childComplexity int) int
-		Filters  func(childComplexity int) int
-		Grep     func(childComplexity int) int
-		PinToEnd func(childComplexity int) int
-		Sources  func(childComplexity int) int
+		Anchor     func(childComplexity int) int
+		Filters    func(childComplexity int) int
+		Grep       func(childComplexity int) int
+		PinToEnd   func(childComplexity int) int
+		ResolvedAt func(childComplexity int) int
+		Sources    func(childComplexity int) int
 	}
 
 	LogsViewAnchor struct {
@@ -2557,6 +2558,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.LogsViewAction.PinToEnd(childComplexity), true
+	case "LogsViewAction.resolvedAt":
+		if e.ComplexityRoot.LogsViewAction.ResolvedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsViewAction.ResolvedAt(childComplexity), true
 	case "LogsViewAction.sources":
 		if e.ComplexityRoot.LogsViewAction.Sources == nil {
 			break
@@ -5107,6 +5114,8 @@ func (ec *executionContext) childFields_LogsViewAction(ctx context.Context, fiel
 		return ec.fieldContext_LogsViewAction_anchor(ctx, field)
 	case "pinToEnd":
 		return ec.fieldContext_LogsViewAction_pinToEnd(ctx, field)
+	case "resolvedAt":
+		return ec.fieldContext_LogsViewAction_resolvedAt(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type LogsViewAction", field.Name)
 }
@@ -13381,6 +13390,29 @@ func (ec *executionContext) _LogsViewAction_pinToEnd(ctx context.Context, field 
 }
 func (ec *executionContext) fieldContext_LogsViewAction_pinToEnd(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("LogsViewAction", field, false, false, errors.New("field of type Boolean does not have child fields"))
+}
+
+func (ec *executionContext) _LogsViewAction_resolvedAt(ctx context.Context, field graphql.CollectedField, obj *tools.LogsViewAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsViewAction_resolvedAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ResolvedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsViewAction_resolvedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LogsViewAction", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
 func (ec *executionContext) _LogsViewAnchor_kind(ctx context.Context, field graphql.CollectedField, obj *tools.LogsViewAnchor) (ret graphql.Marshaler) {
@@ -24664,6 +24696,11 @@ func (ec *executionContext) _LogsViewAction(ctx context.Context, sel ast.Selecti
 			}
 		case "pinToEnd":
 			out.Values[i] = ec._LogsViewAction_pinToEnd(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resolvedAt":
+			out.Values[i] = ec._LogsViewAction_resolvedAt(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}

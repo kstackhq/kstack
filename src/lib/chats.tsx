@@ -133,6 +133,7 @@ const ChatMessagesWatchSubscription = graphql(`
                 at
               }
               pinToEnd
+              resolvedAt
             }
           }
           agentCallID

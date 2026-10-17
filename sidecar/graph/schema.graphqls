@@ -1210,6 +1210,8 @@ type LogsViewAction {
   anchor: LogsViewAnchor!
   "Whether the viewer keeps the end in view as lines arrive. Lines arrive either way; the user can unpin it by hand."
   pinToEnd: Boolean!
+  "When the sidecar resolved the view, on its clock."
+  resolvedAt: Time!
 }
 
 "Where a view opens: an edge of the stream, or a moment in it."

@@ -63,15 +63,17 @@ func TestLogsViewActionEmbedsTheInput(t *testing.T) {
 			Filters: []LogsViewFilter{{Field: LogsFilterZone, Values: []string{"a"}}},
 			Grep:    "err",
 		},
-		Anchor:   LogsViewAnchor{Kind: LogsAnchorAt, At: &at},
-		PinToEnd: true,
+		Anchor:     LogsViewAnchor{Kind: LogsAnchorAt, At: &at},
+		PinToEnd:   true,
+		ResolvedAt: at.Add(time.Minute),
 	}
 
 	raw, err := json.Marshal(action)
 
 	require.NoError(t, err)
 	assert.JSONEq(t, `{"sources":[{"namespace":"prod","kind":"deployment","name":"web","containers":["app"],"allContainers":false,"previous":false}],
-"filters":[{"field":"zone","values":["a"]}],"grep":"err","anchor":{"kind":"at","at":"2026-10-08T14:00:00Z"},"pinToEnd":true}`, string(raw))
+"filters":[{"field":"zone","values":["a"]}],"grep":"err","anchor":{"kind":"at","at":"2026-10-08T14:00:00Z"},"pinToEnd":true,
+"resolvedAt":"2026-10-08T14:01:00Z"}`, string(raw))
 	var view logs.View = action.LogsViewInput
 	assert.Equal(t, "err", view.Grep)
 }

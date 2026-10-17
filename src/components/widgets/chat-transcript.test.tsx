@@ -18,17 +18,36 @@ import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ChatClusterWrite, ChatMessage, ChatToolCall } from '@/lib/chats';
+import type { FetchQuery } from '@/lib/log-viewer';
 
-// One seam: urql's hooks. The outbox is the real one, since Ask again is its
+// The seams: urql's hooks, and the client a view's window reads through, which reads
+// nothing and says what it was asked. The outbox is the real one, since Ask again is its
 // operation, and so is the catalog the label reads.
-const { sendMock, catalog } = vi.hoisted(() => ({ sendMock: vi.fn(), catalog: { current: {} } }));
-vi.mock('urql', () => ({ useMutation: () => [{}, sendMock], useQuery: () => [catalog.current, vi.fn()] }));
+const { sendMock, catalog, fetched } = vi.hoisted(() => ({
+  sendMock: vi.fn(),
+  catalog: { current: {} },
+  fetched: [] as FetchQuery[],
+}));
+vi.mock('urql', () => ({
+  useMutation: () => [{}, sendMock],
+  useQuery: () => [catalog.current, vi.fn()],
+  useClient: () => ({}),
+}));
+vi.mock('@/lib/logs-client', () => ({
+  createLogsClient: () => ({
+    fetch: (query: FetchQuery) => {
+      fetched.push(query);
+      return new Promise(() => {});
+    },
+    follow: () => () => {},
+  }),
+}));
 
 const { ChatOutboxProvider } = await import('@/lib/chat-outbox');
 const { chatGrantsContext } = await import('@/lib/chat-grants');
 const { LogsViewProvider, useLogsView } = await import('@/lib/logs-view');
 const { RightSidebarProvider } = await import('@/lib/right-sidebar');
-const { APPROVE_ARM_MS, ChatTranscript } = await import('./chat-transcript');
+const { APPROVE_ARM_MS, ChatTranscript, viewEnds } = await import('./chat-transcript');
 
 const opus = {
   provider: { id: 'anthropic', label: 'Anthropic' },
@@ -47,6 +66,7 @@ const fake = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  fetched.length = 0;
   catalog.current = { fetching: false, data: { models: [fake, opus] } };
   sendMock.mockResolvedValue({ data: { chatSend: { id: 'm9', chatID: 'c1', seq: 9, status: 'Streaming' } } });
 });
@@ -241,12 +261,52 @@ const logsViewCall = (over: Partial<ChatToolCall> = {}) =>
         grep: '',
         anchor: { kind: 'Tail', at: null },
         pinToEnd: false,
+        resolvedAt: '2026-10-08T14:04:00Z',
       },
     },
     ...over,
   });
 
+// A pinned tail view, resolved at `resolvedAt`.
+const pinnedView = (id: string, resolvedAt: string) => {
+  const opened = logsViewCall().action!;
+  return logsViewCall({ id, action: { ...opened, logsView: { ...opened.logsView!, pinToEnd: true, resolvedAt } } });
+};
+const T1 = '2026-10-08T14:01:00Z';
+const T2 = '2026-10-08T14:02:00Z';
+const T3 = '2026-10-08T14:03:00Z';
+
+describe('viewEnds', () => {
+  it('ends each view at the next one’s moment, and the chat’s newest nowhere', () => {
+    const ends = viewEnds([
+      msg({ id: 'm1', seq: 1, toolCalls: [pinnedView('a', T1)] }),
+      msg({ id: 'm2', seq: 2, content: [{ type: 'text', text: 'again' }], role: 'User', toolCalls: [] }),
+      msg({ id: 'm3', seq: 3, toolCalls: [pinnedView('b', T2), pinnedView('c', T3)] }),
+    ]);
+    expect(ends).toEqual(
+      new Map([
+        ['a', T2],
+        ['b', T3],
+        ['c', null],
+      ]),
+    );
+  });
+
+  it('passes over a refused newer call', () => {
+    const refused = logsViewCall({ id: 'r', status: 'Failed', action: null, output: '{"error":"not-found"}' });
+    expect(viewEnds([msg({ toolCalls: [pinnedView('a', T1), refused] })])).toEqual(new Map([['a', null]]));
+  });
+});
+
 describe('ChatTranscript', () => {
+  it('runs only the newest view live, and reads the older one up to the newer one’s moment', () => {
+    draw([msg({ status: 'Complete', toolCalls: [pinnedView('a', T1), pinnedView('b', T2)] })]);
+    expect(fetched).toEqual([
+      { mode: 'Around', cursor: null, at: T2, limit: 8 },
+      { mode: 'Tail', cursor: null, at: null, limit: 8 },
+    ]);
+  });
+
   it('draws a LogsView call that opened as a card with Expand, and one refused as Logs', () => {
     draw([
       msg({
