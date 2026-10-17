@@ -60,7 +60,7 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   A page resolves, files streams, adds gone pods' streams the file holds (`filestreams.go`), fills
   gaps from the backends (`fill.go`), walks (`walk.go`) and merges (`merge.go`). **A read is
   written a window at a time** (`readItem.windowEnd`): each window once the next starts, checked
-  against the mirror first, stamped; the read's last window takes the
+  against the mirror first, stamped, in batches of `WriteBatch`; the read's last window takes the
   links its end proves. The walks read up to `maxWalkBudget` (64 MiB) across the page's streams.
   A page never passes lines a stream did not read: a short stop becomes the cut. **A change to a read path answers to `TestPagesJoinWithoutLossOrRepeat` and
   `TestTheFileKeepsItsInvariant`** (seeded; fewer seeds under `-short`).

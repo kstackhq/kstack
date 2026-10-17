@@ -769,6 +769,29 @@ func TestAnEmptyWindowIsLinkedOver(t *testing.T) {
 	assert.Equal(t, []logstore.Span{{From: sec(1), To: sec(9)}}, spansOf(t, svc, f))
 }
 
+// A window is written in batches of WriteBatch lines or WriteBatchBytes: the first
+// keeps the window's link down and its head, each next one extends the chunk the one
+// before it wrote, and the last keeps its link up and its end.
+func TestAWindowIsWrittenInBatches(t *testing.T) {
+	t.Parallel()
+	ret := testRetention
+	ret.WriteBatch, ret.WriteBatchBytes = 2, 1<<20
+	window := logstore.Fill{
+		Stream: 3, Origin: "kubelet", Lines: []logstore.Line{said(1, "1"), said(2, "2"), said(3, "3"), said(4, "4"), said(5, "5")},
+		Prev: new(sec(0)), Merge: true, Next: new(sec(9)), Head: true, AtEnd: true,
+	}
+
+	assert.Equal(t, []logstore.Fill{
+		{Stream: 3, Origin: "kubelet", Lines: []logstore.Line{said(1, "1"), said(2, "2")}, Prev: new(sec(0)), Merge: true, Head: true},
+		{Stream: 3, Origin: "kubelet", Lines: []logstore.Line{said(3, "3"), said(4, "4")}, Prev: new(sec(2)), Merge: true},
+		{Stream: 3, Origin: "kubelet", Lines: []logstore.Line{said(5, "5")}, Prev: new(sec(4)), Merge: true, Next: new(sec(9)), AtEnd: true},
+	}, batches(window, ret))
+
+	ret.WriteBatch, ret.WriteBatchBytes = 100, 2
+	assert.Len(t, batches(window, ret), 3, "two bytes a batch")
+	assert.Equal(t, []logstore.Fill{{Stream: 3, Next: new(sec(9)), Head: true}}, batches(logstore.Fill{Stream: 3, Next: new(sec(9)), Head: true}, ret), "a window with no line")
+}
+
 // A Tail page from the end of a finished instance marks the newest chunk it wrote
 // at_end, from the read's first window, whether older windows follow it or the page
 // fills inside it; a Head page to the end then asks the kubelet nothing.

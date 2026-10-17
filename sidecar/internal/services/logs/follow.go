@@ -1128,7 +1128,7 @@ func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) {
 	ps := tr.pageStream()
 	ps.st = &st
 	fl := &filler{
-		file: f.file, clusters: f.s.clusters, id: f.id, ps: ps, backends: f.backends, names: f.names,
+		file: f.file, clusters: f.s.clusters, id: f.id, ret: f.s.files.Retention(), ps: ps, backends: f.backends, names: f.names,
 		q:      pageQuery{view: f.view, grep: f.grep, mode: FetchHead, limit: MaxLimit},
 		budget: newBudget(f.s.budget / int64(max(len(f.wanted), 1))),
 	}

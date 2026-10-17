@@ -321,7 +321,7 @@ func (p *page) fillQuery(ctx context.Context, q pageQuery, backends []Backend, s
 			continue
 		}
 		f := &filler{
-			file: p.file, clusters: p.s.clusters, id: p.id, save: p.save, ps: ps, backends: backends, names: p.backends,
+			file: p.file, clusters: p.s.clusters, id: p.id, save: p.save, ret: p.s.files.Retention(), ps: ps, backends: backends, names: p.backends,
 			q: q, budget: newBudget(share), walk: newBudget(p.walkShare),
 		}
 		if seams != nil {

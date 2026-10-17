@@ -62,6 +62,8 @@ type filler struct {
 	clusters cluster.Service
 	id       cluster.ClusterID
 	save     func(context.Context, []logstore.Fill) (logstore.Written, error)
+	// ret cuts a window into the batches a write files.
+	ret      logstore.Retention
 	ps       pageStream
 	backends []Backend
 	names    []string
@@ -345,10 +347,10 @@ func (f *filler) atEnd(upper *logstore.Pos, first bool, lines []logstore.Line) b
 	return upper == nil && first && f.ps.st.finished() && len(lines) > 0
 }
 
-// write files window, one window's fill, once the mirror shows the stream's pod
-// still runs the instance it was resolved as, and is whether the read may go on. The
-// mirror lags a restart, while the kubelet serves whichever instance runs now: a
-// stream that restarted is skipped, and what it wrote before stays.
+// write files window, one window's fill, in batches, once the mirror shows the
+// stream's pod still runs the instance it was resolved as, and is whether the read
+// may go on. The mirror lags a restart, while the kubelet serves whichever instance
+// runs now: a stream that restarted is skipped, and what it wrote before stays.
 func (f *filler) write(ctx context.Context, window logstore.Fill) (bool, error) {
 	serves, err := f.serves(ctx)
 	if err != nil {
@@ -358,7 +360,7 @@ func (f *filler) write(ctx context.Context, window logstore.Fill) (bool, error) 
 		f.out = streamFill{err: errRestarted, wrote: f.out.wrote}
 		return false, nil
 	}
-	w, err := f.save(ctx, []logstore.Fill{window})
+	w, err := f.save(ctx, batches(window, f.ret))
 	if err != nil {
 		return false, err
 	}
@@ -372,6 +374,33 @@ func (f *filler) write(ctx context.Context, window logstore.Fill) (bool, error) 
 		f.out.newest = new(window.Lines[len(window.Lines)-1].Pos)
 	}
 	return true, nil
+}
+
+// batches is window cut into fills of at most ret's WriteBatch lines or
+// WriteBatchBytes, oldest first: the first keeps its Prev, Merge and Head, each next
+// one extends the chunk the one before it ends, and the last keeps its Next and AtEnd.
+func batches(window logstore.Fill, ret logstore.Retention) []logstore.Fill {
+	if len(window.Lines) == 0 {
+		return []logstore.Fill{window}
+	}
+	var out []logstore.Fill
+	for lines := window.Lines; len(lines) > 0; {
+		n, bytes := 0, int64(0)
+		for n < len(lines) && n < ret.WriteBatch && bytes < ret.WriteBatchBytes {
+			bytes += int64(len(lines[n].Message))
+			n++
+		}
+		b := window
+		b.Lines, b.Next, b.AtEnd = lines[:n], nil, false
+		if len(out) > 0 {
+			before := out[len(out)-1].Lines
+			b.Prev, b.Merge, b.Head = &before[len(before)-1].Pos, true, false
+		}
+		out = append(out, b)
+		lines = lines[n:]
+	}
+	out[len(out)-1].Next, out[len(out)-1].AtEnd = window.Next, window.AtEnd
+	return out
 }
 
 // serves is whether the mirror shows the stream's pod running the instance it was

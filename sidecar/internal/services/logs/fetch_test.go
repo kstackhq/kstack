@@ -144,7 +144,10 @@ func TestPagesJoinWithoutLossOrRepeat(t *testing.T) {
 			rng := rand.New(rand.NewSource(int64(seed)))
 			s, objects, all := randomLogs(rng)
 			kept, runs := rotateAway(rng, s, all)
-			svc, f := serviceOver(t, newMirror(t, objects...), s)
+			// Windows written in batches of a few lines or bytes, so batches join too.
+			ret := testRetention
+			ret.WriteBatch, ret.WriteBatchBytes = 1+rng.Intn(4), int64(1+rng.Intn(64))
+			svc, f := serviceIn(t, newMirror(t, objects...), s, t.TempDir(), ret)
 			for key, held := range runs {
 				var fills []logstore.Fill
 				for _, run := range held {
