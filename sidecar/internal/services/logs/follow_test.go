@@ -1582,28 +1582,68 @@ func TestAFillOfAStreamThatLeftTheViewIsNotSent(t *testing.T) {
 	assert.Equal(t, "from web-2", recvLine(t, stream, "web-2's line").Message)
 }
 
-// A gap fill of a container's instance before its restart is thrown away: the new
-// instance is followed, and the old fill's lines are not sent.
+// A gap fill of a container's instance before its restart is thrown away once the
+// follow reads the new instance's row: the new instance is followed, and the old
+// fill's lines are not sent.
 func TestAFillOfARestartedInstanceIsThrownAway(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
+	s.add("prod/web-1/app", stamped(10*time.Minute, "in the gap"), stamped(30*time.Minute, "1800"))
 	asked, release := holdFill(t, s, "prod/web-1/app")
-	_, f, stream, _ := liveGap(t, s, false, stamped(10*time.Minute, "in the gap"))
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, s)
+	// The old instance's dropped tailer is held for the hour, never tailed again.
+	svc.retry, svc.retryCap = time.Hour, time.Hour
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
+	stream, _ := followWeb1(t, svc, cursor(0))
 	closeSnapshot(t, f, f.pods)
 	asked.Wait(t, "web-1's gap fill")
 
+	s.end("prod/web-1/app")
+	awaitClosed(t, s, "prod/web-1/app")
+	s.resume("prod/web-1/app")
 	restartWeb1(t, f, s)
-	read := testutil.NewProbe[struct{}](1)
-	f.set(func() { f.mirrorRead = read })
 	f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
-	read.Await(t, "the restart's resolve")
-	f.set(func() { f.mirrorRead = nil })
+	require.Eventually(t, func() bool { return s.followsOpened("prod/web-1/app") >= 2 },
+		testutil.Timeout, time.Millisecond, "the new instance's tailer")
 	close(release)
 
 	s.add("prod/web-1/app", stamped(40*time.Minute, "new"))
 	rec := recvLine(t, stream, "the new instance's line")
 	assert.Equal(t, "new", rec.Message)
 	assert.Equal(t, containerID("uid-web-1", "app", 1), rec.ContainerID)
+}
+
+// A gap fill whose check of the mirror fails ends the follow with the mirror's error.
+func TestAFillWhoseInstanceCheckFailsEndsTheFollow(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	asked, release := holdFill(t, s, "prod/web-1/app")
+	_, f, stream, _ := liveGap(t, s, false, stamped(10*time.Minute, "in the gap"))
+	asked.Wait(t, "web-1's gap fill")
+
+	broken := errors.New("mirror broken")
+	f.set(func() { f.readActiveErr = broken })
+	close(release)
+
+	assert.ErrorIs(t, failsWith(t, stream), broken)
+}
+
+// A gap fill its budget cuts before its first line reads nothing: the stream is held
+// and filled again after its backoff.
+func TestAFillCutBeforeItsFirstLineIsRetried(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(10*time.Minute, "in the gap"), stamped(30*time.Minute, "1800"))
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, s)
+	f.chunk(1)
+	svc.budget = 1
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
+	followWeb1(t, svc, cursor(0))
+
+	require.Eventually(t, func() bool { return fills(s, "prod/web-1/app") >= 2 },
+		testutil.Timeout, time.Millisecond, "the fill retried")
 }
 
 // A follow's gap fill is not stamped, since what it fetched is in the viewer's window,

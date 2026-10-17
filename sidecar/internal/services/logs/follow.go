@@ -1134,12 +1134,10 @@ func (f *follow) readGap(ctx context.Context, fl *filler, g logstore.Gap, wm log
 	if len(d.out.fills) == 0 {
 		return d
 	}
-	w, release, err := f.file.WriteHeld(ctx, d.out.fills)
-	if err != nil {
-		d.err = err
-		return d
-	}
-	d.release, d.skipped = release, len(w.Skipped) > 0
+	// On an error nothing is held, and the release is a no-op.
+	var w logstore.Written
+	w, d.release, d.err = f.file.WriteHeld(ctx, d.out.fills)
+	d.skipped = len(w.Skipped) > 0
 	return d
 }
 
