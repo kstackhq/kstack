@@ -33,14 +33,14 @@ follow from the file and never from the tailer. Checkpoints are true by construc
 
 ### 1. The writer and the commit bus
 
-`logstore/writer.go`. One goroutine per open file owns every tail write. Tailers reach it
-through a `gochan` `mpsc` with `WithKeepOpen`, one sender per tailer, closed when the tailer
-ends, bounded to `WriteQueue` batches. A batch closes at `WriteBatch` lines or
-`WriteBatchBytes`, whichever comes first, so the queue's worst case is bytes and not lines. The
-writer drains what has arrived every `WriteTick` or when a batch closes, writes it in one `InTx` extending each stream's `open` chunk, and after
-the commit sends on a `gobus/conflate` bus keyed by stream id, one coalesced ping per stream
-written. Fills from step 3 keep writing directly on the writer connection; SQLite's one writer
-serializes the two.
+`logstore/writer.go`. One goroutine per open file owns every tail write. Tailers reach it through a
+`gochan` `mpsc` with `WithKeepOpen`, one sender per tailer, closed when the tailer ends, bounded to
+`WriteQueue` batches. A batch closes at `WriteBatch` lines or `WriteBatchBytes`, whichever comes
+first, so the queue's worst case is bytes and not lines. The writer drains what has arrived every
+`WriteTick` or when a batch closes, writes it in one `InTx` extending each stream's `open` chunk,
+and after the commit sends on a `gobus/conflate` bus keyed by stream id, one coalesced ping per
+stream written. Fills from step 3 keep writing directly on the writer connection; SQLite's one
+writer serializes the two.
 
 ### 2. The registry and the tailers
 
@@ -49,12 +49,13 @@ serializes the two.
 kinds, each kept `TailGrace` after its last holder lets go. A follow's reconcile asks it for
 the streams the view wants at each generation; the registry starts a tailer that is not
 running, attaches to one that is, and detaches on the next reconcile for a stream the view no
-longer wants. A tailer is `Source.Tail` from the moment of the stream's newest chunk's last
-line, or the follow's `after`, or now. It hands its lines to the writer. A `Fatal` failure ends
-every follow on the file, a `Denied` one ends the stream, a `Transient` one is retried under the
-follow's backoff. A reconcile that sees an instance finish sets `finished_at`, ends its tailer,
+longer wants. A tailer is `Backend.Tail` from the moment of the stream's newest chunk's last line,
+or the follow's `after`, or now. It hands its lines to the writer. A `Fatal` failure ends every
+follow on the file, an `Ended` one holds the stream until its generation moves, a `Denied` one the
+same with the reason remembered, a `Transient` one is retried under the follow's backoff (the four
+kinds are step 2's). A reconcile that sees an instance finish sets `finished_at`, ends its tailer,
 and the tailer's last read, reaching the end, marks the chunk `at_end`. The registry asks for one
-tailer per stream; a source may share a connection underneath.
+tailer per stream; a backend may share a connection underneath.
 
 ### 3. The follow
 
@@ -97,10 +98,11 @@ Go, beside the files they cover. Every wait is on a channel or the bus; `WriteTi
   a ping per stream written and none for a stream not written; a tailer whose sender closes
   leaves the hub open for the others.
 - `registry_test.go`: two follows share one tailer; a tailer and its watches survive
-  `TailGrace` and a follow attaching inside it causes no new `Source.Tail`, while one after it
+  `TailGrace` and a follow attaching inside it causes no new `Backend.Tail`, while one after it
   does; a stream the view drops detaches on the next reconcile; a finished instance ends its
-  tailer and leaves an `at_end` chunk; a `Fatal` tailer ends every follow and a `Denied` one ends
-  its stream alone.
+  tailer and leaves an `at_end` chunk; a `Fatal` tailer ends every follow, a `Denied` one ends
+  its stream alone, an `Ended` one is started again only once the generation moves, and a
+  `Transient` one after the backoff.
 - `follow_test.go`: the existing cases over the file; a follow gets its first frame within one
   tick of a tailer's first line; a reopen `after` a checkpoint sends no line twice and misses
   none; a backfill written by a page while a follow runs is not sent; a follow wakes only on
@@ -112,7 +114,7 @@ Go, beside the files they cover. Every wait is on a channel or the bus; `WriteTi
 ## Security
 
 **Widens:** nothing beyond step 3. The follow reads the file, so it shows nothing a page could
-not. Tailers run over the kubelet source's claims, so a disabled or deleted cluster ends them
+not. Tailers run over the kubelet backend's claims, so a disabled or deleted cluster ends them
 through `Fatal`.
 
 **Residual:** a tailer in its grace keeps reading a log nobody is watching for up to

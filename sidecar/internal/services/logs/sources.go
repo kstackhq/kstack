@@ -111,7 +111,8 @@ type stream struct {
 
 // generation is which log a stream's path serves now: the pod's UID, since a pod
 // replaced under the same name has a new one; the runtime id of the instance read,
-// since a restart starts a new one; and the container's state, since a running
+// since a restart starts a new one, which names the stream in each line's
+// position; and the container's state, since a running
 // container's log can still grow and a finished one's cannot. A follow reopens a
 // stream whose generation moved.
 type generation struct {
@@ -266,7 +267,8 @@ func (r reading) mirrors(kind mirrorKind) (bool, error) {
 }
 
 // streams is one stream per container of each of src's pods that the filters
-// keep, the source at index i, and src's state. A kind the cache does not mirror
+// keep and whose runtime id a position takes, the source at index i, and src's
+// state. A kind the cache does not mirror
 // is refused, since no object of it could ever appear to follow. The statement
 // reads at most one row past maxStreams, which is enough to refuse the view.
 func (r reading) streams(i int, src ViewSource, filters []ViewFilter) ([]stream, SourceState, error) {
@@ -296,11 +298,18 @@ func (r reading) streams(i int, src ViewSource, filters []ViewFilter) ([]stream,
 		if src.Previous || instance == "" {
 			instance = cluster.CellText(row[5])
 		}
+		// The id is the cluster's text, and a page's cursor carries it.
+		if !validContainerID(instance) {
+			continue
+		}
 		streams = append(streams, stream{
 			key:   StreamKey{Namespace: src.Namespace, Pod: cluster.CellText(row[0]), Container: cluster.CellText(row[1]), Previous: src.Previous},
 			place: Place{Node: cluster.CellText(row[2])},
 			gen:   generation{uid: cluster.CellText(row[3]), instance: instance, state: cluster.CellText(row[6])},
 		})
+	}
+	if len(streams) == 0 {
+		return nil, Idle, nil
 	}
 	return streams, Reading, nil
 }

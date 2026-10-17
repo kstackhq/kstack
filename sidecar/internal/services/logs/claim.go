@@ -148,21 +148,6 @@ func connectable(c *cluster.Cluster) bool {
 	return c.Spec.Enabled && c.DeletionRequestedAt == nil && c.KubeContext() != ""
 }
 
-// fatal is the error that fails a whole read when err ends one stream: the
-// cluster refusing the user's credentials (401), which are not one pod's state, or
-// Kstack no longer connecting to it. Nil for any other, a 403 included: access to
-// pods/log is granted per namespace, so it is that stream's alone.
-func fatal(err error) error {
-	var se *statusError
-	if errors.As(err, &se) && se.code == http.StatusUnauthorized {
-		return Refusal{"the cluster refused to show this log: " + se.Error()}
-	}
-	if errors.Is(err, ErrRevoked) {
-		return ErrRevoked
-	}
-	return nil
-}
-
 // get is one GET of path with query on the claimed server, through the
 // connection's own client, so the user's credentials authenticate it. The body is
 // read as a stream: it ends when ctx does, when the claim is revoked (ErrRevoked),

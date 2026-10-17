@@ -83,7 +83,7 @@ func TestAMomentMustBeAnInteger(t *testing.T) {
 	f := openTestFile(t)
 	stream := insertStream(t, f)
 
-	_, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, source, head, at_end, open, bytes, read_at_ms)
+	_, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, origin, head, at_end, open, bytes, read_at_ms)
 		VALUES (?, '', 'yesterday', 0, 2, 0, 'kubelet', 0, 0, 0, 0, 0)`, stream)
 
 	assert.ErrorContains(t, err, "cannot store TEXT value in INTEGER column")

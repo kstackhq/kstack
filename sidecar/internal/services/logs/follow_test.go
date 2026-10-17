@@ -1124,7 +1124,7 @@ func TestAHeldStreamWaitsOutItsBackoff(t *testing.T) {
 	require.NoError(t, err)
 	f := &follow{
 		s: svc, id: "7", view: View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}}}},
-		claim: c, target: target{serverUID: "uid-1"}, fan: newFanIn(), streams: map[StreamKey]*tracked{},
+		claim: c, backend: kubelet{c.get}, target: target{serverUID: "uid-1"}, fan: newFanIn(), streams: map[StreamKey]*tracked{},
 		nodes: map[string]Place{}, deleted: map[string]string{}, podUIDs: map[string]string{}, gone: map[string]bool{},
 		dueHub: mpsc.New[StreamKey](0, mpsc.WithKeepOpen()),
 	}
@@ -1159,16 +1159,6 @@ func TestADroppingStreamBacksOff(t *testing.T) {
 	tr.stream = &opened{read: r}
 	f.accept(headed{Record{Stream: r.key}, r})
 	assert.Zero(t, tr.drops)
-}
-
-// A stream ends quietly for the log's sake on a status under 500, and is dropped
-// on any other failure.
-func TestDropped(t *testing.T) {
-	t.Parallel()
-	assert.False(t, dropped(nil))
-	assert.False(t, dropped(&statusError{code: http.StatusBadRequest}))
-	assert.True(t, dropped(&statusError{code: http.StatusInternalServerError}))
-	assert.True(t, dropped(errors.New("connection reset")))
 }
 
 // A follow whose view grows past what Kstack reads at once ends, saying so.
