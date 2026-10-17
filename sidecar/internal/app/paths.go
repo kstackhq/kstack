@@ -34,7 +34,8 @@ import (
 //	  chats/<chat id>/                     chat: results/, tasks/, workspace/
 //	  monitor/<cluster id>/                chat: a monitor's results/, workspace/, toolhome/
 //	<cache>/                               what Kstack rebuilds
-//	  kubestore/<cache id>.db              cluster: the mirror
+//	  kube/<cache id>.db                   cluster: the mirror
+//	  logs/<cache id>.db                   logs: the cache's log lines
 //	  kubectl/<cluster id>/<server>/       bash: the kubectl cache
 //	  tmp/<pid>-*/, tmp/<pid>.lock         bash: a sandboxed run's TMPDIR, the sidecar's lock
 //	<runtime>/                             what lives for a session
@@ -46,6 +47,7 @@ type paths struct {
 	SettingsFile string
 	ChatsDir     string
 	MonitorDir   string
+	LogsDir      string
 	Cluster      cluster.Paths
 	Bash         bash.Paths
 }
@@ -62,9 +64,10 @@ func pathsOf(cfg Config) paths {
 		SettingsFile: filepath.Join(data, "settings.json"),
 		ChatsDir:     filepath.Join(data, "chats"),
 		MonitorDir:   filepath.Join(data, "monitor"),
+		LogsDir:      filepath.Join(cache, "logs"),
 		Cluster: cluster.Paths{
 			BeehiveDBFile: filepath.Join(data, "beehive.db"),
-			KubestoreDir:  filepath.Join(cache, "kubestore"),
+			KubestoreDir:  filepath.Join(cache, "kube"),
 		},
 		Bash: bash.Paths{
 			ShellDir:   filepath.Join(runtime, "shell"),
