@@ -179,7 +179,8 @@ func TestASourceInTheMirrorOpens(t *testing.T) {
 			Sources: []tools.LogsViewSource{{Namespace: "prod", Kind: tools.LogsSourceDeployment, Name: "webapp", Containers: []string{}}},
 			Filters: []tools.LogsViewFilter{},
 		},
-		Anchor: tools.LogsViewAnchor{Kind: tools.LogsAnchorTail},
+		Anchor:     tools.LogsViewAnchor{Kind: tools.LogsAnchorTail},
+		ResolvedAt: clock,
 	}, view)
 	assert.Contains(t, f.queried[0].sql, "o.api_version = ? AND o.kind = ? AND o.namespace = ? AND o.name = ?")
 	assert.Equal(t, []any{"apps/v1", "Deployment", "prod", "webapp"}, f.queried[0].args)
@@ -359,6 +360,12 @@ func TestTheAnchorIsReadOnTheClock(t *testing.T) {
 	}
 	_, view := viewOf(t, watching(t), webapp)
 	assert.Equal(t, tools.LogsViewAnchor{Kind: tools.LogsAnchorTail}, view.Anchor, "absent is tail")
+}
+
+func TestTheViewIsResolvedOnTheClock(t *testing.T) {
+	t.Parallel()
+	_, view := viewOf(t, watching(t), webapp)
+	assert.Equal(t, clock, view.ResolvedAt)
 }
 
 func TestAnUnreadableAnchorIsRefused(t *testing.T) {

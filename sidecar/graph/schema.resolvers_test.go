@@ -1629,9 +1629,10 @@ func newChatServerOn(t *testing.T, status sandbox.Status, svc *settings.Service)
 	fake := llm.NewFake(0)
 	cat := catalog.New(catalog.Config{Fake: fake})
 	llmSvc := llm.New(cat.Providers()...)
-	// The search is offered, since a test stages a turn that searched; the rest
-	// is read alone, so no call runs while stored calls still show.
-	box := tools.NewBox([]tools.Tool{agent.New(), anthropicwebsearch.New(time.Now)}, bash.Reader{}, &read.Tool{}, &write.Tool{}, &edit.Tool{}, &webfetch.Tool{}, taskstop.New(), memorytool.New(nil), kubequery.New(nil), logsview.New(nil, time.Now))
+	// The search is offered, since a test stages a turn that searched, and LogsView
+	// answering one fixed view; the rest is read alone, so no call runs while stored
+	// calls still show.
+	box := tools.NewBox([]tools.Tool{agent.New(), anthropicwebsearch.New(time.Now), openedView{logsview.New(nil, time.Now)}}, bash.Reader{}, &read.Tool{}, &write.Tool{}, &edit.Tool{}, &webfetch.Tool{}, taskstop.New(), memorytool.New(nil), kubequery.New(nil))
 	chatSvc, err := chat.New(db, filepath.Join(t.TempDir(), "chats"), filepath.Join(t.TempDir(), "monitor"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status, svc)
 	require.NoError(t, err)
 	stop, err := chatSvc.Start(t.Context())
@@ -1646,6 +1647,30 @@ func newChatServerOn(t *testing.T, status sandbox.Status, svc *settings.Service)
 	}))
 	t.Cleanup(srv.Close)
 	return srv, db, fake
+}
+
+// openedView is LogsView opening viewOpened whatever it is asked, so a call shows
+// a view with no mirror behind it.
+type openedView struct{ *logsview.Tool }
+
+var viewOpened = tools.LogsViewAction{
+	LogsViewInput: tools.LogsViewInput{
+		Sources: []tools.LogsViewSource{{Namespace: "prod", Kind: tools.LogsSourceDeployment, Name: "webapp", Containers: []string{}}},
+		Filters: []tools.LogsViewFilter{},
+	},
+	Anchor:     tools.LogsViewAnchor{Kind: tools.LogsAnchorTail},
+	PinToEnd:   true,
+	ResolvedAt: time.Date(2026, 10, 8, 14, 4, 0, 0, time.UTC),
+}
+
+func (openedView) RunShown(context.Context, tools.Runtime, json.RawMessage) (string, bool, *tools.Action) {
+	view := viewOpened
+	return "Viewing deployments/webapp in prod at the newest line, pinned to the end.", false, &tools.Action{LogsView: &view}
+}
+
+func (o openedView) Run(ctx context.Context, rt tools.Runtime, input json.RawMessage) (string, bool) {
+	text, isError, _ := o.RunShown(ctx, rt, input)
+	return text, isError
 }
 
 // mutate posts one operation and returns its data, failing on any error in the response.
@@ -2609,6 +2634,26 @@ func TestAKubeQueryCallServesItsQuery(t *testing.T) {
 	})
 	assert.Equal(t, []any{map[string]any{"action": map[string]any{
 		"description": "Count the pods", "kubeQuery": map[string]any{"sql": "SELECT 1", "limit": float64(5)},
+	}}}, frame["message"].(map[string]any)["toolCalls"])
+}
+
+// A LogsView call serves the view it opened, with the moment it was resolved.
+func TestALogsViewCallServesWhenItResolved(t *testing.T) {
+	srv, _, fake := newChatServerOver(t)
+	fake.SetToolCalls(llm.StagedCall(logsview.Name, `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}]}`))
+	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
+		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
+
+	resp, events := chatFrames(t, srv, `subscription { chatMessagesWatch(chatID: "`+sent["chatSend"].(map[string]any)["chatID"].(string)+`") {
+		message { seq status toolCalls { action { logsView { pinToEnd resolvedAt } } } } } }`)
+	defer resp.Body.Close()
+
+	frame := awaitChatFrame(t, events, func(f map[string]any) bool {
+		msg, ok := f["message"].(map[string]any)
+		return ok && msg["seq"] == float64(1) && msg["status"] == "Complete"
+	})
+	assert.Equal(t, []any{map[string]any{"action": map[string]any{
+		"logsView": map[string]any{"pinToEnd": true, "resolvedAt": "2026-10-08T14:04:00Z"},
 	}}}, frame["message"].(map[string]any)["toolCalls"])
 }
 

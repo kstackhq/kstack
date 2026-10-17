@@ -308,11 +308,13 @@ type KubeQueryAction struct {
 // LogsViewAction is a live view of logs the user looks at: the LogsViewInput the
 // log backend reads, then the Anchor the view opens at and PinToEnd, whether the
 // viewer keeps the end in view as lines arrive. Those two are the viewer's, so the
-// backend never sees them.
+// backend never sees them. ResolvedAt is when the tool resolved it, on its clock:
+// the moment a view that no longer runs shows its lines up to.
 type LogsViewAction struct {
 	LogsViewInput
-	Anchor   LogsViewAnchor `json:"anchor"`
-	PinToEnd bool           `json:"pinToEnd"`
+	Anchor     LogsViewAnchor `json:"anchor"`
+	PinToEnd   bool           `json:"pinToEnd"`
+	ResolvedAt time.Time      `json:"resolvedAt"`
 }
 
 // LogsViewAnchor is where a view opens: an edge of the stream, or the moment At,
