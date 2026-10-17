@@ -151,20 +151,39 @@ func (w *writer) flush() {
 
 // closeEnded closes the chunk of each tail that batches end, each in a write of its
 // own: the write that was to close it failed, and no write of the tail's follows it.
+// A chunk this close fails too is left to the janitor's next sweep.
 func (w *writer) closeEnded(batches []batch, tails map[*Tail]tailState) {
 	for _, b := range batches {
 		s := tails[b.tail]
 		if b.last == nil || s.chunk == nil {
 			continue
 		}
-		err := w.f.set.InTx(w.f.ctx, func(st stmts) error {
-			_, err := st.Exec(w.f.ctx, stmtCloseChunk, s.chunk.ID)
-			return err
-		})
-		if err != nil && w.f.ctx.Err() == nil {
-			slog.Warn("log store: a tail's chunk could not be closed", "err", err)
+		if _, err := w.f.set.Stmts().Exec(w.f.ctx, stmtCloseChunk, s.chunk.ID); err != nil {
+			if w.f.ctx.Err() == nil {
+				slog.Warn("log store: a tail's chunk could not be closed", "err", err)
+			}
+			w.f.unclosedMu.Lock()
+			w.f.unclosed = append(w.f.unclosed, s.chunk.ID)
+			w.f.unclosedMu.Unlock()
 		}
 	}
+}
+
+// closeUnclosed closes each chunk whose close closeEnded failed, keeping those that
+// fail again for the next call. Its tail has ended, so no write extends it.
+func (f *file) closeUnclosed(ctx context.Context) error {
+	f.unclosedMu.Lock()
+	defer f.unclosedMu.Unlock()
+	var left []int64
+	var errs error
+	for _, id := range f.unclosed {
+		if _, err := f.set.Stmts().Exec(ctx, stmtCloseChunk, id); err != nil {
+			left = append(left, id)
+			errs = errors.Join(errs, err)
+		}
+	}
+	f.unclosed = left
+	return errs
 }
 
 // answer tells the tail each of batches ends that its last write answered err.

@@ -415,3 +415,35 @@ func TestASweepLeavesAHeldChunk(t *testing.T) {
 	sweep(t, s)
 	assert.Empty(t, idsIn(t, s, "chunks"))
 }
+
+// A tail whose chunk could not be closed has it closed by the next sweep, which then
+// evicts it like any other; a chunk a live tail still writes stays open.
+func TestASweepClosesAChunkWhoseCloseFailed(t *testing.T) {
+	t.Parallel()
+	ret := testRetention
+	ret.Bytes = 0
+	s, tick := newWriterStore(t, ret)
+	live, ended := streamOf(t, s), podStream(t, s, "ended", "uid-ended")
+	pings := subscribe(t, s, live, ended)
+	liveTail := openTail(t, s, live, nil, false)
+	endedTail := openTail(t, s, ended, nil, false)
+	require.NoError(t, liveTail.Write(t.Context(), lines(at(1, 0))))
+	require.NoError(t, endedTail.Write(t.Context(), lines(at(1, 0))))
+	fire(t, tick)
+	testutil.Recv(t, pings, "the batches' ping")
+
+	refuse(t, s, "INSERT", "lines")
+	refuse(t, s, "UPDATE", "chunks")
+	assert.Error(t, endedTail.Close(t.Context(), lines(at(2, 0))))
+	using(t, s, func(f *file) {
+		_, err := f.db.Exec(`DROP TRIGGER refuse_INSERT_lines; DROP TRIGGER refuse_UPDATE_chunks`)
+		require.NoError(t, err)
+	})
+	require.Equal(t, []Chunk{opened(chunk(at(1, 0), at(1, 0)))}, chunksOfStream(t, s, ended), "the close failed")
+
+	sweep(t, s)
+
+	assert.Empty(t, chunksOfStream(t, s, ended), "closed, then evicted")
+	assert.Equal(t, []Chunk{opened(chunk(at(1, 0), at(1, 0)))}, chunksOfStream(t, s, live), "its tail still writes it")
+	require.NoError(t, liveTail.Close(t.Context(), nil))
+}
