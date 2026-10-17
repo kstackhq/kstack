@@ -12,5 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The log viewer's widgets. The viewer is the whole surface; the rest is its own.
+// The log viewer's widgets. The viewer is the whole surface; the rest is its own, but for the
+// parts of a row the transcript's inline window draws the same way.
 export { LogViewer, type LogViewerProps } from './log-viewer';
+export { lineTime } from './line-time';
+export { Dot, GapNotice, LOG_ROW_PX } from './row';

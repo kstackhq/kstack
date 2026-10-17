@@ -187,6 +187,7 @@ const action = (over: Partial<LogsViewAction> = {}): LogsViewAction => ({
   grep: '',
   anchor: { kind: 'Tail', at: null },
   pinToEnd: true,
+  resolvedAt: '2026-10-08T14:04:00Z',
   ...over,
 });
 
