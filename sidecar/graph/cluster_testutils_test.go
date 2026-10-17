@@ -87,6 +87,9 @@ func (f *fakeClusterService) Start(context.Context) (func(context.Context) error
 
 func (f *fakeClusterService) Close() error { return nil }
 
+// SetCacheFiles is the composition root's wiring; no resolver calls it.
+func (f *fakeClusterService) SetCacheFiles(cluster.CacheFileOwner) {}
+
 var (
 	_ cluster.Service     = (*fakeClusterService)(nil)
 	_ cluster.Clusters    = fakeClusters{}

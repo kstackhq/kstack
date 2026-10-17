@@ -35,9 +35,9 @@ var (
 )
 
 // Manager owns the logs directory and hands out refcounted Stores, one file per cluster
-// cache, named by the cache's id. It is a lifecycle part with no background work: the
-// app builds it before the cluster service, whose cache pass clears and removes files
-// through it, so it closes after that service.
+// cache, named by the cache's id. It has no background work. The logs service builds
+// and closes it; the cluster service's cache pass clears and removes files through that
+// service, after the close too.
 type Manager struct {
 	// dir holds each cache's file as "<cacheID>.db".
 	dir string

@@ -416,7 +416,7 @@ func startService(t *testing.T, path string) Service {
 		assert.NoError(t, cfgSvc.Close())
 	})
 
-	svc, err := New(openTestDB(t), testPaths(t), cfgSvc, nil, noCacheFiles{})
+	svc, err := New(openTestDB(t), testPaths(t), cfgSvc, nil)
 	require.NoError(t, err)
 
 	stop, err := svc.Start(context.Background())

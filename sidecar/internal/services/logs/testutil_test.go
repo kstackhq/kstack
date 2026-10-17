@@ -922,9 +922,8 @@ func serviceOver(t *testing.T, f *fakeService, h http.Handler) (*Service, *fakeS
 func serviceIn(t *testing.T, f *fakeService, h http.Handler, dir string, ret logstore.Retention) (*Service, *fakeService) {
 	t.Helper()
 	f.lease = serving(t, h).lease
-	files := logstore.NewManager(dir, ret)
-	t.Cleanup(func() { assert.NoError(t, files.Close()) })
-	svc := New(f, files)
+	svc := New(f, dir, ret)
+	t.Cleanup(func() { assert.NoError(t, svc.Close()) })
 	svc.now, svc.settle = func() time.Time { return at(time.Hour) }, 0
 	svc.retry, svc.retryCap = time.Millisecond, 8*time.Millisecond
 	return svc, f
