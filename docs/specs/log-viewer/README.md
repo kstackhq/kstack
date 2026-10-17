@@ -1,7 +1,7 @@
 # The log viewer
 
 What is left of **the log viewer** sequence. Its steps are built: the sidecar reads a view's
-logs through the API server (`services/logs`), the webview's headless core keeps a window of
+logs through its log cache (`services/logs`), the webview's headless core keeps a window of
 lines and puts it behind a scroller (`src/lib/log-viewer/`, whose `README.md` states it), and the
 viewer draws rows, columns and a selection over it in the right sidebar
 (`src/components/widgets/log-viewer/`). Root `CLAUDE.md` and `sidecar/CLAUDE.md` say what each
@@ -9,10 +9,9 @@ does. The design started from [kubetail](https://github.com/kubetail-org/kubetai
 viewer and keeps its reading algorithm and its data structures; the contract between the layers
 is kstack's own.
 
-**Every line on screen is the fake's.** The viewer is written to a wire the sidecar does not
-serve yet, [*The wire*](#the-wire), and `FakeClient` serves it in the meantime: `createLogsClient`
-(`src/lib/logs-client.ts`) answers the fake, and the panel's header says *Fake lines* while it
-does. `wip/log-views` does not merge into `main` until the real client stands in the fake's
+**Every line on screen is the fake's.** The viewer is written to [*The wire*](#the-wire), which
+the sidecar serves, but no client reads it yet: `createLogsClient` (`src/lib/logs-client.ts`)
+answers `FakeClient`, and the panel's header says *Fake lines* while it does. `wip/log-views` does not merge into `main` until the real client stands in the fake's
 place, since a shipped build that drew invented lines under a pod's name would be a bug the user
 cannot tell from the truth. This README stays until then.
 
@@ -155,10 +154,8 @@ webview drops by cursor. Lines arrive per stream, not merged.
 
 ## What is left
 
-- **The sidecar's side of the wire, and the client over it.** Serving [*The wire*](#the-wire) — the pages
-  with two edges, the checkpoints and the cursors, on `logsFetch` and `logsFollow` — is planned in
-  [`notes/the-sidecar-wire.md`](notes/the-sidecar-wire.md), taken up next. With it comes
-  the real client, designed no further than this paragraph: `createLogsClient`
+- **The real client.** It reads [*The wire*](#the-wire), which the sidecar serves from its log
+  cache, and is designed no further than this paragraph: `createLogsClient`
   runs `logsFetch` through `client.query(...).toPromise()` with `requestPolicy: 'network-only'`
   and `logsFollow` through `client.subscription(...)`, `viewInput` builds the `LogsViewInput` from
   the action field by field, the client keeps the last checkpoint and hands `subscribe-exchange` a
@@ -199,7 +196,8 @@ webview drops by cursor. Lines arrive per stream, not merged.
 - **A cursor**: text the client wrote, which the webview passes back and never reads. A **line
   cursor** rides every line and names it; a **page cursor** rides a page's edges and a follow's
   checkpoints and names where to continue. What else it carries is the client's business: the
-  sidecar's plan is §4 of [the note](notes/the-sidecar-wire.md), and the fake's is its own.
+  sidecar's is a position alone ([ADR: a log cursor is a position](../../adr/2026-10-17-a-log-cursor-is-a-position.md)),
+  and the fake's is its own.
 - **An edge**: one side of a page — a page cursor and whether there is more that way. A
   `before` edge with nothing older has no cursor.
 - **A checkpoint**: a follow frame carrying the cursor it is safe to resume from: every line

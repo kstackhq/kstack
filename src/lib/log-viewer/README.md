@@ -78,7 +78,7 @@ the window what the DOM and the client did and performs what the window answers.
 ## The fake
 
 `FakeClient` (`fake-client.ts`) is a `Client` over a log it invents, the one client the viewer
-runs on until the sidecar serves the wire. It writes its history `spacingMs` apart (a
+runs on until the real client over the sidecar's wire lands. It writes its history `spacingMs` apart (a
 millisecond by default) from weighted streams, grows by `append` or at a `rate`, and models what
 the wire does to a viewer: a live end `repeat` lines back, a follow that sends per stream,
 checkpoints, latency (`delayMs`), and `failNext`, `emptyNext`, `skip` and `endFollows`. `index.ts` leaves it out: import it by its file.

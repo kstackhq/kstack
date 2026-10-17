@@ -2095,8 +2095,8 @@ instance of 2 of 3 pods`, `not in Kstack's cache of the cluster yet`, `nothing t
 `<cache>/logs/<cache id>.db`, created on first open and owner-only. Its schema is
 `migrations/0001_init.sql`: `streams`, one runtime instance of a container, its place and
 labels a snapshot from the mirror since the lines outlive the pod; `chunks`, the unit of
-coverage and of eviction; and `lines`, keyed by position through `lines_position`, with an
-a plain rowid, since every read walks the position index. `Manager` (`manager.go`) hands out refcounted `Store`s by cache id. Its lock guards the
+coverage and of eviction; and `lines`, keyed by position through `lines_position`, a rowid
+table nothing orders by, since every read walks the position index. `Manager` (`manager.go`) hands out refcounted `Store`s by cache id. Its lock guards the
 bookkeeping alone: an open, a close or a delete runs outside it, one at a time per cache
 (`acquireLocked`), so a slow disk on one cache stalls no other. An operation reaches the file
 through `Store.use`, which counts it, and a close cancels the file's context and waits for every
@@ -2110,8 +2110,8 @@ pass clears the finalizer on `Remove`'s answer. The logs service builds and clos
 and is `services/cluster`'s `CacheFileOwner` over it; its files each run their own writer and
 janitor.
 `Retention` (`retention.go`) is every knob the log cache names, `DefaultRetention` its numbers;
-`NewManager` takes it, the clock a chunk is stamped on is the manager's `now` (`time.Now`, or a test's), and a fill closes its chunks at its
-`ChunkBytes` and `ChunkSpan`. Ids never come back (`AUTOINCREMENT`): a tailer, a watermark and
+`NewManager` takes it, and a fill closes its chunks at its `ChunkBytes` and `ChunkSpan`. A
+chunk is stamped on the manager's `now`, `time.Now` unless a test sets it. Ids never come back (`AUTOINCREMENT`): a tailer, a watermark and
 a sweep name a row by id across transactions. **A chunk's `read_at_ms` is a page's stamp**, and
 `putChunk` never touches it: a page's `Write(ctx, fills, true)` stamps what its fills wrote or
 extended in their transaction, and the page stamps what its walk read a line from
@@ -2164,7 +2164,7 @@ or a fill and a tail, starting at one line leave one chunk, with the later end, 
 tail writes it. **The trim** (`trim.go`) cuts a finished stream at the end of
 `finished_at`'s second, since a container status's times are whole seconds, and clears
 `at_end` when it removed anything; it runs when `finished_at` is first set and after every
-write to a finished stream.
+write to a finished stream. → [ADR: the log cache](../docs/adr/2026-10-17-the-log-cache.md).
 
 **`services/logs` holds a view's vocabulary** (`view.go`): `View`, its `ViewSource`s and
 `ViewFilter`s, the `SourceKind` and `FilterField` enums, and `MirrorKind`, each source kind's
@@ -2227,13 +2227,15 @@ time, then namespace, pod and container name, then ordinal, then id: the id is t
 which lags a restart, so a page can end on a line keyed with the old id that the next page keys
 with the new one, and the ordinal deciding the tie is what keeps that page from losing lines. `parseCursor` takes any id that is not
 empty, holds no control character and is at most 256 bytes (`validContainerID`), since a runtime
-spells its ids as it likes. A time alone names a moment, which the viewer's `At` anchor sends;
-A cursor is a bare position, since the file holds each stream's extent: **`streamBound`** reads
+spells its ids as it likes. A time alone names a moment: the live end of a view whose file holds no
+line, or a checkpoint whose oldest stream has read none. A cursor carries nothing per stream,
+since the file holds each stream's extent: **`streamBound`** reads
 the one cursor across a view as each stream's own exclusive bound, a `logstore.Pos`, the way
 `comparePositions` orders lines — at the cursor's moment a stream whose names sort before the
 cursor's starts after the moment, one after it at the moment, the cursor's own past its
 ordinal, and another instance of its container at the ordinal, kept or not by its id; `Tail`
 is the mirror image, and a moment bounds every stream at the moment.
+→ [ADR: a log cursor is a position](../docs/adr/2026-10-17-a-log-cursor-is-a-position.md).
 
 **A container's log is read over a claim** (`claim.go`), outside the mirror's reading:
 `AcquireConnection`, which checks the record once, and `Lease.ConnFor` by the cache's `ServerUID`.
@@ -2278,7 +2280,7 @@ line in range stops short at the last line it read whole (`streamRead.stop`).
 **`logsFetch` is `Service.Fetch`** (`fetch.go`), built in `app` over the cluster service
 (`logs.New(clusters, dir, ret)`, which builds the log store under `dir` and closes it with the
 service, a part after the cluster service, whose cache pass clears and removes a cache's log file
-through the service's `Clear` and `Remove`), and **it answers from the file**. It reads no line the model sees yet. A query is a mode, a cursor, an `at` and a limit (at
+through the service's `Clear` and `Remove`), and **it answers from the file**. The model reaches no line through it. A query is a mode, a cursor, an `at` and a limit (at
 most 500), and a grep that does not compile or runs past `MaxGrep` (1,000 bytes) is refused
 (`compileGrep`), by a follow too, since the wire takes any view the webview sends; the LogsView
 tool's parse reads the constant. `Head` reads oldest first after the cursor, `Tail` newest first before it, and `Around`
