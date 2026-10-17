@@ -1,7 +1,7 @@
 ---
 title: The windows
 scope: sidecar
-status: Planned
+status: Done
 ---
 
 # The windows
@@ -59,20 +59,25 @@ whole second:
 At 100 streams that share is about 335 KiB, so a first window is about 165 KiB. The `firstTimestamp`
 GET spends from the same share first. A window due to run past what is left is stopped and narrowed
 (§3), so the guess, not the budget, decides where the first window ends. Later windows use the
-smaller of 4 MiB and what the stream has left, so no window starts that the budget is due to cut.
+smaller of 4 MiB and half what the stream has left, for the same reason as the first, so no window
+starts that the budget is due to cut.
 Step 4 removes the share and sizes the first byte target from the page's download limit instead,
 64 MiB ÷ the streams the page reads.
 
 **Bytes are counted as the body carries them:** a line's timestamp, a space, its message and a
 newline. That is what `counted` spends from the budget. The file holds the message alone, and for
 short lines the difference is half again or more, so a rate measured from the file's bytes alone
-would undershoot every byte target. The same unit serves step 4's limits.
+would undershoot every byte target. The file also holds the message cleaned and cut to 16 KiB, so a
+rate from the file is an estimate; a window counts each line as its body carried it, before
+cleaning, so its checks see what the budget spends. The same unit serves step 4's limits.
 
 The rates come from lines next to the point:
 
 - **Scrolling up or filling a gap:** the chunk just above the point. The point is often inside the
   gap, so this is the chunk the gap ends at, not one that starts at the point. Read its first `need`
-  lines, oldest first. Their count and bytes over the time they span give the byte rate. The ones
+  lines, oldest first, and at least ten, then on until they span a second or reach 5,000: a dense
+  log's `need` lines can span a tenth of a second, which the one-second clamp below would read as a
+  tenth of its rate. Their count and bytes over the time they span give the byte rate. The ones
   that match the grep give the kept rate. One read of the file.
 - **An `Around` page:** the chunk just above `T`, which the half after `T` filled first (§4), or the
   cache already held.
@@ -100,7 +105,9 @@ today). Its lines stream to the file (step 2). It is checked as it goes.
 **Too busy: stop, then narrow.** Lines arrive oldest first, so a burst just before the point arrives
 last, and the window's average rate says little about what is still to come. The reader keeps a
 **recent rate**: the kept lines and bytes of the lines in the one second ending at the newest line
-read, divided by the time those lines span, with no minimum. Each line checks:
+read, divided by how much of that second the window has read: the whole second, or less while the
+window began under a second ago, with no minimum. Dividing by the lines' own span instead would
+read one line of a quiet log as a rate past measure. Each line checks:
 
 > expected = read so far + recent rate × time left in the window
 
@@ -128,10 +135,11 @@ last 10 s before the point the pod logged 5,000 lines/s. The quiet 65 s arrive f
 lines; the check runs from the 501st and expects about 750. Then the burst. The newest second still
 holds about ten quiet lines, so the recent rate climbs from 10/s as burst lines join it. After about
 115 of them it is about 125/s with 9.9 s left, and the window expects more than 2,004 lines. Stop,
-with about 765 lines on disk as an island. The new window is 6 s, which starts inside the burst.
-After 501 lines its recent rate is 5,000/s with almost 6 s left. Stop again, a second island. The
-third window is the last second before the point, about 5,000 lines, and completes. Three window
-GETs and about 6,300 lines in total, plus the first-line GET.
+with 766 lines on disk as an island. The new window is 7 s, which starts inside the burst. Its
+newest second is the part it has read, so after 501 lines its recent rate is 5,000/s with almost 7 s
+left. Stop again, a second island. The third window is the last second before the point, 5,000
+lines, and completes. Three window GETs and about 6,300 lines in total, plus the first-line GET
+(`TestABusyWindowIsStoppedAndNarrowed`).
 
 A one-second window is never narrowed. Nothing smaller can be asked for. Step 4 decides what happens
 when it is too loud.
@@ -204,12 +212,12 @@ An `Around` page at moment `T` reads both ways from `T`.
 ## Tasks
 
 1. **The rates.** From the chunk just above the point, in kept lines and bytes; the recent rate inside
-   a window; the clamp and the ten-second default; the grep on `readOpts`. — Planned.
+   a window; the clamp and the ten-second default; the grep on `readOpts`. — Done.
 2. **The time windows.** `backwardUntil` sized by §2; the three stops and the narrowing with
-   `windowCut`; widen. — Planned.
-3. **Doubling `tailLines`.** The first `Tail` page's windows double after a short window. — Planned.
+   `windowCut`; widen. — Done.
+3. **Doubling `tailLines`.** The first `Tail` page's windows double after a short window. — Done.
 4. **`Around`.** The forward half fills first; the seam from the forward half's first line or its
-   gap's edge. — Planned.
+   gap's edge. — Done.
 
 ## Tests
 

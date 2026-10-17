@@ -47,9 +47,10 @@ type streamFill struct {
 	// page held it, and the page reads it as a stream no backend serves.
 	wrote bool
 	gone  bool
-	// newest is the last line of the first window a Tail fill's first backend read
-	// whole, nil with none: the line just before the page's bound.
-	newest *logstore.Pos
+	// up is what a Tail fill from the same bound links its first window up to: the
+	// first line a Head fill read from its bound, or, when it read its first gap whole
+	// and found none, that gap's far edge. Nil with neither.
+	up *logstore.Pos
 }
 
 // filler fills one stream for one page: the gaps in the page's direction from its
@@ -77,9 +78,13 @@ type filler struct {
 	// held is whether a chunk of the page's pattern claims a line, as the walk keeps
 	// only such lines.
 	held func(logstore.Pos) bool
-	// seam is the stream's line just before a Head page's bound, which the read from
-	// the bound continues from; nil for none.
-	seam  *logstore.Pos
+	// seam is the stream's line just past a Tail page's bound, which a Head fill from
+	// the same bound proved nothing lies before: the read back from the bound links
+	// up to it. Nil for none.
+	seam *logstore.Pos
+	// near is the rate next to the point of the gap a Tail fill reads, nil with none
+	// measured.
+	near  *rate
 	count int
 	out   streamFill
 }
@@ -159,16 +164,27 @@ func (f *filler) countSpan(ctx context.Context, sp logstore.Span, key logstore.P
 // offered, the one the walk starts in.
 func (f *filler) fillGap(ctx context.Context, g logstore.Gap, key logstore.Pos, first bool) (bool, error) {
 	lower, upper, prev, next := gapRange(g, key, f.q.mode)
-	if f.q.mode == FetchHead && lower != nil && prev == nil {
+	if f.q.mode == FetchTail && upper != nil && next == nil {
 		// The read starts at the bound, inside the gap.
-		prev = f.seam
+		next = f.seam
 	}
-	whole, got, err := f.read(ctx, g.Tier, lower, upper, prev, next)
+	near, err := f.rateAbove(ctx, g.Before)
 	if err != nil {
 		return false, err
 	}
-	if first && (whole || got) {
+	f.near = near
+	whole, oldest, err := f.read(ctx, g.Tier, lower, upper, prev, next)
+	if err != nil {
+		return false, err
+	}
+	if first && (whole || oldest != nil) {
 		f.out.fromKey = true
+		if f.q.mode == FetchHead {
+			f.out.up = oldest
+			if oldest == nil {
+				f.out.up = upper
+			}
+		}
 	}
 	if whole && f.q.mode == FetchHead && g.Newest() {
 		f.out.toEnd = true
@@ -176,18 +192,43 @@ func (f *filler) fillGap(ctx context.Context, g logstore.Gap, key logstore.Pos, 
 	return whole && !f.filled() && f.out.err == nil && !f.budget.spent(), nil
 }
 
+// rateAbove is the rate of a Tail fill's lines next to its point, sampled oldest
+// first from above, the first line of the chunk the gap ends at. It is nil for a
+// Head fill, a gap that ends at nothing, or too few lines to measure. The point
+// often lies inside the gap, so the chunk is the gap's, not one at the point.
+func (f *filler) rateAbove(ctx context.Context, above *logstore.Pos) (*rate, error) {
+	if f.q.mode != FetchTail || above == nil {
+		return nil, nil
+	}
+	need := int64(f.q.need())
+	var s sample
+	err := f.file.Read(ctx, func(r logstore.Reader) error {
+		s = sample{}
+		return r.Lines(f.ps.row.ID, above.Prev(), logstore.Newest, func(l logstore.Line) bool {
+			ts := time.Unix(0, l.TS)
+			s.add(ts, wireBytes(ts, l.Message), matches(f.q.grep, l.Message))
+			return s.short(need)
+		})
+	})
+	near, ok := s.rate()
+	if err != nil || !ok {
+		return nil, err
+	}
+	return &near, nil
+}
+
 // read reads the range between lower and upper, both excluded and nil for none, from
 // the backend at tier, and writes what it read and proved. prev and next are the
 // chunk edges the range runs from and to, nil where it does not reach one. It
-// answers whether the read served every line in the range, and whether it read
-// any. A backend that answers head offers what is older than its first line to the
-// next.
-func (f *filler) read(ctx context.Context, tier int, lower, upper, prev, next *logstore.Pos) (whole, got bool, err error) {
+// answers whether the read served every line in the range, and the oldest line it
+// wrote, nil with none. A backend that answers head offers what is older than its
+// first line to the next.
+func (f *filler) read(ctx context.Context, tier int, lower, upper, prev, next *logstore.Pos) (whole bool, oldest *logstore.Pos, err error) {
 	p, ok, err := f.pull(ctx, tier, lower, upper, prev, next)
 	if !ok || err != nil {
-		return false, false, err
+		return false, nil, err
 	}
-	got = p.oldest != nil
+	got := p.oldest != nil
 	if !got && !p.whole {
 		// Nothing in range was read: the stream is skipped, or the page refused
 		// when the retirement cut the read.
@@ -196,10 +237,10 @@ func (f *filler) read(ctx context.Context, tier int, lower, upper, prev, next *l
 		} else {
 			f.out.err = p.r.err
 		}
-		return false, false, nil
+		return false, nil, nil
 	}
 	if ok, err := f.link(ctx, tier, p, prev, next); !ok {
-		return false, false, err
+		return false, nil, err
 	}
 	if p.offer {
 		// The moment of the backend's first line is its whole: the next is asked for
@@ -208,10 +249,13 @@ func (f *filler) read(ctx context.Context, tier int, lower, upper, prev, next *l
 		if got {
 			older, olderNext = &logstore.Pos{TS: p.oldest.TS, Ord: -1}, p.oldest
 		}
-		olderWhole, olderGot, err := f.read(ctx, tier+1, lower, older, prev, olderNext)
-		return p.whole && olderWhole, got || olderGot, err
+		olderWhole, olderOldest, err := f.read(ctx, tier+1, lower, older, prev, olderNext)
+		if olderOldest != nil {
+			return p.whole && olderWhole, olderOldest, err
+		}
+		return p.whole && olderWhole, p.oldest, err
 	}
-	return p.whole, got, nil
+	return p.whole, p.oldest, nil
 }
 
 // pulled is one backend read as pull ended it: the read; whether it served every
@@ -241,13 +285,14 @@ func (p pulled) up(next *logstore.Pos) *logstore.Pos {
 // window whose lines arrive nearest the point first: its first batch links down,
 // and it is cancelled once the stream holds what the page needs. A backward read's
 // windows arrive newest first, each oldest first: a window links up only at its
-// end, one the read ended inside is an island linked to nothing, and the read is
-// stopped between windows, since the lines a window has counted part way are the
-// ones farthest from the point. It is false once a write ended the read. A read the
-// page's context ended is an error.
+// end, and counts toward the page only then; one stopped part way, or one the read
+// ended inside, is an island linked to nothing. The read is stopped between
+// windows, since the lines a window has counted part way are the ones farthest
+// from the point. It is false once a write ended the read. A read the page's
+// context ended is an error.
 func (f *filler) pull(ctx context.Context, tier int, lower, upper, prev, next *logstore.Pos) (pulled, bool, error) {
 	forward := f.q.mode == FetchHead
-	o := readOpts{since: f.boundAt(lower), until: f.boundAt(upper), budget: f.budget, batch: int64(f.q.need()), windows: maxWindows}
+	o := readOpts{since: f.boundAt(lower), until: f.boundAt(upper), budget: f.budget, batch: int64(f.q.need()), grep: f.q.grep, near: f.near}
 	// began is the moment a forward read's GET began at, told before its first line
 	// arrives.
 	var began time.Time
@@ -282,6 +327,16 @@ func (f *filler) pull(ctx context.Context, tier int, lower, upper, prev, next *l
 	}
 	cut := false
 	for it := range r.lines.Chan() {
+		if it.windowCut {
+			// The window was stopped part way, so the lines between it and the point
+			// were never read: an island, linked to nothing, whose kept lines the page
+			// cannot reach.
+			if ok, err := f.endWindow(ctx, w, nil, false); !ok {
+				return abandon(err)
+			}
+			w = f.newWindow(tier)
+			continue
+		}
 		if it.windowEnd {
 			// The window was read whole, so its last batch links it up. The read's
 			// first window from the end of a finished instance holds its last line.
@@ -289,12 +344,10 @@ func (f *filler) pull(ctx context.Context, tier int, lower, upper, prev, next *l
 			if ok, err := f.endWindow(ctx, w, out.up(next), atEnd); !ok {
 				return abandon(err)
 			}
-			if f.out.newest == nil && tier == 0 {
-				f.out.newest = w.last
-			}
 			if w.first != nil {
 				out.oldest = w.first
 			}
+			f.count += w.kept
 			w = f.newWindow(tier)
 			select {
 			case <-answers:
@@ -315,8 +368,15 @@ func (f *filler) pull(ctx context.Context, tier int, lower, upper, prev, next *l
 		if ok, err := f.add(ctx, w, lineOf(it.Record)); !ok {
 			return abandon(err)
 		}
+		// A forward read counts as its lines arrive, nearest the point first; a
+		// backward window counts once it completes, since its lines arrive farthest
+		// first.
 		if matches(f.q.grep, it.Message) {
-			f.count++
+			if forward {
+				f.count++
+			} else {
+				w.kept++
+			}
 		}
 		if forward && f.filled() {
 			cut = true
@@ -420,6 +480,9 @@ type window struct {
 	batch       logstore.Fill
 	bytes       int64
 	first, last *logstore.Pos
+	// kept is a backward window's lines that pass the grep, counted toward the page
+	// once it completes.
+	kept int
 }
 
 // newWindow is an empty window of the backend at tier's read.
