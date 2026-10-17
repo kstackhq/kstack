@@ -135,12 +135,13 @@ and its tests passing.
 | [1 The file](1-the-file.md) | Each window written when it completes; the larger walk budget; the 1 GiB budget | Done |
 | [2 Streaming windows](2-streaming-windows.md) | A window's lines stream to the file; links only on completion; islands when cut; a backward read's `need` judged between windows | Done |
 | [3 The windows](3-the-windows.md) | Windows sized from nearby rates, stop and narrow, widen, doubling `tailLines`, `Around` | Done |
-| [4 The limits](4-the-limits.md) | Cut and stop, `failLimit`, the old budgets and the refusal removed; the regression test | Planned |
+| [4 The limits](4-the-limits.md) | Bytes reserved per window; cut and stop, every cut with an edge; time windows after the first `tailLines` window; `failLimit`; the walk follows the fill; the old budgets and the refusal removed; the regression test | Planned |
 | [5 The docs](5-the-docs.md) | The ADR, `CLAUDE.md`, `TODO.md`; the sequence retired | Planned |
 
 ## Security
 
 No new boundary. Window bounds are moments the sidecar computes. Log text still reaches the file only
 through `stripControl`. A hostile container can make its own stream stop, or make pages slow. It
-cannot make a page download or walk more than the limits allow. The log file can now hold 1 GiB of
-cluster data in the clear, by the same decision that covers the cache today.
+cannot make a page download or walk more than the limits allow, except through the first `Tail`
+page's `tailLines` window, which its line count and the kubelet's log file bound. The log file can
+now hold 1 GiB of cluster data in the clear, by the same decision that covers the cache today.
