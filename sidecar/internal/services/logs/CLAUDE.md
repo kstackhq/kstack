@@ -3,7 +3,7 @@
 The service reads container logs through the cluster's connection, keeps them in a file per cache
 (`logstore`), and answers pages and follows over the file. The model never reaches a line through
 it; the `LogsView` tool (`internal/tools/CLAUDE.md`) opens a view the user looks at. Specs:
-`docs/specs/log-cache/`, `docs/specs/log-viewer/`, `docs/specs/log-views/`.
+`docs/specs/log-cache/`, `docs/specs/log-views/`.
 
 ## The file (`logstore`)
 

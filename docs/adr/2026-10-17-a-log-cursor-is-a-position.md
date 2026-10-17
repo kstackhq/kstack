@@ -9,7 +9,7 @@ status: Accepted
 
 ## Context
 
-The log viewer's wire (`docs/specs/log-viewer/README.md`, *The wire*) has the sidecar own the
+The log viewer's wire (`sidecar/graph/schema.graphqls`; its edges in `src/lib/log-viewer/README.md`) has the sidecar own the
 paging position: a page answers a `before` and an `after` edge, a follow sends checkpoints, and
 the webview passes each cursor back unread. A plan worked out before the log cache, a note beside
 that README, served it with no state between requests. Each page's edge cursor would carry base64

@@ -45,7 +45,7 @@ closed disclosure like any other tool call, which is what the transcript does to
 does not know.
 
 **The viewer is built**, ported from kubetail: `LogViewer` draws a view's lines from the
-sidecar's log cache. What is left of it is [`docs/specs/log-viewer/`](../log-viewer/README.md).
+sidecar's log cache. What is left of it is in [`docs/TODO.md`](../../TODO.md#frontend-webview).
 
 **Every rung's spec has the same sections, in the same order**, as the retired agent-security
 sequence had: *In short*, *What is not in this rung*, *Design*, *Decisions this rung asks for*,

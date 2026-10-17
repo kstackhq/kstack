@@ -580,6 +580,10 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 ## Frontend (webview)
 
+- **The log viewer's window is unbounded.** A long follow grows without end. Cap it at `maxLines`, dropping lines at the edge farther from the reader and never on screen; a dropped line comes back as a page from the sidecar's log cache, or from the kubelet once the cache has let it go. Its own pull request, over the working viewer.
+- **The log viewer shows only the filters the model set.** Kubetail's sidebar lists each region, zone, OS, architecture and node the open sources span, with a count per value. That needs one query answering what a view's sources resolved to, which the sidecar's resolve already computes (`services/logs/sources.go`) and the wire does not carry.
+- **The log viewer has no download, ANSI colours or timezone setting.** Colours mean drawing escape sequences the sidecar now strips, so they need a security decision first.
+
 - **The omnibox's TLS badge misses a schemeless server.** `tlsUnverifiedReason` (`src/lib/kube-config.tsx`)
   reads the entry's `server` for an `http://` prefix, but client-go defaults a schemeless server
   (`localhost:8080`) to plain http unless the kubeconfig names a CA or a client certificate or skips

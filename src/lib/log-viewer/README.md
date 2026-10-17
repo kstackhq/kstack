@@ -21,6 +21,31 @@ A page's edge cursor names where the next page that way continues.
 
 The types mirror the wire's `LogRecord`, `LogRecordsPage` and `LogsFollowFrame` field for field.
 
+### The edges
+
+*The live end* is the edge of a page that read every stream to its end, with `more: false`: where
+a follow starts, and where a page after it would find nothing yet. *The cut* is where a page cut
+short ends: the line kept farthest from where the read started, or the point past which some
+stream was not read.
+
+| Mode | `before` | `after` |
+| --- | --- | --- |
+| `Head`, no cursor | null, `more: false` | the cut, `more: true` when the page was cut; else *the live end* |
+| `Head`, cursor | the cursor given, `more: true` | as `Head` with none |
+| `Tail`, no cursor | the cut, `more: true` when the page was cut; else null, `more: false` | *the live end* |
+| `Tail`, cursor | as `Tail` with none | the cursor given, `more: true` |
+| `Around` | the `Tail` half's `before` | the `Head` half's `after` |
+
+- A `Head` page from a cursor does not look behind it, so its `before.more` is `true` whether or
+  not a line is there; a page that way may come back empty.
+- An `after` edge always carries a cursor, since the live end is where a follow starts.
+- A page with no line and `more: true` is a read that spent its budget. Its edge is still past
+  the cursor it went on from, so reading on always moves.
+- A page or a follow that goes on from an edge or a checkpoint misses no line. It may send again
+  lines at or past it, which the window drops by cursor, and never an older one.
+- A follow's lines arrive per stream, not merged: two containers' lines can interleave out of
+  time order. A quiet follow sends no checkpoint, and none comes after `Ended`.
+
 ## The window
 
 `LogWindow` (`window.ts`) is a class with no React in it. It holds the lines (`lines.ts`, over
