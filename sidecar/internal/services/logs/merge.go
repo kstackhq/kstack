@@ -244,7 +244,7 @@ func merged(ctx context.Context, readings []*streamRead, mode FetchMode, n int) 
 func next(ctx context.Context, r *streamRead) (Record, bool) {
 	select {
 	case rec, ok := <-r.lines.Chan():
-		return rec, ok
+		return rec.Record, ok
 	case <-ctx.Done():
 		return Record{}, false
 	}

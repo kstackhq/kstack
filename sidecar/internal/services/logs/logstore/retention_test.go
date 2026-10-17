@@ -27,6 +27,15 @@ func TestAStreamGetsAQuarterOfTheFile(t *testing.T) {
 	assert.Equal(t, DefaultRetention.Bytes/4, DefaultRetention.StreamShare)
 }
 
+// A file holds a gibibyte, so a search across a view's logs stays cached, and a sweep
+// wakes after a sixteenth of it.
+func TestAFileHoldsAGiB(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, int64(1024*mib), DefaultRetention.Bytes)
+	assert.Equal(t, DefaultRetention.Bytes/16, DefaultRetention.SweepBytes)
+}
+
 // Log text is the cluster's to write, so the queue's worst case is a bound on bytes, never
 // on lines: at 16 KiB a line, a bound on lines alone would let it hold a gigabyte.
 func TestTheWriteQueueHoldsAtMostSixteenMiB(t *testing.T) {

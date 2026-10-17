@@ -180,7 +180,7 @@ func TestAFollowNumbersAMomentFromItsSecond(t *testing.T) {
 	first := testutil.Recv(t, r.lines.Chan(), "the first line")
 	assert.Equal(t, 0, first.Ordinal)
 
-	again := readForward(t.Context(), claimOn(t, s).get, web, readOpts{follow: true, since: bound{positionOf(first), false}})
+	again := readForward(t.Context(), claimOn(t, s).get, web, readOpts{follow: true, since: bound{positionOf(first.Record), false}})
 	assert.Equal(t, "b", testutil.Recv(t, again.lines.Chan(), "the line after it").Message)
 	assert.Empty(t, s.requests()[0].Get("tailLines"))
 }
@@ -450,6 +450,48 @@ func TestABackwardReadNeedsTwoWindows(t *testing.T) {
 
 // A backward read under until over a range far longer than its first window
 // reaches the log's first line in its last window, and is not short: the first
+
+// A backward read hands over the end of each window after its last line, so its
+// reader can write a window once it is whole.
+func TestABackwardReadEndsEachWindow(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web/app", lineEvery(15)...)
+
+	r := readBackward(t.Context(), s.get, web, backwardOpts())
+
+	assert.Equal(t, []string{"14", "13", "12", "11", "10", "9", "8", "7", "6", "|", "5", "4", "3", "2", "1", "0", "|"}, windowsOf(r))
+	require.NoError(t, r.err)
+}
+
+// A backward read under until ends each of its windows of time too.
+func TestABackwardReadUnderUntilEndsEachWindow(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web/app", lineEvery(10)...)
+	o := backwardOpts()
+	o.until, o.windows = to(5*time.Second), 3
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	assert.Equal(t, []string{"5", "4", "3", "|", "2", "1", "0", "|"}, windowsOf(r))
+	require.NoError(t, r.err)
+}
+
+// windowsOf is each line's message r hands over until it closes, and "|" for the end
+// of each window.
+func windowsOf(r *streamRead) []string {
+	var out []string
+	for it := range r.lines.Chan() {
+		if it.windowEnd {
+			out = append(out, "|")
+		} else {
+			out = append(out, it.Message)
+		}
+	}
+	return out
+}
+
 // window's reach is rounded up, so the doublings land on the first line.
 func TestABackwardReadUnderUntilReachesTheFirstLine(t *testing.T) {
 	t.Parallel()

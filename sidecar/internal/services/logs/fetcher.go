@@ -102,11 +102,19 @@ type readOpts struct {
 	onOldest func(time.Time)
 }
 
+// readItem is what a read hands over: a line, or with windowEnd, the end of a window,
+// after its last line. A backward read is a run of windows; a forward read is one,
+// which its close ends, so it sends none.
+type readItem struct {
+	Record
+	windowEnd bool
+}
+
 // streamRead is one stream's read in progress: its lines in the order read, then,
 // once lines closes, how it ended.
 type streamRead struct {
 	key   StreamKey
-	lines *spsc.Receiver[Record]
+	lines *spsc.Receiver[readItem]
 	// cancel ends the read, which then closes lines.
 	cancel context.CancelFunc
 	// err is nil when the read ended clean.
@@ -152,7 +160,7 @@ func readBackward(ctx context.Context, get getter, s stream, o readOpts) *stream
 // where its lines do and the next reads on from it.
 func start(ctx context.Context, get getter, s stream, o readOpts, read func(*reader) error) *streamRead {
 	ctx, cancel := context.WithCancel(ctx)
-	out, lines := spsc.New[Record](0)
+	out, lines := spsc.New[readItem](0)
 	r := &streamRead{key: s.key, lines: lines, cancel: cancel}
 	go func() {
 		defer out.Close()
@@ -184,7 +192,7 @@ type reader struct {
 	instance string
 	finished bool
 	o        readOpts
-	out      *spsc.Sender[Record]
+	out      *spsc.Sender[readItem]
 	edge     position
 	head     bool
 	atEnd    bool
@@ -247,12 +255,17 @@ func (r *reader) backward() error {
 			if !r.takeBack(lines, w.oldest) {
 				return nil
 			}
-			_, err := r.wholeMoment(w.oldest)
-			return err
+			if sent, err := r.wholeMoment(w.oldest); !sent || err != nil {
+				return err
+			}
+			r.endWindow()
+			return nil
 		case !start.IsZero() && w.oldest.Before(start):
 			// The window began below since, so it holds every line in range, and
 			// whole: its first moment in range is not the one it began in.
-			r.takeBack(lines, time.Time{})
+			if r.takeBack(lines, time.Time{}) {
+				r.endWindow()
+			}
 			return nil
 		case start.IsZero() && sent.IsZero():
 			// No line in range: the newest window holds the newest lines, so none
@@ -273,6 +286,7 @@ func (r *reader) backward() error {
 				}
 			}
 			r.reachedFirst(first)
+			r.endWindow()
 			return nil
 		case !sent.IsZero() && (start.IsZero() || !start.Before(sent)):
 			// The log grew by a whole batch under the read, or one moment fills the
@@ -284,6 +298,7 @@ func (r *reader) backward() error {
 		if !r.takeBack(lines, start) {
 			return nil
 		}
+		r.endWindow()
 		sent = start
 		if r.o.budget.spent() {
 			break
@@ -351,6 +366,7 @@ func (r *reader) backwardUntil(first time.Time) error {
 		if !r.takeBack(lines, time.Time{}) {
 			return nil
 		}
+		r.endWindow()
 		if start.Equal(first) {
 			r.reachedFirst(first)
 			return nil
@@ -366,7 +382,13 @@ func (r *reader) backwardUntil(first time.Time) error {
 
 // send puts rec on out, and is false once the context has ended.
 func (r *reader) send(rec Record) bool {
-	return r.out.SendContext(r.ctx, rec) == nil
+	return r.out.SendContext(r.ctx, readItem{Record: rec}) == nil
+}
+
+// endWindow puts the end of a window on out. A read whose context has ended sends
+// nothing more, so it goes unsent.
+func (r *reader) endWindow() {
+	_ = r.out.SendContext(r.ctx, readItem{windowEnd: true})
 }
 
 // takeBack sends the lines after the moment after, newest first, every one in

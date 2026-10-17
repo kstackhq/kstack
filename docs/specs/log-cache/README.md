@@ -431,7 +431,7 @@ nothing. It runs on the file's context, so a close aborts it mid-statement. One 
    protected. So what a viewer fetched or looked at is kept, with no session to track, and a
    tailed firehose nobody pages holds only its open chunk: a follow's lines are in the viewer's
    window, and a scroll back pages the file, which refills from the kubelet what it had to evict.
-3. **Evicts** while the file is over `Bytes` (256 MiB), or while any stream is over
+3. **Evicts** while the file is over `Bytes` (1 GiB), or while any stream is over
    `StreamShare` (a quarter of `Bytes`). It takes an over-share stream's unprotected chunks
    first, else any stream's; a never-read chunk before a read one, the oldest first within each.
    Each chunk goes in one transaction, its lines by the position index then its row, so an
@@ -442,12 +442,12 @@ nothing. It runs on the file's context, so a close aborts it mid-statement. One 
 5. **Vacuums**, bounded by `VacuumPages` and gated on `freelist_count`. Then a `TRUNCATE`
    checkpoint when the WAL is bigger than the file.
 
-`Retention` is the whole set of knobs, with `DefaultRetention`'s numbers: `Bytes` 256 MiB,
+`Retention` is the whole set of knobs, with `DefaultRetention`'s numbers: `Bytes` 1 GiB,
 `StreamShare` a quarter of it, `ReadTTL` 10 minutes, `ChunkBytes` 1 MiB, `ChunkSpan` 5 minutes,
 `TailGrace` 30 seconds, `WriteBatch` 1,000 lines or `WriteBatchBytes` 1 MiB, whichever a batch
 reaches first, `WriteTick` 50 ms, `WriteWait` 1 second, `WriteQueue` 16 batches, so the queue
 holds at most 16 MiB of text the cluster wrote and never the gigabyte that lines alone would
-allow at 16 KiB each, `SweepBytes` 16 MiB, a sixteenth of `Bytes`, `VacuumPages` 2,048
+allow at 16 KiB each, `SweepBytes` 64 MiB, a sixteenth of `Bytes`, `VacuumPages` 2,048
 (`kubestore`'s, about 8 MiB a sweep), `Interval` 5 minutes (`kubestore`'s). Production passes
 `DefaultRetention`. A test about anything else passes a zero `Interval`. A test about the
 janitor shrinks whatever it drives.
