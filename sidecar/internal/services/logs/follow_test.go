@@ -1529,7 +1529,7 @@ func TestAFollowWhoseFileClosesFails(t *testing.T) {
 	svc, _ := serviceOver(t, f, newLogServer())
 	stream, _ := openFollow(t, svc, f)
 
-	require.NoError(t, svc.files.Clear(int64(f.active.Cache.ID)))
+	require.NoError(t, svc.Clear(int64(f.active.Cache.ID)))
 
 	assert.ErrorIs(t, failsWith(t, stream), logstore.ErrClosed)
 }

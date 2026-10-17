@@ -832,7 +832,7 @@ func TestAFatalFillEndsTheOthers(t *testing.T) {
 }
 
 // A page the log file refuses fails: the file closed before the page opens it, in
-// either mode, or taken by a clear before the page writes what it read.
+// either mode, or taken by a clear before the page fills it or writes what it read.
 func TestAPageTheLogFileRefusesFails(t *testing.T) {
 	t.Parallel()
 	svc, _ := serviceOver(t, webMirror(t), newLogServer())
@@ -852,6 +852,11 @@ func TestAPageTheLogFileRefusesFails(t *testing.T) {
 		}
 	}
 	_, err := svc.Fetch(t.Context(), "7", webView, FetchQuery{Mode: FetchHead, Limit: 10})
+	assert.ErrorIs(t, err, logstore.ErrClosed)
+
+	svc, f = serviceOver(t, webMirror(t), s)
+	f.onAcquire = func() { assert.NoError(t, svc.Clear(int64(f.active.Cache.ID))) }
+	_, err = svc.Fetch(t.Context(), "7", webView, FetchQuery{Mode: FetchHead, Limit: 10})
 	assert.ErrorIs(t, err, logstore.ErrClosed)
 }
 

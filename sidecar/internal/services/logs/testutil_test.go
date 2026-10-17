@@ -71,6 +71,8 @@ type fakeService struct {
 	workloadsErr error
 
 	acquireErr, watchErr, watchObjectsErr, readActiveErr, healthErr, queryErr error
+	// onAcquire runs as a claim is acquired, before the lease is handed out.
+	onAcquire func()
 	// queryErrOn is the statement text queryErr applies to, "" for every one.
 	queryErrOn        string
 	noHealth, noQuery bool
@@ -125,6 +127,9 @@ func (f *fakeService) Clusters() cluster.Clusters     { return fakeClusters{f: f
 func (f *fakeService) AcquireConnection(context.Context, cluster.ClusterID) (cluster.Lease, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.onAcquire != nil {
+		f.onAcquire()
+	}
 	if f.acquireErr != nil {
 		return nil, f.acquireErr
 	}

@@ -41,7 +41,8 @@ func TestAHoldIsCounted(t *testing.T) {
 	assert.Empty(t, idsIn(t, s, "streams"))
 }
 
-// A hold on a closed claim holds nothing, and its release does nothing.
+// A hold of rows or chunks on a closed claim holds nothing, and its release does
+// nothing.
 func TestAHoldOnAClosedClaimHoldsNothing(t *testing.T) {
 	t.Parallel()
 	m, _ := newTestManager(t)
@@ -49,6 +50,7 @@ func TestAHoldOnAClosedClaimHoldsNothing(t *testing.T) {
 	require.NoError(t, s.Close())
 
 	s.Hold(1)()
+	s.HoldChunks(1)()
 }
 
 // An eviction runs under the holds' lock, so a hold taken meanwhile waits for it and
