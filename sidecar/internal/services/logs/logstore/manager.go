@@ -40,6 +40,9 @@ var (
 type Manager struct {
 	// dir holds each cache's file as "<cacheID>.db".
 	dir string
+	// ret bounds what each file holds: a fill closes its chunks at its ChunkBytes and
+	// ChunkSpan.
+	ret Retention
 
 	// mu guards everything below. It is never held across a file's open, close or delete,
 	// so a slow disk or a long query on one cache stalls no other.
@@ -68,10 +71,12 @@ type entry struct {
 	refs int
 }
 
-// NewManager returns a Manager rooted at dir. Nothing is opened until OpenOrCreate.
-func NewManager(dir string) *Manager {
+// NewManager returns a Manager rooted at dir, its files kept to ret. Nothing is opened
+// until OpenOrCreate.
+func NewManager(dir string, ret Retention) *Manager {
 	return &Manager{
 		dir:     dir,
+		ret:     ret,
 		entries: map[int64]*entry{},
 		busy:    map[int64]chan struct{}{},
 		removed: map[int64]bool{},

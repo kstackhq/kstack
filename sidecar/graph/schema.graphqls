@@ -1465,10 +1465,20 @@ type LogPlace {
   arch: String!
 }
 
-"A page of lines, oldest first. `nextCursor` is set while there are more in the direction asked."
+"One edge of a page: where the next page that way continues from, and whether there is one."
+type LogRecordsPageEdge {
+  "Opaque. A page's cursor, never a line's. Null on a `before` edge with nothing older."
+  cursor: String
+  more: Boolean!
+}
+
+"A page of a view's lines, oldest first in position order, whatever the mode."
 type LogRecordsPage {
   records: [LogRecord!]!
-  nextCursor: String
+  before: LogRecordsPageEdge!
+  after: LogRecordsPageEdge!
+  "For `Around`: the index of the first record at or after `at`, `records.length` with none. Null for the other modes."
+  anchor: Int
   "Streams the page could not read, one line each, in the sidecar's words. Empty when every stream answered."
   skipped: [String!]!
 }
@@ -1510,10 +1520,16 @@ enum LogsFollowFrameType {
   Ended
 }
 
-"Which end of the range a page is cut from when it holds more than `limit`."
+"""
+Which page of a view to read. `Head` reads oldest first after `cursor`, from the start with
+none; `Tail` reads newest first before `cursor`, from the end with none; `Around` reads
+`limit` lines before `at` and `limit` from it on, so its page holds up to twice `limit`, and
+needs `at` and no cursor.
+"""
 enum LogsFetchMode {
   Head
   Tail
+  Around
 }
 
 # --- Memory ---
@@ -1855,10 +1871,9 @@ type Query {
     id: ClusterID!
     view: LogsViewInput!
     mode: LogsFetchMode!
-    since: String
-    until: String
-    after: String
-    before: String
+    cursor: String
+    at: Time
+    "From 1 to 500: the lines in a page, or on each side of `at` for `Around`."
     limit: Int!
   ): LogRecordsPage!
 

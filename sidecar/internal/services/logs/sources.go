@@ -16,10 +16,12 @@ package logs
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 )
@@ -89,9 +91,13 @@ const (
 
 // target is what a view reads on one cluster: the server the mirror's pods came
 // from, one stream per container, in the order the sources were asked, and each
-// source's state. For a follow, starting is whether a container the view reads has
-// no log yet, which the follow waits for, and pods is the UID of each Pod source's
-// pod the mirror holds, by "<ns>/<name>", whether or not it has a log to read.
+// source's state. pods is the UID of each Pod source's pod the mirror holds, by
+// "<ns>/<name>", whether or not it has a log to read, defaults its default container,
+// places where it runs now, and current the runtime id of each of its containers'
+// current instance, by "<ns>/<pod>/<container>". noNodes is a label filter a page
+// could not apply for want of nodes, which it answers only when the file holds
+// nothing of the view either. For a follow, starting is whether a container the view
+// reads has no log yet, which the follow waits for.
 type target struct {
 	cacheID   cluster.ClusterCacheID
 	serverUID string
@@ -99,14 +105,29 @@ type target struct {
 	states    []SourceState
 	starting  bool
 	pods      map[string]string
+	defaults  map[string]string
+	places    map[string]Place
+	noNodes   error
+	current   map[string]string
 }
 
 // stream is one container a view reads: the log it names, where its pod runs,
-// and the generation of that log.
+// and the generation of that log; and the snapshot its file row keeps, since the
+// lines outlive the pod: the pod's labels as a JSON object, whether the container is
+// the pod's default, when the instance read started and finished in unix
+// nanoseconds, zero when unknown or while it runs.
 type stream struct {
-	key   StreamKey
-	place Place
-	gen   generation
+	key        StreamKey
+	place      Place
+	gen        generation
+	labels     string
+	isDefault  bool
+	startedAt  int64
+	finishedAt int64
+	// previous and previousFinishedAt are the instance before the one read and when it
+	// finished, when the stream reads the current one and the container restarted.
+	previous           string
+	previousFinishedAt int64
 }
 
 // generation is which log a stream's path serves now: the pod's UID, since a pod
@@ -121,6 +142,13 @@ type generation struct {
 	state    string
 }
 
+// finished is whether the instance st reads has stopped, so its log never grows:
+// a previous instance, or a container terminated or waiting, whose log is the last
+// instance's.
+func (st stream) finished() bool {
+	return st.key.Previous || st.gen.state == "terminated" || st.gen.state == "waiting"
+}
+
 // resolve reads view over one reading of cluster id's active cache, and for a
 // follow whether a container of it is starting. A cache missing or withholding its
 // rows is refused as the LogsView tool refuses it, and so is a kind the cache does
@@ -130,35 +158,67 @@ func resolve(ctx context.Context, svc cluster.Service, id cluster.ClusterID, vie
 	err := svc.CachedData().ReadActive(ctx, id, maxRows, maxBytes, func(q cluster.CacheReading, active cluster.ActiveCluster) error {
 		r := reading{q}
 		streams, states, err := r.streamsOf(view)
+		var noNodes NoNodes
+		var deferred error
+		if !follow && errors.As(err, &noNodes) {
+			// A page may still find the filter's place in the file's rows of a gone pod.
+			deferred, err = err, nil
+		}
 		if err != nil {
 			return err
 		}
 		if err := r.place(streams); err != nil {
 			return err
 		}
+		// After the streams, so a view of too many containers is refused as that.
+		pods, current, defaults, places, err := r.podSources(view)
+		if err != nil {
+			return err
+		}
 		starting := false
-		var pods map[string]string
 		if follow {
 			if starting, err = r.starting(view); err != nil {
 				return err
 			}
-			if pods, err = r.podUIDs(view); err != nil {
-				return err
-			}
 		}
 		// Set whole, never appended to: ReadActive may run this twice.
-		t = target{cacheID: active.Cache.ID, serverUID: active.Cache.Spec.ServerUID, streams: streams, states: states, starting: starting, pods: pods}
+		t = target{cacheID: active.Cache.ID, serverUID: active.Cache.Spec.ServerUID, streams: streams, states: states, starting: starting, pods: pods, current: current, defaults: defaults, places: places, noNodes: deferred}
 		return nil
 	})
-	switch {
-	case errors.Is(err, cluster.ErrNoCache):
-		return target{}, ErrNoCache
-	case errors.Is(err, cluster.ErrSyncing):
-		return target{}, ErrSyncing
-	case err != nil:
-		return target{}, err
+	if err != nil {
+		return target{}, mirrorErr(err)
 	}
 	return t, nil
+}
+
+// mirrorErr is err, a reading of the mirror's, as the service answers it: a cache
+// missing or withholding its rows is refused as the LogsView tool refuses it.
+func mirrorErr(err error) error {
+	switch {
+	case errors.Is(err, cluster.ErrNoCache):
+		return ErrNoCache
+	case errors.Is(err, cluster.ErrSyncing):
+		return ErrSyncing
+	}
+	return err
+}
+
+// serves is whether the pod st reads still runs the instance st was resolved as: the
+// pod of its name still the one of its UID, and the instance the kubelet serves for
+// st, the current one or with Previous the last, still st's.
+func (r reading) serves(st stream) (bool, error) {
+	rows, err := r.rows(`SELECT p.uid, coalesce(c.container_id, ''), coalesce(c.last_container_id, '')
+FROM objects p JOIN containers c ON c.pod_uid = p.uid
+WHERE p.api_version = 'v1' AND p.kind = 'Pod' AND p.namespace = ? AND p.name = ? AND c.name = ?`,
+		st.key.Namespace, st.key.Pod, st.key.Container)
+	if err != nil || len(rows) == 0 {
+		return false, err
+	}
+	served := cluster.CellText(rows[0][1])
+	if st.key.Previous || served == "" {
+		served = cluster.CellText(rows[0][2])
+	}
+	return cluster.CellText(rows[0][0]) == st.gen.uid && served == st.gen.instance, nil
 }
 
 // Check is each source's state as resolve would read view over q, refusing the
@@ -295,17 +355,31 @@ func (r reading) streams(i int, src ViewSource, filters []ViewFilter) ([]stream,
 	streams := make([]stream, 0, len(rows))
 	for _, row := range rows {
 		instance := cluster.CellText(row[4])
-		if src.Previous || instance == "" {
+		last := src.Previous || instance == ""
+		if last {
 			instance = cluster.CellText(row[5])
 		}
 		// The id is the cluster's text, and a page's cursor carries it.
 		if !validContainerID(instance) {
 			continue
 		}
+		started, finished := instanceTimes(cluster.CellText(row[9]), last)
+		var previous string
+		var previousFinished int64
+		if !last {
+			previous = cluster.CellText(row[5])
+			_, previousFinished = instanceTimes(cluster.CellText(row[9]), true)
+		}
 		streams = append(streams, stream{
-			key:   StreamKey{Namespace: src.Namespace, Pod: cluster.CellText(row[0]), Container: cluster.CellText(row[1]), Previous: src.Previous},
-			place: Place{Node: cluster.CellText(row[2])},
-			gen:   generation{uid: cluster.CellText(row[3]), instance: instance, state: cluster.CellText(row[6])},
+			key:                StreamKey{Namespace: src.Namespace, Pod: cluster.CellText(row[0]), Container: cluster.CellText(row[1]), Previous: src.Previous},
+			place:              Place{Node: cluster.CellText(row[2])},
+			gen:                generation{uid: cluster.CellText(row[3]), instance: instance, state: cluster.CellText(row[6])},
+			labels:             cluster.CellText(row[7]),
+			isDefault:          cluster.CellInteger(row[8]) == 1,
+			startedAt:          started,
+			finishedAt:         finished,
+			previous:           previous,
+			previousFinishedAt: previousFinished,
 		})
 	}
 	if len(streams) == 0 {
@@ -366,8 +440,9 @@ FROM objects n WHERE n.api_version = 'v1' AND n.kind = 'Node' AND n.name IN (`+c
 
 // podsStatement is the statement of src's pods' containers, each row the pod's
 // name, the container's name, the pod's node, the pod's UID, the container's
-// runtime id and its last one, and its state, init containers first, as they
-// run and as kubectl lists them. The containers src names, having a log the
+// runtime id and its last one, its state, the pod's labels, whether it is the pod's
+// default container and its status off the pod's body, init containers first, as
+// they run and as kubectl lists them. The containers src names, having a log the
 // kubelet serves — a previous instance when src asks for one, else a running or
 // finished instance, the last one standing in while the container waits, as
 // kubectl logs reads it — and the filters narrow it, so the row cap counts only
@@ -379,7 +454,13 @@ func podsStatement(src ViewSource, kind mirrorKind, filters []ViewFilter) (strin
 	} else {
 		where += " AND (c.container_id <> '' OR c.last_container_id <> '')"
 	}
-	return `SELECT p.name, c.name, p.node, p.uid, c.container_id, c.last_container_id, c.state FROM objects p JOIN containers c ON c.pod_uid = p.uid
+	return `SELECT p.name, c.name, p.node, p.uid, c.container_id, c.last_container_id, c.state,
+coalesce(p.body -> '$.metadata.labels', '{}'),
+c.name = ` + defaultContainer + `,
+(SELECT s.value FROM json_each(p.body,
+	CASE c.init WHEN 1 THEN '$.status.initContainerStatuses' ELSE '$.status.containerStatuses' END) s
+WHERE s.value ->> '$.name' = c.name)
+FROM objects p JOIN containers c ON c.pod_uid = p.uid
 WHERE p.api_version = 'v1' AND p.kind = 'Pod' AND ` + where + fmt.Sprintf(` ORDER BY p.name, c.init DESC, c.position LIMIT %d`, maxStreams+1), args
 }
 
@@ -420,23 +501,92 @@ WHERE p.api_version = 'v1' AND p.kind = 'Pod' AND `+where+` AND coalesce(c.conta
 	return false, nil
 }
 
-// podUIDs is the UID of each of view's Pod sources' pods the mirror holds, by
-// "<ns>/<name>".
-func (r reading) podUIDs(view View) (map[string]string, error) {
-	uids := map[string]string{}
+// podSources is the UID, the default container and the place of each of view's Pod
+// sources' pods the mirror holds, by "<ns>/<name>", and the runtime id of the current
+// instance of each of their containers, by "<ns>/<pod>/<container>": the one a read
+// with no Previous serves, so the instance before while the container waits. Each pod is one
+// row, its containers folded into it, so what a pod holds never counts against the
+// row cap, which bounds what a view selects.
+func (r reading) podSources(view View) (uids, current, defaults map[string]string, places map[string]Place, err error) {
+	uids, current, defaults, places = map[string]string{}, map[string]string{}, map[string]string{}, map[string]Place{}
+	var held []stream
 	for _, src := range view.Sources {
 		if src.Kind != SourcePod {
 			continue
 		}
-		rows, err := r.rows(`SELECT uid FROM objects WHERE api_version = 'v1' AND kind = 'Pod' AND namespace = ? AND name = ?`, src.Namespace, src.Name)
+		rows, err := r.rows(`SELECT p.uid, coalesce(`+defaultContainer+`, ''), p.node,
+(SELECT json_group_object(c.name, coalesce(nullif(c.container_id, ''), c.last_container_id, '')) FROM containers c WHERE c.pod_uid = p.uid)
+FROM objects p WHERE p.api_version = 'v1' AND p.kind = 'Pod' AND p.namespace = ? AND p.name = ?`, src.Namespace, src.Name)
 		if err != nil {
-			return nil, err
+			return nil, nil, nil, nil, err
 		}
-		if len(rows) > 0 {
-			uids[src.Namespace+"/"+src.Name] = cluster.CellText(rows[0][0])
+		if len(rows) == 0 {
+			continue
+		}
+		key := src.Namespace + "/" + src.Name
+		uids[key], defaults[key] = cluster.CellText(rows[0][0]), cluster.CellText(rows[0][1])
+		held = append(held, stream{key: StreamKey{Namespace: src.Namespace, Pod: src.Name}, place: Place{Node: cluster.CellText(rows[0][2])}})
+		var ids map[string]string
+		if err := json.Unmarshal([]byte(cluster.CellText(rows[0][3])), &ids); err != nil {
+			return nil, nil, nil, nil, err
+		}
+		for name, id := range ids {
+			current[containerKey(src.Namespace, src.Name, name)] = id
 		}
 	}
-	return uids, nil
+	if err := r.place(held); err != nil {
+		return nil, nil, nil, nil, err
+	}
+	for _, st := range held {
+		places[st.key.Namespace+"/"+st.key.Pod] = st.place
+	}
+	return uids, current, defaults, places, nil
+}
+
+// containerKey is how target.current names a container: "<ns>/<pod>/<container>".
+func containerKey(namespace, pod, container string) string {
+	return namespace + "/" + pod + "/" + container
+}
+
+// instanceTimes is when the instance a container's status names started and
+// finished, in unix nanoseconds, zero where the status does not say: the current
+// instance's, or with last the one before it.
+func instanceTimes(status string, last bool) (started, finished int64) {
+	type times struct {
+		StartedAt  time.Time `json:"startedAt"`
+		FinishedAt time.Time `json:"finishedAt"`
+	}
+	var st struct {
+		State struct {
+			Running    *times `json:"running"`
+			Terminated *times `json:"terminated"`
+		} `json:"state"`
+		LastState struct {
+			Terminated *times `json:"terminated"`
+		} `json:"lastState"`
+	}
+	if json.Unmarshal([]byte(status), &st) != nil {
+		return 0, 0
+	}
+	t := st.State.Running
+	if st.State.Terminated != nil {
+		t = st.State.Terminated
+	}
+	if last {
+		t = st.LastState.Terminated
+	}
+	if t == nil {
+		return 0, 0
+	}
+	return unixNano(t.StartedAt), unixNano(t.FinishedAt)
+}
+
+// unixNano is t in unix nanoseconds, zero for the zero time.
+func unixNano(t time.Time) int64 {
+	if t.IsZero() {
+		return 0
+	}
+	return t.UnixNano()
 }
 
 // podsOf is the condition on the pod p that it is one of src's pods, with the
@@ -456,8 +606,7 @@ SELECT r.uid, down.depth + 1 FROM down JOIN owners r ON r.owner_uid = down.uid W
 
 // containersOf is the condition on the container c of the pod p that src reads
 // it, with the args it binds: one it names; with none named, any when it asks
-// for every one, else p's default container, picked per pod as kubectl logs
-// picks it: the one the annotation names when p has it, else p's first.
+// for every one, else p's default container.
 func containersOf(src ViewSource) (string, []any) {
 	switch {
 	case len(src.Containers) > 0:
@@ -465,10 +614,14 @@ func containersOf(src ViewSource) (string, []any) {
 	case src.AllContainers:
 		return "", nil
 	}
-	return ` AND c.name = coalesce(
-(SELECT d.name FROM containers d WHERE d.pod_uid = p.uid AND d.name = p.body ->> '$.metadata.annotations."` + DefaultContainerAnnotation + `"'),
-(SELECT d.name FROM containers d WHERE d.pod_uid = p.uid AND d.init = 0 ORDER BY d.position LIMIT 1))`, nil
+	return " AND c.name = " + defaultContainer, nil
 }
+
+// defaultContainer is the name of the pod p's default container, as kubectl logs
+// picks it: the one the annotation names when p has it, else p's first.
+const defaultContainer = `coalesce(
+(SELECT d.name FROM containers d WHERE d.pod_uid = p.uid AND d.name = p.body ->> '$.metadata.annotations."` + DefaultContainerAnnotation + `"'),
+(SELECT d.name FROM containers d WHERE d.pod_uid = p.uid AND d.init = 0 ORDER BY d.position LIMIT 1))`
 
 // kindOf is src's kind in the mirror, refusing one outside the enum.
 func kindOf(src ViewSource) (mirrorKind, error) {
