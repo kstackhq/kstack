@@ -90,6 +90,7 @@ func newWorld(t *testing.T, rng *rand.Rand) *world {
 	ret := testRetention
 	ret.Bytes = int64(200 + rng.Intn(2000))
 	ret.StreamShare, ret.ReadTTL = ret.Bytes/2, 0
+	ret.WriteBatch, ret.WriteBatchBytes = 1+rng.Intn(4), int64(1+rng.Intn(64))
 	w.svc, w.f = serviceIn(t, newMirror(t, objects...), w.s, t.TempDir(), ret)
 	w.svc.budget = int64(2000 + rng.Intn(8000))
 	w.f.chunk(1 + rng.Intn(64))
@@ -342,7 +343,7 @@ func TestAWalkStopsAtALiveGap(t *testing.T) {
 
 	assert.Greater(t, len(got), 1, "the budget cuts the first page")
 	assert.Equal(t, messages(linesOf(lineEvery(100))), recordsOf(got, FetchHead))
-	assert.Len(t, logstore.CoverageOf(chunksOf(t, svc, f, "web-1", "app"), []string{"kubelet"}, nil).Spans, 1,
+	assert.Len(t, spansOf(t, svc, f), 1,
 		"each page's fill continues the chunk the one before it wrote")
 }
 

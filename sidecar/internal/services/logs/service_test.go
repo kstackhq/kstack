@@ -32,3 +32,12 @@ func TestAPageOfARemovedCacheFails(t *testing.T) {
 	_, err := svc.Fetch(t.Context(), "7", webView, FetchQuery{Mode: FetchHead, Limit: 10})
 	assert.ErrorIs(t, err, logstore.ErrRemoved)
 }
+
+// A page's walks read up to 64 MiB of the file, split evenly across its streams: about
+// 640 KiB each at a hundred.
+func TestAPagesWalksReadSixtyFourMiB(t *testing.T) {
+	t.Parallel()
+	svc, _ := serviceOver(t, webMirror(t), newLogServer())
+
+	assert.Equal(t, int64(64<<20), svc.walkBudget)
+}

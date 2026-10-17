@@ -707,7 +707,9 @@ func stamped(d time.Duration, msg string) string {
 func drain(r *streamRead) []Record {
 	var out []Record
 	for rec := range r.lines.Chan() {
-		out = append(out, rec)
+		if !rec.windowEnd {
+			out = append(out, rec.Record)
+		}
 	}
 	return out
 }

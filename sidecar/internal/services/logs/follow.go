@@ -1107,14 +1107,13 @@ func (f *follow) reach(cov logstore.Coverage, tr *tracked, crossed bool, committ
 // gone, so the stream waits out its backoff until a reconcile drops it.
 var errRowGone = errors.New("logs: the stream's row is gone from the log file")
 
-// fillDone is the end of a gap fill of tr's stream: the row it filled, what it read,
-// whether the janitor took the row first, the hold on what it wrote, and its
+// fillDone is the end of a gap fill of tr's stream: the row it filled, what it read
+// (with whether the janitor took the row first), the hold on what it wrote, and its
 // failure, fatal or the file's.
 type fillDone struct {
 	tr      *tracked
 	row     int64
 	out     streamFill
-	skipped bool
 	release func()
 	err     error
 }
@@ -1129,7 +1128,7 @@ func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) {
 	ps := tr.pageStream()
 	ps.st = &st
 	fl := &filler{
-		file: f.file, ps: ps, backends: f.backends, names: f.names,
+		file: f.file, clusters: f.s.clusters, id: f.id, ret: f.s.files.Retention(), ps: ps, backends: f.backends, names: f.names,
 		q:      pageQuery{view: f.view, grep: f.grep, mode: FetchHead, limit: MaxLimit},
 		budget: newBudget(f.s.budget / int64(max(len(f.wanted), 1))),
 	}
@@ -1148,26 +1147,26 @@ func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) {
 	}()
 }
 
-// readGap runs fl's read of g from wm, checks the instance it read, and writes what
-// it read, held.
+// readGap runs fl's read of g from wm, writing what it read, held. On an error it
+// releases what it held, and the release it answers is a no-op.
 func (f *follow) readGap(ctx context.Context, fl *filler, g logstore.Gap, wm logstore.Pos) fillDone {
+	var releases []func()
+	fl.save = func(ctx context.Context, fills []logstore.Fill) (logstore.Written, error) {
+		w, release, err := f.file.WriteHeld(ctx, fills)
+		releases = append(releases, release)
+		return w, err
+	}
+	release := func() {
+		for _, r := range releases {
+			r()
+		}
+	}
 	d := fillDone{row: fl.ps.row.ID, release: func() {}}
 	if _, d.err = fl.fillGap(ctx, g, wm, true); d.err != nil {
+		release()
 		return d
 	}
-	// One direction's fills of one stream, in the shape a page's check reads.
-	fills := [][]streamFill{{fl.out}}
-	if d.err = checkInstances(ctx, f.s.clusters, f.id, []pageStream{fl.ps}, fills); d.err != nil {
-		return d
-	}
-	d.out = fills[0][0]
-	if len(d.out.fills) == 0 {
-		return d
-	}
-	// On an error nothing is held, and the release is a no-op.
-	var w logstore.Written
-	w, d.release, d.err = f.file.WriteHeld(ctx, d.out.fills)
-	d.skipped = len(w.Skipped) > 0
+	d.out, d.release = fl.out, release
 	return d
 }
 
@@ -1190,11 +1189,11 @@ func (f *follow) filledGap(ctx context.Context, d fillDone) error {
 		d.release()
 		return d.err
 	}
-	if len(d.out.fills) > 0 && f.s.afterFill != nil {
+	if d.out.wrote && f.s.afterFill != nil {
 		f.s.afterFill()
 	}
 	switch {
-	case d.skipped:
+	case d.out.gone:
 		// The row went before the follow held it: its pod is gone.
 		d.release()
 		return f.failed(ctx, tr, errRowGone)
