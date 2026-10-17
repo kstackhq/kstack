@@ -386,7 +386,8 @@ func TestAFollowEndsWhenEveryStreamIsGone(t *testing.T) {
 }
 
 // A follow whose containers have all finished reads each to its end, sends their
-// lines in position order across the view, then says every container stopped.
+// lines, then says every container stopped. Each fills on its own, so the order is
+// per container alone.
 func TestAFollowDeliversWhatItHeldBeforeItEnds(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
@@ -400,8 +401,7 @@ func TestAFollowDeliversWhatItHeldBeforeItEnds(t *testing.T) {
 	stream, err := svc.Follow(t.Context(), "7", webView, cursor(-time.Second))
 	require.NoError(t, err)
 
-	assert.Equal(t, "b", recvLine(t, stream, "web-2's line").Message)
-	assert.Equal(t, "a", recvLine(t, stream, "web-1's line").Message)
+	assert.ElementsMatch(t, []string{"a", "b"}, recvLines(t, stream, 2))
 	assert.Equal(t, errStopped.Reason, endedWith(t, stream))
 }
 
@@ -1410,18 +1410,18 @@ func TestABackfillBelowTheWatermarkIsNotSent(t *testing.T) {
 	assert.Equal(t, "tailed", recvLine(t, stream, "the tailer's line").Message)
 }
 
-// liveGap is a follow of web-1 from 10:00 over a file holding web-1's line at 10:30,
+// liveGap is a follow of web-1, and its cancel, from 10:00 over a file holding web-1's line at 10:30,
 // which its tailer resumes from, the kubelet holding lines between: a live gap past
 // the watermark. head marks the line the kubelet's oldest, which loses the gap.
-func liveGap(t *testing.T, s *logServer, head bool, between ...string) (*Service, *fakeService, *cluster.Stream[FollowFrame]) {
+func liveGap(t *testing.T, s *logServer, head bool, between ...string) (*Service, *fakeService, *cluster.Stream[FollowFrame], context.CancelFunc) {
 	t.Helper()
 	s.add("prod/web-1/app", between...)
 	s.add("prod/web-1/app", stamped(30*time.Minute, "1800"))
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute), Head: head})
-	stream, _ := followWeb1(t, svc, cursor(0))
-	return svc, f, stream
+	stream, cancel := followWeb1(t, svc, cursor(0))
+	return svc, f, stream, cancel
 }
 
 // A follow that meets a live gap fills it and sends its lines before the tailer's
@@ -1429,12 +1429,221 @@ func liveGap(t *testing.T, s *logServer, head bool, between ...string) (*Service
 func TestAFollowFillsALiveGapBeforeItGoesOn(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
-	_, _, stream := liveGap(t, s, false, stamped(10*time.Minute, "in the gap"))
+	_, _, stream, _ := liveGap(t, s, false, stamped(10*time.Minute, "in the gap"))
 
 	s.add("prod/web-1/app", stamped(40*time.Minute, "tailed"))
 
 	assert.Equal(t, []string{"in the gap", "1800", "tailed"}, recvLines(t, stream, 3))
 	assert.Equal(t, 1, fills(s, "prod/web-1/app"))
+}
+
+// holdFill holds key's first gap fill open on s until release is closed: asked
+// fires once the fill has asked. Set it before any request.
+func holdFill(t *testing.T, s *logServer, key string) (asked *testutil.Signal, release chan struct{}) {
+	asked, release = testutil.NewSignal(), make(chan struct{})
+	var once sync.Once
+	s.onRequest = func(n int) {
+		s.mu.Lock()
+		k, q := s.keys[n], s.queries[n]
+		s.mu.Unlock()
+		if k != key || q.Get("follow") == "true" {
+			return
+		}
+		once.Do(func() {
+			asked.Fire()
+			select {
+			case <-release:
+			case <-t.Context().Done():
+			}
+		})
+	}
+	return asked, release
+}
+
+// A gap fill held open holds up no other stream: the view's other container's lines
+// arrive while it waits, and the checkpoint stays at the filling stream's watermark,
+// so the gap's lines come once the fill ends.
+func TestASlowFillHoldsUpNoOtherStream(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(10*time.Minute, "in the gap"), stamped(30*time.Minute, "1800"))
+	asked, release := holdFill(t, s, "prod/web-1/app")
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, s)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
+	stream, err := svc.Follow(t.Context(), "7", webView, cursor(0))
+	require.NoError(t, err)
+	asked.Wait(t, "web-1's gap fill")
+
+	s.add("prod/web-2/app", stamped(40*time.Minute, "from web-2"))
+	assert.Equal(t, "from web-2", recvLine(t, stream, "web-2's line while web-1 fills").Message)
+	frame := testutil.Recv(t, stream.Frames, "the checkpoint after it")
+	require.Equal(t, FollowCheckpoint, frame.Type)
+	checkpoint, err := boundAfter(frame.Cursor)
+	require.NoError(t, err)
+	assert.True(t, checkpoint.at.Timestamp.Before(at(10*time.Minute)), "the checkpoint waits before web-1's gap")
+
+	close(release)
+	assert.Equal(t, []string{"in the gap", "1800"}, recvLines(t, stream, 2))
+}
+
+// A container that finishes while its gap fill waits, the fill then failing on a
+// transient error, is held, not ended: after its backoff the gap is filled again and
+// its lines are sent before the follow ends.
+func TestAFillThatFailsAfterItsContainerFinishedIsRetried(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(10*time.Minute, "in the gap"), stamped(30*time.Minute, "1800"))
+	asked, release := holdFill(t, s, "prod/web-1/app")
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, s)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
+	stream, _ := followWeb1(t, svc, cursor(0))
+	closeSnapshot(t, f, f.pods)
+	asked.Wait(t, "web-1's gap fill")
+
+	f.store.Apply(t, finished(web1()))
+	read := testutil.NewProbe[struct{}](1)
+	f.set(func() { f.mirrorRead = read })
+	f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
+	read.Await(t, "the finished pod's resolve")
+	s.end("prod/web-1/app")
+	read.Await(t, "the resolve after the tailer's end")
+	f.set(func() { f.mirrorRead = nil })
+
+	s.mu.Lock()
+	s.refuseReads["prod/web-1/app"] = refusal{http.StatusServiceUnavailable, "busy"}
+	s.mu.Unlock()
+	close(release)
+	require.Eventually(t, func() bool { return fills(s, "prod/web-1/app") >= 2 },
+		testutil.Timeout, time.Millisecond, "the fill retried")
+	s.mu.Lock()
+	delete(s.refuseReads, "prod/web-1/app")
+	s.mu.Unlock()
+
+	assert.Equal(t, []string{"in the gap", "1800"}, recvLines(t, stream, 2))
+	assert.Equal(t, errStopped.Reason, endedWith(t, stream))
+}
+
+// A follow cancelled while a gap fill is in flight ends clean once the fill returns,
+// and lets go of what the fill wrote.
+func TestAFollowCancelledWhileItFillsEndsClean(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	asked, release := holdFill(t, s, "prod/web-1/app")
+	_, _, stream, cancel := liveGap(t, s, false, stamped(10*time.Minute, "in the gap"))
+	asked.Wait(t, "web-1's gap fill")
+
+	cancel()
+	close(release)
+
+	testutil.RecvClosed(t, stream.Frames, "the follow to end")
+	assert.NoError(t, stream.Err())
+}
+
+// A gap fill the cluster refuses the user's credentials for ends the follow.
+func TestAFillUnauthorizedEndsTheFollow(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.refuseReads["prod/web-1/app"] = refusal{http.StatusUnauthorized, "unauthorized"}
+	_, _, stream, _ := liveGap(t, s, false, stamped(10*time.Minute, "in the gap"))
+
+	assert.Contains(t, endedWith(t, stream), "unauthorized")
+}
+
+// A stream that leaves the view while its gap fill is in flight sends nothing of what
+// the fill read; the view's other streams go on.
+func TestAFillOfAStreamThatLeftTheViewIsNotSent(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(10*time.Minute, "in the gap"), stamped(30*time.Minute, "1800"))
+	asked, release := holdFill(t, s, "prod/web-1/app")
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, s)
+	filled := testutil.NewSignal()
+	svc.afterFill = func() { filled.Fire() }
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
+	stream, err := svc.Follow(t.Context(), "7", webView, cursor(0))
+	require.NoError(t, err)
+	closeSnapshot(t, f, f.pods)
+	asked.Wait(t, "web-1's gap fill")
+
+	// Its pod runs on under another owner, so the fill's instance check passes.
+	f.store.Apply(t, pod("web-1", "uid-web-1", "node-a", controller("apps/v1", "ReplicaSet", "other", "uid-other"), container{name: "app"}))
+	read := testutil.NewProbe[struct{}](1)
+	f.set(func() { f.mirrorRead = read })
+	f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
+	read.Await(t, "the resolve without web-1")
+	f.set(func() { f.mirrorRead = nil })
+	close(release)
+	filled.Wait(t, "web-1's fill to end")
+
+	s.add("prod/web-2/app", stamped(40*time.Minute, "from web-2"))
+	assert.Equal(t, "from web-2", recvLine(t, stream, "web-2's line").Message)
+}
+
+// A gap fill of a container's instance before its restart is thrown away once the
+// follow reads the new instance's row: the new instance is followed, and the old
+// fill's lines are not sent.
+func TestAFillOfARestartedInstanceIsThrownAway(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(10*time.Minute, "in the gap"), stamped(30*time.Minute, "1800"))
+	asked, release := holdFill(t, s, "prod/web-1/app")
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, s)
+	// The old instance's dropped tailer is held for the hour, never tailed again.
+	svc.retry, svc.retryCap = time.Hour, time.Hour
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
+	stream, _ := followWeb1(t, svc, cursor(0))
+	closeSnapshot(t, f, f.pods)
+	asked.Wait(t, "web-1's gap fill")
+
+	s.end("prod/web-1/app")
+	awaitClosed(t, s, "prod/web-1/app")
+	s.resume("prod/web-1/app")
+	restartWeb1(t, f, s)
+	f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
+	require.Eventually(t, func() bool { return s.followsOpened("prod/web-1/app") >= 2 },
+		testutil.Timeout, time.Millisecond, "the new instance's tailer")
+	close(release)
+
+	s.add("prod/web-1/app", stamped(40*time.Minute, "new"))
+	rec := recvLine(t, stream, "the new instance's line")
+	assert.Equal(t, "new", rec.Message)
+	assert.Equal(t, containerID("uid-web-1", "app", 1), rec.ContainerID)
+}
+
+// A gap fill whose check of the mirror fails ends the follow with the mirror's error.
+func TestAFillWhoseInstanceCheckFailsEndsTheFollow(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	asked, release := holdFill(t, s, "prod/web-1/app")
+	_, f, stream, _ := liveGap(t, s, false, stamped(10*time.Minute, "in the gap"))
+	asked.Wait(t, "web-1's gap fill")
+
+	broken := errors.New("mirror broken")
+	f.set(func() { f.readActiveErr = broken })
+	close(release)
+
+	assert.ErrorIs(t, failsWith(t, stream), broken)
+}
+
+// A gap fill its budget cuts before its first line reads nothing: the stream is held
+// and filled again after its backoff.
+func TestAFillCutBeforeItsFirstLineIsRetried(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(10*time.Minute, "in the gap"), stamped(30*time.Minute, "1800"))
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, s)
+	f.chunk(1)
+	svc.budget = 1
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
+	followWeb1(t, svc, cursor(0))
+
+	require.Eventually(t, func() bool { return fills(s, "prod/web-1/app") >= 2 },
+		testutil.Timeout, time.Millisecond, "the fill retried")
 }
 
 // A follow's gap fill is not stamped, since what it fetched is in the viewer's window,
@@ -1466,7 +1675,7 @@ func TestAFollowsGapFillIsHeldUntilItsWalk(t *testing.T) {
 func TestAnEmptyGapIsFilledOnce(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
-	_, _, stream := liveGap(t, s, false)
+	_, _, stream, _ := liveGap(t, s, false)
 
 	s.add("prod/web-1/app", stamped(40*time.Minute, "tailed"))
 	assert.Equal(t, []string{"1800", "tailed"}, recvLines(t, stream, 2))
@@ -1504,7 +1713,7 @@ func TestAFillRefusedEndsItsStream(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.refuseReads["prod/web-1/app"] = refusal{http.StatusForbidden, "no"}
-	_, _, stream := liveGap(t, s, false, stamped(10*time.Minute, "in the gap"))
+	_, _, stream, _ := liveGap(t, s, false, stamped(10*time.Minute, "in the gap"))
 
 	assert.Equal(t, "the cluster refused to show this log: no", endedWith(t, stream))
 }
@@ -1513,7 +1722,7 @@ func TestAFillRefusedEndsItsStream(t *testing.T) {
 func TestAFollowCrossesALostGap(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
-	_, _, stream := liveGap(t, s, true, stamped(10*time.Minute, "rotated away"))
+	_, _, stream, _ := liveGap(t, s, true, stamped(10*time.Minute, "rotated away"))
 
 	s.add("prod/web-1/app", stamped(40*time.Minute, "tailed"))
 
@@ -1571,7 +1780,7 @@ func TestABackfillIsSentABatchAtATime(t *testing.T) {
 	for i := range 2*followBatch + 500 {
 		backlog = append(backlog, stamped(10*time.Minute+time.Duration(i)*time.Millisecond, strconv.Itoa(i)))
 	}
-	_, _, stream := liveGap(t, s, false, backlog...)
+	_, _, stream, _ := liveGap(t, s, false, backlog...)
 
 	lines, run, checkpoints := 0, 0, 0
 	for lines < len(backlog)+1 {
