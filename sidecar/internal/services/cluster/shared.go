@@ -23,6 +23,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/amorey/beehive"
@@ -117,6 +118,46 @@ type kubestoreManager interface {
 type CacheFileOwner interface {
 	Clear(cacheID int64) error
 	Remove(cacheID int64) error
+}
+
+// cacheFiles is the CacheFileOwner as the passes reach it: unset until SetCacheFiles,
+// and a call before that fails, since a file left behind would be nobody's to remove.
+type cacheFiles struct {
+	mu    sync.Mutex
+	owner CacheFileOwner
+}
+
+var errNoCacheFiles = errors.New("cluster service: no cache file owner")
+
+func (c *cacheFiles) set(owner CacheFileOwner) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.owner = owner
+}
+
+func (c *cacheFiles) get() (CacheFileOwner, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.owner == nil {
+		return nil, errNoCacheFiles
+	}
+	return c.owner, nil
+}
+
+func (c *cacheFiles) Clear(cacheID int64) error {
+	owner, err := c.get()
+	if err != nil {
+		return err
+	}
+	return owner.Clear(cacheID)
+}
+
+func (c *cacheFiles) Remove(cacheID int64) error {
+	owner, err := c.get()
+	if err != nil {
+		return err
+	}
+	return owner.Remove(cacheID)
 }
 
 // kubesyncService is the seam that fills a cache, as this package reaches it. It speaks

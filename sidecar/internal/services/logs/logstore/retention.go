@@ -23,7 +23,9 @@ const mib = 1 << 20
 const defaultBytes = 256 * mib
 
 // Retention is every bound on what a log file holds and on how lines reach it. The
-// janitor sweeps to the first five, the tailers and the writer run under the rest.
+// janitor sweeps to Bytes, StreamShare and ReadTTL, on SweepBytes and Interval, and
+// vacuums by VacuumPages; a fill closes its chunks at ChunkBytes and ChunkSpan; the
+// tailers and the writer run under the rest.
 type Retention struct {
 	// Bytes is the file's budget, the chunks' bytes summed. Eviction runs while the file
 	// is over it.
@@ -54,6 +56,9 @@ type Retention struct {
 	// WriteQueue times WriteBatchBytes of text, 16 MiB by default: log text is the
 	// cluster's to write, so the bound is on bytes, never on lines.
 	WriteQueue int
+	// SweepBytes wakes the janitor once this much message text has been committed since
+	// it last woke, so a busy file is swept long before its Interval.
+	SweepBytes int64
 	// VacuumPages bounds what one sweep hands back to the filesystem.
 	VacuumPages int64
 	// Interval is the janitor's cadence. Zero runs no janitor, which is what a test about
@@ -74,6 +79,7 @@ var DefaultRetention = Retention{
 	WriteTick:       50 * time.Millisecond,
 	WriteWait:       time.Second,
 	WriteQueue:      16,
+	SweepBytes:      defaultBytes / 16,
 	VacuumPages:     2048,
 	Interval:        5 * time.Minute,
 }

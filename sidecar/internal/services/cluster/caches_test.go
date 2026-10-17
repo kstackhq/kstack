@@ -474,7 +474,7 @@ func TestCacheReconcileRemovesTheLogFileAfterTheMirrors(t *testing.T) {
 	var order []string
 	kubestoreFake(d).onRemove = func(int64) { order = append(order, "mirror") }
 	files := &fakeCacheFiles{onRemove: func(int64) { order = append(order, "logs") }}
-	d.cacheFiles = files
+	d.cacheFiles.set(files)
 	require.NoError(t, d.cacheClient.Delete(context.Background(), cache.ID))
 
 	obj, err := d.cacheClient.Get(context.Background(), cache.ID)
@@ -491,7 +491,7 @@ func TestCacheReconcileKeepsTheFinalizerWhenTheLogFileWillNotGo(t *testing.T) {
 	d, status := newClusterStatusDeps(t)
 	cluster := storedCluster(t, d, status, true, "uid-1")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
-	d.cacheFiles = &fakeCacheFiles{err: assert.AnError}
+	d.cacheFiles.set(&fakeCacheFiles{err: assert.AnError})
 	require.NoError(t, d.cacheClient.Delete(context.Background(), cache.ID))
 	obj, err := d.cacheClient.Get(context.Background(), cache.ID)
 	require.NoError(t, err)
@@ -1225,7 +1225,7 @@ func TestCachesClearClearsTheLogFileFirstOutsideTheSyncsHold(t *testing.T) {
 		order = append(order, "logs")
 		heldAtClear = syncFake(d).inHold()
 	}}
-	d.cacheFiles = files
+	d.cacheFiles.set(files)
 
 	_, err := serviceOver(t, d).Caches().Clear(context.Background(), ClusterCacheID(cache.ID))
 
@@ -1241,7 +1241,7 @@ func TestCachesClearReportsALogFileThatWillNotClear(t *testing.T) {
 	d := newTestDeps(t)
 	cluster := createCluster(t, d, "prod")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
-	d.cacheFiles = &fakeCacheFiles{err: assert.AnError}
+	d.cacheFiles.set(&fakeCacheFiles{err: assert.AnError})
 
 	_, err := serviceOver(t, d).Caches().Clear(context.Background(), ClusterCacheID(cache.ID))
 

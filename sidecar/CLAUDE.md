@@ -91,7 +91,7 @@ that is what keeps cluster-controlled text from forging a line (`TestInitWritesO
 host](../docs/adr/2026-09-08-json-logs-rendered-by-the-host.md), [ADR: two processes, two log
 files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
 
-- `internal/app/` probes the sandbox once (`probeSandbox`, a test's seam, under the context `New` is handed, the shutdown signal's; a probe that context cut short answers its error, which `New` returns, and `run` exits cleanly on it), then, with `RunLoginShell`, runs the login shell in it (`launchShell`, *The login shell*, below), **before anything that reads the environment**: on macOS it sets the environment process-wide, and `chatTools` reads the proxy variables. Then `build` opens the settings (`settings.Open`, before `app.db`, since the store holds no handle) and `app.db`, and builds `poke`, `kubeconfig`, `services/cluster`, `auth`, `cloud`, the catalog and llm service, the Bash tool, the settings service, `services/memory`, the tool box and `agent/chat`; `New` wires `graph.NewServer` + `grpcserver.NewServer` over the runtime and multiplexes both onto one h2c handler. `Runtime.parts` is start order (app.db → poke → kubeconfig → log store → cluster → cloud → memory → chat, then the executable probe when there is a shell, whose Close ends a running probe, then the `PATH` sync when the launch read a `PATH` on a machine with a sandbox, then the shell snapshot with `RunLoginShell`); stop and close reverse it. The sync folds the launch's `PATH` into the stored list, and one that fails is a warning, not a startup error. A sync that changed the list starts a probe of every listed executable (`StartProbe`), so nothing runs unasked on a machine whose tools did not move; the executable probe part's Close ends it. At the end of `build`, once `agent/chat` exists, the Bash tool is handed the probe's folders: `FoldersFor(ctx, "")`, the folders granted always (`SetProbeFolders`). **kubeconfig before cluster is load-bearing** (`app_test.go` pins it). The transports stay out of the slice; `grpcServer.Stop()` runs first in `Close`.
+- `internal/app/` probes the sandbox once (`probeSandbox`, a test's seam, under the context `New` is handed, the shutdown signal's; a probe that context cut short answers its error, which `New` returns, and `run` exits cleanly on it), then, with `RunLoginShell`, runs the login shell in it (`launchShell`, *The login shell*, below), **before anything that reads the environment**: on macOS it sets the environment process-wide, and `chatTools` reads the proxy variables. Then `build` opens the settings (`settings.Open`, before `app.db`, since the store holds no handle) and `app.db`, and builds `poke`, `kubeconfig`, `services/cluster`, `services/logs`, `auth`, `cloud`, the catalog and llm service, the Bash tool, the settings service, `services/memory`, the tool box and `agent/chat`; `New` wires `graph.NewServer` + `grpcserver.NewServer` over the runtime and multiplexes both onto one h2c handler. `Runtime.parts` is start order (app.db → poke → kubeconfig → cluster → logs → cloud → memory → chat, then the executable probe when there is a shell, whose Close ends a running probe, then the `PATH` sync when the launch read a `PATH` on a machine with a sandbox, then the shell snapshot with `RunLoginShell`); stop and close reverse it. The sync folds the launch's `PATH` into the stored list, and one that fails is a warning, not a startup error. A sync that changed the list starts a probe of every listed executable (`StartProbe`), so nothing runs unasked on a machine whose tools did not move; the executable probe part's Close ends it. At the end of `build`, once `agent/chat` exists, the Bash tool is handed the probe's folders: `FoldersFor(ctx, "")`, the folders granted always (`SetProbeFolders`). **kubeconfig before cluster is load-bearing** (`app_test.go` pins it). The transports stay out of the slice; `grpcServer.Stop()` runs first in `Close`.
 
   **`READY` promises a socket, not a finished startup.** `run` prints it after the bind and before `Start`; the first request is answered after `Start`, and every part completes its startup work inside `Start`. Everything that reads the environment does so after the shell import at the top of `app.New`, which finishes before `READY` — nothing sends before it, and `net/http` reads the proxy variables once per process on the first request.
 - `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.Settings` is `settings.Service`, the settings store with the frozen `PATH` kept in it; its resolvers are `settingsRefused`, and `sandboxPath`, `sandboxPathFault` and the three `sandboxPath*` mutations, which answer an empty list, no fault and a refusal on a machine with no sandbox. A `settings.PathRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxPathErr`). Its permission resolvers are `permissionSettings` and the six `permission*` mutations, each answering the settings it left (`permissionSettings` in `util.go`, the known contexts read off `Clusters().List`), and a refused one `KSTACK_VALIDATION_ERROR` with the reason (`permissionsAfter`); a rule's id is `appdb.NewID()`. The folder resolvers are `sandboxFolders(chatID)` and `folderGrant` and `folderRevoke`, each answering the whole `SandboxFolders` (the always grants and the chat's with each `refused` reason, the never-readable list and the wide folders; empty lists on a machine with no sandbox), through `agent/chat`, where an empty chat id is no chat: a `Chat` grant with no `chatID`, or an empty one, is `KSTACK_VALIDATION_ERROR`, so it never widens to every chat, and an `Always` one ignores it. A `FolderRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` whose `rule` is the check's, with a link's `target` beside it (`folderErr`). The executable resolvers are `sandboxExecutables`, `sandboxExecutablesProbe`, `sandboxExecutableRegister` and `sandboxExecutableRemove`, each answering the whole report through `Resolver.Executables` (an `ExecutableProber`, the Bash tool), `Report` laying the last probe over the list; `sandboxExecutablesProbe` only starts one (`StartProbe`), since a probe can outlast the host's request budget, and **`sandboxExecutablesWatch` is the gauge its end reaches**: `WatchProbe`'s `ProbeState` and the settings store's settings, each a current-on-subscribe receiver, folded into one `SandboxExecutablesReport` — `probing`, and `bash.ReportOver` the state's last report and the settings' registered executables — on either's change. With no sandbox or no shell the query is empty, the watch answers one empty report, and the probe and a register are refused. A `settings.ExecutableRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxExecutableErr`). `logsFetch` and `logsFollow` are `Resolver.Logs` (`services/logs`, under *Tools*), the follow through `watchStream` as `LogsFollowFrame`s; a `logs.Refusal`, bare or inside `Unmirrored` or `NoNodes`, reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`logsErr`). `LogRecord` binds `logs.Record`, its `stream` and `place` binding `StreamKey` and `Place`: the stream names a line's log, the place only describes it. `LogRecordsPage` binds `logs.Page`, its edges `LogRecordsPageEdge` onto `logs.PageEdge`, and `LogsFetchMode`'s `Around` onto `logs.FetchAround`.
@@ -327,7 +327,7 @@ internal/services/cluster/
 - Neither cache controller writes a condition; the verdict is the gauge's. `Paused` is the user's field; the catalog owns the other four. Pause keeps the rows. → [ADR: kind records mirror the catalog](../docs/adr/2026-09-02-kind-records-mirror-the-catalog.md).
 - Shared dependencies travel in `deps`, embedded by `service` and every controller. A new kind or service is a field, never a constructor parameter. Tests build the same struct via `newTestDeps` / `newRunningDeps` / `newRunningRegisteredDeps` (`testutil_test.go`).
 - One lifecycle shape at every level: `lifecycle.StartCloser`, composed through `StartAll`/`CloseAll`. Add a participant as a named `lifecycle.Part` in the slice, never a stop closure. → [ADR: lifecycle composition](../docs/adr/2026-08-16-lifecycle-composition.md).
-- `cluster.New(db, Paths{BeehiveDBFile, KubestoreDir}, kubeconfigSvc, pokeSvc, cacheFiles)` grows a parameter only for a new process-wide service. `cacheFiles` is the `CacheFileOwner`, the log store, which `app` builds before the service so it closes after it; `New` refuses a nil one, and a test passes a fake or `noCacheFiles` (`testutil_test.go`). The package only reads `kubeconfig.Service`; only the app closes it. Its statements (`statements.go`) are a `sqlstmt.Set`, the first `Part` so the reverse close order releases it last; tests build the same deps over a temporary DB (`newTestDepsOver`).
+- `cluster.New(db, Paths{BeehiveDBFile, KubestoreDir}, kubeconfigSvc, pokeSvc)` grows a parameter only for a new process-wide service. The `CacheFileOwner` the cache pass clears and removes log files through is the logs service, handed in by `SetCacheFiles` once both exist and before `Start`, since it is built over this one; a pass that meets it unset fails, and a test sets a fake or `noCacheFiles` (`testutil_test.go`). The package only reads `kubeconfig.Service`; only the app closes it. Its statements (`statements.go`) are a `sqlstmt.Set`, the first `Part` so the reverse close order releases it last; tests build the same deps over a temporary DB (`newTestDepsOver`).
 
 ### Identity
 
@@ -2106,10 +2106,38 @@ the open file or creates it; `Clear` retires the entry and deletes the file, so 
 held answers `ErrClosed` and the next open starts a fresh entry; `Remove` does the same and
 refuses the id with `ErrRemoved` for the manager's life, idempotently; `Close` closes every
 file and refuses every open, while `Clear` and `Remove` still delete after it, since the cache
-pass clears the finalizer on `Remove`'s answer. The manager is `services/cluster`'s
-`CacheFileOwner`, and a `lifecycle.Part` with no background work. `Retention` (`retention.go`)
-is every knob the log cache names, `DefaultRetention` its numbers; `NewManager` takes it, and a
-fill closes its chunks at its `ChunkBytes` and `ChunkSpan`, while the rest wait for the janitor.
+pass clears the finalizer on `Remove`'s answer. The logs service builds and closes the manager
+and is `services/cluster`'s `CacheFileOwner` over it; its files each run their own writer and
+janitor.
+`Retention` (`retention.go`) is every knob the log cache names, `DefaultRetention` its numbers;
+`NewManager` takes it, the clock a chunk is stamped on is the manager's `now` (`time.Now`, or a test's), and a fill closes its chunks at its
+`ChunkBytes` and `ChunkSpan`. Ids never come back (`AUTOINCREMENT`): a tailer, a watermark and
+a sweep name a row by id across transactions. **A chunk's `read_at_ms` is a page's stamp**, and
+`putChunk` never touches it: a page's `Write(ctx, fills, true)` stamps what its fills wrote or
+extended in their transaction, and the page stamps what its walk read a line from
+(`Store.Stamp`, which takes no write for chunks stamped within a tenth of `ReadTTL`). A tailer
+and a follow stamp nothing: a follow's gap fill is written unstamped by `Store.WriteHeld`,
+which holds its chunks from their commit until its walk returns, taking the holds' lock before
+the transaction so no sweep lands between the two, and a tailed stream nobody pages holds only
+its open chunk. `Write` skips a fill whose stream row is gone and answers it in `Written.Skipped`: a page
+reads that stream as having nothing, and a follow fails it as a failed fill. **The
+janitor** (`janitor.go`, one goroutine per open file with a non-zero `Interval`) sweeps every
+`Interval` and whenever the commits of lines since it last woke pass `SweepBytes`; its own
+writes count nothing. `Store.Sweep` runs one by hand. A sweep sums `bytes` per stream (message
+bytes, not the file's size), protects every `open` chunk and every chunk stamped within
+`ReadTTL`, and evicts while the file is over `Bytes` or a stream over `StreamShare`: an
+over-share stream's chunks first, a never-read chunk before a read one, the oldest first within
+each, each through `Evict` in its own transaction. A sweep over budget with nothing left to
+evict logs once entering that state and once leaving it; a chunk `HoldChunks` holds is
+skipped, and the check and the eviction run under the holds' lock, so a chunk goes before its
+hold or not at all. Then it removes every stream with no chunks that nothing holds whose pod
+`PodsGone` says is gone — `Store.Hold` is a page's hold on its rows, a follow's and a tailer's,
+and the delete runs under the holds' lock — and vacuums,
+gated on the freelist, then checkpoints when the WAL outweighs the file. `SetPodsGone` is set by
+`logs.New` (`podsgone.go`): none gone unless the cache is its cluster's active one, trusted
+and mirroring pods; unset, no stream is removed. A sweep asks about at most `sweepPods` pods,
+taking up after the last one the previous sweep asked about, so pods that stay never starve the
+rest.
 A delete removes the `-wal` and `-shm` before the database, since a `-wal` left beside a fresh
 database would be replayed into it. **A `Store` is the file's statements** (`statements.go`, a
 `sqlstmt.Set` prepared at open, a read a write makes inside its transaction `OnBoth`):
@@ -2121,8 +2149,9 @@ and trims it; each reads first and takes no write when the file already holds it
 `PodStreams` is a pod's rows, by UID or, for a gone pod, by name alone; `Chunks` a stream's
 chunks for a pattern, its own and the unlabelled ones; `Write` files buffered `Fill`s in one
 transaction; `Read` runs walks over one snapshot (`Reader.Lines`, one walk of
-`lines_position` each way); `Evict` drops one chunk, by id, never an open one, and the lines no
-other chunk claims, reading its bounds in its own transaction. **Coverage is a pure
+`lines_position` each way); `Evict` drops one chunk, by id, never an open one or one stamped
+at or past its cutoff, and the lines no other chunk claims, as range deletes between the
+chunks that overlap it, reading its bounds in its own transaction. **Coverage is a pure
 function** (`CoverageOf`, `coverage.go`): a stream's chunks for a pattern as spans, joined by
 overlap or by a link (`prev_ns`, `prev_ord`) that lands inside the span, and the gaps between,
 each with the tier of the first backend that may hold it and `Lost` when none can: older than
@@ -2246,9 +2275,10 @@ the line a `since` cursor names, is followed by a read of that moment, whole.
 A read that runs out of its budget or its `GET`s, that the retirement cut, or that failed past a
 line in range stops short at the last line it read whole (`streamRead.stop`).
 
-**`logsFetch` is `Service.Fetch`** (`fetch.go`), built in `app` over the cluster service and the
-log store (`logs.New`, no part: it holds nothing past a request), and **it answers from the
-file**. It reads no line the model sees yet. A query is a mode, a cursor, an `at` and a limit (at
+**`logsFetch` is `Service.Fetch`** (`fetch.go`), built in `app` over the cluster service
+(`logs.New(clusters, dir, ret)`, which builds the log store under `dir` and closes it with the
+service, a part after the cluster service, whose cache pass clears and removes a cache's log file
+through the service's `Clear` and `Remove`), and **it answers from the file**. It reads no line the model sees yet. A query is a mode, a cursor, an `at` and a limit (at
 most 500), and a grep that does not compile or runs past `MaxGrep` (1,000 bytes) is refused
 (`compileGrep`), by a follow too, since the wire takes any view the webview sends; the LogsView
 tool's parse reads the constant. `Head` reads oldest first after the cursor, `Tail` newest first before it, and `Around`
@@ -2309,7 +2339,9 @@ open file) through an `OpenTail`'s `mpsc` sender, in batches of what has arrived
 `WriteBatch` or `WriteBatchBytes`; the writer writes on `WriteTick`, or at once for a full or
 last batch, in one transaction, extending the tail's `open` chunk by the chunk rules, closing it
 in the write that ends the tail, and trimming a finished stream. A tailer the writer cannot take
-a batch from within `WriteWait` closes its chunk and reads again from now. A write that fails
+a batch from within `WriteWait` closes its chunk and reads again from now, or, with no follow
+holding it, ends, its grace timer stopped, so a tailer nobody reads stops competing for the
+writer. A write that fails
 fails each tail it held a batch of (`Tail.Failed`): the writer takes no more of its lines, and
 its tailer ends with the failure, so what was lost is a live gap rather than the tailer's. **Every commit of
 lines pings the file's bus** (`Store.Subscribe`, a `gobus/conflate` receiver keyed by stream

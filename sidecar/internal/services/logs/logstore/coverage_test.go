@@ -146,8 +146,8 @@ func TestTheNewestGapIsLostPastAtEnd(t *testing.T) {
 	}
 }
 
-// insertChunk adds c to the stream id in the file behind s, and answers it with its
-// row's id.
+// insertChunk adds c to the stream id in the file behind s, open as c says and stamped
+// at its ReadAt (0 for none), and answers it with its row's id.
 func insertChunk(t *testing.T, s *Store, id int64, c Chunk) Chunk {
 	t.Helper()
 	using(t, s, func(f *file) {
@@ -155,8 +155,12 @@ func insertChunk(t *testing.T, s *Store, id int64, c Chunk) Chunk {
 		if c.Prev != nil {
 			prevNS, prevOrd = c.Prev.TS, c.Prev.Ord
 		}
+		var stamp any
+		if c.ReadAt != 0 {
+			stamp = c.ReadAt
+		}
 		res, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, prev_ns, prev_ord, origin, at_head, at_end, open, bytes, read_at_ms)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 0)`, id, c.Pattern, c.From.TS, c.From.Ord, c.To.TS, c.To.Ord, prevNS, prevOrd, c.Origin, c.Head, c.AtEnd, c.Bytes)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, c.Pattern, c.From.TS, c.From.Ord, c.To.TS, c.To.Ord, prevNS, prevOrd, c.Origin, c.Head, c.AtEnd, c.Open, c.Bytes, stamp)
 		require.NoError(t, err)
 		c.ID, err = res.LastInsertId()
 		require.NoError(t, err)

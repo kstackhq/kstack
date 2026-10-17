@@ -19,7 +19,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,6 +48,57 @@ func newTestStore(t *testing.T) *Store {
 	t.Cleanup(func() { assert.NoError(t, s.Close()) })
 	return s
 }
+
+// clock is a time a test moves by hand, in unix milliseconds, safe to read from the
+// writer's goroutine.
+type clock struct{ ms atomic.Int64 }
+
+func newClock(ms int64) *clock {
+	c := &clock{}
+	c.ms.Store(ms)
+	return c
+}
+
+func (c *clock) now() time.Time { return time.UnixMilli(c.ms.Load()) }
+func (c *clock) set(ms int64)   { c.ms.Store(ms) }
+
+// newClockedStore is a claim on a fresh file under a manager kept to ret on c.
+func newClockedStore(t *testing.T, ret Retention, c *clock) *Store {
+	t.Helper()
+	m := NewManager(t.TempDir(), ret)
+	m.now = c.now
+	t.Cleanup(func() { assert.NoError(t, m.Close()) })
+	s, err := m.OpenOrCreate(1)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, s.Close()) })
+	return s
+}
+
+// stamps is each chunk of the stream id's read_at_ms, oldest chunk first, nil for one
+// no page has read.
+func stamps(t *testing.T, s *Store, id int64) []*int64 {
+	t.Helper()
+	var out []*int64
+	using(t, s, func(f *file) {
+		rows, err := f.readDB.Query(`SELECT read_at_ms FROM chunks WHERE stream_id = ? ORDER BY from_ns, from_ord`, id)
+		require.NoError(t, err)
+		defer rows.Close()
+		for rows.Next() {
+			var ms sql.NullInt64
+			require.NoError(t, rows.Scan(&ms))
+			if ms.Valid {
+				out = append(out, &ms.Int64)
+			} else {
+				out = append(out, nil)
+			}
+		}
+		require.NoError(t, rows.Err())
+	})
+	return out
+}
+
+// ms is a stamp, for comparing against stamps.
+func ms(v int64) *int64 { return &v }
 
 // insertStream adds one stream and answers its id.
 func insertStream(t *testing.T, f *file) int64 {
@@ -202,6 +255,31 @@ func TestAFlagIsZeroOrOne(t *testing.T) {
 	}
 }
 
+// A deleted row's id is never handed out again: a tailer, a watermark or a sweep that
+// names a row by id across transactions must never find another stream's in its place.
+func TestADeletedIDIsNeverReused(t *testing.T) {
+	t.Parallel()
+	f := openTestFile(t)
+	stream := insertStream(t, f)
+	_, err := f.db.Exec(`DELETE FROM streams WHERE id = ?`, stream)
+	require.NoError(t, err)
+	again := insertStream(t, f)
+	assert.NotEqual(t, stream, again, "a stream's")
+
+	insertChunkRow := func() int64 {
+		res, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, origin, at_head, at_end, open, bytes, read_at_ms)
+			VALUES (?, '', 1, 0, 1, 0, 'kubelet', 0, 0, 0, 0, 0)`, again)
+		require.NoError(t, err)
+		id, err := res.LastInsertId()
+		require.NoError(t, err)
+		return id
+	}
+	chunk := insertChunkRow()
+	_, err = f.db.Exec(`DELETE FROM chunks WHERE id = ?`, chunk)
+	require.NoError(t, err)
+	assert.NotEqual(t, chunk, insertChunkRow(), "a chunk's")
+}
+
 // Every operation on a closed claim answers ErrClosed, under what it was doing.
 func TestEveryOperationOnAClosedClaimIsRefused(t *testing.T) {
 	t.Parallel()
@@ -226,9 +304,13 @@ func TestEveryOperationOnAClosedClaimIsRefused(t *testing.T) {
 			_, err := s.Chunks(ctx, 1, "")
 			return err
 		},
-		"write": func() error { return s.Write(ctx, nil) },
+		"write": func() error {
+			_, err := s.Write(ctx, nil, true)
+			return err
+		},
 		"read":  func() error { return s.Read(ctx, func(Reader) error { return nil }) },
-		"evict": func() error { return s.Evict(ctx, 1) },
+		"evict": func() error { return s.Evict(ctx, 1, anyStamp) },
+		"stamp": func() error { return s.Stamp(ctx, []Chunk{{ID: 1}}) },
 		"subscribe": func() error {
 			_, err := s.Subscribe(1)
 			return err

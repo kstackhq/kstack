@@ -101,11 +101,7 @@ func (w *writer) run() {
 
 // full is whether b closed at WriteBatch lines or WriteBatchBytes.
 func (w *writer) full(b batch) bool {
-	n := int64(0)
-	for _, l := range b.lines {
-		n += int64(len(l.Message))
-	}
-	return len(b.lines) >= w.ret.WriteBatch || n >= w.ret.WriteBatchBytes
+	return len(b.lines) >= w.ret.WriteBatch || messageBytes(b.lines) >= w.ret.WriteBatchBytes
 }
 
 // flush writes the batches that have arrived in one transaction, up to WriteQueue of
@@ -121,9 +117,8 @@ func (w *writer) flush() {
 	batches := w.pending
 	w.pending, w.tick = nil, nil
 	tails := maps.Clone(w.tails)
-	now := time.Now().UnixMilli()
 	err := w.f.set.InTx(w.f.ctx, func(st stmts) error {
-		return writeBatches(w.f.ctx, st, w.ret, tails, batches, now)
+		return writeBatches(w.f.ctx, st, w.ret, tails, batches)
 	})
 	if err != nil {
 		if w.f.ctx.Err() == nil {
@@ -143,7 +138,7 @@ func (w *writer) flush() {
 				b.tail.committed.Store(&b.lines[len(b.lines)-1].Pos)
 			}
 		}
-		w.f.ping(batchStreams(batches))
+		w.f.committed(batchStreams(batches), linesBytes(batches, func(b batch) []Line { return b.lines }))
 	}
 	for _, b := range batches {
 		if b.last != nil {
@@ -183,7 +178,7 @@ func (w *writer) answer(batches []batch, err error) {
 
 // writeBatches files every batch, each extending its tail's chunk, then trims each
 // stream they wrote that has finished.
-func writeBatches(ctx context.Context, st stmts, ret Retention, tails map[*Tail]tailState, batches []batch, now int64) error {
+func writeBatches(ctx context.Context, st stmts, ret Retention, tails map[*Tail]tailState, batches []batch) error {
 	for _, b := range batches {
 		s, ok := tails[b.tail]
 		if !ok {
@@ -194,7 +189,7 @@ func writeBatches(ctx context.Context, st stmts, ret Retention, tails map[*Tail]
 			// its chunk.
 			b.lines = nil
 		}
-		s, err := writeBatch(ctx, st, ret, b, s, now)
+		s, err := writeBatch(ctx, st, ret, b, s)
 		if err != nil {
 			return err
 		}
@@ -226,7 +221,7 @@ func writeBatches(ctx context.Context, st stmts, ret Retention, tails map[*Tail]
 // writeBatch files b's lines into s's chunk, cut at ChunkBytes and ChunkSpan, and
 // answers where the tail's next line goes. A chunk is open while the tail writes it,
 // and closed once it is cut or b ends the tail.
-func writeBatch(ctx context.Context, st stmts, ret Retention, b batch, s tailState, now int64) (tailState, error) {
+func writeBatch(ctx context.Context, st stmts, ret Retention, b batch, s tailState) (tailState, error) {
 	if err := insertLines(ctx, st, b.tail.stream, b.lines); err != nil {
 		return s, err
 	}
@@ -250,7 +245,7 @@ func writeBatch(ctx context.Context, st stmts, ret Retention, b batch, s tailSta
 	chunks := cutChunks(ret, cur, fresh, b.lines)
 	for i := range chunks {
 		chunks[i].Open = true
-		c, err := putChunk(ctx, st, b.tail.stream, chunks[i], now)
+		c, err := putChunk(ctx, st, b.tail.stream, chunks[i])
 		if err != nil {
 			return s, err
 		}

@@ -30,7 +30,8 @@ nothing a viewer could share. Scrolling back re-reads the same bytes. A long fol
 webview without end.
 
 A cache owned by the sidecar fixes each one. Reading a line again becomes an index lookup that
-returns exactly what it returned before. That is what lets the webview drop lines later (*The
+returns what it returned before, for as long as the file keeps the line under its budget (§7),
+and a refill from the kubelet after that. That is what lets the webview drop lines later (*The
 bounded window* in the log viewer README). One tailer serves every reader. Backward pages come
 from the file. And the file keeps lines after the kubelet has dropped them, which is the only way
 to show a log across two restarts.
@@ -38,8 +39,10 @@ to show a log across two restarts.
 ## What is not in this sequence
 
 - **No webview change.** The real client and the bounded window are the log viewer README's own
-  bullets. They come after this. The window's margin must stay under this spec's `ReadTTL`, so
-  that what the webview drops, the sidecar still has.
+  bullets. They come after this. What the window drops, the sidecar still has for a line a page
+  read within `ReadTTL`; a line that reached the viewer through a follow is kept only while the
+  budget allows (§7), and a scroll back to it pages the file, which refills it from the kubelet,
+  or crosses a lost gap if the log has rotated, which a firehose's does fastest.
 - **No `LogsRead`, and no model access to the cache.** The model reaches no line through this
   file. A later tool will read through `Service.Fetch` under its own gate.
 - **No change to how a follow orders frames.** Still per stream, as the webview expects.
@@ -103,7 +106,7 @@ Three tables. Every moment is nanoseconds since the epoch. NULL is not zero.
 
 ```sql
 CREATE TABLE streams (
-  id            INTEGER PRIMARY KEY,
+  id            INTEGER PRIMARY KEY AUTOINCREMENT, -- a tailer and a watermark name a row by id, so one never comes back
   namespace     TEXT NOT NULL,
   pod           TEXT NOT NULL,
   pod_uid       TEXT NOT NULL,             -- the pod the instance ran in; '' when unknown
@@ -118,7 +121,7 @@ CREATE TABLE streams (
 ) STRICT;
 
 CREATE TABLE chunks (
-  id          INTEGER PRIMARY KEY,
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
   stream_id   INTEGER NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
   pattern     TEXT NOT NULL,               -- the grep the fill ran under; '' for every line
   from_ns     INTEGER NOT NULL,            -- the first line's moment, unix nanoseconds
@@ -132,7 +135,7 @@ CREATE TABLE chunks (
   at_end      INTEGER NOT NULL,            -- 1: to_ns is the log's last line (a finished instance)
   open        INTEGER NOT NULL,            -- 1: a tailer is still writing into it
   bytes       INTEGER NOT NULL,
-  read_at_ms  INTEGER NOT NULL,            -- the last read or write, unix milliseconds: the one ms column, since it is a clock and not a line's moment
+  read_at_ms  INTEGER,                     -- when a page last read from it, unix milliseconds; NULL until one has. The one ms column, since it is a clock and not a line's moment
   UNIQUE (stream_id, pattern, from_ns, from_ord)
 ) STRICT;
 
@@ -403,42 +406,51 @@ on the stream: each follow fills it before it goes on, and a page that reaches i
 from the kubelet while it still has the lines (§5). There is no separate "lossy" state: dropped
 means not covered.
 
-**A tailer in its grace is shed first.** When the queue is full, a tailer with no follow attached
-stops before one that has, so the grace costs nothing while the writer keeps up and is the first
-thing dropped when it does not. There is no cap on what a tailer may write during its grace: a
-noisy stream is the one whose gap the kubelet may no longer fill, since its file rotates fastest,
-so it is the stream the grace helps most.
+**A tailer in its grace ends when it falls behind.** A tailer with no follow attached that cannot
+hand over its batch ends instead of reopening, decided under the registry's lock so an attach
+that lands first keeps it; the next attach starts one afresh. So the grace costs nothing while the
+writer keeps up, and when it does not, a tailer nobody is reading stops competing the first time
+it is the one that times out, while the ones being read lose a gap each. The registry ranks
+nothing. There is no cap on what a tailer may write
+during its grace: a noisy stream is the one whose gap the kubelet may no longer fill, since its
+file rotates fastest, so it is the stream the grace helps most.
 
 ### 7. Eviction
 
-One janitor per open file, in `kubestore`'s shape. It sweeps every `Interval` and after every
-commit, through a capacity-one notify, so a burst owes one sweep. It runs on its own context, so
-a close aborts it mid-statement. One sweep:
+One janitor per open file, in `kubestore`'s shape. It sweeps every `Interval`, and whenever the
+commits of lines since the last sweep pass `SweepBytes`, through a capacity-one notify, so a
+burst owes one sweep per `SweepBytes` and a quiet file one an `Interval`; its own writes count
+nothing. It runs on the file's context, so a close aborts it mid-statement. One sweep:
 
 1. **Measures** the file's size as `bytes` summed over `chunks`, and each stream's size.
+   `bytes` is message bytes: the file on disk runs over it by row and index overhead and the WAL.
 2. **Protects** every `open` chunk, and every chunk whose `read_at_ms` is within `ReadTTL`
-   (10 minutes). A page stamps `read_at_ms` on each chunk it reads. A tailer stamps each chunk it
-   writes. So a viewer's window and a live tail are kept by what they do, with no session to
-   track.
+   (10 minutes). **A page stamps the chunks its fill writes and the chunks its walk read from;
+   a follow and a tail stamp nothing**, a follow's gap fill held in memory only until its walk
+   returns, since a stamp there would let the lines a writer behind could not take back in
+   protected. So what a viewer fetched or looked at is kept, with no session to track, and a
+   tailed firehose nobody pages holds only its open chunk: a follow's lines are in the viewer's
+   window, and a scroll back pages the file, which refills from the kubelet what it had to evict.
 3. **Evicts** while the file is over `Bytes` (256 MiB), or while any stream is over
-   `StreamShare` (a quarter of `Bytes`). It picks the unprotected chunk with the oldest
-   `read_at_ms`, taking an over-share stream's chunks first. It deletes the chunk's `lines` by the
-   position index in bounded batches, then the chunk row, in one transaction per chunk on the
-   writer. So an eviction never interleaves with a fill of the same chunk.
-4. **Removes a stream** with no chunks left, and a stream whose pod is gone from the mirror once
-   its last chunk is gone.
+   `StreamShare` (a quarter of `Bytes`). It takes an over-share stream's unprotected chunks
+   first, else any stream's; a never-read chunk before a read one, the oldest first within each.
+   Each chunk goes in one transaction, its lines by the position index then its row, so an
+   eviction never interleaves with a fill of the same chunk and the tailers' batches run
+   between evictions.
+4. **Removes a stream** with no chunks that no page or tailer holds and whose pod the mirror no
+   longer holds, which `services/logs` answers from the mirror.
 5. **Vacuums**, bounded by `VacuumPages` and gated on `freelist_count`. Then a `TRUNCATE`
    checkpoint when the WAL is bigger than the file.
 
 `Retention` is the whole set of knobs, with `DefaultRetention`'s numbers: `Bytes` 256 MiB,
 `StreamShare` a quarter of it, `ReadTTL` 10 minutes, `ChunkBytes` 1 MiB, `ChunkSpan` 5 minutes,
 `TailGrace` 30 seconds, `WriteBatch` 1,000 lines or `WriteBatchBytes` 1 MiB, whichever a batch
-reaches first, `WriteTick` 50 ms, `WriteQueue` 16 batches, so the queue holds at most 16 MiB of
-text the cluster wrote and never the gigabyte that lines alone would allow at 16 KiB each,
-`VacuumPages` 2,048 (`kubestore`'s, about 8 MiB a sweep), `Interval` 5 minutes (`kubestore`'s,
-since the sweep also runs on every commit). Production passes `DefaultRetention`. A test
-about anything else passes a zero `Interval`. A test about the janitor shrinks whatever it
-drives.
+reaches first, `WriteTick` 50 ms, `WriteWait` 1 second, `WriteQueue` 16 batches, so the queue
+holds at most 16 MiB of text the cluster wrote and never the gigabyte that lines alone would
+allow at 16 KiB each, `SweepBytes` 16 MiB, a sixteenth of `Bytes`, `VacuumPages` 2,048
+(`kubestore`'s, about 8 MiB a sweep), `Interval` 5 minutes (`kubestore`'s). Production passes
+`DefaultRetention`. A test about anything else passes a zero `Interval`. A test about the
+janitor shrinks whatever it drives.
 
 ### 8. The cursor
 
@@ -492,7 +504,11 @@ README's wire says. `gqlgen.yml` binds the new types. The four old bound argumen
   the end" from "read to where the tailer stopped", and would fill forward on every read.
 - **Eviction is LRU by read under a byte budget, protecting open and recently read chunks.** Not
   by age. A quiet pod's hour-old lines that someone is looking at are worth more than a firehose's
-  minute-old lines nobody opened.
+  minute-old lines nobody opened. **A tail's write protects nothing.** Protecting what a tailer
+  wrote for `ReadTTL` would hold ten minutes of every tailed stream whatever the budget said, and a
+  firehose past 110 KB/s would take its share with nothing left to evict. A page's fill and a
+  page's read are the claims on a chunk, each made for a reader who scrolled, so the budget
+  holds under any write rate.
 - **Grep is a Go filter over each stream's walk, not a SQL function.** A page is per-stream
   index walks read in Go and merged, so the filter sits where the rows already are, and the walk
   is bounded by its budget. A SQL function would copy each message into Go before matching it
@@ -536,7 +552,7 @@ holds what they share.
 | [2 The cursor and the `Backend` seam](2-the-cursor-and-the-backend-seam.md) | A position names its instance; the fetcher behind an interface; no behaviour change | Built, [#295](https://github.com/kstackhq/kstack/pull/295) |
 | [3 Pages from the file](3-pages-from-the-file.md) | `Fetch` over coverage, fills and the file; the grep; `logsFetch`'s wire | Built, [#301](https://github.com/kstackhq/kstack/pull/301) |
 | [4 Tailers and the follow](4-tailers-and-the-follow.md) | One tailer per stream, the writer, the commit bus, `Follow` as a read; `logsFollow`'s wire | Built |
-| [5 Eviction and backpressure](5-eviction-and-backpressure.md) | The live janitor, the budget, shedding; the sequence's integration gate | Planned |
+| [5 Eviction and backpressure](5-eviction-and-backpressure.md) | The live janitor, the budget, shedding; the sequence's integration gate | Built |
 | [6 The docs](6-the-docs.md) | The ADRs, the note's retirement, the coherence pass | Planned |
 
 Record each step's status and its pull request in this table as the work moves. A built step
@@ -551,9 +567,10 @@ it. The walk runs over a fake kubelet whose logs rotate and whose pods restart, 
 > Every line a page answers is in a chunk that covers its pattern, or came from the backend on
 > that call. No chunk is missing a line the fake served into its range that matches its pattern.
 
-Every test in the sequence waits on a channel or on the janitor's notify. A negative assertion
-(a chunk that must not be evicted) is a `select` against a window sized from the shrunk
-`Interval`, with a comment saying so.
+Every test in the sequence waits on a channel or drives a sweep by hand through `Store.Sweep`,
+so a negative assertion (a chunk that must not be evicted) reads the file after a synchronous
+sweep and waits on nothing. The one test with the janitor live waits on the manager's sweep
+hook.
 
 ## Security
 
@@ -590,4 +607,5 @@ Every test in the sequence waits on a channel or on the janitor's notify. A nega
 Per [Verification commands](../README.md#verification-commands): `bash scripts/sandbox-dev-setup.sh`
 first. Per step: `cd sidecar && go test ./internal/services/logs/...` and `make test-changed`.
 Steps 3 and 4 change the wire and add its checks. Step 5 runs the integration gate: `make test`,
-`make lint`, `make vet`, `make cover-go`, `make cover-js`, with no gate lowered.
+`make lint`, `make vet`, `make cover-go`, `make cover-js`, with no gate lowered. It passed for
+Go and the webview; the Rust targets are left to CI, since no Rust changed.

@@ -16,8 +16,10 @@ package logs
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"math/rand"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -363,6 +365,137 @@ func chunksOf(t *testing.T, svc *Service, f *fakeService, pod, container string)
 	return nil
 }
 
+// A page stamps the chunks its walk read a line from, and none past where it cut: a
+// chunk the page never reached stays as its fill left it.
+func TestAPageStampsTheChunksItRead(t *testing.T) {
+	t.Parallel()
+	svc, f := serviceIn(t, webMirror(t), newLogServer(), t.TempDir(), testRetention)
+	seedUnread(t, svc, f, rowOf("web-1", "app"),
+		logstore.Fill{Lines: fileLines(time.Second, 2*time.Second, 3*time.Second), Head: true},
+		logstore.Fill{Lines: fileLines(10*time.Second, 11*time.Second), Prev: &logstore.Pos{TS: at(3 * time.Second).UnixNano()}})
+
+	_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 2})
+	require.NoError(t, err)
+
+	chunks := chunksOf(t, svc, f, "web-1", "app")
+	require.Len(t, chunks, 2)
+	assert.NotZero(t, chunks[0].ReadAt, "the chunk the page read")
+	assert.Zero(t, chunks[1].ReadAt, "the chunk past its cut")
+}
+
+// A page's fill lands stamped, so a sweep over budget between the fill's commit and the
+// page's walk leaves what the page fetched, and the page is whole.
+func TestASweepBetweenAPagesFillAndWalkLeavesThePage(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(time.Second, "1"), stamped(2*time.Second, "2"))
+	ret := testRetention
+	ret.Bytes = 0
+	svc, f := serviceIn(t, webMirror(t), s, t.TempDir(), ret)
+	svc.afterFill = func() { sweepFile(t, svc, f) }
+
+	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 10})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"1", "2"}, messages(page.Records))
+}
+
+// A page whose stream row went between its lookup and its write reads that stream as
+// having nothing: Write skips its fill rather than failing every other stream's.
+func TestAPageWhoseRowWentReadsNothingOfIt(t *testing.T) {
+	t.Parallel()
+	backend := newFakeBackend()
+	release := make(chan struct{})
+	backend.set("web-1/app", fakeRead{lines: []Record{{Timestamp: at(time.Second), Message: "1"}}, wait: release})
+	backend.set("web-2/app", fakeRead{lines: []Record{{Timestamp: at(2 * time.Second), Message: "2"}}})
+	dir := t.TempDir()
+	svc, _ := serviceIn(t, webMirror(t), newLogServer(), dir, testRetention)
+	svc.backends = []namedBackend{{"kubelet", func(getter) Backend { return backend }}}
+	view := View{Sources: []ViewSource{
+		{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}},
+		{Namespace: "prod", Kind: SourcePod, Name: "web-2", Containers: []string{"app"}},
+	}}
+	done := make(chan error, 1)
+	var page Page
+	go func() {
+		var err error
+		page, err = svc.Fetch(t.Context(), "7", view, FetchQuery{Mode: FetchHead, Limit: 10})
+		done <- err
+	}()
+	backend.opened.Await(t, "a stream's read")
+	backend.opened.Await(t, "the other's")
+	db, err := sql.Open("sqlite", filepath.Join(dir, "11.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+	_, err = db.Exec(`DELETE FROM streams WHERE pod = 'web-1'`)
+	require.NoError(t, err)
+
+	close(release)
+	require.NoError(t, testutil.Recv(t, done, "the page"))
+	assert.Equal(t, []string{"2"}, messages(page.Records))
+}
+
+// A page whose stamp the file refuses still answers: a stamp only keeps the chunks out
+// of eviction, and a chunk evicted is filled again.
+func TestAPageWhoseStampFailsStillAnswers(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc, f := serviceIn(t, webMirror(t), newLogServer(), dir, testRetention)
+	seedUnread(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(time.Second, 2*time.Second), Head: true})
+	db, err := sql.Open("sqlite", filepath.Join(dir, "11.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+	_, err = db.Exec(`CREATE TRIGGER refuse_stamp BEFORE UPDATE OF read_at_ms ON chunks BEGIN SELECT RAISE(ABORT, 'refused'); END`)
+	require.NoError(t, err)
+
+	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 1})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"1"}, messages(page.Records))
+}
+
+// everyPodGone has the sweeps of svc's log files read every pod as gone.
+func everyPodGone(svc *Service) {
+	svc.files.SetPodsGone(func(_ context.Context, _ int64, uids []string) ([]string, error) { return uids, nil })
+}
+
+// rowsOf is the file rows of pod in the file behind svc.
+func rowsOf(t *testing.T, svc *Service, f *fakeService, pod string) []logstore.Stream {
+	t.Helper()
+	rows, err := fileOf(t, svc, f).PodStreams(t.Context(), "prod", pod, "")
+	require.NoError(t, err)
+	return rows
+}
+
+// sweepFile runs one sweep of the file behind svc.
+func sweepFile(t *testing.T, svc *Service, f *fakeService) {
+	t.Helper()
+	require.NoError(t, fileOf(t, svc, f).Sweep(t.Context()))
+}
+
+// A page holds the rows it files until it has answered: a sweep while its fill reads
+// leaves a row with nothing in it yet, whatever the mirror says of its pod.
+func TestAPageHoldsItsRows(t *testing.T) {
+	t.Parallel()
+	backend := newFakeBackend()
+	release := make(chan struct{})
+	backend.set("web-1/app", fakeRead{lines: []Record{{Timestamp: at(time.Second), Message: "1"}}, wait: release})
+	svc, f := serviceOn(t, backend)
+	everyPodGone(svc)
+	done := make(chan error, 1)
+	go func() {
+		_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 10})
+		done <- err
+	}()
+	backend.opened.Await(t, "the page's read")
+
+	sweepFile(t, svc, f)
+	assert.Len(t, rowsOf(t, svc, f, "web-1"), 1, "held while the page reads")
+
+	close(release)
+	require.NoError(t, testutil.Recv(t, done, "the page"))
+}
+
 // A stream whose fill failed before any line is the page's skipped entry, and its
 // walk still runs: the lines the file holds of it up to its first live gap answer,
 // and its stop at that gap does not move the cut.
@@ -699,7 +832,7 @@ func TestAFatalFillEndsTheOthers(t *testing.T) {
 }
 
 // A page the log file refuses fails: the file closed before the page opens it, in
-// either mode, or taken by a clear before the page writes what it read.
+// either mode, or taken by a clear before the page fills it or writes what it read.
 func TestAPageTheLogFileRefusesFails(t *testing.T) {
 	t.Parallel()
 	svc, _ := serviceOver(t, webMirror(t), newLogServer())
@@ -719,6 +852,11 @@ func TestAPageTheLogFileRefusesFails(t *testing.T) {
 		}
 	}
 	_, err := svc.Fetch(t.Context(), "7", webView, FetchQuery{Mode: FetchHead, Limit: 10})
+	assert.ErrorIs(t, err, logstore.ErrClosed)
+
+	svc, f = serviceOver(t, webMirror(t), s)
+	f.onAcquire = func() { assert.NoError(t, svc.Clear(int64(f.active.Cache.ID))) }
+	_, err = svc.Fetch(t.Context(), "7", webView, FetchQuery{Mode: FetchHead, Limit: 10})
 	assert.ErrorIs(t, err, logstore.ErrClosed)
 }
 

@@ -15,11 +15,33 @@
 package logstore
 
 import (
+	"math"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+// anyStamp is a cutoff past every stamp, for an eviction that ignores protection.
+const anyStamp = math.MaxInt64
+
+// An eviction checks protection again in its own transaction: a chunk a page stamped at
+// or past the cutoff since the sweep picked it is left where it is, with its lines.
+func TestEvictLeavesAChunkReadSinceItWasPicked(t *testing.T) {
+	t.Parallel()
+	c := newClock(5_000)
+	s := newClockedStore(t, testRetention, c)
+	id := streamOf(t, s)
+	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0))})
+	chunks, err := s.Chunks(t.Context(), id, "")
+	require.NoError(t, err)
+
+	require.NoError(t, s.Evict(t.Context(), chunks[0].ID, 5_000))
+	assert.Equal(t, []Pos{at(1, 0)}, positions(t, s, id), "stamped at the cutoff")
+
+	require.NoError(t, s.Evict(t.Context(), chunks[0].ID, 5_001))
+	assert.Empty(t, positions(t, s, id), "stamped before it")
+}
 
 // Evicting a chunk takes its lines and its row in one transaction and leaves the
 // stream's other chunks and lines alone; a chunk linked to it then starts a span.
@@ -32,7 +54,7 @@ func TestEvictTakesAChunkAndItsLines(t *testing.T) {
 	chunks, err := s.Chunks(t.Context(), id, "")
 	require.NoError(t, err)
 
-	require.NoError(t, s.Evict(t.Context(), chunks[0].ID))
+	require.NoError(t, s.Evict(t.Context(), chunks[0].ID, anyStamp))
 
 	assert.Equal(t, []Pos{at(3, 0)}, positions(t, s, id))
 	assert.Equal(t, []Chunk{linked(chunk(at(3, 0), at(3, 0)), at(2, 0))}, chunksOfStream(t, s, id))
@@ -50,9 +72,28 @@ func TestEvictKeepsTheLinesAnotherChunkClaims(t *testing.T) {
 	chunks, err := s.Chunks(t.Context(), id, "")
 	require.NoError(t, err)
 
-	require.NoError(t, s.Evict(t.Context(), chunks[0].ID))
+	require.NoError(t, s.Evict(t.Context(), chunks[0].ID, anyStamp))
 
 	assert.Equal(t, []Pos{at(2, 0), at(3, 0)}, positions(t, s, id))
+}
+
+// Evicting a chunk overlapped on both sides by others takes only the lines between
+// them, and no line either still claims.
+func TestEvictTakesOnlyTheLinesBetweenItsNeighbours(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	id := streamOf(t, s)
+	write(t, s,
+		Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0), at(3, 0), at(4, 0), at(5, 0))},
+		Fill{Stream: id, Origin: "kubelet", Lines: lines(at(0, 0), at(1, 0), at(2, 0))},
+		Fill{Stream: id, Origin: "kubelet", Lines: lines(at(4, 0), at(5, 0), at(6, 0))})
+	chunks, err := s.Chunks(t.Context(), id, "")
+	require.NoError(t, err)
+	require.Len(t, chunks, 3)
+
+	require.NoError(t, s.Evict(t.Context(), chunks[1].ID, anyStamp))
+
+	assert.Equal(t, []Pos{at(0, 0), at(1, 0), at(2, 0), at(4, 0), at(5, 0), at(6, 0)}, positions(t, s, id))
 }
 
 // An eviction reads the chunk's bounds in its own transaction: a fill that extended
@@ -66,7 +107,7 @@ func TestEvictTakesTheChunkAsItIsNow(t *testing.T) {
 	require.NoError(t, err)
 	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(3, 0)), Prev: ptr(at(2, 0)), Merge: true})
 
-	require.NoError(t, s.Evict(t.Context(), chunks[0].ID))
+	require.NoError(t, s.Evict(t.Context(), chunks[0].ID, anyStamp))
 
 	assert.Empty(t, positions(t, s, id))
 	assert.Empty(t, chunksOfStream(t, s, id))
@@ -79,7 +120,7 @@ func TestEvictingAGoneChunkDoesNothing(t *testing.T) {
 	id := streamOf(t, s)
 	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0))})
 
-	require.NoError(t, s.Evict(t.Context(), 99))
+	require.NoError(t, s.Evict(t.Context(), 99, anyStamp))
 
 	assert.Equal(t, []Pos{at(1, 0)}, positions(t, s, id))
 }
@@ -94,7 +135,7 @@ func TestAnEvictionTheFileRefusesFails(t *testing.T) {
 	require.NoError(t, err)
 	refuse(t, s, "DELETE", "lines")
 
-	err = s.Evict(t.Context(), chunks[0].ID)
+	err = s.Evict(t.Context(), chunks[0].ID, anyStamp)
 
 	assert.ErrorContains(t, err, "evict: ")
 	assert.ErrorContains(t, err, "refused")

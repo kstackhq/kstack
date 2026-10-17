@@ -163,8 +163,9 @@ func (r *registry) run(ctx context.Context, t *tailer, watermark logstore.Pos) e
 	ctx, t.cancel = context.WithCancel(fileCtx)
 	t.start.Store(&start)
 	file, backend := r.file, r.backend
+	release := file.Hold(t.row)
 	first := t.read(ctx, backend, start)
-	go t.run(ctx, file, backend, first, prev)
+	go t.run(ctx, file, backend, first, prev, release)
 	return nil
 }
 
@@ -225,6 +226,11 @@ func (r *registry) release(t *tailer) {
 func (r *registry) ended(t *tailer) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// Ended in its grace, the timer would fire on a tailer the registry has dropped.
+	if t.grace != nil {
+		t.grace.Stop()
+		t.grace = nil
+	}
 	if r.tailers[t.row] == t {
 		delete(r.tailers, t.row)
 	}

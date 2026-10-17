@@ -46,10 +46,12 @@ type walker struct {
 // failure, which does not cut the page but leaves more to read that way. A stream
 // the server denied or answered for has nothing more to give the next page, and
 // neither does one that restarted, since the next resolve reads the new instance.
+// read is the chunks the walk read a line from, which the page stamps.
 type walked struct {
 	reading *streamRead
 	newest  *logstore.Pos
 	left    bool
+	read    []logstore.Chunk
 }
 
 // walk reads the stream from key. A walk stopped by its budget, or by a live gap on
@@ -62,10 +64,13 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 	reach, gap := w.reach(chunks, key)
 	held := heldBy(chunks)
 	var recs []Record
-	var last logstore.Pos
+	var first, last logstore.Pos
 	read := false
 	short := gap && w.fill.err == nil
 	err = w.r.Lines(w.ps.row.ID, key, reach, func(l logstore.Line) bool {
+		if !read {
+			first = l.Pos
+		}
 		last, read = l.Pos, true
 		spent := !w.budget.spend(len(l.Message))
 		if held(l.Pos) && matches(w.q.grep, l.Message) {
@@ -94,7 +99,25 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 	}
 	transient := failureKind(w.fill.err) == failTransient && !errors.Is(w.fill.err, errRestarted)
 	left := gap && transient && len(recs) < w.q.need()
-	return walked{readingOf(w.ps.key, recs, short, stop, failed), newestOf(chunks), left}, nil
+	out := walked{reading: readingOf(w.ps.key, recs, short, stop, failed), newest: newestOf(chunks), left: left}
+	if read {
+		out.read = readFrom(chunks, first, last)
+	}
+	return out, nil
+}
+
+// readFrom is each of chunks holding a line between a and b, either way round.
+func readFrom(chunks []logstore.Chunk, a, b logstore.Pos) []logstore.Chunk {
+	if a.Compare(b) > 0 {
+		a, b = b, a
+	}
+	var out []logstore.Chunk
+	for _, c := range chunks {
+		if c.From.Compare(b) <= 0 && c.To.Compare(a) >= 0 {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // reach is how far from key the walk may read: through the spans, across the gaps no

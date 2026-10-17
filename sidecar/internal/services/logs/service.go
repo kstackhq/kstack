@@ -48,6 +48,10 @@ type Service struct {
 	// TailGrace, or a test's.
 	grace time.Duration
 
+	// afterFill runs once a page's or a follow's fills have committed and before its
+	// walk: a test's, so a sweep can land between them; nil in production.
+	afterFill func()
+
 	// tails is each log file's tailers, by cache id.
 	tailsMu sync.Mutex
 	tails   map[cluster.ClusterCacheID]*registry
@@ -60,12 +64,27 @@ type namedBackend struct {
 	build func(get getter) Backend
 }
 
-// New is the service over the cluster service and the log files.
-func New(clusters cluster.Service, files *logstore.Manager) *Service {
-	return &Service{
+// New is the service over the cluster service, keeping its log files under dir to
+// ret, whose sweeps it tells which pods are gone. It owes a Close.
+func New(clusters cluster.Service, dir string, ret logstore.Retention) *Service {
+	files := logstore.NewManager(dir, ret)
+	s := &Service{
 		clusters: clusters, files: files, backends: []namedBackend{{"kubelet", newKubelet}}, now: time.Now,
 		retry: followRetry, retryCap: followRetryCap, settle: followSettle,
-		budget: maxBudget, walkBudget: maxWalkBudget, grace: files.Retention().TailGrace,
+		budget: maxBudget, walkBudget: maxWalkBudget, grace: ret.TailGrace,
 		tails: map[cluster.ClusterCacheID]*registry{},
 	}
+	files.SetPodsGone(s.podsGone)
+	return s
 }
+
+// Close closes the log files. The cluster service's cache pass may still clear or
+// remove one after it.
+func (s *Service) Close() error { return s.files.Close() }
+
+// Clear empties the cache cacheID's log file, and Remove deletes it for good: the
+// cluster service calls them with the cache's clear and removal.
+func (s *Service) Clear(cacheID int64) error  { return s.files.Clear(cacheID) }
+func (s *Service) Remove(cacheID int64) error { return s.files.Remove(cacheID) }
+
+var _ cluster.CacheFileOwner = (*Service)(nil)
