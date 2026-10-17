@@ -31,7 +31,6 @@ const (
 	stmtSelectChunks
 	stmtInsertLine
 	stmtInsertChunk
-	stmtExtendChunk
 	stmtMarkHead
 	stmtMarkAtEnd
 	stmtLinkChunk
@@ -46,6 +45,8 @@ const (
 	stmtEvictChunk
 	stmtSelectChunkBounds
 	stmtSelectChunkEndingAt
+	stmtCloseOpenChunks
+	stmtCloseChunk
 )
 
 // statements is every statement the store runs, each on the pool its callers need: a
@@ -105,13 +106,15 @@ var statements = []sqlstmt.Statement{
 	stmtInsertLine: sqlstmt.OnWriter(`
 		INSERT OR IGNORE INTO lines (stream_id, ts_ns, ord, message) VALUES (?, ?, ?, ?)`),
 	// Two fills of one gap can start at one line, as two pages with different limits
-	// read it: the chunk keeps the later end, with its at_end, and either fill's
-	// head mark and link, since every claim each made holds.
+	// read it, and so can a fill and a tail, and a tail extends its own chunk through
+	// the same insert: the row keeps the later end, with its at_end, either's head
+	// mark and link, since every claim each made holds, and stays open while a tail
+	// writes it.
 	stmtInsertChunk: sqlstmt.OnWriter(`
 		INSERT INTO chunks (
 			stream_id, pattern, from_ns, from_ord, to_ns, to_ord, prev_ns, prev_ord,
 			origin, at_head, at_end, open, bytes, read_at_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (stream_id, pattern, from_ns, from_ord) DO UPDATE SET
 			at_end = CASE
 				WHEN (excluded.to_ns, excluded.to_ord) > (to_ns, to_ord) THEN excluded.at_end
@@ -123,10 +126,9 @@ var statements = []sqlstmt.Statement{
 			at_head = max(at_head, excluded.at_head),
 			prev_ns = coalesce(prev_ns, excluded.prev_ns),
 			prev_ord = coalesce(prev_ord, excluded.prev_ord),
-			read_at_ms = max(read_at_ms, excluded.read_at_ms)`),
-	stmtExtendChunk: sqlstmt.OnWriter(`
-		UPDATE chunks SET to_ns = ?2, to_ord = ?3, at_end = ?4, bytes = ?5, read_at_ms = ?6
-		WHERE id = ?1`),
+			open = max(open, excluded.open),
+			read_at_ms = max(read_at_ms, excluded.read_at_ms)
+		RETURNING id, to_ns, to_ord, at_end, open, bytes`),
 	// A fill's proof holds for its own pattern alone, so it links and marks no other.
 	stmtMarkHead: sqlstmt.OnWriter(`
 		UPDATE chunks SET at_head = 1
@@ -171,16 +173,21 @@ var statements = []sqlstmt.Statement{
 					AND (lines.ts_ns, lines.ord) <= (c.to_ns, c.to_ord)
 			)`),
 	stmtEvictChunk: sqlstmt.OnWriter(`DELETE FROM chunks WHERE id = ?`),
+	// An open chunk is never evicted: its tail writes it back from what it holds of it,
+	// and one evicted under the tail would come back claiming the evicted lines.
 	stmtSelectChunkBounds: sqlstmt.OnBoth(`
-		SELECT stream_id, from_ns, from_ord, to_ns, to_ord FROM chunks WHERE id = ?`),
+		SELECT stream_id, from_ns, from_ord, to_ns, to_ord FROM chunks WHERE id = ? AND open = 0`),
+	// An open chunk is its tailer's alone to extend.
 	stmtSelectChunkEndingAt: sqlstmt.OnBoth(`
 		SELECT ` + chunkColumns + ` FROM chunks
-		WHERE stream_id = ? AND pattern = ? AND origin = ? AND to_ns = ? AND to_ord = ?`),
+		WHERE stream_id = ? AND pattern = ? AND origin = ? AND to_ns = ? AND to_ord = ? AND open = 0`),
+	stmtCloseOpenChunks: sqlstmt.OnWriter(`UPDATE chunks SET open = 0 WHERE open = 1`),
+	stmtCloseChunk:      sqlstmt.OnWriter(`UPDATE chunks SET open = 0 WHERE id = ?`),
 }
 
 // chunkColumns is a chunk row as chunksOf reads it.
 const chunkColumns = `
-	id, pattern, from_ns, from_ord, to_ns, to_ord, prev_ns, prev_ord, origin, at_head, at_end, bytes`
+	id, pattern, from_ns, from_ord, to_ns, to_ord, prev_ns, prev_ord, origin, at_head, at_end, open, bytes`
 
 // streamColumns is a stream row as scanStream reads it.
 const streamColumns = `

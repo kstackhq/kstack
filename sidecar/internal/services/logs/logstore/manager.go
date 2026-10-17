@@ -22,6 +22,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"sync"
+	"time"
 )
 
 var (
@@ -41,8 +42,10 @@ type Manager struct {
 	// dir holds each cache's file as "<cacheID>.db".
 	dir string
 	// ret bounds what each file holds: a fill closes its chunks at its ChunkBytes and
-	// ChunkSpan.
+	// ChunkSpan, and a file's writer runs under its write knobs.
 	ret Retention
+	// after is how a writer waits out its WriteTick: time.After, or a test's.
+	after func(time.Duration) <-chan time.Time
 
 	// mu guards everything below. It is never held across a file's open, close or delete,
 	// so a slow disk or a long query on one cache stalls no other.
@@ -77,6 +80,7 @@ func NewManager(dir string, ret Retention) *Manager {
 	return &Manager{
 		dir:     dir,
 		ret:     ret,
+		after:   time.After,
 		entries: map[int64]*entry{},
 		busy:    map[int64]chan struct{}{},
 		removed: map[int64]bool{},
@@ -120,6 +124,7 @@ func (m *Manager) OpenOrCreate(cacheID int64) (*Store, error) {
 		m.mu.Lock()
 		return nil, errors.Join(fmt.Errorf("open log store %d: %w", cacheID, ErrClosed), closeErr)
 	}
+	f.startWriter(m.ret, m.after)
 	e := &entry{file: f, refs: 1}
 	m.entries[cacheID] = e
 	return &Store{m: m, cacheID: cacheID, e: e}, nil
@@ -258,3 +263,6 @@ func deleteFiles(path string) error {
 	}
 	return nil
 }
+
+// Retention is what the manager keeps its files to.
+func (m *Manager) Retention() Retention { return m.ret }

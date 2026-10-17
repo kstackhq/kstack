@@ -17,6 +17,7 @@ package logs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strconv"
 	"sync/atomic"
 	"testing"
@@ -430,7 +431,7 @@ func TestAnAroundPagesHalvesJoin(t *testing.T) {
 
 	_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchAround, At: new(at(5 * time.Second)), Limit: 2})
 	require.NoError(t, err)
-	assert.Len(t, logstore.CoverageOf(chunksOf(t, svc, f, "web-1", "app"), []string{"kubelet"}).Spans, 1)
+	assert.Len(t, logstore.CoverageOf(chunksOf(t, svc, f, "web-1", "app"), []string{"kubelet"}, nil).Spans, 1)
 
 	reads := len(s.requests())
 	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Cursor: lineCursor("web-1", "app", 3*time.Second, 0), Limit: 2})
@@ -452,4 +453,50 @@ func TestAFailedInstanceCheckFailsThePage(t *testing.T) {
 
 	assert.EqualError(t, err, "db closed")
 	assert.Empty(t, chunksOf(t, svc, f, "web-1", "app"))
+}
+
+// A gap a tailer's start cuts in two keeps its place among the spans.
+func TestSegmentsKeepOrderAcrossACutGap(t *testing.T) {
+	t.Parallel()
+	pos := func(s int64) logstore.Pos { return logstore.Pos{TS: s} }
+	start := pos(10)
+	chunks := []logstore.Chunk{{From: pos(0), To: pos(5)}, {From: pos(20), To: pos(25)}}
+	var edges []string
+	for _, seg := range segmentsFrom(logstore.CoverageOf(chunks, []string{"kubelet"}, &start), logstore.Oldest, FetchHead) {
+		if seg.span != nil {
+			edges = append(edges, fmt.Sprintf("span %d", seg.span.From.TS))
+		} else {
+			edges = append(edges, fmt.Sprintf("gap tailed=%v", seg.gap.Tailed))
+		}
+	}
+	assert.Equal(t, []string{"gap tailed=false", "span 0", "gap tailed=false", "gap tailed=true", "span 20", "gap tailed=true"}, edges)
+}
+
+// A read leaves a hole below its first line only when it continued a chunk: never
+// with no chunk to continue, and from a chunk, when a whole read found nothing, when
+// a forward read's GET began past the chunk's end, or when a whole backward read's
+// oldest line lies past it.
+func TestAHoleIsJudgedByWhatTheReadContinued(t *testing.T) {
+	t.Parallel()
+	prev := logstore.Pos{TS: at(time.Second).UnixNano()}
+	line := logstore.Line{Pos: logstore.Pos{TS: at(3 * time.Second).UnixNano()}}
+	for name, c := range map[string]struct {
+		mode  FetchMode
+		read  *streamRead
+		lines []logstore.Line
+		whole bool
+		prev  *logstore.Pos
+		want  bool
+	}{
+		"no chunk":           {mode: FetchHead, read: &streamRead{oldest: at(2 * time.Second)}, lines: []logstore.Line{line}, whole: true, want: false},
+		"nothing read whole": {mode: FetchTail, read: &streamRead{}, whole: true, prev: &prev, want: true},
+		"nothing read short": {mode: FetchTail, read: &streamRead{}, prev: &prev, want: false},
+		"forward past prev":  {mode: FetchHead, read: &streamRead{oldest: at(2 * time.Second)}, lines: []logstore.Line{line}, prev: &prev, want: true},
+		"forward at prev":    {mode: FetchHead, read: &streamRead{oldest: at(time.Second)}, lines: []logstore.Line{line}, prev: &prev, want: false},
+		"backward whole":     {mode: FetchTail, read: &streamRead{}, lines: []logstore.Line{line}, whole: true, prev: &prev, want: true},
+		"backward short":     {mode: FetchTail, read: &streamRead{}, lines: []logstore.Line{line}, prev: &prev, want: false},
+	} {
+		f := &filler{q: pageQuery{mode: c.mode}}
+		assert.Equal(t, c.want, f.hole(c.read, c.lines, c.whole, c.prev), name)
+	}
 }

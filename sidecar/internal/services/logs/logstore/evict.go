@@ -25,7 +25,8 @@ import (
 // one transaction, so a reader never sees a chunk without its lines. The chunk's
 // bounds are read in the same transaction, since a fill may have extended it since
 // the caller looked. A chunk linked to it starts a span from then on, since the lines
-// before it are gone.
+// before it are gone. A chunk a tailer holds open is left as it is: the tail writes
+// it back from what it holds of it.
 func (s *Store) Evict(ctx context.Context, id int64) error {
 	err := s.inTx(ctx, func(ctx context.Context, st stmts) error {
 		var stream int64

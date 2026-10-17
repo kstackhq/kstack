@@ -56,7 +56,7 @@ next sweep tries again.
 
 ### 3. Backpressure
 
-In the writer and the registry: a tailer that cannot send its batch within `WriteTick` stops its
+In the writer and the registry: a tailer that cannot send its batch within `WriteWait` stops its
 read, closes its chunk at the last committed line, and reopens from now, leaving a gap. When
 more than one tailer is waiting on a full queue, the registry stops the tailers with no follow
 attached first, then the attached ones, oldest first. No cap on what a tailer writes during its

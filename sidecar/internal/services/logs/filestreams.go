@@ -27,13 +27,14 @@ import (
 const maxInstances = 8
 
 // pageStream is one stream a page reads: its file row, the stream the resolve
-// handed out for it, nil for one only the file holds, and its lines' stream and
-// place as the page answers them.
+// handed out for it, nil for one only the file holds, its lines' stream and place as
+// the page answers them, and the start of the tailer running on it, nil with none.
 type pageStream struct {
 	row   logstore.Stream
 	st    *stream
 	key   StreamKey
 	place Place
+	tail  *logstore.Pos
 }
 
 // exhausted is whether no backend serves ps: it is read from the file alone, and
@@ -49,41 +50,14 @@ func (ps pageStream) instance() instance {
 // them, then each of view's Pod sources' streams the file holds that the resolve
 // handed out for no source, each once across the view.
 func pageStreams(ctx context.Context, file *logstore.Store, t target, view View) ([]pageStream, error) {
-	rows := make([]logstore.Stream, len(t.streams))
-	for i, st := range t.streams {
-		rows[i] = logstore.Stream{
-			Namespace: st.key.Namespace, Pod: st.key.Pod, PodUID: st.gen.uid,
-			Container: st.key.Container, Default: st.isDefault, ContainerID: st.gen.instance,
-			StartedAt: st.startedAt, FinishedAt: st.finishedAt,
-			Node: st.place.Node, Region: st.place.Region, Zone: st.place.Zone, OS: st.place.OS, Arch: st.place.Arch,
-			Labels: st.labels,
-		}
-	}
-	ids, err := file.PutStreams(ctx, rows)
+	rows, err := fileStreams(ctx, file, t.streams)
 	if err != nil {
 		return nil, err
-	}
-	// A restart the mirror reported late may have filed the next instance's lines
-	// under the one before: the file's row of that one is trimmed once its end is known.
-	var finished []logstore.Stream
-	for _, st := range t.streams {
-		if st.previous != "" && st.previousFinishedAt != 0 {
-			finished = append(finished, logstore.Stream{
-				Namespace: st.key.Namespace, Pod: st.key.Pod, Container: st.key.Container,
-				ContainerID: st.previous, FinishedAt: st.previousFinishedAt,
-			})
-		}
-	}
-	if len(finished) > 0 {
-		if err := file.FinishStreams(ctx, finished); err != nil {
-			return nil, err
-		}
 	}
 	out := make([]pageStream, len(t.streams))
 	seen := map[int64]bool{}
 	for i, st := range t.streams {
-		rows[i].ID = ids[i]
-		seen[ids[i]] = true
+		seen[rows[i].ID] = true
 		out[i] = pageStream{row: rows[i], st: &t.streams[i], key: st.key, place: st.place}
 	}
 	for _, src := range view.Sources {
@@ -111,6 +85,45 @@ func pageStreams(ctx context.Context, file *logstore.Store, t target, view View)
 		}
 	}
 	return out, nil
+}
+
+// fileStreams files streams in file, each as its instance's row, and answers the rows
+// with their ids, in order. A restart the mirror reported late may have filed the
+// next instance's lines under the one before, so the file's row of that one is
+// trimmed once its end is known.
+func fileStreams(ctx context.Context, file *logstore.Store, streams []stream) ([]logstore.Stream, error) {
+	rows := make([]logstore.Stream, len(streams))
+	for i, st := range streams {
+		rows[i] = logstore.Stream{
+			Namespace: st.key.Namespace, Pod: st.key.Pod, PodUID: st.gen.uid,
+			Container: st.key.Container, Default: st.isDefault, ContainerID: st.gen.instance,
+			StartedAt: st.startedAt, FinishedAt: st.finishedAt,
+			Node: st.place.Node, Region: st.place.Region, Zone: st.place.Zone, OS: st.place.OS, Arch: st.place.Arch,
+			Labels: st.labels,
+		}
+	}
+	ids, err := file.PutStreams(ctx, rows)
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		rows[i].ID = ids[i]
+	}
+	var finished []logstore.Stream
+	for _, st := range streams {
+		if st.previous != "" && st.previousFinishedAt != 0 {
+			finished = append(finished, logstore.Stream{
+				Namespace: st.key.Namespace, Pod: st.key.Pod, Container: st.key.Container,
+				ContainerID: st.previous, FinishedAt: st.previousFinishedAt,
+			})
+		}
+	}
+	if len(finished) > 0 {
+		if err := file.FinishStreams(ctx, finished); err != nil {
+			return nil, err
+		}
+	}
+	return rows, nil
 }
 
 // podNow is what the mirror says of a Pod source's pod now: whether it holds the pod,
