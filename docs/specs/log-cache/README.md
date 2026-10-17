@@ -9,10 +9,9 @@ as they are. What changes is what sits behind `Service.Fetch` and `Service.Follo
 `services/logs`, and what a cursor has to carry.
 
 Go paths are under `sidecar/internal/`. This is a sequence of six steps, listed under
-[*Steps*](#steps), each a pull request into `wip/log-views`, next to the log viewer sequence
-([`../log-viewer/README.md`](../log-viewer/README.md)). It serves that README's *The wire*
-section, and that README says `wip/log-views` may not merge until the sidecar serves the wire,
-so this sequence shares its branch on purpose rather than taking a `wip/log-cache` of its own. This README is the shared design; each step's file states only what is its own.
+[*Steps*](#steps), each a pull request into `wip/log-views`, next to the log viewer sequence. It serves the viewer's wire
+(`sidecar/graph/schema.graphqls`; its edges in `src/lib/log-viewer/README.md`), and
+`wip/log-views` could not merge until the sidecar served it, so this sequence shares its branch on purpose rather than taking a `wip/log-cache` of its own. This README is the shared design; each step's file states only what is its own.
 It replaces §4 of the sidecar wire note, a plan beside the log viewer README that put
 per-stream hints inside a page's cursor. The cache holds that state instead, so a cursor stays a
 plain position. The note's §1 (the wire's types), §2 (the edges) and §5 (the resolvers) still

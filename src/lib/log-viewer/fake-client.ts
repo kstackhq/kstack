@@ -16,8 +16,7 @@
 import { compareTimestamps } from './lines';
 import type { Client, Cursor, FetchQuery, FollowFrame, LogLine, Page, PageEdge } from './types';
 
-// A `Client` over a log it invents: the one client the viewer runs on until the sidecar's
-// wire lands. It models what that wire does to a viewer — edges and repeats, a follow whose
+// A `Client` over a log it invents, for the tests. It models what that wire does to a viewer — edges and repeats, a follow whose
 // streams interleave, latency, failures, a stream it could not read — so a viewer that
 // holds against it holds against the sidecar.
 

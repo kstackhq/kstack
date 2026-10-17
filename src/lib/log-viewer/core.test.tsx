@@ -183,7 +183,12 @@ const END = { cursor: 'live-end', more: false };
 // --- A client the test answers by hand. ---
 
 type Fetch = { query: FetchQuery; resolve: (page: Page) => void; reject: (error: unknown) => void };
-type Follow = { after: Cursor; onFrame: (frame: FollowFrame) => void; closed: boolean };
+type Follow = {
+  after: Cursor;
+  onFrame: (frame: FollowFrame) => void;
+  onFailed: (error: unknown) => void;
+  closed: boolean;
+};
 
 function scripted() {
   const fetches: Fetch[] = [];
@@ -194,12 +199,12 @@ function scripted() {
       new Promise<Page>((resolve, reject) => {
         fetches.push({ query, resolve, reject });
       }),
-    follow: (after, onFrame) => {
+    follow: (after, onFrame, onFailed) => {
       if (state.refuseFollow) {
         state.refuseFollow = false;
         throw new Error('refused');
       }
-      const follow: Follow = { after, onFrame, closed: false };
+      const follow: Follow = { after, onFrame, onFailed, closed: false };
       follows.push(follow);
       return () => {
         follow.closed = true;
@@ -708,6 +713,24 @@ describe('the follow', () => {
     expect(onError).toHaveBeenCalledOnce();
     expect(m.state()).toMatchObject({ pinnedToEnd: false, following: false });
     expect(s.open()).toEqual([]);
+  });
+
+  it('goes to followFailed and onError once, and closes the follow, when it fails after opening', async () => {
+    const s = scripted();
+    const onError = vi.fn();
+    const m = mount({ client: s.client, onError });
+    await landTail(s);
+    const [follow] = s.open();
+    await act(async () => {
+      follow.onFailed(new Error('cache gone'));
+    });
+    expect(onError).toHaveBeenCalledOnce();
+    expect(m.state()).toMatchObject({ pinnedToEnd: false, following: false });
+    expect(follow.closed).toBe(true);
+
+    // A failure that lands after the follow closed changes nothing.
+    follow.onFailed(new Error('late'));
+    expect(onError).toHaveBeenCalledOnce();
   });
 });
 
