@@ -103,9 +103,9 @@ func TestAFetchMergesByTime(t *testing.T) {
 	}, FetchHead, 10)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"a0", "b1", "c2", "a3", "b4"}, messages(page.Records))
-	assert.Nil(t, page.NextCursor)
-	assert.Empty(t, page.Skipped)
+	assert.Equal(t, []string{"a0", "b1", "c2", "a3", "b4"}, messages(page.records))
+	assert.Nil(t, page.next())
+	assert.Empty(t, page.skipped)
 }
 
 // Lines stamped alike come out by pod, then container, then ordinal, whichever
@@ -126,7 +126,7 @@ func TestATieKeepsAFixedOrder(t *testing.T) {
 		}, mode, 10)
 
 		require.NoError(t, err)
-		assert.Equal(t, []string{"a-app", "a-app'", "a-side", "b"}, messages(page.Records), mode)
+		assert.Equal(t, []string{"a-app", "a-app'", "a-side", "b"}, messages(page.records), mode)
 	}
 }
 
@@ -139,8 +139,8 @@ func TestHeadCutsAtTheLimit(t *testing.T) {
 	}, FetchHead, 2)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"0", "1"}, messages(page.Records))
-	assert.Equal(t, lineCursor("a", "app", time.Second, 0), page.NextCursor)
+	assert.Equal(t, []string{"0", "1"}, messages(page.records))
+	assert.Equal(t, lineCursor("a", "app", time.Second, 0), page.next())
 }
 
 // Tail reads newest first, keeps the newest lines in time order, and hands back
@@ -153,8 +153,8 @@ func TestTailCutsAtTheLimit(t *testing.T) {
 	}, FetchTail, 2)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"1", "2"}, messages(page.Records))
-	assert.Equal(t, lineCursor("a", "app", time.Second, 0), page.NextCursor)
+	assert.Equal(t, []string{"1", "2"}, messages(page.records))
+	assert.Equal(t, lineCursor("a", "app", time.Second, 0), page.next())
 }
 
 // A page cut inside a moment hands back the cursor of the line it ended at, which
@@ -168,8 +168,8 @@ func TestAPageCutInsideAMomentNamesItsLine(t *testing.T) {
 	}, FetchHead, 2)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"a0", "a0'"}, messages(page.Records))
-	assert.Equal(t, lineCursor("a", "app", 0, 1), page.NextCursor)
+	assert.Equal(t, []string{"a0", "a0'"}, messages(page.records))
+	assert.Equal(t, lineCursor("a", "app", 0, 1), page.next())
 }
 
 // failed is a reading of pod/container that ends with err and sends nothing.
@@ -188,8 +188,8 @@ func TestAFailedStreamIsSkippedAndNamed(t *testing.T) {
 	}, FetchHead, 10)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"ok"}, messages(page.Records))
-	assert.Equal(t, []string{"b/istio-proxy: container is waiting to start", `c/app: pods "c" not found`}, page.Skipped)
+	assert.Equal(t, []string{"ok"}, messages(page.records))
+	assert.Equal(t, []string{"b/istio-proxy: container is waiting to start", `c/app: pods "c" not found`}, page.skipped)
 }
 
 // A stream's transport error is named in skipped as safe renders it, with its
@@ -203,9 +203,9 @@ func TestASkippedStreamsErrorIsCleaned(t *testing.T) {
 	}, FetchHead, 10)
 
 	require.NoError(t, err)
-	require.Len(t, page.Skipped, 1)
-	assert.NotContains(t, page.Skipped[0], "hunter2")
-	assert.NotContains(t, page.Skipped[0], "\x1b")
+	require.Len(t, page.skipped, 1)
+	assert.NotContains(t, page.skipped[0], "hunter2")
+	assert.NotContains(t, page.skipped[0], "\x1b")
 }
 
 // Every stream failing fails the page, naming the first.
@@ -241,8 +241,8 @@ func TestAForbiddenStreamIsSkipped(t *testing.T) {
 	}, FetchHead, 10)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"ok"}, messages(page.Records))
-	assert.Equal(t, []string{"b/app: forbidden"}, page.Skipped)
+	assert.Equal(t, []string{"ok"}, messages(page.records))
+	assert.Equal(t, []string{"b/app: forbidden"}, page.skipped)
 }
 
 // A stream the connection's retirement cut ends the page where it stopped, so the
@@ -258,9 +258,9 @@ func TestARetiredStreamEndsThePageWhereItStopped(t *testing.T) {
 	}, FetchHead, 10)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"a0"}, messages(page.Records))
-	assert.Empty(t, page.Skipped)
-	require.NotNil(t, page.NextCursor)
+	assert.Equal(t, []string{"a0"}, messages(page.records))
+	assert.Empty(t, page.skipped)
+	require.NotNil(t, page.next())
 
 	_, err = mergePage(ctx, []*streamRead{endedShort(a0.Stream, errRetired), canned(ctx, line("b", "app", 0, "b0"))}, FetchHead, 10)
 	assert.ErrorIs(t, err, errReplaced)
@@ -278,9 +278,9 @@ func TestAStreamThatFailedPartwayEndsThePageWhereItStopped(t *testing.T) {
 	}, FetchHead, 10)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"a0"}, messages(page.Records))
-	assert.Empty(t, page.Skipped)
-	assert.Equal(t, cursorOf(positionOf(a0)), page.NextCursor)
+	assert.Equal(t, []string{"a0"}, messages(page.records))
+	assert.Empty(t, page.skipped)
+	assert.Equal(t, cursorOf(positionOf(a0)), page.next())
 }
 
 // A merge that has its lines asks its streams for none past them.
@@ -330,7 +330,7 @@ func TestAPageEndsWithItsContext(t *testing.T) {
 func TestAFullPageCancelsItsReadings(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	got := make(chan Page, 1)
+	got := make(chan merge, 1)
 	go func() {
 		page, err := mergePage(ctx, []*streamRead{
 			stalled(ctx, b, line("b", "app", 0, "b0"), line("b", "app", time.Second, "b1")),
@@ -340,8 +340,8 @@ func TestAFullPageCancelsItsReadings(t *testing.T) {
 	}()
 
 	page := testutil.Recv(t, got, "the page to end")
-	assert.Equal(t, []string{"b0"}, messages(page.Records))
-	assert.Equal(t, lineCursor("b", "app", 0, 0), page.NextCursor)
+	assert.Equal(t, []string{"b0"}, messages(page.records))
+	assert.Equal(t, lineCursor("b", "app", 0, 0), page.next())
 }
 
 // A merge ends at the first line past a stream's stop, asking no stream for more.
@@ -349,7 +349,7 @@ func TestAMergeEndsAtAStop(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	a0 := line("a", "app", 0, "a0")
-	got := make(chan Page, 1)
+	got := make(chan merge, 1)
 	go func() {
 		page, err := mergePage(ctx, []*streamRead{
 			cannedFrom(ctx, a0.Stream, []Record{a0}, nil, positionOf(a0)),
@@ -361,8 +361,8 @@ func TestAMergeEndsAtAStop(t *testing.T) {
 	}()
 
 	page := testutil.Recv(t, got, "the page to end")
-	assert.Equal(t, []string{"a0"}, messages(page.Records))
-	assert.Equal(t, cursorOf(positionOf(a0)), page.NextCursor)
+	assert.Equal(t, []string{"a0"}, messages(page.records))
+	assert.Equal(t, cursorOf(positionOf(a0)), page.next())
 }
 
 // b is the container app of pod b in prod.
@@ -379,8 +379,8 @@ func TestABudgetKeepsTheNearSideOfTheNewestStop(t *testing.T) {
 	}, FetchTail, 10)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"b3", "b4", "a5"}, messages(page.Records))
-	assert.Equal(t, lineCursor("b", "app", 3*time.Second, 0), page.NextCursor)
+	assert.Equal(t, []string{"b3", "b4", "a5"}, messages(page.records))
+	assert.Equal(t, lineCursor("b", "app", 3*time.Second, 0), page.next())
 }
 
 // A budget spent before any line matched answers no lines with a cursor.
@@ -392,8 +392,8 @@ func TestABudgetCanAnswerNoLinesWithACursor(t *testing.T) {
 	}, FetchTail, 10)
 
 	require.NoError(t, err)
-	assert.Empty(t, page.Records)
-	assert.Equal(t, lineCursor("b", "app", 7*time.Second, 0), page.NextCursor)
+	assert.Empty(t, page.records)
+	assert.Equal(t, lineCursor("b", "app", 7*time.Second, 0), page.next())
 }
 
 // A forward read that spent its budget keeps the lines at and before the oldest
@@ -407,6 +407,6 @@ func TestABudgetKeepsTheNearSideOfTheOldestStop(t *testing.T) {
 	}, FetchHead, 10)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"a0", "b2"}, messages(page.Records))
-	assert.Equal(t, lineCursor("b", "app", 2*time.Second, 0), page.NextCursor)
+	assert.Equal(t, []string{"a0", "b2"}, messages(page.records))
+	assert.Equal(t, lineCursor("b", "app", 2*time.Second, 0), page.next())
 }

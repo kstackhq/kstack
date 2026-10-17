@@ -18,28 +18,42 @@ import (
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 )
 
-// Service reads views' lines off the clusters the cluster service connects to.
+// Service reads views' lines off the clusters the cluster service connects to, and
+// keeps them in each cluster cache's log file.
 type Service struct {
 	clusters cluster.Service
-	// backend is the Backend a request reads its lines through, built over its
-	// claim's get: the kubelet, or a test's fake.
-	backend func(get getter) Backend
-	now     func() time.Time
+	files    *logstore.Manager
+	// backends are the cluster's backends in the order a gap is offered to them,
+	// each built over a request's claim: the kubelet, or a test's fakes. A follow
+	// tails through the first.
+	backends []namedBackend
+	now      func() time.Time
 	// handoff is how long a follow holds its first lines, retry how long it waits
 	// to resolve its view again after the mirror refused it, to open its watches
 	// again or to reopen a dropped stream, retryCap the longest a stream that keeps
 	// dropping waits, settle how long it waits after a pod frame, and budget the
-	// bytes one fetch may read.
+	// bytes one page's fills may read from the backends.
 	handoff  time.Duration
 	retry    time.Duration
 	retryCap time.Duration
 	settle   time.Duration
 	budget   int64
+	// walkBudget is the bytes one page's walks of the file may read, apart from what
+	// its fills spend, so a fill that spends everything leaves the walks their own.
+	walkBudget int64
 }
 
-// New is the service over the cluster service.
-func New(clusters cluster.Service) *Service {
-	return &Service{clusters: clusters, backend: newKubelet, now: time.Now, handoff: followHandoff, retry: followRetry, retryCap: followRetryCap, settle: followSettle, budget: maxBudget}
+// namedBackend is one of the cluster's backends: its name, which a chunk records as
+// its origin, and how to build it over a claim's get.
+type namedBackend struct {
+	name  string
+	build func(get getter) Backend
+}
+
+// New is the service over the cluster service and the log files.
+func New(clusters cluster.Service, files *logstore.Manager) *Service {
+	return &Service{clusters: clusters, files: files, backends: []namedBackend{{"kubelet", newKubelet}}, now: time.Now, handoff: followHandoff, retry: followRetry, retryCap: followRetryCap, settle: followSettle, budget: maxBudget, walkBudget: maxWalkBudget}
 }

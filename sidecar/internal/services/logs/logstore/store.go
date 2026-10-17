@@ -14,7 +14,7 @@
 
 // Package logstore is the log cache's file: one SQLite database per cluster cache, holding
 // the lines read from the cluster and, per stream, which ranges of them are whole. The
-// schema is migrations/0001_init.sql. Nothing reads or writes a line through it yet.
+// schema is migrations/0001_init.sql.
 //
 // A Store is a claim on an open file, and the Manager is the only way to one. A clear or a
 // removal has to close every claim's file before deleting it: on POSIX a delete under an
@@ -34,15 +34,18 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitepool"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
 )
 
 // readerPoolSize is how many reads run beside the one writer.
 const readerPoolSize = 4
 
-// file is one open log file: the writer and the reader pool beside it.
+// file is one open log file: the writer, the reader pool beside it, and the
+// statements prepared on both.
 type file struct {
 	db     *sql.DB
 	readDB *sql.DB
+	set    *sqlstmt.Set[stmtID]
 	// ctx is what an operation runs its statements under; close cancels it, so the wait
 	// for inUse is a wait for interrupted statements to unwind. inUse counts the
 	// operations running on the file, which close waits for, since sql.DB.Close does not
@@ -74,15 +77,32 @@ func openFile(path string) (*file, error) {
 		db.Close()
 		return nil, fmt.Errorf("open reader pool: %w", err)
 	}
+	set, err := sqlstmt.Prepare[stmtID](context.Background(), db, readDB, statements)
+	if err != nil {
+		db.Close()
+		readDB.Close()
+		return nil, fmt.Errorf("prepare: %w", err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &file{db: db, readDB: readDB, ctx: ctx, cancel: cancel}, nil
+	return &file{db: db, readDB: readDB, set: set, ctx: ctx, cancel: cancel}, nil
 }
 
 // close interrupts the file's operations, waits for them to end, and closes both pools.
 func (f *file) close() error {
 	f.cancel()
 	f.inUse.Wait()
-	return errors.Join(f.db.Close(), f.readDB.Close())
+	return errors.Join(f.set.Close(), f.db.Close(), f.readDB.Close())
+}
+
+// bind is ctx ended also when the file closes, so a close interrupts the statements
+// an operation runs under it.
+func (f *file) bind(ctx context.Context) (context.Context, func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	stop := context.AfterFunc(f.ctx, cancel)
+	return ctx, func() {
+		stop()
+		cancel()
+	}
 }
 
 // Store is one holder's claim on one cache's file, and owes a Close. The file is resolved
@@ -111,6 +131,39 @@ func (s *Store) use() (f *file, done func(), err error) {
 	f = s.e.file
 	f.inUse.Add(1)
 	return f, f.inUse.Done, nil
+}
+
+// operate runs fn as one operation on the claim's file, its context ended also when
+// the file closes.
+func (s *Store) operate(ctx context.Context, fn func(context.Context, *file) error) error {
+	f, done, err := s.use()
+	if err != nil {
+		return err
+	}
+	defer done()
+	ctx, stop := f.bind(ctx)
+	defer stop()
+	return fn(ctx, f)
+}
+
+// with runs fn as one operation on the claim's file, its statements on the pools.
+func (s *Store) with(ctx context.Context, fn func(context.Context, stmts) error) error {
+	return s.operate(ctx, func(ctx context.Context, f *file) error { return fn(ctx, f.set.Stmts()) })
+}
+
+// inTx runs fn as one operation on the claim's file, inside one write transaction.
+func (s *Store) inTx(ctx context.Context, fn func(context.Context, stmts) error) error {
+	return s.operate(ctx, func(ctx context.Context, f *file) error {
+		return f.set.InTx(ctx, func(st stmts) error { return fn(ctx, st) })
+	})
+}
+
+// inReadTx runs fn as one operation on the claim's file, inside one read transaction,
+// so every statement it runs sees one snapshot.
+func (s *Store) inReadTx(ctx context.Context, fn func(context.Context, stmts) error) error {
+	return s.operate(ctx, func(ctx context.Context, f *file) error {
+		return f.set.InReadTx(ctx, func(st stmts) error { return fn(ctx, st) })
+	})
 }
 
 // Close gives the claim back. The last close on an entry closes its file and drops the

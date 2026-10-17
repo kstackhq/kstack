@@ -115,7 +115,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	rt.Kubeconfig = kubeconfig.New(cfg.KubeconfigPath, rt.Poke)
 	rt.add("kubeconfig service", rt.Kubeconfig)
 
-	rt.LogStore = logstore.NewManager(p.LogsDir)
+	rt.LogStore = logstore.NewManager(p.LogsDir, logstore.DefaultRetention)
 	rt.add("log store", rt.LogStore)
 
 	rt.Cluster, err = cluster.New(db, p.Cluster, rt.Kubeconfig, rt.Poke, rt.LogStore)
@@ -123,7 +123,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		return fail(err)
 	}
 	rt.add("cluster service", rt.Cluster)
-	rt.Logs = logs.New(rt.Cluster)
+	rt.Logs = logs.New(rt.Cluster, rt.LogStore)
 
 	keychainService := cfg.KeychainService
 	if keychainService == "" {

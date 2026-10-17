@@ -548,8 +548,8 @@ func (r *queryResolver) ChatGrants(ctx context.Context, chatID apimeta.ChatID) (
 }
 
 // LogsFetch is the resolver for the logsFetch field.
-func (r *queryResolver) LogsFetch(ctx context.Context, id apimeta.ClusterID, view logs.View, mode logs.FetchMode, since *string, until *string, after *string, before *string, limit int) (*logs.Page, error) {
-	page, err := r.Logs.Fetch(ctx, id, view, logs.FetchQuery{Mode: mode, Since: since, Until: until, After: after, Before: before, Limit: limit})
+func (r *queryResolver) LogsFetch(ctx context.Context, id apimeta.ClusterID, view logs.View, mode logs.FetchMode, cursor *string, at *time.Time, limit int) (*logs.Page, error) {
+	page, err := r.Logs.Fetch(ctx, id, view, logs.FetchQuery{Mode: mode, Cursor: cursor, At: at, Limit: limit})
 	if err != nil {
 		return nil, logsErr(err)
 	}

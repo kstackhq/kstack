@@ -15,12 +15,16 @@
 package logs
 
 import (
+	"math"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 )
 
 // A line's cursor names it back; a time alone names a moment.
@@ -70,6 +74,7 @@ func TestABadCursorIsRefused(t *testing.T) {
 		"yesterday",
 		"2026-10-08T10:00:01Z\tprod",
 		"2026-10-08T10:00:01Z\tprod\tweb\tapp\tcontainerd://a\t-1",
+		"2026-10-08T10:00:01Z\tprod\tweb\tapp\tcontainerd://a\t" + strconv.Itoa(math.MaxInt),
 		"2026-10-08T10:00:01Z\tprod\tweb\t\tcontainerd://a\t0",
 		line(""),
 		line("containerd://a\nb"),
@@ -138,4 +143,43 @@ func TestBoundsKeepOrDropTheirLine(t *testing.T) {
 	assert.True(t, bound{position{Timestamp: at(0)}, false}.above(rec))
 	assert.False(t, bound{}.below(rec))
 	assert.False(t, bound{}.above(rec))
+}
+
+// Each stream's bound is worked out from the one cursor as comparePositions orders
+// lines: at the cursor's moment a stream whose names sort before the cursor's
+// starts after the moment, one whose names sort after starts at it, the cursor's own
+// stream starts past its ordinal, and another instance of its container at its
+// ordinal, kept when its id sorts after the cursor's and dropped when before. Tail
+// is the mirror image, and a moment bounds every stream at the moment.
+func TestEachStreamsBoundOffOneCursor(t *testing.T) {
+	t.Parallel()
+	moment := at(0).UnixNano()
+	ats := func(ord int) logstore.Pos { return logstore.Pos{TS: moment, Ord: ord} }
+	stream := func(pod, id string) instance { return instance{"prod", pod, "app", id} }
+	cursor := bound{position{at(0), "prod", "web-1", "app", "b", 2}, false}
+	for name, tc := range map[string]struct {
+		in         instance
+		head, tail logstore.Pos
+	}{
+		"names before":  {stream("web-0", "b"), ats(math.MaxInt), ats(math.MaxInt)},
+		"names after":   {stream("web-2", "b"), ats(-1), ats(-1)},
+		"its own":       {stream("web-1", "b"), ats(2), ats(2)},
+		"an earlier id": {stream("web-1", "a"), ats(2), ats(3)},
+		"a later id":    {stream("web-1", "c"), ats(1), ats(2)},
+	} {
+		assert.Equal(t, tc.head, streamBound(cursor, tc.in, FetchHead), name+", head")
+		assert.Equal(t, tc.tail, streamBound(cursor, tc.in, FetchTail), name+", tail")
+	}
+
+	own := stream("web-1", "b")
+	kept := bound{cursor.at, true}
+	assert.Equal(t, ats(1), streamBound(kept, own, FetchHead), "a kept line, head")
+	assert.Equal(t, ats(3), streamBound(kept, own, FetchTail), "a kept line, tail")
+	m := position{Timestamp: at(0)}
+	assert.Equal(t, ats(math.MaxInt), streamBound(bound{m, false}, own, FetchHead), "after a moment")
+	assert.Equal(t, ats(-1), streamBound(bound{m, true}, own, FetchHead), "from a moment")
+	assert.Equal(t, ats(-1), streamBound(bound{m, false}, own, FetchTail), "before a moment")
+	assert.Equal(t, ats(math.MaxInt), streamBound(bound{m, true}, own, FetchTail), "up to a moment")
+	assert.Equal(t, logstore.Oldest, streamBound(bound{}, own, FetchHead), "the start")
+	assert.Equal(t, logstore.Newest, streamBound(bound{}, own, FetchTail), "the end")
 }

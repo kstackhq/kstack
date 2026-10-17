@@ -34,3 +34,11 @@ func TestTheWriteQueueHoldsAtMostSixteenMiB(t *testing.T) {
 
 	assert.Equal(t, int64(16*mib), int64(DefaultRetention.WriteQueue)*DefaultRetention.WriteBatchBytes)
 }
+
+// testRetention is the production setting with no janitor, which a test about
+// anything else opens its manager with.
+var testRetention = func() Retention {
+	r := DefaultRetention
+	r.Interval = 0
+	return r
+}()
