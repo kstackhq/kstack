@@ -15,6 +15,7 @@
 package logstore
 
 import (
+	"fmt"
 	"path/filepath"
 	"testing"
 
@@ -31,11 +32,22 @@ func openTestFile(t *testing.T) *file {
 	return f
 }
 
+// newTestStore is a claim on a fresh file, under a manager closed when the test ends.
+func newTestStore(t *testing.T) *Store {
+	t.Helper()
+	m := NewManager(t.TempDir(), testRetention)
+	t.Cleanup(func() { assert.NoError(t, m.Close()) })
+	s, err := m.OpenOrCreate(1)
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, s.Close()) })
+	return s
+}
+
 // insertStream adds one stream and answers its id.
 func insertStream(t *testing.T, f *file) int64 {
 	t.Helper()
-	res, err := f.db.Exec(`INSERT INTO streams (namespace, pod, container, container_id, node, region, zone, os, arch, labels)
-		VALUES ('web', 'api-7f9c', 'app', 'containerd://1', 'node-a', '', '', 'linux', 'amd64', '{}')`)
+	res, err := f.db.Exec(`INSERT INTO streams (namespace, pod, pod_uid, container, is_default, container_id, node, region, zone, os, arch, labels)
+		VALUES ('web', 'api-7f9c', 'uid-api', 'app', 1, 'containerd://1', 'node-a', '', '', 'linux', 'amd64', '{}')`)
 	require.NoError(t, err)
 	id, err := res.LastInsertId()
 	require.NoError(t, err)
@@ -50,6 +62,16 @@ func insertLine(t *testing.T, f *file, stream, tsNS, ord int64) int64 {
 	id, err := res.LastInsertId()
 	require.NoError(t, err)
 	return id
+}
+
+// refuse makes the file behind s refuse every op, INSERT, UPDATE or DELETE, of a row
+// of table, so a test can fail a statement inside a write.
+func refuse(t *testing.T, s *Store, op, table string) {
+	t.Helper()
+	using(t, s, func(f *file) {
+		_, err := f.db.Exec(fmt.Sprintf(`CREATE TRIGGER refuse_%[1]s_%[2]s BEFORE %[1]s ON %[2]s BEGIN SELECT RAISE(ABORT, 'refused'); END`, op, table))
+		require.NoError(t, err)
+	})
 }
 
 // countStreams reads how many streams the file holds, through the reader pool.
@@ -83,7 +105,7 @@ func TestAMomentMustBeAnInteger(t *testing.T) {
 	f := openTestFile(t)
 	stream := insertStream(t, f)
 
-	_, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, origin, head, at_end, open, bytes, read_at_ms)
+	_, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, origin, at_head, at_end, open, bytes, read_at_ms)
 		VALUES (?, '', 'yesterday', 0, 2, 0, 'kubelet', 0, 0, 0, 0, 0)`, stream)
 
 	assert.ErrorContains(t, err, "cannot store TEXT value in INTEGER column")
@@ -122,4 +144,56 @@ func TestALineIDIsNeverReused(t *testing.T) {
 	next := insertLine(t, f, stream, 300, 0)
 
 	assert.Greater(t, next, newest)
+}
+
+// A flag column takes 0 or 1 and nothing else.
+func TestAFlagIsZeroOrOne(t *testing.T) {
+	t.Parallel()
+	f := openTestFile(t)
+	_, err := f.db.Exec(`INSERT INTO streams (namespace, pod, pod_uid, container, is_default, container_id, node, region, zone, os, arch, labels)
+		VALUES ('web', 'api-7f9c', 'uid-api', 'app', 2, 'containerd://1', 'node-a', '', '', 'linux', 'amd64', '{}')`)
+	assert.ErrorContains(t, err, "CHECK constraint failed")
+
+	id := insertStream(t, f)
+	for _, flag := range []string{"at_head", "at_end", "open"} {
+		values := map[string]int{"at_head": 0, "at_end": 0, "open": 0}
+		values[flag] = 2
+		_, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, origin, at_head, at_end, open, bytes, read_at_ms)
+			VALUES (?, '', 1, 0, 1, 0, 'kubelet', ?, ?, ?, 0, 0)`, id, values["at_head"], values["at_end"], values["open"])
+		assert.ErrorContains(t, err, "CHECK constraint failed", flag)
+	}
+}
+
+// Every operation on a closed claim answers ErrClosed, under what it was doing.
+func TestEveryOperationOnAClosedClaimIsRefused(t *testing.T) {
+	t.Parallel()
+	m := NewManager(t.TempDir(), testRetention)
+	t.Cleanup(func() { assert.NoError(t, m.Close()) })
+	s, err := m.OpenOrCreate(1)
+	require.NoError(t, err)
+	require.NoError(t, s.Close())
+	ctx := t.Context()
+
+	for name, op := range map[string]func() error{
+		"put streams": func() error {
+			_, err := s.PutStreams(ctx, []Stream{app()})
+			return err
+		},
+		"finish streams": func() error { return s.FinishStreams(ctx, []Stream{app()}) },
+		"pod streams": func() error {
+			_, err := s.PodStreams(ctx, "web", "api-7f9c", "")
+			return err
+		},
+		"chunks": func() error {
+			_, err := s.Chunks(ctx, 1, "")
+			return err
+		},
+		"write": func() error { return s.Write(ctx, nil) },
+		"read":  func() error { return s.Read(ctx, func(Reader) error { return nil }) },
+		"evict": func() error { return s.Evict(ctx, 1) },
+	} {
+		err := op()
+		assert.ErrorIs(t, err, ErrClosed, name)
+		assert.ErrorContains(t, err, name+": ", name)
+	}
 }

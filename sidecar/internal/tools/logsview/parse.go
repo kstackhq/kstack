@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -59,9 +60,6 @@ func (e *inputError) Error() string {
 	}
 	return "logsview input has a bad " + e.field
 }
-
-// maxGrep bounds a grep, so the receipt that repeats it stays one line.
-const maxGrep = 1_000
 
 // anchorMessage is the refusal of an anchor the tool cannot read.
 const anchorMessage = "tail, head, an RFC 3339 time, or a duration back from now such as 2m"
@@ -124,7 +122,7 @@ func parse(raw json.RawMessage) (input, error) {
 	if len(in.sources) == 0 {
 		return input{}, &inputError{field: "sources", source: -1}
 	}
-	if len(in.grep) > maxGrep || strings.ContainsAny(in.grep, "\r\n") {
+	if len(in.grep) > logs.MaxGrep || strings.ContainsAny(in.grep, "\r\n") {
 		return input{}, &inputError{field: "grep", source: -1}
 	}
 	if _, err := regexp.Compile(in.grep); err != nil {

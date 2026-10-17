@@ -22,7 +22,6 @@ import (
 	"errors"
 	"io"
 	"net/url"
-	"regexp"
 	"slices"
 	"strconv"
 	"sync/atomic"
@@ -92,18 +91,11 @@ type readOpts struct {
 	// wherever it joined it, which a read from that moment's second would number
 	// differently.
 	follow bool
-	// grep is what each cleaned message must match, nil for every line.
-	grep *regexp.Regexp
 	// A fetch's bounds: the budget a read spends, and for a backward read, the
 	// lines its first window asks for and the GETs it may send.
 	budget  *budget
 	batch   int64
 	windows int
-}
-
-// matches is whether rec's message passes o's grep.
-func (o readOpts) matches(rec Record) bool {
-	return o.grep == nil || o.grep.MatchString(rec.Message)
 }
 
 // streamRead is one stream's read in progress: its lines in the order read, then,
@@ -122,6 +114,17 @@ type streamRead struct {
 	// one from stop on. Zero when it read no line in range.
 	short bool
 	stop  position
+	// head is whether the read reached the oldest line the backend holds: a backward
+	// read with no lower bound back to the log's first line, or a forward read with
+	// none, which starts there.
+	head bool
+	// atEnd is whether a forward read reached the last line of a finished instance,
+	// whose log never grows again.
+	atEnd bool
+	// oldest is the moment of the first line a forward read's GET returned, in range
+	// or not, zero with none: a read from a second whose oldest line is at or before
+	// a moment returned that moment whole.
+	oldest time.Time
 }
 
 // readForward reads s's log oldest first, as kubetail's StreamForward does, over
@@ -150,7 +153,7 @@ func start(ctx context.Context, get getter, s stream, o readOpts, read func(*rea
 	go func() {
 		defer out.Close()
 		defer cancel()
-		rd := &reader{ctx: ctx, get: get, key: s.key, place: s.place, instance: s.gen.instance, o: o, out: out}
+		rd := &reader{ctx: ctx, get: get, key: s.key, place: s.place, instance: s.gen.instance, finished: s.finished(), o: o, out: out}
 		err := read(rd)
 		switch {
 		case errors.Is(err, errShort), errors.Is(err, errRetired):
@@ -161,22 +164,27 @@ func start(ctx context.Context, get getter, s stream, o readOpts, read func(*rea
 		if !errors.Is(err, errShort) {
 			r.err = err
 		}
+		r.head, r.atEnd, r.oldest = rd.head, rd.atEnd, rd.oldest
 	}()
 	return r
 }
 
-// reader is one stream's read: what it reads with, the instance it reads, where
-// its lines go, and its edge, the last line in range it read whole — forward the
-// newest, backward the oldest taken, matched or not.
+// reader is one stream's read: what it reads with, the instance it reads and
+// whether it has finished, where its lines go, and its edge, the last line in
+// range it read whole — forward the newest, backward the oldest taken.
 type reader struct {
 	ctx      context.Context
 	get      getter
 	key      StreamKey
 	place    Place
 	instance string
+	finished bool
 	o        readOpts
 	out      *spsc.Sender[Record]
 	edge     position
+	head     bool
+	atEnd    bool
+	oldest   time.Time
 }
 
 // forward reads the log oldest first over one GET.
@@ -186,7 +194,11 @@ func (r *reader) forward() error {
 		q.Set("follow", "true")
 	}
 	read, err := r.lines(q, r.o, r.send)
-	r.edge = read.last
+	r.edge, r.oldest = read.last, read.oldest
+	// With no lower bound the read starts at the oldest line, so its first line is
+	// the backend's oldest, and a log it read clean to the end with none is empty.
+	r.head = r.o.since.at.isZero() && (!read.first.isZero() || err == nil)
+	r.atEnd = r.finished && r.o.until.at.isZero() && !r.o.follow && err == nil && r.ctx.Err() == nil
 	return err
 }
 
@@ -194,8 +206,11 @@ func (r *reader) forward() error {
 func (r *reader) backward() error {
 	first, err := r.firstTimestamp()
 	switch {
-	case err != nil || first.IsZero():
+	case err != nil:
 		return err
+	case first.IsZero():
+		r.reachedFirst()
+		return nil
 	case !r.o.until.at.isZero():
 		return r.backwardUntil(first)
 	}
@@ -228,7 +243,8 @@ func (r *reader) backward() error {
 			if !r.takeBack(lines, w.oldest) {
 				return nil
 			}
-			return r.wholeMoment(w.oldest)
+			_, err := r.wholeMoment(w.oldest)
+			return err
 		case !start.IsZero() && w.oldest.Before(start):
 			// The window began below since, so it holds every line in range, and
 			// whole: its first moment in range is not the one it began in.
@@ -245,8 +261,14 @@ func (r *reader) backward() error {
 				return nil
 			}
 			if start.Equal(first) {
-				return r.wholeMoment(first)
+				// The first moment is the backend's oldest only once it has all gone out:
+				// a read cancelled inside it leaves older lines of it unread.
+				sent, err := r.wholeMoment(first)
+				if !sent || err != nil {
+					return err
+				}
 			}
+			r.reachedFirst()
 			return nil
 		case !sent.IsZero() && (start.IsZero() || !start.Before(sent)):
 			// The log grew by a whole batch under the read, or one moment fills the
@@ -267,6 +289,12 @@ func (r *reader) backward() error {
 	return errShort
 }
 
+// reachedFirst marks a backward read that took every line back to the first one
+// firstTimestamp found, which is the backend's oldest only with no since.
+func (r *reader) reachedFirst() {
+	r.head = r.o.since.at.isZero()
+}
+
 // inSinceMoment is whether t is the moment of the line since names. A since that
 // names a moment alone bounds by time, which a window's numbering cannot mislead.
 func (r *reader) inSinceMoment(t time.Time) bool {
@@ -276,13 +304,13 @@ func (r *reader) inSinceMoment(t time.Time) bool {
 // wholeMoment ends a backward read whose window began in moment t, the log's
 // first or since's, with every line of that moment in range. The window cannot
 // tell whether it began at the moment's top, so the moment is read forward, whole.
-func (r *reader) wholeMoment(t time.Time) error {
+// It is false once the context has ended before every line went out.
+func (r *reader) wholeMoment(t time.Time) (bool, error) {
 	lines, err := r.span(t, bound{position{Timestamp: t}, true})
 	if err != nil {
-		return err
+		return false, err
 	}
-	r.takeBack(lines, time.Time{})
-	return nil
+	return r.takeBack(lines, time.Time{}), nil
 }
 
 // backwardUntil is backward under until, which a tailLines window reaches only
@@ -311,7 +339,11 @@ func (r *reader) backwardUntil(first time.Time) error {
 		case r.ctx.Err() != nil:
 			return nil
 		}
-		if !r.takeBack(lines, time.Time{}) || start.Equal(first) {
+		if !r.takeBack(lines, time.Time{}) {
+			return nil
+		}
+		if start.Equal(first) {
+			r.reachedFirst()
 			return nil
 		}
 		end = bound{position{Timestamp: start}, false}
@@ -323,15 +355,13 @@ func (r *reader) backwardUntil(first time.Time) error {
 	return errShort
 }
 
-// send puts rec on out when it matches the grep, and is false once the context
-// has ended.
+// send puts rec on out, and is false once the context has ended.
 func (r *reader) send(rec Record) bool {
-	return !r.o.matches(rec) || r.out.SendContext(r.ctx, rec) == nil
+	return r.out.SendContext(r.ctx, rec) == nil
 }
 
 // takeBack sends the lines after the moment after, newest first, every one in
-// range moving the edge whether or not the grep keeps it, and is false once the
-// context has ended.
+// range moving the edge, and is false once the context has ended.
 func (r *reader) takeBack(lines []Record, after time.Time) bool {
 	for _, rec := range slices.Backward(lines) {
 		if !rec.Timestamp.After(after) {

@@ -23,31 +23,52 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 )
 
-// Page is a page of a view's lines, oldest first. NextCursor is set while there are
-// more in the direction asked, and Skipped names each stream the page could not
-// read, one line each.
-type Page struct {
-	Records    []Record
-	NextCursor *string
-	Skipped    []string
+// merge is one direction's page of a view: its records, oldest first, the cut,
+// zero when the page was not cut, the live end, and each stream it could not read,
+// one line each.
+type merge struct {
+	records []Record
+	cut     position
+	end     position
+	skipped []string
 }
 
-// FetchMode is which end of the range a page is cut from when it holds more than
-// its limit. The GraphQL LogsFetchMode enum binds member by member onto it.
-type FetchMode string
+// next is the cursor of m's cut, nil when the page was not cut.
+func (m merge) next() *string {
+	if m.cut.isZero() {
+		return nil
+	}
+	return cursorOf(m.cut)
+}
 
-const (
-	FetchHead FetchMode = "head"
-	FetchTail FetchMode = "tail"
-)
+// before is m's edge toward older lines: the cut while it was cut, else nothing
+// older.
+func (m merge) before() PageEdge {
+	return PageEdge{m.next(), !m.cut.isZero()}
+}
+
+// after is m's edge toward newer lines read Head: the cut while it was cut, else
+// the live end.
+func (m merge) after() PageEdge {
+	if m.cut.isZero() {
+		return m.liveEnd()
+	}
+	return PageEdge{m.next(), true}
+}
+
+// liveEnd is the edge past every stream's newest line. It always carries a cursor,
+// since the live end is where a follow starts.
+func (m merge) liveEnd() PageEdge {
+	return PageEdge{Cursor: cursorOf(m.end)}
+}
 
 // mergePage is one page of readings, each one container's lines in the order the
 // page reads them — oldest first for Head, newest first for Tail — merged in
-// position order and cut at limit. The cursor is where the next page goes on
-// from: the last line kept, or the stop of a reading that ran short when that is
+// position order and cut at limit. The cut is where the next page goes on from:
+// the last line kept, or the stop of a reading that ran short when that is
 // nearer. Every reading is cancelled once the merge has its lines, so no stream
 // reads past the page.
-func mergePage(ctx context.Context, readings []*streamRead, mode FetchMode, limit int) (Page, error) {
+func mergePage(ctx context.Context, readings []*streamRead, mode FetchMode, limit int) (merge, error) {
 	recs := merged(ctx, readings, mode, limit+1)
 	for _, r := range readings {
 		r.cancel()
@@ -55,22 +76,22 @@ func mergePage(ctx context.Context, readings []*streamRead, mode FetchMode, limi
 	}
 	// A reading the context ended closes as one that reached its end does.
 	if err := ctx.Err(); err != nil {
-		return Page{}, err
+		return merge{}, err
 	}
 	if mode == FetchTail {
 		slices.Reverse(recs)
 	}
 	skipped, err := failures(readings)
 	if err != nil {
-		return Page{}, err
+		return merge{}, err
 	}
 	for _, r := range readings {
 		switch {
 		case !r.short || !r.stop.isZero():
 		case errors.Is(r.err, errRetired):
-			return Page{}, errReplaced
+			return merge{}, errReplaced
 		default:
-			return Page{}, Refusal{"this page ran out of budget before " + r.key.Pod + "/" + r.key.Container + " was read past its start; narrow the view or its grep"}
+			return merge{}, Refusal{"this page ran out of budget before " + r.key.Pod + "/" + r.key.Container + " was read past its start; narrow the view or its grep"}
 		}
 	}
 	// A page past the limit is cut at the far end, and the cursor is the last line kept.
@@ -85,11 +106,7 @@ func mergePage(ctx context.Context, readings []*streamRead, mode FetchMode, limi
 		}
 	}
 	recs, cut = trimToStops(readings, mode, recs, cut)
-	page := Page{Records: recs, Skipped: skipped}
-	if !cut.isZero() {
-		page.NextCursor = cursorOf(cut)
-	}
-	return page, nil
+	return merge{records: recs, cut: cut, skipped: skipped}, nil
 }
 
 // errReplaced is a page a stream of which the connection's retirement cut before
@@ -111,13 +128,29 @@ func failures(readings []*streamRead) ([]string, error) {
 		if r.err == nil || r.short || errors.Is(r.err, context.Canceled) {
 			continue
 		}
-		// A transport error can carry a URL's userinfo or the server's bytes.
-		skipped = append(skipped, r.key.Pod+"/"+r.key.Container+": "+stripControl(safe.Safe(r.err)))
+		skipped = append(skipped, skippedLine(r.key, r.err))
 	}
-	if len(skipped) > 0 && len(skipped) == len(readings) {
-		return nil, Refusal{"no container of this view could be read: " + skipped[0]}
+	if len(skipped) == len(readings) {
+		if err := everyStreamFailed(skipped); err != nil {
+			return nil, err
+		}
 	}
 	return skipped, nil
+}
+
+// everyStreamFailed refuses a page every stream of which failed, naming the first,
+// nil when there was none.
+func everyStreamFailed(skipped []string) error {
+	if len(skipped) == 0 {
+		return nil
+	}
+	return Refusal{"no container of this view could be read: " + skipped[0]}
+}
+
+// skippedLine is the page's line naming key, a stream err kept it from reading. A
+// transport error can carry a URL's userinfo or the server's bytes.
+func skippedLine(key StreamKey, err error) string {
+	return key.Pod + "/" + key.Container + ": " + stripControl(safe.Safe(err))
 }
 
 // beyond is whether a lies past b in the direction mode reads: later for Head,

@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -115,7 +116,11 @@ func (v View) workloadKinds() []mirrorKind {
 // saying so and ends clean, since following again would end the same way. Any
 // other ending sets Err, and its context ending is a clean end with no frame.
 func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, view View, after *string) (*cluster.Stream[FollowFrame], error) {
-	o, err := readOptsOf(view, FetchQuery{After: after})
+	since, err := boundAfter(after)
+	if err != nil {
+		return nil, err
+	}
+	grep, err := compileGrep(view.Grep)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +136,7 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, view View, a
 	// stream itself runs on ctx: one ended by its own context files no error.
 	owned, stop := context.WithCancel(ctx)
 	f := &follow{
-		s: s, id: id, view: view, o: o, claim: c, backend: s.backend(c.get), target: t, start: s.now(),
+		s: s, id: id, view: view, o: readOpts{since: since}, grep: grep, claim: c, backend: s.backends[0].build(c.get), target: t, start: s.now(),
 		fan: newFanIn(), streams: map[StreamKey]*tracked{}, nodes: map[string]Place{},
 		deleted: map[string]string{}, podUIDs: map[string]string{}, gone: map[string]bool{},
 		dueHub: mpsc.New[StreamKey](0, mpsc.WithKeepOpen()),
@@ -245,10 +250,13 @@ func (f *follow) watchEnded(w objectWatch) error {
 // retry — by one rule: a container the view wants runs unless it ended at the
 // generation the view sees now.
 type follow struct {
-	s     *Service
-	id    cluster.ClusterID
-	view  View
-	o     readOpts
+	s    *Service
+	id   cluster.ClusterID
+	view View
+	o    readOpts
+	// grep is what a line must match to go out, nil for every line. The reads take
+	// every line, so a stream resumes past the last one it read.
+	grep  *regexp.Regexp
 	claim *claim
 	// backend tails the follow's streams over the claim.
 	backend Backend
@@ -354,7 +362,7 @@ func (f *follow) relay(ctx context.Context, out chan<- FollowFrame, window <-cha
 		case <-f.claim.revoked:
 			return ErrRevoked
 		case h := <-f.fan.linesHub.Receiver().Chan():
-			if !f.accept(h) {
+			if !f.accept(h) || !matches(f.grep, h.rec.Message) {
 				continue
 			}
 			if !f.handoff.hold(h.rec) && !sendLine(ctx, out, h.rec) {

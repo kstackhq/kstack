@@ -94,7 +94,7 @@ files](../docs/adr/2026-09-08-two-processes-two-log-files.md).
 - `internal/app/` probes the sandbox once (`probeSandbox`, a test's seam, under the context `New` is handed, the shutdown signal's; a probe that context cut short answers its error, which `New` returns, and `run` exits cleanly on it), then, with `RunLoginShell`, runs the login shell in it (`launchShell`, *The login shell*, below), **before anything that reads the environment**: on macOS it sets the environment process-wide, and `chatTools` reads the proxy variables. Then `build` opens the settings (`settings.Open`, before `app.db`, since the store holds no handle) and `app.db`, and builds `poke`, `kubeconfig`, `services/cluster`, `auth`, `cloud`, the catalog and llm service, the Bash tool, the settings service, `services/memory`, the tool box and `agent/chat`; `New` wires `graph.NewServer` + `grpcserver.NewServer` over the runtime and multiplexes both onto one h2c handler. `Runtime.parts` is start order (app.db → poke → kubeconfig → log store → cluster → cloud → memory → chat, then the executable probe when there is a shell, whose Close ends a running probe, then the `PATH` sync when the launch read a `PATH` on a machine with a sandbox, then the shell snapshot with `RunLoginShell`); stop and close reverse it. The sync folds the launch's `PATH` into the stored list, and one that fails is a warning, not a startup error. A sync that changed the list starts a probe of every listed executable (`StartProbe`), so nothing runs unasked on a machine whose tools did not move; the executable probe part's Close ends it. At the end of `build`, once `agent/chat` exists, the Bash tool is handed the probe's folders: `FoldersFor(ctx, "")`, the folders granted always (`SetProbeFolders`). **kubeconfig before cluster is load-bearing** (`app_test.go` pins it). The transports stay out of the slice; `grpcServer.Stop()` runs first in `Close`.
 
   **`READY` promises a socket, not a finished startup.** `run` prints it after the bind and before `Start`; the first request is answered after `Start`, and every part completes its startup work inside `Start`. Everything that reads the environment does so after the shell import at the top of `app.New`, which finishes before `READY` — nothing sends before it, and `net/http` reads the proxy variables once per process on the first request.
-- `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.Settings` is `settings.Service`, the settings store with the frozen `PATH` kept in it; its resolvers are `settingsRefused`, and `sandboxPath`, `sandboxPathFault` and the three `sandboxPath*` mutations, which answer an empty list, no fault and a refusal on a machine with no sandbox. A `settings.PathRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxPathErr`). Its permission resolvers are `permissionSettings` and the six `permission*` mutations, each answering the settings it left (`permissionSettings` in `util.go`, the known contexts read off `Clusters().List`), and a refused one `KSTACK_VALIDATION_ERROR` with the reason (`permissionsAfter`); a rule's id is `appdb.NewID()`. The folder resolvers are `sandboxFolders(chatID)` and `folderGrant` and `folderRevoke`, each answering the whole `SandboxFolders` (the always grants and the chat's with each `refused` reason, the never-readable list and the wide folders; empty lists on a machine with no sandbox), through `agent/chat`, where an empty chat id is no chat: a `Chat` grant with no `chatID`, or an empty one, is `KSTACK_VALIDATION_ERROR`, so it never widens to every chat, and an `Always` one ignores it. A `FolderRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` whose `rule` is the check's, with a link's `target` beside it (`folderErr`). The executable resolvers are `sandboxExecutables`, `sandboxExecutablesProbe`, `sandboxExecutableRegister` and `sandboxExecutableRemove`, each answering the whole report through `Resolver.Executables` (an `ExecutableProber`, the Bash tool), `Report` laying the last probe over the list; `sandboxExecutablesProbe` only starts one (`StartProbe`), since a probe can outlast the host's request budget, and **`sandboxExecutablesWatch` is the gauge its end reaches**: `WatchProbe`'s `ProbeState` and the settings store's settings, each a current-on-subscribe receiver, folded into one `SandboxExecutablesReport` — `probing`, and `bash.ReportOver` the state's last report and the settings' registered executables — on either's change. With no sandbox or no shell the query is empty, the watch answers one empty report, and the probe and a register are refused. A `settings.ExecutableRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxExecutableErr`). `logsFetch` and `logsFollow` are `Resolver.Logs` (`services/logs`, under *Tools*), the follow through `watchStream` as `LogsFollowFrame`s; a `logs.Refusal`, bare or inside `Unmirrored` or `NoNodes`, reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`logsErr`). `LogRecord` binds `logs.Record`, its `stream` and `place` binding `StreamKey` and `Place`: the stream names a line's log, the place only describes it.
+- `graph/` — `schema.graphqls`, generated code, resolvers, `server.go`. Resolver deps are non-nil; tests wire fakes. `Resolver.Settings` is `settings.Service`, the settings store with the frozen `PATH` kept in it; its resolvers are `settingsRefused`, and `sandboxPath`, `sandboxPathFault` and the three `sandboxPath*` mutations, which answer an empty list, no fault and a refusal on a machine with no sandbox. A `settings.PathRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxPathErr`). Its permission resolvers are `permissionSettings` and the six `permission*` mutations, each answering the settings it left (`permissionSettings` in `util.go`, the known contexts read off `Clusters().List`), and a refused one `KSTACK_VALIDATION_ERROR` with the reason (`permissionsAfter`); a rule's id is `appdb.NewID()`. The folder resolvers are `sandboxFolders(chatID)` and `folderGrant` and `folderRevoke`, each answering the whole `SandboxFolders` (the always grants and the chat's with each `refused` reason, the never-readable list and the wide folders; empty lists on a machine with no sandbox), through `agent/chat`, where an empty chat id is no chat: a `Chat` grant with no `chatID`, or an empty one, is `KSTACK_VALIDATION_ERROR`, so it never widens to every chat, and an `Always` one ignores it. A `FolderRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` whose `rule` is the check's, with a link's `target` beside it (`folderErr`). The executable resolvers are `sandboxExecutables`, `sandboxExecutablesProbe`, `sandboxExecutableRegister` and `sandboxExecutableRemove`, each answering the whole report through `Resolver.Executables` (an `ExecutableProber`, the Bash tool), `Report` laying the last probe over the list; `sandboxExecutablesProbe` only starts one (`StartProbe`), since a probe can outlast the host's request budget, and **`sandboxExecutablesWatch` is the gauge its end reaches**: `WatchProbe`'s `ProbeState` and the settings store's settings, each a current-on-subscribe receiver, folded into one `SandboxExecutablesReport` — `probing`, and `bash.ReportOver` the state's last report and the settings' registered executables — on either's change. With no sandbox or no shell the query is empty, the watch answers one empty report, and the probe and a register are refused. A `settings.ExecutableRefusal` reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`sandboxExecutableErr`). `logsFetch` and `logsFollow` are `Resolver.Logs` (`services/logs`, under *Tools*), the follow through `watchStream` as `LogsFollowFrame`s; a `logs.Refusal`, bare or inside `Unmirrored` or `NoNodes`, reaches the wire as `KSTACK_VALIDATION_ERROR` carrying its words (`logsErr`). `LogRecord` binds `logs.Record`, its `stream` and `place` binding `StreamKey` and `Place`: the stream names a line's log, the place only describes it. `LogRecordsPage` binds `logs.Page`, its edges `LogRecordsPageEdge` onto `logs.PageEdge`, and `LogsFetchMode`'s `Around` onto `logs.FetchAround`.
 - `grpc/` — `AuthService`, `PokeService`, committed protoc output in `authpb/`, `pokepb/`. Regenerate with `make proto`; **never hand-edit `*.pb.go`**. `IsGRPCRequest` lives here.
 - `internal/` groups its packages by one rule → [ADR: services, lib and the rest](../docs/adr/2026-10-06-sidecar-packages-group-into-services-lib-and-the-rest.md), and every folder is a layer (*Where a new package goes*, below):
   - `internal/services/` — a package that owns state outliving a request (rows, a watch, a connection, goroutines), is reached from `graph/` or `grpc/`, and sits below the tools — the services a tool may import; `chat`, the one service built on the tools, is `agent/chat`: `auth`, `cluster` (with `cluster/clustercard` under it, the cluster as a run is told it: a projection of the service, below the tools that name the context and the freshness as it does; and `cluster/clustertest`, test-only, a real cache store with the query views for a test outside the package: `NewStore`, a copy of one store migrated once per process, `Apply` a body, `Delete` one, `Mirror` a kind, `Read` one snapshot as `ReadOwn` does), `kubeconfig`, `logs` (a view's log lines, under *Tools* beside LogsView), `memory` (the notes a chat's cluster sees, below), `poke`, `settings` (the user's settings and the sandbox state derived from them, below).
@@ -2109,9 +2109,33 @@ refuses the id with `ErrRemoved` for the manager's life, idempotently; `Close` c
 file and refuses every open, while `Clear` and `Remove` still delete after it, since the cache
 pass clears the finalizer on `Remove`'s answer. The manager is `services/cluster`'s
 `CacheFileOwner`, and a `lifecycle.Part` with no background work. `Retention` (`retention.go`)
-is every knob the log cache names, `DefaultRetention` its numbers; nothing takes them until the
-janitor lands. A delete removes the `-wal` and `-shm` before the database, since a `-wal` left
-beside a fresh database would be replayed into it. Nothing reads or writes a line yet.
+is every knob the log cache names, `DefaultRetention` its numbers; `NewManager` takes it, and a
+fill closes its chunks at its `ChunkBytes` and `ChunkSpan`, while the rest wait for the janitor.
+A delete removes the `-wal` and `-shm` before the database, since a `-wal` left beside a fresh
+database would be replayed into it. **A `Store` is the file's statements** (`statements.go`, a
+`sqlstmt.Set` prepared at open, a read a write makes inside its transaction `OnBoth`):
+`PutStreams` files streams by instance, inserting the missing rows and updating the place, the
+labels, the default mark and the times of the rest, moves the default mark onto every instance
+of a container it files as the default and off the pod's other containers, and trims a stream
+whose `finished_at` it sets; `FinishStreams` sets an instance's `finished_at` the file holds
+and trims it; each reads first and takes no write when the file already holds its rows so;
+`PodStreams` is a pod's rows, by UID or, for a gone pod, by name alone; `Chunks` a stream's
+chunks for a pattern, its own and the unlabelled ones; `Write` files buffered `Fill`s in one
+transaction; `Read` runs walks over one snapshot (`Reader.Lines`, one walk of
+`lines_position` each way); `Evict` drops one chunk, by id, and the lines no other chunk
+claims, reading its bounds in its own transaction. **Coverage is a pure
+function** (`CoverageOf`, `coverage.go`): a stream's chunks for a pattern as spans, joined by
+overlap or by a link (`prev_ns`, `prev_ord`) that lands inside the span, and the gaps between,
+each with the tier of the first backend that may hold it and `Lost` when none can: older than
+a `head` chunk of the last backend, past an `at_end` chunk, or in a stream no backend serves.
+**A `Fill` is one read of one gap** (`fill.go`): its lines claimed from the first one returned,
+`Prev` and `Merge` to continue the chunk the gap starts at, `Next` to link the chunk it ran
+into when it read the whole range, and `Head` and `AtEnd`, written onto the chunk next to it
+when it read nothing; a link or a mark reaches its own pattern's chunks alone, and two fills
+starting at one line leave one chunk, with the later end. **The trim** (`trim.go`) cuts a finished stream at the end of
+`finished_at`'s second, since a container status's times are whole seconds, and clears
+`at_end` when it removed anything; it runs when `finished_at` is first set and after every
+write to a finished stream.
 
 **`services/logs` holds a view's vocabulary** (`view.go`): `View`, its `ViewSource`s and
 `ViewFilter`s, the `SourceKind` and `FilterField` enums, and `MirrorKind`, each source kind's
@@ -2133,7 +2157,16 @@ which is what two sources reading one container agree on, and carries the runtim
 instance it reads, which names it in each line's position; a stream whose id a cursor could not
 carry is skipped, as one with no id is. Its `Place` (`record.go`) is where its
 pod runs: the node, then the region, zone, OS and architecture read off that `Node` object's
-labels. `Refusal` is a value, so no caller can change a sentinel's words.
+labels. A stream also carries the snapshot its file row keeps once the pod is gone — the pod's
+UID and labels, whether the container is the pod's default, and when the instance started and
+finished, off the container status in the pod's body — and the pod's current instance; a
+resolve also reads each Pod source's pod UID, its default container, where it runs and the
+current instance of each of its containers (`target.pods`, `target.defaults`,
+`target.places`, `target.current`), one row per pod with its containers folded into it,
+after the streams, so the row cap bounds what a view selects and never what its pod holds. A stream of a restarted container's current instance also
+carries when the one before it finished, and a page sets that on the file's row of it
+(`FinishStreams`), so a restart the mirror reported late is trimmed under a plain view. `Refusal` is a value, so no caller can change a sentinel's
+words.
 
 The containers and the filters narrow the pods statement, the one place they are applied. **A
 view follows each source as its object and pods come and go**, so no source is refused for reading
@@ -2166,8 +2199,12 @@ which lags a restart, so a page can end on a line keyed with the old id that the
 with the new one, and the ordinal deciding the tie is what keeps that page from losing lines. `parseCursor` takes any id that is not
 empty, holds no control character and is at most 256 bytes (`validContainerID`), since a runtime
 spells its ids as it likes. A time alone names a moment, which the viewer's `At` anchor sends;
-`since` and `until` keep the cursor's line where `after` and `before` drop it. The id is the
-resolve's, not the read's: around a restart a line can go out twice under two ids.
+A cursor is a bare position, since the file holds each stream's extent: **`streamBound`** reads
+the one cursor across a view as each stream's own exclusive bound, a `logstore.Pos`, the way
+`comparePositions` orders lines — at the cursor's moment a stream whose names sort before the
+cursor's starts after the moment, one after it at the moment, the cursor's own past its
+ordinal, and another instance of its container at the ordinal, kept or not by its id; `Tail`
+is the mirror image, and a moment bounds every stream at the moment.
 
 **A container's log is read over a claim** (`claim.go`), outside the mirror's reading:
 `AcquireConnection`, which checks the record once, and `Lease.ConnFor` by the cache's `ServerUID`.
@@ -2177,9 +2214,14 @@ clientset. `Fetch` takes its claim per page and `Follow` holds one for its life,
 its `Backend` over the claim's `get` through `Service.backend`.
 
 **A read goes through a `Backend`** (`backend.go`): `Forward`, `Backward` and `Tail`, each a
-`streamRead` the caller pulls a line at a time and cancels, keeping within its `readOpts`. The
-kubelet is the one backend (`kubelet.go`, over `fetcher.go`), which `New` sets `Service.backend`
-to build; a test sets the field to build its fake. **`failureKind` is the one classification of how a read failed**: `failFatal`
+`streamRead` the caller pulls a line at a time and cancels, keeping within its `readOpts`, and
+saying once it ends whether it reached the backend's oldest line (`head`: a backward read with
+no lower bound back to the first line, or a forward read with none), a finished instance's last
+(`atEnd`), and the first moment its `GET` returned (`oldest`). A backend reads every line: the
+grep runs where the lines are read. `Service.backends` is the cluster's backends in the order a
+gap is offered to them, each named, which a chunk records as its origin: the kubelet alone
+(`kubelet.go`, over `fetcher.go`), which a follow tails through; a test sets the field to build
+its fakes. **`failureKind` is the one classification of how a read failed**: `failFatal`
 (a 401, the user's credentials, or a revoked claim) fails the whole page or follow, through
 `fatalError`; `failDenied` (a 403, since access to `pods/log` is granted per namespace) and
 `failEnded` (any other status under 500, the server's answer for this log now) are one stream's, a
@@ -2192,7 +2234,7 @@ disabled or deleted, as the bash tool's upstream does. A watch that ends after i
 opened again after the service's retry; one that cannot be, or whose snapshot lacks the record,
 revokes. A fetch's claim watches nothing, since the connection's retirement already bounds a page.
 
-**`fetcher.go` is kubetail's algorithm**: forward with `sinceTime` rounded down to its second;
+**`fetcher.go` is kubetail's algorithm**, unfiltered: forward with `sinceTime` rounded down to its second;
 backward in growing `tailLines` windows until one reaches the log's first line, or under an `until`
 (a `before` cursor's page) in doubling windows of time ending there, each read forward from its
 start, so a page reaches back however much log follows it.
@@ -2204,25 +2246,61 @@ the line a `since` cursor names, is followed by a read of that moment, whole.
 A read that runs out of its budget or its `GET`s, that the retirement cut, or that failed past a
 line in range stops short at the last line it read whole (`streamRead.stop`).
 
-**`logsFetch` is `Service.Fetch`** (`fetch.go`), built in `app` over the cluster service
-(`logs.New`, no part: it holds nothing past a request). It reads no line the model sees yet. A
-fetch splits a 32 MiB budget evenly across its streams, so a busy stream cannot starve a quiet one,
-and allows 16 `GET`s a stream. **`merge.go`** merges the readings in position order, each
-reading's next line held and the nearest sent, cut at `limit` (at most 500), asking a stream for a
-line only when the merge needs one. A stream that stopped short ends the page: the page keeps the
-near side of the nearest such stop and hands it back as the cursor, lines or none, so it never
-passes lines a stream did not read, and a stream that stopped before reading a line in range
-refuses the page, since no cursor could go on from it. The merge names in `skipped` each stream
-that failed before a line in range, its error through `safe` and `stripControl`, and fails the page
-on a 401, a revoked claim, or every stream failing. `TestPagesJoinWithoutLossOrRepeat` pages random
-logs — tied and sub-second moments, small limits, budgets spent mid-line, a grep — from both ends
-and holds the pages to the lines; a change to a read path answers to it. It walks 150 seeds, 25
-under `-short`, each in parallel, and its fake keeps each statement's answer: every page resolves
-the view again over a mirror that holds still, and SQLite parsing the same statements is what the
-race detector makes slow.
+**`logsFetch` is `Service.Fetch`** (`fetch.go`), built in `app` over the cluster service and the
+log store (`logs.New`, no part: it holds nothing past a request), and **it answers from the
+file**. It reads no line the model sees yet. A query is a mode, a cursor, an `at` and a limit (at
+most 500), and a grep that does not compile or runs past `MaxGrep` (1,000 bytes) is refused
+(`compileGrep`), by a follow too, since the wire takes any view the webview sends; the LogsView
+tool's parse reads the constant. `Head` reads oldest first after the cursor, `Tail` newest first before it, and `Around`
+is a `Tail` half before `at` and a `Head` half from it, its `Anchor` the first's length; `Around`
+refuses a cursor and needs `at`, and `Head` and `Tail` refuse `at`. A page's `Before` and `After`
+edges follow the log viewer README's table: the cut while a page was cut, else nothing older for
+`Tail` and the live end — the newest line the file holds of any stream — for
+`Head`; a given cursor is the edge behind the page. Both halves of an `Around` page read one
+resolve, one claim and one write, the `Tail` half filled first so the `Head` half's read continues
+its chunk at `at`. **A page** (`page` in `fetch.go`) resolves the view, files
+the resolve's streams in the cache's file, and adds each Pod source's streams the file holds that
+the resolve handed out for no source (`filestreams.go`): the pod's by UID, or a gone pod's by name,
+each once across the view, its containers as the resolve names them (a held pod's
+default the mirror's, a gone pod's the rows marked default), the node filters run over
+where the pod runs now while the mirror holds it and over the row once it is gone, at most
+`maxInstances` (8) per container, newest first. A label filter the mirror has no nodes for
+refuses the page only when the file adds no stream either. Such a stream is exhausted: no
+backend serves it, so its gaps are lost. **Then it fills** (`fill.go`): each stream the resolve
+handed out walks the file from its bound, counting the lines its chunks hold that the grep passes, and offers each
+live gap it meets to the backends in order, the next only for what the one before lacks — older
+than its `head`, or a hole between the gap's edge and its first line — until the stream holds `limit` plus one past its bound, has no live gap left that way, or
+has spent its share of a 32 MiB budget, with 16 `GET`s a read; the first fill to fail the page
+ends the others. The reads are buffered, so one
+reading of the mirror checks every stream that read anything still runs the instance it was
+resolved as (`checkInstances`), and a stream that does not is skipped, *restarted while reading*,
+its reads thrown away; then one transaction writes them all. **Then it answers** (`walk.go`): one
+walk of the file per stream, in one read transaction, from its bound, over the spans with lost
+gaps crossed and the gap its fill read from the bound, keeping the lines a chunk covering the
+grep claims and the grep passes, until `limit` plus one or its share of a 32 MiB walk budget of
+its own; a walk that stops at a live gap or its budget stops short, but a skipped stream's stop
+at a gap does not cut the page; one skipped on a transient failure leaves more to read that way,
+from the page's farthest line, and a page left with no line that way is refused, since the next
+would be it. **`merge.go`** merges
+the walks in position order, cut at `limit`. A stream that stopped short ends the page: the page
+keeps the near side of the nearest such stop and hands it back as the cut, so it never passes
+lines a stream did not read, and a stream that stopped before reading a line in range refuses the
+page, since no cursor could go on from it. The page names in `skipped` each stream whose fill
+failed before a line, its error through `safe` and `stripControl`, and fails on a 401, a revoked
+claim, or every stream failing with no line to show. `TestPagesJoinWithoutLossOrRepeat` pages
+random logs — tied and sub-second moments, small limits, budgets spent mid-line, a grep — from
+both ends and from a line's cursor and holds the pages to the lines; a change to a read path
+answers to it. It walks 150 seeds, 25 under `-short`, each in parallel, and its fake keeps each
+statement's answer: every page resolves the view again over a mirror that holds still, and SQLite
+parsing the same statements is what the race detector makes slow. **`TestTheFileKeepsItsInvariant`**
+(`walk_test.go`) holds the README's invariant over 100 seeds of 60 steps, 25 under `-short`: pages
+in every mode, appends, whole-second rotations, restarts and evictions by hand, and after each,
+every line a page answered is in a chunk covering its pattern and no chunk is missing a line its
+instance wrote into its range.
 
 **`logsFollow` is `Service.Follow`** (`follow.go`): a fan-in (`fanin.go`), each line sent as its
-stream delivers it, the first 50 ms sorted and sent before any ending. Each line carries its
+stream delivers it, the first 50 ms sorted and sent before any ending, and only a line the grep
+passes, since its reads take every line. Each line carries its
 `Cursor`, and a follow opened `after` one skips every container's lines up to its moment. Lines
 arrive per container, so a container that was behind that line when the client reopens loses what
 it had not sent: a client reopening a follow asks a few seconds before its newest cursor and drops

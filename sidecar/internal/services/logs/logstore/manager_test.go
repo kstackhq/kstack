@@ -31,7 +31,7 @@ import (
 func newTestManager(t *testing.T) (*Manager, string) {
 	t.Helper()
 	dir := t.TempDir()
-	m := NewManager(dir)
+	m := NewManager(dir, testRetention)
 	t.Cleanup(func() { assert.NoError(t, m.Close()) })
 	return m, dir
 }
@@ -228,7 +228,7 @@ func TestRemoveTwiceSucceeds(t *testing.T) {
 
 func TestCloseClosesTheFilesStillHeld(t *testing.T) {
 	t.Parallel()
-	m := NewManager(t.TempDir())
+	m := NewManager(t.TempDir(), testRetention)
 	held := open(t, m, 1)
 
 	require.NoError(t, m.Close())
@@ -243,7 +243,7 @@ func TestCloseClosesTheFilesStillHeld(t *testing.T) {
 func TestClearAndRemoveAfterCloseDeleteTheFile(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	m := NewManager(dir)
+	m := NewManager(dir, testRetention)
 	require.NoError(t, open(t, m, 1).Close())
 	require.NoError(t, open(t, m, 2).Close())
 	require.NoError(t, m.Close())
@@ -290,7 +290,7 @@ func TestAnOpenThatCannotMakeTheDirectoryFails(t *testing.T) {
 	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "logs")
 	require.NoError(t, os.WriteFile(dir, nil, 0o600))
-	m := NewManager(dir)
+	m := NewManager(dir, testRetention)
 	t.Cleanup(func() { assert.NoError(t, m.Close()) })
 
 	_, err := m.OpenOrCreate(1)
@@ -350,7 +350,7 @@ func TestAnOpenWaitsOutAClear(t *testing.T) {
 func TestAnOpenThatCloseOvertakesClosesItsFile(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	m := NewManager(dir)
+	m := NewManager(dir, testRetention)
 	// Another connection's exclusive lock holds the open inside SQLite's busy wait.
 	locker, err := sql.Open("sqlite", filepath.Join(dir, "1.db"))
 	require.NoError(t, err)

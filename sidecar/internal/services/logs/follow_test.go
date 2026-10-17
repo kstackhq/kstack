@@ -200,6 +200,23 @@ func TestAFollowAfterACursor(t *testing.T) {
 	assert.Equal(t, "missed", recvLine(t, stream, "the missed line").Message)
 }
 
+// A follow sends only the lines its grep matches: the kubelet reads every line,
+// and the grep runs where the lines are read.
+func TestAFollowGrepsWhatItSends(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, s)
+	view := webView
+	view.Grep = "^keep"
+	stream, _ := openFollowOf(t, svc, f, view)
+
+	s.add("prod/web-1/app", stamped(time.Hour, "skip me"), stamped(time.Hour+time.Second, "keep me"))
+
+	assert.Equal(t, "keep me", recvLine(t, stream, "the matching line").Message)
+	assert.Empty(t, s.requestsOf("prod/web-1/app")[0].Get("grep"))
+}
+
 // recvLine waits for stream's next frame and answers its line.
 func recvLine(t *testing.T, stream *cluster.Stream[FollowFrame], what string) Record {
 	t.Helper()

@@ -29,10 +29,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/kstackhq/kstack/sidecar/internal/lib/rawjson"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustertest"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 )
 
 // fakeService is the cluster service as the logs service reads it: one active
@@ -85,6 +89,9 @@ type fakeService struct {
 	// answers, when not nil, keeps each statement's answer by its text and bounds,
 	// for a test whose mirror does not change while it reads it.
 	answers map[string]cluster.ClusterCachedDataQueryResult
+	// readings counts the readings of the mirror ReadActive has started, and reading
+	// the ones running.
+	readings, reading atomic.Int32
 }
 
 // workload is the channel the watch of resource sends from.
@@ -187,6 +194,9 @@ func (fc fakeCachedData) ReadOwn(ctx context.Context, _ cluster.ClusterID, _ clu
 }
 
 func (fc fakeCachedData) ReadActive(ctx context.Context, id cluster.ClusterID, maxRows, maxBytes int, read func(cluster.CacheReading, cluster.ActiveCluster) error) error {
+	fc.f.readings.Add(1)
+	fc.f.reading.Add(1)
+	defer fc.f.reading.Add(-1)
 	defer func() {
 		fc.f.mu.Lock()
 		defer fc.f.mu.Unlock()
@@ -880,13 +890,23 @@ func cursor(d time.Duration) *string {
 	return cursorOf(position{Timestamp: at(d)})
 }
 
+// testRetention is the production setting with no janitor, which a test about
+// anything else opens its log files with.
+var testRetention = func() logstore.Retention {
+	r := logstore.DefaultRetention
+	r.Interval = 0
+	return r
+}()
+
 // serviceOver is the service over f's mirror and the API server h, on a clock
 // reading 11:00, its follows handing off and resolving at once, and retrying within
 // milliseconds however often a stream drops.
 func serviceOver(t *testing.T, f *fakeService, h http.Handler) (*Service, *fakeService) {
 	t.Helper()
 	f.lease = serving(t, h).lease
-	svc := New(f)
+	files := logstore.NewManager(t.TempDir(), testRetention)
+	t.Cleanup(func() { assert.NoError(t, files.Close()) })
+	svc := New(f, files)
 	svc.now, svc.handoff, svc.settle = func() time.Time { return at(time.Hour) }, 0, 0
 	svc.retry, svc.retryCap = time.Millisecond, 8*time.Millisecond
 	return svc, f
@@ -953,6 +973,94 @@ func (s *fakeBackend) Tail(ctx context.Context, st stream, _ readOpts) *streamRe
 func serviceOn(t *testing.T, backend Backend) (*Service, *fakeService) {
 	t.Helper()
 	svc, f := serviceOver(t, webMirror(t), newLogServer())
-	svc.backend = func(getter) Backend { return backend }
+	svc.backends = []namedBackend{{"kubelet", func(getter) Backend { return backend }}}
 	return svc, f
+}
+
+// pages walks view in mode from its start to its end, failing past 100 pages, and is
+// every page.
+func pages(t *testing.T, svc *Service, view View, mode FetchMode, limit int) []Page {
+	t.Helper()
+	q := FetchQuery{Mode: mode, Limit: limit}
+	var out []Page
+	for range 100 {
+		page, err := svc.Fetch(t.Context(), "7", view, q)
+		require.NoError(t, err)
+		out = append(out, page)
+		edge := page.After
+		if mode == FetchTail {
+			edge = page.Before
+		}
+		if !edge.More {
+			return out
+		}
+		q.Cursor = edge.Cursor
+	}
+	t.Fatal("the pages never end")
+	return nil
+}
+
+// recordsOf is every page's records, in the order mode reads them.
+func recordsOf(pages []Page, mode FetchMode) []string {
+	out := []string{}
+	for _, page := range pages {
+		if mode == FetchHead {
+			out = append(out, messages(page.Records)...)
+		} else {
+			out = append(messages(page.Records), out...)
+		}
+	}
+	return out
+}
+
+// linesOf is lines as the records a page answers, their messages alone.
+func linesOf(lines []string) []Record {
+	out := make([]Record, len(lines))
+	for i, l := range lines {
+		out[i] = Record{Message: strings.SplitN(l, " ", 2)[1]}
+	}
+	return out
+}
+
+// rowOf is the file row of pod/container's first instance, of a fixture pod on
+// node-a, and its default container when the container is app.
+func rowOf(pod, container string) logstore.Stream {
+	return logstore.Stream{
+		Namespace: "prod", Pod: pod, Container: container, ContainerID: containerID("uid-"+pod, container, 0),
+		Node: "node-a", Region: "eu", Zone: "eu-1a", OS: "linux", Arch: "amd64", Labels: "{}", PodUID: "uid-" + pod,
+		Default: container == "app",
+	}
+}
+
+// seed files row in the file behind svc and writes fills to it, as earlier pages
+// would have, and answers its id.
+func seed(t *testing.T, svc *Service, f *fakeService, row logstore.Stream, fills ...logstore.Fill) int64 {
+	t.Helper()
+	file := fileOf(t, svc, f)
+	ids, err := file.PutStreams(t.Context(), []logstore.Stream{row})
+	require.NoError(t, err)
+	for i := range fills {
+		fills[i].Stream, fills[i].Origin = ids[0], "kubelet"
+	}
+	require.NoError(t, file.Write(t.Context(), fills))
+	return ids[0]
+}
+
+// fileLines is a line at each moment d past 10:00 saying its whole seconds.
+func fileLines(ds ...time.Duration) []logstore.Line {
+	out := make([]logstore.Line, len(ds))
+	for i, d := range ds {
+		out[i] = logstore.Line{Pos: logstore.Pos{TS: at(d).UnixNano()}, Message: strconv.Itoa(int(d / time.Second))}
+	}
+	return out
+}
+
+// restartWeb1 restarts web-1's app container in f's mirror and in s: the instance
+// that ran becomes the previous one, and a new one runs, writing lines.
+func restartWeb1(t *testing.T, f *fakeService, s *logServer, lines ...string) {
+	f.store.Apply(t, pod("web-1", "uid-web-1", "node-a", webReplicaSet(), container{name: "app", restarted: true}, container{name: "istio-proxy"}))
+	s.mu.Lock()
+	s.logs["prod/web-1/app/previous"] = s.logs["prod/web-1/app"]
+	s.logs["prod/web-1/app"] = lines
+	s.mu.Unlock()
 }

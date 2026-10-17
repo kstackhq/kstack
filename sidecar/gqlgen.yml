@@ -335,6 +335,9 @@ models:
   LogRecordsPage:
     model: github.com/kstackhq/kstack/sidecar/internal/services/logs.Page
 
+  LogRecordsPageEdge:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.PageEdge
+
   LogsViewInput:
     model: github.com/kstackhq/kstack/sidecar/internal/services/logs.View
 
@@ -362,6 +365,8 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FetchHead
       Tail:
         value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FetchTail
+      Around:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FetchAround
 
   LogsViewAnchor:
     model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsViewAnchor
