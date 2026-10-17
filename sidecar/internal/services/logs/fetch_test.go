@@ -16,8 +16,10 @@ package logs
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"math/rand"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
@@ -361,6 +363,43 @@ func chunksOf(t *testing.T, svc *Service, f *fakeService, pod, container string)
 		}
 	}
 	return nil
+}
+
+// A page stamps the chunks its walk read a line from, and none past where it cut: a
+// chunk the page never reached stays as its fill left it.
+func TestAPageStampsTheChunksItRead(t *testing.T) {
+	t.Parallel()
+	svc, f := serviceIn(t, webMirror(t), newLogServer(), t.TempDir(), testRetention)
+	seedUnread(t, svc, f, rowOf("web-1", "app"),
+		logstore.Fill{Lines: fileLines(time.Second, 2*time.Second, 3*time.Second), Head: true},
+		logstore.Fill{Lines: fileLines(10*time.Second, 11*time.Second), Prev: &logstore.Pos{TS: at(3 * time.Second).UnixNano()}})
+
+	_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 2})
+	require.NoError(t, err)
+
+	chunks := chunksOf(t, svc, f, "web-1", "app")
+	require.Len(t, chunks, 2)
+	assert.NotZero(t, chunks[0].ReadAt, "the chunk the page read")
+	assert.Zero(t, chunks[1].ReadAt, "the chunk past its cut")
+}
+
+// A page whose stamp the file refuses still answers: a stamp only keeps the chunks out
+// of eviction, and a chunk evicted is filled again.
+func TestAPageWhoseStampFailsStillAnswers(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc, f := serviceIn(t, webMirror(t), newLogServer(), dir, testRetention)
+	seedUnread(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(time.Second, 2*time.Second), Head: true})
+	db, err := sql.Open("sqlite", filepath.Join(dir, "11.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+	_, err = db.Exec(`CREATE TRIGGER refuse_stamp BEFORE UPDATE OF read_at_ms ON chunks BEGIN SELECT RAISE(ABORT, 'refused'); END`)
+	require.NoError(t, err)
+
+	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 1})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"1"}, messages(page.Records))
 }
 
 // A stream whose fill failed before any line is the page's skipped entry, and its

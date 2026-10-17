@@ -17,6 +17,7 @@ package logs
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"slices"
 	"strings"
@@ -253,7 +254,7 @@ func (s *Service) page(ctx context.Context, id cluster.ClusterID, qs ...pageQuer
 		}
 	}
 	if len(writes) > 0 {
-		if err := file.Write(ctx, writes); err != nil {
+		if _, err := file.Write(ctx, writes, true); err != nil {
 			return nil, err
 		}
 	}
@@ -365,6 +366,7 @@ func (p *page) seams(fills []streamFill) []*logstore.Pos {
 func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (merge, error) {
 	readings := make([]*streamRead, len(p.streams))
 	var end position
+	var read []logstore.Chunk
 	left := false
 	err := p.file.Read(ctx, func(r logstore.Reader) error {
 		for i, ps := range p.streams {
@@ -374,6 +376,7 @@ func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (mer
 				return err
 			}
 			readings[i] = walked.reading
+			read = append(read, walked.read...)
 			left = left || walked.left
 			if walked.newest == nil {
 				continue
@@ -386,6 +389,11 @@ func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (mer
 	})
 	if err != nil {
 		return merge{}, err
+	}
+	// A stamp is what keeps the chunks a viewer reads out of eviction; one that fails
+	// costs a refill later, never this page.
+	if err := p.file.Stamp(ctx, read); err != nil {
+		slog.Warn("logs: a page's chunks could not be stamped", "err", err)
 	}
 	m, err := mergePage(ctx, readings, q.mode, q.limit)
 	if err != nil {

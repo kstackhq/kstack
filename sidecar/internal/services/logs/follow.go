@@ -1039,7 +1039,8 @@ func (f *follow) reach(chunks []logstore.Chunk, tr *tracked, crossed bool, commi
 // fill reads the live gap g of tr's stream from its watermark as a Head page's fill
 // reads it, under the stream's share of a page's budget, and writes what it read. It
 // is false when the read got nothing, the stream then let go and held or ended as
-// its failure says, and fails only on a fatal failure or one of the file.
+// its failure says, and fails only on a fatal failure or one of the file. What it
+// wrote is unstamped, since a follow's lines are in the viewer's window.
 func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) (bool, error) {
 	ps := tr.pageStream()
 	fl := &filler{
@@ -1057,7 +1058,7 @@ func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) (bool, e
 	}
 	out := fills[0][0]
 	if len(out.fills) > 0 {
-		if err := f.file.Write(ctx, out.fills); err != nil {
+		if _, err := f.file.Write(ctx, out.fills, false); err != nil {
 			return false, err
 		}
 	}

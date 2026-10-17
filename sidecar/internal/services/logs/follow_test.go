@@ -189,6 +189,22 @@ func TestAFollowOpensAtItsStart(t *testing.T) {
 	assert.Equal(t, "2026-10-08T11:00:00Z", s.requests()[0].Get("sinceTime"))
 }
 
+// A follow's walk stamps nothing: what it sends is in the viewer's window, so the file
+// keeps it only while the budget allows.
+func TestAFollowStampsNothing(t *testing.T) {
+	t.Parallel()
+	f := webMirror(t)
+	svc, _ := serviceIn(t, f, newLogServer(), t.TempDir(), testRetention)
+	seedUnread(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0, time.Second), Head: true})
+
+	stream, err := svc.Follow(t.Context(), "7", web1View, cursor(-time.Second))
+	require.NoError(t, err)
+	assert.Equal(t, "0", recvLine(t, stream, "the first line").Message)
+	assert.Equal(t, "1", recvLine(t, stream, "the second line").Message)
+
+	assert.Zero(t, chunksOf(t, svc, f, "web-1", "app")[0].ReadAt)
+}
+
 // A follow after a cursor reads every line past it first.
 func TestAFollowAfterACursor(t *testing.T) {
 	t.Parallel()

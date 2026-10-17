@@ -2107,9 +2107,14 @@ held answers `ErrClosed` and the next open starts a fresh entry; `Remove` does t
 refuses the id with `ErrRemoved` for the manager's life, idempotently; `Close` closes every
 file and refuses every open, while `Clear` and `Remove` still delete after it, since the cache
 pass clears the finalizer on `Remove`'s answer. The logs service builds and closes the manager
-and is `services/cluster`'s `CacheFileOwner` over it. `Retention` (`retention.go`)
-is every knob the log cache names, `DefaultRetention` its numbers; `NewManager` takes it, and a
-fill closes its chunks at its `ChunkBytes` and `ChunkSpan`, while the rest wait for the janitor.
+and is `services/cluster`'s `CacheFileOwner` over it; its files each run their own writer.
+`Retention` (`retention.go`) is every knob the log cache names, `DefaultRetention` its numbers;
+`NewManager` takes it, the clock a chunk is stamped on is the manager's `now` (`time.Now`, or a test's), and a fill closes its chunks at its
+`ChunkBytes` and `ChunkSpan`. **A chunk's `read_at_ms` is a page's stamp**, and
+`putChunk` never touches it: a page's `Write(ctx, fills, true)` stamps what its fills wrote or
+extended in their transaction, and the page stamps what its walk read a line from
+(`Store.Stamp`, which takes no write for chunks stamped within a tenth of `ReadTTL`). A tailer
+and a follow stamp nothing.
 A delete removes the `-wal` and `-shm` before the database, since a `-wal` left beside a fresh
 database would be replayed into it. **A `Store` is the file's statements** (`statements.go`, a
 `sqlstmt.Set` prepared at open, a read a write makes inside its transaction `OnBoth`):

@@ -1053,13 +1053,25 @@ func rowOf(pod, container string) logstore.Stream {
 // would have, and answers its id.
 func seed(t *testing.T, svc *Service, f *fakeService, row logstore.Stream, fills ...logstore.Fill) int64 {
 	t.Helper()
+	return seedStamped(t, svc, f, row, true, fills...)
+}
+
+// seedUnread is seed with its chunks left unstamped, as a follow's fill leaves them.
+func seedUnread(t *testing.T, svc *Service, f *fakeService, row logstore.Stream, fills ...logstore.Fill) int64 {
+	t.Helper()
+	return seedStamped(t, svc, f, row, false, fills...)
+}
+
+func seedStamped(t *testing.T, svc *Service, f *fakeService, row logstore.Stream, stamp bool, fills ...logstore.Fill) int64 {
+	t.Helper()
 	file := fileOf(t, svc, f)
 	ids, err := file.PutStreams(t.Context(), []logstore.Stream{row})
 	require.NoError(t, err)
 	for i := range fills {
 		fills[i].Stream, fills[i].Origin = ids[0], "kubelet"
 	}
-	require.NoError(t, file.Write(t.Context(), fills))
+	_, err = file.Write(t.Context(), fills, stamp)
+	require.NoError(t, err)
 	return ids[0]
 }
 

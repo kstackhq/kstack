@@ -38,10 +38,11 @@ func streamOf(t *testing.T, s *Store) int64 {
 	return ids[0]
 }
 
-// write writes fills, failing the test on an error.
+// write writes fills stamped, as a page does, failing the test on an error.
 func write(t *testing.T, s *Store, fills ...Fill) {
 	t.Helper()
-	require.NoError(t, s.Write(t.Context(), fills))
+	_, err := s.Write(t.Context(), fills, true)
+	require.NoError(t, err)
 }
 
 // positions is every line the stream id holds, oldest first.
@@ -68,7 +69,7 @@ func chunksOfStream(t *testing.T, s *Store, id int64) []Chunk {
 	chunks, err := s.Chunks(t.Context(), id, "")
 	require.NoError(t, err)
 	for i := range chunks {
-		chunks[i].ID, chunks[i].Bytes = 0, 0
+		chunks[i].ID, chunks[i].Bytes, chunks[i].ReadAt = 0, 0, 0
 	}
 	return chunks
 }
@@ -113,6 +114,33 @@ func TestAWholeFillMergesIntoTheChunkItContinues(t *testing.T) {
 	chunks := chunksOfStream(t, s, id)
 	assert.Equal(t, []Chunk{chunk(at(1, 0), at(3, 0)), linked(chunk(at(9, 0), at(9, 0)), at(3, 0))}, chunks)
 	assert.Len(t, CoverageOf(chunks, kubelet, nil).Spans, 1)
+}
+
+// A page's fill was made for a reader that has not read it yet, so a stamped Write
+// stamps every chunk it writes or extends with the manager's clock: a sweep before the
+// walk would otherwise take exactly what the page just fetched. An unstamped Write, a
+// follow's, leaves the stamps as they were. Either answers the chunks it wrote.
+func TestAStampedFillStampsWhatItWrites(t *testing.T) {
+	t.Parallel()
+	c := newClock(5_000)
+	s := newClockedStore(t, testRetention, c)
+	id := streamOf(t, s)
+
+	w, err := s.Write(t.Context(), []Fill{{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0))}}, false)
+	require.NoError(t, err)
+	assert.Equal(t, []*int64{nil}, stamps(t, s, id), "unstamped")
+	chunks, err := s.Chunks(t.Context(), id, "")
+	require.NoError(t, err)
+	assert.Equal(t, []int64{chunks[0].ID}, w.Chunks)
+
+	c.set(9_000)
+	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(2, 1)), Prev: ptr(at(2, 0)), Merge: true})
+	assert.Equal(t, []*int64{ms(9_000)}, stamps(t, s, id), "the chunk a stamped fill extended")
+
+	c.set(12_000)
+	_, err = s.Write(t.Context(), []Fill{{Stream: id, Origin: "kubelet", Lines: lines(at(2, 2)), Prev: ptr(at(2, 1)), Merge: true}}, false)
+	require.NoError(t, err)
+	assert.Equal(t, []*int64{ms(9_000)}, stamps(t, s, id), "an unstamped fill keeps the row's stamp")
 }
 
 // A tailer is the one writer of the chunk it holds open, so a fill that continues it
@@ -274,7 +302,7 @@ func TestAWriteTheFileRefusesFails(t *testing.T) {
 			write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0))})
 			refuse(t, s, c.op, c.table)
 
-			err = s.Write(t.Context(), []Fill{c.fill(id)})
+			_, err = s.Write(t.Context(), []Fill{c.fill(id)}, true)
 			assert.ErrorContains(t, err, "write: ")
 			assert.ErrorContains(t, err, "refused")
 			assert.Equal(t, []Pos{at(1, 0), at(2, 0)}, positions(t, s, id))

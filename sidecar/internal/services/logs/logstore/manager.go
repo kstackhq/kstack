@@ -44,6 +44,8 @@ type Manager struct {
 	// ret bounds what each file holds: a fill closes its chunks at its ChunkBytes and
 	// ChunkSpan, and a file's writer runs under its write knobs.
 	ret Retention
+	// now is the clock a chunk's read_at_ms is stamped from: time.Now, or a test's.
+	now func() time.Time
 	// after is how a writer waits out its WriteTick: time.After, or a test's.
 	after func(time.Duration) <-chan time.Time
 
@@ -80,6 +82,7 @@ func NewManager(dir string, ret Retention) *Manager {
 	return &Manager{
 		dir:     dir,
 		ret:     ret,
+		now:     time.Now,
 		after:   time.After,
 		entries: map[int64]*entry{},
 		busy:    map[int64]chan struct{}{},

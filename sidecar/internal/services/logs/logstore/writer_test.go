@@ -77,6 +77,25 @@ func opened(c Chunk) Chunk {
 	return c
 }
 
+// A tail's write protects nothing: the chunks it opens carry no stamp, and a chunk it
+// extends keeps the stamp a page or a fill gave it, so a tailed stream nobody pages is
+// evictable from the moment it is written.
+func TestATailStampsNothing(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	id := streamOf(t, s)
+	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0))})
+	before := stamps(t, s, id)[0]
+	require.NotNil(t, before)
+
+	tail := openTail(t, s, id, ptr(at(1, 0)), true)
+	require.NoError(t, tail.Write(t.Context(), lines(at(1, 1))))
+	big := Line{Pos: at(9, 0), Message: string(make([]byte, testRetention.ChunkBytes))}
+	require.NoError(t, tail.Close(t.Context(), []Line{big, {Pos: at(9, 1), Message: "m"}}))
+
+	assert.Equal(t, []*int64{before, nil}, stamps(t, s, id), "the chunk it extended keeps its stamp; the one it opened has none")
+}
+
 // A tail's batch waits for the writer's tick, and lands then in one open chunk, with
 // a ping after the commit.
 func TestABatchCommitsOnTheTick(t *testing.T) {

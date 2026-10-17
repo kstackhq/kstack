@@ -57,7 +57,8 @@ func (p Pos) Prev() Pos {
 // continues from, the last line of the chunk before it with nothing between, nil
 // when it opened on a gap. Head is the backend holding nothing older than From,
 // AtEnd To being a finished instance's last line, and Open a tailer still writing
-// into it.
+// into it. ReadAt is when a page last read it or a fill wrote it, in unix
+// milliseconds, 0 when neither has.
 type Chunk struct {
 	ID      int64
 	Pattern string
@@ -69,6 +70,7 @@ type Chunk struct {
 	AtEnd   bool
 	Open    bool
 	Bytes   int64
+	ReadAt  int64
 }
 
 // Span is a run of chunks with nothing between them: each overlaps the run or
@@ -226,7 +228,7 @@ func queryChunks(ctx context.Context, st stmts, stmt stmtID, args ...any) ([]Chu
 		var c Chunk
 		var prevNS, prevOrd sql.NullInt64
 		if err := rows.Scan(&c.ID, &c.Pattern, &c.From.TS, &c.From.Ord, &c.To.TS, &c.To.Ord, &prevNS, &prevOrd,
-			&c.Origin, &c.Head, &c.AtEnd, &c.Open, &c.Bytes); err != nil {
+			&c.Origin, &c.Head, &c.AtEnd, &c.Open, &c.Bytes, &c.ReadAt); err != nil {
 			return nil, err
 		}
 		if prevNS.Valid {

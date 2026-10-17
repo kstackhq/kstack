@@ -59,8 +59,10 @@ CREATE TABLE streams (
 -- pattern is the grep the fill ran under, '' for every line. origin is the backend that
 -- filled it, by name. at_head is 1 when that backend holds nothing older than from_ns;
 -- at_end is 1 when to_ns is the last line of a finished instance's log; open is 1 while
--- a tailer is still writing into it. read_at_ms is the last read or write in unix
--- milliseconds: a clock, not a line's moment.
+-- a tailer is still writing into it. read_at_ms is when a page last read from it or a
+-- fill wrote it, in unix milliseconds, NULL when neither has: a clock, not a line's
+-- moment. A tailer's write leaves it alone, so a tailed stream nobody pages is
+-- evictable from the moment it is written.
 CREATE TABLE chunks (
   id         INTEGER PRIMARY KEY,
   stream_id  INTEGER NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
@@ -76,7 +78,7 @@ CREATE TABLE chunks (
   at_end     INTEGER NOT NULL CHECK (at_end IN (0, 1)),
   open       INTEGER NOT NULL CHECK (open IN (0, 1)),
   bytes      INTEGER NOT NULL,
-  read_at_ms INTEGER NOT NULL,
+  read_at_ms INTEGER,
   UNIQUE (stream_id, pattern, from_ns, from_ord)
 ) STRICT;
 

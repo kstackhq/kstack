@@ -18,7 +18,6 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"time"
 )
 
 // Line is one line of a stream: its position and its message, cleaned.
@@ -54,75 +53,99 @@ type Fill struct {
 	AtEnd bool
 }
 
+// Written is what a Write did: the chunks it wrote or extended.
+type Written struct {
+	Chunks []int64
+}
+
 // Write files every fill in one transaction, so a reader sees a fill's lines and the
 // chunks claiming them together or not at all. A line two fills found is stored once.
-// A stream that has finished is trimmed after its fills. Each stream a fill wrote lines
-// to is pinged once the transaction commits.
-func (s *Store) Write(ctx context.Context, fills []Fill) error {
-	now := time.Now().UnixMilli()
+// A stream that has finished is trimmed after its fills. With stamp,
+// a page's write, every chunk written or extended is stamped read now in the same
+// transaction, since a sweep before the page's walk would otherwise take what it
+// fetched. Each stream a fill wrote lines to is pinged once the transaction commits.
+func (s *Store) Write(ctx context.Context, fills []Fill, stamp bool) (Written, error) {
+	var w Written
 	err := s.operate(ctx, func(ctx context.Context, f *file) error {
-		err := f.set.InTx(ctx, func(st stmts) error { return writeFills(ctx, st, s.m.ret, fills, now) })
+		err := f.set.InTx(ctx, func(st stmts) error {
+			var err error
+			if w.Chunks, err = writeFills(ctx, st, s.m.ret, fills); err != nil {
+				return err
+			}
+			if !stamp || len(w.Chunks) == 0 {
+				return nil
+			}
+			_, err = st.Exec(ctx, stmtStampChunks, s.m.now().UnixMilli(), idList(w.Chunks), 0)
+			return err
+		})
 		if err == nil {
 			f.ping(streamsWithLines(fills, func(f Fill) (int64, int) { return f.Stream, len(f.Lines) }))
 		}
 		return err
 	})
 	if err != nil {
-		return fmt.Errorf("write: %w", err)
+		return Written{}, fmt.Errorf("write: %w", err)
 	}
-	return nil
+	return w, nil
 }
 
-// writeFills files every fill, then trims each stream they wrote that has finished.
-func writeFills(ctx context.Context, st stmts, ret Retention, fills []Fill, now int64) error {
+// writeFills files every fill, then trims each stream they wrote that has finished,
+// and answers the chunks it wrote or extended.
+func writeFills(ctx context.Context, st stmts, ret Retention, fills []Fill) ([]int64, error) {
+	var chunks []int64
 	for _, f := range fills {
-		if err := writeFill(ctx, st, ret, f, now); err != nil {
-			return err
+		ids, err := writeFill(ctx, st, ret, f)
+		if err != nil {
+			return nil, err
 		}
+		chunks = append(chunks, ids...)
 	}
 	for _, id := range streamsOf(fills) {
 		if _, err := trimFinished(ctx, st, id); err != nil {
-			return err
+			return nil, err
 		}
 	}
-	return nil
+	return distinct(chunks), nil
 }
 
 // writeFill files f's lines, the chunks claiming them, and the links and marks its
-// read proved.
-func writeFill(ctx context.Context, st stmts, ret Retention, f Fill, now int64) error {
+// read proved, and answers the chunks it wrote.
+func writeFill(ctx context.Context, st stmts, ret Retention, f Fill) ([]int64, error) {
 	if err := insertLines(ctx, st, f.Stream, f.Lines); err != nil {
-		return err
+		return nil, err
 	}
+	var ids []int64
 	last := f.Prev
 	if len(f.Lines) > 0 {
 		chunks, err := chunksFor(ctx, st, ret, f)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		for _, c := range chunks {
-			if _, err := putChunk(ctx, st, f.Stream, c, now); err != nil {
-				return err
+			c, err := putChunk(ctx, st, f.Stream, c)
+			if err != nil {
+				return nil, err
 			}
+			ids = append(ids, c.ID)
 		}
 		last = &f.Lines[len(f.Lines)-1].Pos
 	} else {
 		if f.Head && f.Next != nil {
 			if _, err := st.Exec(ctx, stmtMarkHead, f.Stream, f.Pattern, f.Origin, f.Next.TS, f.Next.Ord); err != nil {
-				return err
+				return nil, err
 			}
 		}
 		if f.AtEnd && f.Prev != nil {
 			if _, err := st.Exec(ctx, stmtMarkAtEnd, f.Stream, f.Pattern, f.Origin, f.Prev.TS, f.Prev.Ord); err != nil {
-				return err
+				return nil, err
 			}
 		}
 	}
 	if f.Next != nil && last != nil {
 		_, err := st.Exec(ctx, stmtLinkChunk, f.Stream, f.Pattern, f.Next.TS, f.Next.Ord, last.TS, last.Ord)
-		return err
+		return ids, err
 	}
-	return nil
+	return ids, nil
 }
 
 // insertLines stores lines under the stream id; a line already stored is kept once.
@@ -203,14 +226,15 @@ func chunkEndingAt(ctx context.Context, st stmts, stream int64, pattern, origin 
 }
 
 // putChunk writes c and answers its row as it now stands: a new row, or the row of
-// its pattern that already starts at its first line, which the write merges into.
-func putChunk(ctx context.Context, st stmts, stream int64, c Chunk, now int64) (Chunk, error) {
+// its pattern that already starts at its first line, which the write merges into. It
+// never touches read_at_ms: a stamp is a page's, and Write sets it apart.
+func putChunk(ctx context.Context, st stmts, stream int64, c Chunk) (Chunk, error) {
 	var prevNS, prevOrd any
 	if c.Prev != nil {
 		prevNS, prevOrd = c.Prev.TS, c.Prev.Ord
 	}
 	err := st.QueryRow(ctx, stmtInsertChunk, stream, c.Pattern, c.From.TS, c.From.Ord, c.To.TS, c.To.Ord,
-		prevNS, prevOrd, c.Origin, c.Head, c.AtEnd, c.Open, c.Bytes, now).
+		prevNS, prevOrd, c.Origin, c.Head, c.AtEnd, c.Open, c.Bytes).
 		Scan(&c.ID, &c.To.TS, &c.To.Ord, &c.AtEnd, &c.Open, &c.Bytes)
 	return c, err
 }

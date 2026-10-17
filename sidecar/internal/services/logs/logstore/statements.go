@@ -14,7 +14,11 @@
 
 package logstore
 
-import "github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
+import (
+	"encoding/json"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
+)
 
 // stmtID names one statement of the file's table.
 type stmtID int
@@ -47,6 +51,7 @@ const (
 	stmtSelectChunkEndingAt
 	stmtCloseOpenChunks
 	stmtCloseChunk
+	stmtStampChunks
 )
 
 // statements is every statement the store runs, each on the pool its callers need: a
@@ -109,12 +114,12 @@ var statements = []sqlstmt.Statement{
 	// read it, and so can a fill and a tail, and a tail extends its own chunk through
 	// the same insert: the row keeps the later end, with its at_end, either's head
 	// mark and link, since every claim each made holds, and stays open while a tail
-	// writes it.
+	// writes it. Neither touches read_at_ms, which Write and a page stamp apart.
 	stmtInsertChunk: sqlstmt.OnWriter(`
 		INSERT INTO chunks (
 			stream_id, pattern, from_ns, from_ord, to_ns, to_ord, prev_ns, prev_ord,
-			origin, at_head, at_end, open, bytes, read_at_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			origin, at_head, at_end, open, bytes
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (stream_id, pattern, from_ns, from_ord) DO UPDATE SET
 			at_end = CASE
 				WHEN (excluded.to_ns, excluded.to_ord) > (to_ns, to_ord) THEN excluded.at_end
@@ -126,8 +131,7 @@ var statements = []sqlstmt.Statement{
 			at_head = max(at_head, excluded.at_head),
 			prev_ns = coalesce(prev_ns, excluded.prev_ns),
 			prev_ord = coalesce(prev_ord, excluded.prev_ord),
-			open = max(open, excluded.open),
-			read_at_ms = max(read_at_ms, excluded.read_at_ms)
+			open = max(open, excluded.open)
 		RETURNING id, to_ns, to_ord, at_end, open, bytes`),
 	// A fill's proof holds for its own pattern alone, so it links and marks no other.
 	stmtMarkHead: sqlstmt.OnWriter(`
@@ -183,11 +187,23 @@ var statements = []sqlstmt.Statement{
 		WHERE stream_id = ? AND pattern = ? AND origin = ? AND to_ns = ? AND to_ord = ? AND open = 0`),
 	stmtCloseOpenChunks: sqlstmt.OnWriter(`UPDATE chunks SET open = 0 WHERE open = 1`),
 	stmtCloseChunk:      sqlstmt.OnWriter(`UPDATE chunks SET open = 0 WHERE id = ?`),
+	// A chunk stamped within the interval keeps its stamp, so a page re-reading it
+	// writes nothing.
+	stmtStampChunks: sqlstmt.OnWriter(`
+		UPDATE chunks SET read_at_ms = ?1
+		WHERE id IN (SELECT value FROM json_each(?2)) AND (read_at_ms IS NULL OR read_at_ms <= ?1 - ?3)`),
+}
+
+// idList is ids as the one JSON argument a statement reads through json_each.
+func idList(ids []int64) string {
+	arg, _ := json.Marshal(ids) // a list of integers always marshals
+	return string(arg)
 }
 
 // chunkColumns is a chunk row as chunksOf reads it.
 const chunkColumns = `
-	id, pattern, from_ns, from_ord, to_ns, to_ord, prev_ns, prev_ord, origin, at_head, at_end, open, bytes`
+	id, pattern, from_ns, from_ord, to_ns, to_ord, prev_ns, prev_ord, origin, at_head, at_end, open, bytes,
+	coalesce(read_at_ms, 0)`
 
 // streamColumns is a stream row as scanStream reads it.
 const streamColumns = `
