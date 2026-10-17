@@ -67,8 +67,12 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   its last follow by `TailGrace`. Tailers hand lines to **the file's writer** (`logstore/writer.go`)
   in batches; a tailer the writer cannot take from within `WriteWait` closes its chunk and reads
   from now, or ends with no follow. Every commit pings the file's bus (`Store.Subscribe`). A walk
-  crosses a tailer's gap only up to `Tail.Committed`. After each walk that sent a line the follow
-  sends a `Checkpoint` (the oldest watermark); a follow opened `after` it misses no line. With no
+  crosses a tailer's gap only up to `Tail.Committed`. **A walk that meets a live gap starts its
+  fill on a goroutine of its own and stops** (`follow.fill`); the fill's end comes back to the
+  follow's loop, which walks the stream on (`filledGap`). Until then the stream is `filling`: no walk
+  reads it, its watermark waits at the gap, and the view counts it as waiting. Lines are ordered
+  per container only. After each walk that sent a line the follow sends a `Checkpoint` (the oldest
+  watermark); a follow opened `after` it misses no line. With no
   cursor it reads from `sinceTime`, never `tailLines=0`.
 - **A follow's streams are one reconcile** (`follow.reconcile`), run after every mirror event
   (settled by `followSettle`), node change, stream end or retry. A container is tailed unless it
