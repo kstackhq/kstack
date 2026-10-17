@@ -84,6 +84,20 @@ func (t *tailer) read(ctx context.Context, backend Backend, start logstore.Pos) 
 	return r
 }
 
+// shed ends a tailer that fell behind the writer while no follow holds it: nobody
+// is reading it, so it stops competing for the writer rather than reading again. An
+// attach that lands first keeps it reading; one after waits on done and starts a
+// tailer afresh.
+func (t *tailer) shed() bool {
+	t.r.mu.Lock()
+	defer t.r.mu.Unlock()
+	if t.refs > 0 {
+		return false
+	}
+	t.stop()
+	return true
+}
+
 // stop ends the tailer. It is called with mu held.
 func (t *tailer) stop() {
 	t.stopping = true
@@ -91,9 +105,11 @@ func (t *tailer) stop() {
 }
 
 // run reads the stream until the read ends or the tailer stops, reading again from
-// now whenever the writer falls behind, and records how the read ended.
-func (t *tailer) run(ctx context.Context, file *logstore.Store, backend Backend, read *tailRead, prev *logstore.Pos) {
+// now whenever the writer falls behind while a follow holds it, and records how the
+// read ended. release is the registry's hold on its stream's row, let go as it ends.
+func (t *tailer) run(ctx context.Context, file *logstore.Store, backend Backend, read *tailRead, prev *logstore.Pos, release func()) {
 	defer func() {
+		release()
 		t.r.ended(t)
 		close(t.done)
 	}()
@@ -102,6 +118,9 @@ func (t *tailer) run(ctx context.Context, file *logstore.Store, backend Backend,
 		behind, err := t.tail(ctx, file, read, prev)
 		if !behind {
 			t.err = err
+			return
+		}
+		if t.shed() {
 			return
 		}
 		// The lines it could not hand over are a live gap below the new start, which a

@@ -14,7 +14,11 @@
 
 package logstore
 
-import "github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
+import (
+	"encoding/json"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
+)
 
 // stmtID names one statement of the file's table.
 type stmtID int
@@ -42,11 +46,18 @@ const (
 	stmtWalkForward
 	stmtWalkBackward
 	stmtEvictLines
+	stmtSelectOverlapping
 	stmtEvictChunk
 	stmtSelectChunkBounds
 	stmtSelectChunkEndingAt
 	stmtCloseOpenChunks
 	stmtCloseChunk
+	stmtStampChunks
+	stmtStreamExists
+	stmtStreamBytes
+	stmtCandidates
+	stmtEmptyStreams
+	stmtRemoveStreams
 )
 
 // statements is every statement the store runs, each on the pool its callers need: a
@@ -109,12 +120,12 @@ var statements = []sqlstmt.Statement{
 	// read it, and so can a fill and a tail, and a tail extends its own chunk through
 	// the same insert: the row keeps the later end, with its at_end, either's head
 	// mark and link, since every claim each made holds, and stays open while a tail
-	// writes it.
+	// writes it. Neither touches read_at_ms, which Write and a page stamp apart.
 	stmtInsertChunk: sqlstmt.OnWriter(`
 		INSERT INTO chunks (
 			stream_id, pattern, from_ns, from_ord, to_ns, to_ord, prev_ns, prev_ord,
-			origin, at_head, at_end, open, bytes, read_at_ms
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			origin, at_head, at_end, open, bytes
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (stream_id, pattern, from_ns, from_ord) DO UPDATE SET
 			at_end = CASE
 				WHEN (excluded.to_ns, excluded.to_ord) > (to_ns, to_ord) THEN excluded.at_end
@@ -126,8 +137,7 @@ var statements = []sqlstmt.Statement{
 			at_head = max(at_head, excluded.at_head),
 			prev_ns = coalesce(prev_ns, excluded.prev_ns),
 			prev_ord = coalesce(prev_ord, excluded.prev_ord),
-			open = max(open, excluded.open),
-			read_at_ms = max(read_at_ms, excluded.read_at_ms)
+			open = max(open, excluded.open)
 		RETURNING id, to_ns, to_ord, at_end, open, bytes`),
 	// A fill's proof holds for its own pattern alone, so it links and marks no other.
 	stmtMarkHead: sqlstmt.OnWriter(`
@@ -162,32 +172,61 @@ var statements = []sqlstmt.Statement{
 		SELECT ts_ns, ord, message FROM lines
 		WHERE stream_id = ?1 AND (ts_ns, ord) < (?2, ?3) AND (ts_ns, ord) >= (?4, ?5)
 		ORDER BY ts_ns DESC, ord DESC`),
-	// Fills of one range can overlap, so a line another chunk claims stays.
+	// One range of the position index, which the caller cuts around the lines other
+	// chunks claim.
 	stmtEvictLines: sqlstmt.OnWriter(`
-		DELETE FROM lines
-		WHERE stream_id = ?1 AND (ts_ns, ord) >= (?2, ?3) AND (ts_ns, ord) <= (?4, ?5)
-			AND NOT EXISTS (
-				SELECT 1 FROM chunks c
-				WHERE c.stream_id = ?1 AND c.id <> ?6
-					AND (lines.ts_ns, lines.ord) >= (c.from_ns, c.from_ord)
-					AND (lines.ts_ns, lines.ord) <= (c.to_ns, c.to_ord)
-			)`),
+		DELETE FROM lines WHERE stream_id = ?1 AND (ts_ns, ord) >= (?2, ?3) AND (ts_ns, ord) <= (?4, ?5)`),
+	// Fills of one range can overlap: each chunk sharing a line with ?6's range.
+	stmtSelectOverlapping: sqlstmt.OnBoth(`
+		SELECT from_ns, from_ord, to_ns, to_ord FROM chunks
+		WHERE stream_id = ?1 AND id <> ?6 AND (to_ns, to_ord) >= (?2, ?3) AND (from_ns, from_ord) <= (?4, ?5)
+		ORDER BY from_ns, from_ord`),
 	stmtEvictChunk: sqlstmt.OnWriter(`DELETE FROM chunks WHERE id = ?`),
 	// An open chunk is never evicted: its tail writes it back from what it holds of it,
-	// and one evicted under the tail would come back claiming the evicted lines.
+	// and one evicted under the tail would come back claiming the evicted lines. Nor is
+	// one read since the cutoff.
 	stmtSelectChunkBounds: sqlstmt.OnBoth(`
-		SELECT stream_id, from_ns, from_ord, to_ns, to_ord FROM chunks WHERE id = ? AND open = 0`),
+		SELECT stream_id, from_ns, from_ord, to_ns, to_ord FROM chunks
+		WHERE id = ?1 AND open = 0 AND (read_at_ms IS NULL OR read_at_ms < ?2)`),
 	// An open chunk is its tailer's alone to extend.
 	stmtSelectChunkEndingAt: sqlstmt.OnBoth(`
 		SELECT ` + chunkColumns + ` FROM chunks
 		WHERE stream_id = ? AND pattern = ? AND origin = ? AND to_ns = ? AND to_ord = ? AND open = 0`),
 	stmtCloseOpenChunks: sqlstmt.OnWriter(`UPDATE chunks SET open = 0 WHERE open = 1`),
 	stmtCloseChunk:      sqlstmt.OnWriter(`UPDATE chunks SET open = 0 WHERE id = ?`),
+	stmtStreamExists:    sqlstmt.OnWriter(`SELECT 1 FROM streams WHERE id = ?`),
+	stmtStreamBytes:     sqlstmt.OnReader(`SELECT stream_id, sum(bytes) FROM chunks GROUP BY stream_id`),
+	// A never-read chunk goes before a read one: the oldest line first among the
+	// never-read, the oldest stamp first among the read.
+	stmtCandidates: sqlstmt.OnReader(`
+		SELECT id, stream_id, bytes FROM chunks
+		WHERE open = 0 AND (read_at_ms IS NULL OR read_at_ms < ?1)
+		ORDER BY read_at_ms IS NOT NULL, read_at_ms, from_ns, from_ord, id`),
+	// A stream with no pod uid is never asked about, so never removed.
+	stmtEmptyStreams: sqlstmt.OnReader(`
+		SELECT id, pod_uid FROM streams s
+		WHERE pod_uid <> '' AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.stream_id = s.id)`),
+	// The chunk count is read again, since a fill may have written one since.
+	stmtRemoveStreams: sqlstmt.OnWriter(`
+		DELETE FROM streams
+		WHERE id IN (SELECT value FROM json_each(?)) AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.stream_id = streams.id)`),
+	// A chunk stamped within the interval keeps its stamp, so a page re-reading it
+	// writes nothing.
+	stmtStampChunks: sqlstmt.OnWriter(`
+		UPDATE chunks SET read_at_ms = ?1
+		WHERE id IN (SELECT value FROM json_each(?2)) AND (read_at_ms IS NULL OR read_at_ms <= ?1 - ?3)`),
+}
+
+// idList is ids as the one JSON argument a statement reads through json_each.
+func idList(ids []int64) string {
+	arg, _ := json.Marshal(ids) // a list of integers always marshals
+	return string(arg)
 }
 
 // chunkColumns is a chunk row as chunksOf reads it.
 const chunkColumns = `
-	id, pattern, from_ns, from_ord, to_ns, to_ord, prev_ns, prev_ord, origin, at_head, at_end, open, bytes`
+	id, pattern, from_ns, from_ord, to_ns, to_ord, prev_ns, prev_ord, origin, at_head, at_end, open, bytes,
+	coalesce(read_at_ms, 0)`
 
 // streamColumns is a stream row as scanStream reads it.
 const streamColumns = `

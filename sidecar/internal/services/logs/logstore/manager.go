@@ -35,17 +35,24 @@ var (
 )
 
 // Manager owns the logs directory and hands out refcounted Stores, one file per cluster
-// cache, named by the cache's id. It is a lifecycle part with no background work: the
-// app builds it before the cluster service, whose cache pass clears and removes files
-// through it, so it closes after that service.
+// cache, named by the cache's id. Each open file runs its own writer and, with a
+// non-zero Interval, its own janitor, both ended by the file's close. The logs service
+// builds and closes it; the cluster service's cache pass clears and removes files
+// through that service, after the close too.
 type Manager struct {
 	// dir holds each cache's file as "<cacheID>.db".
 	dir string
 	// ret bounds what each file holds: a fill closes its chunks at its ChunkBytes and
 	// ChunkSpan, and a file's writer runs under its write knobs.
 	ret Retention
+	// now is the clock a chunk's read_at_ms is stamped from: time.Now, or a test's.
+	now func() time.Time
 	// after is how a writer waits out its WriteTick: time.After, or a test's.
 	after func(time.Duration) <-chan time.Time
+	// sweeps is told what each sweep did: nil, or a test's.
+	sweeps func(cacheID int64, r sweepReport)
+	// podsPerSweep is the most pods one sweep asks about: sweepPods, or a test's.
+	podsPerSweep int
 
 	// mu guards everything below. It is never held across a file's open, close or delete,
 	// so a slow disk or a long query on one cache stalls no other.
@@ -64,6 +71,8 @@ type Manager struct {
 	removed map[int64]bool
 	// closed is set by Close, after which nothing opens.
 	closed bool
+	// podsGone answers which pods the mirror no longer holds, nil until SetPodsGone.
+	podsGone PodsGone
 }
 
 // entry is one cache's open file and the claims on it. A Store keeps the entry it
@@ -78,12 +87,14 @@ type entry struct {
 // until OpenOrCreate.
 func NewManager(dir string, ret Retention) *Manager {
 	return &Manager{
-		dir:     dir,
-		ret:     ret,
-		after:   time.After,
-		entries: map[int64]*entry{},
-		busy:    map[int64]chan struct{}{},
-		removed: map[int64]bool{},
+		dir:          dir,
+		ret:          ret,
+		now:          time.Now,
+		after:        time.After,
+		podsPerSweep: sweepPods,
+		entries:      map[int64]*entry{},
+		busy:         map[int64]chan struct{}{},
+		removed:      map[int64]bool{},
 	}
 }
 
@@ -125,6 +136,9 @@ func (m *Manager) OpenOrCreate(cacheID int64) (*Store, error) {
 		return nil, errors.Join(fmt.Errorf("open log store %d: %w", cacheID, ErrClosed), closeErr)
 	}
 	f.startWriter(m.ret, m.after)
+	if m.ret.Interval > 0 {
+		m.startJanitor(cacheID, f)
+	}
 	e := &entry{file: f, refs: 1}
 	m.entries[cacheID] = e
 	return &Store{m: m, cacheID: cacheID, e: e}, nil
@@ -213,7 +227,7 @@ func (m *Manager) releaseLocked(cacheID int64) {
 	delete(m.busy, cacheID)
 }
 
-// Start is the lifecycle shape; the manager has no background work.
+// Start is the lifecycle shape; each file's work starts with its open.
 func (m *Manager) Start(context.Context) (func(context.Context) error, error) {
 	return func(context.Context) error { return nil }, nil
 }

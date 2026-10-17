@@ -173,7 +173,10 @@ webview drops by cursor. Lines arrive per stream, not merged.
   goldens change with it.
 - **The bounded window.** A cap of `maxLines` lines, dropped at the edge farther from the
   reader and never on screen, with what that asks of the virtualizer. Until it lands a long
-  follow grows without end. It is proposed in a pull request of its own, over a viewer that
+  follow grows without end. A dropped line comes back as a page from the sidecar's file, which
+  keeps what a page fetched for its `ReadTTL` and what a follow sent only while its budget
+  allows ([the log cache](../log-cache/README.md), §7); past that the page refills it from the
+  kubelet, or crosses a lost gap. It is proposed in a pull request of its own, over a viewer that
   already works.
 - **The inline card with lines.** Rung 2 of the log views ladder. It is not a smaller `LogViewer`:
   a fixed window of lines with no scroller needs neither the virtualizer nor the paging, so the

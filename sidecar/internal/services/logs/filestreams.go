@@ -48,12 +48,20 @@ func (ps pageStream) instance() instance {
 
 // pageStreams files t's streams in file, each as its instance's row, and answers
 // them, then each of view's Pod sources' streams the file holds that the resolve
-// handed out for no source, each once across the view.
-func pageStreams(ctx context.Context, file *logstore.Store, t target, view View) ([]pageStream, error) {
+// handed out for no source, each once across the view. Every row is held from the
+// moment its id is known until release, which the caller owes even on an error.
+func pageStreams(ctx context.Context, file *logstore.Store, t target, view View) (_ []pageStream, release func(), err error) {
+	var releases []func()
+	release = func() {
+		for _, r := range releases {
+			r()
+		}
+	}
 	rows, err := fileStreams(ctx, file, t.streams)
 	if err != nil {
-		return nil, err
+		return nil, release, err
 	}
+	releases = append(releases, file.Hold(rowIDs(rows)...))
 	out := make([]pageStream, len(t.streams))
 	seen := map[int64]bool{}
 	for i, st := range t.streams {
@@ -66,8 +74,9 @@ func pageStreams(ctx context.Context, file *logstore.Store, t target, view View)
 		}
 		held, err := file.PodStreams(ctx, src.Namespace, src.Name, t.pods[src.Namespace+"/"+src.Name])
 		if err != nil {
-			return nil, err
+			return nil, release, err
 		}
+		releases = append(releases, file.Hold(rowIDs(held)...))
 		key := src.Namespace + "/" + src.Name
 		_, live := t.pods[key]
 		pod := podNow{live: live, def: t.defaults[key], place: t.places[key]}
@@ -84,7 +93,16 @@ func pageStreams(ctx context.Context, file *logstore.Store, t target, view View)
 			})
 		}
 	}
-	return out, nil
+	return out, release, nil
+}
+
+// rowIDs is the id of each of rows.
+func rowIDs(rows []logstore.Stream) []int64 {
+	ids := make([]int64, len(rows))
+	for i, row := range rows {
+		ids[i] = row.ID
+	}
+	return ids
 }
 
 // fileStreams files streams in file, each as its instance's row, and answers the rows

@@ -317,7 +317,7 @@ func (f *fakeKubestore) Remove(cacheID int64) error {
 	return f.err
 }
 
-// noCacheFiles owns nothing, for a test that builds the service with no log store.
+// noCacheFiles owns nothing, for a test whose passes run with no log store.
 type noCacheFiles struct{}
 
 func (noCacheFiles) Clear(int64) error  { return nil }
@@ -447,7 +447,9 @@ func testPaths(t *testing.T) Paths {
 func newTestDepsOver(t *testing.T, bh *beehive.Beehive) deps {
 	t.Helper()
 	db, store := openTestStore(t)
-	return newDeps(bh, db, store, newTestKubeconfig(t), &fakeKubeconn{}, newFakeKubestore(t), newFakeKubesync(), nil, noCacheFiles{})
+	d := newDeps(bh, db, store, newTestKubeconfig(t), &fakeKubeconn{}, newFakeKubestore(t), newFakeKubesync(), nil)
+	d.cacheFiles.set(noCacheFiles{})
+	return d
 }
 
 // finalizerClearingCacheController stands in for the cache controller where a cache is
