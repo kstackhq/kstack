@@ -16,6 +16,7 @@ package logs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -245,12 +246,21 @@ func (s *Service) page(ctx context.Context, id cluster.ClusterID, qs ...pageQuer
 		return nil, err
 	}
 	wrote := false
-	for _, byStream := range fills {
-		for i, f := range byStream {
-			if f.gone {
+	for i := range streams {
+		restarted := false
+		for _, byStream := range fills {
+			if byStream[i].gone {
 				streams[i].st = nil
 			}
-			wrote = wrote || f.wrote
+			wrote = wrote || byStream[i].wrote
+			restarted = restarted || errors.Is(byStream[i].err, errRestarted)
+		}
+		// A page answers once for each stream, so a restart one direction found skips
+		// it in every direction.
+		if restarted {
+			for _, byStream := range fills {
+				byStream[i] = streamFill{err: errRestarted}
+			}
 		}
 	}
 	if wrote && s.afterFill != nil {

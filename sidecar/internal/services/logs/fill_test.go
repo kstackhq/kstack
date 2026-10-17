@@ -444,6 +444,32 @@ func TestAnAroundPagesHalvesJoin(t *testing.T) {
 	assert.Len(t, s.requests(), reads)
 }
 
+// A restart one half of an Around page finds skips the stream in both halves, though
+// the other half's write found none: a page answers once for each stream.
+func TestARestartOnAnAroundPageSkipsTheStreamInBothHalves(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(10)...)
+	s.add("prod/web-2/app", stamped(4*time.Second, "web-2"))
+	svc, f := serviceOver(t, webMirror(t), s)
+	// The Head half's read of web-1, from the moment's second, which follows the Tail
+	// half's write.
+	s.onRequest = func(n int) {
+		s.mu.Lock()
+		key, since := s.keys[n], s.queries[n].Get("sinceTime")
+		s.mu.Unlock()
+		if key == "prod/web-1/app" && since == "2026-10-08T10:00:05Z" {
+			restartWeb1(t, f, s)
+		}
+	}
+
+	page, err := svc.Fetch(t.Context(), "7", webView, FetchQuery{Mode: FetchAround, At: new(at(5 * time.Second)), Limit: 2})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"web-2"}, messages(page.Records))
+	assert.Equal(t, []string{"web-1/app: restarted while reading"}, page.Skipped)
+}
+
 // A page whose check of the instances it read fails is the failure, and writes
 // nothing.
 func TestAFailedInstanceCheckFailsThePage(t *testing.T) {
@@ -790,6 +816,8 @@ func TestAWindowIsWrittenInBatches(t *testing.T) {
 	ret.WriteBatch, ret.WriteBatchBytes = 100, 2
 	assert.Len(t, batches(window, ret), 3, "two bytes a batch")
 	assert.Equal(t, []logstore.Fill{{Stream: 3, Next: new(sec(9)), Head: true}}, batches(logstore.Fill{Stream: 3, Next: new(sec(9)), Head: true}, ret), "a window with no line")
+	ret.WriteBatch, ret.WriteBatchBytes = 0, 0
+	assert.Len(t, batches(window, ret), 5, "a line a batch at the least")
 }
 
 // A Tail page from the end of a finished instance marks the newest chunk it wrote

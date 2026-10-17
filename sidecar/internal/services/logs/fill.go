@@ -377,7 +377,7 @@ func (f *filler) write(ctx context.Context, window logstore.Fill) (bool, error) 
 }
 
 // batches is window cut into fills of at most ret's WriteBatch lines or
-// WriteBatchBytes, oldest first: the first keeps its Prev, Merge and Head, each next
+// WriteBatchBytes, a line at the least, oldest first: the first keeps its Prev, Merge and Head, each next
 // one extends the chunk the one before it ends, and the last keeps its Next and AtEnd.
 func batches(window logstore.Fill, ret logstore.Retention) []logstore.Fill {
 	if len(window.Lines) == 0 {
@@ -386,7 +386,7 @@ func batches(window logstore.Fill, ret logstore.Retention) []logstore.Fill {
 	var out []logstore.Fill
 	for lines := window.Lines; len(lines) > 0; {
 		n, bytes := 0, int64(0)
-		for n < len(lines) && n < ret.WriteBatch && bytes < ret.WriteBatchBytes {
+		for n < len(lines) && (n == 0 || n < ret.WriteBatch && bytes < ret.WriteBatchBytes) {
 			bytes += int64(len(lines[n].Message))
 			n++
 		}
