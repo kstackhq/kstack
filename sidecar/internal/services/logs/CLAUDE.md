@@ -43,6 +43,8 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   a sentinel's words. Tests run over `cluster/clustertest`.
 - **Every message goes through `stripControl`** (`clean.go`) before grep and the wire; a refusal's
   message too.
+- **A line reaches the model through `ForModel` alone** (`formodel.go`): stripped again, then
+  redacted, at read time. The file and the wire to the viewer keep it unredacted.
 - **A cursor names a line** (`cursor.go`): moment, container, instance id, ordinal. `streamBound`
   reads one cursor as each stream's bound. → [ADR: a log cursor is a position](../../../../docs/adr/2026-10-17-a-log-cursor-is-a-position.md).
 - **A container's log is read over a claim** (`claim.go`), one raw `GET` of the `log` path through

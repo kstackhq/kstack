@@ -24,6 +24,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,9 +40,9 @@ import (
 var update = flag.Bool("update", false, "rewrite the golden files in testdata")
 
 // A question's context block, pinned as the model reads it in testdata/context.md:
-// the card, the notes, the workspace and the sandbox, in that order, in its tags,
-// then the question. The sample is one cluster with a cache, two notes and two
-// granted folders. `make prompts` rewrites it, beside the system prompt's goldens
+// the card, the notes, the workspace, the view and the sandbox, in that order, in
+// its tags, then the question. The sample is one cluster with a cache, two notes,
+// a tail with one selected line and two granted folders. `make prompts` rewrites it, beside the system prompt's goldens
 // in internal/app. Unix alone, since the paths it names are Unix paths.
 func TestTheContextBlockMatchesItsGolden(t *testing.T) {
 	t.Parallel()
@@ -57,7 +58,17 @@ func TestTheContextBlockMatchesItsGolden(t *testing.T) {
 	chatID := ChatID("0195f1a0-5b6e-7c3d-8e4f-0a1b2c3d4e5f")
 
 	block := s.withMemory(t.Context(), clustercard.Render(sampleFacts()), "cluster-1")
-	block = s.withSandbox(s.withWorkspace(block, chatID), sandboxState{
+	from := time.Date(2026, 3, 15, 9, 14, 2, 118_000_000, time.UTC)
+	to := time.Date(2026, 3, 15, 9, 14, 31, 902_000_000, time.UTC)
+	block = withView(s.withWorkspace(block, chatID), "toolu_01AbC", tailWebapp(), Snapshot{
+		CallID: "c", From: &from, To: &to, Lines: 38, AtEnd: true, PinnedToEnd: true,
+		Selected: []SelectedLine{{
+			Timestamp: time.Date(2026, 3, 15, 9, 14, 20, 4_000_000, time.UTC), Namespace: "payments",
+			Pod: "webapp-7d9f-x2k", Container: "app", Message: "panic: assignment to entry in nil map",
+		}},
+		SelectedCount: 1,
+	})
+	block = s.withSandbox(block, sandboxState{
 		networkThisTurn: true,
 		folders:         []session.Folder{{Path: "/home/ana/src/payments", Write: true}, {Path: "/home/ana/notes"}},
 	})

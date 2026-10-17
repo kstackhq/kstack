@@ -524,6 +524,28 @@ func answerByRequestKey(ctx context.Context, st stmts, requestKey string, box to
 	return msgs[0], true, nil
 }
 
+// viewCall is the LogsView call id of chatID: the id its tool_use block carries
+// and the view its run showed. ok is false for a call of another chat, of
+// another tool, or one that showed nothing.
+func viewCall(ctx context.Context, st stmts, chatID ChatID, id ToolCallID) (toolUseID string, view tools.LogsViewAction, ok bool, err error) {
+	var shown sql.NullString
+	err = st.QueryRow(ctx, stmtSelectViewCall, string(id), string(chatID)).Scan(&toolUseID, &shown)
+	if errors.Is(err, sql.ErrNoRows) || err == nil && !shown.Valid {
+		return "", view, false, nil
+	}
+	if err != nil {
+		return "", view, false, fmt.Errorf("view call: %w", err)
+	}
+	var action tools.Action
+	if err := json.Unmarshal([]byte(shown.String), &action); err != nil {
+		return "", view, false, fmt.Errorf("view call: %w", err)
+	}
+	if action.LogsView == nil {
+		return "", view, false, nil
+	}
+	return toolUseID, *action.LogsView, true, nil
+}
+
 // newestContext is the context the model currently holds for the chat: the text
 // of the newest context block among its questions, or "" when it holds none.
 func newestContext(ctx context.Context, st stmts, id ChatID) (string, error) {

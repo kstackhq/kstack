@@ -86,6 +86,9 @@ These are decided across the ladder. A rung that needs to revisit one says so in
 - **The model learns the screen at send, by pull.** The composer attaches a snapshot of the open
   view to `chatSend`; the sidecar puts it in the question's `context` block, so it is on the
   record and the Context disclosure shows it. Nothing streams the viewer's state anywhere.
+- **A line reaches the model through `logs.ForModel` alone**, which strips control sequences and
+  runs `safe.Redact`. Redaction is at read time, as for Bash output: the log cache and the viewer
+  keep a line as the container wrote it.
 - **Log text is cluster data.** Every line is drawn as text through the sinks the transcript
   already uses, with terminal control sequences stripped, as the root `CLAUDE.md` requires of the
   log tail.
@@ -95,7 +98,7 @@ These are decided across the ladder. A rung that needs to revisit one says so in
 | Rung | Builds | Spec |
 | --- | --- | --- |
 | 2 | The compact inline form | [2-the-compact-inline-form.md](2-the-compact-inline-form.md) |
-| 3 | The screen rides with the question | — |
+| 3 | The screen rides with the question | [3-the-screen-rides-with-the-question.md](3-the-screen-rides-with-the-question.md) |
 | 4 | `LogsRead`: what the model read, frozen | — |
 | 5 | Select, then ask | — |
 | 6 | A watch is a background task | — |
@@ -109,12 +112,9 @@ What is true now is in the root and `sidecar/` `CLAUDE.md`.
 **Rung 2 — the compact inline form.** The card draws a fixed window of eight lines, live for
 the chat's newest pinned `Tail` view and frozen for every other.
 
-**Rung 3 — the screen rides with the question.** `chatSend` takes a snapshot of the open view:
-the resolved selector and grep, the id of the `LogsView` call that opened it, the visible range as
-two timestamps, whether the viewer is at its end, a count of visible lines, and the selected lines
-as bounded text. The sidecar writes it into the question's `context` block beside the cluster
-card, and the prompt says the view is context, not the question. Open: the exact fields, their
-caps, and what to attach when the sidebar is open on a view of another chat.
+**Rung 3 — the screen rides with the question.** A send carries the focused view's call and what
+the viewer shows of it, and the sidecar writes a `## View` section into the question's context
+block.
 
 **Rung 4 — `LogsRead`.** The model reads a bounded sample over a selector, window and grep, and
 the transcript draws what it read as a frozen snippet, with *View around this* opening a view
