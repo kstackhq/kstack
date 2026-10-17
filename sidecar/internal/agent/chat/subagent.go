@@ -51,6 +51,8 @@ func (t *turn) Start(ctx context.Context, d tools.Delegation) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// The subagent answers its parent's task, not the user's screen.
+	card = withoutView(card)
 	run := agentRun{
 		ID: newRunID(), ParentID: t.runID, AgentType: d.Type, ChatID: t.chatID,
 		ProviderID: target.Provider.ID, ModelID: target.Model.ID, Effort: target.Effort,

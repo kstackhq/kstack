@@ -1519,6 +1519,37 @@ input LogsViewFilterInput {
   values: [String!]!
 }
 
+"What the user's open log view shows as they send. The sidecar reads the view itself from the call."
+input LogsViewSnapshotInput {
+  "The `LogsView` call whose view is open. It must be a call of the chat the send is to."
+  callID: ToolCallID!
+  "The first and last visible line's timestamps. Both null when no line is on screen."
+  from: Time
+  to: Time
+  "How many lines are on screen."
+  lines: Int!
+  "Whether the newest line is on screen and the viewer is following."
+  atEnd: Boolean!
+  "Whether the viewer keeps the end in view."
+  pinnedToEnd: Boolean!
+  "Whether the user paused the viewer: no line arrives until they resume."
+  paused: Boolean!
+  "The selected lines, in order, at most 50."
+  selected: [LogsViewSelectedLineInput!]!
+  "How many lines are selected, `selected` included."
+  selectedCount: Int!
+}
+
+"One selected line, as the viewer holds it. Cluster text."
+input LogsViewSelectedLineInput {
+  timestamp: Time!
+  namespace: String!
+  pod: String!
+  container: String!
+  previous: Boolean!
+  message: String!
+}
+
 """
 One frame of a follow: a line, a checkpoint, or the last frame, saying why the follow ended.
 Following again after `Ended` would end the same way. Detect each frame by `type`, never by
@@ -1928,8 +1959,8 @@ type Mutation {
   clusterCachedKindSyncEnabledSet(id: ObjectID!, syncEnabled: Boolean!): ClusterCachedKind!
 
   # --- Chat ---
-  "Save a user message and start the assistant's turn. Returns the assistant's message as accepted, not as finished — the answer arrives on chatMessagesWatch. A null `chatID` creates the chat; a chat already running a turn is refused. `requestID` makes the send idempotent for as long as its chat lives, and a repeat is answered by that id alone: this call's `chatID`, `model`, `effort` and `content` are ignored. The key goes with the chat, so a repeat after its delete is a new send. A null `chatID` creates the chat in `mode` and under `clusterID`, which must name an existing cluster; otherwise both are ignored, and on a `requestID` replay they are ignored like `chatID` and `content`. `sandboxDisabled` is the chat's switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_SANDBOX_CHANGED`, and a replay ignores it too. `networkEnabled` is the chat's network switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_NETWORK_CHANGED`, and a replay ignores it. `networkThisTurn` gives every command of this turn the internet, its subagents' included; refused with `KSTACK_VALIDATION_ERROR` where network is unavailable."
-  chatSend(chatID: ChatID, mode: ChatMode!, clusterID: ClusterID!, sandboxDisabled: Boolean!, networkEnabled: Boolean!, networkThisTurn: Boolean!, providerID: String!, modelID: String!, effort: String!, requestID: String!, content: String!): ChatMessage!
+  "Save a user message and start the assistant's turn. Returns the assistant's message as accepted, not as finished — the answer arrives on chatMessagesWatch. A null `chatID` creates the chat; a chat already running a turn is refused. `requestID` makes the send idempotent for as long as its chat lives, and a repeat is answered by that id alone: this call's `chatID`, `model`, `effort` and `content` are ignored. The key goes with the chat, so a repeat after its delete is a new send. A null `chatID` creates the chat in `mode` and under `clusterID`, which must name an existing cluster; otherwise both are ignored, and on a `requestID` replay they are ignored like `chatID` and `content`. `sandboxDisabled` is the chat's switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_SANDBOX_CHANGED`, and a replay ignores it too. `networkEnabled` is the chat's network switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_NETWORK_CHANGED`, and a replay ignores it. `networkThisTurn` gives every command of this turn the internet, its subagents' included; refused with `KSTACK_VALIDATION_ERROR` where network is unavailable. `snapshot` is what the user's open log view shows, which rides the question as its context's View; a snapshot naming no `LogsView` call of this chat, or on a send that creates one, is refused with `KSTACK_VALIDATION_ERROR`, and a replay ignores it."
+  chatSend(chatID: ChatID, mode: ChatMode!, clusterID: ClusterID!, sandboxDisabled: Boolean!, networkEnabled: Boolean!, networkThisTurn: Boolean!, providerID: String!, modelID: String!, effort: String!, requestID: String!, content: String!, snapshot: LogsViewSnapshotInput): ChatMessage!
 
   "Stop the in-flight turn, keeping the partial answer. Returns true; a no-op when nothing is running."
   chatCancel(chatID: ChatID!): Boolean!

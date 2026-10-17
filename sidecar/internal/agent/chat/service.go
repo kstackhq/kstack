@@ -138,8 +138,9 @@ type Service interface {
 	// requestID is the client's key for this send, a UUID it minted; a repeat
 	// returns the first attempt's message and starts nothing. sandboxDisabled
 	// and networkEnabled are the chat's switches as the sender saw them, and
-	// networkThisTurn gives this turn's commands the internet.
-	Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID apimeta.ClusterID, sandboxDisabled, networkEnabled, networkThisTurn bool, providerID, modelID, effort, requestID, content string) (ChatMessage, error)
+	// networkThisTurn gives this turn's commands the internet. snap is what
+	// the user's open log view showed, nil with none; a replay ignores it.
+	Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID apimeta.ClusterID, sandboxDisabled, networkEnabled, networkThisTurn bool, providerID, modelID, effort, requestID, content string, snap *Snapshot) (ChatMessage, error)
 	// Cancel stops the in-flight turn, keeping the partial answer. A no-op when
 	// nothing is running.
 	Cancel(ctx context.Context, chatID ChatID) error
@@ -443,7 +444,7 @@ func (s *service) notify(key string) { s.db.Notify(key) }
 // Send saves the question and starts its answer. The key is looked up before every
 // other check, so a retry of the send that started the running turn is answered
 // rather than refused as a second one; on a hit the key is the whole identity.
-func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID apimeta.ClusterID, sandboxDisabled, networkEnabled, networkThisTurn bool, providerID, modelID, effort, requestID, content string) (ChatMessage, error) {
+func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID apimeta.ClusterID, sandboxDisabled, networkEnabled, networkThisTurn bool, providerID, modelID, effort, requestID, content string, snap *Snapshot) (ChatMessage, error) {
 	if err := s.enter(); err != nil {
 		return ChatMessage{}, err
 	}
@@ -469,6 +470,10 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 		return prior, err
 	}
 	if content == "" {
+		return ChatMessage{}, ErrBadRequest
+	}
+	// A send that creates a chat has no LogsView call to name.
+	if snap != nil && (chatID == nil || snap.check() != nil) {
 		return ChatMessage{}, ErrBadRequest
 	}
 	// After the lookup: a replay is answered by its key whatever the machine
@@ -511,6 +516,20 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 		if err != nil {
 			return err
 		}
+		var (
+			toolUseID string
+			view      tools.LogsViewAction
+		)
+		if snap != nil {
+			var ok bool
+			toolUseID, view, ok, err = viewCall(ctx, st, *chatID, snap.CallID)
+			if err != nil {
+				return err
+			}
+			if !ok {
+				return ErrBadRequest
+			}
+		}
 		// Read in the transaction that pins them to the turn, so the turn runs
 		// where and with what the sender saw, whichever window switched meanwhile.
 		disabled := c.SandboxDisabled
@@ -539,7 +558,11 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 		t.outsideSandbox, t.networkThisTurn = disabled, networkThisTurn
 		// The chat's id is known only now: a new chat has none when the card is
 		// rendered.
-		question, err := questionBlocks(ctx, st, id, s.withSandbox(s.withWorkspace(contextText, id), sandboxState{
+		block := s.withWorkspace(contextText, id)
+		if snap != nil {
+			block = withView(block, toolUseID, view, *snap)
+		}
+		question, err := questionBlocks(ctx, st, id, s.withSandbox(block, sandboxState{
 			outside: disabled, networkEnabled: c.NetworkEnabled, networkThisTurn: networkThisTurn, folders: folders,
 		}), content)
 		if err != nil {

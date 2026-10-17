@@ -76,7 +76,7 @@ its message](../../../docs/adr/2026-09-17-a-turn-is-a-run-over-its-message.md).
 Files: `record.go` (wire records), `service.go` (methods, watch pumps), `turn.go` (turn, recorder,
 live overlay), `context.go` (`roomFor`), `subagent.go`, `monitor.go`, `approval.go` (the
 `loop.Approver`), `grants.go` (chat rules, folders), `prompt.go`, `store.go` (one function per
-statement), `statements.go`, `stream.go`, `sweep.go`, `chatdir.go`, `workspace.go`, `files.go`
+statement), `statements.go`, `stream.go`, `sweep.go`, `chatdir.go`, `workspace.go`, `view.go`, `files.go`
 (file stamps), `memory.go`, `tasks.go`, `notices.go`.
 
 **The turn.** `Send` checks the model and effort **after the replay lookup** (a replay answers by
@@ -245,10 +245,14 @@ holds a reply after its first chunk.
 in the answer's row](../../../docs/adr/2026-09-14-tool-rounds-live-in-the-answers-row.md).
 
 **A question carries a context block when it has changed** (`questionBlocks` against
-`newestContext`): the cluster card, `## Memory`, `## Workspace`, and `## Sandbox`. **A context
+`newestContext`): the cluster card, `## Memory`, `## Workspace`, `## View` when the send carries a
+snapshot, and `## Sandbox`, always last. **The View** (`view.go`) restates the named `LogsView`
+call's stored action, never the client's, with what was on screen and the selected lines through
+`logs.ForModel`, under `viewBudget` as the section spells it; a snapshot naming no `LogsView` call
+of this chat is `ErrBadRequest`. A notice turn and a subagent's brief drop it (`withoutView`). **A context
 block is always its message's first block** — where the query reads it. The card and notes render
 before the transaction (`contextText`) for the chat's stored cluster, never the send's argument;
-the workspace and sandbox sections are appended inside it. An
+the workspace, view and sandbox sections are appended inside it. An
 unrenderable card is `clustercard.Unavailable`; the send is never refused over it. **The card
 (`clustercard.Render`) is pure, under `Budget`, every value an escaped JSON string, and carries no
 counts.** → [ADR: the cluster card rides the user

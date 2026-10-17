@@ -124,7 +124,7 @@ func TestTheContextSaysTheNetwork(t *testing.T) {
 	first := sendAndSettle(t, s, nil, "1", "1", "one")
 	assert.Equal(t, "off", sandboxSectionOf(t, s, first.ChatID)["network"])
 
-	toggled, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, false, true, "fake", "fake", "high", reqID("2"), "two")
+	toggled, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, false, true, "fake", "fake", "high", reqID("2"), "two", nil)
 	require.NoError(t, err)
 	awaitSettled(t, s, toggled.ChatID, toggled.ID)
 	assert.Equal(t, "on for this message", sandboxSectionOf(t, s, first.ChatID)["network"])
@@ -134,7 +134,7 @@ func TestTheContextSaysTheNetwork(t *testing.T) {
 
 	_, err = s.SetNetworkEnabled(t.Context(), first.ChatID, true)
 	require.NoError(t, err)
-	switched, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, true, true, "fake", "fake", "high", reqID("4"), "four")
+	switched, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", false, true, true, "fake", "fake", "high", reqID("4"), "four", nil)
 	require.NoError(t, err)
 	awaitSettled(t, s, switched.ChatID, switched.ID)
 	assert.Equal(t, "on for this chat", sandboxSectionOf(t, s, first.ChatID)["network"])
@@ -142,7 +142,7 @@ func TestTheContextSaysTheNetwork(t *testing.T) {
 	_, err = s.SetSandboxDisabled(t.Context(), first.ChatID, true)
 	require.NoError(t, err)
 	// Leaving the sandbox turned the switch off, so the sender sees off.
-	outside, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", true, false, false, "fake", "fake", "high", reqID("5"), "five")
+	outside, err := s.Send(t.Context(), &first.ChatID, ModeChat, "1", true, false, false, "fake", "fake", "high", reqID("5"), "five", nil)
 	require.NoError(t, err)
 	awaitSettled(t, s, outside.ChatID, outside.ID)
 	assert.Equal(t, map[string]string{"commands": "outside"}, sandboxSectionOf(t, s, first.ChatID), "outside, there is no network line")
