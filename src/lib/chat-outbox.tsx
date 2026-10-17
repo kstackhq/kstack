@@ -23,6 +23,7 @@ import { createContext, useContext, useMemo, useState } from 'react';
 import { useMutation } from 'urql';
 
 import { graphql } from '@/gql';
+import type { LogsViewSnapshotInput } from '@/gql/graphql';
 import type { AppMode } from '@/lib/app-mode';
 import { chatModeOf } from '@/lib/chats';
 import type { ModelPick, ModelRef } from '@/lib/models';
@@ -40,6 +41,7 @@ const ChatSendMutation = graphql(`
     $effort: String!
     $requestID: String!
     $content: String!
+    $snapshot: LogsViewSnapshotInput
   ) {
     chatSend(
       chatID: $chatID
@@ -53,6 +55,7 @@ const ChatSendMutation = graphql(`
       effort: $effort
       requestID: $requestID
       content: $content
+      snapshot: $snapshot
     ) {
       id
       chatID
@@ -71,8 +74,8 @@ export type Send =
   | { status: 'sending'; requestID: string; content: string }
   /**
    * No answer came. It may have committed, so Retry resends the same id, cluster,
-   * pick, switches and toggle — and under the same ownership, since a held Ask
-   * again is still not the draft's send.
+   * pick, switches, toggle and snapshot — and under the same ownership, since a
+   * held Ask again is still not the draft's send.
    */
   | {
       status: 'held';
@@ -82,6 +85,7 @@ export type Send =
       pick: ModelPick;
       switches: Switches;
       networkThisTurn: boolean;
+      snapshot: LogsViewSnapshotInput | null;
       own: boolean;
     }
   /** Accepted; over once the messages watch delivers the row with this `seq`. */
@@ -160,6 +164,7 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
     pick: ModelPick,
     switches: Switches,
     networkThisTurn: boolean,
+    snapshot: LogsViewSnapshotInput | null,
     own = true,
   ): Promise<Created | null> => {
     patch({ send: { status: 'sending', requestID, content }, refusal: null });
@@ -175,12 +180,25 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
       effort: pick.effort,
       requestID,
       content,
+      snapshot,
     });
 
     if (result.error?.networkError) {
       // Committed-but-lost looks exactly like never-arrived. Keeping the id lets
       // Retry ask again under it, and the sidecar answers a repeat by its key.
-      patch({ send: { status: 'held', requestID, content, clusterID: cluster, pick, switches, networkThisTurn, own } });
+      patch({
+        send: {
+          status: 'held',
+          requestID,
+          content,
+          clusterID: cluster,
+          pick,
+          switches,
+          networkThisTurn,
+          snapshot,
+          own,
+        },
+      });
       return null;
     }
     const message = result.data?.chatSend;
@@ -223,10 +241,13 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
     setDraft: (draft: string) => patch({ draft }),
     setPick: (next: ModelPick) => patch({ pick: next }),
     setNetworkThisTurn: (on: boolean) => patch({ networkThisTurn: on }),
-    /** Sends the draft under `switches`, the chat's switches as the composer shows them, with the toggle. */
-    submit: (switches: Switches) =>
+    /**
+     * Sends the draft under `switches`, the chat's switches as the composer shows
+     * them, with the toggle and `snapshot`, what the focused log view shows.
+     */
+    submit: (switches: Switches, snapshot: LogsViewSnapshotInput | null = null) =>
       clusterID && pick
-        ? run(crypto.randomUUID(), entry.draft, clusterID, pick, switches, entry.networkThisTurn)
+        ? run(crypto.randomUUID(), entry.draft, clusterID, pick, switches, entry.networkThisTurn, snapshot)
         : Promise.resolve(null),
     retry: () =>
       entry.send.status === 'held'
@@ -237,6 +258,7 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
             entry.send.pick,
             entry.send.switches,
             entry.send.networkThisTurn,
+            entry.send.snapshot,
             entry.send.own,
           )
         : Promise.resolve(null),
@@ -246,10 +268,11 @@ export function useChatOutbox(mode: AppMode, chatID: string | null, clusterID?: 
      * do — the sidecar never retries a turn — and it rides the entry's one send, so
      * a press while anything is in flight sends nothing. It never sends the toggle:
      * the toggle is the draft's, and the user gave it for the message they are typing.
+     * Nor a snapshot: the screen now does not describe an earlier question.
      */
     askAgain: (content: string, ran: ModelPick, switches: Switches) =>
       clusterID && entry.send.status === 'idle'
-        ? run(crypto.randomUUID(), content, clusterID, ran, switches, false, false)
+        ? run(crypto.randomUUID(), content, clusterID, ran, switches, false, null, false)
         : Promise.resolve(null),
     /**
      * Closes an accepted send once the row it is awaiting has reached the watch:

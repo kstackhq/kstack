@@ -16,7 +16,7 @@
 // and the answer arrives on the messages watch. The draft and the send are the
 // outbox's, so this only draws them — and decides the one thing a send leaves to
 // its caller, which is whether the window should follow a chat it created.
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useSyncExternalStore } from 'react';
 
 import { useMutation } from 'urql';
 
@@ -43,9 +43,12 @@ import type { Created } from '@/lib/chat-outbox';
 import { useChatOutbox } from '@/lib/chat-outbox';
 import { inFlight } from '@/lib/chats';
 import type { ChatMessage } from '@/lib/chats';
+import { snapshotOf } from '@/lib/logs-snapshot';
+import { useLogsView } from '@/lib/logs-view';
 import type { Model } from '@/lib/models';
 import { modelOf, seedPick, useModels } from '@/lib/models';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
+import { useRightSidebar } from '@/lib/right-sidebar';
 
 const ChatCancelMutation = graphql(`
   mutation ChatCancel($chatID: ChatID!) {
@@ -217,6 +220,14 @@ export function ChatComposer({
   });
   const [, chatCancel] = useMutation(ChatCancelMutation);
 
+  // What the user looks at rides the send: the focused view, when it is this
+  // chat's and the sidebar beside the chat shows it. The count is read alone, so a
+  // following tail does not draw the composer again.
+  const { view, viewport } = useLogsView();
+  const { open: sidebarOpen } = useRightSidebar();
+  const shownView = mode === 'chat' && sidebarOpen && chatID !== null && view?.chatId === chatID ? view : null;
+  const selectedCount = useSyncExternalStore(viewport.subscribe, () => viewport.get().selection.length);
+
   // A send that lands after the window has moved on must not move it again. It moves
   // on by unmounting the composer — and, for a chat that has not started, by
   // switching cluster under one that stays mounted, which would open the created chat
@@ -286,7 +297,9 @@ export function ChatComposer({
 
   const onSend = () => {
     if (canSend && shownDisabled !== undefined && shownNetwork !== undefined) {
-      follow(submit({ sandboxDisabled: shownDisabled, networkEnabled: shownNetwork }));
+      // Pulled at the press: nothing streams the viewer's state anywhere.
+      const snapshot = shownView ? snapshotOf(shownView, viewport.get()) : null;
+      follow(submit({ sandboxDisabled: shownDisabled, networkEnabled: shownNetwork }, snapshot));
     }
   };
 
@@ -338,6 +351,12 @@ export function ChatComposer({
       )}
       {refusal?.kind === 'network-changed' && (
         <p className="text-xs text-destructive">This chat&apos;s network switch changed. Check it, then send again.</p>
+      )}
+      {shownView && (
+        <p className="text-xs text-muted-foreground">
+          With the view in the sidebar
+          {selectedCount > 0 && ` and ${selectedCount} selected ${selectedCount === 1 ? 'line' : 'lines'}`}
+        </p>
       )}
       {onShowWaiting && (
         <p className="flex items-center gap-2 text-xs text-muted-foreground">

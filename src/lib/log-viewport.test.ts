@@ -16,11 +16,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { EMPTY_LOG_VIEWPORT, createLogViewportHandle } from './log-viewport';
 
 describe('createLogViewportHandle', () => {
-  it('starts empty, not at the end and unpinned, with nothing selected', () => {
+  it('starts empty, not at the end, unpinned and playing, with nothing selected', () => {
     expect(createLogViewportHandle().get()).toEqual({
       range: null,
       atEnd: false,
       pinnedToEnd: false,
+      paused: false,
       visible: 0,
       selection: [],
     });
@@ -31,7 +32,14 @@ describe('createLogViewportHandle', () => {
     const listener = vi.fn();
     const unsubscribe = viewport.subscribe(listener);
 
-    const next = { range: { from: 'a', to: 'b' }, atEnd: false, pinnedToEnd: false, visible: 3, selection: [] };
+    const next = {
+      range: { from: 'a', to: 'b' },
+      atEnd: false,
+      pinnedToEnd: false,
+      paused: false,
+      visible: 3,
+      selection: [],
+    };
     viewport.set(next);
     expect(viewport.get()).toBe(next);
     expect(listener).toHaveBeenCalledOnce();
