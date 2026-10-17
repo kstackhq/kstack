@@ -557,6 +557,32 @@ func TestARotatedReadWithNoLineMarksTheNextChunkHead(t *testing.T) {
 	assert.True(t, logstore.CoverageOf(chunks, []string{"kubelet"}, nil).Gaps[1].Lost)
 }
 
+// A Tail page's backward read that found nothing between two chunks, the kubelet's
+// first line past the newer one's start or its log empty, marks the newer one head and
+// links nothing.
+func TestARotatedBackwardReadWithNoLineMarksTheNextChunkHead(t *testing.T) {
+	t.Parallel()
+	for name, kept := range map[string][]string{"rotated past": lineEvery(10)[9:], "emptied": nil} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := newLogServer()
+			s.add("prod/web-1/app", kept...)
+			svc, f := serviceOver(t, webMirror(t), s)
+			seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0, time.Second)},
+				logstore.Fill{Lines: fileLines(8*time.Second, 8*time.Second)})
+
+			_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Limit: 100})
+
+			require.NoError(t, err)
+			chunks := chunksOf(t, svc, f, "web-1", "app")
+			require.GreaterOrEqual(t, len(chunks), 2)
+			assert.True(t, chunks[1].Head)
+			assert.Nil(t, chunks[1].Prev)
+			assert.True(t, logstore.CoverageOf(chunks, []string{"kubelet"}, nil).Gaps[1].Lost)
+		})
+	}
+}
+
 // A read is head when the backend says so, or when it was a forward read from prev's
 // second that returned no line at or before prev and got a line or ended clean. A
 // read from any other bound, as from a page's key, says nothing of rotation.

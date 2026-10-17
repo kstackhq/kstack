@@ -68,8 +68,9 @@ the no-bound rule already requires: a cut or failed read proves nothing.
   `r.head`, or when `prev` is set, `returnedWhole` is false, and the read got a line or ended
   cleanly. `hole` becomes that. A head read with no line marks the chunk at `Next` as head
   instead, which `Fill.Head` already does.
-- `fetcher.go` keeps the backward case in `reachedFirst`: a backward read is head when it reached
-  the log's first line and that line is in range. A `Tail` fill's lower bound is always `prev` or
+- `fetcher.go` keeps the backward case in `reachedFirst`: a backward read is head when the log's
+  first line from `prev`'s second is past `prev`, whether that line is in range, past the upper
+  bound, or absent because the log is empty. A `Tail` fill's lower bound is always `prev` or
   nothing (`gapRange` moves only the upper bound for `Tail`), so the rule stays tied to `prev`
   there too. With no lower bound, nothing changes.
 - `fillOf` clears `fill.Prev` and sets `fill.Head` for **any** head read, forward or backward, on

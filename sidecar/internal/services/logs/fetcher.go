@@ -295,10 +295,11 @@ func (r *reader) backward() error {
 
 // reachedFirst marks a backward read that took every line back to first, the one
 // firstTimestamp found, zero for an empty log. That is the backend's oldest with no
-// since, or with first past since's moment: since's line is gone, and rotation drops
-// the oldest lines first.
+// since. With since, it is when since's line is gone, as rotation drops the oldest
+// lines first: first is past since's moment, or the log is empty from since's second.
 func (r *reader) reachedFirst(first time.Time) {
-	r.head = r.o.since.at.isZero() || !first.IsZero() && first.After(r.o.since.at.Timestamp)
+	since := r.o.since.at
+	r.head = since.isZero() || first.After(since.Timestamp) || first.IsZero() && r.ctx.Err() == nil
 }
 
 // inSinceMoment is whether t is the moment of the line since names. A since that
@@ -328,6 +329,8 @@ func (r *reader) wholeMoment(t time.Time) (bool, error) {
 func (r *reader) backwardUntil(first time.Time) error {
 	until := r.o.until.at.Timestamp
 	if first.After(until) {
+		// No line is in range, and none older than first is left.
+		r.reachedFirst(first)
 		return nil
 	}
 	doublings := max(r.o.windows-2, 0)
