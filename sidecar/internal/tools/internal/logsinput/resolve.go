@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package logsview
+package logsinput
 
 import (
 	"context"
@@ -32,16 +32,16 @@ const (
 	maxBytes = tools.FileLimit
 )
 
-// refused is a view the mirror refuses: the code the model reads, the source it
+// Refused is a view the mirror refuses: the code the model reads, the source it
 // concerns (-1 for the whole view), and for a container it does not have, the
 // ones it does.
-type refused struct {
-	code       string
-	source     int
-	containers []string
+type Refused struct {
+	Code       string
+	Source     int
+	Containers []string
 }
 
-func (e *refused) Error() string { return "logsview: refused: " + e.code }
+func (e *Refused) Error() string { return "logs: refused: " + e.Code }
 
 // The codes a view is refused with.
 const (
@@ -51,11 +51,11 @@ const (
 	codeNoNodes     = "no-nodes"
 )
 
-// note is what the receipt says of one source beyond its name: what the mirror
-// holds of it now, the containers it has, the default container the mirror shows
-// now when it was picked among several, and for a workload with previous, how
-// many of its pods have an instance to show.
-type note struct {
+// Note is what a tool says of one source beyond its name: what the mirror holds of
+// it now, the containers it has, the default container the mirror shows now when
+// it was picked among several, and for a workload with previous, how many of its
+// pods have an instance to show.
+type Note struct {
 	state      logs.SourceState
 	containers []string
 	defaulted  string
@@ -63,18 +63,13 @@ type note struct {
 	restarted  int
 }
 
-// resolve is the view the call opens, over one reading of the cluster's active
-// cache: each source checked against the mirror, its containers defaulted, its
-// previous instance found, and the anchor and the moment on the tool's clock.
-func (t *Tool) resolve(ctx context.Context, clusterID cluster.ClusterID, in input) (tools.LogsViewAction, []note, error) {
-	now := t.now()
-	anchor, err := anchorOf(in.anchor, now)
-	if err != nil {
-		return tools.LogsViewAction{}, nil, err
-	}
+// Resolve is the view in reads, over one reading of the cluster's active cache:
+// each source checked against the mirror, its containers defaulted and its
+// previous instance found, resolved at now. Its anchor is the tool's to set.
+func Resolve(ctx context.Context, svc cluster.Service, now time.Time, clusterID cluster.ClusterID, in Input) (tools.LogsViewAction, []Note, error) {
 	var view tools.LogsViewAction
-	var notes []note
-	err = t.svc.CachedData().ReadActive(ctx, clusterID, maxRows, maxBytes, func(q cluster.CacheReading, _ cluster.ActiveCluster) error {
+	var notes []Note
+	err := svc.CachedData().ReadActive(ctx, clusterID, maxRows, maxBytes, func(q cluster.CacheReading, _ cluster.ActiveCluster) error {
 		var err error
 		view, notes, err = resolveIn(q, in)
 		return err
@@ -82,20 +77,20 @@ func (t *Tool) resolve(ctx context.Context, clusterID cluster.ClusterID, in inpu
 	if err != nil {
 		return tools.LogsViewAction{}, nil, err
 	}
-	view.Anchor, view.PinToEnd, view.ResolvedAt = anchor, in.pinToEnd, now.UTC()
+	view.ResolvedAt = now.UTC()
 	return view, notes, nil
 }
 
 // resolveIn is one reading's view, each source checked in turn, then the whole
 // as the logs service resolves it, so a view the tool opens is one it reads. It
 // builds the view afresh, since ReadActive may run it twice.
-func resolveIn(q cluster.CacheReading, in input) (tools.LogsViewAction, []note, error) {
-	view := tools.LogsViewAction{LogsViewInput: tools.LogsViewInput{Sources: []tools.LogsViewSource{}, Filters: in.filters, Grep: in.grep}}
+func resolveIn(q cluster.CacheReading, in Input) (tools.LogsViewAction, []Note, error) {
+	view := tools.LogsViewAction{LogsViewInput: tools.LogsViewInput{Sources: []tools.LogsViewSource{}, Filters: in.Filters, Grep: in.Grep}}
 	if view.Filters == nil {
 		view.Filters = []tools.LogsViewFilter{}
 	}
-	var notes []note
-	for i, s := range in.sources {
+	var notes []Note
+	for i, s := range in.Sources {
 		src, n, err := resolveSource(q, i, s)
 		if err != nil {
 			return tools.LogsViewAction{}, nil, err
@@ -125,11 +120,11 @@ func refusedBy(err error) error {
 	var unmirrored logs.Unmirrored
 	switch {
 	case errors.As(err, &unmirrored):
-		return &refused{code: codeNotMirrored, source: unmirrored.Source}
+		return &Refused{Code: codeNotMirrored, Source: unmirrored.Source}
 	case errors.Is(err, logs.ErrTooMany):
-		return &refused{code: codeTooMany, source: -1}
+		return &Refused{Code: codeTooMany, Source: -1}
 	case errors.As(err, new(logs.NoNodes)):
-		return &refused{code: codeNoNodes, source: -1}
+		return &Refused{Code: codeNoNodes, Source: -1}
 	}
 	return err
 }
@@ -138,22 +133,22 @@ func refusedBy(err error) error {
 // is one of its object's. With none named the backend reads each pod's default
 // container, and the receipt names the one the object has now. An object the
 // mirror does not hold yet checks nothing.
-func resolveSource(q cluster.CacheReading, i int, s source) (tools.LogsViewSource, note, error) {
+func resolveSource(q cluster.CacheReading, i int, s Source) (tools.LogsViewSource, Note, error) {
 	f, err := object(q, s)
 	if err != nil {
-		return tools.LogsViewSource{}, note{}, err
+		return tools.LogsViewSource{}, Note{}, err
 	}
-	src := tools.LogsViewSource{Namespace: s.namespace, Kind: s.kind, Name: s.name, Containers: []string{}, AllContainers: s.allContainers, Previous: s.previous}
-	n := note{containers: f.names}
+	src := tools.LogsViewSource{Namespace: s.Namespace, Kind: s.Kind, Name: s.Name, Containers: []string{}, AllContainers: s.AllContainers, Previous: s.Previous}
+	n := Note{containers: f.names}
 	switch {
-	case s.allContainers:
-	case len(s.containers) > 0:
-		for _, c := range s.containers {
+	case s.AllContainers:
+	case len(s.Containers) > 0:
+		for _, c := range s.Containers {
 			if f.uid != "" && !slices.Contains(f.names, c) {
-				return tools.LogsViewSource{}, note{}, &refused{code: codeNoContainer, source: i, containers: f.names}
+				return tools.LogsViewSource{}, Note{}, &Refused{Code: codeNoContainer, Source: i, Containers: f.names}
 			}
 		}
-		src.Containers = s.containers
+		src.Containers = s.Containers
 	case len(f.names) > 1:
 		n.defaulted = defaultContainer(f)
 	}
@@ -169,22 +164,14 @@ func defaultContainer(f found) string {
 	return f.names[0]
 }
 
-// anchorOf is the anchor the model typed on the clock: tail, head, an RFC 3339
-// time, or a duration back from now.
-func anchorOf(s string, now time.Time) (tools.LogsViewAnchor, error) {
-	switch s {
-	case "", "tail":
-		return tools.LogsViewAnchor{Kind: tools.LogsAnchorTail}, nil
-	case "head":
-		return tools.LogsViewAnchor{Kind: tools.LogsAnchorHead}, nil
-	}
-	if at, err := time.Parse(time.RFC3339, s); err == nil {
-		at = at.UTC()
-		return tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: &at}, nil
+// MomentOf is the moment s names on the clock now: an RFC 3339 time, or a
+// duration back from now such as 2m; false for neither.
+func MomentOf(s string, now time.Time) (time.Time, bool) {
+	if at, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return at.UTC(), true
 	}
 	if d, err := time.ParseDuration(s); err == nil && d > 0 {
-		at := now.Add(-d).UTC()
-		return tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: &at}, nil
+		return now.Add(-d).UTC(), true
 	}
-	return tools.LogsViewAnchor{}, &inputError{field: "anchor", source: -1, message: anchorMessage}
+	return time.Time{}, false
 }

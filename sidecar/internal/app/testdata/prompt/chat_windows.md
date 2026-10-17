@@ -528,6 +528,7 @@ Open or replace the live view of logs in the user's window: one or more resource
     "sources": {
       "type": "array",
       "minItems": 1,
+      "maxItems": 100,
       "description": "What the view reads. Lines from every source are merged by timestamp.",
       "items": {
         "type": "object",

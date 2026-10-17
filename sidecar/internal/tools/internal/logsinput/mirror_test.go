@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package logsview
+package logsinput
 
 import (
 	"testing"
@@ -22,10 +22,11 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/logsinput/logsinputtest"
 )
 
 // objectOf is what object reads of src over f.
-func objectOf(t *testing.T, f *fakeService, src source) found {
+func objectOf(t *testing.T, f *logsinputtest.Service, src Source) found {
 	t.Helper()
 	var got found
 	require.NoError(t, f.CachedData().ReadActive(t.Context(), "7", maxRows, maxBytes, func(q cluster.CacheReading, _ cluster.ActiveCluster) error {
@@ -40,9 +41,9 @@ func objectOf(t *testing.T, f *fakeService, src source) found {
 // containers.
 func TestAPodIsReadOffTheContainersTable(t *testing.T) {
 	t.Parallel()
-	f := mirrorOf(t, podOf("web-1", "istio-proxy", nil, container{name: "app", restarted: true}, container{name: "istio-proxy"}, container{name: "setup", init: true}))
+	f := logsinputtest.MirrorOf(t, logsinputtest.PodOf("web-1", "istio-proxy", nil, logsinputtest.Container{Name: "app", Restarted: true}, logsinputtest.Container{Name: "istio-proxy"}, logsinputtest.Container{Name: "setup", Init: true}))
 
-	got := objectOf(t, f, source{namespace: "prod", kind: tools.LogsSourcePod, name: "web-1"})
+	got := objectOf(t, f, Source{Namespace: "prod", Kind: tools.LogsSourcePod, Name: "web-1"})
 
 	assert.Equal(t, found{uid: "uid-web-1", names: []string{"app", "istio-proxy", "setup"}, annotated: "istio-proxy"}, got)
 }
@@ -51,26 +52,26 @@ func TestAPodIsReadOffTheContainersTable(t *testing.T) {
 // template's.
 func TestAWorkloadIsReadOffItsTemplate(t *testing.T) {
 	t.Parallel()
-	f := mirrorOf(t,
-		map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": meta("dep-1", "web", ""),
-			"spec": map[string]any{"template": template("istio-proxy")}},
-		map[string]any{"apiVersion": "batch/v1", "kind": "CronJob", "metadata": meta("cron-1", "nightly", ""),
-			"spec": map[string]any{"jobTemplate": map[string]any{"spec": map[string]any{"template": template("app")}}}},
+	f := logsinputtest.MirrorOf(t,
+		map[string]any{"apiVersion": "apps/v1", "kind": "Deployment", "metadata": logsinputtest.Meta("dep-1", "web", ""),
+			"spec": map[string]any{"template": logsinputtest.Template("istio-proxy")}},
+		map[string]any{"apiVersion": "batch/v1", "kind": "CronJob", "metadata": logsinputtest.Meta("cron-1", "nightly", ""),
+			"spec": map[string]any{"jobTemplate": map[string]any{"spec": map[string]any{"template": logsinputtest.Template("app")}}}},
 	)
 	want := []string{"app", "istio-proxy", "setup"}
 
-	got := objectOf(t, f, source{namespace: "prod", kind: tools.LogsSourceDeployment, name: "web"})
+	got := objectOf(t, f, Source{Namespace: "prod", Kind: tools.LogsSourceDeployment, Name: "web"})
 	assert.Equal(t, found{uid: "dep-1", names: want, annotated: "istio-proxy"}, got)
 
-	got = objectOf(t, f, source{namespace: "prod", kind: tools.LogsSourceCronJob, name: "nightly"})
+	got = objectOf(t, f, Source{Namespace: "prod", Kind: tools.LogsSourceCronJob, Name: "nightly"})
 	assert.Equal(t, found{uid: "cron-1", names: want, annotated: "app"}, got)
 }
 
 // An object the mirror does not hold reads as none.
 func TestAMissingObjectReadsAsNone(t *testing.T) {
 	t.Parallel()
-	f := mirrorOf(t)
+	f := logsinputtest.MirrorOf(t)
 	for _, kind := range []tools.LogsSourceKind{tools.LogsSourcePod, tools.LogsSourceStatefulSet} {
-		assert.Empty(t, objectOf(t, f, source{namespace: "prod", kind: kind, name: "web"}).uid, kind)
+		assert.Empty(t, objectOf(t, f, Source{Namespace: "prod", Kind: kind, Name: "web"}).uid, kind)
 	}
 }

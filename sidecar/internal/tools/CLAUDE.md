@@ -1,7 +1,8 @@
 # internal/tools — every tool the model can call
 
 Each package directly under `tools/` is one tool; `box.go`, `tool.go`, `save.go` and
-`workspace.go` are what they share, and `tools/internal/fileguard` is the file tools' checks. What
+`workspace.go` are what they share, `tools/internal/fileguard` is the file tools' checks, and
+`tools/internal/logsinput` is what the log tools share. What
 confines a run (sandbox, permissions, proxy, session) is `internal/run/CLAUDE.md`; who calls a tool
 and files its rows is `internal/agent/CLAUDE.md`.
 
@@ -115,14 +116,23 @@ whose SDK it imports.
 against the mirror, hands back a `LogsViewAction` the row keeps, and answers a one-line receipt
 through `safe.Redact`. The action embeds `LogsViewInput` (`services/logs`' `View`, aliased in
 `tools`) plus an `Anchor`, `PinToEnd` and `ResolvedAt`, the moment it resolved on the tool's clock, which a frozen card reads up to; the enums bind member by member in `gqlgen.yml`.
-`parse.go` is a strict walk (each key once, DNS names, `grep` compiled on one line of at most
-`MaxGrep`). `resolve.go` reads the anchor and the moment on the tool's clock, then each source inside one
-`ReadActive`, then runs `logs.Check` so a view the tool opens is one the service reads. **A source
+It reads its own `anchor` and `pin_to_end` through `logsinput.Parse`'s `extra`, then resolves the
+view with `logsinput.Resolve`. **A source
 the mirror does not hold yet opens**: a view waits for it. A refusal is one JSON line with a code,
 never the model's text. It is in `catalog`'s `ours` and `app.go`'s box, and out of `SubagentBox`
 and `MonitorBox`: a view is the user's window. The model sees no line of a view, except those the
 user selects and sends, which ride the question's View section (`internal/agent/CLAUDE.md`).
-Tests run over a real store (`cluster/clustertest`). The service it checks against is `internal/services/logs/CLAUDE.md`.
+The service it checks against is `internal/services/logs/CLAUDE.md`.
+
+## The log tools' input (`tools/internal/logsinput`)
+
+**`tools/internal/logsinput` is what the log tools share.** `Parse(raw, extra)` is the strict walk
+(each key once, DNS names, at most 100 sources, `grep` compiled on one line of at most `MaxGrep`);
+a key it does not share goes to the tool's `extra`. `Resolve(ctx, svc, now, id, in)` checks each
+source inside one `ReadActive`, then runs `logs.Check`, so a view a tool takes is one the service
+reads. `MomentOf` is the shared moment grammar; `SourcesText`, `NotesText` and `NameOf` how a tool
+describes a source; `Refusal` and `Result` how it answers. `logsinputtest` is the fake cluster and
+the fixtures the tools' tests run over (`cluster/clustertest` beneath).
 
 ## KubeQuery (`tools/kubequery`)
 
