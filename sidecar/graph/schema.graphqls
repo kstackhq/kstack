@@ -1450,8 +1450,8 @@ type LogRecord {
 }
 
 """
-Lines of a stream the cluster no longer holds and the log file never read. They lie before the
-line that carries the gap.
+Lines of a stream that neither the cluster nor the log cache holds. They lie before the line that
+carries the gap.
 """
 type LogGap {
   "When the last known line before the hole was stamped."

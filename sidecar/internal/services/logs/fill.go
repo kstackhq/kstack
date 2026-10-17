@@ -207,17 +207,16 @@ func (f *filler) read(ctx context.Context, tier int, lower, upper, prev, next *l
 }
 
 // headRead is whether r reached the backend's oldest line: r says so, or it is a
-// forward read from prev's second whose GET returned no line at or before prev, and
-// got a line or ended clean. Rotation drops the oldest lines first, so prev's line
-// gone means everything up to it is, and the GET began at the oldest line left. A
-// read from any other bound, a page's key, says nothing of rotation.
+// forward read from prev's second that found prev's line rotated away, and got a
+// line or ended clean. A read from any other bound, a page's key, says nothing of
+// rotation.
 func (f *filler) headRead(r *streamRead, lower, prev *logstore.Pos) bool {
 	fromPrev := f.q.mode == FetchHead && prev != nil && lower != nil && *lower == *prev
 	if r.head || !fromPrev {
 		return r.head
 	}
 	got, clean := !r.oldest.IsZero(), r.err == nil && !r.short
-	return !returnedWhole(r.oldest, prev) && (got || clean)
+	return rotatedAway(r.oldest, prev) && (got || clean)
 }
 
 // hole is whether a backward read from prev left a range below its oldest line it
@@ -301,6 +300,14 @@ func (f *filler) fillOf(tier int, r *streamRead, lines []logstore.Line, whole, h
 	}
 	fill.AtEnd = upper == nil && f.ps.st.finished() && r.err == nil && len(lines) > 0
 	return fill
+}
+
+// rotatedAway is whether a forward read from prev's second, a fill's or a tailer's,
+// whose GET's first line came at oldest, found prev's line gone. Rotation drops the
+// oldest lines first, so everything up to prev is gone too, and the GET began at the
+// backend's oldest line: the read is head.
+func rotatedAway(oldest time.Time, prev *logstore.Pos) bool {
+	return prev != nil && !returnedWhole(oldest, prev)
 }
 
 // returnedWhole is whether a forward read from prev's second, whose GET's first line

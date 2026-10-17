@@ -27,7 +27,7 @@ import type { LogLine } from '@/lib/log-viewer';
 import { type Column, dotColor } from './columns';
 import { CellContextMenu } from './context-menu';
 import { lineTime } from './line-time';
-import { getPlainAttribute } from './selection';
+import { getPlainAttribute, streamName } from './selection';
 import { SelectionOverlay } from './selection-overlay';
 import { POS_MIN_PX, type WidthKey } from './widths';
 
@@ -88,15 +88,14 @@ function Dot({ line }: { line: LogLine }) {
 // The hole before a line, in a grid row of its own over every column past the position. It
 // is no cell: selection passes over it, and a row's copy writes it (`gapNotice`).
 function GapNotice({ line, gap }: { line: LogLine; gap: NonNullable<LogLine['gap']> }) {
-  const { namespace, pod, container } = line.stream;
   return (
     <div
       data-testid="log-gap"
       className="cursor-default truncate px-2 text-muted-foreground italic select-none"
       style={{ gridColumn: '2 / -1' }}
     >
-      Lines may be missing from <VisibleText text={`${namespace}/${pod}/${container}`} /> between {lineTime(gap.after)}{' '}
-      and {lineTime(gap.before)}: the cluster no longer holds them.
+      Lines may be missing from <VisibleText text={streamName(line.stream)} /> between {lineTime(gap.after)} and{' '}
+      {lineTime(gap.before)}: the cluster no longer holds them.
     </div>
   );
 }

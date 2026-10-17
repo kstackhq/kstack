@@ -22,8 +22,8 @@ viewer could not tell a lost range from a quiet one.
 A forward read from `prev`'s second whose GET returned no line at or before `prev`, and got a
 line or ended clean, found `prev`'s line rotated away (`filler.headRead`, `fill.go`). A backward
 read that reached the log's first line past its lower bound did too (`reachedFirst`,
-`fetcher.go`). A tail opened with `prev` that does not merge opens a head chunk
-(`logstore/writer.go`). The chunk is head and has no link, so `CoverageOf` reads the hole as a
+`fetcher.go`). A tailer resuming from `prev` takes the filler's test (`rotatedAway`) and opens a
+head chunk (`tailer.go`). The chunk is head and has no link, so `CoverageOf` reads the hole as a
 lost gap. A read from any other bound, a page's key, says nothing of rotation and links as
 before.
 

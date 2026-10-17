@@ -57,7 +57,6 @@ type batch struct {
 type tailState struct {
 	chunk *Chunk
 	prev  *Pos
-	merge bool
 	head  bool
 }
 
@@ -202,12 +201,7 @@ func writeBatches(ctx context.Context, st stmts, ret Retention, tails map[*Tail]
 	for _, b := range batches {
 		s, ok := tails[b.tail]
 		if !ok {
-			s = tailState{prev: b.tail.prev, merge: b.tail.merge}
-			if s.prev != nil && !s.merge {
-				// A tail reads from prev's second, so a read that did not return prev's
-				// moment found it rotated away and began at the backend's oldest line.
-				s = tailState{head: true}
-			}
+			s = tailState{prev: b.tail.prev, head: b.tail.head}
 		}
 		if b.tail.Err() != nil {
 			// A failed tail's lines are left to a fill; its last batch still closes
@@ -263,7 +257,7 @@ func writeBatch(ctx context.Context, st stmts, ret Retention, b batch, s tailSta
 		cur = *s.chunk
 	} else {
 		var err error
-		if cur, fresh, err = startChunk(ctx, st, ret, b.tail.stream, "", b.tail.origin, s.prev, s.merge, b.lines[0]); err != nil {
+		if cur, fresh, err = startChunk(ctx, st, ret, b.tail.stream, "", b.tail.origin, s.prev, true, b.lines[0]); err != nil {
 			return s, err
 		}
 		if fresh {
@@ -307,11 +301,11 @@ type Tail struct {
 	file   context.Context
 	stream int64
 	origin string
-	// prev is the last line of the chunk the tail continues, nil when it starts on a
-	// gap, and merge whether its read returned prev's moment whole, which extends that
-	// chunk. A tail with prev that does not merge opens a head chunk linked to nothing.
-	prev  *Pos
-	merge bool
+	// prev is the last line of the chunk the tail extends, nil when it starts on a
+	// gap, and head whether its read began at the backend's oldest line, which opens a
+	// head chunk.
+	prev *Pos
+	head bool
 	// committed is the last line of the tail's that has landed, nil before the first.
 	committed atomic.Pointer[Pos]
 	// failed is closed once a write of the tail's lines has failed, err saying why.
@@ -320,16 +314,16 @@ type Tail struct {
 	err    error
 }
 
-// OpenTail opens a tail of the stream id for the backend origin, continuing prev as a
-// forward fill from prev's second continues it. Close it.
-func (s *Store) OpenTail(id int64, origin string, prev *Pos, merge bool) (*Tail, error) {
+// OpenTail opens a tail of the stream id for the backend origin, extending the chunk
+// ending at prev, or opening a head chunk. Close it.
+func (s *Store) OpenTail(id int64, origin string, prev *Pos, head bool) (*Tail, error) {
 	f, done, err := s.use()
 	if err != nil {
 		return nil, fmt.Errorf("open tail: %w", err)
 	}
 	defer done()
 	return &Tail{
-		tx: f.w.queue.Sender(), file: f.ctx, stream: id, origin: origin, prev: prev, merge: merge,
+		tx: f.w.queue.Sender(), file: f.ctx, stream: id, origin: origin, prev: prev, head: head,
 		failed: make(chan struct{}),
 	}, nil
 }

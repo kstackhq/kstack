@@ -62,11 +62,11 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   (`walk.go`) and merges (`merge.go`). A page never passes lines a stream did not read: a short
   stop becomes the cut. **A change to a read path answers to `TestPagesJoinWithoutLossOrRepeat` and
   `TestTheFileKeepsItsInvariant`** (seeded; fewer seeds under `-short`).
-- **A head read never links** (`filler.headRead`, `reachedFirst`, the writer's tail): a read from
-  a chunk's last line that found it rotated away writes a head chunk with no link, so the hole is
-  a lost gap. **A record carries the hole before it** (`Record.Gap`, `holes.go`): every lost gap
-  between two spans that lies between it and its stream's last line the view passes; one past a
-  tailer's start once the tailer has committed past it. A walk gives
+- **A head read never links** (`rotatedAway`, which the filler and the tailer share;
+  `reachedFirst`): a read from a chunk's last line that found it rotated away writes a head chunk
+  with no link, so the hole is a lost gap. **A record carries the hole before it** (`Record.Gap`,
+  `holes.go`): every lost gap between two spans that lies between it and its stream's last line
+  the view passes; one past a tailer's start once the tailer has committed past it. A walk gives
   a hole between two records to the later; its older edge's record, and a follow's first line on
   a stream, look back past the edge (`looker`, under `Retention.LookBytes`). → [ADR: a head read
   never links](../../../../docs/adr/2026-10-17-a-head-read-never-links.md).

@@ -33,8 +33,8 @@ type Record struct {
 	Gap         *Gap
 }
 
-// Gap is a range of a stream whose lines may be missing: the cluster no longer holds
-// them and the file never read them. After is the stamp of the last known line
+// Gap is a range of a stream whose lines may be missing: neither the cluster nor the
+// file holds them. After is the stamp of the last known line
 // before it, Before that of the first known line past it.
 type Gap struct {
 	After  time.Time

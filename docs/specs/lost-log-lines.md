@@ -3,8 +3,9 @@
 The log viewer tells the user where lines may be missing. It draws a short notice above the
 first line after a hole, naming the container and the time range. Answers
 [#313](https://github.com/kstackhq/kstack/issues/313). Builds on the log cache
-(`docs/specs/log-cache/`) and lands on `wip/log-views`. Go paths are under
-`sidecar/internal/services/logs/`.
+(`docs/specs/log-cache/`). It is one spec, not a log-views rung, but lands on `wip/log-views`
+rather than a `wip/` of its own: the viewer it changes exists only there. It is deleted in the
+PR that lands it. Go paths are under `sidecar/internal/services/logs/`.
 
 ## In short
 
@@ -74,9 +75,10 @@ the no-bound rule already requires: a cut or failed read proves nothing.
 - `fillOf` clears `fill.Prev` and sets `fill.Head` for **any** head read, forward or backward, on
   every tier. Today its backward branch links to `prev` whenever the read covered its range
   whole, which would link across the hole a backward head read found.
-- `logstore/writer.go`: a tail always reads from `prev`'s second, so a tail opened with `prev`
-  set and `merge` false is a head read. Its first chunk opens as head with no link. `OpenTail`
-  keeps its signature.
+- `tailer.go`: a tail always reads from `prev`'s second, so the tailer takes the filler's test
+  (`rotatedAway`, beside `returnedWhole` in `fill.go`) on its first line. A head tail opens with
+  no `prev`, and `OpenTail(id, origin, prev, head)` opens its first chunk as head. The writer
+  records what it is told and decides nothing.
 
 `CoverageOf` then finds a gap below the head chunk and marks it lost, because it is older than a
 head chunk of the last backend. `coverage.go` does not change. Walks already cross lost gaps, so
@@ -113,8 +115,8 @@ type LogRecord {
 }
 
 """
-Lines of a stream the cluster no longer holds and the log file never read. They lie before the
-line that carries the gap.
+Lines of a stream that neither the cluster nor the log cache holds. They lie before the line that
+carries the gap.
 """
 type LogGap {
   "When the last known line before the hole was stamped."
@@ -193,6 +195,9 @@ a line with a gap. It spans every column after the position, and reads:
 > Lines may be missing from `namespace/pod/container` between *10:00:03* and *10:05:41*: the
 > cluster no longer holds them.
 
+A previous instance's stream is named `namespace/pod/container (previous)`, since two instances
+of a container share a name.
+
 The two times are the gap's `after` and `before`, never the line's own stamp: with a grep the
 carrier can sit well past the hole. The names go through `VisibleText`, the times
 through the time column's formatter (`line-time.ts`). Cell selection ignores the notice. Row
@@ -228,7 +233,7 @@ Two more:
 All Done, in one PR into `wip/log-views`.
 
 1. **Record the hole** (§1). `fill.go`'s `hole` and `fillOf`, `fetcher.go`'s `reachedFirst`, and the
-   writer's tail. Update `TestTheFileKeepsItsInvariant`'s model so a rotation leaves a lost gap
+   tailer's `OpenTail`. Update `TestTheFileKeepsItsInvariant`'s model so a rotation leaves a lost gap
    and no link.
 2. **Report the hole** (§2–§4). `Gap`, the walker's and the follow's look past their edge, the schema,
    gqlgen, the resolvers.
@@ -276,7 +281,7 @@ from the cluster. The notice draws the names through `VisibleText`, like every c
 - A new ADR, *A head read never links*, for §1's rule. It says log-cache step 3's residual
   (*the viewer cannot tell a lost range from a quiet one*) is closed between spans, and open at
   a stream's start.
-- `docs/TODO.md`: the start-of-stream entry stays, and links the ADR.
+- `docs/TODO.md`: the start-of-stream entry stays, links the ADR, and never this spec.
 - Delete this spec.
 
 ## Verification

@@ -170,7 +170,11 @@ func (t *tailer) tail(ctx context.Context, file *logstore.Store, tr *tailRead, p
 		if tail == nil {
 			// The first line has come, so the moment the read began at is known.
 			var err error
-			if tail, err = file.OpenTail(t.row, t.r.s.backends[0].name, prev, returnedWhole(tr.oldest, prev)); err != nil {
+			head := rotatedAway(tr.oldest, prev)
+			if head {
+				prev = nil
+			}
+			if tail, err = file.OpenTail(t.row, t.r.s.backends[0].name, prev, head); err != nil {
 				return false, err
 			}
 			t.current.Store(tail)

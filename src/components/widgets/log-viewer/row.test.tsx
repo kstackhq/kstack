@@ -184,6 +184,15 @@ describe('LogViewerRow', () => {
     expect(row()).toHaveClass(LOG_GAP_ROW_H);
   });
 
+  it("names a previous instance's hole as the previous instance's", () => {
+    const gap = { after: local(2026, 9, 15, 9, 0, 0, 0), before: local(2026, 9, 15, 9, 5, 3, 123) };
+    const stream = { namespace: 'prod', pod: 'webapp-7f9c', container: 'istio-proxy', previous: true };
+    render(<Row of={line({ gap, stream })} />);
+    expect(screen.getByTestId('log-gap')).toHaveTextContent(
+      'Lines may be missing from prod/webapp-7f9c/istio-proxy (previous) between',
+    );
+  });
+
   it('draws no notice for a line with no hole', () => {
     render(<Row />);
     expect(screen.queryByTestId('log-gap')).toBeNull();

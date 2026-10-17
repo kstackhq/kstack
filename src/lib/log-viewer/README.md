@@ -22,8 +22,8 @@ A page's edge cursor names where the next page that way continues.
 The types mirror the wire's `LogRecord`, `LogRecordsPage` and `LogsFollowFrame` field for field.
 
 **A line may carry a hole.** `LogLine.gap` is the stamps of the last known line before a range of
-its stream the cluster no longer holds, and of the first known line past it; null when none.
-The sidecar puts it on the first line past the hole that the view passes, so a repeat dropped by
+its stream that neither the cluster nor the log cache holds, and of the first known line past it;
+null when none. The sidecar puts it on the first line past the hole that the view passes, so a repeat dropped by
 cursor drops nothing new. The library holds it as part of the line and draws nothing of it.
 
 ### The edges
