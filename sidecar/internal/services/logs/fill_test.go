@@ -18,14 +18,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/amorey/gochan/spsc"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 )
 
@@ -156,8 +159,8 @@ func (b *outsideReading) Tail(ctx context.Context, st stream, o readOpts) *strea
 }
 
 // The fills run outside the mirror's reading, which holds one of the mirror's
-// connections: a page reads the mirror once to resolve and once to check what it
-// read, however many gaps it filled.
+// connections: a page reads the mirror once to resolve, and once to check each window
+// it writes, here one per gap.
 func TestTheFillRunsOutsideTheMirrorReading(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
@@ -180,7 +183,7 @@ func TestTheFillRunsOutsideTheMirrorReading(t *testing.T) {
 	assert.Equal(t, messages(linesOf(lineEvery(10))), messages(page.Records))
 	assert.Len(t, s.requests(), 3, "three gaps")
 	assert.False(t, backend.inside.Load())
-	assert.Equal(t, int32(2), f.readings.Load()-before, "the resolve and one check")
+	assert.Equal(t, int32(4), f.readings.Load()-before, "the resolve and a check per gap")
 }
 
 // A restart that lands between the resolve and the read files nothing under the
@@ -191,8 +194,9 @@ func TestARestartBetweenTheResolveAndTheReadFilesNothing(t *testing.T) {
 	s := newLogServer()
 	s.add("prod/web-1/app", stamped(0, "old"))
 	svc, f := serviceOver(t, webMirror(t), s)
-	s.onRequest = func(n int) {
-		if n == 0 {
+	// On web-1's own read, since each stream checks its instance as it writes.
+	s.onRequest = func(int) {
+		if len(s.requestsOf("prod/web-1/app")) == 1 {
 			restartWeb1(t, f, s, stamped(time.Minute, "new"))
 		}
 	}
@@ -431,7 +435,7 @@ func TestAnAroundPagesHalvesJoin(t *testing.T) {
 
 	_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchAround, At: new(at(5 * time.Second)), Limit: 2})
 	require.NoError(t, err)
-	assert.Len(t, logstore.CoverageOf(chunksOf(t, svc, f, "web-1", "app"), []string{"kubelet"}, nil).Spans, 1)
+	assert.Len(t, spansOf(t, svc, f), 1)
 
 	reads := len(s.requests())
 	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Cursor: lineCursor("web-1", "app", 3*time.Second, 0), Limit: 2})
@@ -479,23 +483,23 @@ func TestSegmentsKeepOrderAcrossACutGap(t *testing.T) {
 func TestAHoleIsJudgedByWhatTheReadContinued(t *testing.T) {
 	t.Parallel()
 	prev := logstore.Pos{TS: at(time.Second).UnixNano()}
-	line := logstore.Line{Pos: logstore.Pos{TS: at(3 * time.Second).UnixNano()}}
+	oldest := logstore.Pos{TS: at(3 * time.Second).UnixNano()}
 	for name, c := range map[string]struct {
-		mode  FetchMode
-		lines []logstore.Line
-		whole bool
-		prev  *logstore.Pos
-		want  bool
+		mode   FetchMode
+		oldest *logstore.Pos
+		whole  bool
+		prev   *logstore.Pos
+		want   bool
 	}{
-		"no chunk":           {mode: FetchTail, lines: []logstore.Line{line}, whole: true, want: false},
+		"no chunk":           {mode: FetchTail, oldest: &oldest, whole: true, want: false},
 		"nothing read whole": {mode: FetchTail, whole: true, prev: &prev, want: true},
 		"nothing read short": {mode: FetchTail, prev: &prev, want: false},
-		"backward whole":     {mode: FetchTail, lines: []logstore.Line{line}, whole: true, prev: &prev, want: true},
-		"backward short":     {mode: FetchTail, lines: []logstore.Line{line}, prev: &prev, want: false},
-		"forward":            {mode: FetchHead, lines: []logstore.Line{line}, whole: true, prev: &prev, want: false},
+		"backward whole":     {mode: FetchTail, oldest: &oldest, whole: true, prev: &prev, want: true},
+		"backward short":     {mode: FetchTail, oldest: &oldest, prev: &prev, want: false},
+		"forward":            {mode: FetchHead, oldest: &oldest, whole: true, prev: &prev, want: false},
 	} {
 		f := &filler{q: pageQuery{mode: c.mode}}
-		assert.Equal(t, c.want, f.hole(c.lines, c.whole, c.prev), name)
+		assert.Equal(t, c.want, f.hole(c.oldest, c.whole, c.prev), name)
 	}
 }
 
@@ -534,7 +538,7 @@ func TestAQuietForwardReadLinks(t *testing.T) {
 	_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 100})
 
 	require.NoError(t, err)
-	assert.Len(t, logstore.CoverageOf(chunksOf(t, svc, f, "web-1", "app"), []string{"kubelet"}, nil).Spans, 1)
+	assert.Len(t, spansOf(t, svc, f), 1)
 }
 
 // A forward read that found nothing between two chunks, its GET beginning past the
@@ -629,4 +633,251 @@ func TestARotatedBackwardReadLinksToNothing(t *testing.T) {
 	assert.True(t, chunks[1].Head)
 	assert.Nil(t, chunks[1].Prev)
 	assert.True(t, logstore.CoverageOf(chunks, []string{"kubelet"}, nil).Gaps[1].Lost)
+}
+
+// scripted is a Backend whose every read hands over items, each line stamped with
+// the stream as fakeBackend stamps it, then ends clean. With a gate, it waits for the
+// gate to close before the item at hold.
+type scripted struct {
+	items []readItem
+	hold  int
+	gate  <-chan struct{}
+}
+
+// windows is the items of a backward read of ws, each window newest first, each
+// followed by its end.
+func windows(ws ...[]Record) []readItem {
+	var out []readItem
+	for _, w := range ws {
+		for _, rec := range w {
+			out = append(out, readItem{Record: rec})
+		}
+		out = append(out, readItem{windowEnd: true})
+	}
+	return out
+}
+
+func (b *scripted) read(ctx context.Context, st stream) *streamRead {
+	ctx, cancel := context.WithCancel(ctx)
+	out, lines := spsc.New[readItem](0)
+	go func() {
+		defer out.Close()
+		for i, it := range b.items {
+			if b.gate != nil && i == b.hold {
+				select {
+				case <-b.gate:
+				case <-ctx.Done():
+					return
+				}
+			}
+			if !it.windowEnd {
+				it.Stream, it.Place, it.ContainerID = st.key, st.place, st.gen.instance
+			}
+			if out.SendContext(ctx, it) != nil {
+				return
+			}
+		}
+	}()
+	return &streamRead{key: st.key, lines: lines, cancel: cancel}
+}
+
+func (b *scripted) Forward(ctx context.Context, st stream, _ readOpts) *streamRead {
+	return b.read(ctx, st)
+}
+
+func (b *scripted) Backward(ctx context.Context, st stream, _ readOpts) *streamRead {
+	return b.read(ctx, st)
+}
+
+func (b *scripted) Tail(ctx context.Context, st stream, _ readOpts) *streamRead {
+	return b.read(ctx, st)
+}
+
+// web1Lines is a line of web-1's app at each moment d past 10:00, newest first as a
+// backward read hands them over, saying its whole seconds.
+func web1Lines(ds ...time.Duration) []Record {
+	var out []Record
+	for _, d := range slices.Backward(ds) {
+		out = append(out, line("web-1", "app", d, strconv.Itoa(int(d/time.Second))))
+	}
+	return out
+}
+
+// A backward read writes each window once the next one starts, before the read has
+// ended, so a page holds about two windows of a stream, never all of them.
+func TestAWindowIsWrittenWhenItCompletes(t *testing.T) {
+	t.Parallel()
+	gate := make(chan struct{})
+	backend := &scripted{items: windows(web1Lines(7*time.Second, 8*time.Second, 9*time.Second), web1Lines(4*time.Second, 5*time.Second, 6*time.Second)), hold: 5, gate: gate}
+	svc, f := serviceOn(t, backend)
+	row := seed(t, svc, f, rowOf("web-1", "app"))
+	committed := pinged(t, svc, f, row)
+	done := make(chan Page, 1)
+	go func() {
+		page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Limit: 10})
+		assert.NoError(t, err)
+		done <- page
+	}()
+
+	committed()
+	chunks := chunksOf(t, svc, f, "web-1", "app")
+	require.Len(t, chunks, 1, "the first window, while the second is read")
+	assert.Equal(t, sec(7), chunks[0].From)
+	assert.Equal(t, sec(9), chunks[0].To)
+	close(gate)
+
+	page := testutil.Recv(t, done, "the page")
+	assert.Equal(t, []string{"4", "5", "6", "7", "8", "9"}, messages(page.Records))
+}
+
+// spansOf is the spans of the file's chunks of web-1's app.
+func spansOf(t *testing.T, svc *Service, f *fakeService) []logstore.Span {
+	t.Helper()
+	return logstore.CoverageOf(chunksOf(t, svc, f, "web-1", "app"), kubeletOnly, nil).Spans
+}
+
+// A backward read's windows join: each links up to the oldest line written before it,
+// the first to the chunk at the point, so the file holds one span.
+func TestWindowsJoin(t *testing.T) {
+	t.Parallel()
+	backend := &scripted{items: windows(
+		web1Lines(7*time.Second, 8*time.Second, 9*time.Second),
+		web1Lines(4*time.Second, 5*time.Second, 6*time.Second),
+		web1Lines(time.Second, 2*time.Second, 3*time.Second))}
+	svc, f := serviceOn(t, backend)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(10 * time.Second)})
+
+	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Cursor: lineCursor("web-1", "app", 10*time.Second, 0), Limit: 20})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"1", "2", "3", "4", "5", "6", "7", "8", "9"}, messages(page.Records))
+	assert.Equal(t, []logstore.Span{{From: sec(1), To: sec(10)}}, spansOf(t, svc, f))
+}
+
+// A window with no line writes nothing, and the window older than it links up over it.
+func TestAnEmptyWindowIsLinkedOver(t *testing.T) {
+	t.Parallel()
+	backend := &scripted{items: windows(
+		web1Lines(7*time.Second, 8*time.Second, 9*time.Second),
+		web1Lines(),
+		web1Lines(time.Second, 2*time.Second, 3*time.Second))}
+	svc, f := serviceOn(t, backend)
+
+	_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Limit: 20})
+
+	require.NoError(t, err)
+	assert.Equal(t, []logstore.Span{{From: sec(1), To: sec(9)}}, spansOf(t, svc, f))
+}
+
+// A Tail page from the end of a finished instance marks the newest chunk it wrote
+// at_end, from the read's first window, whether older windows follow it or the page
+// fills inside it; a Head page to the end then asks the kubelet nothing.
+func TestTheFirstWindowOfAFinishedInstanceIsAtEnd(t *testing.T) {
+	t.Parallel()
+	for name, limit := range map[string]int{"older windows follow": 20, "cut inside it": 5} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := newLogServer()
+			s.add("prod/web-1/app", lineEvery(30)...)
+			f := newMirror(t, append([]map[string]any{finished(pod("web-1", "uid-web-1", "node-a", nil, container{name: "app"}))}, webNodes()...)...)
+			svc, _ := serviceOver(t, f, s)
+
+			page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Limit: limit})
+			require.NoError(t, err)
+			chunks := chunksOf(t, svc, f, "web-1", "app")
+			newest := chunks[len(chunks)-1]
+			assert.Equal(t, sec(29), newest.To)
+			assert.True(t, newest.AtEnd)
+
+			reads := len(s.requests())
+			_, err = svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Cursor: page.After.Cursor, Limit: 10})
+			require.NoError(t, err)
+			assert.Len(t, s.requests(), reads)
+		})
+	}
+}
+
+// A read the page fills inside a window writes the window's newest part, linked up to
+// the chunk at the point and down to nothing, so no line below the cursor is lost.
+func TestAReadCutInsideAWindowLinksOnlyUp(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(11)...)
+	svc, f := serviceOver(t, webMirror(t), s)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(10 * time.Second)})
+	point := lineCursor("web-1", "app", 10*time.Second, 0)
+
+	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Cursor: point, Limit: 4})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"6", "7", "8", "9"}, messages(page.Records))
+	assert.Equal(t, []logstore.Span{{From: sec(5), To: sec(10)}}, spansOf(t, svc, f), "windows from 9, 7 and 3, the last cut at 5")
+	assert.Equal(t, messages(linesOf(lineEvery(10))), messages(walk(t, svc, web1View, FetchTail, 4, point)))
+}
+
+// A read of several windows that reaches the log's first line marks the oldest chunk
+// it wrote head.
+func TestAReadOfSeveralWindowsToTheFirstLineIsHead(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(30)...)
+	svc, f := serviceOver(t, webMirror(t), s)
+	view := web1View
+	view.Grep = "never"
+
+	_, err := svc.Fetch(t.Context(), "7", view, FetchQuery{Mode: FetchTail, Limit: 2})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"10", "20", "30", ""}, tails(s))
+	chunks := chunksOf(t, svc, f, "web-1", "app")
+	assert.Equal(t, sec(0), chunks[0].From)
+	assert.True(t, chunks[0].Head)
+	assert.Equal(t, []logstore.Span{{From: sec(0), To: sec(29)}}, spansOf(t, svc, f))
+}
+
+// A restart the mirror shows between two windows stops the read: the window written
+// stays, the stream is skipped, here refusing a page of it alone, and no line of the
+// read after it lands in the file.
+func TestARestartBetweenWindowsStopsTheRead(t *testing.T) {
+	t.Parallel()
+	gate := make(chan struct{})
+	backend := &scripted{items: windows(web1Lines(7*time.Second, 8*time.Second, 9*time.Second), web1Lines(4*time.Second, 5*time.Second, 6*time.Second)), hold: 5, gate: gate}
+	svc, f := serviceOn(t, backend)
+	row := seed(t, svc, f, rowOf("web-1", "app"))
+	committed := pinged(t, svc, f, row)
+	done := make(chan error, 1)
+	go func() {
+		_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Limit: 10})
+		done <- err
+	}()
+
+	committed()
+	f.store.Apply(t, pod("web-1", "uid-web-1", "node-a", webReplicaSet(), container{name: "app", restarted: true}, container{name: "istio-proxy"}))
+	close(gate)
+
+	assert.EqualError(t, testutil.Recv(t, done, "the page"), "no container of this view could be read: web-1/app: restarted while reading")
+	chunks := chunksOf(t, svc, f, "web-1", "app")
+	require.Len(t, chunks, 1)
+	assert.Equal(t, sec(7), chunks[0].From)
+	assert.Equal(t, sec(9), chunks[0].To)
+}
+
+// afterFill runs once a page has written every window of every stream, before its
+// walk, however many windows it wrote.
+func TestAfterFillRunsOncePerPage(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(30)...)
+	s.add("prod/web-2/app", lineEvery(30)...)
+	svc, _ := serviceOver(t, webMirror(t), s)
+	var calls atomic.Int32
+	svc.afterFill = func() { calls.Add(1) }
+	view := webView
+	view.Grep = "never"
+
+	_, err := svc.Fetch(t.Context(), "7", view, FetchQuery{Mode: FetchTail, Limit: 2})
+
+	require.NoError(t, err)
+	assert.Len(t, s.requestsOf("prod/web-1/app"), 5, "three windows of each stream")
+	assert.Equal(t, int32(1), calls.Load())
 }

@@ -515,7 +515,9 @@ func TestAPageWhoseRowWentReadsNothingOfIt(t *testing.T) {
 	backend := newFakeBackend()
 	release := make(chan struct{})
 	backend.set("web-1/app", fakeRead{lines: []Record{{Timestamp: at(time.Second), Message: "1"}}, wait: release})
-	backend.set("web-2/app", fakeRead{lines: []Record{{Timestamp: at(2 * time.Second), Message: "2"}}})
+	// Both reads wait, since a stream writes once its read ends, and the delete
+	// below takes the file's one writer.
+	backend.set("web-2/app", fakeRead{lines: []Record{{Timestamp: at(2 * time.Second), Message: "2"}}, wait: release})
 	dir := t.TempDir()
 	svc, _ := serviceIn(t, webMirror(t), newLogServer(), dir, testRetention)
 	svc.backends = []namedBackend{{"kubelet", func(getter) Backend { return backend }}}
@@ -867,7 +869,8 @@ func TestAFetchSharesItsBudgetPerStream(t *testing.T) {
 }
 
 // An Around page's halves read one resolve of the view, so they read the same
-// streams: one reading of the mirror to resolve, one to check, and one claim.
+// streams: one reading of the mirror to resolve, and one claim. Each window written
+// checks the stream's instance with a reading of its own.
 func TestAnAroundPageReadsTheViewOnce(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
@@ -879,7 +882,7 @@ func TestAnAroundPageReadsTheViewOnce(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"3", "4", "5", "6"}, messages(page.Records))
-	assert.Equal(t, int32(2), f.readings.Load()-readings, "the resolve and one check")
+	assert.Equal(t, int32(5), f.readings.Load()-readings, "the resolve, and a check for each of the Tail half's three windows and the Head half's one")
 	assert.Equal(t, int32(1), f.lease.released.Load(), "one claim")
 }
 
