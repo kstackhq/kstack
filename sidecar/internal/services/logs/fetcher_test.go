@@ -430,9 +430,8 @@ func tails(s *logServer) []string {
 	return out
 }
 
-// A backward read that needs two windows reads the second further back, and sends
-// the lines newest first; the window that reaches the first line is followed by a
-// read of the first moment.
+// A backward read that needs two windows reads the second further back; the window
+// that reaches the first line is followed by a read of the first moment.
 func TestABackwardReadNeedsTwoWindows(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
@@ -440,7 +439,7 @@ func TestABackwardReadNeedsTwoWindows(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, backwardOpts())
 
-	recs := drain(r)
+	recs := newestFirst(drain(r))
 	require.NoError(t, r.err)
 	assert.Equal(t, []string{"14", "13", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2", "1", "0"}, messages(recs))
 	assert.False(t, r.short)
@@ -451,8 +450,9 @@ func TestABackwardReadNeedsTwoWindows(t *testing.T) {
 // A backward read under until over a range far longer than its first window
 // reaches the log's first line in its last window, and is not short: the first
 
-// A backward read hands over the end of each window after its last line, so its
-// reader can write a window once it is whole.
+// A backward read hands over each window oldest first and its end after its last
+// line, so its reader can write the window as it arrives. The read of the first moment
+// is a window of its own, older than the window that found it.
 func TestABackwardReadEndsEachWindow(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
@@ -460,7 +460,7 @@ func TestABackwardReadEndsEachWindow(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, backwardOpts())
 
-	assert.Equal(t, []string{"14", "13", "12", "11", "10", "9", "8", "7", "6", "|", "5", "4", "3", "2", "1", "0", "|"}, windowsOf(r))
+	assert.Equal(t, []string{"6", "7", "8", "9", "10", "11", "12", "13", "14", "|", "1", "2", "3", "4", "5", "|", "0", "|"}, windowsOf(r))
 	require.NoError(t, r.err)
 }
 
@@ -474,8 +474,135 @@ func TestABackwardReadUnderUntilEndsEachWindow(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, o)
 
-	assert.Equal(t, []string{"5", "4", "3", "|", "2", "1", "0", "|"}, windowsOf(r))
+	assert.Equal(t, []string{"3", "4", "5", "|", "0", "1", "2", "|"}, windowsOf(r))
 	require.NoError(t, r.err)
+}
+
+// A backward window's lines go out as its GET reads them, not once it has read them
+// all: a window's first line arrives while the rest of its body is still to come.
+func TestABackwardWindowStreamsItsLines(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct {
+		lines int
+		until bound
+		first string
+		rest  []string
+	}{
+		"windows of time": {lines: 10, until: to(10 * time.Second), first: "5", rest: []string{"6", "7", "8", "9", "|", "0", "1", "2", "3", "4", "|"}},
+		"tailLines":       {lines: 15, first: "6", rest: []string{"7", "8", "9", "10", "11", "12", "13", "14", "|", "1", "2", "3", "4", "5", "|", "0", "|"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := newLogServer()
+			s.add("prod/web/app", lineEvery(tc.lines)...)
+			gate := make(chan struct{})
+			o := backwardOpts()
+			o.until = tc.until
+			if !tc.until.at.isZero() {
+				o.windows = 3
+			}
+
+			r := readBackward(t.Context(), (&pauser{n: 2, gate: gate}).on(s.get), web, o)
+
+			assert.Equal(t, tc.first, testutil.Recv(t, r.lines.Chan(), "the window's first line").Message)
+			close(gate)
+			assert.Equal(t, tc.rest, windowsOf(r))
+			assert.NoError(t, r.err)
+		})
+	}
+}
+
+// The fake kubelet serves a log as the README's kubelet points say the real one does,
+// since every read here is tested against it.
+func TestTheFakeKubeletServesAsTheKubelet(t *testing.T) {
+	t.Parallel()
+	read := func(s *logServer, q url.Values) []string {
+		body, err := s.get(t.Context(), logPath(web.key), q)
+		require.NoError(t, err)
+		defer body.Close()
+		data, err := io.ReadAll(body)
+		require.NoError(t, err)
+		var out []string
+		for line := range strings.Lines(string(data)) {
+			out = append(out, strings.SplitN(strings.TrimSpace(line), " ", 2)[1])
+		}
+		return out
+	}
+	query := func(kv ...string) url.Values {
+		q := url.Values{"container": {"app"}, "timestamps": {"true"}}
+		for i := 0; i < len(kv); i += 2 {
+			q.Set(kv[i], kv[i+1])
+		}
+		return q
+	}
+
+	t.Run("only the current file", func(t *testing.T) {
+		s := newLogServer()
+		s.add("prod/web/app", lineEvery(5)...)
+		s.rotate("prod/web/app", 2*time.Second)
+		assert.Equal(t, []string{"2", "3", "4"}, read(s, query()))
+	})
+	t.Run("sinceTime filters from the first line", func(t *testing.T) {
+		s := newLogServer()
+		s.add("prod/web/app", lineEvery(5)...)
+		assert.Equal(t, []string{"3", "4"}, read(s, query("sinceTime", "2026-10-08T10:00:03Z")))
+	})
+	t.Run("sinceTime is whole seconds", func(t *testing.T) {
+		s := newLogServer()
+		s.add("prod/web/app", stamped(time.Second+250*time.Millisecond, "a"), stamped(time.Second+750*time.Millisecond, "b"))
+		assert.Equal(t, []string{"a", "b"}, read(s, query("sinceTime", "2026-10-08T10:00:01.5Z")))
+	})
+	t.Run("tailLines counts a long line's parts", func(t *testing.T) {
+		s := newLogServer()
+		s.part = 4
+		s.add("prod/web/app", stamped(0, "a"), stamped(time.Second, "longer"), stamped(2*time.Second, "c"))
+		assert.Equal(t, []string{"longer", "c"}, read(s, query("tailLines", "3")))
+		assert.Equal(t, []string{"c"}, read(s, query("tailLines", "2")))
+	})
+}
+
+// A backward read of a log whose long lines tailLines counts in parts reads every
+// line: a window holds fewer lines than it asked for, and the next reaches further.
+func TestABackwardReadOfSplitLinesReadsThemAll(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.part = 4
+	var want []string
+	for i := range 40 {
+		msg := strconv.Itoa(i) + strings.Repeat("x", i%3*4)
+		s.add("prod/web/app", stamped(time.Duration(i)*time.Second, msg))
+		want = append([]string{msg}, want...)
+	}
+
+	r := readBackward(t.Context(), s.get, web, backwardOpts())
+
+	assert.Equal(t, want, messages(newestFirst(drain(r))))
+	require.NoError(t, r.err)
+	assert.False(t, r.short)
+}
+
+// A log that grows under a read of windows of time returns the lines it would have
+// with no growth: each window ends where the last began, never at the log's end.
+func TestABackwardReadUnderUntilIgnoresGrowth(t *testing.T) {
+	t.Parallel()
+	read := func(grow bool) []string {
+		s := newLogServer()
+		s.add("prod/web/app", lineEvery(100)...)
+		if grow {
+			s.onRequest = func(n int) {
+				s.add("prod/web/app", stamped(time.Duration(100+n)*time.Second, "new"))
+			}
+		}
+		o := backwardOpts()
+		o.until = to(50 * time.Second)
+		r := readBackward(t.Context(), s.get, web, o)
+		recs := drain(r)
+		require.NoError(t, r.err)
+		return messages(recs)
+	}
+
+	assert.Equal(t, read(false), read(true))
+	assert.Len(t, read(true), 51)
 }
 
 // windowsOf is each line's message r hands over until it closes, and "|" for the end
@@ -502,7 +629,7 @@ func TestABackwardReadUnderUntilReachesTheFirstLine(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, o)
 
-	assert.Equal(t, []string{"last", "first"}, messages(drain(r)))
+	assert.Equal(t, []string{"last", "first"}, messages(newestFirst(drain(r))))
 	require.NoError(t, r.err)
 	assert.False(t, r.short)
 }
@@ -518,7 +645,7 @@ func TestABackwardReadKeepsItsBounds(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, o)
 
-	recs := drain(r)
+	recs := newestFirst(drain(r))
 	assert.Equal(t, "22", recs[0].Message)
 	assert.Equal(t, "5", recs[len(recs)-1].Message)
 	assert.Len(t, recs, 18)
@@ -624,7 +751,7 @@ func TestABackwardReadOfALogEmptiedAfterAWindowStopsShort(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, backwardOpts())
 
-	assert.Equal(t, []string{"14", "13", "12", "11", "10", "9", "8", "7", "6"}, messages(drain(r)))
+	assert.Equal(t, []string{"14", "13", "12", "11", "10", "9", "8", "7", "6"}, messages(newestFirst(drain(r))))
 	assert.NoError(t, r.err)
 	assert.True(t, r.short)
 	assert.Equal(t, lineAt(web.key, 6*time.Second, 0), r.stop)
@@ -643,7 +770,7 @@ func TestABackwardReadEndsAtTheWindowThatPassesSince(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, o)
 
-	recs := drain(r)
+	recs := newestFirst(drain(r))
 	require.NoError(t, r.err)
 	assert.Len(t, recs, 15)
 	assert.Equal(t, "29", recs[0].Message)
@@ -707,7 +834,7 @@ func TestABackwardReadOutgrowsAGrowingLog(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, backwardOpts())
 
-	recs := drain(r)
+	recs := newestFirst(drain(r))
 	require.NoError(t, r.err)
 	assert.Len(t, recs, 25)
 	assert.Equal(t, "24", recs[0].Message)
@@ -715,9 +842,10 @@ func TestABackwardReadOutgrowsAGrowingLog(t *testing.T) {
 	assert.Equal(t, []string{"10", "20", "40", ""}, tails(s))
 }
 
-// A backward read that spends its budget stops at the oldest line it read whole
-// past the moment its last window started in; a window the budget cut short is left unsent, and a read that sent nothing has no
-// stop. Each line is 24 bytes, the first read 100, and a window of ten lines 240.
+// A backward read that spends its budget stops at the oldest line of the last window
+// it read whole; a window the budget cut short goes out without its end, and a read
+// that read no window whole has no stop. Each line is 24 bytes, the first read 100,
+// and a window of ten lines 240.
 func TestABackwardReadStopsAtTheBudget(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
@@ -728,9 +856,9 @@ func TestABackwardReadStopsAtTheBudget(t *testing.T) {
 		requests int
 	}{
 		"after a whole window":    {budget: 400, lines: []string{"99", "98", "97", "96", "95", "94", "93", "92", "91", "90", "89", "88", "87", "86", "85", "84", "83", "82", "81"}, stop: lineAt(web.key, 81*time.Second, 0), requests: 3},
-		"inside the first window": {budget: 200, lines: []string{}, requests: 2},
+		"inside the first window": {budget: 200, lines: []string{"99", "98", "97", "96", "95", "94", "93", "92", "91"}, requests: 2},
 		"under until":             {budget: 200, until: to(50 * time.Second), lines: []string{"50", "49"}, stop: lineAt(web.key, 49*time.Second, 0), requests: 2},
-		"inside the first span":   {budget: 110, until: to(99 * time.Second), lines: []string{}, requests: 2},
+		"inside the first span":   {budget: 110, until: to(99 * time.Second), lines: []string{"99", "98"}, requests: 2},
 		"finding the first line":  {budget: 50, lines: []string{}, requests: 1},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -741,7 +869,7 @@ func TestABackwardReadStopsAtTheBudget(t *testing.T) {
 
 			r := readBackward(t.Context(), s.get, web, o)
 
-			recs := drain(r)
+			recs := newestFirst(drain(r))
 			assert.NoError(t, r.err)
 			assert.Equal(t, tc.lines, messages(recs))
 			assert.True(t, r.short)
@@ -761,7 +889,7 @@ func TestABackwardReadStopsAtItsWindowCap(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, o)
 
-	recs := drain(r)
+	recs := newestFirst(drain(r))
 	assert.Len(t, recs, 19)
 	assert.True(t, r.short)
 	assert.Equal(t, lineAt(web.key, 81*time.Second, 0), r.stop)
@@ -780,7 +908,7 @@ func TestABackwardReadUnderUntilReachesIt(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, o)
 
-	recs := drain(r)
+	recs := newestFirst(drain(r))
 	require.NoError(t, r.err)
 	assert.Len(t, recs, 101)
 	assert.Equal(t, "100", recs[0].Message)
@@ -804,7 +932,7 @@ func TestABackwardReadUnderUntilKeepsSince(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, o)
 
-	assert.Equal(t, []string{"after"}, messages(drain(r)))
+	assert.Equal(t, []string{"after"}, messages(newestFirst(drain(r))))
 	assert.NoError(t, r.err)
 }
 
@@ -819,7 +947,7 @@ func TestABackwardWindowKeepsAMomentWhole(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, backwardOpts())
 
-	recs := drain(r)
+	recs := newestFirst(drain(r))
 	require.NoError(t, r.err)
 	assert.Len(t, recs, 20)
 	assert.Equal(t, []string{"11", "10", "9'", "8"}, messages(recs[8:12]))
@@ -837,7 +965,7 @@ func TestABackwardReadKeepsTheFirstMomentWhole(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, backwardOpts())
 
-	recs := drain(r)
+	recs := newestFirst(drain(r))
 	require.NoError(t, r.err)
 	assert.Len(t, recs, 26)
 	assert.Equal(t, "last", recs[0].Message)
@@ -864,7 +992,7 @@ func TestABackwardReadAfterALineReadsItsMomentWhole(t *testing.T) {
 
 			r := readBackward(t.Context(), s.get, web, o)
 
-			recs := drain(r)
+			recs := newestFirst(drain(r))
 			require.NoError(t, r.err)
 			want := []string{"99", "98", "97", "96", "95", "94", "93", "92", "91"}
 			if tail != nil {
@@ -888,7 +1016,7 @@ func TestABackwardReadKeepsSinceInTheFirstMoment(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, o)
 
-	assert.Equal(t, []string{"after"}, messages(drain(r)))
+	assert.Equal(t, []string{"after"}, messages(newestFirst(drain(r))))
 	assert.NoError(t, r.err)
 }
 

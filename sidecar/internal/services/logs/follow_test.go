@@ -1670,6 +1670,47 @@ func TestAFollowsGapFillIsHeldUntilItsWalk(t *testing.T) {
 	}
 }
 
+// A follow's gap fill goes to the file a batch at a time, each held until the walk:
+// its first batch is in the file while the fill's GET is still read, and the gap's
+// lines then arrive whole, in order, none stamped.
+func TestAFollowsGapFillIsWrittenAsItArrives(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	var gap []string
+	for i := range 5 {
+		gap = append(gap, strconv.Itoa(10+i))
+		s.add("prod/web-1/app", stamped(time.Duration(10+i)*time.Minute, gap[i]))
+	}
+	s.add("prod/web-1/app", stamped(30*time.Minute, "1800"))
+	f := webMirror(t)
+	ret := testRetention
+	ret.WriteBatch = 2
+	svc, _ := serviceIn(t, f, s, t.TempDir(), ret)
+	gate := make(chan struct{})
+	p := &pauser{n: 3, gate: gate}
+	svc.backends = []namedBackend{{"kubelet", func(get getter) Backend { return newKubelet(p.on(get)) }}}
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
+	stream, _ := followWeb1(t, svc, cursor(0))
+
+	first := logstore.Pos{TS: at(10 * time.Minute).UnixNano()}
+	require.Eventually(t, func() bool {
+		for _, c := range chunksOf(t, svc, f, "web-1", "app") {
+			if c.From == first && c.To.TS == at(11*time.Minute).UnixNano() {
+				return true
+			}
+		}
+		return false
+	}, testutil.Timeout, time.Millisecond, "the first batch while the fill reads on")
+	close(gate)
+
+	assert.Equal(t, append(gap, "1800"), recvLines(t, stream, 6))
+	for _, c := range chunksOf(t, svc, f, "web-1", "app") {
+		if c.From == first {
+			assert.Zero(t, c.ReadAt, "the gap fill's chunk")
+		}
+	}
+}
+
 // A gap read whole with no line in it is crossed, and not filled again on the next
 // ping.
 func TestAnEmptyGapIsFilledOnce(t *testing.T) {

@@ -1,7 +1,7 @@
 ---
 title: Streaming windows
 scope: sidecar
-status: Planned
+status: Done
 ---
 
 # Streaming windows
@@ -70,8 +70,8 @@ links and marks from `Prev` when a fill has no lines.
 **A window is visible between its batches.** Until its last batch lands, a window is a chunk with
 no link up and a live gap on each side. A follow on the same stream may see it and start filling
 the upper gap while the page is still writing it. The file takes this: a line both write is stored
-once (`INSERT OR IGNORE` on `lines_position`), and the result is one span with no line twice. The
-invariant test seeds the case.
+once (`INSERT OR IGNORE` on `lines_position`), and the result is one span with no line twice. A test
+pins the case, and the invariant test seeds reads broken inside windows.
 
 ### 2. The rules
 
@@ -103,8 +103,10 @@ arrives last. These rules replace step 1's `AtEnd` and seam rules, which assumed
 ### 3. The filler stops the reader between windows
 
 `streamRead` carries window boundaries (step 1). It also gains a way for the filler to say "no more
-windows": a `more func() bool` on `readOpts`. The reader calls it at each boundary, after it sends
-the window's end and before its next GET, and ends clean when it answers false. `more` waits until
+windows": a `more func(context.Context) bool` on `readOpts`. The reader calls it with the read's
+context at each boundary, after it sends the window's end and before its next GET, and ends clean
+when it answers false; a read whose context has ended answers false, so a filler that stopped
+reading never strands it. `more` waits until
 the filler has written the window's last batch, then answers from the filler's count and the write's
 outcome: false once the stream holds `need` kept lines, and false when the write found a restart or
 a gone row. The count stays on the filler's goroutine, and the reader never starts a GET the filler
@@ -152,14 +154,14 @@ leaves two live gaps, and a write takes a nil `Prev`. This step adds tests, not 
 
 1. **The readers stream.** Both backward loops write as lines arrive, without `collect` or
    `takeBack`, keeping their decisions from what they noted. A forward read writes as its lines
-   arrive, `oldest` known from its first line. — Planned.
+   arrive, `oldest` known from its first line. — Done.
 2. **The rules.** Linking on completion, islands on a cut, `need` at boundaries, `fromKey` and
-   the edge, `AtEnd` on a completed first window, the seam from its last batch. — Planned.
+   the edge, `AtEnd` on a completed first window, the seam from its last batch. — Done.
 3. **The stop between windows.** `readOpts.more`, called at each boundary before the next GET.
-   — Planned.
-4. **`wholeMoment` as its own window.** — Planned.
+   — Done.
+4. **`wholeMoment` as its own window.** — Done.
 5. **The fake.** The test kubelet models the README's four points and a log that grows between
-   requests. — Planned.
+   requests. — Done.
 
 ## Tests
 
@@ -183,14 +185,15 @@ leaves two live gaps, and a write takes a nil `Prev`. This step adds tests, not 
   the later `Head` page sends a GET and reads the lines past the island.
 - **The seam.** An `Around` page whose `Tail` half's first window spans several batches joins its
   halves with no lost or repeated line.
-- **A follow fills beside a page.** A follow's gap fill of the gap above a half-written window, seeded
-  in the invariant test, leaves one span with no line twice.
+- **A fill beside a page.** A fill of the gap above a half-written window leaves one span with no
+  line twice once the window lands.
 - **`wholeMoment`.** A read ending at the log's first moment, and one ending at `since`'s, each form
   one span with `Head` or `Prev` on the moment's chunk.
 - **Growth.** The log grows between requests. Reads return the same lines as with no growth.
 - **The kubelet's points** are each a case in the fake.
 - **`TestPagesJoinWithoutLossOrRepeat` and `TestTheFileKeepsItsInvariant` pass**, with cancels and
-  failures inside windows seeded.
+  failures inside windows seeded: budget cuts in both, and reads broken part way in the invariant's
+  steps.
 
 ## When it lands
 

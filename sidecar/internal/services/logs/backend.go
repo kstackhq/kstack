@@ -27,7 +27,8 @@ import (
 type Backend interface {
 	// Forward reads oldest first.
 	Forward(ctx context.Context, st stream, o readOpts) *streamRead
-	// Backward reads newest first.
+	// Backward reads newest window first, each window oldest first, and ends each
+	// window with an item of its own.
 	Backward(ctx context.Context, st stream, o readOpts) *streamRead
 	// Tail is Forward that keeps reading as the log grows.
 	Tail(ctx context.Context, st stream, o readOpts) *streamRead

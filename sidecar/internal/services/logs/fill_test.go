@@ -18,8 +18,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"slices"
+	"io"
+	"net/url"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -444,6 +446,29 @@ func TestAnAroundPagesHalvesJoin(t *testing.T) {
 	assert.Len(t, s.requests(), reads)
 }
 
+// The seam is the Tail half's newest line, which its first window writes in its last
+// batch: with a window written two lines a batch, the halves still join, and no line
+// is lost or read twice.
+func TestAnAroundPagesSeamIsItsFirstWindowsLastLine(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	var want []string
+	for i := range 40 {
+		s.add("prod/web-1/app", stamped(time.Duration(i)*250*time.Millisecond, strconv.Itoa(i)))
+		want = append(want, strconv.Itoa(i))
+	}
+	ret := testRetention
+	ret.WriteBatch = 2
+	svc, f := serviceIn(t, webMirror(t), s, t.TempDir(), ret)
+
+	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchAround, At: new(at(7 * time.Second)), Limit: 5})
+
+	require.NoError(t, err)
+	assert.Equal(t, want[23:33], messages(page.Records))
+	assert.Len(t, spansOf(t, svc, f), 1)
+	assert.Equal(t, want, messages(walk(t, svc, web1View, FetchHead, 5, nil)))
+}
+
 // A restart one half of an Around page finds skips the stream in both halves, though
 // the other half's write found none: a page answers once for each stream.
 func TestARestartOnAnAroundPageSkipsTheStreamInBothHalves(t *testing.T) {
@@ -504,28 +529,25 @@ func TestSegmentsKeepOrderAcrossACutGap(t *testing.T) {
 
 // A backward read leaves a hole below its oldest line only when it continued a
 // chunk: never with no chunk to continue, and from a chunk, when a whole read found
-// nothing or its oldest line lies past the chunk's end. A forward read's hole is a
-// head read (TestAHeadReadIsJudgedByPrev).
+// nothing or its oldest line lies past the chunk's second.
 func TestAHoleIsJudgedByWhatTheReadContinued(t *testing.T) {
 	t.Parallel()
 	prev := logstore.Pos{TS: at(time.Second).UnixNano()}
 	oldest := logstore.Pos{TS: at(3 * time.Second).UnixNano()}
 	for name, c := range map[string]struct {
-		mode   FetchMode
 		oldest *logstore.Pos
 		whole  bool
 		prev   *logstore.Pos
 		want   bool
 	}{
-		"no chunk":           {mode: FetchTail, oldest: &oldest, whole: true, want: false},
-		"nothing read whole": {mode: FetchTail, whole: true, prev: &prev, want: true},
-		"nothing read short": {mode: FetchTail, prev: &prev, want: false},
-		"backward whole":     {mode: FetchTail, oldest: &oldest, whole: true, prev: &prev, want: true},
-		"backward short":     {mode: FetchTail, oldest: &oldest, prev: &prev, want: false},
-		"forward":            {mode: FetchHead, oldest: &oldest, whole: true, prev: &prev, want: false},
+		"no chunk":           {oldest: &oldest, whole: true, want: false},
+		"nothing read whole": {whole: true, prev: &prev, want: true},
+		"nothing read short": {prev: &prev, want: false},
+		"whole":              {oldest: &oldest, whole: true, prev: &prev, want: true},
+		"short":              {oldest: &oldest, prev: &prev, want: false},
+		"down to prev":       {oldest: &logstore.Pos{TS: prev.TS, Ord: 1}, whole: true, prev: &prev, want: false},
 	} {
-		f := &filler{q: pageQuery{mode: c.mode}}
-		assert.Equal(t, c.want, f.hole(c.oldest, c.whole, c.prev), name)
+		assert.Equal(t, c.want, hole(c.oldest, c.whole, c.prev), name)
 	}
 }
 
@@ -613,31 +635,30 @@ func TestARotatedBackwardReadWithNoLineMarksTheNextChunkHead(t *testing.T) {
 	}
 }
 
-// A read is head when the backend says so, or when it was a forward read from prev's
-// second that returned no line at or before prev and got a line or ended clean. A
-// read from any other bound, as from a page's key, says nothing of rotation.
+// A forward read is head when it has no lower bound, or when it read from prev's
+// second, returned no line at or before prev, and got a line or ended clean. A read
+// from any other bound, as from a page's key, says nothing of rotation.
 func TestAHeadReadIsJudgedByPrev(t *testing.T) {
 	t.Parallel()
 	prev := &logstore.Pos{TS: at(time.Second).UnixNano()}
 	key := &logstore.Pos{TS: at(2 * time.Second).UnixNano()}
 	for name, c := range map[string]struct {
-		mode        FetchMode
-		read        *streamRead
 		lower, prev *logstore.Pos
+		began       time.Time
+		proved      bool
 		want        bool
 	}{
-		"backend head":        {mode: FetchTail, read: &streamRead{head: true}, want: true},
-		"prev gone":           {mode: FetchHead, read: &streamRead{oldest: at(3 * time.Second)}, lower: prev, prev: prev, want: true},
-		"prev returned":       {mode: FetchHead, read: &streamRead{oldest: at(time.Second)}, lower: prev, prev: prev, want: false},
-		"nothing, clean":      {mode: FetchHead, read: &streamRead{}, lower: prev, prev: prev, want: true},
-		"nothing, failed":     {mode: FetchHead, read: &streamRead{err: errors.New("503")}, lower: prev, prev: prev, want: false},
-		"nothing, cut":        {mode: FetchHead, read: &streamRead{short: true}, lower: prev, prev: prev, want: false},
-		"from the page's key": {mode: FetchHead, read: &streamRead{oldest: at(3 * time.Second)}, lower: key, prev: prev, want: false},
-		"no chunk":            {mode: FetchHead, read: &streamRead{oldest: at(3 * time.Second)}, lower: key, want: false},
-		"backward":            {mode: FetchTail, read: &streamRead{}, lower: prev, prev: prev, want: false},
+		"no lower bound":      {began: at(3 * time.Second), proved: true, want: true},
+		"no lower bound, cut": {want: false},
+		"prev gone":           {lower: prev, prev: prev, began: at(3 * time.Second), proved: true, want: true},
+		"prev returned":       {lower: prev, prev: prev, began: at(time.Second), proved: true, want: false},
+		"nothing, clean":      {lower: prev, prev: prev, proved: true, want: true},
+		"nothing, failed":     {lower: prev, prev: prev, want: false},
+		"from the page's key": {lower: key, prev: prev, began: at(3 * time.Second), proved: true, want: false},
+		"no chunk":            {lower: key, began: at(3 * time.Second), proved: true, want: false},
 	} {
-		f := &filler{q: pageQuery{mode: c.mode}}
-		assert.Equal(t, c.want, f.headRead(c.read, c.lower, c.prev), name)
+		f := &filler{}
+		assert.Equal(t, c.want, f.headRead(c.lower, c.prev, c.began, c.proved), name)
 	}
 }
 
@@ -654,23 +675,25 @@ func TestARotatedBackwardReadLinksToNothing(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"0", "1", "5", "6", "7", "8", "9"}, messages(page.Records))
+	assert.Equal(t, []logstore.Span{{From: sec(0), To: sec(1)}, {From: sec(5), To: sec(9)}}, spansOf(t, svc, f))
 	chunks := chunksOf(t, svc, f, "web-1", "app")
-	require.Len(t, chunks, 2)
 	assert.True(t, chunks[1].Head)
 	assert.Nil(t, chunks[1].Prev)
 	assert.True(t, logstore.CoverageOf(chunks, []string{"kubelet"}, nil).Gaps[1].Lost)
 }
 
 // scripted is a Backend whose every read hands over items, each line stamped with
-// the stream as fakeBackend stamps it, then ends clean. With a gate, it waits for the
+// the stream as fakeBackend stamps it, then ends with err, clean when nil. Its first
+// line is the GET's oldest, which it tells onOldest. With a gate, it waits for the
 // gate to close before the item at hold.
 type scripted struct {
 	items []readItem
+	err   error
 	hold  int
 	gate  <-chan struct{}
 }
 
-// windows is the items of a backward read of ws, each window newest first, each
+// windows is the items of a backward read of ws, each window oldest first, each
 // followed by its end.
 func windows(ws ...[]Record) []readItem {
 	var out []readItem
@@ -683,11 +706,13 @@ func windows(ws ...[]Record) []readItem {
 	return out
 }
 
-func (b *scripted) read(ctx context.Context, st stream) *streamRead {
+func (b *scripted) read(ctx context.Context, st stream, o readOpts) *streamRead {
 	ctx, cancel := context.WithCancel(ctx)
 	out, lines := spsc.New[readItem](0)
+	r := &streamRead{key: st.key, lines: lines, cancel: cancel}
 	go func() {
 		defer out.Close()
+		defer func() { r.err = b.err }()
 		for i, it := range b.items {
 			if b.gate != nil && i == b.hold {
 				select {
@@ -698,32 +723,38 @@ func (b *scripted) read(ctx context.Context, st stream) *streamRead {
 			}
 			if !it.windowEnd {
 				it.Stream, it.Place, it.ContainerID = st.key, st.place, st.gen.instance
+				if r.oldest.IsZero() {
+					r.oldest = it.Timestamp
+					if o.onOldest != nil {
+						o.onOldest(it.Timestamp)
+					}
+				}
 			}
 			if out.SendContext(ctx, it) != nil {
 				return
 			}
 		}
 	}()
-	return &streamRead{key: st.key, lines: lines, cancel: cancel}
+	return r
 }
 
-func (b *scripted) Forward(ctx context.Context, st stream, _ readOpts) *streamRead {
-	return b.read(ctx, st)
+func (b *scripted) Forward(ctx context.Context, st stream, o readOpts) *streamRead {
+	return b.read(ctx, st, o)
 }
 
-func (b *scripted) Backward(ctx context.Context, st stream, _ readOpts) *streamRead {
-	return b.read(ctx, st)
+func (b *scripted) Backward(ctx context.Context, st stream, o readOpts) *streamRead {
+	return b.read(ctx, st, o)
 }
 
-func (b *scripted) Tail(ctx context.Context, st stream, _ readOpts) *streamRead {
-	return b.read(ctx, st)
+func (b *scripted) Tail(ctx context.Context, st stream, o readOpts) *streamRead {
+	return b.read(ctx, st, o)
 }
 
-// web1Lines is a line of web-1's app at each moment d past 10:00, newest first as a
-// backward read hands them over, saying its whole seconds.
+// web1Lines is a line of web-1's app at each moment d past 10:00, saying its whole
+// seconds.
 func web1Lines(ds ...time.Duration) []Record {
 	var out []Record
-	for _, d := range slices.Backward(ds) {
+	for _, d := range ds {
 		out = append(out, line("web-1", "app", d, strconv.Itoa(int(d/time.Second))))
 	}
 	return out
@@ -754,6 +785,107 @@ func TestAWindowIsWrittenWhenItCompletes(t *testing.T) {
 
 	page := testutil.Recv(t, done, "the page")
 	assert.Equal(t, []string{"4", "5", "6", "7", "8", "9"}, messages(page.Records))
+}
+
+// A backward window goes to the file a batch at a time as its lines arrive. Its
+// first batch is in the file before the window ends, linked up to nothing; the batch
+// holding its last line links it up to the chunk at the point.
+func TestAWindowIsWrittenAsItArrives(t *testing.T) {
+	t.Parallel()
+	gate := make(chan struct{})
+	backend := &scripted{items: windows(web1Lines(4*time.Second, 5*time.Second, 6*time.Second, 7*time.Second, 8*time.Second)), hold: 3, gate: gate}
+	svc, f := serviceBatched(t, backend, 2)
+	row := seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(10 * time.Second)})
+	committed := pinged(t, svc, f, row)
+	done := make(chan Page, 1)
+	go func() {
+		page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Cursor: lineCursor("web-1", "app", 10*time.Second, 0), Limit: 10})
+		assert.NoError(t, err)
+		done <- page
+	}()
+
+	committed()
+	assert.Equal(t, []logstore.Span{{From: sec(4), To: sec(5)}, {From: sec(10), To: sec(10)}}, spansOf(t, svc, f), "the first batch, while the window is read")
+	close(gate)
+
+	page := testutil.Recv(t, done, "the page")
+	assert.Equal(t, []string{"4", "5", "6", "7", "8"}, messages(page.Records))
+	assert.Equal(t, []logstore.Span{{From: sec(4), To: sec(10)}}, spansOf(t, svc, f))
+}
+
+// A forward read goes to the file a batch at a time too, each batch linked down as
+// it lands: a page holds one batch of it, never the whole read. The second batch's
+// first line writes the first batch, and the GET pauses after it.
+func TestAForwardReadIsWrittenAsItArrives(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(7)[1:]...)
+	gate := make(chan struct{})
+	svc, f := serviceBatched(t, newKubelet((&pauser{n: 4, gate: gate}).on(s.get)), 2)
+	row := seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(time.Second), Head: true})
+	committed := pinged(t, svc, f, row)
+	done := make(chan Page, 1)
+	go func() {
+		page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Cursor: lineCursor("web-1", "app", time.Second, 0), Limit: 10})
+		assert.NoError(t, err)
+		done <- page
+	}()
+
+	committed()
+	assert.Equal(t, []logstore.Span{{From: sec(1), To: sec(3)}}, spansOf(t, svc, f), "the first batch, linked down, while the read goes on")
+	close(gate)
+
+	page := testutil.Recv(t, done, "the page")
+	assert.Equal(t, []string{"2", "3", "4", "5", "6"}, messages(page.Records))
+	assert.Equal(t, []logstore.Span{{From: sec(1), To: sec(6)}}, spansOf(t, svc, f))
+}
+
+// pauser pauses the first body a getter it wraps answers, not counting a first line's
+// read or a follow's, after its first n lines until gate closes or the read's context
+// ends.
+type pauser struct {
+	n      int
+	gate   <-chan struct{}
+	paused atomic.Bool
+}
+
+// on is get, paused as p says.
+func (p *pauser) on(get getter) getter {
+	return func(ctx context.Context, path string, q url.Values) (io.ReadCloser, error) {
+		body, err := get(ctx, path, q)
+		if err != nil || q.Has("limitBytes") || q.Get("follow") == "true" || p.paused.Swap(true) {
+			return body, err
+		}
+		data, err := io.ReadAll(body)
+		body.Close()
+		if err != nil {
+			return nil, err
+		}
+		cut := 0
+		for range p.n {
+			if i := strings.IndexByte(string(data[cut:]), '\n'); i >= 0 {
+				cut += i + 1
+			}
+		}
+		rest := pausedReader{ctx: ctx, gate: p.gate, r: strings.NewReader(string(data[cut:]))}
+		return io.NopCloser(io.MultiReader(strings.NewReader(string(data[:cut])), &rest)), nil
+	}
+}
+
+// pausedReader is r once gate closes; a read its context ended fails.
+type pausedReader struct {
+	ctx  context.Context
+	gate <-chan struct{}
+	r    io.Reader
+}
+
+func (p *pausedReader) Read(b []byte) (int, error) {
+	select {
+	case <-p.gate:
+		return p.r.Read(b)
+	case <-p.ctx.Done():
+		return 0, p.ctx.Err()
+	}
 }
 
 // spansOf is the spans of the file's chunks of web-1's app.
@@ -795,37 +927,12 @@ func TestAnEmptyWindowIsLinkedOver(t *testing.T) {
 	assert.Equal(t, []logstore.Span{{From: sec(1), To: sec(9)}}, spansOf(t, svc, f))
 }
 
-// A window is written in batches of WriteBatch lines or WriteBatchBytes: the first
-// keeps the window's link down and its head, each next one extends the chunk the one
-// before it wrote, and the last keeps its link up and its end.
-func TestAWindowIsWrittenInBatches(t *testing.T) {
-	t.Parallel()
-	ret := testRetention
-	ret.WriteBatch, ret.WriteBatchBytes = 2, 1<<20
-	window := logstore.Fill{
-		Stream: 3, Origin: "kubelet", Lines: []logstore.Line{said(1, "1"), said(2, "2"), said(3, "3"), said(4, "4"), said(5, "5")},
-		Prev: new(sec(0)), Merge: true, Next: new(sec(9)), Head: true, AtEnd: true,
-	}
-
-	assert.Equal(t, []logstore.Fill{
-		{Stream: 3, Origin: "kubelet", Lines: []logstore.Line{said(1, "1"), said(2, "2")}, Prev: new(sec(0)), Merge: true, Head: true},
-		{Stream: 3, Origin: "kubelet", Lines: []logstore.Line{said(3, "3"), said(4, "4")}, Prev: new(sec(2)), Merge: true},
-		{Stream: 3, Origin: "kubelet", Lines: []logstore.Line{said(5, "5")}, Prev: new(sec(4)), Merge: true, Next: new(sec(9)), AtEnd: true},
-	}, batches(window, ret))
-
-	ret.WriteBatch, ret.WriteBatchBytes = 100, 2
-	assert.Len(t, batches(window, ret), 3, "two bytes a batch")
-	assert.Equal(t, []logstore.Fill{{Stream: 3, Next: new(sec(9)), Head: true}}, batches(logstore.Fill{Stream: 3, Next: new(sec(9)), Head: true}, ret), "a window with no line")
-	ret.WriteBatch, ret.WriteBatchBytes = 0, 0
-	assert.Len(t, batches(window, ret), 5, "a line a batch at the least")
-}
-
 // A Tail page from the end of a finished instance marks the newest chunk it wrote
 // at_end, from the read's first window, whether older windows follow it or the page
-// fills inside it; a Head page to the end then asks the kubelet nothing.
+// fills in it; a Head page to the end then asks the kubelet nothing.
 func TestTheFirstWindowOfAFinishedInstanceIsAtEnd(t *testing.T) {
 	t.Parallel()
-	for name, limit := range map[string]int{"older windows follow": 20, "cut inside it": 5} {
+	for name, limit := range map[string]int{"older windows follow": 20, "filled by it": 5} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			s := newLogServer()
@@ -848,9 +955,122 @@ func TestTheFirstWindowOfAFinishedInstanceIsAtEnd(t *testing.T) {
 	}
 }
 
-// A read the page fills inside a window writes the window's newest part, linked up to
-// the chunk at the point and down to nothing, so no line below the cursor is lost.
-func TestAReadCutInsideAWindowLinksOnlyUp(t *testing.T) {
+// quarter is the position of the line i quarters of a second past 10:00.
+func quarter(i int) logstore.Pos {
+	return logstore.Pos{TS: at(time.Duration(i) * 250 * time.Millisecond).UnixNano()}
+}
+
+// quarterly is a server whose web-1/app logs a line a quarter of a second from 10:00
+// to 10:00:10, each saying its index, and those lines' messages.
+func quarterly() (*logServer, []string) {
+	s := newLogServer()
+	var want []string
+	for i := range 41 {
+		s.add("prod/web-1/app", stamped(time.Duration(i)*250*time.Millisecond, strconv.Itoa(i)))
+		want = append(want, strconv.Itoa(i))
+	}
+	return s, want
+}
+
+// A window cut part way is an island, linked to nothing, with a live gap each side: no
+// read goes on from it, so a stream whose first window was cut read nothing in range.
+// A later read links to it from either side, and no line is lost at the cursor or
+// stored twice: the next page reads the lines nearest the cursor down to the island,
+// and a forward read from the island's last line continues its chunk.
+func TestACutWindowIsAnIsland(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []FetchMode{FetchTail, FetchHead} {
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			s, want := quarterly()
+			svc, f := serviceOver(t, webMirror(t), s)
+			seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: []logstore.Line{{Pos: sec(10), Message: "40"}}})
+			point := lineCursor("web-1", "app", 10*time.Second, 0)
+			// The first window's request, after the one that finds the first line.
+			var broke atomic.Bool
+			s.onRequest = func(n int) {
+				if n == 1 && !broke.Swap(true) {
+					s.breakNext(2)
+				}
+			}
+
+			_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Cursor: point, Limit: 4})
+			assert.ErrorContains(t, err, "no container of this view could be read: web-1/app")
+			assert.Equal(t, []logstore.Span{{From: quarter(36), To: quarter(37)}, {From: sec(10), To: sec(10)}}, spansOf(t, svc, f))
+			gaps := logstore.CoverageOf(chunksOf(t, svc, f, "web-1", "app"), kubeletOnly, nil).Gaps
+			require.Len(t, gaps, 3)
+			assert.True(t, gaps[0].Live() && gaps[1].Live(), "a live gap each side of the island")
+
+			if mode == FetchTail {
+				page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Cursor: point, Limit: 4})
+				require.NoError(t, err)
+				assert.Equal(t, want[36:40], messages(page.Records))
+			} else {
+				page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Cursor: lineCursor("web-1", "app", 37*250*time.Millisecond, 0), Limit: 2})
+				require.NoError(t, err)
+				assert.Equal(t, want[38:40], messages(page.Records))
+			}
+			assert.Equal(t, sec(10), spansOf(t, svc, f)[0].To, "the island joined to the point")
+			assert.Equal(t, want[:40], messages(walk(t, svc, web1View, FetchTail, 4, point)))
+		})
+	}
+}
+
+// A fill beside a page's half-written window, of the gap the window has not linked up
+// yet, leaves one span with no line twice once the window lands: a Head page from the
+// window's first batch reads on to the point while the Tail page's GET is paused.
+func TestAFillBesideAHalfWrittenWindow(t *testing.T) {
+	t.Parallel()
+	s, want := quarterly()
+	gate := make(chan struct{})
+	ret := testRetention
+	ret.WriteBatch = 2
+	svc, f := serviceIn(t, webMirror(t), s, t.TempDir(), ret)
+	get := (&pauser{n: 3, gate: gate}).on(s.get)
+	svc.backends = []namedBackend{{"kubelet", func(getter) Backend { return newKubelet(get) }}}
+	row := seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: []logstore.Line{{Pos: sec(10), Message: "40"}}})
+	committed := pinged(t, svc, f, row)
+	point := lineCursor("web-1", "app", 10*time.Second, 0)
+	done := make(chan Page, 1)
+	go func() {
+		page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Cursor: point, Limit: 4})
+		assert.NoError(t, err)
+		done <- page
+	}()
+
+	committed()
+	require.Equal(t, []logstore.Span{{From: quarter(36), To: quarter(37)}, {From: sec(10), To: sec(10)}}, spansOf(t, svc, f))
+	beside, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Cursor: lineCursor("web-1", "app", 37*250*time.Millisecond, 0), Limit: 10})
+	require.NoError(t, err)
+	assert.Equal(t, want[38:41], messages(beside.Records))
+	close(gate)
+
+	page := testutil.Recv(t, done, "the page")
+	assert.Equal(t, want[36:40], messages(page.Records))
+	assert.Len(t, spansOf(t, svc, f), 1)
+	assert.Equal(t, want[:40], messages(walk(t, svc, web1View, FetchTail, 4, point)))
+}
+
+// A first window cut part way is an island, which may not hold the log's last line:
+// it is not marked at_end, so a Head page to the end still reads past it.
+func TestACutFirstWindowIsNotAtEnd(t *testing.T) {
+	t.Parallel()
+	backend := &scripted{items: []readItem{{Record: line("web-1", "app", 7*time.Second, "7")}, {Record: line("web-1", "app", 8*time.Second, "8")}}, err: &statusError{503, "unavailable"}}
+	svc, f := serviceOn(t, backend)
+	f.store.Apply(t, finished(pod("web-1", "uid-web-1", "node-a", nil, container{name: "app"})))
+
+	_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Limit: 10})
+
+	assert.EqualError(t, err, "no container of this view could be read: web-1/app: unavailable")
+	chunks := chunksOf(t, svc, f, "web-1", "app")
+	require.Len(t, chunks, 1)
+	assert.Equal(t, sec(8), chunks[0].To)
+	assert.False(t, chunks[0].AtEnd)
+}
+
+// A backward read is judged only between windows: the window that fills the page is
+// read to its end and links whole, and no GET follows it. Windows from 9, 8, 6 and 2.
+func TestABackwardWindowIsReadToItsEnd(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web-1/app", lineEvery(11)...)
@@ -862,7 +1082,8 @@ func TestAReadCutInsideAWindowLinksOnlyUp(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"6", "7", "8", "9"}, messages(page.Records))
-	assert.Equal(t, []logstore.Span{{From: sec(5), To: sec(10)}}, spansOf(t, svc, f), "windows from 9, 7 and 3, the last cut at 5")
+	assert.Equal(t, []logstore.Span{{From: sec(2), To: sec(10)}}, spansOf(t, svc, f))
+	assert.Len(t, s.requests(), 5, "the first line and four windows")
 	assert.Equal(t, messages(linesOf(lineEvery(10))), messages(walk(t, svc, web1View, FetchTail, 4, point)))
 }
 
@@ -911,6 +1132,28 @@ func TestARestartBetweenWindowsStopsTheRead(t *testing.T) {
 	require.Len(t, chunks, 1)
 	assert.Equal(t, sec(7), chunks[0].From)
 	assert.Equal(t, sec(9), chunks[0].To)
+}
+
+// The stop between windows waits for the window's write: a restart that write finds
+// ends the read before it sends another GET.
+func TestARestartAtAWindowsEndSendsNoMoreGets(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(30)...)
+	svc, f := serviceOver(t, webMirror(t), s)
+	// The first window's request, after the one that finds the first line.
+	s.onRequest = func(n int) {
+		if n == 1 {
+			f.store.Apply(t, pod("web-1", "uid-web-1", "node-a", webReplicaSet(), container{name: "app", restarted: true}, container{name: "istio-proxy"}))
+		}
+	}
+	view := web1View
+	view.Grep = "never"
+
+	_, err := svc.Fetch(t.Context(), "7", view, FetchQuery{Mode: FetchTail, Limit: 2})
+
+	assert.EqualError(t, err, "no container of this view could be read: web-1/app: restarted while reading")
+	assert.Len(t, s.requests(), 2)
 }
 
 // afterFill runs once a page has written every window of every stream, before its

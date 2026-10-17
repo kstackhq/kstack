@@ -47,22 +47,24 @@ type streamFill struct {
 	// page held it, and the page reads it as a stream no backend serves.
 	wrote bool
 	gone  bool
-	// newest is the newest line the first backend wrote, nil with none.
+	// newest is the last line of the first window a Tail fill's first backend read
+	// whole, nil with none: the line just before the page's bound.
 	newest *logstore.Pos
 }
 
 // filler fills one stream for one page: the gaps in the page's direction from its
 // bound go to the cluster's backends in order, until the stream holds need lines
 // that pass the grep past the bound, has no live gap left that way, or has spent
-// its share of the fills' budget. Each window of a read is written once it is whole.
+// its share of the fills' budget. A read's lines are written a batch at a time as
+// they arrive.
 type filler struct {
 	file *logstore.Store
 	// clusters and id are the mirror each write checks the stream's instance against,
-	// and save writes one window's fills: a page's stamped, a follow's held.
+	// and save writes one batch's fills: a page's stamped, a follow's held.
 	clusters cluster.Service
 	id       cluster.ClusterID
 	save     func(context.Context, []logstore.Fill) (logstore.Written, error)
-	// ret cuts a window into the batches a write files.
+	// ret sizes the batches a write files.
 	ret      logstore.Retention
 	ps       pageStream
 	backends []Backend
@@ -181,15 +183,11 @@ func (f *filler) fillGap(ctx context.Context, g logstore.Gap, key logstore.Pos, 
 // any. A backend that answers head offers what is older than its first line to the
 // next.
 func (f *filler) read(ctx context.Context, tier int, lower, upper, prev, next *logstore.Pos) (whole, got bool, err error) {
-	p, ok, err := f.pull(ctx, tier, lower, upper, next)
+	p, ok, err := f.pull(ctx, tier, lower, upper, prev, next)
 	if !ok || err != nil {
 		return false, false, err
 	}
-	oldest := p.oldest
-	if len(p.last) > 0 {
-		oldest = new(p.last[0].Pos)
-	}
-	got = oldest != nil
+	got = p.oldest != nil
 	if !got && !p.whole {
 		// Nothing in range was read: the stream is skipped, or the page refused
 		// when the retirement cut the read.
@@ -200,24 +198,15 @@ func (f *filler) read(ctx context.Context, tier int, lower, upper, prev, next *l
 		}
 		return false, false, nil
 	}
-	// What the backend lacks below its first line goes to the next before anything
-	// links across it: older than its oldest line, or a hole between prev and its
-	// first, which it may have rotated away.
-	head := f.headRead(p.r, lower, prev)
-	offer := tier+1 < len(f.backends) && (head || f.hole(oldest, p.whole, prev))
-	fill := f.fillOf(tier, p.r, p.last, p.whole, head, prev, p.up(next), upper, p.oldest == nil)
-	if offer {
-		fill.Prev = nil
-	}
-	if ok, err := f.write(ctx, fill); !ok {
+	if ok, err := f.link(ctx, tier, p, prev, next); !ok {
 		return false, false, err
 	}
-	if offer {
+	if p.offer {
 		// The moment of the backend's first line is its whole: the next is asked for
 		// what is older than that moment.
 		older, olderNext := upper, next
 		if got {
-			older, olderNext = &logstore.Pos{TS: oldest.TS, Ord: -1}, oldest
+			older, olderNext = &logstore.Pos{TS: p.oldest.TS, Ord: -1}, p.oldest
 		}
 		olderWhole, olderGot, err := f.read(ctx, tier+1, lower, older, prev, olderNext)
 		return p.whole && olderWhole, got || olderGot, err
@@ -225,43 +214,16 @@ func (f *filler) read(ctx context.Context, tier int, lower, upper, prev, next *l
 	return p.whole, got, nil
 }
 
-// headRead is whether r reached the backend's oldest line: r says so, or it is a
-// forward read from prev's second that found prev's line rotated away, and got a
-// line or ended clean. A read from any other bound, a page's key, says nothing of
-// rotation.
-func (f *filler) headRead(r *streamRead, lower, prev *logstore.Pos) bool {
-	fromPrev := f.q.mode == FetchHead && prev != nil && lower != nil && *lower == *prev
-	if r.head || !fromPrev {
-		return r.head
-	}
-	got, clean := !r.oldest.IsZero(), r.err == nil && !r.short
-	return rotatedAway(r.oldest, prev) && (got || clean)
-}
-
-// hole is whether a backward read from prev left a range below its oldest line it
-// may not have served: it reached back to prev with its oldest line past it, or
-// found nothing at all in a range it read whole. A read that stopped short of prev,
-// cut by the page filling or by its budget, says nothing of what lies below it. A
-// forward read's hole is a head read.
-func (f *filler) hole(oldest *logstore.Pos, whole bool, prev *logstore.Pos) bool {
-	switch {
-	case prev == nil, f.q.mode == FetchHead:
-		return false
-	case oldest == nil:
-		return whole
-	}
-	return whole && oldest.TS > prev.TS
-}
-
-// pulled is one backend read as pull ended it: the read; its last window, oldest
-// first, which the read's end decides how to link; and whether the read served every
-// line in the range. oldest is the oldest line the windows before the last wrote, nil
-// with none.
+// pulled is one backend read as pull ended it: the read; whether it served every
+// line in the range; oldest, a forward read's first line or the first line of the
+// last window a backward read completed, nil with none; head, whether the read
+// reached the backend's oldest line; and offer, whether what lies below its first
+// line goes to the next backend.
 type pulled struct {
-	r      *streamRead
-	last   []logstore.Line
-	whole  bool
-	oldest *logstore.Pos
+	r           *streamRead
+	whole       bool
+	oldest      *logstore.Pos
+	head, offer bool
 }
 
 // up is what a window links up to: the oldest line the read has written, or next,
@@ -274,48 +236,89 @@ func (p pulled) up(next *logstore.Pos) *logstore.Pos {
 	return next
 }
 
-// pull runs the backend read of the range, counting the lines that pass the grep and
-// cancelling the read once the stream holds what the page needs. A window is written
-// once the next one starts, so it was not the read's last; the last is answered. It
-// is false once a write ended the read. A read the page's context ended is an error.
-func (f *filler) pull(ctx context.Context, tier int, lower, upper, next *logstore.Pos) (pulled, bool, error) {
+// pull runs the backend read of the range and writes its lines as they arrive, a
+// batch at a time, counting the lines that pass the grep. A forward read is one
+// window whose lines arrive nearest the point first: its first batch links down,
+// and it is cancelled once the stream holds what the page needs. A backward read's
+// windows arrive newest first, each oldest first: a window links up only at its
+// end, one the read ended inside is an island linked to nothing, and the read is
+// stopped between windows, since the lines a window has counted part way are the
+// ones farthest from the point. It is false once a write ended the read. A read the
+// page's context ended is an error.
+func (f *filler) pull(ctx context.Context, tier int, lower, upper, prev, next *logstore.Pos) (pulled, bool, error) {
+	forward := f.q.mode == FetchHead
 	o := readOpts{since: f.boundAt(lower), until: f.boundAt(upper), budget: f.budget, batch: int64(f.q.need()), windows: maxWindows}
+	// began is the moment a forward read's GET began at, told before its first line
+	// arrives.
+	var began time.Time
+	o.onOldest = func(t time.Time) { began = t }
+	// answers holds the answer to the reader's next more, whether another window
+	// may follow, given once a window's last batch is written. The reader asks only
+	// when another GET would follow, so an answer it never took is replaced by the
+	// next window's. stopped is the reader taking a no.
+	answers := make(chan bool, 1)
+	stopped := false
+	o.more = func(ctx context.Context) bool {
+		select {
+		case ok := <-answers:
+			stopped = !ok
+			return ok
+		case <-ctx.Done():
+			return false
+		}
+	}
 	var r *streamRead
-	if f.q.mode == FetchHead {
+	if forward {
 		r = f.backends[tier].Forward(ctx, *f.ps.st, o)
 	} else {
 		r = f.backends[tier].Backward(ctx, *f.ps.st, o)
 	}
 	out := pulled{r: r}
-	// cur is the window arriving, done the last whole one, not yet written.
-	var cur, done []logstore.Line
+	w := f.newWindow(tier)
+	abandon := func(err error) (pulled, bool, error) {
+		r.cancel()
+		drainReading(r)
+		return pulled{}, false, err
+	}
 	cut := false
-	for rec := range r.lines.Chan() {
-		if rec.windowEnd {
-			if len(cur) > 0 {
-				done, cur = cur, nil
+	for it := range r.lines.Chan() {
+		if it.windowEnd {
+			// The window was read whole, so its last batch links it up. The read's
+			// first window from the end of a finished instance holds its last line.
+			atEnd := upper == nil && out.oldest == nil && f.ps.st.finished()
+			if ok, err := f.endWindow(ctx, w, out.up(next), atEnd); !ok {
+				return abandon(err)
 			}
+			if f.out.newest == nil && tier == 0 {
+				f.out.newest = w.last
+			}
+			if w.first != nil {
+				out.oldest = w.first
+			}
+			w = f.newWindow(tier)
+			select {
+			case <-answers:
+			default:
+			}
+			answers <- !f.filled()
 			continue
 		}
-		if done != nil {
-			// Only a backward read ends a window before its last. Its window links up
-			// and down to nothing, since the line below it comes in a later window: no
-			// link says nothing lies between until every line between was read.
-			slices.Reverse(done)
-			window := f.fillOf(tier, r, done, false, false, nil, out.up(next), upper, out.oldest == nil)
-			if ok, err := f.write(ctx, window); !ok || err != nil {
-				r.cancel()
-				drainReading(r)
-				return pulled{}, false, err
+		if forward && w.first == nil {
+			// A forward read links down from its first batch, so what it continues
+			// is judged at its first line, from the moment its GET began at.
+			out.head = f.headRead(lower, prev, began, true)
+			w.batch.Head = out.head
+			if !out.head {
+				w.batch.Prev, w.batch.Merge = prev, returnedWhole(began, prev)
 			}
-			// A copy, so the window's lines are not kept alive by it.
-			out.oldest, done = new(done[0].Pos), nil
 		}
-		cur = append(cur, lineOf(rec.Record))
-		if matches(f.q.grep, rec.Message) {
+		if ok, err := f.add(ctx, w, lineOf(it.Record)); !ok {
+			return abandon(err)
+		}
+		if matches(f.q.grep, it.Message) {
 			f.count++
 		}
-		if f.filled() {
+		if forward && f.filled() {
 			cut = true
 			r.cancel()
 			drainReading(r)
@@ -328,30 +331,146 @@ func (f *filler) pull(ctx context.Context, tier int, lower, upper, next *logstor
 	if err := fatalError(r.err); err != nil {
 		return pulled{}, false, err
 	}
-	// A line of cur would have written done, so at most one holds lines.
-	out.last = cur
-	if len(cur) == 0 {
-		out.last = done
+	clean := r.err == nil && !r.short
+	out.whole = !cut && !stopped && clean
+	if forward {
+		out.oldest = w.first
+		if w.first == nil {
+			out.head = f.headRead(lower, prev, began, !began.IsZero() || clean)
+		}
+		out.offer = tier+1 < len(f.backends) && out.head
+		// The read's last batch links up only when the read served every line to next.
+		up := next
+		if !out.whole {
+			up = nil
+		}
+		if ok, err := f.endWindow(ctx, w, up, r.atEnd); !ok {
+			return pulled{}, false, err
+		}
+		return out, true, nil
 	}
-	if f.q.mode == FetchTail {
-		slices.Reverse(out.last)
+	// A window the read ended inside is an island: what it read goes to the file,
+	// linked up to nothing, since the lines between it and the point were never read.
+	if ok, err := f.endWindow(ctx, w, nil, false); !ok {
+		return pulled{}, false, err
 	}
-	out.whole = !cut && r.err == nil && !r.short
+	out.head = r.head
+	out.offer = tier+1 < len(f.backends) && (r.head || hole(out.oldest, out.whole, prev))
 	return out, true, nil
 }
 
-// atEnd is whether lines, a window of a backward read from upper, hold the instance's
-// last line: the read's first window, first, from the end of a finished instance.
-// Lines arrive newest first, so a window cut part way holds it too.
-func (f *filler) atEnd(upper *logstore.Pos, first bool, lines []logstore.Line) bool {
-	return upper == nil && first && f.ps.st.finished() && len(lines) > 0
+// headRead is whether a forward read from lower reached the backend's oldest line:
+// it has no lower bound, so it started there, or it read from prev's second and its
+// GET began past prev's moment, so prev's line rotated away. began is the moment of
+// the GET's first line, zero with none, and proved whether the read got a line or
+// ended clean: a GET that failed before its first line says nothing. A read from any
+// other bound, a page's key, says nothing of rotation.
+func (f *filler) headRead(lower, prev *logstore.Pos, began time.Time, proved bool) bool {
+	fromPrev := prev != nil && lower != nil && *lower == *prev
+	return proved && (lower == nil || fromPrev && rotatedAway(began, prev))
 }
 
-// write files window, one window's fill, in batches, once the mirror shows the
-// stream's pod still runs the instance it was resolved as, and is whether the read
-// may go on. The mirror lags a restart, while the kubelet serves whichever instance
-// runs now: a stream that restarted is skipped, and what it wrote before stays.
-func (f *filler) write(ctx context.Context, window logstore.Fill) (bool, error) {
+// hole is whether a backward read from prev left a range below its oldest line it
+// may not have served: it reached back to prev with its oldest line past it, or
+// found nothing at all in a range it read whole. A read that stopped short of prev,
+// cut by the page filling or by its budget, says nothing of what lies below it.
+func hole(oldest *logstore.Pos, whole bool, prev *logstore.Pos) bool {
+	if prev == nil || !whole {
+		return false
+	}
+	return oldest == nil || oldest.TS > prev.TS
+}
+
+// link writes what a read proved beyond its lines, once it has ended, and is false
+// once the write ended the read. A forward read links down from its first batch and
+// up from its last, so only one that wrote no line has links left: from prev to
+// next, with its marks. A backward read links up window by window and down once it
+// ends: from the oldest line it wrote, or next with none, to prev, which only a read
+// that served every line down to prev proves, with the head mark.
+func (f *filler) link(ctx context.Context, tier int, p pulled, prev, next *logstore.Pos) (bool, error) {
+	fill := logstore.Fill{Stream: f.ps.row.ID, Origin: f.names[tier], Head: p.head}
+	if f.q.mode == FetchHead {
+		if p.oldest != nil {
+			return true, nil
+		}
+		if !p.head {
+			fill.Prev = prev
+		}
+		if p.whole {
+			fill.Next = next
+		}
+		fill.AtEnd = p.r.atEnd
+		return f.write(ctx, fill)
+	}
+	fill.Next = p.up(next)
+	if p.whole && !p.head && !p.offer {
+		fill.Prev = prev
+	}
+	if fill.Prev == nil && !fill.Head {
+		return true, nil
+	}
+	return f.write(ctx, fill)
+}
+
+// window is one window of a read as it arrives, written a batch at a time. batch is
+// the fill of the lines not yet written: the window's first carries its link down and
+// head mark, each later one continues the chunk the one before it wrote. first is the
+// window's first line and last the last line written, nil before either.
+type window struct {
+	batch       logstore.Fill
+	bytes       int64
+	first, last *logstore.Pos
+}
+
+// newWindow is an empty window of the backend at tier's read.
+func (f *filler) newWindow(tier int) *window {
+	return &window{batch: logstore.Fill{Stream: f.ps.row.ID, Origin: f.names[tier]}}
+}
+
+// add takes line into w, first writing the batch it fills, and is false once a
+// write ended the read.
+func (f *filler) add(ctx context.Context, w *window, line logstore.Line) (bool, error) {
+	if n := len(w.batch.Lines); n > 0 && (n >= f.ret.WriteBatch || w.bytes >= f.ret.WriteBatchBytes) {
+		if ok, err := f.flush(ctx, w); !ok {
+			return false, err
+		}
+	}
+	if w.first == nil {
+		w.first = new(line.Pos)
+	}
+	w.batch.Lines = append(w.batch.Lines, line)
+	w.bytes += int64(len(line.Message))
+	return true, nil
+}
+
+// endWindow writes w's last batch, linked up to next and marked atEnd, and is false
+// once the write ended the read. A window with no line writes nothing.
+func (f *filler) endWindow(ctx context.Context, w *window, next *logstore.Pos, atEnd bool) (bool, error) {
+	if len(w.batch.Lines) == 0 {
+		return true, nil
+	}
+	w.batch.Next, w.batch.AtEnd = next, atEnd
+	return f.flush(ctx, w)
+}
+
+// flush writes w's batch, and starts the next one as the continuation of the chunk
+// it ends.
+func (f *filler) flush(ctx context.Context, w *window) (bool, error) {
+	if ok, err := f.write(ctx, w.batch); !ok {
+		return false, err
+	}
+	// A copy, so the batch's lines are not kept alive by it.
+	w.last = new(w.batch.Lines[len(w.batch.Lines)-1].Pos)
+	w.batch = logstore.Fill{Stream: w.batch.Stream, Origin: w.batch.Origin, Prev: w.last, Merge: true}
+	w.bytes = 0
+	return true, nil
+}
+
+// write files one batch's fill once the mirror shows the stream's pod still runs the
+// instance it was resolved as, and is whether the read may go on. The mirror lags a
+// restart, while the kubelet serves whichever instance runs now: a stream that
+// restarted is skipped, and what it wrote before stays.
+func (f *filler) write(ctx context.Context, fill logstore.Fill) (bool, error) {
 	serves, err := f.serves(ctx)
 	if err != nil {
 		return false, err
@@ -360,7 +479,7 @@ func (f *filler) write(ctx context.Context, window logstore.Fill) (bool, error) 
 		f.out = streamFill{err: errRestarted, wrote: f.out.wrote}
 		return false, nil
 	}
-	w, err := f.save(ctx, batches(window, f.ret))
+	w, err := f.save(ctx, []logstore.Fill{fill})
 	if err != nil {
 		return false, err
 	}
@@ -369,38 +488,7 @@ func (f *filler) write(ctx context.Context, window logstore.Fill) (bool, error) 
 		return false, nil
 	}
 	f.out.wrote = true
-	// A Tail fill writes newest first, so the first write holds the newest line.
-	if f.out.newest == nil && window.Origin == f.names[0] && len(window.Lines) > 0 {
-		f.out.newest = new(window.Lines[len(window.Lines)-1].Pos)
-	}
 	return true, nil
-}
-
-// batches is window cut into fills of at most ret's WriteBatch lines or
-// WriteBatchBytes, a line at the least, oldest first: the first keeps its Prev, Merge and Head, each next
-// one extends the chunk the one before it ends, and the last keeps its Next and AtEnd.
-func batches(window logstore.Fill, ret logstore.Retention) []logstore.Fill {
-	if len(window.Lines) == 0 {
-		return []logstore.Fill{window}
-	}
-	var out []logstore.Fill
-	for lines := window.Lines; len(lines) > 0; {
-		n, bytes := 0, int64(0)
-		for n < len(lines) && (n == 0 || n < ret.WriteBatch && bytes < ret.WriteBatchBytes) {
-			bytes += int64(len(lines[n].Message))
-			n++
-		}
-		b := window
-		b.Lines, b.Next, b.AtEnd = lines[:n], nil, false
-		if len(out) > 0 {
-			before := out[len(out)-1].Lines
-			b.Prev, b.Merge, b.Head = &before[len(before)-1].Pos, true, false
-		}
-		out = append(out, b)
-		lines = lines[n:]
-	}
-	out[len(out)-1].Next, out[len(out)-1].AtEnd = window.Next, window.AtEnd
-	return out
 }
 
 // serves is whether the mirror shows the stream's pod running the instance it was
@@ -416,37 +504,6 @@ func (f *filler) serves(ctx context.Context) (bool, error) {
 		return false, mirrorErr(err)
 	}
 	return serves, nil
-}
-
-// fillOf is the fill of lines, a window the backend at tier read of the range
-// between prev and next, as Write files it: the chunk it continues, the chunk it
-// links to, and whether it reached the backend's oldest line, head, or the instance's
-// last. first is whether no window of the read came before it. A head read links to
-// nothing below it, which leaves a lost gap there.
-func (f *filler) fillOf(tier int, r *streamRead, lines []logstore.Line, whole, head bool, prev, next, upper *logstore.Pos, first bool) logstore.Fill {
-	fill := logstore.Fill{Stream: f.ps.row.ID, Origin: f.names[tier], Lines: lines, Head: head}
-	if head {
-		prev = nil
-	}
-	if f.q.mode == FetchHead {
-		// A forward read that is not head starts at the line after prev, so its first
-		// line continues prev's chunk.
-		fill.Prev = prev
-		fill.Merge = returnedWhole(r.oldest, prev)
-		if whole {
-			fill.Next = next
-		}
-		fill.AtEnd = r.atEnd
-		return fill
-	}
-	// A backward read takes every line back from upper, so its newest line meets
-	// next's chunk whether or not it reached lower.
-	fill.Next = next
-	if whole {
-		fill.Prev = prev
-	}
-	fill.AtEnd = f.atEnd(upper, first, lines)
-	return fill
 }
 
 // rotatedAway is whether a forward read from prev's second, a fill's or a tailer's,
