@@ -29,6 +29,11 @@ export type LogLine = {
   stream: { namespace: string; pod: string; container: string; previous: boolean };
   /** Where the stream's pod runs. Empty where unknown, and no part of the stream's name. */
   place: { node: string; region: string; zone: string; os: string; arch: string };
+  /**
+   * Lines of the stream that may be missing just before this one, null when none are: the
+   * stamps, RFC 3339, of the last known line before the hole and the first known line past it.
+   */
+  gap: { after: string; before: string } | null;
 };
 
 /** Where the window is told to be. `at` is the moment, RFC 3339, set for `At` alone. */

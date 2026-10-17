@@ -456,7 +456,7 @@ func TestAStaleOpenChunkIsClosedWhenTheFileOpens(t *testing.T) {
 	t.Cleanup(func() { assert.NoError(t, s.Close()) })
 
 	assert.False(t, chunksOfStream(t, s, id)[0].Open)
-	tail, err := s.OpenTail(id, "kubelet", ptr(at(1, 0)), true)
+	tail, err := s.OpenTail(id, "kubelet", ptr(at(1, 0)), false)
 	require.NoError(t, err)
 	require.NoError(t, tail.Close(t.Context(), lines(at(1, 1))))
 	assert.Equal(t, []Chunk{chunk(at(0, 0), at(1, 1))}, chunksOfStream(t, s, id), "a tailer extends it")

@@ -43,7 +43,7 @@ import type { LogsViewAction } from '@/lib/logs-view';
 import { EMPTY_LOG_VIEWPORT, type LogViewportHandle } from '@/lib/log-viewport';
 import { usePersistedFlag } from '@/lib/persisted-flag';
 import { useMeasureWidths } from './widths';
-import { LOG_ROW_H, LOG_ROW_PX, LogViewerRow, gridTemplate } from './row';
+import { LOG_ROW_H, LOG_ROW_PX, LogViewerRow, estimateRowHeight, gridTemplate } from './row';
 import { LogViewerToolbar } from './toolbar';
 import { useMessageWidth } from './message-width';
 import { LogViewerHeader } from './header';
@@ -60,11 +60,6 @@ export type LogViewerProps = {
   pinToEnd: boolean;
   viewport: LogViewportHandle;
 };
-
-/** The advance of one `text-xs` mono character, for the wrap estimate; the measure corrects it. */
-const CHAR_PX = 7.2;
-
-const oneLine = () => LOG_ROW_PX;
 
 const measureHeight = (el: Element) => el.getBoundingClientRect().height;
 
@@ -266,8 +261,9 @@ function Rows({
           selectionTop={selectionTopKeys.has(row.key)}
           selectionBottom={selectionBottomKeys.has(row.key)}
           selectedCellCols={selectedCells.get(row.key)}
-          selectedCellColsAbove={selectedCells.get(row.key - 1)}
-          selectedCellColsBelow={selectedCells.get(row.key + 1)}
+          // A hole's notice parts a row's cells from the row above, so a ring does not join across it.
+          selectedCellColsAbove={row.line.gap ? undefined : selectedCells.get(row.key - 1)}
+          selectedCellColsBelow={rows.lineOfKey(row.key + 1)?.gap ? undefined : selectedCells.get(row.key + 1)}
           anchorCol={isMultiCellSelection && anchorCell?.rowKey === row.key ? anchorCell.col : undefined}
           onRowMouseDown={handleRowMouseDown}
           onCellMouseDown={handleCellMouseDown}
@@ -300,10 +296,7 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
 
   const messageWidth = useMessageWidth(scroller, widths.widths, columns, wrap);
-  const wrapped = useCallback(
-    (line: LogLine) => Math.max(1, Math.ceil((line.message.length * CHAR_PX) / messageWidth)) * LOG_ROW_PX,
-    [messageWidth],
-  );
+  const wrapped = useCallback((line: LogLine) => estimateRowHeight(line, messageWidth), [messageWidth]);
   // Flipping wrap changes every row's height. The core measures again in the same commit,
   // holding the reader's row as it was before the flip.
   const setWrap = (on: boolean) => {
@@ -395,7 +388,7 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport }: LogV
           firstPageSize={300}
           pageSize={250}
           edgeRowHeight={LOG_ROW_PX}
-          estimateRowHeight={wrap ? wrapped : oneLine}
+          estimateRowHeight={wrap ? wrapped : estimateRowHeight}
           measureElement={wrap ? measureHeight : undefined}
           className="relative min-h-0 w-full flex-1 font-mono text-xs leading-6"
         >

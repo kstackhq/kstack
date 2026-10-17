@@ -27,6 +27,7 @@ const makeLine = (overrides: Partial<LogLine> = {}): LogLine => ({
   message: 'ERROR: something failed',
   stream: { namespace: 'default', pod: 'my-pod-abc', container: 'my-container', previous: false },
   place: { node: 'node-1', region: 'us-east-1', zone: 'us-east-1a', os: 'linux', arch: 'amd64' },
+  gap: null,
   ...overrides,
 });
 

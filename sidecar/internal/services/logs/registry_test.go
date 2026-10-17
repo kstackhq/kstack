@@ -167,8 +167,8 @@ func TestATailerStartsAtItsNewestLineOrItsWatermark(t *testing.T) {
 }
 
 // A tailer resumed at its stream's newest line extends that line's chunk when its
-// read returns the line's moment whole, and links a chunk of its own across the hole
-// when the kubelet has rotated that moment away.
+// read returns the line's moment whole. When the kubelet has rotated that moment away
+// it opens a head chunk linked to nothing, which leaves the hole a lost gap.
 func TestATailerResumesTheChunkItContinues(t *testing.T) {
 	t.Parallel()
 	for name, rotated := range map[string]bool{"whole": false, "rotated": true} {
@@ -192,7 +192,9 @@ func TestATailerResumesTheChunkItContinues(t *testing.T) {
 				require.Len(t, chunks, 2)
 				assert.Equal(t, []logstore.Pos{first, second}, []logstore.Pos{chunks[0].From, chunks[0].To})
 				assert.Equal(t, []logstore.Pos{third, third}, []logstore.Pos{chunks[1].From, chunks[1].To})
-				assert.Equal(t, &second, chunks[1].Prev)
+				assert.Nil(t, chunks[1].Prev)
+				assert.True(t, chunks[1].Head)
+				assert.True(t, logstore.CoverageOf(chunks, kubeletOnly, nil).Gaps[1].Lost)
 			} else {
 				require.Len(t, chunks, 1)
 				assert.Equal(t, []logstore.Pos{first, third}, []logstore.Pos{chunks[0].From, chunks[0].To})
@@ -294,7 +296,7 @@ func TestATailerTheWriterCannotKeepUpWithReadsFromNow(t *testing.T) {
 	stallWriter(t, s, dir)
 
 	awaitReadAgain(t, s, "prod/web-1/app", "2026-10-08T11:00:00Z")
-	start := svc.tailStart(f.active.Cache.ID, row)
+	start := tailStart(svc, f.active.Cache.ID, row)
 	require.NotNil(t, start)
 	assert.Equal(t, logstore.Pos{TS: at(time.Hour).UnixNano(), Ord: -1}, *start)
 	for _, c := range chunksOf(t, svc, f, "web-1", "app") {
@@ -325,12 +327,12 @@ func TestATailerInItsGraceThatFallsBehindEnds(t *testing.T) {
 
 	testutil.Wait(t, h.Done(), "the tailer to end")
 	require.NoError(t, h.Err())
-	assert.Nil(t, svc.tailStart(f.active.Cache.ID, row), "no tailer reads on")
+	assert.Nil(t, tailStart(svc, f.active.Cache.ID, row), "no tailer reads on")
 	h.t.r.mu.Lock()
 	assert.Nil(t, h.t.grace, "its grace timer is stopped")
 	h.t.r.mu.Unlock()
 	attach(t, svc, f, web1Since(0))
-	assert.NotNil(t, svc.tailStart(f.active.Cache.ID, row), "a tailer afresh")
+	assert.NotNil(t, tailStart(svc, f.active.Cache.ID, row), "a tailer afresh")
 }
 
 // A tailer in its grace holds its stream's row, so a sweep that reads the pod as gone
@@ -374,7 +376,7 @@ func TestATailerWhoseWriteFailsEnds(t *testing.T) {
 	testutil.Wait(t, h.Done(), "the tailer to end")
 	require.Error(t, h.Err())
 	assert.Equal(t, failTransient, failureKind(h.Err()))
-	assert.Nil(t, svc.tailStart(f.active.Cache.ID, row), "no tailer holds the stream")
+	assert.Nil(t, tailStart(svc, f.active.Cache.ID, row), "no tailer holds the stream")
 
 	_, err = db.ExecContext(t.Context(), `DROP TRIGGER refuse`)
 	require.NoError(t, err)
@@ -624,4 +626,11 @@ func TestATailerStopsAtTheEndOfItsGrace(t *testing.T) {
 
 	h.Release()
 	testutil.Wait(t, h.Done(), "the tailer to end at its grace")
+}
+
+// tailStart is the start of the tailer running on the stream row of cacheID's file,
+// nil with none.
+func tailStart(svc *Service, cacheID cluster.ClusterCacheID, row int64) *logstore.Pos {
+	start, _ := svc.tailOf(cacheID, row)
+	return start
 }

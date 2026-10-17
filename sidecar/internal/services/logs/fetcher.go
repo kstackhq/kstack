@@ -213,7 +213,7 @@ func (r *reader) backward() error {
 	case err != nil:
 		return err
 	case first.IsZero():
-		r.reachedFirst()
+		r.reachedFirst(first)
 		return nil
 	case !r.o.until.at.isZero():
 		return r.backwardUntil(first)
@@ -272,7 +272,7 @@ func (r *reader) backward() error {
 					return err
 				}
 			}
-			r.reachedFirst()
+			r.reachedFirst(first)
 			return nil
 		case !sent.IsZero() && (start.IsZero() || !start.Before(sent)):
 			// The log grew by a whole batch under the read, or one moment fills the
@@ -293,10 +293,13 @@ func (r *reader) backward() error {
 	return errShort
 }
 
-// reachedFirst marks a backward read that took every line back to the first one
-// firstTimestamp found, which is the backend's oldest only with no since.
-func (r *reader) reachedFirst() {
-	r.head = r.o.since.at.isZero()
+// reachedFirst marks a backward read that took every line back to first, the one
+// firstTimestamp found, zero for an empty log. That is the backend's oldest with no
+// since. With since, it is when since's line is gone, as rotation drops the oldest
+// lines first: first is past since's moment, or the log is empty from since's second.
+func (r *reader) reachedFirst(first time.Time) {
+	since := r.o.since.at
+	r.head = since.isZero() || first.After(since.Timestamp) || first.IsZero() && r.ctx.Err() == nil
 }
 
 // inSinceMoment is whether t is the moment of the line since names. A since that
@@ -326,6 +329,8 @@ func (r *reader) wholeMoment(t time.Time) (bool, error) {
 func (r *reader) backwardUntil(first time.Time) error {
 	until := r.o.until.at.Timestamp
 	if first.After(until) {
+		// No line is in range, and none older than first is left.
+		r.reachedFirst(first)
 		return nil
 	}
 	doublings := max(r.o.windows-2, 0)
@@ -347,7 +352,7 @@ func (r *reader) backwardUntil(first time.Time) error {
 			return nil
 		}
 		if start.Equal(first) {
-			r.reachedFirst()
+			r.reachedFirst(first)
 			return nil
 		}
 		end = bound{position{Timestamp: start}, false}

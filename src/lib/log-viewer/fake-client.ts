@@ -40,6 +40,8 @@ export type FakeClientOptions = {
   delayMs?: number;
   /** How far before the newest line the live end and each checkpoint sit. */
   repeat?: number;
+  /** The hole each line carries, by its index. None by default. */
+  gaps?: Record<number, NonNullable<LogLine['gap']>>;
 };
 
 class Follower {
@@ -100,6 +102,8 @@ export class FakeClient implements Client {
 
   private readonly repeat: number;
 
+  private readonly gaps: Record<number, NonNullable<LogLine['gap']>>;
+
   private lastMs = -Infinity;
 
   private readonly followers = new Set<Follower>();
@@ -121,6 +125,7 @@ export class FakeClient implements Client {
     this.turns = rotation(this.streams);
     this.delayMs = options.delayMs ?? 0;
     this.repeat = options.repeat ?? 20;
+    this.gaps = options.gaps ?? {};
     const count = options.lines ?? 1000;
     const spacing = options.spacingMs ?? 1;
     const now = Date.now();
@@ -323,6 +328,7 @@ export class FakeClient implements Client {
       message: `fake line ${index} from ${stream.pod}/${stream.container}`,
       stream,
       place,
+      gap: this.gaps[index] ?? null,
     });
   }
 }

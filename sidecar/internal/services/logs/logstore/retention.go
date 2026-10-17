@@ -61,6 +61,9 @@ type Retention struct {
 	SweepBytes int64
 	// VacuumPages bounds what one sweep hands back to the filesystem.
 	VacuumPages int64
+	// LookBytes is what one look past a walk's edge may read, through lines the grep
+	// fails, for the holes before the record at that edge.
+	LookBytes int64
 	// Interval is the janitor's cadence. Zero runs no janitor, which is what a test about
 	// anything else opens its manager with.
 	Interval time.Duration
@@ -81,5 +84,6 @@ var DefaultRetention = Retention{
 	WriteQueue:      16,
 	SweepBytes:      defaultBytes / 16,
 	VacuumPages:     2048,
+	LookBytes:       4 * mib,
 	Interval:        5 * time.Minute,
 }

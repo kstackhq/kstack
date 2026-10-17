@@ -57,6 +57,18 @@ func (t *tailer) started() bool {
 	}
 }
 
+// committed is how far t has written into the file: the last line its tail has landed,
+// or its start before that.
+func (t *tailer) committed() logstore.Pos {
+	p := *t.start.Load()
+	if tail := t.current.Load(); tail != nil {
+		if c := tail.Committed(); c != nil {
+			p = logstore.MaxPos(p, *c)
+		}
+	}
+	return p
+}
+
 // join holds t for one more follow, and keeps it past its grace. It is called with
 // mu held.
 func (t *tailer) join() {
@@ -158,7 +170,11 @@ func (t *tailer) tail(ctx context.Context, file *logstore.Store, tr *tailRead, p
 		if tail == nil {
 			// The first line has come, so the moment the read began at is known.
 			var err error
-			if tail, err = file.OpenTail(t.row, t.r.s.backends[0].name, prev, returnedWhole(tr.oldest, prev)); err != nil {
+			head := rotatedAway(tr.oldest, prev)
+			if head {
+				prev = nil
+			}
+			if tail, err = file.OpenTail(t.row, t.r.s.backends[0].name, prev, head); err != nil {
 				return false, err
 			}
 			t.current.Store(tail)

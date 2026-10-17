@@ -34,7 +34,10 @@ type pageStream struct {
 	st    *stream
 	key   StreamKey
 	place Place
-	tail  *logstore.Pos
+	// tail is the start of the tailer running on the stream and committed how far it
+	// had written when the page began, both nil with none.
+	tail      *logstore.Pos
+	committed *logstore.Pos
 }
 
 // exhausted is whether no backend serves ps: it is read from the file alone, and

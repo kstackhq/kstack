@@ -133,6 +133,11 @@ describe('SelectionOverlay', () => {
     expect(r!.style.bottom).toBe('0px');
   });
 
+  it("starts its rects at top, below a row's notice", () => {
+    render(<SelectionOverlay {...defaults} selectedCols={new Set(['Message'])} top={24} />);
+    expect(rectFor('Message')!.parentElement!.style.top).toBe('24px');
+  });
+
   it('renders nothing when selectedCols is empty', () => {
     const { container } = render(<SelectionOverlay {...defaults} selectedCols={new Set<Column>()} />);
     expect(container.querySelectorAll('[data-overlay-col]').length).toBe(0);

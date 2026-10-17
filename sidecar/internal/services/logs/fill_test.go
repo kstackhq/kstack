@@ -472,31 +472,161 @@ func TestSegmentsKeepOrderAcrossACutGap(t *testing.T) {
 	assert.Equal(t, []string{"gap tailed=false", "span 0", "gap tailed=false", "gap tailed=true", "span 20", "gap tailed=true"}, edges)
 }
 
-// A read leaves a hole below its first line only when it continued a chunk: never
-// with no chunk to continue, and from a chunk, when a whole read found nothing, when
-// a forward read's GET began past the chunk's end, or when a whole backward read's
-// oldest line lies past it.
+// A backward read leaves a hole below its oldest line only when it continued a
+// chunk: never with no chunk to continue, and from a chunk, when a whole read found
+// nothing or its oldest line lies past the chunk's end. A forward read's hole is a
+// head read (TestAHeadReadIsJudgedByPrev).
 func TestAHoleIsJudgedByWhatTheReadContinued(t *testing.T) {
 	t.Parallel()
 	prev := logstore.Pos{TS: at(time.Second).UnixNano()}
 	line := logstore.Line{Pos: logstore.Pos{TS: at(3 * time.Second).UnixNano()}}
 	for name, c := range map[string]struct {
 		mode  FetchMode
-		read  *streamRead
 		lines []logstore.Line
 		whole bool
 		prev  *logstore.Pos
 		want  bool
 	}{
-		"no chunk":           {mode: FetchHead, read: &streamRead{oldest: at(2 * time.Second)}, lines: []logstore.Line{line}, whole: true, want: false},
-		"nothing read whole": {mode: FetchTail, read: &streamRead{}, whole: true, prev: &prev, want: true},
-		"nothing read short": {mode: FetchTail, read: &streamRead{}, prev: &prev, want: false},
-		"forward past prev":  {mode: FetchHead, read: &streamRead{oldest: at(2 * time.Second)}, lines: []logstore.Line{line}, prev: &prev, want: true},
-		"forward at prev":    {mode: FetchHead, read: &streamRead{oldest: at(time.Second)}, lines: []logstore.Line{line}, prev: &prev, want: false},
-		"backward whole":     {mode: FetchTail, read: &streamRead{}, lines: []logstore.Line{line}, whole: true, prev: &prev, want: true},
-		"backward short":     {mode: FetchTail, read: &streamRead{}, lines: []logstore.Line{line}, prev: &prev, want: false},
+		"no chunk":           {mode: FetchTail, lines: []logstore.Line{line}, whole: true, want: false},
+		"nothing read whole": {mode: FetchTail, whole: true, prev: &prev, want: true},
+		"nothing read short": {mode: FetchTail, prev: &prev, want: false},
+		"backward whole":     {mode: FetchTail, lines: []logstore.Line{line}, whole: true, prev: &prev, want: true},
+		"backward short":     {mode: FetchTail, lines: []logstore.Line{line}, prev: &prev, want: false},
+		"forward":            {mode: FetchHead, lines: []logstore.Line{line}, whole: true, prev: &prev, want: false},
 	} {
 		f := &filler{q: pageQuery{mode: c.mode}}
-		assert.Equal(t, c.want, f.hole(c.read, c.lines, c.whole, c.prev), name)
+		assert.Equal(t, c.want, f.hole(c.lines, c.whole, c.prev), name)
 	}
+}
+
+// A forward read from a chunk's last line whose GET began past it found that line
+// rotated away: the chunk it writes is head and links to nothing, so the file keeps
+// a lost gap between the two.
+func TestARotatedForwardReadLinksToNothing(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(10)[5:]...)
+	svc, f := serviceOver(t, webMirror(t), s)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0, time.Second)})
+
+	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 100})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"0", "1", "5", "6", "7", "8", "9"}, messages(page.Records))
+	chunks := chunksOf(t, svc, f, "web-1", "app")
+	require.Len(t, chunks, 2)
+	assert.True(t, chunks[1].Head)
+	assert.Nil(t, chunks[1].Prev)
+	cov := logstore.CoverageOf(chunks, []string{"kubelet"}, nil)
+	require.Len(t, cov.Spans, 2)
+	assert.True(t, cov.Gaps[1].Lost)
+}
+
+// A forward read whose GET returned its chunk's last line links to it as before: the
+// container was quiet, not rotated.
+func TestAQuietForwardReadLinks(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(10)[1:]...)
+	svc, f := serviceOver(t, webMirror(t), s)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0, time.Second)})
+
+	_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 100})
+
+	require.NoError(t, err)
+	assert.Len(t, logstore.CoverageOf(chunksOf(t, svc, f, "web-1", "app"), []string{"kubelet"}, nil).Spans, 1)
+}
+
+// A forward read that found nothing between two chunks, its GET beginning past the
+// older one's end, marks the newer one head and links nothing.
+func TestARotatedReadWithNoLineMarksTheNextChunkHead(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(10)[8:]...)
+	svc, f := serviceOver(t, webMirror(t), s)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0, time.Second)},
+		logstore.Fill{Lines: fileLines(8*time.Second, 9*time.Second)})
+
+	_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 100})
+
+	require.NoError(t, err)
+	chunks := chunksOf(t, svc, f, "web-1", "app")
+	require.Len(t, chunks, 2)
+	assert.True(t, chunks[1].Head)
+	assert.Nil(t, chunks[1].Prev)
+	assert.True(t, logstore.CoverageOf(chunks, []string{"kubelet"}, nil).Gaps[1].Lost)
+}
+
+// A Tail page's backward read that found nothing between two chunks, the kubelet's
+// first line past the newer one's start or its log empty, marks the newer one head and
+// links nothing.
+func TestARotatedBackwardReadWithNoLineMarksTheNextChunkHead(t *testing.T) {
+	t.Parallel()
+	for name, kept := range map[string][]string{"rotated past": lineEvery(10)[9:], "emptied": nil} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := newLogServer()
+			s.add("prod/web-1/app", kept...)
+			svc, f := serviceOver(t, webMirror(t), s)
+			seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0, time.Second)},
+				logstore.Fill{Lines: fileLines(8*time.Second, 8*time.Second)})
+
+			_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Limit: 100})
+
+			require.NoError(t, err)
+			chunks := chunksOf(t, svc, f, "web-1", "app")
+			require.GreaterOrEqual(t, len(chunks), 2)
+			assert.True(t, chunks[1].Head)
+			assert.Nil(t, chunks[1].Prev)
+			assert.True(t, logstore.CoverageOf(chunks, []string{"kubelet"}, nil).Gaps[1].Lost)
+		})
+	}
+}
+
+// A read is head when the backend says so, or when it was a forward read from prev's
+// second that returned no line at or before prev and got a line or ended clean. A
+// read from any other bound, as from a page's key, says nothing of rotation.
+func TestAHeadReadIsJudgedByPrev(t *testing.T) {
+	t.Parallel()
+	prev := &logstore.Pos{TS: at(time.Second).UnixNano()}
+	key := &logstore.Pos{TS: at(2 * time.Second).UnixNano()}
+	for name, c := range map[string]struct {
+		mode        FetchMode
+		read        *streamRead
+		lower, prev *logstore.Pos
+		want        bool
+	}{
+		"backend head":        {mode: FetchTail, read: &streamRead{head: true}, want: true},
+		"prev gone":           {mode: FetchHead, read: &streamRead{oldest: at(3 * time.Second)}, lower: prev, prev: prev, want: true},
+		"prev returned":       {mode: FetchHead, read: &streamRead{oldest: at(time.Second)}, lower: prev, prev: prev, want: false},
+		"nothing, clean":      {mode: FetchHead, read: &streamRead{}, lower: prev, prev: prev, want: true},
+		"nothing, failed":     {mode: FetchHead, read: &streamRead{err: errors.New("503")}, lower: prev, prev: prev, want: false},
+		"nothing, cut":        {mode: FetchHead, read: &streamRead{short: true}, lower: prev, prev: prev, want: false},
+		"from the page's key": {mode: FetchHead, read: &streamRead{oldest: at(3 * time.Second)}, lower: key, prev: prev, want: false},
+		"no chunk":            {mode: FetchHead, read: &streamRead{oldest: at(3 * time.Second)}, lower: key, want: false},
+		"backward":            {mode: FetchTail, read: &streamRead{}, lower: prev, prev: prev, want: false},
+	} {
+		f := &filler{q: pageQuery{mode: c.mode}}
+		assert.Equal(t, c.want, f.headRead(c.read, c.lower, c.prev), name)
+	}
+}
+
+// A Tail page's backward read that reaches the kubelet's first line above the chunk
+// below its gap writes a head chunk linked to nothing, as a rotated forward read does.
+func TestARotatedBackwardReadLinksToNothing(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(10)[5:]...)
+	svc, f := serviceOver(t, webMirror(t), s)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0, time.Second)})
+
+	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Limit: 100})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"0", "1", "5", "6", "7", "8", "9"}, messages(page.Records))
+	chunks := chunksOf(t, svc, f, "web-1", "app")
+	require.Len(t, chunks, 2)
+	assert.True(t, chunks[1].Head)
+	assert.Nil(t, chunks[1].Prev)
+	assert.True(t, logstore.CoverageOf(chunks, []string{"kubelet"}, nil).Gaps[1].Lost)
 }
