@@ -1,0 +1,222 @@
+# src — React webview
+
+React 19 + TanStack Router + [urql] (GraphQL) + Vite + Tailwind v4. UI primitives from `@kubetail/ui`. Package manager is **pnpm**. Path alias: **`@/*` → `src/*`**.
+
+## Security invariants
+
+The whole picture is [`docs/security-model.md`](../docs/security-model.md). What an ordinary change here can break:
+
+- **Anything running in the webview holds the full cluster surface, and the shell behind it.** `graphql_query` forwards operations unexamined, so executing code can call every mutation, `approvalDecide` included. The CSP in `src-tauri/tauri.conf.json` is the containment — never widen `script-src`/`connect-src` to a remote origin, never load a script the bundle doesn't ship.
+- **The approval request is the user's eye, and the eye is the whole gate.** `ApprovalRequest` (`chat-transcript.tsx`) draws exactly what will run — the command, path, content, edit strings, URL and host, memory name and body, or a cluster change's classified action, diff and request — with every invisible or reordering character spelled out (`VisibleText`) and long content folded behind a button Approve waits on. **Approve is a click on that drawn request and nothing else**: no keyboard shortcut, no default button, no approving from anywhere the request is not shown, no "always allow" for a raw command. Duration rules (*Allow for this command* / *this chat* / *Always allow*) are offered for a classified action alone, only where a grant can lift the verdict, armed as Approve is. A request whose action the UI cannot draw offers Deny alone. Adding any approval path is a security change → [the bash tool](../docs/security/2026-09-18-bash-tool.md), [the prompt names the action](../docs/security/2026-10-04-the-prompt-names-the-action.md).
+  - **What runs unasked**: a command the sandbox confines; `Write`/`Edit` in the chat's workspace or a read-and-write granted folder; `Read` in a granted folder → [Bash runs in a sandbox](../docs/security/2026-09-28-bash-runs-in-a-sandbox.md), [path grants](../docs/security/2026-10-04-path-grants.md). A confined command wanting network the chat's switch and the turn's toggle don't give is its own request; the switch and toggle are the user's clicks alone, the switch behind a confirm → [network is the user's switch](../docs/security/2026-10-04-network-is-the-users-switch.md).
+  - **A grant is the user's act alone** (Settings, or `folderGrant`); a way for the model to make one is a security change.
+  - Each cluster change a sandboxed command sends, and each read of Secret data, runs, asks or is refused per the context's mode and rules; Secret data passes `[redacted]` unless allowed → [cluster writes ask](../docs/security/2026-09-29-cluster-writes-ask.md), [the permissions engine](../docs/security/2026-10-02-the-permissions-engine.md), [Secret data is a permissioned read](../docs/security/2026-10-05-secret-data-is-a-permissioned-read.md).
+  - A subagent's request is the same request, opening with *An agent asks:* and its `Agent` call's description → [the Agent tool](../docs/security/2026-09-25-agent-tool.md).
+  - **Requests are drawn whether or not an answer streams, several at once, in the order asked**; buttons are live on a `Pending` approval while the message's `awaitingApproval` holds; **Approve arms only after its place on screen holds still for `APPROVE_ARM_MS` (500ms)**, re-arming on any move. The composer's *Show* and the chat list's dot point to a request and never approve one → [background agents](../docs/security/2026-09-25-background-agents.md).
+- **The model's description of a command is its claim, never the app's.** One line, through `VisibleText`, italic and quoted, labelled *The model says:* on the request, never in place of the command and never brighter than it → [the command description](../docs/security/2026-09-23-the-command-description.md).
+- **Cluster data is attacker-controlled text.** `src/` has no HTML sink — no `innerHTML`, `dangerouslySetInnerHTML` or `eval` — and the `custom/cluster-data-is-text` config in `eslint.config.ts` fails the lint on one, and on a template engine by import or call. Printer columns go through the restricted reader in `src/lib/jsonpath.ts`.
+- **A chat answer inherits this.** `markdown.tsx` renders to React elements with raw HTML left as text; no rehype plugin may put HTML back.
+- **The log viewer and the exec window inherit this.** Output is untrusted bytes: no HTML interpretation, terminal control sequences stripped. The sidecar strips each log line (`services/logs`) and the viewer draws every cell through `VisibleText`. The exec window, when it lands, brings both.
+
+## Routing & layout
+
+- Entry: `src/main.tsx` → `RouterProvider`. Routes in `src/routes/` (code-based, wired in `src/routeTree.ts`): `__root.tsx` mounts the provider stack; `_app.tsx` is a pathless layout rendering `AppLayout`; `chat.tsx` (`/chat`), `chat-id.tsx` (`/chat/$chatId`) and `dashboard.tsx` nest under it. `index.tsx` redirects to `DEFAULT_ROUTE`. **The chat id is a path param, not a search param** — `retainSearchParams` on `_app` would drag a search param into the dashboard. The Chat/Dashboard switch is the sidebar's `ModeNav` (router `Link`s).
+- **Layouts** (`src/layouts/`) are presentational shells rendering an `Outlet`. Secondary windows (log tail, exec) will get a sidebar-less layout under their own pathless route.
+- App-wide concerns live in `src/lib/`; reusable UI in `src/components/widgets/`.
+- **`ReadyGate` (`src/lib/ready-gate.tsx`) draws `AppMark`** at 48px, centred, in every state. `index.html` carries a static copy of the same mark inside `#root`, so first paint and React's first commit show the same thing in the same place — keep them matching.
+
+## Errors reach the host's log
+
+`reportError` (`src/lib/error-bus.ts`) is the one producer; `src/lib/error-log.ts` is the sink: `startErrorLogForwarder` sends each record to the host's `log_webview`, and `installGlobalErrorHandlers` reports `error`/`unhandledrejection` as `render`. Both are called in `main.tsx` **before `createRoot`**. A module that throws while loading is not covered. **`errorReportExchange` forwards every GraphQL operation error**, so a component never calls `reportError` for one.
+
+- An `AppError`'s `context` holds **explicitly chosen keys, never a serialized `cause`** — a `CombinedError` holds GraphQL payloads full of cluster text.
+- The forwarder reads each field under its own guard (a getter can throw), caps strings, swallows a rejected invoke, and **never calls `reportError` on failure** (that would loop).
+- Sends past `MAX_IN_FLIGHT` are dropped, `RESERVED_IN_FLIGHT` slots kept for `render`/`auth`; the drop count rides as `context.dropped` on the next record.
+- The host is the authority on caps and rate limits (`src-tauri/CLAUDE.md`, Logging).
+
+## Window-scoped state = URL search params
+
+`kubeContext`, `resource` and `chat` are search params on `_app`, kept across mode switches via `retainSearchParams` — per-window, deep-linkable, history-pushing. → [ADR: URL params as window state](../docs/adr/2026-08-09-url-params-as-window-state.md). Accessors: `useActiveKubeContext` (`src/lib/active-kube-context.tsx`; falls back to the kubeconfig current context; `setContext` writes the param and never rewrites the kubeconfig) and `resolveDashboardResource`. `chat` is the dashboard panel's open chat, read by `DashboardChat` alone. **The cluster is the window's one scope**; everything else follows from it. → [ADR: the cluster is the app's scope](../docs/adr/2026-09-11-the-cluster-is-the-apps-scope.md). **Links writing one param must spread the previous search** (`(prev) => ({ ...prev, resource })`).
+
+**Window layout** (`layouts/app-layout.tsx`, the one place the shape is expressed): a 56px app bar over a row of the left sidebar, `<main>` and the right sidebar. Nothing is fixed-positioned. Traps:
+
+- **The app bar** (`app-bar.tsx`) is a `deep` Tauri drag region; controls inside stay clickable via Tauri's hit test, and the omnibox opts out with `data-tauri-drag-region="false"`. On macOS it reserves the native traffic lights (`window_manager.rs` mirrors the 56px); elsewhere it mounts `AppMenu` and `WindowControls`. **Only the bar checks the platform** — not mounting `AppMenu` on macOS keeps its `Ctrl/Cmd+N`/`Q` from firing beside the native menu's. Every bar control is drawn through `app-bar-button.tsx` (`AppBarButton`, `appBarButtonClass`, `AppBarGroup`/`AppBarDivider`); bar tokens are `--app-bar*` in `index.css`. The bar has no padding, so the close button reaches the corner.
+- **`open_account_url` names the URL itself** — a host command that opened whatever the webview handed it would be an exfiltration channel.
+- **The left sidebar** (`left-sidebar.tsx`): the library's `SidebarProvider` owns `Cmd/Ctrl+B`; open/collapsed is controlled from the layout via `usePersistedFlag`, since the library's `sidebar_state` cookie is never read back. Open is `LeftSidebarCard` (drag-resizable), collapsed is `LeftSidebarPill` in the same footprint. **Narrowness is the provider's own `isMobile`, never a second media query** — `toggleSidebar` branches on it to flip `open` or `openMobile`, so a component using another rule flips a state nothing shows. Narrow, the toggle opens the card as a drawer over the content row (`relative` in `app-layout.tsx`); a scrim, Escape or any navigation closes it.
+- **The drawer is `role="dialog" aria-modal`, held by `useFocusTrap`** (`src/lib/focus-trap.ts`). Both yield to an overlay opened inside it: the trap stands aside while its node sits under an `aria-hidden="true"` element, and the drawer's Escape listener is on `window`, after the `document` listener a dialog dismisses on, so one keypress closes the dialog alone.
+- **The right sidebar** (`right-sidebar.tsx`) is a row item, taking width from the page. It shrinks to its minimum before `<main>` goes under `min(480px, 50%)`, leaving the stored width alone. `ResizeHandle` and `usePersistedWidth` (`src/lib/persisted-width.ts`) are shared with the left card. `RightSidebarToggle` is pinned to the content row's top-right corner, below the left drawer's scrim. Its state is `useRightSidebar` (`src/lib/right-sidebar.tsx`) — chrome, out of the URL, persisted **per mode** (open state and width); the layout supplies the mode, and `usePersistedWidth` re-reads when its key changes. **The `aside` does not scroll**; its contents own a scroller each.
+- **The right sidebar's content**: on the dashboard `DashboardChat`; in chat mode the focused log view (`logs-view-panel.tsx`) or a placeholder. **The focused view is `useLogsView`** (`src/lib/logs-view.tsx`): `{ clusterId, chatId, callId, action } | null`, chrome, not persisted. `set` also opens the right sidebar, so `LogsViewProvider` mounts inside `RightSidebarProvider`. A view opens on the transcript card's Expand alone (`logs-view-card.tsx`), never by itself.
+- **The log viewer** is `components/widgets/log-viewer/`; its `index.ts` exports `LogViewer` alone and nothing outside imports a part. It builds its client once per mount through **`createLogsClient(clusterId, action)`** (`src/lib/logs-client.ts`, the one place the app makes a `Client` — the fake for now, hence the *Fake lines* tag) in a `useState` initializer, starting it in an effect. It lands at the action's `openAt` on mount only. Cells are drawn through `VisibleText`; the dot colour is inline (no CSS name built from cluster text). Selection is kubetail's, ported (`selection.ts`); keys go on the scroller, never `document`, so a page can hold two viewers. Enter/Space on a cell are taken in the capture phase, before the scroller's intent reader would read Space as scroll-to-bottom. Copy goes through `navigator.clipboard.writeText`, a refusal to `reportError` as `render`; `onError` goes as `network`. It writes what is on screen to the window's one **`LogViewportHandle`** (`src/lib/log-viewport.ts`), and the empty viewport on unmount. Columns and wrap persist as `kstack:log-viewer-columns` / `kstack:log-viewer-wrap`. See the directory's files for rows, header, toolbar, jump-to-time and wrap.
+
+The **context omnibox** (`context-omnibox.tsx`) sits in the app bar's centre. Its cluster trigger needs `shrink` to `truncate`, since the library's button base pins `shrink-0`. It holds the clusters dialog, the cluster dropdown, the **`MemoryButton`** (lit while the cluster sees any memory, pulsing on `useMemories`' `lastSaved`) and the "Unverified TLS" badge — the one place the app says a connection goes unverified. `HistoryNav` walks router history via `__TSR_index` through `useSyncExternalStore`.
+
+**The sidecar mirrors the kubeconfig and draws no verdicts over it.** `status.source.kubeconfig.cluster` is `{ name, entry }` (`entry`: `server`, `insecureSkipTLSVerify`; null when undefined). `user` is the name alone — an authInfo entry holds credentials. **`tlsUnverifiedReason` in `src/lib/kube-config.tsx` is the one place that derives the badge**; a second inline copy is how the plain-`http` arm goes missing. → [ADR: status mirrors the kubeconfig](../docs/adr/2026-09-03-status-mirrors-the-kubeconfig.md).
+
+## Dashboard resource nav
+
+The curated base tree is `DASHBOARD_NAV` (`src/lib/dashboard-resources.ts`); `buildDashboardNav(serverKinds)` merges in the active cache's discovered kinds (bucketed by API group; unmapped groups, core included, deferred). Disclosure style comes from shape (curated `children` vs discovered `moreChildren`); counts join by API group + plural via `CURATED_LEAF_API_GROUP`. `DashboardResource` is an **open string**, validated leniently. → [ADR: dashboard nav merge](../docs/adr/2026-08-09-dashboard-nav-merge.md).
+
+Live data: `useClusterCachedDataKinds` (`src/lib/cluster-cached-data-kinds.tsx`) consumes `clusterCachedDataKindsWatch(id, cacheID)`; `useDashboardNav` builds the tree over it. All three cached-data hooks resolve the cluster/cache through `useActiveCluster()` (`src/lib/active-cluster.tsx`) and reduce through **`useCacheDeltaWatch`** (`src/lib/graphql/use-cache-delta-watch.ts`), which owns the id-keyed fold, `watchPhase`, and the **cache/kind provenance guard** (rejects rows from a superseded cache — don't bypass it; → delta-watch ADR). `AppLayout` mounts `DashboardResourceNav` only while `/dashboard` matches. `routes/dashboard.tsx` picks a panel from `resource`: `events` → `EventsTable` (`useClusterCachedDataEvents`); a resolved discovered kind → `ObjectsTable` (`useClusterCachedDataObjects(kind)`, keyed by cache **plus** `apiVersion`+`resource`); else a placeholder. `rawJSON` is the full native body (`unknown`). Kind columns (`object-columns.tsx`): a hand-written registry entry wins, else the kind's `printerColumns` evaluated by `src/lib/jsonpath.ts`. Only Pod and Deployment are hand-written (rest in `docs/TODO.md`). Both tables gate on `active`/`phase`: no active cache → "not synced", `connecting` → spinner, `live` with no rows → "No …".
+
+**Both tables render through `VirtualTable`** (`components/widgets/virtual-table.tsx`), only the on-screen rows in the DOM between two spacer rows. Two facts hold it up:
+
+- **Every row is `ROW_H` tall, and `ROW_H_PX` is read off a rendered row** (`TableRow`'s `border-b` under collapsed borders makes it not `h-9` arithmetic). A wrong constant drifts rows further down a long list.
+- **The table is `table-fixed`**: widths come from the header, carried in each column's `className` (`object-columns.tsx` sizes every column); free-text columns `truncate` with a `title`; an unsized column takes the slack. `VirtualColumn` has `ObjectColumn`'s shape.
+
+**The table corrects its own scroll**: after each commit it moves `scrollTop` by the *smallest* shift any surviving on-screen row made, doing nothing within one row of the top; the scroller sets `overflow-anchor: none`. → [ADR: the virtual table owns its scroll anchoring](../docs/adr/2026-10-17-the-virtual-table-owns-its-scroll-anchoring.md). The scroller is `tabIndex={0}` for Home/End/PageUp/PageDown.
+
+**The layout bounds the scroll.** The chain is `h-(--app-min-h) min-h-0` on the `SidebarProvider` column, `min-h-0 flex-1` on the content row, `min-h-0 flex-1 overflow-hidden` on `<main>` (all in `app-layout.tsx`), `flex min-h-0 flex-1 flex-col` on the route's `<section>`, then the table's `flex-1 overflow-auto`. Traps:
+
+- `min-h-0` goes on every *plain* flex item between frame and scroller, never on the scroller itself.
+- It must stay beside `h-` on the provider: only `min-h-*` displaces the library's hardcoded `min-h-svh` via tailwind-merge, and on Linux `--app-min-h` (100% of the `WindowFrame` inset) is shorter than `100svh`.
+- That percentage is definite only while every DOM ancestor is — one wrapper `<div>` between `WindowFrame` and the provider breaks it.
+- Any other scrolling route under `_app` needs `min-h-0` on its own chain (`chat.tsx` via `CenteredColumn`).
+- Tests that render rows call `stubLayout()` from `@/test-utils`; jsdom has no layout, so a virtualized table renders none.
+
+## Chat
+
+**Panes.** `chat-pane.tsx` holds `ChatPane` (one chat: transcript over composer) and `NewChatPane` (a chat not yet started: its `empty` slot over a composer). Chat mode's page and the dashboard's right sidebar mount them. Neither navigates: they report `onCreated(id)` / `onGone()`, and the home decides — `chat.tsx` goes to `/chat/$chatId` with `replace: true`, `chat-id.tsx` back to `/chat`, `DashboardChat` writes or clears its `chat` param. → [ADR: the answer is a record](../docs/adr/2026-09-10-the-answer-is-a-record.md).
+
+**Reads are `src/lib/chats.tsx`.** `useChats` sorts by `Date.parse(updatedAt)` desc then `id` desc (millis tie). `useChatMessages(chatId)` orders by `seq`; ids order nothing. Both are `unshared: true`, fold an id-keyed map over `useWatchSubscription` (no `useCacheDeltaWatch`: no cache provenance), and gate on `type === 'Bookmark'`. The file holds the one reader of each part of a message — keep it that way, since a second, laxer narrowing of `content: JSON!` is how a tool block reaches the screen:
+
+- `textOf` — text blocks only. Tool rounds, thinking, `context` and notice blocks draw nothing; a `tool_use`/`tool_result` round or a `server_use` block between two text blocks becomes a blank line.
+- `contextOf` (a question's cluster card), `noticesOf` (background-task notices), `searchesOf(toolCalls)` (the answer's own `Search` calls that `ranSearch` passes, queries off `action.search`), `sourcesOf(citations)` (one entry per URL, citing order). Web text is data, drawn as text.
+- `summaryOf`, `toolCallTag`, `grantOffered`, `waitingRequestsOf`, `inFlight` — see below.
+- `chatModeOf` is the one `AppMode` → wire mapping, so the list filter and the send agree.
+
+**A chat belongs to one mode and one cluster** (`Chat.mode`, `Chat.clusterID`, fixed at creation). The list watch is unscoped and both filters are the client's, since `OpenChat` must tell a deleted chat from another cluster's. **Any send may name any model in the catalog** → [ADR: a chat can switch to any model](../docs/adr/2026-09-25-a-chat-can-switch-to-any-model.md).
+
+**Writes are `src/lib/chat-outbox.tsx`**, mounted at `AppLayout` above the routes so a send settles whatever became of the composer that started it. One entry per chat, keyed by chat id or `new:<mode>`: the draft, the `pick` (model + effort), the network toggle, and one `Send` (`idle | sending | held | awaiting`). `useChatOutbox(mode, chatId, clusterId?, seed?)` is the whole API. → [ADR: the chat outbox](../docs/adr/2026-10-17-the-chat-outbox-holds-each-chats-send-above-the-routes.md).
+
+- **Nothing moves between keys** except `moveDraft` (the deleted-chat notice's "Start a new one"). An existing chat's send goes `awaiting(seq)` until the composer sees that row and calls `settle`; a created chat's leaves the `new:` entry idle and empty.
+- **A refusal is settled, a dropped response is not.** A GraphQL error returns to `idle` with the draft kept; the next submit mints a new `requestID`. A `networkError` holds the send — id, content, cluster, pick, switches, toggle, and whether it was the draft — behind Retry/Discard; Retry resends it exactly, never under the window's current cluster or pick.
+- `submit`/`retry` resolve to the created chat (id + cluster) or null. The composer follows it only while mounted *and* still on that cluster — the `new:` composer outlives a cluster switch.
+- **Ask again** (on the last row when it is a `Failed` answer to a question) is `askAgain(content, pick)`: a fresh send under a new `requestID` with the failed row's question and pick. It leaves the draft alone and rides the entry's one send. It is not Retry, which is the same send under the same id.
+- The one refusals remembered are `KSTACK_CHAT_CONTEXT_FULL` (`{ kind: 'context-full', model }`, the model that send named), `KSTACK_CHAT_SANDBOX_CHANGED` and `KSTACK_CHAT_NETWORK_CHANGED`; the next send clears them. Send stays enabled.
+- An unpicked entry takes the composer's `seed` (the last answer's model, else the catalog's first) only once both the messages `Bookmark` and the catalog have answered. **An effort belongs to its model**: falling back to another model takes that model's default.
+
+`useModels` (`src/lib/models.tsx`) is the one reader of `models` and owns `seedPick`/`modelOf`. It separates an empty catalog (no key) from `failed` (with `retry`); a failed query is asked again **once per live watch** (`useAskAgainWhenLive`), never on every failure.
+
+**`OpenChat` is keyed on the chat id** and owns both watches. After the list's `Bookmark`, an id the map lacks renders "This chat was deleted." A chat of another cluster renders its own notice, gated on the clusters snapshot, with `Switch to it` while that context exists. Switching cluster from the omnibox clears the `chat` param, leaves `/chat/$chatId` for `/chat`, and clears the focused log view; `setContext` itself touches none of them.
+
+**`ChatComposer`** (`chat-composer.tsx`) draws the box and the model and effort selects over the whole catalog. A stored pick the catalog lacks is written back to the seed by an effect, and `canSend` reads the entry's actual pick, never a render-time fallback. Send is disabled while the watch it waits on is `connecting`, while the send is unsettled, while a new chat has no cluster, while a switch is in flight, and while the last message is `Streaming` — the last is in the guard as well as behind the button, since Enter takes the same path. Placeholders that blame the user wait for their query to answer; an empty catalog's reads *Set an API key, then restart Kstack*, since the sidecar reads keys once per launch. IME composition is respected (`nativeEvent.isComposing`). While an earlier message awaits approval, **Show** scrolls to it (`onShowWaiting`); it never approves.
+
+**A send names the switches its sender saw.** `chatSend` carries the chat's `sandboxDisabled` and `networkEnabled` as the list watch has them (`false` for a new chat), and the sidecar refuses a mismatch. So Send and Ask again wait for the list to deliver the chat, and from a switch's press until the watch shows its committed value (`useChatSwitch`, `src/lib/chat-switch.tsx`, held in `ChatSwitchProvider` at `AppLayout`; wrapped by `useSandboxSwitch` and `useNetworkSwitch`). → [ADR: leaving the sandbox is the user's switch](../docs/adr/2026-09-30-leaving-the-sandbox-is-the-users-switch-for-a-chat.md).
+
+- `useSandbox` (`src/lib/sandbox.tsx`) is the one reader of the `sandbox` query: `available`, `networkAvailable` and their reasons, `true`/`false`/undefined.
+- **`SandboxSwitch`** (open chat, machine with a sandbox): leaving the sandbox goes through a confirm `Dialog`; returning is immediate. It draws the watch's value, never its own. A chat starts sandboxed. → [outside the sandbox is the user's choice](../docs/security/2026-09-30-outside-the-sandbox-is-the-users-choice.md).
+- **`NetworkSwitch`** (open chat, in the sandbox): turning on confirms; off is immediate. The ***Network for this message*** toggle is the outbox entry's `networkThisTurn`: `submit` sends it, a held send keeps it, the accepted draft send clears it, Ask again ignores it. → [network is the user's switch](../docs/security/2026-10-04-network-is-the-users-switch.md).
+- **`ChatGrants`** lists the chat's own rules. `useChatGrants` (`src/lib/chat-grants.tsx`) re-asks after a removal, on focus, and after a `Chat`/`Always` decision. **Every query or mutation that can change the rule list carries `chatGrantsContext`** (`additionalTypenames: ['PermissionRule']`) — an empty list gives urql's cache nothing to key on.
+
+**Tool calls.** `ChatMessage.toolCalls` is every call of a turn, each with the `action` its tool in the sidecar read from its arguments (or, for `LogsView`, what its run resolved), its `approval`, and `agentCallID` for a subagent's call. **The webview never parses a tool's arguments, a path, a URL or a host** — it draws the sidecar's fields. → [the request reads the arguments](../docs/security/2026-09-23-the-request-reads-the-arguments.md). Under an answer's text, each of the answer's own calls not awaiting approval is a closed disclosure (`ChatTranscript`, `chat-transcript.tsx`); `summaryOf` is the one reader of its summary and `toolCallTag` of its tag. Summaries go through `VisibleText` with no `title`.
+
+- **A `Write`/`Edit` that ran unasked** (no `approval`, `Succeeded`) draws its content open under the summary, not inside the closed disclosure, since a later command may run the file.
+- A memory call for every cluster carries *for every cluster* whatever its status.
+- A sandboxed call's directory line says `sandboxed` (and `with network`); the request never does.
+- A searching call draws under *Searched the web* alone. A `LogsView` call with an action draws as `logs-view-card.tsx`.
+
+**Approval requests** — the rules are in [Security invariants](#security-invariants); `ApprovalRequest` in `chat-transcript.tsx` is the drawing. Traps for anyone changing it:
+
+- Requests are drawn after the answer's text and calls, in `approval.id` (UUIDv7) order, via `waitingRequestsOf` — which also returns waiting cluster writes, and which the composer's Show and the chat list's dot use. Each carries the DOM id `approvalAnchor(approval.id)`.
+- **Keyed on `approval.id`**, never call or message, so pressed state never leaks to the next request.
+- **Buttons are live only on a `Pending` approval while the message's `awaitingApproval` holds.** A `false` answer leaves them down; only a mutation error hands them back.
+- **Approve, and every allow answer, arms only after its rect holds still for `APPROVE_ARM_MS`** (`useHeldStill`, `src/lib/held-still.ts`); Deny never waits. Tests pass `approveArmMs`; production passes nothing.
+- Each request draws exactly what will run, through `VisibleText` (`src/lib/visible-text.ts`: `visibleSegments` spells invisible and reordering characters; `cutText` folds long text, and Approve waits on every fold that carries what is approved). Paths, URLs, hosts and names are never folded. Whitespace that changes meaning — `\r`, trailing spaces, a final newline, newlines at an edit's ends — is spelled or stated.
+- The command heading comes from `commandHeading` off `sandboxAvailable` and the call's own `command.sandboxed`/`network` — **never from the chat's current switch**, which can flip while a request waits.
+- A write's fields are read through `writeOf`: the HTML-sink lint refuses any `.write`.
+- **A request with no action it can draw offers Deny alone** (*This request can't be shown.*).
+- **Cluster writes and Secret reads** a sandboxed command sends are `ToolCall.clusterWrites`, drawn from the proxy's `action.summary`, the `diff` (`DiffBlock`, `diff-block.tsx`), and the raw request (method, path, media type, body). The allow answers appear only when `grantable` is set; *Always allow* refused with `KSTACK_VALIDATION_ERROR` means settings hold rules Kstack cannot read. Decided writes are tagged by `clusterWriteTag`; `approved`/`allowed` is the decision, not proof the cluster received it. → [cluster writes ask](../docs/security/2026-09-29-cluster-writes-ask.md), [the permissions engine](../docs/security/2026-10-02-the-permissions-engine.md), [the prompt names the action](../docs/security/2026-10-04-the-prompt-names-the-action.md), [Secret data is a permissioned read](../docs/security/2026-10-05-secret-data-is-a-permissioned-read.md).
+- **The model's description** is drawn only by `ModelDescription` (`components/widgets/model-description.tsx`) over `descriptionLine` — one line, no `title` (a native tooltip draws it unspelled). → [the command description](../docs/security/2026-09-23-the-command-description.md).
+- `WaitingApproval` is in flight like `Streaming` (`inFlight`): spinner, and the composer shows Cancel. An agent waiting does not put its message in flight.
+
+→ [the bash tool](../docs/security/2026-09-18-bash-tool.md), [bash offered to every turn](../docs/security/2026-09-22-bash-offered-to-every-turn.md), [the command names its directory](../docs/security/2026-09-23-the-command-names-its-directory.md), [saved output and Read](../docs/security/2026-09-23-saved-output-and-read.md), [read any approved file](../docs/security/2026-09-23-read-any-approved-file.md), [the write tool](../docs/security/2026-09-24-write-tool.md), [the edit tool](../docs/security/2026-09-24-edit-tool.md), [the web fetch tool](../docs/security/2026-09-24-web-fetch-tool.md), [memory](../docs/security/2026-09-24-memory.md), [KubeQuery reads the mirror](../docs/security/2026-09-27-kubequery-reads-the-mirror.md), [Bash runs in a sandbox](../docs/security/2026-09-28-bash-runs-in-a-sandbox.md).
+
+**Background commands and agents outlive their answer.** Their calls tag off `ToolCall.background` and draw a **Stop** (`backgroundTaskStop`) while running — down from the press, handed back only on an error. A Cancel stops the answer, not its tasks. A task's end reaches the model as a notice on a user message; the transcript draws a notice as one muted line, never a bubble, and draws neither an agent's report nor its error in it. A failed answer to notices alone has no Ask again. → [background commands](../docs/security/2026-09-23-background-commands.md).
+
+**An `Agent` call holds its subagent's calls** (those with its id as `agentCallID`), drawn inside its disclosure with the brief and, once complete, the report through `Markdown`. The call's `output` is not drawn. A subagent's request is the exception: drawn where requests go, opening with *An agent asks:*. → [the Agent tool](../docs/security/2026-09-25-agent-tool.md), [background agents](../docs/security/2026-09-25-background-agents.md).
+
+**A failed sandboxed command offers a folder grant** (`grantOffered`; `GrantOffer` mounts `FolderGrantForm` under the call). The field starts empty — nothing reads the output to fill it — and a grant never re-runs the command. → [path grants](../docs/security/2026-10-04-path-grants.md).
+
+**The transcript draws an answer when it has something to say**: `Streaming`/`Failed`/`Cancelled` always; `Complete` with text, else as its stop reason; `Stopped: tool_use` and `Stopped: pause_turn` always, since the earlier rounds' text would read as the answer. An answer whose model differs from the previous one is labelled.
+
+- **Thinking** is a disclosure above the text from the message's `thinking` field: open while streaming with no text, closed after. The summary is the model's text, so it goes through `Markdown` like the answer. A click pins it for the mount; `open` is React's alone (the click handler prevents the native toggle).
+- **Answer text is markdown via `Markdown`** (`markdown.tsx`: `react-markdown` + `remark-gfm` to React elements). The system prompt (`sidecar/internal/agent/chat/prompts/system.md`) asks for GitHub-flavored markdown and no HTML, so what is asked for and what is rendered agree. Raw HTML stays literal text, no rehype plugin may add HTML back, and links get a `title`, never an `href`. Fences with a language are highlighted lazily by `src/lib/highlight.ts` (one chunk per grammar, `ALIASES` maps fence words); fences without one stay plain.
+- *Sources* and *Searched the web · N* draw under an answer as soon as seen — the queries left the machine.
+- A question, and its *Context* disclosure (cluster card, memory notes, workspace, sandbox), is plain text, never markdown.
+- The transcript follows a growing answer only within 32px of the end.
+
+**Memory** (`useMemories(clusterID)`, `src/lib/memories.tsx`: `unshared`, the cluster's own first, then every cluster's, each by name — the model's order). **`MemoryDialog`** (`memory-dialog.tsx`) draws bodies as plain text, never markdown. Its form checks the shape itself (`KSTACK_VALIDATION_ERROR` names no field), holds one draft fixed against the watch, and saving one of Kstack's memories makes it the user's — which the form says. → [ADR: memory is rows](../docs/adr/2026-09-24-memory-is-rows-scoped-to-a-cluster-or-every-cluster.md), [memory](../docs/security/2026-09-24-memory.md).
+
+**`ChatNav`** (`components/widgets/chat-nav.tsx`) takes `mode`, which decides both which chats it lists and where a row points (`/chat/$chatId`, or the dashboard's `chat` param). No dashboard row is marked active. Delete confirms in a local `Dialog` (`DialogProvider` carries no payload). `Chat.awaitingApproval` draws a *Waiting on you* dot. **`DashboardChat`** (`dashboard-chat.tsx`) is `NewChatPane` with `ChatNav` in its slot, or `ChatPane` under a "Chats" button.
+
+## The log viewer's library
+
+**`src/lib/log-viewer/` is the viewer's headless core**; its `README.md` is the whole statement. In brief:
+
+- `types.ts` is the contract: a `Client` with `fetch` (a `Page` with `before`/`after` edges) and `follow` (`Line`, `Checkpoint`, `Ended`). **Cursors are opaque**; a line whose cursor is held is a repeat, dropped.
+- `LogWindow` (`window.ts`) is a React-free class holding the lines and the rules (stable keys, key 0 at the landing; only a `Tail` landing pins, then the pin is the user's; following is derived; one page per edge in flight). `window.test.ts` ends in a seeded walk over `FakeClient` that checks the rules after every step.
+- `LogViewerCore` (`core.tsx`) puts a fresh window, scroller and `@tanstack/react-virtual` virtualizer behind each landing. It reads intent off wheel, key, pointer and touch events, never a scroll event alone. It publishes to a `CoreStore` that readers take through `useCoreFields`, so they re-render only for the fields they draw.
+- `FakeClient` (`fake-client.ts`) is the one client for now; `index.ts` does not export it, and `src/lib/logs-client.ts` is the one importer.
+- **The directory imports `react`, `@tanstack/react-virtual` and its own files, nothing else** — no `@/`, no relative import out — and knows nothing of columns, the viewport, GraphQL or the error bus.
+
+## Theming & window frame
+
+**Browser-storage keys are `kstack:`-prefixed kebab-case, formed only by `storageKey`** (`src/lib/storage-key.ts`). Call sites pass the bare name. `@kubetail/ui` writes its own unprefixed `sidebar_state` cookie. Browser storage holds chrome shape (pane widths, open flags) and the history ceiling; a user *setting* goes to `host.json`.
+
+**Every window shares one `localStorage`; each has its own `sessionStorage`.** Chrome shape (`usePersistedWidth`, `usePersistedFlag`) is an app-wide default with no live sync: the next window opens the way the last was left. The history ceiling is per-webview and lives in `sessionStorage`. → [ADR: chrome shape is an app-wide default](../docs/adr/2026-10-17-chrome-shape-is-an-app-wide-default-in-localstorage.md).
+
+`src/lib/theme.tsx` has two axes: **color scheme** (`system`/`light`/`dark` → `.dark` on `<html>`) and **skin** (reserved). The preference lives in `host.json` (`src/lib/host-file.ts` owns read/update/subscribe), never localStorage. Boot is synchronous via `window.__KSTACK_HOST__` and the inline script in `index.html`, which **hand-mirrors `resolveColorScheme`**; its inline `<style>` hand-mirrors the boot mark's four tokens from `index.css`, pinned by the root `index.test.ts`. Keep both in sync. → [ADR: host.json settings](../docs/adr/2026-08-09-host-json-settings.md), [ADR: first-paint theming](../docs/adr/2026-08-09-first-paint-theming.md). The picker is in `settings-dialog.tsx`.
+
+**The Settings dialog's Sandbox and Permissions sections draw only while `useSandbox` answers `available: true`.** Each has one hook that reads its queries and runs its mutations. Every path, target, context, pattern and rule line goes through `VisibleText` (`components/widgets/visible-text.tsx`). A hook re-asks its query after each mutation and on focus where the query alone carries state another window can change.
+
+- **`PATH`** (`sandbox-settings.tsx`, `useSandboxPath` in `src/lib/sandbox-path.tsx`). Entries keep whitespace and spell trailing characters, since Include approves the folder drawn. Include sends the drawn `target`, so a refresh that moved it refuses. While the fault is set, what commands search comes from `sandboxPathResolved`, never from the list's length. → [ADR: `PATH` is the login shell's, filtered and frozen](../docs/adr/2026-10-02-path-is-the-login-shells-filtered-and-frozen.md).
+- **Executables** (`SandboxExecutableList`, `useSandboxExecutables` in `src/lib/sandbox-executables.tsx`) over the `sandboxExecutablesWatch` gauge. The probe mutation answers at once and the watch carries the end. After a press, *Probe again* holds until the watch's `probes` count passes the one seen at the press — the answer and the frame race, and a gauge can fold a short probe's start into its end.
+- **Folders** (`useSandboxFolders(chatID?)` in `src/lib/sandbox-folders.tsx`; `grant` runs under `chatGrantsContext`). **`FolderGrantForm`** (`folder-grant-form.tsx`) is the one form a folder is granted from, here and in the transcript; it sends the path exactly as typed. Remove is disabled while `rulesHeld`. *Never readable* is read-only. → [path grants](../docs/security/2026-10-04-path-grants.md).
+- **Permissions** (`permission-settings.tsx`, `usePermissionSettings` in `src/lib/permission-settings.tsx`). It re-asks `permissionSettings` on every opening and on focus. **The hook alone spells the wire's dotted keys** (`permissions.defaultMode`, `.modes`, `.rules`); everything else uses `PermissionField`. While the file holds values Kstack cannot read, that field's edits are disabled and *Discard what Kstack cannot read* (`permissionDiscardRefused`) sits behind a confirm naming them. *Clear* acts on a context's own entry, never a pattern it matches. → [the permissions engine](../docs/security/2026-10-02-the-permissions-engine.md).
+
+**The window frame is per-platform** (macOS native / Windows frameless-opaque / Linux frameless-transparent). `WindowFrame` (`window-frame.tsx`, at `__root.tsx`) paints Linux's border and shadow. `WindowResizeHandles` is its **sibling**, never a child — the frame's `contain: paint` would clip it. `main.tsx` adds `<html class="frameless">` on Linux only. **Full-height screens use `min-h-[var(--app-min-h)]`, never `min-h-svh`.** Maximized Linux goes full-bleed (`useWindowMaximized`). → [ADR: per-platform window chrome](../docs/adr/2026-08-09-per-platform-window-chrome.md).
+
+Off macOS there is no native menu bar: `AppMenu` (`app-menu.tsx`) owns `Ctrl/Cmd+N`/`Ctrl/Cmd+Q` and invokes `new_window`/`quit`; `WindowControls` (`window-controls.tsx`) draws the caption buttons.
+
+## GraphQL — never talks HTTP directly
+
+The webview has **no network access**. urql routes everything through Tauri IPC (`src/lib/graphql/`): queries and mutations via `invoke('graphql_query')` (`invoke-fetch.ts`), subscriptions via `graphql_subscribe`/`graphql_unsubscribe` over a Tauri `Channel` (`subscribe-exchange.ts`, with its own capped-backoff reconnect). Read `src/lib/graphql/client.ts` and its tests before touching transport or retry logic. → [ADR: GraphQL over Tauri IPC](../docs/adr/2026-08-09-graphql-over-tauri-ipc.md).
+
+**A `next` frame marked `extensions.watchFailed`** is the sidecar naming why a watch died. `subscribe-exchange` sends it down the drop path (report, hold last-known data, reconnect), never to the urql sink, which would re-deliver the last frame's data. **Key on the marker, never on shape**: a live frame with a field error looks the same. → [ADR: watch-failure reporting](../docs/adr/2026-08-14-watch-failure-reporting.md).
+
+**Connection lifecycle is the transport-status registry** (`transport-status.ts`): `connected` and a process-wide monotonic `generation`, bumped on the host's **`open` frame**, never on the `graphql_subscribe` ack. Consumers use **`useWatchSubscription`** (`use-watch-subscription.ts`), never raw `useSubscription`; it generation-gates its accumulator. urql shares one connection per query + variables, so a consumer mounting into a running stream never sees its snapshot — set **`unshared: true`** where a watch has several consumers and one can mount late; it costs a connection and a cold list per instance, so it is not the default. `watchPhase(synced, connected)` gives `connecting` (no snapshot yet), `live`, `reconnecting`. → [ADR: transport-status generation](../docs/adr/2026-08-09-transport-status-generation.md).
+
+**Frames are reduced as a batch**, once per `requestAnimationFrame` or after 250ms, whichever is first. The reducer gets `frames: Data[]` (never empty). A map reducer copies once per batch and applies frames in place (`applyChange` mutates); a simple per-frame fold is lifted with `perFrame(step)`. A frame from a newer connection drops the pending batch. A test that pushes a frame and asserts on the next line calls `flushWatchesSynchronously()` from `@/test-utils` at module scope. → [ADR: batch per animation frame](../docs/adr/2026-08-30-batch-watch-frames-per-animation-frame.md).
+
+## Codegen — generated types, don't hand-write
+
+`pnpm codegen` (`codegen.ts`) reads the **sidecar's** schema (`sidecar/graph/schema.graphqls` — single source of truth) and emits `src/gql/`.
+
+- Write operations with the **`graphql()` tagged template from `@/gql`**.
+- **`src/gql/` is generated — never edit it.** After changing a query or the sidecar schema, run `pnpm codegen` (or `pnpm codegen:watch`).
+
+## Tests
+
+Vitest + `@testing-library/react` (jsdom), co-located (`*.test.ts[x]`). The repo-wide rules are the root `CLAUDE.md`'s *Testing conventions*. Mock the Tauri bridge with **`mockTauriCore()` from `@/test-utils`** (+ `vi.mock('@tauri-apps/api/core', …)` and dynamic import of the module under test). For GraphQL-driven components, push frames via `liveChannel().onmessage!(...)` — see `src/lib/graphql/use-watch-subscription.test.tsx`.
+
+- The repo-wide rules above (co-located test files, no magic sleeps) apply here.
+- Run: `make test-changed` while working; `pnpm test --run` (or `make test-js`) for the whole suite. Watch: `pnpm test`.
+- **Coverage is gated.** `make cover-js` fails below the line percentage in `scripts/coverage-threshold`. **Raise it when a change lifts coverage; never lower it without saying why in the commit body.** Exclusions are in `vite.config.ts` (`src/gql/`, `routeTree.ts`, `main.tsx`, `test-utils.tsx`).
+
+## Lint / build
+
+- `pnpm lint` (ESLint: airbnb-extended, then `oxfmt --check`) → `make lint-js`. Run before
+  committing. `pnpm format` writes.
+- **Formatting is oxfmt** (`.oxfmtrc.json`); its output matches prettier's, so
+  `eslint-config-prettier` stays. The `lint`/`format` scripts pass **globs only**: a directory
+  argument mixed with a glob silently narrows to the glob's extensions. `.vscode/settings.json` runs
+  the same binary on save (`oxc.oxc-vscode`, resolved from `node_modules`).
+- The **React compiler** is on in two places that must stay in step: the babel transform
+  (`vite.config.ts`) and the lint rules inside `eslint-plugin-react-hooks` (`recommended-latest` in
+  `eslint.config.ts`). A bail-out the transform would take silently is a lint error instead.
+- **Write as though the compiler weren't there** — it bails per-function, silently. So
+  `react-hooks/exhaustive-deps` is an **error**, and manual `useMemo`/`useCallback` are ordinary
+  tools.
+- `pnpm build` = `tsc -b && vite build`. Dev: `pnpm dev` (webview) or `pnpm tauri dev` (full app).
+
+[urql]: https://commerce.nearform.com/open-source/urql/
