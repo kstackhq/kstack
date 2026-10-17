@@ -386,7 +386,8 @@ func TestAFollowEndsWhenEveryStreamIsGone(t *testing.T) {
 }
 
 // A follow whose containers have all finished reads each to its end, sends their
-// lines in position order across the view, then says every container stopped.
+// lines, then says every container stopped. Each fills on its own, so the order is
+// per container alone.
 func TestAFollowDeliversWhatItHeldBeforeItEnds(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
@@ -400,8 +401,7 @@ func TestAFollowDeliversWhatItHeldBeforeItEnds(t *testing.T) {
 	stream, err := svc.Follow(t.Context(), "7", webView, cursor(-time.Second))
 	require.NoError(t, err)
 
-	assert.Equal(t, "b", recvLine(t, stream, "web-2's line").Message)
-	assert.Equal(t, "a", recvLine(t, stream, "web-1's line").Message)
+	assert.ElementsMatch(t, []string{"a", "b"}, recvLines(t, stream, 2))
 	assert.Equal(t, errStopped.Reason, endedWith(t, stream))
 }
 
@@ -1435,6 +1435,99 @@ func TestAFollowFillsALiveGapBeforeItGoesOn(t *testing.T) {
 
 	assert.Equal(t, []string{"in the gap", "1800", "tailed"}, recvLines(t, stream, 3))
 	assert.Equal(t, 1, fills(s, "prod/web-1/app"))
+}
+
+// A gap fill held open holds up no other stream: the view's other container's lines
+// arrive while it waits, and the checkpoint stays at the filling stream's watermark,
+// so the gap's lines come once the fill ends.
+func TestASlowFillHoldsUpNoOtherStream(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(10*time.Minute, "in the gap"), stamped(30*time.Minute, "1800"))
+	asked, release := testutil.NewSignal(), make(chan struct{})
+	s.onRequest = func(n int) {
+		s.mu.Lock()
+		key, q := s.keys[n], s.queries[n]
+		s.mu.Unlock()
+		if key == "prod/web-1/app" && q.Get("follow") != "true" {
+			asked.Fire()
+			select {
+			case <-release:
+			case <-t.Context().Done():
+			}
+		}
+	}
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, s)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
+	stream, err := svc.Follow(t.Context(), "7", webView, cursor(0))
+	require.NoError(t, err)
+	asked.Wait(t, "web-1's gap fill")
+
+	s.add("prod/web-2/app", stamped(40*time.Minute, "from web-2"))
+	assert.Equal(t, "from web-2", recvLine(t, stream, "web-2's line while web-1 fills").Message)
+	frame := testutil.Recv(t, stream.Frames, "the checkpoint after it")
+	require.Equal(t, FollowCheckpoint, frame.Type)
+	checkpoint, err := boundAfter(frame.Cursor)
+	require.NoError(t, err)
+	assert.True(t, checkpoint.at.Timestamp.Before(at(10*time.Minute)), "the checkpoint waits before web-1's gap")
+
+	close(release)
+	assert.Equal(t, []string{"in the gap", "1800"}, recvLines(t, stream, 2))
+}
+
+// A container that finishes while its gap fill waits, the fill then failing on a
+// transient error, is held, not ended: after its backoff the gap is filled again and
+// its lines are sent before the follow ends.
+func TestAFillThatFailsAfterItsContainerFinishedIsRetried(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(10*time.Minute, "in the gap"), stamped(30*time.Minute, "1800"))
+	asked, release := testutil.NewSignal(), make(chan struct{})
+	var once sync.Once
+	s.onRequest = func(n int) {
+		s.mu.Lock()
+		key, q := s.keys[n], s.queries[n]
+		s.mu.Unlock()
+		if key != "prod/web-1/app" || q.Get("follow") == "true" {
+			return
+		}
+		once.Do(func() {
+			asked.Fire()
+			select {
+			case <-release:
+			case <-t.Context().Done():
+			}
+		})
+	}
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, s)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
+	stream, _ := followWeb1(t, svc, cursor(0))
+	closeSnapshot(t, f, f.pods)
+	asked.Wait(t, "web-1's gap fill")
+
+	f.store.Apply(t, finished(web1()))
+	read := testutil.NewProbe[struct{}](1)
+	f.set(func() { f.mirrorRead = read })
+	f.pods <- podFrame(cluster.DeltaFrameModified, "web-1")
+	read.Await(t, "the finished pod's resolve")
+	s.end("prod/web-1/app")
+	read.Await(t, "the resolve after the tailer's end")
+	f.set(func() { f.mirrorRead = nil })
+
+	s.mu.Lock()
+	s.refuseReads["prod/web-1/app"] = refusal{http.StatusServiceUnavailable, "busy"}
+	s.mu.Unlock()
+	close(release)
+	require.Eventually(t, func() bool { return fills(s, "prod/web-1/app") >= 2 },
+		testutil.Timeout, time.Millisecond, "the fill retried")
+	s.mu.Lock()
+	delete(s.refuseReads, "prod/web-1/app")
+	s.mu.Unlock()
+
+	assert.Equal(t, []string{"in the gap", "1800"}, recvLines(t, stream, 2))
+	assert.Equal(t, errStopped.Reason, endedWith(t, stream))
 }
 
 // A follow's gap fill is not stamped, since what it fetched is in the viewer's window,
