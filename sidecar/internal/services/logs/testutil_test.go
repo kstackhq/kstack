@@ -864,12 +864,11 @@ func inlined(sql string, args []any) string {
 	return sql
 }
 
-// from, after, to and before are bounds at the moment d past 10:00: since it,
-// after it, until it, and before it.
-func from(d time.Duration) bound   { return bound{position{Timestamp: at(d)}, true} }
-func after(d time.Duration) bound  { return bound{position{Timestamp: at(d)}, false} }
-func to(d time.Duration) bound     { return bound{position{Timestamp: at(d)}, true} }
-func before(d time.Duration) bound { return bound{position{Timestamp: at(d)}, false} }
+// from, after and to are bounds at the moment d past 10:00: since it, after it,
+// and until it.
+func from(d time.Duration) bound  { return bound{position{Timestamp: at(d)}, true} }
+func after(d time.Duration) bound { return bound{position{Timestamp: at(d)}, false} }
+func to(d time.Duration) bound    { return bound{position{Timestamp: at(d)}, true} }
 
 // lineAt is the position of key's line at d past 10:00, from the first instance
 // of a fixture pod, the ordinal-th of its moment.

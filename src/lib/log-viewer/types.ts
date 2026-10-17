@@ -73,6 +73,10 @@ export type FollowFrame =
 /** Where lines come from. Anything that implements it can feed the window. */
 export type Client = {
   fetch: (query: FetchQuery) => Promise<Page>;
-  /** Calls back per frame written after `after`, until the function it answers is called. */
-  follow: (after: Cursor, onFrame: (frame: FollowFrame) => void) => () => void;
+  /**
+   * Calls back per frame written after `after`, until the function it answers is called. A
+   * follow that cannot open throws, or, when it learns so later, calls `onFailed` once and
+   * sends nothing after.
+   */
+  follow: (after: Cursor, onFrame: (frame: FollowFrame) => void, onFailed: (error: unknown) => void) => () => void;
 };
