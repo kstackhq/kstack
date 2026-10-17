@@ -31,6 +31,8 @@ type Retention struct {
 	// is over it.
 	Bytes int64
 	// StreamShare is one stream's share of Bytes, so a firehose cannot take the file.
+	// A chunk inside ReadTTL is kept past it: paging back through a firehose holds
+	// what it read.
 	StreamShare int64
 	// ReadTTL keeps a chunk read or written this recently out of eviction.
 	ReadTTL time.Duration

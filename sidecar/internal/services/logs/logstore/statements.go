@@ -195,7 +195,8 @@ var statements = []sqlstmt.Statement{
 	stmtCloseOpenChunks: sqlstmt.OnWriter(`UPDATE chunks SET open = 0 WHERE open = 1`),
 	stmtCloseChunk:      sqlstmt.OnWriter(`UPDATE chunks SET open = 0 WHERE id = ?`),
 	stmtStreamExists:    sqlstmt.OnWriter(`SELECT 1 FROM streams WHERE id = ?`),
-	stmtStreamBytes:     sqlstmt.OnReader(`SELECT stream_id, sum(bytes) FROM chunks GROUP BY stream_id`),
+	// Chunks that overlap count their shared lines twice, until one is evicted.
+	stmtStreamBytes: sqlstmt.OnReader(`SELECT stream_id, sum(bytes) FROM chunks GROUP BY stream_id`),
 	// A never-read chunk goes before a read one: the oldest line first among the
 	// never-read, the oldest stamp first among the read.
 	stmtCandidates: sqlstmt.OnReader(`

@@ -117,6 +117,31 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 - **SSO failure didn't retry.** The async login tail (wait-for-redirect → exchange → verify → persist) is fire-and-forget; a tail failure is only logged and leaves the session signed-out (a known v1 limitation), with no retry. The user must manually re-initiate login.
 - **Check RBAC permissions?** The `ClusterPermissions`/`ResourceRule`/`NonResourceRule` types and schema exist, but the `Permissions` resolver is a stub that returns `not implemented: permissions`. Implement it via a `SelfSubjectRulesReview`. Distinct from the `SelfSubjectReview` *authentication* probe behind `ClusterPrincipal.username`, which is implemented.
 
+## Sidecar — log cache
+
+Planned work the log cache was shaped for and did not build:
+
+- **Filter a view by label.** A new view source kind selecting pods by label: a change to `LogsViewInput`, the tool's parse, the resolve and the wire. The file already keeps each pod's labels on its streams, the one part that cannot be added once a pod is gone.
+- **A workload source reads its gone pods from the file.** Only a `Pod` source does (`pageStreams`, `services/logs/filestreams.go`), so a Job's finished pods and a rollout's replaced ones show only while the mirror holds them. It needs an owner on the stream row, or a selector match over its labels.
+- **stdout/stderr on a line.** The kubelet API strips the CRI tag, so no backend knows it. It lands with the first backend that reads the node's files: a `stream` column (a schema edit, since the file is rebuilt), the viewer's colouring and a filter.
+- **More backends.** A cluster agent that greps on the node (kubetail's), and an archive such as Loki or Datadog that holds what the kubelet rotated away. The schema and the cursor fit both; each brings its own cursor and resolve changes, and `Backend` gains `Streams(view)` with the first that answers differently from the mirror.
+- **Evict first what a backend still holds.** The janitor picks chunks by stream share and read stamp alone (`logstore/janitor.go`); a chunk the kubelet can still serve is the cheaper loss.
+- **A shed order across tailers.** Each tailer sheds on its own when the writer falls behind (`services/logs/tailer.go`); the registry ranks none.
+
+Known gaps in what is built, each checked against the code:
+
+- **A plain view shows an earlier instance only as far as the file holds it.** A `Pod` source reads the instances before the running one from the file with no fill (`fileRows`, `filestreams.go`), so a view that never looked before a restart has nothing of the instance before it. `previous` reads that one from the kubelet.
+- **Only a container's newest 8 instances in the file are read** (`maxInstances`, `filestreams.go`); older ones wait for eviction.
+- **Two earlier instances of one container share a `LogStream`** on the wire, both `previous: true`. Only their cursors tell them apart, so the viewer draws them as one stream.
+- **A lost gap is crossed in silence.** Pages and follows walk across it (`Gap.Lost`, `walk.go`, `follow.go`'s `reach`), and nothing on the wire says lines were there: `skipped` names only reads that failed.
+- **A restart within one second** files the new instance's first lines of that second under the old one. The trim cuts at the end of `finished_at`'s second (`logstore/trim.go`), since container times are whole seconds.
+- **A line delivered late, stamped before a `Head` page's cut,** lands under its stamp in a range coverage already claims, so no page shows it. A follow does, since its watermark is per stream.
+- **A quiet stream pins a follow's checkpoint** where the follow started: `flush` names the oldest watermark (`follow.go`), so a reopen sends again everything the busy streams wrote since. Correct, since the webview drops repeats by cursor, but it can be large. Moving a quiet stream's watermark to now would be unsafe: a line can arrive stamped before the moment it arrives.
+- **A live gap's fill stalls the whole follow.** `walkStreams` walks one stream at a time and `walk` fills a live gap in line, so every stream of the follow waits on that fill's kubelet read.
+- **A page and a tailer can write overlapping chunks.** Coverage joins them and eviction deletes only lines no other chunk claims (`unclaimed`, `logstore/evict.go`), but the budget sums `chunks.bytes` (`stmtStreamBytes`), so it counts the overlap twice until one chunk goes.
+- **A chunk left open by a closing write that failed** stays open until the file is next opened (`closeEnded`, `logstore/writer.go`; `stmtCloseOpenChunks` at open). The next tailer opens a chunk beside it, which coverage joins. Until then the janitor cannot evict it, since eviction takes closed chunks only.
+- **Paging back through a firehose protects what it fetched.** Each page stamps its chunks (`Store.Stamp`, `fetch.go`), so up to a page's fill budget per page stays for `ReadTTL` past its stream's share. Bounded by how fast a person scrolls.
+
 ## Sidecar (Go)
 
 - **A chat's directory layout is named in two packages.** agent/chat owns `<data>/chats/<id>`, but

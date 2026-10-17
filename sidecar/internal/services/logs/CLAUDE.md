@@ -2,8 +2,8 @@
 
 The service reads container logs through the cluster's connection, keeps them in a file per cache
 (`logstore`), and answers pages and follows over the file. The model never reaches a line through
-it; the `LogsView` tool (`internal/tools/CLAUDE.md`) opens a view the user looks at. Specs:
-`docs/specs/log-cache/`, `docs/specs/log-views/`.
+it; the `LogsView` tool (`internal/tools/CLAUDE.md`) opens a view the user looks at. Spec:
+`docs/specs/log-views/`. Planned work and known gaps: [`docs/TODO.md`](../../../../docs/TODO.md#sidecar--log-cache).
 
 ## The file (`logstore`)
 

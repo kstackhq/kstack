@@ -1112,7 +1112,10 @@ func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) (ok bool
 
 // flush sends the lines walked in position order, then, when it sent any, a
 // checkpoint naming the oldest watermark across the view. It is false once the
-// follow's context has ended.
+// follow's context has ended. A stream that writes nothing holds the checkpoint
+// where the follow started, so a reopen sends again all the others wrote since;
+// moving its watermark to now would be unsafe, since a line can arrive stamped
+// before the moment it arrives.
 func (f *follow) flush(ctx context.Context) bool {
 	if len(f.batch) == 0 {
 		return true
