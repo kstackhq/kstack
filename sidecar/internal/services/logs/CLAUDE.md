@@ -19,10 +19,11 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
 - `Retention` (`retention.go`) holds every knob. Ids never come back (`AUTOINCREMENT`).
 - **A chunk's `read_at_ms` is a page's stamp alone**; tailers and follows stamp nothing.
   `Store.WriteHeld` holds a follow's gap fill from commit until its walk returns.
-- **The janitor** (`janitor.go`) sweeps on `Interval` and past `SweepBytes`: it protects open,
-  recently read and held chunks, evicts over-share streams first and never-read before read, then
-  removes chunkless streams whose pod `PodsGone` says is gone (`podsgone.go`; unset, none), at most
-  `sweepPods` pods a sweep, round robin. `Store.Sweep` runs one by hand.
+- **The janitor** (`janitor.go`) sweeps on `Interval` and past `SweepBytes`: it first retries
+  closing the chunks of ended tails whose close failed, then protects open, recently read and held
+  chunks, evicts over-share streams first and never-read before read, then removes chunkless
+  streams whose pod `PodsGone` says is gone (`podsgone.go`; unset, none), at most `sweepPods` pods
+  a sweep, round robin. `Store.Sweep` runs one by hand.
 - `statements.go` is the file's `sqlstmt.Set`. **Coverage is a pure function** (`CoverageOf`,
   `coverage.go`). **A `Fill` is one read of one gap** (`fill.go`). **The trim** (`trim.go`) cuts a
   finished stream at the end of `finished_at`'s second (container times are whole seconds).

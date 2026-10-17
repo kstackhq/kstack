@@ -91,11 +91,16 @@ func (s *Store) Sweep(ctx context.Context) error {
 	return nil
 }
 
-// sweep evicts f's unprotected chunks until every stream is under its share and the
-// file under its budget, removes the empty streams of gone pods, and vacuums. Each
-// eviction is its own transaction, so the tailers' batches land between them.
+// sweep closes the chunks whose close failed, evicts f's unprotected chunks until every
+// stream is under its share and the file under its budget, removes the empty streams
+// of gone pods, and vacuums. Each eviction is its own transaction, so the tailers'
+// batches land between them.
 func (m *Manager) sweep(ctx context.Context, cacheID int64, f *file) (sweepReport, error) {
 	var r sweepReport
+	// A close that fails again leaves only its chunk out of eviction, so the sweep goes on.
+	if err := f.closeUnclosed(ctx); err != nil && ctx.Err() == nil {
+		slog.Warn("log store: a tail's chunk could not be closed", "cacheID", cacheID, "err", err)
+	}
 	sizes, err := streamBytes(ctx, f)
 	if err != nil {
 		return r, err
