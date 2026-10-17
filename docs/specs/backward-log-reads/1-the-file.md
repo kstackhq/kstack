@@ -1,7 +1,7 @@
 ---
 title: The file
 scope: sidecar
-status: Planned
+status: Done
 ---
 
 # The file
@@ -38,9 +38,12 @@ Today a page buffers every line of every stream, then checks instances, then wri
 writes each window as soon as the reader has handed all of it over.
 
 - **The reader marks where each window ends.** `streamRead` today is a flat channel of lines. It
-  gains a window boundary, sent after a window's last line. A forward read is one window.
+  gains a window boundary, sent after a window's last line. A forward read is one window, which its
+  close ends.
 - **The filler writes at each boundary.** It turns the window's lines oldest first and hands them to
-  the file in batches of `WriteBatch` lines or `WriteBatchBytes` (1 MiB), oldest batch first.
+  the file in batches of `WriteBatch` lines or `WriteBatchBytes` (1 MiB), oldest batch first. It
+  writes a window once the next window's first line arrives, or once the read ends: only then does
+  it know whether the window is the read's oldest, which takes `Prev` and `Head`.
 - **How a window's batches link.** Each `Fill` below is one batch.
   - **Down, first batch:** `Prev` is the line below the window, only on the oldest window of the
     read and only when it reached the lower bound, as `fillOf` decides today. Every other window's
@@ -138,15 +141,15 @@ minutes.
 
 ## Tasks
 
-1. **Window boundaries.** `streamRead` carries the end of each window; both backward readers and the
-   forward reader send it. — Planned.
+1. **Window boundaries.** `streamRead` carries the end of each window; both backward readers send it,
+   and a forward read's close ends its one window. — Done.
 2. **Writing per window.** The filler writes each window in batches with the linking rule, checks the
    stream's instance before each write, and keeps its newest line for the seam. `pull`'s page-long
-   buffer goes. — Planned.
+   buffer goes. — Done.
 3. **Links and marks.** `Prev` and `Head` on the oldest window's first batch, batch-to-batch `Merge`,
-   `Next` to the oldest line written so far, `AtEnd` on the first window's last batch. — Planned.
+   `Next` to the oldest line written so far, `AtEnd` on the first window's last batch. — Done.
 4. **The walk budget and the file budget.** `maxWalkBudget` at 64 MiB; `defaultBytes` at 1 GiB.
-   — Planned.
+   — Done.
 
 ## Tests
 

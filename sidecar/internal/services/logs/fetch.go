@@ -16,6 +16,7 @@ package logs
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -192,9 +193,8 @@ func (q pageQuery) key(ps pageStream) logstore.Pos { return streamBound(q.from, 
 // page is a page of a view in progress, read one or more ways: a Head or Tail page,
 // or the two halves of an Around page. It files the resolve's streams and the
 // file's, fills the gaps each resolve stream needs from the backends for every
-// direction, checks the reads against the mirror and writes them in one
-// transaction, then answers each direction with one walk of the file per stream,
-// merged.
+// direction, writing each window of a read once it is whole, then answers each
+// direction with one walk of the file per stream, merged.
 type page struct {
 	s       *Service
 	id      cluster.ClusterID
@@ -208,7 +208,7 @@ type page struct {
 }
 
 // page is one merge per query of a view on cluster id, every query over one resolve
-// of it, one claim and one write. The queries share their view.
+// of it and one claim. The queries share their view.
 func (s *Service) page(ctx context.Context, id cluster.ClusterID, qs ...pageQuery) ([]merge, error) {
 	t, err := resolve(ctx, s.clusters, id, qs[0].view, false)
 	if err != nil {
@@ -245,30 +245,26 @@ func (s *Service) page(ctx context.Context, id cluster.ClusterID, qs ...pageQuer
 	if err != nil {
 		return nil, err
 	}
-	if err := checkInstances(ctx, s.clusters, id, streams, fills); err != nil {
-		return nil, err
-	}
-	var writes []logstore.Fill
-	for _, byStream := range fills {
-		for _, f := range byStream {
-			writes = append(writes, f.fills...)
-		}
-	}
-	if len(writes) > 0 {
-		w, err := file.Write(ctx, writes, true)
-		if err != nil {
-			return nil, err
-		}
-		// A row the janitor took before the page held it was a gone pod's with nothing
-		// in the file, which the page reads as it reads any stream no backend serves.
-		for i := range streams {
-			if slices.Contains(w.Skipped, streams[i].row.ID) {
+	wrote := false
+	for i := range streams {
+		restarted := false
+		for _, byStream := range fills {
+			if byStream[i].gone {
 				streams[i].st = nil
 			}
+			wrote = wrote || byStream[i].wrote
+			restarted = restarted || errors.Is(byStream[i].err, errRestarted)
 		}
-		if s.afterFill != nil {
-			s.afterFill()
+		// A page answers once for each stream, so a restart one direction found skips
+		// it in every direction.
+		if restarted {
+			for _, byStream := range fills {
+				byStream[i] = streamFill{err: errRestarted}
+			}
 		}
+	}
+	if wrote && s.afterFill != nil {
+		s.afterFill()
 	}
 	for i, q := range qs {
 		if out[i], err = p.answer(ctx, q, fills[i]); err != nil {
@@ -334,7 +330,10 @@ func (p *page) fillQuery(ctx context.Context, q pageQuery, backends []Backend, s
 		if ps.exhausted() {
 			continue
 		}
-		f := &filler{file: p.file, ps: ps, backends: backends, names: p.backends, q: q, budget: newBudget(share), walk: newBudget(p.walkShare)}
+		f := &filler{
+			file: p.file, clusters: p.s.clusters, id: p.id, save: p.save, ret: p.s.files.Retention(), ps: ps, backends: backends, names: p.backends,
+			q: q, budget: newBudget(share), walk: newBudget(p.walkShare),
+		}
 		if seams != nil {
 			f.seam = seams[i]
 		}
@@ -352,21 +351,21 @@ func (p *page) fillQuery(ctx context.Context, q pageQuery, backends []Backend, s
 	return fills, nil
 }
 
+// save writes one window's fills, stamped: a sweep between the write and the page's
+// walk would otherwise take what it fetched, and the stamp keeps the window's lines
+// past the page for the next scroll.
+func (p *page) save(ctx context.Context, fills []logstore.Fill) (logstore.Written, error) {
+	return p.file.Write(ctx, fills, true)
+}
+
 // seams is each stream's newest line the first backend read back from a Tail
 // query's bound, nil where it read none: the backend holds nothing between it and
 // the bound, so a Head read from the bound continues its chunk.
 func (p *page) seams(fills []streamFill) []*logstore.Pos {
 	out := make([]*logstore.Pos, len(fills))
 	for i, f := range fills {
-		if !f.fromKey {
-			continue
-		}
-		for _, fill := range f.fills {
-			if fill.Origin == p.backends[0] && len(fill.Lines) > 0 {
-				newest := fill.Lines[len(fill.Lines)-1].Pos
-				out[i] = &newest
-				break
-			}
+		if f.fromKey {
+			out[i] = f.newest
 		}
 	}
 	return out
