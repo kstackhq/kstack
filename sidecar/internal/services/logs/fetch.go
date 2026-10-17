@@ -222,6 +222,9 @@ func (s *Service) page(ctx context.Context, id cluster.ClusterID, qs ...pageQuer
 	if err != nil {
 		return nil, err
 	}
+	for i := range streams {
+		streams[i].tail = s.tailStart(t.cacheID, streams[i].row.ID)
+	}
 	out := make([]merge, len(qs))
 	if len(streams) == 0 {
 		if t.noNodes != nil {

@@ -37,9 +37,8 @@ The contract the wire holds, which the real client keeps:
 
 The schema the viewer is written to. The library's `Client` type
 (`src/lib/log-viewer/types.ts`) mirrors it field for field, and `FakeClient` serves it. The
-sidecar serves `logsFetch` in this shape, from its log cache; `logsFollow` keeps an older one,
-with no checkpoints, until the log cache's follow ([`../log-cache/README.md`](../log-cache/README.md),
-step 4).
+sidecar serves `logsFetch` and `logsFollow` in this shape, from its log cache
+([`../log-cache/README.md`](../log-cache/README.md)).
 
 ```graphql
 """

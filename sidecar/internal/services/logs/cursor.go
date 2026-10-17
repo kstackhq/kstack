@@ -205,3 +205,44 @@ func streamBound(b bound, in instance, mode FetchMode) logstore.Pos {
 	}
 	return at(ord + 1)
 }
+
+// boundOf is p, the exclusive bound of a walk of in's stream, as a bound across the
+// view: before every line of a moment, after every line of it, or past a line.
+func boundOf(in instance, p logstore.Pos) bound {
+	at := time.Unix(0, p.TS).UTC()
+	switch {
+	case p.Ord < 0:
+		return bound{position{Timestamp: at}, true}
+	case p.Ord == math.MaxInt:
+		return bound{position{Timestamp: at}, false}
+	}
+	return bound{positionAt(in, p), false}
+}
+
+// compareBounds orders two lower bounds by where the lines past them start: by
+// moment, then before every line of it, at a line, or after every line of it, then
+// between two lines by position.
+func compareBounds(a, b bound) int {
+	return cmp.Or(a.at.Timestamp.Compare(b.at.Timestamp), cmp.Compare(boundRank(a), boundRank(b)), comparePositions(a.at, b.at))
+}
+
+// boundRank is where b falls among the bounds at its moment: before every line, at a
+// line, or after every line.
+func boundRank(b bound) int {
+	switch {
+	case !b.at.moment():
+		return 0
+	case b.incl:
+		return -1
+	}
+	return 1
+}
+
+// cursorOfBound is the cursor a read past which starts where b does. A cursor reads
+// past what it names, so a bound that keeps its moment names the moment before.
+func cursorOfBound(b bound) *string {
+	if b.at.moment() && b.incl {
+		return cursorOf(position{Timestamp: b.at.Timestamp.Add(-time.Nanosecond)})
+	}
+	return cursorOf(b.at)
+}

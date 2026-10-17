@@ -1,7 +1,7 @@
 ---
 title: Pages from the file
 scope: sidecar
-status: Planned
+status: Built
 ---
 
 # Pages from the file

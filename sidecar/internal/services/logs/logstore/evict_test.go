@@ -36,7 +36,7 @@ func TestEvictTakesAChunkAndItsLines(t *testing.T) {
 
 	assert.Equal(t, []Pos{at(3, 0)}, positions(t, s, id))
 	assert.Equal(t, []Chunk{linked(chunk(at(3, 0), at(3, 0)), at(2, 0))}, chunksOfStream(t, s, id))
-	assert.Equal(t, []Span{{at(3, 0), at(3, 0)}}, CoverageOf(chunksOfStream(t, s, id), kubelet).Spans)
+	assert.Equal(t, []Span{{at(3, 0), at(3, 0)}}, CoverageOf(chunksOfStream(t, s, id), kubelet, nil).Spans)
 }
 
 // Evicting a chunk keeps the lines another chunk still claims: two fills of one

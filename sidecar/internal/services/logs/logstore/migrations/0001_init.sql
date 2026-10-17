@@ -84,12 +84,10 @@ CREATE TABLE chunks (
 -- the backend's own number for the line within its moment, so a line gets one key
 -- whichever fill found it. message is after stripControl, so at most 16 KiB.
 --
--- A rowid table rather than WITHOUT ROWID, since a message can run to 16 KiB. The id is
--- commit order, which a follow reads by, so it is AUTOINCREMENT: an implicit rowid is the
--- largest in the table plus one, and eviction and a stream's removal both delete the
--- newest rows, which would hand the next tail line an id below a live follow's mark.
+-- A rowid table rather than WITHOUT ROWID, since a message can run to 16 KiB. Nothing
+-- reads a line by its id: every read walks lines_position.
 CREATE TABLE lines (
-  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  id        INTEGER PRIMARY KEY,
   stream_id INTEGER NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
   ts_ns     INTEGER NOT NULL,
   ord       INTEGER NOT NULL,
