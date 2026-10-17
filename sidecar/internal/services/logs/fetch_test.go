@@ -192,8 +192,8 @@ func TestPagesJoinWithoutLossOrRepeat(t *testing.T) {
 // randomLogs is a deployment web of one to three pods, each with an app and an
 // istio-proxy container, whose logs hold up to eighty lines each at moments that
 // often tie within and across containers, some inside a second, some opening
-// with a burst, every other line saying odd, and every line in the order a view
-// of web reads them.
+// with a burst, some quiet for a day part way, every other line saying odd, and
+// every line in the order a view of web reads them.
 func randomLogs(rng *rand.Rand) (*logServer, []map[string]any, []Record) {
 	s := newLogServer()
 	objects := []map[string]any{
@@ -219,6 +219,13 @@ func randomLogs(rng *rand.Rand) (*logServer, []map[string]any, []Record) {
 			if len(moments) > 0 && rng.Intn(2) == 0 {
 				for i := range min(len(moments), 1+rng.Intn(30)) {
 					moments[i] = moments[0]
+				}
+			}
+			// A log quiet for a day between its older lines and its newer, which a
+			// read back across widens past.
+			if len(moments) > 1 && rng.Intn(3) == 0 {
+				for i := range 1 + rng.Intn(len(moments)-1) {
+					moments[i] -= 24 * time.Hour
 				}
 			}
 			ordinal := 0
@@ -885,7 +892,7 @@ func TestAnAroundPageReadsTheViewOnce(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"3", "4", "5", "6"}, messages(page.Records))
-	assert.Equal(t, int32(5), f.readings.Load()-readings, "the resolve, and a check for each of the Tail half's three windows and the Head half's one")
+	assert.Equal(t, int32(4), f.readings.Load()-readings, "the resolve, and a check for the Head half's read, the Tail half's window and its head mark")
 	assert.Equal(t, int32(1), f.lease.released.Load(), "one claim")
 }
 

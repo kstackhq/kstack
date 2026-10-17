@@ -32,13 +32,10 @@ import (
 // MaxLimit is the most lines one page holds.
 const MaxLimit = 500
 
-// A page's fills' bounds: the bytes they read from the backends across its streams,
-// shared evenly so no stream is starved by the others, and the GETs each read may
-// send. An ordinary page never reaches either; a rare grep read backward does.
-const (
-	maxBudget  = 32 << 20
-	maxWindows = 16
-)
+// maxBudget is the bytes a page's fills read from the backends across its streams,
+// shared evenly so no stream is starved by the others. An ordinary page never
+// reaches it; a rare grep read backward does.
+const maxBudget = 32 << 20
 
 // FetchMode is which way a page reads: Head oldest first after its cursor, Tail
 // newest first before it, Around both ways from a moment. The GraphQL LogsFetchMode
@@ -101,14 +98,16 @@ func (s *Service) Fetch(ctx context.Context, id cluster.ClusterID, view View, q 
 		return Page{}, err
 	}
 	if q.Mode == FetchAround {
+		// The half after the moment fills first, so the half before reads back at
+		// the rate of its lines.
 		moment := position{Timestamp: *q.At}
 		ms, err := s.page(ctx, id,
-			pageQuery{view, grep, FetchTail, bound{moment, false}, q.Limit},
-			pageQuery{view, grep, FetchHead, bound{moment, true}, q.Limit})
+			pageQuery{view, grep, FetchHead, bound{moment, true}, q.Limit},
+			pageQuery{view, grep, FetchTail, bound{moment, false}, q.Limit})
 		if err != nil {
 			return Page{}, err
 		}
-		return around(ms[0], ms[1]), nil
+		return around(ms[1], ms[0]), nil
 	}
 	from, err := boundAfter(q.Cursor)
 	if err != nil {
@@ -284,9 +283,9 @@ func (p *page) backendsOf(ps pageStream) []string {
 }
 
 // fill fills each stream the resolve handed out for each query in turn, over one
-// claim on the server the pods came from. A Head query after a Tail one from the
-// same bound, an Around page's halves, starts each stream's read at the bound from
-// the Tail fill's newest line, so the two chunks join there.
+// claim on the server the pods came from. A Tail query after a Head one from the
+// same bound, an Around page's halves, links each stream's read back from the bound
+// up to the Head fill's first line, so the two chunks join there.
 func (p *page) fill(ctx context.Context, qs []pageQuery) ([][]streamFill, error) {
 	fills := make([][]streamFill, len(qs))
 	if len(p.t.streams) == 0 {
@@ -310,7 +309,7 @@ func (p *page) fill(ctx context.Context, qs []pageQuery) ([][]streamFill, error)
 			return nil, err
 		}
 		seams = nil
-		if q.mode == FetchTail {
+		if q.mode == FetchHead {
 			seams = p.seams(fills[i])
 		}
 	}
@@ -318,7 +317,7 @@ func (p *page) fill(ctx context.Context, qs []pageQuery) ([][]streamFill, error)
 }
 
 // fillQuery fills each stream for q, each under its share of the fills' budget, all
-// at once. seams is each stream's line just before q's bound, nil for none. The
+// at once. seams is each stream's line just past q's bound, nil for none. The
 // first fill to fail ends the others, since its error refuses the page.
 func (p *page) fillQuery(ctx context.Context, q pageQuery, backends []Backend, seams []*logstore.Pos) ([]streamFill, error) {
 	fills := make([]streamFill, len(p.streams))
@@ -358,15 +357,12 @@ func (p *page) save(ctx context.Context, fills []logstore.Fill) (logstore.Writte
 	return p.file.Write(ctx, fills, true)
 }
 
-// seams is each stream's newest line the first backend read back from a Tail
-// query's bound, nil where it read none: the backend holds nothing between it and
-// the bound, so a Head read from the bound continues its chunk.
+// seams is each stream's line a Head query's fill proved nothing lies before past
+// its bound, nil where it proved none: a Tail read back from the bound links up to it.
 func (p *page) seams(fills []streamFill) []*logstore.Pos {
 	out := make([]*logstore.Pos, len(fills))
 	for i, f := range fills {
-		if f.fromKey {
-			out[i] = f.newest
-		}
+		out[i] = f.up
 	}
 	return out
 }
