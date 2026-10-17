@@ -31,9 +31,10 @@ import (
 )
 
 // The log cache's invariant, after any sequence of pages, appends, rotations,
-// restarts and evictions over a fake kubelet: every line a page answers is in a
-// chunk that covers its pattern, and no chunk is missing a line the kubelet served
-// into its range. It walks 100 seeds of 60 steps, 25 under -short, each in parallel.
+// restarts, evictions and reads broken part way over a fake kubelet: every line a
+// page answers is in a chunk that covers its pattern, and no chunk is missing a line
+// the kubelet served into its range. It walks 100 seeds of 60 steps, 25 under
+// -short, each in parallel.
 func TestTheFileKeepsItsInvariant(t *testing.T) {
 	t.Parallel()
 	seeds := 100
@@ -115,10 +116,11 @@ func (w *world) body(p *walkPod) map[string]any {
 }
 
 // step does one random thing to the world, then checks what a page answered: a
-// write, a rotation, a restart, an eviction by hand, a sweep or a page.
+// write, a rotation, a restart, an eviction by hand, a sweep, a page, or a page whose
+// next read's body breaks part way, inside a window or between them.
 func (w *world) step() {
 	p := w.pods[w.rng.Intn(len(w.pods))]
-	switch n := w.rng.Intn(10); {
+	switch n := w.rng.Intn(11); {
 	case n < 3:
 		w.write(p)
 	case n < 4:
@@ -129,6 +131,9 @@ func (w *world) step() {
 		w.evict()
 	case n < 7:
 		require.NoError(w.t, fileOf(w.t, w.svc, w.f).Sweep(w.t.Context()))
+	case n < 8:
+		w.s.breakNext(w.rng.Intn(6))
+		w.page()
 	default:
 		w.page()
 	}
