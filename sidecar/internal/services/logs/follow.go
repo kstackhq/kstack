@@ -22,6 +22,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/amorey/gobus/conflate"
@@ -161,6 +162,7 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, view View, a
 		streams: map[StreamKey]*tracked{}, nodes: map[string]Place{},
 		deleted: map[string]string{}, podUIDs: map[string]string{}, gone: map[string]bool{}, held: map[int64]func(){},
 		dueHub: mpsc.New[StreamKey](0, mpsc.WithKeepOpen()), endedHub: mpsc.New[*handle](0, mpsc.WithKeepOpen()),
+		filled: make(chan fillDone),
 	}
 	for _, b := range s.backends {
 		f.backends, f.names = append(f.backends, b.build(c.get)), append(f.names, b.name)
@@ -176,6 +178,8 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, view View, a
 		defer c.close()
 		defer file.Close()
 		defer f.letGo()
+		// A fill in flight reads over the claim and writes the file: both outlive it.
+		defer f.fills.Wait()
 		defer stop()
 		f.out = out
 		err := f.run(owned)
@@ -330,6 +334,10 @@ type follow struct {
 	// timer of its own, and endedHub each tailer that ended.
 	dueHub   *mpsc.Hub[StreamKey]
 	endedHub *mpsc.Hub[*handle]
+	// filled carries each gap fill's end from its goroutine, and fills counts the
+	// fills in flight.
+	filled chan fillDone
+	fills  sync.WaitGroup
 	// synced is whether the pods watch's snapshot has closed, and nodesSynced the
 	// nodes watch's.
 	synced, nodesSynced bool
@@ -362,6 +370,10 @@ type follow struct {
 // reconcile attaches it again. drops is how many of its tailers dropped in a row.
 // restarted is set once the view sees a later instance of the container than the
 // one the tailer reads, whose end is then its log's, however the old instance stood.
+// filling is set while a fill of its row's live gap is in flight, which no walk of
+// it waits on: its watermark stays at the gap until the fill ends. crossed and
+// release are what the walk after a fill takes: that the gap at its watermark was
+// read, and the hold on what the fill wrote.
 type tracked struct {
 	st        stream
 	row       int64
@@ -375,6 +387,9 @@ type tracked struct {
 	held      bool
 	drops     int
 	restarted bool
+	filling   bool
+	crossed   bool
+	release   func()
 }
 
 // tail is where tr's tailer reads on from, every gap past which is the tailer's;
@@ -456,6 +471,8 @@ func (f *follow) relay(ctx context.Context) error {
 			again = true
 		case h := <-f.endedHub.Receiver().Chan():
 			err = f.ended(ctx, h)
+		case d := <-f.filled:
+			err = f.filledGap(ctx, d)
 		case key := <-f.dueHub.Receiver().Chan():
 			if t := f.streams[key]; t != nil {
 				t.held = false
@@ -607,10 +624,6 @@ func (f *follow) ended(ctx context.Context, h *handle) error {
 	if err := f.walkStreams(ctx, []*tracked{tr}); err != nil {
 		return err
 	}
-	if tr.h == nil {
-		// A fill on the way failed and judged the stream already.
-		return nil
-	}
 	if err := f.failed(ctx, tr, h.Err()); err != nil {
 		return err
 	}
@@ -651,10 +664,11 @@ func (f *follow) failed(ctx context.Context, tr *tracked, err error) error {
 }
 
 // hold keeps the dropped stream tr, which ran for ran, untailed for its backoff,
-// then sends its key on dueHub.
+// then sends its key on dueHub. A held stream is read again, so it is not ended,
+// though its tailer's end judged it so while a fill of it was in flight.
 func (f *follow) hold(ctx context.Context, tr *tracked, ran time.Duration) {
 	wait := f.backoff(tr, ran)
-	tr.held = true
+	tr.held, tr.ended = true, false
 	due := f.dueHub.Sender()
 	key := tr.st.key // read here: the follow's goroutine owns tr
 	time.AfterFunc(wait, func() {
@@ -866,7 +880,7 @@ func (f *follow) bring(ctx context.Context, t target) error {
 		if tr.row != rows[i].ID {
 			// A hold was the instance before's, whose end was its log's.
 			tr.row, tr.wm = rows[i].ID, streamBound(f.cursor(), st.instance(), FetchHead)
-			tr.held, tr.restarted = false, false
+			tr.held, tr.restarted, tr.filling = false, false, false
 		}
 		tr.st, tr.ended, tr.refused = st, false, ""
 		if st.finished() {
@@ -896,7 +910,7 @@ func (f *follow) bring(ctx context.Context, t target) error {
 		switch {
 		case tr.h != nil:
 			running++
-		case tr.held:
+		case tr.held, tr.filling:
 			waiting = true
 		case tr.ended && tr.endedAt == st.gen:
 			// A container waiting to start has a log to come, whatever its last read
@@ -929,17 +943,24 @@ func (f *follow) subscribe(ids []int64) (bool, error) {
 }
 
 // drain walks each of streams, finished instances, to its end, filling what the file
-// lacks of it, and ends each at its generation unless its walk held it.
+// lacks of it, and ends each at its generation unless its walk held it or left a
+// fill in flight, whose end finishes the drain.
 func (f *follow) drain(ctx context.Context, streams []*tracked) error {
 	if err := f.walkStreams(ctx, streams); err != nil {
 		return err
 	}
 	for _, tr := range streams {
-		if !tr.held && !tr.ended {
-			tr.ended, tr.endedAt = true, tr.st.gen
-		}
+		f.drained(tr)
 	}
 	return nil
+}
+
+// drained ends tr, a finished instance walked to its end, at its generation unless
+// it is held, ended already, or filling.
+func (f *follow) drained(tr *tracked) {
+	if !tr.held && !tr.ended && !tr.filling {
+		tr.ended, tr.endedAt = true, tr.st.gen
+	}
 }
 
 // walkRows walks each stream the follow tails whose row is in rows.
@@ -979,61 +1000,55 @@ func (f *follow) walkStreams(ctx context.Context, streams []*tracked) error {
 
 // walk reads tr's stream from its watermark, by position, as far as reach allows,
 // keeping the lines the grep passes for the next send and moving the watermark to
-// the last line it read. At a live gap it holds the watermark and fills the gap as a
-// Head page would, then walks on: a fill that read the gap from the watermark lets
-// the walk cross it, lines or none. It answers whether it stopped on the send's
-// allowance of lines or bytes with more to read. A fill that failed ends the walk,
-// the stream held or ended as the failure says.
+// the last line it read. At a live gap it holds the watermark and starts a fill of
+// the gap, then stops: the fill's end walks the stream again. A stream already
+// filling is not walked. It answers whether it stopped on the send's allowance of
+// lines or bytes with more to read.
 func (f *follow) walk(ctx context.Context, tr *tracked) (bool, error) {
-	// A gap fill's chunks are held, not stamped, until the walk has read them.
-	var releases []func()
-	defer func() {
-		for _, release := range releases {
-			release()
-		}
-	}()
-	crossed := false
-	for {
-		if f.lines <= 0 || f.bytes <= 0 {
-			return true, nil
-		}
-		// Read before the snapshot, so the snapshot holds every line up to it.
-		committed := tr.committed()
-		var gap *logstore.Gap
-		reach, more := tr.wm, false
-		err := f.file.Read(ctx, func(r logstore.Reader) error {
-			chunks, err := r.Chunks(tr.row, f.view.Grep)
-			if err != nil {
-				return err
-			}
-			reach, gap = f.reach(chunks, tr, crossed, committed)
-			held := heldBy(chunks)
-			return r.Lines(tr.row, tr.wm, reach, func(l logstore.Line) bool {
-				if held(l.Pos) && matches(f.grep, l.Message) {
-					f.batch = append(f.batch, tr.record(l))
-					f.bytes -= len(l.Message)
-				}
-				if f.lines--; f.lines <= 0 || f.bytes <= 0 {
-					reach, more = l.Pos, true
-					return false
-				}
-				return true
-			})
-		})
-		if err != nil {
-			return false, err
-		}
-		tr.wm = logstore.MaxPos(tr.wm, reach)
-		if more || gap == nil {
-			return more, nil
-		}
-		ok, release, err := f.fill(ctx, tr, *gap)
-		releases = append(releases, release)
-		if !ok || err != nil {
-			return false, err
-		}
-		crossed = true
+	if tr.filling {
+		return false, nil
 	}
+	// A fill that read the gap from the watermark lets the walk cross it, lines or
+	// none. Its chunks are held, not stamped, until the walk has read them.
+	crossed := tr.crossed
+	if tr.release != nil {
+		defer tr.release()
+	}
+	tr.crossed, tr.release = false, nil
+	if f.lines <= 0 || f.bytes <= 0 {
+		return true, nil
+	}
+	// Read before the snapshot, so the snapshot holds every line up to it.
+	committed := tr.committed()
+	var gap *logstore.Gap
+	reach, more := tr.wm, false
+	err := f.file.Read(ctx, func(r logstore.Reader) error {
+		chunks, err := r.Chunks(tr.row, f.view.Grep)
+		if err != nil {
+			return err
+		}
+		reach, gap = f.reach(chunks, tr, crossed, committed)
+		held := heldBy(chunks)
+		return r.Lines(tr.row, tr.wm, reach, func(l logstore.Line) bool {
+			if held(l.Pos) && matches(f.grep, l.Message) {
+				f.batch = append(f.batch, tr.record(l))
+				f.bytes -= len(l.Message)
+			}
+			if f.lines--; f.lines <= 0 || f.bytes <= 0 {
+				reach, more = l.Pos, true
+				return false
+			}
+			return true
+		})
+	})
+	if err != nil {
+		return false, err
+	}
+	tr.wm = logstore.MaxPos(tr.wm, reach)
+	if !more && gap != nil {
+		f.fill(ctx, tr, *gap)
+	}
+	return more, nil
 }
 
 // reach is how far from tr's watermark a walk may read: along the spans of chunks,
@@ -1062,52 +1077,117 @@ func (f *follow) reach(chunks []logstore.Chunk, tr *tracked, crossed bool, commi
 // gone, so the stream waits out its backoff until a reconcile drops it.
 var errRowGone = errors.New("logs: the stream's row is gone from the log file")
 
-// fill reads the live gap g of tr's stream from its watermark as a Head page's fill
-// reads it, under the stream's share of a page's budget, and writes what it read. It
-// is false when the read got nothing, the stream then let go and held or ended as
-// its failure says, and fails only on a fatal failure or one of the file. What it
-// wrote is unstamped, since a follow's lines are in the viewer's window, and held
-// until release, which the caller owes once its walk has read them.
-func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) (ok bool, release func(), err error) {
-	release = func() {}
+// fillDone is the end of a gap fill of tr's stream: the row it filled, what it read,
+// whether the janitor took the row first, the hold on what it wrote, and its
+// failure, fatal or the file's.
+type fillDone struct {
+	tr      *tracked
+	row     int64
+	out     streamFill
+	skipped bool
+	release func()
+	err     error
+}
+
+// fill starts a read of the live gap g of tr's stream from its watermark, as a Head
+// page's fill reads it, under the stream's share of a page's budget, and the write
+// of what it read. It runs on its own, so a slow read holds up no other stream, and
+// its end comes back on filled. What it writes is unstamped, since a follow's lines
+// are in the viewer's window, and held until the walk after it has read them.
+func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) {
+	st := tr.st // the fill's own copy: the follow's goroutine owns tr
 	ps := tr.pageStream()
+	ps.st = &st
 	fl := &filler{
 		file: f.file, ps: ps, backends: f.backends, names: f.names,
 		q:      pageQuery{view: f.view, grep: f.grep, mode: FetchHead, limit: MaxLimit},
 		budget: newBudget(f.s.budget / int64(max(len(f.wanted), 1))),
 	}
-	if _, err := fl.fillGap(ctx, g, tr.wm, true); err != nil {
-		return false, release, err
+	wm := tr.wm
+	tr.filling = true
+	f.fills.Add(1)
+	go func() {
+		defer f.fills.Done()
+		d := f.readGap(ctx, fl, g, wm)
+		d.tr = tr
+		select {
+		case f.filled <- d:
+		case <-ctx.Done():
+			d.release()
+		}
+	}()
+}
+
+// readGap runs fl's read of g from wm, checks the instance it read, and writes what
+// it read, held.
+func (f *follow) readGap(ctx context.Context, fl *filler, g logstore.Gap, wm logstore.Pos) fillDone {
+	d := fillDone{row: fl.ps.row.ID, release: func() {}}
+	if _, d.err = fl.fillGap(ctx, g, wm, true); d.err != nil {
+		return d
 	}
 	// One direction's fills of one stream, in the shape a page's check reads.
 	fills := [][]streamFill{{fl.out}}
-	if err := checkInstances(ctx, f.s.clusters, f.id, []pageStream{ps}, fills); err != nil {
-		return false, release, err
+	if d.err = checkInstances(ctx, f.s.clusters, f.id, []pageStream{fl.ps}, fills); d.err != nil {
+		return d
 	}
-	out := fills[0][0]
-	if len(out.fills) > 0 {
-		w, held, err := f.file.WriteHeld(ctx, out.fills)
-		if err != nil {
-			return false, release, err
+	d.out = fills[0][0]
+	if len(d.out.fills) == 0 {
+		return d
+	}
+	// On an error nothing is held, and the release is a no-op.
+	var w logstore.Written
+	w, d.release, d.err = f.file.WriteHeld(ctx, d.out.fills)
+	d.skipped = len(w.Skipped) > 0
+	return d
+}
+
+// filledGap takes the end of a gap fill. A fill of a row the stream no longer reads
+// is thrown away. One that read nothing lets the stream go, held or ended as its
+// failure says; a failure fatal or of the file ends the follow. Otherwise the stream
+// is walked on across the gap, unless it has left the view or lost its tailer in the
+// meantime, when the next attach walks it from its watermark; a finished instance's
+// walk to its end finishes its drain.
+func (f *follow) filledGap(ctx context.Context, d fillDone) error {
+	tr := d.tr
+	if tr.row != d.row {
+		d.release()
+		return nil
+	}
+	tr.filling = false
+	// An untailed stream filling was judged waiting, so the view's end is judged again.
+	f.rejudge = f.rejudge || tr.h == nil
+	if d.err != nil {
+		d.release()
+		return d.err
+	}
+	if len(d.out.fills) > 0 && f.s.afterFill != nil {
+		f.s.afterFill()
+	}
+	switch {
+	case d.skipped:
+		// The row went before the follow held it: its pod is gone.
+		d.release()
+		return f.failed(ctx, tr, errRowGone)
+	case !d.out.fromKey:
+		d.release()
+		cause := d.out.err
+		if cause == nil {
+			// The connection's retirement or the budget cut the read before its first line.
+			cause = errRetired
 		}
-		release = held
-		if f.s.afterFill != nil {
-			f.s.afterFill()
-		}
-		if len(w.Skipped) > 0 {
-			// The row went before the follow held it: its pod is gone.
-			return false, release, f.failed(ctx, tr, errRowGone)
-		}
+		return f.failed(ctx, tr, cause)
+	case !slices.Contains(f.wanted, tr.st.key), tr.h == nil && !tr.st.finished():
+		d.release()
+		return nil
 	}
-	if out.fromKey {
-		return true, release, nil
+	tr.crossed, tr.release = true, d.release
+	if err := f.walkStreams(ctx, []*tracked{tr}); err != nil {
+		return err
 	}
-	cause := out.err
-	if cause == nil {
-		// The connection's retirement or the budget cut the read before its first line.
-		cause = errRetired
+	if tr.h == nil {
+		f.drained(tr)
 	}
-	return false, release, f.failed(ctx, tr, cause)
+	return nil
 }
 
 // flush sends the lines walked in position order, then, when it sent any, a
