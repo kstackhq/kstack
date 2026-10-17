@@ -22,7 +22,6 @@ import (
 	"errors"
 	"io"
 	"net/url"
-	"slices"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -100,6 +99,9 @@ type readOpts struct {
 	// before any line of it goes out: a tail decides from it whether its first read
 	// returned its start's moment whole, and reads on.
 	onOldest func(time.Time)
+	// more, when set, is asked at each window's end before a backward read sends its
+	// next GET, with the read's context, and ends the read clean when false.
+	more func(context.Context) bool
 }
 
 // readItem is what a read hands over: a line, or with windowEnd, the end of a window,
@@ -145,11 +147,12 @@ func readForward(ctx context.Context, get getter, s stream, o readOpts) *streamR
 	return start(ctx, get, s, o, (*reader).forward)
 }
 
-// readBackward reads s's log newest first. It finds the log's first line, then,
-// as kubetail's StreamBackward does, reads ever larger windows off the end with
-// tailLines, each reaching further back than the last, until one reaches the first
-// line. Under until it reads windows of time instead (backwardUntil). The fetch's
-// budget and the stream's window cap end it early.
+// readBackward reads s's log in windows, newest window first, each oldest first and
+// sent as its GET reads it. It finds the log's first line, then, as kubetail's
+// StreamBackward does, reads ever larger windows off the end with tailLines, each
+// reaching further back than the last, until one reaches the first line. Under until
+// it reads windows of time instead (backwardUntil). The fetch's budget, the stream's
+// window cap and o.more end it early.
 func readBackward(ctx context.Context, get getter, s stream, o readOpts) *streamRead {
 	return start(ctx, get, s, o, (*reader).backward)
 }
@@ -183,20 +186,22 @@ func start(ctx context.Context, get getter, s stream, o readOpts, read func(*rea
 
 // reader is one stream's read: what it reads with, the instance it reads and
 // whether it has finished, where its lines go, and its edge, the last line in
-// range it read whole — forward the newest, backward the oldest taken.
+// range it read whole: forward the newest, backward the oldest of the last window
+// to complete. windowOldest is the oldest line the window arriving has sent.
 type reader struct {
-	ctx      context.Context
-	get      getter
-	key      StreamKey
-	place    Place
-	instance string
-	finished bool
-	o        readOpts
-	out      *spsc.Sender[readItem]
-	edge     position
-	head     bool
-	atEnd    bool
-	oldest   time.Time
+	ctx          context.Context
+	get          getter
+	key          StreamKey
+	place        Place
+	instance     string
+	finished     bool
+	o            readOpts
+	out          *spsc.Sender[readItem]
+	edge         position
+	windowOldest position
+	head         bool
+	atEnd        bool
+	oldest       time.Time
 }
 
 // forward reads the log oldest first over one GET.
@@ -214,7 +219,7 @@ func (r *reader) forward() error {
 	return err
 }
 
-// backward reads the log newest first in growing tailLines windows.
+// backward reads the log in growing tailLines windows, newest window first.
 func (r *reader) backward() error {
 	first, err := r.firstTimestamp()
 	switch {
@@ -229,15 +234,15 @@ func (r *reader) backward() error {
 	batch := max(r.o.batch, minBatch)
 	tail := batch
 	// sent is the moment the last window started. Every line after it is sent; the
-	// lines at it are held for the next window, since a window can start inside a
+	// lines at it are left to the next window, since a window can start inside a
 	// moment. The first line's read and the first moment's each take one GET.
 	var sent time.Time
 	for windows := 2; windows < r.o.windows; windows++ {
-		lines, w, err := r.window(tail, sent)
+		w, err := r.window(tail, sent)
 		start := w.first.Timestamp
 		switch {
 		case err != nil:
-			// A window cut short stays unsent.
+			// A window cut short went out without its end.
 			return err
 		case r.ctx.Err() != nil:
 			return nil
@@ -252,20 +257,15 @@ func (r *reader) backward() error {
 			// The window began in since's moment, so every later moment is whole in
 			// it and every earlier one out of range. Its lines at that moment are
 			// numbered from the window's top, which since's line cannot be judged by.
-			if !r.takeBack(lines, w.oldest) {
+			if !r.endWindow() || !r.more() {
 				return nil
 			}
-			if sent, err := r.wholeMoment(w.oldest); !sent || err != nil {
-				return err
-			}
-			r.endWindow()
-			return nil
+			_, err := r.wholeMoment(w.oldest)
+			return err
 		case !start.IsZero() && w.oldest.Before(start):
 			// The window began below since, so it holds every line in range, and
 			// whole: its first moment in range is not the one it began in.
-			if r.takeBack(lines, time.Time{}) {
-				r.endWindow()
-			}
+			r.endWindow()
 			return nil
 		case start.IsZero() && sent.IsZero():
 			// No line in range: the newest window holds the newest lines, so none
@@ -274,19 +274,21 @@ func (r *reader) backward() error {
 		case !w.oldest.After(first):
 			// The window reached the log's first line, so every moment after the
 			// first is whole in it. The first moment may not be.
-			if !r.takeBack(lines, first) {
+			if !r.endWindow() {
 				return nil
 			}
 			if start.Equal(first) {
+				if !r.more() {
+					return nil
+				}
 				// The first moment is the backend's oldest only once it has all gone out:
 				// a read cancelled inside it leaves older lines of it unread.
-				sent, err := r.wholeMoment(first)
-				if !sent || err != nil {
+				whole, err := r.wholeMoment(first)
+				if !whole || err != nil {
 					return err
 				}
 			}
 			r.reachedFirst(first)
-			r.endWindow()
 			return nil
 		case !sent.IsZero() && (start.IsZero() || !start.Before(sent)):
 			// The log grew by a whole batch under the read, or one moment fills the
@@ -295,10 +297,9 @@ func (r *reader) backward() error {
 			tail += batch
 			continue
 		}
-		if !r.takeBack(lines, start) {
+		if !r.endWindow() || !r.more() {
 			return nil
 		}
-		r.endWindow()
 		sent = start
 		if r.o.budget.spent() {
 			break
@@ -325,14 +326,15 @@ func (r *reader) inSinceMoment(t time.Time) bool {
 
 // wholeMoment ends a backward read whose window began in moment t, the log's
 // first or since's, with every line of that moment in range. The window cannot
-// tell whether it began at the moment's top, so the moment is read forward, whole.
-// It is false once the context has ended before every line went out.
+// tell whether it began at the moment's top, so the moment is read forward, whole,
+// as a window of its own: its lines are older than the window that found it, and
+// arrive after it. It is false once the context has ended before the window's end
+// went out.
 func (r *reader) wholeMoment(t time.Time) (bool, error) {
-	lines, err := r.span(t, bound{position{Timestamp: t}, true})
-	if err != nil {
+	if err := r.span(t, bound{position{Timestamp: t}, true}); err != nil {
 		return false, err
 	}
-	return r.takeBack(lines, time.Time{}), nil
+	return r.ctx.Err() == nil && r.endWindow(), nil
 }
 
 // backwardUntil is backward under until, which a tailLines window reaches only
@@ -356,19 +358,21 @@ func (r *reader) backwardUntil(first time.Time) error {
 		if start.Before(first) {
 			start = first
 		}
-		lines, err := r.span(start, end)
+		err := r.span(start, end)
 		switch {
 		case err != nil:
 			return err
 		case r.ctx.Err() != nil:
 			return nil
 		}
-		if !r.takeBack(lines, time.Time{}) {
+		if !r.endWindow() {
 			return nil
 		}
-		r.endWindow()
 		if start.Equal(first) {
 			r.reachedFirst(first)
+			return nil
+		}
+		if !r.more() {
 			return nil
 		}
 		end = bound{position{Timestamp: start}, false}
@@ -385,59 +389,61 @@ func (r *reader) send(rec Record) bool {
 	return r.out.SendContext(r.ctx, readItem{Record: rec}) == nil
 }
 
-// endWindow puts the end of a window on out. A read whose context has ended sends
-// nothing more, so it goes unsent.
-func (r *reader) endWindow() {
-	_ = r.out.SendContext(r.ctx, readItem{windowEnd: true})
-}
-
-// takeBack sends the lines after the moment after, newest first, every one in
-// range moving the edge, and is false once the context has ended.
-func (r *reader) takeBack(lines []Record, after time.Time) bool {
-	for _, rec := range slices.Backward(lines) {
-		if !rec.Timestamp.After(after) {
-			continue
-		}
-		r.edge = positionOf(rec)
-		if !r.send(rec) {
-			return false
-		}
+// endWindow puts the end of a window on out, and is false once the context has
+// ended, when it goes unsent. A window is read whole only once its end goes out, so
+// only then does its oldest line become the edge.
+func (r *reader) endWindow() bool {
+	if r.out.SendContext(r.ctx, readItem{windowEnd: true}) != nil {
+		return false
+	}
+	if !r.windowOldest.isZero() {
+		r.edge, r.windowOldest = r.windowOldest, position{}
 	}
 	return true
 }
 
-// window reads the last tail lines of the log from since, stopping at the first
-// line after the moment sent, which an earlier window sent already.
-func (r *reader) window(tail int64, sent time.Time) ([]Record, span, error) {
+// more is whether the read may send another GET, as o.more says.
+func (r *reader) more() bool {
+	return r.o.more == nil || r.o.more(r.ctx)
+}
+
+// take sends rec, a line of the window arriving, and is false once the context has
+// ended.
+func (r *reader) take(rec Record) bool {
+	if r.windowOldest.isZero() {
+		r.windowOldest = positionOf(rec)
+	}
+	return r.send(rec)
+}
+
+// window streams the last tail lines of the log from since up to the moment sent,
+// which an earlier window sent already, oldest first, and answers what the GET
+// read. The lines at the moment the GET began in are left to the next window: the
+// GET may have begun inside that moment, and the next window reads it from its top.
+func (r *reader) window(tail int64, sent time.Time) (span, error) {
 	q := r.query(r.o.since.at.Timestamp)
 	q.Set("tailLines", strconv.FormatInt(tail, 10))
 	o := r.o
 	if !sent.IsZero() {
 		o.until = bound{position{Timestamp: sent}, true}
 	}
-	return r.collect(q, o)
+	var began time.Time
+	o.onOldest = func(t time.Time) { began = t }
+	return r.lines(q, o, func(rec Record) bool {
+		return !rec.Timestamp.After(began) || r.take(rec)
+	})
 }
 
-// span is the lines in range from the moment from up to end, oldest first, over
+// span streams the lines in range from the moment from up to end, oldest first, over
 // one forward GET from from's second.
-func (r *reader) span(from time.Time, end bound) ([]Record, error) {
+func (r *reader) span(from time.Time, end bound) error {
 	o := r.o
 	if o.since.at.Timestamp.Before(from) {
 		o.since = bound{position{Timestamp: from}, true}
 	}
 	o.until = end
-	lines, _, err := r.collect(r.query(from), o)
-	return lines, err
-}
-
-// collect is every line in range one GET reads, with what it read.
-func (r *reader) collect(q url.Values, o readOpts) ([]Record, span, error) {
-	var lines []Record
-	read, err := r.lines(q, o, func(rec Record) bool {
-		lines = append(lines, rec)
-		return true
-	})
-	return lines, read, err
+	_, err := r.lines(r.query(from), o, r.take)
+	return err
 }
 
 // firstTimestamp is the time of the log's first line from since's second, zero for

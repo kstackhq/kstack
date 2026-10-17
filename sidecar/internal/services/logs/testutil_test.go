@@ -17,16 +17,19 @@ package logs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -454,7 +457,16 @@ type logServer struct {
 	// onOpen once each follow has opened, with its key. Set either before any request.
 	onRequest func(n int)
 	onOpen    func(key string)
+	// part is the most bytes of a message one line of the runtime's file holds: a
+	// longer one is split, and tailLines counts each part. Zero splits none.
+	part int
+	// broken, when set, is how many lines the next read that follows nothing serves
+	// before its body fails.
+	broken *int
 }
+
+// errBroken is a body that failed under its read, as a dropped connection does.
+var errBroken = errors.New("connection reset")
 
 type refusal struct {
 	code    int
@@ -507,6 +519,27 @@ func (s *logServer) add(key string, lines ...string) {
 	defer s.mu.Unlock()
 	s.logs[key] = append(s.logs[key], lines...)
 	s.wake(key)
+}
+
+// rotate drops key's lines before d past 10:00, as a rotation drops the oldest.
+func (s *logServer) rotate(key string, d time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var kept []string
+	for _, line := range s.logs[key] {
+		ts, _ := time.Parse(time.RFC3339Nano, strings.SplitN(line, " ", 2)[0])
+		if !ts.Before(at(d)) {
+			kept = append(kept, line)
+		}
+	}
+	s.logs[key] = kept
+}
+
+// breakNext fails the body of the next read that follows nothing after n lines.
+func (s *logServer) breakNext(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.broken = &n
 }
 
 // clear empties key's log.
@@ -578,9 +611,12 @@ func keyOf(path string, q url.Values) string {
 // get reads s in memory, as a claim's get reads the API server, so a read's
 // bytes arrive as the server wrote them. It never follows.
 func (s *logServer) get(_ context.Context, path string, q url.Values) (io.ReadCloser, error) {
-	text, _, refused := s.serve(keyOf(path, q), q)
+	text, _, broken, refused := s.serve(keyOf(path, q), q)
 	if refused != nil {
 		return nil, &statusError{refused.code, refused.message}
+	}
+	if broken {
+		return io.NopCloser(io.MultiReader(strings.NewReader(text), iotest.ErrReader(errBroken))), nil
 	}
 	return io.NopCloser(strings.NewReader(text)), nil
 }
@@ -591,7 +627,7 @@ func (s *logServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	text, n, refused := s.serve(key, r.URL.Query())
+	text, n, broken, refused := s.serve(key, r.URL.Query())
 	if refused != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(refused.code)
@@ -599,6 +635,10 @@ func (s *logServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = w.Write([]byte(text))
+	if broken {
+		w.(http.Flusher).Flush()
+		panic(http.ErrAbortHandler)
+	}
 	if r.URL.Query().Get("follow") != "true" {
 		return
 	}
@@ -632,10 +672,12 @@ func (s *logServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// serve is key's log as the request's parameters cut it, and how many lines the
-// log held, or the refusal set for key, after the request is counted and the
-// hook has run.
-func (s *logServer) serve(key string, q url.Values) (string, int, *refusal) {
+// serve is key's log as the request's parameters cut it, how many lines the log
+// held, and whether its body breaks after it, or the refusal set for key, after the
+// request is counted and the hook has run. As the kubelet's: sinceTime is whole
+// seconds and filters from the file's first line, and tailLines counts a long line's
+// parts.
+func (s *logServer) serve(key string, q url.Values) (string, int, bool, *refusal) {
 	s.mu.Lock()
 	n := len(s.queries)
 	s.queries = append(s.queries, q)
@@ -652,12 +694,18 @@ func (s *logServer) serve(key string, q url.Values) (string, int, *refusal) {
 	if read, ok := s.refuseReads[key]; ok && !isRefused && q.Get("follow") != "true" {
 		refused, isRefused = read, true
 	}
+	broken := -1
+	if s.broken != nil && !isRefused && q.Get("follow") != "true" {
+		broken, s.broken = *s.broken, nil
+	}
+	part := s.part
 	s.mu.Unlock()
 	if isRefused {
-		return "", 0, &refused
+		return "", 0, false, &refused
 	}
 	if since := q.Get("sinceTime"); since != "" {
 		at, _ := time.Parse(time.RFC3339, since)
+		at = at.Truncate(time.Second)
 		var kept []string
 		for _, line := range lines {
 			ts, _ := time.Parse(time.RFC3339Nano, strings.SplitN(line, " ", 2)[0])
@@ -669,7 +717,22 @@ func (s *logServer) serve(key string, q url.Values) (string, int, *refusal) {
 	}
 	if tail := q.Get("tailLines"); tail != "" {
 		n, _ := strconv.Atoi(tail)
-		lines = lines[max(0, len(lines)-n):]
+		start := len(lines)
+		for start > 0 {
+			parts := 1
+			if part > 0 {
+				parts = max(1, (len(strings.SplitN(lines[start-1], " ", 2)[1])+part-1)/part)
+			}
+			if n < parts {
+				break
+			}
+			n -= parts
+			start--
+		}
+		lines = lines[start:]
+	}
+	if broken >= 0 {
+		lines = lines[:min(broken, len(lines))]
 	}
 	text := ""
 	if len(lines) > 0 {
@@ -679,7 +742,7 @@ func (s *logServer) serve(key string, q url.Values) (string, int, *refusal) {
 		n, _ := strconv.Atoi(limit)
 		text = text[:min(n, len(text))]
 	}
-	return text, held, nil
+	return text, held, broken >= 0, nil
 }
 
 // claimOn is a claim on a cluster whose API server serves s.
@@ -711,6 +774,14 @@ func drain(r *streamRead) []Record {
 			out = append(out, rec.Record)
 		}
 	}
+	return out
+}
+
+// newestFirst is recs, one stream's, newest first: the order of a backward read's
+// lines across its windows, which each arrive oldest first.
+func newestFirst(recs []Record) []Record {
+	out := slices.Clone(recs)
+	slices.SortStableFunc(out, func(a, b Record) int { return compareLines(b, a) })
 	return out
 }
 
@@ -1037,6 +1108,16 @@ func (s *fakeBackend) Tail(ctx context.Context, st stream, _ readOpts) *streamRe
 func serviceOn(t *testing.T, backend Backend) (*Service, *fakeService) {
 	t.Helper()
 	svc, f := serviceOver(t, webMirror(t), newLogServer())
+	svc.backends = []namedBackend{{"kubelet", func(getter) Backend { return backend }}}
+	return svc, f
+}
+
+// serviceBatched is serviceOn writing n lines a batch.
+func serviceBatched(t *testing.T, backend Backend, n int) (*Service, *fakeService) {
+	t.Helper()
+	ret := testRetention
+	ret.WriteBatch = n
+	svc, f := serviceIn(t, webMirror(t), newLogServer(), t.TempDir(), ret)
 	svc.backends = []namedBackend{{"kubelet", func(getter) Backend { return backend }}}
 	return svc, f
 }

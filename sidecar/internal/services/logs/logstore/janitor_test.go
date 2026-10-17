@@ -99,6 +99,24 @@ func TestASweepEvictsLeastRecentlyReadFirst(t *testing.T) {
 	assert.Equal(t, sweepReport{Before: 600, After: 300, Evicted: 3}, r)
 }
 
+// An island, a chunk a page wrote linked to nothing, is stamped as every chunk a page
+// writes: a sweep keeps it for ReadTTL, then evicts it as any read chunk.
+func TestASweepKeepsAnIslandForReadTTL(t *testing.T) {
+	t.Parallel()
+	c := newClock(100_000)
+	ret := sweepRetention()
+	ret.Bytes = 1
+	s := newClockedStore(t, ret, c)
+	id := streamOf(t, s)
+	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(5, 0), at(6, 0))})
+
+	sweep(t, s)
+	assert.Len(t, idsIn(t, s, "chunks"), 1, "within ReadTTL")
+	c.set(100_000 + ret.ReadTTL.Milliseconds() + 1)
+	sweep(t, s)
+	assert.Empty(t, idsIn(t, s, "chunks"))
+}
+
 // A stream over its share gives up its chunks before an older chunk of a stream under
 // its share, and only until it is back within the share.
 func TestASweepTakesAnOverShareStreamFirst(t *testing.T) {
