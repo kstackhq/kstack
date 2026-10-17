@@ -21,7 +21,7 @@
 -- times are a snapshot from the mirror taken while the pod is still there, since the
 -- lines outlive it; they describe the stream and never name it.
 --
--- container_id is the runtime instance, '' for a source that knows only the name.
+-- container_id is the runtime instance, '' for a backend that knows only the name.
 -- started_at is when the instance started, NULL when unknown; finished_at is when it
 -- stopped, NULL while it runs. labels is the pod's labels as a JSON object, '{}' when
 -- unknown.
@@ -43,12 +43,12 @@ CREATE TABLE streams (
 ) STRICT;
 
 -- chunks: the unit of coverage and of eviction. A chunk states a fact: every line the
--- source served for this stream between its two edges that matches pattern is in lines.
+-- backend served for this stream between its two edges that matches pattern is in lines.
 -- Its edges are positions, (from_ns, from_ord) and (to_ns, to_ord), since a chunk closes
 -- at a byte budget wherever that falls, inside a moment included.
 --
--- pattern is the grep the fill ran under, '' for every line. source is which of the
--- cluster's sources filled it. head is 1 when the source holds nothing older than
+-- pattern is the grep the fill ran under, '' for every line. origin is the
+-- backend that filled it, by name. head is 1 when that backend holds nothing older than
 -- from_ns; at_end is 1 when to_ns is the last line of a finished instance's log; open is 1
 -- while a tailer is still writing into it. read_at_ms is the last read or write in unix
 -- milliseconds: a clock, not a line's moment.
@@ -60,7 +60,7 @@ CREATE TABLE chunks (
   from_ord   INTEGER NOT NULL,
   to_ns      INTEGER NOT NULL,
   to_ord     INTEGER NOT NULL,
-  source     TEXT    NOT NULL,
+  origin     TEXT    NOT NULL,
   head       INTEGER NOT NULL,
   at_end     INTEGER NOT NULL,
   open       INTEGER NOT NULL,
@@ -70,7 +70,7 @@ CREATE TABLE chunks (
 ) STRICT;
 
 -- lines: one log line, keyed by its position, the three fields a cursor holds; ord is
--- the source's own number for the line within its moment, so a line gets one key
+-- the backend's own number for the line within its moment, so a line gets one key
 -- whichever fill found it. message is after stripControl, so at most 16 KiB.
 --
 -- A rowid table rather than WITHOUT ROWID, since a message can run to 16 KiB. The id is

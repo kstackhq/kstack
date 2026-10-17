@@ -212,7 +212,7 @@ func randomLogs(rng *rand.Rand) (*logServer, []map[string]any, []Record) {
 				}
 				msg := name + "/" + container + "#" + strconv.Itoa(i) + " " + parity
 				s.add(key+"/"+container, stamped(d, msg))
-				all = append(all, Record{Timestamp: at(d), Message: msg, Stream: stream, Place: place, Ordinal: ordinal})
+				all = append(all, Record{Timestamp: at(d), Message: msg, Stream: stream, Place: place, ContainerID: containerID("uid-"+name, container, 0), Ordinal: ordinal})
 			}
 		}
 	}

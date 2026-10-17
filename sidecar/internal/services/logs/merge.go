@@ -105,7 +105,7 @@ var errReplaced = Refusal{"the connection to the cluster was replaced while this
 func failures(readings []*streamRead) ([]string, error) {
 	skipped := []string{}
 	for _, r := range readings {
-		if err := fatal(r.err); err != nil {
+		if err := fatalError(r.err); err != nil {
 			return nil, err
 		}
 		if r.err == nil || r.short || errors.Is(r.err, context.Canceled) {

@@ -23,7 +23,7 @@ and the whole suite, both coverage gates and the lints run at the end.
 ## What is not in this step
 
 - **No compression**, as the README's decision says.
-- **No preference for evicting chunks whose source still holds them.** Every chunk is evicted by
+- **No preference for evicting chunks whose backend still holds them.** Every chunk is evicted by
   `read_at_ms` alone. The README names this as later.
 
 ## Design

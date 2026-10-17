@@ -18,15 +18,17 @@ import "time"
 
 // Record is one log line as the sidecar read it: when the container runtime
 // stamped it, the message cleaned by stripControl, the log it came from and where
-// that log's pod runs, and its Ordinal, its index among its stream's lines at that
-// moment, which a cursor carries and the wire does not. Every string came from the
+// that log's pod runs, the runtime id of the instance it came from, and its
+// Ordinal, its index among that instance's lines at that moment. A cursor carries
+// the id and the ordinal, and the wire neither. Every string came from the
 // cluster.
 type Record struct {
-	Timestamp time.Time
-	Message   string
-	Stream    StreamKey
-	Place     Place
-	Ordinal   int
+	Timestamp   time.Time
+	Message     string
+	Stream      StreamKey
+	Place       Place
+	ContainerID string
+	Ordinal     int
 }
 
 // StreamKey names one log a line came from: a pod's container, and whether it is
