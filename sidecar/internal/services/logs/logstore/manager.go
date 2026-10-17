@@ -48,6 +48,8 @@ type Manager struct {
 	now func() time.Time
 	// after is how a writer waits out its WriteTick: time.After, or a test's.
 	after func(time.Duration) <-chan time.Time
+	// sweeps is told what each sweep did: nil, or a test's.
+	sweeps func(cacheID int64, r sweepReport)
 
 	// mu guards everything below. It is never held across a file's open, close or delete,
 	// so a slow disk or a long query on one cache stalls no other.

@@ -46,12 +46,15 @@ const (
 	stmtWalkForward
 	stmtWalkBackward
 	stmtEvictLines
+	stmtSelectOverlapping
 	stmtEvictChunk
 	stmtSelectChunkBounds
 	stmtSelectChunkEndingAt
 	stmtCloseOpenChunks
 	stmtCloseChunk
 	stmtStampChunks
+	stmtStreamBytes
+	stmtCandidates
 )
 
 // statements is every statement the store runs, each on the pool its callers need: a
@@ -166,27 +169,35 @@ var statements = []sqlstmt.Statement{
 		SELECT ts_ns, ord, message FROM lines
 		WHERE stream_id = ?1 AND (ts_ns, ord) < (?2, ?3) AND (ts_ns, ord) >= (?4, ?5)
 		ORDER BY ts_ns DESC, ord DESC`),
-	// Fills of one range can overlap, so a line another chunk claims stays.
+	// One range of the position index, which the caller cuts around the lines other
+	// chunks claim.
 	stmtEvictLines: sqlstmt.OnWriter(`
-		DELETE FROM lines
-		WHERE stream_id = ?1 AND (ts_ns, ord) >= (?2, ?3) AND (ts_ns, ord) <= (?4, ?5)
-			AND NOT EXISTS (
-				SELECT 1 FROM chunks c
-				WHERE c.stream_id = ?1 AND c.id <> ?6
-					AND (lines.ts_ns, lines.ord) >= (c.from_ns, c.from_ord)
-					AND (lines.ts_ns, lines.ord) <= (c.to_ns, c.to_ord)
-			)`),
+		DELETE FROM lines WHERE stream_id = ?1 AND (ts_ns, ord) >= (?2, ?3) AND (ts_ns, ord) <= (?4, ?5)`),
+	// Fills of one range can overlap: each chunk sharing a line with ?6's range.
+	stmtSelectOverlapping: sqlstmt.OnBoth(`
+		SELECT from_ns, from_ord, to_ns, to_ord FROM chunks
+		WHERE stream_id = ?1 AND id <> ?6 AND (to_ns, to_ord) >= (?2, ?3) AND (from_ns, from_ord) <= (?4, ?5)
+		ORDER BY from_ns, from_ord`),
 	stmtEvictChunk: sqlstmt.OnWriter(`DELETE FROM chunks WHERE id = ?`),
 	// An open chunk is never evicted: its tail writes it back from what it holds of it,
-	// and one evicted under the tail would come back claiming the evicted lines.
+	// and one evicted under the tail would come back claiming the evicted lines. Nor is
+	// one read since the cutoff.
 	stmtSelectChunkBounds: sqlstmt.OnBoth(`
-		SELECT stream_id, from_ns, from_ord, to_ns, to_ord FROM chunks WHERE id = ? AND open = 0`),
+		SELECT stream_id, from_ns, from_ord, to_ns, to_ord FROM chunks
+		WHERE id = ?1 AND open = 0 AND (read_at_ms IS NULL OR read_at_ms < ?2)`),
 	// An open chunk is its tailer's alone to extend.
 	stmtSelectChunkEndingAt: sqlstmt.OnBoth(`
 		SELECT ` + chunkColumns + ` FROM chunks
 		WHERE stream_id = ? AND pattern = ? AND origin = ? AND to_ns = ? AND to_ord = ? AND open = 0`),
 	stmtCloseOpenChunks: sqlstmt.OnWriter(`UPDATE chunks SET open = 0 WHERE open = 1`),
 	stmtCloseChunk:      sqlstmt.OnWriter(`UPDATE chunks SET open = 0 WHERE id = ?`),
+	stmtStreamBytes:     sqlstmt.OnReader(`SELECT stream_id, sum(bytes) FROM chunks GROUP BY stream_id`),
+	// A never-read chunk goes before a read one: the oldest line first among the
+	// never-read, the oldest stamp first among the read.
+	stmtCandidates: sqlstmt.OnReader(`
+		SELECT id, stream_id, bytes FROM chunks
+		WHERE open = 0 AND (read_at_ms IS NULL OR read_at_ms < ?1)
+		ORDER BY read_at_ms IS NOT NULL, read_at_ms, from_ns, from_ord, id`),
 	// A chunk stamped within the interval keeps its stamp, so a page re-reading it
 	// writes nothing.
 	stmtStampChunks: sqlstmt.OnWriter(`

@@ -2110,11 +2110,21 @@ pass clears the finalizer on `Remove`'s answer. The logs service builds and clos
 and is `services/cluster`'s `CacheFileOwner` over it; its files each run their own writer.
 `Retention` (`retention.go`) is every knob the log cache names, `DefaultRetention` its numbers;
 `NewManager` takes it, the clock a chunk is stamped on is the manager's `now` (`time.Now`, or a test's), and a fill closes its chunks at its
-`ChunkBytes` and `ChunkSpan`. **A chunk's `read_at_ms` is a page's stamp**, and
+`ChunkBytes` and `ChunkSpan`. Ids never come back (`AUTOINCREMENT`): a tailer, a watermark and
+a sweep name a row by id across transactions. **A chunk's `read_at_ms` is a page's stamp**, and
 `putChunk` never touches it: a page's `Write(ctx, fills, true)` stamps what its fills wrote or
 extended in their transaction, and the page stamps what its walk read a line from
 (`Store.Stamp`, which takes no write for chunks stamped within a tenth of `ReadTTL`). A tailer
-and a follow stamp nothing.
+and a follow stamp nothing, so a tailed stream nobody pages holds only its open chunk. **A sweep**
+(`Store.Sweep`, `janitor.go`) sums `bytes` per stream (message
+bytes, not the file's size), protects every `open` chunk and every chunk stamped within
+`ReadTTL`, and evicts while the file is over `Bytes` or a stream over `StreamShare`: an
+over-share stream's chunks first, a never-read chunk before a read one, the oldest first within
+each, each through `Evict` in its own transaction. A sweep over budget with nothing left to
+evict logs once entering that state and once leaving it; a chunk `Store.HoldChunks` holds is
+skipped, and the check and the eviction run under the holds' lock, so a chunk goes before its
+hold or not at all. Then it vacuums, gated on the freelist, then checkpoints when the WAL
+outweighs the file.
 A delete removes the `-wal` and `-shm` before the database, since a `-wal` left beside a fresh
 database would be replayed into it. **A `Store` is the file's statements** (`statements.go`, a
 `sqlstmt.Set` prepared at open, a read a write makes inside its transaction `OnBoth`):
@@ -2126,8 +2136,9 @@ and trims it; each reads first and takes no write when the file already holds it
 `PodStreams` is a pod's rows, by UID or, for a gone pod, by name alone; `Chunks` a stream's
 chunks for a pattern, its own and the unlabelled ones; `Write` files buffered `Fill`s in one
 transaction; `Read` runs walks over one snapshot (`Reader.Lines`, one walk of
-`lines_position` each way); `Evict` drops one chunk, by id, never an open one, and the lines no
-other chunk claims, reading its bounds in its own transaction. **Coverage is a pure
+`lines_position` each way); `Evict` drops one chunk, by id, never an open one or one stamped
+at or past its cutoff, and the lines no other chunk claims, as range deletes between the
+chunks that overlap it, reading its bounds in its own transaction. **Coverage is a pure
 function** (`CoverageOf`, `coverage.go`): a stream's chunks for a pattern as spans, joined by
 overlap or by a link (`prev_ns`, `prev_ord`) that lands inside the span, and the gaps between,
 each with the tier of the first backend that may hold it and `Lost` when none can: older than

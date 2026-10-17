@@ -383,6 +383,23 @@ func TestAPageStampsTheChunksItRead(t *testing.T) {
 	assert.Zero(t, chunks[1].ReadAt, "the chunk past its cut")
 }
 
+// A page's fill lands stamped, so a sweep over budget between the fill's commit and the
+// page's walk leaves what the page fetched, and the page is whole.
+func TestASweepBetweenAPagesFillAndWalkLeavesThePage(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(time.Second, "1"), stamped(2*time.Second, "2"))
+	ret := testRetention
+	ret.Bytes = 0
+	svc, f := serviceIn(t, webMirror(t), s, t.TempDir(), ret)
+	svc.afterFill = func() { sweepFile(t, svc, f) }
+
+	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 10})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"1", "2"}, messages(page.Records))
+}
+
 // A page whose stamp the file refuses still answers: a stamp only keeps the chunks out
 // of eviction, and a chunk evicted is filled again.
 func TestAPageWhoseStampFailsStillAnswers(t *testing.T) {
@@ -400,6 +417,12 @@ func TestAPageWhoseStampFailsStillAnswers(t *testing.T) {
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"1"}, messages(page.Records))
+}
+
+// sweepFile runs one sweep of the file behind svc.
+func sweepFile(t *testing.T, svc *Service, f *fakeService) {
+	t.Helper()
+	require.NoError(t, fileOf(t, svc, f).Sweep(t.Context()))
 }
 
 // A stream whose fill failed before any line is the page's skipped entry, and its

@@ -255,6 +255,31 @@ func TestAFlagIsZeroOrOne(t *testing.T) {
 	}
 }
 
+// A deleted row's id is never handed out again: a tailer, a watermark or a sweep that
+// names a row by id across transactions must never find another stream's in its place.
+func TestADeletedIDIsNeverReused(t *testing.T) {
+	t.Parallel()
+	f := openTestFile(t)
+	stream := insertStream(t, f)
+	_, err := f.db.Exec(`DELETE FROM streams WHERE id = ?`, stream)
+	require.NoError(t, err)
+	again := insertStream(t, f)
+	assert.NotEqual(t, stream, again, "a stream's")
+
+	insertChunkRow := func() int64 {
+		res, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, origin, at_head, at_end, open, bytes, read_at_ms)
+			VALUES (?, '', 1, 0, 1, 0, 'kubelet', 0, 0, 0, 0, 0)`, again)
+		require.NoError(t, err)
+		id, err := res.LastInsertId()
+		require.NoError(t, err)
+		return id
+	}
+	chunk := insertChunkRow()
+	_, err = f.db.Exec(`DELETE FROM chunks WHERE id = ?`, chunk)
+	require.NoError(t, err)
+	assert.NotEqual(t, chunk, insertChunkRow(), "a chunk's")
+}
+
 // Every operation on a closed claim answers ErrClosed, under what it was doing.
 func TestEveryOperationOnAClosedClaimIsRefused(t *testing.T) {
 	t.Parallel()
@@ -284,7 +309,7 @@ func TestEveryOperationOnAClosedClaimIsRefused(t *testing.T) {
 			return err
 		},
 		"read":  func() error { return s.Read(ctx, func(Reader) error { return nil }) },
-		"evict": func() error { return s.Evict(ctx, 1) },
+		"evict": func() error { return s.Evict(ctx, 1, anyStamp) },
 		"stamp": func() error { return s.Stamp(ctx, []Chunk{{ID: 1}}) },
 		"subscribe": func() error {
 			_, err := s.Subscribe(1)

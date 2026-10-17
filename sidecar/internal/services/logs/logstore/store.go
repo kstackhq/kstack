@@ -32,6 +32,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/amorey/gobus/conflate"
 
@@ -46,12 +47,18 @@ const readerPoolSize = 4
 // file is one open log file: the writer, the reader pool beside it, the statements
 // prepared on both, and the bus every commit of lines pings by stream id.
 type file struct {
+	path   string
 	db     *sql.DB
 	readDB *sql.DB
 	set    *sqlstmt.Set[stmtID]
 	bus    *conflate.Hub[int64, struct{}]
 	// w is the file's writer, nil for a file opened outside a manager.
 	w *writer
+	// heldChunks is the chunks in use, which a sweep leaves alone.
+	heldChunks holds
+	// short is whether the last sweep stopped over budget with nothing to evict, so
+	// the log says so as the file enters that state and as it leaves, not every sweep.
+	short atomic.Bool
 	// ctx is what an operation runs its statements under; close cancels it, so the wait
 	// for inUse is a wait for interrupted statements to unwind. inUse counts the
 	// operations running on the file, which close waits for, since sql.DB.Close does not
@@ -98,7 +105,10 @@ func openFile(path string) (*file, error) {
 		return nil, fmt.Errorf("close open chunks: %w", err)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	return &file{db: db, readDB: readDB, set: set, bus: conflate.New[int64, struct{}](), ctx: ctx, cancel: cancel}, nil
+	return &file{
+		path: path, db: db, readDB: readDB, set: set, bus: conflate.New[int64, struct{}](),
+		heldChunks: holds{n: map[int64]int{}}, ctx: ctx, cancel: cancel,
+	}, nil
 }
 
 // close ends the bus's receivers, interrupts the file's operations and its writer,

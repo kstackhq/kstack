@@ -257,6 +257,9 @@ func (s *Service) page(ctx context.Context, id cluster.ClusterID, qs ...pageQuer
 		if _, err := file.Write(ctx, writes, true); err != nil {
 			return nil, err
 		}
+		if s.afterFill != nil {
+			s.afterFill()
+		}
 	}
 	for i, q := range qs {
 		if out[i], err = p.answer(ctx, q, fills[i]); err != nil {

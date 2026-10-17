@@ -48,6 +48,10 @@ type Service struct {
 	// TailGrace, or a test's.
 	grace time.Duration
 
+	// afterFill runs once a page's fills have committed and before its walk: a test's,
+	// so a sweep can land between them; nil in production.
+	afterFill func()
+
 	// tails is each log file's tailers, by cache id.
 	tailsMu sync.Mutex
 	tails   map[cluster.ClusterCacheID]*registry

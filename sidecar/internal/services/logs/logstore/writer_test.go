@@ -367,12 +367,12 @@ func TestAnOpenChunkIsNotEvicted(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, chunks, 1)
 
-	require.NoError(t, s.Evict(t.Context(), chunks[0].ID))
+	require.NoError(t, s.Evict(t.Context(), chunks[0].ID, anyStamp))
 	assert.Equal(t, []Chunk{opened(chunk(at(1, 0), at(2, 0)))}, chunksOfStream(t, s, id), "held by its tailer")
 	assert.Len(t, positions(t, s, id), 2)
 
 	require.NoError(t, tail.Close(t.Context(), nil))
-	require.NoError(t, s.Evict(t.Context(), chunks[0].ID))
+	require.NoError(t, s.Evict(t.Context(), chunks[0].ID, anyStamp))
 	assert.Empty(t, chunksOfStream(t, s, id))
 	assert.Empty(t, positions(t, s, id))
 }
