@@ -156,7 +156,7 @@ func (t *tailer) tail(ctx context.Context, file *logstore.Store, tr *tailRead, p
 	var failed <-chan struct{}
 	ch := read.lines.Chan()
 	for {
-		var rec Record
+		var rec readItem
 		var ok bool
 		select {
 		case rec, ok = <-ch:
@@ -180,7 +180,7 @@ func (t *tailer) tail(ctx context.Context, file *logstore.Store, tr *tailRead, p
 			t.current.Store(tail)
 			failed = tail.Failed()
 		}
-		lines, open := gather(ch, ret, lineOf(rec))
+		lines, open := gather(ch, ret, lineOf(rec.Record))
 		if !open {
 			return false, t.close(tail, lines, read.err)
 		}
@@ -202,8 +202,8 @@ func (t *tailer) tail(ctx context.Context, file *logstore.Store, tr *tailRead, p
 }
 
 // gather is first and whatever else has arrived on ch, up to WriteBatch lines or
-// WriteBatchBytes, and whether ch is still open.
-func gather(ch <-chan Record, ret logstore.Retention, first logstore.Line) ([]logstore.Line, bool) {
+// WriteBatchBytes, and whether ch is still open. A follow's read ends no window.
+func gather(ch <-chan readItem, ret logstore.Retention, first logstore.Line) ([]logstore.Line, bool) {
 	lines, bytes := []logstore.Line{first}, int64(len(first.Message))
 	for len(lines) < ret.WriteBatch && bytes < ret.WriteBatchBytes {
 		select {
@@ -211,7 +211,7 @@ func gather(ch <-chan Record, ret logstore.Retention, first logstore.Line) ([]lo
 			if !ok {
 				return lines, false
 			}
-			l := lineOf(rec)
+			l := lineOf(rec.Record)
 			lines, bytes = append(lines, l), bytes+int64(len(l.Message))
 		default:
 			return lines, true

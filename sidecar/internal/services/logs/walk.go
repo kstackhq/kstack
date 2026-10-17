@@ -220,9 +220,9 @@ func newestOf(chunks []logstore.Chunk) *logstore.Pos {
 
 // readingOf is a reading of key that has already read recs and ended as it says.
 func readingOf(key StreamKey, recs []Record, short bool, stop position, err error) *streamRead {
-	out, lines := spsc.New[Record](len(recs))
+	out, lines := spsc.New[readItem](len(recs))
 	for _, rec := range recs {
-		_ = out.Send(rec) // the buffer holds every line, so nothing blocks or fails
+		_ = out.Send(readItem{Record: rec}) // the buffer holds every line, so nothing blocks or fails
 	}
 	out.Close()
 	if !short {

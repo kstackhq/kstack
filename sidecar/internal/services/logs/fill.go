@@ -249,7 +249,10 @@ func (f *filler) pull(ctx context.Context, tier int, lower, upper *logstore.Pos)
 	var lines []logstore.Line
 	cut := false
 	for rec := range r.lines.Chan() {
-		lines = append(lines, lineOf(rec))
+		if rec.windowEnd {
+			continue
+		}
+		lines = append(lines, lineOf(rec.Record))
 		if matches(f.q.grep, rec.Message) {
 			f.count++
 		}
