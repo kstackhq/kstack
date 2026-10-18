@@ -1,7 +1,7 @@
 ---
 title: "LogsRead: what the model read, frozen"
 scope: sidecar, frontend
-status: Proposed
+status: Implemented
 ---
 
 # LogsRead: what the model read, frozen
