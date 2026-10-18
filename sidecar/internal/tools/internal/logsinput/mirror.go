@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package logsview
+package logsinput
 
 import (
 	"encoding/json"
@@ -43,11 +43,11 @@ func templateOf(kind tools.LogsSourceKind) string {
 
 // object is the source's object as the mirror holds it, a zero uid for none: a
 // pod's containers off the containers table, a workload's off its pod template.
-func object(q cluster.CacheReading, s source) (found, error) {
-	apiVersion, kind := logs.MirrorKind(s.kind)
-	template := templateOf(s.kind)
+func object(q cluster.CacheReading, s Source) (found, error) {
+	apiVersion, kind := logs.MirrorKind(s.Kind)
+	template := templateOf(s.Kind)
 	const where = " WHERE o.api_version = ? AND o.kind = ? AND o.namespace = ? AND o.name = ?"
-	args := []any{apiVersion, kind, s.namespace, s.name}
+	args := []any{apiVersion, kind, s.Namespace, s.Name}
 	if template == "" {
 		res, err := q.Query(`SELECT o.uid, o.body ->> '$.metadata.annotations."`+logs.DefaultContainerAnnotation+`"', c.name
 FROM objects o LEFT JOIN containers c ON c.pod_uid = o.uid`+where+` ORDER BY c.init, c.position`, args...)

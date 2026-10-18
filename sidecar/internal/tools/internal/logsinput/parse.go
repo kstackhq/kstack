@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package logsview
+package logsinput
 
 import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"math"
 	"regexp"
 	"strings"
 
@@ -26,43 +28,48 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
-// input is one call's arguments as the model typed them, each checked for shape.
-type input struct {
-	description string
-	sources     []source
-	filters     []tools.LogsViewFilter
-	grep        string
-	anchor      string
-	pinToEnd    bool
+// Input is one call's shared arguments as the model typed them, each checked for
+// shape.
+type Input struct {
+	Description string
+	Sources     []Source
+	Filters     []tools.LogsViewFilter
+	Grep        string
 }
 
-// source is one source as typed: its resource read into a kind and a name.
-type source struct {
-	namespace     string
-	kind          tools.LogsSourceKind
-	name          string
-	containers    []string
-	allContainers bool
-	previous      bool
+// Source is one source as typed: its resource read into a kind and a name.
+type Source struct {
+	Namespace     string
+	Kind          tools.LogsSourceKind
+	Name          string
+	Containers    []string
+	AllContainers bool
+	Previous      bool
 }
 
-// inputError is arguments the tool refuses. field names the argument when it is
-// one the tool knows, "" otherwise; source is the source it concerns, -1 for
-// none; message, the tool's own words, says what to change.
-type inputError struct {
-	field, message string
-	source         int
+// maxSources is the most sources a call names. A source with nothing to read has
+// no containers, so the service's cap on containers does not bound it.
+const maxSources = 100
+
+// InputError is arguments a tool refuses. Field names the argument when it is one
+// the tool knows, "" otherwise; Source is the source it concerns, -1 for none;
+// Message, the tool's own words, says what to change.
+type InputError struct {
+	Field, Message string
+	Source         int
 }
 
-func (e *inputError) Error() string {
-	if e.field == "" {
-		return "logsview input is not one object of the tool's own fields"
+func (e *InputError) Error() string {
+	if e.Field == "" {
+		return "logs input is not one object of the tool's own fields"
 	}
-	return "logsview input has a bad " + e.field
+	return "logs input has a bad " + e.Field
 }
 
-// anchorMessage is the refusal of an anchor the tool cannot read.
-const anchorMessage = "tail, head, an RFC 3339 time, or a duration back from now such as 2m"
+// BadInput refuses field, of no one source, saying message.
+func BadInput(field, message string) *InputError {
+	return &InputError{Field: field, Message: message, Source: -1}
+}
 
 // kindOf is each resource as kubectl spells it, plural, singular and short.
 var kindOf = map[string]tools.LogsSourceKind{
@@ -84,95 +91,102 @@ var filterFields = []struct {
 	{"os", tools.LogsFilterOS}, {"arch", tools.LogsFilterArch},
 }
 
-// parse reads an object whose keys are the tool's fields, each spelled exactly and
-// at most once, with nothing after it, and checks each value off its token, since
-// a typed decode takes null as the zero value.
-func parse(raw json.RawMessage) (input, error) {
-	in := input{}
+// Fields is a tool's own fields beside the shared ones: each key's destination, a
+// *string, *bool or *int the value is read into, or the InputError the key is
+// refused with.
+type Fields map[string]any
+
+// Parse reads an object whose keys are the shared fields and own, each spelled
+// exactly and at most once, with nothing after it, and checks each value off its
+// token, since a typed decode takes null as the zero value.
+func Parse(raw json.RawMessage, own Fields) (Input, error) {
+	in := Input{}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	w := walker{dec}
 	err := w.object(func(key string) error {
 		switch key {
 		case "description":
-			return w.string(&in.description, key)
+			return w.string(&in.Description, key)
 		case "sources":
 			return w.array(func(i int) error {
+				if i == maxSources {
+					return BadInput("sources", fmt.Sprintf("at most %d", maxSources))
+				}
 				s, err := parseSource(w, i)
-				in.sources = append(in.sources, s)
+				in.Sources = append(in.Sources, s)
 				return err
 			})
 		case "filters":
-			return parseFilters(w, &in.filters)
+			return parseFilters(w, &in.Filters)
 		case "grep":
-			return w.string(&in.grep, key)
-		case "anchor":
-			return w.string(&in.anchor, key)
-		case "pin_to_end":
-			return w.bool(&in.pinToEnd, key)
+			return w.string(&in.Grep, key)
 		}
-		return &inputError{source: -1}
+		if dst, ok := own[key]; ok {
+			return w.value(dst, key)
+		}
+		return &InputError{Source: -1}
 	})
 	if err != nil {
-		return input{}, err
+		return Input{}, err
 	}
 	if err := dec.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return input{}, &inputError{source: -1}
+		return Input{}, &InputError{Source: -1}
 	}
 
-	if len(in.sources) == 0 {
-		return input{}, &inputError{field: "sources", source: -1}
+	if len(in.Sources) == 0 {
+		return Input{}, BadInput("sources", "")
 	}
-	if len(in.grep) > logs.MaxGrep || strings.ContainsAny(in.grep, "\r\n") {
-		return input{}, &inputError{field: "grep", source: -1}
+	if len(in.Grep) > logs.MaxGrep || strings.ContainsAny(in.Grep, "\r\n") {
+		return Input{}, BadInput("grep", "")
 	}
-	if _, err := regexp.Compile(in.grep); err != nil {
-		return input{}, &inputError{field: "grep", source: -1, message: "does not compile as a regular expression"}
+	if _, err := regexp.Compile(in.Grep); err != nil {
+		return Input{}, BadInput("grep", "does not compile as a regular expression")
 	}
 	return in, nil
 }
 
 // parseSource reads source i: its resource as <kind>/<name>, the namespace and
 // each container a DNS name, and all_containers refused beside containers.
-func parseSource(w walker, i int) (source, error) {
-	s := source{}
+func parseSource(w walker, i int) (Source, error) {
+	s := Source{}
 	var resource string
 	err := w.object(func(key string) error {
 		switch key {
 		case "namespace":
-			return w.string(&s.namespace, key)
+			return w.string(&s.Namespace, key)
 		case "resource":
 			return w.string(&resource, key)
 		case "containers":
-			return w.strings(&s.containers, key)
+			return w.strings(&s.Containers, key)
 		case "all_containers":
-			return w.bool(&s.allContainers, key)
+			return w.bool(&s.AllContainers, key)
 		case "previous":
-			return w.bool(&s.previous, key)
+			return w.bool(&s.Previous, key)
 		}
-		return &inputError{source: i}
+		return &InputError{Source: i}
 	})
 	if err != nil {
-		var ie *inputError
+		var ie *InputError
 		if errors.As(err, &ie) {
-			ie.source = i
+			ie.Source = i
 		}
-		return source{}, err
+		return Source{}, err
 	}
-	if !dnsLabel(s.namespace) {
-		return source{}, &inputError{field: "namespace", source: i}
+	if !dnsLabel(s.Namespace) {
+		return Source{}, &InputError{Field: "namespace", Source: i}
 	}
 	kind, name, _ := strings.Cut(resource, "/")
-	s.kind, s.name = kindOf[strings.ToLower(kind)], name
-	if s.kind == "" || !dnsSubdomain(name) {
-		return source{}, &inputError{field: "resource", source: i, message: "<kind>/<name>: pods, deployments, statefulsets, daemonsets, jobs, cronjobs or replicasets"}
+	s.Kind, s.Name = kindOf[strings.ToLower(kind)], name
+	if s.Kind == "" || !dnsSubdomain(name) {
+		return Source{}, &InputError{Field: "resource", Source: i, Message: "<kind>/<name>: pods, deployments, statefulsets, daemonsets, jobs, cronjobs or replicasets"}
 	}
-	for _, c := range s.containers {
+	for _, c := range s.Containers {
 		if !dnsLabel(c) {
-			return source{}, &inputError{field: "containers", source: i}
+			return Source{}, &InputError{Field: "containers", Source: i}
 		}
 	}
-	if s.allContainers && len(s.containers) > 0 {
-		return source{}, &inputError{field: "all_containers", source: i, message: "not with containers"}
+	if s.AllContainers && len(s.Containers) > 0 {
+		return Source{}, &InputError{Field: "all_containers", Source: i, Message: "not with containers"}
 	}
 	return s, nil
 }
@@ -192,7 +206,7 @@ func parseFilters(w walker, out *[]tools.LogsViewFilter) error {
 				return nil
 			}
 		}
-		return &inputError{source: -1}
+		return &InputError{Source: -1}
 	})
 	if err != nil {
 		return err
@@ -203,11 +217,11 @@ func parseFilters(w walker, out *[]tools.LogsViewFilter) error {
 			continue
 		}
 		if len(list) == 0 {
-			return &inputError{field: "filters." + f.key, source: -1, message: "never empty"}
+			return &InputError{Field: "filters." + f.key, Source: -1, Message: "never empty"}
 		}
 		for _, v := range list {
 			if v == "" {
-				return &inputError{field: "filters." + f.key, source: -1, message: "never empty"}
+				return &InputError{Field: "filters." + f.key, Source: -1, Message: "never empty"}
 			}
 		}
 		*out = append(*out, tools.LogsViewFilter{Field: f.field, Values: list})
@@ -221,14 +235,14 @@ type walker struct{ dec *json.Decoder }
 // object reads {, each key once and in turn through each, and }.
 func (w walker) object(each func(key string) error) error {
 	if tok, err := w.dec.Token(); err != nil || tok != json.Delim('{') {
-		return &inputError{source: -1}
+		return &InputError{Source: -1}
 	}
 	seen := map[string]bool{}
 	for w.dec.More() {
 		tok, err := w.dec.Token()
 		key, ok := tok.(string)
 		if err != nil || !ok || seen[key] {
-			return &inputError{source: -1}
+			return &InputError{Source: -1}
 		}
 		seen[key] = true
 		if err := each(key); err != nil {
@@ -236,7 +250,7 @@ func (w walker) object(each func(key string) error) error {
 		}
 	}
 	if tok, err := w.dec.Token(); err != nil || tok != json.Delim('}') {
-		return &inputError{source: -1}
+		return &InputError{Source: -1}
 	}
 	return nil
 }
@@ -244,7 +258,7 @@ func (w walker) object(each func(key string) error) error {
 // array reads [, each element in turn through each with its index, and ].
 func (w walker) array(each func(i int) error) error {
 	if tok, err := w.dec.Token(); err != nil || tok != json.Delim('[') {
-		return &inputError{source: -1}
+		return &InputError{Source: -1}
 	}
 	for i := 0; w.dec.More(); i++ {
 		if err := each(i); err != nil {
@@ -252,9 +266,24 @@ func (w walker) array(each func(i int) error) error {
 		}
 	}
 	if tok, err := w.dec.Token(); err != nil || tok != json.Delim(']') {
-		return &inputError{source: -1}
+		return &InputError{Source: -1}
 	}
 	return nil
+}
+
+// value reads the token into dst, one of Fields' destinations.
+func (w walker) value(dst any, field string) error {
+	switch dst := dst.(type) {
+	case *string:
+		return w.string(dst, field)
+	case *bool:
+		return w.bool(dst, field)
+	case *int:
+		return w.int(dst, field)
+	case error:
+		return dst
+	}
+	panic("logsinput: a field reads into a *string, *bool or *int")
 }
 
 // string reads a string into out, refusing any other token as a bad field.
@@ -262,7 +291,7 @@ func (w walker) string(out *string, field string) error {
 	tok, err := w.dec.Token()
 	s, ok := tok.(string)
 	if err != nil || !ok {
-		return &inputError{field: field, source: -1}
+		return &InputError{Field: field, Source: -1}
 	}
 	*out = s
 	return nil
@@ -273,9 +302,20 @@ func (w walker) bool(out *bool, field string) error {
 	tok, err := w.dec.Token()
 	b, ok := tok.(bool)
 	if err != nil || !ok {
-		return &inputError{field: field, source: -1}
+		return &InputError{Field: field, Source: -1}
 	}
 	*out = b
+	return nil
+}
+
+// int reads a whole number into out, refusing any other token as a bad field.
+func (w walker) int(out *int, field string) error {
+	tok, err := w.dec.Token()
+	f, ok := tok.(float64)
+	if err != nil || !ok || f != math.Trunc(f) || math.Abs(f) > 1<<31 {
+		return &InputError{Field: field, Source: -1}
+	}
+	*out = int(f)
 	return nil
 }
 
@@ -283,7 +323,7 @@ func (w walker) bool(out *bool, field string) error {
 func (w walker) strings(out *[]string, field string) error {
 	tok, err := w.dec.Token()
 	if err != nil || tok != json.Delim('[') {
-		return &inputError{field: field, source: -1}
+		return &InputError{Field: field, Source: -1}
 	}
 	list := []string{}
 	for w.dec.More() {
@@ -294,7 +334,7 @@ func (w walker) strings(out *[]string, field string) error {
 		list = append(list, s)
 	}
 	if tok, err := w.dec.Token(); err != nil || tok != json.Delim(']') {
-		return &inputError{field: field, source: -1}
+		return &InputError{Field: field, Source: -1}
 	}
 	*out = list
 	return nil

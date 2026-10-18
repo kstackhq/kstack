@@ -20,20 +20,18 @@
 package logsview
 
 import (
-	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
-	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/logsinput"
 )
 
 //go:embed prompts/logsview.md
@@ -85,15 +83,23 @@ func (t *Tool) Action(json.RawMessage, string, bool) (tools.Action, error) {
 // receipt with the view as the action. A refusal names what to change and
 // never the model's text.
 func (t *Tool) RunShown(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (string, bool, *tools.Action) {
-	in, err := parse(raw)
+	var anchorText string
+	var pinToEnd bool
+	in, err := logsinput.Parse(raw, logsinput.Fields{"anchor": &anchorText, "pin_to_end": &pinToEnd})
 	if err != nil {
-		return refusal(err), true, nil
+		return logsinput.Refusal(err), true, nil
 	}
-	view, notes, err := t.resolve(ctx, rt.ClusterID, in)
+	now := t.now()
+	anchor, err := anchorOf(anchorText, now)
 	if err != nil {
-		return refusal(err), true, nil
+		return logsinput.Refusal(err), true, nil
 	}
-	return receipt(in.sources, view, notes), false, &tools.Action{Description: in.description, LogsView: &view}
+	view, notes, err := logsinput.Resolve(ctx, t.svc, now, rt.ClusterID, in)
+	if err != nil {
+		return logsinput.Refusal(err), true, nil
+	}
+	view.Anchor, view.PinToEnd = anchor, pinToEnd
+	return receipt(in.Sources, view, notes), false, &tools.Action{Description: in.Description, LogsView: &view}
 }
 
 // Run is RunShown with the action dropped.
@@ -102,93 +108,26 @@ func (t *Tool) Run(ctx context.Context, rt tools.Runtime, raw json.RawMessage) (
 	return text, isError
 }
 
-// refusal is an error as the model reads it: bad arguments by field and
-// source, a source the mirror refuses by code, a cluster with no cache or one
-// still syncing, and anything else with none of its text.
-func refusal(err error) string {
-	var ie *inputError
-	var rf *refused
-	switch {
-	case errors.As(err, &ie):
-		out := map[string]any{"error": "bad-input"}
-		if ie.field != "" {
-			out["field"] = ie.field
-		}
-		if ie.source >= 0 {
-			out["source"] = ie.source
-		}
-		if ie.message != "" {
-			out["message"] = ie.message
-		}
-		return result(out)
-	case errors.As(err, &rf):
-		out := map[string]any{"error": rf.code}
-		if rf.source >= 0 {
-			out["source"] = rf.source
-		}
-		if rf.containers != nil {
-			out["containers"] = rf.containers
-		}
-		return result(out)
-	case errors.Is(err, cluster.ErrNoCache):
-		return `{"error":"no-cache"}`
-	case errors.Is(err, cluster.ErrSyncing):
-		return `{"error":"syncing"}`
-	}
-	return `{"error":"read-failed"}`
-}
-
-// result is v as one line of JSON, leaving <, > and & as they are.
-func result(v any) string {
-	var b bytes.Buffer
-	enc := json.NewEncoder(&b)
-	enc.SetEscapeHTML(false)
-	_ = enc.Encode(v) // strings, string slices, ints and maps of them always encode
-	return strings.TrimSuffix(b.String(), "\n")
-}
-
 // receipt is the one line the model reads of a view that opened: the first
 // source and how many more, where it opened and whether it is pinned, then what
 // each source shows beyond its name, each note under its source when there are
 // several, then the grep. Every name in it is cluster data, redacted as a
 // command's output is.
-func receipt(typed []source, view tools.LogsViewAction, notes []note) string {
+func receipt(typed []logsinput.Source, view tools.LogsViewAction, notes []logsinput.Note) string {
 	var b strings.Builder
-	b.WriteString("Viewing " + nameOf(typed[0]) + " in " + typed[0].namespace)
-	if more := len(typed) - 1; more == 1 {
-		b.WriteString(" and 1 more source")
-	} else if more > 1 {
-		b.WriteString(fmt.Sprintf(" and %d more sources", more))
-	}
+	b.WriteString("Viewing " + logsinput.SourcesText(typed))
 	b.WriteString(" " + anchorText(view.Anchor))
 	if view.PinToEnd {
 		b.WriteString(", pinned to the end")
 	}
 	b.WriteString(".")
-	for i, n := range notes {
-		for _, line := range noteLines(typed[i], view.Sources[i], n) {
-			if len(typed) > 1 {
-				line = nameOf(typed[i]) + ": " + line
-			} else {
-				line = strings.ToUpper(line[:1]) + line[1:]
-			}
-			b.WriteString(" " + line + ".")
-		}
+	for _, text := range logsinput.NotesText(typed, view.Sources, notes) {
+		b.WriteString(text)
 	}
 	if view.Grep != "" {
 		b.WriteString(" Matching /" + view.Grep + "/.")
 	}
 	return safe.Redact(b.String())
-}
-
-// nameOf is a source as kubectl names it, <resource>/<name>.
-func nameOf(s source) string { return resourceOf[s.kind] + "/" + s.name }
-
-// resourceOf is each kind's plural resource, as the receipt names a source.
-var resourceOf = map[tools.LogsSourceKind]string{
-	tools.LogsSourcePod: "pods", tools.LogsSourceDeployment: "deployments", tools.LogsSourceStatefulSet: "statefulsets",
-	tools.LogsSourceDaemonSet: "daemonsets", tools.LogsSourceJob: "jobs", tools.LogsSourceCronJob: "cronjobs",
-	tools.LogsSourceReplicaSet: "replicasets",
 }
 
 // anchorText is where the view opened.
@@ -202,40 +141,19 @@ func anchorText(a tools.LogsViewAnchor) string {
 	return "at the newest line"
 }
 
-// noteLines is what the receipt says of one source beyond its name: the
-// container defaulted among several and the others, the containers named or
-// every one, the default container of an object it cannot see yet, the previous instance, of how many of a workload's pods, and
-// whether its object is missing or has nothing to read yet.
-func noteLines(typed source, src tools.LogsViewSource, n note) []string {
-	var lines []string
-	switch {
-	case n.defaulted != "":
-		lines = append(lines, "defaulted container "+n.defaulted+" out of "+strings.Join(n.containers, ", "))
-	case src.AllContainers && len(n.containers) > 0:
-		lines = append(lines, "containers "+strings.Join(n.containers, ", "))
-	case src.AllContainers:
-		lines = append(lines, "every container")
-	case len(src.Containers) > 1:
-		lines = append(lines, "containers "+strings.Join(src.Containers, ", "))
-	case len(src.Containers) == 1:
-		lines = append(lines, "container "+src.Containers[0])
-	case len(n.containers) == 0:
-		lines = append(lines, "default container")
+// anchorMessage is the refusal of an anchor the tool cannot read.
+const anchorMessage = "tail, head, an RFC 3339 time, or a duration back from now such as 2m"
+
+// anchorOf is the anchor the model typed on the clock: tail, head, or a moment.
+func anchorOf(s string, now time.Time) (tools.LogsViewAnchor, error) {
+	switch s {
+	case "", "tail":
+		return tools.LogsViewAnchor{Kind: tools.LogsAnchorTail}, nil
+	case "head":
+		return tools.LogsViewAnchor{Kind: tools.LogsAnchorHead}, nil
 	}
-	switch {
-	case !src.Previous:
-	case typed.kind == tools.LogsSourcePod, n.state == logs.Missing:
-		lines = append(lines, "previous instance")
-	default:
-		lines = append(lines, fmt.Sprintf("previous instance of %d of %d pods", n.restarted, n.pods))
+	if at, ok := logsinput.MomentOf(s, now); ok {
+		return tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: &at}, nil
 	}
-	switch {
-	case n.state == logs.Missing:
-		lines = append(lines, "not in Kstack's cache of the cluster yet; the view picks it up when it appears")
-	case n.state == logs.Idle && src.Previous:
-		lines = append(lines, "nothing to read yet; the view picks up its containers as they restart")
-	case n.state == logs.Idle:
-		lines = append(lines, "nothing to read yet; the view picks up its containers as they start")
-	}
-	return lines
+	return tools.LogsViewAnchor{}, logsinput.BadInput("anchor", anchorMessage)
 }

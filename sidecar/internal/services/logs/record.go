@@ -37,8 +37,8 @@ type Record struct {
 // file holds them. After is the stamp of the last known line
 // before it, Before that of the first known line past it.
 type Gap struct {
-	After  time.Time
-	Before time.Time
+	After  time.Time `json:"after"`
+	Before time.Time `json:"before"`
 }
 
 // StreamKey names one log a line came from: a pod's container, and whether it is

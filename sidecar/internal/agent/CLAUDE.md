@@ -139,7 +139,7 @@ land before any call runs, and a failed write under one call cancels the reply's
 not `Gated` (each subagent call is) and answers at once. Its run and the `Agent` row's
 `spawned_run_id` land in the task row's transaction. `agentTask` runs under a context only a stop
 cancels, so a parent's Cancel leaves it running. `SubagentBox` drops `Agent`, `Memory` and
-`LogsView` (depth is one). **Each run owns its own calls** (`runJournal`). **`watchTask` is the one
+`LogsView` (depth is one), and keeps `LogsRead`. **Each run owns its own calls** (`runJournal`). **`watchTask` is the one
 writer of the end.** → [ADR](../../../docs/adr/2026-09-25-an-agent-is-a-tool-in-the-box.md),
 [ADR](../../../docs/adr/2026-09-25-an-agent-runs-in-the-background.md), [the Agent
 tool](../../../docs/security/2026-09-25-agent-tool.md), [background
@@ -147,8 +147,8 @@ agents](../../../docs/security/2026-09-25-background-agents.md).
 
 **A monitor run is a run of the chat service** (`RunMonitor`): one per cluster
 (`ErrMonitorInFlight`), refused without a sandbox, with monitoring off or a gone cluster. It runs in
-`monitorSession()`, told the card alone (never memory), offered `MonitorBox`; nothing it asks is
-approved. → [ADR](../../../docs/adr/2026-10-05-a-monitor-run-is-a-run-of-the-chat-service.md),
+`monitorSession()`, told the card alone (never memory), offered `MonitorBox`, which keeps `LogsRead`; nothing
+it asks is approved. → [ADR](../../../docs/adr/2026-10-05-a-monitor-run-is-a-run-of-the-chat-service.md),
 [the monitoring session](../../../docs/security/2026-10-05-the-monitoring-session.md).
 
 **Background tasks.** A bash call with `run_in_background` is approved like any other (how it
@@ -246,10 +246,11 @@ in the answer's row](../../../docs/adr/2026-09-14-tool-rounds-live-in-the-answer
 
 **A question carries a context block when it has changed** (`questionBlocks` against
 `newestContext`): the cluster card, `## Memory`, `## Workspace`, `## View` when the send carries a
-snapshot, and `## Sandbox`, always last. **The View** (`view.go`) restates the named `LogsView`
-call's stored action, never the client's, with what was on screen and the selected lines through
-`logs.ForModel`, under `viewBudget` as the section spells it; a snapshot naming no `LogsView` call
-of this chat is `ErrBadRequest`. A notice turn and a subagent's brief drop it (`withoutView`). **A context
+snapshot, and `## Sandbox`, always last. **The View** (`view.go`) restates the named call's stored
+view (`viewCall`: a `LogsView` call's action, or a `LogsRead` call's `viewAround`, a subagent's
+included), never the client's, with what was on screen and the selected lines through
+`logs.ForModel`, under `viewBudget` as the section spells it; a snapshot naming no such call of
+this chat is `ErrBadRequest`. A notice turn and a subagent's brief drop it (`withoutView`). **A context
 block is always its message's first block** — where the query reads it. The card and notes render
 before the transaction (`contextText`) for the chat's stored cluster, never the send's argument;
 the workspace, view and sandbox sections are appended inside it. An

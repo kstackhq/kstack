@@ -135,6 +135,62 @@ const ChatMessagesWatchSubscription = graphql(`
               pinToEnd
               resolvedAt
             }
+            logsRead {
+              sources {
+                namespace
+                kind
+                name
+                containers
+                allContainers
+                previous
+              }
+              filters {
+                field
+                values
+              }
+              grep
+              since
+              until
+              mode
+              resolvedAt
+              lines {
+                timestamp
+                namespace
+                pod
+                container
+                previous
+                message
+                gap {
+                  after
+                  before
+                }
+              }
+              dropped
+              before
+              after
+              skipped
+              viewAround {
+                sources {
+                  namespace
+                  kind
+                  name
+                  containers
+                  allContainers
+                  previous
+                }
+                filters {
+                  field
+                  values
+                }
+                grep
+                anchor {
+                  kind
+                  at
+                }
+                pinToEnd
+                resolvedAt
+              }
+            }
           }
           agentCallID
           approval {
@@ -341,6 +397,7 @@ const ACTION_KIND_LABELS: Record<ToolActionKind, string> = {
   Delegate: 'Agent',
   KubeQuery: 'Query',
   LogsView: 'Logs',
+  LogsRead: 'Read logs',
 };
 
 export function actionKindLabel(kind: ToolActionKind): string {
