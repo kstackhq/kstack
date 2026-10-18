@@ -59,7 +59,7 @@
     },
     "anchor": {
       "type": "string",
-      "description": "Where the view opens: tail (the newest line, the default), head (the oldest line kept), an RFC 3339 time, or a duration back from now such as 2m."
+      "description": "Where the view opens: tail (the newest line, the default), head (the oldest line kept), an RFC 3339 time, or an ISO 8601 duration back from now such as PT15M."
     },
     "pin_to_end": {
       "type": "boolean",

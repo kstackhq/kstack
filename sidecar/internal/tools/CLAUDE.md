@@ -128,7 +128,7 @@ section (`internal/agent/CLAUDE.md`). The service it checks against is
 
 **LogsRead is the model's read of a range of logs.** It is `Custom`, `Shown` and `Bounded` (30 s),
 never `Gated`. `parse.go` takes the shared keys through `logsinput.Parse` and its own `since`,
-`until` (each a moment, a duration or a printed cursor), `mode` (`head`, `tail`) and `limit`
+`until` (each a moment, a duration back from now or a printed cursor), `mode` (`head`, `tail`) and `limit`
 (1–100, 50), refusing `anchor` and `pin_to_end` by name. `RunShown` resolves the view as LogsView
 does, then reads one page with `logs.Service.Fetch` (the `Fetcher` field, faked in tests) under its
 own `readTimeout` (25 s), so a slow read answers `timed-out` itself. A service `Refusal` answers
@@ -156,8 +156,10 @@ own `readTimeout` (25 s), so a slow read answers `timed-out` itself. A service `
 strict walk (each key once, DNS names, at most 100 sources, `grep` compiled on one line of at most
 `MaxGrep`); `own` is the tool's `Fields`, each key's typed destination or the refusal it earns.
 `Resolve(ctx, svc, now, id, in)` checks each source inside one `ReadActive`, then runs
-`logs.Check`, so a view a tool takes is one the service reads. `MomentOf` is the shared moment
-grammar; `SourcesText` and `NotesText` how a tool names its sources; `Refusal` and `Result` how it
+`logs.Check`, so a view a tool takes is one the service reads. `MomentOf(s, now, dir)` reads an RFC 3339
+time or an ISO 8601 duration, applied on the calendar in UTC in the caller's `Direction` (`Behind`
+or `Ahead`), a month end clamped to the target month's last day, and nothing before the epoch or
+after 9999; `SourcesText` and `NotesText` how a tool names its sources; `Refusal` and `Result` how it
 answers. `logsinputtest` is the fake cluster and
 the fixtures both tools' tests run over (`cluster/clustertest` beneath).
 
