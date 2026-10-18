@@ -2,7 +2,7 @@
 
 The service reads container logs through the cluster's connection, keeps them in a file per cache
 (`logstore`), and answers pages and follows over the file. A line reaches the model through
-`LogsRead` and the View section, both through `ForModel`; the `LogsView` tool
+`LogsRead`, a `LogsWatch` notice and the View section, all through `ForModel`; the `LogsView` tool
 (`internal/tools/CLAUDE.md`) opens a view the user looks at. Specs:
 `docs/specs/log-cache/`, `docs/specs/log-views/`.
 
@@ -145,4 +145,6 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   ended at the `generation` the view sees now. A dropped container is held for a backoff up to
   `followRetryCap`. A `Pod` source leaves the view once its pod is gone by UID. **An ending the user
   can read is a `FollowEnded` frame, not an error** (any `Refusal`, via `asRefusal`); any other
-  ending sets `Err`, and a cancel sets none.
+  ending sets `Err`, and a cancel sets none. **Its callers are the viewer's `logsFollow` and a
+  `LogsWatch` watch**, which holds one open on a context of its own until its deadline or a stop,
+  and tells a fill, a stop and the deadline apart itself, since all three close the stream alike.

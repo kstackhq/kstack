@@ -34,6 +34,7 @@ import { FolderGrantForm } from '@/components/widgets/folder-grant-form';
 import { approvalAnchor } from '@/lib/approval-anchor';
 import { LogsReadCard } from '@/components/widgets/logs-read-card';
 import { LogsViewCard } from '@/components/widgets/logs-view-card';
+import { LogsWatchCard } from '@/components/widgets/logs-watch-card';
 import { Markdown } from '@/components/widgets/markdown';
 import { ModelDescription } from '@/components/widgets/model-description';
 import { VisibleText } from '@/components/widgets/visible-text';
@@ -229,8 +230,8 @@ function toolCallTag(call: ChatToolCall): string {
   }
 }
 
-// The tag of a call that started a background task, a command or an agent:
-// where the task is, off its own row, since the call itself answered at once.
+// The tag of a call that started a background task, a command, an agent or a
+// watch: where the task is, off its own row, since the call itself answered at once.
 function backgroundTag(task: NonNullable<ChatToolCall['background']>): string {
   switch (task.status) {
     case 'Running':
@@ -241,6 +242,10 @@ function backgroundTag(task: NonNullable<ChatToolCall['background']>): string {
       return 'completed';
     case 'Failed':
       return 'failed';
+    case 'Matched':
+      return 'matched';
+    case 'Expired':
+      return 'expired';
     case 'Stopped':
       return 'stopped';
     default:
@@ -538,6 +543,22 @@ function ToolCalls({
               clusterID={clusterID}
               mode={mode}
             />
+          );
+        }
+        // And a watch: the user sees what it waits for, then what it held.
+        if (call.action?.logsWatch) {
+          return (
+            <Fragment key={call.id}>
+              <LogsWatchCard
+                call={call}
+                action={call.action.logsWatch}
+                task={call.background}
+                chatID={chatID}
+                clusterID={clusterID}
+                mode={mode}
+              />
+              {call.background?.status === 'Running' && <StopTask id={call.id} />}
+            </Fragment>
           );
         }
         const summary = summaryOf(call);
@@ -1165,6 +1186,7 @@ function ApprovalRequest({
 // whether an agent started it: the answer that asked for it never drew the call.
 function noticeHead(notice: TaskNotice): string {
   if (notice.kind === 'agent') return agentNoticeEnd(notice);
+  if (notice.kind === 'watch') return watchNoticeEnd(notice);
   return noticeEnd(notice) + (notice.agentDescription !== '' ? ' · started by an agent' : '');
 }
 
@@ -1179,6 +1201,22 @@ function agentNoticeEnd(notice: TaskNotice): string {
       return notice.stoppedBy === 'unanswered' ? 'Agent stopped: no answer in 30 minutes' : 'Agent stopped';
     default:
       return 'Agent lost when Kstack stopped';
+  }
+}
+
+// A watch's end. Its lines are not drawn here: the user reads them on its card.
+function watchNoticeEnd(notice: TaskNotice): string {
+  switch (notice.status) {
+    case 'matched':
+      return 'Log watch matched';
+    case 'expired':
+      return 'Log watch ended: nothing matched';
+    case 'failed':
+      return 'Log watch failed';
+    case 'stopped':
+      return 'Log watch stopped';
+    default:
+      return 'Log watch lost when Kstack stopped';
   }
 }
 

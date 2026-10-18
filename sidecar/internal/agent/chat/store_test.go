@@ -904,6 +904,38 @@ func TestATaskRowTakesAnAgentsEnds(t *testing.T) {
 	}
 }
 
+// A task's row takes a watch's end with its result, which a command's and an
+// agent's leave NULL.
+func TestATaskRowTakesAWatchsEndWithItsResult(t *testing.T) {
+	t.Parallel()
+
+	db := openTestDB(t, t.TempDir())
+	st := prepareOn(t, db).Stmts()
+	now := time.UnixMilli(1_000).UTC()
+	c := seedChat(t, db, aChat("1", now))
+	turn := seedTurn(t, db, c.ID, now)
+	for _, q := range []string{
+		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES ('l', '` + string(turn.Run) + `', 0, 'fake', 'fake', 0)`,
+		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, status, created_at)
+		 VALUES ('t', 'l', 0, 'LogsWatch', 'call-1', '{}', 'running', 0)`,
+	} {
+		_, err := db.Write.Exec(q)
+		require.NoError(t, err, q)
+	}
+	result := sql.NullString{String: `{"text":"Watched 1 line."}`, Valid: true}
+	require.NoError(t, insertTask(t.Context(), st, "task", c.ID, "t", "/r/task.output", now))
+	require.NoError(t, finishTask(t.Context(), st, "task", taskEnd{Status: taskMatched, At: now, Result: result}))
+	var stored sql.NullString
+	require.NoError(t, db.Write.QueryRow(`SELECT result FROM background_tasks WHERE id = 'task'`).Scan(&stored))
+	assert.Equal(t, result, stored)
+
+	require.NoError(t, deleteTask(t.Context(), st, "task"))
+	require.NoError(t, insertTask(t.Context(), st, "task", c.ID, "t", "/r/task.output", now))
+	require.NoError(t, finishTask(t.Context(), st, "task", taskEnd{Status: taskExited, At: now}))
+	require.NoError(t, db.Write.QueryRow(`SELECT result FROM background_tasks WHERE id = 'task'`).Scan(&stored))
+	assert.False(t, stored.Valid, "a command has none")
+}
+
 // A tool row references its model call: one naming a call that is not there is
 // refused, which is what makes the audit trail's parent real.
 func TestAToolRowNeedsItsModelCall(t *testing.T) {

@@ -181,6 +181,7 @@ function call(over: Partial<ChatToolCall> = {}): ChatToolCall {
       kubeQuery: null,
       logsView: null,
       logsRead: null,
+      logsWatch: null,
     },
     approval: { id: 'ap-1', status: 'Pending', duration: null },
     network: null,
@@ -214,6 +215,7 @@ const decided = (over: Partial<ChatToolCall>, approval: 'Approved' | 'Denied' = 
       kubeQuery: null,
       logsView: null,
       logsRead: null,
+      logsWatch: null,
     },
     approval: { id: 'ap-1', status: approval, duration: null },
     ...over,
@@ -266,6 +268,7 @@ const logsViewCall = (over: Partial<ChatToolCall> = {}) =>
         resolvedAt: '2026-10-08T14:04:00Z',
       },
       logsRead: null,
+      logsWatch: null,
     },
     ...over,
   });
@@ -380,6 +383,65 @@ describe('ChatTranscript', () => {
     expect(fetched).toEqual([]);
   });
 
+  it('draws a LogsWatch call that started as its card, with Stop while it runs', () => {
+    const opened = logsViewCall().action!;
+    const logsWatch = {
+      sources: opened.logsView!.sources,
+      filters: [],
+      grep: 'panic',
+      since: '2026-10-18T13:50:00Z',
+      limit: 1,
+      maxBytes: 16384,
+      resolvedAt: '2026-10-18T13:50:00Z',
+      until: '2026-10-19T13:50:00Z',
+    };
+    const task = {
+      status: 'Running' as const,
+      exitCode: null,
+      report: '',
+      matched: [],
+      endedBecause: '',
+      viewAround: null,
+    };
+    const watching = logsViewCall({
+      id: 'lw-1',
+      name: 'LogsWatch',
+      actionKind: 'LogsWatch',
+      output: 'Watching',
+      action: { ...opened, logsView: null, logsWatch },
+      background: task,
+    });
+    const { unmount } = draw([msg({ status: 'Complete', toolCalls: [watching] })]);
+    expect(screen.getByText(/Watch: Deployment webapp in prod/)).toBeInTheDocument();
+    expect(screen.getByText('watching…')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    unmount();
+
+    const line = {
+      timestamp: '2026-10-18T13:51:00Z',
+      namespace: 'prod',
+      pod: 'webapp-a',
+      container: 'app',
+      previous: false,
+      message: 'panic: nil map',
+      gap: null,
+    };
+    draw([
+      msg({
+        status: 'Complete',
+        toolCalls: [
+          {
+            ...watching,
+            background: { ...task, status: 'Matched', matched: [line], endedBecause: 'it reached its line limit' },
+          },
+        ],
+      }),
+    ]);
+    expect(screen.getByText('panic: nil map')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+    expect(fetched).toEqual([]);
+  });
+
   it('draws the card without Expand on the dashboard', () => {
     draw([msg({ status: 'Complete', toolCalls: [logsViewCall()] })], { mode: 'dashboard' });
 
@@ -487,6 +549,7 @@ describe('ChatTranscript', () => {
           kubeQuery: null,
           logsView: null,
           logsRead: null,
+          logsWatch: null,
         },
         approval: null,
       });
@@ -832,9 +895,17 @@ describe('ChatTranscript', () => {
           kubeQuery: null,
           logsView: null,
           logsRead: null,
+          logsWatch: null,
         },
         output: 'Agent launched: t1. It is working in the background.',
-        background: { status: 'Completed', exitCode: null, report: 'There are **twelve** pods.' },
+        background: {
+          status: 'Completed',
+          exitCode: null,
+          report: 'There are **twelve** pods.',
+          matched: [],
+          endedBecause: '',
+          viewAround: null,
+        },
         ...over,
       });
     const subagentCall = (over: Partial<ChatToolCall> = {}) =>
@@ -886,7 +957,22 @@ describe('ChatTranscript', () => {
     });
 
     it('draws no report while the agent runs, and a Stop under the call', () => {
-      draw([msg({ toolCalls: [agent({ background: { status: 'Running', exitCode: null, report: '' } })] })]);
+      draw([
+        msg({
+          toolCalls: [
+            agent({
+              background: {
+                status: 'Running',
+                exitCode: null,
+                report: '',
+                matched: [],
+                endedBecause: '',
+                viewAround: null,
+              },
+            }),
+          ],
+        }),
+      ]);
 
       const summary = screen.getByText('Agent').closest('summary')!;
       expect(summary).toHaveTextContent('running in background');
@@ -903,7 +989,15 @@ describe('ChatTranscript', () => {
           ['Lost', 'lost'],
         ] as const
       ).forEach(([status, tag]) => {
-        const { unmount } = draw([msg({ toolCalls: [agent({ background: { status, exitCode: null, report: '' } })] })]);
+        const { unmount } = draw([
+          msg({
+            toolCalls: [
+              agent({
+                background: { status, exitCode: null, report: '', matched: [], endedBecause: '', viewAround: null },
+              }),
+            ],
+          }),
+        ]);
         expect(screen.getByText('Agent').closest('summary')).toHaveTextContent(tag);
         expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
         unmount();
@@ -939,7 +1033,16 @@ describe('ChatTranscript', () => {
         msg({
           awaitingApproval: true,
           toolCalls: [
-            agent({ background: { status: 'Running', exitCode: null, report: '' } }),
+            agent({
+              background: {
+                status: 'Running',
+                exitCode: null,
+                report: '',
+                matched: [],
+                endedBecause: '',
+                viewAround: null,
+              },
+            }),
             call({ id: 'cc1', agentCallID: 'ag1', approval: { id: 'ap-1', status: 'Pending', duration: null } }),
             call({ id: 'cc2', agentCallID: 'ag1', approval: { id: 'ap-2', status: 'Pending', duration: null } }),
           ],
@@ -1006,7 +1109,16 @@ describe('ChatTranscript', () => {
         msg({
           awaitingApproval: true,
           toolCalls: [
-            agent({ background: { status: 'Running', exitCode: null, report: '' } }),
+            agent({
+              background: {
+                status: 'Running',
+                exitCode: null,
+                report: '',
+                matched: [],
+                endedBecause: '',
+                viewAround: null,
+              },
+            }),
             call({ id: 'cc1', agentCallID: 'ag1' }),
           ],
         });
@@ -1049,7 +1161,16 @@ describe('ChatTranscript', () => {
         msg({
           awaitingApproval,
           toolCalls: [
-            agent({ background: { status: 'Running', exitCode: null, report: '' } }),
+            agent({
+              background: {
+                status: 'Running',
+                exitCode: null,
+                report: '',
+                matched: [],
+                endedBecause: '',
+                viewAround: null,
+              },
+            }),
             call({ id: 'cc1', agentCallID: 'ag1' }),
           ],
         });
@@ -1214,6 +1335,7 @@ describe('ChatTranscript', () => {
               kubeQuery: null,
               logsView: null,
               logsRead: null,
+              logsWatch: null,
             },
           }),
         ),
@@ -1253,6 +1375,7 @@ describe('ChatTranscript', () => {
               kubeQuery: null,
               logsView: null,
               logsRead: null,
+              logsWatch: null,
             },
           }),
         ),
@@ -1291,6 +1414,7 @@ describe('ChatTranscript', () => {
               kubeQuery: null,
               logsView: null,
               logsRead: null,
+              logsWatch: null,
             },
           }),
         ),
@@ -1318,6 +1442,7 @@ describe('ChatTranscript', () => {
               kubeQuery: null,
               logsView: null,
               logsRead: null,
+              logsWatch: null,
             },
           }),
         );
@@ -1396,6 +1521,7 @@ describe('ChatTranscript', () => {
               kubeQuery: null,
               logsView: null,
               logsRead: null,
+              logsWatch: null,
             },
           }),
         );
@@ -1502,6 +1628,7 @@ describe('ChatTranscript', () => {
                   kubeQuery: null,
                   logsView: null,
                   logsRead: null,
+                  logsWatch: null,
                 },
                 approval: { id: 'ap-1', status: 'Approved', duration: null },
                 output: 'File created successfully at: /Users/ana/values.yaml',
@@ -1543,6 +1670,7 @@ describe('ChatTranscript', () => {
                   kubeQuery: null,
                   logsView: null,
                   logsRead: null,
+                  logsWatch: null,
                 },
                 approval: null,
                 output: 'File created successfully at: /data/chats/c1/workspace/run.sh',
@@ -1602,6 +1730,7 @@ describe('ChatTranscript', () => {
                 kubeQuery: { sql, limit: 200 },
                 logsView: null,
                 logsRead: null,
+                logsWatch: null,
               },
               approval: null,
               output: '{"cluster":"prod","freshness":{"status":"watching"}}',
@@ -1639,6 +1768,7 @@ describe('ChatTranscript', () => {
         kubeQuery: null,
         logsView: null,
         logsRead: null,
+        logsWatch: null,
       });
       const settled = (oldString: string, newString: string, replaceAll = false) =>
         msg({
@@ -1852,6 +1982,7 @@ describe('ChatTranscript', () => {
               kubeQuery: null,
               logsView: null,
               logsRead: null,
+              logsWatch: null,
             },
             approval: { id: 'ap-1', status: 'Approved', duration: null },
           }),
@@ -1904,6 +2035,7 @@ describe('ChatTranscript', () => {
                       kubeQuery: null,
                       logsView: null,
                       logsRead: null,
+                      logsWatch: null,
                     },
                     approval: { id: 'ap-2', status: 'Pending', duration: null },
                   }),
@@ -1949,6 +2081,7 @@ describe('ChatTranscript', () => {
               kubeQuery: null,
               logsView: null,
               logsRead: null,
+              logsWatch: null,
             },
             approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
@@ -1979,6 +2112,7 @@ describe('ChatTranscript', () => {
               kubeQuery: null,
               logsView: null,
               logsRead: null,
+              logsWatch: null,
             },
             approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
@@ -2020,6 +2154,7 @@ describe('ChatTranscript', () => {
               kubeQuery: null,
               logsView: null,
               logsRead: null,
+              logsWatch: null,
             },
             approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
@@ -2074,6 +2209,7 @@ describe('ChatTranscript', () => {
               kubeQuery: null,
               logsView: null,
               logsRead: null,
+              logsWatch: null,
             },
             approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
@@ -2112,6 +2248,7 @@ describe('ChatTranscript', () => {
               kubeQuery: null,
               logsView: null,
               logsRead: null,
+              logsWatch: null,
             },
             approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
@@ -2139,6 +2276,7 @@ describe('ChatTranscript', () => {
               kubeQuery: null,
               logsView: null,
               logsRead: null,
+              logsWatch: null,
             },
             approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
@@ -2163,6 +2301,7 @@ describe('ChatTranscript', () => {
             kubeQuery: null,
             logsView: null,
             logsRead: null,
+            logsWatch: null,
           },
           approval: { id: 'ap-1', status: 'Pending', duration: null },
         }),
@@ -2235,6 +2374,7 @@ describe('ChatTranscript', () => {
                 kubeQuery: null,
                 logsView: null,
                 logsRead: null,
+                logsWatch: null,
               },
               approval: { id: 'ap-0', status: 'Approved', duration: null },
               output: 'y'.repeat(500),
@@ -2342,6 +2482,7 @@ describe('ChatTranscript', () => {
                 kubeQuery: null,
                 logsView: null,
                 logsRead: null,
+                logsWatch: null,
               },
               approval: { id: 'ap-2', status: 'Approved', duration: null },
               output: '{"error":"cancelled"}',
@@ -2410,6 +2551,7 @@ describe('ChatTranscript', () => {
             kubeQuery: null,
             logsView: null,
             logsRead: null,
+            logsWatch: null,
           },
           approval: null,
         });
@@ -2440,6 +2582,7 @@ describe('ChatTranscript', () => {
                 kubeQuery: null,
                 logsView: null,
                 logsRead: null,
+                logsWatch: null,
               },
               approval: null,
               output: '{"error":"cancelled"}',
@@ -2470,6 +2613,7 @@ describe('ChatTranscript', () => {
           kubeQuery: null,
           logsView: null,
           logsRead: null,
+          logsWatch: null,
         },
         approval: { id: 'ap-1', status: 'Approved', duration: null },
       });
@@ -2497,6 +2641,7 @@ describe('ChatTranscript', () => {
                 kubeQuery: null,
                 logsView: null,
                 logsRead: null,
+                logsWatch: null,
               },
               approval: null,
               output: '     1\ta\n',
@@ -2529,6 +2674,7 @@ describe('ChatTranscript', () => {
                 kubeQuery: null,
                 logsView: null,
                 logsRead: null,
+                logsWatch: null,
               },
               approval: { id: 'ap-1', status: 'Approved', duration: null },
               output: 'Fetched https://kubernetes.io/releases/ (text/html, 12KB)',
@@ -2621,6 +2767,7 @@ describe('ChatTranscript', () => {
                 kubeQuery: null,
                 logsView: null,
                 logsRead: null,
+                logsWatch: null,
               },
               approval: { id: 'ap-1', status: 'Approved', duration: null },
             }),
@@ -2750,6 +2897,7 @@ describe('ChatTranscript', () => {
           kubeQuery: null,
           logsView: null,
           logsRead: null,
+          logsWatch: null,
         },
         approval: null,
         output: '{"saved":"pages"}',
@@ -3135,7 +3283,7 @@ describe('ChatTranscript', () => {
         status: 'Succeeded',
         approval: null,
         action: { ...call().action!, description: 'Delete the pod', command: null },
-        background: { status: 'Running', exitCode: null, report: '' },
+        background: { status: 'Running', exitCode: null, report: '', matched: [], endedBecause: '', viewAround: null },
       });
       draw([
         msg({
@@ -3382,11 +3530,12 @@ describe('ChatTranscript', () => {
           kubeQuery: null,
           logsView: null,
           logsRead: null,
+          logsWatch: null,
         },
         approval: { id: 'ap-1', status: 'Approved', duration: null },
         status: 'Succeeded',
         output: 'Command running in background with ID: t1.',
-        background: { status: 'Running', exitCode: null, report: '' },
+        background: { status: 'Running', exitCode: null, report: '', matched: [], endedBecause: '', viewAround: null },
         ...over,
       });
     const summary = () => screen.getByText('make serve').closest('summary')!;
@@ -3418,6 +3567,7 @@ describe('ChatTranscript', () => {
                 kubeQuery: null,
                 logsView: null,
                 logsRead: null,
+                logsWatch: null,
               },
               approval: { id: 'ap-1', status: 'Pending', duration: null },
             }),
@@ -3465,9 +3615,15 @@ describe('ChatTranscript', () => {
           [{ status: 'Exited', exitCode: 3, report: '' }, 'exit 3'],
           [{ status: 'Stopped', exitCode: null, report: '' }, 'stopped'],
           [{ status: 'Lost', exitCode: null, report: '' }, 'lost'],
+          [{ status: 'Matched', exitCode: null, report: '' }, 'matched'],
+          [{ status: 'Expired', exitCode: null, report: '' }, 'expired'],
         ] as const
       ).forEach(([task, tag]) => {
-        const { unmount } = draw([msg({ toolCalls: [background({ background: task })] })]);
+        const { unmount } = draw([
+          msg({
+            toolCalls: [background({ background: { ...task, matched: [], endedBecause: '', viewAround: null } })],
+          }),
+        ]);
         expect(summary()).toHaveTextContent(tag);
         expect(summary()).not.toHaveTextContent('running in background');
         expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
@@ -3563,6 +3719,39 @@ describe('ChatTranscript', () => {
       expect(screen.queryByText(/REPORT|ERROR/)).toBeNull();
     });
 
+    it("draws a watch's notice by how it ended and the model's description, never its sample", () => {
+      const watch = (id: string, over: Record<string, unknown>) =>
+        msg({
+          id,
+          seq: Number(id.slice(1)) + 2,
+          role: 'User',
+          content: [
+            notice({
+              kind: 'watch',
+              id,
+              command: undefined,
+              exit_code: undefined,
+              description: 'Panics',
+              result: 'SAMPLE',
+              ...over,
+            }),
+          ],
+        });
+      draw([
+        watch('w1', { status: 'matched' }),
+        watch('w2', { status: 'expired' }),
+        watch('w3', { status: 'failed' }),
+        watch('w4', { status: 'stopped', stopped_by: 'user' }),
+        watch('w5', { status: 'lost' }),
+      ]);
+      expect(screen.getByText('Log watch matched —')).toBeInTheDocument();
+      expect(screen.getByText('Log watch ended: nothing matched —')).toBeInTheDocument();
+      expect(screen.getByText('Log watch failed —')).toBeInTheDocument();
+      expect(screen.getByText('Log watch stopped —')).toBeInTheDocument();
+      expect(screen.getByText('Log watch lost when Kstack stopped —')).toBeInTheDocument();
+      expect(screen.queryByText(/SAMPLE/)).toBeNull();
+    });
+
     it('offers no Ask again on a failed answer to a notice-only message', () => {
       draw([noticeOnly(), msg({ id: 'm4', seq: 4, status: 'Failed', content: [], error: '429 rate_limit_error' })]);
       expect(screen.queryByRole('button', { name: 'Ask again' })).toBeNull();
@@ -3650,7 +3839,14 @@ describe('ChatTranscript', () => {
           command: null,
           delegate: { prompt: 'Read the README.', agentType: 'general-purpose', model: '' },
         },
-        background: { status: 'Completed', exitCode: null, report: '' },
+        background: {
+          status: 'Completed',
+          exitCode: null,
+          report: '',
+          matched: [],
+          endedBecause: '',
+          viewAround: null,
+        },
       });
       draw([msg({ toolCalls: [agent, sandboxedCall({ id: 'cc1', agentCallID: 'ag1' })] })]);
       const disclosure = screen.getByText('Agent').closest('details')!;

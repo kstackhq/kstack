@@ -38,9 +38,9 @@ type Line = LogsReadAction['lines'][number];
 
 const NO_PLACE = { node: '', region: '', zone: '', os: '', arch: '' };
 
-// A sample's line as the viewer's rows draw one. Lines are keyed by index: a
-// sample holds no cursor.
-function logLine(line: Line, i: number): LogLine {
+// A sample's line as the viewer's rows draw one, a watch's too. Lines are keyed by
+// index: a sample holds no cursor.
+export function logLine(line: Line, i: number): LogLine {
   const { timestamp, namespace, pod, container, previous, message, gap } = line;
   return {
     timestamp,

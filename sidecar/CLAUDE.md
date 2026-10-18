@@ -39,7 +39,7 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 | `internal/services/settings/CLAUDE.md` | `settings.json`, `jsonsettings`, the frozen `PATH`, folder grants, executables |
 | `internal/llm/CLAUDE.md` | dialects, providers, the record's blocks, the wires, the fake |
 | `internal/run/CLAUDE.md` | the login shell, the session, the sandbox, permissions, the cluster proxy |
-| `internal/tools/CLAUDE.md` | the box, actions and results, each tool (Bash, Read/Write/Edit, WebFetch, KubeQuery, LogsView, LogsRead, web search), `fileguard`, `logsinput` |
+| `internal/tools/CLAUDE.md` | the box, actions and results, each tool (Bash, Read/Write/Edit, WebFetch, KubeQuery, LogsView, LogsRead, LogsWatch, web search), `fileguard`, `logsinput` |
 | `internal/agent/CLAUDE.md` | the catalog, the loop, the chat service (turn, rows, approvals, tasks, the wire errors) |
 
 ## Layout

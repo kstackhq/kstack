@@ -1690,3 +1690,12 @@ func TestASubagentReadsLogsAndOpensNoView(t *testing.T) {
 	assert.True(t, reads)
 	assert.False(t, views)
 }
+
+// A subagent starts no watch: a watch's point is the turn it starts, and a
+// subagent is gone by the time one fires.
+func TestASubagentStartsNoWatch(t *testing.T) {
+	t.Parallel()
+	box := SubagentBox(tools.NewBox([]tools.Tool{newWatchTool()}))
+	_, watches := box.Runner("LogsWatch")
+	assert.False(t, watches)
+}

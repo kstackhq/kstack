@@ -58,7 +58,7 @@ func TestAnEndIsAMomentADurationOrACursor(t *testing.T) {
 	assert.Equal(t, tools.LogsReadTail, in.mode)
 	assert.Equal(t, 100, in.limit)
 
-	in, err = parsed(t, `,"since":"`+encodeCursor(rec)+`","until":"`+encodeCursor(record(30*time.Second, 0, "b"))+`"`)
+	in, err = parsed(t, `,"since":"`+logsinput.EncodeCursor(rec)+`","until":"`+logsinput.EncodeCursor(record(30*time.Second, 0, "b"))+`"`)
 	require.NoError(t, err)
 	assert.Equal(t, &end{cursor: rec.Cursor(), at: rec.Timestamp, line: true}, in.since)
 	assert.True(t, in.until.line)
@@ -70,6 +70,8 @@ func TestAnEndIsAMomentADurationOrACursor(t *testing.T) {
 func TestBadArgumentsAreRefusedByField(t *testing.T) {
 	t.Parallel()
 	// An unreadable end's refusal names the clock, which the model has no other way to know.
+	// oldCursor is a cursor printed before cursors carried a version.
+	const oldCursor = "eyJ0IjoiMjAyNi0xMC0xN1QwOToxNDoyMFoiLCJucyI6InByb2QiLCJwb2QiOiJhIiwiYyI6ImFwcCIsImlkIjoiYzovL2EiLCJuIjowfQ"
 	const endMessage = "an RFC 3339 time, an ISO 8601 duration back from now such as PT15M, or a cursor a read printed; now is 2026-10-17T10:00:00Z"
 	for extra, want := range map[string]string{
 		`,"anchor":"tail"`:               `{"error":"bad-input","field":"anchor","message":"a read takes since and until"}`,
@@ -81,6 +83,7 @@ func TestBadArgumentsAreRefusedByField(t *testing.T) {
 		`,"since":"15m"`:                 `{"error":"bad-input","field":"since","message":"` + endMessage + `"}`,
 		`,"since":"yesterday"`:           `{"error":"bad-input","field":"since","message":"` + endMessage + `"}`,
 		`,"until":"eyJ0IjoiMDk6MTQifQ"`:  `{"error":"bad-input","field":"until","message":"` + endMessage + `"}`,
+		`,"until":"` + oldCursor + `"`:   `{"error":"bad-input","field":"until","message":"` + logsinput.OldCursorMessage + `"}`,
 		`,"since":"PT1M","until":"PT2M"`: `{"error":"bad-input","field":"until","message":"not before since"}`,
 		`,"since":"PT1M","since":"PT2M"`: `{"error":"bad-input"}`,
 	} {

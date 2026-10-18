@@ -20,6 +20,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/agent/loop"
@@ -414,11 +415,14 @@ const (
 	BackgroundTaskExited    BackgroundTaskStatus = "Exited"
 	BackgroundTaskCompleted BackgroundTaskStatus = "Completed"
 	BackgroundTaskFailed    BackgroundTaskStatus = "Failed"
+	BackgroundTaskMatched   BackgroundTaskStatus = "Matched"
+	BackgroundTaskExpired   BackgroundTaskStatus = "Expired"
 	BackgroundTaskStopped   BackgroundTaskStatus = "Stopped"
 	BackgroundTaskLost      BackgroundTaskStatus = "Lost"
 )
 
-// BackgroundTask is a task a call started, off its row: a command, or an agent.
+// BackgroundTask is a task a call started, off its row: a command, an agent, or a
+// watch.
 type BackgroundTask struct {
 	Status BackgroundTaskStatus `json:"status"`
 	// ExitCode is set on an exited task whose code could be read.
@@ -426,12 +430,19 @@ type BackgroundTask struct {
 	// Report is a completed agent's report, cut to tools.InlineLimit since it
 	// rides every transcript read; empty for a command and until then.
 	Report string `json:"report"`
+	// Matched, EndedBecause and ViewAround are a finished watch's lines, why it
+	// ended and the view around its first line, off its result; empty or nil for
+	// every other task and while it runs.
+	Matched      []tools.LogsReadLine  `json:"matched"`
+	EndedBecause string                `json:"endedBecause"`
+	ViewAround   *tools.LogsViewAction `json:"viewAround"`
 }
 
 // backgroundTaskStatuses is the wire's spelling of each stored status.
 var backgroundTaskStatuses = map[string]BackgroundTaskStatus{
 	taskRunning: BackgroundTaskRunning, taskExited: BackgroundTaskExited,
 	taskCompleted: BackgroundTaskCompleted, taskFailed: BackgroundTaskFailed,
+	taskMatched: BackgroundTaskMatched, taskExpired: BackgroundTaskExpired,
 	taskStopped: BackgroundTaskStopped, taskLost: BackgroundTaskLost,
 }
 
@@ -440,10 +451,20 @@ func backgroundTaskOf(t *taskState) *BackgroundTask {
 	if t == nil {
 		return nil
 	}
-	b := &BackgroundTask{Status: backgroundTaskStatuses[t.Status], Report: tools.Cut(t.Report, 0, tools.InlineLimit, "")}
+	b := &BackgroundTask{
+		Status: backgroundTaskStatuses[t.Status], Report: tools.Cut(t.Report, 0, tools.InlineLimit, ""), Matched: []tools.LogsReadLine{},
+	}
 	if t.ExitCode.Valid {
 		code := int(t.ExitCode.Int64)
 		b.ExitCode = &code
+	}
+	if t.Result != "" {
+		r, err := watchResultOf(t.Result)
+		if err != nil {
+			slog.Warn("could not read a watch's result", "err", err)
+			return b
+		}
+		b.Matched, b.EndedBecause, b.ViewAround = r.Lines, r.EndedBecause, r.ViewAround
 	}
 	return b
 }

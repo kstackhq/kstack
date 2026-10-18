@@ -38,6 +38,7 @@ func TestAnActionsKindIsItsField(t *testing.T) {
 	assert.Equal(t, ActionKubeQuery, Action{KubeQuery: &KubeQueryAction{}}.Kind())
 	assert.Equal(t, ActionLogsView, Action{LogsView: &LogsViewAction{}}.Kind())
 	assert.Equal(t, ActionLogsRead, Action{LogsRead: &LogsReadAction{}}.Kind())
+	assert.Equal(t, ActionLogsWatch, Action{LogsWatch: &LogsWatchAction{}}.Kind())
 	assert.Equal(t, ActionKind(""), Action{Description: "no kind"}.Kind())
 }
 
@@ -49,7 +50,7 @@ func TestActionKindsIsTheSet(t *testing.T) {
 		seen[k] = true
 		assert.True(t, k.valid(), k)
 	}
-	assert.Len(t, ActionKinds, 12)
+	assert.Len(t, ActionKinds, 13)
 	assert.False(t, ActionKind("").valid())
 	assert.False(t, ActionKind("unknown").valid())
 }

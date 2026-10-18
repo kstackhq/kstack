@@ -58,7 +58,7 @@ func TestTaskStopStopsTheChatsOwnTask(t *testing.T) {
 
 	text, isError = tl.Run(t.Context(), rt, json.RawMessage(`{"task_id":"t2"}`))
 	assert.True(t, isError)
-	assert.Equal(t, "No background command with that ID is running in this conversation.", text)
+	assert.Equal(t, "No background command, agent or watch with that ID is running in this conversation.", text)
 }
 
 // The input is task_id alone, a non-empty string, spelled exactly and once.
@@ -83,7 +83,7 @@ func TestTheTaskStopOffer(t *testing.T) {
 	tl := New()
 	def := tl.Definition()
 	assert.Equal(t, "TaskStop", def.Name)
-	assert.Equal(t, "Stops a background command this conversation started, by its ID.", def.Description)
+	assert.Equal(t, "Stops a background command, agent or log watch this conversation started, by its ID.", def.Description)
 	var schema struct {
 		Required   []string                   `json:"required"`
 		Properties map[string]json.RawMessage `json:"properties"`
@@ -108,8 +108,10 @@ func TestTaskStopNamesItsKind(t *testing.T) {
 	assert.Error(t, err)
 }
 
-// The prompt names both kinds of task TaskStop stops.
-func TestThePromptNamesAgents(t *testing.T) {
-	assert.Contains(t, New().Prompt(), "a background command or an agent")
-	assert.Contains(t, New().Prompt(), "an agent stops at once")
+// The prompt names every kind of task TaskStop stops, and that a stopped watch
+// still tells what it held.
+func TestThePromptNamesEveryKind(t *testing.T) {
+	assert.Contains(t, New().Prompt(), "a background command, an agent or a log watch")
+	assert.Contains(t, New().Prompt(), "an agent and a watch stop at once")
+	assert.Contains(t, New().Prompt(), "except a watch's, which carries the lines it held")
 }

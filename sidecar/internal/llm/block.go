@@ -88,17 +88,23 @@ const (
 	TaskStopped TaskStatus = "stopped"
 	// TaskLost is a task that was running when the app stopped unexpectedly.
 	TaskLost TaskStatus = "lost"
-	// TaskCompleted is an agent that answered, and TaskFailed one that could not.
+	// TaskCompleted is an agent that answered, and TaskFailed one that could not,
+	// or a watch that ended on an error or the follow's end with no line.
 	TaskCompleted TaskStatus = "completed"
 	TaskFailed    TaskStatus = "failed"
+	// TaskMatched is a watch that ended holding lines, and TaskExpired one whose
+	// time ran out with none.
+	TaskMatched TaskStatus = "matched"
+	TaskExpired TaskStatus = "expired"
 )
 
-// TaskKind is what a task is: a background command, or an agent.
+// TaskKind is what a task is: a background command, an agent, or a log watch.
 type TaskKind string
 
 const (
 	TaskCommand TaskKind = "command"
 	TaskAgent   TaskKind = "agent"
+	TaskWatch   TaskKind = "watch"
 )
 
 // Who stopped a task, when a notice is written for its stop: the model's own
@@ -133,9 +139,12 @@ type TaskNotice struct {
 	// AgentDescription is the description of the Agent call whose subagent started
 	// the task, empty for a task the answer's own call started.
 	AgentDescription string `json:"agent_description,omitempty"`
-	// Result is a completed agent's report, and Error a failed one's error.
+	// Result is a completed agent's report, or a finished watch's sample; Error is
+	// a failed agent's error, or a failed watch's reason.
 	Result string `json:"result,omitempty"`
 	Error  string `json:"error,omitempty"`
+	// Matched is how many lines a watch held.
+	Matched int `json:"matched,omitempty"`
 }
 
 // TextBlock is a block holding s.
@@ -185,7 +194,7 @@ func (b Block) wireText() string {
 var noticeEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
 
 // wireText is the notice in the reference's shape: the output file when there is
-// one, and a completed agent's report as <result>.
+// one, and a completed agent's report or a watch's sample as <result>.
 func (n *TaskNotice) wireText() string {
 	e := noticeEscaper.Replace
 	s := "<task-notification>\n<task-id>" + e(n.ID) + "</task-id>\n<tool-use-id>" + e(n.ToolUseID) + "</tool-use-id>\n"
@@ -193,7 +202,7 @@ func (n *TaskNotice) wireText() string {
 		s += "<output-file>" + e(n.OutputFile) + "</output-file>\n"
 	}
 	s += "<status>" + e(string(n.Status)) + "</status>\n<summary>" + e(n.summary()) + "</summary>\n"
-	if n.Kind == TaskAgent && n.Status == TaskCompleted {
+	if n.Kind == TaskAgent && n.Status == TaskCompleted || n.Kind == TaskWatch && n.Result != "" {
 		s += "<result>" + e(n.Result) + "</result>\n"
 	}
 	return s + "</task-notification>"
@@ -202,8 +211,11 @@ func (n *TaskNotice) wireText() string {
 // summary is one sentence on how the task ended, naming it by its description,
 // else its command, and the agent that started it when one did.
 func (n *TaskNotice) summary() string {
-	if n.Kind == TaskAgent {
+	switch n.Kind {
+	case TaskAgent:
 		return n.agentSummary()
+	case TaskWatch:
+		return n.watchSummary()
 	}
 	name := n.Description
 	if name == "" {
@@ -236,6 +248,28 @@ func (n *TaskNotice) agentSummary() string {
 		return head + "failed: " + n.Error + "."
 	case n.Status == TaskStopped && n.StoppedBy == TaskStoppedByUnanswered:
 		return head + "was stopped: its request went unanswered for " + strconv.Itoa(int(UnansweredLimit.Minutes())) + " minutes."
+	case n.Status == TaskStopped:
+		return head + "was stopped."
+	}
+	return head + "was lost when Kstack stopped."
+}
+
+// watchSummary is summary for a watch, named by its call's description.
+func (n *TaskNotice) watchSummary() string {
+	head := `Log watch "` + n.Description + `" `
+	switch {
+	case n.Status == TaskMatched && n.Matched == 1:
+		return head + "matched 1 line."
+	case n.Status == TaskMatched:
+		return head + "matched " + strconv.Itoa(n.Matched) + " lines."
+	case n.Status == TaskExpired:
+		return head + "ended at its time with no match."
+	case n.Status == TaskFailed:
+		return head + "ended: " + n.Error + "."
+	case n.Status == TaskStopped && n.StoppedBy == TaskStoppedByUser:
+		return head + "was stopped by the user."
+	case n.Status == TaskStopped && n.StoppedBy == TaskStoppedByApp:
+		return head + "was stopped when Kstack quit."
 	case n.Status == TaskStopped:
 		return head + "was stopped."
 	}
