@@ -17,6 +17,7 @@ package logs
 import (
 	"errors"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/amorey/gochan/spsc"
@@ -25,8 +26,21 @@ import (
 )
 
 // maxWalkBudget is the bytes one page's walks of the file read, shared evenly across
-// its streams as maxBudget is: a sparse grep over a dense log walks far.
+// its streams; each stream's walk also reads what its fill downloaded, so a stream
+// read far is walked as far.
 const maxWalkBudget = 64 << 20
+
+// budget is the bytes a walk of the file may still read. A nil budget is no bound.
+type budget struct{ left atomic.Int64 }
+
+func newBudget(n int64) *budget {
+	b := &budget{}
+	b.left.Store(n)
+	return b
+}
+
+// spend takes n bytes, and is false once there were not n left.
+func (b *budget) spend(n int) bool { return b == nil || b.left.Add(-int64(n)) >= 0 }
 
 // walker walks one stream of one page's file: its lines from the page's bound in the
 // page's direction, bounded by the span the bound sits in with lost gaps crossed,
@@ -57,7 +71,8 @@ type walked struct {
 }
 
 // walk reads the stream from key. A walk stopped by its budget, or by a live gap on
-// a stream not skipped, stops short where it reached, so the page is cut there.
+// a stream not skipped or stopped at a loud second, stops short where it reached, so
+// the page is cut there: at the fill's stop when that lies past what it read.
 func (w walker) walk(key logstore.Pos) (walked, error) {
 	chunks, err := w.r.Chunks(w.ps.row.ID, w.q.view.Grep)
 	if err != nil {
@@ -69,13 +84,15 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 	var recs []Record
 	var first, last logstore.Pos
 	read := false
-	short := gap && w.fill.err == nil
+	cut := w.fill.err == nil || failureKind(w.fill.err) == failLimit
+	short := gap && cut
+	spent := false
 	err = w.r.Lines(w.ps.row.ID, key, reach, func(l logstore.Line) bool {
 		if !read {
 			first = l.Pos
 		}
 		last, read = l.Pos, true
-		spent := !w.budget.spend(len(l.Message))
+		spent = !w.budget.spend(len(l.Message))
 		if held(l.Pos) && matches(w.q.grep, l.Message) {
 			recs = append(recs, w.record(l))
 		}
@@ -102,6 +119,11 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 		stop = positionAt(w.ps.instance(), last)
 	case short && w.fill.retired:
 		failed = errRetired
+	}
+	// At the gap the fill ended in, the fill's stop is the edge when it lies past what
+	// the walk read: an empty window's start, or a loud second.
+	if short && !spent && !w.fill.stop.isZero() && (stop.isZero() || beyond(w.q.mode, w.fill.stop, stop)) {
+		stop = w.fill.stop
 	}
 	transient := failureKind(w.fill.err) == failTransient && !errors.Is(w.fill.err, errRestarted)
 	left := gap && transient && len(recs) < w.q.need()

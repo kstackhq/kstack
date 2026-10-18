@@ -35,14 +35,15 @@ type Service struct {
 	// retry is how long a follow waits to resolve its view again after the mirror
 	// refused it, to open its watches again or to tail a dropped stream again,
 	// retryCap the longest a stream that keeps dropping waits, settle how long it
-	// waits after a pod frame, and budget the bytes one page's fills may read from
-	// the backends.
+	// waits after a pod frame.
 	retry    time.Duration
 	retryCap time.Duration
 	settle   time.Duration
-	budget   int64
+	// caps is the limits a page's and a follow's fills keep to: defaultCaps, or a
+	// test's.
+	caps caps
 	// walkBudget is the bytes one page's walks of the file may read, apart from what
-	// its fills spend, so a fill that spends everything leaves the walks their own.
+	// its fills downloaded.
 	walkBudget int64
 	// grace is how long a tailer runs on after its last follow lets go: the files'
 	// TailGrace, or a test's.
@@ -71,7 +72,7 @@ func New(clusters cluster.Service, dir string, ret logstore.Retention) *Service 
 	s := &Service{
 		clusters: clusters, files: files, backends: []namedBackend{{"kubelet", newKubelet}}, now: time.Now,
 		retry: followRetry, retryCap: followRetryCap, settle: followSettle,
-		budget: maxBudget, walkBudget: maxWalkBudget, grace: ret.TailGrace,
+		caps: defaultCaps, walkBudget: maxWalkBudget, grace: ret.TailGrace,
 		tails: map[cluster.ClusterCacheID]*registry{},
 	}
 	files.SetPodsGone(s.podsGone)
