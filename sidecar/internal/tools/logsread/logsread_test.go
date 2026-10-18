@@ -307,7 +307,7 @@ func TestNoOutputPassesTheInlineLimit(t *testing.T) {
 	page := logs.Page{Records: recs, After: logs.PageEdge{More: true}, Before: logs.PageEdge{More: true}, Skipped: skippedStreams(100)}
 	grep := strings.Repeat("g", logs.MaxGrep)
 	for _, mode := range []string{"head", "tail"} {
-		text, _ := readOf(t, &fakeLogs{page: page}, missingSources(100)+`,"grep":"`+grep+`","limit":100,"mode":"`+mode+`","since":"1h","until":"2026-10-17T09:59:59.999999999Z"}`)
+		text, _ := readOf(t, &fakeLogs{page: page}, missingSources(100)+`,"grep":"`+grep+`","limit":100,"mode":"`+mode+`","since":"PT1H","until":"2026-10-17T09:59:59.999999999Z"}`)
 		assert.LessOrEqual(t, len(text), tools.InlineLimit, mode)
 	}
 }

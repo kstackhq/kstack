@@ -273,7 +273,7 @@ func TestTheAnchorIsReadOnTheClock(t *testing.T) {
 		`"tail"`:                      {Kind: tools.LogsAnchorTail},
 		`""`:                          {Kind: tools.LogsAnchorTail},
 		`"2026-10-08T13:00:00+01:00"`: {Kind: tools.LogsAnchorAt, At: at("2026-10-08T12:00:00Z")},
-		`"2m"`:                        {Kind: tools.LogsAnchorAt, At: at("2026-10-08T14:02:00Z")},
+		`"PT2M"`:                      {Kind: tools.LogsAnchorAt, At: at("2026-10-08T14:02:00Z")},
 	} {
 		_, view := viewOf(t, logsinputtest.Watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"anchor":`+anchor+`}`)
 		assert.Equal(t, want, view.Anchor, anchor)
@@ -288,13 +288,17 @@ func TestTheViewIsResolvedOnTheClock(t *testing.T) {
 	assert.Equal(t, clock, view.ResolvedAt)
 }
 
+// An anchor the tool cannot read is refused with the forms it takes and the
+// clock, which the model has no other way to know.
 func TestAnUnreadableAnchorIsRefused(t *testing.T) {
 	t.Parallel()
-	for _, anchor := range []string{`"yesterday"`, `"-2m"`, `"0s"`, `3`} {
+	want := `{"error":"bad-input","field":"anchor","message":"tail, head, an RFC 3339 time, or an ISO 8601 duration back from now such as PT15M; now is 2026-10-08T14:04:00Z"}`
+	for _, anchor := range []string{`"yesterday"`, `"-PT2M"`, `"PT0S"`, `"2m"`} {
 		text := refusalOf(t, logsinputtest.Watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"anchor":`+anchor+`}`)
-		assert.Contains(t, text, `"field":"anchor"`, anchor)
-		assert.NotContains(t, text, "yesterday")
+		assert.Equal(t, want, text, anchor)
 	}
+	text := refusalOf(t, logsinputtest.Watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"anchor":3}`)
+	assert.Contains(t, text, `"field":"anchor"`)
 }
 
 func TestPinToEndAbsentIsFalse(t *testing.T) {
