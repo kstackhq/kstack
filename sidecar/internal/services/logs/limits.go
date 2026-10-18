@@ -58,15 +58,28 @@ func (p *pool) load() int64 {
 	return p.left
 }
 
-// reserve takes a window's reservation and answers its target: a quarter of what
-// is left, at most most, with four times it taken. Both under one lock, so streams
-// reserving at once take no more than the pool holds.
+// target is what a window reading from the pool is sized to hold: a quarter of what
+// is left, at most most.
+func (p *pool) target(most int64) int64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.quarter(most)
+}
+
+// reserve takes a window's reservation and answers its target, with four times it
+// taken. Both under one lock, so streams reserving at once take no more than the
+// pool holds.
 func (p *pool) reserve(most int64) int64 {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	target := max(min(most, p.left/4), 0)
+	target := p.quarter(most)
 	p.left -= 4 * target
 	return target
+}
+
+// quarter is a quarter of what is left, at most most. The caller holds mu.
+func (p *pool) quarter(most int64) int64 {
+	return max(min(most, p.left/4), 0)
 }
 
 // limits is one stream's account of one query. Its read alone touches it while the
@@ -133,8 +146,7 @@ func (l *limits) get() {
 }
 
 // target is the bytes the stream's next window of time is sized to hold: a quarter
-// of what is left of the allowance for its first, else the smallest of c.window,
-// what is left of the stream's bytes, and a quarter of the pool.
+// of what is left of the allowance for its first, else the pool's target under most.
 func (l *limits) target() int64 {
 	switch {
 	case l == nil:
@@ -142,24 +154,30 @@ func (l *limits) target() int64 {
 	case l.first:
 		return l.allowance / 4
 	}
-	return max(min(l.caps.window, l.caps.stream-l.spent, l.pool.load()/4), 0)
+	return l.pool.target(l.most())
 }
 
 // take is the target of the stream's next window of time, with four times it
 // reserved, the most the window reads before it is stopped as too busy.
 func (l *limits) take() int64 {
+	var target int64
 	switch {
 	case l == nil:
 		return byteTarget
 	case l.first:
-		target := l.allowance / 4
-		l.held = 4 * target
-		l.allowance -= l.held
-		return target
+		target = l.allowance / 4
+		l.allowance -= 4 * target
+	default:
+		target = l.pool.reserve(l.most())
 	}
-	target := l.pool.reserve(min(l.caps.window, l.caps.stream-l.spent))
 	l.held = 4 * target
 	return target
+}
+
+// most is the most a later window is sized to hold: c.window, or what is left of the
+// stream's bytes when that is less.
+func (l *limits) most() int64 {
+	return min(l.caps.window, l.caps.stream-l.spent)
 }
 
 // windowEnded returns what the window did not use to the pool, with what is left of
