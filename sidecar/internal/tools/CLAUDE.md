@@ -135,14 +135,14 @@ own `readTimeout` (25 s), so a slow read answers `timed-out` itself. A service `
 `refused` with its words through `logs.ForModel`; any other failure is `read-failed`.
 
 - **`sample.go` is what the model reads.** Each message goes through `logs.ForModel`, then is cut
-  at 2 KiB. The lines are at most 16 KiB, kept from the end the read started at; the header names
+  at 2 KiB (`logsinput.CutLine`). The lines are at most 16 KiB, kept from the end the read started at; the header names
   skipped streams up to 2 KiB and notes up to 4 KiB. So the output fits `tools.InlineLimit` and is never
   saved (`TestNoOutputPassesTheInlineLimit`). A record's line starts with its timestamp, a hole's
   with `[`, and the header is the sidecar's.
 - **Each edge is `End`, `More` or `Unread`.** A printed cursor's side is `More`, a moment's
   `Unread`; an end the page or the budget cut is `More`.
-- **The cursor the model sees is opaque** (`cursor.go`): the line's position as JSON, base64url,
-  turned into the service's own through `logs.LineCursor`. The header prints it after
+- **The cursor the model sees is opaque** (`logsinput.EncodeCursor`): the line's position as JSON,
+  base64url, turned into the service's own through `logs.LineCursor`. The header prints it after
   `safe.Redact`, never through it.
 - **The action holds the lines the model read**, with `viewAround`, the read's view at its first
   line's moment, unpinned. It is in `catalog`'s `ours`, `app.go`'s box after LogsView, and in
@@ -160,7 +160,12 @@ strict walk (each key once, DNS names, at most 100 sources, `grep` compiled on o
 time or an ISO 8601 duration, applied on the calendar in UTC in the caller's `Direction` (`Behind`
 or `Ahead`), a month end clamped to the target month's last day, and nothing before the epoch or
 after 9999; `SourcesText` and `NotesText` how a tool names its sources; `Refusal` and `Result` how it
-answers. `logsinputtest` is the fake cluster and
+answers. `cursor.go` is the opaque cursor a sample prints and a call reads back (`EncodeCursor`,
+`DecodeCursor`). **It carries `cursorVersion`**: a cursor lives on in transcripts no build can
+rewrite, so a change to its shape or a field's meaning bumps the version, and a cursor from another
+version is refused with `OldCursorMessage`, which tells the model to read again (`ErrOldCursor`); `sample.go` how a line reads (`LineText`, `CutLine`, `Stamp`, the caps
+`MaxSampleLine` and `SampleBudget`), how an action keeps it (`ReadLine`) and the view around it
+(`ViewAround`). `logsinputtest` is the fake cluster and
 the fixtures both tools' tests run over (`cluster/clustertest` beneath).
 
 ## KubeQuery (`tools/kubequery`)

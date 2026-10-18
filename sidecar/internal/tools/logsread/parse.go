@@ -16,6 +16,7 @@ package logsread
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -99,8 +100,12 @@ func endOf(s string, now time.Time, field string) (*end, error) {
 	if at, ok := logsinput.MomentOf(s, now, logsinput.Behind); ok {
 		return &end{cursor: at.Format(time.RFC3339Nano), at: at}, nil
 	}
-	if c, at, ok := decodeCursor(s); ok {
-		return &end{cursor: c, at: at, line: true}, nil
+	c, at, err := logsinput.DecodeCursor(s)
+	if errors.Is(err, logsinput.ErrOldCursor) {
+		return nil, logsinput.BadInput(field, logsinput.OldCursorMessage)
 	}
-	return nil, logsinput.BadInput(field, endMessage(now))
+	if err != nil {
+		return nil, logsinput.BadInput(field, endMessage(now))
+	}
+	return &end{cursor: c, at: at, line: true}, nil
 }
