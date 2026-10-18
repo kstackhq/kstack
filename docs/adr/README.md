@@ -213,3 +213,4 @@ usually just documentation in the wrong place.
 | 2026-10-17 | [Keep the chrome's shape as an app-wide default in localStorage](2026-10-17-chrome-shape-is-an-app-wide-default-in-localstorage.md) | frontend | Accepted |
 | 2026-10-17 | [Hold each chat's draft and send in an outbox above the routes](2026-10-17-the-chat-outbox-holds-each-chats-send-above-the-routes.md) | frontend | Accepted |
 | 2026-10-18 | [Backward log reads assume normal logs, and stop clearly where normal ends](2026-10-18-backward-reads-assume-normal-logs.md) | sidecar | Accepted |
+| 2026-10-18 | [A rich view is a tool call's action](2026-10-18-a-rich-view-is-a-tool-calls-action.md) | cross-cutting | Accepted |

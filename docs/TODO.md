@@ -128,8 +128,8 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **Revisit an opaque cursor for the log viewer's wire.** `logsFetch` and `logsFollow` hand the
   webview a cursor as `cursorOf`'s tab-separated position, documented as opaque and passed back
-  unread. `LogsRead` gives the model the same position as base64url JSON (rung 4 of
-  [log views](specs/log-views/README.md)), so the one position has two spellings. Decide whether
+  unread. `LogsRead` gives the model the same position as base64url JSON
+  (`logsinput.EncodeCursor`), so the one position has two spellings. Decide whether
   the wire should take the model's spelling, so the service has one encoder and the fields can
   change without a client noticing the text. It is a wire-only change, since no client reads the
   string, and it needs an ADR that updates

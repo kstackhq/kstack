@@ -3,8 +3,8 @@
 The service reads container logs through the cluster's connection, keeps them in a file per cache
 (`logstore`), and answers pages and follows over the file. A line reaches the model through
 `LogsRead`, a `LogsWatch` notice and the View section, all through `ForModel`; the `LogsView` tool
-(`internal/tools/CLAUDE.md`) opens a view the user looks at. Specs:
-`docs/specs/log-cache/`, `docs/specs/log-views/`.
+(`internal/tools/CLAUDE.md`) opens a view the user looks at. → [ADR: a rich view is a tool call's
+action](../../../../docs/adr/2026-10-18-a-rich-view-is-a-tool-calls-action.md).
 
 ## The file (`logstore`)
 
