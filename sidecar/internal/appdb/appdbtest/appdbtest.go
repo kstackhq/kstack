@@ -25,10 +25,12 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
 var template = sync.OnceValues(migrateTemplate)
@@ -75,6 +77,13 @@ func OpenIn(t testing.TB, dir string) *appdb.DB {
 	}
 	db, err := appdb.Open(path, 0)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	t.Cleanup(func() {
+		_ = db.Close()
+		// database/sql releases a cancelled transaction's connection on its own goroutine,
+		// after Close returns, and Windows removes no open file.
+		require.Eventually(t, func() bool {
+			return db.Read.Stats().OpenConnections == 0 && db.Write.Stats().OpenConnections == 0
+		}, testutil.Timeout, time.Millisecond, "app.db's connections to close")
+	})
 	return db
 }
