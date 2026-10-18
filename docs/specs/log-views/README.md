@@ -100,7 +100,7 @@ These are decided across the ladder. A rung that needs to revisit one says so in
 | 2 | The compact inline form | [2-the-compact-inline-form.md](2-the-compact-inline-form.md) |
 | 3 | The screen rides with the question | [3-the-screen-rides-with-the-question.md](3-the-screen-rides-with-the-question.md) |
 | 4 | `LogsRead`: what the model read, frozen | [4-logsread.md](4-logsread.md) |
-| 5 | Select, then ask | — |
+| 5 | Select, then ask | [5-select-then-ask.md](5-select-then-ask.md) |
 | 6 | A watch is a background task | — |
 | 7 | The dashboard's target | — |
 
@@ -120,9 +120,8 @@ block.
 through the log cache, and the transcript draws what it read as a frozen snippet, with *View
 around this*.
 
-**Rung 5 — select, then ask.** Selecting lines in the viewer and typing a question is the main
-gesture. An *Ask about this* on the selection focuses the composer, and the selection rides in
-rung 3's snapshot. Open: whether a selection outlives a send.
+**Rung 5 — select, then ask.** Selected lines ride every send under a chip whose × takes them
+out.
 
 **Rung 6 — a watch is a background task.** *Tell me when it throws again* starts a background
 task of the chat, like a command with `run_in_background`: the sidecar matches the stream, the
