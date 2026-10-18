@@ -52,65 +52,74 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   the connection's `HTTPClient`; a cut body answers its reason, never a bare cancel. A follow's
   claim also watches the record and revokes on disable or delete.
 - **A read goes through a `Backend`** (`backend.go`); `Service.backends` is the ordered list (the
-  kubelet alone, `kubelet.go` over `fetcher.go`, kubetail's algorithm), a test field. The grep runs
-  where lines are read. **`reader.lines` is the one place a bound is applied.** **`failureKind` is the
-  one classification of a failed read**: fatal (401, revoked) fails the page or follow; denied (403)
-  and ended (other <500) end one stream; transient (5xx, 408, 429, transport) is skipped by a page
-  and retried by a follow; limit (`loudSecond`, checked first) stops the stream at a second too loud
-  to read.
+  kubelet alone, `kubelet.go` over `fetcher.go`, `windows.go` and `limits.go`), a test field. Only
+  the forward read and the first `tailLines` window follow kubetail. **A backend writes every line
+  it reads**; the grep only counts what fills a page (`filler.pull`) and decides what a walk passes.
+  **`reader.lines` is the one place a bound is applied.** **`failureKind` is the one classification
+  of a failed read**: fatal (401, revoked) fails the page or follow; denied (403) and ended (other
+  <500) end one stream; transient (5xx, 408, 429, and any error with no status, a transport's
+  included) is skipped by a page and retried by a follow; limit (`loudSecond`, checked first) stops
+  the stream at a second too loud to read.
 - **`Service.Fetch` answers from the file** (`fetch.go`; built in `app` as `logs.New`, which owns
   the log store and is the cluster service's `CacheFileOwner`). A line reaches the model through
   `LogsRead` and the View section, both through `ForModel`. Modes `Head`, `Tail`, `Around` (limit
   ≤500; `compileGrep` refuses a bad grep, on follows too). **A page takes a range**: `Since` and
   `Until` in place of `Cursor`, a moment's lines in it, a line's not (`boundIn`). The far bound is
   applied in the walk next to the near one (`pageQuery.far`, `clampTo`), and the filler clamps each
-  gap's download to the range by passing it in through `readOpts` (`fillGap`), so
-  `reader.lines` stays the one place a bound is applied. A page that stopped at its far bound says
-  nothing is left that way. `LineCursor` spells a line's cursor for a caller with its own form.
-  A page resolves, files streams, adds gone pods' streams the file holds (`filestreams.go`), fills
-  gaps from the backends (`fill.go`), walks (`walk.go`) and merges (`merge.go`). **A read is
-  written a batch at a time as it arrives** (`window`, `WriteBatch`), each batch checked against
-  the mirror first and stamped. A forward read is one window, its batches linked down as they land,
-  and is cancelled once the stream holds the page. A backward read's windows (`readItem.windowEnd`)
-  arrive newest first, each oldest first: a window links up only when it completes, and counts
-  toward the page only then; one cut part way is an island linked to nothing, and the read's link
-  down is written once it ends. `AtEnd` goes only on a completed first window. A backward read is
-  stopped between windows (`readOpts.more`, answered once the window's last batch is written),
-  never inside one. **A backward read sizes its windows** (`windows.go`). Off the log's end it
-  reads one `tailLines` window, read whole, then windows of time ending where it began; under an
-  upper bound, windows of time alone. They start at the top of a second: the first is sized from
-  the rate of the lines just above the gap (`rateAbove`; ten seconds with none), to hold about the
-  page's kept lines with half again and at most its byte target. A window counts each line as the
-  body carried it, before cleaning (`readLine`'s size); a rate from the file estimates that
-  (`wireBytes`). A window checks the rate of its newest second as it reads; one due to hold four
-  times the page or four times its byte target is stopped (`readItem.windowCut`), left as an
-  island, and replaced (`reader.replace`): from the second after its stop, by the one-second
-  window when stopped in its last second, or halved when stopped in its first, whose second then
-  bounds widening until a window from it completes. A window that leaves the read short is
-  followed by an older one sized from its own rate, eight times longer after silence. An `Around`
-  page fills its `Head` half first; its `Tail` half reads back at that half's rate and links up to
-  its first line (`streamFill.up`).
-- **A page reads within limits** (`limits.go`, `caps`): 16 MiB and 16 GETs a stream, 64 MiB a
-  query (each direction of a page is one), 1 MiB in one second. Each stream filled gets an
-  allowance, the smaller of 16 MiB and 64 MiB ÷ streams, which it spends until its first window
-  ends; the rest seeds a pool shared by later windows. A later window of time targets a quarter
-  of its stream's share of the pool, the pool divided by the streams still reading from it with
-  no reservation out, and reserves four times it (`limits.take`); what it does not use goes back. A reservation is
-  charged, not enforced. A fill reads no gap past its stream's bytes or GETs, and gives back what
-  it holds and leaves the pool when it ends (`limits.ended`). A backward read checks its limits only when a window completes, and is
-  cut there; a forward read is cut inside its GET, never before its first line in range, and a
-  forward read from a second's last nanosecond starts at the next second (`sinceSecond`). **Every
-  cut has an edge**: a line, or an empty window's start, a moment (`streamFill.stop`, which the
-  walk stops at). A second past 1 MiB, counted as each line's parts are read, is a `loudSecond`:
-  it stops a wider window, and stops the stream from the one-second window, `wholeMoment` or a
-  forward read; the page is cut at that second (backward its top, forward its last nanosecond),
-  names the stream in `skipped`, and is never refused for it. A follow's fill reads under the
-  smaller of 16 MiB and 64 MiB ÷ its streams (`followLimits`), reads every second whole and is cut
-  only at a second's end. Each walk reads its share of `maxWalkBudget` (64 MiB) plus what its
-  fill downloaded. A page never passes lines a stream did not read: a short stop becomes the cut;
-  a short stop with no edge is an internal error in `mergePage`. **A change to a read path answers to
-  `TestPagesJoinWithoutLossOrRepeat` and `TestTheFileKeepsItsInvariant`** (seeded; fewer seeds
-  under `-short`).
+  gap's download to the range by passing it in through `readOpts` (`fillGap`), so `reader.lines`
+  stays the one place a bound is applied. A page that stopped at its far bound says nothing is left
+  that way. `LineCursor` spells a line's cursor for a caller with its own form. A page resolves,
+  files streams, adds gone pods' streams the file holds (`filestreams.go`), fills gaps from the
+  backends (`fill.go`), walks (`walk.go`) and merges (`merge.go`). **A read is written a batch at a
+  time as it arrives** (`window`, `WriteBatch`), each batch checked against the mirror first and
+  stamped. A forward read is one window: its first batch links down, its last links up only when it
+  read its range whole, and it is cancelled once the stream holds the page. A backward read's
+  windows (`readItem.windowEnd`) arrive newest first, each oldest first: a window links up only when
+  it completes, and counts toward the page only then; one cut part way is an island linked to
+  nothing, and the read's link down is written once it ends. `AtEnd` goes only on a completed first
+  window. A backward read is stopped between windows (`readOpts.more`, answered once the window's
+  last batch is written), never inside one. **A backward read sizes its windows** (`windows.go`). →
+  [ADR: backward log reads assume normal
+  logs](../../../../docs/adr/2026-10-18-backward-reads-assume-normal-logs.md). Off the log's end it
+  reads one `tailLines` window, read whole, then windows of time ending where it began, the first
+  sized from that window's rate; under an upper bound, windows of time alone, the first sized from
+  the rate of the lines just above the gap (`rateAbove`; ten seconds with none). They start at the
+  top of a second, and each is sized to hold about the page's kept lines with half again and at most
+  its byte target. A window counts each line as the body carried it, before cleaning (`readLine`'s
+  size); a rate from the file estimates that (`wireBytes`). A window checks the rate of its newest
+  second as it reads; one due to hold four times the page or four times its byte target is stopped
+  (`readItem.windowCut`), left as an island, and replaced (`reader.replace`): from the second after
+  its stop, by the one-second window when stopped in its last second or once the stream has reached
+  a limit, or halved when stopped in its first, whose second then bounds widening until a window
+  from it completes. A window that leaves the read short is followed by an older one sized from its
+  own rate, eight times longer after silence. An `Around` page fills its `Head` half first; its
+  `Tail` half reads back at that half's rate and links up to its first line (`streamFill.up`).
+- **A page reads within limits** (`limits.go`, `caps`). → [ADR: backward log reads assume normal
+  logs](../../../../docs/adr/2026-10-18-backward-reads-assume-normal-logs.md). 16 MiB and 16 GETs a
+  stream, 64 MiB a query (each direction of a page is one), 1 MiB in one second. Each stream filled
+  gets an allowance, the smaller of 16 MiB and 64 MiB ÷ streams, which it spends until its first
+  window ends; the rest seeds a pool shared by later windows, and what is left of an allowance joins
+  it then. A forward read reserves nothing: it spends its allowance, then the pool. A later window
+  of time targets a quarter of its stream's share of the pool, the pool divided by the streams still
+  reading from it with no reservation out, and reserves four times it (`limits.take`); what it does
+  not use goes back. A reservation is charged, not enforced. A fill reads no gap past its stream's
+  bytes or GETs, and gives back what it holds and leaves the pool when it ends (`limits.ended`). A
+  backward read checks its limits only between windows: it is cut once its bytes or GETs are spent
+  or its next target is under 64 KiB (`limits.reached`), and a window begun or replaced past that
+  point is the one-second window; a forward read is cut inside its GET, never before its first line
+  in range, and a forward read from a second's last nanosecond starts at the next second
+  (`sinceSecond`). **Every cut has an edge**: a line, or an empty window's start, a moment
+  (`streamFill.stop`, which the walk stops at). A second past 1 MiB, counted as each line's parts
+  are read, is a `loudSecond`: it stops a wider window, and stops the stream from the one-second
+  window, `wholeMoment` or a forward read; the page is cut at that second (backward its top, forward
+  its last nanosecond), names the stream in `skipped`, and is never refused for it. A follow's fill
+  reads under the smaller of 16 MiB and 64 MiB ÷ its streams (`followLimits`), reads every second
+  whole and is cut only at a second's end. Each walk reads its share of `maxWalkBudget` (64 MiB)
+  plus what its fill downloaded. A page never passes lines a stream did not read: a short stop
+  becomes the cut; a short stop with no edge is an internal error in `mergePage`, unless the
+  connection's retirement cut it (`errReplaced`). **A change to a read path answers to
+  `TestPagesJoinWithoutLossOrRepeat` and `TestTheFileKeepsItsInvariant`** (seeded; fewer seeds under
+  `-short`).
 - **A head read never links** (`rotatedAway`, which the filler and the tailer share;
   `reachedFirst`): a read from a chunk's last line that found it rotated away writes a head chunk
   with no link, so the hole is a lost gap. **A record carries the hole before it** (`Record.Gap`,
