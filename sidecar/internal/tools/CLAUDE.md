@@ -45,7 +45,7 @@ session.
 - **`ActionAsker`** puts a sandboxed command's classified `ActionRequest` to the user, or
   `Record`s one decided unasked. Nil where nobody can be asked.
 - **A tool that acts through a service is built with it** (`memory.New`, `kubequery.New`,
-  `logsview.New`, `logsread.New`, in `app`'s `chatTools`) and maps the service's errors to the model's codes →
+  `logsview.New`, `logsread.New`, `logswatch.New`, in `app`'s `chatTools`) and maps the service's errors to the model's codes →
   [ADR](../../../docs/adr/2026-09-27-a-tool-calls-its-service-directly.md).
 - `InlineLimit` (30,000) caps a result; `FileLimit` (8 MiB) caps saved output and Read.
 - **The chat's `defaultToolTimeout` is 2 s.** A tool that does I/O is `Bounded` and names its own
@@ -176,6 +176,10 @@ so a stalled open never outlives the call's bound. The receipt goes through `saf
   ended, the cursors to read around the first and last line after the redaction, then the lines;
   with the lines as the action keeps them and the `viewAround` at the first. It fits
   `tools.InlineLimit` (`TestNoSamplePassesTheInlineLimit`).
+- It is in `catalog`'s `ours`, `app.go`'s box after LogsRead, and out of `SubagentBox` and
+  `MonitorBox`: a watch's point is the turn it starts.
+
+→ [the model watches logs](../../../docs/security/2026-10-18-the-model-watches-logs.md).
 
 ## The log tools' input (`tools/internal/logsinput`)
 

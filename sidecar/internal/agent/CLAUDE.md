@@ -174,7 +174,8 @@ a watch's end (not a stop) under a user's send, so no chain runs past the first 
 not send. A watch's notice is its sample, read off `result`; its kind is its call's, through the
 box. It makes every check a send makes. Nothing kicks at startup. → [security records:
 background commands](../../../docs/security/2026-09-23-background-commands.md), [background
-agents](../../../docs/security/2026-09-25-background-agents.md).
+agents](../../../docs/security/2026-09-25-background-agents.md), [the model watches
+logs](../../../docs/security/2026-10-18-the-model-watches-logs.md).
 
 **A command is asked before it runs** (`approval.go`). `Approve` registers its waiter in
 `service.pending` **before anything is written**, so no id is decidable ahead of its request, then
