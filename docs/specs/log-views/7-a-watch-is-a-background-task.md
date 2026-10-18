@@ -1,7 +1,7 @@
 ---
 title: A watch is a background task
 scope: sidecar, frontend
-status: Proposed
+status: Built
 ---
 
 # A watch is a background task
@@ -135,11 +135,15 @@ ends as a command does, off an exit code, and `tools.Exit` has no room for lines
 agent gets its own seam, `Runtime.Agent`, with an end handler of its own. A watch gets the same.
 
 - **The seam.** `tools.Runtime` gains `Watches`, with one method:
-  `Start(w tools.Watch) (id string, err error)`. `tools.Watch` carries the follow's stream, the
-  cancel of its context, the three limits, the resolved window and the action, so the chat
-  writes the result without re-resolving anything. `agent/chat` implements it beside
-  `chatTasks`, through `startTask` with a task record whose `end` is the watch's, as an agent's
-  is. Nil in a subagent's and a monitor's runtime, as `Agent` is.
+  `Start(w tools.Watch) (id string, err error)`. `tools.Watch` is an interface the tool
+  implements over the follow's stream, the cancel of its context, the three limits, the resolved
+  window and the view: `Wait` reads the follow to its end, `Stop` cancels it, and
+  `End(stoppedBy)` answers a `tools.WatchEnd`, the status and the result, so the chat writes the
+  result without re-resolving anything. The watcher lives in `tools/logswatch` (`watch.go`), not
+  `agent/chat`: the sample it prints is `tools/internal/logsinput`'s, which Go's `internal` rule
+  keeps out of `agent/chat`. `agent/chat` implements `Watches` beside `chatTasks`, through
+  `startTask` with a task record whose `end` is the watch's, as an agent's is. Nil in a subagent's
+  and a monitor's runtime, as `Agent` is.
 - **It takes a slot** of the chat's 4 and the app's 16, like the other two.
 - **Its row** is in `background_tasks`, written `running` in `recordAndStart`'s transaction, as
   every task's is. `status` gains `matched` and `expired`. `background_tasks` gains
@@ -148,12 +152,13 @@ agent gets its own seam, `Runtime.Agent`, with an end handler of its own. A watc
   the header's words; and the `viewAround` the sidecar built when it held a line (§6). It is
   NULL for a command, an agent and a running watch. The status says how the watch ended; the
   result says what it saw and why.
-- **Its file** is the one every task has. The watch writes nothing to it and closes it empty at
-  its end, so the chat's directory holds one file per task as today.
+- **Its file** is the one every task has. The watch writes nothing to it, and it is closed empty
+  before the watch runs, so the chat's directory holds one file per task as today.
 - **Its `tools.Task`** is a value over the follow: `Stop` cancels the follow's context, `Wait`
   blocks until the watcher below has drained the stream. SIGTERM and the grace do not apply;
   there is no process.
-- **Its watcher** reads the follow's frames on a goroutine of its own and holds the lines:
+- **Its watcher** reads the follow's frames on the task's watcher goroutine, through
+  `Watch.Wait`, and holds the lines:
   - a `line` frame is one more line, through `logs.ForModel` and cut at 2 KiB. When the lines
     held reach `limit`, or their size reaches `max_bytes`, the watch is full: the watcher
     cancels the follow and ends `matched`. A follow orders lines per container only, so the
@@ -311,8 +316,8 @@ Under it, the task's state, off the task as the transcript tags every task:
   opens the right sidebar. While the sidebar shows this call, it reads *Showing in the sidebar*,
   as Expand does. Chat mode only.
 - **Expired**: *nothing matched by 14:00*.
-- **Failed**: *ended: every container stopped*, the reason the task carries, or *ended: the
-  logs could not be read* for a `read-failed` watch, which carries none.
+- **Failed**: *ended: every container stopped*, the reason the task carries; a `read-failed`
+  watch's is *the logs could not be read*.
 - **Stopped** and **Lost**: as every task. A stopped watch that held lines draws them too.
 
 **Nothing is fetched.** The card draws the action and the task row alone, so a reload, an
@@ -453,6 +458,10 @@ with that ID*, `StartRefusal`'s two messages, and `chatTools`'s doc comment.
   watch fires, and nothing a monitor asks is approved or answered.
 
 ## Tasks
+
+All six are **Done**, in one commit on `log-views-7`. The frame-reading tests listed under
+`agent/chat` below run in `tools/logswatch`, where the watcher is; the lifecycle ones run in
+`agent/chat`.
 
 1. **The sample moves.** `tools/logsread`'s `cursor.go`, and the line and header building of
    `sample.go` that a watch shares, to `tools/internal/logsinput`, so both tools print one form.
