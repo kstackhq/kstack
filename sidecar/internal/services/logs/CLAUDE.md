@@ -93,10 +93,11 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
 - **A page reads within limits** (`limits.go`, `caps`): 16 MiB and 16 GETs a stream, 64 MiB a
   query (each direction of a page is one), 1 MiB in one second. Each stream filled gets an
   allowance, the smaller of 16 MiB and 64 MiB ÷ streams, which it spends until its first window
-  ends; the rest seeds a pool shared by later windows. A window of time takes its byte target and
-  reserves four times it (`limits.take`); what it does not use goes back. A reservation is
+  ends; the rest seeds a pool shared by later windows. A later window of time targets a quarter
+  of its stream's share of the pool, the pool divided by the streams still reading from it with
+  no reservation out, and reserves four times it (`limits.take`); what it does not use goes back. A reservation is
   charged, not enforced. A fill reads no gap past its stream's bytes or GETs, and gives back what
-  it holds when it ends. A backward read checks its limits only when a window completes, and is
+  it holds and leaves the pool when it ends (`limits.ended`). A backward read checks its limits only when a window completes, and is
   cut there; a forward read is cut inside its GET, never before its first line in range, and a
   forward read from a second's last nanosecond starts at the next second (`sinceSecond`). **Every
   cut has an edge**: a line, or an empty window's start, a moment (`streamFill.stop`, which the

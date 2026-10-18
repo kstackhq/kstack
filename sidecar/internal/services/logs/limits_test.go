@@ -153,6 +153,32 @@ func TestNoLimitsLeaveEveryByte(t *testing.T) {
 	assert.Equal(t, int64(0), l.second())
 }
 
+// A later window targets a quarter of its stream's share of the pool, the pool
+// divided by the streams still reading from it with no reservation out, so every
+// stream reserving finds the same share; a stream whose fill has ended shares no
+// longer.
+func TestLaterWindowsShareThePool(t *testing.T) {
+	t.Parallel()
+	ls := queryLimits(defaultCaps, 16)
+	for _, l := range ls {
+		l.charge(1 << 20)
+		l.windowEnded()
+	}
+	assert.Equal(t, int64(48<<20), ls[0].pool.load())
+
+	assert.Equal(t, int64(768<<10), ls[0].target())
+	for _, l := range ls {
+		assert.Equal(t, int64(768<<10), l.take())
+	}
+	assert.Equal(t, int64(0), ls[0].pool.load())
+	for _, l := range ls[1:] {
+		l.ended()
+	}
+	ls[0].windowEnded()
+	assert.Equal(t, int64(48<<20), ls[0].pool.load())
+	assert.Equal(t, int64(byteTarget), ls[0].target())
+}
+
 // Streams reading at once stay within the page: a target and its reservation are
 // taken together, so later windows reserve no more than the pool holds.
 func TestStreamsReadingAtOnceStayWithinThePage(t *testing.T) {

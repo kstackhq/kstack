@@ -40,15 +40,29 @@ var defaultCaps = caps{
 }
 
 // pool is the bytes a query's streams share once their first windows have ended.
-// It goes below zero when a window reads past what it reserved.
+// reading is the streams past their first window still filling, and holding those
+// among them with a reservation out. It goes below zero when a window reads past
+// what it reserved.
 type pool struct {
-	mu   sync.Mutex
-	left int64
+	mu               sync.Mutex
+	left             int64
+	reading, holding int
 }
 
 func (p *pool) add(n int64) {
 	p.mu.Lock()
 	p.left += n
+	p.mu.Unlock()
+}
+
+// give returns n bytes a window did not use and moves the counts of streams reading
+// and reservations out by reading and holding, in one step: a stream's share is
+// never seen with one changed and not the other.
+func (p *pool) give(n int64, reading, holding int) {
+	p.mu.Lock()
+	p.left += n
+	p.reading += reading
+	p.holding += holding
 	p.mu.Unlock()
 }
 
@@ -58,8 +72,8 @@ func (p *pool) load() int64 {
 	return p.left
 }
 
-// target is what a window reading from the pool is sized to hold: a quarter of what
-// is left, at most most.
+// target is what a window reading from the pool is sized to hold: a quarter of the
+// stream's share of what is left, at most most.
 func (p *pool) target(most int64) int64 {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -74,12 +88,15 @@ func (p *pool) reserve(most int64) int64 {
 	defer p.mu.Unlock()
 	target := p.quarter(most)
 	p.left -= 4 * target
+	p.holding++
 	return target
 }
 
-// quarter is a quarter of what is left, at most most. The caller holds mu.
+// quarter is a quarter of one stream's share of what is left, at most most. The
+// share divides what is left among the streams reading with no reservation out,
+// so each of them finds the same share. The caller holds mu.
 func (p *pool) quarter(most int64) int64 {
-	return max(min(most, p.left/4), 0)
+	return max(min(most, p.left/4/int64(max(p.reading-p.holding, 1))), 0)
 }
 
 // limits is one stream's account of one query. Its read alone touches it while the
@@ -91,8 +108,10 @@ type limits struct {
 	// is whether it has not ended yet.
 	allowance int64
 	first     bool
-	// held is what the window being read reserved and has not used.
-	held int64
+	// held is what the window being read reserved and has not used, and holding
+	// whether it reserved it from the pool.
+	held    int64
+	holding bool
 	// spent and gets are what the stream has downloaded and sent.
 	spent int64
 	gets  int
@@ -169,6 +188,7 @@ func (l *limits) take() int64 {
 		l.allowance -= 4 * target
 	default:
 		target = l.pool.reserve(l.most())
+		l.holding = true
 	}
 	l.held = 4 * target
 	return target
@@ -181,17 +201,32 @@ func (l *limits) most() int64 {
 }
 
 // windowEnded returns what the window did not use to the pool, with what is left of
-// the allowance once the first window has ended.
-func (l *limits) windowEnded() {
+// the allowance once the first window has ended, from when the stream reads from
+// the pool.
+func (l *limits) windowEnded() { l.settle(false) }
+
+// ended returns what the stream holds and leaves the pool: its fill reads no more.
+func (l *limits) ended() { l.settle(true) }
+
+// settle is windowEnded, and ended when left, with the pool's counts moved in the
+// same step as its bytes.
+func (l *limits) settle(left bool) {
 	if l == nil {
 		return
 	}
-	back := l.held
+	back, reading, holding := l.held, 0, 0
 	if l.first {
 		back += l.allowance
+		reading++
 	}
-	l.pool.add(back)
-	l.held, l.allowance, l.first = 0, 0, false
+	if left {
+		reading--
+	}
+	if l.holding {
+		holding--
+	}
+	l.pool.give(back, reading, holding)
+	l.held, l.allowance, l.first, l.holding = 0, 0, false, false
 }
 
 // usedUp is whether the stream has spent its bytes or sent its GETs, after which its

@@ -390,7 +390,7 @@ func (p *page) fillQuery(ctx context.Context, q pageQuery, backends []Backend, s
 			fills[i].downloaded = f.limits.spent
 			// However early the fill ended, what it holds goes back for the streams
 			// still reading.
-			f.limits.windowEnded()
+			f.limits.ended()
 		})
 	}
 	wg.Wait()

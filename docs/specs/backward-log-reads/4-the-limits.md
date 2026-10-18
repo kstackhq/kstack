@@ -63,10 +63,13 @@ not use go back to the pool.
 - A time window that is the stream's first window has a byte target of a quarter of what is left
   of its allowance: about 4 MiB up to four streams, 1 MiB at 16, and 160 KiB at 100.
 - Every other window is a later window, the time windows after a `tailLines` window included. Its
-  target is the smallest of 4 MiB, what is left of the stream's 16 MiB, and a quarter of the pool.
-  It reserves four times that from the pool. A window may read up to four times its target before
-  it is stopped, so a stream goes past its 16 MiB by at most three times its last window's target:
-  12 MiB. Those bytes were reserved from the pool, so they stay within the query's 64 MiB.
+  target is the smallest of 4 MiB, what is left of the stream's 16 MiB, and a quarter of the
+  stream's share of the pool: the pool divided by the streams past their first window whose fills
+  have not ended and that hold no reservation. It reserves four times that from the pool, so one
+  reservation takes at most the stream's share and every other stream reading finds the same. A window may read up to four
+  times its target before it is stopped, so a stream goes past its 16 MiB by at most three times
+  its last window's target: 12 MiB. Those bytes were reserved from the pool, so they stay within
+  the query's 64 MiB.
 
 **A reservation is accounting, not a hard stop.** Step 3's check stops a window that is due to hold
 more than four times its target, and the 1 MiB second (§4) stops a window as its lines arrive. Bytes
@@ -257,7 +260,9 @@ budget, and what the fills downloaded, overages (§2) included.
 1. **16 MiB and 16 GETs per stream, 64 MiB per query.** They keep a page to a few seconds. A default
    10 MiB log fits in one page's reads in a view of up to four containers, in three 4 MiB windows.
 2. **Bytes are reserved before a GET, four times a window's target.** A window holds at most about
-   that before it is stopped, so streams reading at once stay within the page. A reservation is
+   that before it is stopped, so streams reading at once stay within the page. A later window's
+   target is sized from the stream's share of the pool, so one reservation never empties it and
+   which streams are cut does not depend on which finished a window first. A reservation is
    charged, not enforced, so no read ends without an edge.
 3. **1 MiB in one second is the line for abnormal.** It is about 5,000 lines of normal length. A line
    past 1 MiB is such a second.
