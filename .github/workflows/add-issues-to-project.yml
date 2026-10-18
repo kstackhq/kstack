@@ -1,0 +1,19 @@
+name: Add issues to project
+
+permissions:
+  contents: read
+
+on:
+  issues:
+    types:
+      - opened
+
+jobs:
+  add-to-project:
+    name: Add issue to project
+    runs-on: ubuntu-slim
+    steps:
+      - uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2
+        with:
+          project-url: https://github.com/orgs/kstackhq/projects/1
+          github-token: ${{ secrets.ADD_ISSUES_TO_PROJECT_TOKEN }}
