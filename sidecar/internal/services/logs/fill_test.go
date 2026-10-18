@@ -102,7 +102,7 @@ func TestASparseGrepFillsBackUntilItHasAPage(t *testing.T) {
 	s.add("prod/web-1/app", lineEvery(1000)...)
 	svc, f = serviceOver(t, webMirror(t), s)
 	f.chunk(64)
-	svc.budget = 4 << 10
+	svc.caps = capsOf(4 << 10)
 	view.Grep = "never"
 	page, err = svc.Fetch(t.Context(), "7", view, FetchQuery{Mode: FetchTail, Limit: 2})
 	require.NoError(t, err)
@@ -241,42 +241,20 @@ func TestAFinishedInstanceReadToItsEndIsNotReadAgain(t *testing.T) {
 	assert.Len(t, s.requests(), reads)
 }
 
-// A stream whose fill spent its budget before reading a line refuses the page, since
-// any cut would pass its lines.
-func TestAFillSpentBeforeALineRefusesThePage(t *testing.T) {
+// A forward fill is never cut before its first line in range, so a page whose
+// stream spent its limits at once still answers a line, and the pages go on.
+func TestAFillIsNeverCutBeforeItsFirstLine(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web-1/app", lineEvery(10)...)
 	svc, f := serviceOver(t, webMirror(t), s)
 	f.chunk(4)
-	svc.budget = 8
+	svc.caps = capsOf(8)
 
-	_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 10})
+	got := pages(t, svc, web1View, FetchHead, 10)
 
-	assert.EqualError(t, err, "this page ran out of budget before web-1/app was read past its start; narrow the view or its grep")
-}
-
-// The walks have a budget of their own: a fill that spends all of its leaves the
-// page what the file held and what the fill read before it ran out.
-func TestAFillThatSpendsItsBudgetLeavesTheWalkItsOwn(t *testing.T) {
-	t.Parallel()
-	s := newLogServer()
-	s.add("prod/web-1/app", lineEvery(100)...)
-	svc, f := serviceOver(t, webMirror(t), s)
-	var cached []time.Duration
-	for i := range 50 {
-		cached = append(cached, time.Duration(i)*time.Second)
-	}
-	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(cached...), Head: true})
-	f.chunk(64)
-	svc.budget = 512
-
-	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 100})
-
-	require.NoError(t, err)
-	assert.Greater(t, len(page.Records), 50)
-	assert.Less(t, len(page.Records), 100)
-	assert.True(t, page.After.More)
+	assert.Greater(t, len(got), 1)
+	assert.Equal(t, messages(linesOf(lineEvery(10))), recordsOf(got, FetchHead))
 }
 
 // A line a grepped page's fill found and a plain page's found again is stored once:
@@ -1270,22 +1248,23 @@ func TestAfterFillRunsOncePerPage(t *testing.T) {
 }
 
 // A sparse grep scrolling up from a cursor sizes its windows from the bytes of the
-// lines next to the point: three matches in a 10 MiB log take three 4 MiB windows
-// and the first line's GET, and the same search again sends none.
+// lines next to the point: under midCaps, three matches in a 200 KiB log take three
+// 64 KiB windows and the first line's GET, and the same search again sends none.
 func TestASparseGrepReadsInWindowsOfItsByteTarget(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	pad := strings.Repeat("x", 70)
 	var log []string
-	for i := range 100_000 {
+	for i := range 2000 {
 		msg := pad
-		if i%40_000 == 1 {
+		if i%800 == 1 {
 			msg = "match " + strconv.Itoa(i)
 		}
 		log = append(log, stamped(time.Duration(i)*10*time.Millisecond, msg))
 	}
 	s.add("prod/web-1/app", log...)
 	svc, f := serviceOver(t, webMirror(t), s)
+	svc.caps = midCaps
 	var top []logstore.Line
 	for _, rec := range linesOf(log[len(log)-200:]) {
 		top = append(top, logstore.Line{Message: rec.Message})
@@ -1301,7 +1280,7 @@ func TestASparseGrepReadsInWindowsOfItsByteTarget(t *testing.T) {
 	page, err := svc.Fetch(t.Context(), "7", view, q)
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"match 1", "match 40001", "match 80001"}, messages(page.Records))
+	assert.Equal(t, []string{"match 1", "match 801", "match 1601"}, messages(page.Records))
 	assert.False(t, page.Before.More)
 	assert.Len(t, s.requests(), 4, "the first line and three windows")
 	reads := len(s.requests())
@@ -1376,4 +1355,30 @@ func TestARestartAtAStoppedWindowStopsTheRead(t *testing.T) {
 
 	assert.EqualError(t, testutil.Recv(t, done, "the page"), "no container of this view could be read: web-1/app: restarted while reading")
 	assert.Equal(t, []logstore.Span{{From: sec(1), To: sec(1)}, {From: sec(10), To: sec(10)}}, spansOf(t, svc, f))
+}
+
+// A fill reads no further gap once its stream has sent its GETs: a Head page from
+// the start across eleven live gaps, a GET each, is cut at the last line before the
+// fourth, and the next pages go on from there.
+func TestAFillReadsNoGapPastItsGets(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(20)...)
+	svc, f := serviceOver(t, webMirror(t), s)
+	svc.caps = capsOf(1 << 20)
+	svc.caps.gets = 3
+	var cached []logstore.Fill
+	for i := 0; i < 20; i += 2 {
+		cached = append(cached, logstore.Fill{Lines: fileLines(time.Duration(i) * time.Second)})
+	}
+	seed(t, svc, f, rowOf("web-1", "app"), cached...)
+
+	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 100})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"0", "1", "2", "3", "4"}, messages(page.Records))
+	assert.True(t, page.After.More)
+	assert.Len(t, s.requests(), 3)
+	got := pagesFrom(t, svc, web1View, FetchHead, 100, page.After.Cursor)
+	assert.Equal(t, messages(linesOf(lineEvery(20)))[5:], recordsOf(got, FetchHead))
 }

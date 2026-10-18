@@ -23,7 +23,7 @@ import (
 // Backend reads streams' lines, so a read has one shape whoever serves it. A read
 // is a stream: the caller pulls its lines one at a time and cancels it once it
 // has what it needs, and once its lines close it says how it ended. Each read
-// keeps within o's bounds, budget and grep.
+// keeps within o's bounds, limits and grep.
 type Backend interface {
 	// Forward reads oldest first.
 	Forward(ctx context.Context, st stream, o readOpts) *streamRead

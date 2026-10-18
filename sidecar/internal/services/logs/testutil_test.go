@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -458,7 +459,8 @@ type logServer struct {
 	onRequest func(n int)
 	onOpen    func(key string)
 	// part is the most bytes of a message one line of the runtime's file holds: a
-	// longer one is split, and tailLines counts each part. Zero splits none.
+	// longer one is split, and tailLines counts each part. Zero splits none; it
+	// starts at 16 KiB, the runtime's default.
 	part int
 	// broken, when set, is how many lines the next read that follows nothing serves
 	// before its body fails.
@@ -474,7 +476,7 @@ type refusal struct {
 }
 
 func newLogServer() *logServer {
-	return &logServer{logs: map[string][]string{}, refuse: map[string]refusal{}, refuseReads: map[string]refusal{}, grew: map[string]chan struct{}{}, ended: map[string]bool{}, opened: map[string]int{}, closed: map[string]int{}}
+	return &logServer{part: 16 << 10, logs: map[string][]string{}, refuse: map[string]refusal{}, refuseReads: map[string]refusal{}, grew: map[string]chan struct{}{}, ended: map[string]bool{}, opened: map[string]int{}, closed: map[string]int{}}
 }
 
 // end ends key's follows, and any opened after.
@@ -743,6 +745,29 @@ func (s *logServer) serve(key string, q url.Values) (string, int, bool, *refusal
 		text = text[:min(n, len(text))]
 	}
 	return text, held, broken >= 0, nil
+}
+
+// The limits scaled down so a log of a few hundred lines reaches them: smallCaps
+// 1,024 times, and midCaps 64 times, under which a window's GET reads little past
+// its end next to what the window holds.
+var (
+	smallCaps = caps{stream: 16 << 10, gets: 16, query: 64 << 10, window: 4 << 10, minWindow: 64, part: 16}
+	midCaps   = caps{stream: 256 << 10, gets: 16, query: 1 << 20, window: 64 << 10, minWindow: 1 << 10, part: 256}
+)
+
+// limitsOf is the limits of a query's one stream under c.
+func limitsOf(c caps) *limits { return queryLimits(c, 1)[0] }
+
+// capsOf is the limits of a query that downloads n bytes at most, one stream or
+// many.
+func capsOf(n int64) caps {
+	return caps{stream: n, gets: 16, query: n, window: max(n/4, 1), minWindow: 16, part: 16}
+}
+
+// randomCaps is limits a seeded walk's logs of a few hundred bytes a stream reach.
+func randomCaps(rng *rand.Rand) caps {
+	stream := int64(2000 + rng.Intn(8000))
+	return caps{stream: stream, gets: 4 + rng.Intn(13), query: stream * int64(1+rng.Intn(6)), window: stream / 4, minWindow: 16, part: 16}
 }
 
 // claimOn is a claim on a cluster whose API server serves s.
@@ -1126,7 +1151,13 @@ func serviceBatched(t *testing.T, backend Backend, n int) (*Service, *fakeServic
 // every page.
 func pages(t *testing.T, svc *Service, view View, mode FetchMode, limit int) []Page {
 	t.Helper()
-	q := FetchQuery{Mode: mode, Limit: limit}
+	return pagesFrom(t, svc, view, mode, limit, nil)
+}
+
+// pagesFrom is pages from the cursor start, nil for the end mode starts at.
+func pagesFrom(t *testing.T, svc *Service, view View, mode FetchMode, limit int, start *string) []Page {
+	t.Helper()
+	q := FetchQuery{Mode: mode, Cursor: start, Limit: limit}
 	var out []Page
 	for range 100 {
 		page, err := svc.Fetch(t.Context(), "7", view, q)

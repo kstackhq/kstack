@@ -17,6 +17,7 @@ package logs
 import (
 	"errors"
 	"slices"
+	"sync/atomic"
 	"time"
 
 	"github.com/amorey/gochan/spsc"
@@ -25,8 +26,21 @@ import (
 )
 
 // maxWalkBudget is the bytes one page's walks of the file read, shared evenly across
-// its streams as maxBudget is: a sparse grep over a dense log walks far.
+// its streams; each stream's walk also reads what its fill downloaded, so a stream
+// read far is walked as far.
 const maxWalkBudget = 64 << 20
+
+// budget is the bytes a walk of the file may still read. A nil budget is no bound.
+type budget struct{ left atomic.Int64 }
+
+func newBudget(n int64) *budget {
+	b := &budget{}
+	b.left.Store(n)
+	return b
+}
+
+// spend takes n bytes, and is false once there were not n left.
+func (b *budget) spend(n int) bool { return b == nil || b.left.Add(-int64(n)) >= 0 }
 
 // walker walks one stream of one page's file: its lines from the page's bound in the
 // page's direction, bounded by the span the bound sits in with lost gaps crossed,

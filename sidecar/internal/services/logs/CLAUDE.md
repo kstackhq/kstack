@@ -76,19 +76,31 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   down is written once it ends. `AtEnd` goes only on a completed first window. A backward read is
   stopped between windows (`readOpts.more`, answered once the window's last batch is written),
   never inside one. **A backward read sizes its windows** (`windows.go`). Off the log's end it
-  reads one `tailLines` window, then windows of time ending where it began; under an upper bound,
-  windows of time alone. They start at the top of a second: the first is sized from the rate of
-  the lines just above the gap (`rateAbove`; ten seconds with none), to hold about the page's kept
-  lines with half again and at most 4 MiB, under half what the stream's budget has left. A window counts each line as the body carried it, before
-  cleaning (`readLine`'s size); a rate from the file estimates that (`wireBytes`). A window
-  checks the rate of its newest second as it reads; one due to hold four times the page, four
-  times its byte target, or more than the stream has left is stopped (`readItem.windowCut`), left
-  as an island, and replaced by a narrower one ending where it would have. A window that leaves
-  the read short is followed by an older one sized from its own rate, eight times longer after
-  silence. An `Around` page fills its `Head` half first; its `Tail` half reads back at that
-  half's rate and links up to its first line (`streamFill.up`). The walks read up to
-  `maxWalkBudget` (64 MiB) across the page's streams. A page never passes lines a stream did not
-  read: a short stop becomes the cut. **A change to a read path answers to
+  reads one `tailLines` window, read whole, then windows of time ending where it began; under an
+  upper bound, windows of time alone. They start at the top of a second: the first is sized from
+  the rate of the lines just above the gap (`rateAbove`; ten seconds with none), to hold about the
+  page's kept lines with half again and at most its byte target. A window counts each line as the
+  body carried it, before cleaning (`readLine`'s size); a rate from the file estimates that
+  (`wireBytes`). A window checks the rate of its newest second as it reads; one due to hold four
+  times the page or four times its byte target is stopped (`readItem.windowCut`), left as an
+  island, and replaced (`reader.replace`): from the second after its stop, by the one-second
+  window when stopped in its last second, or halved when stopped in its first, whose second then
+  bounds widening until a window from it completes. A window that leaves the read short is
+  followed by an older one sized from its own rate, eight times longer after silence. An `Around`
+  page fills its `Head` half first; its `Tail` half reads back at that half's rate and links up to
+  its first line (`streamFill.up`).
+- **A page reads within limits** (`limits.go`, `caps`): 16 MiB and 16 GETs a stream, 64 MiB a
+  query (each direction of a page is one). Each stream filled gets an allowance, the smaller of
+  16 MiB and 64 MiB ÷ streams, which it spends until its first window ends; the rest seeds a pool
+  shared by later windows. A window of time takes its byte target and reserves four times it
+  (`limits.take`); what it does not use goes back. A reservation is charged, not enforced. A fill
+  reads no gap past its stream's bytes or GETs, and gives back what it holds when it ends. A
+  backward read checks its limits only when a window completes, and is cut there; a forward read
+  is cut inside its GET, never before its first line in range. A follow's fill reads under the
+  smaller of 16 MiB and 64 MiB ÷ its streams (`followLimits`) and is cut only at a second's end.
+  Each walk reads its share of `maxWalkBudget` (64 MiB) plus what its fill downloaded. A page
+  never passes lines a stream did not read: a short stop becomes the cut, and a stream cut before
+  a line in range refuses the page. **A change to a read path answers to
   `TestPagesJoinWithoutLossOrRepeat` and `TestTheFileKeepsItsInvariant`** (seeded; fewer seeds
   under `-short`).
 - **A head read never links** (`rotatedAway`, which the filler and the tailer share;

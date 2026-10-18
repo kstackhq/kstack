@@ -18,12 +18,15 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io"
 	"math/rand"
+	"net/url"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -123,13 +126,11 @@ func TestFetchPagesThroughAMoment(t *testing.T) {
 }
 
 // Pages join: walked from either end through random logs with tied and sub-second
-// moments, under small limits and budgets and a grep, the pages hold every line
-// in range once, in order, each within its limit, whether the walk starts at an end
-// or at a line's cursor. Some streams lost moments to a rotation the file never saw,
-// and each hole between two lines the file holds rides on exactly one record, the
-// first past it the grep passes, with the hole's own two times. A page the budget refuses is the honest
-// answer to a view too wide for it, so the walk is asked again with twice the
-// budget, as a user would narrow the view. Every page resolves the view through
+// moments, under small limits and a grep, the pages hold every line in range once,
+// in order, each within its limit, whether the walk starts at an end or at a line's
+// cursor. Some streams lost moments to a rotation the file never saw, and each hole
+// between two lines the file holds rides on exactly one record, the first past it
+// the grep passes, with the hole's own two times. Every page resolves the view through
 // SQL the store parses afresh, so under the race detector the full sweep takes
 // minutes; -short walks a prefix of the seeds, and the stress run walks them all.
 func TestPagesJoinWithoutLossOrRepeat(t *testing.T) {
@@ -162,7 +163,7 @@ func TestPagesJoinWithoutLossOrRepeat(t *testing.T) {
 			// Every page resolves the view again; the mirror holds still, and SQLite
 			// parsing the same statements is most of what the walks cost.
 			f.answers = map[string]cluster.ClusterCachedDataQueryResult{}
-			svc.budget = int64(2000 + rng.Intn(8000))
+			svc.caps = randomCaps(rng)
 			f.chunk(1 + rng.Intn(64))
 			view := View{Sources: []ViewSource{{Namespace: "prod", Kind: SourceDeployment, Name: "web", AllContainers: true}}}
 			view.Grep = []string{"", "odd", "#.*7"}[rng.Intn(3)]
@@ -343,18 +344,13 @@ func carried(want, all, kept []Record, grep *regexp.Regexp) []Record {
 }
 
 // walk pages through view in mode from the end mode starts at, or from the cursor
-// start, and is every record in the order read, each page within its limit. A page
-// refused for budget starts the walk again with twice the budget.
+// start, and is every record in the order read, each page within its limit.
 func walk(t *testing.T, svc *Service, view View, mode FetchMode, limit int, start *string) []Record {
 	t.Helper()
 	q := FetchQuery{Mode: mode, Cursor: start, Limit: limit}
 	out := []Record{}
 	for range 1000 {
 		page, err := svc.Fetch(t.Context(), "7", view, q)
-		if err != nil && strings.Contains(err.Error(), "ran out of budget") {
-			svc.budget *= 2
-			return walk(t, svc, view, mode, limit, start)
-		}
 		require.NoError(t, err)
 		require.LessOrEqual(t, len(page.Records), limit)
 		if mode == FetchHead {
@@ -1018,30 +1014,6 @@ func TestFetchEndsWithItsContextAndWatchesNothing(t *testing.T) {
 	assert.Equal(t, []string{"a"}, messages(page.Records))
 }
 
-// Each stream of a fetch reads under its own share of the budget, so a stream whose
-// log is large cannot spend what a quiet one needs to read its start.
-func TestAFetchSharesItsBudgetPerStream(t *testing.T) {
-	t.Parallel()
-	s := newLogServer()
-	var noise []string
-	for i := range 200 {
-		noise = append(noise, stamped(time.Duration(i)*time.Millisecond, strings.Repeat("x", 100)))
-	}
-	s.add("prod/web-1/app", noise...)
-	s.add("prod/web-2/app", stamped(0, "match"))
-	svc, f := serviceOver(t, webMirror(t), s)
-	f.chunk(64)
-	svc.budget = 8 << 10
-	view := webView
-	view.Grep = "match"
-
-	page, err := svc.Fetch(t.Context(), "7", view, FetchQuery{Mode: FetchHead, Limit: 10})
-
-	require.NoError(t, err)
-	assert.Equal(t, []string{"match"}, messages(page.Records))
-	assert.True(t, page.After.More, "web-1 stopped short, so the page goes on from there")
-}
-
 // An Around page's halves read one resolve of the view, so they read the same
 // streams: one reading of the mirror to resolve, and one claim. Each window written
 // checks the stream's instance with a reading of its own.
@@ -1167,4 +1139,228 @@ func TestAnAroundPageNamesASkippedStreamOnce(t *testing.T) {
 	assert.Equal(t, []string{"a", "b"}, page.Skipped)
 	require.NotNil(t, page.Anchor)
 	assert.Equal(t, 3, *page.Anchor)
+}
+
+// A quiet stream cut when its last window that completed was empty has read no line
+// to be cut at, so the page is refused.
+func TestAnEmptyWindowsCutRefusesThePage(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(10)...)
+	svc, _ := serviceOver(t, webMirror(t), s)
+	svc.caps.gets = 3
+
+	_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Cursor: cursor(2 * time.Minute), Limit: 10})
+
+	assert.EqualError(t, err, "this page reached its limits before web-1/app was read past its start; narrow the view or its grep")
+}
+
+// A stream the pool let read far is walked as far: its walk reads its share of the
+// walks' budget and what its fill downloaded, so a sparse grep does not return an
+// empty page over lines already in the file.
+func TestTheWalkFollowsTheFill(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(0, "match"))
+	for i := range 100 {
+		s.add("prod/web-1/app", stamped(time.Duration(1+i)*time.Second, strings.Repeat("x", 80)))
+	}
+	svc, _ := serviceOver(t, webMirror(t), s)
+	svc.walkBudget = 1 << 10
+	view := webView
+	view.Grep = "^match"
+
+	page, err := svc.Fetch(t.Context(), "7", view, FetchQuery{Mode: FetchTail, Limit: 10})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"match"}, messages(page.Records))
+	assert.False(t, page.Before.More)
+}
+
+// hundredStreams is a mirror of a hundred pods of web, and the key of each one's
+// app container.
+func hundredStreams(t *testing.T) (*fakeService, []string) {
+	t.Helper()
+	f := webMirror(t)
+	addPods(t, f, 98)
+	keys := []string{"prod/web-1/app", "prod/web-2/app"}
+	for i := range 98 {
+		keys = append(keys, "prod/many-"+strconv.Itoa(i)+"/app")
+	}
+	return f, keys
+}
+
+// counting reads through the kubelet over a get whose bodies count the bytes read
+// from them in n.
+func counting(svc *Service, n *atomic.Int64) {
+	svc.backends = []namedBackend{{"kubelet", func(get getter) Backend {
+		return newKubelet(func(ctx context.Context, path string, q url.Values) (io.ReadCloser, error) {
+			body, err := get(ctx, path, q)
+			if err != nil {
+				return nil, err
+			}
+			return countedBody{body, n}, nil
+		})
+	}}}
+}
+
+// countedBody counts the bytes read from it in n.
+type countedBody struct {
+	io.ReadCloser
+	n *atomic.Int64
+}
+
+func (b countedBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	b.n.Add(int64(n))
+	return n, err
+}
+
+// A sparse grep over a hundred logs shares the query's limit: the first page
+// downloads about the query's bytes and what its GETs read past their windows, not
+// every log. Under smallCaps, a hundred 36 KiB logs and a 64 KiB query.
+func TestFirstWindowsShareTheLimit(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	f, keys := hundredStreams(t)
+	for _, key := range keys {
+		s.add(key, wideLines(300, 100)...)
+	}
+	svc, _ := serviceOver(t, f, s)
+	svc.caps = smallCaps
+	var n atomic.Int64
+	counting(svc, &n)
+	view := webView
+	view.Grep = "never"
+
+	page, err := svc.Fetch(t.Context(), "7", view, FetchQuery{Mode: FetchTail, Limit: 10})
+
+	require.NoError(t, err)
+	assert.True(t, page.Before.More)
+	// A GET reads at most a 4 KiB buffer past its window, and a stream sends at most
+	// three before it is cut.
+	assert.Less(t, n.Load(), smallCaps.query+100*3*(4<<10))
+}
+
+// A sparse grep over several logs past a stream's limit pages on with more until
+// every stream reaches its first line, none stopped. Four 12 KiB logs under
+// smallCaps, three GETs a stream.
+func TestAGrepWithNoMatchPagesToEveryFirstLine(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	f := webMirror(t)
+	addPods(t, f, 2)
+	for _, key := range []string{"prod/web-1/app", "prod/web-2/app", "prod/many-0/app", "prod/many-1/app"} {
+		s.add(key, wideLines(100, 100)...)
+	}
+	svc, _ := serviceOver(t, f, s)
+	svc.caps = smallCaps
+	svc.caps.gets = 3
+	view := webView
+	view.Grep = "never"
+
+	got := pages(t, svc, view, FetchTail, 10)
+
+	assert.Greater(t, len(got), 1, "cut")
+	for _, p := range got {
+		assert.Empty(t, p.Records)
+		assert.Empty(t, p.Skipped)
+	}
+	assert.False(t, got[len(got)-1].Before.More)
+}
+
+// A grep with no match over one stream reads back to the log's first line: the
+// page answers no record and no more.
+func TestAGrepWithNoMatchReadsToTheFirstLine(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(1000)...)
+	svc, _ := serviceOver(t, webMirror(t), s)
+	view := web1View
+	view.Grep = "never"
+
+	page, err := svc.Fetch(t.Context(), "7", view, FetchQuery{Mode: FetchTail, Limit: 10})
+
+	require.NoError(t, err)
+	assert.Empty(t, page.Records)
+	assert.False(t, page.Before.More)
+}
+
+// A stream is cut at its limits, backward and forward, and each next page goes on
+// from its cut: a sparse grep over 640 KiB under limits scaled down 64 times reads
+// every match over several pages.
+func TestAStreamsCutsJoin(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []FetchMode{FetchTail, FetchHead} {
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			s := newLogServer()
+			var log []string
+			var want []string
+			for i := range 320 {
+				msg := strconv.Itoa(i) + strings.Repeat("x", 2<<10)
+				if i%40 == 7 {
+					msg = "match " + strconv.Itoa(i)
+					want = append(want, msg)
+				}
+				log = append(log, stamped(time.Duration(i)*time.Second, msg))
+			}
+			s.add("prod/web-1/app", log...)
+			svc, _ := serviceOver(t, webMirror(t), s)
+			svc.caps = midCaps
+			view := web1View
+			view.Grep = "^match"
+
+			got := pages(t, svc, view, mode, 100)
+
+			assert.Greater(t, len(got), 1, "cut")
+			assert.Equal(t, want, recordsOf(got, mode))
+		})
+	}
+}
+
+// gated is a Backend that runs wait before each read it hands to b.
+type gated struct {
+	b    Backend
+	wait func(st stream, o readOpts)
+}
+
+func (w gated) Forward(ctx context.Context, st stream, o readOpts) *streamRead {
+	w.wait(st, o)
+	return w.b.Forward(ctx, st, o)
+}
+
+func (w gated) Backward(ctx context.Context, st stream, o readOpts) *streamRead {
+	w.wait(st, o)
+	return w.b.Backward(ctx, st, o)
+}
+
+func (w gated) Tail(ctx context.Context, st stream, o readOpts) *streamRead {
+	w.wait(st, o)
+	return w.b.Tail(ctx, st, o)
+}
+
+// A fill that ends early gives back what it holds, so the streams still reading may
+// spend it: web-2's one line is read in its first window, and web-1's read begins
+// only once the pool holds more than its seed, which web-2's allowance alone adds.
+func TestAFillThatEndsEarlyReturnsItsAllowance(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(10)...)
+	s.add("prod/web-2/app", stamped(0, "quiet"))
+	svc, _ := serviceOver(t, webMirror(t), s)
+	svc.caps = smallCaps
+	seeded := smallCaps.query - 2*smallCaps.stream
+	svc.backends = []namedBackend{{"kubelet", func(get getter) Backend {
+		return gated{newKubelet(get), func(st stream, o readOpts) {
+			if st.key.Pod == "web-1" {
+				assert.Eventually(t, func() bool { return o.limits.pool.load() > seeded }, testutil.Timeout, time.Millisecond)
+			}
+		}}
+	}}}
+
+	page, err := svc.Fetch(t.Context(), "7", webView, FetchQuery{Mode: FetchTail, Limit: 100})
+
+	require.NoError(t, err)
+	assert.Len(t, page.Records, 11)
 }

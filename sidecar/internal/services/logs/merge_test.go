@@ -297,9 +297,8 @@ func TestAFullMergeReadsNoFurther(t *testing.T) {
 	assert.Equal(t, []string{"a0"}, messages(testutil.Recv(t, got, "the merge to end")))
 }
 
-// A stream that ran out of budget before it read a line in range leaves no point
-// a next page could go on from, so the page is refused rather than read as the
-// end.
+// A stream cut by its limits before it read a line in range leaves no point a next
+// page could go on from, so the page is refused rather than read as the end.
 func TestAStreamStoppedAtItsStartRefusesThePage(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
@@ -308,7 +307,7 @@ func TestAStreamStoppedAtItsStartRefusesThePage(t *testing.T) {
 		endedShort(StreamKey{Pod: "b", Container: "app"}, nil),
 	}, FetchHead, 10)
 
-	assert.EqualError(t, err, "this page ran out of budget before b/app was read past its start; narrow the view or its grep")
+	assert.EqualError(t, err, "this page reached its limits before b/app was read past its start; narrow the view or its grep")
 }
 
 // A page whose context ends mid-merge fails with it rather than reading as the

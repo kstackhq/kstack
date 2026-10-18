@@ -91,7 +91,7 @@ func mergePage(ctx context.Context, readings []*streamRead, mode FetchMode, limi
 		case errors.Is(r.err, errRetired):
 			return merge{}, errReplaced
 		default:
-			return merge{}, Refusal{"this page ran out of budget before " + r.key.Pod + "/" + r.key.Container + " was read past its start; narrow the view or its grep"}
+			return merge{}, Refusal{"this page reached its limits before " + r.key.Pod + "/" + r.key.Container + " was read past its start; narrow the view or its grep"}
 		}
 	}
 	// A page past the limit is cut at the far end, and the cursor is the last line kept.

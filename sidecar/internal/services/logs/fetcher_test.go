@@ -18,7 +18,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"math"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -373,36 +372,60 @@ func TestALineNotTakenIsNotRead(t *testing.T) {
 	assert.Equal(t, lineAt(web.key, 0, 0), read.last)
 }
 
-// A forward read that spends its budget stops at the last line it read whole.
-func TestAForwardReadStopsAtTheBudget(t *testing.T) {
+// A forward read is cut once it has spent its allowance and the pool, at the last
+// line it read.
+func TestAForwardReadIsCutAtItsLimit(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", lineEvery(1000)...)
+	c := smallCaps
+	c.query = 8 << 10
 
-	r := readForward(t.Context(), s.get, web, readOpts{budget: newBudget(4 << 10)})
+	r := readForward(t.Context(), s.get, web, readOpts{limits: limitsOf(c)})
 
 	recs := drain(r)
-	assert.NotEmpty(t, recs)
-	assert.Equal(t, positionOf(recs[len(recs)-1]), r.stop)
 	assert.NoError(t, r.err)
 	assert.True(t, r.short)
-	assert.Equal(t, "app", r.stop.Container)
-	assert.True(t, r.stop.Timestamp.After(at(0)))
-	assert.True(t, r.stop.Timestamp.Before(at(999*time.Second)))
+	assert.Equal(t, positionOf(recs[len(recs)-1]), r.stop)
+	// 8 KiB is about 330 lines, as the body arrives a buffer at a time.
+	assert.Less(t, len(recs), 400)
+	assert.Greater(t, len(recs), 300)
 }
 
-// A forward read whose budget is spent before its first whole line has no stop: it
-// read nothing in range.
-func TestAForwardReadSpentBeforeItsFirstLineHasNoStop(t *testing.T) {
+// A forward read is never cut before its first line in range: the lines of its
+// second before the bound are read and charged, and the first line past them goes
+// out before the cut.
+func TestAForwardReadIsNeverCutBeforeItsFirstLine(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
-	s.add("prod/web/app", stamped(time.Second, strings.Repeat("x", 8<<10)))
+	s.add("prod/web/app", stamped(time.Second, strings.Repeat("x", 900)), stamped(1500*time.Millisecond, "in range"), stamped(2*time.Second, "past"))
+	c := smallCaps
+	c.query = 512
 
-	r := readForward(t.Context(), s.get, web, readOpts{since: from(time.Second), budget: newBudget(1 << 10)})
+	r := readForward(t.Context(), s.get, web, readOpts{since: bound{lineAt(web.key, time.Second, 0), false}, limits: limitsOf(c)})
 
-	assert.Empty(t, drain(r))
+	assert.Equal(t, []string{"in range"}, messages(drain(r)))
 	assert.True(t, r.short)
-	assert.True(t, r.stop.isZero())
+	assert.Equal(t, lineAt(web.key, 1500*time.Millisecond, 0), r.stop)
+}
+
+// A follow's fill reads every second whole: no second stops it, and it is cut at
+// the end of the second it spent its share in.
+func TestAFollowsFillIsCutAtTheEndOfASecond(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	for i := range 50 {
+		s.add("prod/web/app", stamped(time.Duration(i)*100*time.Millisecond, strings.Repeat("x", 200)))
+	}
+	c := smallCaps
+	c.query = 1 << 10
+
+	r := readForward(t.Context(), s.get, web, readOpts{limits: followLimits(c, 1)})
+
+	recs := drain(r)
+	assert.NoError(t, r.err)
+	assert.Len(t, recs, 10)
+	assert.Equal(t, lineAt(web.key, 900*time.Millisecond, 0), r.stop)
 }
 
 // lineEvery is n lines a second apart from 10:00, saying their index.
@@ -427,9 +450,9 @@ func TestABodyThatFailsEndsTheRead(t *testing.T) {
 	assert.EqualError(t, r.err, "reset")
 }
 
-// backwardOpts is a backward read in windows of 10 lines, with budget to spare.
+// backwardOpts is a backward read in windows of 10 lines, with no limits.
 func backwardOpts() readOpts {
-	return readOpts{batch: 10, budget: newBudget(32 << 20)}
+	return readOpts{batch: 10}
 }
 
 // tails is the tailLines of each request after the first, which finds the first
@@ -449,7 +472,10 @@ func TestABackwardReadNeedsTwoWindows(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", lineEvery(15)...)
-	r := readBackward(t.Context(), s.get, web, backwardOpts())
+	o := backwardOpts()
+	o.limits = limitsOf(defaultCaps)
+
+	r := readBackward(t.Context(), s.get, web, o)
 
 	assert.Equal(t, []string{"9|", "3|", "1|", "2|"}, shape(r))
 	require.NoError(t, r.err)
@@ -461,8 +487,8 @@ func TestABackwardReadNeedsTwoWindows(t *testing.T) {
 }
 
 // After the tailLines window the read goes on in windows of time, each sized to
-// hold at most the byte target: a sparse read over a 250 KiB log reaches its first
-// line in one.
+// hold at most the window cap: under limits scaled down 64 times, a sparse read
+// over a 250 KiB log reaches its first line in four windows.
 func TestTheTailLinesWindowIsFollowedByTimeWindows(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
@@ -470,15 +496,41 @@ func TestTheTailLinesWindowIsFollowedByTimeWindows(t *testing.T) {
 		s.add("prod/web/app", stamped(time.Duration(i)*10*time.Millisecond, strings.Repeat("x", 76)))
 	}
 	o := backwardOpts()
-	o.batch, o.grep = 501, regexp.MustCompile("never")
+	o.batch, o.grep, o.limits = 501, regexp.MustCompile("never"), limitsOf(midCaps)
 
 	r := readBackward(t.Context(), s.get, web, o)
 
 	// The tailLines window leaves the lines of the moment it began in to the next.
-	assert.Equal(t, []string{"500|", "2000|"}, shape(r))
+	assert.Equal(t, []string{"500|", "800|", "700|", "500|"}, shape(r))
 	require.NoError(t, r.err)
 	assert.True(t, r.head)
-	assert.Equal(t, []string{"501", ""}, tails(s))
+	assert.Equal(t, []string{"501", "", "", ""}, tails(s))
+}
+
+// The tailLines window is read whole, whatever it holds: a runtime that does not
+// split long lines serves whole lines for the parts asked for, so the window reads
+// past the allowance.
+func TestTheTailLinesWindowIsReadWhole(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.part = 0
+	for i := range 100 {
+		s.add("prod/web/app", stamped(time.Duration(i)*time.Millisecond, strings.Repeat("x", 256)))
+	}
+	c := smallCaps
+	c.stream = 1 << 10
+	o := backwardOpts()
+	o.batch, o.limits = 501, limitsOf(c)
+	o.more = func(context.Context) bool { return false }
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	// What the first line's read left of the allowance, in parts: 57 lines, the
+	// first left to the next window.
+	assert.Equal(t, []string{"56|"}, shape(r))
+	require.NoError(t, r.err)
+	assert.Equal(t, []string{"57"}, tails(s))
+	assert.Greater(t, o.limits.spent, c.stream)
 }
 
 // A backward read hands over each window oldest first and its end after its last
@@ -705,7 +757,9 @@ func TestABackwardReadThatReachesTheFirstLineSaysHead(t *testing.T) {
 	o.since = from(5 * time.Second)
 	assert.False(t, read(o).head, "stopped at since")
 	o = backwardOpts()
-	o.budget = newBudget(400)
+	c := smallCaps
+	c.gets = 2
+	o.limits = limitsOf(c)
 	r := read(o)
 	assert.True(t, r.short)
 	assert.False(t, r.head, "short")
@@ -871,42 +925,77 @@ func TestABackwardReadOutgrowsAGrowingLog(t *testing.T) {
 	assert.Equal(t, "10", strings.Join(tails(s), ""))
 }
 
-// A backward read that spends its budget stops at the oldest line of the last window
-// it read whole; a window the budget cut short goes out without its end, and a read
-// that read no window whole has no stop. Each line is 24 bytes, the first read 100,
-// and a window of ten lines 240. Under until, a ten-second window due to run past the
-// budget is stopped after its first line and replaced by the last second's.
-func TestABackwardReadStopsAtTheBudget(t *testing.T) {
+// A backward read is cut at the end of a window once it has spent its bytes or
+// sent its GETs, or its next window would be sized under the least, at the oldest
+// line of that window. Each log is 200 lines a second apart, read back from the
+// last.
+func TestABackwardReadIsCutAtItsLimits(t *testing.T) {
 	t.Parallel()
 	for name, tc := range map[string]struct {
-		budget   int64
-		until    bound
-		lines    []string
-		stop     position
-		requests int
+		lines   []string
+		limits  *limits
+		batch   int64
+		grep    string
+		near    rate
+		windows int
+		stop    position
 	}{
-		"after a whole window":    {budget: 400, lines: []string{"99", "98", "97", "96", "95", "94", "93", "92", "91", "90", "89", "88"}, stop: lineAt(web.key, 89*time.Second, 0), requests: 4},
-		"inside the first window": {budget: 200, lines: []string{"99", "98", "97", "96", "95", "94", "93", "92", "91"}, requests: 2},
-		"under until":             {budget: 200, until: to(50 * time.Second), lines: []string{"50", "49", "40"}, stop: lineAt(web.key, 49*time.Second, 0), requests: 3},
-		"inside the first span":   {budget: 110, until: to(99 * time.Second), lines: []string{"99", "98", "89"}, requests: 3},
-		"finding the first line":  {budget: 50, lines: []string{}, requests: 1},
+		// Lines of 2 KiB under limits scaled down 64 times: four windows of about
+		// 64 KiB reach 256 KiB.
+		"bytes": {
+			lines: wideLines(200, 2<<10), limits: limitsOf(midCaps), batch: 10, grep: "never", near: rate{bytes: 2071},
+			windows: 4, stop: lineAt(web.key, 77*time.Second, 0),
+		},
+		// Windows of two seconds, each holding the one line the read needs.
+		"GETs": {
+			lines: halfPast(200), limits: limitsOf(defaultCaps), batch: 1, near: rate{kept: 1, bytes: 205},
+			windows: 15, stop: lineAt(web.key, 169*time.Second+500*time.Millisecond, 0),
+		},
+		// One of a hundred streams, whose first window leaves the pool under four
+		// times the least window.
+		"the least window": {
+			lines: wideLines(200, 180), limits: queryLimits(smallCaps, 100)[0], batch: 10, grep: "never", near: rate{bytes: 202},
+			windows: 1, stop: lineAt(web.key, 198*time.Second, 0),
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			s := newLogServer()
-			s.add("prod/web/app", lineEvery(100)...)
+			s.add("prod/web/app", tc.lines...)
 			o := backwardOpts()
-			o.budget, o.until = newBudget(tc.budget), tc.until
+			o.batch, o.limits, o.until, o.near = tc.batch, tc.limits, to(199*time.Second), &tc.near
+			if tc.grep != "" {
+				o.grep = regexp.MustCompile(tc.grep)
+			}
 
 			r := readBackward(t.Context(), s.get, web, o)
 
-			recs := newestFirst(drain(r))
+			got := shape(r)
 			assert.NoError(t, r.err)
-			assert.Equal(t, tc.lines, messages(recs))
+			assert.Len(t, got, tc.windows, "windows: %v", got)
 			assert.True(t, r.short)
 			assert.Equal(t, tc.stop, r.stop)
-			assert.Len(t, s.requests(), tc.requests)
 		})
 	}
+}
+
+// halfPast is n lines a second apart from half past 10:00:00, saying their index.
+func halfPast(n int) []string {
+	out := make([]string, n)
+	for i := range out {
+		out[i] = stamped(time.Duration(i)*time.Second+500*time.Millisecond, strconv.Itoa(i))
+	}
+	return out
+}
+
+// wideLines is n lines a second apart from 10:00, each its index padded to size.
+func wideLines(n, size int) []string {
+	out := make([]string, n)
+	for i := range out {
+		msg := strconv.Itoa(i)
+		out[i] = stamped(time.Duration(i)*time.Second, msg+strings.Repeat("x", size-len(msg)))
+	}
+	return out
 }
 
 // A backward read under until reads windows of time ending there, each from its
@@ -1133,6 +1222,37 @@ func shape(r *streamRead) []string {
 	return out
 }
 
+// filling makes o's read stop once the windows read whole hold need lines, as a
+// fill does, answering more at each window's end, and is the shape of what the read
+// sent. A read that ends without asking leaves one answer unread.
+func filling(o *readOpts, need int) func(r *streamRead) []string {
+	answers := make(chan bool, 1)
+	o.more = func(ctx context.Context) bool {
+		select {
+		case ok := <-answers:
+			return ok
+		case <-ctx.Done():
+			return false
+		}
+	}
+	return func(r *streamRead) []string {
+		var out []string
+		n, held := 0, 0
+		for it := range r.lines.Chan() {
+			switch {
+			case it.windowEnd:
+				out, held, n = append(out, strconv.Itoa(n)+"|"), held+n, 0
+				answers <- held < need
+			case it.windowCut:
+				out, n = append(out, strconv.Itoa(n)+"/"), 0
+			default:
+				n++
+			}
+		}
+		return out
+	}
+}
+
 // burst is a log of a line every 100ms for 65s, then 5,000 lines a second for 10s,
 // and the point just after it.
 func burst(s *logServer) bound {
@@ -1146,9 +1266,10 @@ func burst(s *logServer) bound {
 }
 
 // A window guessed far too long for a burst just before the point is stopped once it
-// expects four times what the read needs, left as an island, and replaced by one
-// sized from the rate of its newest second; a one-second window is read whole.
-func TestABusyWindowIsStoppedAndNarrowed(t *testing.T) {
+// expects four times what the read needs, and replaced from the second after its
+// stop. That window is stopped in its first second, which shows that second dense,
+// and is halved down to the one-second window at the point, which is read whole.
+func TestABusyWindowIsReplacedFromItsStop(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	o := backwardOpts()
@@ -1157,9 +1278,33 @@ func TestABusyWindowIsStoppedAndNarrowed(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, o)
 
-	assert.Equal(t, []string{"766/", "501/", "5000|"}, shape(r))
+	assert.Equal(t, []string{"766/", "501/", "501/", "501/", "501/", "5000|"}, shape(r))
 	require.NoError(t, r.err)
-	assert.Equal(t, []string{"2026-10-08T10:00:00Z", "2026-10-08T10:01:08Z", "2026-10-08T10:01:14Z"}, sinces(s))
+	assert.Equal(t, []string{
+		"2026-10-08T10:00:00Z", "2026-10-08T10:01:06Z", "2026-10-08T10:01:10Z",
+		"2026-10-08T10:01:12Z", "2026-10-08T10:01:13Z", "2026-10-08T10:01:14Z",
+	}, sinces(s))
+}
+
+// A stopped window is replaced the same way under limits: the replacement is sized
+// from what the pool holds before its own reservation, so a pool the stopped
+// window's reservation drained does not make every replacement the one-second
+// window.
+func TestABusyWindowIsReplacedFromItsStopUnderLimits(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	o := backwardOpts()
+	o.batch, o.until, o.near, o.limits = 501, burst(s), &rate{kept: 10, bytes: 400}, queryLimits(defaultCaps, 4)[0]
+	o.more = func(context.Context) bool { return false }
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	assert.Equal(t, []string{"766/", "501/", "501/", "501/", "501/", "5000|"}, shape(r))
+	require.NoError(t, r.err)
+	assert.Equal(t, []string{
+		"2026-10-08T10:00:00Z", "2026-10-08T10:01:06Z", "2026-10-08T10:01:10Z",
+		"2026-10-08T10:01:12Z", "2026-10-08T10:01:13Z", "2026-10-08T10:01:14Z",
+	}, sinces(s))
 }
 
 // A stopped window is not the read's edge: a read that fails after the window that
@@ -1170,59 +1315,111 @@ func TestAStoppedWindowIsNotTheEdge(t *testing.T) {
 	o := backwardOpts()
 	o.batch, o.until, o.near = 501, burst(s), &rate{kept: 10, bytes: 400}
 	s.onRequest = func(n int) {
-		if n == 4 {
+		if n == 7 {
 			s.setRefusal("prod/web/app", &refusal{503, "unavailable"})
 		}
 	}
 
 	r := readBackward(t.Context(), s.get, web, o)
 
-	assert.Equal(t, []string{"766/", "501/", "5000|"}, shape(r))
+	assert.Equal(t, []string{"766/", "501/", "501/", "501/", "501/", "5000|"}, shape(r))
 	assert.True(t, r.short)
 	assert.Equal(t, lineAt(web.key, 74*time.Second, 0), r.stop)
 }
 
-// A window due to run past what the stream has left of its budget is stopped while
-// budget remains, and a narrower one completes.
-func TestAWindowDueToRunPastTheBudgetIsStopped(t *testing.T) {
+// A window sized to a reach of one second is the one-second window: the second its
+// end lies in, or the one before when its end is a second's top.
+func TestAOneSecondWindowIsOneSecondOfTheClock(t *testing.T) {
 	t.Parallel()
-	s := newLogServer()
-	for i := range 20000 {
-		s.add("prod/web/app", stamped(time.Duration(i)*10*time.Millisecond, "0123456789"))
-	}
-	o := backwardOpts()
-	o.batch, o.until, o.grep = 100, to(200*time.Second), regexp.MustCompile("never")
-	o.budget, o.near = newBudget(400<<10), &rate{bytes: 1365}
-	o.more = func(context.Context) bool { return false }
-
-	r := readBackward(t.Context(), s.get, web, o)
-
-	assert.Equal(t, []string{"2936/", "4400|"}, shape(r))
-	require.NoError(t, r.err)
-	assert.False(t, o.budget.spent())
+	assert.Equal(t, at(50*time.Second), startOf(at(50*time.Second+300*time.Millisecond), time.Second, at(0)))
+	assert.Equal(t, at(49*time.Second), startOf(at(50*time.Second), time.Second, at(0)))
+	assert.Equal(t, at(50*time.Second+100*time.Millisecond), startOf(at(50*time.Second+300*time.Millisecond), time.Second, at(50*time.Second+100*time.Millisecond)))
 }
 
-// A window is sized under half of what the stream has left of its budget, since it is
-// rounded up to a whole second.
-func TestAWindowIsSizedUnderHalfTheBudgetLeft(t *testing.T) {
+// A dense second far from the point stops the window that reaches it there; the
+// window from the second after it completes, the window that ends at the second is
+// stopped in its last second, and the one-second window reads it whole. No window
+// starts at a second it already read.
+func TestADenseSecondFarFromThePoint(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
-	s.add("prod/web/app", lineEvery(1000)...)
+	for i := range 60 {
+		s.add("prod/web/app", stamped(time.Duration(i)*time.Second, "quiet"))
+	}
+	for i := range 5000 {
+		s.add("prod/web/app", stamped(60*time.Second+time.Duration(i)*200*time.Microsecond, "dense"))
+	}
+	for i := range 30 {
+		s.add("prod/web/app", stamped(time.Duration(61+i)*time.Second, "quiet"))
+	}
 	o := backwardOpts()
-	o.until, o.near, o.grep = to(500*time.Second), &rate{bytes: 1000}, regexp.MustCompile("never")
-	o.budget = newBudget(200_000 + firstBytes)
-	o.more = func(context.Context) bool { return false }
+	o.batch, o.until, o.near = 501, after(91*time.Second), &rate{kept: 1, bytes: 30}
+	o.limits = limitsOf(defaultCaps)
+	shape := filling(&o, 501)
 
 	r := readBackward(t.Context(), s.get, web, o)
 
-	drain(r)
+	got := shape(r)
 	require.NoError(t, r.err)
-	assert.Equal(t, []string{"2026-10-08T10:06:40Z"}, sinces(s))
+	assert.False(t, r.short)
+	assert.Equal(t, []string{"501/", "30|", "1151/", "5000|"}, got)
+	assert.Equal(t, []string{"2026-10-08T10:00:00Z", "2026-10-08T10:01:01Z", "2026-10-08T10:00:00Z", "2026-10-08T10:01:00Z"}, sinces(s))
+}
+
+// A dense stretch far from the point is found by halving: each window stopped in its
+// first second is halved toward the point, and the newest such second bounds the
+// windows widened after a quiet one, so the read reaches the stretch's newest second
+// as the one-second window. Here five seconds of 2,000 lines, a line every ten
+// seconds from a minute later, and the point ten minutes on.
+func TestADenseStretchFarFromThePoint(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	for sec := range 5 {
+		for i := range 2000 {
+			s.add("prod/web/app", stamped(time.Duration(sec)*time.Second+time.Duration(i)*500*time.Microsecond, "dense"))
+		}
+	}
+	for i := 6; i < 60; i++ {
+		s.add("prod/web/app", stamped(time.Duration(i)*10*time.Second, "quiet"))
+	}
+	o := backwardOpts()
+	o.batch, o.until, o.near = 501, after(10*time.Minute), &rate{kept: 0.1, bytes: 3}
+	shape := filling(&o, 501)
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	got := shape(r)
+	require.NoError(t, r.err)
+	assert.Equal(t, "2000|", got[len(got)-1], "the stretch's newest second whole: %v", got)
+	assert.Equal(t, "2026-10-08T10:00:04Z", sinces(s)[len(got)-1])
+	assert.LessOrEqual(t, len(got), 2*10, "about two GETs a halving of the ten minutes: %v", got)
+}
+
+// A chain of stops ends: once the stream has sent its GETs, a stopped window is
+// replaced by the one-second window, which completes, and the read is cut at its
+// oldest line. A rate near nothing sizes every window to the whole log, and each is
+// stopped at its first line.
+func TestAChainOfStopsEnds(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web/app", lineEvery(60)...)
+	c := defaultCaps
+	c.gets = 6
+	o := backwardOpts()
+	o.batch, o.until, o.near, o.limits = 1, to(59*time.Second), &rate{kept: 1e-6, bytes: 1e-6}, limitsOf(c)
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	assert.Equal(t, []string{"1/", "1/", "1/", "1/", "1/", "2|"}, shape(r))
+	require.NoError(t, r.err)
+	assert.True(t, r.short)
+	assert.Equal(t, lineAt(web.key, 58*time.Second, 0), r.stop)
+	assert.Len(t, s.requests(), 7)
 }
 
 // A window counts each line as the body carried it, before the message is cleaned
-// and cut: a log of 200 KiB lines, which the file keeps as 16 KiB, still stops its
-// window while budget remains.
+// and cut: a log of 200 KiB lines, which the file keeps as 16 KiB, stops a window
+// sized for 4 MiB.
 func TestAWindowCountsTheBytesItsBodyCarried(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
@@ -1232,34 +1429,23 @@ func TestAWindowCountsTheBytesItsBodyCarried(t *testing.T) {
 	}
 	o := backwardOpts()
 	o.batch, o.until, o.grep = 100, to(99*time.Second), regexp.MustCompile("never")
-	o.budget, o.near = newBudget(2<<20+firstBytes), &rate{bytes: 1000}
+	o.limits, o.near = limitsOf(defaultCaps), &rate{bytes: 1000}
 	o.more = func(context.Context) bool { return false }
 
 	r := readBackward(t.Context(), s.get, web, o)
 
 	got := shape(r)
 	require.NoError(t, r.err)
-	require.Len(t, got, 2)
 	assert.True(t, strings.HasSuffix(got[0], "/"), "stopped: %v", got)
-	assert.True(t, strings.HasSuffix(got[1], "|"), "completed: %v", got)
-	assert.False(t, o.budget.spent())
-}
-
-// A read with no budget has every byte left, and its windows are sized to the byte
-// target alone.
-func TestNoBudgetLeavesEveryByte(t *testing.T) {
-	t.Parallel()
-	var b *budget
-	assert.Equal(t, int64(math.MaxInt64), b.remaining())
-	assert.Equal(t, int64(byteTarget), (&reader{}).target())
+	assert.True(t, strings.HasSuffix(got[len(got)-1], "|"), "completed: %v", got)
 }
 
 // A window with no line widens eight times, up to as far as a duration goes.
 func TestAnEmptyWindowWidensEightTimes(t *testing.T) {
 	t.Parallel()
 	r := &reader{}
-	assert.Equal(t, 80*time.Second, r.widen(sample{}, 10*time.Second, 0))
-	assert.Equal(t, maxReach, r.widen(sample{}, maxReach/4, 0))
+	assert.Equal(t, 80*time.Second, r.widen(sample{}, 10*time.Second, 0, byteTarget))
+	assert.Equal(t, maxReach, r.widen(sample{}, maxReach/4, 0, byteTarget))
 }
 
 // A read cancelled as it stops a window ends clean, with no end sent for the window.
