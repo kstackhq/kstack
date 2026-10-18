@@ -101,8 +101,9 @@ These are decided across the ladder. A rung that needs to revisit one says so in
 | 3 | The screen rides with the question | [3-the-screen-rides-with-the-question.md](3-the-screen-rides-with-the-question.md) |
 | 4 | `LogsRead`: what the model read, frozen | [4-logsread.md](4-logsread.md) |
 | 5 | Select, then ask | [5-select-then-ask.md](5-select-then-ask.md) |
-| 6 | A watch is a background task | — |
-| 7 | The dashboard's target | — |
+| 6 | Durations are ISO 8601 | [6-durations-are-iso-8601.md](6-durations-are-iso-8601.md) |
+| 7 | A watch is a background task | [7-a-watch-is-a-background-task.md](7-a-watch-is-a-background-task.md) |
+| 8 | The dashboard's target | — |
 
 **Rung 1 has landed.** `LogsView` and `LogsViewAction` are on the schema, `tools/logsview` checks
 a view against the mirror and answers a receipt, and the webview draws the call as a card whose
@@ -123,13 +124,15 @@ around this*.
 **Rung 5 — select, then ask.** Selected lines ride every send under a chip whose × takes them
 out.
 
-**Rung 6 — a watch is a background task.** *Tell me when it throws again* starts a background
-task of the chat, like a command with `run_in_background`: the sidecar matches the stream, the
-match ends the task, and its end is a notice on the next question or a turn of its own, as an
-agent's end is today. The model wakes once and reads the matching lines. Open: what a match is,
-how long a watch lives, and how the user stops one.
+**Rung 6 — durations are ISO 8601.** Every moment a log tool takes is an RFC 3339 time or an
+ISO 8601 duration such as `PT15M`, applied on the calendar in the direction the field runs;
+Go's `15m` is refused.
 
-**Rung 7 — the dashboard's target.** On the dashboard the chat is the right sidebar, so a view
+**Rung 7 — a watch is a background task.** The model calls `LogsWatch` on a view with a pattern,
+a start and limits on lines, bytes and time; the sidecar follows the view as a background task
+and, when a limit is reached, wakes the model once with the lines and cursors to read around.
+
+**Rung 8 — the dashboard's target.** On the dashboard the chat is the right sidebar, so a view
 there expands into `<main>` as a resource panel beside the tables. Open: whether that is a
 `resource` value or a panel of its own, and whether a view opened in chat mode follows the window
 to the dashboard.
@@ -148,5 +151,7 @@ Fixed here so the rungs agree. Go paths are under `sidecar/internal/`.
 - **A sample**: a `LogsRead` call's `output`, bounded lines the model read. Rung 4 introduces it.
 - **A snapshot**: what the composer attaches to a send about the focused view. Rung 3 introduces
   it.
-- **`tools/logsview`**, **`tools/logsread`**: the two tools, beside `tools/kubequery`, which is the
-  reference for a tool that reads the mirror and asks no one.
+- **A watch**: a `LogsWatch` call's background task, which follows a view until it holds its
+  limit of matching lines or its time is up, then wakes the model once. Rung 7 introduces it.
+- **`tools/logsview`**, **`tools/logsread`**, **`tools/logswatch`**: the three tools, beside
+  `tools/kubequery`, which is the reference for a tool that reads the mirror and asks no one.
