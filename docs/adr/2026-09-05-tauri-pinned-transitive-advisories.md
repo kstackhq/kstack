@@ -34,13 +34,21 @@ merely unreleased: `urlpattern` 0.4.0 replaced `unic-ucd-ident` with `icu_proper
 still pins `0.3`, and 0.3 → 0.4 is semver-incompatible for a `0.x` crate, so no `cargo update`
 reaches it.
 
-We pin none of these. `tao`, `wry`, `tauri`, `muda` and `libappindicator` bring in the GTK 3 line,
+**The zbus 5 crates, RUSTSEC-2026-0370/0371/0372** (added 2026-10-18) — `zvariant`,
+`zbus_names` and `zvariant_derive` at 5.x, unmaintained because zbus 6.0.0 folded all three into
+`zbus` itself. No defect is claimed. `tauri-plugin-opener` and `tauri-plugin-single-instance`
+depend on `zbus = "^5.9"` in every release through 2.7.2 and 2.5.4 (and 3.0.0-alpha.3), so the
+retired crates stay in the graph whatever we do. `src-tauri` also depends on zbus 5 directly, for
+the Linux wake sources in `wake/linux.rs`; moving it to 6 alone would put two zbus majors in the
+Linux build and clear nothing, so it moves with the plugins.
+
+We pin none of the first three groups. `tao`, `wry`, `tauri`, `muda` and `libappindicator` bring in the GTK 3 line,
 and `tauri-utils` brings in `urlpattern`. Every glib consumer in the lock is part of that Linux
 GTK/WebKitGTK stack, so the first two groups do not compile into the macOS or Windows builds.
 
 ## Decision
 
-Accept all seventeen, and make the acceptance a thing CI enforces rather than a thing a reviewer
+Accept all seventeen, and the three zbus notices with them, and make the acceptance a thing CI enforces rather than a thing a reviewer
 remembers. `src-tauri/.cargo/audit.toml` lists them with a reason each, and CI runs
 `cargo audit --deny unsound --deny unmaintained`, so a *new* advisory fails the build while these
 stay recorded and visible.
@@ -89,7 +97,9 @@ this narrows what they miss rather than adding a protection.
 ## Revisit when
 
 `tauri-utils` publishes past 2.9.3 with `urlpattern >= 0.4`, which retires the five unic entries
-for the cost of a `cargo update`; check on each Tauri bump. Or Tauri's Linux backend moves off
+for the cost of a `cargo update`; check on each Tauri bump. Or `tauri-plugin-opener` and `tauri-plugin-single-instance` both
+publish on zbus 6, which retires the three zbus entries: bump them, move our own `zbus` to 6 and
+port `wake/linux.rs` in the same change. Or Tauri's Linux backend moves off
 GTK 3, which retires the other eleven — not close: `wry` and `tao` still pin `gtk = "0.18"` and
 `webkit2gtk = "=2.0.2"` on their `dev` branches. Also when `soup3` becomes inspectable, which closes the one gap in the glib call-graph
 check; when a `cargo audit` run reports an ID not on the list, which is the mechanism working; or

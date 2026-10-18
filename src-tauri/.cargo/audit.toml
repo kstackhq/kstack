@@ -36,4 +36,12 @@ ignore = [
   "RUSTSEC-2025-0081",
   "RUSTSEC-2025-0098",
   "RUSTSEC-2025-0100",
+
+  # zvariant, zbus_names, zvariant_derive (5.x) — unmaintained; zbus 6 folded them into
+  # zbus itself. Reached through zbus 5, which tauri-plugin-opener and
+  # tauri-plugin-single-instance pin (2.7.2 and 2.5.4 still require "^5.9"). Drop these
+  # three once both plugins release on zbus 6, and move our own zbus to 6 with them.
+  "RUSTSEC-2026-0370",
+  "RUSTSEC-2026-0371",
+  "RUSTSEC-2026-0372",
 ]
