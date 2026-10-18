@@ -92,9 +92,9 @@ read never asks the kubelet for lines past `Until` and a backward read never ask
 before `Since`, and a stream whose fill reached the far bound counts as filled. Without the
 clamp the filler would keep reading until it held `need` matching lines, so a quiet range or a
 sparse grep would download to the live end and then throw it all away. The clamp is at the
-gap's edges, where `pull` already builds `readOpts{since, until}`, not in the window logic that
-[backward log reads](../backward-log-reads/README.md) steps 2 to 4 rewrite, so those steps keep
-it.
+gap's edges, where `pull` already builds `readOpts{since, until}`, apart from the window logic
+that sizes a backward read's windows (→ [ADR: backward log reads assume normal
+logs](../../adr/2026-10-18-backward-reads-assume-normal-logs.md)).
 
 **The page's two edges mean different things.** The near edge is the side the page started
 from: `Before` for a `Head` page, `After` for a `Tail` page. It carries the `Since` or `Until`
@@ -401,14 +401,13 @@ monitor's read draws under its call like any other. `app`'s `chatTools` builds i
   view. Rung 6's watch needs the monitor to read the lines that fired.
 - **`kubectl logs` stays.** Reason: Bash cannot be stopped from running it, and it reads what the
   cache cannot: a kind the mirror lacks, or a cluster with no cache.
-- **The filler is clamped to the range now, not after backward-log-reads step 3.** Reason:
-  steps 2 to 4 of [backward log reads](../backward-log-reads/README.md) rewrite the filler's
-  windows on this same branch, and none has landed. But without the clamp the filler's
-  overshoot is bounded only by the page's budget, counted in matching lines: a quiet range
-  reads to the live end, a sparse grep downloads the whole log after the range, and a `tail`
-  read with `since` can run into today's backward-read refusal. That is the spec's own first
-  example stalling or timing out. The clamp sits at each gap's edges, which the window rewrite
-  does not touch, so it is small now and survives those steps.
+- **The filler is clamped to the range at each gap's edges.** Reason: without the clamp the
+  filler reads until it holds `need` matching lines, bounded only by the page's limits (→ [ADR:
+  backward log reads assume normal
+  logs](../../adr/2026-10-18-backward-reads-assume-normal-logs.md)): a quiet range reads to the
+  live end, and a sparse grep downloads the whole log after the range. That is the spec's own first example stalling.
+  The clamp sits at the gap's edges, apart from the window logic, so window sizing can change
+  without moving it.
 - **A cursor bound is `More`, a moment bound is `Unread`.** Reason: past a printed cursor lie the
   lines the model just read, so *older lines exist* is true. Past a moment the read never
   looked, so *may exist* is all it can say.

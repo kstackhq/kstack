@@ -119,6 +119,13 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 ## Sidecar (Go)
 
+- **Offer kubetail when a log stream stops at a limit.** A stream past the normal limits stops
+  with `failLimit` and is named in the page's `skipped` (→ [ADR: backward log reads assume normal
+  logs](adr/2026-10-18-backward-reads-assume-normal-logs.md)). Kubetail, installed in the
+  cluster, reads rotated files and greps on the node, so it can serve what the kubelet cannot.
+  **Shape:** a second `Backend` after the kubelet, and an offer in the viewer next to the reason,
+  which needs a limit told from a failure first.
+
 - **Revisit an opaque cursor for the log viewer's wire.** `logsFetch` and `logsFollow` hand the
   webview a cursor as `cursorOf`'s tab-separated position, documented as opaque and passed back
   unread. `LogsRead` gives the model the same position as base64url JSON (rung 4 of
@@ -595,6 +602,15 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 - **The inline card reads an `At` window as an `Around` page and keeps its head half.** The tail
   half is a backward read for lines nobody uses. `services/logs` can read a `Head` page from a
   moment; `src/lib/inline-log-lines.ts` should ask for that instead.
+- **Read on through empty log pages.** A grep with no match across many logs returns several empty
+  pages in a row, each cut at the page's limits (→ [ADR: backward log reads assume normal
+  logs](adr/2026-10-18-backward-reads-assume-normal-logs.md)), and the viewer shows *Keep looking* after each. It could read on by itself a few
+  times before asking, so the limits' size no longer reaches the user. The next of these to do.
+- **The log viewer cannot say how far a search has got.** *"Searched back to 09:14, no matches
+  yet."* The webview never reads a cursor, so a page needs to carry a moment: a small wire change.
+- **The log viewer cannot tell a limit from a failure.** A stream stopped at a second too loud to
+  read (`failLimit`) and one whose read failed both arrive in `skipped`. Telling them apart lets the
+  kubetail offer sit next to the reason.
 - **The log viewer has no download, ANSI colours or timezone setting.** Colours mean drawing escape sequences the sidecar now strips, so they need a security decision first.
 - **The log file's budget has no setting.** Each cluster cache's log file holds up to 1 GiB (`logstore.DefaultRetention.Bytes`), with SQLite's index and WAL on top, so a user with several clusters can use several GiB of disk. **Trigger:** a user asking to keep less. **Shape:** a setting read where `logs.New` takes its `Retention`.
 - **The log viewer draws no notice at a stream's start when the kubelet rotated the start away.** A hole between two known lines is exact: the kubelet returns the line before the hole when it still has it, and a later first line when it does not (→ [ADR: a head read never links](adr/2026-10-17-a-head-read-never-links.md)). The start of a stream has no line before it, so a quiet start and a rotated one look the same. A guess from `started_at` ("the container started well before its oldest line") would mark nearly every log, since most containers boot for seconds to minutes before their first line. **Shape:** a stronger signal than time alone, such as the stream's bytes read from its head being near the kubelet's rotation size, or an archive backend that answers the question properly. **Trigger:** a user reading a busy container's rotated start as its real start.
