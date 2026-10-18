@@ -1,7 +1,7 @@
 ---
 title: The limits
 scope: sidecar
-status: Planned
+status: Done
 ---
 
 # The limits
@@ -280,18 +280,18 @@ budget, and what the fills downloaded, overages (§2) included.
 1. **The reservations and the limits.** The allowance, the pool and its seed, a window's reservation,
    charged not enforced; a forward read's spending, never cut before its first line in range, and
    `sinceTime` past a bound at a second's end; the three cutting limits; the `tailLines` window's
-   cap and the time windows after it; the follow's fill at its share. — Planned.
+   cap and the time windows after it; the follow's fill at its share. — Done.
 2. **The cut.** Checked at `windowEnd` alone; no further gap for a cut stream; the edge, a line or a
    moment, carried by `streamFill` to the walk; the replacement from the second after a stop, the
    halving and the newest dense second's bound on widening; the one-second replacement; the
-   internal error in `mergePage`. — Planned.
+   internal error in `mergePage`. — Done.
 3. **The stop.** The 1 MiB second, counted per second of the clock and inside a line; stopping a
    wider window and stopping the stream; `failLimit`; the moment cut through `streamFill`, the walk
-   and the merge; `everyStreamFailed` passing it by. — Planned.
-4. **The walk.** Its share plus what the fill downloaded. — Planned.
+   and the merge; `everyStreamFailed` passing it by. — Done.
+4. **The walk.** Its share plus what the fill downloaded. — Done.
 5. **The removals.** `maxBudget`, the split, `counted`'s hard stop for windows, the budget stop,
-   narrowing, doubling, the refusal, and the tests of each (*Tests*). — Planned.
-6. **The regression test and the gate.** — Planned.
+   narrowing, doubling, the refusal, and the tests of each (*Tests*). — Done.
+6. **The regression test and the gate.** — Done.
 
 ## Tests
 

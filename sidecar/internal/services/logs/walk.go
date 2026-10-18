@@ -71,8 +71,8 @@ type walked struct {
 }
 
 // walk reads the stream from key. A walk stopped by its budget, or by a live gap on
-// a stream not skipped, stops short where it reached, so the page is cut there: at
-// the fill's stop when that lies past what it read.
+// a stream not skipped or stopped at a loud second, stops short where it reached, so
+// the page is cut there: at the fill's stop when that lies past what it read.
 func (w walker) walk(key logstore.Pos) (walked, error) {
 	chunks, err := w.r.Chunks(w.ps.row.ID, w.q.view.Grep)
 	if err != nil {
@@ -84,7 +84,8 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 	var recs []Record
 	var first, last logstore.Pos
 	read := false
-	short := gap && w.fill.err == nil
+	cut := w.fill.err == nil || failureKind(w.fill.err) == failLimit
+	short := gap && cut
 	spent := false
 	err = w.r.Lines(w.ps.row.ID, key, reach, func(l logstore.Line) bool {
 		if !read {
@@ -120,7 +121,7 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 		failed = errRetired
 	}
 	// At the gap the fill ended in, the fill's stop is the edge when it lies past what
-	// the walk read: an empty window's start.
+	// the walk read: an empty window's start, or a loud second.
 	if short && !spent && !w.fill.stop.isZero() && (stop.isZero() || beyond(w.q.mode, w.fill.stop, stop)) {
 		stop = w.fill.stop
 	}

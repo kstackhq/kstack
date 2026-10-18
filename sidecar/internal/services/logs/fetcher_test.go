@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -30,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 )
 
 // web is the container app of pod web in prod, on node-a.
@@ -366,7 +368,7 @@ func TestALineNotTakenIsNotRead(t *testing.T) {
 	s.add("prod/web/app", stamped(0, "a"), stamped(time.Second, "b"))
 	rd := &reader{ctx: t.Context(), get: s.get, key: web.key, instance: web.gen.instance}
 
-	read, err := rd.lines(rd.query(time.Time{}), readOpts{}, func(rec Record, _ int) bool { return rec.Message == "a" })
+	read, err := rd.lines(rd.query(time.Time{}), readOpts{}, 0, func(rec Record, _ int) bool { return rec.Message == "a" })
 
 	require.NoError(t, err)
 	assert.Equal(t, lineAt(web.key, 0, 0), read.last)
@@ -426,6 +428,29 @@ func TestAFollowsFillIsCutAtTheEndOfASecond(t *testing.T) {
 	assert.NoError(t, r.err)
 	assert.Len(t, recs, 10)
 	assert.Equal(t, lineAt(web.key, 900*time.Millisecond, 0), r.stop)
+}
+
+// A forward read whose lower bound lies past every line of a second's last
+// nanosecond sends sinceTime of the next second, so it neither reads that second
+// again nor counts it toward the limit.
+func TestAForwardReadFromASecondsEndStartsAtTheNext(t *testing.T) {
+	t.Parallel()
+	for name, since := range map[string]bound{
+		"a moment":            {position{Timestamp: at(3*time.Second - 1)}, false},
+		"a stream's position": {positionAt(web.instance(), logstore.Pos{TS: at(3*time.Second - 1).UnixNano(), Ord: math.MaxInt}), false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := newLogServer()
+			loudLog(s)
+
+			r := readForward(t.Context(), s.get, web, readOpts{since: since, limits: limitsOf(smallCaps)})
+
+			assert.Equal(t, []string{"after"}, messages(drain(r)))
+			assert.NoError(t, r.err)
+			assert.Equal(t, "2026-10-08T10:00:03Z", s.requests()[0].Get("sinceTime"))
+		})
+	}
 }
 
 // lineEvery is n lines a second apart from 10:00, saying their index.
@@ -509,7 +534,7 @@ func TestTheTailLinesWindowIsFollowedByTimeWindows(t *testing.T) {
 
 // The tailLines window is read whole, whatever it holds: a runtime that does not
 // split long lines serves whole lines for the parts asked for, so the window reads
-// past the allowance.
+// past the allowance, and no second stops it.
 func TestTheTailLinesWindowIsReadWhole(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
@@ -1484,4 +1509,146 @@ func TestAReadCancelledAtAStoppedWindowEndsClean(t *testing.T) {
 	testutil.WaitClosed(t, r.lines.Chan(), "the read to end")
 	assert.NoError(t, r.err)
 	assert.False(t, r.short)
+}
+
+// The loud tests run under smallCaps, where a second holds 1 KiB: a loud second is
+// a dozen lines of loudLine, which the body carries in 126 bytes.
+var loudLine = strings.Repeat("x", 100)
+
+// loudLog is a line at 10:00:01, a loud second at 10:00:02, and a line at 10:00:03.
+func loudLog(s *logServer) {
+	s.add("prod/web/app", stamped(time.Second, "before"))
+	for i := range 12 {
+		s.add("prod/web/app", stamped(2*time.Second+time.Duration(i)*time.Millisecond, loudLine))
+	}
+	s.add("prod/web/app", stamped(3*time.Second, "after"))
+}
+
+// A forward read stops at a second holding more of the log than the limit: it takes
+// the lines of that second the limit leaves, and its stop is the second's last
+// nanosecond.
+func TestAForwardReadStopsAtALoudSecond(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	loudLog(s)
+
+	r := readForward(t.Context(), s.get, web, readOpts{limits: limitsOf(smallCaps)})
+
+	recs := drain(r)
+	var loud loudSecond
+	require.ErrorAs(t, r.err, &loud)
+	assert.Equal(t, at(2*time.Second), loud.at)
+	assert.Equal(t, failLimit, failureKind(r.err))
+	assert.True(t, r.short)
+	assert.Equal(t, position{Timestamp: at(3*time.Second - 1)}, r.stop)
+	assert.Equal(t, "before", recs[0].Message)
+	assert.Len(t, recs, 1+8, "a KiB holds eight of the loud lines")
+}
+
+// A long line is counted as it is read, so a line past the limit stops the read
+// before it ends.
+func TestALongLineIsALoudSecond(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web/app", stamped(time.Second, "before"), stamped(2*time.Second, strings.Repeat("x", 64<<10)), stamped(3*time.Second, "after"))
+	l := limitsOf(smallCaps)
+
+	r := readForward(t.Context(), s.get, web, readOpts{limits: l})
+
+	assert.Equal(t, []string{"before"}, messages(drain(r)))
+	assert.Equal(t, failLimit, failureKind(r.err))
+	assert.Less(t, l.spent, int64(64<<10))
+}
+
+// A second is counted on the clock, so two seconds each just under the limit are
+// not loud.
+func TestTwoHalfLoudSecondsAreNotLoud(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	for i := range 16 {
+		s.add("prod/web/app", stamped(time.Second+time.Duration(i/8)*time.Second+time.Duration(i%8)*time.Millisecond, loudLine))
+	}
+
+	r := readForward(t.Context(), s.get, web, readOpts{limits: limitsOf(smallCaps)})
+
+	assert.Len(t, drain(r), 16)
+	assert.NoError(t, r.err)
+}
+
+// The stop's words name the second and say what is left out.
+func TestALoudSecondSaysWhatIsLeftOut(t *testing.T) {
+	t.Parallel()
+	err := loudAt(at(2*time.Second + 300*time.Millisecond))
+
+	assert.Equal(t, at(2*time.Second), err.at)
+	assert.EqualError(t, err, "more than 1 MiB of log in the second at 2026-10-08T10:00:02Z, more than Kstack reads through the Kubernetes API; lines of that second are left out")
+	assert.Equal(t, "web-1/app: "+err.Error(), skippedLine(StreamKey{Namespace: "prod", Pod: "web-1", Container: "app"}, err))
+}
+
+// A loud second far from the point stops the window that holds it, which is replaced
+// as any stopped window is, until the one-second window reaches it and the stream
+// stops there: the read stops at the second's top, within four window GETs.
+func TestALoudSecondFarFromThePoint(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	for i := range 50 {
+		s.add("prod/web/app", stamped(time.Duration(i)*time.Second, "quiet"))
+	}
+	for i := range 12 {
+		s.add("prod/web/app", stamped(50*time.Second+time.Duration(i)*time.Millisecond, loudLine))
+	}
+	for i := range 30 {
+		s.add("prod/web/app", stamped(time.Duration(51+i)*time.Second, "quiet"))
+	}
+	o := backwardOpts()
+	o.batch, o.until, o.near = 501, after(81*time.Second), &rate{kept: 1, bytes: 30}
+	o.limits = limitsOf(smallCaps)
+	shape := filling(&o, 501)
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	// The window from the start is stopped at the loud second, the one from the
+	// second after completes, and the widened window is stopped there again. The
+	// one-second window that stops the stream sends no end: its lines are an island.
+	got := shape(r)
+	assert.Len(t, got, 3, "windows: %v", got)
+	assert.Equal(t, []string{"2026-10-08T10:00:00Z", "2026-10-08T10:00:51Z", "2026-10-08T10:00:00Z", "2026-10-08T10:00:50Z"}, sinces(s))
+	var loud loudSecond
+	require.ErrorAs(t, r.err, &loud)
+	assert.Equal(t, at(50*time.Second), loud.at)
+	assert.True(t, r.short)
+	assert.Equal(t, position{Timestamp: at(50 * time.Second)}, r.stop)
+}
+
+// A first moment too loud to read whole stops the stream at its second's top.
+func TestALoudFirstMomentStopsTheStream(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	for range 12 {
+		s.add("prod/web/app", stamped(time.Second, loudLine))
+	}
+	o := backwardOpts()
+	o.limits = limitsOf(smallCaps)
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	drain(r)
+	assert.Equal(t, failLimit, failureKind(r.err))
+	assert.True(t, r.short)
+	assert.Equal(t, position{Timestamp: at(time.Second)}, r.stop)
+}
+
+// A loud second just past a backward window's end is not the window's: the GET ends
+// at its first line, uncounted.
+func TestALoudSecondPastTheEndIsNotRead(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web/app", stamped(9*time.Second, "below"), stamped(10*time.Second, strings.Repeat("x", 2<<10)))
+	o := backwardOpts()
+	o.until, o.limits = bound{lineAt(web.key, 10*time.Second, 0), false}, limitsOf(smallCaps)
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	assert.Equal(t, []string{"below"}, messages(drain(r)))
+	assert.NoError(t, r.err)
 }

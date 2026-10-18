@@ -751,23 +751,24 @@ func (s *logServer) serve(key string, q url.Values) (string, int, bool, *refusal
 // 1,024 times, and midCaps 64 times, under which a window's GET reads little past
 // its end next to what the window holds.
 var (
-	smallCaps = caps{stream: 16 << 10, gets: 16, query: 64 << 10, window: 4 << 10, minWindow: 64, part: 16}
-	midCaps   = caps{stream: 256 << 10, gets: 16, query: 1 << 20, window: 64 << 10, minWindow: 1 << 10, part: 256}
+	smallCaps = caps{second: 1 << 10, stream: 16 << 10, gets: 16, query: 64 << 10, window: 4 << 10, minWindow: 64, part: 16}
+	midCaps   = caps{second: 16 << 10, stream: 256 << 10, gets: 16, query: 1 << 20, window: 64 << 10, minWindow: 1 << 10, part: 256}
 )
 
 // limitsOf is the limits of a query's one stream under c.
 func limitsOf(c caps) *limits { return queryLimits(c, 1)[0] }
 
 // capsOf is the limits of a query that downloads n bytes at most, one stream or
-// many.
+// many, with no second too loud to read.
 func capsOf(n int64) caps {
-	return caps{stream: n, gets: 16, query: n, window: max(n/4, 1), minWindow: 16, part: 16}
+	return caps{second: 1 << 20, stream: n, gets: 16, query: n, window: max(n/4, 1), minWindow: 16, part: 16}
 }
 
-// randomCaps is limits a seeded walk's logs of a few hundred bytes a stream reach.
+// randomCaps is limits a seeded walk's logs of a few hundred bytes a stream reach,
+// with a second of a few KiB, which a log of long lines passes.
 func randomCaps(rng *rand.Rand) caps {
 	stream := int64(2000 + rng.Intn(8000))
-	return caps{stream: stream, gets: 4 + rng.Intn(13), query: stream * int64(1+rng.Intn(6)), window: stream / 4, minWindow: 16, part: 16}
+	return caps{second: int64(1000 + rng.Intn(3000)), stream: stream, gets: 4 + rng.Intn(13), query: stream * int64(1+rng.Intn(6)), window: stream / 4, minWindow: 16, part: 16}
 }
 
 // claimOn is a claim on a cluster whose API server serves s.

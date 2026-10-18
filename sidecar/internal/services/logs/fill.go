@@ -54,9 +54,9 @@ type streamFill struct {
 	// first line a Head fill read from its bound, or, when it read its first gap whole
 	// and found none, that gap's far edge. Nil with neither.
 	up *logstore.Pos
-	// stop is the moment a read was cut at when what it wrote does not show it: an
-	// empty window's start. The walk that reaches the gap the read ended in stops
-	// there. Zero with none.
+	// stop is the moment a read was cut or stopped at when what it wrote does not
+	// show it: an empty window's start, or a loud second's edge. The walk that
+	// reaches the gap the read ended in stops there. Zero with none.
 	stop position
 	// downloaded is the bytes the stream's reads downloaded, which its walk may read
 	// past its share.
@@ -261,6 +261,11 @@ func (f *filler) read(ctx context.Context, tier int, lower, upper, prev, next *l
 	if !p.whole && p.r.short && p.r.stop.moment() {
 		f.out.stop = p.r.stop
 	}
+	if !p.whole && failureKind(p.r.err) == failLimit {
+		// The stream stopped at a loud second: the page names it, and is cut there. A
+		// read whole stopped past its range, which a later gap meets again.
+		f.out.err = p.r.err
+	}
 	got := p.oldest != nil
 	if !got && !p.whole {
 		// Nothing in range was read: the stream is skipped, the page refused when the
@@ -426,7 +431,10 @@ func (f *filler) pull(ctx context.Context, tier int, lower, upper, prev, next *l
 		return pulled{}, false, err
 	}
 	clean := r.err == nil && !r.short
-	out.whole = !cut && !stopped && clean
+	// A forward GET reads from the range's lower second, so one whose first line lies
+	// past the range found the backend holds none of it, however the read then ended.
+	past := forward && w.first == nil && upper != nil && !began.IsZero() && began.UnixNano() > upper.TS
+	out.whole = !cut && !stopped && (clean || past)
 	if forward {
 		out.oldest = w.first
 		if w.first == nil {

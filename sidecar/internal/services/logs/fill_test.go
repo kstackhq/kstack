@@ -1357,6 +1357,25 @@ func TestARestartAtAStoppedWindowStopsTheRead(t *testing.T) {
 	assert.Equal(t, []logstore.Span{{From: sec(1), To: sec(1)}, {From: sec(10), To: sec(10)}}, spansOf(t, svc, f))
 }
 
+// A forward fill whose GET's first line lies past its gap read the gap whole: the
+// backend holds none of it, though the GET stopped at a loud second. The page walks
+// the lines the file holds before the loud second, and is cut at it.
+func TestAFillWhoseGetBeginsPastItsGapReadsItWhole(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(9*time.Second, strings.Repeat("x", 2<<10)), stamped(10*time.Second, "served"))
+	svc, f := serviceOver(t, webMirror(t), s)
+	svc.caps = smallCaps
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0)}, logstore.Fill{Lines: fileLines(5 * time.Second)})
+
+	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchHead, Limit: 10})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"0", "5"}, messages(page.Records))
+	assert.Equal(t, PageEdge{Cursor: cursorOf(position{Timestamp: at(10*time.Second - 1)}), More: true}, page.After)
+	assert.Len(t, page.Skipped, 1)
+}
+
 // A fill reads no further gap once its stream has sent its GETs: a Head page from
 // the start across eleven live gaps, a GET each, is cut at the last line before the
 // fourth, and the next pages go on from there.

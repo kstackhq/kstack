@@ -53,14 +53,21 @@ const (
 	// retries: a request the server timed out or throttled says nothing about
 	// the log.
 	failTransient
+	// failLimit is a second too loud to read: the stream stops there, and the page
+	// is cut at it.
+	failLimit
 )
 
 // failureKind is how err ended a stream's read.
 func failureKind(err error) failure {
 	var se *statusError
+	var loud loudSecond
 	switch {
 	case err == nil:
 		return failNone
+	case errors.As(err, &loud):
+		// Checked first: an error that is not a statusError is otherwise transient.
+		return failLimit
 	case errors.Is(err, ErrRevoked):
 		return failFatal
 	case !errors.As(err, &se) || se.code >= http.StatusInternalServerError,

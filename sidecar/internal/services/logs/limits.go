@@ -18,6 +18,9 @@ import "sync"
 
 // caps is the limits a page's reads keep to, as bytes the body carries.
 type caps struct {
+	// second is the most of one second of one stream's log a page reads: a louder
+	// second stops the stream there.
+	second int64
 	// stream and gets are the bytes one stream downloads and the GETs it sends for
 	// one query, and query the bytes all its streams download together.
 	stream int64
@@ -32,7 +35,7 @@ type caps struct {
 }
 
 var defaultCaps = caps{
-	stream: 16 << 20, gets: 16, query: 64 << 20,
+	second: 1 << 20, stream: 16 << 20, gets: 16, query: 64 << 20,
 	window: byteTarget, minWindow: 64 << 10, part: 16 << 10,
 }
 
@@ -80,7 +83,8 @@ type limits struct {
 	// spent and gets are what the stream has downloaded and sent.
 	spent int64
 	gets  int
-	// follow is a follow's fill, which is cut only at a second's end.
+	// follow is a follow's fill, which reads every second whole: no second stops it,
+	// and it is cut only at a second's end.
 	follow bool
 }
 
@@ -197,4 +201,13 @@ func (l *limits) tailLines(need int64) int64 {
 		need = min(need, l.allowance/l.caps.part)
 	}
 	return max(need, minBatch)
+}
+
+// second is the most one second of the log may hold before it stops the read, zero
+// for a read no second stops: one under no limits, or a follow's fill.
+func (l *limits) second() int64 {
+	if l == nil || l.follow {
+		return 0
+	}
+	return l.caps.second
 }

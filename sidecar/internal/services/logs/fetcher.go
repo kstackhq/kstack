@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"math"
 	"net/url"
 	"regexp"
 	"strconv"
@@ -44,6 +45,10 @@ const firstBytes = 100
 // timestampSpan is the longest RFC 3339 timestamp with nanoseconds, plus the space
 // after it.
 const timestampSpan = 36
+
+// errPastUntil ends a GET at a line past its upper bound before the line is read
+// whole.
+var errPastUntil = errors.New("logs: past the read's upper bound")
 
 // errShort is a read a limit cut before the end of its range.
 var errShort = errors.New("logs: the read stopped short")
@@ -196,7 +201,7 @@ type reader struct {
 // have no edge. A follow's fill is cut only at the end of a second, so a fill from a
 // second's end always gets past the next.
 func (r *reader) forward() error {
-	q := r.query(r.o.since.at.Timestamp)
+	q := r.query(r.sinceSecond())
 	if r.o.follow {
 		q.Set("follow", "true")
 	}
@@ -205,7 +210,7 @@ func (r *reader) forward() error {
 	// last is the second of the last line sent, zero before the first.
 	var last time.Time
 	cut := false
-	read, err := r.lines(q, r.o, func(rec Record, _ int) bool {
+	read, err := r.lines(q, r.o, l.second(), func(rec Record, _ int) bool {
 		sec := rec.Timestamp.Truncate(time.Second)
 		if !last.IsZero() && l.forwardSpent() && (!wholeSeconds || sec.After(last)) {
 			cut = true
@@ -218,6 +223,12 @@ func (r *reader) forward() error {
 		err = errShort
 	}
 	r.edge, r.oldest = read.last, read.oldest
+	var loud loudSecond
+	if errors.As(err, &loud) {
+		// The page is cut at the loud second's last nanosecond: past what the read took
+		// of it.
+		r.edge = position{Timestamp: loud.at.Add(time.Second - 1)}
+	}
 	// With no lower bound the read starts at the oldest line, so its first line is
 	// the backend's oldest, and a log it read clean to the end with none is empty.
 	r.head = r.o.since.at.isZero() && (!read.first.isZero() || err == nil)
@@ -226,8 +237,19 @@ func (r *reader) forward() error {
 }
 
 // backward reads the log newest window first: off its end one tailLines window,
-// then windows of time; under until, windows of time alone.
+// then windows of time; under until, windows of time alone. A second too loud to
+// read stops it, and the page is cut at that second's top.
 func (r *reader) backward() error {
+	err := r.windows()
+	var loud loudSecond
+	if errors.As(err, &loud) {
+		r.edge = position{Timestamp: loud.at}
+	}
+	return err
+}
+
+// windows is backward's run of windows.
+func (r *reader) windows() error {
 	first, err := r.firstTimestamp()
 	switch {
 	case err != nil:
@@ -482,7 +504,9 @@ func (r *reader) widen(w sample, d time.Duration, kept, target int64) time.Durat
 // it read. Four times target is reserved for it, the most it reads before it is
 // stopped, and what it did not use goes back once it ends. A window wider than the
 // one-second window is checked as it goes, and stopped once it is far busier than
-// planned: stop is then the second it was stopped in, zero for a window read whole.
+// planned or reaches a second too loud to read: stop is then the second it was
+// stopped in, zero for a window read whole. A loud second stops the stream only
+// from the one-second window.
 func (r *reader) timeWindow(from time.Time, end bound, endAt time.Time, target int64) (sample, time.Time, error) {
 	checked := from.Before(endAt.Add(-1).Truncate(time.Second))
 	defer r.o.limits.windowEnded()
@@ -505,6 +529,10 @@ func (r *reader) timeWindow(from time.Time, end bound, endAt time.Time, target i
 		}
 		return true
 	})
+	var loud loudSecond
+	if checked && errors.As(err, &loud) {
+		return w, loud.at, nil
+	}
 	return w, stop, err
 }
 
@@ -556,7 +584,8 @@ func (r *reader) take(rec Record) bool {
 // window streams the last tail lines of the log from since, oldest first, and
 // answers what the GET read, with a sample of the lines it sent. The lines at the
 // moment the GET began in are left to the next window: the GET may have begun
-// inside that moment, and the next window reads it from its top.
+// inside that moment, and the next window reads it from its top. No second stops
+// the window, since its first lines are its oldest and a stop would leave no edge.
 func (r *reader) window(tail int64) (tailWindowRead, error) {
 	q := r.query(r.o.since.at.Timestamp)
 	q.Set("tailLines", strconv.FormatInt(tail, 10))
@@ -564,7 +593,7 @@ func (r *reader) window(tail int64) (tailWindowRead, error) {
 	var began time.Time
 	o.onOldest = func(t time.Time) { began = t }
 	var w sample
-	read, err := r.lines(q, o, func(rec Record, size int) bool {
+	read, err := r.lines(q, o, 0, func(rec Record, size int) bool {
 		if !rec.Timestamp.After(began) {
 			return true
 		}
@@ -590,7 +619,7 @@ func (r *reader) span(from time.Time, end bound, each func(rec Record, size int)
 		o.since = bound{position{Timestamp: from}, true}
 	}
 	o.until = end
-	_, err := r.lines(r.query(from), o, each)
+	_, err := r.lines(r.query(from), o, o.limits.second(), each)
 	return err
 }
 
@@ -622,6 +651,17 @@ func (r *reader) cleanEnd(err error) error {
 	return err
 }
 
+// sinceSecond is the second a forward read's GET starts at: since's, or the next
+// one when since lies past every line of its second's last nanosecond, so the read
+// neither reads that second again nor counts it toward its limit.
+func (r *reader) sinceSecond() time.Time {
+	at := r.o.since.at
+	if !r.o.since.incl && at.Timestamp.Nanosecond() == 999_999_999 && (at.moment() || at.Ordinal == math.MaxInt) {
+		return at.Timestamp.Add(1)
+	}
+	return at.Timestamp
+}
+
 // query is the query every read sends: with timestamps, the container, the
 // previous instance when asked, and from since's second when since is set, since
 // the log endpoint takes sinceTime to the second.
@@ -647,9 +687,11 @@ type span struct {
 // and instance and numbered within its moment, and hands each one in o's bounds
 // to each with the bytes the body carried it in, before cleaning, until the body
 // ends, a line passes the upper bound, or each answers false, charging what it
-// reads to o's limits. The bounds are applied here and nowhere else, so no read can
-// miss one. A read its context ended is a clean one.
-func (r *reader) lines(q url.Values, o readOpts, each func(rec Record, size int) bool) (span, error) {
+// reads to o's limits. A second of the log holding more than loud bytes ends the
+// GET with a loudSecond, counted as each line's parts arrive, so a long line stops
+// the read before it ends; zero checks none. The bounds are applied here and
+// nowhere else, so no read can miss one. A read its context ended is a clean one.
+func (r *reader) lines(q url.Values, o readOpts, loud int64, each func(rec Record, size int) bool) (span, error) {
 	var read span
 	o.limits.get()
 	body, err := r.get(r.ctx, logPath(r.key), q)
@@ -662,24 +704,49 @@ func (r *reader) lines(q url.Values, o readOpts, each func(rec Record, size int)
 	}
 	defer body.Close()
 	br := bufio.NewReader(counted{body, o.limits})
+	// moment and ordinal number the lines: the last line's moment and its ordinal
+	// in it, so ordinalAt is the ordinal a line at ts gets next.
 	var moment time.Time
 	ordinal := 0
+	ordinalAt := func(ts time.Time) int {
+		if ts.Equal(moment) {
+			return ordinal + 1
+		}
+		return 0
+	}
+	// oldest tells onOldest the moment of the GET's first line, once.
+	oldest := func(t time.Time) {
+		if read.oldest.IsZero() {
+			read.oldest = t
+			if o.onOldest != nil {
+				o.onOldest(t)
+			}
+		}
+	}
+	// count counts each part of a line toward its second as the part arrives. A line
+	// past the upper bound ends the GET uncounted: its second is not the read's. A
+	// read stopped inside its first line has still read that line's moment.
+	var count func(ts time.Time, n int) error
+	if loud > 0 {
+		var sec second
+		count = func(ts time.Time, n int) error {
+			if ts.IsZero() {
+				return nil
+			}
+			oldest(ts)
+			if o.until.above(Record{Timestamp: ts, Stream: r.key, ContainerID: r.instance, Ordinal: ordinalAt(ts)}) {
+				return errPastUntil
+			}
+			return sec.add(ts, int64(n), loud)
+		}
+	}
 	for {
-		line, size, err := readLine(br)
+		line, size, err := readLine(br, count)
 		if rec, ok := parseLine(line); ok {
 			rec.Stream, rec.Place, rec.ContainerID = r.key, r.place, r.instance
-			if rec.Timestamp.Equal(moment) {
-				ordinal++
-			} else {
-				moment, ordinal = rec.Timestamp, 0
-			}
-			rec.Ordinal = ordinal
-			if read.oldest.IsZero() {
-				read.oldest = rec.Timestamp
-				if o.onOldest != nil {
-					o.onOldest(rec.Timestamp)
-				}
-			}
+			rec.Ordinal = ordinalAt(rec.Timestamp)
+			moment, ordinal = rec.Timestamp, rec.Ordinal
+			oldest(rec.Timestamp)
 			switch {
 			case o.since.below(rec):
 			case o.until.above(rec):
@@ -697,7 +764,7 @@ func (r *reader) lines(q url.Values, o readOpts, each func(rec Record, size int)
 		switch {
 		case err == nil:
 			continue
-		case errors.Is(err, io.EOF):
+		case errors.Is(err, io.EOF), errors.Is(err, errPastUntil):
 			return read, nil
 		case r.ctx.Err() != nil:
 			return read, nil
@@ -715,13 +782,25 @@ func logPath(key StreamKey) string {
 // readLine is the next whole line without its newline, at most maxLine of it,
 // valid until br's next read, and the bytes of the body it took, its newline and
 // the part past maxLine included. A last line with no newline is not a line, as
-// kubetail's reader has it: a follow can end inside one.
-func readLine(br *bufio.Reader) ([]byte, int, error) {
+// kubetail's reader has it: a follow can end inside one. part, when set, is told
+// each part of the line as it is read, with the time the line opens with, zero for
+// none, and ends the read with its error.
+func readLine(br *bufio.Reader, part func(ts time.Time, n int) error) ([]byte, int, error) {
 	var line []byte
+	var ts time.Time
 	size := 0
 	for {
 		chunk, err := br.ReadSlice('\n')
 		size += len(chunk)
+		if part != nil && len(chunk) > 0 {
+			if line == nil {
+				// The first part holds the time: a timestamp is far shorter than the buffer.
+				ts, _ = timeOf(chunk)
+			}
+			if err := part(ts, len(chunk)); err != nil {
+				return nil, size, err
+			}
+		}
 		chunk = chunk[:min(len(chunk), maxLine-len(line))]
 		switch {
 		case err == nil && line == nil:
@@ -740,13 +819,53 @@ func readLine(br *bufio.Reader) ([]byte, int, error) {
 // parseLine is a line as the log endpoint writes it with timestamps: an RFC 3339
 // time, a space, the message. A line with no time is not a record.
 func parseLine(line []byte) (Record, bool) {
+	ts, ok := timeOf(line)
+	if !ok {
+		return Record{}, false
+	}
+	pos := bytes.IndexByte(line, ' ')
+	return Record{Timestamp: ts, Message: stripControl(string(line[pos+1:]))}, true
+}
+
+// timeOf is the time a line opens with, false with none.
+func timeOf(line []byte) (time.Time, bool) {
 	pos := bytes.IndexByte(line[:min(len(line), timestampSpan)], ' ')
 	if pos < 0 {
-		return Record{}, false
+		return time.Time{}, false
 	}
 	ts, err := time.Parse(time.RFC3339Nano, string(line[:pos]))
-	if err != nil {
-		return Record{}, false
+	return ts, err == nil
+}
+
+// second is the bytes a GET has read of one second of the clock.
+type second struct {
+	at    time.Time
+	bytes int64
+}
+
+// add counts n bytes of a line at ts, and is the loud second once its second holds
+// more than limit.
+func (s *second) add(ts time.Time, n, limit int64) error {
+	if at := ts.Truncate(time.Second); !at.Equal(s.at) {
+		s.at, s.bytes = at, 0
 	}
-	return Record{Timestamp: ts, Message: stripControl(string(line[pos+1:]))}, true
+	s.bytes += n
+	if s.bytes > limit {
+		return loudAt(s.at)
+	}
+	return nil
+}
+
+// loudSecond is a read stopped at a second holding more of one stream's log than a
+// page reads. Its words are a Refusal's, so no caller changes them.
+type loudSecond struct {
+	Refusal
+	at time.Time
+}
+
+// loudAt is the stop at the second t lies in.
+func loudAt(t time.Time) loudSecond {
+	at := t.Truncate(time.Second)
+	return loudSecond{Refusal{"more than 1 MiB of log in the second at " + at.UTC().Format(time.RFC3339) +
+		", more than Kstack reads through the Kubernetes API; lines of that second are left out"}, at}
 }

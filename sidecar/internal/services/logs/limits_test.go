@@ -128,17 +128,18 @@ func TestTheTailLinesWindowIsCappedByItsAllowance(t *testing.T) {
 	assert.Equal(t, int64(501), none.tailLines(501))
 }
 
-// A follow's fill has an allowance and no pool.
+// A follow's fill has an allowance and no pool, and no second stops it.
 func TestAFollowsFillReadsItsShare(t *testing.T) {
 	t.Parallel()
 	l := followLimits(defaultCaps, 4)
 	assert.Equal(t, int64(16<<20), l.allowance)
 	assert.Equal(t, int64(0), l.pool.load())
+	assert.Equal(t, int64(0), l.second())
 	assert.Equal(t, int64((64<<20)/100), followLimits(defaultCaps, 100).allowance)
 }
 
 // No limits leave every byte: a window is sized to the byte target alone, and
-// nothing cuts the read.
+// nothing cuts or stops the read.
 func TestNoLimitsLeaveEveryByte(t *testing.T) {
 	t.Parallel()
 	var l *limits
@@ -149,6 +150,7 @@ func TestNoLimitsLeaveEveryByte(t *testing.T) {
 	assert.Equal(t, int64(byteTarget), l.target())
 	assert.False(t, l.reached())
 	assert.False(t, l.forwardSpent())
+	assert.Equal(t, int64(0), l.second())
 }
 
 // Streams reading at once stay within the page: a target and its reservation are

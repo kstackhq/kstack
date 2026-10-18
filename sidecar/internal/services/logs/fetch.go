@@ -460,12 +460,18 @@ func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (mer
 		return merge{}, err
 	}
 	m.skipped = []string{}
+	// failed is the streams skipped for a failure: one stopped at a loud second cut
+	// the page, and does not count toward refusing it.
+	failed := 0
 	for i, f := range fills {
 		if f.err != nil {
 			m.skipped = append(m.skipped, skippedLine(p.streams[i].key, f.err))
+			if failureKind(f.err) != failLimit {
+				failed++
+			}
 		}
 	}
-	if len(m.skipped) == len(p.t.streams) && len(m.records) == 0 {
+	if failed == len(p.t.streams) && len(m.records) == 0 {
 		if err := everyStreamFailed(m.skipped); err != nil {
 			return merge{}, err
 		}

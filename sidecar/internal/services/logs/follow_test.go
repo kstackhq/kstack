@@ -2025,3 +2025,39 @@ func TestAFollowsFirstLineKeepsAHoleItsLookCannotReach(t *testing.T) {
 
 	assert.Equal(t, "x7 (1s-5s)", marks([]Record{recvLine(t, stream, "the first match")})[0])
 }
+
+// A follow's fill reads every second whole, so a second that alone spends the
+// fill's share, louder than a page reads, is read and passed: from a watermark
+// before it, and from its last line, where the fill is cut after its first line
+// past it and the follow walks on.
+func TestAFillReadsABigSecondWhole(t *testing.T) {
+	t.Parallel()
+	var big []string
+	for i := range 20 {
+		big = append(big, stamped(10*time.Minute+time.Duration(i)*time.Millisecond, fmt.Sprintf("big %d %s", i, strings.Repeat("x", 2<<10))))
+	}
+	after := []string{stamped(11*time.Minute, "a"), stamped(12*time.Minute, "b"), stamped(13*time.Minute, "c")}
+	for name, tc := range map[string]struct {
+		from *string
+		want []string
+	}{
+		"before it":     {cursor(0), append(append(messages(linesOf(big)), messages(linesOf(after))...), "1800")},
+		"its last line": {lineCursor("web-1", "app", 10*time.Minute+19*time.Millisecond, 0), append(messages(linesOf(after)), "1800")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := newLogServer()
+			s.add("prod/web-1/app", big...)
+			s.add("prod/web-1/app", after...)
+			s.add("prod/web-1/app", stamped(30*time.Minute, "1800"))
+			f := webMirror(t)
+			svc, _ := serviceOver(t, f, s)
+			svc.caps = capsOf(1 << 10)
+			svc.caps.second = 1 << 10
+			seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
+			stream, _ := followWeb1(t, svc, tc.from)
+
+			assert.Equal(t, tc.want, recvLines(t, stream, len(tc.want)))
+		})
+	}
+}
