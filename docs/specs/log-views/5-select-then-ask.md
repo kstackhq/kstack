@@ -1,7 +1,7 @@
 ---
 title: Select, then ask
 scope: frontend
-status: Proposed
+status: Implemented
 ---
 
 # Select, then ask
@@ -92,7 +92,7 @@ question's *Context* disclosure shows how many it kept.
 
 ## Tasks
 
-All tasks start Planned.
+All three tasks are done, in one commit on `log-views-5`.
 
 1. **The ride rule.** `removed` in the composer, the selection read by identity, and the
    selection left out of `snapshotOf`'s input when it is removed.
