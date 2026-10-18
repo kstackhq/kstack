@@ -29,8 +29,19 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/logsinput"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/logsinput/logsinputtest"
 )
+
+// record is a line of prod/webapp-a/app at offset past 09:14, the ordinal-th of its
+// moment, saying msg.
+func record(offset time.Duration, ordinal int, msg string) logs.Record {
+	return logs.Record{
+		Timestamp: time.Date(2026, 10, 17, 9, 14, 0, 0, time.UTC).Add(offset), Message: msg,
+		Stream:      logs.StreamKey{Namespace: "prod", Pod: "webapp-a", Container: "app"},
+		ContainerID: "containerd://3f9a", Ordinal: ordinal,
+	}
+}
 
 // fakeLogs is the log service as the tool reads it: one page or error for every
 // fetch, each fetch's view and query kept.
@@ -138,12 +149,12 @@ func TestAReadWithMorePrintsWhereToReadOn(t *testing.T) {
 	more := logs.PageEdge{More: true}
 
 	text, read := readOf(t, &fakeLogs{page: logs.Page{Records: []logs.Record{a, b}, After: more}}, webapp+`}`)
-	assert.Equal(t, "Read 2 lines of deployments/webapp in prod, oldest first. Container app. More lines follow; to read on, since: "+encodeCursor(b), firstLine(text))
+	assert.Equal(t, "Read 2 lines of deployments/webapp in prod, oldest first. Container app. More lines follow; to read on, since: "+logsinput.EncodeCursor(b), firstLine(text))
 	assert.Equal(t, tools.LogsReadEnd, read.Before)
 	assert.Equal(t, tools.LogsReadMore, read.After)
 
 	text, read = readOf(t, &fakeLogs{page: logs.Page{Records: []logs.Record{a, b}, Before: more}}, webapp+`,"mode":"tail"}`)
-	assert.Equal(t, "Read 2 lines of deployments/webapp in prod, the newest. Container app. Older lines exist; to read on, until: "+encodeCursor(a), firstLine(text))
+	assert.Equal(t, "Read 2 lines of deployments/webapp in prod, the newest. Container app. Older lines exist; to read on, until: "+logsinput.EncodeCursor(a), firstLine(text))
 	assert.Equal(t, tools.LogsReadMore, read.Before)
 	assert.Equal(t, tools.LogsReadEnd, read.After)
 
@@ -158,7 +169,7 @@ func TestAReadWithMorePrintsWhereToReadOn(t *testing.T) {
 func TestEachEndIsEndMoreOrUnread(t *testing.T) {
 	t.Parallel()
 	a := record(time.Second, 0, "a")
-	cursor := encodeCursor(a)
+	cursor := logsinput.EncodeCursor(a)
 
 	l := &fakeLogs{page: logs.Page{Records: []logs.Record{record(2*time.Second, 0, "b")}, Before: logs.PageEdge{More: true}}}
 	text, read := readOf(t, l, webapp+`,"since":"`+cursor+`"}`)
@@ -190,7 +201,7 @@ func TestTheCursorIsPrintedAfterTheRedaction(t *testing.T) {
 	t.Parallel()
 	b := record(2*time.Second, 0, "b")
 	text, _ := readOf(t, &fakeLogs{page: logs.Page{Records: []logs.Record{b}, After: logs.PageEdge{More: true}}}, webapp+`,"grep":"api-key:"}`)
-	assert.True(t, strings.HasSuffix(firstLine(text), "; to read on, since: "+encodeCursor(b)), firstLine(text))
+	assert.True(t, strings.HasSuffix(firstLine(text), "; to read on, since: "+logsinput.EncodeCursor(b)), firstLine(text))
 }
 
 // A record's hole is a line of the sidecar's before it, and the action line's gap.
@@ -214,15 +225,15 @@ func TestAHoleIsALineBeforeItsRecord(t *testing.T) {
 // split is still redacted.
 func TestAMessageIsRedactedBeforeItIsCut(t *testing.T) {
 	t.Parallel()
-	long := strings.Repeat("x", maxSampleLine-8) + " sk-" + strings.Repeat("A", 30)
+	long := strings.Repeat("x", logsinput.MaxSampleLine-8) + " sk-" + strings.Repeat("A", 30)
 	text, read := readOf(t, &fakeLogs{page: logs.Page{Records: []logs.Record{record(time.Second, 0, long), record(2*time.Second, 0, "\x1b[31mred\x1b[0m")}}}, webapp+`}`)
 
 	assert.NotContains(t, text, "sk-")
 	assert.NotContains(t, text, "\x1b")
-	assert.LessOrEqual(t, len(read.Lines[0].Message), maxSampleLine)
+	assert.LessOrEqual(t, len(read.Lines[0].Message), logsinput.MaxSampleLine)
 	assert.NotContains(t, read.Lines[1].Message, "\x1b")
-	assert.LessOrEqual(t, len(cut(strings.Repeat("é", maxSampleLine))), maxSampleLine)
-	assert.True(t, strings.HasSuffix(cut(strings.Repeat("é", maxSampleLine)), "é…"))
+	assert.LessOrEqual(t, len(logsinput.CutLine(strings.Repeat("é", logsinput.MaxSampleLine))), logsinput.MaxSampleLine)
+	assert.True(t, strings.HasSuffix(logsinput.CutLine(strings.Repeat("é", logsinput.MaxSampleLine)), "é…"))
 }
 
 // A sample past its budget drops lines from the far end, counts them, says more
@@ -241,13 +252,13 @@ func TestASampleDropsPastItsBudget(t *testing.T) {
 	assert.Equal(t, recs[0].Timestamp, read.Lines[0].Timestamp)
 	assert.Equal(t, tools.LogsReadMore, read.After)
 	assert.Contains(t, firstLine(text), fmt.Sprintf(" %d more lines were left out to fit.", read.Dropped))
-	assert.True(t, strings.HasSuffix(firstLine(text), "; to read on, since: "+encodeCursor(recs[kept-1])))
-	assert.LessOrEqual(t, len(text)-len(firstLine(text)), sampleBudget)
+	assert.True(t, strings.HasSuffix(firstLine(text), "; to read on, since: "+logsinput.EncodeCursor(recs[kept-1])))
+	assert.LessOrEqual(t, len(text)-len(firstLine(text)), logsinput.SampleBudget)
 
 	text, read = readOf(t, &fakeLogs{page: logs.Page{Records: recs}}, webapp+`,"limit":100,"mode":"tail"}`)
 	assert.Equal(t, recs[99].Timestamp, read.Lines[len(read.Lines)-1].Timestamp)
 	assert.Equal(t, tools.LogsReadMore, read.Before)
-	assert.True(t, strings.HasSuffix(firstLine(text), "; to read on, until: "+encodeCursor(recs[100-len(read.Lines)])))
+	assert.True(t, strings.HasSuffix(firstLine(text), "; to read on, until: "+logsinput.EncodeCursor(recs[100-len(read.Lines)])))
 }
 
 // longName is a distinct object name of the longest length, 253 characters.
@@ -299,7 +310,7 @@ func TestNoOutputPassesTheInlineLimit(t *testing.T) {
 	t.Parallel()
 	var recs []logs.Record
 	for i := range 100 {
-		rec := record(time.Duration(i)*time.Second+time.Nanosecond, 0, strings.Repeat("m", maxSampleLine*2))
+		rec := record(time.Duration(i)*time.Second+time.Nanosecond, 0, strings.Repeat("m", logsinput.MaxSampleLine*2))
 		rec.Stream = logs.StreamKey{Namespace: strings.Repeat("n", 63), Pod: longName(i), Container: strings.Repeat("c", 63), Previous: true}
 		rec.Gap = &logs.Gap{After: rec.Timestamp, Before: rec.Timestamp}
 		recs = append(recs, rec)

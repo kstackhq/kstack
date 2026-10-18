@@ -234,7 +234,7 @@ describe('useChatMessages', () => {
   it("carries a message's tool calls off the frame", () => {
     const { result, rerender } = renderMessages();
     expect(print(lastArgs!.query!)).toMatch(
-      /toolCalls \{\s+id\s+name\s+actionKind\s+status\s+runsOn\s+action \{\s+description\s+command \{\s+text\s+cwd\s+background\s+sandboxed\s+network\s+\}\s+read \{\s+path\s+\}\s+write \{\s+path\s+content\s+\}\s+edit \{\s+path\s+oldString\s+newString\s+replaceAll\s+\}\s+search \{\s+query\s+\}\s+fetch \{\s+url\s+host\s+\}\s+memory \{\s+op\s+name\s+body\s+scope\s+\}\s+delegate \{\s+prompt\s+agentType\s+model\s+\}\s+kubeQuery \{\s+sql\s+limit\s+\}\s+logsView \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+anchor \{\s+kind\s+at\s+\}\s+pinToEnd\s+resolvedAt\s+\}\s+logsRead \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+since\s+until\s+mode\s+resolvedAt\s+lines \{\s+timestamp\s+namespace\s+pod\s+container\s+previous\s+message\s+gap \{\s+after\s+before\s+\}\s+\}\s+dropped\s+before\s+after\s+skipped\s+viewAround \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+anchor \{\s+kind\s+at\s+\}\s+pinToEnd\s+resolvedAt\s+\}\s+\}\s+\}\s+agentCallID\s+approval \{\s+id\s+status\s+duration\s+\}\s+network\s+clusterWrites \{\s+approval \{\s+id\s+status\s+duration\s+\}\s+action \{\s+summary\s+class\s+context\s+namespace\s+verb\s+group\s+kind\s+grantable\s+commandRule\s+chatRule\s+\}\s+method\s+path\s+subresource\s+contentType\s+body\s+dryRun\s+diff\s+diffCut\s+diffError\s+reason\s+\}\s+output\s+background \{\s+status\s+exitCode\s+report\s+\}\s+\}/,
+      /toolCalls \{\s+id\s+name\s+actionKind\s+status\s+runsOn\s+action \{\s+description\s+command \{\s+text\s+cwd\s+background\s+sandboxed\s+network\s+\}\s+read \{\s+path\s+\}\s+write \{\s+path\s+content\s+\}\s+edit \{\s+path\s+oldString\s+newString\s+replaceAll\s+\}\s+search \{\s+query\s+\}\s+fetch \{\s+url\s+host\s+\}\s+memory \{\s+op\s+name\s+body\s+scope\s+\}\s+delegate \{\s+prompt\s+agentType\s+model\s+\}\s+kubeQuery \{\s+sql\s+limit\s+\}\s+logsView \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+anchor \{\s+kind\s+at\s+\}\s+pinToEnd\s+resolvedAt\s+\}\s+logsRead \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+since\s+until\s+mode\s+resolvedAt\s+lines \{\s+timestamp\s+namespace\s+pod\s+container\s+previous\s+message\s+gap \{\s+after\s+before\s+\}\s+\}\s+dropped\s+before\s+after\s+skipped\s+viewAround \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+anchor \{\s+kind\s+at\s+\}\s+pinToEnd\s+resolvedAt\s+\}\s+\}\s+logsWatch \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+since\s+limit\s+maxBytes\s+resolvedAt\s+until\s+\}\s+\}\s+agentCallID\s+approval \{\s+id\s+status\s+duration\s+\}\s+network\s+clusterWrites \{\s+approval \{\s+id\s+status\s+duration\s+\}\s+action \{\s+summary\s+class\s+context\s+namespace\s+verb\s+group\s+kind\s+grantable\s+commandRule\s+chatRule\s+\}\s+method\s+path\s+subresource\s+contentType\s+body\s+dryRun\s+diff\s+diffCut\s+diffError\s+reason\s+\}\s+output\s+background \{\s+status\s+exitCode\s+report\s+matched \{\s+timestamp\s+namespace\s+pod\s+container\s+previous\s+message\s+gap \{\s+after\s+before\s+\}\s+\}\s+endedBecause\s+viewAround \{\s+sources \{\s+namespace\s+kind\s+name\s+containers\s+allContainers\s+previous\s+\}\s+filters \{\s+field\s+values\s+\}\s+grep\s+anchor \{\s+kind\s+at\s+\}\s+pinToEnd\s+resolvedAt\s+\}\s+\}\s+\}/,
     );
     expect(print(lastArgs!.query!)).toMatch(/citations \{\s+type\s+url\s+title\s+citedText\s+\}/);
     const call = {
@@ -434,6 +434,26 @@ describe('noticesOf', () => {
     expect(Object.keys(notices[0])).not.toContain('error');
   });
 
+  it("reads a watch's notice, and never its sample, which is the model's copy", () => {
+    const watch = (status: string, extra: object = {}) => ({
+      type: 'task_notification',
+      task: { kind: 'watch', id: 't', status, description: 'Panics', result: 'Watched 1 line.', matched: 1, ...extra },
+    });
+    const notices = noticesOf([
+      watch('matched'),
+      watch('expired'),
+      watch('failed'),
+      watch('stopped', { stopped_by: 'user' }),
+    ]);
+    expect(notices.map((n) => [n.kind, n.status, n.stoppedBy])).toEqual([
+      ['watch', 'matched', ''],
+      ['watch', 'expired', ''],
+      ['watch', 'failed', ''],
+      ['watch', 'stopped', 'user'],
+    ]);
+    expect(Object.keys(notices[0])).not.toContain('result');
+  });
+
   it('reads the agent whose call started the command', () => {
     expect(
       noticesOf([{ ...exited, task: { ...exited.task, agent_description: 'Build it' } }])[0].agentDescription,
@@ -478,6 +498,7 @@ function providerSearch(query: string): SearchFields {
       kubeQuery: null,
       logsView: null,
       logsRead: null,
+      logsWatch: null,
     },
     agentCallID: null,
   };
@@ -500,6 +521,7 @@ describe('actionKindLabel', () => {
     expect(actionKindLabel('Delegate')).toBe('Agent');
     expect(actionKindLabel('KubeQuery')).toBe('Query');
     expect(actionKindLabel('LogsRead')).toBe('Read logs');
+    expect(actionKindLabel('LogsWatch')).toBe('Watch logs');
   });
 });
 
@@ -703,13 +725,16 @@ describe('grantOffered', () => {
   it('offers one under a background command that exited non-zero or with no code', () => {
     const exited = (exitCode: number | null): ChatToolCall => ({
       ...command('Succeeded'),
-      background: { status: 'Exited', exitCode, report: '' },
+      background: { status: 'Exited', exitCode, report: '', matched: [], endedBecause: '', viewAround: null },
     });
     expect(grantOffered(exited(1))).toBe(true);
     expect(grantOffered(exited(null))).toBe(true);
     expect(grantOffered(exited(0))).toBe(false);
     (['Running', 'Stopped', 'Lost'] as const).forEach((status) => {
-      const task = { ...command('Succeeded'), background: { status, exitCode: null, report: '' } };
+      const task = {
+        ...command('Succeeded'),
+        background: { status, exitCode: null, report: '', matched: [], endedBecause: '', viewAround: null },
+      };
       expect(grantOffered(task), status).toBe(false);
     });
   });

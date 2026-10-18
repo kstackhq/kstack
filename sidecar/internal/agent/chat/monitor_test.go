@@ -330,3 +330,11 @@ func TestTheMonitorReadsLogsAndOpensNoView(t *testing.T) {
 	assert.True(t, reads)
 	assert.False(t, views)
 }
+
+// The monitor starts no watch: nothing it asks is answered, so nobody waits on one.
+func TestTheMonitorStartsNoWatch(t *testing.T) {
+	t.Parallel()
+	box := MonitorBox(tools.NewBox([]tools.Tool{newWatchTool()}))
+	_, watches := box.Runner("LogsWatch")
+	assert.False(t, watches)
+}

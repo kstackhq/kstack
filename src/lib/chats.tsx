@@ -191,6 +191,26 @@ const ChatMessagesWatchSubscription = graphql(`
                 resolvedAt
               }
             }
+            logsWatch {
+              sources {
+                namespace
+                kind
+                name
+                containers
+                allContainers
+                previous
+              }
+              filters {
+                field
+                values
+              }
+              grep
+              since
+              limit
+              maxBytes
+              resolvedAt
+              until
+            }
           }
           agentCallID
           approval {
@@ -233,6 +253,40 @@ const ChatMessagesWatchSubscription = graphql(`
             status
             exitCode
             report
+            matched {
+              timestamp
+              namespace
+              pod
+              container
+              previous
+              message
+              gap {
+                after
+                before
+              }
+            }
+            endedBecause
+            viewAround {
+              sources {
+                namespace
+                kind
+                name
+                containers
+                allContainers
+                previous
+              }
+              filters {
+                field
+                values
+              }
+              grep
+              anchor {
+                kind
+                at
+              }
+              pinToEnd
+              resolvedAt
+            }
           }
         }
         citations {
@@ -398,6 +452,7 @@ const ACTION_KIND_LABELS: Record<ToolActionKind, string> = {
   KubeQuery: 'Query',
   LogsView: 'Logs',
   LogsRead: 'Read logs',
+  LogsWatch: 'Watch logs',
 };
 
 export function actionKindLabel(kind: ToolActionKind): string {
@@ -509,17 +564,17 @@ export function waitingRequestsOf(calls: ChatToolCall[]): WaitingRequest[] {
 /**
  * How one background task ended, as a notice told the model: what the
  * transcript draws of the sidecar's `llm.TaskNotice`. A task is a background
- * command or an agent; a notice naming no kind reads as a command's. `stoppedBy` is who stopped a stopped task,
+ * command, an agent or a log watch; a notice naming no kind reads as a command's. `stoppedBy` is who stopped a stopped task,
  * '' otherwise. `description` and `command` are the model's text, one line
  * each, cut by the sidecar; `agentDescription` is the description of the Agent
  * call whose subagent started a command, '' for the answer's own. An agent's
- * report and error are the model's copy, never read here: the user reads the
- * report in the Agent call.
+ * report and error, and a watch's sample, are the model's copy, never read here:
+ * the user reads the report in the Agent call and the lines on the watch's card.
  */
 export type TaskNotice = {
   id: string;
-  kind: 'command' | 'agent';
-  status: 'exited' | 'completed' | 'failed' | 'stopped' | 'lost';
+  kind: 'command' | 'agent' | 'watch';
+  status: 'exited' | 'completed' | 'failed' | 'matched' | 'expired' | 'stopped' | 'lost';
   stoppedBy: string;
   exitCode: number | null;
   description: string;
@@ -527,7 +582,9 @@ export type TaskNotice = {
   agentDescription: string;
 };
 
-const NOTICE_STATUSES = new Set(['exited', 'completed', 'failed', 'stopped', 'lost']);
+const NOTICE_STATUSES = new Set(['exited', 'completed', 'failed', 'matched', 'expired', 'stopped', 'lost']);
+
+const NOTICE_KINDS = new Set(['agent', 'watch']);
 
 const stringOr = (value: unknown): string => (typeof value === 'string' ? value : '');
 
@@ -556,7 +613,7 @@ export function noticesOf(content: unknown): TaskNotice[] {
     return [
       {
         id,
-        kind: kind === 'agent' ? 'agent' : 'command',
+        kind: typeof kind === 'string' && NOTICE_KINDS.has(kind) ? (kind as TaskNotice['kind']) : 'command',
         status: status as TaskNotice['status'],
         stoppedBy: stringOr(stoppedBy),
         exitCode: typeof code === 'number' ? code : null,

@@ -245,7 +245,7 @@ func (s *service) run(t *turn) (res loop.Result, err error) {
 		Runtime: tools.Runtime{
 			ClusterID: t.clusterID, ChatID: t.chatID, Session: t.session(),
 			Dir: s.chatDir(t.chatID), Tasks: s.chatTasks(t.chatID, t.runJournal), Files: s.chatFiles(t.chatID),
-			Agent: t, ActionAsker: actionAsker{j: t.runJournal, run: t.ctx},
+			Agent: t, Watches: s.chatWatches(t.chatID, t.runJournal), ActionAsker: actionAsker{j: t.runJournal, run: t.ctx},
 		},
 		MaxToolCalls: MaxToolCalls, DefaultToolTimeout: defaultToolTimeout,
 	}

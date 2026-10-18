@@ -73,8 +73,9 @@ func comparePositions(a, b position) int {
 // compare orders rec against p.
 func compare(rec Record, p position) int { return comparePositions(positionOf(rec), p) }
 
-// compareLines orders two lines.
-func compareLines(a, b Record) int { return comparePositions(positionOf(a), positionOf(b)) }
+// CompareLines orders two lines as their cursors do: by moment, then, at one
+// moment, by namespace, pod, container, ordinal and instance id.
+func CompareLines(a, b Record) int { return comparePositions(positionOf(a), positionOf(b)) }
 
 // cursorOf is p as a cursor: its time with nanoseconds, then, for a line, its
 // container, instance id and ordinal, each field behind a tab, which no name

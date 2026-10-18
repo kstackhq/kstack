@@ -67,9 +67,12 @@ type ComplexityRoot struct {
 	}
 
 	BackgroundTask struct {
-		ExitCode func(childComplexity int) int
-		Report   func(childComplexity int) int
-		Status   func(childComplexity int) int
+		EndedBecause func(childComplexity int) int
+		ExitCode     func(childComplexity int) int
+		Matched      func(childComplexity int) int
+		Report       func(childComplexity int) int
+		Status       func(childComplexity int) int
+		ViewAround   func(childComplexity int) int
 	}
 
 	Chat struct {
@@ -534,6 +537,17 @@ type ComplexityRoot struct {
 		Previous      func(childComplexity int) int
 	}
 
+	LogsWatchAction struct {
+		Filters    func(childComplexity int) int
+		Grep       func(childComplexity int) int
+		Limit      func(childComplexity int) int
+		MaxBytes   func(childComplexity int) int
+		ResolvedAt func(childComplexity int) int
+		Since      func(childComplexity int) int
+		Sources    func(childComplexity int) int
+		Until      func(childComplexity int) int
+	}
+
 	Memory struct {
 		Body      func(childComplexity int) int
 		ClusterID func(childComplexity int) int
@@ -796,6 +810,7 @@ type ComplexityRoot struct {
 		KubeQuery   func(childComplexity int) int
 		LogsRead    func(childComplexity int) int
 		LogsView    func(childComplexity int) int
+		LogsWatch   func(childComplexity int) int
 		Memory      func(childComplexity int) int
 		Read        func(childComplexity int) int
 		Search      func(childComplexity int) int
@@ -975,12 +990,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.AuthState.Identity(childComplexity), true
 
+	case "BackgroundTask.endedBecause":
+		if e.ComplexityRoot.BackgroundTask.EndedBecause == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BackgroundTask.EndedBecause(childComplexity), true
 	case "BackgroundTask.exitCode":
 		if e.ComplexityRoot.BackgroundTask.ExitCode == nil {
 			break
 		}
 
 		return e.ComplexityRoot.BackgroundTask.ExitCode(childComplexity), true
+	case "BackgroundTask.matched":
+		if e.ComplexityRoot.BackgroundTask.Matched == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BackgroundTask.Matched(childComplexity), true
 	case "BackgroundTask.report":
 		if e.ComplexityRoot.BackgroundTask.Report == nil {
 			break
@@ -993,6 +1020,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BackgroundTask.Status(childComplexity), true
+	case "BackgroundTask.viewAround":
+		if e.ComplexityRoot.BackgroundTask.ViewAround == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BackgroundTask.ViewAround(childComplexity), true
 
 	case "Chat.awaitingApproval":
 		if e.ComplexityRoot.Chat.AwaitingApproval == nil {
@@ -2783,6 +2816,55 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.LogsViewSource.Previous(childComplexity), true
 
+	case "LogsWatchAction.filters":
+		if e.ComplexityRoot.LogsWatchAction.Filters == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsWatchAction.Filters(childComplexity), true
+	case "LogsWatchAction.grep":
+		if e.ComplexityRoot.LogsWatchAction.Grep == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsWatchAction.Grep(childComplexity), true
+	case "LogsWatchAction.limit":
+		if e.ComplexityRoot.LogsWatchAction.Limit == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsWatchAction.Limit(childComplexity), true
+	case "LogsWatchAction.maxBytes":
+		if e.ComplexityRoot.LogsWatchAction.MaxBytes == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsWatchAction.MaxBytes(childComplexity), true
+	case "LogsWatchAction.resolvedAt":
+		if e.ComplexityRoot.LogsWatchAction.ResolvedAt == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsWatchAction.ResolvedAt(childComplexity), true
+	case "LogsWatchAction.since":
+		if e.ComplexityRoot.LogsWatchAction.Since == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsWatchAction.Since(childComplexity), true
+	case "LogsWatchAction.sources":
+		if e.ComplexityRoot.LogsWatchAction.Sources == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsWatchAction.Sources(childComplexity), true
+	case "LogsWatchAction.until":
+		if e.ComplexityRoot.LogsWatchAction.Until == nil {
+			break
+		}
+
+		return e.ComplexityRoot.LogsWatchAction.Until(childComplexity), true
+
 	case "Memory.body":
 		if e.ComplexityRoot.Memory.Body == nil {
 			break
@@ -4141,6 +4223,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.ToolAction.LogsView(childComplexity), true
+	case "ToolAction.logsWatch":
+		if e.ComplexityRoot.ToolAction.LogsWatch == nil {
+			break
+		}
+
+		return e.ComplexityRoot.ToolAction.LogsWatch(childComplexity), true
 	case "ToolAction.memory":
 		if e.ComplexityRoot.ToolAction.Memory == nil {
 			break
@@ -4439,6 +4527,12 @@ func (ec *executionContext) childFields_BackgroundTask(ctx context.Context, fiel
 		return ec.fieldContext_BackgroundTask_exitCode(ctx, field)
 	case "report":
 		return ec.fieldContext_BackgroundTask_report(ctx, field)
+	case "matched":
+		return ec.fieldContext_BackgroundTask_matched(ctx, field)
+	case "endedBecause":
+		return ec.fieldContext_BackgroundTask_endedBecause(ctx, field)
+	case "viewAround":
+		return ec.fieldContext_BackgroundTask_viewAround(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type BackgroundTask", field.Name)
 }
@@ -5367,6 +5461,28 @@ func (ec *executionContext) childFields_LogsViewSource(ctx context.Context, fiel
 	return nil, fmt.Errorf("no field named %q was found under type LogsViewSource", field.Name)
 }
 
+func (ec *executionContext) childFields_LogsWatchAction(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+	switch field.Name {
+	case "sources":
+		return ec.fieldContext_LogsWatchAction_sources(ctx, field)
+	case "filters":
+		return ec.fieldContext_LogsWatchAction_filters(ctx, field)
+	case "grep":
+		return ec.fieldContext_LogsWatchAction_grep(ctx, field)
+	case "since":
+		return ec.fieldContext_LogsWatchAction_since(ctx, field)
+	case "limit":
+		return ec.fieldContext_LogsWatchAction_limit(ctx, field)
+	case "maxBytes":
+		return ec.fieldContext_LogsWatchAction_maxBytes(ctx, field)
+	case "resolvedAt":
+		return ec.fieldContext_LogsWatchAction_resolvedAt(ctx, field)
+	case "until":
+		return ec.fieldContext_LogsWatchAction_until(ctx, field)
+	}
+	return nil, fmt.Errorf("no field named %q was found under type LogsWatchAction", field.Name)
+}
+
 func (ec *executionContext) childFields_Memory(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
 	switch field.Name {
 	case "id":
@@ -5741,6 +5857,8 @@ func (ec *executionContext) childFields_ToolAction(ctx context.Context, field gr
 		return ec.fieldContext_ToolAction_logsView(ctx, field)
 	case "logsRead":
 		return ec.fieldContext_ToolAction_logsRead(ctx, field)
+	case "logsWatch":
+		return ec.fieldContext_ToolAction_logsWatch(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type ToolAction", field.Name)
 }
@@ -7233,6 +7351,93 @@ func (ec *executionContext) _BackgroundTask_report(ctx context.Context, field gr
 }
 func (ec *executionContext) fieldContext_BackgroundTask_report(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("BackgroundTask", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _BackgroundTask_matched(ctx context.Context, field graphql.CollectedField, obj *chat.BackgroundTask) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_BackgroundTask_matched(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Matched, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []tools.LogsReadLine) graphql.Marshaler {
+			return ec.marshalNLogsReadLine2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋtoolsᚐLogsReadLineᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_BackgroundTask_matched(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BackgroundTask",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LogsReadLine(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BackgroundTask_endedBecause(ctx context.Context, field graphql.CollectedField, obj *chat.BackgroundTask) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_BackgroundTask_endedBecause(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EndedBecause, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_BackgroundTask_endedBecause(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("BackgroundTask", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _BackgroundTask_viewAround(ctx context.Context, field graphql.CollectedField, obj *chat.BackgroundTask) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_BackgroundTask_viewAround(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ViewAround, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *tools.LogsViewAction) graphql.Marshaler {
+			return ec.marshalOLogsViewAction2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋtoolsᚐLogsViewAction(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_BackgroundTask_viewAround(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BackgroundTask",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LogsViewAction(ctx, field)
+		},
+	}
+	return fc, nil
 }
 
 func (ec *executionContext) _Chat_id(ctx context.Context, field graphql.CollectedField, obj *chat.Chat) (ret graphql.Marshaler) {
@@ -14369,6 +14574,208 @@ func (ec *executionContext) fieldContext_LogsViewSource_previous(_ context.Conte
 	return graphql.NewScalarFieldContext("LogsViewSource", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
+func (ec *executionContext) _LogsWatchAction_sources(ctx context.Context, field graphql.CollectedField, obj *tools.LogsWatchAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsWatchAction_sources(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Sources, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []logs.ViewSource) graphql.Marshaler {
+			return ec.marshalNLogsViewSource2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewSourceᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsWatchAction_sources(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LogsWatchAction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LogsViewSource(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LogsWatchAction_filters(ctx context.Context, field graphql.CollectedField, obj *tools.LogsWatchAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsWatchAction_filters(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Filters, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []logs.ViewFilter) graphql.Marshaler {
+			return ec.marshalNLogsViewFilter2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewFilterᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsWatchAction_filters(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "LogsWatchAction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LogsViewFilter(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _LogsWatchAction_grep(ctx context.Context, field graphql.CollectedField, obj *tools.LogsWatchAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsWatchAction_grep(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Grep, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsWatchAction_grep(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LogsWatchAction", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _LogsWatchAction_since(ctx context.Context, field graphql.CollectedField, obj *tools.LogsWatchAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsWatchAction_since(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Since, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsWatchAction_since(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LogsWatchAction", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _LogsWatchAction_limit(ctx context.Context, field graphql.CollectedField, obj *tools.LogsWatchAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsWatchAction_limit(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Limit, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsWatchAction_limit(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LogsWatchAction", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _LogsWatchAction_maxBytes(ctx context.Context, field graphql.CollectedField, obj *tools.LogsWatchAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsWatchAction_maxBytes(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.MaxBytes, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v int) graphql.Marshaler {
+			return ec.marshalNInt2int(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsWatchAction_maxBytes(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LogsWatchAction", field, false, false, errors.New("field of type Int does not have child fields"))
+}
+
+func (ec *executionContext) _LogsWatchAction_resolvedAt(ctx context.Context, field graphql.CollectedField, obj *tools.LogsWatchAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsWatchAction_resolvedAt(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ResolvedAt, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsWatchAction_resolvedAt(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LogsWatchAction", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
+func (ec *executionContext) _LogsWatchAction_until(ctx context.Context, field graphql.CollectedField, obj *tools.LogsWatchAction) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_LogsWatchAction_until(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Until, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v time.Time) graphql.Marshaler {
+			return ec.marshalNTime2timeᚐTime(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_LogsWatchAction_until(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("LogsWatchAction", field, false, false, errors.New("field of type Time does not have child fields"))
+}
+
 func (ec *executionContext) _Memory_id(ctx context.Context, field graphql.CollectedField, obj *memory.Memory) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -20033,6 +20440,38 @@ func (ec *executionContext) fieldContext_ToolAction_logsRead(_ context.Context, 
 	return fc, nil
 }
 
+func (ec *executionContext) _ToolAction_logsWatch(ctx context.Context, field graphql.CollectedField, obj *tools.Action) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_ToolAction_logsWatch(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.LogsWatch, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *tools.LogsWatchAction) graphql.Marshaler {
+			return ec.marshalOLogsWatchAction2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋtoolsᚐLogsWatchAction(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_ToolAction_logsWatch(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "ToolAction",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LogsWatchAction(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
 func (ec *executionContext) _ToolCall_id(ctx context.Context, field graphql.CollectedField, obj *chat.ToolCall) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
@@ -22123,6 +22562,21 @@ func (ec *executionContext) _BackgroundTask(ctx context.Context, sel ast.Selecti
 		case "report":
 			out.Values[i] = ec._BackgroundTask_report(ctx, field, obj)
 			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "matched":
+			out.Values[i] = ec._BackgroundTask_matched(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "endedBecause":
+			out.Values[i] = ec._BackgroundTask_endedBecause(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "viewAround":
+			out.Values[i] = ec._BackgroundTask_viewAround(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
 		default:
@@ -25947,6 +26401,79 @@ func (ec *executionContext) _LogsViewSource(ctx context.Context, sel ast.Selecti
 	return out
 }
 
+var logsWatchActionImplementors = []string{"LogsWatchAction"}
+
+func (ec *executionContext) _LogsWatchAction(ctx context.Context, sel ast.SelectionSet, obj *tools.LogsWatchAction) graphql.Marshaler {
+	fields := graphql.CollectFields(ec.OperationContext, sel, logsWatchActionImplementors)
+
+	out := graphql.NewFieldSet(fields)
+	deferredFieldSet := graphql.NewFieldSet(nil)
+	deferLabelToView := make(map[string]*graphql.FieldSetView)
+	for i, field := range fields {
+		switch field.Name {
+		case "__typename":
+			out.Values[i] = graphql.MarshalString("LogsWatchAction")
+		case "sources":
+			out.Values[i] = ec._LogsWatchAction_sources(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "filters":
+			out.Values[i] = ec._LogsWatchAction_filters(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "grep":
+			out.Values[i] = ec._LogsWatchAction_grep(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "since":
+			out.Values[i] = ec._LogsWatchAction_since(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "limit":
+			out.Values[i] = ec._LogsWatchAction_limit(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "maxBytes":
+			out.Values[i] = ec._LogsWatchAction_maxBytes(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "resolvedAt":
+			out.Values[i] = ec._LogsWatchAction_resolvedAt(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "until":
+			out.Values[i] = ec._LogsWatchAction_until(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		default:
+			panic("unknown field " + strconv.Quote(field.Name))
+		}
+	}
+	out.Dispatch(ctx)
+	if out.Invalids > 0 {
+		return graphql.Null
+	}
+
+	atomic.AddInt32(&ec.Deferred, int32(min(len(deferLabelToView), math.MaxInt32)))
+
+	ec.ProcessDeferredGroup(graphql.DeferredGroup{
+		Defers:   deferLabelToView,
+		Path:     graphql.GetPath(ctx),
+		FieldSet: deferredFieldSet,
+		Context:  ctx,
+	})
+
+	return out
+}
+
 var memoryImplementors = []string{"Memory"}
 
 func (ec *executionContext) _Memory(ctx context.Context, sel ast.SelectionSet, obj *memory.Memory) graphql.Marshaler {
@@ -28105,6 +28632,11 @@ func (ec *executionContext) _ToolAction(ctx context.Context, sel ast.SelectionSe
 			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
+		case "logsWatch":
+			out.Values[i] = ec._ToolAction_logsWatch(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -28875,6 +29407,8 @@ var (
 		"Exited":    chat.BackgroundTaskExited,
 		"Completed": chat.BackgroundTaskCompleted,
 		"Failed":    chat.BackgroundTaskFailed,
+		"Matched":   chat.BackgroundTaskMatched,
+		"Expired":   chat.BackgroundTaskExpired,
 		"Stopped":   chat.BackgroundTaskStopped,
 		"Lost":      chat.BackgroundTaskLost,
 	}
@@ -28883,6 +29417,8 @@ var (
 		chat.BackgroundTaskExited:    "Exited",
 		chat.BackgroundTaskCompleted: "Completed",
 		chat.BackgroundTaskFailed:    "Failed",
+		chat.BackgroundTaskMatched:   "Matched",
+		chat.BackgroundTaskExpired:   "Expired",
 		chat.BackgroundTaskStopped:   "Stopped",
 		chat.BackgroundTaskLost:      "Lost",
 	}
@@ -31155,6 +31691,13 @@ func (ec *executionContext) unmarshalOLogsViewSnapshotInput2ᚖgithubᚗcomᚋks
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
+func (ec *executionContext) marshalOLogsWatchAction2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋtoolsᚐLogsWatchAction(ctx context.Context, sel ast.SelectionSet, v *tools.LogsWatchAction) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._LogsWatchAction(ctx, sel, v)
+}
+
 func (ec *executionContext) marshalOMemory2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋmemoryᚐMemory(ctx context.Context, sel ast.SelectionSet, v *memory.Memory) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
@@ -31313,6 +31856,7 @@ var (
 		"KubeQuery": tools.ActionKubeQuery,
 		"LogsView":  tools.ActionLogsView,
 		"LogsRead":  tools.ActionLogsRead,
+		"LogsWatch": tools.ActionLogsWatch,
 	}
 	marshalOToolActionKind2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋtoolsᚐActionKind = map[tools.ActionKind]string{
 		tools.ActionCommand:   "Command",
@@ -31327,6 +31871,7 @@ var (
 		tools.ActionKubeQuery: "KubeQuery",
 		tools.ActionLogsView:  "LogsView",
 		tools.ActionLogsRead:  "LogsRead",
+		tools.ActionLogsWatch: "LogsWatch",
 	}
 )
 

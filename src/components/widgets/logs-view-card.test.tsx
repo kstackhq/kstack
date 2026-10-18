@@ -82,6 +82,7 @@ const call = {
     kubeQuery: null,
     logsView: action,
     logsRead: null,
+    logsWatch: null,
   },
   approval: null,
   network: null,

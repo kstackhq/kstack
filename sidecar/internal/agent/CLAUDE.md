@@ -77,7 +77,7 @@ Files: `record.go` (wire records), `service.go` (methods, watch pumps), `turn.go
 live overlay), `context.go` (`roomFor`), `subagent.go`, `monitor.go`, `approval.go` (the
 `loop.Approver`), `grants.go` (chat rules, folders), `prompt.go`, `store.go` (one function per
 statement), `statements.go`, `stream.go`, `sweep.go`, `chatdir.go`, `workspace.go`, `view.go`, `files.go`
-(file stamps), `memory.go`, `tasks.go`, `notices.go`.
+(file stamps), `memory.go`, `tasks.go`, `watches.go`, `notices.go`.
 
 **The turn.** `Send` checks the model and effort **after the replay lookup** (a replay answers by
 `requestID` alone, so a catalog change must not refuse a retry); a bad name is `ErrBadRequest`
@@ -138,8 +138,8 @@ land before any call runs, and a failed write under one call cancels the reply's
 **A turn can hand a task to a subagent, which runs in the background** (`subagent.go`). `Agent` is
 not `Gated` (each subagent call is) and answers at once. Its run and the `Agent` row's
 `spawned_run_id` land in the task row's transaction. `agentTask` runs under a context only a stop
-cancels, so a parent's Cancel leaves it running. `SubagentBox` drops `Agent`, `Memory` and
-`LogsView` (depth is one), and keeps `LogsRead`. **Each run owns its own calls** (`runJournal`). **`watchTask` is the one
+cancels, so a parent's Cancel leaves it running. `SubagentBox` drops `Agent`, `Memory`, `LogsView`
+and `LogsWatch` (depth is one), and keeps `LogsRead`. **Each run owns its own calls** (`runJournal`). **`watchTask` is the one
 writer of the end.** → [ADR](../../../docs/adr/2026-09-25-an-agent-is-a-tool-in-the-box.md),
 [ADR](../../../docs/adr/2026-09-25-an-agent-runs-in-the-background.md), [the Agent
 tool](../../../docs/security/2026-09-25-agent-tool.md), [background
@@ -147,23 +147,35 @@ agents](../../../docs/security/2026-09-25-background-agents.md).
 
 **A monitor run is a run of the chat service** (`RunMonitor`): one per cluster
 (`ErrMonitorInFlight`), refused without a sandbox, with monitoring off or a gone cluster. It runs in
-`monitorSession()`, told the card alone (never memory), offered `MonitorBox`, which keeps `LogsRead`; nothing
-it asks is approved. → [ADR](../../../docs/adr/2026-10-05-a-monitor-run-is-a-run-of-the-chat-service.md),
+`monitorSession()`, told the card alone (never memory), offered `MonitorBox`, which keeps `LogsRead`
+and drops `LogsView` and `LogsWatch`; nothing it asks is approved. → [ADR](../../../docs/adr/2026-10-05-a-monitor-run-is-a-run-of-the-chat-service.md),
 [the monitoring session](../../../docs/security/2026-10-05-the-monitoring-session.md).
 
 **Background tasks.** A bash call with `run_in_background` is approved like any other (how it
-starts is `internal/tools/CLAUDE.md`). **`agent/chat` holds the tasks** (`tasks.go`), commands
-and agents sharing the slots (`maxTasksPerChat`, `maxTasks`). **The watcher
+starts is `internal/tools/CLAUDE.md`). **`agent/chat` holds the tasks** (`tasks.go`): commands,
+agents and watches share the slots (`maxTasksPerChat`, `maxTasks`). **The watcher
 writes the end row before releasing the slot**, so the count matches the rows still running. Five
 stops (the model's `TaskStop`, the user's `StopBackgroundTask`, `unansweredLimit`, `Delete`,
 `stop`); the first names `stopped_by`. `Start` marks a row still `running` as `lost`.
 
+**A watch is the third kind** (`watches.go`). `Runtime.Watches` is `chatWatches`, whose `Start`
+holds a `tools.Watch` through `startTask` with the watch's end, as an agent's is: its file is
+closed, empty, before it runs; `watchTask.Wait` runs the watch's `Wait`, and any stop is its `Stop`. The end is
+`matched`, `expired`, `failed` or `stopped`, with `background_tasks.result`, the watch's
+`tools.WatchResult` as JSON, set on every finished watch and NULL on every other row. **A watch is
+never written notified**, a model's stop included: `TaskStop` answers before the lines are
+written, so the notice carries them. `BackgroundTask` serves `matched`, `endedBecause` and
+`viewAround` off the result.
+
 **Notices** (`notices.go`) are `llm.BlockTaskNotification` blocks, sent as an escaped
 `<task-notification>`. They reach the model riding a send, or in a turn of their own:
-`startNoticeTurn`, kicked when the slot is free and `startsTurn` passes, so no chain runs past one
-agent's end. It makes every check a send makes. Nothing kicks at startup. → [security records:
+`startNoticeTurn`, kicked when the slot is free and `startsTurn` passes: an exit, or an agent's or
+a watch's end (not a stop) under a user's send, so no chain runs past the first turn the user did
+not send. A watch's notice is its sample, read off `result`; its kind is its call's, through the
+box. It makes every check a send makes. Nothing kicks at startup. → [security records:
 background commands](../../../docs/security/2026-09-23-background-commands.md), [background
-agents](../../../docs/security/2026-09-25-background-agents.md).
+agents](../../../docs/security/2026-09-25-background-agents.md), [the model watches
+logs](../../../docs/security/2026-10-18-the-model-watches-logs.md).
 
 **A command is asked before it runs** (`approval.go`). `Approve` registers its waiter in
 `service.pending` **before anything is written**, so no id is decidable ahead of its request, then
@@ -247,8 +259,8 @@ in the answer's row](../../../docs/adr/2026-09-14-tool-rounds-live-in-the-answer
 **A question carries a context block when it has changed** (`questionBlocks` against
 `newestContext`): the cluster card, `## Memory`, `## Workspace`, `## View` when the send carries a
 snapshot, and `## Sandbox`, always last. **The View** (`view.go`) restates the named call's stored
-view (`viewCall`: a `LogsView` call's action, or a `LogsRead` call's `viewAround`, a subagent's
-included), never the client's, with what was on screen and the selected lines through
+view (`viewCall`: a `LogsView` call's action, a `LogsRead` call's `viewAround`, a subagent's
+included, or a finished `LogsWatch` call's, joined from its task's `result`), never the client's, with what was on screen and the selected lines through
 `logs.ForModel`, under `viewBudget` as the section spells it; a snapshot naming no such call of
 this chat is `ErrBadRequest`. A notice turn and a subagent's brief drop it (`withoutView`). **A context
 block is always its message's first block** — where the query reads it. The card and notes render

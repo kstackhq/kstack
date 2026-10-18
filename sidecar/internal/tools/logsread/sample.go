@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
@@ -26,12 +25,10 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/logsinput"
 )
 
-// A sample's caps, in bytes: one message, the lines together, and the header's
-// notes and skipped streams. With the header's fixed part they keep the output
-// under tools.InlineLimit, so it is never saved to a file.
+// A header's caps, in bytes: its notes and its skipped streams. With the lines'
+// logsinput.SampleBudget and the header's fixed part they keep the output under
+// tools.InlineLimit, so it is never saved to a file.
 const (
-	maxSampleLine = 2 << 10
-	sampleBudget  = 16 << 10
 	notesBudget   = 4 << 10
 	skippedBudget = 2 << 10
 )
@@ -64,7 +61,7 @@ func sampleOf(in input, page logs.Page) sample {
 	more = more || dropped > 0
 	s := sample{records: kept, dropped: dropped, before: edge(near, false), after: edge(far, more), skipped: []string{}}
 	if more && len(kept) > 0 {
-		s.next = encodeCursor(kept[len(kept)-1])
+		s.next = logsinput.EncodeCursor(kept[len(kept)-1])
 	}
 	if tail {
 		s.records = reversed(kept)
@@ -76,14 +73,14 @@ func sampleOf(in input, page logs.Page) sample {
 	return s
 }
 
-// fit is the longest prefix of recs whose lines fit sampleBudget, each message
+// fit is the longest prefix of recs whose lines fit logsinput.SampleBudget, each message
 // through logs.ForModel and then cut, since redaction reads the whole message.
 func fit(recs []logs.Record) []logs.Record {
 	var kept []logs.Record
 	size := 0
 	for _, rec := range recs {
-		rec.Message = cut(logs.ForModel(rec.Message))
-		if size += len(spell(rec)) + 1; size > sampleBudget {
+		rec.Message = logsinput.CutLine(logs.ForModel(rec.Message))
+		if size += len(logsinput.LineText(rec)) + 1; size > logsinput.SampleBudget {
 			break
 		}
 		kept = append(kept, rec)
@@ -111,43 +108,11 @@ func edge(e *end, more bool) tools.LogsReadEdge {
 	return tools.LogsReadEnd
 }
 
-// cut is s in at most maxSampleLine bytes, cut on a character boundary with an
-// ellipsis.
-func cut(s string) string {
-	if len(s) <= maxSampleLine {
-		return s
-	}
-	return s[:tools.RuneBoundary(s, maxSampleLine-len("…"))] + "…"
-}
-
-// spell is rec as the model reads it: the hole before it on a line of its own,
-// then its timestamp, its stream and its message. A message holds no newline, so
-// every line a record writes starts with the sidecar's [ or a timestamp.
-func spell(rec logs.Record) string {
-	line := stamp(rec.Timestamp) + " " + streamOf(rec.Stream) + " " + rec.Message
-	if rec.Gap == nil {
-		return line
-	}
-	return "[lines may be missing from " + streamOf(rec.Stream) + " between " + stamp(rec.Gap.After) + " and " + stamp(rec.Gap.Before) + "]\n" + line
-}
-
-// streamOf is a stream as a line names it.
-func streamOf(k logs.StreamKey) string {
-	s := k.Namespace + "/" + k.Pod + "/" + k.Container
-	if k.Previous {
-		s += " (previous)"
-	}
-	return s
-}
-
-// stamp is t in RFC 3339, in UTC, at its own precision.
-func stamp(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
-
 // output is the sample as the model reads it: the header, then its lines.
 func (s sample) output(in input, notes []logsinput.Note, view tools.LogsViewAction) string {
 	lines := []string{s.header(in, notes, view)}
 	for _, rec := range s.records {
-		lines = append(lines, spell(rec))
+		lines = append(lines, logsinput.LineText(rec))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -223,7 +188,7 @@ func edgeText(e tools.LogsReadEdge, more, maybe string) string {
 // printed cursor's line is not.
 func rangeText(since, until *end) string {
 	if since != nil && until != nil && !since.line && !until.line {
-		return " between " + stamp(since.at) + " and " + stamp(until.at)
+		return " between " + logsinput.Stamp(since.at) + " and " + logsinput.Stamp(until.at)
 	}
 	var out string
 	if since != nil {
@@ -231,14 +196,14 @@ func rangeText(since, until *end) string {
 		if since.line {
 			word = " after "
 		}
-		out += word + stamp(since.at)
+		out += word + logsinput.Stamp(since.at)
 	}
 	if until != nil {
 		word := " up to "
 		if until.line {
 			word = " before "
 		}
-		out += word + stamp(until.at)
+		out += word + logsinput.Stamp(until.at)
 	}
 	return out
 }
@@ -294,16 +259,10 @@ func (s sample) action(in input, view tools.LogsViewAction) tools.LogsReadAction
 		read.Until = &in.until.at
 	}
 	for _, rec := range s.records {
-		read.Lines = append(read.Lines, tools.LogsReadLine{
-			Timestamp: rec.Timestamp, Namespace: rec.Stream.Namespace, Pod: rec.Stream.Pod, Container: rec.Stream.Container,
-			Previous: rec.Stream.Previous, Message: rec.Message, Gap: rec.Gap,
-		})
+		read.Lines = append(read.Lines, logsinput.ReadLine(rec))
 	}
 	if len(s.records) > 0 {
-		at := s.records[0].Timestamp
-		read.ViewAround = &tools.LogsViewAction{
-			LogsViewInput: view.LogsViewInput, Anchor: tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: &at}, ResolvedAt: view.ResolvedAt,
-		}
+		read.ViewAround = logsinput.ViewAround(view.LogsViewInput, s.records[0].Timestamp, view.ResolvedAt)
 	}
 	return read
 }

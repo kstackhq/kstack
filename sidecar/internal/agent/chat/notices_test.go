@@ -298,3 +298,37 @@ func TestANoticeTurnDropsTheView(t *testing.T) {
 		})
 	}
 }
+
+// A watch's notice carries its sample whatever its status, names no file, since
+// its file is empty, and counts the lines it held; a failed watch's reason is its
+// error, and a lost watch has neither.
+func TestAWatchsNoticeCarriesItsSample(t *testing.T) {
+	t.Parallel()
+
+	result := `{"text":"Watched 2 lines.","lines":[{"message":"a"},{"message":"b"}],"endedBecause":"it reached its line limit"}`
+	n := noticeOf(waitingNotice{id: "t1", path: "/p", status: taskMatched, watch: true, description: "Panics", result: result})
+	assert.Equal(t, llm.TaskNotice{
+		Kind: llm.TaskWatch, ID: "t1", Status: llm.TaskMatched, Description: "Panics", Result: "Watched 2 lines.", Matched: 2,
+	}, n)
+
+	failed := noticeOf(waitingNotice{id: "t1", path: "/p", status: taskFailed, watch: true, description: "Panics",
+		result: `{"text":"every container stopped","lines":[],"endedBecause":"every container stopped"}`})
+	assert.Equal(t, "every container stopped", failed.Error)
+
+	lost := noticeOf(waitingNotice{id: "t1", path: "/p", status: taskLost, watch: true, description: "Panics"})
+	assert.Equal(t, llm.TaskNotice{Kind: llm.TaskWatch, ID: "t1", Status: llm.TaskLost, Description: "Panics"}, lost)
+}
+
+// A watch's end starts a turn only under a user's send, and only when it ended on
+// its own: matched, expired or failed. A stop never does.
+func TestAWatchStartsATurnOnlyUnderASend(t *testing.T) {
+	t.Parallel()
+
+	for _, status := range []string{taskMatched, taskExpired, taskFailed} {
+		assert.True(t, startsTurn([]waitingNotice{{status: status, watch: true, underSend: true}}), status)
+		assert.False(t, startsTurn([]waitingNotice{{status: status, watch: true}}), status)
+	}
+	for _, status := range []string{taskStopped, taskLost} {
+		assert.False(t, startsTurn([]waitingNotice{{status: status, watch: true, underSend: true}}), status)
+	}
+}

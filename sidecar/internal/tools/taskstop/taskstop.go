@@ -36,11 +36,11 @@ var prompt string
 var inputSchema []byte
 
 // description is the tool description the model reads with the schema.
-const description = "Stops a background command this conversation started, by its ID."
+const description = "Stops a background command, agent or log watch this conversation started, by its ID."
 
 // notRunning answers every id the chat holds no running task by, so the model
 // learns nothing of another chat's.
-const notRunning = "No background command with that ID is running in this conversation."
+const notRunning = "No background command, agent or watch with that ID is running in this conversation."
 
 // Name is the name the tool is offered under.
 const Name = "TaskStop"
