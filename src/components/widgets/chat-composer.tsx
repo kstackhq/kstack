@@ -16,11 +16,11 @@
 // and the answer arrives on the messages watch. The draft and the send are the
 // outbox's, so this only draws them — and decides the one thing a send leaves to
 // its caller, which is whether the window should follow a chat it created.
-import { useEffect, useRef, useSyncExternalStore } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 
 import { useMutation } from 'urql';
 
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, X } from 'lucide-react';
 
 import { Button } from '@kubetail/ui/elements/button';
 import {
@@ -43,7 +43,8 @@ import type { Created } from '@/lib/chat-outbox';
 import { useChatOutbox } from '@/lib/chat-outbox';
 import { inFlight } from '@/lib/chats';
 import type { ChatMessage } from '@/lib/chats';
-import { snapshotOf } from '@/lib/logs-snapshot';
+import type { LogLine } from '@/lib/log-viewer';
+import { MAX_SELECTED, snapshotOf } from '@/lib/logs-snapshot';
 import { useLogsView } from '@/lib/logs-view';
 import type { Model } from '@/lib/models';
 import { modelOf, seedPick, useModels } from '@/lib/models';
@@ -164,6 +165,15 @@ function groupByProvider(models: Model[]): OptionGroup[] {
   return [...byProvider.values()];
 }
 
+// The chip's words: what rides the send with the view.
+function viewLine(count: number, riding: boolean): string {
+  if (count === 0) return 'With the view in the sidebar';
+  const lines = `${count} selected ${count === 1 ? 'line' : 'lines'}`;
+  if (!riding) return `With the view (${lines} not sent)`;
+  if (count > MAX_SELECTED) return `With the view and ${lines} (the first ${MAX_SELECTED} sent)`;
+  return `With the view and ${lines}`;
+}
+
 export function ChatComposer({
   chatID,
   mode,
@@ -221,12 +231,16 @@ export function ChatComposer({
   const [, chatCancel] = useMutation(ChatCancelMutation);
 
   // What the user looks at rides the send: the focused view, when it is this
-  // chat's and the sidebar beside the chat shows it. The count is read alone, so a
-  // following tail does not draw the composer again.
+  // chat's and the sidebar beside the chat shows it, with the selected lines unless
+  // × removed them. The viewer writes a new selection array only when the selection
+  // changes, so reading it by identity keeps a following tail from drawing the
+  // composer again, and a new selection is never `removed`.
   const { view, viewport } = useLogsView();
   const { open: sidebarOpen } = useRightSidebar();
   const shownView = mode === 'chat' && sidebarOpen && chatID !== null && view?.chatId === chatID ? view : null;
-  const selectedCount = useSyncExternalStore(viewport.subscribe, () => viewport.get().selection.length);
+  const selection = useSyncExternalStore(viewport.subscribe, () => viewport.get().selection);
+  const [removed, setRemoved] = useState<LogLine[] | null>(null);
+  const riding = selection.length > 0 && selection !== removed;
 
   // A send that lands after the window has moved on must not move it again. It moves
   // on by unmounting the composer — and, for a chat that has not started, by
@@ -298,7 +312,10 @@ export function ChatComposer({
   const onSend = () => {
     if (canSend && shownDisabled !== undefined && shownNetwork !== undefined) {
       // Pulled at the press: nothing streams the viewer's state anywhere.
-      const snapshot = shownView ? snapshotOf(shownView, viewport.get()) : null;
+      const shown = viewport.get();
+      const snapshot = shownView
+        ? snapshotOf(shownView, shown.selection === removed ? { ...shown, selection: [] } : shown)
+        : null;
       follow(submit({ sandboxDisabled: shownDisabled, networkEnabled: shownNetwork }, snapshot));
     }
   };
@@ -353,9 +370,19 @@ export function ChatComposer({
         <p className="text-xs text-destructive">This chat&apos;s network switch changed. Check it, then send again.</p>
       )}
       {shownView && (
-        <p className="text-xs text-muted-foreground">
-          With the view in the sidebar
-          {selectedCount > 0 && ` and ${selectedCount} selected ${selectedCount === 1 ? 'line' : 'lines'}`}
+        <p className="flex w-fit items-center gap-1 rounded-full border px-2 text-xs text-muted-foreground">
+          <span>{viewLine(selection.length, riding)}</span>
+          {riding && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon-xs"
+              aria-label="Don't send the selected lines"
+              onClick={() => setRemoved(selection)}
+            >
+              <X aria-hidden />
+            </Button>
+          )}
         </p>
       )}
       {onShowWaiting && (
