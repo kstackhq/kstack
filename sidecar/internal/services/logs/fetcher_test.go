@@ -442,36 +442,43 @@ func tails(s *logServer) []string {
 	return out
 }
 
-// A backward read that needs two windows reads the second further back; the window
-// that reaches the first line is followed by a read of the first moment.
+// A backward read off the log's end reads one tailLines window, then windows of
+// time: the first ends at the moment the tailLines window began in, which that
+// window left out, and reads it whole.
 func TestABackwardReadNeedsTwoWindows(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", lineEvery(15)...)
-
 	r := readBackward(t.Context(), s.get, web, backwardOpts())
 
-	recs := newestFirst(drain(r))
+	assert.Equal(t, []string{"9|", "3|", "1|", "2|"}, shape(r))
 	require.NoError(t, r.err)
-	assert.Equal(t, []string{"14", "13", "12", "11", "10", "9", "8", "7", "6", "5", "4", "3", "2", "1", "0"}, messages(recs))
 	assert.False(t, r.short)
-	assert.Equal(t, []string{"10", "20", ""}, tails(s))
+	assert.True(t, r.head)
+	assert.Equal(t, []string{"10", "", "", ""}, tails(s))
+	assert.Equal(t, []string{"", "2026-10-08T10:00:03Z", "2026-10-08T10:00:02Z", "2026-10-08T10:00:00Z"}, sinces(s))
 	assert.Equal(t, "100", s.requests()[0].Get("limitBytes"))
 }
 
-// A backward read off the log's end asks each window for twice the lines of the one
-// before, so a sparse read reaches a long log's first line in a few GETs.
-func TestABackwardReadDoublesItsWindows(t *testing.T) {
+// After the tailLines window the read goes on in windows of time, each sized to
+// hold at most the byte target: a sparse read over a 250 KiB log reaches its first
+// line in one.
+func TestTheTailLinesWindowIsFollowedByTimeWindows(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
-	s.add("prod/web/app", lineEvery(1000)...)
+	for i := range 2500 {
+		s.add("prod/web/app", stamped(time.Duration(i)*10*time.Millisecond, strings.Repeat("x", 76)))
+	}
+	o := backwardOpts()
+	o.batch, o.grep = 501, regexp.MustCompile("never")
 
-	r := readBackward(t.Context(), s.get, web, backwardOpts())
+	r := readBackward(t.Context(), s.get, web, o)
 
-	assert.Len(t, drain(r), 1000)
+	// The tailLines window leaves the lines of the moment it began in to the next.
+	assert.Equal(t, []string{"500|", "2000|"}, shape(r))
 	require.NoError(t, r.err)
-	assert.False(t, r.short)
-	assert.Equal(t, []string{"10", "20", "40", "80", "160", "320", "640", "1280", ""}, tails(s))
+	assert.True(t, r.head)
+	assert.Equal(t, []string{"501", ""}, tails(s))
 }
 
 // A backward read hands over each window oldest first and its end after its last
@@ -484,7 +491,7 @@ func TestABackwardReadEndsEachWindow(t *testing.T) {
 
 	r := readBackward(t.Context(), s.get, web, backwardOpts())
 
-	assert.Equal(t, []string{"6", "7", "8", "9", "10", "11", "12", "13", "14", "|", "1", "2", "3", "4", "5", "|", "0", "|"}, windowsOf(r))
+	assert.Equal(t, []string{"6", "7", "8", "9", "10", "11", "12", "13", "14", "|", "3", "4", "5", "|", "2", "|", "0", "1", "|"}, windowsOf(r))
 	require.NoError(t, r.err)
 }
 
@@ -513,7 +520,7 @@ func TestABackwardWindowStreamsItsLines(t *testing.T) {
 		rest  []string
 	}{
 		"windows of time": {lines: 10, until: to(10 * time.Second), first: "0", rest: []string{"1", "2", "3", "4", "5", "6", "7", "8", "9", "|"}},
-		"tailLines":       {lines: 15, first: "6", rest: []string{"7", "8", "9", "10", "11", "12", "13", "14", "|", "1", "2", "3", "4", "5", "|", "0", "|"}},
+		"tailLines":       {lines: 15, first: "6", rest: []string{"7", "8", "9", "10", "11", "12", "13", "14", "|", "3", "4", "5", "|", "2", "|", "0", "1", "|"}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -758,9 +765,9 @@ func TestABackwardReadOfAnEmptyLog(t *testing.T) {
 	})
 }
 
-// A log emptied after a window was sent ends the read short at the oldest line
-// sent, since the lines before it were never read.
-func TestABackwardReadOfALogEmptiedAfterAWindowStopsShort(t *testing.T) {
+// A log emptied under the read after its first window holds nothing older: the
+// windows of time find no line, and the read ends at the backend's oldest.
+func TestABackwardReadOfALogEmptiedAfterAWindowEndsAtItsHead(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web/app", lineEvery(15)...)
@@ -774,8 +781,8 @@ func TestABackwardReadOfALogEmptiedAfterAWindowStopsShort(t *testing.T) {
 
 	assert.Equal(t, []string{"14", "13", "12", "11", "10", "9", "8", "7", "6"}, messages(newestFirst(drain(r))))
 	assert.NoError(t, r.err)
-	assert.True(t, r.short)
-	assert.Equal(t, lineAt(web.key, 6*time.Second, 0), r.stop)
+	assert.False(t, r.short)
+	assert.True(t, r.head)
 }
 
 // A window that begins below a sub-second since holds every line in range, so
@@ -797,7 +804,7 @@ func TestABackwardReadEndsAtTheWindowThatPassesSince(t *testing.T) {
 	assert.Equal(t, "29", recs[0].Message)
 	assert.Equal(t, "15", recs[14].Message)
 	assert.False(t, r.short)
-	assert.Equal(t, []string{"10", "20"}, tails(s))
+	assert.Equal(t, []string{"10", ""}, tails(s))
 }
 
 // The read that finds the first line takes no more than it asked for, though a
@@ -860,7 +867,8 @@ func TestABackwardReadOutgrowsAGrowingLog(t *testing.T) {
 	assert.Len(t, recs, 25)
 	assert.Equal(t, "24", recs[0].Message)
 	assert.Equal(t, "0", recs[24].Message)
-	assert.Equal(t, []string{"10", "20", "40", ""}, tails(s))
+	// Only the first window asks for tailLines; the windows of time end where it began.
+	assert.Equal(t, "10", strings.Join(tails(s), ""))
 }
 
 // A backward read that spends its budget stops at the oldest line of the last window
@@ -877,7 +885,7 @@ func TestABackwardReadStopsAtTheBudget(t *testing.T) {
 		stop     position
 		requests int
 	}{
-		"after a whole window":    {budget: 400, lines: []string{"99", "98", "97", "96", "95", "94", "93", "92", "91", "90", "89", "88", "87", "86", "85", "84", "83", "82", "81"}, stop: lineAt(web.key, 81*time.Second, 0), requests: 3},
+		"after a whole window":    {budget: 400, lines: []string{"99", "98", "97", "96", "95", "94", "93", "92", "91", "90", "89", "88"}, stop: lineAt(web.key, 89*time.Second, 0), requests: 4},
 		"inside the first window": {budget: 200, lines: []string{"99", "98", "97", "96", "95", "94", "93", "92", "91"}, requests: 2},
 		"under until":             {budget: 200, until: to(50 * time.Second), lines: []string{"50", "49", "40"}, stop: lineAt(web.key, 49*time.Second, 0), requests: 3},
 		"inside the first span":   {budget: 110, until: to(99 * time.Second), lines: []string{"99", "98", "89"}, requests: 3},

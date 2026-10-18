@@ -75,11 +75,11 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   toward the page only then; one cut part way is an island linked to nothing, and the read's link
   down is written once it ends. `AtEnd` goes only on a completed first window. A backward read is
   stopped between windows (`readOpts.more`, answered once the window's last batch is written),
-  never inside one. **A backward read sizes its windows** (`windows.go`). Off the log's end,
-  `tailLines` windows double. Under an upper bound, windows of time start at the top of a second:
-  the first is sized from the rate of the lines just above the gap (`rateAbove`; ten seconds with
-  none), to hold about the page's kept lines with half again and at most 4 MiB, under half what
-  the stream's budget has left. A window counts each line as the body carried it, before
+  never inside one. **A backward read sizes its windows** (`windows.go`). Off the log's end it
+  reads one `tailLines` window, then windows of time ending where it began; under an upper bound,
+  windows of time alone. They start at the top of a second: the first is sized from the rate of
+  the lines just above the gap (`rateAbove`; ten seconds with none), to hold about the page's kept
+  lines with half again and at most 4 MiB, under half what the stream's budget has left. A window counts each line as the body carried it, before
   cleaning (`readLine`'s size); a rate from the file estimates that (`wireBytes`). A window
   checks the rate of its newest second as it reads; one due to hold four times the page, four
   times its byte target, or more than the stream has left is stopped (`readItem.windowCut`), left

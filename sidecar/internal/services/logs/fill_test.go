@@ -1193,7 +1193,7 @@ func TestAReadOfSeveralWindowsToTheFirstLineIsHead(t *testing.T) {
 	_, err := svc.Fetch(t.Context(), "7", view, FetchQuery{Mode: FetchTail, Limit: 2})
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"10", "20", "40", ""}, tails(s))
+	assert.Equal(t, []string{"10", ""}, tails(s))
 	chunks := chunksOf(t, svc, f, "web-1", "app")
 	assert.Equal(t, sec(0), chunks[0].From)
 	assert.True(t, chunks[0].Head)
@@ -1265,7 +1265,7 @@ func TestAfterFillRunsOncePerPage(t *testing.T) {
 	_, err := svc.Fetch(t.Context(), "7", view, FetchQuery{Mode: FetchTail, Limit: 2})
 
 	require.NoError(t, err)
-	assert.Len(t, s.requestsOf("prod/web-1/app"), 5, "three windows of each stream")
+	assert.Len(t, s.requestsOf("prod/web-1/app"), 3, "the first line and two windows of each stream")
 	assert.Equal(t, int32(1), calls.Load())
 }
 

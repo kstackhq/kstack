@@ -164,11 +164,10 @@ func readForward(ctx context.Context, get getter, s stream, o readOpts) *streamR
 }
 
 // readBackward reads s's log in windows, newest window first, each oldest first and
-// sent as its GET reads it. It finds the log's first line, then, as kubetail's
-// StreamBackward does, reads ever larger windows off the end with tailLines, each
-// asking for twice the lines of the last, until one reaches the first line. Under
-// until it reads windows of time instead (backwardUntil). The fetch's budget and
-// o.more end it early.
+// sent as its GET reads it. It finds the log's first line, then reads one window off
+// the end with tailLines, as kubetail's StreamBackward does, and windows of time
+// after it; under until, windows of time alone (backwardUntil). The fetch's budget
+// and o.more end it early.
 func readBackward(ctx context.Context, get getter, s stream, o readOpts) *streamRead {
 	return start(ctx, get, s, o, (*reader).backward)
 }
@@ -235,7 +234,8 @@ func (r *reader) forward() error {
 	return err
 }
 
-// backward reads the log in doubling tailLines windows, newest window first.
+// backward reads the log newest window first: off its end one tailLines window,
+// then windows of time; under until, windows of time alone.
 func (r *reader) backward() error {
 	first, err := r.firstTimestamp()
 	switch {
@@ -247,80 +247,73 @@ func (r *reader) backward() error {
 	case !r.o.until.at.isZero():
 		return r.backwardUntil(first)
 	}
-	tail := max(r.o.batch, minBatch)
-	// sent is the moment the last window started. Every line after it is sent; the
-	// lines at it are left to the next window, since a window can start inside a
-	// moment. Each window asks for twice the lines of the last, so a sparse read
-	// reaches a long log's start in a few GETs.
-	var sent time.Time
-	for {
-		w, err := r.window(tail, sent)
-		start := w.first.Timestamp
-		switch {
-		case err != nil:
-			// A window cut short went out without its end.
-			return err
-		case r.ctx.Err() != nil:
-			return nil
-		case w.oldest.IsZero() && sent.IsZero():
-			// Emptied under the read.
-			return nil
-		case w.oldest.IsZero():
-			// Emptied under the read after a window was sent, so the lines before
-			// that window were never read.
-			return errShort
-		case r.inSinceMoment(w.oldest):
-			// The window began in since's moment, so every later moment is whole in
-			// it and every earlier one out of range. Its lines at that moment are
-			// numbered from the window's top, which since's line cannot be judged by.
-			if !r.endWindow() || !r.more() {
-				return nil
-			}
-			_, err := r.wholeMoment(w.oldest)
-			return err
-		case !start.IsZero() && w.oldest.Before(start):
-			// The window began below since, so it holds every line in range, and
-			// whole: its first moment in range is not the one it began in.
-			r.endWindow()
-			return nil
-		case start.IsZero() && sent.IsZero():
-			// No line in range: the newest window holds the newest lines, so none
-			// older is in range either.
-			return nil
-		case !w.oldest.After(first):
-			// The window reached the log's first line, so every moment after the
-			// first is whole in it. The first moment may not be.
-			if !r.endWindow() {
-				return nil
-			}
-			if start.Equal(first) {
-				if !r.more() {
-					return nil
-				}
-				// The first moment is the backend's oldest only once it has all gone out:
-				// a read cancelled inside it leaves older lines of it unread.
-				whole, err := r.wholeMoment(first)
-				if !whole || err != nil {
-					return err
-				}
-			}
-			r.reachedFirst(first)
-			return nil
-		case !sent.IsZero() && (start.IsZero() || !start.Before(sent)):
-			// The log grew by the whole window under the read, or one moment fills
-			// it. Read further back before ending a window.
-			tail *= 2
-			continue
-		}
+	return r.tailWindow(first)
+}
+
+// tailWindow reads the log's end in one tailLines window, which asks for the kept
+// lines the read needs. When it leaves the read short, windows of time go on from
+// the moment it began in, which it left out: a window of time's bytes are bounded, a
+// tailLines window's only by its lines.
+func (r *reader) tailWindow(first time.Time) error {
+	w, err := r.window(max(r.o.batch, minBatch))
+	start := w.first.Timestamp
+	switch {
+	case err != nil:
+		// A window cut short went out without its end.
+		return err
+	case r.ctx.Err() != nil:
+		return nil
+	case w.oldest.IsZero():
+		// Emptied under the read.
+		return nil
+	case r.inSinceMoment(w.oldest):
+		// The window began in since's moment, so every later moment is whole in it and
+		// every earlier one out of range. Its lines at that moment are numbered from
+		// the window's top, which since's line cannot be judged by.
 		if !r.endWindow() || !r.more() {
 			return nil
 		}
-		sent = start
-		if r.o.budget.spent() {
-			return errShort
+		_, err := r.wholeMoment(w.oldest)
+		return err
+	case !start.IsZero() && w.oldest.Before(start):
+		// The window began below since, so it holds every line in range, and whole: its
+		// first moment in range is not the one it began in.
+		r.endWindow()
+		return nil
+	case start.IsZero():
+		// No line in range: the window holds the newest lines, so none older is in
+		// range either.
+		return nil
+	case !w.oldest.After(first):
+		// The window reached the log's first line, so every moment after the first is
+		// whole in it. The first moment may not be.
+		if !r.endWindow() {
+			return nil
 		}
-		tail *= 2
+		if start.Equal(first) {
+			if !r.more() {
+				return nil
+			}
+			// The first moment is the backend's oldest only once it has all gone out: a
+			// read cancelled inside it leaves older lines of it unread.
+			whole, err := r.wholeMoment(first)
+			if !whole || err != nil {
+				return err
+			}
+		}
+		r.reachedFirst(first)
+		return nil
 	}
+	if !r.endWindow() || !r.more() {
+		return nil
+	}
+	if r.o.budget.spent() {
+		return errShort
+	}
+	// The window's rate is over the span from the moment it began in to its newest
+	// line; lines all in one moment span next to none.
+	reach := r.widen(w.sample, max(w.sample.last.Sub(w.oldest), time.Millisecond), w.sample.kept)
+	return r.timeWindows(first, bound{position{Timestamp: w.oldest}, true}, w.oldest, reach, w.sample.kept)
 }
 
 // reachedFirst marks a backward read that took every line back to first, the one
@@ -351,13 +344,9 @@ func (r *reader) wholeMoment(t time.Time) (bool, error) {
 	return r.ctx.Err() == nil && r.endWindow(), nil
 }
 
-// backwardUntil is backward under until, which a tailLines window reaches only
-// by reading every line after it: windows of time ending at until instead, each
-// read forward from the top of a second and stopped where the last one began. The
-// first is sized from the rate near the point; each window that leaves the read
-// short is followed by an older one sized from its own. A window far busier than it
-// was sized for is stopped part way and replaced by a narrower one ending where it
-// would have.
+// backwardUntil is backward under until, which a tailLines window reaches only by
+// reading every line after it: windows of time ending at until instead, the first
+// sized from the rate near the point.
 func (r *reader) backwardUntil(first time.Time) error {
 	until := r.o.until.at.Timestamp
 	if first.After(until) {
@@ -369,11 +358,17 @@ func (r *reader) backwardUntil(first time.Time) error {
 	if r.o.near != nil {
 		reach = windowFor(r.o.batch, *r.o.near, r.target())
 	}
-	end, endAt := r.o.until, until
+	return r.timeWindows(first, r.o.until, until, reach, 0)
+}
+
+// timeWindows reads windows of time back from end, which lies at endAt, the first
+// reaching back reach, each read forward from the top of a second and stopped where
+// the last one began. kept is the kept lines the read has, so each window is sized
+// for the ones it still misses. Each window that leaves the read short is followed
+// by an older one sized from its own rate. A window far busier than it was sized for
+// is stopped part way and replaced by a narrower one ending where it would have.
+func (r *reader) timeWindows(first time.Time, end bound, endAt time.Time, reach time.Duration, kept int64) error {
 	start := startOf(endAt, reach, first)
-	// kept is the kept lines of the windows read whole, so each window is sized for
-	// the lines the read still misses.
-	var kept int64
 	for {
 		w, cut, err := r.timeWindow(start, end, endAt)
 		switch {
@@ -521,22 +516,32 @@ func (r *reader) take(rec Record) bool {
 	return r.send(rec)
 }
 
-// window streams the last tail lines of the log from since up to the moment sent,
-// which an earlier window sent already, oldest first, and answers what the GET
-// read. The lines at the moment the GET began in are left to the next window: the
-// GET may have begun inside that moment, and the next window reads it from its top.
-func (r *reader) window(tail int64, sent time.Time) (span, error) {
+// window streams the last tail lines of the log from since, oldest first, and
+// answers what the GET read, with a sample of the lines it sent. The lines at the
+// moment the GET began in are left to the next window: the GET may have begun
+// inside that moment, and the next window reads it from its top.
+func (r *reader) window(tail int64) (tailWindowRead, error) {
 	q := r.query(r.o.since.at.Timestamp)
 	q.Set("tailLines", strconv.FormatInt(tail, 10))
 	o := r.o
-	if !sent.IsZero() {
-		o.until = bound{position{Timestamp: sent}, true}
-	}
 	var began time.Time
 	o.onOldest = func(t time.Time) { began = t }
-	return r.lines(q, o, func(rec Record, _ int) bool {
-		return !rec.Timestamp.After(began) || r.take(rec)
+	var w sample
+	read, err := r.lines(q, o, func(rec Record, size int) bool {
+		if !rec.Timestamp.After(began) {
+			return true
+		}
+		w.add(rec.Timestamp, int64(size), matches(r.o.grep, rec.Message))
+		return r.take(rec)
 	})
+	return tailWindowRead{read, w}, err
+}
+
+// tailWindowRead is what a tailLines window read: the GET's span, and the sample of the
+// lines it sent.
+type tailWindowRead struct {
+	span
+	sample sample
 }
 
 // span hands each the lines in range from the moment from up to end, oldest first,
