@@ -807,7 +807,7 @@ func drain(r *streamRead) []Record {
 // lines across its windows, which each arrive oldest first.
 func newestFirst(recs []Record) []Record {
 	out := slices.Clone(recs)
-	slices.SortStableFunc(out, func(a, b Record) int { return compareLines(b, a) })
+	slices.SortStableFunc(out, func(a, b Record) int { return CompareLines(b, a) })
 	return out
 }
 

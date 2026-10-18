@@ -382,6 +382,9 @@ models:
   LogsReadLine:
     model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadLine
 
+  LogsWatchAction:
+    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsWatchAction
+
   LogsReadMode:
     model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadMode
     enum_values:
@@ -460,6 +463,8 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/tools.ActionLogsView
       LogsRead:
         value: github.com/kstackhq/kstack/sidecar/internal/tools.ActionLogsRead
+      LogsWatch:
+        value: github.com/kstackhq/kstack/sidecar/internal/tools.ActionLogsWatch
 
   ToolCallNetwork:
     model: github.com/kstackhq/kstack/sidecar/internal/agent/chat.ToolCallNetwork

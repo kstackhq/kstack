@@ -265,7 +265,7 @@ func randomLogs(rng *rand.Rand) (*logServer, []map[string]any, []Record) {
 			}
 		}
 	}
-	slices.SortStableFunc(all, compareLines)
+	slices.SortStableFunc(all, CompareLines)
 	return s, objects, all
 }
 
@@ -373,7 +373,7 @@ func without(recs []Record, loud map[string]StreamKey) []Record {
 // ordered is whether recs are in order with none repeated.
 func ordered(recs []Record) bool {
 	for i := 1; i < len(recs); i++ {
-		if compareLines(recs[i-1], recs[i]) >= 0 {
+		if CompareLines(recs[i-1], recs[i]) >= 0 {
 			return false
 		}
 	}

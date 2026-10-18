@@ -46,6 +46,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools/kubequery"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/logsread"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/logsview"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/logswatch"
 	memorytool "github.com/kstackhq/kstack/sidecar/internal/tools/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/read"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/taskstop"
@@ -1633,7 +1634,7 @@ func newChatServerOn(t *testing.T, status sandbox.Status, svc *settings.Service)
 	// The search is offered, since a test stages a turn that searched, and LogsView
 	// answering one fixed view; the rest is read alone, so no call runs while stored
 	// calls still show.
-	box := tools.NewBox([]tools.Tool{agent.New(), anthropicwebsearch.New(time.Now), openedView{logsview.New(nil, time.Now)}}, bash.Reader{}, &read.Tool{}, &write.Tool{}, &edit.Tool{}, &webfetch.Tool{}, taskstop.New(), memorytool.New(nil), kubequery.New(nil), logsread.New(nil, nil, time.Now))
+	box := tools.NewBox([]tools.Tool{agent.New(), anthropicwebsearch.New(time.Now), openedView{logsview.New(nil, time.Now)}}, bash.Reader{}, &read.Tool{}, &write.Tool{}, &edit.Tool{}, &webfetch.Tool{}, taskstop.New(), memorytool.New(nil), kubequery.New(nil), logsread.New(nil, nil, time.Now), logswatch.New(nil, nil, time.Now))
 	chatSvc, err := chat.New(db, filepath.Join(t.TempDir(), "chats"), filepath.Join(t.TempDir(), "monitor"), llmSvc, clustercard.New(newFakeClusterService(nil)), nil, box, cat, status, svc)
 	require.NoError(t, err)
 	stop, err := chatSvc.Start(t.Context())
@@ -2323,6 +2324,7 @@ func TestEveryActionKindIsServed(t *testing.T) {
 		llm.StagedCall(kubequery.Name, `{"sql":"SELECT 1"}`),
 		llm.StagedCall(logsview.Name, `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}]}`),
 		llm.StagedCall(logsread.Name, `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}]}`),
+		llm.StagedCall(logswatch.Name, `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}]}`),
 	)
 	sent := mutate(t, srv, `mutation { chatSend(mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
 		requestID: "`+appdb.NewID()+`", content: "hi") { chatID } }`)
@@ -2352,7 +2354,7 @@ var enumOfKind = map[tools.ActionKind]string{
 	tools.ActionCommand: "Command", tools.ActionRead: "Read", tools.ActionWrite: "Write", tools.ActionEdit: "Edit",
 	tools.ActionSearch: "Search", tools.ActionFetch: "Fetch", tools.ActionStop: "Stop", tools.ActionMemory: "Memory",
 	tools.ActionDelegate: "Delegate", tools.ActionKubeQuery: "KubeQuery", tools.ActionLogsView: "LogsView",
-	tools.ActionLogsRead: "LogsRead",
+	tools.ActionLogsRead: "LogsRead", tools.ActionLogsWatch: "LogsWatch",
 }
 
 // A subagent's call is served in its parent's answer, naming the Agent call it ran

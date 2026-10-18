@@ -1158,6 +1158,7 @@ enum ToolActionKind {
   KubeQuery
   LogsView
   LogsRead
+  LogsWatch
 }
 
 "A command started with `run_in_background`, or an agent an `Agent` call launched, off its `background_tasks` row."
@@ -1199,6 +1200,7 @@ type ToolAction {
   kubeQuery: KubeQueryAction
   logsView: LogsViewAction
   logsRead: LogsReadAction
+  logsWatch: LogsWatchAction
 }
 
 "A live view of logs the user is looking at, as the sidecar hands it to the log backend."
@@ -1241,6 +1243,24 @@ type LogsReadAction {
   skipped: [String!]!
   "The view `View around this` opens: the read's view at its first line's moment, unpinned. Null with no line."
   viewAround: LogsViewAction
+}
+
+"What a LogsWatch call watches: the view, the pattern, and its bounds."
+type LogsWatchAction {
+  "The view watched, as LogsView resolves one."
+  sources: [LogsViewSource!]!
+  filters: [LogsViewFilter!]!
+  "Empty watches for any line. The model wrote it, so draw it as text."
+  grep: String!
+  "Where the window starts: the call's `since`, resolved, or `resolvedAt` with none."
+  since: Time!
+  "How many matching lines end the watch, and how many bytes of them."
+  limit: Int!
+  maxBytes: Int!
+  "When the sidecar started the watch, on its clock."
+  resolvedAt: Time!
+  "When the watch ends on time alone: the call's `until`, cut to a day, else a day after `resolvedAt`."
+  until: Time!
 }
 
 "Which end of its range a read's sample came from: the oldest lines, or the newest."

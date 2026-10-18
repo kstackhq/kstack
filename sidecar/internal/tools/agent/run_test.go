@@ -80,9 +80,9 @@ func TestALimitIsARefusal(t *testing.T) {
 		err  error
 		want string
 	}{
-		"the chat's limit": {tools.ErrChatTaskLimit, "At most 4 background commands and agents run at once in a chat. " +
+		"the chat's limit": {tools.ErrChatTaskLimit, "At most 4 background commands, agents and watches run at once in a chat. " +
 			"Wait for a notification, or stop one with TaskStop."},
-		"the app's limit":  {tools.ErrTaskLimit, "At most 16 background commands and agents run at once in Kstack. Wait for one to finish."},
+		"the app's limit":  {tools.ErrTaskLimit, "At most 16 background commands, agents and watches run at once in Kstack. Wait for one to finish."},
 		"an unknown model": {tools.ErrUnknownModel, `{"error":"bad-input","field":"model"}`},
 		"a failed write":   {errors.New("disk I/O error"), "could not start: disk I/O error"},
 	}

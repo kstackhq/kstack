@@ -186,10 +186,11 @@ const (
 	ActionKubeQuery ActionKind = "kube-query" // SQL over the cluster's cache
 	ActionLogsView  ActionKind = "logs-view"  // a live view of logs the user looks at
 	ActionLogsRead  ActionKind = "logs-read"  // log lines the model read
+	ActionLogsWatch ActionKind = "logs-watch" // a follow of logs that wakes the model when it ends
 )
 
 // ActionKinds is every kind, in declaration order.
-var ActionKinds = []ActionKind{ActionCommand, ActionRead, ActionWrite, ActionEdit, ActionSearch, ActionFetch, ActionStop, ActionMemory, ActionDelegate, ActionKubeQuery, ActionLogsView, ActionLogsRead}
+var ActionKinds = []ActionKind{ActionCommand, ActionRead, ActionWrite, ActionEdit, ActionSearch, ActionFetch, ActionStop, ActionMemory, ActionDelegate, ActionKubeQuery, ActionLogsView, ActionLogsRead, ActionLogsWatch}
 
 // valid reports whether k is one of ActionKinds.
 func (k ActionKind) valid() bool {
@@ -212,6 +213,7 @@ type Action struct {
 	KubeQuery   *KubeQueryAction `json:"kubeQuery"`
 	LogsView    *LogsViewAction  `json:"logsView"`
 	LogsRead    *LogsReadAction  `json:"logsRead"`
+	LogsWatch   *LogsWatchAction `json:"logsWatch"`
 }
 
 // Kind is the kind whose field is set, or "" for none.
@@ -239,6 +241,8 @@ func (a Action) Kind() ActionKind {
 		return ActionLogsView
 	case a.LogsRead != nil:
 		return ActionLogsRead
+	case a.LogsWatch != nil:
+		return ActionLogsWatch
 	}
 	return ""
 }
@@ -359,6 +363,19 @@ type LogsReadAction struct {
 	ViewAround *LogsViewAction `json:"viewAround"`
 }
 
+// LogsWatchAction is what a watch follows: the LogsViewInput it watches, and its
+// bounds, resolved on the tool's clock. Since is where the window starts, the
+// call's own or ResolvedAt; Limit and MaxBytes are how many matching lines, and how
+// many bytes of them, end it; Until is when it ends on time alone.
+type LogsWatchAction struct {
+	LogsViewInput
+	Since      time.Time `json:"since"`
+	Limit      int       `json:"limit"`
+	MaxBytes   int       `json:"maxBytes"`
+	ResolvedAt time.Time `json:"resolvedAt"`
+	Until      time.Time `json:"until"`
+}
+
 // LogsReadMode is which end of its range a read's sample came from. The GraphQL
 // LogsReadMode enum binds member by member onto it.
 type LogsReadMode string
@@ -466,14 +483,14 @@ var (
 )
 
 // StartRefusal is what the model reads when a task could not start: a limit in
-// words it can act on, naming commands and agents since they share the slots,
-// or the start's own error.
+// words it can act on, naming commands, agents and watches since they share the
+// slots, or the start's own error.
 func StartRefusal(err error) string {
 	switch {
 	case errors.Is(err, ErrChatTaskLimit):
-		return "At most 4 background commands and agents run at once in a chat. Wait for a notification, or stop one with TaskStop."
+		return "At most 4 background commands, agents and watches run at once in a chat. Wait for a notification, or stop one with TaskStop."
 	case errors.Is(err, ErrTaskLimit):
-		return "At most 16 background commands and agents run at once in Kstack. Wait for one to finish."
+		return "At most 16 background commands, agents and watches run at once in Kstack. Wait for one to finish."
 	}
 	return "could not start: " + safe.String(err.Error())
 }
@@ -499,6 +516,56 @@ type Exit struct {
 	Code    int
 	OK      bool
 	Stopped bool
+}
+
+// Watches is a chat's log watches.
+type Watches interface {
+	// Start holds w as a background task of the call now running, and answers the
+	// task's id, or ErrChatTaskLimit, ErrTaskLimit, or why it could not start. w is
+	// the chat's from here: the chat calls its Wait once, and Stop on any stop.
+	Start(w Watch) (id string, err error)
+}
+
+// Watch is a follow of logs a tool opened, which the chat holds as a task until
+// it ends.
+type Watch interface {
+	// Wait reads the follow until the watch ends: full, past its deadline, ended
+	// by the follow, or stopped. It returns once the follow is let go.
+	Wait()
+	// Stop ends the follow. Safe to call more than once, and after Wait.
+	Stop()
+	// End is how the watch ended, once Wait has returned; stoppedBy is who
+	// stopped it, the chat's word, "" for none.
+	End(stoppedBy string) WatchEnd
+}
+
+// WatchEnd is how a watch ended, and what it saw.
+type WatchEnd struct {
+	Status WatchStatus
+	Result WatchResult
+}
+
+// WatchStatus is how a watch ended: holding lines, at its time with none, on an
+// error or an end of the follow's with none, or stopped.
+type WatchStatus string
+
+const (
+	WatchMatched WatchStatus = "matched"
+	WatchExpired WatchStatus = "expired"
+	WatchFailed  WatchStatus = "failed"
+	WatchStopped WatchStatus = "stopped"
+)
+
+// WatchResult is a finished watch as its task's row keeps it: Text, what the
+// model reads, a sample whose header names the window, why it ended and the
+// cursors to read around; Lines, the lines it held as the model read them;
+// EndedBecause, why it ended, in the header's words; ViewAround, the view View
+// around this opens, nil with no line.
+type WatchResult struct {
+	Text         string          `json:"text"`
+	Lines        []LogsReadLine  `json:"lines"`
+	EndedBecause string          `json:"endedBecause"`
+	ViewAround   *LogsViewAction `json:"viewAround"`
 }
 
 // Stamp is what a turn last saw of a file: the SHA-256 of its bytes, and
@@ -586,8 +653,9 @@ type ActionAsker interface {
 // field it has; a test sets the ones its tool reads. ClusterID is the chat's stored
 // cluster, the one a tool acting on a cluster reaches, and ChatID the chat; a model
 // names neither. Session is the run's policy, the chat's switch as its turn read
-// it included. Agent is nil in a subagent's runtime, so a subagent spawns
-// nothing. ActionAsker is nil where nobody can be asked.
+// it included. Agent and Watches are nil in a subagent's and a monitor's runtime,
+// so neither spawns an agent or starts a watch. ActionAsker is nil where nobody can
+// be asked.
 type Runtime struct {
 	ClusterID   apimeta.ClusterID
 	ChatID      apimeta.ChatID
@@ -596,5 +664,6 @@ type Runtime struct {
 	Tasks       Tasks
 	Files       FileStamps
 	Agent       Spawner
+	Watches     Watches
 	ActionAsker ActionAsker
 }

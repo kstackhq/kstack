@@ -1226,7 +1226,7 @@ func (f *follow) flush(ctx context.Context) bool {
 	if len(f.batch) == 0 {
 		return true
 	}
-	slices.SortStableFunc(f.batch, compareLines)
+	slices.SortStableFunc(f.batch, CompareLines)
 	for _, rec := range f.batch {
 		if !sendLine(ctx, f.out, rec) {
 			return false

@@ -147,8 +147,8 @@ func TestABackgroundCallAnswersAtOnce(t *testing.T) {
 func TestARefusedStartIsAnswered(t *testing.T) {
 	tl := tool(t)
 	for err, want := range map[error]string{
-		tools.ErrChatTaskLimit:     "At most 4 background commands and agents run at once in a chat. Wait for a notification, or stop one with TaskStop.",
-		tools.ErrTaskLimit:         "At most 16 background commands and agents run at once in Kstack. Wait for one to finish.",
+		tools.ErrChatTaskLimit:     "At most 4 background commands, agents and watches run at once in a chat. Wait for a notification, or stop one with TaskStop.",
+		tools.ErrTaskLimit:         "At most 16 background commands, agents and watches run at once in Kstack. Wait for one to finish.",
 		errors.New("disk is full"): "could not start: disk is full",
 	} {
 		text, isError := tl.Run(t.Context(), tools.Runtime{Dir: testChatDir(t), Tasks: &fakeTasks{err: err}}, background("sleep 60"))

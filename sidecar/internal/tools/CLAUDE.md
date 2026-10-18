@@ -2,7 +2,7 @@
 
 Each package directly under `tools/` is one tool; `box.go`, `tool.go`, `save.go` and
 `workspace.go` are what they share, `tools/internal/fileguard` is the file tools' checks, and
-`tools/internal/logsinput` is what the two log tools share. What
+`tools/internal/logsinput` is what the three log tools share. What
 confines a run (sandbox, permissions, proxy, session) is `internal/run/CLAUDE.md`; who calls a tool
 and files its rows is `internal/agent/CLAUDE.md`.
 
@@ -30,7 +30,8 @@ range over it, so kinds never leak past `tools`. →
 [ADR: every tool is in the box](../../../docs/adr/2026-09-24-every-tool-is-in-the-box.md).
 
 **A tool's `Runtime`** (`rt`) is the chat its call runs in: `ClusterID`, `ChatID`, `Session`,
-`Dir`, `Tasks`, `Files`, `Agent` and `ActionAsker`. `agent/chat` sets every field; a test sets
+`Dir`, `Tasks`, `Files`, `Agent`, `Watches` and `ActionAsker`. `Agent` and `Watches` are nil in a
+subagent's and a monitor's. `agent/chat` sets every field; a test sets
 the ones its tool reads. The chat, cluster and workspace come from the runtime alone, never the
 session.
 
@@ -150,9 +151,35 @@ own `readTimeout` (25 s), so a slow read answers `timed-out` itself. A service `
 
 → [the model reads logs](../../../docs/security/2026-10-17-the-model-reads-logs.md).
 
+## LogsWatch (`tools/logswatch`)
+
+**LogsWatch is a follow of a view that runs as a background task and wakes the model once, when it
+ends.** It is `Custom`, `Shown` and `Bounded` (30 s), never `Gated`. `parse.go` takes the shared
+keys through `logsinput.Parse` and its own `since` (a moment or a duration back, not after now, or
+a printed cursor), `until` (a moment or a duration ahead, after now, cut to `maxWatch`, a day),
+`limit` (1–100, 1) and `max_bytes` (1–16 KiB, 16 KiB), refusing `anchor`, `pin_to_end` and `mode`
+by name. `RunShown` resolves the view as LogsView does, then opens `logs.Service.Follow` (the
+`Follower` field) **on a context of the watch's own**, `WithDeadline(WithoutCancel(ctx), until)`,
+from a cursor's line or a moment less a nanosecond, the tool's `now` with none, so the follow
+starts where the window says and not after its own setup; then hands it to `rt.Watches.Start`. A
+start refused cancels it. Until `Follow` returns the call's end still cancels it (`context.AfterFunc`),
+so a stalled open never outlives the call's bound. The receipt goes through `safe.Redact`; the action is a `LogsWatchAction`.
+
+- **`watch.go` is the `tools.Watch`.** `Wait` reads the frames: a line through `logs.ForModel`, cut
+  at 2 KiB, until the lines reach `limit` or their size `max_bytes`, which cancels the follow; an
+  `Ended` frame's reason is kept. **The lines are sorted by `logs.CompareLines` once the follow is done**,
+  since a follow orders them per container only. **A cancelled follow closes with no frame and no error**, so
+  `End(stoppedBy)` decides in order: a fill, the follow's reason or an error (matched with lines,
+  failed without; an error's text never), the deadline off the context's error (matched or
+  expired), else a stop, read last so one that lands during the drain relabels nothing.
+- **The result is a `LogsRead` sample** (`tools.WatchResult`): a header naming the window and why it
+  ended, the cursors to read around the first and last line after the redaction, then the lines;
+  with the lines as the action keeps them and the `viewAround` at the first. It fits
+  `tools.InlineLimit` (`TestNoSamplePassesTheInlineLimit`).
+
 ## The log tools' input (`tools/internal/logsinput`)
 
-**`tools/internal/logsinput` is what LogsView and LogsRead share.** `Parse(raw, own)` is the
+**`tools/internal/logsinput` is what LogsView, LogsRead and LogsWatch share.** `Parse(raw, own)` is the
 strict walk (each key once, DNS names, at most 100 sources, `grep` compiled on one line of at most
 `MaxGrep`); `own` is the tool's `Fields`, each key's typed destination or the refusal it earns.
 `Resolve(ctx, svc, now, id, in)` checks each source inside one `ReadActive`, then runs

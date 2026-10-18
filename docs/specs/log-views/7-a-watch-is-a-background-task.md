@@ -112,7 +112,9 @@ bound:
    codes: a service `Refusal` answers `refused` with its words through `logs.ForModel`, and any
    other error `read-failed`. The follow starts from `since`: a line cursor as the service
    reads it, or, for a moment, the moment less one nanosecond, which is how the service itself
-   spells an inclusive moment (`cursorOfBound`). The service does not change. From a past
+   spells an inclusive moment (`cursorOfBound`). With no `since` the tool passes its own `now` the
+   same way, so the follow starts where the window says and not after its setup. The service does
+   not change. From a past
    moment it reads the lines already written, filling from the kubelet as a page does, then
    follows. The follow applies the grep where lines are read, so every line it sends is a
    match; with no grep, every line is.
@@ -154,7 +156,8 @@ agent gets its own seam, `Runtime.Agent`, with an end handler of its own. A watc
 - **Its watcher** reads the follow's frames on a goroutine of its own and holds the lines:
   - a `line` frame is one more line, through `logs.ForModel` and cut at 2 KiB. When the lines
     held reach `limit`, or their size reaches `max_bytes`, the watch is full: the watcher
-    cancels the follow and ends `matched`;
+    cancels the follow and ends `matched`. A follow orders lines per container only, so the
+    lines held are sorted by position once it is done, and the sample is oldest first;
   - a `Checkpoint` frame is ignored;
   - the deadline (§4) ends the follow's context. With lines held the watch ends `matched`; with
     none, `expired`;
@@ -167,12 +170,16 @@ agent gets its own seam, `Runtime.Agent`, with an end handler of its own. A watc
     those ends a watch, and a crashlooping pod keeps one open;
   - a stop ends `stopped` with who stopped it and the lines it holds, as every task ends on the
     chat's delete or the app's stop;
-  - any other error ends `failed` with `read-failed` and none of the error's text.
+  - any other error ends the watch as an `ended` frame does, `matched` with lines held and
+    `failed` with none, its reason *the logs could not be read* and none of the error's text. So
+    `failed` means one thing: the watch holds nothing.
 
   **A cancelled follow closes its stream with no frame and no error**, so a full watch, a stop
-  and the deadline all look the same to the watcher. The end decides in order: `by` is set, so
-  it was a stop; the watcher's own full flag is set, so it filled; otherwise the deadline
-  passed.
+  and the deadline all look the same to the watcher. The end decides in order: the watcher's own
+  full flag is set, so it filled; the follow ended or failed on its own; the context's error is
+  the deadline's, so its time ran out; otherwise `by` says who stopped it. A stop is read last
+  because one that lands while the stream drains after a fill or the deadline changes nothing,
+  and must not relabel the watch.
 
   The end goes through the task record's `end`, which builds the row's `result` and status, and
   the chat's `watchTask` writes it as it writes every task's end.
