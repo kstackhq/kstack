@@ -540,6 +540,10 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.BackgroundTaskCompleted
       Failed:
         value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.BackgroundTaskFailed
+      Matched:
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.BackgroundTaskMatched
+      Expired:
+        value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.BackgroundTaskExpired
       Stopped:
         value: github.com/kstackhq/kstack/sidecar/internal/agent/chat.BackgroundTaskStopped
       Lost:

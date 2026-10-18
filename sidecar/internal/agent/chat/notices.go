@@ -15,7 +15,7 @@
 // Notices: how a background task ended, told to the model on a user message.
 // A finished task whose row has no notified_at is a waiting notice; it rides the
 // chat's next question, and an exit also starts a turn of its own. An agent's
-// notice is its report.
+// notice is its report, a watch's its sample.
 package chat
 
 import (
@@ -50,14 +50,15 @@ const nothingToSay = "it had nothing to say"
 // waitingNotice is a finished task whose notice has not reached the model, with
 // the call that started it, and agentDescription, the description of the Agent
 // call whose subagent made that call, empty for the answer's own. agent marks an
-// agent's task, whose run gave report and runError; underSend, that the turn
-// whose Agent call started it was a user's send.
+// agent's task, whose run gave report and runError; watch a watch's, whose row
+// holds result, its tools.WatchResult as JSON; underSend, that the turn whose call
+// started it was a user's send.
 type waitingNotice struct {
 	id, toolUseID, path, status, stoppedBy string
 	exitCode                               *int
 	description, command, agentDescription string
-	agent, underSend                       bool
-	report, runError                       string
+	agent, watch, underSend                bool
+	report, runError, result               string
 }
 
 // noticeOf is the notice a waiting task gives the model. A completed agent's
@@ -70,6 +71,9 @@ func noticeOf(w waitingNotice) llm.TaskNotice {
 		Kind: llm.TaskCommand, ID: w.id, ToolUseID: w.toolUseID, OutputFile: w.path, Status: llm.TaskStatus(w.status),
 		StoppedBy: w.stoppedBy, ExitCode: w.exitCode,
 		Description: noticeLine(w.description), Command: noticeLine(w.command), AgentDescription: noticeLine(w.agentDescription),
+	}
+	if w.watch {
+		return watchNoticeOf(n, w.result)
 	}
 	if !w.agent {
 		return n
@@ -85,6 +89,26 @@ func noticeOf(w waitingNotice) llm.TaskNotice {
 		}
 	default:
 		n.OutputFile = ""
+	}
+	return n
+}
+
+// watchNoticeOf is n as a watch's: its sample, the lines it held counted, and a
+// failed watch's reason as its error. Its file is empty, so it names none. A lost
+// watch's row has no result.
+func watchNoticeOf(n llm.TaskNotice, result string) llm.TaskNotice {
+	n.Kind, n.OutputFile = llm.TaskWatch, ""
+	if result == "" {
+		return n
+	}
+	r, err := watchResultOf(result)
+	if err != nil {
+		slog.Warn("could not read a watch's result", "err", err)
+		return n
+	}
+	n.Result, n.Matched = r.Text, len(r.Lines)
+	if n.Status == llm.TaskFailed {
+		n.Error = r.EndedBecause
 	}
 	return n
 }
@@ -110,16 +134,19 @@ func withNotices(question []llm.Block, waiting []waitingNotice) []llm.Block {
 	return append(out, question[at:]...)
 }
 
-// startsTurn is whether any waiting notice starts a turn: an exit, or the end of
-// an agent a user's send launched. Agent is not gated, so an agent a turn the
-// sidecar started launched rides the next question instead: otherwise its end
-// could start a turn that launches another, with no one approving anything.
+// startsTurn is whether any waiting notice starts a turn: an exit, the end of an
+// agent a user's send launched, or the end of a watch a user's send started that
+// was not stopped. Neither Agent nor LogsWatch is gated, so one a turn the sidecar
+// started began rides the next question instead: otherwise its end could start a
+// turn that begins another, with no one asking anything.
 func startsTurn(waiting []waitingNotice) bool {
 	for _, w := range waiting {
 		switch {
 		case w.status == taskExited:
 			return true
 		case w.agent && w.underSend && (w.status == taskCompleted || w.status == taskFailed):
+			return true
+		case w.watch && w.underSend && (w.status == taskMatched || w.status == taskExpired || w.status == taskFailed):
 			return true
 		}
 	}

@@ -67,9 +67,12 @@ type ComplexityRoot struct {
 	}
 
 	BackgroundTask struct {
-		ExitCode func(childComplexity int) int
-		Report   func(childComplexity int) int
-		Status   func(childComplexity int) int
+		EndedBecause func(childComplexity int) int
+		ExitCode     func(childComplexity int) int
+		Matched      func(childComplexity int) int
+		Report       func(childComplexity int) int
+		Status       func(childComplexity int) int
+		ViewAround   func(childComplexity int) int
 	}
 
 	Chat struct {
@@ -987,12 +990,24 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 
 		return e.ComplexityRoot.AuthState.Identity(childComplexity), true
 
+	case "BackgroundTask.endedBecause":
+		if e.ComplexityRoot.BackgroundTask.EndedBecause == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BackgroundTask.EndedBecause(childComplexity), true
 	case "BackgroundTask.exitCode":
 		if e.ComplexityRoot.BackgroundTask.ExitCode == nil {
 			break
 		}
 
 		return e.ComplexityRoot.BackgroundTask.ExitCode(childComplexity), true
+	case "BackgroundTask.matched":
+		if e.ComplexityRoot.BackgroundTask.Matched == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BackgroundTask.Matched(childComplexity), true
 	case "BackgroundTask.report":
 		if e.ComplexityRoot.BackgroundTask.Report == nil {
 			break
@@ -1005,6 +1020,12 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 		}
 
 		return e.ComplexityRoot.BackgroundTask.Status(childComplexity), true
+	case "BackgroundTask.viewAround":
+		if e.ComplexityRoot.BackgroundTask.ViewAround == nil {
+			break
+		}
+
+		return e.ComplexityRoot.BackgroundTask.ViewAround(childComplexity), true
 
 	case "Chat.awaitingApproval":
 		if e.ComplexityRoot.Chat.AwaitingApproval == nil {
@@ -4506,6 +4527,12 @@ func (ec *executionContext) childFields_BackgroundTask(ctx context.Context, fiel
 		return ec.fieldContext_BackgroundTask_exitCode(ctx, field)
 	case "report":
 		return ec.fieldContext_BackgroundTask_report(ctx, field)
+	case "matched":
+		return ec.fieldContext_BackgroundTask_matched(ctx, field)
+	case "endedBecause":
+		return ec.fieldContext_BackgroundTask_endedBecause(ctx, field)
+	case "viewAround":
+		return ec.fieldContext_BackgroundTask_viewAround(ctx, field)
 	}
 	return nil, fmt.Errorf("no field named %q was found under type BackgroundTask", field.Name)
 }
@@ -7324,6 +7351,93 @@ func (ec *executionContext) _BackgroundTask_report(ctx context.Context, field gr
 }
 func (ec *executionContext) fieldContext_BackgroundTask_report(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
 	return graphql.NewScalarFieldContext("BackgroundTask", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _BackgroundTask_matched(ctx context.Context, field graphql.CollectedField, obj *chat.BackgroundTask) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_BackgroundTask_matched(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.Matched, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v []tools.LogsReadLine) graphql.Marshaler {
+			return ec.marshalNLogsReadLine2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋtoolsᚐLogsReadLineᚄ(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_BackgroundTask_matched(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BackgroundTask",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LogsReadLine(ctx, field)
+		},
+	}
+	return fc, nil
+}
+
+func (ec *executionContext) _BackgroundTask_endedBecause(ctx context.Context, field graphql.CollectedField, obj *chat.BackgroundTask) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_BackgroundTask_endedBecause(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.EndedBecause, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v string) graphql.Marshaler {
+			return ec.marshalNString2string(ctx, selections, v)
+		},
+		true,
+		true,
+	)
+}
+func (ec *executionContext) fieldContext_BackgroundTask_endedBecause(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	return graphql.NewScalarFieldContext("BackgroundTask", field, false, false, errors.New("field of type String does not have child fields"))
+}
+
+func (ec *executionContext) _BackgroundTask_viewAround(ctx context.Context, field graphql.CollectedField, obj *chat.BackgroundTask) (ret graphql.Marshaler) {
+	return graphql.ResolveField(
+		ctx,
+		ec.OperationContext,
+		field,
+		func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.fieldContext_BackgroundTask_viewAround(ctx, field)
+		},
+		func(ctx context.Context) (any, error) {
+			return obj.ViewAround, nil
+		},
+		nil,
+		func(ctx context.Context, selections ast.SelectionSet, v *tools.LogsViewAction) graphql.Marshaler {
+			return ec.marshalOLogsViewAction2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋtoolsᚐLogsViewAction(ctx, selections, v)
+		},
+		true,
+		false,
+	)
+}
+func (ec *executionContext) fieldContext_BackgroundTask_viewAround(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
+	fc = &graphql.FieldContext{
+		Object:     "BackgroundTask",
+		Field:      field,
+		IsMethod:   false,
+		IsResolver: false,
+		Child: func(ctx context.Context, field graphql.CollectedField) (*graphql.FieldContext, error) {
+			return ec.childFields_LogsViewAction(ctx, field)
+		},
+	}
+	return fc, nil
 }
 
 func (ec *executionContext) _Chat_id(ctx context.Context, field graphql.CollectedField, obj *chat.Chat) (ret graphql.Marshaler) {
@@ -22450,6 +22564,21 @@ func (ec *executionContext) _BackgroundTask(ctx context.Context, sel ast.Selecti
 			if out.Values[i] == graphql.Null {
 				out.Invalids++
 			}
+		case "matched":
+			out.Values[i] = ec._BackgroundTask_matched(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "endedBecause":
+			out.Values[i] = ec._BackgroundTask_endedBecause(ctx, field, obj)
+			if out.Values[i] == graphql.Null {
+				out.Invalids++
+			}
+		case "viewAround":
+			out.Values[i] = ec._BackgroundTask_viewAround(ctx, field, obj)
+			if out.Values[i] == graphql.RequiredNull {
+				out.Invalids++
+			}
 		default:
 			panic("unknown field " + strconv.Quote(field.Name))
 		}
@@ -29278,6 +29407,8 @@ var (
 		"Exited":    chat.BackgroundTaskExited,
 		"Completed": chat.BackgroundTaskCompleted,
 		"Failed":    chat.BackgroundTaskFailed,
+		"Matched":   chat.BackgroundTaskMatched,
+		"Expired":   chat.BackgroundTaskExpired,
 		"Stopped":   chat.BackgroundTaskStopped,
 		"Lost":      chat.BackgroundTaskLost,
 	}
@@ -29286,6 +29417,8 @@ var (
 		chat.BackgroundTaskExited:    "Exited",
 		chat.BackgroundTaskCompleted: "Completed",
 		chat.BackgroundTaskFailed:    "Failed",
+		chat.BackgroundTaskMatched:   "Matched",
+		chat.BackgroundTaskExpired:   "Expired",
 		chat.BackgroundTaskStopped:   "Stopped",
 		chat.BackgroundTaskLost:      "Lost",
 	}

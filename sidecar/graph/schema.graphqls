@@ -1161,26 +1161,35 @@ enum ToolActionKind {
   LogsWatch
 }
 
-"A command started with `run_in_background`, or an agent an `Agent` call launched, off its `background_tasks` row."
+"A command started with `run_in_background`, an agent an `Agent` call launched, or a watch a `LogsWatch` call started, off its `background_tasks` row."
 type BackgroundTask {
   status: BackgroundTaskStatus!
   "Set on an `Exited` task whose code could be read."
   exitCode: Int
   "A `Completed` agent's report, cut to the inline limit. Empty for a command, and until the agent completes."
   report: String!
+  "A finished watch's lines, oldest first, as the model read them: stripped, redacted and cut. Empty for every other task and while a watch runs. Cluster text."
+  matched: [LogsReadLine!]!
+  "Why a finished watch ended, in the words its notice used. Empty for every other task and while a watch runs."
+  endedBecause: String!
+  "The view `View around this` opens: the watch's view at its first line's moment, unpinned. Null with no line, and for every other task."
+  viewAround: LogsViewAction
 }
 
 """
 Where a background task is. A command ends `Exited`; an agent `Completed` (it answered) or
-`Failed` (it could not). `Stopped` was ended by the model, the user, the app's quit, or an agent's
-request that went unanswered; `Lost` was running when the sidecar stopped unexpectedly, and a
-command may still be running.
+`Failed` (it could not); a watch `Matched` (it held lines, however it ended), `Expired` (its time
+ran out with none) or `Failed` (an error, or its pods went away, with none). `Stopped` was ended by the model,
+the user, the app's quit, or an agent's request that went unanswered; `Lost` was running when the
+sidecar stopped unexpectedly, and a command may still be running.
 """
 enum BackgroundTaskStatus {
   Running
   Exited
   Completed
   Failed
+  Matched
+  Expired
   Stopped
   Lost
 }
@@ -1598,7 +1607,7 @@ input LogsViewFilterInput {
 
 "What the user's open log view shows as they send. The sidecar reads the view itself from the call."
 input LogsViewSnapshotInput {
-  "The `LogsView` or `LogsRead` call whose view is open. It must be a call of the chat the send is to, and a `LogsRead` one must have a `viewAround`."
+  "The `LogsView`, `LogsRead` or `LogsWatch` call whose view is open. It must be a call of the chat the send is to; a `LogsRead` one must have a `viewAround`, and a `LogsWatch` one a finished task with one."
   callID: ToolCallID!
   "The first and last visible line's timestamps. Both null when no line is on screen."
   from: Time
@@ -2036,7 +2045,7 @@ type Mutation {
   clusterCachedKindSyncEnabledSet(id: ObjectID!, syncEnabled: Boolean!): ClusterCachedKind!
 
   # --- Chat ---
-  "Save a user message and start the assistant's turn. Returns the assistant's message as accepted, not as finished — the answer arrives on chatMessagesWatch. A null `chatID` creates the chat; a chat already running a turn is refused. `requestID` makes the send idempotent for as long as its chat lives, and a repeat is answered by that id alone: this call's `chatID`, `model`, `effort` and `content` are ignored. The key goes with the chat, so a repeat after its delete is a new send. A null `chatID` creates the chat in `mode` and under `clusterID`, which must name an existing cluster; otherwise both are ignored, and on a `requestID` replay they are ignored like `chatID` and `content`. `sandboxDisabled` is the chat's switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_SANDBOX_CHANGED`, and a replay ignores it too. `networkEnabled` is the chat's network switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_NETWORK_CHANGED`, and a replay ignores it. `networkThisTurn` gives every command of this turn the internet, its subagents' included; refused with `KSTACK_VALIDATION_ERROR` where network is unavailable. `snapshot` is what the user's open log view shows, which rides the question as its context's View; a snapshot naming no `LogsView` or `LogsRead` call of this chat, or on a send that creates one, is refused with `KSTACK_VALIDATION_ERROR`, and a replay ignores it."
+  "Save a user message and start the assistant's turn. Returns the assistant's message as accepted, not as finished — the answer arrives on chatMessagesWatch. A null `chatID` creates the chat; a chat already running a turn is refused. `requestID` makes the send idempotent for as long as its chat lives, and a repeat is answered by that id alone: this call's `chatID`, `model`, `effort` and `content` are ignored. The key goes with the chat, so a repeat after its delete is a new send. A null `chatID` creates the chat in `mode` and under `clusterID`, which must name an existing cluster; otherwise both are ignored, and on a `requestID` replay they are ignored like `chatID` and `content`. `sandboxDisabled` is the chat's switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_SANDBOX_CHANGED`, and a replay ignores it too. `networkEnabled` is the chat's network switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_NETWORK_CHANGED`, and a replay ignores it. `networkThisTurn` gives every command of this turn the internet, its subagents' included; refused with `KSTACK_VALIDATION_ERROR` where network is unavailable. `snapshot` is what the user's open log view shows, which rides the question as its context's View; a snapshot naming no `LogsView`, `LogsRead` or `LogsWatch` call of this chat, or on a send that creates one, is refused with `KSTACK_VALIDATION_ERROR`, and a replay ignores it."
   chatSend(chatID: ChatID, mode: ChatMode!, clusterID: ClusterID!, sandboxDisabled: Boolean!, networkEnabled: Boolean!, networkThisTurn: Boolean!, providerID: String!, modelID: String!, effort: String!, requestID: String!, content: String!, snapshot: LogsViewSnapshotInput): ChatMessage!
 
   "Stop the in-flight turn, keeping the partial answer. Returns true; a no-op when nothing is running."

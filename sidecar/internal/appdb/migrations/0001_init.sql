@@ -372,28 +372,34 @@ CREATE TABLE memories (
 -- One name per scope.
 CREATE UNIQUE INDEX memories_name ON memories (ifnull(cluster_id, ''), name);
 
--- background_tasks: one row per command started with run_in_background and per
--- agent an Agent call started, written running before either starts. output_path is
--- the file the call's result named: a command's output, an agent's report. status
--- ends exited (a command; exit_code when it could be read), completed or failed (an
--- agent that answered or ended on its own error), stopped (stopped_by: the model's
--- TaskStop, the user's Stop or a chat's delete, the app's own stop, or an agent's
--- approval request that went unanswered), or lost, which the next start writes on a
--- row a crash left running. A finished row with a NULL notified_at is a waiting
--- notice: it rides the chat's next question, and an exit, or an agent's end under a
--- user's send, also starts a turn of its own. A stop the model made is written
--- notified, since its TaskStop result told it.
+-- background_tasks: one row per command started with run_in_background, per
+-- agent an Agent call started and per watch a LogsWatch call started, written
+-- running before any starts. output_path is the file the call's result named: a
+-- command's output, an agent's report, a watch's, which stays empty. status ends
+-- exited (a command; exit_code when it could be read), completed (an agent that
+-- answered), failed (an agent that ended on its own error, or a watch on an error
+-- or the follow's end with no line), matched or expired (a watch that ended holding
+-- lines, or at its time with none), stopped (stopped_by: the model's TaskStop, the
+-- user's Stop or a chat's delete, the app's own stop, or an agent's approval request
+-- that went unanswered), or lost, which the next start writes on a row a crash left
+-- running. result is a finished watch's one JSON object — its sample, its lines,
+-- why it ended and the view around its first line — and NULL on every other row. A
+-- finished row with a NULL notified_at is a waiting notice: it rides the chat's next
+-- question, and an exit, or an agent's or a watch's end under a user's send, also
+-- starts a turn of its own. A stop the model made is written notified, since its
+-- TaskStop result told it, except a watch's, whose lines the notice carries.
 CREATE TABLE background_tasks (
   id              TEXT    PRIMARY KEY,
   chat_id TEXT    NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
   tool_call_id    TEXT    NOT NULL UNIQUE REFERENCES tool_calls(id) ON DELETE CASCADE,
   output_path     TEXT    NOT NULL,
-  status          TEXT    NOT NULL CHECK (status IN ('running', 'exited', 'completed', 'failed', 'stopped', 'lost')),
+  status          TEXT    NOT NULL CHECK (status IN ('running', 'exited', 'completed', 'failed', 'matched', 'expired', 'stopped', 'lost')),
   stopped_by      TEXT    CHECK (stopped_by IN ('model', 'user', 'app', 'unanswered')),
   exit_code       INTEGER,
   started_at      INTEGER NOT NULL,
   finished_at     INTEGER,
-  notified_at     INTEGER
+  notified_at     INTEGER,
+  result          TEXT
 ) STRICT, WITHOUT ROWID;
 
 CREATE INDEX background_tasks_chat_idx ON background_tasks (chat_id);

@@ -102,12 +102,13 @@ const (
 // toolCallReadColumns is what a read of the calls scans, in toolCallsByRun's order:
 // the run, the row with the subagent run it spawned, its approval's id, status and duration,
 // NULL on an ungated call, then the task it started, NULL on every other, with a
-// completed agent's report off the run sr it started. The reads alias tool_calls
+// completed agent's report off the run sr it started, then what the call's run
+// showed and a finished watch's result. The reads alias tool_calls
 // t, llm_calls c, a call's own approval a and background_tasks b; order is the model's,
 // (c.seq, t.seq).
 const toolCallReadColumns = `c.run_id, t.id, t.runs_on, t.tool_use_id, t.tool_name, t.contract_name, t.arguments, t.cwd, t.sandboxed, t.network, t.result, t.error,
 	t.status, t.started_at, t.spawned_run_id, a.id, a.status, COALESCE(a.duration, ''), b.status, b.exit_code,
-	CASE WHEN b.status = 'completed' THEN sr.result END, t.shown_action`
+	CASE WHEN b.status = 'completed' THEN sr.result END, t.shown_action, b.result`
 
 const toolCallReadFrom = ` FROM tool_calls t JOIN llm_calls c ON c.id = t.llm_call_id
 	LEFT JOIN approvals a ON a.tool_call_id = t.id AND a.kind = 'call'
@@ -237,10 +238,11 @@ var statements = []sqlstmt.Statement{
 	// A run's calls and its subagents', which its answer lists too.
 	stmtSelectRunToolCalls: sqlstmt.OnBoth(`SELECT ` + toolCallReadColumns + toolCallReadFrom + `
 	JOIN agent_runs r ON r.id = c.run_id WHERE r.id = ?1 OR r.parent_run_id = ?1 ORDER BY c.run_id, c.seq, t.seq`),
-	// A call of the chat by id, with what its run showed. OnBoth: Send reads it
-	// inside its write transaction.
-	stmtSelectViewCall: sqlstmt.OnBoth(`SELECT COALESCE(t.tool_use_id, ''), t.shown_action FROM tool_calls t
+	// A call of the chat by id, with what its run showed and, for a watch, its
+	// task's result. OnBoth: Send reads it inside its write transaction.
+	stmtSelectViewCall: sqlstmt.OnBoth(`SELECT COALESCE(t.tool_use_id, ''), t.shown_action, b.result FROM tool_calls t
 	JOIN llm_calls l ON l.id = t.llm_call_id JOIN agent_runs r ON r.id = l.run_id
+	LEFT JOIN background_tasks b ON b.tool_call_id = t.id
 	WHERE t.id = ? AND r.chat_id = ?`),
 	// The cluster writes of the same calls, in the order asked.
 	stmtSelectClusterWrites: sqlstmt.OnBoth(`SELECT ` + clusterWriteReadColumns + clusterWriteReadFrom + `
@@ -253,7 +255,7 @@ var statements = []sqlstmt.Statement{
 	stmtInsertTask: sqlstmt.OnWriter(`INSERT INTO background_tasks (id, chat_id, tool_call_id, output_path, status, started_at)
 	VALUES (?, ?, ?, ?, 'running', ?)`),
 	stmtDeleteTask: sqlstmt.OnWriter(`DELETE FROM background_tasks WHERE id = ?`),
-	stmtFinishTask: sqlstmt.OnWriter(`UPDATE background_tasks SET status = ?, stopped_by = ?, exit_code = ?, finished_at = ?, notified_at = ?
+	stmtFinishTask: sqlstmt.OnWriter(`UPDATE background_tasks SET status = ?, stopped_by = ?, exit_code = ?, finished_at = ?, notified_at = ?, result = ?
 	WHERE id = ?`),
 	// A task still running at startup belongs to a process that is gone. RETURNING the
 	// chat, so the watchers of each chat can be told.
@@ -263,13 +265,14 @@ var statements = []sqlstmt.Statement{
 	// call that started each, for what it ran, the Agent call a that ran it when
 	// a subagent's call did, the run r an Agent call started, which marks the task
 	// an agent's, for its report and error, and whether the call's own run answered a question a user sent (its
-	// trigger carries a request key); in the order they ended. The tool_use_id is
+	// trigger carries a request key), then what the call's run showed and a watch's
+	// result; in the order they ended. The tool_use_id is
 	// a's then, the one call of the two the model reading the notice saw. OnBoth,
 	// since a send reads them inside its transaction.
 	stmtSelectWaitingNotices: sqlstmt.OnBoth(`SELECT b.id, COALESCE(a.tool_use_id, t.tool_use_id), b.output_path, b.status,
 	b.stopped_by, b.exit_code, t.tool_name, t.arguments, t.cwd, t.sandboxed, a.tool_name, a.arguments, r.id IS NOT NULL, r.result, r.error,
 	EXISTS (SELECT 1 FROM agent_runs p JOIN messages q ON q.id = p.trigger_message_id
-		WHERE p.id = c.run_id AND q.request_key IS NOT NULL)
+		WHERE p.id = c.run_id AND q.request_key IS NOT NULL), t.shown_action, b.result
 	FROM background_tasks b JOIN tool_calls t ON t.id = b.tool_call_id
 	JOIN llm_calls c ON c.id = t.llm_call_id
 	LEFT JOIN tool_calls a ON a.spawned_run_id = c.run_id

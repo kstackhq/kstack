@@ -16,6 +16,7 @@ package chat
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -2911,4 +2912,49 @@ func TestASendCarriesAReadsViewAround(t *testing.T) {
 	bare := seedViewCall(t, s.db, first.ChatID, "toolu_none", &tools.Action{LogsRead: &none})
 	_, err := sendWithView(t, s, &first.ChatID, "none", &Snapshot{CallID: bare})
 	assert.ErrorIs(t, err, ErrBadRequest)
+}
+
+// seedWatchTask files the task of a watch call: running with no result, or
+// finished with result.
+func seedWatchTask(t *testing.T, db *appdb.DB, chatID ChatID, call ToolCallID, status string, result *tools.WatchResult) {
+	t.Helper()
+	var raw sql.NullString
+	if result != nil {
+		b, err := json.Marshal(result)
+		require.NoError(t, err)
+		raw = sql.NullString{String: string(b), Valid: true}
+	}
+	_, err := db.Write.Exec(`INSERT INTO background_tasks (id, chat_id, tool_call_id, output_path, status, started_at, result)
+		VALUES (?, ?, ?, '/r/t.output', ?, 0, ?)`, appdb.NewID(), string(chatID), string(call), status, raw)
+	require.NoError(t, err)
+}
+
+// A snapshot of a view opened from a LogsWatch call restates the watch's View
+// around this, off its task's result; a watch still running has none, and is
+// refused.
+func TestASendCarriesAWatchsViewAround(t *testing.T) {
+	t.Parallel()
+
+	s := serviceWithClusterCards(t, &stubClusterCards{card: "card"})
+	first := sendAndSettle(t, s, nil, "1", "1", "why did it panic?")
+	around := readWebapp().ViewAround
+	watch := &tools.Action{LogsWatch: &tools.LogsWatchAction{LogsViewInput: around.LogsViewInput, Limit: 1}}
+	matched := seedViewCall(t, s.db, first.ChatID, "toolu_watch", watch)
+	seedWatchTask(t, s.db, first.ChatID, matched, taskMatched, &tools.WatchResult{Lines: []tools.LogsReadLine{}, ViewAround: around})
+
+	msg, err := sendWithView(t, s, &first.ChatID, "2", &Snapshot{CallID: matched, Lines: 2})
+	require.NoError(t, err)
+	awaitSettled(t, s, msg.ChatID, msg.ID)
+	context := newestContextOf(t, s, first.ChatID)
+	assert.Contains(t, context, `{"call":"toolu_watch"`)
+	assert.Contains(t, context, `"anchor":"2026-10-17T09:14:00Z"`)
+
+	running := seedViewCall(t, s.db, first.ChatID, "toolu_running", watch)
+	seedWatchTask(t, s.db, first.ChatID, running, taskRunning, nil)
+	expired := seedViewCall(t, s.db, first.ChatID, "toolu_expired", watch)
+	seedWatchTask(t, s.db, first.ChatID, expired, taskExpired, &tools.WatchResult{Lines: []tools.LogsReadLine{}})
+	for name, call := range map[string]ToolCallID{"running": running, "with no line": expired} {
+		_, err := sendWithView(t, s, &first.ChatID, name, &Snapshot{CallID: call})
+		assert.ErrorIs(t, err, ErrBadRequest, name)
+	}
 }
