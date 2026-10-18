@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+import { Profiler, useSyncExternalStore } from 'react';
+
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -47,6 +49,7 @@ const refused = (code: string) => ({ error: { graphQLErrors: [{ extensions: { co
 const dropped = () => ({ error: { networkError: new Error('sidecar unreachable'), graphQLErrors: [] } });
 
 const onCreated = vi.fn();
+const composerRendered = vi.fn();
 
 type Props = Partial<Parameters<typeof ChatComposer>[0]>;
 
@@ -66,8 +69,10 @@ function ViewControls() {
   const { set, viewport } = useLogsView();
   const { close } = useRightSidebar();
   const focus = (chatId: string) => set({ clusterId: '1', chatId, callId: 'call-1', action: {} as LogsViewAction });
+  const selected = useSyncExternalStore(viewport.subscribe, () => viewport.get().selection.length);
   return (
     <>
+      <span data-testid="viewer-selection">{selected}</span>
       <button type="button" onClick={() => focus('c1')}>
         Focus c1
       </button>
@@ -79,6 +84,18 @@ function ViewControls() {
         onClick={() => viewport.set({ ...EMPTY_LOG_VIEWPORT, selection: [0, 1, 2].map(selectedLine) })}
       >
         Select three
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          viewport.set({ ...EMPTY_LOG_VIEWPORT, selection: Array.from({ length: 212 }, (_, i) => selectedLine(i)) })
+        }
+      >
+        Select 212
+      </button>
+      {/* A following tail: the range moves, the selection array stays. */}
+      <button type="button" onClick={() => viewport.set({ ...viewport.get(), visible: viewport.get().visible + 1 })}>
+        Tail
       </button>
       <button type="button" onClick={close}>
         Close sidebar
@@ -95,18 +112,20 @@ function Harness({ replaced = false, ...props }: Props & { replaced?: boolean })
       <LogsViewProvider>
         <ViewControls />
         <ChatOutboxProvider>
-          <ChatComposer
-            key={replaced ? 'second' : 'first'}
-            chatID="c1"
-            mode="chat"
-            clusterID="1"
-            phase="live"
-            last={null}
-            onCreated={onCreated}
-            sandboxDisabled={false}
-            networkEnabled={false}
-            {...props}
-          />
+          <Profiler id="composer" onRender={composerRendered}>
+            <ChatComposer
+              key={replaced ? 'second' : 'first'}
+              chatID="c1"
+              mode="chat"
+              clusterID="1"
+              phase="live"
+              last={null}
+              onCreated={onCreated}
+              sandboxDisabled={false}
+              networkEnabled={false}
+              {...props}
+            />
+          </Profiler>
           {/* The entry the composer writes into, which the transcript's Ask again reads. */}
           <SendStatus chatID={props.chatID ?? 'c1'} />
         </ChatOutboxProvider>
@@ -897,9 +916,11 @@ describe('ChatComposer', () => {
 });
 
 // What the user looks at rides the send: the focused view, when it is this chat's
-// and the sidebar beside the chat shows it. The line above the box says so.
+// and the sidebar beside the chat shows it. The chip above the box says so.
 describe('the view', () => {
   beforeEach(() => localStorage.clear());
+
+  const unsend = "Don't send the selected lines";
 
   const sent = async () => {
     type('what is this?');
@@ -912,13 +933,86 @@ describe('the view', () => {
     fireEvent.click(button('Focus c1'));
     expect(screen.getByText('With the view in the sidebar')).toBeInTheDocument();
     fireEvent.click(button('Select three'));
-    expect(screen.getByText('With the view in the sidebar and 3 selected lines')).toBeInTheDocument();
+    expect(screen.getByText('With the view and 3 selected lines')).toBeInTheDocument();
 
     expect((await sent()).snapshot).toMatchObject({
       callID: 'call-1',
       selectedCount: 3,
       selected: [{ message: 'line 0' }, { message: 'line 1' }, { message: 'line 2' }],
     });
+  });
+
+  it('takes the selected lines out of the send on ×, and leaves them selected', async () => {
+    renderComposer();
+    fireEvent.click(button('Focus c1'));
+    expect(screen.queryByRole('button', { name: unsend })).toBeNull();
+    fireEvent.click(button('Select three'));
+    fireEvent.click(button(unsend));
+
+    expect(screen.getByText('With the view (3 selected lines not sent)')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: unsend })).toBeNull();
+    expect(screen.getByTestId('viewer-selection')).toHaveTextContent('3');
+    expect((await sent()).snapshot).toMatchObject({ callID: 'call-1', selected: [], selectedCount: 0 });
+  });
+
+  it('says how many selected lines are sent past the cap', async () => {
+    renderComposer();
+    fireEvent.click(button('Focus c1'));
+    fireEvent.click(button('Select 212'));
+
+    expect(screen.getByText('With the view and 212 selected lines (the first 50 sent)')).toBeInTheDocument();
+    expect((await sent()).snapshot).toMatchObject({ selectedCount: 212 });
+  });
+
+  // The viewer writes a new array for every new selection, a click on the same cell
+  // included, so selecting the same lines again is a new selection.
+  it('rides a new selection after ×, of the same lines too', async () => {
+    renderComposer();
+    fireEvent.click(button('Focus c1'));
+    fireEvent.click(button('Select three'));
+    fireEvent.click(button(unsend));
+    fireEvent.click(button('Select three'));
+
+    expect(screen.getByText('With the view and 3 selected lines')).toBeInTheDocument();
+    expect((await sent()).snapshot).toMatchObject({ selectedCount: 3 });
+  });
+
+  it('rides every send while it is selected', async () => {
+    const view = renderComposer();
+    fireEvent.click(button('Focus c1'));
+    fireEvent.click(button('Select three'));
+    type('what is this?');
+    await click('Send');
+    view.rerender({ last: { seq: 2, status: 'Complete' } });
+    type('why would that be nil?');
+    await click('Send');
+
+    expect(sendMock).toHaveBeenCalledTimes(2);
+    expect(sendMock.mock.calls[1][0].snapshot).toMatchObject({ selectedCount: 3 });
+  });
+
+  it('retries a held send with the snapshot it holds, whatever × did since', async () => {
+    sendMock.mockResolvedValue(dropped());
+    renderComposer();
+    fireEvent.click(button('Focus c1'));
+    fireEvent.click(button('Select three'));
+    type('what is this?');
+    await click('Send');
+    fireEvent.click(button(unsend));
+
+    sendMock.mockResolvedValue(accepted());
+    await click('Retry');
+    expect(sendMock.mock.calls[1][0].snapshot).toMatchObject({ selectedCount: 3 });
+  });
+
+  it('does not draw again as a following tail writes the viewport', () => {
+    renderComposer();
+    fireEvent.click(button('Focus c1'));
+    fireEvent.click(button('Select three'));
+    const renders = composerRendered.mock.calls.length;
+    fireEvent.click(button('Tail'));
+    fireEvent.click(button('Tail'));
+    expect(composerRendered).toHaveBeenCalledTimes(renders);
   });
 
   it('does not ride with the sidebar closed', async () => {
