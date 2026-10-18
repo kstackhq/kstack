@@ -151,6 +151,24 @@ runs:
         go-version: ${{ inputs.go-version }}
         cache: false
 
+    # Real-time scanning of the restored Go cache and the tests' temp files can
+    # stall a Windows runner for minutes, long enough to trip a test's timeout
+    # (#330). Before the restore, so the cache lands already excluded. Prints
+    # the status either way, so a stall's job log says whether Defender was on.
+    - name: Exclude Go's directories from Defender
+      if: inputs.setup-go == 'true' && runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $status = Get-MpComputerStatus -ErrorAction SilentlyContinue
+        if (-not $status) {
+          Write-Output "Defender is not running"
+          exit 0
+        }
+        Write-Output "Defender real-time protection: $($status.RealTimeProtectionEnabled)"
+        $paths = @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, $env:TEMP) + (go env GOCACHE GOMODCACHE)
+        Add-MpPreference -ExclusionPath $paths
+        (Get-MpPreference).ExclusionPath
+
     # One Go cache per job and runner, named after the run that saved it. GOCACHE
     # is content-addressed, so a cache from before a go.sum change is still
     # right, just partly unused. The prefix ends in `-run-` because one runner's
