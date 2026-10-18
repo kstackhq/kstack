@@ -54,13 +54,19 @@ type streamFill struct {
 	// first line a Head fill read from its bound, or, when it read its first gap whole
 	// and found none, that gap's far edge. Nil with neither.
 	up *logstore.Pos
+	// stop is the moment a read was cut or stopped at when what it wrote does not
+	// show it: an empty window's start, or a loud second's edge. The walk that
+	// reaches the gap the read ended in stops there. Zero with none.
+	stop position
+	// downloaded is the bytes the stream's reads downloaded, which its walk may read
+	// past its share.
+	downloaded int64
 }
 
 // filler fills one stream for one page: the gaps in the page's direction from its
 // bound go to the cluster's backends in order, until the stream holds need lines
-// that pass the grep past the bound, has no live gap left that way, or has spent
-// its share of the fills' budget. A read's lines are written a batch at a time as
-// they arrive.
+// that pass the grep past the bound, has no live gap left that way, or a read of it
+// was cut. A read's lines are written a batch at a time as they arrive.
 type filler struct {
 	file *logstore.Store
 	// clusters and id are the mirror each write checks the stream's instance against,
@@ -74,7 +80,8 @@ type filler struct {
 	backends []Backend
 	names    []string
 	q        pageQuery
-	budget   *budget
+	// limits is the stream's account of the query, which every read of it spends.
+	limits *limits
 	// walk is the stream's share of the walks' budget, which counting what the file
 	// holds spends.
 	walk *budget
@@ -168,9 +175,10 @@ func (f *filler) countSpan(ctx context.Context, sp logstore.Span, key logstore.P
 }
 
 // fillGap reads g, a live gap, from the backends, and is whether the fill may go on
-// past it: the gap was read whole, the stream still needs lines, and the read neither
-// failed nor spent the budget. first is whether g is the first gap the fill is
-// offered, the one the walk starts in. The fill ends at the page's far bound.
+// past it: the gap was read whole, so no limit cut it, the stream still needs lines,
+// the read did not fail, and the stream's limits are not used up. first is whether g
+// is the first gap the fill is offered, the one the walk starts in. The fill ends at
+// the page's far bound.
 func (f *filler) fillGap(ctx context.Context, g logstore.Gap, key logstore.Pos, first bool) (bool, error) {
 	lower, upper, prev, next := gapRange(g, key, f.q.mode)
 	if f.q.mode == FetchTail && upper != nil && next == nil {
@@ -211,7 +219,7 @@ func (f *filler) fillGap(ctx context.Context, g logstore.Gap, key logstore.Pos, 
 	if whole && f.q.mode == FetchHead && g.Newest() {
 		f.out.toEnd = true
 	}
-	return whole && !f.filled() && f.out.err == nil && !f.budget.spent(), nil
+	return whole && !f.filled() && f.out.err == nil && !f.limits.usedUp(), nil
 }
 
 // rateAbove is the rate of a Tail fill's lines next to its point, sampled oldest
@@ -250,13 +258,22 @@ func (f *filler) read(ctx context.Context, tier int, lower, upper, prev, next *l
 	if !ok || err != nil {
 		return false, nil, err
 	}
+	if !p.whole && p.r.short && p.r.stop.moment() {
+		f.out.stop = p.r.stop
+	}
+	if !p.whole && failureKind(p.r.err) == failLimit {
+		// The stream stopped at a loud second: the page names it, and is cut there. A
+		// read whole stopped past its range, which a later gap meets again.
+		f.out.err = p.r.err
+	}
 	got := p.oldest != nil
 	if !got && !p.whole {
-		// Nothing in range was read: the stream is skipped, or the page refused
-		// when the retirement cut the read.
-		if p.r.short {
+		// Nothing in range was read: the stream is skipped, the page refused when the
+		// retirement cut the read, or cut at the read's moment.
+		switch {
+		case p.r.short && p.r.stop.isZero():
 			f.out.retired = errors.Is(p.r.err, errRetired)
-		} else {
+		case !p.r.short:
 			f.out.err = p.r.err
 		}
 		return false, nil, nil
@@ -314,7 +331,7 @@ func (p pulled) up(next *logstore.Pos) *logstore.Pos {
 // context ended is an error.
 func (f *filler) pull(ctx context.Context, tier int, lower, upper, prev, next *logstore.Pos) (pulled, bool, error) {
 	forward := f.q.mode == FetchHead
-	o := readOpts{since: f.boundAt(lower), until: f.boundAt(upper), budget: f.budget, batch: int64(f.q.need()), grep: f.q.grep, near: f.near}
+	o := readOpts{since: f.boundAt(lower), until: f.boundAt(upper), limits: f.limits, batch: int64(f.q.need()), grep: f.q.grep, near: f.near}
 	// began is the moment a forward read's GET began at, told before its first line
 	// arrives.
 	var began time.Time
@@ -414,7 +431,10 @@ func (f *filler) pull(ctx context.Context, tier int, lower, upper, prev, next *l
 		return pulled{}, false, err
 	}
 	clean := r.err == nil && !r.short
-	out.whole = !cut && !stopped && clean
+	// A forward GET reads from the range's lower second, so one whose first line lies
+	// past the range found the backend holds none of it, however the read then ended.
+	past := forward && w.first == nil && upper != nil && !began.IsZero() && began.UnixNano() > upper.TS
+	out.whole = !cut && !stopped && (clean || past)
 	if forward {
 		out.oldest = w.first
 		if w.first == nil {
@@ -455,7 +475,7 @@ func (f *filler) headRead(lower, prev *logstore.Pos, began time.Time, proved boo
 // hole is whether a backward read from prev left a range below its oldest line it
 // may not have served: it reached back to prev with its oldest line past it, or
 // found nothing at all in a range it read whole. A read that stopped short of prev,
-// cut by the page filling or by its budget, says nothing of what lies below it.
+// cut by the page filling or by a limit, says nothing of what lies below it.
 func hole(oldest *logstore.Pos, whole bool, prev *logstore.Pos) bool {
 	if prev == nil || !whole {
 		return false

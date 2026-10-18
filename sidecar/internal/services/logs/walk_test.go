@@ -93,7 +93,7 @@ func newWorld(t *testing.T, rng *rand.Rand) *world {
 	ret.StreamShare, ret.ReadTTL = ret.Bytes/2, 0
 	ret.WriteBatch, ret.WriteBatchBytes = 1+rng.Intn(4), int64(1+rng.Intn(64))
 	w.svc, w.f = serviceIn(t, newMirror(t, objects...), w.s, t.TempDir(), ret)
-	w.svc.budget = int64(2000 + rng.Intn(8000))
+	w.svc.caps = randomCaps(rng)
 	w.f.chunk(1 + rng.Intn(64))
 	return w
 }
@@ -332,8 +332,8 @@ func unlabelled(chunks []logstore.Chunk) []logstore.Chunk {
 	return out
 }
 
-// A fill that runs out of budget halfway through a gap writes what it read, and the
-// walk stops at the gap left past it, so the page ends there with more to read; the
+// A fill its limits cut halfway through a gap writes what it read, and the walk
+// stops at the gap left past it, so the page ends there with more to read; the
 // next page fills the rest of the gap from where the first stopped, into the same
 // span, and every line is shown once.
 func TestAWalkStopsAtALiveGap(t *testing.T) {
@@ -342,11 +342,11 @@ func TestAWalkStopsAtALiveGap(t *testing.T) {
 	s.add("prod/web-1/app", lineEvery(100)...)
 	svc, f := serviceOver(t, webMirror(t), s)
 	f.chunk(64)
-	svc.budget = 1 << 10
+	svc.caps = capsOf(1 << 10)
 
 	got := pages(t, svc, web1View, FetchHead, MaxLimit)
 
-	assert.Greater(t, len(got), 1, "the budget cuts the first page")
+	assert.Greater(t, len(got), 1, "the limits cut the first page")
 	assert.Equal(t, messages(linesOf(lineEvery(100))), recordsOf(got, FetchHead))
 	assert.Len(t, spansOf(t, svc, f), 1,
 		"each page's fill continues the chunk the one before it wrote")

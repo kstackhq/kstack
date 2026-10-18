@@ -112,20 +112,18 @@ func (s sample) per(d time.Duration) rate {
 	return rate{kept: float64(s.kept) / secs, bytes: float64(s.bytes) / secs}
 }
 
-// plan is what a window was sized for: the kept lines the read needs, the window's
-// byte target, and the bytes the stream had left of its budget when the window
-// began.
+// plan is what a window was sized for: the kept lines the read needs, and the
+// window's byte target.
 type plan struct {
-	need, target, left int64
+	need, target int64
 }
 
 // tooBusy is whether a window that has read w, whose newest second reads at recent,
 // with left still to read, is due to hold far more than planned: four times need
-// kept lines or four times its target, or more than the stream had left. Each waits
-// for the window to have read part of its share first, since its first few lines
-// often share a millisecond and project a rate far above the true one; lines all
-// in one moment project past measure, so a window of them stops once a wait has
-// passed.
+// kept lines or four times its target, the bytes it reserved. Each waits for the
+// window to have read part of its share first, since its first few lines often
+// share a millisecond and project a rate far above the true one; lines all in one
+// moment project past measure, so a window of them stops once a wait has passed.
 func (p plan) tooBusy(w sample, recent rate, left time.Duration) bool {
 	if left <= 0 {
 		return false
@@ -139,7 +137,7 @@ func (p plan) tooBusy(w sample, recent rate, left time.Duration) bool {
 	case w.bytes >= p.target/4 && bytes > 4*float64(p.target):
 		return true
 	}
-	return w.bytes >= p.left/4 && bytes > float64(p.left)
+	return false
 }
 
 // recent is the lines of the one second ending at the newest line a window has
