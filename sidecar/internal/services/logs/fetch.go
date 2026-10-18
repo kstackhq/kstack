@@ -32,11 +32,6 @@ import (
 // MaxLimit is the most lines one page holds.
 const MaxLimit = 500
 
-// maxBudget is the bytes a page's fills read from the backends across its streams,
-// shared evenly so no stream is starved by the others. An ordinary page never
-// reaches it; a rare grep read backward does.
-const maxBudget = 32 << 20
-
 // FetchMode is which way a page reads: Head oldest first after its cursor, Tail
 // newest first before it, Around both ways from a moment. The GraphQL LogsFetchMode
 // enum binds member by member onto it.
@@ -363,22 +358,26 @@ func (p *page) fill(ctx context.Context, qs []pageQuery) ([][]streamFill, error)
 	return fills, nil
 }
 
-// fillQuery fills each stream for q, each under its share of the fills' budget, all
-// at once. seams is each stream's line just past q's bound, nil for none. The
+// fillQuery fills each stream for q, all at once, each under the query's limits: an
+// allowance of its own, and the pool they share. seams is each stream's line just past q's bound, nil for none. The
 // first fill to fail ends the others, since its error refuses the page.
 func (p *page) fillQuery(ctx context.Context, q pageQuery, backends []Backend, seams []*logstore.Pos) ([]streamFill, error) {
 	fills := make([]streamFill, len(p.streams))
-	share := p.s.budget / int64(len(p.t.streams))
+	var filled []int
+	for i, ps := range p.streams {
+		if !ps.exhausted() {
+			filled = append(filled, i)
+		}
+	}
+	limits := queryLimits(p.s.caps, max(len(filled), 1))
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	var wg sync.WaitGroup
-	for i, ps := range p.streams {
-		if ps.exhausted() {
-			continue
-		}
+	for n, i := range filled {
+		ps := p.streams[i]
 		f := &filler{
 			file: p.file, clusters: p.s.clusters, id: p.id, save: p.save, ret: p.s.files.Retention(), ps: ps, backends: backends, names: p.backends,
-			q: q, budget: newBudget(share), walk: newBudget(p.walkShare),
+			q: q, limits: limits[n], walk: newBudget(p.walkShare),
 		}
 		if seams != nil {
 			f.seam = seams[i]
@@ -388,6 +387,10 @@ func (p *page) fillQuery(ctx context.Context, q pageQuery, backends []Backend, s
 			if fills[i], err = f.run(ctx, q.key(ps)); err != nil {
 				cancel(err)
 			}
+			fills[i].downloaded = f.limits.spent
+			// However early the fill ended, what it holds goes back for the streams
+			// still reading.
+			f.limits.ended()
 		})
 	}
 	wg.Wait()
@@ -425,7 +428,7 @@ func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (mer
 	err := p.file.Read(ctx, func(r logstore.Reader) error {
 		for i, ps := range p.streams {
 			w := walker{
-				r: r, ps: ps, names: p.backendsOf(ps), q: q, budget: newBudget(p.walkShare), fill: fills[i],
+				r: r, ps: ps, names: p.backendsOf(ps), q: q, budget: newBudget(p.walkShare + fills[i].downloaded), fill: fills[i],
 				look: p.s.files.Retention().LookBytes,
 			}
 			walked, err := w.walk(q.key(ps))
@@ -457,12 +460,18 @@ func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (mer
 		return merge{}, err
 	}
 	m.skipped = []string{}
+	// failed is the streams skipped for a failure: one stopped at a loud second cut
+	// the page, and does not count toward refusing it.
+	failed := 0
 	for i, f := range fills {
 		if f.err != nil {
 			m.skipped = append(m.skipped, skippedLine(p.streams[i].key, f.err))
+			if failureKind(f.err) != failLimit {
+				failed++
+			}
 		}
 	}
-	if len(m.skipped) == len(p.t.streams) && len(m.records) == 0 {
+	if failed == len(p.t.streams) && len(m.records) == 0 {
 		if err := everyStreamFailed(m.skipped); err != nil {
 			return merge{}, err
 		}

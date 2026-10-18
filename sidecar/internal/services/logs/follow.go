@@ -1119,7 +1119,7 @@ type fillDone struct {
 }
 
 // fill starts a read of the live gap g of tr's stream from its watermark, as a Head
-// page's fill reads it, under the stream's share of a page's budget, and the write
+// page's fill reads it, under the stream's share of one query's limits, and the write
 // of what it read. It runs on its own, so a slow read holds up no other stream, and
 // its end comes back on filled. What it writes is unstamped, since a follow's lines
 // are in the viewer's window, and held until the walk after it has read them.
@@ -1130,7 +1130,7 @@ func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) {
 	fl := &filler{
 		file: f.file, clusters: f.s.clusters, id: f.id, ret: f.s.files.Retention(), ps: ps, backends: f.backends, names: f.names,
 		q:      pageQuery{view: f.view, grep: f.grep, mode: FetchHead, limit: MaxLimit},
-		budget: newBudget(f.s.budget / int64(max(len(f.wanted), 1))),
+		limits: followLimits(f.s.caps, len(f.wanted)),
 	}
 	wm := tr.wm
 	tr.filling = true
@@ -1201,7 +1201,7 @@ func (f *follow) filledGap(ctx context.Context, d fillDone) error {
 		d.release()
 		cause := d.out.err
 		if cause == nil {
-			// The connection's retirement or the budget cut the read before its first line.
+			// The connection's retirement cut the read before its first line.
 			cause = errRetired
 		}
 		return f.failed(ctx, tr, cause)

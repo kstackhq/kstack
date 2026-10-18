@@ -61,8 +61,8 @@ GET spends from the same share first. A window due to run past what is left is s
 (§3), so the guess, not the budget, decides where the first window ends. Later windows use the
 smaller of 4 MiB and half what the stream has left, for the same reason as the first, so no window
 starts that the budget is due to cut.
-Step 4 removes the share and sizes the first byte target from the page's download limit instead,
-64 MiB ÷ the streams the page reads.
+Step 4 removes the share and sizes the first byte target from the stream's allowance instead, a
+quarter of the smaller of 16 MiB and 64 MiB ÷ the streams the page reads.
 
 **Bytes are counted as the body carries them:** a line's timestamp, a space, its message and a
 newline. That is what `counted` spends from the budget. The file holds the message alone, and for
