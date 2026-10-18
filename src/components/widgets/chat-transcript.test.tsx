@@ -180,6 +180,7 @@ function call(over: Partial<ChatToolCall> = {}): ChatToolCall {
       delegate: null,
       kubeQuery: null,
       logsView: null,
+      logsRead: null,
     },
     approval: { id: 'ap-1', status: 'Pending', duration: null },
     network: null,
@@ -212,6 +213,7 @@ const decided = (over: Partial<ChatToolCall>, approval: 'Approved' | 'Denied' = 
       delegate: null,
       kubeQuery: null,
       logsView: null,
+      logsRead: null,
     },
     approval: { id: 'ap-1', status: approval, duration: null },
     ...over,
@@ -263,6 +265,7 @@ const logsViewCall = (over: Partial<ChatToolCall> = {}) =>
         pinToEnd: false,
         resolvedAt: '2026-10-08T14:04:00Z',
       },
+      logsRead: null,
     },
     ...over,
   });
@@ -322,6 +325,59 @@ describe('ChatTranscript', () => {
     expect(screen.getByRole('button', { name: 'Expand' })).toBeInTheDocument();
     expect(screen.getByText('Logs')).toBeInTheDocument();
     expect(screen.getByText('failed')).toBeInTheDocument();
+  });
+
+  it('draws a LogsRead call that read as its card, and one refused as Read logs', () => {
+    const opened = logsViewCall().action!;
+    const read = logsViewCall({
+      id: 'lr-1',
+      name: 'LogsRead',
+      actionKind: 'LogsRead',
+      output: 'Read 1 line',
+      action: {
+        ...opened,
+        logsView: null,
+        logsRead: {
+          sources: opened.logsView!.sources,
+          filters: [],
+          grep: '',
+          resolvedAt: '2026-10-17T10:00:00Z',
+          since: '2026-10-17T09:13:00Z',
+          until: null,
+          mode: 'Head',
+          lines: [
+            {
+              timestamp: '2026-10-17T09:14:00Z',
+              namespace: 'prod',
+              pod: 'webapp-a',
+              container: 'app',
+              previous: false,
+              message: 'panic: nil map',
+              gap: null,
+            },
+          ],
+          dropped: 0,
+          before: 'Unread',
+          after: 'End',
+          skipped: [],
+          viewAround: null,
+        },
+      },
+    });
+    const refused = logsViewCall({
+      id: 'lr-2',
+      name: 'LogsRead',
+      actionKind: 'LogsRead',
+      status: 'Failed',
+      action: null,
+      output: '{"error":"timed-out"}',
+    });
+    draw([msg({ status: 'Complete', toolCalls: [read, refused] })]);
+
+    expect(screen.getByText(/Read: Deployment webapp in prod/)).toBeInTheDocument();
+    expect(screen.getByText('panic: nil map')).toBeInTheDocument();
+    expect(screen.getByText('Read logs')).toBeInTheDocument();
+    expect(fetched).toEqual([]);
   });
 
   it('draws the card without Expand on the dashboard', () => {
@@ -430,6 +486,7 @@ describe('ChatTranscript', () => {
           delegate: null,
           kubeQuery: null,
           logsView: null,
+          logsRead: null,
         },
         approval: null,
       });
@@ -774,6 +831,7 @@ describe('ChatTranscript', () => {
           delegate: { prompt: 'Count the pods in every namespace.', agentType: 'general-purpose', model: '' },
           kubeQuery: null,
           logsView: null,
+          logsRead: null,
         },
         output: 'Agent launched: t1. It is working in the background.',
         background: { status: 'Completed', exitCode: null, report: 'There are **twelve** pods.' },
@@ -1155,6 +1213,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
               logsView: null,
+              logsRead: null,
             },
           }),
         ),
@@ -1193,6 +1252,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
               logsView: null,
+              logsRead: null,
             },
           }),
         ),
@@ -1230,6 +1290,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
               logsView: null,
+              logsRead: null,
             },
           }),
         ),
@@ -1256,6 +1317,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
               logsView: null,
+              logsRead: null,
             },
           }),
         );
@@ -1333,6 +1395,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
               logsView: null,
+              logsRead: null,
             },
           }),
         );
@@ -1438,6 +1501,7 @@ describe('ChatTranscript', () => {
                   delegate: null,
                   kubeQuery: null,
                   logsView: null,
+                  logsRead: null,
                 },
                 approval: { id: 'ap-1', status: 'Approved', duration: null },
                 output: 'File created successfully at: /Users/ana/values.yaml',
@@ -1478,6 +1542,7 @@ describe('ChatTranscript', () => {
                   delegate: null,
                   kubeQuery: null,
                   logsView: null,
+                  logsRead: null,
                 },
                 approval: null,
                 output: 'File created successfully at: /data/chats/c1/workspace/run.sh',
@@ -1536,6 +1601,7 @@ describe('ChatTranscript', () => {
                 delegate: null,
                 kubeQuery: { sql, limit: 200 },
                 logsView: null,
+                logsRead: null,
               },
               approval: null,
               output: '{"cluster":"prod","freshness":{"status":"watching"}}',
@@ -1572,6 +1638,7 @@ describe('ChatTranscript', () => {
         delegate: null,
         kubeQuery: null,
         logsView: null,
+        logsRead: null,
       });
       const settled = (oldString: string, newString: string, replaceAll = false) =>
         msg({
@@ -1784,6 +1851,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
               logsView: null,
+              logsRead: null,
             },
             approval: { id: 'ap-1', status: 'Approved', duration: null },
           }),
@@ -1835,6 +1903,7 @@ describe('ChatTranscript', () => {
                       delegate: null,
                       kubeQuery: null,
                       logsView: null,
+                      logsRead: null,
                     },
                     approval: { id: 'ap-2', status: 'Pending', duration: null },
                   }),
@@ -1879,6 +1948,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
               logsView: null,
+              logsRead: null,
             },
             approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
@@ -1908,6 +1978,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
               logsView: null,
+              logsRead: null,
             },
             approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
@@ -1948,6 +2019,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
               logsView: null,
+              logsRead: null,
             },
             approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
@@ -2001,6 +2073,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
               logsView: null,
+              logsRead: null,
             },
             approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
@@ -2038,6 +2111,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
               logsView: null,
+              logsRead: null,
             },
             approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
@@ -2064,6 +2138,7 @@ describe('ChatTranscript', () => {
               delegate: null,
               kubeQuery: null,
               logsView: null,
+              logsRead: null,
             },
             approval: { id: 'ap-1', status: 'Pending', duration: null },
           }),
@@ -2087,6 +2162,7 @@ describe('ChatTranscript', () => {
             delegate: null,
             kubeQuery: null,
             logsView: null,
+            logsRead: null,
           },
           approval: { id: 'ap-1', status: 'Pending', duration: null },
         }),
@@ -2158,6 +2234,7 @@ describe('ChatTranscript', () => {
                 delegate: null,
                 kubeQuery: null,
                 logsView: null,
+                logsRead: null,
               },
               approval: { id: 'ap-0', status: 'Approved', duration: null },
               output: 'y'.repeat(500),
@@ -2264,6 +2341,7 @@ describe('ChatTranscript', () => {
                 delegate: null,
                 kubeQuery: null,
                 logsView: null,
+                logsRead: null,
               },
               approval: { id: 'ap-2', status: 'Approved', duration: null },
               output: '{"error":"cancelled"}',
@@ -2331,6 +2409,7 @@ describe('ChatTranscript', () => {
             delegate: null,
             kubeQuery: null,
             logsView: null,
+            logsRead: null,
           },
           approval: null,
         });
@@ -2360,6 +2439,7 @@ describe('ChatTranscript', () => {
                 delegate: null,
                 kubeQuery: null,
                 logsView: null,
+                logsRead: null,
               },
               approval: null,
               output: '{"error":"cancelled"}',
@@ -2389,6 +2469,7 @@ describe('ChatTranscript', () => {
           delegate: null,
           kubeQuery: null,
           logsView: null,
+          logsRead: null,
         },
         approval: { id: 'ap-1', status: 'Approved', duration: null },
       });
@@ -2415,6 +2496,7 @@ describe('ChatTranscript', () => {
                 delegate: null,
                 kubeQuery: null,
                 logsView: null,
+                logsRead: null,
               },
               approval: null,
               output: '     1\ta\n',
@@ -2446,6 +2528,7 @@ describe('ChatTranscript', () => {
                 delegate: null,
                 kubeQuery: null,
                 logsView: null,
+                logsRead: null,
               },
               approval: { id: 'ap-1', status: 'Approved', duration: null },
               output: 'Fetched https://kubernetes.io/releases/ (text/html, 12KB)',
@@ -2537,6 +2620,7 @@ describe('ChatTranscript', () => {
                 delegate: null,
                 kubeQuery: null,
                 logsView: null,
+                logsRead: null,
               },
               approval: { id: 'ap-1', status: 'Approved', duration: null },
             }),
@@ -2665,6 +2749,7 @@ describe('ChatTranscript', () => {
           delegate: null,
           kubeQuery: null,
           logsView: null,
+          logsRead: null,
         },
         approval: null,
         output: '{"saved":"pages"}',
@@ -3296,6 +3381,7 @@ describe('ChatTranscript', () => {
           delegate: null,
           kubeQuery: null,
           logsView: null,
+          logsRead: null,
         },
         approval: { id: 'ap-1', status: 'Approved', duration: null },
         status: 'Succeeded',
@@ -3331,6 +3417,7 @@ describe('ChatTranscript', () => {
                 delegate: null,
                 kubeQuery: null,
                 logsView: null,
+                logsRead: null,
               },
               approval: { id: 'ap-1', status: 'Pending', duration: null },
             }),

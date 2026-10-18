@@ -32,6 +32,7 @@ import { AppLogo } from '@/components/widgets/app-logo';
 import { DiffBlock } from '@/components/widgets/diff-block';
 import { FolderGrantForm } from '@/components/widgets/folder-grant-form';
 import { approvalAnchor } from '@/lib/approval-anchor';
+import { LogsReadCard } from '@/components/widgets/logs-read-card';
 import { LogsViewCard } from '@/components/widgets/logs-view-card';
 import { Markdown } from '@/components/widgets/markdown';
 import { ModelDescription } from '@/components/widgets/model-description';
@@ -523,6 +524,19 @@ function ToolCalls({
               clusterID={clusterID}
               mode={mode}
               until={ends.get(call.id) ?? null}
+            />
+          );
+        }
+        // So is a read: the user sees the lines the model read.
+        if (call.action?.logsRead) {
+          return (
+            <LogsReadCard
+              key={call.id}
+              call={call}
+              action={call.action.logsRead}
+              chatID={chatID}
+              clusterID={clusterID}
+              mode={mode}
             />
           );
         }

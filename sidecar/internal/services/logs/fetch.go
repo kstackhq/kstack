@@ -54,11 +54,16 @@ var modeNames = map[FetchMode]string{FetchHead: "Head", FetchTail: "Tail", Fetch
 // FetchQuery is which page of a view to read: its mode, the cursor a Head or Tail
 // page goes on from, nil to read from the start or the end, the moment an Around
 // page reads both ways from, and the lines the page holds, on each side of At for
-// Around.
+// Around. Since and Until are a Head or Tail page's range, in place of Cursor: each
+// a moment, whose lines are in it, or a line a page handed back, which is not. A
+// Head page reads from Since and stops at Until; a Tail page reads back from Until
+// and stops at Since.
 type FetchQuery struct {
 	Mode   FetchMode
 	Cursor *string
 	At     *time.Time
+	Since  *string
+	Until  *string
 	Limit  int
 }
 
@@ -102,33 +107,52 @@ func (s *Service) Fetch(ctx context.Context, id cluster.ClusterID, view View, q 
 		// the rate of its lines.
 		moment := position{Timestamp: *q.At}
 		ms, err := s.page(ctx, id,
-			pageQuery{view, grep, FetchHead, bound{moment, true}, q.Limit},
-			pageQuery{view, grep, FetchTail, bound{moment, false}, q.Limit})
+			pageQuery{view, grep, FetchHead, bound{moment, true}, bound{}, q.Limit},
+			pageQuery{view, grep, FetchTail, bound{moment, false}, bound{}, q.Limit})
 		if err != nil {
 			return Page{}, err
 		}
 		return around(ms[1], ms[0]), nil
 	}
-	from, err := boundAfter(q.Cursor)
+	from, to, near, err := bounds(q)
 	if err != nil {
 		return Page{}, err
 	}
-	ms, err := s.page(ctx, id, pageQuery{view, grep, q.Mode, from, q.Limit})
+	ms, err := s.page(ctx, id, pageQuery{view, grep, q.Mode, from, to, q.Limit})
 	if err != nil {
 		return Page{}, err
 	}
 	m := ms[0]
 	out := Page{Records: m.records, Skipped: m.skipped}
-	given := PageEdge{Cursor: q.Cursor, More: q.Cursor != nil}
+	given := PageEdge{Cursor: near, More: near != nil}
 	switch {
 	case q.Mode == FetchHead:
 		out.Before, out.After = given, m.after()
-	case q.Cursor != nil:
+	case near != nil:
 		out.Before, out.After = m.before(), given
 	default:
 		out.Before, out.After = m.before(), m.liveEnd()
 	}
 	return out, nil
+}
+
+// bounds is where a Head or Tail page starts and stops, and the cursor it starts
+// from, nil for the start or the end: its Cursor, or its range's near and far ends,
+// Since and Until for a Head page and the reverse for a Tail page.
+func bounds(q FetchQuery) (from, to bound, near *string, err error) {
+	if q.Since == nil && q.Until == nil {
+		from, err = boundAfter(q.Cursor)
+		return from, bound{}, q.Cursor, err
+	}
+	near, far := q.Since, q.Until
+	if q.Mode == FetchTail {
+		near, far = far, near
+	}
+	if from, err = boundIn(near); err != nil {
+		return bound{}, bound{}, nil, err
+	}
+	to, err = boundIn(far)
+	return from, to, near, err
 }
 
 // around is an Around page of its Tail half before the moment and its Head half
@@ -152,7 +176,8 @@ func around(tail, head merge) Page {
 }
 
 // checkQuery refuses a query whose arguments its mode does not take: a cursor is only
-// ever text a page handed back, and at only the Around anchor's moment.
+// ever text a page handed back, at only the Around anchor's moment, and a range only
+// a Head or Tail page's, in place of a cursor.
 func checkQuery(q FetchQuery) error {
 	switch q.Mode {
 	case FetchAround:
@@ -162,9 +187,15 @@ func checkQuery(q FetchQuery) error {
 		if q.Cursor != nil {
 			return Refusal{"an Around page takes no cursor"}
 		}
+		if q.Since != nil || q.Until != nil {
+			return Refusal{"an Around page takes no since or until"}
+		}
 	case FetchHead, FetchTail:
 		if q.At != nil {
 			return Refusal{fmt.Sprintf("a %s page takes no at", modeNames[q.Mode])}
+		}
+		if q.Cursor != nil && (q.Since != nil || q.Until != nil) {
+			return Refusal{fmt.Sprintf("a %s page takes a cursor or a range", modeNames[q.Mode])}
 		}
 	default:
 		return Refusal{fmt.Sprintf("Kstack cannot read a page of mode %q", q.Mode)}
@@ -173,12 +204,14 @@ func checkQuery(q FetchQuery) error {
 }
 
 // pageQuery is what one direction's page reads: the view and its compiled grep, the
-// direction, the bound it reads from, zero for the start or the end, and its limit.
+// direction, the bound it reads from, zero for the start or the end, the bound it
+// stops at, zero for none, and its limit.
 type pageQuery struct {
 	view  View
 	grep  *regexp.Regexp
 	mode  FetchMode
 	from  bound
+	to    bound
 	limit int
 }
 
@@ -188,6 +221,20 @@ func (q pageQuery) need() int { return q.limit + 1 }
 
 // key is where the page starts in ps: the one cursor read as that stream's bound.
 func (q pageQuery) key(ps pageStream) logstore.Pos { return streamBound(q.from, ps.instance(), q.mode) }
+
+// far is where the page stops in ps, the first place past its range there, nil
+// with no far bound: q.to read as the bound of a page the other way.
+func (q pageQuery) far(ps pageStream) *logstore.Pos {
+	if q.to.at.isZero() {
+		return nil
+	}
+	back := FetchTail
+	if q.mode == FetchTail {
+		back = FetchHead
+	}
+	far := streamBound(q.to, ps.instance(), back)
+	return &far
+}
 
 // page is a page of a view in progress, read one or more ways: a Head or Tail page,
 // or the two halves of an Around page. It files the resolve's streams and the

@@ -1157,6 +1157,7 @@ enum ToolActionKind {
   Delegate
   KubeQuery
   LogsView
+  LogsRead
 }
 
 "A command started with `run_in_background`, or an agent an `Agent` call launched, off its `background_tasks` row."
@@ -1197,6 +1198,7 @@ type ToolAction {
   delegate: DelegateAction
   kubeQuery: KubeQueryAction
   logsView: LogsViewAction
+  logsRead: LogsReadAction
 }
 
 "A live view of logs the user is looking at, as the sidecar hands it to the log backend."
@@ -1212,6 +1214,61 @@ type LogsViewAction {
   pinToEnd: Boolean!
   "When the sidecar resolved the view, on its clock."
   resolvedAt: Time!
+}
+
+"What a LogsRead call read: the view, the range, and the lines the model read."
+type LogsReadAction {
+  "The view read, as LogsView resolves one."
+  sources: [LogsViewSource!]!
+  filters: [LogsViewFilter!]!
+  "The model wrote it, so draw it as text."
+  grep: String!
+  "The range's ends as moments: a cursor's line's timestamp, or the resolved moment. Null for an open end."
+  since: Time
+  until: Time
+  "Which end of the range the sample came from."
+  mode: LogsReadMode!
+  "When the sidecar resolved the read, on its clock."
+  resolvedAt: Time!
+  "The lines the model read, oldest first, as it read them: stripped, redacted and cut. Cluster text."
+  lines: [LogsReadLine!]!
+  "Lines past the sample's budget, left out."
+  dropped: Int!
+  "What lies before the first line and after the last."
+  before: LogsReadEdge!
+  after: LogsReadEdge!
+  "Every stream the read could not read, one line each. Cluster text."
+  skipped: [String!]!
+  "The view `View around this` opens: the read's view at its first line's moment, unpinned. Null with no line."
+  viewAround: LogsViewAction
+}
+
+"Which end of its range a read's sample came from: the oldest lines, or the newest."
+enum LogsReadMode {
+  Head
+  Tail
+}
+
+"What lies past one end of a sample."
+enum LogsReadEdge {
+  "Nothing: the read reached the start of the log, or the live end."
+  End
+  "Lines the read did not return: it hit its limit or its budget, or it was continued from a cursor on this side."
+  More
+  "Lines there may be: a moment was given on this side and the read stopped at it without looking past."
+  Unread
+}
+
+"One line of a sample. Cluster text, so draw it as text."
+type LogsReadLine {
+  timestamp: Time!
+  namespace: String!
+  pod: String!
+  container: String!
+  previous: Boolean!
+  message: String!
+  "The hole before this line, as the viewer's `gap`."
+  gap: LogGap
 }
 
 "Where a view opens: an edge of the stream, or a moment in it."
@@ -1521,7 +1578,7 @@ input LogsViewFilterInput {
 
 "What the user's open log view shows as they send. The sidecar reads the view itself from the call."
 input LogsViewSnapshotInput {
-  "The `LogsView` call whose view is open. It must be a call of the chat the send is to."
+  "The `LogsView` or `LogsRead` call whose view is open. It must be a call of the chat the send is to, and a `LogsRead` one must have a `viewAround`."
   callID: ToolCallID!
   "The first and last visible line's timestamps. Both null when no line is on screen."
   from: Time
@@ -1959,7 +2016,7 @@ type Mutation {
   clusterCachedKindSyncEnabledSet(id: ObjectID!, syncEnabled: Boolean!): ClusterCachedKind!
 
   # --- Chat ---
-  "Save a user message and start the assistant's turn. Returns the assistant's message as accepted, not as finished — the answer arrives on chatMessagesWatch. A null `chatID` creates the chat; a chat already running a turn is refused. `requestID` makes the send idempotent for as long as its chat lives, and a repeat is answered by that id alone: this call's `chatID`, `model`, `effort` and `content` are ignored. The key goes with the chat, so a repeat after its delete is a new send. A null `chatID` creates the chat in `mode` and under `clusterID`, which must name an existing cluster; otherwise both are ignored, and on a `requestID` replay they are ignored like `chatID` and `content`. `sandboxDisabled` is the chat's switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_SANDBOX_CHANGED`, and a replay ignores it too. `networkEnabled` is the chat's network switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_NETWORK_CHANGED`, and a replay ignores it. `networkThisTurn` gives every command of this turn the internet, its subagents' included; refused with `KSTACK_VALIDATION_ERROR` where network is unavailable. `snapshot` is what the user's open log view shows, which rides the question as its context's View; a snapshot naming no `LogsView` call of this chat, or on a send that creates one, is refused with `KSTACK_VALIDATION_ERROR`, and a replay ignores it."
+  "Save a user message and start the assistant's turn. Returns the assistant's message as accepted, not as finished — the answer arrives on chatMessagesWatch. A null `chatID` creates the chat; a chat already running a turn is refused. `requestID` makes the send idempotent for as long as its chat lives, and a repeat is answered by that id alone: this call's `chatID`, `model`, `effort` and `content` are ignored. The key goes with the chat, so a repeat after its delete is a new send. A null `chatID` creates the chat in `mode` and under `clusterID`, which must name an existing cluster; otherwise both are ignored, and on a `requestID` replay they are ignored like `chatID` and `content`. `sandboxDisabled` is the chat's switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_SANDBOX_CHANGED`, and a replay ignores it too. `networkEnabled` is the chat's network switch as the sender saw it, `false` for a chat the send creates; a send whose switch differs from the chat's is refused with `KSTACK_CHAT_NETWORK_CHANGED`, and a replay ignores it. `networkThisTurn` gives every command of this turn the internet, its subagents' included; refused with `KSTACK_VALIDATION_ERROR` where network is unavailable. `snapshot` is what the user's open log view shows, which rides the question as its context's View; a snapshot naming no `LogsView` or `LogsRead` call of this chat, or on a send that creates one, is refused with `KSTACK_VALIDATION_ERROR`, and a replay ignores it."
   chatSend(chatID: ChatID, mode: ChatMode!, clusterID: ClusterID!, sandboxDisabled: Boolean!, networkEnabled: Boolean!, networkThisTurn: Boolean!, providerID: String!, modelID: String!, effort: String!, requestID: String!, content: String!, snapshot: LogsViewSnapshotInput): ChatMessage!
 
   "Stop the in-flight turn, keeping the partial answer. Returns true; a no-op when nothing is running."

@@ -31,6 +31,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -39,6 +40,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/edit"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/kubequery"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/logsread"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/logsview"
 	memorytool "github.com/kstackhq/kstack/sidecar/internal/tools/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/read"
@@ -295,13 +297,15 @@ type toolDeps struct {
 	umask    fs.FileMode
 	memory   memory.Service
 	clusters cluster.Service
+	// logs is the log service LogsRead reads through.
+	logs *logs.Service
 	// now is the clock the search's prompt names the month by; nil is time.Now.
 	now func() time.Time
 }
 
 // chatTools is the one box: bash where New found a shell, Read, Memory, Write, Edit
 // and WebFetch on every machine, TaskStop for the tasks bash starts, then the
-// provider's web search, then KubeQuery and LogsView. WebFetch dials no local or private address
+// provider's web search, then KubeQuery, LogsView and LogsRead. WebFetch dials no local or private address
 // but the proxy the environment names. The order is the preference within a kind:
 // the first tool of a kind that a turn's target takes is the one it gets. A machine
 // with no shell still reads the stored calls of bash and TaskStop.
@@ -331,8 +335,9 @@ func chatTools(d toolDeps) (tools.Box, error) {
 	notes := memorytool.New(d.memory)
 	query := kubequery.New(d.clusters)
 	views := logsview.New(d.clusters, now)
+	reads := logsread.New(d.clusters, d.logs, now)
 	if d.shell == nil {
-		return tools.NewBox([]tools.Tool{reader, notes, writer, editor, fetcher, agent.New(), search, query, views}, bash.Reader{}, taskstop.New()), nil
+		return tools.NewBox([]tools.Tool{reader, notes, writer, editor, fetcher, agent.New(), search, query, views, reads}, bash.Reader{}, taskstop.New()), nil
 	}
-	return tools.NewBox([]tools.Tool{d.shell, reader, notes, writer, editor, fetcher, taskstop.New(), agent.New(), search, query, views}), nil
+	return tools.NewBox([]tools.Tool{d.shell, reader, notes, writer, editor, fetcher, taskstop.New(), agent.New(), search, query, views, reads}), nil
 }

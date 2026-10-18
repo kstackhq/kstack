@@ -43,7 +43,7 @@ type LogsViewSelectedLineInput struct {
 
 // What the user's open log view shows as they send. The sidecar reads the view itself from the call.
 type LogsViewSnapshotInput struct {
-	// The `LogsView` call whose view is open. It must be a call of the chat the send is to.
+	// The `LogsView` or `LogsRead` call whose view is open. It must be a call of the chat the send is to, and a `LogsRead` one must have a `viewAround`.
 	CallID chat.ToolCallID `json:"callID"`
 	// The first and last visible line's timestamps. Both null when no line is on screen.
 	From *time.Time `json:"from,omitempty"`

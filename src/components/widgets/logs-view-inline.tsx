@@ -28,7 +28,7 @@ const STOPPED = 'Stopped following';
 type Row = { kind: 'line'; line: LogLine } | { kind: 'gap'; line: LogLine } | { kind: 'notice'; text: string };
 
 // A pod with its default container reads one stream; any other source may read several.
-function readsOneStream({ sources }: LogsViewAction): boolean {
+export function readsOneStream({ sources }: Pick<LogsViewAction, 'sources'>): boolean {
   if (sources.length !== 1) return false;
   const [source] = sources;
   return source.kind === 'Pod' && !source.allContainers && source.containers.length <= 1;
@@ -60,7 +60,16 @@ function rowsOf({ lines, more, stopped }: InlineState, tail: boolean): Row[] {
   return rows;
 }
 
-function LineRow({ line, oneStream }: { line: LogLine; oneStream: boolean }) {
+// The notice of the hole before a line, a row of its own.
+export function GapRow({ line }: { line: LogLine }) {
+  return (
+    <div style={{ height: LOG_ROW_PX }}>
+      <GapNotice line={line} gap={line.gap!} />
+    </div>
+  );
+}
+
+export function LineRow({ line, oneStream }: { line: LogLine; oneStream: boolean }) {
   return (
     <div data-testid="logs-inline-row" className="flex gap-2 px-2 whitespace-nowrap" style={{ height: LOG_ROW_PX }}>
       <span className="shrink-0 text-muted-foreground tabular-nums">{lineTime(line.timestamp)}</span>
@@ -93,13 +102,7 @@ export function LogsViewInline({ action, state }: { action: LogsViewAction; stat
           </p>
         );
       }
-      if (row.kind === 'gap') {
-        return (
-          <div key={`gap:${row.line.cursor}`} style={{ height: LOG_ROW_PX }}>
-            <GapNotice line={row.line} gap={row.line.gap!} />
-          </div>
-        );
-      }
+      if (row.kind === 'gap') return <GapRow key={`gap:${row.line.cursor}`} line={row.line} />;
       return <LineRow key={row.line.cursor} line={row.line} oneStream={oneStream} />;
     });
   }
