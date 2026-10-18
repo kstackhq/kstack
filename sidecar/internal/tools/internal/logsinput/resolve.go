@@ -163,15 +163,3 @@ func defaultContainer(f found) string {
 	}
 	return f.names[0]
 }
-
-// MomentOf is the moment s names on the clock now: an RFC 3339 time, or a
-// duration back from now such as 2m; false for neither.
-func MomentOf(s string, now time.Time) (time.Time, bool) {
-	if at, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return at.UTC(), true
-	}
-	if d, err := time.ParseDuration(s); err == nil && d > 0 {
-		return now.Add(-d).UTC(), true
-	}
-	return time.Time{}, false
-}

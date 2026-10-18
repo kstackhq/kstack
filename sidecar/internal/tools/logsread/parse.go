@@ -29,8 +29,11 @@ const (
 	defaultLimit = 50
 )
 
-// endMessage is the refusal of a since or until the tool cannot read.
-const endMessage = "an RFC 3339 time, a duration back from now such as 2m, or a cursor a read printed"
+// endMessage is the refusal of a since or until the tool cannot read on the clock
+// now, which it names so the retry can be exact.
+func endMessage(now time.Time) string {
+	return "an RFC 3339 time, an ISO 8601 duration back from now such as PT15M, or a cursor a read printed; now is " + now.UTC().Format(time.RFC3339)
+}
 
 // input is one call's arguments: the view's, the range's ends, nil for an open
 // end, the mode and the limit.
@@ -87,16 +90,17 @@ func parse(raw json.RawMessage, now time.Time) (input, error) {
 }
 
 // endOf is the end s names on the clock now, nil for none: a moment, a duration
-// back from now, or a cursor a read printed.
+// back from now, or a cursor a read printed. A cursor is base64url JSON, starting
+// eyJ, so it never reads as a duration.
 func endOf(s string, now time.Time, field string) (*end, error) {
 	if s == "" {
 		return nil, nil
 	}
-	if at, ok := logsinput.MomentOf(s, now); ok {
+	if at, ok := logsinput.MomentOf(s, now, logsinput.Behind); ok {
 		return &end{cursor: at.Format(time.RFC3339Nano), at: at}, nil
 	}
 	if c, at, ok := decodeCursor(s); ok {
 		return &end{cursor: c, at: at, line: true}, nil
 	}
-	return nil, logsinput.BadInput(field, endMessage)
+	return nil, logsinput.BadInput(field, endMessage(now))
 }

@@ -59,7 +59,7 @@
     },
     "since": {
       "type": "string",
-      "description": "Where the range starts: an RFC 3339 time, a duration back from now such as 15m, or the cursor a read printed after since:. Lines at a time are in the range; a cursor's own line is not. Omit for the oldest line Kstack holds, which is rarely what you want."
+      "description": "Where the range starts: an RFC 3339 time, an ISO 8601 duration back from now such as PT15M, or the cursor a read printed after since:. Lines at a time are in the range; a cursor's own line is not. Omit for the oldest line Kstack holds, which is rarely what you want."
     },
     "until": {
       "type": "string",

@@ -51,7 +51,7 @@ func TestABareCallIsAHeadReadOfFifty(t *testing.T) {
 func TestAnEndIsAMomentADurationOrACursor(t *testing.T) {
 	t.Parallel()
 	rec := record(20*time.Second, 3, "a")
-	in, err := parsed(t, `,"since":"2026-10-17T09:13:00.5Z","until":"5m","mode":"tail","limit":100`)
+	in, err := parsed(t, `,"since":"2026-10-17T09:13:00.5Z","until":"PT5M","mode":"tail","limit":100`)
 	require.NoError(t, err)
 	assert.Equal(t, &end{cursor: "2026-10-17T09:13:00.5Z", at: time.Date(2026, 10, 17, 9, 13, 0, 5e8, time.UTC)}, in.since)
 	assert.Equal(t, &end{cursor: "2026-10-17T09:55:00Z", at: clock.Add(-5 * time.Minute)}, in.until)
@@ -69,17 +69,20 @@ func TestAnEndIsAMomentADurationOrACursor(t *testing.T) {
 // that ends before it starts.
 func TestBadArgumentsAreRefusedByField(t *testing.T) {
 	t.Parallel()
+	// An unreadable end's refusal names the clock, which the model has no other way to know.
+	const endMessage = "an RFC 3339 time, an ISO 8601 duration back from now such as PT15M, or a cursor a read printed; now is 2026-10-17T10:00:00Z"
 	for extra, want := range map[string]string{
-		`,"anchor":"tail"`:              `{"error":"bad-input","field":"anchor","message":"a read takes since and until"}`,
-		`,"pin_to_end":true`:            `{"error":"bad-input","field":"pin_to_end","message":"a read opens no viewer"}`,
-		`,"limit":0`:                    `{"error":"bad-input","field":"limit","message":"1 to 100"}`,
-		`,"limit":101`:                  `{"error":"bad-input","field":"limit","message":"1 to 100"}`,
-		`,"limit":"5"`:                  `{"error":"bad-input","field":"limit"}`,
-		`,"mode":"around"`:              `{"error":"bad-input","field":"mode","message":"head or tail"}`,
-		`,"since":"yesterday"`:          `{"error":"bad-input","field":"since","message":"` + endMessage + `"}`,
-		`,"until":"eyJ0IjoiMDk6MTQifQ"`: `{"error":"bad-input","field":"until","message":"` + endMessage + `"}`,
-		`,"since":"1m","until":"2m"`:    `{"error":"bad-input","field":"until","message":"not before since"}`,
-		`,"since":"1m","since":"2m"`:    `{"error":"bad-input"}`,
+		`,"anchor":"tail"`:               `{"error":"bad-input","field":"anchor","message":"a read takes since and until"}`,
+		`,"pin_to_end":true`:             `{"error":"bad-input","field":"pin_to_end","message":"a read opens no viewer"}`,
+		`,"limit":0`:                     `{"error":"bad-input","field":"limit","message":"1 to 100"}`,
+		`,"limit":101`:                   `{"error":"bad-input","field":"limit","message":"1 to 100"}`,
+		`,"limit":"5"`:                   `{"error":"bad-input","field":"limit"}`,
+		`,"mode":"around"`:               `{"error":"bad-input","field":"mode","message":"head or tail"}`,
+		`,"since":"15m"`:                 `{"error":"bad-input","field":"since","message":"` + endMessage + `"}`,
+		`,"since":"yesterday"`:           `{"error":"bad-input","field":"since","message":"` + endMessage + `"}`,
+		`,"until":"eyJ0IjoiMDk6MTQifQ"`:  `{"error":"bad-input","field":"until","message":"` + endMessage + `"}`,
+		`,"since":"PT1M","until":"PT2M"`: `{"error":"bad-input","field":"until","message":"not before since"}`,
+		`,"since":"PT1M","since":"PT2M"`: `{"error":"bad-input"}`,
 	} {
 		_, err := parsed(t, extra)
 		assert.Equal(t, want, logsinput.Refusal(err), extra)

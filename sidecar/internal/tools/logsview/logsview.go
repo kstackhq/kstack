@@ -141,8 +141,11 @@ func anchorText(a tools.LogsViewAnchor) string {
 	return "at the newest line"
 }
 
-// anchorMessage is the refusal of an anchor the tool cannot read.
-const anchorMessage = "tail, head, an RFC 3339 time, or a duration back from now such as 2m"
+// anchorMessage is the refusal of an anchor the tool cannot read on the clock
+// now, which it names so the retry can be exact.
+func anchorMessage(now time.Time) string {
+	return "tail, head, an RFC 3339 time, or an ISO 8601 duration back from now such as PT15M; now is " + now.UTC().Format(time.RFC3339)
+}
 
 // anchorOf is the anchor the model typed on the clock: tail, head, or a moment.
 func anchorOf(s string, now time.Time) (tools.LogsViewAnchor, error) {
@@ -152,8 +155,8 @@ func anchorOf(s string, now time.Time) (tools.LogsViewAnchor, error) {
 	case "head":
 		return tools.LogsViewAnchor{Kind: tools.LogsAnchorHead}, nil
 	}
-	if at, ok := logsinput.MomentOf(s, now); ok {
+	if at, ok := logsinput.MomentOf(s, now, logsinput.Behind); ok {
 		return tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: &at}, nil
 	}
-	return tools.LogsViewAnchor{}, logsinput.BadInput("anchor", anchorMessage)
+	return tools.LogsViewAnchor{}, logsinput.BadInput("anchor", anchorMessage(now))
 }
