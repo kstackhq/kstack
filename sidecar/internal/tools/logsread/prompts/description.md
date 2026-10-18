@@ -1,0 +1,1 @@
+Read a range of logs yourself: one or more resources merged by timestamp, from a moment or the start, up to a moment or the newest line, the oldest lines of the range or the newest, at most 100. You read the lines; the user sees them under your call.

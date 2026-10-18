@@ -36,6 +36,8 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/agent"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/logsread"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/logsview"
 )
 
 // agentCall is a staged Agent call handing on prompt.
@@ -1676,4 +1678,15 @@ func TestTheSubagentsBriefCarriesNoView(t *testing.T) {
 		llm.ContextBlock(withoutView(parent)),
 		llm.TextBlock("Read the lines."),
 	}}}, sub.LastRequest().Messages)
+}
+
+// A subagent reads logs, with no screen behind the read, and opens no view, which is
+// the user's window.
+func TestASubagentReadsLogsAndOpensNoView(t *testing.T) {
+	t.Parallel()
+	box := SubagentBox(tools.NewBox([]tools.Tool{logsview.New(nil, time.Now), logsread.New(nil, nil, time.Now)}))
+	_, reads := box.Runner(logsread.Name)
+	_, views := box.Runner(logsview.Name)
+	assert.True(t, reads)
+	assert.False(t, views)
 }

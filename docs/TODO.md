@@ -119,6 +119,16 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 ## Sidecar (Go)
 
+- **Revisit an opaque cursor for the log viewer's wire.** `logsFetch` and `logsFollow` hand the
+  webview a cursor as `cursorOf`'s tab-separated position, documented as opaque and passed back
+  unread. `LogsRead` gives the model the same position as base64url JSON (rung 4 of
+  [log views](specs/log-views/README.md)), so the one position has two spellings. Decide whether
+  the wire should take the model's spelling, so the service has one encoder and the fields can
+  change without a client noticing the text. It is a wire-only change, since no client reads the
+  string, and it needs an ADR that updates
+  [a log cursor is a position](adr/2026-10-17-a-log-cursor-is-a-position.md), which names the
+  tab form.
+
 - **A chat's directory layout is named in two packages.** agent/chat owns `<data>/chats/<id>`, but
   `tools` names two of its entries (`workspace/` in `WorkspacePath`, `results/` in `SaveTo`) while
   agent/chat names the third (`tasks/`), and agent/chat calls `tools.WorkspacePath` to learn its own
@@ -582,6 +592,9 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 - **The log viewer's window is unbounded.** A long follow grows without end. Cap it at `maxLines`, dropping lines at the edge farther from the reader and never on screen; a dropped line comes back as a page from the sidecar's log cache, or from the kubelet once the cache has let it go. Its own pull request, over the working viewer.
 - **The log viewer shows only the filters the model set.** Kubetail's sidebar lists each region, zone, OS, architecture and node the open sources span, with a count per value. That needs one query answering what a view's sources resolved to, which the sidecar's resolve already computes (`services/logs/sources.go`) and the wire does not carry.
+- **The inline card reads an `At` window as an `Around` page and keeps its head half.** The tail
+  half is a backward read for lines nobody uses. `services/logs` can read a `Head` page from a
+  moment; `src/lib/inline-log-lines.ts` should ask for that instead.
 - **The log viewer has no download, ANSI colours or timezone setting.** Colours mean drawing escape sequences the sidecar now strips, so they need a security decision first.
 - **The log file's budget has no setting.** Each cluster cache's log file holds up to 1 GiB (`logstore.DefaultRetention.Bytes`), with SQLite's index and WAL on top, so a user with several clusters can use several GiB of disk. **Trigger:** a user asking to keep less. **Shape:** a setting read where `logs.New` takes its `Retention`.
 - **The log viewer draws no notice at a stream's start when the kubelet rotated the start away.** A hole between two known lines is exact: the kubelet returns the line before the hole when it still has it, and a later first line when it does not (→ [ADR: a head read never links](adr/2026-10-17-a-head-read-never-links.md)). The start of a stream has no line before it, so a quiet start and a rotated one look the same. A guess from `started_at` ("the container started well before its oldest line") would mark nearly every log, since most containers boot for seconds to minutes before their first line. **Shape:** a stronger signal than time alone, such as the stream's bytes read from its head being near the kubelet's rotation size, or an archive backend that answers the question properly. **Trigger:** a user reading a busy container's rotated start as its real start.

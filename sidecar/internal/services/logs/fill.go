@@ -42,6 +42,9 @@ type streamFill struct {
 	// or to the tailer's start, which no chunk sits at: the walk crosses it.
 	fromKey bool
 	toEnd   bool
+	// toFar is whether the fill read the gap the page's far bound lies in up to the
+	// bound, so the walk crosses it there.
+	toFar bool
 	// wrote is whether a write filed anything, and gone whether one found the stream's
 	// row gone: the janitor took a gone pod's row with nothing in the file before the
 	// page held it, and the page reads it as a stream no backend serves.
@@ -84,7 +87,9 @@ type filler struct {
 	seam *logstore.Pos
 	// near is the rate next to the point of the gap a Tail fill reads, nil with none
 	// measured.
-	near  *rate
+	near *rate
+	// far is where the page's range ends in the stream, nil for no end.
+	far   *logstore.Pos
 	count int
 	out   streamFill
 }
@@ -101,8 +106,12 @@ func (f *filler) run(ctx context.Context, key logstore.Pos) (streamFill, error) 
 	// Counting a span only decides whether to fill a gap past it, so the fill ends
 	// at the last live gap.
 	segs = segs[:lastLiveGap(segs)+1]
+	f.far = f.q.far(f.ps)
 	first := true
 	for _, seg := range segs {
+		if f.far != nil && pastFar(seg, *f.far, f.q.mode) {
+			break
+		}
 		var more bool
 		switch {
 		case seg.span != nil:
@@ -161,7 +170,7 @@ func (f *filler) countSpan(ctx context.Context, sp logstore.Span, key logstore.P
 // fillGap reads g, a live gap, from the backends, and is whether the fill may go on
 // past it: the gap was read whole, the stream still needs lines, and the read neither
 // failed nor spent the budget. first is whether g is the first gap the fill is
-// offered, the one the walk starts in.
+// offered, the one the walk starts in. The fill ends at the page's far bound.
 func (f *filler) fillGap(ctx context.Context, g logstore.Gap, key logstore.Pos, first bool) (bool, error) {
 	lower, upper, prev, next := gapRange(g, key, f.q.mode)
 	if f.q.mode == FetchTail && upper != nil && next == nil {
@@ -173,6 +182,15 @@ func (f *filler) fillGap(ctx context.Context, g logstore.Gap, key logstore.Pos, 
 		return false, err
 	}
 	f.near = near
+	// A gap the far bound lies in is read up to the bound, where no chunk sits.
+	clamped := false
+	switch {
+	case f.far == nil:
+	case f.q.mode == FetchHead && (upper == nil || upper.Compare(*f.far) > 0):
+		upper, next, clamped = f.far, nil, true
+	case f.q.mode == FetchTail && (lower == nil || lower.Compare(*f.far) < 0):
+		lower, prev, clamped = f.far, nil, true
+	}
 	whole, oldest, err := f.read(ctx, g.Tier, lower, upper, prev, next)
 	if err != nil {
 		return false, err
@@ -185,6 +203,10 @@ func (f *filler) fillGap(ctx context.Context, g logstore.Gap, key logstore.Pos, 
 				f.out.up = upper
 			}
 		}
+	}
+	if clamped {
+		f.out.toFar = whole
+		return false, nil
 	}
 	if whole && f.q.mode == FetchHead && g.Newest() {
 		f.out.toEnd = true

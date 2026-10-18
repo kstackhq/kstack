@@ -128,13 +128,18 @@ func readFrom(chunks []logstore.Chunk, a, b logstore.Pos) []logstore.Chunk {
 
 // reach is how far from key the walk may read: through the spans, across the gaps no
 // fill may be offered, the first live gap when the fill read it from where the walk
-// starts, and the newest when the fill read it to its end, up to the first live gap
-// left, and whether it stops at one.
+// starts, the newest when the fill read it to its end, and the one the far bound
+// lies in when the fill read it to the bound, up to the first live gap left or the
+// far bound, and whether it stops at a gap.
 func (w walker) reach(cov logstore.Coverage, key logstore.Pos) (logstore.Pos, bool) {
 	head := w.q.mode == FetchHead
+	far := w.q.far(w.ps)
 	reach := key
 	first := true
 	for _, seg := range segmentsFrom(cov, key, w.q.mode) {
+		if far != nil && pastFar(seg, *far, w.q.mode) {
+			break
+		}
 		switch {
 		case seg.span != nil && head:
 			reach = seg.span.To
@@ -142,13 +147,39 @@ func (w walker) reach(cov logstore.Coverage, key logstore.Pos) (logstore.Pos, bo
 			reach = seg.span.From
 		case !seg.gap.Live():
 			continue
-		case first && w.fill.fromKey, w.fill.toEnd && seg.gap.Newest():
+		case first && w.fill.fromKey, w.fill.toEnd && seg.gap.Newest(), w.fill.toFar:
 		default:
-			return reach, true
+			return clampTo(reach, key, far, w.q.mode), true
 		}
 		first = false
 	}
-	return reach, false
+	return clampTo(reach, key, far, w.q.mode), false
+}
+
+// pastFar is whether seg holds no place short of far, the first place past a page's
+// range in the direction mode reads.
+func pastFar(seg segment, far logstore.Pos, mode FetchMode) bool {
+	switch {
+	case seg.span != nil && mode == FetchHead:
+		return seg.span.From.Compare(far) >= 0
+	case seg.span != nil:
+		return seg.span.To.Compare(far) <= 0
+	case mode == FetchHead:
+		return seg.gap.After != nil && seg.gap.After.Next().Compare(far) >= 0
+	}
+	return seg.gap.Before != nil && seg.gap.Before.Prev().Compare(far) <= 0
+}
+
+// clampTo is reach, a walk's last place from key, held short of far, nil for no
+// bound, and never behind key, so a range with no place left reads nothing.
+func clampTo(reach, key logstore.Pos, far *logstore.Pos, mode FetchMode) logstore.Pos {
+	if far == nil {
+		return reach
+	}
+	if mode == FetchHead {
+		return logstore.MaxPos(key, logstore.MinPos(reach, far.Prev()))
+	}
+	return logstore.MinPos(key, logstore.MaxPos(reach, far.Next()))
 }
 
 // mark sets the hole each of recs carries, recs in the walk's order. A hole between

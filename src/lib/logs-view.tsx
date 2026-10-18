@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // The focused view: the one log view a window draws in full, in chat mode's right
-// sidebar. It is a LogsView call of a chat, the call's id and the action the sidecar
-// resolved, held beside the right sidebar's state. It is chrome, not what the window
+// sidebar. It is a call of a chat, the call's id and the view the sidecar resolved:
+// a LogsView call's action, or a LogsRead call's View around this. It is held
+// beside the right sidebar's state. It is chrome, not what the window
 // is looking at, so it is out of the URL and not persisted: a new window opens with
 // none. `set` also opens the right sidebar, since a view set with the panel closed is
 // a view nobody sees. `viewport` is where the viewer writes what is on screen, one
@@ -27,6 +28,8 @@ import { createLogViewportHandle } from '@/lib/log-viewport';
 import { useRightSidebar } from '@/lib/right-sidebar';
 
 export type LogsViewAction = NonNullable<NonNullable<ChatToolCall['action']>['logsView']>;
+
+export type LogsReadAction = NonNullable<NonNullable<ChatToolCall['action']>['logsRead']>;
 
 export type LogsView = {
   /** The chat's cluster: the action does not carry it, and the client reads it. */

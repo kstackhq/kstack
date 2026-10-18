@@ -472,7 +472,7 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 	if content == "" {
 		return ChatMessage{}, ErrBadRequest
 	}
-	// A send that creates a chat has no LogsView call to name.
+	// A send that creates a chat has no call to name.
 	if snap != nil && (chatID == nil || snap.check() != nil) {
 		return ChatMessage{}, ErrBadRequest
 	}

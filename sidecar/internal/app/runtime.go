@@ -158,7 +158,7 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	// The file tools are fenced out of every one of Kstack's directories.
 	rt.Tools, err = chatTools(toolDeps{
 		shell: shell, fenced: p.Bash.DeniedDirs, hidden: rt.Settings.Hidden, umask: cfg.UserUmask,
-		memory: rt.Memory, clusters: rt.Cluster,
+		memory: rt.Memory, clusters: rt.Cluster, logs: rt.Logs,
 	})
 	if err != nil {
 		return fail(fmt.Errorf("fence Kstack's directories: %w", err))
