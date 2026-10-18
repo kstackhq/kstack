@@ -262,7 +262,7 @@ func (r *reader) tailWindow(first time.Time) error {
 		// The window began in since's moment, so every later moment is whole in it and
 		// every earlier one out of range. Its lines at that moment are numbered from
 		// the window's top, which since's line cannot be judged by.
-		if !r.endWindow() || !r.more() {
+		if !r.endWindow(time.Time{}) || !r.more() {
 			return nil
 		}
 		_, err := r.wholeMoment(w.oldest)
@@ -270,7 +270,7 @@ func (r *reader) tailWindow(first time.Time) error {
 	case !start.IsZero() && w.oldest.Before(start):
 		// The window began below since, so it holds every line in range, and whole: its
 		// first moment in range is not the one it began in.
-		r.endWindow()
+		r.endWindow(time.Time{})
 		return nil
 	case start.IsZero():
 		// No line in range: the window holds the newest lines, so none older is in
@@ -279,7 +279,7 @@ func (r *reader) tailWindow(first time.Time) error {
 	case !w.oldest.After(first):
 		// The window reached the log's first line, so every moment after the first is
 		// whole in it. The first moment may not be.
-		if !r.endWindow() {
+		if !r.endWindow(time.Time{}) {
 			return nil
 		}
 		if start.Equal(first) {
@@ -296,7 +296,7 @@ func (r *reader) tailWindow(first time.Time) error {
 		r.reachedFirst(first)
 		return nil
 	}
-	if !r.endWindow() || !r.more() {
+	if !r.endWindow(time.Time{}) || !r.more() {
 		return nil
 	}
 	l := r.o.limits
@@ -335,7 +335,7 @@ func (r *reader) wholeMoment(t time.Time) (bool, error) {
 	if err := r.span(t, bound{position{Timestamp: t}, true}, func(rec Record, _ int) bool { return r.take(rec) }); err != nil {
 		return false, err
 	}
-	return r.ctx.Err() == nil && r.endWindow(), nil
+	return r.ctx.Err() == nil && r.endWindow(time.Time{}), nil
 }
 
 // backwardUntil is backward under until, which a tailLines window reaches only by
@@ -390,7 +390,7 @@ func (r *reader) timeWindows(first time.Time, end bound, endAt time.Time, reach 
 			target = l.take()
 			continue
 		}
-		if !r.endWindow() {
+		if !r.endWindow(start) {
 			return nil
 		}
 		if start.Equal(dense) {
@@ -523,13 +523,18 @@ func (r *reader) send(rec Record) bool {
 
 // endWindow puts the end of a window on out, and is false once the context has
 // ended, when it goes unsent. A window is read whole only once its end goes out, so
-// only then does its oldest line become the edge.
-func (r *reader) endWindow() bool {
+// only then does its oldest line become the edge; a window of time from start that
+// held no line makes start the edge, since the read took every line from there to
+// the point and found none.
+func (r *reader) endWindow(start time.Time) bool {
 	if r.out.SendContext(r.ctx, readItem{windowEnd: true}) != nil {
 		return false
 	}
-	if !r.windowOldest.isZero() {
+	switch {
+	case !r.windowOldest.isZero():
 		r.edge, r.windowOldest = r.windowOldest, position{}
+	case !start.IsZero():
+		r.edge = position{Timestamp: start}
 	}
 	return true
 }

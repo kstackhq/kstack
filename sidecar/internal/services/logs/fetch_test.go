@@ -1141,18 +1141,23 @@ func TestAnAroundPageNamesASkippedStreamOnce(t *testing.T) {
 	assert.Equal(t, 3, *page.Anchor)
 }
 
-// A quiet stream cut when its last window that completed was empty has read no line
-// to be cut at, so the page is refused.
-func TestAnEmptyWindowsCutRefusesThePage(t *testing.T) {
+// A quiet stream cut when its last window that completed was empty is cut at that
+// window's start, and the next page goes on below it.
+func TestAnEmptyWindowsCutIsItsStart(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
 	s.add("prod/web-1/app", lineEvery(10)...)
 	svc, _ := serviceOver(t, webMirror(t), s)
 	svc.caps.gets = 3
 
-	_, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Cursor: cursor(2 * time.Minute), Limit: 10})
+	page, err := svc.Fetch(t.Context(), "7", web1View, FetchQuery{Mode: FetchTail, Cursor: cursor(2 * time.Minute), Limit: 10})
 
-	assert.EqualError(t, err, "this page reached its limits before web-1/app was read past its start; narrow the view or its grep")
+	require.NoError(t, err)
+	assert.Empty(t, page.Records)
+	assert.Empty(t, page.Skipped)
+	// Ten seconds back, then eight times that.
+	assert.Equal(t, PageEdge{Cursor: cursorOf(position{Timestamp: at(30 * time.Second)}), More: true}, page.Before)
+	assert.Equal(t, messages(linesOf(lineEvery(10))), recordsOf(pagesFrom(t, svc, web1View, FetchTail, 10, page.Before.Cursor), FetchTail))
 }
 
 // A stream the pool let read far is walked as far: its walk reads its share of the

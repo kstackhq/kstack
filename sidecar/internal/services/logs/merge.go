@@ -18,6 +18,7 @@ import (
 	"container/heap"
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
@@ -91,7 +92,8 @@ func mergePage(ctx context.Context, readings []*streamRead, mode FetchMode, limi
 		case errors.Is(r.err, errRetired):
 			return merge{}, errReplaced
 		default:
-			return merge{}, Refusal{"this page reached its limits before " + r.key.Pod + "/" + r.key.Container + " was read past its start; narrow the view or its grep"}
+			// Every cut has an edge: a stop with none is a fault.
+			return merge{}, fmt.Errorf("logs: %s/%s stopped short before a line in range", r.key.Pod, r.key.Container)
 		}
 	}
 	// A page past the limit is cut at the far end, and the cursor is the last line kept.

@@ -54,6 +54,10 @@ type streamFill struct {
 	// first line a Head fill read from its bound, or, when it read its first gap whole
 	// and found none, that gap's far edge. Nil with neither.
 	up *logstore.Pos
+	// stop is the moment a read was cut at when what it wrote does not show it: an
+	// empty window's start. The walk that reaches the gap the read ended in stops
+	// there. Zero with none.
+	stop position
 	// downloaded is the bytes the stream's reads downloaded, which its walk may read
 	// past its share.
 	downloaded int64
@@ -254,13 +258,17 @@ func (f *filler) read(ctx context.Context, tier int, lower, upper, prev, next *l
 	if !ok || err != nil {
 		return false, nil, err
 	}
+	if !p.whole && p.r.short && p.r.stop.moment() {
+		f.out.stop = p.r.stop
+	}
 	got := p.oldest != nil
 	if !got && !p.whole {
-		// Nothing in range was read: the stream is skipped, or the page refused
-		// when the retirement cut the read.
-		if p.r.short {
+		// Nothing in range was read: the stream is skipped, the page refused when the
+		// retirement cut the read, or cut at the read's moment.
+		switch {
+		case p.r.short && p.r.stop.isZero():
 			f.out.retired = errors.Is(p.r.err, errRetired)
-		} else {
+		case !p.r.short:
 			f.out.err = p.r.err
 		}
 		return false, nil, nil

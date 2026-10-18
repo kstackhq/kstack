@@ -96,11 +96,12 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   (`limits.take`); what it does not use goes back. A reservation is charged, not enforced. A fill
   reads no gap past its stream's bytes or GETs, and gives back what it holds when it ends. A
   backward read checks its limits only when a window completes, and is cut there; a forward read
-  is cut inside its GET, never before its first line in range. A follow's fill reads under the
-  smaller of 16 MiB and 64 MiB ÷ its streams (`followLimits`) and is cut only at a second's end.
-  Each walk reads its share of `maxWalkBudget` (64 MiB) plus what its fill downloaded. A page
-  never passes lines a stream did not read: a short stop becomes the cut, and a stream cut before
-  a line in range refuses the page. **A change to a read path answers to
+  is cut inside its GET, never before its first line in range. **Every cut has an edge**: a line,
+  or an empty window's start, a moment (`streamFill.stop`, which the walk stops at). A follow's
+  fill reads under the smaller of 16 MiB and 64 MiB ÷ its streams (`followLimits`) and is cut only
+  at a second's end. Each walk reads its share of `maxWalkBudget` (64 MiB) plus what its
+  fill downloaded. A page never passes lines a stream did not read: a short stop becomes the cut;
+  a short stop with no edge is an internal error in `mergePage`. **A change to a read path answers to
   `TestPagesJoinWithoutLossOrRepeat` and `TestTheFileKeepsItsInvariant`** (seeded; fewer seeds
   under `-short`).
 - **A head read never links** (`rotatedAway`, which the filler and the tailer share;

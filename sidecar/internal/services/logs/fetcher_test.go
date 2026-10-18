@@ -998,6 +998,25 @@ func wideLines(n, size int) []string {
 	return out
 }
 
+// A read cut after an empty window is cut at that window's start: it read every
+// line from there to the point and found none.
+func TestAnEmptyWindowsEdgeIsItsStart(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web/app", lineEvery(10)...)
+	c := smallCaps
+	c.gets = 3
+	o := backwardOpts()
+	o.until, o.limits = to(1000*time.Second), limitsOf(c)
+
+	r := readBackward(t.Context(), s.get, web, o)
+
+	assert.Equal(t, []string{"0|", "0|"}, shape(r))
+	assert.NoError(t, r.err)
+	assert.True(t, r.short)
+	assert.Equal(t, position{Timestamp: at(910 * time.Second)}, r.stop)
+}
+
 // A backward read under until reads windows of time ending there, each from its
 // start, so it reaches until however much log follows it.
 func TestABackwardReadUnderUntilReachesIt(t *testing.T) {
