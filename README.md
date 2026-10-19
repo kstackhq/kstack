@@ -1,6 +1,6 @@
 # Kstack
 
-_Kstack is an AI-native monitoring and troubleshooting tool for Kubernetes_
+_Kstack is a desktop app for monitoring and troubleshooting K8s clusters with help of AI_
 
 <a href="https://www.loom.com/share/41ea1133c96b4dcebc10600ec75d8277">
   <img width="350" alt="video-thumbnail" src="https://github.com/user-attachments/assets/6d7f056f-fe8f-40d7-98f4-c345eb77d0aa" />
