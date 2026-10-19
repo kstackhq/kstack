@@ -35,7 +35,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
 
@@ -56,10 +55,6 @@ var ErrIdentityMismatch = errors.New("connection is not the requested cluster")
 const (
 	defaultQPS   float32 = 50
 	defaultBurst int     = 100
-	// discoveryTimeout bounds a whole discovery sweep, which is dozens of requests. It is a
-	// client timeout rather than a context deadline because client-go's discovery calls take
-	// no context — so without one a black-holed API server parks the caller forever.
-	discoveryTimeout = 30 * time.Second
 	// listIdleTimeout is the read-inactivity window on one non-watch request. A kind sync
 	// holds its start slot until its watch is open, i.e. past the cold list, so one wedged
 	// LIST costs a permanent fraction of the fleet's start capacity.
@@ -89,10 +84,6 @@ type Connection struct {
 	// unthrottled: the QPS bucket lives in rest.RESTClient, so it reaches Dynamic alone.
 	HTTPClient *http.Client
 	Dynamic    dynamic.Interface
-	// Discovery enumerates the kinds the server serves. Its own http.Client, because its
-	// calls take no context and need a timeout instead; the pool is still the one above,
-	// since client-go caches transports by TLS config.
-	Discovery discovery.DiscoveryInterface
 
 	// serverUID is the cluster reached over THIS connection, recorded by the probe that read
 	// it. Unset until then, which reads as not identified — never as a match.
@@ -244,35 +235,15 @@ func newConnection(cfg *rest.Config, newDynamic dynamicBuilder) (*Connection, er
 		return nil, fmt.Errorf("build dynamic client: %w", err)
 	}
 
-	disc, err := newDiscovery(own)
-	if err != nil {
-		return nil, fmt.Errorf("build discovery client: %w", err)
-	}
-
 	return &Connection{
 		Config:     own,
 		BaseURL:    baseURL,
 		APIPath:    apiPath,
 		HTTPClient: httpClient,
 		Dynamic:    dyn,
-		Discovery:  disc,
 		seq:        connSeq.Add(1),
 		done:       make(chan struct{}),
 	}, nil
-}
-
-// newDiscovery builds the discovery client over its own timeout-bearing http.Client. The
-// timeout has to ride the client because discovery takes no context, and it cannot ride the
-// shared one — every other caller bounds itself with a context and would inherit this.
-func newDiscovery(cfg *rest.Config) (discovery.DiscoveryInterface, error) {
-	own := rest.CopyConfig(cfg)
-	own.Timeout = discoveryTimeout
-
-	httpClient, err := rest.HTTPClientFor(own)
-	if err != nil {
-		return nil, err
-	}
-	return discovery.NewDiscoveryClientForConfigAndClient(own, httpClient)
 }
 
 // Done closes when this connection is retired: the credentials moved, or the last claim on the

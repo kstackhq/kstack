@@ -178,6 +178,7 @@ Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-
 - Work to do is a queue, not a bus: `internal/lib/workqueue`, one `Queue` per job. `Done` is owed for every key taken.
 - Subscription resolvers emit the current snapshot first, then deltas (`mapStream`), and honor `ctx.Done()`.
 - Unexported functional options for test seams; exported `New` takes production knobs only.
+- **Production code reaches the API server through `kubeconn.Connection`'s `Dynamic` client or raw requests on its `HTTPClient`.** Never import `k8s.io/api/...`, `client-go/discovery` or the typed clientset (`client-go/kubernetes`): `kubernetes/scheme` links every API group, about 16 MB. Tests may use them. `make vet-go` and CI fail on them (`scripts/check-sidecar-deps.sh`).
 
 ## Tests & checks
 

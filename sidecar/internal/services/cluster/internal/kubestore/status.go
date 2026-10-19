@@ -19,7 +19,6 @@ import (
 	"strconv"
 	"strings"
 
-	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 )
 
@@ -45,6 +44,13 @@ type statusReading struct {
 	Restart sql.NullInt64
 	Host    string
 }
+
+// conditionTrue and conditionFalse are a condition's status values. Spelled out here because
+// importing them from k8s.io/api links every API group into the binary.
+const (
+	conditionTrue  = "True"
+	conditionFalse = "False"
+)
 
 func count(n int64) sql.NullInt64 { return sql.NullInt64{Int64: n, Valid: true} }
 
@@ -225,9 +231,9 @@ func statusNode(u *unstructured.Unstructured) statusReading {
 		s, _, _ := unstructured.NestedString(m, "status")
 		switch t {
 		case "Ready":
-			isReady = s == string(corev1.ConditionTrue)
+			isReady = s == conditionTrue
 		case "DiskPressure", "MemoryPressure", "PIDPressure", "NetworkUnavailable":
-			if s == string(corev1.ConditionTrue) {
+			if s == conditionTrue {
 				pressure = t
 			}
 		}
@@ -271,7 +277,7 @@ func statusJob(u *unstructured.Unstructured) statusReading {
 		}
 		t, _, _ := unstructured.NestedString(m, "type")
 		s, _, _ := unstructured.NestedString(m, "status")
-		if s != string(corev1.ConditionTrue) {
+		if s != conditionTrue {
 			continue
 		}
 		switch t {
@@ -306,7 +312,7 @@ func statusFromConditions(u *unstructured.Unstructured) string {
 		t, _, _ := unstructured.NestedString(m, "type")
 		s, _, _ := unstructured.NestedString(m, "status")
 		switch s {
-		case string(corev1.ConditionTrue):
+		case conditionTrue:
 			// The haveTrue guard is load-bearing: a True condition with a missing or
 			// malformed lastTransitionTime would never beat the empty lastTrueAt and
 			// would be dropped for a False/empty summary. Compared as a STRING —
@@ -318,7 +324,7 @@ func statusFromConditions(u *unstructured.Unstructured) string {
 				lastTrueAt = lt
 				lastTrue = t
 			}
-		case string(corev1.ConditionFalse):
+		case conditionFalse:
 			if lastFalseType == "" {
 				lastFalseType = t
 				lastFalseReason, _, _ = unstructured.NestedString(m, "reason")

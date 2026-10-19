@@ -2,7 +2,7 @@
 # so it doesn't belong in package.json scripts; this Makefile is the
 # place where Go, Rust, and JS commands meet.
 
-.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js vet vet-go vet-rust check-cache check-switch prompts clean clean-data
+.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js vet vet-go vet-rust check-sidecar-deps check-cache check-switch prompts clean clean-data
 
 # Build the Go sidecar into src-tauri/binaries/ with the Tauri-required
 # `<name>-<rust-host-triple>` filename. Tauri's externalBin picks it up.
@@ -124,8 +124,11 @@ vet: vet-go vet-rust
 
 # The live checks are behind tags no other target builds; vetting them here keeps
 # them compiling.
-vet-go:
+vet-go: check-sidecar-deps
 	cd sidecar && go vet ./... && go vet -tags livecache ./internal/agent/catalog && go vet -tags liveswitch ./internal/agent/catalog
+
+check-sidecar-deps:
+	sh scripts/check-sidecar-deps.sh
 
 vet-rust:
 	cd src-tauri && cargo clippy --all-targets -- -D warnings
