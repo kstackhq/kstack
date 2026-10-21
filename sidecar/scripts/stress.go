@@ -3,7 +3,7 @@
 // Reads the nightly stress run's `go test -json` output and writes the failures
 // to failures.json beside it, for the workflow's report job to file as issues.
 //
-//	go run scripts/stress.go -cpu 1,4 -count 3 -race=true -runner ubuntu-24.04-race stress/stress.json
+//	go run scripts/stress.go -cpu 4 -count 3 -race=true -runner ubuntu-24.04-race-cpu4 stress/stress.json
 //
 // It also prints them to the log and to $GITHUB_STEP_SUMMARY. It exits 0
 // whatever it finds: the workflow fails on go test's own status.
@@ -17,7 +17,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 )
 
@@ -31,7 +30,7 @@ type event struct {
 	Output  string
 }
 
-// One test failing under one -cpu value on this runner.
+// One test failing in this job.
 type failure struct {
 	Package  string `json:"package"`
 	Test     string `json:"test"`
@@ -53,24 +52,18 @@ type pkgState struct {
 	seed     string
 	timedOut bool
 	failed   bool
-	runs     map[string]int // top-level test → runs started
-	running  map[string]int // top-level test → -cpu of its unfinished run
+	running  map[string]bool // top-level tests started and not finished
 	failures []failure
 }
 
 func main() {
-	cpuFlag := flag.String("cpu", "", "the -cpu list go test ran with")
+	cpu := flag.Int("cpu", 1, "the -cpu go test ran with")
 	count := flag.Int("count", 1, "the -count go test ran with")
 	race := flag.Bool("race", true, "whether go test ran with -race")
 	runner := flag.String("runner", "", "the job's name in the report")
 	flag.Parse()
 	if flag.NArg() != 1 {
 		fmt.Fprintln(os.Stderr, "usage: go run scripts/stress.go [flags] stress.json")
-		os.Exit(2)
-	}
-	cpus, err := parseCPUs(*cpuFlag)
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
 
@@ -80,7 +73,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer in.Close()
-	r, err := read(in, cpus, *count, *race)
+	r, err := read(in, *cpu, *count, *race)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -114,22 +107,8 @@ func main() {
 	}
 }
 
-func parseCPUs(list string) ([]int, error) {
-	var cpus []int
-	for s := range strings.SplitSeq(list, ",") {
-		n, err := strconv.Atoi(strings.TrimSpace(s))
-		if err != nil || n < 1 {
-			return nil, fmt.Errorf("-cpu: bad value %q", s)
-		}
-		cpus = append(cpus, n)
-	}
-	return cpus, nil
-}
-
-// read folds the event stream into failures. Test names carry no -cpu
-// suffix, so a run's -cpu comes from its round: go test runs every test once
-// per round, -count rounds per -cpu value, in the order the list gives them.
-func read(in io.Reader, cpus []int, count int, race bool) (report, error) {
+// read folds the event stream into failures.
+func read(in io.Reader, cpu, count int, race bool) (report, error) {
 	pkgs := map[string]*pkgState{}
 	var order []string
 	dec := json.NewDecoder(bufio.NewReader(in))
@@ -145,7 +124,7 @@ func read(in io.Reader, cpus []int, count int, race bool) (report, error) {
 		}
 		p := pkgs[e.Package]
 		if p == nil {
-			p = &pkgState{runs: map[string]int{}, running: map[string]int{}}
+			p = &pkgState{running: map[string]bool{}}
 			pkgs[e.Package] = p
 			order = append(order, e.Package)
 		}
@@ -170,15 +149,9 @@ func read(in io.Reader, cpus []int, count int, race bool) (report, error) {
 		}
 		switch e.Action {
 		case "run":
-			round := p.runs[e.Test] / count
-			p.runs[e.Test]++
-			cpu := 0
-			if round < len(cpus) {
-				cpu = cpus[round]
-			}
-			p.running[e.Test] = cpu
+			p.running[e.Test] = true
 		case "fail":
-			p.failures = addFailure(p.failures, failure{Package: e.Package, Test: e.Test, CPU: p.running[e.Test]})
+			p.failures = addFailure(p.failures, failure{Package: e.Package, Test: e.Test, CPU: cpu})
 			delete(p.running, e.Test)
 		case "pass", "skip":
 			delete(p.running, e.Test)
@@ -194,7 +167,7 @@ func read(in io.Reader, cpus []int, count int, race bool) (report, error) {
 		// The alarm names the tests running when it fired, and test2json
 		// closes none of them.
 		if p.timedOut {
-			for test, cpu := range p.running {
+			for test := range p.running {
 				p.failures = addFailure(p.failures, failure{Package: name, Test: test, CPU: cpu, TimedOut: true})
 			}
 		}
@@ -211,11 +184,10 @@ func read(in io.Reader, cpus []int, count int, race bool) (report, error) {
 	return r, nil
 }
 
-// addFailure keeps one entry per test and -cpu value, however many rounds
-// failed it.
+// addFailure keeps one entry per test, however many rounds failed it.
 func addFailure(fs []failure, f failure) []failure {
 	for i, g := range fs {
-		if g.Test == f.Test && g.CPU == f.CPU {
+		if g.Test == f.Test {
 			fs[i].TimedOut = g.TimedOut || f.TimedOut
 			return fs
 		}

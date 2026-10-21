@@ -1,9 +1,11 @@
 name: stress
 
 # Runs every Go test with the CPU count, the order and the repetitions varied,
-# to find ordering bugs a single PR run passes. Each runner gets two jobs: one
-# under the race detector (but windows/arm64, which has none), and one without
-# it, at full speed, where a timing bug the detector's slowdown hides can show.
+# to find ordering bugs a single PR run passes. Each runner gets two jobs per
+# -cpu value: one under the race detector (but windows/arm64, which has none),
+# and one without it, at full speed, where a timing bug the detector's slowdown
+# hides can show. A job runs one -cpu value, so a panic or hang under one value
+# leaves the others' runs intact.
 # A red run means a concurrency bug was found and nothing else.
 
 permissions:
@@ -19,17 +21,16 @@ on:
         description: Repetitions of each test (-count)
         default: "3"
       cpu:
-        description: GOMAXPROCS values to run each test under (-cpu)
-        default: "1,4"
+        description: GOMAXPROCS values to run each test under (-cpu), as a JSON array
+        default: "[1,4]"
 
 env:
   COUNT: ${{ inputs.count || '3' }}
-  CPU: ${{ inputs.cpu || '1,4' }}
 
 jobs:
   stress:
     # The report job reads the id back out of the name.
-    name: Go · Stress (${{ matrix.runner }}-${{ matrix.race && 'race' || 'norace' }})
+    name: Go · Stress (${{ matrix.runner }}-${{ matrix.race && 'race' || 'norace' }}-cpu${{ matrix.cpu }})
     strategy:
       fail-fast: false
       # Keep in step with full-matrix in ci.yml; anchors do not cross files.
@@ -46,6 +47,8 @@ jobs:
         race:
           - true
           - false
+        # A JSON array, since an expression cannot split a list.
+        cpu: ${{ fromJSON(inputs.cpu || '[1,4]') }}
         exclude:
           # The macOS 27 image is Apple silicon alone.
           - os: macos-27
@@ -85,8 +88,9 @@ jobs:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     env:
+      CPU: ${{ matrix.cpu }}
       RACE: ${{ matrix.race }}
-      STRESS_ID: ${{ matrix.runner }}-${{ matrix.race && 'race' || 'norace' }}
+      STRESS_ID: ${{ matrix.runner }}-${{ matrix.race && 'race' || 'norace' }}-cpu${{ matrix.cpu }}
     steps:
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-environment

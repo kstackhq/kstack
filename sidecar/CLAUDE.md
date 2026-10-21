@@ -192,8 +192,9 @@ Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-
 - A test outside `services/cluster` that needs a real cache store uses `cluster/clustertest` (`NewStore`, `Apply`, `Delete`, `Mirror`, `Read`); it carries the query views.
 
 **A nightly stress run hunts concurrency bugs** (`.github/workflows/stress.yml`): every CI
-runner, `-cpu 1,4 -shuffle=on -count=3`, one job with `-race` (keeping `checkptr` on for
-modernc's SQLite) and one without. A test that hangs under `-cpu 1` is a finding.
+runner, `-shuffle=on -count=3`, one job per `-cpu` value (1 and 4; the `cpu` dispatch input is a
+JSON array, `[1,4]`), each with `-race` (keeping `checkptr` on for modernc's SQLite) and without.
+A test that hangs under `-cpu 1` is a finding.
 `sidecar/scripts/stress.go` files one issue per failing test, labelled `stress`, with the command that
 reproduces it from `sidecar/`:
 
