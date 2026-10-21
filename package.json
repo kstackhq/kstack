@@ -22,6 +22,7 @@
     "@tanstack/react-virtual": "^3.14.19",
     "@tauri-apps/api": "^2",
     "@urql/exchange-retry": "^2.0.0",
+    "fancy-ansi": "0.2.2",
     "graphql": "^17.0.2",
     "hast-util-to-jsx-runtime": "^2.3.6",
     "highlight.js": "^11.12.0",
