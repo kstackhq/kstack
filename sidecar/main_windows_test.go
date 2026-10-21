@@ -5,6 +5,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sync/atomic"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -12,11 +13,15 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
 )
 
+// sockets numbers each pipe name, so a -count iteration never asks for a pipe
+// an earlier one's listener may still hold.
+var sockets atomic.Int64
+
 // socketPath returns a bindable pipe name for one test, pid-namespaced so a
 // concurrent run of the package doesn't collide.
 func socketPath(t *testing.T) string {
 	t.Helper()
-	return fmt.Sprintf(`\\.\pipe\kstack-test-%d-%s`, os.Getpid(), t.Name())
+	return fmt.Sprintf(`\\.\pipe\kstack-test-%d-%d-%s`, os.Getpid(), sockets.Add(1), t.Name())
 }
 
 // unbindableEndpoint names a pipe this test already holds: the first instance
