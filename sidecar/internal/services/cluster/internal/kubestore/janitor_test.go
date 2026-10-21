@@ -487,10 +487,9 @@ func TestAClearedFilePublishesItsFirstVerdict(t *testing.T) {
 
 // The sweep interval is five minutes in production, which is a lot of cluster on a cache
 // filling fast — and a long wait for the release after a clear shrinks one. So every write
-// path that commits wakes the janitor, whether it grew the file or shrank it. The interval
-// here is an hour precisely so nothing but the wake can explain the second sweep, and the
-// expired status row is what says a sweep ran: no write below touches it, and only the
-// sweep trims it.
+// path that commits wakes the janitor, whether it grew the file or shrank it. The manager
+// runs no janitor, so the wake waits on the channel for the test to find, and no sweep's
+// speed enters the test.
 func TestEveryCommitWakesTheJanitor(t *testing.T) {
 	t.Parallel()
 
@@ -522,24 +521,41 @@ func TestEveryCommitWakesTheJanitor(t *testing.T) {
 	}
 	for name, write := range writes {
 		t.Run(name, func(t *testing.T) {
-			ctx := context.Background()
-			m := NewManager(t.TempDir(), Retention{StatusHistoryTTL: time.Hour, Interval: time.Hour, SizeLimit: gib})
+			m := NewManager(t.TempDir(), Retention{})
 			t.Cleanup(func() { require.NoError(t, m.Close()) })
-			news := m.WatchSizeLimitNews()
-			t.Cleanup(news.Close)
 			store, err := m.OpenOrCreate(1)
 			require.NoError(t, err)
 			t.Cleanup(store.Release)
-			// The opening sweep's verdict, which is what says that sweep is over: the row
-			// added after it is the woken sweep's to trim and nobody else's.
-			testutil.Recv(t, news.Chan(), "the opening sweep")
-			addStatusRow(t, store, "uid-old", 48*time.Hour)
+			f := openFileOf(t, store)
+			require.Empty(t, f.janitorWakeups, "a wake owed before the write")
 
-			write(t, ctx, store)
+			write(t, context.Background(), store)
 
-			require.Eventually(t, func() bool {
-				return noRows(store, `SELECT COUNT(*) FROM status_history WHERE uid = 'uid-old'`)
-			}, testutil.Timeout, time.Millisecond, "the write woke a sweep before the ticker could")
+			testutil.Recv(t, f.janitorWakeups, "the write's wake")
 		})
 	}
+}
+
+// A wake is what makes the janitor sweep between ticks. The interval is an hour, so nothing
+// but the wake can explain the second sweep, and the expired status row is what says it ran.
+func TestAWakeStartsASweep(t *testing.T) {
+	t.Parallel()
+
+	m := NewManager(t.TempDir(), Retention{StatusHistoryTTL: time.Hour, Interval: time.Hour, SizeLimit: gib})
+	t.Cleanup(func() { require.NoError(t, m.Close()) })
+	news := m.WatchSizeLimitNews()
+	t.Cleanup(news.Close)
+	store, err := m.OpenOrCreate(1)
+	require.NoError(t, err)
+	t.Cleanup(store.Release)
+	// The opening sweep's verdict, which is what says that sweep is over: the row added
+	// after it is the woken sweep's to trim and nobody else's.
+	testutil.Recv(t, news.Chan(), "the opening sweep")
+	addStatusRow(t, store, "uid-old", 48*time.Hour)
+
+	openFileOf(t, store).wakeJanitor()
+
+	require.Eventually(t, func() bool {
+		return noRows(store, `SELECT COUNT(*) FROM status_history WHERE uid = 'uid-old'`)
+	}, testutil.Timeout, time.Millisecond, "the wake started a sweep before the ticker could")
 }
