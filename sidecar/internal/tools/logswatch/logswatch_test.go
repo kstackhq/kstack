@@ -163,7 +163,10 @@ func TestTheFollowOutlivesTheCall(t *testing.T) {
 	t.Parallel()
 	f, w := newFakeFollows(), &fakeWatches{}
 	ctx, cancel := context.WithCancel(t.Context())
-	_, isError, _ := run(t, ctx, f, w, webapp+`}`)
+	// The real clock: the follow's deadline is now plus a day, which a fixed clock
+	// would put in the past once the real date passes it.
+	tool := New(logsinputtest.Watching(t), f, time.Now)
+	_, isError, _ := tool.RunShown(ctx, tools.Runtime{ClusterID: "7", Watches: w}, json.RawMessage(webapp+`}`))
 	require.False(t, isError)
 	cancel()
 
