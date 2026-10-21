@@ -34,8 +34,11 @@ func stripControl(s string) string {
 	var b strings.Builder
 	b.Grow(min(len(s), maxMessage+len("…")))
 	for i := 0; i < len(s); {
+		start := i
 		r, size := utf8.DecodeRuneInString(s[i:])
 		i += size
+		// keep is what this step adds to the line: a character, or nothing for a control.
+		var keep string
 		switch {
 		case r == 0x1b && i < len(s) && s[i] == '[':
 			i = skipCSI(s, i+1)
@@ -46,13 +49,16 @@ func stripControl(s string) string {
 		case r == 0x9d:
 			i = skipOSC(s, i)
 		case r < 0x20 && r != '\t', r == 0x7f, r >= 0x80 && r <= 0x9f:
+		case r == utf8.RuneError && size == 1:
+			keep = "\uFFFD"
 		default:
-			if b.Len()+utf8.RuneLen(r) > maxMessage {
-				b.WriteString("…")
-				return b.String()
-			}
-			b.WriteRune(r)
+			keep = s[start:i]
 		}
+		if b.Len()+len(keep) > maxMessage {
+			b.WriteString("…")
+			break
+		}
+		b.WriteString(keep)
 	}
 	return b.String()
 }
