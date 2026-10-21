@@ -1021,8 +1021,16 @@ func TestAFollowKeepsItsPlaceWhenANodesLabelsMove(t *testing.T) {
 	f.store.Apply(t, moved)
 	f.nodes <- nodeFrame(cluster.DeltaFrameModified, moved)
 
-	s.add("prod/web-1/app", stamped(time.Hour+2*time.Second, "after"))
-	assert.Equal(t, "eu-1c", recvLine(t, stream, "web-1's next line").Place.Zone)
+	// The node frame and a line's commit ping race into the follow's select, so a
+	// line may still carry the old zone; keep writing until one carries the new.
+	deadline := time.Now().Add(testutil.Timeout)
+	for i := 2; ; i++ {
+		s.add("prod/web-1/app", stamped(time.Hour+time.Duration(i)*time.Second, "after"))
+		if recvLine(t, stream, "web-1's next line").Place.Zone == "eu-1c" {
+			break
+		}
+		require.True(t, time.Now().Before(deadline), "a line carrying the new zone")
+	}
 	assert.Equal(t, 1, s.followsOpened("prod/web-1/app"))
 }
 
