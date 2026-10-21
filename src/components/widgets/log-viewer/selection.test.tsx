@@ -66,6 +66,10 @@ describe('getPlainAttribute', () => {
     expect(getPlainAttribute(line, col)).toBe(want);
   });
 
+  it('returns the message without its colours', () => {
+    expect(getPlainAttribute(makeLine({ message: '\x1b[31merror\x1b[0m: disk' }), 'Message')).toBe('error: disk');
+  });
+
   it('returns the message raw, invisible characters included', () => {
     expect(getPlainAttribute(makeLine({ message: 'a​b' }), 'Message')).toBe('a​b');
   });

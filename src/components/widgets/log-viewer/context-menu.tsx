@@ -14,7 +14,7 @@
 // limitations under the License.
 
 // A cell's right-click menu, kubetail's `CellContextMenu` ported: fixed labels, and what each
-// copies is the cell's raw text.
+// copies is the cell's plain text.
 import type { ReactElement } from 'react';
 
 import {
@@ -41,7 +41,9 @@ function items(line: LogLine, col: Column) {
         </>
       );
     case 'Message':
-      return <ContextMenuItem onClick={() => copyToClipboard(line.message)}>Copy message</ContextMenuItem>;
+      return (
+        <ContextMenuItem onClick={() => copyToClipboard(getPlainAttribute(line, col))}>Copy message</ContextMenuItem>
+      );
     default:
       return <ContextMenuItem onClick={() => copyToClipboard(getPlainAttribute(line, col))}>Copy</ContextMenuItem>;
   }

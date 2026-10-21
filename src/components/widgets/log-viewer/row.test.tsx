@@ -154,6 +154,12 @@ describe('LogViewerRow', () => {
     expect(cellOf('Pod')).toHaveTextContent('<i>pod</i>');
   });
 
+  it('draws a message with its colours', () => {
+    render(<Row of={line({ message: '\x1b[31merror\x1b[0m: disk' })} />);
+    expect(cellOf('Message')).toHaveTextContent('error: disk');
+    expect(cellOf('Message')!.querySelector('span[style]')).toHaveStyle({ color: 'var(--ansi-red, #cc0000)' });
+  });
+
   it('puts the date before a time from another day', () => {
     render(<Row of={line({ timestamp: local(2026, 9, 14, 23, 59, 59, 5) })} />);
     expect(cellOf('Timestamp')).toHaveTextContent('Oct 14 23:59:59.005');

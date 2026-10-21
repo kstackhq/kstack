@@ -15,13 +15,16 @@
 
 // One log line as a row: its position from where the view landed, then the columns the user
 // picked, as a grid. Every cell but the position and the dot is cluster text, so each goes
-// through `VisibleText`. It is memoized over primitives, the line's own object, the column
-// state's and its share of the selection, so a frame that adds a line draws the new row
-// alone, and a prepend that moves every row re-renders them without laying them out again.
+// through `VisibleText`, the message with its colours through `AnsiText`. It is memoized over
+// primitives, the line's own object, the column state's and its share of the selection, so a
+// frame that adds a line draws the new row alone, and a prepend that moves every row
+// re-renders them without laying them out again.
+import { stripAnsi } from 'fancy-ansi';
 import { type KeyboardEvent, type MouseEvent, memo } from 'react';
 
 import { cn } from '@kubetail/ui/lib/utils';
 
+import { AnsiText } from '@/components/widgets/ansi-text';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { LogLine } from '@/lib/log-viewer';
 import { type Column, dotColor } from './columns';
@@ -47,7 +50,7 @@ const CHAR_PX = 7.2;
  * off this is the height.
  */
 export function estimateRowHeight(line: LogLine, messageWidth?: number): number {
-  const lines = messageWidth ? Math.max(1, Math.ceil((line.message.length * CHAR_PX) / messageWidth)) : 1;
+  const lines = messageWidth ? Math.max(1, Math.ceil((stripAnsi(line.message).length * CHAR_PX) / messageWidth)) : 1;
   return (lines + (line.gap ? 1 : 0)) * LOG_ROW_PX;
 }
 
@@ -155,6 +158,12 @@ export type LogViewerRowProps = {
   onCellMouseDown?: (key: number, col: Column, event: Press) => void;
 };
 
+function cellContent(line: LogLine, col: Column) {
+  if (col === 'Dot') return <Dot line={line} />;
+  if (col === 'Message') return <AnsiText text={line.message} />;
+  return <VisibleText text={getPlainAttribute(line, col)} />;
+}
+
 export const LogViewerRow = memo(
   ({
     line,
@@ -190,7 +199,7 @@ export const LogViewerRow = memo(
       const dot = col === 'Dot';
       // What is measured is the content, so it is an inline-block of its own; the dot's already
       // is, and a wrapped message is not measured.
-      const content = dot ? <Dot line={line} /> : <VisibleText text={getPlainAttribute(line, col)} />;
+      const content = cellContent(line, col);
       const cell = (
         <div
           key={col}

@@ -15,7 +15,8 @@
 // A view's lines on its transcript card: eight rows at a fixed height from the first paint,
 // so a card filling in never moves the transcript, and no scroller of its own. One line per
 // row, cut at the card's edge. Every name and message is cluster text, drawn through
-// `VisibleText` as the viewer's rows are.
+// `VisibleText` as the viewer's rows are, a message with its colours.
+import { AnsiText } from '@/components/widgets/ansi-text';
 import { Dot, GapNotice, LOG_ROW_PX, lineTime } from '@/components/widgets/log-viewer';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { INLINE_LINES, type InlineState } from '@/lib/inline-log-lines';
@@ -80,7 +81,7 @@ export function LineRow({ line, oneStream }: { line: LogLine; oneStream: boolean
         </span>
       )}
       <span className="min-w-0 truncate">
-        <VisibleText text={line.message} />
+        <AnsiText text={line.message} />
       </span>
     </div>
   );

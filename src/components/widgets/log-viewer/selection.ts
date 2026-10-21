@@ -15,6 +15,7 @@
 
 // Row and cell selection over the viewer's rows, kubetail's console `selection.ts` ported.
 // Keys are the core's, so a selection survives a page loading above it.
+import { stripAnsi } from 'fancy-ansi';
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
@@ -51,7 +52,7 @@ function selectableColumnOf(value: string | undefined): Column | null {
   return col && isSelectableColumn(col) ? col : null;
 }
 
-/** A cell's text as the cell draws it, unspelled: what a copy writes. */
+/** A cell's text as the cell draws it, unspelled and uncoloured: what a copy writes. */
 export function getPlainAttribute(line: LogLine, col: Column): string {
   switch (col) {
     case 'Timestamp':
@@ -73,7 +74,7 @@ export function getPlainAttribute(line: LogLine, col: Column): string {
     case 'Arch':
       return line.place.arch;
     default:
-      return line.message;
+      return stripAnsi(line.message);
   }
 }
 
