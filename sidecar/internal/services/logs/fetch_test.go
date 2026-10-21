@@ -903,8 +903,8 @@ func TestADenseSkippedStreamHoldsTheCut(t *testing.T) {
 	assert.Equal(t, []string{`web-1/app: pods "web-1" not found`}, got[len(got)-1].Skipped)
 }
 
-// A grep matches as Go's regexp does, over the text the file stored: the message
-// after stripControl, flags and all.
+// A grep matches as Go's regexp does, flags and all, over the stored text without
+// its colours; the record keeps them.
 func TestAGrepMatchesTheStoredText(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
@@ -916,7 +916,7 @@ func TestAGrepMatchesTheStoredText(t *testing.T) {
 	page, err := svc.Fetch(t.Context(), "7", view, FetchQuery{Mode: FetchHead, Limit: 10})
 
 	require.NoError(t, err)
-	assert.Equal(t, []string{"ERROR disk", "error net"}, messages(page.Records))
+	assert.Equal(t, []string{"\x1b[31mERROR\x1b[0m disk", "error net"}, messages(page.Records))
 }
 
 // A Tail page that needs fewer lines than the log's first moment holds leaves the

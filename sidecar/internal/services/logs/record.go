@@ -17,7 +17,7 @@ package logs
 import "time"
 
 // Record is one log line as the sidecar read it: when the container runtime
-// stamped it, the message cleaned by stripControl, the log it came from and where
+// stamped it, the message cleaned by keepColor, the log it came from and where
 // that log's pod runs, the runtime id of the instance it came from, and its
 // Ordinal, its index among that instance's lines at that moment. A cursor carries
 // the id and the ordinal, and the wire neither. Every string came from the

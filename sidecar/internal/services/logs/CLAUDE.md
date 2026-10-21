@@ -42,8 +42,9 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   (`Reading`, `Missing`, `Idle`). Refused: `Unmirrored`, `NoNodes`, more than `maxStreams`
   containers, or a reading cut at its row or byte cap. `Refusal` is a value, so no caller can change
   a sentinel's words. Tests run over `cluster/clustertest`.
-- **Every message goes through `stripControl`** (`clean.go`) before grep and the wire; a refusal's
-  message too.
+- **Every message goes through `keepColor`** (`clean.go`) before the file and the wire: every control
+  dropped but SGR sequences. Grep (`matches`) and `ForModel` read a stored line through `stripControl`,
+  which drops those too; a refusal's message goes through `stripControl` alone.
 - **A line reaches the model through `ForModel` alone** (`formodel.go`): stripped again, then
   redacted, at read time. The file and the wire to the viewer keep it unredacted.
 - **A cursor names a line** (`cursor.go`): moment, container, instance id, ordinal. `streamBound`

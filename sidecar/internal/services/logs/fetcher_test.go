@@ -253,16 +253,16 @@ func (b cutAfter) Read(p []byte) (int, error) {
 	return copy(p, strings.Join(lines[:b.n], "")), b.err
 }
 
-// A message is cleaned before it is sent, and every line is sent: the grep runs
-// where the lines are read, never in the backend.
+// A message is cleaned before it is sent, its colours kept, and every line is sent:
+// the grep runs where the lines are read, never in the backend.
 func TestALineIsCleaned(t *testing.T) {
 	t.Parallel()
 	s := newLogServer()
-	s.add("prod/web/app", stamped(0, "\x1b[31merror\x1b[0m: disk"), stamped(time.Second, "ok"))
+	s.add("prod/web/app", stamped(0, "\x1b[31merror\x1b[0m:\x1b[2K disk"), stamped(time.Second, "ok"))
 
 	r := readForward(t.Context(), s.get, web, readOpts{})
 
-	assert.Equal(t, []string{"error: disk", "ok"}, messages(drain(r)))
+	assert.Equal(t, []string{"\x1b[31merror\x1b[0m: disk", "ok"}, messages(drain(r)))
 }
 
 // A line with no timestamp, or one that is not a time, is skipped, as kubetail's

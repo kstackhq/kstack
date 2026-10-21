@@ -20,9 +20,9 @@ import "github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 // the ellipsis that ends a cut one.
 const MaxLine = maxMessage + len("…")
 
-// ForModel is a log line as the model may read it: stripped as for the wire, then
-// redacted, as a Bash result is. The file and the viewer keep the line
-// unredacted; this runs at read time, on every line a model reads.
+// ForModel is a log line as the model may read it: every control stripped, its
+// colours among them, then redacted, as a Bash result is. The file and the viewer
+// keep the line unredacted; this runs at read time, on every line a model reads.
 func ForModel(s string) string {
 	return safe.Redact(stripControl(s))
 }

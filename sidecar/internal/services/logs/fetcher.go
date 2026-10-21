@@ -31,7 +31,7 @@ import (
 )
 
 // maxLine is the most of one line read off the wire; the rest of it is skipped.
-// stripControl cuts what is kept to maxMessage.
+// keepColor cuts what is kept to maxMessage.
 const maxLine = 64 << 10
 
 // minBatch is the fewest lines a backward window asks for: a smaller one spends a
@@ -824,7 +824,7 @@ func parseLine(line []byte) (Record, bool) {
 		return Record{}, false
 	}
 	pos := bytes.IndexByte(line, ' ')
-	return Record{Timestamp: ts, Message: stripControl(string(line[pos+1:]))}, true
+	return Record{Timestamp: ts, Message: keepColor(string(line[pos+1:]))}, true
 }
 
 // timeOf is the time a line opens with, false with none.

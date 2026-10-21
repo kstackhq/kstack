@@ -78,3 +78,43 @@ func TestGrepMatchesTheStrippedText(t *testing.T) {
 	re := regexp.MustCompile(`^error: x$`)
 	assert.True(t, re.MatchString(stripControl("\x1b[31merror\x1b[0m: x")))
 }
+
+// keepColor keeps SGR sequences in their ESC form and strips every other control as
+// stripControl does.
+func TestKeepColorKeepsOnlySGR(t *testing.T) {
+	t.Parallel()
+	for name, tc := range map[string]struct{ in, want string }{
+		"colour":       {"\x1b[31mred\x1b[0m", "\x1b[31mred\x1b[0m"},
+		"256 and rgb":  {"\x1b[38;5;208ma\x1b[38;2;1;2;3mb", "\x1b[38;5;208ma\x1b[38;2;1;2;3mb"},
+		"colon form":   {"a\x1b[38:2::1:2:3mb", "ab"},
+		"long param":   {"a\x1b[00001mb\x1b[1;00000mc", "abc"},
+		"empty params": {"a\x1b[;1;mb", "a\x1b[;1;mb"},
+		"bare reset":   {"a\x1b[mb", "a\x1b[mb"},
+		"cursor":       {"a\x1b[2Kb\x1b[1;1Hc", "abc"},
+		"private sgr":  {"a\x1b[?1mb", "ab"},
+		"c1 csi":       {"a\u009b31mb", "ab"},
+		"osc":          {"\x1b]8;;http://x\x1b\\link\x1b]8;;\x1b\\", "link"},
+		"lone esc":     {"a\x1bb", "ab"},
+		"unterminated": {"a\x1b[31", "a"},
+		"c0":           {"a\x00b\rc", "abc"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			assert.Equal(t, tc.want, keepColor(tc.in))
+		})
+	}
+}
+
+// A sequence that would carry a line past the limit is not kept in part.
+func TestKeepColorCutsBeforeASequence(t *testing.T) {
+	t.Parallel()
+	got := keepColor(strings.Repeat("a", maxMessage-2) + "\x1b[31mb")
+	assert.Equal(t, strings.Repeat("a", maxMessage-2)+"…", got)
+}
+
+// Grep matches a kept line's text, not the colours in it.
+func TestGrepMatchesAKeptLinesText(t *testing.T) {
+	t.Parallel()
+	re := regexp.MustCompile(`^error: x$`)
+	assert.True(t, matches(re, keepColor("\x1b[31merror\x1b[0m: x")))
+	assert.False(t, matches(regexp.MustCompile(`31m`), keepColor("\x1b[31merror")))
+}

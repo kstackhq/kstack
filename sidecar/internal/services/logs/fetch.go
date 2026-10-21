@@ -522,7 +522,15 @@ func compileGrep(grep string) (*regexp.Regexp, error) {
 	return re, nil
 }
 
-// matches is whether message passes grep, nil passing every line.
+// matches is whether message passes grep, nil passing every line. The file keeps a
+// line's colours; grep reads it without them.
 func matches(grep *regexp.Regexp, message string) bool {
-	return grep == nil || grep.MatchString(message)
+	if grep == nil {
+		return true
+	}
+	// A stored line's only control is a kept SGR sequence.
+	if strings.Contains(message, "\x1b") {
+		message = stripControl(message)
+	}
+	return grep.MatchString(message)
 }
