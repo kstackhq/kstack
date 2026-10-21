@@ -683,6 +683,14 @@ A risk we decide to accept is recorded as a **By decision** row in
 [`security-model.md`](security-model.md), each linking the ADR that accepted it — so an accepted
 risk stays distinguishable from an unnoticed one, and is not repeated here.
 
+- **Decide what to do about colour that hides a log line from the eye (low; logs owner).** A
+  kept SGR sequence can set a foreground that matches its background, or the theme's own
+  background, or dim the text, and the viewer draws it as asked
+  ([log lines keep their colours](security/2026-10-19-log-lines-keep-their-colours.md)). Copy,
+  grep and the model read the line stripped, so the text hides from the eye alone. Dropping
+  `background-color` leaves the theme-matching foreground open; a contrast floor on every kept
+  colour would close it. Either land one or accept it as a **By decision** row with an ADR.
+
 - **Audit what secrets a sandboxed read still passes (medium; sandbox owner).** Redaction covers
   a Secret's values, `last-applied-configuration`, and a helm release's values and manifest
   Secrets. Check what else carries a secret to the model: env values and ConfigMaps; a helm
