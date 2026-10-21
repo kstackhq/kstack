@@ -402,6 +402,20 @@ func TestAFlushTakesAtMostWriteQueueBatches(t *testing.T) {
 	assert.Equal(t, at(3, 0), left.lines[0].Pos, "left for the next flush")
 }
 
+// A write waits on a full queue alone: one whose context has ended lands when the
+// queue has room, and waits only when there is none.
+func TestAWriteWaitsOnAFullQueueAlone(t *testing.T) {
+	t.Parallel()
+	// A queue of one batch that nobody drains.
+	queue := mpsc.New[batch](1, mpsc.WithKeepOpen())
+	tail := &Tail{tx: queue.Sender(), file: t.Context(), failed: make(chan struct{})}
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	require.NoError(t, tail.Write(ctx, lines(at(1, 0))), "the queue has room")
+	assert.ErrorIs(t, tail.Write(ctx, lines(at(2, 0))), context.Canceled, "the queue is full")
+}
+
 // A close whose context has ended still hands the writer the tail's end, so its
 // chunk closes; the context bounds the wait for the write alone.
 func TestACloseWithAnEndedContextStillClosesTheChunk(t *testing.T) {

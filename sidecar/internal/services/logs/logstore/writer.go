@@ -367,9 +367,15 @@ func (t *Tail) Write(ctx context.Context, lines []Line) error {
 	return nil
 }
 
-// send puts b on the writer's queue; a queue the file's close ended is ErrClosed.
+// send puts b on the writer's queue, waiting on a full queue until ctx ends. The wait
+// is for the queue alone: a ctx that ended before the send still lands b when there
+// is room, so a tailer slow to reach the writer is not read as the writer falling
+// behind. A queue the file's close ended is ErrClosed.
 func (t *Tail) send(ctx context.Context, b batch) error {
-	err := t.tx.SendContext(ctx, b)
+	err := t.tx.TrySend(b)
+	if errors.Is(err, gochan.ErrFull) {
+		err = t.tx.SendContext(ctx, b)
+	}
 	if errors.Is(err, gochan.ErrClosed) {
 		return ErrClosed
 	}
