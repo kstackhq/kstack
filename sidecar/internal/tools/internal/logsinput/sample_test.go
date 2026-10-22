@@ -76,3 +76,13 @@ func TestARecordIsTheActionsLine(t *testing.T) {
 		LogsViewInput: view, Anchor: tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: &rec.Timestamp}, ResolvedAt: resolved,
 	}, *around)
 }
+
+// record is a line of prod/webapp-a/app at offset past 09:14, the ordinal-th of its
+// moment, saying msg.
+func record(offset time.Duration, ordinal int, msg string) logs.Record {
+	return logs.Record{
+		Timestamp: time.Date(2026, 10, 17, 9, 14, 0, 0, time.UTC).Add(offset), Message: msg,
+		Stream:      logs.StreamKey{Namespace: "prod", Pod: "webapp-a", Container: "app"},
+		ContainerID: "containerd://3f9a", Ordinal: ordinal,
+	}
+}

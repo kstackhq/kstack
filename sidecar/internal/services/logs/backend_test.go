@@ -22,7 +22,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
@@ -57,37 +56,6 @@ func TestAFatalFailureSaysWhy(t *testing.T) {
 	t.Parallel()
 	assert.EqualError(t, fatalError(&statusError{code: http.StatusUnauthorized, message: "Unauthorized"}), "the cluster refused to show this log: Unauthorized")
 	assert.ErrorIs(t, fatalError(ErrRevoked), ErrRevoked)
-}
-
-// A fatal read fails the page.
-func TestAFatalReadFailsThePage(t *testing.T) {
-	t.Parallel()
-	backend := newFakeBackend()
-	backend.set("web-1/app", fakeRead{err: &statusError{code: http.StatusUnauthorized, message: "Unauthorized"}})
-	backend.set("web-2/app", fakeRead{lines: []Record{{Timestamp: at(0), Message: "a"}}})
-	svc, _ := serviceOn(t, backend)
-
-	_, err := svc.Fetch(t.Context(), "7", webView, FetchQuery{Mode: FetchHead, Limit: 10})
-
-	assert.EqualError(t, err, "the cluster refused to show this log: Unauthorized")
-}
-
-// A denied or an ended read is the page's skipped entry, and the other streams'
-// lines merge as they would without it.
-func TestADeniedOrEndedReadIsSkipped(t *testing.T) {
-	t.Parallel()
-	for _, refused := range []*statusError{{code: http.StatusForbidden, message: "forbidden"}, {code: http.StatusBadRequest, message: "container is waiting to start"}} {
-		backend := newFakeBackend()
-		backend.set("web-1/app", fakeRead{err: refused})
-		backend.set("web-2/app", fakeRead{lines: []Record{{Timestamp: at(0), Message: "a"}, {Timestamp: at(time.Second), Message: "b"}}})
-		svc, _ := serviceOn(t, backend)
-
-		page, err := svc.Fetch(t.Context(), "7", webView, FetchQuery{Mode: FetchHead, Limit: 10})
-
-		require.NoError(t, err)
-		assert.Equal(t, []string{"a", "b"}, messages(page.Records))
-		assert.Equal(t, []string{"web-1/app: " + refused.message}, page.Skipped)
-	}
 }
 
 // webPair is a backend whose read of web-1's app is web1 and of web-2's web2.

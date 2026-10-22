@@ -12,63 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The one place the app makes a log `Client`: `logsFetch` and `logsFollow` over the app's
-// urql client, for one view of one cluster. Operation errors reach the error bus through
-// `errorReportExchange`; a fetch's also rejects, and a follow's calls `onFailed`, for the
-// window to see.
+// The one place the app makes a log `Client`: `logsFollow` over the app's urql client, for
+// one view of one cluster. Operation errors reach the error bus through
+// `errorReportExchange`; a follow's also calls `onFailed`, for the window to see. A page is
+// read on the log fetch API, which is not built yet (docs/specs/log-fetch-api).
 
 import type { Client as UrqlClient } from 'urql';
 
 import { graphql } from '@/gql';
-import type { LogsFetchQuery as LogsFetchResult, LogsViewInput } from '@/gql/graphql';
+import type { LogsFollowSubscription as LogsFollowResult, LogsViewInput } from '@/gql/graphql';
 import type { Client, Cursor, FollowFrame, LogLine } from '@/lib/log-viewer';
 import type { LogsViewAction } from '@/lib/logs-view';
-
-const LogsFetchQuery = graphql(`
-  query LogsFetch(
-    $id: ClusterID!
-    $view: LogsViewInput!
-    $mode: LogsFetchMode!
-    $cursor: String
-    $at: Time
-    $limit: Int!
-  ) {
-    logsFetch(id: $id, view: $view, mode: $mode, cursor: $cursor, at: $at, limit: $limit) {
-      records {
-        timestamp
-        message
-        cursor
-        stream {
-          namespace
-          pod
-          container
-          previous
-        }
-        place {
-          node
-          region
-          zone
-          os
-          arch
-        }
-        gap {
-          after
-          before
-        }
-      }
-      before {
-        cursor
-        more
-      }
-      after {
-        cursor
-        more
-      }
-      anchor
-      skipped
-    }
-  }
-`);
 
 const LogsFollowSubscription = graphql(`
   subscription LogsFollow($id: ClusterID!, $view: LogsViewInput!, $after: String) {
@@ -119,7 +73,7 @@ export function viewInput({ sources, filters, grep }: LogsViewAction): LogsViewI
 }
 
 // Field by field for the same reason: the library's types are the wire's without `__typename`.
-type LogRecord = LogsFetchResult['logsFetch']['records'][number];
+type LogRecord = NonNullable<LogsFollowResult['logsFollow']['record']>;
 
 function lineOf({ timestamp, message, cursor, stream, place, gap }: LogRecord): LogLine {
   return {
@@ -135,20 +89,8 @@ function lineOf({ timestamp, message, cursor, stream, place, gap }: LogRecord): 
 export function createLogsClient(urql: UrqlClient, clusterId: string, action: LogsViewAction): Client {
   const view = viewInput(action);
   return {
-    fetch: async ({ mode, cursor, at, limit }) => {
-      const result = await urql
-        .query(LogsFetchQuery, { id: clusterId, view, mode, cursor, at, limit }, { requestPolicy: 'network-only' })
-        .toPromise();
-      if (result.error) throw result.error;
-      if (!result.data) throw new Error('logsFetch answered no page');
-      const { records, before, after, anchor, skipped } = result.data.logsFetch;
-      return {
-        lines: records.map(lineOf),
-        before: { cursor: before.cursor ?? null, more: before.more },
-        after: { cursor: after.cursor ?? null, more: after.more },
-        anchor: anchor ?? null,
-        skipped,
-      };
+    fetch: async () => {
+      throw new Error('not implemented');
     },
 
     follow: (after: Cursor, onFrame: (frame: FollowFrame) => void, onFailed: (error: unknown) => void) => {

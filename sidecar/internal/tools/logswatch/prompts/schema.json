@@ -96,7 +96,7 @@
     },
     "since": {
       "type": "string",
-      "description": "Where the watch starts: an RFC 3339 time or an ISO 8601 duration back from now such as PT10M, whose lines count at once, or the cursor a LogsRead sample printed, to carry on past its line. Omit to start now."
+      "description": "Where the watch starts: an RFC 3339 time or an ISO 8601 duration back from now such as PT10M, whose lines count at once. Omit to start now."
     },
     "until": {
       "type": "string",

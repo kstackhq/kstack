@@ -25,42 +25,12 @@ import (
 )
 
 // merge is one direction's page of a view: its records, oldest first, the cut,
-// zero when the page was not cut, the live end, and each stream it could not read,
+// zero when the page was not cut, and each stream it could not read,
 // one line each.
 type merge struct {
 	records []Record
 	cut     position
-	end     position
 	skipped []string
-}
-
-// next is the cursor of m's cut, nil when the page was not cut.
-func (m merge) next() *string {
-	if m.cut.isZero() {
-		return nil
-	}
-	return cursorOf(m.cut)
-}
-
-// before is m's edge toward older lines: the cut while it was cut, else nothing
-// older.
-func (m merge) before() PageEdge {
-	return PageEdge{m.next(), !m.cut.isZero()}
-}
-
-// after is m's edge toward newer lines read Head: the cut while it was cut, else
-// the live end.
-func (m merge) after() PageEdge {
-	if m.cut.isZero() {
-		return m.liveEnd()
-	}
-	return PageEdge{m.next(), true}
-}
-
-// liveEnd is the edge past every stream's newest line. It always carries a cursor,
-// since the live end is where a follow starts.
-func (m merge) liveEnd() PageEdge {
-	return PageEdge{Cursor: cursorOf(m.end)}
 }
 
 // mergePage is one page of readings, each one container's lines in the order the

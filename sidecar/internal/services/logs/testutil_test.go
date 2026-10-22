@@ -20,7 +20,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -537,13 +536,6 @@ func (s *logServer) rotate(key string, d time.Duration) {
 	s.logs[key] = kept
 }
 
-// breakNext fails the body of the next read that follows nothing after n lines.
-func (s *logServer) breakNext(n int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.broken = &n
-}
-
 // clear empties key's log.
 func (s *logServer) clear(key string) {
 	s.mu.Lock()
@@ -762,13 +754,6 @@ func limitsOf(c caps) *limits { return queryLimits(c, 1)[0] }
 // many, with no second too loud to read.
 func capsOf(n int64) caps {
 	return caps{second: 1 << 20, stream: n, gets: 16, query: n, window: max(n/4, 1), minWindow: 16, part: 16}
-}
-
-// randomCaps is limits a seeded walk's logs of a few hundred bytes a stream reach,
-// with a second of a few KiB, which a log of long lines passes.
-func randomCaps(rng *rand.Rand) caps {
-	stream := int64(2000 + rng.Intn(8000))
-	return caps{second: int64(1000 + rng.Intn(3000)), stream: stream, gets: 4 + rng.Intn(13), query: stream * int64(1+rng.Intn(6)), window: stream / 4, minWindow: 16, part: 16}
 }
 
 // claimOn is a claim on a cluster whose API server serves s.
@@ -1138,58 +1123,6 @@ func serviceOn(t *testing.T, backend Backend) (*Service, *fakeService) {
 	return svc, f
 }
 
-// serviceBatched is serviceOn writing n lines a batch.
-func serviceBatched(t *testing.T, backend Backend, n int) (*Service, *fakeService) {
-	t.Helper()
-	ret := testRetention
-	ret.WriteBatch = n
-	svc, f := serviceIn(t, webMirror(t), newLogServer(), t.TempDir(), ret)
-	svc.backends = []namedBackend{{"kubelet", func(getter) Backend { return backend }}}
-	return svc, f
-}
-
-// pages walks view in mode from its start to its end, failing past 100 pages, and is
-// every page.
-func pages(t *testing.T, svc *Service, view View, mode FetchMode, limit int) []Page {
-	t.Helper()
-	return pagesFrom(t, svc, view, mode, limit, nil)
-}
-
-// pagesFrom is pages from the cursor start, nil for the end mode starts at.
-func pagesFrom(t *testing.T, svc *Service, view View, mode FetchMode, limit int, start *string) []Page {
-	t.Helper()
-	q := FetchQuery{Mode: mode, Cursor: start, Limit: limit}
-	var out []Page
-	for range 100 {
-		page, err := svc.Fetch(t.Context(), "7", view, q)
-		require.NoError(t, err)
-		out = append(out, page)
-		edge := page.After
-		if mode == FetchTail {
-			edge = page.Before
-		}
-		if !edge.More {
-			return out
-		}
-		q.Cursor = edge.Cursor
-	}
-	t.Fatal("the pages never end")
-	return nil
-}
-
-// recordsOf is every page's records, in the order mode reads them.
-func recordsOf(pages []Page, mode FetchMode) []string {
-	out := []string{}
-	for _, page := range pages {
-		if mode == FetchHead {
-			out = append(out, messages(page.Records)...)
-		} else {
-			out = append(messages(page.Records), out...)
-		}
-	}
-	return out
-}
-
 // linesOf is lines as the records a page answers, their messages alone.
 func linesOf(lines []string) []Record {
 	out := make([]Record, len(lines))
@@ -1252,4 +1185,58 @@ func restartWeb1(t *testing.T, f *fakeService, s *logServer, lines ...string) {
 	s.logs["prod/web-1/app/previous"] = s.logs["prod/web-1/app"]
 	s.logs["prod/web-1/app"] = lines
 	s.mu.Unlock()
+}
+
+// web1View reads the app container of the pod web-1 in prod.
+var web1View = View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}}}}
+
+// fileOf is the log file of f's active cache, for a test to read.
+func fileOf(t *testing.T, svc *Service, f *fakeService) *logstore.Store {
+	t.Helper()
+	file, err := svc.files.OpenOrCreate(int64(f.active.Cache.ID))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, file.Close()) })
+	return file
+}
+
+// chunksOf is the unlabelled chunks of pod/container's stream of the first instance
+// of a fixture pod, in the file behind svc.
+func chunksOf(t *testing.T, svc *Service, f *fakeService, pod, container string) []logstore.Chunk {
+	t.Helper()
+	file := fileOf(t, svc, f)
+	rows, err := file.PodStreams(t.Context(), "prod", pod, "")
+	require.NoError(t, err)
+	for _, row := range rows {
+		if row.Container == container && row.ContainerID == containerID("uid-"+pod, container, 0) {
+			chunks, err := file.Chunks(t.Context(), row.ID, "")
+			require.NoError(t, err)
+			return chunks
+		}
+	}
+	return nil
+}
+
+// everyPodGone has the sweeps of svc's log files read every pod as gone.
+func everyPodGone(svc *Service) {
+	svc.files.SetPodsGone(func(_ context.Context, _ int64, uids []string) ([]string, error) { return uids, nil })
+}
+
+// rowsOf is the file rows of pod in the file behind svc.
+func rowsOf(t *testing.T, svc *Service, f *fakeService, pod string) []logstore.Stream {
+	t.Helper()
+	rows, err := fileOf(t, svc, f).PodStreams(t.Context(), "prod", pod, "")
+	require.NoError(t, err)
+	return rows
+}
+
+// sweepFile runs one sweep of the file behind svc.
+func sweepFile(t *testing.T, svc *Service, f *fakeService) {
+	t.Helper()
+	require.NoError(t, fileOf(t, svc, f).Sweep(t.Context()))
+}
+
+// podSource is a view of the pod name in prod, reading containers, every one with
+// none named and all set, previous when asked.
+func podSource(name string, previous bool, containers ...string) View {
+	return View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: name, Containers: containers, Previous: previous}}}
 }

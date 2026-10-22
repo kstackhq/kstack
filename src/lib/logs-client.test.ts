@@ -86,14 +86,6 @@ const line = (i: number) => ({
 
 const failed = vi.fn();
 
-// What the sidecar answers each `graphql_query`.
-let answer: unknown;
-
-const queried = () =>
-  invokeMock.mock.calls
-    .filter(([cmd]) => cmd === 'graphql_query')
-    .map(([, arg]) => JSON.parse((arg as { body: string }).body) as { query: string; variables: unknown });
-
 const dialed = () =>
   invokeMock.mock.calls
     .filter(([cmd]) => cmd === 'graphql_subscribe')
@@ -113,7 +105,6 @@ beforeEach(() => {
   invokeMock.mockReset();
   channels.length = 0;
   invokeMock.mockImplementation(async (cmd: string) => {
-    if (cmd === 'graphql_query') return { status: 200, body: JSON.stringify(answer) };
     if (cmd === 'graphql_subscribe') {
       id += 1;
       return id;
@@ -129,65 +120,10 @@ afterEach(() => {
 });
 
 describe('createLogsClient', () => {
-  it('fetches a page of the view, sent field by field, and answers its lines and their holes without typenames', async () => {
-    answer = {
-      data: {
-        logsFetch: {
-          __typename: 'LogRecordsPage',
-          records: [record(1), record(2)],
-          before: { __typename: 'LogRecordsPageEdge', cursor: null, more: false },
-          after: { __typename: 'LogRecordsPageEdge', cursor: 'live', more: false },
-          anchor: null,
-          skipped: ['prod/webapp-0/app: gone'],
-        },
-      },
-    };
-    const logs = createLogsClient(createGraphqlClient(), 'cluster-1', action);
-    const page = await logs.fetch({ mode: 'Tail', cursor: null, at: null, limit: 300 });
-
-    expect(queried()[0].variables).toEqual({
-      id: 'cluster-1',
-      view: VIEW,
-      mode: 'Tail',
-      cursor: null,
-      at: null,
-      limit: 300,
-    });
-    expect(page).toEqual({
-      lines: [line(1), line(2)],
-      before: { cursor: null, more: false },
-      after: { cursor: 'live', more: false },
-      anchor: null,
-      skipped: ['prod/webapp-0/app: gone'],
-    });
-  });
-
-  it('asks the sidecar every time, never the cache', async () => {
-    answer = {
-      data: {
-        logsFetch: {
-          records: [],
-          before: { cursor: null, more: false },
-          after: { cursor: 'live', more: false },
-          anchor: null,
-          skipped: [],
-        },
-      },
-    };
-    const logs = createLogsClient(createGraphqlClient(), 'cluster-1', action);
-    const query = { mode: 'Tail', cursor: null, at: null, limit: 300 } as const;
-    await logs.fetch(query);
-    await logs.fetch(query);
-    expect(queried()).toHaveLength(2);
-  });
-
-  it('rejects a refused fetch, which the exchange reports', async () => {
-    answer = { data: null, errors: [{ message: 'limit is at most 500' }] };
-    const logs = createLogsClient(createGraphqlClient(), 'cluster-1', action);
-    await expect(logs.fetch({ mode: 'Head', cursor: null, at: null, limit: 501 })).rejects.toThrow(
-      'limit is at most 500',
-    );
-    expect(reportError).toHaveBeenCalledOnce();
+  it('reads no page until the log fetch API is built', async () => {
+    await expect(
+      createLogsClient(createGraphqlClient(), '7', action).fetch({ mode: 'Head', cursor: null, at: null, limit: 10 }),
+    ).rejects.toThrow('not implemented');
   });
 
   it('follows from the cursor, handing on lines and checkpoints', async () => {

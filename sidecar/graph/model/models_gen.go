@@ -13,6 +13,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
@@ -29,6 +30,24 @@ type ClusterPermissions struct {
 	NonResourceRules []*NonResourceRule `json:"nonResourceRules"`
 	// True if some authorizers couldn't be evaluated, so the rule set may be incomplete.
 	Incomplete bool `json:"incomplete"`
+}
+
+// A page of a view's lines, oldest first in position order, whatever the mode.
+type LogRecordsPage struct {
+	Records []*logs.Record      `json:"records"`
+	Before  *LogRecordsPageEdge `json:"before"`
+	After   *LogRecordsPageEdge `json:"after"`
+	// For `Around`: the index of the first record at or after `at`, `records.length` with none. Null for the other modes.
+	Anchor *int `json:"anchor,omitempty"`
+	// Streams the page could not read, one line each, in the sidecar's words. Empty when every stream answered.
+	Skipped []string `json:"skipped"`
+}
+
+// One edge of a page: where the next page that way continues from, and whether there is one.
+type LogRecordsPageEdge struct {
+	// Opaque. A page's cursor, never a line's. Null on a `before` edge with nothing older.
+	Cursor *string `json:"cursor,omitempty"`
+	More   bool    `json:"more"`
 }
 
 // One selected line, as the viewer holds it. Cluster text.
@@ -265,6 +284,67 @@ func (e *GrantDuration) UnmarshalJSON(b []byte) error {
 }
 
 func (e GrantDuration) MarshalJSON() ([]byte, error) {
+	var buf bytes.Buffer
+	e.MarshalGQL(&buf)
+	return buf.Bytes(), nil
+}
+
+// Which page of a view to read. `Head` reads oldest first after `cursor`, from the start with
+// none; `Tail` reads newest first before `cursor`, from the end with none; `Around` reads
+// `limit` lines before `at` and `limit` from it on, so its page holds up to twice `limit`, and
+// needs `at` and no cursor.
+type LogsFetchMode string
+
+const (
+	LogsFetchModeHead   LogsFetchMode = "Head"
+	LogsFetchModeTail   LogsFetchMode = "Tail"
+	LogsFetchModeAround LogsFetchMode = "Around"
+)
+
+var AllLogsFetchMode = []LogsFetchMode{
+	LogsFetchModeHead,
+	LogsFetchModeTail,
+	LogsFetchModeAround,
+}
+
+func (e LogsFetchMode) IsValid() bool {
+	switch e {
+	case LogsFetchModeHead, LogsFetchModeTail, LogsFetchModeAround:
+		return true
+	}
+	return false
+}
+
+func (e LogsFetchMode) String() string {
+	return string(e)
+}
+
+func (e *LogsFetchMode) UnmarshalGQL(v any) error {
+	str, ok := v.(string)
+	if !ok {
+		return fmt.Errorf("enums must be strings")
+	}
+
+	*e = LogsFetchMode(str)
+	if !e.IsValid() {
+		return fmt.Errorf("%s is not a valid LogsFetchMode", str)
+	}
+	return nil
+}
+
+func (e LogsFetchMode) MarshalGQL(w io.Writer) {
+	_, _ = fmt.Fprint(w, strconv.Quote(e.String()))
+}
+
+func (e *LogsFetchMode) UnmarshalJSON(b []byte) error {
+	s, err := strconv.Unquote(string(b))
+	if err != nil {
+		return err
+	}
+	return e.UnmarshalGQL(s)
+}
+
+func (e LogsFetchMode) MarshalJSON() ([]byte, error) {
 	var buf bytes.Buffer
 	e.MarshalGQL(&buf)
 	return buf.Bytes(), nil

@@ -16,7 +16,6 @@ package logswatch
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -47,7 +46,7 @@ type input struct {
 // sinceMessage and untilMessage are the refusals of an end the tool cannot read on
 // the clock now, which they name so the retry can be exact.
 func sinceMessage(now time.Time) string {
-	return "an RFC 3339 time or an ISO 8601 duration back from now such as PT10M, not after now, or a cursor a read printed; now is " + now.UTC().Format(time.RFC3339)
+	return "an RFC 3339 time or an ISO 8601 duration back from now such as PT10M, not after now; now is " + now.UTC().Format(time.RFC3339)
 }
 
 func untilMessage(now time.Time) string {
@@ -87,10 +86,8 @@ func parse(raw json.RawMessage, now time.Time) (input, error) {
 // startOf is where the window s names starts, on the clock now, and the cursor
 // the follow reads past: for none, a moment, or a duration back from now, the
 // moment and a nanosecond before it, which is how the service spells a moment
-// whose lines it keeps; for a cursor a read printed, its line's moment and the
-// service's own cursor. The follow is always told its start: the one it would
-// pick itself comes after its setup, and the window says now. A cursor is
-// base64url JSON, starting eyJ, so it never reads as a duration.
+// whose lines it keeps. The follow is always told its start: the one it would
+// pick itself comes after its setup, and the window says now.
 func startOf(s string, now time.Time) (time.Time, string, error) {
 	if s == "" {
 		return now, before(now), nil
@@ -98,14 +95,7 @@ func startOf(s string, now time.Time) (time.Time, string, error) {
 	if at, ok := logsinput.MomentOf(s, now, logsinput.Behind); ok && !at.After(now) {
 		return at, before(at), nil
 	}
-	after, at, err := logsinput.DecodeCursor(s)
-	if errors.Is(err, logsinput.ErrOldCursor) {
-		return time.Time{}, "", logsinput.BadInput("since", logsinput.OldCursorMessage)
-	}
-	if err != nil {
-		return time.Time{}, "", logsinput.BadInput("since", sinceMessage(now))
-	}
-	return at, after, nil
+	return time.Time{}, "", logsinput.BadInput("since", sinceMessage(now))
 }
 
 // before is the cursor a nanosecond ahead of the moment t, which a follow from it

@@ -221,36 +221,6 @@ func TestATailersFailureReachesItsHolders(t *testing.T) {
 	}
 }
 
-// The kubelet closes a log when its container ends, and the tailer ends with it, its
-// chunk closed at its last line with no at_end, since a tailer cannot tell the log's
-// end from a dropped connection. The next page's forward fill reads nothing more and
-// marks it.
-func TestAFinishedInstancesTailerEndsWithItsChunkClosed(t *testing.T) {
-	t.Parallel()
-	s := newLogServer()
-	f := webMirror(t)
-	svc, _ := serviceOver(t, f, s)
-	_, _, row := filed(t, svc, f)
-	committed := pinged(t, svc, f, row)
-	h := attach(t, svc, f, web1Since(0))
-	s.add("prod/web-1/app", stamped(time.Second, "last"))
-	committed()
-
-	f.store.Apply(t, finished(web1()))
-	s.end("prod/web-1/app")
-	testutil.Wait(t, h.Done(), "the tailer to end")
-	require.NoError(t, h.Err())
-	chunks := chunksOf(t, svc, f, "web-1", "app")
-	require.Len(t, chunks, 1)
-	assert.False(t, chunks[0].Open)
-	assert.Equal(t, chunks[0].To, h.Committed(), "what it committed outlives its chunk's close")
-	assert.False(t, chunks[0].AtEnd)
-
-	_, err := svc.Fetch(t.Context(), "7", podView("web-1"), FetchQuery{Mode: FetchHead, Cursor: lineCursor("web-1", "app", time.Second, 0), Limit: 10})
-	require.NoError(t, err)
-	assert.True(t, chunksOf(t, svc, f, "web-1", "app")[0].AtEnd)
-}
-
 // stallWriter holds the writer of the file in dir inside SQLite's busy wait, through
 // another connection's exclusive lock, while web-1's app writes until its tailer
 // falls behind and stops its read, then lets the writer go.
@@ -353,38 +323,6 @@ func TestATailerInItsGraceHoldsItsRow(t *testing.T) {
 	assert.Len(t, rowsOf(t, svc, f, "web-1"), 1)
 }
 
-// A tailer whose write fails ends with the failure, so the lines the writer lost are a
-// live gap a page fills rather than a range the tailer would cover as its own.
-func TestATailerWhoseWriteFailsEnds(t *testing.T) {
-	t.Parallel()
-	s := newLogServer()
-	f := webMirror(t)
-	dir := t.TempDir()
-	svc, _ := serviceIn(t, f, s, dir, testRetention)
-	_, _, row := filed(t, svc, f)
-	committed := pinged(t, svc, f, row)
-	h := attach(t, svc, f, web1Since(0))
-	s.add("prod/web-1/app", stamped(time.Second, "kept"))
-	committed()
-
-	db, err := sql.Open("sqlite", filepath.Join(dir, "11.db"))
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, db.Close()) })
-	_, err = db.ExecContext(t.Context(), `CREATE TRIGGER refuse BEFORE INSERT ON lines BEGIN SELECT RAISE(ABORT, 'refused'); END`)
-	require.NoError(t, err)
-	s.add("prod/web-1/app", stamped(2*time.Second, "lost"))
-	testutil.Wait(t, h.Done(), "the tailer to end")
-	require.Error(t, h.Err())
-	assert.Equal(t, failTransient, failureKind(h.Err()))
-	assert.Nil(t, tailStart(svc, f.active.Cache.ID, row), "no tailer holds the stream")
-
-	_, err = db.ExecContext(t.Context(), `DROP TRIGGER refuse`)
-	require.NoError(t, err)
-	page, err := svc.Fetch(t.Context(), "7", podView("web-1"), FetchQuery{Mode: FetchHead, Limit: 10})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"kept", "lost"}, messages(page.Records))
-}
-
 // A follow's walk reads a tailer's start holding one of the file's reader connections,
 // and the registry holds its lock while a start reads the file, so reading the start
 // takes no lock.
@@ -411,67 +349,6 @@ func fills(s *logServer, key string) int {
 		}
 	}
 	return n
-}
-
-// A page crosses every gap past a running tailer's start, filling none of them, and
-// fills the range below the start, which the tailer never reads: before the tailer has
-// written it ends at the start, and once the tailer has written, it reads to the
-// tailer's last line.
-func TestAPageCrossesWhatATailerHolds(t *testing.T) {
-	t.Parallel()
-	s := newLogServer()
-	s.add("prod/web-1/app", stamped(0, "0"), stamped(time.Second, "1"), stamped(5*time.Second, "below the start"))
-	f := webMirror(t)
-	svc, _ := serviceOver(t, f, s)
-	row := seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0, time.Second), Head: true})
-	committed := pinged(t, svc, f, row)
-	attach(t, svc, f, web1Since(time.Hour))
-	head := FetchQuery{Mode: FetchHead, Limit: 10}
-
-	page, err := svc.Fetch(t.Context(), "7", podView("web-1"), head)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"0", "1", "below the start"}, messages(page.Records))
-	assert.Equal(t, 1, fills(s, "prod/web-1/app"), "the range below the start filled")
-	committed() // the fill's
-
-	s.add("prod/web-1/app", stamped(time.Hour+time.Second, "tailed"))
-	committed()
-	page, err = svc.Fetch(t.Context(), "7", podView("web-1"), head)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"0", "1", "below the start", "tailed"}, messages(page.Records))
-	assert.Equal(t, 2, fills(s, "prod/web-1/app"), "the range below the start filled again, and nothing past it")
-}
-
-// A Tail page from the end crosses the range past a quiet tailer's start and fills the
-// history below it, which the tailer never reads.
-func TestATailPageFillsBelowAQuietTailersStart(t *testing.T) {
-	t.Parallel()
-	s := newLogServer()
-	s.add("prod/web-1/app", stamped(0, "0"), stamped(time.Second, "1"), stamped(5*time.Second, "below the start"))
-	f := webMirror(t)
-	svc, _ := serviceOver(t, f, s)
-	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0, time.Second), Head: true})
-	attach(t, svc, f, web1Since(time.Hour))
-
-	page, err := svc.Fetch(t.Context(), "7", podView("web-1"), FetchQuery{Mode: FetchTail, Limit: 10})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"0", "1", "below the start"}, messages(page.Records))
-}
-
-// A Tail page cut by its limit inside the range below a quiet tailer's start still
-// answers the newest lines of that range.
-func TestATailPageCutBelowAQuietTailersStart(t *testing.T) {
-	t.Parallel()
-	s := newLogServer()
-	s.add("prod/web-1/app", stamped(0, "0"), stamped(time.Second, "1"), stamped(3*time.Second, "3"), stamped(4*time.Second, "4"), stamped(5*time.Second, "5"))
-	f := webMirror(t)
-	svc, _ := serviceOver(t, f, s)
-	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0, time.Second), Head: true})
-	attach(t, svc, f, web1Since(time.Hour))
-
-	page, err := svc.Fetch(t.Context(), "7", podView("web-1"), FetchQuery{Mode: FetchTail, Limit: 1})
-	require.NoError(t, err)
-	assert.Equal(t, []string{"5"}, messages(page.Records))
 }
 
 // heldBackend is a fake backend whose Tail reads begin only once open closes, and

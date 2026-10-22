@@ -61,16 +61,14 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   <500) end one stream; transient (5xx, 408, 429, and any error with no status, a transport's
   included) is skipped by a page and retried by a follow; limit (`loudSecond`, checked first) stops
   the stream at a second too loud to read.
-- **`Service.Fetch` answers from the file** (`fetch.go`; built in `app` as `logs.New`, which owns
-  the log store and is the cluster service's `CacheFileOwner`). A line reaches the model through
-  `LogsRead` and the View section, both through `ForModel`. Modes `Head`, `Tail`, `Around` (limit
-  ≤500; `compileGrep` refuses a bad grep, on follows too). **A page takes a range**: `Since` and
-  `Until` in place of `Cursor`, a moment's lines in it, a line's not (`boundIn`). The far bound is
-  applied in the walk next to the near one (`pageQuery.far`, `clampTo`), and the filler clamps each
-  gap's download to the range by passing it in through `readOpts` (`fillGap`), so `reader.lines`
-  stays the one place a bound is applied. A page that stopped at its far bound says nothing is left
-  that way. `LineCursor` spells a line's cursor for a caller with its own form. A page resolves,
-  files streams, adds gone pods' streams the file holds (`filestreams.go`), fills gaps from the
+- **A page answers from the file** (`fetch.go`'s `page`; the service is built in `app` as
+  `logs.New`, which owns the log store and is the cluster service's `CacheFileOwner`). Its public
+  query, `Service.Fetch`, is rebuilt on [the log fetch API](../../../../docs/specs/log-fetch-api/);
+  until then nothing reads a page. `compileGrep` refuses a bad grep, on follows too. A page reads
+  from one bound in one direction (`pageQuery`) and stops at its far bound, applied in the walk
+  next to the near one (`pageQuery.far`, `clampTo`); the filler clamps each gap's download to the
+  range by passing it in through `readOpts` (`fillGap`), so `reader.lines` stays the one place a
+  bound is applied. A page resolves, files streams, adds gone pods' streams the file holds (`filestreams.go`), fills gaps from the
   backends (`fill.go`), walks (`walk.go`) and merges (`merge.go`). **A read is written a batch at a
   time as it arrives** (`window`, `WriteBatch`), each batch checked against the mirror first and
   stamped. A forward read is one window: its first batch links down, its last links up only when it
@@ -93,8 +91,9 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   its stop, by the one-second window when stopped in its last second or once the stream has reached
   a limit, or halved when stopped in its first, whose second then bounds widening until a window
   from it completes. A window that leaves the read short is followed by an older one sized from its
-  own rate, eight times longer after silence. An `Around` page fills its `Head` half first; its
-  `Tail` half reads back at that half's rate and links up to its first line (`streamFill.up`).
+  own rate, eight times longer after silence. A page of two queries from one bound fills its `Head`
+  query first; its `Tail` query reads back at that query's rate and links up to its first line
+  (`streamFill.up`).
 - **A page reads within limits** (`limits.go`, `caps`). → [ADR: backward log reads assume normal
   logs](../../../../docs/adr/2026-10-18-backward-reads-assume-normal-logs.md). 16 MiB and 16 GETs a
   stream, 64 MiB a query (each direction of a page is one), 1 MiB in one second. Each stream filled

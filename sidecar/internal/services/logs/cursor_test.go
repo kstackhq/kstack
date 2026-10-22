@@ -183,32 +183,3 @@ func TestEachStreamsBoundOffOneCursor(t *testing.T) {
 	assert.Equal(t, logstore.Oldest, streamBound(bound{}, own, FetchHead), "the start")
 	assert.Equal(t, logstore.Newest, streamBound(bound{}, own, FetchTail), "the end")
 }
-
-// LineCursor spells a line's fields as a page's cursor does, and refuses what
-// parseCursor refuses.
-func TestLineCursorIsAPagesCursor(t *testing.T) {
-	t.Parallel()
-	rec := nth("web-1", "app", time.Second, 3, "a")
-
-	c, err := LineCursor(rec.Timestamp, "prod", "web-1", "app", rec.ContainerID, 3)
-	require.NoError(t, err)
-	assert.Equal(t, rec.Cursor(), c)
-
-	id := rec.ContainerID
-	for name, bad := range map[string]func() (string, error){
-		"no time":        func() (string, error) { return LineCursor(time.Time{}, "prod", "web-1", "app", id, 3) },
-		"no namespace":   func() (string, error) { return LineCursor(rec.Timestamp, "", "web-1", "app", id, 3) },
-		"no pod":         func() (string, error) { return LineCursor(rec.Timestamp, "prod", "", "app", id, 3) },
-		"no container":   func() (string, error) { return LineCursor(rec.Timestamp, "prod", "web-1", "", id, 3) },
-		"a tab":          func() (string, error) { return LineCursor(rec.Timestamp, "prod", "web\t1", "app", id, 3) },
-		"a tab in an id": func() (string, error) { return LineCursor(rec.Timestamp, "prod", "web-1", "app", "c://a\tb", 3) },
-		"a long id": func() (string, error) {
-			return LineCursor(rec.Timestamp, "prod", "web-1", "app", strings.Repeat("a", 257), 3)
-		},
-		"a negative": func() (string, error) { return LineCursor(rec.Timestamp, "prod", "web-1", "app", id, -1) },
-		"the last":   func() (string, error) { return LineCursor(rec.Timestamp, "prod", "web-1", "app", id, math.MaxInt) },
-	} {
-		_, err := bad()
-		assert.ErrorIs(t, err, errBadCursor, name)
-	}
-}

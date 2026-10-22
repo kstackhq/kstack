@@ -122,18 +122,15 @@ func TestTheFirstLineEndsAWatchOfOne(t *testing.T) {
 	assert.Equal(t, tools.WatchMatched, end.Status)
 	assert.Equal(t, "it reached its line limit", end.Result.EndedBecause)
 	assert.Equal(t, []tools.LogsReadLine{logsinput.ReadLine(a)}, end.Result.Lines)
-	c := logsinput.EncodeCursor(a)
 	assert.Equal(t, "Watched 1 line of deployments/webapp in payments matching /panic/ from 2026-10-18T13:50:00Z until 2026-10-18T14:00:00Z, "+
-		"ended because it reached its line limit. To read around it, call LogsRead with this cursor as until, with mode: tail, "+
-		"for what came before, or as since for what followed: "+c+"\n"+
+		"ended because it reached its line limit.\n"+
 		"2026-10-18T13:51:00Z payments/webapp-a/app panic: nil map", end.Result.Text)
 	assert.Equal(t, logsinput.ViewAround(webappView, a.Timestamp, clock.Add(10*time.Minute)), end.Result.ViewAround)
 	assert.Error(t, f.w.ctx.Err(), "the follow is let go")
 }
 
 // The line that reaches the limit ends it; the lines are oldest first, checkpoints
-// count for nothing, and the header names the first line's cursor to read back
-// from and the last's to read on from.
+// count for nothing.
 func TestTheLimitthLineEndsIt(t *testing.T) {
 	t.Parallel()
 	a, b, c := record(time.Second, 0, "panic: a"), record(2*time.Second, 0, "panic: b"), record(3*time.Second, 0, "panic: c")
@@ -147,15 +144,12 @@ func TestTheLimitthLineEndsIt(t *testing.T) {
 	require.Len(t, end.Result.Lines, 3)
 	assert.Equal(t, "panic: c", end.Result.Lines[2].Message)
 	header := strings.Split(end.Result.Text, "\n")[0]
-	assert.True(t, strings.HasSuffix(header, "To read what came before, call LogsRead with mode: tail and until: "+logsinput.EncodeCursor(a)+
-		"; what followed, with since: "+logsinput.EncodeCursor(c)), header)
 	assert.True(t, strings.HasPrefix(header, "Watched 3 lines of deployments/webapp in payments"), header)
 }
 
 // Lines from another container that arrive later with an earlier moment are put
 // in the service's order once the follow is done, lines at one moment by pod, so
-// the sample is oldest first and the cursors and the view around are the first
-// and last lines'.
+// the sample is oldest first and the view around is the first line's.
 func TestLinesAreOrderedAcrossContainers(t *testing.T) {
 	t.Parallel()
 	a, b, c := record(time.Second, 0, "panic: a"), record(2*time.Second, 0, "panic: b"), record(2*time.Second, 0, "panic: c")
@@ -166,8 +160,6 @@ func TestLinesAreOrderedAcrossContainers(t *testing.T) {
 
 	end := f.w.End("")
 	assert.Equal(t, []tools.LogsReadLine{logsinput.ReadLine(a), logsinput.ReadLine(b), logsinput.ReadLine(c)}, end.Result.Lines)
-	header := strings.Split(end.Result.Text, "\n")[0]
-	assert.True(t, strings.HasSuffix(header, "until: "+logsinput.EncodeCursor(a)+"; what followed, with since: "+logsinput.EncodeCursor(c)), header)
 	assert.Equal(t, a.Timestamp, *end.Result.ViewAround.Anchor.At)
 }
 
@@ -316,20 +308,4 @@ func TestNoSamplePassesTheInlineLimit(t *testing.T) {
 
 	end := f.w.End("")
 	assert.Less(t, len(end.Result.Text), tools.InlineLimit)
-	assert.Contains(t, end.Result.Text, logsinput.EncodeCursor(record(time.Nanosecond, 0, "")))
-}
-
-// The cursors are printed after the header's redaction, which would otherwise take
-// them with a credential's line: a pattern that reads like one redacts the rest.
-func TestTheCursorsArePrintedAfterTheRedaction(t *testing.T) {
-	t.Parallel()
-	in := webappIn(1, logsinput.SampleBudget)
-	in.Grep = "api-key:"
-	a := record(time.Second, 0, "panic")
-	f := follow(t, in, nil, line(a))
-	f.waited(t)
-
-	header := strings.Split(f.w.End("").Result.Text, "\n")[0]
-	assert.True(t, strings.HasSuffix(header, "or as since for what followed: "+logsinput.EncodeCursor(a)), header)
-	assert.NotContains(t, header, "ended because", "the redaction took the rest of the header's line")
 }

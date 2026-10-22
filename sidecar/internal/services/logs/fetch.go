@@ -20,10 +20,8 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
@@ -32,171 +30,14 @@ import (
 // MaxLimit is the most lines one page holds.
 const MaxLimit = 500
 
-// FetchMode is which way a page reads: Head oldest first after its cursor, Tail
-// newest first before it, Around both ways from a moment. The GraphQL LogsFetchMode
-// enum binds member by member onto it.
+// FetchMode is which way a read goes: Head oldest first after its bound, Tail
+// newest first before it.
 type FetchMode string
 
 const (
-	FetchHead   FetchMode = "head"
-	FetchTail   FetchMode = "tail"
-	FetchAround FetchMode = "around"
+	FetchHead FetchMode = "head"
+	FetchTail FetchMode = "tail"
 )
-
-// modeNames is each mode as the wire spells it.
-var modeNames = map[FetchMode]string{FetchHead: "Head", FetchTail: "Tail", FetchAround: "Around"}
-
-// FetchQuery is which page of a view to read: its mode, the cursor a Head or Tail
-// page goes on from, nil to read from the start or the end, the moment an Around
-// page reads both ways from, and the lines the page holds, on each side of At for
-// Around. Since and Until are a Head or Tail page's range, in place of Cursor: each
-// a moment, whose lines are in it, or a line a page handed back, which is not. A
-// Head page reads from Since and stops at Until; a Tail page reads back from Until
-// and stops at Since.
-type FetchQuery struct {
-	Mode   FetchMode
-	Cursor *string
-	At     *time.Time
-	Since  *string
-	Until  *string
-	Limit  int
-}
-
-// Page is a page of a view's lines, oldest first, whatever the mode. Before and
-// After are where the next page each way goes on from, Anchor is an Around page's
-// index of its first record at or after At, and Skipped names each stream the page
-// could not read, one line each.
-type Page struct {
-	Records []Record
-	Before  PageEdge
-	After   PageEdge
-	Anchor  *int
-	Skipped []string
-}
-
-// PageEdge is one edge of a page: the cursor the next page that way goes on from,
-// nil on a Before edge with nothing older, and whether there is more that way.
-type PageEdge struct {
-	Cursor *string
-	More   bool
-}
-
-// Fetch is one page of view's lines on cluster id, answered from the cluster cache's
-// log file after filling what the page needs of it from the backends. The sources
-// are resolved inside one reading of the cluster's mirror; the reads run outside it,
-// over a claim on the server the pods came from. Its edges follow the log viewer
-// README's table.
-func (s *Service) Fetch(ctx context.Context, id cluster.ClusterID, view View, q FetchQuery) (Page, error) {
-	if q.Limit < 1 || q.Limit > MaxLimit {
-		return Page{}, Refusal{fmt.Sprintf("a limit must be between 1 and %d", MaxLimit)}
-	}
-	if err := checkQuery(q); err != nil {
-		return Page{}, err
-	}
-	grep, err := compileGrep(view.Grep)
-	if err != nil {
-		return Page{}, err
-	}
-	if q.Mode == FetchAround {
-		// The half after the moment fills first, so the half before reads back at
-		// the rate of its lines.
-		moment := position{Timestamp: *q.At}
-		ms, err := s.page(ctx, id,
-			pageQuery{view, grep, FetchHead, bound{moment, true}, bound{}, q.Limit},
-			pageQuery{view, grep, FetchTail, bound{moment, false}, bound{}, q.Limit})
-		if err != nil {
-			return Page{}, err
-		}
-		return around(ms[1], ms[0]), nil
-	}
-	from, to, near, err := bounds(q)
-	if err != nil {
-		return Page{}, err
-	}
-	ms, err := s.page(ctx, id, pageQuery{view, grep, q.Mode, from, to, q.Limit})
-	if err != nil {
-		return Page{}, err
-	}
-	m := ms[0]
-	out := Page{Records: m.records, Skipped: m.skipped}
-	given := PageEdge{Cursor: near, More: near != nil}
-	switch {
-	case q.Mode == FetchHead:
-		out.Before, out.After = given, m.after()
-	case near != nil:
-		out.Before, out.After = m.before(), given
-	default:
-		out.Before, out.After = m.before(), m.liveEnd()
-	}
-	return out, nil
-}
-
-// bounds is where a Head or Tail page starts and stops, and the cursor it starts
-// from, nil for the start or the end: its Cursor, or its range's near and far ends,
-// Since and Until for a Head page and the reverse for a Tail page.
-func bounds(q FetchQuery) (from, to bound, near *string, err error) {
-	if q.Since == nil && q.Until == nil {
-		from, err = boundAfter(q.Cursor)
-		return from, bound{}, q.Cursor, err
-	}
-	near, far := q.Since, q.Until
-	if q.Mode == FetchTail {
-		near, far = far, near
-	}
-	if from, err = boundIn(near); err != nil {
-		return bound{}, bound{}, nil, err
-	}
-	to, err = boundIn(far)
-	return from, to, near, err
-}
-
-// around is an Around page of its Tail half before the moment and its Head half
-// from it on. Both halves read one resolve of the view, so they read the same
-// streams.
-func around(tail, head merge) Page {
-	anchor := len(tail.records)
-	skipped := tail.skipped
-	for _, line := range head.skipped {
-		if !slices.Contains(skipped, line) {
-			skipped = append(skipped, line)
-		}
-	}
-	return Page{
-		Records: append(tail.records, head.records...),
-		Before:  tail.before(),
-		After:   head.after(),
-		Anchor:  &anchor,
-		Skipped: skipped,
-	}
-}
-
-// checkQuery refuses a query whose arguments its mode does not take: a cursor is only
-// ever text a page handed back, at only the Around anchor's moment, and a range only
-// a Head or Tail page's, in place of a cursor.
-func checkQuery(q FetchQuery) error {
-	switch q.Mode {
-	case FetchAround:
-		if q.At == nil {
-			return Refusal{"an Around page needs at"}
-		}
-		if q.Cursor != nil {
-			return Refusal{"an Around page takes no cursor"}
-		}
-		if q.Since != nil || q.Until != nil {
-			return Refusal{"an Around page takes no since or until"}
-		}
-	case FetchHead, FetchTail:
-		if q.At != nil {
-			return Refusal{fmt.Sprintf("a %s page takes no at", modeNames[q.Mode])}
-		}
-		if q.Cursor != nil && (q.Since != nil || q.Until != nil) {
-			return Refusal{fmt.Sprintf("a %s page takes a cursor or a range", modeNames[q.Mode])}
-		}
-	default:
-		return Refusal{fmt.Sprintf("Kstack cannot read a page of mode %q", q.Mode)}
-	}
-	return nil
-}
 
 // pageQuery is what one direction's page reads: the view and its compiled grep, the
 // direction, the bound it reads from, zero for the start or the end, the bound it
@@ -274,7 +115,7 @@ func (s *Service) page(ctx context.Context, id cluster.ClusterID, qs ...pageQuer
 			return nil, t.noNodes
 		}
 		for i := range out {
-			out[i] = merge{records: []Record{}, skipped: []string{}, end: position{Timestamp: s.now()}}
+			out[i] = merge{records: []Record{}, skipped: []string{}}
 		}
 		return out, nil
 	}
@@ -418,11 +259,9 @@ func (p *page) seams(fills []streamFill) []*logstore.Pos {
 }
 
 // answer walks each stream of the file from q's bound in its direction, in one read
-// transaction, and merges the walks into the page. The live end is the newest line
-// the file holds of any stream, or now when it holds none.
+// transaction, and merges the walks into the page.
 func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (merge, error) {
 	readings := make([]*streamRead, len(p.streams))
-	var end position
 	var read []logstore.Chunk
 	left := false
 	err := p.file.Read(ctx, func(r logstore.Reader) error {
@@ -438,12 +277,6 @@ func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (mer
 			readings[i] = walked.reading
 			read = append(read, walked.read...)
 			left = left || walked.left
-			if walked.newest == nil {
-				continue
-			}
-			if at := positionAt(ps.instance(), *walked.newest); end.isZero() || comparePositions(at, end) > 0 {
-				end = at
-			}
 		}
 		return nil
 	})
@@ -475,12 +308,6 @@ func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (mer
 		if err := everyStreamFailed(m.skipped); err != nil {
 			return merge{}, err
 		}
-	}
-	// The live end names the newest line, so a line another stream writes at its
-	// moment is past it when that stream sorts after the line's.
-	m.end = end
-	if end.isZero() {
-		m.end = position{Timestamp: p.s.now()}
 	}
 	// A skipped stream does not cut the page, but the page reads to the end of its
 	// direction only once every stream has nothing left that way: the next page goes

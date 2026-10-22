@@ -141,12 +141,6 @@ func TestABareWatchIsForAnyLineFromNow(t *testing.T) {
 	assert.Equal(t, clock, action.Since)
 	assert.Equal(t, clock.Add(maxWatch), action.Until)
 	assert.Equal(t, "2026-10-18T13:49:59.999999999Z", *f.after)
-
-	rec := record(-time.Minute, 2, "a")
-	f = newFakeFollows()
-	_, action = watchOf(t, f, webapp+`,"since":"`+logsinput.EncodeCursor(rec)+`"}`)
-	assert.Equal(t, rec.Cursor(), *f.after)
-	assert.Equal(t, rec.Timestamp, action.Since)
 }
 
 // An until past the cap is cut to it, and the receipt says so.

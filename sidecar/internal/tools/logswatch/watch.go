@@ -181,20 +181,9 @@ func (w *watch) text(status tools.WatchStatus, because string) string {
 		b.WriteString(" matching /" + w.in.Grep + "/")
 	}
 	b.WriteString(" from " + window + " until " + logsinput.Stamp(w.endedAt) + ", ended because " + because + ".")
-	lines := []string{safe.Redact(b.String()) + w.cursorsText()}
+	lines := []string{safe.Redact(b.String())}
 	for _, rec := range w.recs {
 		lines = append(lines, logsinput.LineText(rec))
 	}
 	return strings.Join(lines, "\n")
-}
-
-// cursorsText says how to read around the lines: before the first with until, and
-// on from the last with since, once when they are one line. A cursor's own line is
-// outside the range on either side.
-func (w *watch) cursorsText() string {
-	first, last := logsinput.EncodeCursor(w.recs[0]), logsinput.EncodeCursor(w.recs[len(w.recs)-1])
-	if len(w.recs) == 1 {
-		return " To read around it, call LogsRead with this cursor as until, with mode: tail, for what came before, or as since for what followed: " + first
-	}
-	return " To read what came before, call LogsRead with mode: tail and until: " + first + "; what followed, with since: " + last
 }

@@ -57,15 +57,13 @@ type walker struct {
 }
 
 // walked is one stream's walk: the reading the merge takes, its lines in the order
-// the page reads them; the newest line the file holds of the stream, nil with none;
-// and whether the walk stopped at a live gap of a stream skipped on a transient
+// the page reads them, and whether the walk stopped at a live gap of a stream skipped on a transient
 // failure, which does not cut the page but leaves more to read that way. A stream
 // the server denied or answered for has nothing more to give the next page, and
 // neither does one that restarted, since the next resolve reads the new instance.
 // read is the chunks the walk read a line from, which the page stamps.
 type walked struct {
 	reading *streamRead
-	newest  *logstore.Pos
 	left    bool
 	read    []logstore.Chunk
 }
@@ -127,7 +125,7 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 	}
 	transient := failureKind(w.fill.err) == failTransient && !errors.Is(w.fill.err, errRestarted)
 	left := gap && transient && len(recs) < w.q.need()
-	out := walked{reading: readingOf(w.ps.key, recs, short, stop, failed), newest: newestOf(chunks), left: left}
+	out := walked{reading: readingOf(w.ps.key, recs, short, stop, failed), left: left}
 	if read {
 		out.read = readFrom(chunks, first, last)
 	}

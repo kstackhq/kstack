@@ -79,12 +79,6 @@ func TestTheWindowIsAMomentADurationOrACursor(t *testing.T) {
 	assert.Equal(t, time.Date(2026, 10, 18, 13, 0, 0, 0, time.UTC), in.since)
 	assert.Equal(t, "2026-10-18T12:59:59.999999999Z", in.after)
 	assert.Equal(t, time.Date(2026, 10, 18, 14, 0, 0, 0, time.UTC), in.until)
-
-	rec := record(-time.Minute, 3, "a")
-	in, err = parsed(t, `,"since":"`+logsinput.EncodeCursor(rec)+`"`)
-	require.NoError(t, err)
-	assert.Equal(t, rec.Timestamp, in.since)
-	assert.Equal(t, rec.Cursor(), in.after)
 }
 
 // An until past the cap is cut to it, and the input says so.
@@ -99,7 +93,7 @@ func TestAnUntilPastTheCapIsCut(t *testing.T) {
 // Each argument a watch cannot take is refused by its field.
 func TestBadArgumentsAreRefusedByField(t *testing.T) {
 	t.Parallel()
-	const sinceMessage = "an RFC 3339 time or an ISO 8601 duration back from now such as PT10M, not after now, or a cursor a read printed; now is 2026-10-18T13:50:00Z"
+	const sinceMessage = "an RFC 3339 time or an ISO 8601 duration back from now such as PT10M, not after now; now is 2026-10-18T13:50:00Z"
 	const untilMessage = "an RFC 3339 time or an ISO 8601 duration ahead of now such as PT2H, after now; now is 2026-10-18T13:50:00Z"
 	for extra, want := range map[string]string{
 		`,"anchor":"tail"`:                    `{"error":"bad-input","field":"anchor","message":"a watch takes since and until"}`,
@@ -112,10 +106,8 @@ func TestBadArgumentsAreRefusedByField(t *testing.T) {
 		`,"since":"2026-10-18T14:00:00Z"`:     `{"error":"bad-input","field":"since","message":"` + sinceMessage + `"}`,
 		`,"since":"10m"`:                      `{"error":"bad-input","field":"since","message":"` + sinceMessage + `"}`,
 		`,"since":"eyJub3QiOiJhIGN1cnNvciJ9"`: `{"error":"bad-input","field":"since","message":"` + sinceMessage + `"}`,
-		`,"since":"eyJ0IjoiMjAyNi0xMC0xN1QwOToxNDoyMFoiLCJucyI6InByb2QiLCJwb2QiOiJhIiwiYyI6ImFwcCIsImlkIjoiYzovL2EiLCJuIjowfQ"`: `{"error":"bad-input","field":"since","message":"` + logsinput.OldCursorMessage + `"}`,
-		`,"until":"2026-10-18T13:00:00Z"`:                              `{"error":"bad-input","field":"until","message":"` + untilMessage + `"}`,
-		`,"until":"2026-10-18T13:50:00Z"`:                              `{"error":"bad-input","field":"until","message":"` + untilMessage + `"}`,
-		`,"until":"` + logsinput.EncodeCursor(record(0, 0, "a")) + `"`: `{"error":"bad-input","field":"until","message":"` + untilMessage + `"}`,
+		`,"until":"2026-10-18T13:00:00Z"`:     `{"error":"bad-input","field":"until","message":"` + untilMessage + `"}`,
+		`,"until":"2026-10-18T13:50:00Z"`:     `{"error":"bad-input","field":"until","message":"` + untilMessage + `"}`,
 	} {
 		_, err := parsed(t, extra)
 		require.Error(t, err, extra)
