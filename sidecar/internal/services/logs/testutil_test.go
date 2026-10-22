@@ -20,6 +20,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -1194,54 +1195,6 @@ func restartWeb1(t *testing.T, f *fakeService, s *logServer, lines ...string) {
 	s.mu.Unlock()
 }
 
-// web1Scope reads the app container of the pod web-1 in prod.
-var web1Scope = Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}}}}
-
-// fileOf is the log file of f's active cache, for a test to read.
-func fileOf(t *testing.T, svc *Service, f *fakeService) *logstore.Store {
-	t.Helper()
-	file, err := svc.files.OpenOrCreate(int64(f.active.Cache.ID))
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, file.Close()) })
-	return file
-}
-
-// chunksOf is the unlabelled chunks of pod/container's stream of the first instance
-// of a fixture pod, in the file behind svc.
-func chunksOf(t *testing.T, svc *Service, f *fakeService, pod, container string) []logstore.Chunk {
-	t.Helper()
-	file := fileOf(t, svc, f)
-	rows, err := file.PodStreams(t.Context(), "prod", pod, "")
-	require.NoError(t, err)
-	for _, row := range rows {
-		if row.Container == container && row.ContainerID == containerID("uid-"+pod, container, 0) {
-			chunks, err := file.Chunks(t.Context(), row.ID, "")
-			require.NoError(t, err)
-			return chunks
-		}
-	}
-	return nil
-}
-
-// everyPodGone has the sweeps of svc's log files read every pod as gone.
-func everyPodGone(svc *Service) {
-	svc.files.SetPodsGone(func(_ context.Context, _ int64, uids []string) ([]string, error) { return uids, nil })
-}
-
-// rowsOf is the file rows of pod in the file behind svc.
-func rowsOf(t *testing.T, svc *Service, f *fakeService, pod string) []logstore.Stream {
-	t.Helper()
-	rows, err := fileOf(t, svc, f).PodStreams(t.Context(), "prod", pod, "")
-	require.NoError(t, err)
-	return rows
-}
-
-// sweepFile runs one sweep of the file behind svc.
-func sweepFile(t *testing.T, svc *Service, f *fakeService) {
-	t.Helper()
-	require.NoError(t, fileOf(t, svc, f).Sweep(t.Context()))
-}
-
 // podSource is a view of the pod name in prod, reading containers, every one with
 // none named and all set, previous when asked.
 func podSource(name string, previous bool, containers ...string) Scope {
@@ -1258,4 +1211,56 @@ func moment(d time.Duration) *time.Time {
 func codeOf(err error) Code {
 	r, _ := AsRefusal(err)
 	return r.Code
+}
+
+// randomCaps is limits a seeded walk's logs of a few hundred bytes a stream reach,
+// with a second of a few KiB, which a log of long lines passes.
+func randomCaps(rng *rand.Rand) caps {
+	stream := int64(2000 + rng.Intn(8000))
+	return caps{second: int64(1000 + rng.Intn(3000)), stream: stream, gets: 4 + rng.Intn(13), query: stream * int64(1+rng.Intn(6)), window: stream / 4, minWindow: 16, part: 16}
+}
+
+// skippedOf is each stream-skipped notice page carries, its message.
+func skippedOf(page FetchResponse) []string {
+	out := []string{}
+	for _, n := range page.Notices {
+		if n.Code == CodeStreamSkipped {
+			out = append(out, n.Message)
+		}
+	}
+	return out
+}
+
+// pagesOn is page and every page after it the way it read: on through each Next
+// for a newer page, back through each Prev for an older one.
+func pagesOn(t *testing.T, svc *Service, page FetchResponse, size int) []FetchResponse {
+	t.Helper()
+	newer := page.Request.PageFrom == PageFromFirst || page.Request.PageCursor != nil && cursorIn(t, page.Request.PageCursor).newer
+	out := []FetchResponse{page}
+	for range 100 {
+		c := page.Page.Prev
+		if newer {
+			c = page.Page.Next
+		}
+		if c == nil {
+			return out
+		}
+		page = fetch(t, svc, FetchRequest{PageCursor: c, PageSize: size})
+		out = append(out, page)
+	}
+	t.Fatal("the pages never end")
+	return nil
+}
+
+// recordsOf is every page's records, oldest first: pages read the way from names.
+func recordsOf(pages []FetchResponse, from PageFrom) []string {
+	out := []string{}
+	for _, page := range pages {
+		if from == PageFromFirst {
+			out = append(out, messages(page.Records)...)
+		} else {
+			out = append(messages(page.Records), out...)
+		}
+	}
+	return out
 }

@@ -39,7 +39,7 @@ import (
 // Start, since nothing of that stream has been shown. Only a newer cursor
 // carries entries, and only one going on from a page read the other way carries
 // both entries and at. before and after are distances, for a counted Padding:
-// the context lines that lie between Since and this cursor's position, and
+// the padding lines that lie between Since and this cursor's position, and
 // between it and Until; 0 for a position inside the range. A side whose edge is
 // not yet a position is paged by its count alone.
 type pageCursor struct {
@@ -102,7 +102,7 @@ func seenOf(seen []string) (map[containerName]runPlace, error) {
 	return out, nil
 }
 
-// lookup is the context read a first page runs beside its range read when its
+// lookup is the padding read a first page runs beside its range read when its
 // own edge is counted, and the lines it reads: back from Since for PageFromFirst, on
 // from the range's end for PageFromLast, each stream from the bound. Nil for an edge
 // that is a time or a span.
@@ -141,7 +141,7 @@ func (c pageCursor) away() side {
 	return sideBefore
 }
 
-// count is the context lines c has passed on side s.
+// count is the padding lines c has passed on side s.
 func (c pageCursor) count(s side) int {
 	if s == sideBefore {
 		return c.before
@@ -198,7 +198,7 @@ func (c pageCursor) keyFor(ps pageStream) logstore.Pos {
 	return logstore.MinPos(key, streamBound(edge, run, c.dir()))
 }
 
-// found is what a first page's context read m, of lines asked for, tells c: the
+// found is what a first page's padding read m, of lines asked for, tells c: the
 // side's count is the lines found. Short of lines, the read was cut, at a moment
 // or at a stream skipped on a transient failure, which is answered as stop and,
 // for a counted Before, where a stream with no entry goes on from; or it reached
@@ -223,7 +223,7 @@ func (c *pageCursor) found(m merge, lines int) (stop lineCursor, notices []Notic
 		c.Start = lineCursorOf(m.records[0])
 	}
 	if k < lines {
-		notices = append(notices, Notice{CodeContextShort, fmt.Sprintf("the context before since holds %d of the %d lines asked for", k, lines)})
+		notices = append(notices, Notice{CodePaddingShort, fmt.Sprintf("the padding before since holds %d of the %d lines asked for", k, lines)})
 	}
 	return stop, notices
 }
@@ -275,7 +275,7 @@ func (c pageCursor) live(now time.Time) bool {
 // edges is where the pages go on from after c read m: ahead, the way c reads, and
 // behind, the other way, nil when the page delivered no line. m is the page as
 // delivered: its records after every trim and cap, and its cut, zero when nothing
-// was cut ahead. Each edge's counts are the context lines between its position
+// was cut ahead. Each edge's counts are the padding lines between its position
 // and each bound.
 //
 // Going newer, each stream goes on from its reach, the last line it passed, so a
@@ -306,7 +306,7 @@ func (c pageCursor) edges(m merge) (ahead pageCursor, behind *pageCursor) {
 	return ahead, &back
 }
 
-// moved is c's counts once the page delivered recs: plus the context lines it
+// moved is c's counts once the page delivered recs: plus the padding lines it
 // delivered moving away from a bound, minus those moving toward one, clamped to
 // 0 through each side's Lines, the backstop for a late line's one-line slip.
 func (c pageCursor) moved(recs []Record) (before, after int) {
@@ -418,7 +418,7 @@ func newestOnPage(recs []Record) map[containerName]runPlace {
 // the way c reads, is a cursor when a line lies past the page that way inside
 // the window; a newer page in a live window with none sets Follow instead.
 // Behind is a cursor when the page was a continuation, or on a first page whose
-// context read stopped short at stop, which the edge that way reads on from; an
+// padding read stopped short at stop, which the edge that way reads on from; an
 // older first page in a live window sets Follow from it instead, the poll.
 func (c pageCursor) place(m merge, ahead pageCursor, behind *pageCursor, first bool, stop lineCursor, now time.Time) Page {
 	var p Page

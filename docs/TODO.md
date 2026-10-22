@@ -120,7 +120,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 ## Sidecar (Go)
 
 - **Offer kubetail when a log stream stops at a limit.** A stream past the normal limits stops
-  with `failLimit` and is named in the page's `skipped` (→ [ADR: backward log reads assume normal
+  with `failLimit` and is named in a `stream-skipped` notice (→ [ADR: backward log reads assume normal
   logs](adr/2026-10-18-backward-reads-assume-normal-logs.md)). Kubetail, installed in the
   cluster, reads rotated files and greps on the node, so it can serve what the kubelet cannot.
   **Shape:** a second `Backend` after the kubelet, and an offer in the viewer next to the reason,
@@ -154,6 +154,16 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   string, and it needs an ADR that updates
   [a log cursor is a position](adr/2026-10-17-a-log-cursor-is-a-position.md), which names the
   tab form.
+
+- **Give a grep its context lines.** `Fetch` applies `Grep` to the range alone and leaves the
+  padding unfiltered (rule 11), so nothing shows the lines around each match. **Shape:** a
+  `Context{Before, After int}` beside `Grep`, refused without one; lines of the match's own
+  stream, attached to the match record rather than merged into `Records`, so `PageSize` still
+  counts matches and the cursors do not change; a line that is itself a match is never another
+  match's context; clipped to the window, capped, and counted against `MaxPageBytes`. The walk
+  already passes every line of a stream, so before-context is the last N lines per stream and
+  after-context is N more, with a short read past the cut for a page's last matches. Ship it on
+  `Fetch` first: on a follow, after-context means holding a match until N more lines arrive.
 
 - **A chat's directory layout is named in two packages.** agent/chat owns `<data>/chats/<id>`, but
   `tools` names two of its entries (`workspace/` in `WorkspacePath`, `results/` in `SaveTo`) while

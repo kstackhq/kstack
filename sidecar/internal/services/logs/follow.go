@@ -196,6 +196,9 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, scope Scope,
 	}), nil
 }
 
+// keep is the follow's test of a line: the grep, since a follow has no padding.
+func (f *follow) keep(_ int64, message string) bool { return matches(f.grep, message) }
+
 // letGo releases every row the follow holds.
 func (f *follow) letGo() {
 	for _, release := range f.held {
@@ -1065,7 +1068,7 @@ func (f *follow) walk(ctx context.Context, tr *tracked) (bool, error) {
 		// page sent, or a checkpoint past the hole. A look its bytes cut keeps what
 		// the walk crossed.
 		l := looker{
-			r: r, row: tr.row, cov: cov, committed: committed, held: held, grep: f.grep,
+			r: r, row: tr.row, cov: cov, committed: committed, held: held, keep: f.keep,
 			bytes: f.s.files.Retention().LookBytes,
 		}
 		found, err := l.back(lineOf(f.batch[first]).Pos)

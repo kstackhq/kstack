@@ -521,7 +521,7 @@ func TestTheTailLinesWindowIsFollowedByTimeWindows(t *testing.T) {
 		s.add("prod/web/app", stamped(time.Duration(i)*10*time.Millisecond, strings.Repeat("x", 76)))
 	}
 	o := backwardOpts()
-	o.batch, o.grep, o.limits = 501, regexp.MustCompile("never"), limitsOf(midCaps)
+	o.batch, o.keep, o.limits = 501, matching("never"), limitsOf(midCaps)
 
 	r := readBackward(t.Context(), s.get, web, o)
 
@@ -990,7 +990,7 @@ func TestABackwardReadIsCutAtItsLimits(t *testing.T) {
 			o := backwardOpts()
 			o.batch, o.limits, o.until, o.near = tc.batch, tc.limits, to(199*time.Second), &tc.near
 			if tc.grep != "" {
-				o.grep = regexp.MustCompile(tc.grep)
+				o.keep = matching(tc.grep)
 			}
 
 			r := readBackward(t.Context(), s.get, web, o)
@@ -1472,7 +1472,7 @@ func TestAWindowCountsTheBytesItsBodyCarried(t *testing.T) {
 		s.add("prod/web/app", stamped(time.Duration(i)*time.Second, long))
 	}
 	o := backwardOpts()
-	o.batch, o.until, o.grep = 100, to(99*time.Second), regexp.MustCompile("never")
+	o.batch, o.until, o.keep = 100, to(99*time.Second), matching("never")
 	o.limits, o.near = limitsOf(defaultCaps), &rate{bytes: 1000}
 	o.more = func(context.Context) bool { return false }
 
@@ -1651,4 +1651,10 @@ func TestALoudSecondPastTheEndIsNotRead(t *testing.T) {
 
 	assert.Equal(t, []string{"below"}, messages(drain(r)))
 	assert.NoError(t, r.err)
+}
+
+// matching keeps the lines whose message matches pattern, as a page's grep does.
+func matching(pattern string) func(Record) bool {
+	re := regexp.MustCompile(pattern)
+	return func(rec Record) bool { return matches(re, rec.Message) }
 }

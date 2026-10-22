@@ -15,7 +15,6 @@
 package logs
 
 import (
-	"regexp"
 	"slices"
 	"time"
 
@@ -80,7 +79,7 @@ func maxTime(a, b time.Time) time.Time {
 
 // looker looks back from a line the view passes for the holes before it, through
 // the older lines of its stream that the view does not pass and the gaps between, to
-// the next line it does. held and grep are the view's test of a line, as the walk's,
+// the next line it does. held and keep are the view's test of a line, as the walk's,
 // bytes what one look may read, and committed how far the stream's tailer has
 // written, nil with none.
 type looker struct {
@@ -89,7 +88,7 @@ type looker struct {
 	cov       logstore.Coverage
 	committed *logstore.Pos
 	held      func(logstore.Pos) bool
-	grep      *regexp.Regexp
+	keep      func(ts int64, message string) bool
 	bytes     int64
 }
 
@@ -122,7 +121,7 @@ func (l looker) back(from logstore.Pos) (*Gap, error) {
 				spent = true
 				return false
 			}
-			passed = l.held(line.Pos) && matches(l.grep, line.Message)
+			passed = l.held(line.Pos) && l.keep(line.TS, line.Message)
 			return !passed
 		})
 		if err != nil || passed || spent {

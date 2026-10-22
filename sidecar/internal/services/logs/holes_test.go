@@ -115,7 +115,8 @@ func lookOverCov(t *testing.T, grep string, bytes int64, from logstore.Pos, edit
 		held := heldBy(chunks)
 		cov := logstore.CoverageOf(chunks, kubeletOnly, nil)
 		edit(&cov)
-		l := looker{r: r, row: id, cov: cov, grep: re, bytes: bytes,
+		l := looker{r: r, row: id, cov: cov, bytes: bytes,
+			keep: func(_ int64, message string) bool { return matches(re, message) },
 			held: func(p logstore.Pos) bool { read++; return held(p) }}
 		found, err = l.back(from)
 		return err

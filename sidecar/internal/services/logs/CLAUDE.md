@@ -1,10 +1,11 @@
-# internal/services/logs — the log cache and its views
+# internal/services/logs — the log cache, its pages and follows
 
 The service reads container logs through the cluster's connection, keeps them in a file per cache
 (`logstore`), and answers pages and follows over the file. A line reaches the model through
 `LogsRead`, a `LogsWatch` notice and the View section, all through `ForModel`; the `LogsView` tool
 (`internal/tools/CLAUDE.md`) opens a view the user looks at. → [ADR: a rich view is a tool call's
-action](../../../../docs/adr/2026-10-18-a-rich-view-is-a-tool-calls-action.md).
+action](../../../../docs/adr/2026-10-18-a-rich-view-is-a-tool-calls-action.md). `README.md` is the
+Fetch API's contract for a reader new to it.
 
 ## The file (`logstore`)
 
@@ -35,7 +36,7 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
 `SourceKind`, `FilterField`, `MirrorKind`). "View" is the panel the user looks at. The root
 `.gitignore` ignores `logs`, so the package has its own exception there.
 
-- **A view resolves inside one `ReadActive`** (`sources.go`); workloads walk down controller
+- **A scope resolves inside one `ReadActive`** (`sources.go`); workloads walk down controller
   references (`podsOf`). With no container named, each pod's default (`containersOf`: the
   `default-container` annotation, else the first, never an init container). A stream is named by its
   `StreamKey` and carries its instance's runtime id; it also carries the snapshot its file row keeps
@@ -60,21 +61,42 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
 - **A read goes through a `Backend`** (`backend.go`); `Service.backends` is the ordered list (the
   kubelet alone, `kubelet.go` over `fetcher.go`, `windows.go` and `limits.go`), a test field. Only
   the forward read and the first `tailLines` window follow kubetail. **A backend writes every line
-  it reads**; the grep only counts what fills a page (`filler.pull`) and decides what a walk passes.
+  it reads**; the page's test of a line (`pageQuery.keep`: the grep inside the range, every line in
+  the padding) only counts what fills a page (`filler.pull`, through `readOpts.keep`) and decides
+  what a walk passes.
   **`reader.lines` is the one place a bound is applied.** **`failureKind` is the one classification
   of a failed read**: fatal (401, revoked) fails the page or follow; denied (403) and ended (other
   <500) end one stream; transient (5xx, 408, 429, and any error with no status, a transport's
   included) is skipped by a page and retried by a follow; limit (`loudSecond`, checked first) stops
   the stream at a second too loud to read.
-- **A page answers from the file** (`fetch.go`'s `page`; the service is built in `app` as
-  `logs.New`, which owns the log store and is the cluster service's `CacheFileOwner`). Its public
-  query, `Service.Fetch`, is rebuilt on [the log fetch API](../../../../docs/specs/log-fetch-api/);
-  until then nothing reads a page. `compileGrep` refuses a bad grep, on follows too. A page reads
-  from one bound in one direction (`pageQuery`) and stops at its far bound, applied in the walk
-  next to the near one (`pageQuery.far`, `clampTo`); the filler clamps each gap's download to the
-  range by passing it in through `readOpts` (`fillGap`), so `reader.lines` stays the one place a
-  bound is applied. A page resolves, files streams, adds gone pods' streams the file holds (`filestreams.go`), fills gaps from the
-  backends (`fill.go`), walks (`walk.go`) and merges (`merge.go`). **A read is written a batch at a
+- **`Service.Fetch` answers one window query from the file** (`fetch.go`; built in `app` as
+  `logs.New`, which owns the log store and is the cluster service's `CacheFileOwner`). A line
+  reaches the model through `LogsRead` and the View section, both through `ForModel`. A
+  `FetchRequest` is a first page, its `Scope`, its `Window` (`Since`/`Until`, inclusive moments,
+  padded `Before`/`After` by lines or a span; `window.go`) and `PageFrom` (`PageFromFirst`,
+  `PageFromLast`), or a continuation, a `PageCursor` alone. `PageSize`, `MaxMessageBytes` and
+  `MaxPageBytes` are named on every page. A `FetchResponse` echoes the request as it ran, with
+  `ResolvedAt`, the first page's clock, its records oldest first, its `Notices` (never nil), and
+  its place as `Page{Prev, Next, Follow}`. The rules are `Fetch`'s doc comment.
+  **A page cursor holds everything a continuation needs** (`pagecursor.go`): the scope, the
+  window as the first page pinned it (`resolvedWindow`: `ResolvedAt`, `Start`), the way it reads,
+  where each stream goes on from (`seen`, one line cursor per container by name, newer cursors
+  only), a floor for streams with none (`at`), and each counted side's distance; deflated JSON in
+  base64url, versioned, never expiring, holding nothing of the file. The service keeps nothing.
+  A first page is a cursor from the window's edge (`firstPage`). Going newer each stream goes on
+  from its own last line passed (`edges`, from what `walk` reports in `streamReach`), so a late
+  line is on the next page; going older one position is exact. A first page whose own edge is a
+  counted padding reads that side's context as a second cursor the other way from the bound
+  (`lookup`), in the same `page` call as the range's, and joins the two (`joinReads`); a counted
+  side is trimmed once its count is spent (`trim`). `capPage` cuts messages and the page's bytes
+  (`caps.go`). `compileGrep` refuses a bad grep, on follows too.
+  The far bound is applied in the walk next to the near one (`pageQuery.far`, `clampTo`), and the
+  filler clamps each gap's download to the range by passing it in through `readOpts` (`fillGap`),
+  so `reader.lines` stays the one place a bound is applied. A newer page in a window whose After is
+  counted reads, in the fill and the walk, no more lines past the range's end than the count leaves
+  (`pageQuery.full`). A page resolves, files streams, adds
+  gone pods' streams the file holds (`filestreams.go`), fills gaps from the backends (`fill.go`),
+  walks (`walk.go`) and merges (`merge.go`). **A read is written a batch at a
   time as it arrives** (`window`, `WriteBatch`), each batch checked against the mirror first and
   stamped. A forward read is one window: its first batch links down, its last links up only when it
   read its range whole, and it is cancelled once the stream holds the page. A backward read's
@@ -96,9 +118,8 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   its stop, by the one-second window when stopped in its last second or once the stream has reached
   a limit, or halved when stopped in its first, whose second then bounds widening until a window
   from it completes. A window that leaves the read short is followed by an older one sized from its
-  own rate, eight times longer after silence. A page of two queries from one bound fills its `Head`
-  query first; its `Tail` query reads back at that query's rate and links up to its first line
-  (`streamFill.up`).
+  own rate, eight times longer after silence. A first page's two reads fill the newer first; the
+  older reads back at that read's rate and links up to its first line (`streamFill.up`).
 - **A page reads within limits** (`limits.go`, `caps`). → [ADR: backward log reads assume normal
   logs](../../../../docs/adr/2026-10-18-backward-reads-assume-normal-logs.md). 16 MiB and 16 GETs a
   stream, 64 MiB a query (each direction of a page is one), 1 MiB in one second. Each stream filled
@@ -116,10 +137,10 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   (`sinceSecond`). **Every cut has an edge**: a line, or an empty window's start, a moment
   (`streamFill.stop`, which the walk stops at). A second past 1 MiB, counted as each line's parts
   are read, is a `loudSecond`: it stops a wider window, and stops the stream from the one-second
-  window, `wholeMoment` or a forward read; the page is cut at that second (backward its top, forward
-  its last nanosecond), names the stream in `skipped`, and is never refused for it. A follow's fill
-  reads under the smaller of 16 MiB and 64 MiB ÷ its streams (`followLimits`), reads every second
-  whole and is cut only at a second's end. Each walk reads its share of `maxWalkBudget` (64 MiB)
+  window, `wholeMoment` or a forward read; the page is cut at that second (backward its top,
+  forward its last nanosecond), names the stream in a `stream-skipped` notice, and is never refused
+  for it. A follow's fill reads under the smaller of 16 MiB and 64 MiB ÷ its streams
+  (`followLimits`), reads every second whole and is cut only at a second's end. Each walk reads its share of `maxWalkBudget` (64 MiB)
   plus what its fill downloaded. A page never passes lines a stream did not read: a short stop
   becomes the cut; a short stop with no edge is an internal error in `mergePage`, unless the
   connection's retirement cut it (`errReplaced`). **A change to a read path answers to

@@ -32,8 +32,8 @@ func checkWindow(w Window) error {
 			return refuse(CodeConflictingParameters, "padding is a number of lines or a span of time, not both")
 		case p.Lines < 0 || p.Lines > MaxPageSize:
 			return refuse(CodeBadPadding, fmt.Sprintf("padding is between 0 and %d lines", MaxPageSize))
-		case p.Span < 0 || p.Span > MaxContextSpan:
-			return refuse(CodeBadPadding, fmt.Sprintf("padding is a span between 0 and %s", MaxContextSpan))
+		case p.Span < 0 || p.Span > MaxPaddingSpan:
+			return refuse(CodeBadPadding, fmt.Sprintf("padding is a span between 0 and %s", MaxPaddingSpan))
 		}
 	}
 	return nil
@@ -52,7 +52,7 @@ type resolvedWindow struct {
 	Start      lineCursor
 }
 
-// side is which part of a window a line lies in: the range, or the context
+// side is which part of a window a line lies in: the range, or the padding
 // before or after it.
 type side int
 
@@ -63,7 +63,7 @@ const (
 )
 
 // side is the part of w rec lies in by its timestamp. Lines past an open Until
-// are context only when After is set; with none the range has no end.
+// are padding only when After is set; with none the range has no end.
 func (w resolvedWindow) side(rec Record) side {
 	switch {
 	case w.Since != nil && rec.Timestamp.Before(*w.Since):
@@ -83,7 +83,7 @@ func (w resolvedWindow) padding(s side) Padding {
 }
 
 // counted is whether s's padding is a count of lines. Before an open Since there
-// is no context, so no count.
+// is no padding, so no count.
 func (w resolvedWindow) counted(s side) bool {
 	return w.padding(s).Lines > 0 && (s != sideBefore || w.Since != nil)
 }
@@ -131,6 +131,16 @@ func (w resolvedWindow) rangeEnd() bound {
 		return bound{momentAt(w.ResolvedAt.Add(-time.Nanosecond)), true}
 	}
 	return bound{}
+}
+
+// inRange is whether a line stamped ts lies in the range: at or past Since and
+// at or before rangeEnd, each when set. A line outside is padding.
+func (w resolvedWindow) inRange(ts int64) bool {
+	if w.Since != nil && ts < w.Since.UnixNano() {
+		return false
+	}
+	end := w.rangeEnd()
+	return end.at.isZero() || ts <= end.at.Timestamp.UnixNano()
 }
 
 // afterIsEmpty is whether w pads an open Until and none of recs lies in that

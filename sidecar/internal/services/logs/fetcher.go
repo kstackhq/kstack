@@ -23,7 +23,6 @@ import (
 	"io"
 	"math"
 	"net/url"
-	"regexp"
 	"strconv"
 	"time"
 
@@ -82,9 +81,10 @@ type readOpts struct {
 	// it reads toward.
 	limits *limits
 	batch  int64
-	// grep is the view's, which a backward read counts its windows' kept lines by,
-	// and near the rate next to a backward read's point, nil with none.
-	grep *regexp.Regexp
+	// keep is the page's test of a line, which a backward read counts its windows'
+	// kept lines by, nil to keep every line; near is the rate next to a backward
+	// read's point, nil with none.
+	keep func(Record) bool
 	near *rate
 	// onOldest, when set, is told the moment of a GET's first line, in range or not,
 	// before any line of it goes out: a tail decides from it whether its first read
@@ -94,6 +94,9 @@ type readOpts struct {
 	// next GET, with the read's context, and ends the read clean when false.
 	more func(context.Context) bool
 }
+
+// kept is whether o counts rec as kept: every line with no keep.
+func (o readOpts) kept(rec Record) bool { return o.keep == nil || o.keep(rec) }
 
 // readItem is what a read hands over: a line, or with windowEnd, the end of a window,
 // after its last line, or with windowCut, the end of a window stopped part way, which
@@ -515,7 +518,7 @@ func (r *reader) timeWindow(from time.Time, end bound, endAt time.Time, target i
 	q := recent{from: from}
 	var stop time.Time
 	err := r.span(from, end, func(rec Record, size int) bool {
-		kept := matches(r.o.grep, rec.Message)
+		kept := r.o.kept(rec)
 		// What the body carried: the message is cleaned and cut by now.
 		bytes := int64(size)
 		w.add(rec.Timestamp, bytes, kept)
@@ -597,7 +600,7 @@ func (r *reader) window(tail int64) (tailWindowRead, error) {
 		if !rec.Timestamp.After(began) {
 			return true
 		}
-		w.add(rec.Timestamp, int64(size), matches(r.o.grep, rec.Message))
+		w.add(rec.Timestamp, int64(size), r.o.kept(rec))
 		return r.take(rec)
 	})
 	return tailWindowRead{read, w}, err

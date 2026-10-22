@@ -44,7 +44,7 @@ func (b *budget) spend(n int) bool { return b == nil || b.left.Add(-int64(n)) >=
 
 // walker walks one stream of one page's file: its lines from the page's bound in the
 // page's direction, bounded by the span the bound sits in with lost gaps crossed,
-// that the grep passes, until it holds need of them or has spent its budget.
+// that the page keeps, until it holds need of them or has spent its budget.
 type walker struct {
 	r      logstore.Reader
 	ps     pageStream
@@ -104,7 +104,7 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 		}
 		last, read = l.Pos, true
 		spent = !w.budget.spend(len(l.Message))
-		if held(l.Pos) && matches(w.q.grep, l.Message) {
+		if held(l.Pos) && w.q.keep(l.TS, l.Message) {
 			recs = append(recs, w.record(l))
 			if w.q.pastEnd(l.Pos) {
 				past++
@@ -239,7 +239,7 @@ func (w walker) mark(recs []Record, cov logstore.Coverage, held func(logstore.Po
 			recs[i].Gap = holesBetween(cov.Gaps, w.ps.committed, lineOf(recs[i+before]).Pos, lineOf(recs[i]).Pos)
 		}
 	}
-	l := looker{r: w.r, row: w.ps.row.ID, cov: cov, committed: w.ps.committed, held: held, grep: w.q.grep, bytes: w.look}
+	l := looker{r: w.r, row: w.ps.row.ID, cov: cov, committed: w.ps.committed, held: held, keep: w.q.keep, bytes: w.look}
 	var err error
 	recs[edge].Gap, err = l.back(lineOf(recs[edge]).Pos)
 	return err

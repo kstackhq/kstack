@@ -65,7 +65,7 @@ type streamFill struct {
 
 // filler fills one stream for one page: the gaps in the page's direction from its
 // bound go to the cluster's backends in order, until the stream holds need lines
-// that pass the grep past the bound, has no live gap left that way, or a read of it
+// the page keeps past the bound, has no live gap left that way, or a read of it
 // was cut. A read's lines are written a batch at a time as they arrive.
 type filler struct {
 	file *logstore.Store
@@ -167,7 +167,7 @@ func (f *filler) countSpan(ctx context.Context, sp logstore.Span, key logstore.P
 				counted = false
 				return false
 			}
-			if f.held(l.Pos) && matches(f.q.grep, l.Message) {
+			if f.held(l.Pos) && f.q.keep(l.TS, l.Message) {
 				f.count++
 				if f.q.pastEnd(l.Pos) {
 					f.past++
@@ -241,7 +241,7 @@ func (f *filler) rateAbove(ctx context.Context, above *logstore.Pos) (*rate, err
 		s = sample{}
 		return r.Lines(f.ps.row.ID, above.Prev(), logstore.Newest, func(l logstore.Line) bool {
 			ts := time.Unix(0, l.TS)
-			s.add(ts, wireBytes(ts, l.Message), matches(f.q.grep, l.Message))
+			s.add(ts, wireBytes(ts, l.Message), f.q.keep(l.TS, l.Message))
 			return s.short(need)
 		})
 	})
@@ -325,7 +325,7 @@ func (p pulled) up(next *logstore.Pos) *logstore.Pos {
 }
 
 // pull runs the backend read of the range and writes its lines as they arrive, a
-// batch at a time, counting the lines that pass the grep. A forward read is one
+// batch at a time, counting the lines the page keeps. A forward read is one
 // window whose lines arrive nearest the point first: its first batch links down,
 // and it is cancelled once the stream holds what the page needs. A backward read's
 // windows arrive newest first, each oldest first: a window links up only at its
@@ -336,7 +336,7 @@ func (p pulled) up(next *logstore.Pos) *logstore.Pos {
 // context ended is an error.
 func (f *filler) pull(ctx context.Context, tier int, lower, upper, prev, next *logstore.Pos) (pulled, bool, error) {
 	forward := f.q.mode == newer
-	o := readOpts{since: f.boundAt(lower), until: f.boundAt(upper), limits: f.limits, batch: int64(f.q.need()), grep: f.q.grep, near: f.near}
+	o := readOpts{since: f.boundAt(lower), until: f.boundAt(upper), limits: f.limits, batch: int64(f.q.need()), keep: f.q.kept, near: f.near}
 	// began is the moment a forward read's GET began at, told before its first line
 	// arrives.
 	var began time.Time
@@ -415,7 +415,7 @@ func (f *filler) pull(ctx context.Context, tier int, lower, upper, prev, next *l
 		// A forward read counts as its lines arrive, nearest the point first; a
 		// backward window counts once it completes, since its lines arrive farthest
 		// first.
-		if matches(f.q.grep, it.Message) {
+		if f.q.kept(it.Record) {
 			if forward {
 				f.count++
 				if f.q.pastEnd(lineOf(it.Record).Pos) {
@@ -530,7 +530,7 @@ type window struct {
 	batch       logstore.Fill
 	bytes       int64
 	first, last *logstore.Pos
-	// kept is a backward window's lines that pass the grep, counted toward the page
+	// kept is a backward window's lines the page keeps, counted toward the page
 	// once it completes.
 	kept int
 }

@@ -56,7 +56,7 @@ func PaddingOf(v json.RawMessage, field string) (logs.Padding, error)
 ```
 
 - A JSON number that is a whole number from 0 to `logs.MaxPageSize` is lines.
-- A JSON string that is a duration is a span, at most `logs.MaxContextSpan`, seven days.
+- A JSON string that is a duration is a span, at most `logs.MaxPaddingSpan`, seven days.
 - A negative number, a fraction, a number over the cap, a span over the cap, or any other value
   is a `BadInput` on `field` naming both forms and both caps.
 

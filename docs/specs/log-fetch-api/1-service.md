@@ -46,8 +46,8 @@ are final; the wire and the tools bind to them.
 type PageFrom string
 
 const (
-	PageFirst PageFrom = "first" // the window's oldest lines
-	PageLast  PageFrom = "last"  // the window's newest lines
+	PageFromFirst PageFrom = "first" // the window's oldest lines
+	PageFromLast  PageFrom = "last"  // the window's newest lines
 )
 
 // Padding is how far a window extends past one end of its range, to show the
@@ -79,7 +79,7 @@ type resolvedWindow struct {
 }
 
 // FetchRequest is one page. A first page sets Scope, what is read, Window, when, and
-// PageFrom; with PageFirst it may set Seen, the last line the caller has of each
+// PageFrom; with PageFromFirst it may set Seen, the last line the caller has of each
 // stream, so that stream reads past its line and every other from the window's
 // start. A continuation sets PageCursor alone, one of a page's Prev, Next or
 // Follow as it came: the cursor holds the scope and the window. PageSize is the
@@ -150,7 +150,7 @@ that; it is a row in `docs/TODO.md`.
 **Constants.** `MaxLimit` becomes `MaxPageSize`, still 500. Add `DefaultPageSize = 100`,
 `MaxPageBytesCap = 1 << 20`, `MaxMessageBytesCap = maxMessage + len("…")` (16 KiB plus the
 ellipsis `clean.go` writes, so a line the file cut arrives whole at the default cap and reports no
-cut) and `MaxContextSpan = 7 * 24 * time.Hour`, the most a span of padding may be, which the
+cut) and `MaxPaddingSpan = 7 * 24 * time.Hour`, the most a span of padding may be, which the
 tools' parser reads from here. A `MaxMessageBytes` above the cap is clamped to it, and a
 `MaxPageBytes` above `MaxPageBytesCap` is clamped to it; a `Padding` past its limit is refused,
 not clamped, since it changes what the window means. A `PageSize` of 0 is `DefaultPageSize`; a
@@ -173,11 +173,11 @@ with an empty `Code` is the backstop.
 | Code | Carried by | When |
 | --- | --- | --- |
 | `cursor-invalid` | refusal | a `PageCursor` that is not a page cursor this version of the service wrote: it does not decode, its `v` is another version, or its content fails a check; a `Seen` entry that is not a line cursor (`errBadCursor`) |
-| `conflicting-parameters` | refusal | `PageFrom` with `PageCursor` or neither; a continuation with a scope, window or `Seen`; `Seen` with `PageLast` or beside a `Padding`; a `Padding` with both `Lines` and `Span`; today's `Around` and mode refusals in `fetch.go` |
+| `conflicting-parameters` | refusal | `PageFrom` with `PageCursor` or neither; a continuation with a scope, window or `Seen`; `Seen` with `PageFromLast` or beside a `Padding`; a `Padding` with both `Lines` and `Span`; today's `Around` and mode refusals in `fetch.go` |
 | `invalid-range` | refusal | `Since` after `Until` |
 | `bad-grep` | refusal | a `Grep` that does not compile, or one over `MaxGrep` |
 | `bad-page` | refusal | `PageSize` outside 0 to `MaxPageSize`, or a negative `MaxMessageBytes` or `MaxPageBytes` |
-| `bad-padding` | refusal | a `Padding` with `Lines` outside 0 to `MaxPageSize`, or a `Span` outside 0 to `MaxContextSpan` |
+| `bad-padding` | refusal | a `Padding` with `Lines` outside 0 to `MaxPageSize`, or a `Span` outside 0 to `MaxPaddingSpan` |
 | `bad-scope` | refusal | a filter field or a source kind the service cannot read (`sources.go`) |
 | `not-mirrored`, `no-nodes`, `too-many` | refusal | as the service refuses a scope today (`Unmirrored`, `NoNodes`, `ErrTooMany`); moved here from `logsinput`'s own block. `too-many` also carries `errCut`: the cache answered more streams than the service reads at once |
 | `no-container` | refusal | raised by the tools' scope check (step 3), never by the service; its constant lives here so every code is in one block |
@@ -189,8 +189,8 @@ with an empty `Code` is the backstop.
 | `finished` | refusal | every container of the scope stopped (`errStopped`), or every source was a Pod whose pod is gone (`follow.go`) |
 | `read-failed` | refusal | no container of the scope could be read, or the lines one way could not be read (`merge.go`, `fetch.go`) |
 | `too-loud` | refusal | `loudSecond`: more than a mebibyte of log in one second. It embeds `Refusal`, so it needs a code, but it never refuses a page: `answer` skips the stream and cuts the page at the second, so the code reaches a caller inside a `stream-skipped` notice's message alone |
-| `empty-context` | notice | `Before` was asked with `Since` open, or `After` with `Until` open on the page that reaches the window's end, the one that sets no `Next`, with no line on it stamped at or past `ResolvedAt` |
-| `context-short` | notice | the context read before the range found fewer lines than `Lines` asked for and was not cut; the window starts at the farthest line found, or the log's edge with none |
+| `empty-padding` | notice | `Before` was asked with `Since` open, or `After` with `Until` open on the page that reaches the window's end, the one that sets no `Next`, with no line on it stamped at or past `ResolvedAt` |
+| `padding-short` | notice | the context read before the range found fewer lines than `Lines` asked for and was not cut; the window starts at the farthest line found, or the log's edge with none |
 | `page-byte-limit-exceeded` | notice | the first line of the page alone was larger than `MaxPageBytes` |
 | `stream-skipped` | notice | a stream of the scope the page could not read; one per stream, its message what `Skipped` held today |
 
@@ -430,7 +430,7 @@ the window already. So a continuation reads nothing to know where the context en
 turning back re-delivers the context as rule 10 asks.
 
 The start becomes a position, `resolvedWindow.Start`, as soon as a page knows it: a counted
-`PageFirst` from its read, the farthest line found, and an empty page as `Since`, since nothing
+`PageFromFirst` from its read, the farthest line found, and an empty page as `Since`, since nothing
 lay before it. A stream no page has seen reads from `Start`, which is why it has to be in the
 cursor: a `Next` under a counted `Before` would otherwise have nowhere to start such a stream that
 is neither outside the window nor short of it. With `Start` set, that side is paged as a time
@@ -439,8 +439,8 @@ stream with no entry only reads newer, and a counted side's far bound stays open
 a position, with the trim below keeping the page within its count.
 
 The one read a count costs is on a first page whose `PageFrom` edge is counted, since that is
-where the page starts: `PageFirst` with a counted `Before` reads `Lines` lines back from
-`Since`, as `around` reads a half today, and starts at the farthest line found; `PageLast`
+where the page starts: `PageFromFirst` with a counted `Before` reads `Lines` lines back from
+`Since`, as `around` reads a half today, and starts at the farthest line found; `PageFromLast`
 with a counted `After` reads forward from `Until` the same. The read is a second `pageQuery` in
 the same `s.page` call as the range's, as `around`'s halves are today, so it shares the range's
 resolve and claim and `fill`'s seams join the two reads at the bound. `resolveWindow` computes
@@ -449,9 +449,9 @@ bounds and reads nothing.
 **Two reads, one page.** The call answers two merges, the context's and the range's, and `Fetch`
 joins them into one before anything else looks at them, as `around` joins its halves today. The
 records are the context's then the range's, and the page keeps the first `PageSize` in the order it
-reads, from its starting edge: under a counted `Before` on a `PageFirst` the oldest `PageSize` lines
+reads, from its starting edge: under a counted `Before` on a `PageFromFirst` the oldest `PageSize` lines
 of context then range, so a context that fills the page alone leaves the range's lines for `Next`;
-under a counted `After` on a `PageLast` the newest `PageSize`. So a `PageLast` whose `Lines` of
+under a counted `After` on a `PageFromLast` the newest `PageSize`. So a `PageFromLast` whose `Lines` of
 context fill the page alone fills its range read and keeps none of it: the fill is spent, and the
 lines wait for `Prev`. That is correct and not worth avoiding; a keep that leans on the reads' sizes
 would tie the page to the fill. The records are answered oldest first whichever way the page read,
@@ -466,12 +466,12 @@ stream was skipped, which looks like a limit cut; with fewer than `Lines` record
 edge, rule 2's skipped-stream case, and `Start` is the farthest line found as there. A stop in the
 lookup, a loud second's edge or an empty window's start, lies the lookup's way, which is the
 opposite of the page's: it is the edge behind, rule 2's cut case, and never the page's cut ahead. A
-`PageFirst` whose lookup found line 9 and stopped at moment 8 delivers 9 to 11, its `Prev` reads
-older from 8, and its `Next` goes on from 11; a `PageLast` whose lookup past `Until` stopped at a
+`PageFromFirst` whose lookup found line 9 and stopped at moment 8 delivers 9 to 11, its `Prev` reads
+older from 8, and its `Next` goes on from 11; a `PageFromLast` whose lookup past `Until` stopped at a
 moment has its `Next` read newer from that moment and its `Prev` go on from the page's oldest line
 the same way. The page's cut ahead is the range read's cut, or the page's last line when the keep
 ended the page inside the context. The join is one `merge`, and the edges are computed from it as
-from any page's: each stream's reach against that cut in the page's direction, so a `PageFirst`
+from any page's: each stream's reach against that cut in the page's direction, so a `PageFromFirst`
 whose context lookup read back to line 1 and delivered lines 1 to 3 hands out an entry at 3, not 1,
 and one whose lookup found lines 8 and 9 whole under `Before` 2 and delivered 8 to 11 sets no `Next`
 from the lookup's limit.
@@ -493,7 +493,7 @@ The far bound is the window's edge ahead: a moment for a time bound or a span, o
 end, and `Start` for a counted side once its edge is a position. While a counted side's edge is
 still a distance the far bound is open, since the walk and the filler stop at a far bound and the
 context lies past the range's; the read is bounded by `PageSize` as every page is, since the merge
-reads no line past the page's last, and a backward read off the log's end is what a `PageLast`
+reads no line past the page's last, and a backward read off the log's end is what a `PageFromLast`
 page reads today. A counted side is then trimmed after the merge: the page keeps at most `Lines −
 count` lines past the range's bound and drops the rest. Range lines sort before context lines in
 either direction, so the trim only takes context off the page's far end. The dropped lines are
@@ -504,12 +504,12 @@ no entry and reads as any stream without one.
 ### `Seen` on a first page
 
 `Seen` is the fetch's half of what the follow's `Seen` is (step 2, rule 2): the last line the
-caller has of each stream, as a record's `Cursor()` came. It goes with `PageFirst` alone. The page
+caller has of each stream, as a record's `Cursor()` came. It goes with `PageFromFirst` alone. The page
 reads as a `newer` cursor would whose entries are the `Seen` lines, each at its stream, and whose
 `at` is zero: a named stream reads past its line, or from `Start` when its line is older than
 `Start`, and every other stream from `Start`. An entry that is not a line cursor, or names a
 moment and not a line, is `cursor-invalid`; of two for one stream the later in the list stands;
-one whose stream is outside the scope is dropped. `Seen` beside `PageCursor`, `PageLast` or a
+one whose stream is outside the scope is dropped. `Seen` beside `PageCursor`, `PageFromLast` or a
 `Padding` is `conflicting-parameters`: a counted `Before` reads its context in a second read back
 from `Since` that no entry bounds, so a named stream's lines between the context's start and its
 line would come again. This is what the viewer's `Head` after a follow needs: a window from the
@@ -518,8 +518,8 @@ nothing again.
 
 ### The edges after a page
 
-Call the way the page read `D`: newer for `PageFirst`, `Next` and `Follow`; older for
-`PageLast` and `Prev`. Call the other way `D'`. `Scope` and `Window` are the cursor's, or the
+Call the way the page read `D`: newer for `PageFromFirst`, `Next` and `Follow`; older for
+`PageFromLast` and `Prev`. Call the other way `D'`. `Scope` and `Window` are the cursor's, or the
 request's for a first page. "Passed" means delivered or rejected by the grep: a line the merge
 cut or the page cap dropped is not passed, so no edge reaches past a cut or a drop. Each edge's
 counts are the context lines between its position and each bound: the incoming counts, plus
@@ -571,7 +571,7 @@ every page. An entry that is a moment is spelled with the stream and `t` and no 
 compares by `Timestamp` alone, so the stream reads past the whole second. The cut in `at` is the
 nearest stop, as `trimToStops` finds it, which an older edge takes when no line lies past it.
 
-`Follow` after a `PageLast` first page is the behind edge. Each stream on the page reads past its
+`Follow` after a `PageFromLast` first page is the behind edge. Each stream on the page reads past its
 newest line there, and a stream with none reads past the page's oldest line. So a tailer that
 was slow to deliver a stream's lines within the page's span delivers them on the poll. The one
 line a poll cannot reach is one stamped older than the page's oldest line from a stream the
@@ -580,7 +580,7 @@ page did not show; that line is history, and `Prev` reads it.
 **The tests pin** rules 10 and 12 over this layout, both ways, with a flip in each direction (a
 `Prev` chain then `Next`, a `Next` chain then `Prev`), the poll, that an older cursor carries no
 entry, and that a stream with no entry reads from `Start` on a `Next`, under a counted
-`Before` too, and past the page's oldest line on a `Follow` after `PageLast`.
+`Before` too, and past the page's oldest line on a `Follow` after `PageFromLast`.
 
 ## Rules
 
@@ -599,18 +599,18 @@ Write these as the doc comment on `Fetch`. Each has a test.
    bound is. The first page alone reads to find where it starts when its `PageFrom` edge is
    counted, as `around` reads a half today, and sets that side's count to the lines found. That
    read coming back short says one of three things. The log's edge: `Start` is the farthest line
-   found, the count is the lines found, and the page carries `context-short`. A stop, at a loud
+   found, the count is the lines found, and the page carries `padding-short`. A stop, at a loud
    second's edge or an empty window's start (`streamFill.stop`): the page starts at the stop with
    the lines found as the count, `Start` unknown, `at` the stop so a stream with no entry reads
    past it, and the edge the lookup's way, `Prev` under `Before` and `Next` under `After`,
    delivers the rest. A skipped stream: as the log's edge, with the read's `stream-skipped` beside
-   `context-short`. A counted `After` short of `Lines` on a newer cursor leaves the window live
+   `padding-short`. A counted `After` short of `Lines` on a newer cursor leaves the window live
    (rule 7).
 3. **Context past an open bound is measured from the log's edge.** An open `Since` has no
-   context before it, and the page carries `empty-context`. An open `Until` has its `After` measured
+   context before it, and the page carries `empty-padding`. An open `Until` has its `After` measured
    from `ResolvedAt`, the first page's clock, carried in every cursor: a span sets the window's end
    at that moment ahead, the same on every page, and a count counts the lines stamped at or past it.
-   The page that reaches the window's end, the one that sets no `Next`, carries `empty-context` when
+   The page that reaches the window's end, the one that sets no `Next`, carries `empty-padding` when
    no line on it is stamped at or past `ResolvedAt`; a page with a `Next` says nothing, since the
    lines may lie ahead. With no `After`, the window's end is open and the window is live for as long
    as it is polled. The echoed `Until` stays nil either way; `ResolvedAt` beside it is where the
@@ -620,7 +620,7 @@ Write these as the doc comment on `Fetch`. Each has a test.
    and `After` is set, are the padding after. With `Until` open and no `After` the range has no end,
    and nothing is padding after. The bounds are inclusive, so a caller compares a timestamp against
    the echoed request's bounds. The page carries no label for it.
-5. **The first page.** `PageFirst` reads oldest first from the window's start. `PageLast` reads
+5. **The first page.** `PageFromFirst` reads oldest first from the window's start. `PageFromLast` reads
    newest first from its end.
 6. **A continuation.** `PageCursor` says which way the page reads, where it goes on from, and
    the window. A `Prev` reads newest first toward the window's start; a `Next` or `Follow` reads
@@ -645,7 +645,7 @@ Write these as the doc comment on `Fetch`. Each has a test.
    sequence that does not fit whole is cut off with what follows it, as `clean` cuts. It happens
    on the merged page, in `answer`. The file keeps the whole line.
 9. **Page cap.** Records are kept in the order the page reads, from its starting edge, while the
-   sum of their messages, after the message cap, fits `MaxPageBytes`: a `PageLast` or `Prev` keeps
+   sum of their messages, after the message cap, fits `MaxPageBytes`: a `PageFromLast` or `Prev` keeps
    its newest lines and drops its oldest, since those lie nearest the edge it reads toward. The
    first record kept is the one at the starting edge, always; if it alone is over, the page
    carries `page-byte-limit-exceeded`. A record dropped by the cap sets `Prev` or `Next`,
@@ -658,10 +658,12 @@ Write these as the doc comment on `Fetch`. Each has a test.
     second; the page names the stream in a `stream-skipped` notice. Lines at one moment order by
     the position's tiebreaker, the same on every read. A smaller `PageSize` on a continuation
     changes how much a page holds, never where it starts.
-11. **The scope is the window's.** `Filters` apply first, then `Grep`, to every line in the
-    window, context included. A count of context counts lines that pass both, through the same
-    grep-aware walk the range uses. A continuation reads the scope its cursor holds, so no
-    caller can page a window under a scope other than the one that resolved it.
+11. **The scope is the window's, and the grep is the range's.** `Filters` apply to every line in
+    the window. `Grep` applies to the range alone: a padding line passes unfiltered
+    (`pageQuery.keep`, which the walk, the fill's count and the kubelet's window sizing share),
+    so a count counts every line, a padding costs its count whatever the grep, and the caller
+    sees what was happening around the matches. A continuation reads the scope its cursor
+    holds, so no caller can page a window under a scope other than the one that resolved it.
 12. **A late line is on the next newer page.** A line that reaches the file after a page was
     read, stamped among lines already delivered, is a straggler: a stream whose clock runs
     behind, or whose tailer was slow. A `Next` or `Follow` goes on from where each stream was,
@@ -730,10 +732,10 @@ a pull request of its own: it is mechanical, and it is what breaks the packages 
    | Encoding | a round trip; the same cursor encoded twice giving one string; a string that is not base64url, one that does not inflate, one that is not JSON and one of another version each refused; more than `MaxStreams` entries decoding; a counts round trip and one past its `Lines` refused |
    | Scope | a scope of `MaxStreams` live pods and one gone pod whose logs the file keeps paging on through a `Next` that names every container; a cursor whose scope is now refused keeping the scope's code; a stream that left the scope; one that joined it |
    | Entries | an older cursor with an entry refused; a stream with an entry and one without; two entries for one stream with the later standing; two runs of one name across a restart with the resolve one page behind and no line repeated; a restart with the old run kept in the cache and marked `Previous` on the next page, its lines not repeated and their cursors unchanged |
-   | `Seen` | a first page reading the named stream past its line and another from `Start`; a `Seen` line older than `Start` read from `Start`; an entry that is a moment refused; `Seen` with `PageLast` refused |
+   | `Seen` | a first page reading the named stream past its line and another from `Start`; a `Seen` line older than `Start` read from `Start`; an entry that is a moment refused; `Seen` with `PageFromLast` refused |
    | `Start` and counts | a stream with no entry read from `Start` on a `Next`, and under a counted `Before` from the line the first page's read found, with a line of it older than that not delivered; a counted side trimmed to its remainder with no `Next` set past it |
    | Reach | an entry at a grep-rejected line so the stream is not re-read on the poll; no entry passing a record the page cap dropped; a poll whose lines the grep all rejected moving its entries past them; a stream stopped at a loud second whose entry is the second's edge and whose next page reads past it; a stream stopped at a moment past a cut another stream made whose entry is its last kept line short of the cut; a cut first page whose `Next` reads a stream with no entry past the cut |
-   | Edges | a page that passed no line keeping its incoming edge ahead and none behind; a first page with no `Prev`; a `Follow` after a `PageLast` page polled twice with a stream quiet throughout and nothing of it delivered; a `Prev` cut at an empty window's start with no line passed whose `Prev` goes on from the cut; each edge after a first page and after a continuation each way, the older edge carrying no entry |
+   | Edges | a page that passed no line keeping its incoming edge ahead and none behind; a first page with no `Prev`; a `Follow` after a `PageFromLast` page polled twice with a stream quiet throughout and nothing of it delivered; a `Prev` cut at an empty window's start with no line passed whose `Prev` goes on from the cut; each edge after a first page and after a continuation each way, the older edge carrying no entry |
 4. **Rewrite `Fetch`** over `FetchRequest` and `FetchResponse`: refuse a mixed request (rule 6),
    decode the cursor for a continuation, resolve the window, build the `pageQuery`, call `s.page`,
    apply the caps, compute and encode the edges into `Page`, turn `skipped` into `stream-skipped`
@@ -750,11 +752,11 @@ a pull request of its own: it is mechanical, and it is what breaks the packages 
    at when it stopped at one; `walked` carries them to `merge`, and `edges` reads them.
    Tests, over the fixtures in `testutil_test.go`:
    - A count that finds enough lines; one that does not; one whose read was cut; one with a
-     skipped stream; an open bound with context; a count with a `Grep` that starts at the Nth
+     skipped stream; an open bound with padding; a count under a `Grep` delivered unfiltered
      matching line.
    - A `PageSize` under `Lines`, so the first page ends inside the context and its `Next` goes on
      from the page's last line, not the lookup's farthest, with a grep-rejected row between two
-     delivered lines passed and the range untouched; the same under `PageLast` with a counted
+     delivered lines passed and the range untouched; the same under `PageFromLast` with a counted
      `After`.
    - A lookup that found its `Lines` whole with more context beyond, setting no `Next` and no
      `Prev` past `Start`; the same under a counted `After`.
@@ -763,7 +765,7 @@ a pull request of its own: it is mechanical, and it is what breaks the packages 
      `Next` from the stop and `Prev` from the page's oldest; a counted `After` whose lookup stopped
      and whose range read was cut, the stop the `Next` and the cut the page's own.
    - A counted `After` delivered across two `Next` pages and closing the window on the second; a
-     counted `Before` found whole and delivered across a `PageFirst` and a `Next` with each
+     counted `Before` found whole and delivered across a `PageFromFirst` and a `Next` with each
      cursor's count within 0 to `Lines`; a `Prev` chain back through the context and a `Next`
      that re-delivers it with the counts falling to 0; a short read setting `Start` and a `Next`
      back into the range ending at 0.
@@ -781,7 +783,7 @@ a pull request of its own: it is mechanical, and it is what breaks the packages 
    asserts rule 10; add context on both sides to its windows. Add `TestAStragglerIsOnTheNextPage`
    for rule 12: after a page is read, write a line stamped inside that page's span into a stream
    that had a line on it, into one that had none, and into a stream that joined the scope; each is
-   on the next `Next` page, and on no later one. Add the poll: a `PageLast` page with an open
+   on the next `Next` page, and on no later one. Add the poll: a `PageFromLast` page with an open
    `Until`, lines written to two streams with skewed stamps, and `Follow` continuations that
    deliver each exactly once. Add the counted `After`: 100 lines with 20 present on the first
    page, then polls as 80 more arrive; the poll that finds the hundredth past `Until` sets no

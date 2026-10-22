@@ -192,11 +192,11 @@ func TestAFirstPagePinsItsClockAsAContinuationDecodesIt(t *testing.T) {
 	assert.True(t, c.ResolvedAt == cont.ResolvedAt, "%v != %v", c.ResolvedAt, cont.ResolvedAt)
 }
 
-// A first page whose own edge is counted reads that side's context beside its
+// A first page whose own edge is counted reads that side's padding beside its
 // range, the other way from the bound: back from Since for PageFromFirst, on from the
 // range's end for PageFromLast. A first page from the other edge, or one whose edge is
 // a time or a span, reads none; padding before an open Since counts for nothing.
-func TestACountedFirstEdgeReadsItsContext(t *testing.T) {
+func TestACountedFirstEdgeReadsItsPadding(t *testing.T) {
 	t.Parallel()
 	w := Window{Since: moment(10 * time.Second), Until: moment(20 * time.Second), Before: Padding{Lines: 3}, After: Padding{Lines: 4}}
 	c, err := firstPage(FetchRequest{Scope: webScope, Window: w, PageFrom: PageFromFirst}, at(time.Hour))
@@ -430,10 +430,10 @@ func TestTwoRunsOfOneNameLeaveTheLaterEntry(t *testing.T) {
 	assert.Equal(t, map[containerName]runPlace{name("web-1", "app"): restarted.last.runPlace}, ahead.seen)
 }
 
-// Each edge's counts move by the context lines the page delivered: up moving away
+// Each edge's counts move by the padding lines the page delivered: up moving away
 // from a bound, down moving toward it, clamped to 0 through Lines; the edge behind
 // keeps the incoming counts.
-func TestTheCountsMoveByTheContextDelivered(t *testing.T) {
+func TestTheCountsMoveByThePaddingDelivered(t *testing.T) {
 	t.Parallel()
 	w := resolvedWindow{Window: Window{Since: moment(10 * time.Second), Until: moment(20 * time.Second), Before: Padding{Lines: 3}, After: Padding{Lines: 3}}, ResolvedAt: at(time.Hour)}
 	recs := []Record{line("web-1", "app", 8*time.Second, ""), line("web-1", "app", 9*time.Second, ""), line("web-1", "app", 15*time.Second, ""), line("web-1", "app", 21*time.Second, "")}

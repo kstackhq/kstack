@@ -34,7 +34,7 @@ func TestAWindowIsChecked(t *testing.T) {
 		"both lines and span": {Window{Before: Padding{Lines: 1, Span: time.Second}}, CodeConflictingParameters},
 		"too many lines":      {Window{After: Padding{Lines: MaxPageSize + 1}}, CodeBadPadding},
 		"negative lines":      {Window{Before: Padding{Lines: -1}}, CodeBadPadding},
-		"too long a span":     {Window{After: Padding{Span: MaxContextSpan + 1}}, CodeBadPadding},
+		"too long a span":     {Window{After: Padding{Span: MaxPaddingSpan + 1}}, CodeBadPadding},
 		"a negative span":     {Window{Before: Padding{Span: -time.Second}}, CodeBadPadding},
 	} {
 		assert.Equal(t, tc.code, codeOf(checkWindow(tc.w)), name)
@@ -43,7 +43,7 @@ func TestAWindowIsChecked(t *testing.T) {
 		"open":             {},
 		"one nanosecond":   {Since: moment(time.Second), Until: moment(time.Second)},
 		"the most lines":   {Before: Padding{Lines: MaxPageSize}},
-		"the longest span": {After: Padding{Span: MaxContextSpan}},
+		"the longest span": {After: Padding{Span: MaxPaddingSpan}},
 	} {
 		assert.NoError(t, checkWindow(w), name)
 	}
@@ -80,9 +80,9 @@ func TestAWindowsEdges(t *testing.T) {
 	assert.Equal(t, to(2*time.Hour+time.Minute), later.end())
 }
 
-// The range's own bounds tell its lines from the context's: an open Until with
+// The range's own bounds tell its lines from the padding's: an open Until with
 // After set ends just before the first page's clock.
-func TestARangesBoundsSortContext(t *testing.T) {
+func TestARangesBoundsSortPadding(t *testing.T) {
 	t.Parallel()
 	w := resolvedWindow{Window: Window{Since: moment(10 * time.Second), Until: moment(20 * time.Second), After: Padding{Lines: 1}}}
 	assert.Equal(t, sideBefore, w.side(line("web-1", "app", 9*time.Second, "")))
