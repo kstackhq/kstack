@@ -126,6 +126,25 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   **Shape:** a second `Backend` after the kubelet, and an offer in the viewer next to the reason,
   which needs a limit told from a failure first.
 
+- **A long log line is cut at write time, and nothing says so.** `keepColor` (`clean.go`) keeps
+  16 KiB of a message and appends an ellipsis; the file's `lines` row holds the cut text and
+  nothing else, so no reader can tell a cut line from one that ends in `…`. The cap stays: a line
+  is cluster text, and one line of many megabytes must not grow a buffer, a row or a page. Three
+  pieces, in order:
+  - **The kubelet fetcher should stop reading a long line, not skip past it.** `readLine`
+    (`fetcher.go`) keeps 64 KiB of a line and reads the rest of it off the wire to find its end,
+    so an attacker's line still costs its whole length in download. Stop at the cap, close the
+    read, and step forward to the next timestamp instead.
+  - **Record that a line was cut, as a boolean.** A `lines` column the writer sets when the cap
+    bit, the only fact the fetcher can know without reading the line whole. The readers (`Fetch`,
+    `Follow`, both tools, the viewer) surface it; the ellipsis leaves the stored text, since what
+    to draw is the reader's call. `docs/security-model.md` pins the cut with an ellipsis
+    (`TestStripControlCutsALongLine`); move that row in the same change. The log fetch API spec
+    takes the file's line as the whole message until this lands.
+  - **A safe way to read the whole line.** A bounded read of one line from the kubelet on request,
+    streamed to the caller in parts under a byte budget, never held whole and never written to
+    the file.
+
 - **Revisit an opaque cursor for the log viewer's wire.** `logsFetch` and `logsFollow` hand the
   webview a cursor as `cursorOf`'s tab-separated position, documented as opaque and passed back
   unread. `LogsRead` gives the model the same position as base64url JSON
