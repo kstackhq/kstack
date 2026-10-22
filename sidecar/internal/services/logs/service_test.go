@@ -18,7 +18,20 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 )
+
+// A cache the cluster service removed has no log file to answer from, ever again.
+func TestAPageOfARemovedCacheFails(t *testing.T) {
+	t.Parallel()
+	svc, f := serviceOver(t, webMirror(t), newLogServer())
+	require.NoError(t, svc.Remove(int64(f.active.Cache.ID)))
+
+	_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+	assert.ErrorIs(t, err, logstore.ErrRemoved)
+}
 
 // A page's walks read up to 64 MiB of the file, split evenly across its streams: about
 // 640 KiB each at a hundred.

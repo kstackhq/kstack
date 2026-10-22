@@ -16,21 +16,106 @@ package logs
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"io"
 	"math/rand"
+	"net/url"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 )
+
+// A deployment's last lines come back in time order, its Prev going on from the
+// oldest.
+func TestFetchAnswersADeploymentsLastLines(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	for i := range 15 {
+		pod := "web-" + strconv.Itoa(1+i%2)
+		s.add("prod/"+pod+"/app", stamped(time.Duration(i)*time.Second, strconv.Itoa(i)))
+	}
+	svc, _ := serviceOver(t, webMirror(t), s)
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromLast, PageSize: 5})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"10", "11", "12", "13", "14"}, messages(page.Records))
+	assert.Equal(t, *lineCursorFor("web-1", "app", 10*time.Second, 0), atOf(t, page.Page.Prev))
+	assert.Equal(t, "web-1", page.Records[0].Stream.Pod)
+	assert.Equal(t, "eu-1a", page.Records[0].Place.Zone)
+}
+
+// A first page from a moment reads past it, grep keeps the matching lines, and its
+// Next goes on from the last line the stream passed on the page.
+func TestFetchReadsForwardAfterACursor(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(0, "error a"), stamped(time.Second, "ok"), stamped(2*time.Second, "error b"), stamped(3*time.Second, "error c"))
+	svc, _ := serviceOver(t, webMirror(t), s)
+	view := webScope
+	view.Grep = "^error"
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: view, Window: Window{Since: moment(0 + time.Nanosecond)}, PageFrom: PageFromFirst, PageSize: 1})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"error b"}, messages(page.Records))
+	assert.Equal(t, entry("web-1", "app", 2*time.Second), cursorIn(t, page.Page.Next).seen[name("web-1", "app")])
+}
+
+// A last page before a moment reaches the line before it however much log follows,
+// and a page that fills reads no further: a page of one line reads one window.
+func TestFetchPagesBackBeforeACursor(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(1000)...)
+	svc, _ := serviceOver(t, webMirror(t), s)
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, Window: until(100 * time.Second), PageFrom: PageFromLast, PageSize: 1})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"99"}, messages(page.Records))
+	assert.Equal(t, *lineCursorFor("web-1", "app", 99*time.Second, 0), atOf(t, page.Page.Prev))
+
+	before := len(s.requests())
+	page, err = svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromLast, PageSize: 1})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"999"}, messages(page.Records))
+	var windows []string
+	for _, q := range s.requests()[before:] {
+		if q.Has("tailLines") {
+			windows = append(windows, q.Get("tailLines"))
+		}
+	}
+	assert.Equal(t, []string{"10"}, windows)
+}
+
+// Two containers writing at one moment are paged through one line at a time, each
+// page going on past the line it ended at.
+func TestFetchPagesThroughAMoment(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(0, "a"), stamped(0, "a'"), stamped(time.Second, "c"))
+	s.add("prod/web-2/app", stamped(0, "b"))
+	svc, _ := serviceOver(t, webMirror(t), s)
+
+	got := pages(t, svc, webScope, PageFromFirst, 1)
+
+	assert.Equal(t, []string{"a", "a'", "b", "c"}, recordsOf(got, PageFromFirst))
+}
 
 // Pages join: walked from either end through random logs with tied and sub-second
 // moments and long lines, under small limits and a grep, the pages hold every line
@@ -439,6 +524,121 @@ func inWindow(want []Record, w Window) []Record {
 	return slices.Concat(before, in, after)
 }
 
+// A first page from a moment starts at its first line, the moment's own lines in,
+// and a last page to one ends at its last; a bound is the window's edge, so the
+// page sets no edge past it.
+func TestAPageReadsFromItsNearBound(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(6)...)
+	svc, _ := serviceOver(t, webMirror(t), s)
+
+	page := fetch(t, svc, FetchRequest{Scope: webScope, Window: Window{Since: moment(2 * time.Second)}, PageFrom: PageFromFirst, PageSize: 10})
+	assert.Equal(t, []string{"2", "3", "4", "5"}, messages(page.Records))
+	assert.Equal(t, [3]bool{false, false, true}, edgesOf(page.Page))
+
+	page = fetch(t, svc, FetchRequest{Scope: webScope, Window: Window{Until: moment(3 * time.Second)}, PageFrom: PageFromLast, PageSize: 10})
+	assert.Equal(t, []string{"0", "1", "2", "3"}, messages(page.Records))
+	assert.Equal(t, [3]bool{false, false, false}, edgesOf(page.Page))
+}
+
+// A page stops at its far bound, whose moment's lines are in, and says nothing is
+// left that way; one the page size cut first still says more.
+func TestAPageStopsAtItsFarBound(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(6)...)
+	svc, _ := serviceOver(t, webMirror(t), s)
+	window := func(since, until time.Duration) Window {
+		return Window{Since: moment(since), Until: moment(until)}
+	}
+
+	page := fetch(t, svc, FetchRequest{Scope: webScope, Window: window(time.Second, 3*time.Second), PageFrom: PageFromFirst, PageSize: 10})
+	assert.Equal(t, []string{"1", "2", "3"}, messages(page.Records))
+	assert.Nil(t, page.Page.Next)
+
+	page = fetch(t, svc, FetchRequest{Scope: webScope, Window: window(2*time.Second, 4*time.Second), PageFrom: PageFromLast, PageSize: 10})
+	assert.Equal(t, []string{"2", "3", "4"}, messages(page.Records))
+	assert.Nil(t, page.Page.Prev)
+
+	page = fetch(t, svc, FetchRequest{Scope: webScope, Window: window(time.Second, 3*time.Second), PageFrom: PageFromFirst, PageSize: 2})
+	assert.Equal(t, []string{"1", "2"}, messages(page.Records))
+	assert.Equal(t, entry("web-1", "app", 2*time.Second), cursorIn(t, page.Page.Next).seen[name("web-1", "app")])
+}
+
+// A fill never asks for a line past the page's far bound: a range no line of which
+// passes the grep reads up to the bound and no further, however much log follows,
+// either way.
+func TestAFillStopsAtTheFarBound(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(3000)...)
+	svc, f := serviceOver(t, webMirror(t), s)
+	view := webScope
+	view.Grep = "^none"
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: view, Window: Window{Since: moment(100 * time.Second), Until: moment(110 * time.Second)}, PageFrom: PageFromFirst, PageSize: 10})
+	require.NoError(t, err)
+	assert.Empty(t, page.Records)
+	assert.Nil(t, page.Page.Next)
+	for _, c := range chunksOf(t, svc, f, "web-1", "app") {
+		assert.LessOrEqual(t, c.To.TS, at(110*time.Second).UnixNano())
+	}
+
+	page, err = svc.Fetch(t.Context(), "7", FetchRequest{Scope: view, Window: Window{Since: moment(2000 * time.Second), Until: moment(2010 * time.Second)}, PageFrom: PageFromLast, PageSize: 10})
+	require.NoError(t, err)
+	assert.Empty(t, page.Records)
+	assert.Nil(t, page.Page.Prev)
+	for _, c := range chunksOf(t, svc, f, "web-1", "app") {
+		if c.To.TS > at(110*time.Second).UnixNano() {
+			assert.GreaterOrEqual(t, c.From.TS, at(2000*time.Second).UnixNano())
+		}
+	}
+}
+
+// A page over a range the file holds whole asks the backend for nothing.
+func TestAPageInsideARangeTheFileHoldsReadsNothing(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(3000)...)
+	svc, _ := serviceOver(t, webMirror(t), s)
+
+	_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: web1Scope, Window: Window{Since: moment(100 * time.Second), Until: moment(110 * time.Second)}, PageFrom: PageFromFirst, PageSize: 50})
+	require.NoError(t, err)
+	before := len(s.requests())
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: web1Scope, Window: Window{Since: moment(102 * time.Second), Until: moment(105 * time.Second)}, PageFrom: PageFromFirst, PageSize: 50})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"102", "103", "104", "105"}, messages(page.Records))
+	assert.Len(t, s.requests(), before)
+}
+
+// A group of lines sharing one moment, larger than the page, is read across pages
+// of a one-nanosecond range through each page's cursor, either way, losing and
+// repeating nothing: an entry names a line, where a moment could not.
+func TestARangePagesThroughAMomentLargerThanThePage(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	var want []string
+	s.add("prod/web-1/app", stamped(4*time.Second, "before"))
+	for i := range 9 {
+		s.add("prod/web-1/app", stamped(5*time.Second, "a"+strconv.Itoa(i)))
+		want = append(want, "a"+strconv.Itoa(i))
+	}
+	s.add("prod/web-1/app", stamped(6*time.Second, "after"))
+	for i := range 4 {
+		s.add("prod/web-2/app", stamped(5*time.Second, "b"+strconv.Itoa(i)))
+		want = append(want, "b"+strconv.Itoa(i))
+	}
+	svc, _ := serviceOver(t, webMirror(t), s)
+	w := Window{Since: moment(5 * time.Second), Until: moment(5 * time.Second)}
+
+	for _, from := range []PageFrom{PageFromFirst, PageFromLast} {
+		page := fetch(t, svc, FetchRequest{Scope: webScope, Window: w, PageFrom: from, PageSize: 4})
+		assert.Equal(t, want, recordsOf(pagesOn(t, svc, page, 4), from), from)
+	}
+}
+
 // web1Scope reads the app container of the pod web-1 in prod.
 var web1Scope = Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}}}}
 
@@ -468,6 +668,97 @@ func chunksOf(t *testing.T, svc *Service, f *fakeService, pod, container string)
 	return nil
 }
 
+// A page stamps the chunks its walk read a line from, and none past where it cut: a
+// chunk the page never reached stays as its fill left it.
+func TestAPageStampsTheChunksItRead(t *testing.T) {
+	t.Parallel()
+	svc, f := serviceIn(t, webMirror(t), newLogServer(), t.TempDir(), testRetention)
+	seedUnread(t, svc, f, rowOf("web-1", "app"),
+		logstore.Fill{Lines: fileLines(time.Second, 2*time.Second, 3*time.Second), Head: true},
+		logstore.Fill{Lines: fileLines(10*time.Second, 11*time.Second), Prev: &logstore.Pos{TS: at(3 * time.Second).UnixNano()}})
+
+	_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: web1Scope, PageFrom: PageFromFirst, PageSize: 2})
+	require.NoError(t, err)
+
+	chunks := chunksOf(t, svc, f, "web-1", "app")
+	require.Len(t, chunks, 2)
+	assert.NotZero(t, chunks[0].ReadAt, "the chunk the page read")
+	assert.Zero(t, chunks[1].ReadAt, "the chunk past its cut")
+}
+
+// A page's fill lands stamped, so a sweep over budget between the fill's commit and the
+// page's walk leaves what the page fetched, and the page is whole.
+func TestASweepBetweenAPagesFillAndWalkLeavesThePage(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(time.Second, "1"), stamped(2*time.Second, "2"))
+	ret := testRetention
+	ret.Bytes = 0
+	svc, f := serviceIn(t, webMirror(t), s, t.TempDir(), ret)
+	svc.afterFill = func() { sweepFile(t, svc, f) }
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: web1Scope, PageFrom: PageFromFirst, PageSize: 10})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"1", "2"}, messages(page.Records))
+}
+
+// A page whose stream row went between its lookup and its write reads that stream as
+// having nothing: Write skips its fill rather than failing every other stream's.
+func TestAPageWhoseRowWentReadsNothingOfIt(t *testing.T) {
+	t.Parallel()
+	backend := newFakeBackend()
+	release := make(chan struct{})
+	backend.set("web-1/app", fakeRead{lines: []Record{{Timestamp: at(time.Second), Message: "1"}}, wait: release})
+	// Both reads wait, since a stream writes once its read ends, and the delete
+	// below takes the file's one writer.
+	backend.set("web-2/app", fakeRead{lines: []Record{{Timestamp: at(2 * time.Second), Message: "2"}}, wait: release})
+	dir := t.TempDir()
+	svc, _ := serviceIn(t, webMirror(t), newLogServer(), dir, testRetention)
+	svc.backends = []namedBackend{{"kubelet", func(getter) Backend { return backend }}}
+	view := Scope{Sources: []ScopeSource{
+		{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}},
+		{Namespace: "prod", Kind: SourcePod, Name: "web-2", Containers: []string{"app"}},
+	}}
+	done := make(chan error, 1)
+	var page FetchResponse
+	go func() {
+		var err error
+		page, err = svc.Fetch(t.Context(), "7", FetchRequest{Scope: view, PageFrom: PageFromFirst, PageSize: 10})
+		done <- err
+	}()
+	backend.opened.Await(t, "a stream's read")
+	backend.opened.Await(t, "the other's")
+	db, err := sql.Open("sqlite", filepath.Join(dir, "11.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+	_, err = db.Exec(`DELETE FROM streams WHERE pod = 'web-1'`)
+	require.NoError(t, err)
+
+	close(release)
+	require.NoError(t, testutil.Recv(t, done, "the page"))
+	assert.Equal(t, []string{"2"}, messages(page.Records))
+}
+
+// A page whose stamp the file refuses still answers: a stamp only keeps the chunks out
+// of eviction, and a chunk evicted is filled again.
+func TestAPageWhoseStampFailsStillAnswers(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc, f := serviceIn(t, webMirror(t), newLogServer(), dir, testRetention)
+	seedUnread(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(time.Second, 2*time.Second), Head: true})
+	db, err := sql.Open("sqlite", filepath.Join(dir, "11.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { assert.NoError(t, db.Close()) })
+	_, err = db.Exec(`CREATE TRIGGER refuse_stamp BEFORE UPDATE OF read_at_ms ON chunks BEGIN SELECT RAISE(ABORT, 'refused'); END`)
+	require.NoError(t, err)
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: web1Scope, PageFrom: PageFromFirst, PageSize: 1})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"1"}, messages(page.Records))
+}
+
 // everyPodGone has the sweeps of svc's log files read every pod as gone.
 func everyPodGone(svc *Service) {
 	svc.files.SetPodsGone(func(_ context.Context, _ int64, uids []string) ([]string, error) { return uids, nil })
@@ -485,6 +776,386 @@ func rowsOf(t *testing.T, svc *Service, f *fakeService, pod string) []logstore.S
 func sweepFile(t *testing.T, svc *Service, f *fakeService) {
 	t.Helper()
 	require.NoError(t, fileOf(t, svc, f).Sweep(t.Context()))
+}
+
+// A page holds the rows it files until it has answered: a sweep while its fill reads
+// leaves a row with nothing in it yet, whatever the mirror says of its pod.
+func TestAPageHoldsItsRows(t *testing.T) {
+	t.Parallel()
+	backend := newFakeBackend()
+	release := make(chan struct{})
+	backend.set("web-1/app", fakeRead{lines: []Record{{Timestamp: at(time.Second), Message: "1"}}, wait: release})
+	svc, f := serviceOn(t, backend)
+	everyPodGone(svc)
+	done := make(chan error, 1)
+	go func() {
+		_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: web1Scope, PageFrom: PageFromFirst, PageSize: 10})
+		done <- err
+	}()
+	backend.opened.Await(t, "the page's read")
+
+	sweepFile(t, svc, f)
+	assert.Len(t, rowsOf(t, svc, f, "web-1"), 1, "held while the page reads")
+
+	close(release)
+	require.NoError(t, testutil.Recv(t, done, "the page"))
+}
+
+// A stream whose fill failed before any line is the page's skipped entry, and its
+// walk still runs: the lines the file holds of it up to its first live gap answer,
+// and its stop at that gap does not move the cut.
+func TestASkippedStreamAnswersFromTheFile(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-2/app", stamped(500*time.Millisecond, "b0"), stamped(5*time.Second, "b5"))
+	s.setRefusal("prod/web-1/app", &refusal{404, `pods "web-1" not found`})
+	svc, f := serviceOver(t, webMirror(t), s)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0, time.Second), Head: true})
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"0", "b0", "1", "b5"}, messages(page.Records))
+	assert.Equal(t, []string{`web-1/app: pods "web-1" not found`}, skippedOf(page))
+	assert.Nil(t, page.Page.Next)
+}
+
+// A skipped stream whose file span is denser than the page stops at limit plus one
+// lines, which hold the cut as any stream's do, so every line goes out once. Only a
+// page that reaches the stream's gap reads the kubelet, and is refused there.
+func TestADenseSkippedStreamHoldsTheCut(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	var want []string
+	var dense []time.Duration
+	for i := range 20 {
+		dense = append(dense, time.Duration(i)*time.Second)
+		want = append(want, strconv.Itoa(i))
+	}
+	for i := range 5 {
+		s.add("prod/web-2/app", stamped(time.Duration(4*i)*time.Second+500*time.Millisecond, "b"+strconv.Itoa(4*i)))
+		want = slices.Insert(want, slices.Index(want, strconv.Itoa(4*i))+1, "b"+strconv.Itoa(4*i))
+	}
+	s.setRefusal("prod/web-1/app", &refusal{404, `pods "web-1" not found`})
+	svc, f := serviceOver(t, webMirror(t), s)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(dense...), Head: true})
+
+	got := pages(t, svc, webScope, PageFromFirst, 3)
+
+	assert.Equal(t, want, recordsOf(got, PageFromFirst))
+	assert.Empty(t, skippedOf(got[0]), "the file holds the first page")
+	assert.Equal(t, []string{`web-1/app: pods "web-1" not found`}, skippedOf(got[len(got)-1]))
+}
+
+// A grep matches as Go's regexp does, flags and all, over the stored text without
+// its colours; the record keeps them.
+func TestAGrepMatchesTheStoredText(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(0, "\x1b[31mERROR\x1b[0m disk"), stamped(time.Second, "error net"), stamped(2*time.Second, "ok"))
+	svc, _ := serviceOver(t, webMirror(t), s)
+	view := web1Scope
+	view.Grep = `(?i)^error\b`
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: view, PageFrom: PageFromFirst, PageSize: 10})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"\x1b[31mERROR\x1b[0m disk", "error net"}, messages(page.Records))
+}
+
+// A Tail page that needs fewer lines than the log's first moment holds leaves the
+// rest of that moment to the next page: the read reached the backend's oldest
+// moment, but stopped inside it, so nothing older is lost.
+func TestATailPageInsideTheFirstMomentLosesNothing(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	for _, msg := range []string{"a", "b", "c", "d", "e"} {
+		s.add("prod/web-1/app", stamped(0, msg))
+	}
+	svc, _ := serviceOver(t, webMirror(t), s)
+
+	assert.Equal(t, []string{"a", "b", "c", "d", "e"}, recordsOf(pages(t, svc, web1Scope, PageFromLast, 1), PageFromLast))
+}
+
+// A view of one container of a pod holding more containers than Kstack reads at
+// once reads it, as the LogsView tool's check passes it, and so does one whose filter
+// leaves the pod out: the limit is on what the view selects, never on the pod.
+func TestOneContainerOfALargePodIsRead(t *testing.T) {
+	t.Parallel()
+	containers := make([]container, MaxStreams+5)
+	for i := range containers {
+		containers[i] = container{name: "c" + strconv.Itoa(i), restarted: i == 7}
+	}
+	s := newLogServer()
+	s.add("prod/big/c7", stamped(0, "seven"))
+	svc, _ := serviceOver(t, newMirror(t, append([]map[string]any{pod("big", "uid-big", "node-a", nil, containers...)}, webNodes()...)...), s)
+
+	for _, view := range []Scope{podSource("big", false, "c7"), podSource("big", false)} {
+		page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: view, PageFrom: PageFromFirst, PageSize: 10})
+		require.NoError(t, err)
+		want := map[bool][]string{true: {"seven"}, false: {}}[len(view.Sources[0].Containers) > 0]
+		assert.Equal(t, want, messages(page.Records))
+	}
+	all := Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "big", AllContainers: true}}}
+	_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: all, PageFrom: PageFromFirst, PageSize: 10})
+	assert.ErrorIs(t, err, ErrTooMany)
+
+	previous := all
+	previous.Sources = []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "big", AllContainers: true, Previous: true}}
+	_, err = svc.Fetch(t.Context(), "7", FetchRequest{Scope: previous, PageFrom: PageFromFirst, PageSize: 10})
+	require.NoError(t, err, "the one previous instance")
+
+	elsewhere := all
+	elsewhere.Filters = []ScopeFilter{{Field: FilterZone, Values: []string{"eu-1b"}}}
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: elsewhere, PageFrom: PageFromFirst, PageSize: 10})
+	require.NoError(t, err, "a filter that leaves the pod out")
+	assert.Empty(t, page.Records)
+}
+
+// A last page whose only lines left to read are a skipped stream's refuses to go on
+// rather than answering an empty page at the cursor it was given, which would hand
+// back the same page forever.
+func TestATailPageThatCannotAdvanceIsRefused(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-2/app", stamped(0, "b0"))
+	s.setRefusal("prod/web-1/app", &refusal{503, "unavailable"})
+	svc, _ := serviceOver(t, webMirror(t), s)
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromLast, PageSize: 5})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b0"}, messages(page.Records))
+	require.NotNil(t, page.Page.Prev, "web-1 is still to read")
+
+	_, err = svc.Fetch(t.Context(), "7", FetchRequest{PageCursor: page.Page.Prev, PageSize: 5})
+	assert.EqualError(t, err, "Kstack could not read older lines of this view: web-1/app: unavailable")
+	assert.Equal(t, CodeReadFailed, codeOf(err))
+}
+
+// A page cursor or a Seen entry the service did not write is refused as
+// cursor-invalid, and so is a grep that is no regular expression as bad-grep.
+func TestFetchRefusesABadCursor(t *testing.T) {
+	t.Parallel()
+	svc, _ := serviceOver(t, webMirror(t), newLogServer())
+	bad := "yesterday"
+	_, err := svc.Fetch(t.Context(), "7", FetchRequest{PageCursor: &bad})
+	assert.EqualError(t, err, "this is not a page cursor a page handed back")
+	assert.Equal(t, CodeCursorInvalid, codeOf(err))
+	_, err = svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromFirst, Seen: []string{bad}})
+	assert.EqualError(t, err, "this is not a line cursor a page handed back")
+	assert.Equal(t, CodeCursorInvalid, codeOf(err))
+
+	view := webScope
+	view.Grep = "("
+	_, err = svc.Fetch(t.Context(), "7", FetchRequest{Scope: view, PageFrom: PageFromFirst, PageSize: 10})
+	assert.EqualError(t, err, "the grep is not a regular expression")
+	assert.Equal(t, CodeBadGrep, codeOf(err))
+}
+
+// A grep past MaxGrep is refused by a page and by a follow alike, since the wire
+// takes any view the webview sends; one at the cap is read.
+func TestAGrepPastMaxGrepIsRefused(t *testing.T) {
+	t.Parallel()
+	svc, _ := serviceOver(t, webMirror(t), newLogServer())
+	view := webScope
+	view.Grep = strings.Repeat("a", MaxGrep+1)
+
+	_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: view, PageFrom: PageFromFirst, PageSize: 10})
+	assert.EqualError(t, err, "a grep is at most 1000 bytes")
+	_, err = svc.Follow(t.Context(), "7", view, nil)
+	assert.EqualError(t, err, "a grep is at most 1000 bytes")
+
+	view.Grep = strings.Repeat("a", MaxGrep)
+	_, err = svc.Fetch(t.Context(), "7", FetchRequest{Scope: view, PageFrom: PageFromFirst, PageSize: 10})
+	assert.NoError(t, err)
+}
+
+// A fetch is refused what resolving the view or claiming the cluster refuses.
+func TestFetchIsRefusedWhatItsReadsRefuse(t *testing.T) {
+	t.Parallel()
+	svc, f := serviceOver(t, webMirror(t), newLogServer())
+	f.active.Cache = nil
+	_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+	assert.ErrorIs(t, err, ErrNoCache)
+
+	svc, f = serviceOver(t, webMirror(t), newLogServer())
+	f.acquireErr = cluster.ErrNotConnectable
+	_, err = svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+	assert.ErrorIs(t, err, ErrRevoked)
+}
+
+// A scope no pod passes reads nothing, and answers an empty page that polls its
+// open window.
+func TestFetchOfAViewWithNoContainerIsEmpty(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	svc, _ := serviceOver(t, webMirror(t), s)
+	view := webScope
+	view.Filters = []ScopeFilter{{Field: FilterZone, Values: []string{"nowhere"}}}
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: view, PageFrom: PageFromFirst, PageSize: 10})
+
+	require.NoError(t, err)
+	assert.Empty(t, page.Records)
+	assert.Empty(t, page.Notices)
+	assert.Equal(t, [3]bool{false, false, true}, edgesOf(page.Page))
+	assert.Empty(t, s.requests())
+}
+
+// A view of more containers than Kstack reads at once is refused before any is
+// read.
+func TestAFetchOfTooManyContainersIsRefused(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	f := webMirror(t)
+	addPods(t, f, MaxStreams-1)
+	svc, _ := serviceOver(t, f, s)
+
+	_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromLast, PageSize: 5})
+	assert.ErrorIs(t, err, ErrTooMany)
+	assert.Empty(t, s.requests())
+}
+
+// A fetch ends with its context. It checks the cluster once and watches nothing,
+// since the connection's retirement already bounds a page.
+func TestFetchEndsWithItsContextAndWatchesNothing(t *testing.T) {
+	t.Parallel()
+	svc, _ := serviceOver(t, webMirror(t), newLogServer())
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err := svc.Fetch(ctx, "7", FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+	assert.ErrorIs(t, err, context.Canceled)
+
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(0, "a"))
+	svc, _ = serviceOver(t, webMirror(t), s)
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"a"}, messages(page.Records))
+}
+
+// A first page's two reads share one resolve of the scope, so they read the same
+// streams: one reading of the mirror to resolve, and one claim. Each window written
+// checks the stream's instance with a reading of its own.
+func TestAFirstPagesTwoReadsResolveTheScopeOnce(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(10)...)
+	svc, f := serviceOver(t, webMirror(t), s)
+	readings := f.readings.Load()
+
+	page, err := svc.Fetch(t.Context(), "7", aroundAt(web1Scope, 5*time.Second, 2))
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"3", "4", "5", "6"}, messages(page.Records))
+	assert.Equal(t, int32(4), f.readings.Load()-readings, "the resolve, and a check for the forward read, the backward read's window and its head mark")
+	assert.Equal(t, int32(1), f.lease.released.Load(), "one claim")
+}
+
+// A poll reads each stream on from its own last line, so a line another stream
+// writes after the page, at a moment the page already passed, is on the poll.
+func TestAPollKeepsALaterLineAtItsMoment(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(time.Second, "a"))
+	svc, _ := serviceOver(t, webMirror(t), s)
+
+	page := fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+	require.Equal(t, []string{"a"}, messages(page.Records))
+	require.NotNil(t, page.Page.Follow)
+
+	s.add("prod/web-2/app", stamped(time.Second, "b"))
+	page = goOn(t, svc, page.Page.Follow, 10)
+
+	assert.Equal(t, []string{"b"}, messages(page.Records))
+}
+
+// A first page over a stream skipped on a transient failure has not read every
+// stream to its end: its Next goes on rather than polling, and the page past it
+// is refused once nothing newer is left but that stream's.
+func TestAHeadPageThatCannotAdvanceIsRefused(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-2/app", stamped(0, "b0"))
+	s.setRefusal("prod/web-1/app", &refusal{503, "unavailable"})
+	svc, _ := serviceOver(t, webMirror(t), s)
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 5})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"b0"}, messages(page.Records))
+	require.NotNil(t, page.Page.Next, "web-1 is still to read")
+
+	_, err = svc.Fetch(t.Context(), "7", FetchRequest{PageCursor: page.Page.Next, PageSize: 5})
+	assert.EqualError(t, err, "Kstack could not read newer lines of this view: web-1/app: unavailable")
+}
+
+// A fill that fails the page ends the others rather than letting them read on: a
+// stream whose read would never end on its own ends with it.
+func TestAFatalFillEndsTheOthers(t *testing.T) {
+	t.Parallel()
+	backend := newFakeBackend()
+	backend.set("web-1/app", fakeRead{err: &statusError{401, "Unauthorized"}})
+	backend.set("web-2/app", fakeRead{wait: never})
+	svc, _ := serviceOn(t, backend)
+
+	var err error
+	testutil.WaitReturn(t, func() {
+		_, err = svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+	}, "the page")
+	assert.EqualError(t, err, "the cluster refused to show this log: Unauthorized")
+}
+
+// A page the log file refuses fails: the file closed before the page opens it, in
+// either mode, or taken by a clear before the page fills it or writes what it read.
+func TestAPageTheLogFileRefusesFails(t *testing.T) {
+	t.Parallel()
+	svc, _ := serviceOver(t, webMirror(t), newLogServer())
+	require.NoError(t, svc.files.Close())
+	for name, q := range map[string]FetchRequest{
+		"one read":  {Scope: webScope, PageFrom: PageFromFirst, PageSize: 10},
+		"two reads": aroundAt(webScope, 0, 10),
+	} {
+		_, err := svc.Fetch(t.Context(), "7", q)
+		assert.ErrorIs(t, err, logstore.ErrClosed, name)
+	}
+
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(0, "a"))
+	svc, f := serviceOver(t, webMirror(t), s)
+	f.beforeStatement = func(text string) {
+		if strings.Contains(text, "SELECT p.uid, coalesce(c.container_id") {
+			assert.NoError(t, svc.files.Clear(int64(f.active.Cache.ID)))
+		}
+	}
+	_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+	assert.ErrorIs(t, err, logstore.ErrClosed)
+
+	svc, f = serviceOver(t, webMirror(t), s)
+	f.onAcquire = func() { assert.NoError(t, svc.Clear(int64(f.active.Cache.ID))) }
+	_, err = svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+	assert.ErrorIs(t, err, logstore.ErrClosed)
+}
+
+// A page every stream of which failed, with no line to show, is refused naming the
+// first.
+func TestAPageEveryStreamFailedIsRefused(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.setRefusal("prod/web-1/app", &refusal{404, `pods "web-1" not found`})
+	s.setRefusal("prod/web-2/app", &refusal{404, `pods "web-2" not found`})
+	svc, _ := serviceOver(t, webMirror(t), s)
+
+	_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+
+	assert.ErrorContains(t, err, "no container of this view could be read: ")
+}
+
+// A first page's two reads name a stream both skipped once.
+func TestAJoinedPageNamesASkippedStreamOnce(t *testing.T) {
+	t.Parallel()
+	page := joinReads(merge{records: make([]Record, 3), skipped: []string{"a"}}, merge{skipped: []string{"a", "b"}}, true, 10)
+	assert.Equal(t, []string{"a", "b"}, page.skipped)
+	assert.Len(t, page.records, 3)
 }
 
 // loudAround is web-1/app and web-2/app each logging a line a second from 10:00:00 to
@@ -508,6 +1179,108 @@ func loudAround(t *testing.T) (*Service, *logServer) {
 	return svc, s
 }
 
+// A stream too loud to read in one second stops there, and the page is cut at that
+// second's top: the stream is named in skipped with the reason, the other streams'
+// lines at and after that second are on the page, and the next page reads on below
+// it.
+func TestATooLoudSecondCutsATailPage(t *testing.T) {
+	t.Parallel()
+	svc, _ := loudAround(t)
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, Window: until(9 * time.Second), PageFrom: PageFromLast, PageSize: 100})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"web-2 5", "web-1 6", "web-2 6", "web-1 7", "web-2 7", "web-1 8", "web-2 8"}, messages(page.Records))
+	assert.Equal(t, []string{"web-1/app: " + loudAt(at(5*time.Second)).Error()}, skippedOf(page))
+	assert.Equal(t, *cursorOf(momentAt(at(5 * time.Second))), atOf(t, page.Page.Prev))
+
+	next := goOn(t, svc, page.Page.Prev, 100)
+	assert.Equal(t, []string{"web-1 0", "web-2 0", "web-1 1", "web-2 1", "web-1 2", "web-2 2", "web-1 3", "web-2 3", "web-1 4", "web-2 4"}, messages(next.Records))
+	assert.Empty(t, skippedOf(next))
+}
+
+// Forward, the page is cut at the loud second's last nanosecond, with the lines of
+// it the read took before the limit, and the stream's entry reads on from the second
+// after it, so the next page does not stop again.
+func TestATooLoudSecondCutsAHeadPage(t *testing.T) {
+	t.Parallel()
+	svc, s := loudAround(t)
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, Window: Window{Since: moment(3*time.Second + time.Nanosecond)}, PageFrom: PageFromFirst, PageSize: 500})
+
+	require.NoError(t, err)
+	got := messages(page.Records)
+	assert.Equal(t, []string{"web-2 3", "web-1 4", "web-2 4", "web-1 5"}, got[:4])
+	assert.Equal(t, "web-2 5", got[len(got)-1])
+	assert.Len(t, got, 5+7, "the loud lines that fit in the second beside web-1 5")
+	assert.Equal(t, []string{"web-1/app: " + loudAt(at(5*time.Second)).Error()}, skippedOf(page))
+	assert.Equal(t, runPlace{Timestamp: at(6*time.Second - 1)}, cursorIn(t, page.Page.Next).seen[name("web-1", "app")], "web-1 goes on past the second")
+
+	next := goOn(t, svc, page.Page.Next, 500)
+	assert.Equal(t, []string{"web-1 6", "web-2 6", "web-1 7", "web-2 7", "web-1 8", "web-2 8", "web-1 9", "web-2 9"}, messages(next.Records))
+	assert.Empty(t, skippedOf(next))
+	reads := s.requestsOf("prod/web-1/app")
+	assert.Equal(t, "2026-10-08T10:00:06Z", reads[len(reads)-1].Get("sinceTime"))
+}
+
+// A view whose only stream is too loud answers a page with no lines, the reason and
+// more, not a refusal; the next page reads the lines below the second.
+func TestAViewOfOneTooLoudStreamAnswersThePage(t *testing.T) {
+	t.Parallel()
+	svc, _ := loudAround(t)
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: web1Scope, Window: until(5*time.Second + 500*time.Millisecond), PageFrom: PageFromLast, PageSize: 100})
+
+	require.NoError(t, err)
+	assert.Empty(t, page.Records)
+	assert.Equal(t, []string{"web-1/app: " + loudAt(at(5*time.Second)).Error()}, skippedOf(page))
+	assert.NotNil(t, page.Page.Prev)
+
+	next := goOn(t, svc, page.Page.Prev, 100)
+	assert.Equal(t, []string{"web-1 0", "web-1 1", "web-1 2", "web-1 3", "web-1 4"}, messages(next.Records))
+}
+
+// A quiet stream cut when its last window that completed was empty is cut at that
+// window's start, and the next page goes on below it.
+func TestAnEmptyWindowsCutIsItsStart(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(10)...)
+	svc, _ := serviceOver(t, webMirror(t), s)
+	svc.caps.gets = 3
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: web1Scope, Window: Window{Until: moment(2 * time.Minute)}, PageFrom: PageFromLast, PageSize: 10})
+
+	require.NoError(t, err)
+	assert.Empty(t, page.Records)
+	assert.Empty(t, skippedOf(page))
+	// Ten seconds back, then eight times that.
+	assert.Equal(t, *cursorOf(momentAt(at(30 * time.Second))), atOf(t, page.Page.Prev))
+	assert.Equal(t, messages(linesOf(lineEvery(10))), recordsOf(pagesOn(t, svc, page, 10), PageFromLast))
+}
+
+// A stream the pool let read far is walked as far: its walk reads its share of the
+// walks' budget and what its fill downloaded, so a sparse grep does not return an
+// empty page over lines already in the file.
+func TestTheWalkFollowsTheFill(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(0, "match"))
+	for i := range 100 {
+		s.add("prod/web-1/app", stamped(time.Duration(1+i)*time.Second, strings.Repeat("x", 80)))
+	}
+	svc, _ := serviceOver(t, webMirror(t), s)
+	svc.walkBudget = 1 << 10
+	view := webScope
+	view.Grep = "^match"
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: view, PageFrom: PageFromLast, PageSize: 10})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"match"}, messages(page.Records))
+	assert.Nil(t, page.Page.Prev)
+}
+
 // hundredStreams is a mirror of a hundred pods of web, and the key of each one's
 // app container.
 func hundredStreams(t *testing.T) (*fakeService, []string) {
@@ -519,6 +1292,206 @@ func hundredStreams(t *testing.T) (*fakeService, []string) {
 		keys = append(keys, "prod/many-"+strconv.Itoa(i)+"/app")
 	}
 	return f, keys
+}
+
+// The regression: a view of a hundred streams, one of which bursts for ten seconds
+// just before the cursor at two thirds of what a second may hold, pages back with
+// no refusal and no stopped stream. Under midCaps, a second holds 16 KiB and the
+// burst is 83 lines of 100 bytes a second.
+func TestABurstInAHundredStreamsPagesBack(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	f, keys := hundredStreams(t)
+	for i, key := range keys {
+		s.add(key, stamped(time.Duration(i)*time.Second, "quiet"))
+	}
+	for i := range 833 {
+		s.add("prod/web-1/app", stamped(100*time.Second+time.Duration(i)*12*time.Millisecond, loudLine))
+	}
+	svc, _ := serviceOver(t, f, s)
+	svc.caps = midCaps
+
+	got := pagesOn(t, svc, fetch(t, svc, FetchRequest{Scope: webScope, Window: until(110 * time.Second), PageFrom: PageFromLast, PageSize: MaxPageSize}), MaxPageSize)
+
+	for _, page := range got {
+		assert.Empty(t, skippedOf(page))
+	}
+	assert.Len(t, recordsOf(got, PageFromLast), 833+100)
+}
+
+// counting reads through the kubelet over a get whose bodies count the bytes read
+// from them in n.
+func counting(svc *Service, n *atomic.Int64) {
+	svc.backends = []namedBackend{{"kubelet", func(get getter) Backend {
+		return newKubelet(func(ctx context.Context, path string, q url.Values) (io.ReadCloser, error) {
+			body, err := get(ctx, path, q)
+			if err != nil {
+				return nil, err
+			}
+			return countedBody{body, n}, nil
+		})
+	}}}
+}
+
+// countedBody counts the bytes read from it in n.
+type countedBody struct {
+	io.ReadCloser
+	n *atomic.Int64
+}
+
+func (b countedBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	b.n.Add(int64(n))
+	return n, err
+}
+
+// A sparse grep over a hundred logs shares the query's limit: the first page
+// downloads about the query's bytes and what its GETs read past their windows, not
+// every log. Under smallCaps, a hundred 36 KiB logs and a 64 KiB query.
+func TestFirstWindowsShareTheLimit(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	f, keys := hundredStreams(t)
+	for _, key := range keys {
+		s.add(key, wideLines(300, 100)...)
+	}
+	svc, _ := serviceOver(t, f, s)
+	svc.caps = smallCaps
+	var n atomic.Int64
+	counting(svc, &n)
+	view := webScope
+	view.Grep = "never"
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: view, PageFrom: PageFromLast, PageSize: 10})
+
+	require.NoError(t, err)
+	assert.NotNil(t, page.Page.Prev)
+	// A GET reads at most a 4 KiB buffer past its window, and a stream sends at most
+	// three before it is cut.
+	assert.Less(t, n.Load(), smallCaps.query+100*3*(4<<10))
+}
+
+// A sparse grep over several logs past a stream's limit pages on with more until
+// every stream reaches its first line, none stopped. Four 12 KiB logs under
+// smallCaps, three GETs a stream.
+func TestAGrepWithNoMatchPagesToEveryFirstLine(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	f := webMirror(t)
+	addPods(t, f, 2)
+	for _, key := range []string{"prod/web-1/app", "prod/web-2/app", "prod/many-0/app", "prod/many-1/app"} {
+		s.add(key, wideLines(100, 100)...)
+	}
+	svc, _ := serviceOver(t, f, s)
+	svc.caps = smallCaps
+	svc.caps.gets = 3
+	view := webScope
+	view.Grep = "never"
+
+	got := pages(t, svc, view, PageFromLast, 10)
+
+	assert.Greater(t, len(got), 1, "cut")
+	for _, p := range got {
+		assert.Empty(t, p.Records)
+		assert.Empty(t, skippedOf(p))
+	}
+	assert.Nil(t, got[len(got)-1].Page.Prev)
+}
+
+// A grep with no match over one stream reads back to the log's first line: the
+// page answers no record and no more.
+func TestAGrepWithNoMatchReadsToTheFirstLine(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(1000)...)
+	svc, _ := serviceOver(t, webMirror(t), s)
+	view := web1Scope
+	view.Grep = "never"
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: view, PageFrom: PageFromLast, PageSize: 10})
+
+	require.NoError(t, err)
+	assert.Empty(t, page.Records)
+	assert.Nil(t, page.Page.Prev)
+}
+
+// A stream is cut at its limits, backward and forward, and each next page goes on
+// from its cut: a sparse grep over 640 KiB under limits scaled down 64 times reads
+// every match over several pages.
+func TestAStreamsCutsJoin(t *testing.T) {
+	t.Parallel()
+	for _, mode := range []PageFrom{PageFromLast, PageFromFirst} {
+		t.Run(string(mode), func(t *testing.T) {
+			t.Parallel()
+			s := newLogServer()
+			var log []string
+			var want []string
+			for i := range 320 {
+				msg := strconv.Itoa(i) + strings.Repeat("x", 2<<10)
+				if i%40 == 7 {
+					msg = "match " + strconv.Itoa(i)
+					want = append(want, msg)
+				}
+				log = append(log, stamped(time.Duration(i)*time.Second, msg))
+			}
+			s.add("prod/web-1/app", log...)
+			svc, _ := serviceOver(t, webMirror(t), s)
+			svc.caps = midCaps
+			view := web1Scope
+			view.Grep = "^match"
+
+			got := pages(t, svc, view, mode, 100)
+
+			assert.Greater(t, len(got), 1, "cut")
+			assert.Equal(t, want, recordsOf(got, mode))
+		})
+	}
+}
+
+// gated is a Backend that runs wait before each read it hands to b.
+type gated struct {
+	b    Backend
+	wait func(st stream, o readOpts)
+}
+
+func (w gated) Forward(ctx context.Context, st stream, o readOpts) *streamRead {
+	w.wait(st, o)
+	return w.b.Forward(ctx, st, o)
+}
+
+func (w gated) Backward(ctx context.Context, st stream, o readOpts) *streamRead {
+	w.wait(st, o)
+	return w.b.Backward(ctx, st, o)
+}
+
+func (w gated) Tail(ctx context.Context, st stream, o readOpts) *streamRead {
+	w.wait(st, o)
+	return w.b.Tail(ctx, st, o)
+}
+
+// A fill that ends early gives back what it holds, so the streams still reading may
+// spend it: web-2's one line is read in its first window, and web-1's read begins
+// only once the pool holds more than its seed, which web-2's allowance alone adds.
+func TestAFillThatEndsEarlyReturnsItsAllowance(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(10)...)
+	s.add("prod/web-2/app", stamped(0, "quiet"))
+	svc, _ := serviceOver(t, webMirror(t), s)
+	svc.caps = smallCaps
+	seeded := smallCaps.query - 2*smallCaps.stream
+	svc.backends = []namedBackend{{"kubelet", func(get getter) Backend {
+		return gated{newKubelet(get), func(st stream, o readOpts) {
+			if st.key.Pod == "web-1" {
+				assert.Eventually(t, func() bool { return o.limits.pool.load() > seeded }, testutil.Timeout, time.Millisecond)
+			}
+		}}
+	}}}
+
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromLast, PageSize: 100})
+
+	require.NoError(t, err)
+	assert.Len(t, page.Records, 11)
 }
 
 // fetch is the page req answers on cluster 7.
@@ -1169,6 +2142,25 @@ func TestAPollDeliversSkewedLinesOnce(t *testing.T) {
 	page = goOn(t, svc, page.Page.Follow, 10)
 	assert.Empty(t, page.Records)
 	assert.NotNil(t, page.Page.Follow)
+}
+
+// A page in a window whose After is counted reads no more past Until than the count
+// asks for, whatever its size: the fill stops there, so the file holds no more.
+func TestACountedAfterReadsNoFurtherThanItsCount(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", lineEvery(100)...)
+	ret := testRetention
+	ret.WriteBatch = 1
+	svc, f := serviceIn(t, webMirror(t), s, t.TempDir(), ret)
+
+	page := fetch(t, svc, FetchRequest{Scope: webScope, Window: Window{Until: moment(10 * time.Second), After: Padding{Lines: 2}}, PageFrom: PageFromFirst, PageSize: 500})
+
+	assert.Equal(t, messages(linesOf(lineEvery(13))), messages(page.Records))
+	assert.Equal(t, [3]bool{false, false, false}, edgesOf(page.Page))
+	spans := spansOf(t, svc, f)
+	require.NotEmpty(t, spans)
+	assert.Equal(t, sec(12).TS, spans[len(spans)-1].To.TS, "the file holds nothing past the count")
 }
 
 // A counted After fills by polls as its lines arrive: the poll that finds the

@@ -537,6 +537,13 @@ func (s *logServer) rotate(key string, d time.Duration) {
 	s.logs[key] = kept
 }
 
+// breakNext fails the body of the next read that follows nothing after n lines.
+func (s *logServer) breakNext(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.broken = &n
+}
+
 // clear empties key's log.
 func (s *logServer) clear(key string) {
 	s.mu.Lock()
@@ -757,6 +764,13 @@ func capsOf(n int64) caps {
 	return caps{second: 1 << 20, stream: n, gets: 16, query: n, window: max(n/4, 1), minWindow: 16, part: 16}
 }
 
+// randomCaps is limits a seeded walk's logs of a few hundred bytes a stream reach,
+// with a second of a few KiB, which a log of long lines passes.
+func randomCaps(rng *rand.Rand) caps {
+	stream := int64(2000 + rng.Intn(8000))
+	return caps{second: int64(1000 + rng.Intn(3000)), stream: stream, gets: 4 + rng.Intn(13), query: stream * int64(1+rng.Intn(6)), window: stream / 4, minWindow: 16, part: 16}
+}
+
 // claimOn is a claim on a cluster whose API server serves s.
 func claimOn(t *testing.T, s *logServer) *claim {
 	t.Helper()
@@ -823,7 +837,7 @@ func marks(recs []Record) []string {
 // kubeletOnly is the backends of a cluster read through its API server.
 var kubeletOnly = []string{"kubelet"}
 
-// sec is the lineCursor of a line s seconds past 10:00.
+// sec is the position of a line s seconds past 10:00.
 func sec(s int) logstore.Pos { return logstore.Pos{TS: at(time.Duration(s) * time.Second).UnixNano()} }
 
 // said is a line s seconds past 10:00 saying msg.
@@ -979,6 +993,18 @@ func inlined(sql string, args []any) string {
 	return sql
 }
 
+// moment is a pointer to the moment d past 10:00.
+func moment(d time.Duration) *time.Time {
+	t := at(d)
+	return &t
+}
+
+// codeOf is err's refusal code, empty for none.
+func codeOf(err error) Code {
+	r, _ := AsRefusal(err)
+	return r.Code
+}
+
 // from, after and to are bounds at the moment d past 10:00: since it, after it,
 // and until it.
 func from(d time.Duration) bound  { return bound{momentAt(at(d)), true} }
@@ -1131,6 +1157,94 @@ func serviceOn(t *testing.T, backend Backend) (*Service, *fakeService) {
 	return svc, f
 }
 
+// serviceBatched is serviceOn writing n lines a batch.
+func serviceBatched(t *testing.T, backend Backend, n int) (*Service, *fakeService) {
+	t.Helper()
+	ret := testRetention
+	ret.WriteBatch = n
+	svc, f := serviceIn(t, webMirror(t), newLogServer(), t.TempDir(), ret)
+	svc.backends = []namedBackend{{"kubelet", func(getter) Backend { return backend }}}
+	return svc, f
+}
+
+// pages reads scope from the edge from names to the other, PageFromFirst on through
+// each Next and PageFromLast back through each Prev, size lines a page, failing past
+// 100 pages, and is every page.
+func pages(t *testing.T, svc *Service, scope Scope, from PageFrom, size int) []FetchResponse {
+	t.Helper()
+	page := fetch(t, svc, FetchRequest{Scope: scope, PageFrom: from, PageSize: size})
+	return pagesOn(t, svc, page, size)
+}
+
+// pagesOn is page and every page after it the way it read: on through each Next
+// for a newer page, back through each Prev for an older one.
+func pagesOn(t *testing.T, svc *Service, page FetchResponse, size int) []FetchResponse {
+	t.Helper()
+	newer := page.Request.PageFrom == PageFromFirst || page.Request.PageCursor != nil && cursorIn(t, page.Request.PageCursor).newer
+	out := []FetchResponse{page}
+	for range 100 {
+		c := page.Page.Prev
+		if newer {
+			c = page.Page.Next
+		}
+		if c == nil {
+			return out
+		}
+		page = fetch(t, svc, FetchRequest{PageCursor: c, PageSize: size})
+		out = append(out, page)
+	}
+	t.Fatal("the pages never end")
+	return nil
+}
+
+// recordsOf is every page's records, oldest first: pages read the way from names.
+func recordsOf(pages []FetchResponse, from PageFrom) []string {
+	out := []string{}
+	for _, page := range pages {
+		if from == PageFromFirst {
+			out = append(out, messages(page.Records)...)
+		} else {
+			out = append(messages(page.Records), out...)
+		}
+	}
+	return out
+}
+
+// skippedOf is each stream-skipped notice page carries, its message.
+func skippedOf(page FetchResponse) []string {
+	out := []string{}
+	for _, n := range page.Notices {
+		if n.Code == CodeStreamSkipped {
+			out = append(out, n.Message)
+		}
+	}
+	return out
+}
+
+// until is a window up to just before d past 10:00: what a read back from a line
+// or a moment at d, exclusive, reads.
+func until(d time.Duration) Window { return Window{Until: moment(d - time.Nanosecond)} }
+
+// prevFrom is the Prev a page over scope whose oldest line was pod/container's
+// first at d past 10:00 hands out, in an open window: a read back from that line,
+// exclusive, size lines a page.
+func prevFrom(scope Scope, pod, container string, d time.Duration, size int) FetchRequest {
+	c := pageCursor{Scope: scope, resolvedWindow: resolvedWindow{ResolvedAt: at(time.Hour)}, at: lineAt(StreamKey{Namespace: "prod", Pod: pod, Container: container}, d, 0)}
+	return FetchRequest{PageCursor: encoded(c), PageSize: size}
+}
+
+// seenAt is Seen naming pod/container's first line at d past 10:00: what a read
+// on past that line reads.
+func seenAt(pod, container string, d time.Duration) []string {
+	return []string{line(pod, container, d, "").Cursor()}
+}
+
+// aroundAt is the first page of scope's window from d, read with n lines of
+// context before it: a read on from d and a read back from it, in one page.
+func aroundAt(scope Scope, d time.Duration, n int) FetchRequest {
+	return FetchRequest{Scope: scope, Window: Window{Since: moment(d), Before: Padding{Lines: n}}, PageFrom: PageFromFirst, PageSize: 2 * n}
+}
+
 // linesOf is lines as the records a page answers, their messages alone.
 func linesOf(lines []string) []Record {
 	out := make([]Record, len(lines))
@@ -1195,72 +1309,8 @@ func restartWeb1(t *testing.T, f *fakeService, s *logServer, lines ...string) {
 	s.mu.Unlock()
 }
 
-// podSource is a view of the pod name in prod, reading containers, every one with
-// none named and all set, previous when asked.
-func podSource(name string, previous bool, containers ...string) Scope {
-	return Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: name, Containers: containers, Previous: previous}}}
-}
-
-// moment is a pointer to the moment d past 10:00.
-func moment(d time.Duration) *time.Time {
-	t := at(d)
-	return &t
-}
-
-// codeOf is err's refusal code, empty for none.
-func codeOf(err error) Code {
-	r, _ := AsRefusal(err)
-	return r.Code
-}
-
-// randomCaps is limits a seeded walk's logs of a few hundred bytes a stream reach,
-// with a second of a few KiB, which a log of long lines passes.
-func randomCaps(rng *rand.Rand) caps {
-	stream := int64(2000 + rng.Intn(8000))
-	return caps{second: int64(1000 + rng.Intn(3000)), stream: stream, gets: 4 + rng.Intn(13), query: stream * int64(1+rng.Intn(6)), window: stream / 4, minWindow: 16, part: 16}
-}
-
-// skippedOf is each stream-skipped notice page carries, its message.
-func skippedOf(page FetchResponse) []string {
-	out := []string{}
-	for _, n := range page.Notices {
-		if n.Code == CodeStreamSkipped {
-			out = append(out, n.Message)
-		}
-	}
-	return out
-}
-
-// pagesOn is page and every page after it the way it read: on through each Next
-// for a newer page, back through each Prev for an older one.
-func pagesOn(t *testing.T, svc *Service, page FetchResponse, size int) []FetchResponse {
+// atOf is where the page cursor c goes on from, encoded as a line cursor: its at.
+func atOf(t *testing.T, c *string) string {
 	t.Helper()
-	newer := page.Request.PageFrom == PageFromFirst || page.Request.PageCursor != nil && cursorIn(t, page.Request.PageCursor).newer
-	out := []FetchResponse{page}
-	for range 100 {
-		c := page.Page.Prev
-		if newer {
-			c = page.Page.Next
-		}
-		if c == nil {
-			return out
-		}
-		page = fetch(t, svc, FetchRequest{PageCursor: c, PageSize: size})
-		out = append(out, page)
-	}
-	t.Fatal("the pages never end")
-	return nil
-}
-
-// recordsOf is every page's records, oldest first: pages read the way from names.
-func recordsOf(pages []FetchResponse, from PageFrom) []string {
-	out := []string{}
-	for _, page := range pages {
-		if from == PageFromFirst {
-			out = append(out, messages(page.Records)...)
-		} else {
-			out = append(messages(page.Records), out...)
-		}
-	}
-	return out
+	return encodeLineCursor(cursorIn(t, c).at)
 }

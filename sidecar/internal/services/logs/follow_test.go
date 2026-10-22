@@ -1996,6 +1996,26 @@ func TestAFollowKeepsAHoleItCrossesForItsNextLine(t *testing.T) {
 	assert.Equal(t, "x7 (1s-5s)", marks([]Record{recvLine(t, stream, "the match past the hole")})[0])
 }
 
+// A tailer that resumes from a cached line the kubelet has rotated away writes a head
+// chunk past its start, and the lost gap between is the hole: once the tailer has
+// committed past it, the follow's first line carries it, and so does a page while the
+// tailer runs.
+func TestAHoleBehindAResumedTailerIsMarked(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.add("prod/web-1/app", stamped(5*time.Second, "x5"))
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, s)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: []logstore.Line{said(0, "x0"), said(1, "y1")}})
+	stream, err := svc.Follow(t.Context(), "7", podView("web-1"), lineCursorFor("web-1", "app", time.Second, 0))
+	require.NoError(t, err)
+
+	assert.Equal(t, "x5 (1s-5s)", marks([]Record{recvLine(t, stream, "the first line past the hole")})[0])
+	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: podView("web-1"), PageFrom: PageFromLast, PageSize: 10})
+	require.NoError(t, err)
+	assert.Equal(t, []string{"x0", "y1", "x5 (1s-5s)"}, marks(page.Records))
+}
+
 // A hole a follow crosses before its first match rides on that match even when the
 // match's look back runs out of bytes before reaching it.
 func TestAFollowsFirstLineKeepsAHoleItsLookCannotReach(t *testing.T) {
