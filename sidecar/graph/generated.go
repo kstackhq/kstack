@@ -688,7 +688,7 @@ type ComplexityRoot struct {
 		ClusterCachedKinds  func(childComplexity int, cacheID *apimeta.ObjectID) int
 		ClusterCaches       func(childComplexity int, clusterID *apimeta.ClusterID) int
 		Clusters            func(childComplexity int) int
-		LogsFetch           func(childComplexity int, id apimeta.ClusterID, view logs.View, mode model.LogsFetchMode, cursor *string, at *time.Time, limit int) int
+		LogsFetch           func(childComplexity int, id apimeta.ClusterID, view logs.Scope, mode model.LogsFetchMode, cursor *string, at *time.Time, limit int) int
 		Models              func(childComplexity int) int
 		PermissionSettings  func(childComplexity int) int
 		Sandbox             func(childComplexity int) int
@@ -791,7 +791,7 @@ type ComplexityRoot struct {
 		ClusterScheduleWatch          func(childComplexity int, id apimeta.ClusterID) int
 		ClustersWatch                 func(childComplexity int) int
 		EventsWatch                   func(childComplexity int, id apimeta.ObjectID, category *string) int
-		LogsFollow                    func(childComplexity int, id apimeta.ClusterID, view logs.View, after *string) int
+		LogsFollow                    func(childComplexity int, id apimeta.ClusterID, view logs.Scope, after *string) int
 		MemoriesWatch                 func(childComplexity int, clusterID apimeta.ClusterID) int
 		SandboxExecutablesWatch       func(childComplexity int) int
 	}
@@ -932,7 +932,7 @@ type QueryResolver interface {
 	PermissionSettings(ctx context.Context) (*model.PermissionSettings, error)
 	SandboxFolders(ctx context.Context, chatID *apimeta.ChatID) (*model.SandboxFolders, error)
 	ChatGrants(ctx context.Context, chatID apimeta.ChatID) ([]*permissions.Rule, error)
-	LogsFetch(ctx context.Context, id apimeta.ClusterID, view logs.View, mode model.LogsFetchMode, cursor *string, at *time.Time, limit int) (*model.LogRecordsPage, error)
+	LogsFetch(ctx context.Context, id apimeta.ClusterID, view logs.Scope, mode model.LogsFetchMode, cursor *string, at *time.Time, limit int) (*model.LogRecordsPage, error)
 	AuthState(ctx context.Context) (*auth.State, error)
 }
 type SubscriptionResolver interface {
@@ -951,7 +951,7 @@ type SubscriptionResolver interface {
 	ChatsWatch(ctx context.Context) (<-chan *chat.ChatWatchFrame, error)
 	ChatMessagesWatch(ctx context.Context, chatID apimeta.ChatID) (<-chan *chat.ChatMessageWatchFrame, error)
 	MemoriesWatch(ctx context.Context, clusterID apimeta.ClusterID) (<-chan *memory.MemoryWatchFrame, error)
-	LogsFollow(ctx context.Context, id apimeta.ClusterID, view logs.View, after *string) (<-chan *logs.FollowFrame, error)
+	LogsFollow(ctx context.Context, id apimeta.ClusterID, view logs.Scope, after *string) (<-chan *logs.FollowFrame, error)
 	SandboxExecutablesWatch(ctx context.Context) (<-chan *model.SandboxExecutablesReport, error)
 	AuthStateWatch(ctx context.Context) (<-chan *auth.State, error)
 }
@@ -3669,7 +3669,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Query.LogsFetch(childComplexity, args["id"].(apimeta.ClusterID), args["view"].(logs.View), args["mode"].(model.LogsFetchMode), args["cursor"].(*string), args["at"].(*time.Time), args["limit"].(int)), true
+		return e.ComplexityRoot.Query.LogsFetch(childComplexity, args["id"].(apimeta.ClusterID), args["view"].(logs.Scope), args["mode"].(model.LogsFetchMode), args["cursor"].(*string), args["at"].(*time.Time), args["limit"].(int)), true
 	case "Query.models":
 		if e.ComplexityRoot.Query.Models == nil {
 			break
@@ -4143,7 +4143,7 @@ func (e *executableSchema) Complexity(ctx context.Context, typeName, field strin
 			return 0, false
 		}
 
-		return e.ComplexityRoot.Subscription.LogsFollow(childComplexity, args["id"].(apimeta.ClusterID), args["view"].(logs.View), args["after"].(*string)), true
+		return e.ComplexityRoot.Subscription.LogsFollow(childComplexity, args["id"].(apimeta.ClusterID), args["view"].(logs.Scope), args["after"].(*string)), true
 	case "Subscription.memoriesWatch":
 		if e.ComplexityRoot.Subscription.MemoriesWatch == nil {
 			break
@@ -6857,8 +6857,8 @@ func (ec *executionContext) field_Query_logsFetch_args(ctx context.Context, rawA
 	}
 	args["id"] = arg0
 	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "view",
-		func(ctx context.Context, v any) (logs.View, error) {
-			return ec.unmarshalNLogsViewInput2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐView(ctx, v)
+		func(ctx context.Context, v any) (logs.Scope, error) {
+			return ec.unmarshalNLogsViewInput2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScope(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -7137,8 +7137,8 @@ func (ec *executionContext) field_Subscription_logsFollow_args(ctx context.Conte
 	}
 	args["id"] = arg0
 	arg1, err := graphql.ProcessArgField(ctx, rawArgs, "view",
-		func(ctx context.Context, v any) (logs.View, error) {
-			return ec.unmarshalNLogsViewInput2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐView(ctx, v)
+		func(ctx context.Context, v any) (logs.Scope, error) {
+			return ec.unmarshalNLogsViewInput2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScope(ctx, v)
 		})
 	if err != nil {
 		return nil, err
@@ -13686,8 +13686,8 @@ func (ec *executionContext) _LogsReadAction_sources(ctx context.Context, field g
 			return obj.Sources, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []logs.ViewSource) graphql.Marshaler {
-			return ec.marshalNLogsViewSource2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewSourceᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []logs.ScopeSource) graphql.Marshaler {
+			return ec.marshalNLogsViewSource2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeSourceᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -13718,8 +13718,8 @@ func (ec *executionContext) _LogsReadAction_filters(ctx context.Context, field g
 			return obj.Filters, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []logs.ViewFilter) graphql.Marshaler {
-			return ec.marshalNLogsViewFilter2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewFilterᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []logs.ScopeFilter) graphql.Marshaler {
+			return ec.marshalNLogsViewFilter2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeFilterᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -14191,8 +14191,8 @@ func (ec *executionContext) _LogsViewAction_sources(ctx context.Context, field g
 			return obj.Sources, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []logs.ViewSource) graphql.Marshaler {
-			return ec.marshalNLogsViewSource2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewSourceᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []logs.ScopeSource) graphql.Marshaler {
+			return ec.marshalNLogsViewSource2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeSourceᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -14223,8 +14223,8 @@ func (ec *executionContext) _LogsViewAction_filters(ctx context.Context, field g
 			return obj.Filters, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []logs.ViewFilter) graphql.Marshaler {
-			return ec.marshalNLogsViewFilter2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewFilterᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []logs.ScopeFilter) graphql.Marshaler {
+			return ec.marshalNLogsViewFilter2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeFilterᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -14390,7 +14390,7 @@ func (ec *executionContext) fieldContext_LogsViewAnchor_at(_ context.Context, fi
 	return graphql.NewScalarFieldContext("LogsViewAnchor", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _LogsViewFilter_field(ctx context.Context, field graphql.CollectedField, obj *logs.ViewFilter) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogsViewFilter_field(ctx context.Context, field graphql.CollectedField, obj *logs.ScopeFilter) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14413,7 +14413,7 @@ func (ec *executionContext) fieldContext_LogsViewFilter_field(_ context.Context,
 	return graphql.NewScalarFieldContext("LogsViewFilter", field, false, false, errors.New("field of type LogsViewFilterField does not have child fields"))
 }
 
-func (ec *executionContext) _LogsViewFilter_values(ctx context.Context, field graphql.CollectedField, obj *logs.ViewFilter) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogsViewFilter_values(ctx context.Context, field graphql.CollectedField, obj *logs.ScopeFilter) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14436,7 +14436,7 @@ func (ec *executionContext) fieldContext_LogsViewFilter_values(_ context.Context
 	return graphql.NewScalarFieldContext("LogsViewFilter", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _LogsViewSource_namespace(ctx context.Context, field graphql.CollectedField, obj *logs.ViewSource) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogsViewSource_namespace(ctx context.Context, field graphql.CollectedField, obj *logs.ScopeSource) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14459,7 +14459,7 @@ func (ec *executionContext) fieldContext_LogsViewSource_namespace(_ context.Cont
 	return graphql.NewScalarFieldContext("LogsViewSource", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _LogsViewSource_kind(ctx context.Context, field graphql.CollectedField, obj *logs.ViewSource) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogsViewSource_kind(ctx context.Context, field graphql.CollectedField, obj *logs.ScopeSource) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14482,7 +14482,7 @@ func (ec *executionContext) fieldContext_LogsViewSource_kind(_ context.Context, 
 	return graphql.NewScalarFieldContext("LogsViewSource", field, false, false, errors.New("field of type LogsViewSourceKind does not have child fields"))
 }
 
-func (ec *executionContext) _LogsViewSource_name(ctx context.Context, field graphql.CollectedField, obj *logs.ViewSource) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogsViewSource_name(ctx context.Context, field graphql.CollectedField, obj *logs.ScopeSource) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14505,7 +14505,7 @@ func (ec *executionContext) fieldContext_LogsViewSource_name(_ context.Context, 
 	return graphql.NewScalarFieldContext("LogsViewSource", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _LogsViewSource_containers(ctx context.Context, field graphql.CollectedField, obj *logs.ViewSource) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogsViewSource_containers(ctx context.Context, field graphql.CollectedField, obj *logs.ScopeSource) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14528,7 +14528,7 @@ func (ec *executionContext) fieldContext_LogsViewSource_containers(_ context.Con
 	return graphql.NewScalarFieldContext("LogsViewSource", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _LogsViewSource_allContainers(ctx context.Context, field graphql.CollectedField, obj *logs.ViewSource) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogsViewSource_allContainers(ctx context.Context, field graphql.CollectedField, obj *logs.ScopeSource) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14551,7 +14551,7 @@ func (ec *executionContext) fieldContext_LogsViewSource_allContainers(_ context.
 	return graphql.NewScalarFieldContext("LogsViewSource", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _LogsViewSource_previous(ctx context.Context, field graphql.CollectedField, obj *logs.ViewSource) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogsViewSource_previous(ctx context.Context, field graphql.CollectedField, obj *logs.ScopeSource) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -14586,8 +14586,8 @@ func (ec *executionContext) _LogsWatchAction_sources(ctx context.Context, field 
 			return obj.Sources, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []logs.ViewSource) graphql.Marshaler {
-			return ec.marshalNLogsViewSource2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewSourceᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []logs.ScopeSource) graphql.Marshaler {
+			return ec.marshalNLogsViewSource2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeSourceᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -14618,8 +14618,8 @@ func (ec *executionContext) _LogsWatchAction_filters(ctx context.Context, field 
 			return obj.Filters, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []logs.ViewFilter) graphql.Marshaler {
-			return ec.marshalNLogsViewFilter2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewFilterᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []logs.ScopeFilter) graphql.Marshaler {
+			return ec.marshalNLogsViewFilter2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeFilterᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -18164,7 +18164,7 @@ func (ec *executionContext) _Query_logsFetch(ctx context.Context, field graphql.
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Query().LogsFetch(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["view"].(logs.View), fc.Args["mode"].(model.LogsFetchMode), fc.Args["cursor"].(*string), fc.Args["at"].(*time.Time), fc.Args["limit"].(int))
+			return ec.Resolvers.Query().LogsFetch(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["view"].(logs.Scope), fc.Args["mode"].(model.LogsFetchMode), fc.Args["cursor"].(*string), fc.Args["at"].(*time.Time), fc.Args["limit"].(int))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *model.LogRecordsPage) graphql.Marshaler {
@@ -19921,7 +19921,7 @@ func (ec *executionContext) _Subscription_logsFollow(ctx context.Context, field 
 		},
 		func(ctx context.Context) (any, error) {
 			fc := graphql.GetFieldContext(ctx)
-			return ec.Resolvers.Subscription().LogsFollow(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["view"].(logs.View), fc.Args["after"].(*string))
+			return ec.Resolvers.Subscription().LogsFollow(ctx, fc.Args["id"].(apimeta.ClusterID), fc.Args["view"].(logs.Scope), fc.Args["after"].(*string))
 		},
 		nil,
 		func(ctx context.Context, selections ast.SelectionSet, v *logs.FollowFrame) graphql.Marshaler {
@@ -22050,8 +22050,8 @@ func (ec *executionContext) fieldContext___Type_isOneOf(_ context.Context, field
 
 // region    **************************** input.gotpl *****************************
 
-func (ec *executionContext) unmarshalInputLogsViewFilterInput(ctx context.Context, obj any) (logs.ViewFilter, error) {
-	var it logs.ViewFilter
+func (ec *executionContext) unmarshalInputLogsViewFilterInput(ctx context.Context, obj any) (logs.ScopeFilter, error) {
+	var it logs.ScopeFilter
 	if obj == nil {
 		return it, nil
 	}
@@ -22087,8 +22087,8 @@ func (ec *executionContext) unmarshalInputLogsViewFilterInput(ctx context.Contex
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputLogsViewInput(ctx context.Context, obj any) (logs.View, error) {
-	var it logs.View
+func (ec *executionContext) unmarshalInputLogsViewInput(ctx context.Context, obj any) (logs.Scope, error) {
+	var it logs.Scope
 	if obj == nil {
 		return it, nil
 	}
@@ -22107,14 +22107,14 @@ func (ec *executionContext) unmarshalInputLogsViewInput(ctx context.Context, obj
 		switch k {
 		case "sources":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("sources"))
-			data, err := ec.unmarshalNLogsViewSourceInput2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewSourceᚄ(ctx, v)
+			data, err := ec.unmarshalNLogsViewSourceInput2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeSourceᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
 			it.Sources = data
 		case "filters":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("filters"))
-			data, err := ec.unmarshalNLogsViewFilterInput2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewFilterᚄ(ctx, v)
+			data, err := ec.unmarshalNLogsViewFilterInput2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeFilterᚄ(ctx, v)
 			if err != nil {
 				return it, err
 			}
@@ -22282,8 +22282,8 @@ func (ec *executionContext) unmarshalInputLogsViewSnapshotInput(ctx context.Cont
 	return it, nil
 }
 
-func (ec *executionContext) unmarshalInputLogsViewSourceInput(ctx context.Context, obj any) (logs.ViewSource, error) {
-	var it logs.ViewSource
+func (ec *executionContext) unmarshalInputLogsViewSourceInput(ctx context.Context, obj any) (logs.ScopeSource, error) {
+	var it logs.ScopeSource
 	if obj == nil {
 		return it, nil
 	}
@@ -26297,7 +26297,7 @@ func (ec *executionContext) _LogsViewAnchor(ctx context.Context, sel ast.Selecti
 
 var logsViewFilterImplementors = []string{"LogsViewFilter"}
 
-func (ec *executionContext) _LogsViewFilter(ctx context.Context, sel ast.SelectionSet, obj *logs.ViewFilter) graphql.Marshaler {
+func (ec *executionContext) _LogsViewFilter(ctx context.Context, sel ast.SelectionSet, obj *logs.ScopeFilter) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, logsViewFilterImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -26340,7 +26340,7 @@ func (ec *executionContext) _LogsViewFilter(ctx context.Context, sel ast.Selecti
 
 var logsViewSourceImplementors = []string{"LogsViewSource"}
 
-func (ec *executionContext) _LogsViewSource(ctx context.Context, sel ast.SelectionSet, obj *logs.ViewSource) graphql.Marshaler {
+func (ec *executionContext) _LogsViewSource(ctx context.Context, sel ast.SelectionSet, obj *logs.ScopeSource) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, logsViewSourceImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -30310,15 +30310,15 @@ var (
 	}
 )
 
-func (ec *executionContext) marshalNLogsViewFilter2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewFilter(ctx context.Context, sel ast.SelectionSet, v logs.ViewFilter) graphql.Marshaler {
+func (ec *executionContext) marshalNLogsViewFilter2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeFilter(ctx context.Context, sel ast.SelectionSet, v logs.ScopeFilter) graphql.Marshaler {
 	return ec._LogsViewFilter(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNLogsViewFilter2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewFilterᚄ(ctx context.Context, sel ast.SelectionSet, v []logs.ViewFilter) graphql.Marshaler {
+func (ec *executionContext) marshalNLogsViewFilter2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeFilterᚄ(ctx context.Context, sel ast.SelectionSet, v []logs.ScopeFilter) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNLogsViewFilter2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewFilter(ctx, sel, v[i])
+		return ec.marshalNLogsViewFilter2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeFilter(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -30364,18 +30364,18 @@ var (
 	}
 )
 
-func (ec *executionContext) unmarshalNLogsViewFilterInput2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewFilter(ctx context.Context, v any) (logs.ViewFilter, error) {
+func (ec *executionContext) unmarshalNLogsViewFilterInput2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeFilter(ctx context.Context, v any) (logs.ScopeFilter, error) {
 	res, err := ec.unmarshalInputLogsViewFilterInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNLogsViewFilterInput2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewFilterᚄ(ctx context.Context, v any) ([]logs.ViewFilter, error) {
+func (ec *executionContext) unmarshalNLogsViewFilterInput2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeFilterᚄ(ctx context.Context, v any) ([]logs.ScopeFilter, error) {
 	vSlice := graphql.CoerceList(v)
 	var err error
-	res := make([]logs.ViewFilter, len(vSlice))
+	res := make([]logs.ScopeFilter, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNLogsViewFilterInput2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewFilter(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNLogsViewFilterInput2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeFilter(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}
@@ -30383,7 +30383,7 @@ func (ec *executionContext) unmarshalNLogsViewFilterInput2ᚕgithubᚗcomᚋksta
 	return res, nil
 }
 
-func (ec *executionContext) unmarshalNLogsViewInput2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐView(ctx context.Context, v any) (logs.View, error) {
+func (ec *executionContext) unmarshalNLogsViewInput2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScope(ctx context.Context, v any) (logs.Scope, error) {
 	res, err := ec.unmarshalInputLogsViewInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
@@ -30407,15 +30407,15 @@ func (ec *executionContext) unmarshalNLogsViewSelectedLineInput2ᚖgithubᚗcom�
 	return &res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) marshalNLogsViewSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewSource(ctx context.Context, sel ast.SelectionSet, v logs.ViewSource) graphql.Marshaler {
+func (ec *executionContext) marshalNLogsViewSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeSource(ctx context.Context, sel ast.SelectionSet, v logs.ScopeSource) graphql.Marshaler {
 	return ec._LogsViewSource(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNLogsViewSource2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewSourceᚄ(ctx context.Context, sel ast.SelectionSet, v []logs.ViewSource) graphql.Marshaler {
+func (ec *executionContext) marshalNLogsViewSource2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeSourceᚄ(ctx context.Context, sel ast.SelectionSet, v []logs.ScopeSource) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNLogsViewSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewSource(ctx, sel, v[i])
+		return ec.marshalNLogsViewSource2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeSource(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -30427,18 +30427,18 @@ func (ec *executionContext) marshalNLogsViewSource2ᚕgithubᚗcomᚋkstackhqᚋ
 	return ret
 }
 
-func (ec *executionContext) unmarshalNLogsViewSourceInput2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewSource(ctx context.Context, v any) (logs.ViewSource, error) {
+func (ec *executionContext) unmarshalNLogsViewSourceInput2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeSource(ctx context.Context, v any) (logs.ScopeSource, error) {
 	res, err := ec.unmarshalInputLogsViewSourceInput(ctx, v)
 	return res, graphql.ErrorOnPath(ctx, err)
 }
 
-func (ec *executionContext) unmarshalNLogsViewSourceInput2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewSourceᚄ(ctx context.Context, v any) ([]logs.ViewSource, error) {
+func (ec *executionContext) unmarshalNLogsViewSourceInput2ᚕgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeSourceᚄ(ctx context.Context, v any) ([]logs.ScopeSource, error) {
 	vSlice := graphql.CoerceList(v)
 	var err error
-	res := make([]logs.ViewSource, len(vSlice))
+	res := make([]logs.ScopeSource, len(vSlice))
 	for i := range vSlice {
 		ctx := graphql.WithPathContext(ctx, graphql.NewPathWithIndex(i))
-		res[i], err = ec.unmarshalNLogsViewSourceInput2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐViewSource(ctx, vSlice[i])
+		res[i], err = ec.unmarshalNLogsViewSourceInput2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐScopeSource(ctx, vSlice[i])
 		if err != nil {
 			return nil, err
 		}

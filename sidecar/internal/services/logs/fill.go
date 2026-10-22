@@ -38,7 +38,7 @@ type streamFill struct {
 	// fromKey is whether the first gap a fill may be offered was read from where the
 	// walk starts in it, the page's bound or the tailer's start, so nothing lies
 	// between there and the first line past it: the walk crosses that gap. toEnd is
-	// whether a Head page read the newest gap it may fill whole, to the stream's end
+	// whether a newer page read the newest gap it may fill whole, to the stream's end
 	// or to the tailer's start, which no chunk sits at: the walk crosses it.
 	fromKey bool
 	toEnd   bool
@@ -50,8 +50,8 @@ type streamFill struct {
 	// page held it, and the page reads it as a stream no backend serves.
 	wrote bool
 	gone  bool
-	// up is what a Tail fill from the same bound links its first window up to: the
-	// first line a Head fill read from its bound, or, when it read its first gap whole
+	// up is what an older fill from the same bound links its first window up to: the
+	// first line a newer fill read from its bound, or, when it read its first gap whole
 	// and found none, that gap's far edge. Nil with neither.
 	up *logstore.Pos
 	// stop is the moment a read was cut or stopped at when what it wrote does not
@@ -88,11 +88,11 @@ type filler struct {
 	// held is whether a chunk of the page's pattern claims a line, as the walk keeps
 	// only such lines.
 	held func(logstore.Pos) bool
-	// seam is the stream's line just past a Tail page's bound, which a Head fill from
+	// seam is the stream's line just past an older page's bound, which a newer fill from
 	// the same bound proved nothing lies before: the read back from the bound links
 	// up to it. Nil for none.
 	seam *logstore.Pos
-	// near is the rate next to the point of the gap a Tail fill reads, nil with none
+	// near is the rate next to the point of the gap an older fill reads, nil with none
 	// measured.
 	near *rate
 	// far is where the page's range ends in the stream, nil for no end.
@@ -104,7 +104,7 @@ type filler struct {
 // run fills the stream from key, its bound, and answers what it did. Only a fatal
 // failure or one of the file is an error.
 func (f *filler) run(ctx context.Context, key logstore.Pos) (streamFill, error) {
-	chunks, err := f.file.Chunks(ctx, f.ps.row.ID, f.q.view.Grep)
+	chunks, err := f.file.Chunks(ctx, f.ps.row.ID, f.q.scope.Grep)
 	if err != nil {
 		return streamFill{}, err
 	}
@@ -155,7 +155,7 @@ func (f *filler) filled() bool { return f.count >= f.q.need() }
 // is not spent.
 func (f *filler) countSpan(ctx context.Context, sp logstore.Span, key logstore.Pos) (bool, error) {
 	from, to := logstore.MaxPos(key, sp.From.Prev()), sp.To
-	if f.q.mode == FetchTail {
+	if f.q.mode == older {
 		from, to = logstore.MinPos(key, sp.To.Next()), sp.From
 	}
 	counted := true
@@ -181,7 +181,7 @@ func (f *filler) countSpan(ctx context.Context, sp logstore.Span, key logstore.P
 // the page's far bound.
 func (f *filler) fillGap(ctx context.Context, g logstore.Gap, key logstore.Pos, first bool) (bool, error) {
 	lower, upper, prev, next := gapRange(g, key, f.q.mode)
-	if f.q.mode == FetchTail && upper != nil && next == nil {
+	if f.q.mode == older && upper != nil && next == nil {
 		// The read starts at the bound, inside the gap.
 		next = f.seam
 	}
@@ -194,9 +194,9 @@ func (f *filler) fillGap(ctx context.Context, g logstore.Gap, key logstore.Pos, 
 	clamped := false
 	switch {
 	case f.far == nil:
-	case f.q.mode == FetchHead && (upper == nil || upper.Compare(*f.far) > 0):
+	case f.q.mode == newer && (upper == nil || upper.Compare(*f.far) > 0):
 		upper, next, clamped = f.far, nil, true
-	case f.q.mode == FetchTail && (lower == nil || lower.Compare(*f.far) < 0):
+	case f.q.mode == older && (lower == nil || lower.Compare(*f.far) < 0):
 		lower, prev, clamped = f.far, nil, true
 	}
 	whole, oldest, err := f.read(ctx, g.Tier, lower, upper, prev, next)
@@ -205,7 +205,7 @@ func (f *filler) fillGap(ctx context.Context, g logstore.Gap, key logstore.Pos, 
 	}
 	if first && (whole || oldest != nil) {
 		f.out.fromKey = true
-		if f.q.mode == FetchHead {
+		if f.q.mode == newer {
 			f.out.up = oldest
 			if oldest == nil {
 				f.out.up = upper
@@ -216,18 +216,18 @@ func (f *filler) fillGap(ctx context.Context, g logstore.Gap, key logstore.Pos, 
 		f.out.toFar = whole
 		return false, nil
 	}
-	if whole && f.q.mode == FetchHead && g.Newest() {
+	if whole && f.q.mode == newer && g.Newest() {
 		f.out.toEnd = true
 	}
 	return whole && !f.filled() && f.out.err == nil && !f.limits.usedUp(), nil
 }
 
-// rateAbove is the rate of a Tail fill's lines next to its point, sampled oldest
+// rateAbove is the rate of an older fill's lines next to its point, sampled oldest
 // first from above, the first line of the chunk the gap ends at. It is nil for a
-// Head fill, a gap that ends at nothing, or too few lines to measure. The point
+// newer fill, a gap that ends at nothing, or too few lines to measure. The point
 // often lies inside the gap, so the chunk is the gap's, not one at the point.
 func (f *filler) rateAbove(ctx context.Context, above *logstore.Pos) (*rate, error) {
-	if f.q.mode != FetchTail || above == nil {
+	if f.q.mode != older || above == nil {
 		return nil, nil
 	}
 	need := int64(f.q.need())
@@ -330,7 +330,7 @@ func (p pulled) up(next *logstore.Pos) *logstore.Pos {
 // from the point. It is false once a write ended the read. A read the page's
 // context ended is an error.
 func (f *filler) pull(ctx context.Context, tier int, lower, upper, prev, next *logstore.Pos) (pulled, bool, error) {
-	forward := f.q.mode == FetchHead
+	forward := f.q.mode == newer
 	o := readOpts{since: f.boundAt(lower), until: f.boundAt(upper), limits: f.limits, batch: int64(f.q.need()), grep: f.q.grep, near: f.near}
 	// began is the moment a forward read's GET began at, told before its first line
 	// arrives.
@@ -491,7 +491,7 @@ func hole(oldest *logstore.Pos, whole bool, prev *logstore.Pos) bool {
 // that served every line down to prev proves, with the head mark.
 func (f *filler) link(ctx context.Context, tier int, p pulled, prev, next *logstore.Pos) (bool, error) {
 	fill := logstore.Fill{Stream: f.ps.row.ID, Origin: f.names[tier], Head: p.head}
-	if f.q.mode == FetchHead {
+	if f.q.mode == newer {
 		if p.oldest != nil {
 			return true, nil
 		}
@@ -648,7 +648,7 @@ type segment struct {
 // segmentsFrom is cov's spans and gaps in the order a page reading mode from key
 // meets them, less the ones wholly behind key: a span, or a gap with no place left
 // for a line between key and its far edge.
-func segmentsFrom(cov logstore.Coverage, key logstore.Pos, mode FetchMode) []segment {
+func segmentsFrom(cov logstore.Coverage, key logstore.Pos, mode direction) []segment {
 	var all []segment
 	spans := cov.Spans
 	for i := range cov.Gaps {
@@ -660,7 +660,7 @@ func segmentsFrom(cov logstore.Coverage, key logstore.Pos, mode FetchMode) []seg
 		}
 		all = append(all, segment{gap: g})
 	}
-	head := mode == FetchHead
+	head := mode == newer
 	if !head {
 		slices.Reverse(all)
 	}
@@ -687,12 +687,12 @@ func segmentsFrom(cov logstore.Coverage, key logstore.Pos, mode FetchMode) []seg
 // gapRange is the part of g a page reading mode from key reads: its edges, nil for
 // none, and the chunk edges among them, which a fill links to. Where key lies inside
 // g, the range starts at key and links to nothing there.
-func gapRange(g logstore.Gap, key logstore.Pos, mode FetchMode) (lower, upper, prev, next *logstore.Pos) {
+func gapRange(g logstore.Gap, key logstore.Pos, mode direction) (lower, upper, prev, next *logstore.Pos) {
 	lower, upper, prev, next = g.After, g.Before, g.After, g.Before
-	if mode == FetchHead && key != logstore.Oldest && (g.After == nil || key.Compare(*g.After) > 0) {
+	if mode == newer && key != logstore.Oldest && (g.After == nil || key.Compare(*g.After) > 0) {
 		lower, prev = &key, nil
 	}
-	if mode == FetchTail && key != logstore.Newest && (g.Before == nil || key.Compare(*g.Before) < 0) {
+	if mode == older && key != logstore.Newest && (g.Before == nil || key.Compare(*g.Before) < 0) {
 		upper, next = &key, nil
 	}
 	return lower, upper, prev, next

@@ -54,8 +54,8 @@ func web2() map[string]any {
 }
 
 // podView reads the default container of the pod name in prod.
-func podView(name string) View {
-	return View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: name}}}
+func podView(name string) Scope {
+	return Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: name}}}
 }
 
 // bookmark closes a watch's snapshot.
@@ -70,7 +70,7 @@ func TestAFollowOfTooManyContainersIsRefused(t *testing.T) {
 	addPods(t, f, 99)
 	svc, _ := serviceOver(t, f, s)
 
-	_, err := svc.Follow(t.Context(), "7", webView, nil)
+	_, err := svc.Follow(t.Context(), "7", webScope, nil)
 	assert.ErrorIs(t, err, ErrTooMany)
 	assert.Empty(t, s.requests())
 }
@@ -82,36 +82,36 @@ func TestFollowIsRefusedBeforeItOpens(t *testing.T) {
 	t.Parallel()
 	bad := "yesterday"
 	svc, _ := serviceOver(t, webMirror(t), newLogServer())
-	_, err := svc.Follow(t.Context(), "7", webView, &bad)
+	_, err := svc.Follow(t.Context(), "7", webScope, &bad)
 	assert.EqualError(t, err, "a cursor must be an RFC 3339 time, or one a page handed back")
 
 	svc, f := serviceOver(t, webMirror(t), newLogServer())
 	f.active.Cache = nil
-	_, err = svc.Follow(t.Context(), "7", webView, nil)
+	_, err = svc.Follow(t.Context(), "7", webScope, nil)
 	assert.ErrorIs(t, err, ErrNoCache)
 
 	svc, f = serviceOver(t, webMirror(t), newLogServer())
 	f.acquireErr = cluster.ErrNotConnectable
-	_, err = svc.Follow(t.Context(), "7", webView, nil)
+	_, err = svc.Follow(t.Context(), "7", webScope, nil)
 	assert.ErrorIs(t, err, ErrRevoked)
 
 	svc, f = serviceOver(t, webMirror(t), newLogServer())
 	f.watchObjectsErr = errors.New("no watch")
-	_, err = svc.Follow(t.Context(), "7", webView, nil)
+	_, err = svc.Follow(t.Context(), "7", webScope, nil)
 	assert.EqualError(t, err, "no watch")
 	assert.Equal(t, int32(1), f.lease.released.Load())
 }
 
-// openFollow opens a follow of webView over f, failing the test on an error, and
+// openFollow opens a follow of webScope over f, failing the test on an error, and
 // closes the pods watch's snapshot, returning once the follow has resolved the
 // view against it.
 func openFollow(t *testing.T, svc *Service, f *fakeService) (*cluster.Stream[FollowFrame], context.CancelFunc) {
 	t.Helper()
-	return openFollowOf(t, svc, f, webView)
+	return openFollowOf(t, svc, f, webScope)
 }
 
 // openFollowOf is openFollow of view.
-func openFollowOf(t *testing.T, svc *Service, f *fakeService, view View) (*cluster.Stream[FollowFrame], context.CancelFunc) {
+func openFollowOf(t *testing.T, svc *Service, f *fakeService, view Scope) (*cluster.Stream[FollowFrame], context.CancelFunc) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
@@ -121,13 +121,13 @@ func openFollowOf(t *testing.T, svc *Service, f *fakeService, view View) (*clust
 	return stream, cancel
 }
 
-// openEndingFollow opens a follow of webView over f that ends on its own. It
+// openEndingFollow opens a follow of webScope over f that ends on its own. It
 // leaves the pods watch's snapshot open: the follow opens its streams before the
 // snapshot closes and can end before the test could close it, after which nothing
 // reads the watch.
 func openEndingFollow(t *testing.T, svc *Service) *cluster.Stream[FollowFrame] {
 	t.Helper()
-	stream, err := svc.Follow(t.Context(), "7", webView, nil)
+	stream, err := svc.Follow(t.Context(), "7", webScope, nil)
 	require.NoError(t, err)
 	return stream
 }
@@ -197,7 +197,7 @@ func TestAFollowStampsNothing(t *testing.T) {
 	svc, _ := serviceIn(t, f, newLogServer(), t.TempDir(), testRetention)
 	seedUnread(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0, time.Second), Head: true})
 
-	stream, err := svc.Follow(t.Context(), "7", web1View, cursor(-time.Second))
+	stream, err := svc.Follow(t.Context(), "7", web1Scope, cursor(-time.Second))
 	require.NoError(t, err)
 	assert.Equal(t, "0", recvLine(t, stream, "the first line").Message)
 	assert.Equal(t, "1", recvLine(t, stream, "the second line").Message)
@@ -214,7 +214,7 @@ func TestAFollowHoldsItsRows(t *testing.T) {
 	backend.set("web-1/app", fakeRead{wait: never})
 	svc, f := serviceOn(t, backend)
 	everyPodGone(svc)
-	_, cancel := openFollowOf(t, svc, f, web1View)
+	_, cancel := openFollowOf(t, svc, f, web1Scope)
 	backend.opened.Await(t, "the tailer's read")
 
 	sweepFile(t, svc, f)
@@ -234,7 +234,7 @@ func TestAFollowAfterACursor(t *testing.T) {
 	s.add("prod/web-1/app", stamped(0, "seen"), stamped(time.Second, "missed"))
 	svc, _ := serviceOver(t, webMirror(t), s)
 
-	stream, err := svc.Follow(t.Context(), "7", webView, cursor(0))
+	stream, err := svc.Follow(t.Context(), "7", webScope, cursor(0))
 
 	require.NoError(t, err)
 	assert.Equal(t, "missed", recvLine(t, stream, "the missed line").Message)
@@ -247,7 +247,7 @@ func TestAFollowGrepsWhatItSends(t *testing.T) {
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	view := webView
+	view := webScope
 	view.Grep = "^keep"
 	stream, _ := openFollowOf(t, svc, f, view)
 
@@ -276,14 +276,14 @@ func recvLine(t *testing.T, stream *cluster.Stream[FollowFrame], what string) Re
 }
 
 // endedWith waits for stream's Ended frame, then for it to end clean, and answers
-// the frame's reason.
-func endedWith(t *testing.T, stream *cluster.Stream[FollowFrame]) string {
+// the frame's code and reason as a Refusal.
+func endedWith(t *testing.T, stream *cluster.Stream[FollowFrame]) Refusal {
 	t.Helper()
 	frame := recvFrame(t, stream, "the follow's end")
 	require.Equal(t, FollowEnded, frame.Type)
 	testutil.RecvClosed(t, stream.Frames, "the follow to end")
 	require.NoError(t, stream.Err())
-	return frame.Reason
+	return Refusal{Code: frame.Code, Reason: frame.Reason}
 }
 
 // failsWith waits for stream to end with no Ended frame and answers its Err.
@@ -320,7 +320,7 @@ func TestAFollowEndsWhenTheClusterIsDisabled(t *testing.T) {
 	disabled.Spec.Enabled = false
 	f.frames <- cluster.ClusterWatchFrame{Type: cluster.DeltaFrameModified, Cluster: disabled}
 
-	assert.Equal(t, ErrRevoked.Reason, endedWith(t, stream))
+	assert.Equal(t, ErrRevoked, endedWith(t, stream))
 }
 
 // A 401 on a stream the follow opens ends it: the user's credentials, not a pod's
@@ -332,7 +332,7 @@ func TestAFollowEndsOnAnUnauthorizedStream(t *testing.T) {
 	svc, _ := serviceOver(t, webMirror(t), s)
 	stream := openEndingFollow(t, svc)
 
-	assert.Equal(t, "the cluster refused to show this log: unauthorized", endedWith(t, stream))
+	assert.Equal(t, Refusal{CodeUnauthorized, "the cluster refused to show this log: unauthorized"}, endedWith(t, stream))
 }
 
 // A 403 is one namespace's, so it ends its own stream alone, and the follow ends
@@ -350,7 +350,7 @@ func TestAForbiddenStreamEndsItselfAlone(t *testing.T) {
 
 	s.setRefusal("prod/web-1/app", &refusal{http.StatusForbidden, "forbidden"})
 	s.end("prod/web-1/app")
-	assert.Equal(t, "the cluster refused to show this log: forbidden", endedWith(t, stream))
+	assert.Equal(t, Refusal{CodeUnauthorized, "the cluster refused to show this log: forbidden"}, endedWith(t, stream))
 }
 
 // A follow that ends on its own, with its caller still waiting, ends its pods
@@ -365,7 +365,7 @@ func TestAFollowThatEndsReleasesItsWatch(t *testing.T) {
 	f.podsDone = make(chan struct{})
 	stream := openEndingFollow(t, svc)
 
-	assert.Equal(t, "the cluster refused to show this log: forbidden", endedWith(t, stream))
+	assert.Equal(t, Refusal{CodeUnauthorized, "the cluster refused to show this log: forbidden"}, endedWith(t, stream))
 	testutil.Wait(t, f.podsDone, "the pods watch to end")
 }
 
@@ -382,7 +382,7 @@ func TestAFollowEndsWhenEveryStreamIsGone(t *testing.T) {
 	s.end("prod/web-1/app")
 	s.end("prod/web-2/app")
 
-	assert.Equal(t, errStopped.Reason, endedWith(t, stream))
+	assert.Equal(t, errStopped, endedWith(t, stream))
 }
 
 // A follow whose containers have all finished reads each to its end, sends their
@@ -398,11 +398,11 @@ func TestAFollowDeliversWhatItHeldBeforeItEnds(t *testing.T) {
 	s.end("prod/web-1/app")
 	s.end("prod/web-2/app")
 
-	stream, err := svc.Follow(t.Context(), "7", webView, cursor(-time.Second))
+	stream, err := svc.Follow(t.Context(), "7", webScope, cursor(-time.Second))
 	require.NoError(t, err)
 
 	assert.ElementsMatch(t, []string{"a", "b"}, recvLines(t, stream, 2))
-	assert.Equal(t, errStopped.Reason, endedWith(t, stream))
+	assert.Equal(t, errStopped, endedWith(t, stream))
 }
 
 // A pod that joined the view between its resolving and the pods watch opening is
@@ -412,7 +412,7 @@ func TestAFollowReconcilesTheSnapshot(t *testing.T) {
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, err := svc.Follow(t.Context(), "7", webView, nil)
+	stream, err := svc.Follow(t.Context(), "7", webScope, nil)
 	require.NoError(t, err)
 
 	f.store.Apply(t, web3())
@@ -450,7 +450,7 @@ func TestAFollowOfAnEmptyViewWaitsForItsPods(t *testing.T) {
 	f := webMirror(t)
 	f.store.Mirror(t, "batch/v1", "Job")
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollowOf(t, svc, f, View{Sources: []ViewSource{{Namespace: "prod", Kind: SourceJob, Name: "batch"}}})
+	stream, _ := openFollowOf(t, svc, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourceJob, Name: "batch"}}})
 
 	f.store.Apply(t, workload("batch/v1", "Job", "batch", "uid-batch", nil))
 	f.store.Apply(t, pod("batch-1", "uid-batch-1", "", controller("batch/v1", "Job", "batch", "uid-batch"), container{name: "main"}))
@@ -482,7 +482,7 @@ func TestAFollowWatchesOnlyItsNamespaces(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
-	view := View{Sources: []ViewSource{
+	view := Scope{Sources: []ScopeSource{
 		{Namespace: "prod", Kind: SourcePod, Name: "web-1"},
 		{Namespace: "prod", Kind: SourcePod, Name: "web-2"},
 		{Namespace: "staging", Kind: SourcePod, Name: "web-1"},
@@ -514,7 +514,7 @@ func TestAFollowOfAPodEndsWithThePod(t *testing.T) {
 			}
 			f.pods <- uidFrame(cluster.DeltaFrameDeleted, "web-1", "uid-web-1")
 
-			assert.Equal(t, "pod prod/web-1 was deleted", endedWith(t, stream))
+			assert.Equal(t, Refusal{CodeFinished, "pod prod/web-1 was deleted"}, endedWith(t, stream))
 		})
 	}
 }
@@ -533,8 +533,8 @@ func TestADeletedPodLeavesItsViewsOtherSources(t *testing.T) {
 	solo := pod("solo", "uid-a", "node-a", nil, container{name: "app"})
 	f := newMirror(t, append(append(webObjects(), webNodes()...), solo)...)
 	svc, _ := serviceOver(t, f, s)
-	view := webView
-	view.Sources = append(slices.Clone(view.Sources), ViewSource{Namespace: "prod", Kind: SourcePod, Name: "solo"})
+	view := webScope
+	view.Sources = append(slices.Clone(view.Sources), ScopeSource{Namespace: "prod", Kind: SourcePod, Name: "solo"})
 	stream, _ := openFollowOf(t, svc, f, view)
 	soloOpens.Await(t, "solo's first follow")
 
@@ -562,7 +562,7 @@ func TestADeletedPodLeavesItsWorkloadReadingItsReplacement(t *testing.T) {
 	first := pod("db-0", "uid-db-0", "node-a", db, container{name: "app"})
 	f := newMirror(t, append(webNodes(), workload("apps/v1", "StatefulSet", "db", "uid-db", nil), first)...)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollowOf(t, svc, f, View{Sources: []ViewSource{
+	stream, _ := openFollowOf(t, svc, f, Scope{Sources: []ScopeSource{
 		{Namespace: "prod", Kind: SourceStatefulSet, Name: "db"},
 		{Namespace: "prod", Kind: SourcePod, Name: "db-0"},
 	}})
@@ -603,7 +603,7 @@ func TestAFollowOfAPodEndsWhenNoFrameNamesItsEnd(t *testing.T) {
 			end(f)
 			f.pods <- bookmark
 
-			assert.Equal(t, "pod prod/web-1 was deleted", endedWith(t, stream))
+			assert.Equal(t, Refusal{CodeFinished, "pod prod/web-1 was deleted"}, endedWith(t, stream))
 		})
 		t.Run(name+" across a cache clear", func(t *testing.T) {
 			f := webMirror(t)
@@ -623,7 +623,7 @@ func TestAFollowOfAPodEndsWhenNoFrameNamesItsEnd(t *testing.T) {
 				pods <- bookmark
 			}
 
-			assert.Equal(t, "pod prod/web-1 was deleted", endedWith(t, stream))
+			assert.Equal(t, Refusal{CodeFinished, "pod prod/web-1 was deleted"}, endedWith(t, stream))
 		})
 	}
 }
@@ -633,7 +633,7 @@ func TestAFollowOfPodsEndsWhenEveryPodIsDeleted(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, newLogServer())
-	view := View{Sources: []ViewSource{
+	view := Scope{Sources: []ScopeSource{
 		{Namespace: "prod", Kind: SourcePod, Name: "web-1"},
 		{Namespace: "prod", Kind: SourcePod, Name: "web-2"},
 	}}
@@ -644,7 +644,7 @@ func TestAFollowOfPodsEndsWhenEveryPodIsDeleted(t *testing.T) {
 	f.pods <- podFrame(cluster.DeltaFrameDeleted, "web-1")
 	f.pods <- podFrame(cluster.DeltaFrameDeleted, "web-2")
 
-	assert.Equal(t, "pods prod/web-1, prod/web-2 were deleted", endedWith(t, stream))
+	assert.Equal(t, Refusal{CodeFinished, "pods prod/web-1, prod/web-2 were deleted"}, endedWith(t, stream))
 }
 
 // A pod the watch deletes and the mirror still holds, as a cache's clear and
@@ -693,7 +693,7 @@ func TestAFinishedInitContainerLeavesItsPodFollowed(t *testing.T) {
 	boot := func() map[string]any { return pod("boot", "uid-boot", "node-a", nil, container{name: "app"}) }
 	f := newMirror(t, append(webObjects(), withInit(waiting(boot()), "init"))...)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollowOf(t, svc, f, View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "boot", AllContainers: true}}})
+	stream, _ := openFollowOf(t, svc, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "boot", AllContainers: true}}})
 	require.Eventually(t, func() bool { return len(s.requestsOf("prod/boot/init")) >= 1 }, testutil.Timeout, time.Millisecond, "init read to its end")
 	// A negative assertion, so a bounded window: the follow would end on the init
 	// container's end at once, and a hundred retries is far past it.
@@ -716,7 +716,7 @@ func TestAResolveReadsOneStateOfTheMirror(t *testing.T) {
 	boot := func() map[string]any { return pod("boot", "uid-boot", "node-a", nil, container{name: "app"}) }
 	f := newMirror(t, append(webObjects(), withInit(waiting(boot()), "init"))...)
 	svc, _ := serviceOver(t, f, s)
-	stream, _ := openFollowOf(t, svc, f, View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "boot", AllContainers: true}}})
+	stream, _ := openFollowOf(t, svc, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "boot", AllContainers: true}}})
 	var started sync.Once
 	read := testutil.NewProbe[struct{}](1)
 	f.set(func() {
@@ -753,7 +753,7 @@ func TestAFollowEndsOnACutMirrorAnswer(t *testing.T) {
 	f.set(func() { f.moreOn = "FROM objects p" })
 	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
 
-	assert.Equal(t, errCut.Reason, endedWith(t, stream))
+	assert.Equal(t, errCut, endedWith(t, stream))
 }
 
 // A mirror watch that ends clean, as a cache's clear ends it, is opened again after
@@ -833,7 +833,7 @@ func TestAFollowWatchesTheWorkloadsBetweenASourceAndItsPods(t *testing.T) {
 // controls, once each, and none for a pod.
 func TestAViewWatchesTheKindsItsSourcesWalk(t *testing.T) {
 	t.Parallel()
-	view := View{Sources: []ViewSource{
+	view := Scope{Sources: []ScopeSource{
 		{Namespace: "prod", Kind: SourcePod, Name: "web-1"},
 		{Namespace: "prod", Kind: SourceDeployment, Name: "web"},
 		{Namespace: "prod", Kind: SourceReplicaSet, Name: "web-7d9f"},
@@ -855,8 +855,8 @@ func TestAFollowOnAMirrorThatChangesUnderIt(t *testing.T) {
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	view := webView
-	view.Filters = []ViewFilter{{Field: FilterZone, Values: []string{"eu-1a"}}}
+	view := webScope
+	view.Filters = []ScopeFilter{{Field: FilterZone, Values: []string{"eu-1a"}}}
 	stream, _ := openFollowOf(t, svc, f, view)
 
 	// node-b goes first: the snapshot's resolve can land between the deletes, and
@@ -884,7 +884,7 @@ func TestAFollowOnAMirrorThatChangesUnderIt(t *testing.T) {
 		f.active.Cache = &moved
 	})
 	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
-	assert.Equal(t, ErrRevoked.Reason, endedWith(t, stream))
+	assert.Equal(t, ErrRevoked, endedWith(t, stream))
 }
 
 // A frame with no object moves nothing: the follow resolves the view again only
@@ -1041,8 +1041,8 @@ func TestAFollowTracksItsNodesLabels(t *testing.T) {
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	view := webView
-	view.Filters = []ViewFilter{{Field: FilterZone, Values: []string{"eu-1a"}}}
+	view := webScope
+	view.Filters = []ScopeFilter{{Field: FilterZone, Values: []string{"eu-1a"}}}
 	stream, _ := openFollowOf(t, svc, f, view)
 	for _, n := range webNodes() {
 		f.nodes <- nodeFrame(cluster.DeltaFrameAdded, n)
@@ -1088,7 +1088,7 @@ func TestANodeFrameMovesTheViewOnlyForItsLabels(t *testing.T) {
 		"no object":            {cluster.ClusterCachedDataObjectWatchFrame{Type: cluster.DeltaFrameModified}, false},
 	} {
 		t.Run(name, func(t *testing.T) {
-			f := &follow{nodes: map[string]Place{}, view: View{Filters: []ViewFilter{{Field: FilterZone, Values: []string{"eu-1a"}}}}}
+			f := &follow{nodes: map[string]Place{}, scope: Scope{Filters: []ScopeFilter{{Field: FilterZone, Values: []string{"eu-1a"}}}}}
 			done := make(chan cluster.ClusterCachedDataObjectWatchFrame)
 			close(done)
 			f.nodesMoved(nodeFrame(cluster.DeltaFrameAdded, a), done)
@@ -1167,7 +1167,7 @@ func TestAFollowAfterACursorReadsANewPodFromIt(t *testing.T) {
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	_, err := svc.Follow(t.Context(), "7", webView, cursor(30*time.Minute))
+	_, err := svc.Follow(t.Context(), "7", webScope, cursor(30*time.Minute))
 	require.NoError(t, err)
 	closeSnapshot(t, f, f.pods)
 
@@ -1209,11 +1209,11 @@ func TestAHeldStreamWaitsOutItsBackoff(t *testing.T) {
 	defer cancel()
 	c, err := acquireClaim(ctx, fake, "7", "uid-1")
 	require.NoError(t, err)
-	view := View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}}}}
+	view := Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}}}}
 	tg, err := resolve(ctx, svc.clusters, "7", view, true)
 	require.NoError(t, err)
 	f := &follow{
-		s: svc, id: "7", view: view, since: from(time.Hour), claim: c, file: fileOf(t, svc, fake), tails: svc.registryFor("7", tg),
+		s: svc, id: "7", scope: view, since: from(time.Hour), claim: c, file: fileOf(t, svc, fake), tails: svc.registryFor("7", tg),
 		target: target{serverUID: "uid-1"}, out: make(chan FollowFrame, 16), streams: map[StreamKey]*tracked{},
 		nodes: map[string]Place{}, deleted: map[string]string{}, podUIDs: map[string]string{}, gone: map[string]bool{}, held: map[int64]func(){},
 		dueHub: mpsc.New[StreamKey](0, mpsc.WithKeepOpen()), endedHub: mpsc.New[*handle](0, mpsc.WithKeepOpen()),
@@ -1264,7 +1264,7 @@ func TestAFollowEndsWhenItsViewGrowsTooLarge(t *testing.T) {
 	addPods(t, f, 99)
 	f.pods <- podFrame(cluster.DeltaFrameAdded, "many-0")
 
-	assert.Equal(t, ErrTooMany.Reason, endedWith(t, stream))
+	assert.Equal(t, ErrTooMany, endedWith(t, stream))
 }
 
 // Every refusal ends a follow with its words, bare or inside the refusals that
@@ -1277,11 +1277,11 @@ func TestAsRefusalReadsEveryRefusal(t *testing.T) {
 		NoNodes{ErrSyncing},
 		fmt.Errorf("wrapped: %w", ErrSyncing),
 	} {
-		refusal, ok := asRefusal(err)
+		refusal, ok := AsRefusal(err)
 		assert.True(t, ok, err)
 		assert.Equal(t, ErrSyncing, refusal)
 	}
-	_, ok := asRefusal(errors.New("db closed"))
+	_, ok := AsRefusal(errors.New("db closed"))
 	assert.False(t, ok)
 }
 
@@ -1479,7 +1479,7 @@ func TestASlowFillHoldsUpNoOtherStream(t *testing.T) {
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
-	stream, err := svc.Follow(t.Context(), "7", webView, cursor(0))
+	stream, err := svc.Follow(t.Context(), "7", webScope, cursor(0))
 	require.NoError(t, err)
 	asked.Wait(t, "web-1's gap fill")
 
@@ -1530,7 +1530,7 @@ func TestAFillThatFailsAfterItsContainerFinishedIsRetried(t *testing.T) {
 	s.mu.Unlock()
 
 	assert.Equal(t, []string{"in the gap", "1800"}, recvLines(t, stream, 2))
-	assert.Equal(t, errStopped.Reason, endedWith(t, stream))
+	assert.Equal(t, errStopped, endedWith(t, stream))
 }
 
 // A follow cancelled while a gap fill is in flight ends clean once the fill returns,
@@ -1556,7 +1556,9 @@ func TestAFillUnauthorizedEndsTheFollow(t *testing.T) {
 	s.refuseReads["prod/web-1/app"] = refusal{http.StatusUnauthorized, "unauthorized"}
 	_, _, stream, _ := liveGap(t, s, false, stamped(10*time.Minute, "in the gap"))
 
-	assert.Contains(t, endedWith(t, stream), "unauthorized")
+	ended := endedWith(t, stream)
+	assert.Equal(t, CodeUnauthorized, ended.Code)
+	assert.Contains(t, ended.Reason, "unauthorized")
 }
 
 // A stream that leaves the view while its gap fill is in flight sends nothing of what
@@ -1571,7 +1573,7 @@ func TestAFillOfAStreamThatLeftTheViewIsNotSent(t *testing.T) {
 	filled := testutil.NewSignal()
 	svc.afterFill = func() { filled.Fire() }
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
-	stream, err := svc.Follow(t.Context(), "7", webView, cursor(0))
+	stream, err := svc.Follow(t.Context(), "7", webScope, cursor(0))
 	require.NoError(t, err)
 	closeSnapshot(t, f, f.pods)
 	asked.Wait(t, "web-1's gap fill")
@@ -1748,7 +1750,7 @@ func TestAFillRefusedEndsItsStream(t *testing.T) {
 	s.refuseReads["prod/web-1/app"] = refusal{http.StatusForbidden, "no"}
 	_, _, stream, _ := liveGap(t, s, false, stamped(10*time.Minute, "in the gap"))
 
-	assert.Equal(t, "the cluster refused to show this log: no", endedWith(t, stream))
+	assert.Equal(t, Refusal{CodeUnauthorized, "the cluster refused to show this log: no"}, endedWith(t, stream))
 }
 
 // A lost gap is crossed with no fill.
@@ -1846,7 +1848,7 @@ func TestBackfillsOfSeveralStreamsShareOneBatch(t *testing.T) {
 	}
 	f := newMirror(t, append(webObjects(), finished(web1()), finished(web2()))...)
 	svc, _ := serviceOver(t, f, s)
-	stream, err := svc.Follow(t.Context(), "7", webView, cursor(-time.Second))
+	stream, err := svc.Follow(t.Context(), "7", webScope, cursor(-time.Second))
 	require.NoError(t, err)
 
 	lines, run := 0, 0
@@ -1888,7 +1890,7 @@ func TestAnEndedTailersGapsAreWalkedAsLive(t *testing.T) {
 	s.end("prod/web-1/app")
 
 	assert.Equal(t, "5", recvLine(t, stream, "the page's line").Message)
-	assert.Equal(t, errStopped.Reason, endedWith(t, stream))
+	assert.Equal(t, errStopped, endedWith(t, stream))
 }
 
 // A container's restart is not a drop: once the view sees the new instance, the old

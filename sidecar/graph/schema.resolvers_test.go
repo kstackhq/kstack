@@ -3314,11 +3314,11 @@ func TestSandboxExecutableRemoveWorksWithNoSandbox(t *testing.T) {
 // fakeLogs is the log service answering a stream, and keeping what it was asked.
 type fakeLogs struct {
 	stream *cluster.Stream[logs.FollowFrame]
-	view   logs.View
+	view   logs.Scope
 	after  *string
 }
 
-func (f *fakeLogs) Follow(_ context.Context, _ cluster.ClusterID, view logs.View, after *string) (*cluster.Stream[logs.FollowFrame], error) {
+func (f *fakeLogs) Follow(_ context.Context, _ cluster.ClusterID, view logs.Scope, after *string) (*cluster.Stream[logs.FollowFrame], error) {
 	f.view, f.after = view, after
 	return f.stream, nil
 }

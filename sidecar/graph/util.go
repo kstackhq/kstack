@@ -162,22 +162,14 @@ func chatErr(err error) error {
 	return err
 }
 
-// logsErr is what both log resolvers return an error through: a refusal in the
-// user's words is a validation error carrying them.
+// logsErr is what both log resolvers return an error through: a refusal is a
+// validation error whose rule is its code and whose message is its words.
 func logsErr(err error) error {
-	var refusal logs.Refusal
-	var unmirrored logs.Unmirrored
-	var noNodes logs.NoNodes
-	switch {
-	case errors.As(err, &refusal):
-	case errors.As(err, &unmirrored):
-		refusal = unmirrored.Refusal
-	case errors.As(err, &noNodes):
-		refusal = noNodes.Refusal
-	default:
+	refusal, ok := logs.AsRefusal(err)
+	if !ok {
 		return err
 	}
-	return gqlerrors.NewValidationError("logs", refusal.Reason)
+	return gqlerrors.NewValidationError(string(refusal.Code), refusal.Reason)
 }
 
 // sandboxPathErr is what every sandbox path resolver returns an error

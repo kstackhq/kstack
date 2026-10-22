@@ -167,19 +167,19 @@ func TestEachStreamsBoundOffOneCursor(t *testing.T) {
 		"an earlier id": {stream("web-1", "a"), ats(2), ats(3)},
 		"a later id":    {stream("web-1", "c"), ats(1), ats(2)},
 	} {
-		assert.Equal(t, tc.head, streamBound(cursor, tc.in, FetchHead), name+", head")
-		assert.Equal(t, tc.tail, streamBound(cursor, tc.in, FetchTail), name+", tail")
+		assert.Equal(t, tc.head, streamBound(cursor, tc.in, newer), name+", head")
+		assert.Equal(t, tc.tail, streamBound(cursor, tc.in, older), name+", tail")
 	}
 
 	own := stream("web-1", "b")
 	kept := bound{cursor.at, true}
-	assert.Equal(t, ats(1), streamBound(kept, own, FetchHead), "a kept line, head")
-	assert.Equal(t, ats(3), streamBound(kept, own, FetchTail), "a kept line, tail")
+	assert.Equal(t, ats(1), streamBound(kept, own, newer), "a kept line, head")
+	assert.Equal(t, ats(3), streamBound(kept, own, older), "a kept line, tail")
 	m := position{Timestamp: at(0)}
-	assert.Equal(t, ats(math.MaxInt), streamBound(bound{m, false}, own, FetchHead), "after a moment")
-	assert.Equal(t, ats(-1), streamBound(bound{m, true}, own, FetchHead), "from a moment")
-	assert.Equal(t, ats(-1), streamBound(bound{m, false}, own, FetchTail), "before a moment")
-	assert.Equal(t, ats(math.MaxInt), streamBound(bound{m, true}, own, FetchTail), "up to a moment")
-	assert.Equal(t, logstore.Oldest, streamBound(bound{}, own, FetchHead), "the start")
-	assert.Equal(t, logstore.Newest, streamBound(bound{}, own, FetchTail), "the end")
+	assert.Equal(t, ats(math.MaxInt), streamBound(bound{m, false}, own, newer), "after a moment")
+	assert.Equal(t, ats(-1), streamBound(bound{m, true}, own, newer), "from a moment")
+	assert.Equal(t, ats(-1), streamBound(bound{m, false}, own, older), "before a moment")
+	assert.Equal(t, ats(math.MaxInt), streamBound(bound{m, true}, own, older), "up to a moment")
+	assert.Equal(t, logstore.Oldest, streamBound(bound{}, own, newer), "the start")
+	assert.Equal(t, logstore.Newest, streamBound(bound{}, own, older), "the end")
 }

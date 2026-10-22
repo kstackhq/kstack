@@ -53,7 +53,7 @@ func (ps pageStream) instance() instance {
 // them, then each of view's Pod sources' streams the file holds that the resolve
 // handed out for no source, each once across the view. Every row is held from the
 // moment its id is known until release, which the caller owes even on an error.
-func pageStreams(ctx context.Context, file *logstore.Store, t target, view View) (_ []pageStream, release func(), err error) {
+func pageStreams(ctx context.Context, file *logstore.Store, t target, scope Scope) (_ []pageStream, release func(), err error) {
 	var releases []func()
 	release = func() {
 		for _, r := range releases {
@@ -71,7 +71,7 @@ func pageStreams(ctx context.Context, file *logstore.Store, t target, view View)
 		seen[rows[i].ID] = true
 		out[i] = pageStream{row: rows[i], st: &t.streams[i], key: st.key, place: st.place}
 	}
-	for _, src := range view.Sources {
+	for _, src := range scope.Sources {
 		if src.Kind != SourcePod {
 			continue
 		}
@@ -83,7 +83,7 @@ func pageStreams(ctx context.Context, file *logstore.Store, t target, view View)
 		key := src.Namespace + "/" + src.Name
 		_, live := t.pods[key]
 		pod := podNow{live: live, def: t.defaults[key], place: t.places[key]}
-		for _, row := range fileRows(held, src, view.Filters, t.current, pod) {
+		for _, row := range fileRows(held, src, scope.Filters, t.current, pod) {
 			if seen[row.ID] {
 				continue
 			}
@@ -178,7 +178,7 @@ func (p podNow) isDefault(row logstore.Stream) bool {
 // container, that src reads: the containers it names, every one, or the pod's
 // default, as the resolve names them; with Previous, not the pod's current instance;
 // in a place the filters keep; and each container's newest maxInstances.
-func fileRows(held []logstore.Stream, src ViewSource, filters []ViewFilter, current map[string]string, pod podNow) []logstore.Stream {
+func fileRows(held []logstore.Stream, src ScopeSource, filters []ScopeFilter, current map[string]string, pod podNow) []logstore.Stream {
 	var out []logstore.Stream
 	count := map[string]int{}
 	for _, row := range held {
@@ -199,7 +199,7 @@ func fileRows(held []logstore.Stream, src ViewSource, filters []ViewFilter, curr
 }
 
 // keptByFilters is whether every filter keeps an instance that ran in place.
-func keptByFilters(place Place, filters []ViewFilter) bool {
+func keptByFilters(place Place, filters []ScopeFilter) bool {
 	for _, f := range filters {
 		var value string
 		switch f.Field {

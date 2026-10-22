@@ -835,8 +835,8 @@ var twoHoles = []logstore.Fill{
 	{Lines: []logstore.Line{said(9, "y9"), said(10, "x10")}, Head: true},
 }
 
-// webView reads the app container of deployment web in prod.
-var webView = View{Sources: []ViewSource{{Namespace: "prod", Kind: SourceDeployment, Name: "web", Containers: []string{"app"}}}}
+// webScope reads the app container of deployment web in prod.
+var webScope = Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourceDeployment, Name: "web", Containers: []string{"app"}}}}
 
 // addPods adds n pods under web's replica set, each with one app container.
 func addPods(t *testing.T, f *fakeService, n int) {
@@ -1187,8 +1187,8 @@ func restartWeb1(t *testing.T, f *fakeService, s *logServer, lines ...string) {
 	s.mu.Unlock()
 }
 
-// web1View reads the app container of the pod web-1 in prod.
-var web1View = View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}}}}
+// web1Scope reads the app container of the pod web-1 in prod.
+var web1Scope = Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}}}}
 
 // fileOf is the log file of f's active cache, for a test to read.
 func fileOf(t *testing.T, svc *Service, f *fakeService) *logstore.Store {
@@ -1237,6 +1237,6 @@ func sweepFile(t *testing.T, svc *Service, f *fakeService) {
 
 // podSource is a view of the pod name in prod, reading containers, every one with
 // none named and all set, previous when asked.
-func podSource(name string, previous bool, containers ...string) View {
-	return View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: name, Containers: containers, Previous: previous}}}
+func podSource(name string, previous bool, containers ...string) Scope {
+	return Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: name, Containers: containers, Previous: previous}}}
 }

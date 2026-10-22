@@ -30,22 +30,80 @@ import (
 // MaxLimit is the most lines one page holds.
 const MaxLimit = 500
 
-// FetchMode is which way a read goes: Head oldest first after its bound, Tail
+// Code is one of the block below: why a request was refused, or what a page or a
+// follow wants its caller to know. The wire and the tools pass it through unchanged.
+type Code string
+
+// The codes refusals and notices carry.
+const (
+	// CodeCursorInvalid is a page cursor this version of the service did not write,
+	// or a Seen entry that is not a line cursor.
+	CodeCursorInvalid Code = "cursor-invalid"
+	// CodeConflictingParameters is a request whose arguments do not go together.
+	CodeConflictingParameters Code = "conflicting-parameters"
+	// CodeInvalidRange is a Since after its Until.
+	CodeInvalidRange Code = "invalid-range"
+	// CodeBadGrep is a grep that does not compile, or one over MaxGrep.
+	CodeBadGrep Code = "bad-grep"
+	// CodeBadPage is a PageSize outside 0 to MaxPageSize, or a negative byte cap.
+	CodeBadPage Code = "bad-page"
+	// CodeBadPadding is a Padding past its limits.
+	CodeBadPadding Code = "bad-padding"
+	// CodeBadScope is a filter field or a source kind the service cannot read.
+	CodeBadScope Code = "bad-scope"
+	// CodeNotMirrored, CodeNoNodes and CodeTooMany are a scope the mirror refuses:
+	// Unmirrored, NoNodes, and more streams than the service reads at once.
+	CodeNotMirrored Code = "not-mirrored"
+	CodeNoNodes     Code = "no-nodes"
+	CodeTooMany     Code = "too-many"
+	// CodeNoContainer is a container the tools' scope check finds in no pod. The
+	// service never raises it.
+	CodeNoContainer Code = "no-container"
+	// CodeNoCache, CodeSyncing and CodeRevoked are a cluster with no cache, one still
+	// syncing, and one Kstack no longer connects to.
+	CodeNoCache Code = "no-cache"
+	CodeSyncing Code = "syncing"
+	CodeRevoked Code = "revoked"
+	// CodeReplaced is a connection replaced while the page was read: the one refusal
+	// a caller sends again as it came.
+	CodeReplaced Code = "replaced"
+	// CodeUnauthorized is the cluster refusing to show a log.
+	CodeUnauthorized Code = "unauthorized"
+	// CodeFinished is a scope whose every container stopped, or whose Pod sources
+	// are all gone.
+	CodeFinished Code = "finished"
+	// CodeReadFailed is a scope no container of which could be read.
+	CodeReadFailed Code = "read-failed"
+	// CodeTooLoud is a second of more than a mebibyte of log. It never refuses a
+	// page: it reaches a caller inside a stream-skipped notice.
+	CodeTooLoud Code = "too-loud"
+
+	// CodeEmptyContext is padding asked past an open bound that found no line.
+	CodeEmptyContext Code = "empty-context"
+	// CodeContextShort is a counted Before that found fewer lines than it asked for.
+	CodeContextShort Code = "context-short"
+	// CodePageByteLimitExceeded is a page whose first line alone is over MaxPageBytes.
+	CodePageByteLimitExceeded Code = "page-byte-limit-exceeded"
+	// CodeStreamSkipped is a stream of the scope the page could not read.
+	CodeStreamSkipped Code = "stream-skipped"
+)
+
+// direction is which way a read goes: newer reads oldest first past its key, older
 // newest first before it.
-type FetchMode string
+type direction string
 
 const (
-	FetchHead FetchMode = "head"
-	FetchTail FetchMode = "tail"
+	newer direction = "newer"
+	older direction = "older"
 )
 
 // pageQuery is what one direction's page reads: the view and its compiled grep, the
 // direction, the bound it reads from, zero for the start or the end, the bound it
 // stops at, zero for none, and its limit.
 type pageQuery struct {
-	view  View
+	scope Scope
 	grep  *regexp.Regexp
-	mode  FetchMode
+	mode  direction
 	from  bound
 	to    bound
 	limit int
@@ -64,9 +122,9 @@ func (q pageQuery) far(ps pageStream) *logstore.Pos {
 	if q.to.at.isZero() {
 		return nil
 	}
-	back := FetchTail
-	if q.mode == FetchTail {
-		back = FetchHead
+	back := older
+	if q.mode == older {
+		back = newer
 	}
 	far := streamBound(q.to, ps.instance(), back)
 	return &far
@@ -92,7 +150,7 @@ type page struct {
 // page is one merge per query of a view on cluster id, every query over one resolve
 // of it and one claim. The queries share their view.
 func (s *Service) page(ctx context.Context, id cluster.ClusterID, qs ...pageQuery) ([]merge, error) {
-	t, err := resolve(ctx, s.clusters, id, qs[0].view, false)
+	t, err := resolve(ctx, s.clusters, id, qs[0].scope, false)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +159,7 @@ func (s *Service) page(ctx context.Context, id cluster.ClusterID, qs ...pageQuer
 		return nil, err
 	}
 	defer file.Close()
-	streams, release, err := pageStreams(ctx, file, t, qs[0].view)
+	streams, release, err := pageStreams(ctx, file, t, qs[0].scope)
 	defer release()
 	if err != nil {
 		return nil, err
@@ -192,7 +250,7 @@ func (p *page) fill(ctx context.Context, qs []pageQuery) ([][]streamFill, error)
 			return nil, err
 		}
 		seams = nil
-		if q.mode == FetchHead {
+		if q.mode == newer {
 			seams = p.seams(fills[i])
 		}
 	}
@@ -316,13 +374,13 @@ func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (mer
 	if m.cut.isZero() && left {
 		if len(m.records) == 0 {
 			way := "newer"
-			if q.mode == FetchTail {
+			if q.mode == older {
 				way = "older"
 			}
-			return merge{}, Refusal{"Kstack could not read " + way + " lines of this view: " + strings.Join(m.skipped, "; ")}
+			return merge{}, refuse(CodeReadFailed, "Kstack could not read "+way+" lines of this view: "+strings.Join(m.skipped, "; "))
 		}
 		m.cut = positionOf(m.records[len(m.records)-1])
-		if q.mode == FetchTail {
+		if q.mode == older {
 			m.cut = positionOf(m.records[0])
 		}
 	}
@@ -340,11 +398,11 @@ func compileGrep(grep string) (*regexp.Regexp, error) {
 	case grep == "":
 		return nil, nil
 	case len(grep) > MaxGrep:
-		return nil, Refusal{fmt.Sprintf("a grep is at most %d bytes", MaxGrep)}
+		return nil, refuse(CodeBadGrep, fmt.Sprintf("a grep is at most %d bytes", MaxGrep))
 	}
 	re, err := regexp.Compile(grep)
 	if err != nil {
-		return nil, Refusal{"the grep is not a regular expression"}
+		return nil, refuse(CodeBadGrep, "the grep is not a regular expression")
 	}
 	return re, nil
 }

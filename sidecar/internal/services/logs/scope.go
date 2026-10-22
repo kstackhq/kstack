@@ -12,27 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// Package logs serves a view's log lines: it resolves the view's sources against
+// Package logs serves a scope's log lines: it resolves the scope's sources against
 // the mirror, reads each container's log through the API server with the user's
 // credentials, merges the lines by time, and strips terminal control sequences
 // before anything leaves it.
 package logs
 
-// View is what a view reads: the Sources whose lines are merged by timestamp, in
+// Scope is what a read covers: the Sources whose lines are merged by timestamp, in
 // the order asked; the Filters on those lines, none keeping every line; and the
 // Grep, a regular expression each line's message must match, empty for none. The
 // LogsView tool's action carries it, so the tool and the backend share one shape.
-type View struct {
-	Sources []ViewSource `json:"sources"`
-	Filters []ViewFilter `json:"filters"`
-	Grep    string       `json:"grep"`
+type Scope struct {
+	Sources []ScopeSource `json:"sources"`
+	Filters []ScopeFilter `json:"filters"`
+	Grep    string        `json:"grep"`
 }
 
-// ViewSource is one resource a view reads, in its Namespace, by Kind and Name: its
+// ScopeSource is one resource a scope reads, in its Namespace, by Kind and Name: its
 // Containers by exact name; with none named, every container when AllContainers
 // is set, else each pod's default container; and Previous for the instance
 // before the last restart, which is finished.
-type ViewSource struct {
+type ScopeSource struct {
 	Namespace     string     `json:"namespace"`
 	Kind          SourceKind `json:"kind"`
 	Name          string     `json:"name"`
@@ -59,9 +59,9 @@ const (
 	SourceReplicaSet  SourceKind = "replicaset"
 )
 
-// ViewFilter is one filter on a view's lines: the Values its Field may take, never
+// ScopeFilter is one filter on a scope's lines: the Values its Field may take, never
 // empty.
-type ViewFilter struct {
+type ScopeFilter struct {
 	Field  FilterField `json:"field"`
 	Values []string    `json:"values"`
 }

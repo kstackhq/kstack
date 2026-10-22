@@ -411,10 +411,10 @@ type LogsReadLine struct {
 // The view's backend half is the log service's vocabulary, named here as the tool
 // spells it.
 type (
-	LogsViewInput   = logs.View
-	LogsViewSource  = logs.ViewSource
+	LogsViewInput   = logs.Scope
+	LogsViewSource  = logs.ScopeSource
 	LogsSourceKind  = logs.SourceKind
-	LogsViewFilter  = logs.ViewFilter
+	LogsViewFilter  = logs.ScopeFilter
 	LogsFilterField = logs.FilterField
 	LogsGap         = logs.Gap
 )

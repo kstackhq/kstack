@@ -89,7 +89,7 @@ func cursorOf(p position) *string {
 }
 
 // errBadCursor refuses a cursor that names neither a moment nor a line.
-var errBadCursor = Refusal{"a cursor must be an RFC 3339 time, or one a page handed back"}
+var errBadCursor = refuse(CodeCursorInvalid, "a cursor must be an RFC 3339 time, or one a page handed back")
 
 // parseCursor is the position a cursor names: a time alone is a moment, as the
 // viewer's At anchor sends one.
@@ -165,8 +165,8 @@ type instance struct{ namespace, pod, container, id string }
 // Tail page those before it, and with a zero b the page reads from the start or
 // the end. It is the one cursor across the view read as comparePositions orders
 // lines, so the pages of one view join in every stream.
-func streamBound(b bound, in instance, mode FetchMode) logstore.Pos {
-	head := mode == FetchHead
+func streamBound(b bound, in instance, mode direction) logstore.Pos {
+	head := mode == newer
 	if b.at.isZero() {
 		if head {
 			return logstore.Oldest

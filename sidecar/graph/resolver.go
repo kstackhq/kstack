@@ -53,7 +53,7 @@ type Resolver struct {
 
 // LogsService follows a view's lines: *logs.Service, or a test's fake.
 type LogsService interface {
-	Follow(ctx context.Context, id cluster.ClusterID, view logs.View, after *string) (*cluster.Stream[logs.FollowFrame], error)
+	Follow(ctx context.Context, id cluster.ClusterID, view logs.Scope, after *string) (*cluster.Stream[logs.FollowFrame], error)
 }
 
 // ExecutableProber is the executable probe: *bash.Tool, or a test's fake. StartProbe

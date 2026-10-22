@@ -866,6 +866,6 @@ type loudSecond struct {
 // loudAt is the stop at the second t lies in.
 func loudAt(t time.Time) loudSecond {
 	at := t.Truncate(time.Second)
-	return loudSecond{Refusal{"more than 1 MiB of log in the second at " + at.UTC().Format(time.RFC3339) +
-		", more than Kstack reads through the Kubernetes API; lines of that second are left out"}, at}
+	return loudSecond{refuse(CodeTooLoud, "more than 1 MiB of log in the second at "+at.UTC().Format(time.RFC3339)+
+		", more than Kstack reads through the Kubernetes API; lines of that second are left out"), at}
 }

@@ -99,7 +99,7 @@ type looker struct {
 // its bytes spent, and answers what it found: every hole it met lies behind lines
 // that all failed, so each is from's.
 func (l looker) back(from logstore.Pos) (*Gap, error) {
-	segs := segmentsFrom(l.cov, from, FetchTail)
+	segs := segmentsFrom(l.cov, from, older)
 	if i := slices.IndexFunc(segs, func(s segment) bool { return s.gap != nil }); i < 0 || !marked(*segs[i].gap, l.committed) {
 		return nil, nil
 	}

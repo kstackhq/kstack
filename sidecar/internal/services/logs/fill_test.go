@@ -36,7 +36,7 @@ func TestSegmentsKeepOrderAcrossACutGap(t *testing.T) {
 	start := pos(10)
 	chunks := []logstore.Chunk{{From: pos(0), To: pos(5)}, {From: pos(20), To: pos(25)}}
 	var edges []string
-	for _, seg := range segmentsFrom(logstore.CoverageOf(chunks, []string{"kubelet"}, &start), logstore.Oldest, FetchHead) {
+	for _, seg := range segmentsFrom(logstore.CoverageOf(chunks, []string{"kubelet"}, &start), logstore.Oldest, newer) {
 		if seg.span != nil {
 			edges = append(edges, fmt.Sprintf("span %d", seg.span.From.TS))
 		} else {

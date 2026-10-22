@@ -58,7 +58,7 @@ var errNotShown = errors.New("logswatch: the watch is the run's")
 
 // Follower opens a follow of a view: the log service.
 type Follower interface {
-	Follow(ctx context.Context, id cluster.ClusterID, view logs.View, after *string) (*cluster.Stream[logs.FollowFrame], error)
+	Follow(ctx context.Context, id cluster.ClusterID, view logs.Scope, after *string) (*cluster.Stream[logs.FollowFrame], error)
 }
 
 var (

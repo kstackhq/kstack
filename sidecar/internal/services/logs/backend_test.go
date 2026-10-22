@@ -82,7 +82,7 @@ func TestAFatalTailerEndsTheFollow(t *testing.T) {
 
 	stream := openEndingFollow(t, svc)
 
-	assert.Equal(t, "the cluster refused to show this log: Unauthorized", endedWith(t, stream))
+	assert.Equal(t, Refusal{CodeUnauthorized, "the cluster refused to show this log: Unauthorized"}, endedWith(t, stream))
 }
 
 // A transient tailer is opened again once its backoff passes.
@@ -133,5 +133,5 @@ func TestADeniedTailerEndsItsStreamAlone(t *testing.T) {
 
 	close(done)
 
-	assert.Equal(t, "the cluster refused to show this log: forbidden", endedWith(t, stream))
+	assert.Equal(t, Refusal{CodeUnauthorized, "the cluster refused to show this log: forbidden"}, endedWith(t, stream))
 }

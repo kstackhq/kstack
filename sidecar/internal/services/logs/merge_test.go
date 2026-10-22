@@ -100,7 +100,7 @@ func TestAFetchMergesByTime(t *testing.T) {
 		canned(ctx, line("a", "app", 0, "a0"), line("a", "app", 3*time.Second, "a3")),
 		canned(ctx, line("b", "app", time.Second, "b1"), line("b", "app", 4*time.Second, "b4")),
 		canned(ctx, line("c", "app", 2*time.Second, "c2")),
-	}, FetchHead, 10)
+	}, newer, 10)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a0", "b1", "c2", "a3", "b4"}, messages(page.records))
@@ -113,10 +113,10 @@ func TestAFetchMergesByTime(t *testing.T) {
 func TestATieKeepsAFixedOrder(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	for _, mode := range []FetchMode{FetchHead, FetchTail} {
+	for _, mode := range []direction{newer, older} {
 		// A stream's lines come in the order the page reads them.
 		app := []Record{line("a", "app", 0, "a-app"), nth("a", "app", 0, 1, "a-app'")}
-		if mode == FetchTail {
+		if mode == older {
 			slices.Reverse(app)
 		}
 		page, err := mergePage(ctx, []*streamRead{
@@ -136,7 +136,7 @@ func TestHeadCutsAtTheLimit(t *testing.T) {
 	ctx := t.Context()
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "0"), line("a", "app", time.Second, "1"), line("a", "app", 2*time.Second, "2")),
-	}, FetchHead, 2)
+	}, newer, 2)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"0", "1"}, messages(page.records))
@@ -150,7 +150,7 @@ func TestTailCutsAtTheLimit(t *testing.T) {
 	ctx := t.Context()
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 2*time.Second, "2"), line("a", "app", time.Second, "1"), line("a", "app", 0, "0")),
-	}, FetchTail, 2)
+	}, older, 2)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"1", "2"}, messages(page.records))
@@ -165,7 +165,7 @@ func TestAPageCutInsideAMomentNamesItsLine(t *testing.T) {
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "a0"), nth("a", "app", 0, 1, "a0'"), line("a", "app", time.Second, "a1")),
 		canned(ctx, line("b", "app", 0, "b0")),
-	}, FetchHead, 2)
+	}, newer, 2)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a0", "a0'"}, messages(page.records))
@@ -185,7 +185,7 @@ func TestAFailedStreamIsSkippedAndNamed(t *testing.T) {
 		canned(ctx, line("a", "app", 0, "ok")),
 		failed(ctx, "b", "istio-proxy", &statusError{http.StatusBadRequest, "container is waiting to start"}),
 		failed(ctx, "c", "app", &statusError{http.StatusNotFound, `pods "c" not found`}),
-	}, FetchHead, 10)
+	}, newer, 10)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"ok"}, messages(page.records))
@@ -200,7 +200,7 @@ func TestASkippedStreamsErrorIsCleaned(t *testing.T) {
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "a0")),
 		failed(ctx, "b", "app", errors.New("Get \"https://me:hunter2@api/log\": reset\x1b[2J")),
-	}, FetchHead, 10)
+	}, newer, 10)
 
 	require.NoError(t, err)
 	require.Len(t, page.skipped, 1)
@@ -214,7 +214,7 @@ func TestEveryStreamFailingFailsThePage(t *testing.T) {
 	ctx := t.Context()
 	_, err := mergePage(ctx, []*streamRead{
 		failed(ctx, "a", "app", &statusError{http.StatusNotFound, "not found"}),
-	}, FetchHead, 10)
+	}, newer, 10)
 
 	assert.EqualError(t, err, "no container of this view could be read: a/app: not found")
 }
@@ -226,7 +226,7 @@ func TestAnUnauthorizedStreamFailsThePage(t *testing.T) {
 	_, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "ok")),
 		failed(ctx, "b", "app", &statusError{http.StatusUnauthorized, "unauthorized"}),
-	}, FetchHead, 10)
+	}, newer, 10)
 
 	assert.EqualError(t, err, "the cluster refused to show this log: unauthorized")
 }
@@ -238,7 +238,7 @@ func TestAForbiddenStreamIsSkipped(t *testing.T) {
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "ok")),
 		failed(ctx, "b", "app", &statusError{http.StatusForbidden, "forbidden"}),
-	}, FetchHead, 10)
+	}, newer, 10)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"ok"}, messages(page.records))
@@ -255,14 +255,14 @@ func TestARetiredStreamEndsThePageWhereItStopped(t *testing.T) {
 	page, err := mergePage(ctx, []*streamRead{
 		cannedFrom(ctx, a0.Stream, []Record{a0}, errRetired, positionOf(a0)),
 		canned(ctx, line("b", "app", 0, "b0"), line("b", "app", time.Second, "b1")),
-	}, FetchHead, 10)
+	}, newer, 10)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a0"}, messages(page.records))
 	assert.Empty(t, page.skipped)
 	require.False(t, page.cut.isZero())
 
-	_, err = mergePage(ctx, []*streamRead{endedShort(a0.Stream, errRetired), canned(ctx, line("b", "app", 0, "b0"))}, FetchHead, 10)
+	_, err = mergePage(ctx, []*streamRead{endedShort(a0.Stream, errRetired), canned(ctx, line("b", "app", 0, "b0"))}, newer, 10)
 	assert.ErrorIs(t, err, errReplaced)
 }
 
@@ -275,7 +275,7 @@ func TestAStreamThatFailedPartwayEndsThePageWhereItStopped(t *testing.T) {
 	page, err := mergePage(ctx, []*streamRead{
 		cannedFrom(ctx, a0.Stream, []Record{a0}, errors.New("connection reset"), positionOf(a0)),
 		canned(ctx, line("b", "app", 0, "b0"), line("b", "app", time.Second, "b1")),
-	}, FetchHead, 10)
+	}, newer, 10)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a0"}, messages(page.records))
@@ -292,7 +292,7 @@ func TestAFullMergeReadsNoFurther(t *testing.T) {
 	go func() { _ = more.Send(readItem{Record: line("a", "app", 0, "a0")}) }()
 
 	got := make(chan []Record, 1)
-	go func() { got <- merged(ctx, []*streamRead{full}, FetchHead, 1) }()
+	go func() { got <- merged(ctx, []*streamRead{full}, newer, 1) }()
 
 	assert.Equal(t, []string{"a0"}, messages(testutil.Recv(t, got, "the merge to end")))
 }
@@ -306,7 +306,7 @@ func TestAStreamStoppedAtItsStartIsAnInternalError(t *testing.T) {
 	_, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "a0")),
 		endedShort(StreamKey{Pod: "b", Container: "app"}, nil),
-	}, FetchHead, 10)
+	}, newer, 10)
 
 	assert.EqualError(t, err, "logs: b/app stopped short before a line in range")
 	assert.NotErrorAs(t, err, new(Refusal))
@@ -319,7 +319,7 @@ func TestAPageEndsWithItsContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	got := make(chan error, 1)
 	go func() {
-		_, err := mergePage(ctx, []*streamRead{stalled(t.Context(), b)}, FetchHead, 10)
+		_, err := mergePage(ctx, []*streamRead{stalled(t.Context(), b)}, newer, 10)
 		got <- err
 	}()
 	cancel()
@@ -335,7 +335,7 @@ func TestAFullPageCancelsItsReadings(t *testing.T) {
 	go func() {
 		page, err := mergePage(ctx, []*streamRead{
 			stalled(ctx, b, line("b", "app", 0, "b0"), line("b", "app", time.Second, "b1")),
-		}, FetchHead, 1)
+		}, newer, 1)
 		assert.NoError(t, err)
 		got <- page
 	}()
@@ -356,7 +356,7 @@ func TestAMergeEndsAtAStop(t *testing.T) {
 			cannedFrom(ctx, a0.Stream, []Record{a0}, nil, positionOf(a0)),
 			// b would wait for its cancel if asked for a line past b1.
 			stalled(ctx, b, line("b", "app", time.Second, "b1")),
-		}, FetchHead, 10)
+		}, newer, 10)
 		assert.NoError(t, err)
 		got <- page
 	}()
@@ -377,7 +377,7 @@ func TestABudgetKeepsTheNearSideOfTheNewestStop(t *testing.T) {
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 5*time.Second, "a5"), line("a", "app", time.Second, "a1")),
 		cannedFrom(ctx, b, []Record{line("b", "app", 4*time.Second, "b4"), line("b", "app", 3*time.Second, "b3")}, nil, lineAt(b, 3*time.Second, 0)),
-	}, FetchTail, 10)
+	}, older, 10)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"b3", "b4", "a5"}, messages(page.records))
@@ -390,7 +390,7 @@ func TestABudgetCanAnswerNoLinesWithACursor(t *testing.T) {
 	ctx := t.Context()
 	page, err := mergePage(ctx, []*streamRead{
 		cannedFrom(ctx, b, nil, nil, lineAt(b, 7*time.Second, 0)),
-	}, FetchTail, 10)
+	}, older, 10)
 
 	require.NoError(t, err)
 	assert.Empty(t, page.records)
@@ -405,7 +405,7 @@ func TestABudgetKeepsTheNearSideOfTheOldestStop(t *testing.T) {
 	page, err := mergePage(ctx, []*streamRead{
 		canned(ctx, line("a", "app", 0, "a0"), line("a", "app", 5*time.Second, "a5")),
 		cannedFrom(ctx, b, []Record{line("b", "app", 2*time.Second, "b2")}, nil, lineAt(b, 2*time.Second, 0)),
-	}, FetchHead, 10)
+	}, newer, 10)
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"a0", "b2"}, messages(page.records))

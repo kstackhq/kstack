@@ -24,7 +24,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 )
 
-// merge is one direction's page of a view: its records, oldest first, the cut,
+// merge is one direction's page of a scope: its records, oldest first, the cut,
 // zero when the page was not cut, and each stream it could not read,
 // one line each.
 type merge struct {
@@ -34,12 +34,12 @@ type merge struct {
 }
 
 // mergePage is one page of readings, each one container's lines in the order the
-// page reads them — oldest first for Head, newest first for Tail — merged in
+// page reads them — oldest first newer, newest first older — merged in
 // position order and cut at limit. The cut is where the next page goes on from:
 // the last line kept, or the stop of a reading that ran short when that is
 // nearer. Every reading is cancelled once the merge has its lines, so no stream
 // reads past the page.
-func mergePage(ctx context.Context, readings []*streamRead, mode FetchMode, limit int) (merge, error) {
+func mergePage(ctx context.Context, readings []*streamRead, mode direction, limit int) (merge, error) {
 	recs := merged(ctx, readings, mode, limit+1)
 	for _, r := range readings {
 		r.cancel()
@@ -49,7 +49,7 @@ func mergePage(ctx context.Context, readings []*streamRead, mode FetchMode, limi
 	if err := ctx.Err(); err != nil {
 		return merge{}, err
 	}
-	if mode == FetchTail {
+	if mode == older {
 		slices.Reverse(recs)
 	}
 	skipped, err := failures(readings)
@@ -69,7 +69,7 @@ func mergePage(ctx context.Context, readings []*streamRead, mode FetchMode, limi
 	// A page past the limit is cut at the far end, and the cursor is the last line kept.
 	var cut position
 	if len(recs) > limit {
-		if mode == FetchHead {
+		if mode == newer {
 			recs = recs[:limit]
 			cut = positionOf(recs[limit-1])
 		} else {
@@ -83,7 +83,7 @@ func mergePage(ctx context.Context, readings []*streamRead, mode FetchMode, limi
 
 // errReplaced is a page a stream of which the connection's retirement cut before
 // it read a line in range, so no cursor could go on from it.
-var errReplaced = Refusal{"the connection to the cluster was replaced while this page was read; read it again"}
+var errReplaced = refuse(CodeReplaced, "the connection to the cluster was replaced while this page was read; read it again")
 
 // failures names each reading that ended in an error, one line each, and fails
 // the page when the cluster refused the user's credentials, when Kstack no longer
@@ -116,7 +116,7 @@ func everyStreamFailed(skipped []string) error {
 	if len(skipped) == 0 {
 		return nil
 	}
-	return Refusal{"no container of this view could be read: " + skipped[0]}
+	return refuse(CodeReadFailed, "no container of this view could be read: "+skipped[0])
 }
 
 // skippedLine is the page's line naming key, a stream err kept it from reading. A
@@ -125,19 +125,19 @@ func skippedLine(key StreamKey, err error) string {
 	return key.Pod + "/" + key.Container + ": " + stripControl(safe.Safe(err))
 }
 
-// beyond is whether a lies past b in the direction mode reads: later for Head,
-// earlier for Tail.
-func beyond(mode FetchMode, a, b position) bool {
+// beyond is whether a lies past b in the direction mode reads: later newer,
+// earlier older.
+func beyond(mode direction, a, b position) bool {
 	c := comparePositions(a, b)
-	if mode == FetchHead {
+	if mode == newer {
 		return c > 0
 	}
 	return c < 0
 }
 
-// nearerStop is the nearer of stop and r's, the nearest for Head being the oldest
-// and for Tail the newest, or stop when r did not run short.
-func nearerStop(mode FetchMode, stop position, r *streamRead) position {
+// nearerStop is the nearer of stop and r's, the nearest newer being the oldest
+// and older the newest, or stop when r did not run short.
+func nearerStop(mode direction, stop position, r *streamRead) position {
 	if r.short && (stop.isZero() || beyond(mode, stop, r.stop)) {
 		return r.stop
 	}
@@ -148,7 +148,7 @@ func nearerStop(mode FetchMode, stop position, r *streamRead) position {
 // that ran short stopped at, and answers that point as the cut, since past it
 // some stream's lines were never read. A cut the limit made nearer than it stands.
 // recs are oldest first.
-func trimToStops(readings []*streamRead, mode FetchMode, recs []Record, cut position) ([]Record, position) {
+func trimToStops(readings []*streamRead, mode direction, recs []Record, cut position) ([]Record, position) {
 	var stop position
 	for _, r := range readings {
 		stop = nearerStop(mode, stop, r)
@@ -159,7 +159,7 @@ func trimToStops(readings []*streamRead, mode FetchMode, recs []Record, cut posi
 	i, found := slices.BinarySearchFunc(recs, stop, func(rec Record, p position) int {
 		return comparePositions(positionOf(rec), p)
 	})
-	if mode == FetchHead {
+	if mode == newer {
 		if found {
 			i++
 		}
@@ -179,7 +179,7 @@ func trimToStops(readings []*streamRead, mode FetchMode, recs []Record, cut posi
 // last line. The merge also ends at the first line past a stop, since the page
 // is cut there, and at once when a reading runs short before any line in range
 // or ctx ends, since the page is refused.
-func merged(ctx context.Context, readings []*streamRead, mode FetchMode, n int) []Record {
+func merged(ctx context.Context, readings []*streamRead, mode direction, n int) []Record {
 	h := &heads{mode: mode}
 	var stop position
 	// waiting is the readings with no line held.
@@ -231,7 +231,7 @@ type headed struct {
 // heads is the lines the readings hold, a heap with the nearest in the order mode
 // reads them on top.
 type heads struct {
-	mode FetchMode
+	mode direction
 	h    []headed
 }
 

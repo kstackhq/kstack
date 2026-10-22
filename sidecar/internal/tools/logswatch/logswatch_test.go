@@ -41,7 +41,7 @@ type fakeFollows struct {
 	err     error
 	stalled chan struct{}
 	ctx     context.Context
-	view    logs.View
+	view    logs.Scope
 	after   *string
 	ended   chan struct{}
 	opened  bool
@@ -49,7 +49,7 @@ type fakeFollows struct {
 
 func newFakeFollows() *fakeFollows { return &fakeFollows{ended: make(chan struct{})} }
 
-func (f *fakeFollows) Follow(ctx context.Context, _ cluster.ClusterID, view logs.View, after *string) (*cluster.Stream[logs.FollowFrame], error) {
+func (f *fakeFollows) Follow(ctx context.Context, _ cluster.ClusterID, view logs.Scope, after *string) (*cluster.Stream[logs.FollowFrame], error) {
 	if f.stalled != nil {
 		close(f.stalled)
 		<-ctx.Done()

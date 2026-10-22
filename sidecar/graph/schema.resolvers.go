@@ -548,7 +548,7 @@ func (r *queryResolver) ChatGrants(ctx context.Context, chatID apimeta.ChatID) (
 }
 
 // LogsFetch is the resolver for the logsFetch field.
-func (r *queryResolver) LogsFetch(ctx context.Context, id apimeta.ClusterID, view logs.View, mode model.LogsFetchMode, cursor *string, at *time.Time, limit int) (*model.LogRecordsPage, error) {
+func (r *queryResolver) LogsFetch(ctx context.Context, id apimeta.ClusterID, view logs.Scope, mode model.LogsFetchMode, cursor *string, at *time.Time, limit int) (*model.LogRecordsPage, error) {
 	panic("not implemented")
 }
 
@@ -717,7 +717,7 @@ func (r *subscriptionResolver) MemoriesWatch(ctx context.Context, clusterID apim
 }
 
 // LogsFollow is the resolver for the logsFollow field.
-func (r *subscriptionResolver) LogsFollow(ctx context.Context, id apimeta.ClusterID, view logs.View, after *string) (<-chan *logs.FollowFrame, error) {
+func (r *subscriptionResolver) LogsFollow(ctx context.Context, id apimeta.ClusterID, view logs.Scope, after *string) (<-chan *logs.FollowFrame, error) {
 	st, err := r.Logs.Follow(ctx, id, view, after)
 	if err != nil {
 		return nil, logsErr(err)

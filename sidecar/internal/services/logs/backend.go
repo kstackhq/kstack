@@ -89,7 +89,7 @@ func fatalError(err error) error {
 	}
 	var se *statusError
 	if errors.As(err, &se) {
-		return Refusal{"the cluster refused to show this log: " + se.Error()}
+		return refuse(CodeUnauthorized, "the cluster refused to show this log: "+se.Error())
 	}
 	return ErrRevoked
 }

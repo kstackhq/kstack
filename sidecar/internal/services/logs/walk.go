@@ -72,7 +72,7 @@ type walked struct {
 // a stream not skipped or stopped at a loud second, stops short where it reached, so
 // the page is cut there: at the fill's stop when that lies past what it read.
 func (w walker) walk(key logstore.Pos) (walked, error) {
-	chunks, err := w.r.Chunks(w.ps.row.ID, w.q.view.Grep)
+	chunks, err := w.r.Chunks(w.ps.row.ID, w.q.scope.Grep)
 	if err != nil {
 		return walked{}, err
 	}
@@ -152,7 +152,7 @@ func readFrom(chunks []logstore.Chunk, a, b logstore.Pos) []logstore.Chunk {
 // lies in when the fill read it to the bound, up to the first live gap left or the
 // far bound, and whether it stops at a gap.
 func (w walker) reach(cov logstore.Coverage, key logstore.Pos) (logstore.Pos, bool) {
-	head := w.q.mode == FetchHead
+	head := w.q.mode == newer
 	far := w.q.far(w.ps)
 	reach := key
 	first := true
@@ -178,13 +178,13 @@ func (w walker) reach(cov logstore.Coverage, key logstore.Pos) (logstore.Pos, bo
 
 // pastFar is whether seg holds no place short of far, the first place past a page's
 // range in the direction mode reads.
-func pastFar(seg segment, far logstore.Pos, mode FetchMode) bool {
+func pastFar(seg segment, far logstore.Pos, mode direction) bool {
 	switch {
-	case seg.span != nil && mode == FetchHead:
+	case seg.span != nil && mode == newer:
 		return seg.span.From.Compare(far) >= 0
 	case seg.span != nil:
 		return seg.span.To.Compare(far) <= 0
-	case mode == FetchHead:
+	case mode == newer:
 		return seg.gap.After != nil && seg.gap.After.Next().Compare(far) >= 0
 	}
 	return seg.gap.Before != nil && seg.gap.Before.Prev().Compare(far) <= 0
@@ -192,11 +192,11 @@ func pastFar(seg segment, far logstore.Pos, mode FetchMode) bool {
 
 // clampTo is reach, a walk's last place from key, held short of far, nil for no
 // bound, and never behind key, so a range with no place left reads nothing.
-func clampTo(reach, key logstore.Pos, far *logstore.Pos, mode FetchMode) logstore.Pos {
+func clampTo(reach, key logstore.Pos, far *logstore.Pos, mode direction) logstore.Pos {
 	if far == nil {
 		return reach
 	}
-	if mode == FetchHead {
+	if mode == newer {
 		return logstore.MaxPos(key, logstore.MinPos(reach, far.Prev()))
 	}
 	return logstore.MinPos(key, logstore.MaxPos(reach, far.Next()))
@@ -211,7 +211,7 @@ func (w walker) mark(recs []Record, cov logstore.Coverage, held func(logstore.Po
 		return nil
 	}
 	edge, before := 0, -1
-	if w.q.mode == FetchTail {
+	if w.q.mode == older {
 		edge, before = len(recs)-1, 1
 	}
 	for i := range recs {

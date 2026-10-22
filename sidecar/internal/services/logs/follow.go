@@ -33,7 +33,7 @@ import (
 )
 
 // errStopped ends a follow with no stream left running.
-var errStopped = Refusal{"every container of this view has stopped"}
+var errStopped = refuse(CodeFinished, "every container of this view has stopped")
 
 // followRetry is how long a follow waits to resolve its view again after the
 // mirror refused it, to open its mirror watches again after a clean end, or to
@@ -49,12 +49,13 @@ const (
 const followSettle = 250 * time.Millisecond
 
 // FollowFrame is one frame of a follow: a line; a checkpoint, whose cursor a follow
-// opened after misses no line; or the follow's end, with the reason in the user's
-// words. The end is the last frame.
+// opened after misses no line; or the follow's end, with its code and the reason in
+// the user's words. The end is the last frame.
 type FollowFrame struct {
 	Type   FollowFrameType
 	Record *Record
 	Cursor *string
+	Code   Code
 	Reason string
 }
 
@@ -78,7 +79,7 @@ const (
 
 // namespaces is each namespace v's sources read, once: what a follow's pods watch
 // is narrowed to.
-func (v View) namespaces() []string {
+func (v Scope) namespaces() []string {
 	var out []string
 	for _, src := range v.Sources {
 		if !slices.Contains(out, src.Namespace) {
@@ -94,7 +95,7 @@ var controls = map[SourceKind]SourceKind{SourceDeployment: SourceReplicaSet, Sou
 
 // workloadKinds is each kind v's workload sources walk through to their pods,
 // once: a source's own, and the kind it controls.
-func (v View) workloadKinds() []mirrorKind {
+func (v Scope) workloadKinds() []mirrorKind {
 	var out []mirrorKind
 	add := func(kind SourceKind) {
 		if m := mirrorKinds[kind]; !slices.Contains(out, m) {
@@ -129,16 +130,16 @@ func (v View) workloadKinds() []mirrorKind {
 // saying so and ends clean, since following again would end the same way. Any
 // other ending sets Err, the log file closing under it included, and its context
 // ending is a clean end with no frame.
-func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, view View, after *string) (*cluster.Stream[FollowFrame], error) {
+func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, scope Scope, after *string) (*cluster.Stream[FollowFrame], error) {
 	since, err := boundAfter(after)
 	if err != nil {
 		return nil, err
 	}
-	grep, err := compileGrep(view.Grep)
+	grep, err := compileGrep(scope.Grep)
 	if err != nil {
 		return nil, err
 	}
-	t, err := resolve(ctx, s.clusters, id, view, true)
+	t, err := resolve(ctx, s.clusters, id, scope, true)
 	if err != nil {
 		return nil, err
 	}
@@ -158,7 +159,7 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, view View, a
 	// stream itself runs on ctx: one ended by its own context files no error.
 	owned, stop := context.WithCancel(ctx)
 	f := &follow{
-		s: s, id: id, view: view, since: since, grep: grep, claim: c, file: file, tails: s.registryFor(id, t), target: t,
+		s: s, id: id, scope: scope, since: since, grep: grep, claim: c, file: file, tails: s.registryFor(id, t), target: t,
 		streams: map[StreamKey]*tracked{}, nodes: map[string]Place{},
 		deleted: map[string]string{}, podUIDs: map[string]string{}, gone: map[string]bool{}, held: map[int64]func(){},
 		dueHub: mpsc.New[StreamKey](0, mpsc.WithKeepOpen()), endedHub: mpsc.New[*handle](0, mpsc.WithKeepOpen()),
@@ -187,8 +188,8 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, view View, a
 		if ctx.Err() != nil {
 			return nil
 		}
-		if refusal, ok := asRefusal(err); ok {
-			send(ctx, out, FollowFrame{Type: FollowEnded, Reason: refusal.Reason})
+		if refusal, ok := AsRefusal(err); ok {
+			send(ctx, out, FollowFrame{Type: FollowEnded, Code: refusal.Code, Reason: refusal.Reason})
 			return nil
 		}
 		return err
@@ -229,14 +230,14 @@ type workloadEvent struct {
 func (f *follow) watch(ctx context.Context, cacheID cluster.ClusterCacheID) error {
 	ctx, stop := context.WithCancel(ctx)
 	data := f.s.clusters.CachedData()
-	namespaces := f.view.namespaces()
+	namespaces := f.scope.namespaces()
 	w := &watches{workloads: mpsc.New[workloadEvent](0, mpsc.WithKeepOpen()), stop: stop}
 	var err error
 	w.pods, err = data.WatchObjectsIn(ctx, f.id, cacheID, "v1", "pods", namespaces)
 	if err == nil {
 		w.nodes, err = data.WatchObjects(ctx, f.id, cacheID, "v1", "nodes")
 	}
-	for _, kind := range f.view.workloadKinds() {
+	for _, kind := range f.scope.workloadKinds() {
 		if err != nil {
 			break
 		}
@@ -291,7 +292,7 @@ func (f *follow) watchEnded(w objectWatch) error {
 type follow struct {
 	s     *Service
 	id    cluster.ClusterID
-	view  View
+	scope Scope
 	grep  *regexp.Regexp
 	claim *claim
 	// since is where a stream that joins starts before any checkpoint: the follow's
@@ -735,7 +736,7 @@ func (f *follow) podsMoved(frame cluster.ClusterCachedDataObjectWatchFrame, more
 // node a stream runs on can move the view, and no other is read.
 func (f *follow) nodesMoved(frame cluster.ClusterCachedDataObjectWatchFrame, more <-chan cluster.ClusterCachedDataObjectWatchFrame) bool {
 	relevant := false
-	labels := filtersLabels(f.view.Filters)
+	labels := filtersLabels(f.scope.Filters)
 	for {
 		switch {
 		case frame.Type == cluster.DeltaFrameBookmark:
@@ -765,7 +766,7 @@ func (f *follow) nodesMoved(frame cluster.ClusterCachedDataObjectWatchFrame, mor
 }
 
 // filtersLabels is whether any of filters reads a node's labels.
-func filtersLabels(filters []ViewFilter) bool {
+func filtersLabels(filters []ScopeFilter) bool {
 	for _, flt := range filters {
 		if flt.Field != FilterNode {
 			return true
@@ -883,7 +884,7 @@ func (f *follow) bring(ctx context.Context, t target) error {
 		}
 		if tr.row != rows[i].ID {
 			// A hold was the instance before's, whose end was its log's.
-			tr.row, tr.wm = rows[i].ID, streamBound(f.cursor(), st.instance(), FetchHead)
+			tr.row, tr.wm = rows[i].ID, streamBound(f.cursor(), st.instance(), newer)
 			tr.held, tr.restarted, tr.filling = false, false, false
 		}
 		tr.st, tr.ended, tr.refused = st, false, ""
@@ -1027,7 +1028,7 @@ func (f *follow) walk(ctx context.Context, tr *tracked) (bool, error) {
 	var gap *logstore.Gap
 	reach, more := tr.wm, false
 	err := f.file.Read(ctx, func(r logstore.Reader) error {
-		chunks, err := r.Chunks(tr.row, f.view.Grep)
+		chunks, err := r.Chunks(tr.row, f.scope.Grep)
 		if err != nil {
 			return err
 		}
@@ -1090,7 +1091,7 @@ func (f *follow) walk(ctx context.Context, tr *tracked) (bool, error) {
 // the tailer had written before chunks were read.
 func (f *follow) reach(cov logstore.Coverage, tr *tracked, crossed bool, committed *logstore.Pos) (logstore.Pos, *logstore.Gap) {
 	reach := tr.wm
-	for i, seg := range segmentsFrom(cov, tr.wm, FetchHead) {
+	for i, seg := range segmentsFrom(cov, tr.wm, newer) {
 		switch {
 		case seg.span != nil:
 			reach = seg.span.To
@@ -1118,7 +1119,7 @@ type fillDone struct {
 	err     error
 }
 
-// fill starts a read of the live gap g of tr's stream from its watermark, as a Head
+// fill starts a read of the live gap g of tr's stream from its watermark, as a newer
 // page's fill reads it, under the stream's share of one query's limits, and the write
 // of what it read. It runs on its own, so a slow read holds up no other stream, and
 // its end comes back on filled. What it writes is unstamped, since a follow's lines
@@ -1129,7 +1130,7 @@ func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) {
 	ps.st = &st
 	fl := &filler{
 		file: f.file, clusters: f.s.clusters, id: f.id, ret: f.s.files.Retention(), ps: ps, backends: f.backends, names: f.names,
-		q:      pageQuery{view: f.view, grep: f.grep, mode: FetchHead, limit: MaxLimit},
+		q:      pageQuery{scope: f.scope, grep: f.grep, mode: newer, limit: MaxLimit},
 		limits: followLimits(f.s.caps, len(f.wanted)),
 	}
 	wm := tr.wm
@@ -1250,7 +1251,7 @@ func (f *follow) flush(ctx context.Context) bool {
 func (f *follow) stopped(streams []stream) error {
 	for _, st := range streams {
 		if tr := f.streams[st.key]; tr.refused != "" {
-			return Refusal{"the cluster refused to show this log: " + tr.refused}
+			return refuse(CodeUnauthorized, "the cluster refused to show this log: "+tr.refused)
 		}
 	}
 	return errStopped
@@ -1261,7 +1262,7 @@ func (f *follow) noteDeleted(frame cluster.ClusterCachedDataObjectWatchFrame) {
 	if frame.Type != cluster.DeltaFrameDeleted || frame.Object == nil {
 		return
 	}
-	for _, src := range f.view.Sources {
+	for _, src := range f.scope.Sources {
 		key := src.Namespace + "/" + src.Name
 		if src.Kind == SourcePod && !f.gone[key] && src.Namespace == frame.Object.Namespace && src.Name == frame.Object.Name {
 			f.deleted[key] = frame.Object.UID
@@ -1295,9 +1296,9 @@ func (f *follow) resolve(ctx context.Context) (target, bool, error) {
 }
 
 // live is the view less each Pod source whose pod is gone.
-func (f *follow) live() View {
-	v := f.view
-	v.Sources = slices.DeleteFunc(slices.Clone(v.Sources), func(src ViewSource) bool {
+func (f *follow) live() Scope {
+	v := f.scope
+	v.Sources = slices.DeleteFunc(slices.Clone(v.Sources), func(src ScopeSource) bool {
 		return src.Kind == SourcePod && f.gone[src.Namespace+"/"+src.Name]
 	})
 	return v
@@ -1319,7 +1320,7 @@ func (f *follow) notePods(t target) {
 // follows its other sources.
 func (f *follow) podsGone(t target) (bool, error) {
 	newly := false
-	for _, src := range f.view.Sources {
+	for _, src := range f.scope.Sources {
 		key := src.Namespace + "/" + src.Name
 		if src.Kind != SourcePod || f.gone[key] {
 			continue
@@ -1336,7 +1337,7 @@ func (f *follow) podsGone(t target) (bool, error) {
 	}
 	f.notePods(t)
 	var keys []string
-	for _, src := range f.view.Sources {
+	for _, src := range f.scope.Sources {
 		key := src.Namespace + "/" + src.Name
 		if src.Kind != SourcePod || !f.gone[key] {
 			return newly, nil
@@ -1346,23 +1347,7 @@ func (f *follow) podsGone(t target) (bool, error) {
 		}
 	}
 	if len(keys) == 1 {
-		return true, Refusal{"pod " + keys[0] + " was deleted"}
+		return true, refuse(CodeFinished, "pod "+keys[0]+" was deleted")
 	}
-	return true, Refusal{"pods " + strings.Join(keys, ", ") + " were deleted"}
-}
-
-// asRefusal is the Refusal err is, bare or inside Unmirrored or NoNodes.
-func asRefusal(err error) (Refusal, bool) {
-	var refusal Refusal
-	var unmirrored Unmirrored
-	var noNodes NoNodes
-	switch {
-	case errors.As(err, &refusal):
-		return refusal, true
-	case errors.As(err, &unmirrored):
-		return unmirrored.Refusal, true
-	case errors.As(err, &noNodes):
-		return noNodes.Refusal, true
-	}
-	return Refusal{}, false
+	return true, refuse(CodeFinished, "pods "+strings.Join(keys, ", ")+" were deleted")
 }

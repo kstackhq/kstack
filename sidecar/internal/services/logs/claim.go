@@ -30,7 +30,7 @@ import (
 
 // ErrRevoked is a cluster Kstack does not connect to: disabled, marked for
 // deletion, or gone, before the read or under it.
-var ErrRevoked = Refusal{"Kstack no longer connects to this cluster"}
+var ErrRevoked = refuse(CodeRevoked, "Kstack no longer connects to this cluster")
 
 // maxStatusBody is how much of a refusal's body is read for its message.
 const maxStatusBody = 4 << 10

@@ -76,6 +76,6 @@ func TestLogsViewActionEmbedsTheInput(t *testing.T) {
 	assert.JSONEq(t, `{"sources":[{"namespace":"prod","kind":"deployment","name":"web","containers":["app"],"allContainers":false,"previous":false}],
 "filters":[{"field":"zone","values":["a"]}],"grep":"err","anchor":{"kind":"at","at":"2026-10-08T14:00:00Z"},"pinToEnd":true,
 "resolvedAt":"2026-10-08T14:01:00Z"}`, string(raw))
-	var view logs.View = action.LogsViewInput
+	var view logs.Scope = action.LogsViewInput
 	assert.Equal(t, "err", view.Grep)
 }

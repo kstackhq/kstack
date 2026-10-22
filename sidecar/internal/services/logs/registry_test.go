@@ -29,11 +29,11 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 )
 
-// filed is webView's first stream, web-1's app, resolved on svc and filed in its file,
+// filed is webScope's first stream, web-1's app, resolved on svc and filed in its file,
 // with its row's id.
 func filed(t *testing.T, svc *Service, f *fakeService) (target, stream, int64) {
 	t.Helper()
-	tg, err := resolve(t.Context(), svc.clusters, "7", webView, true)
+	tg, err := resolve(t.Context(), svc.clusters, "7", webScope, true)
 	require.NoError(t, err)
 	rows, err := fileStreams(t.Context(), fileOf(t, svc, f), tg.streams)
 	require.NoError(t, err)

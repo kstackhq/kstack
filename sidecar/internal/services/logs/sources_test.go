@@ -16,6 +16,7 @@ package logs
 
 import (
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -27,7 +28,7 @@ import (
 )
 
 // resolveOf is what view resolves to over f.
-func resolveOf(t *testing.T, f *fakeService, view View) (target, error) {
+func resolveOf(t *testing.T, f *fakeService, view Scope) (target, error) {
 	t.Helper()
 	return resolve(t.Context(), f, "7", view, false)
 }
@@ -36,7 +37,7 @@ func resolveOf(t *testing.T, f *fakeService, view View) (target, error) {
 // container named, with where each runs.
 func TestADeploymentsPodsComeOffTheMirror(t *testing.T) {
 	t.Parallel()
-	got, err := resolveOf(t, webMirror(t), webView)
+	got, err := resolveOf(t, webMirror(t), webScope)
 
 	require.NoError(t, err)
 	assert.Equal(t, "uid-1", got.serverUID)
@@ -60,7 +61,7 @@ func TestAWorkloadIsWalkedDownItsControllers(t *testing.T) {
 	notController["controller"] = false
 	f.store.Apply(t, pod("adopted", "uid-adopted", "node-a", notController, container{name: "app"}))
 
-	got, err := resolveOf(t, f, webView)
+	got, err := resolveOf(t, f, webScope)
 
 	require.NoError(t, err)
 	assert.Len(t, keysOf(got), 2)
@@ -72,7 +73,7 @@ func TestAllContainersReadsEveryContainer(t *testing.T) {
 	f := webMirror(t)
 	f.store.Apply(t, pod("web-1", "uid-web-1", "node-a", nil, container{name: "app", restarted: true}, container{name: "istio-proxy", restarted: true}))
 
-	got, err := resolveOf(t, f, View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", AllContainers: true, Previous: true}}})
+	got, err := resolveOf(t, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", AllContainers: true, Previous: true}}})
 
 	require.NoError(t, err)
 	assert.Equal(t, []StreamKey{
@@ -94,7 +95,7 @@ func TestEachPodReadsItsOwnDefault(t *testing.T) {
 	stale["metadata"].(map[string]any)["annotations"] = map[string]any{DefaultContainerAnnotation: "gone"}
 	f.store.Apply(t, withInit(stale, "migrate"))
 
-	got, err := resolveOf(t, f, View{Sources: []ViewSource{{Namespace: "prod", Kind: SourceDeployment, Name: "web"}}})
+	got, err := resolveOf(t, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourceDeployment, Name: "web"}}})
 
 	require.NoError(t, err)
 	assert.Equal(t, []StreamKey{
@@ -110,7 +111,7 @@ func TestInitContainersComeFirst(t *testing.T) {
 	f := webMirror(t)
 	f.store.Apply(t, withInit(pod("web-1", "uid-web-1", "node-a", nil, container{name: "app"}), "migrate"))
 
-	got, err := resolveOf(t, f, View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", AllContainers: true}}})
+	got, err := resolveOf(t, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", AllContainers: true}}})
 
 	require.NoError(t, err)
 	assert.Equal(t, []StreamKey{
@@ -129,7 +130,7 @@ func TestCountPodsCountsTheViewsPods(t *testing.T) {
 	notController["controller"] = false
 	f.store.Apply(t, pod("adopted", "uid-adopted", "node-a", notController, container{name: "app", restarted: true}))
 
-	count := func(src ViewSource) PodCount {
+	count := func(src ScopeSource) PodCount {
 		t.Helper()
 		var c PodCount
 		require.NoError(t, f.CachedData().ReadActive(t.Context(), "7", maxRows, maxBytes, func(q cluster.CacheReading, _ cluster.ActiveCluster) error {
@@ -140,21 +141,21 @@ func TestCountPodsCountsTheViewsPods(t *testing.T) {
 		return c
 	}
 
-	assert.Equal(t, PodCount{Pods: 2, Previous: 1}, count(webView.Sources[0]))
-	assert.Equal(t, PodCount{Pods: 2, Previous: 1}, count(ViewSource{Namespace: "prod", Kind: SourceDeployment, Name: "web"}))
-	assert.Equal(t, PodCount{Pods: 2}, count(ViewSource{Namespace: "prod", Kind: SourceDeployment, Name: "web", Containers: []string{"db"}}))
+	assert.Equal(t, PodCount{Pods: 2, Previous: 1}, count(webScope.Sources[0]))
+	assert.Equal(t, PodCount{Pods: 2, Previous: 1}, count(ScopeSource{Namespace: "prod", Kind: SourceDeployment, Name: "web"}))
+	assert.Equal(t, PodCount{Pods: 2}, count(ScopeSource{Namespace: "prod", Kind: SourceDeployment, Name: "web", Containers: []string{"db"}}))
 }
 
 // A filter on a node's label leaves a pod out before any stream opens.
 func TestALabelFilterLeavesAPodOut(t *testing.T) {
 	t.Parallel()
-	for _, f := range []ViewFilter{
+	for _, f := range []ScopeFilter{
 		{Field: FilterZone, Values: []string{"eu-1b"}},
 		{Field: FilterArch, Values: []string{"arm64"}},
 		{Field: FilterRegion, Values: []string{"eu"}},
 		{Field: FilterOS, Values: []string{"linux"}},
 	} {
-		got, err := resolveOf(t, webMirror(t), View{Sources: webView.Sources, Filters: []ViewFilter{f}})
+		got, err := resolveOf(t, webMirror(t), Scope{Sources: webScope.Sources, Filters: []ScopeFilter{f}})
 
 		require.NoError(t, err, f.Field)
 		switch f.Field {
@@ -170,9 +171,9 @@ func TestALabelFilterLeavesAPodOut(t *testing.T) {
 // A Node filter reads the pod's node and needs no Node object.
 func TestANodeFilterNeedsNoNodeObject(t *testing.T) {
 	t.Parallel()
-	got, err := resolveOf(t, newMirror(t, webObjects()...), View{
-		Sources: webView.Sources,
-		Filters: []ViewFilter{{Field: FilterNode, Values: []string{"node-a"}}},
+	got, err := resolveOf(t, newMirror(t, webObjects()...), Scope{
+		Sources: webScope.Sources,
+		Filters: []ScopeFilter{{Field: FilterNode, Values: []string{"node-a"}}},
 	})
 
 	require.NoError(t, err)
@@ -185,9 +186,9 @@ func TestANodeFilterNeedsNoNodeObject(t *testing.T) {
 func TestALabelFilterWithNoNodesIsRefused(t *testing.T) {
 	t.Parallel()
 	f := newMirror(t, webObjects()...)
-	view := View{
-		Sources: webView.Sources,
-		Filters: []ViewFilter{{Field: FilterZone, Values: []string{"eu-1a"}}, {Field: FilterArch, Values: []string{"arm64"}}},
+	view := Scope{
+		Sources: webScope.Sources,
+		Filters: []ScopeFilter{{Field: FilterZone, Values: []string{"eu-1a"}}, {Field: FilterArch, Values: []string{"arm64"}}},
 	}
 	const refused = "Kstack cannot read this cluster's nodes, so it cannot filter by zone or arch"
 
@@ -204,9 +205,9 @@ func TestALabelFilterWithNoNodesIsRefused(t *testing.T) {
 func TestAPodOnAnUnknownNodeIsLeftOut(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
-	got, err := resolveOf(t, f, View{
-		Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "job-1"}},
-		Filters: []ViewFilter{{Field: FilterOS, Values: []string{"linux"}}},
+	got, err := resolveOf(t, f, Scope{
+		Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "job-1"}},
+		Filters: []ScopeFilter{{Field: FilterOS, Values: []string{"linux"}}},
 	})
 
 	require.NoError(t, err)
@@ -223,7 +224,7 @@ func TestAPreviousInstanceIsReadOnlyWhereItRestarted(t *testing.T) {
 	f := webMirror(t)
 	f.store.Apply(t, pod("web-2", "uid-web-2", "node-b", webReplicaSet(), container{name: "app", restarted: true}, container{name: "istio-proxy"}))
 
-	got, err := resolveOf(t, f, View{Sources: []ViewSource{{Namespace: "prod", Kind: SourceDeployment, Name: "web", Containers: []string{"app"}, Previous: true}}})
+	got, err := resolveOf(t, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourceDeployment, Name: "web", Containers: []string{"app"}, Previous: true}}})
 
 	require.NoError(t, err)
 	assert.Equal(t, []StreamKey{{Namespace: "prod", Pod: "web-2", Container: "app", Previous: true}}, keysOf(got))
@@ -241,7 +242,7 @@ func TestAStreamCarriesItsInstancesID(t *testing.T) {
 	statuses[2].(map[string]any)["containerID"] = "containerd://" + strings.Repeat("a", 244)
 	f.store.Apply(t, body)
 
-	got, err := resolveOf(t, f, View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "odd", AllContainers: true}}})
+	got, err := resolveOf(t, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "odd", AllContainers: true}}})
 
 	require.NoError(t, err)
 	assert.Equal(t, []StreamKey{{Namespace: "prod", Pod: "odd", Container: "app"}}, keysOf(got))
@@ -263,11 +264,11 @@ func TestResolveCarriesEachStreamsSnapshot(t *testing.T) {
 	app["lastState"].(map[string]any)["terminated"].(map[string]any)["startedAt"] = "2026-10-08T10:00:00Z"
 	app["lastState"].(map[string]any)["terminated"].(map[string]any)["finishedAt"] = "2026-10-08T10:04:59Z"
 	f.store.Apply(t, body)
-	source := ViewSource{Namespace: "prod", Kind: SourcePod, Name: "api", AllContainers: true}
+	source := ScopeSource{Namespace: "prod", Kind: SourcePod, Name: "api", AllContainers: true}
 	previous := source
 	previous.Previous = true
 
-	got, err := resolveOf(t, f, View{Sources: []ViewSource{source, previous}})
+	got, err := resolveOf(t, f, Scope{Sources: []ScopeSource{source, previous}})
 
 	require.NoError(t, err)
 	require.Len(t, got.streams, 3)
@@ -299,7 +300,7 @@ func TestAContainerWaitingToStartIsNotRead(t *testing.T) {
 	f.store.Apply(t, waiting(pod("creating", "uid-creating", "node-a", nil, container{name: "app"})))
 	f.store.Apply(t, waiting(pod("crashing", "uid-crashing", "node-a", nil, container{name: "app", restarted: true})))
 
-	got, err := resolveOf(t, f, View{Sources: []ViewSource{
+	got, err := resolveOf(t, f, Scope{Sources: []ScopeSource{
 		{Namespace: "prod", Kind: SourcePod, Name: "creating"},
 		{Namespace: "prod", Kind: SourcePod, Name: "crashing"},
 	}})
@@ -312,8 +313,8 @@ func TestAContainerWaitingToStartIsNotRead(t *testing.T) {
 // A container named twice across sources is read once.
 func TestAContainerIsReadOnce(t *testing.T) {
 	t.Parallel()
-	got, err := resolveOf(t, webMirror(t), View{Sources: []ViewSource{
-		webView.Sources[0],
+	got, err := resolveOf(t, webMirror(t), Scope{Sources: []ScopeSource{
+		webScope.Sources[0],
 		{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}},
 	}})
 
@@ -331,19 +332,19 @@ func TestEachSourceSaysWhatItHoldsNow(t *testing.T) {
 	f.store.Apply(t, workload("apps/v1", "Deployment", "idle", "dep-idle", nil))
 	f.store.Apply(t, pod("bare", "uid-bare", "", nil))
 	sources := []struct {
-		src  ViewSource
+		src  ScopeSource
 		want SourceState
 	}{
-		{ViewSource{Namespace: "prod", Kind: SourcePod, Name: "web-1"}, Reading},
-		{ViewSource{Namespace: "prod", Kind: SourcePod, Name: "nope"}, Missing},
-		{ViewSource{Namespace: "prod", Kind: SourceStatefulSet, Name: "web"}, Missing},
-		{ViewSource{Namespace: "prod", Kind: SourceDeployment, Name: "idle"}, Idle},
-		{ViewSource{Namespace: "prod", Kind: SourceDeployment, Name: "web", Containers: []string{"api"}}, Idle},
-		{ViewSource{Namespace: "prod", Kind: SourceDeployment, Name: "web", Previous: true}, Idle},
-		{ViewSource{Namespace: "prod", Kind: SourcePod, Name: "bare"}, Idle},
-		{ViewSource{Namespace: "prod", Kind: SourcePod, Name: "web-1", Previous: true}, Idle},
+		{ScopeSource{Namespace: "prod", Kind: SourcePod, Name: "web-1"}, Reading},
+		{ScopeSource{Namespace: "prod", Kind: SourcePod, Name: "nope"}, Missing},
+		{ScopeSource{Namespace: "prod", Kind: SourceStatefulSet, Name: "web"}, Missing},
+		{ScopeSource{Namespace: "prod", Kind: SourceDeployment, Name: "idle"}, Idle},
+		{ScopeSource{Namespace: "prod", Kind: SourceDeployment, Name: "web", Containers: []string{"api"}}, Idle},
+		{ScopeSource{Namespace: "prod", Kind: SourceDeployment, Name: "web", Previous: true}, Idle},
+		{ScopeSource{Namespace: "prod", Kind: SourcePod, Name: "bare"}, Idle},
+		{ScopeSource{Namespace: "prod", Kind: SourcePod, Name: "web-1", Previous: true}, Idle},
 	}
-	var view View
+	var view Scope
 	var want []SourceState
 	for _, s := range sources {
 		view.Sources = append(view.Sources, s.src)
@@ -361,13 +362,13 @@ func TestEachSourceSaysWhatItHoldsNow(t *testing.T) {
 // appear to follow, and so is a cache that mirrors no pods.
 func TestAnUnmirroredKindIsRefused(t *testing.T) {
 	t.Parallel()
-	_, err := resolveOf(t, webMirror(t), View{Sources: []ViewSource{webView.Sources[0], {Namespace: "prod", Kind: SourceJob, Name: "nightly"}}})
+	_, err := resolveOf(t, webMirror(t), Scope{Sources: []ScopeSource{webScope.Sources[0], {Namespace: "prod", Kind: SourceJob, Name: "nightly"}}})
 	assert.EqualError(t, err, "Kstack's cache of this cluster holds no jobs, so it cannot follow jobs/nightly in prod")
 	var unmirrored Unmirrored
 	require.ErrorAs(t, err, &unmirrored)
 	assert.Equal(t, 1, unmirrored.Source)
 
-	_, err = resolveOf(t, newMirror(t, workload("apps/v1", "Deployment", "web", "dep-web", nil)), webView)
+	_, err = resolveOf(t, newMirror(t, workload("apps/v1", "Deployment", "web", "dep-web", nil)), webScope)
 	require.ErrorAs(t, err, &unmirrored)
 	assert.Equal(t, -1, unmirrored.Source)
 }
@@ -375,14 +376,14 @@ func TestAnUnmirroredKindIsRefused(t *testing.T) {
 // A kind Kstack does not know is refused, never read as matching nothing.
 func TestAnUnknownKindIsRefused(t *testing.T) {
 	t.Parallel()
-	_, err := resolveOf(t, webMirror(t), View{Sources: []ViewSource{{Namespace: "prod", Kind: "cronjobs", Name: "web"}}})
+	_, err := resolveOf(t, webMirror(t), Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: "cronjobs", Name: "web"}}})
 	assert.EqualError(t, err, `Kstack cannot read the logs of a "cronjobs"`)
 }
 
 // A filter field Kstack does not know is refused, never read as matching nothing.
 func TestAnUnknownFilterFieldIsRefused(t *testing.T) {
 	t.Parallel()
-	_, err := resolveOf(t, webMirror(t), View{Sources: webView.Sources, Filters: []ViewFilter{{Field: "rack", Values: []string{"a"}}}})
+	_, err := resolveOf(t, webMirror(t), Scope{Sources: webScope.Sources, Filters: []ScopeFilter{{Field: "rack", Values: []string{"a"}}}})
 	assert.EqualError(t, err, `Kstack cannot filter by "rack"`)
 }
 
@@ -401,14 +402,14 @@ func TestACacheNotReadyIsRefused(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := webMirror(t)
 			set(f)
-			_, err := resolveOf(t, f, webView)
+			_, err := resolveOf(t, f, webScope)
 			assert.ErrorIs(t, err, ErrNoCache)
 		})
 	}
 
 	f := webMirror(t)
 	f.health = cluster.ClusterCacheHealth{Reason: "Connecting"}
-	_, err := resolveOf(t, f, View{})
+	_, err := resolveOf(t, f, Scope{})
 	assert.ErrorIs(t, err, ErrSyncing)
 }
 
@@ -420,22 +421,22 @@ func TestAFailedReadIsTheFailure(t *testing.T) {
 	web1Elsewhere := podSource("web-1", false, "db")
 	// starting opens with a previous instance, which never starts, so the check
 	// asks of the source after it.
-	starting := View{Sources: []ViewSource{{Namespace: "prod", Kind: SourcePod, Name: "web-2", Previous: true}, webView.Sources[0]}}
-	nowhere := webView
-	nowhere.Filters = []ViewFilter{{Field: FilterZone, Values: []string{"nowhere"}}}
+	starting := Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "web-2", Previous: true}, webScope.Sources[0]}}
+	nowhere := webScope
+	nowhere.Filters = []ScopeFilter{{Field: FilterZone, Values: []string{"nowhere"}}}
 	for name, c := range map[string]struct {
 		set    func(f *fakeService)
-		view   View
+		view   Scope
 		follow bool
 	}{
-		"reading":         {set: func(f *fakeService) { f.readActiveErr = errors.New("db closed") }, view: webView},
-		"health":          {set: func(f *fakeService) { f.healthErr = errors.New("db closed") }, view: webView},
-		"every query":     {set: func(f *fakeService) { f.queryErr = errors.New("db closed") }, view: webView},
-		"the node query":  {set: func(f *fakeService) { f.queryErr, f.queryErrOn = errors.New("db closed"), "kind = 'Node'" }, view: webView},
-		"the kinds query": {set: func(f *fakeService) { f.queryErr, f.queryErrOn = errors.New("db closed"), "FROM kinds" }, view: webView},
+		"reading":         {set: func(f *fakeService) { f.readActiveErr = errors.New("db closed") }, view: webScope},
+		"health":          {set: func(f *fakeService) { f.healthErr = errors.New("db closed") }, view: webScope},
+		"every query":     {set: func(f *fakeService) { f.queryErr = errors.New("db closed") }, view: webScope},
+		"the node query":  {set: func(f *fakeService) { f.queryErr, f.queryErrOn = errors.New("db closed"), "kind = 'Node'" }, view: webScope},
+		"the kinds query": {set: func(f *fakeService) { f.queryErr, f.queryErrOn = errors.New("db closed"), "FROM kinds" }, view: webScope},
 		"a pod source's query": {set: func(f *fakeService) {
 			f.queryErr, f.queryErrOn = errors.New("db closed"), "json_group_object"
-		}, view: web1View},
+		}, view: web1Scope},
 		"a pod source's node": {set: func(f *fakeService) { f.queryErr, f.queryErrOn = errors.New("db closed"), "kind = 'Node'" }, view: web1Elsewhere},
 		"the nodes listed": {set: func(f *fakeService) {
 			f.queryErr, f.queryErrOn = errors.New("db closed"), "n.kind = 'Node' LIMIT 1"
@@ -458,16 +459,16 @@ func TestAFailedReadIsTheFailure(t *testing.T) {
 func TestCountPodsFailsWithItsRead(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
-	count := func(src ViewSource) error {
+	count := func(src ScopeSource) error {
 		return f.CachedData().ReadActive(t.Context(), "7", maxRows, maxBytes, func(q cluster.CacheReading, _ cluster.ActiveCluster) error {
 			_, err := CountPods(q, src)
 			return err
 		})
 	}
 
-	assert.EqualError(t, count(ViewSource{Namespace: "prod", Kind: "Gadget", Name: "web"}), `Kstack cannot read the logs of a "Gadget"`)
+	assert.EqualError(t, count(ScopeSource{Namespace: "prod", Kind: "Gadget", Name: "web"}), `Kstack cannot read the logs of a "Gadget"`)
 	f.queryErr = errors.New("db closed")
-	assert.EqualError(t, count(webView.Sources[0]), "db closed")
+	assert.EqualError(t, count(webScope.Sources[0]), "db closed")
 }
 
 // An answer the mirror cut short is refused rather than read as every row: the
@@ -478,7 +479,7 @@ func TestACutAnswerIsRefused(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			f := webMirror(t)
 			f.moreOn = on
-			_, err := resolveOf(t, f, webView)
+			_, err := resolveOf(t, f, webScope)
 			assert.EqualError(t, err, "the cluster's cache answered more than Kstack reads at once")
 		})
 	}
@@ -490,9 +491,9 @@ func TestACutAnswerIsRefused(t *testing.T) {
 func TestTheFiltersNarrowTheStatement(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
-	got, err := resolveOf(t, f, View{
-		Sources: webView.Sources,
-		Filters: []ViewFilter{
+	got, err := resolveOf(t, f, Scope{
+		Sources: webScope.Sources,
+		Filters: []ScopeFilter{
 			{Field: FilterNode, Values: []string{"node-a"}},
 			{Field: FilterZone, Values: []string{"eu-1a", "eu-1b"}},
 		},
@@ -513,25 +514,25 @@ func TestTheFiltersNarrowTheStatement(t *testing.T) {
 func TestAViewOfTooManyContainersIsRefused(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
-	addPods(t, f, maxStreams-1)
-	_, err := resolveOf(t, f, webView)
+	addPods(t, f, MaxStreams-1)
+	_, err := resolveOf(t, f, webScope)
 	require.EqualError(t, err, "this view reads more than 100 containers, the most Kstack reads at once; filter it by node, or narrow it to fewer sources, containers or pods")
 	pods := f.statements[len(f.statements)-1]
 	assert.True(t, strings.HasSuffix(pods, "LIMIT 101"), pods)
 
 	f = webMirror(t)
-	addPods(t, f, maxStreams-2)
-	got, err := resolveOf(t, f, webView)
+	addPods(t, f, MaxStreams-2)
+	got, err := resolveOf(t, f, webScope)
 	require.NoError(t, err)
-	assert.Len(t, got.streams, maxStreams)
+	assert.Len(t, got.streams, MaxStreams)
 }
 
 // Too many containers across sources are refused too.
 func TestTooManyAcrossSourcesIsRefused(t *testing.T) {
 	t.Parallel()
 	f := webMirror(t)
-	addPods(t, f, maxStreams-2)
-	_, err := resolveOf(t, f, View{Sources: []ViewSource{webView.Sources[0], {Namespace: "prod", Kind: SourcePod, Name: "job-1"}}})
+	addPods(t, f, MaxStreams-2)
+	_, err := resolveOf(t, f, Scope{Sources: []ScopeSource{webScope.Sources[0], {Namespace: "prod", Kind: SourcePod, Name: "job-1"}}})
 	assert.ErrorIs(t, err, ErrTooMany)
 }
 
@@ -560,9 +561,47 @@ func TestAResolveFailsWithEachOfItsReads(t *testing.T) {
 			t.Parallel()
 			f := webMirror(t)
 			f.queryErr, f.queryErrOn = errors.New("db closed"), on
-			view := View{Sources: []ViewSource{webView.Sources[0], {Namespace: "prod", Kind: SourcePod, Name: "nope"}}}
+			view := Scope{Sources: []ScopeSource{webScope.Sources[0], {Namespace: "prod", Kind: SourcePod, Name: "nope"}}}
 			_, err := resolve(t.Context(), f, "7", view, true)
 			assert.EqualError(t, err, "db closed")
 		})
+	}
+}
+
+// refuse builds a refusal of its code and words.
+func TestRefuseBuildsACodedRefusal(t *testing.T) {
+	t.Parallel()
+	r := refuse(CodeBadPage, "a page holds at most 500 lines")
+
+	assert.Equal(t, CodeBadPage, r.Code)
+	assert.EqualError(t, r, "a page holds at most 500 lines")
+}
+
+// Every refusal the package makes names its code.
+func TestEveryRefusalCarriesItsCode(t *testing.T) {
+	t.Parallel()
+	_, badGrep := compileGrep("(")
+	_, longGrep := compileGrep(string(make([]byte, MaxGrep+1)))
+	_, badKind := kindOf(ScopeSource{Kind: "secret"})
+	unauthorized := fatalError(&statusError{code: http.StatusUnauthorized})
+	for code, refusals := range map[Code][]error{
+		CodeNoCache:      {ErrNoCache},
+		CodeSyncing:      {ErrSyncing},
+		CodeTooMany:      {ErrTooMany, errCut},
+		CodeRevoked:      {ErrRevoked},
+		CodeReplaced:     {errReplaced},
+		CodeFinished:     {errStopped},
+		CodeBadGrep:      {badGrep, longGrep},
+		CodeBadScope:     {checkFilters([]ScopeFilter{{Field: "color"}}), badKind},
+		CodeReadFailed:   {everyStreamFailed([]string{"web-1/app: refused"})},
+		CodeUnauthorized: {unauthorized},
+		CodeTooLoud:      {loudAt(time.Time{}).Refusal},
+	} {
+		for _, err := range refusals {
+			r, ok := AsRefusal(err)
+			if assert.True(t, ok, "%s: %v", code, err) {
+				assert.Equal(t, code, r.Code, err.Error())
+			}
+		}
 	}
 }

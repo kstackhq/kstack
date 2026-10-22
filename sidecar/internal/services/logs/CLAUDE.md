@@ -31,17 +31,20 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
 
 ## The service
 
-**`services/logs` holds a view's vocabulary** (`view.go`: `View`, `SourceKind`, `FilterField`,
-`MirrorKind`). The root `.gitignore` ignores `logs`, so the package has its own exception there.
+**`services/logs` holds a read's vocabulary** (`scope.go`: `Scope`, what a read covers, with
+`SourceKind`, `FilterField`, `MirrorKind`). "View" is the panel the user looks at. The root
+`.gitignore` ignores `logs`, so the package has its own exception there.
 
 - **A view resolves inside one `ReadActive`** (`sources.go`); workloads walk down controller
   references (`podsOf`). With no container named, each pod's default (`containersOf`: the
   `default-container` annotation, else the first, never an init container). A stream is named by its
   `StreamKey` and carries its instance's runtime id; it also carries the snapshot its file row keeps
   once the pod is gone. A source with nothing now is not refused: it carries a `SourceState`
-  (`Reading`, `Missing`, `Idle`). Refused: `Unmirrored`, `NoNodes`, more than `maxStreams`
+  (`Reading`, `Missing`, `Idle`). Refused: `Unmirrored`, `NoNodes`, more than `MaxStreams`
   containers, or a reading cut at its row or byte cap. `Refusal` is a value, so no caller can change
-  a sentinel's words. Tests run over `cluster/clustertest`.
+  a sentinel's words. **Every refusal and notice carries a `Code`** from the one block in
+  `fetch.go`, built through `refuse`; the wire and the tools pass it through, read through
+  `AsRefusal`, and no layer derives one from an error's identity. Tests run over `cluster/clustertest`.
 - **Every message goes through `keepColor`** (`clean.go`) before the file and the wire: every control
   dropped but SGR sequences. Grep (`matches`) and `ForModel` read a stored line through `stripControl`,
   which drops those too; a refusal's message goes through `stripControl` alone.
