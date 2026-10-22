@@ -25,12 +25,13 @@ import (
 )
 
 // merge is one direction's page of a scope: its records, oldest first, the cut,
-// zero when the page was not cut, and each stream it could not read,
-// one line each.
+// zero when the page was not cut, each stream it could not read, one line each,
+// and how far each stream's walk read.
 type merge struct {
 	records []Record
 	cut     lineCursor
 	skipped []string
+	reaches []streamReach
 }
 
 // mergePage is one page of readings, each one container's lines in the order the

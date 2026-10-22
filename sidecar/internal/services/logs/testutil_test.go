@@ -1247,3 +1247,15 @@ func sweepFile(t *testing.T, svc *Service, f *fakeService) {
 func podSource(name string, previous bool, containers ...string) Scope {
 	return Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: name, Containers: containers, Previous: previous}}}
 }
+
+// moment is a pointer to the moment d past 10:00.
+func moment(d time.Duration) *time.Time {
+	t := at(d)
+	return &t
+}
+
+// codeOf is err's refusal code, empty for none.
+func codeOf(err error) Code {
+	r, _ := AsRefusal(err)
+	return r.Code
+}

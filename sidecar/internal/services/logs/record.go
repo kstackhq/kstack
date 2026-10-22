@@ -31,6 +31,9 @@ type Record struct {
 	ContainerID string
 	Ordinal     int
 	Gap         *Gap
+	// TruncatedBytes is the bytes a request's MaxMessageBytes cut off Message, 0
+	// when whole. The file's line is taken as the whole message.
+	TruncatedBytes int
 }
 
 // Gap is a range of a stream whose lines may be missing: neither the cluster nor the

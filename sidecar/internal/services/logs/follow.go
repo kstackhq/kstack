@@ -1130,7 +1130,7 @@ func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) {
 	ps.st = &st
 	fl := &filler{
 		file: f.file, clusters: f.s.clusters, id: f.id, ret: f.s.files.Retention(), ps: ps, backends: f.backends, names: f.names,
-		q:      pageQuery{scope: f.scope, grep: f.grep, mode: newer, limit: MaxLimit},
+		q:      pageQuery{scope: f.scope, grep: f.grep, mode: newer, limit: MaxPageSize},
 		limits: followLimits(f.s.caps, len(f.wanted)),
 	}
 	wm := tr.wm

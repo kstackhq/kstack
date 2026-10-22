@@ -61,11 +61,23 @@ type walker struct {
 // failure, which does not cut the page but leaves more to read that way. A stream
 // the server denied or answered for has nothing more to give the next page, and
 // neither does one that restarted, since the next resolve reads the new instance.
-// read is the chunks the walk read a line from, which the page stamps.
+// read is the chunks the walk read a line from, which the page stamps, and reach
+// how far it read.
 type walked struct {
 	reading *streamRead
 	left    bool
 	read    []logstore.Chunk
+	reach   streamReach
+}
+
+// streamReach is how far one stream's walk read, in the page's direction: the
+// stream's run, its first and last rows, kept or rejected by the grep, zero with
+// none, and the stream's own moment its read stopped at, zero when it stopped at
+// none. A page cursor's entries are computed from it.
+type streamReach struct {
+	run         lineCursor
+	first, last lineCursor
+	stop        lineCursor
 }
 
 // walk reads the stream from key. A walk stopped by its budget, or by a live gap on
@@ -85,6 +97,7 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 	cut := w.fill.err == nil || failureKind(w.fill.err) == failLimit
 	short := gap && cut
 	spent := false
+	past := 0
 	err = w.r.Lines(w.ps.row.ID, key, reach, func(l logstore.Line) bool {
 		if !read {
 			first = l.Pos
@@ -93,12 +106,15 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 		spent = !w.budget.spend(len(l.Message))
 		if held(l.Pos) && matches(w.q.grep, l.Message) {
 			recs = append(recs, w.record(l))
+			if w.q.pastEnd(l.Pos) {
+				past++
+			}
 		}
 		switch {
 		case spent:
 			short = true
 			return false
-		case len(recs) == w.q.need():
+		case w.q.full(len(recs), past):
 			short = false
 			return false
 		}
@@ -120,15 +136,19 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 	}
 	// At the gap the fill ended in, the fill's stop is the edge when it lies past what
 	// the walk read: an empty window's start, or a loud second.
+	reached := streamReach{run: w.ps.run()}
 	if short && !spent && !w.fill.stop.isZero() && (stop.isZero() || beyond(w.q.mode, w.fill.stop, stop)) {
 		stop = w.fill.stop
+		reached.stop = lineCursor{reached.run.containerName, runPlace{Timestamp: stop.Timestamp}}
 	}
 	transient := failureKind(w.fill.err) == failTransient && !errors.Is(w.fill.err, errRestarted)
-	left := gap && transient && len(recs) < w.q.need()
+	left := gap && transient && !w.q.full(len(recs), past)
 	out := walked{reading: readingOf(w.ps.key, recs, short, stop, failed), left: left}
 	if read {
 		out.read = readFrom(chunks, first, last)
+		reached.first, reached.last = reached.run.at(first), reached.run.at(last)
 	}
+	out.reach = reached
 	return out, nil
 }
 
@@ -203,8 +223,8 @@ func clampTo(reach, key logstore.Pos, far *logstore.Pos, mode direction) logstor
 }
 
 // mark sets the hole each of recs carries, recs in the walk's order. A hole between
-// two goes to the later in time. The record at the walk's older edge, a Head walk's
-// first or a Tail walk's last, looks back past the edge for its own, since the line
+// two goes to the later in time. The record at the walk's older edge, a newer walk's
+// first or an older walk's last, looks back past the edge for its own, since the line
 // before it that the view passes may lie outside what the walk read.
 func (w walker) mark(recs []Record, cov logstore.Coverage, held func(logstore.Pos) bool) error {
 	if len(recs) == 0 {
@@ -240,7 +260,7 @@ func recordOf(l logstore.Line, key StreamKey, place Place, containerID string) R
 }
 
 // heldBy is whether a chunk of chunks, oldest first as Chunks reads them, claims a
-// line at a lineCursor: a line between two chunks of a span is another pattern's,
+// line at a position: a line between two chunks of a span is another pattern's,
 // which the page's chunks do not vouch for.
 func heldBy(chunks []logstore.Chunk) func(logstore.Pos) bool {
 	var runs []logstore.Span

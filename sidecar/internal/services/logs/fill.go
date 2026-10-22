@@ -96,9 +96,11 @@ type filler struct {
 	// measured.
 	near *rate
 	// far is where the page's range ends in the stream, nil for no end.
-	far   *logstore.Pos
-	count int
-	out   streamFill
+	far *logstore.Pos
+	// count is the lines the stream holds for the page, past of them past the
+	// range's end.
+	count, past int
+	out         streamFill
 }
 
 // run fills the stream from key, its bound, and answers what it did. Only a fatal
@@ -148,7 +150,7 @@ func lastLiveGap(segs []segment) int {
 }
 
 // filled is whether the stream holds what the page needs past its bound.
-func (f *filler) filled() bool { return f.count >= f.q.need() }
+func (f *filler) filled() bool { return f.q.full(f.count, f.past) }
 
 // countSpan counts the lines past key in sp that the walk keeps, and is whether the
 // fill may go on past the span: the stream still needs lines, and the walks' budget
@@ -167,6 +169,9 @@ func (f *filler) countSpan(ctx context.Context, sp logstore.Span, key logstore.P
 			}
 			if f.held(l.Pos) && matches(f.q.grep, l.Message) {
 				f.count++
+				if f.q.pastEnd(l.Pos) {
+					f.past++
+				}
 			}
 			return !f.filled()
 		})
@@ -413,6 +418,9 @@ func (f *filler) pull(ctx context.Context, tier int, lower, upper, prev, next *l
 		if matches(f.q.grep, it.Message) {
 			if forward {
 				f.count++
+				if f.q.pastEnd(lineOf(it.Record).Pos) {
+					f.past++
+				}
 			} else {
 				w.kept++
 			}

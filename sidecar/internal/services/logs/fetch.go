@@ -22,13 +22,50 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 )
 
-// MaxLimit is the most lines one page holds.
-const MaxLimit = 500
+// A page's limits.
+const (
+	// MaxPageSize is the most lines one page holds, and DefaultPageSize the lines a
+	// page holds when the request names none.
+	MaxPageSize     = 500
+	DefaultPageSize = 100
+	// MaxPageBytesCap is the most a page's messages may sum to.
+	MaxPageBytesCap = 1 << 20
+	// MaxMessageBytesCap is the longest message a page carries: the file's own cap
+	// plus the ellipsis clean writes, so a line the file cut arrives whole at the
+	// default cap.
+	MaxMessageBytesCap = maxMessage + len("…")
+	// MaxContextSpan is the most a span of padding may be.
+	MaxContextSpan = 7 * 24 * time.Hour
+)
+
+// PageFrom is where a window's first page comes from.
+type PageFrom string
+
+const (
+	PageFromFirst PageFrom = "first" // the window's oldest lines
+	PageFromLast  PageFrom = "last"  // the window's newest lines
+)
+
+// Padding is how far a window extends past one end of its range, to show the
+// lines around it: a number of lines or a span of time. At most one is set; both
+// zero means none.
+type Padding struct {
+	Lines int
+	Span  time.Duration
+}
+
+// Window is when a read looks: Since and Until, the range's bounds, each a moment
+// that includes every line at it, nil for open; and Before and After, its padding.
+type Window struct {
+	Since, Until  *time.Time
+	Before, After Padding
+}
 
 // Code is one of the block below: why a request was refused, or what a page or a
 // follow wants its caller to know. The wire and the tools pass it through unchanged.
@@ -88,6 +125,55 @@ const (
 	CodeStreamSkipped Code = "stream-skipped"
 )
 
+// Notice is something this page wants the caller to know: a Code, and a Message
+// for people. It is about this page alone; a continuation carries none forward,
+// and raises its own.
+type Notice struct {
+	Code    Code
+	Message string
+}
+
+// FetchRequest is one page. A first page sets Scope, what is read, Window, when, and
+// PageFrom; with PageFromFirst it may set Seen, the last line the caller has of each
+// stream, so that stream reads past its line and every other from the window's
+// start. A continuation sets PageCursor alone, one of a page's Prev, Next or
+// Follow as it came: the cursor holds the scope and the window. PageSize is the
+// lines a page holds, 1 to MaxPageSize, 0 for DefaultPageSize. MaxMessageBytes
+// cuts each message, 0 for the service's own cap. MaxPageBytes caps the sum of a
+// page's messages, 0 for MaxPageBytesCap. The three are read on every page.
+type FetchRequest struct {
+	Scope
+	Window
+	Seen       []string
+	PageFrom   PageFrom
+	PageCursor *string
+
+	PageSize        int
+	MaxMessageBytes int
+	MaxPageBytes    int
+}
+
+// Page is the page's place in the window, each a page cursor, nil where there is
+// none: Prev goes on toward older lines, Next toward newer, and Follow polls a
+// live window's end for lines written since.
+type Page struct {
+	Prev   *string
+	Next   *string
+	Follow *string
+}
+
+// FetchResponse is one page of the window, oldest first. Request is the request as it
+// ran: defaults filled, caps applied, and for a continuation the Scope and Window
+// the page cursor holds. ResolvedAt is the first page's clock. Notices is never
+// nil: empty with nothing to say.
+type FetchResponse struct {
+	Request    FetchRequest
+	ResolvedAt time.Time
+	Page       Page
+	Records    []Record
+	Notices    []Notice
+}
+
 // direction is which way a read goes: newer reads oldest first past its key, older
 // newest first before it.
 type direction string
@@ -97,15 +183,23 @@ const (
 	older direction = "older"
 )
 
-// pageQuery is what one direction's page reads: the view and its compiled grep, the
-// direction, the bound it reads from, zero for the start or the end, the bound it
-// stops at, zero for none, and its limit.
+// back is the other way.
+func (d direction) back() direction {
+	if d == newer {
+		return older
+	}
+	return newer
+}
+
+// pageQuery is what one direction's page reads: the scope and its compiled grep,
+// the direction, the page cursor that says where each stream starts and which
+// edge it stops at, nil to read every stream from its start or its end, and the
+// limit.
 type pageQuery struct {
 	scope Scope
 	grep  *regexp.Regexp
 	mode  direction
-	from  bound
-	to    bound
+	cur   *pageCursor
 	limit int
 }
 
@@ -113,25 +207,49 @@ type pageQuery struct {
 // page that was cut.
 func (q pageQuery) need() int { return q.limit + 1 }
 
-// key is where the page starts in ps: the one cursor read as that stream's bound.
-func (q pageQuery) key(ps pageStream) logstore.Pos { return streamBound(q.from, ps.run(), q.mode) }
+// full is whether a stream holding n lines, past of them past the range's end,
+// holds what the page needs: need lines, or on a newer page of a window whose After
+// is counted, what is left of the count past the end, since trim drops the rest.
+func (q pageQuery) full(n, past int) bool {
+	if n >= q.need() {
+		return true
+	}
+	if q.cur == nil || q.mode != newer || !q.cur.counted(sideAfter) {
+		return false
+	}
+	return past > 0 && past >= q.cur.lines(sideAfter)-q.cur.after
+}
 
-// far is where the page stops in ps, the first place past its range there, nil
-// with no far bound: q.to read as the bound of a page the other way.
+// pastEnd is whether p lies past the range's end, which only a counted After's
+// lines do on a page full counts them for.
+func (q pageQuery) pastEnd(p logstore.Pos) bool {
+	if q.cur == nil {
+		return false
+	}
+	end := q.cur.rangeEnd()
+	return !end.at.isZero() && p.TS > end.at.Timestamp.UnixNano()
+}
+
+// key is where the page starts in ps.
+func (q pageQuery) key(ps pageStream) logstore.Pos {
+	if q.cur == nil {
+		return streamBound(bound{}, ps.run(), q.mode)
+	}
+	return q.cur.keyFor(ps)
+}
+
+// far is where the page stops in ps, the first place past its range there: the
+// window's edge ahead read as the bound of a page the other way. Nil with no edge.
 func (q pageQuery) far(ps pageStream) *logstore.Pos {
-	if q.to.at.isZero() {
+	if q.cur == nil || q.cur.farEdge().at.isZero() {
 		return nil
 	}
-	back := older
-	if q.mode == older {
-		back = newer
-	}
-	far := streamBound(q.to, ps.run(), back)
+	far := streamBound(q.cur.farEdge(), ps.run(), q.mode.back())
 	return &far
 }
 
-// page is a page of a view in progress, read one or more ways: a Head or Tail page,
-// or the two halves of an Around page. It files the resolve's streams and the
+// page is a page of a scope in progress, read one or more ways: one read, or a
+// first page's range read and context read. It files the resolve's streams and the
 // file's, fills the gaps each resolve stream needs from the backends for every
 // direction, writing each window of a read once it is whole, then answers each
 // direction with one walk of the file per stream, merged.
@@ -147,8 +265,8 @@ type page struct {
 	walkShare int64
 }
 
-// page is one merge per query of a view on cluster id, every query over one resolve
-// of it and one claim. The queries share their view.
+// page is one merge per query of a scope on cluster id, every query over one resolve
+// of it and one claim. The queries share their scope.
 func (s *Service) page(ctx context.Context, id cluster.ClusterID, qs ...pageQuery) ([]merge, error) {
 	t, err := resolve(ctx, s.clusters, id, qs[0].scope, false)
 	if err != nil {
@@ -223,10 +341,11 @@ func (p *page) backendsOf(ps pageStream) []string {
 	return p.backends
 }
 
-// fill fills each stream the resolve handed out for each query in turn, over one
-// claim on the server the pods came from. A Tail query after a Head one from the
-// same bound, an Around page's halves, links each stream's read back from the bound
-// up to the Head fill's first line, so the two chunks join there.
+// fill fills each stream the resolve handed out for each query, over one claim on
+// the server the pods came from. A newer query fills first: an older one from the
+// same bound, a first page's context read before Since or its range read before
+// Until, links each stream's read back from the bound up to the newer fill's first
+// line, so the two chunks join there.
 func (p *page) fill(ctx context.Context, qs []pageQuery) ([][]streamFill, error) {
 	fills := make([][]streamFill, len(qs))
 	if len(p.t.streams) == 0 {
@@ -245,13 +364,17 @@ func (p *page) fill(ctx context.Context, qs []pageQuery) ([][]streamFill, error)
 		backends[i] = b.build(c.get)
 	}
 	var seams []*logstore.Pos
-	for i, q := range qs {
-		if fills[i], err = p.fillQuery(ctx, q, backends, seams); err != nil {
-			return nil, err
-		}
-		seams = nil
-		if q.mode == newer {
-			seams = p.seams(fills[i])
+	for _, mode := range []direction{newer, older} {
+		for i, q := range qs {
+			if q.mode != mode {
+				continue
+			}
+			if fills[i], err = p.fillQuery(ctx, q, backends, seams); err != nil {
+				return nil, err
+			}
+			if mode == newer {
+				seams = p.seams(fills[i])
+			}
 		}
 	}
 	return fills, nil
@@ -306,8 +429,8 @@ func (p *page) save(ctx context.Context, fills []logstore.Fill) (logstore.Writte
 	return p.file.Write(ctx, fills, true)
 }
 
-// seams is each stream's line a Head query's fill proved nothing lies before past
-// its bound, nil where it proved none: a Tail read back from the bound links up to it.
+// seams is each stream's line a newer query's fill proved nothing lies before past
+// its bound, nil where it proved none: an older read back from the bound links up to it.
 func (p *page) seams(fills []streamFill) []*logstore.Pos {
 	out := make([]*logstore.Pos, len(fills))
 	for i, f := range fills {
@@ -316,10 +439,11 @@ func (p *page) seams(fills []streamFill) []*logstore.Pos {
 	return out
 }
 
-// answer walks each stream of the file from q's bound in its direction, in one read
+// answer walks each stream of the file from q's key in its direction, in one read
 // transaction, and merges the walks into the page.
 func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (merge, error) {
 	readings := make([]*streamRead, len(p.streams))
+	reaches := make([]streamReach, len(p.streams))
 	var read []logstore.Chunk
 	left := false
 	err := p.file.Read(ctx, func(r logstore.Reader) error {
@@ -332,7 +456,7 @@ func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (mer
 			if err != nil {
 				return err
 			}
-			readings[i] = walked.reading
+			readings[i], reaches[i] = walked.reading, walked.reach
 			read = append(read, walked.read...)
 			left = left || walked.left
 		}
@@ -350,7 +474,7 @@ func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (mer
 	if err != nil {
 		return merge{}, err
 	}
-	m.skipped = []string{}
+	m.skipped, m.reaches = []string{}, reaches
 	// failed is the streams skipped for a failure: one stopped at a loud second cut
 	// the page, and does not count toward refusing it.
 	failed := 0
@@ -373,11 +497,7 @@ func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (mer
 	// this one, so the page is refused instead.
 	if m.cut.isZero() && left {
 		if len(m.records) == 0 {
-			way := "newer"
-			if q.mode == older {
-				way = "older"
-			}
-			return merge{}, refuse(CodeReadFailed, "Kstack could not read "+way+" lines of this view: "+strings.Join(m.skipped, "; "))
+			return merge{}, refuse(CodeReadFailed, "Kstack could not read "+string(q.mode)+" lines of this view: "+strings.Join(m.skipped, "; "))
 		}
 		m.cut = lineCursorOf(m.records[len(m.records)-1])
 		if q.mode == older {
@@ -387,11 +507,11 @@ func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (mer
 	return m, nil
 }
 
-// MaxGrep is the longest grep a view takes, in bytes. The wire takes any view the
+// MaxGrep is the longest grep a scope takes, in bytes. The wire takes any scope the
 // webview sends, so the service checks it, and the LogsView tool's parse reads it.
 const MaxGrep = 1_000
 
-// compileGrep is a view's grep, nil for none, refusing one past MaxGrep or one
+// compileGrep is a scope's grep, nil for none, refusing one past MaxGrep or one
 // that does not compile.
 func compileGrep(grep string) (*regexp.Regexp, error) {
 	switch {
