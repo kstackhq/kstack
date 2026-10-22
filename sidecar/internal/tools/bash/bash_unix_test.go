@@ -359,16 +359,16 @@ type stopTest struct {
 	res    chan result
 }
 
-// startStop runs trap, then the holder's command in the background and waits on
-// it, under hooks the test extends. before runs once bash is up.
-func startStop(t *testing.T, trap string, killGrace time.Duration, before func(st *stopTest)) *stopTest {
+// startStop runs trap, then the holder's command in the background, then tail,
+// under hooks the test extends. before runs once bash is up.
+func startStop(t *testing.T, trap, tail string, killGrace time.Duration, before func(st *stopTest)) *stopTest {
 	t.Helper()
 	tl := tool(t)
 	st := &stopTest{h: newHolder(t), clock: newClock(), stops: make(chan stop, 2), res: make(chan result, 1)}
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	st.cancel = cancel
-	s := tl.spec(trap+"; "+st.h.command("; wait"), 1024)
+	s := tl.spec(trap+"; "+st.h.command(tail), 1024)
 	s.killGrace = killGrace
 	s.hooks = hooks{
 		after:  st.clock.after,
@@ -385,7 +385,7 @@ func startStop(t *testing.T, trap string, killGrace time.Duration, before func(s
 // A timeout sends SIGTERM first: a trap on it runs, and whatever it exits with,
 // the command reads as timed out.
 func TestATimeoutSendsTermFirst(t *testing.T) {
-	st := startStop(t, `trap 'echo got TERM; exit 0' TERM`, time.Hour, func(st *stopTest) { st.clock.fire() })
+	st := startStop(t, `trap 'echo got TERM; exit 0' TERM`, "; wait", time.Hour, func(st *stopTest) { st.clock.fire() })
 	r := testutil.Recv(t, st.res, "the run to end")
 	assert.Equal(t, stopTimeout, testutil.Recv(t, st.stops, "the stop"))
 	assert.Equal(t, stopTimeout, r.Stop)
@@ -396,7 +396,7 @@ func TestATimeoutSendsTermFirst(t *testing.T) {
 }
 
 func TestATrapExitingNonzeroIsStillATimeout(t *testing.T) {
-	st := startStop(t, `trap 'exit 7' TERM`, time.Hour, func(st *stopTest) { st.clock.fire() })
+	st := startStop(t, `trap 'exit 7' TERM`, "; wait", time.Hour, func(st *stopTest) { st.clock.fire() })
 	r := testutil.Recv(t, st.res, "the run to end")
 	assert.Equal(t, stopTimeout, r.Stop)
 	assert.Equal(t, 7, r.ExitCode)
@@ -404,7 +404,7 @@ func TestATrapExitingNonzeroIsStillATimeout(t *testing.T) {
 
 // A group that ignores SIGTERM gets SIGKILL once the grace is out.
 func TestATimeoutKillsWhatIgnoresTerm(t *testing.T) {
-	st := startStop(t, `trap '' TERM`, time.Millisecond, func(st *stopTest) { st.clock.fire() })
+	st := startStop(t, `trap '' TERM`, blocked(t), time.Millisecond, func(st *stopTest) { st.clock.fire() })
 	r := testutil.Recv(t, st.res, "the run to end")
 	assert.Equal(t, stopTimeout, r.Stop)
 	assert.Equal(t, 137, r.ExitCode)
@@ -414,7 +414,7 @@ func TestATimeoutKillsWhatIgnoresTerm(t *testing.T) {
 // A cancel has no grace, so a shutdown's kill lands inside the host's budget
 // whatever the command traps.
 func TestACancelSkipsTheGrace(t *testing.T) {
-	st := startStop(t, `trap '' TERM`, time.Hour, func(st *stopTest) { st.cancel() })
+	st := startStop(t, `trap '' TERM`, blocked(t), time.Hour, func(st *stopTest) { st.cancel() })
 	r := testutil.Recv(t, st.res, "the run to end")
 	assert.Equal(t, stopCancel, r.Stop)
 	assert.Equal(t, 137, r.ExitCode)
@@ -423,7 +423,7 @@ func TestACancelSkipsTheGrace(t *testing.T) {
 
 // A cancel inside a timeout's grace does not wait the grace out.
 func TestACancelDuringTheGraceKillsAtOnce(t *testing.T) {
-	st := startStop(t, `trap '' TERM`, time.Hour, func(st *stopTest) {
+	st := startStop(t, `trap '' TERM`, blocked(t), time.Hour, func(st *stopTest) {
 		st.clock.fire()
 		assert.Equal(t, stopTimeout, testutil.Recv(t, st.stops, "the SIGTERM"))
 		st.cancel()
