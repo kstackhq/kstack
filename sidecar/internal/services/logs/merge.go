@@ -29,13 +29,13 @@ import (
 // one line each.
 type merge struct {
 	records []Record
-	cut     position
+	cut     lineCursor
 	skipped []string
 }
 
 // mergePage is one page of readings, each one container's lines in the order the
 // page reads them — oldest first newer, newest first older — merged in
-// position order and cut at limit. The cut is where the next page goes on from:
+// line order and cut at limit. The cut is where the next page goes on from:
 // the last line kept, or the stop of a reading that ran short when that is
 // nearer. Every reading is cancelled once the merge has its lines, so no stream
 // reads past the page.
@@ -67,14 +67,14 @@ func mergePage(ctx context.Context, readings []*streamRead, mode direction, limi
 		}
 	}
 	// A page past the limit is cut at the far end, and the cursor is the last line kept.
-	var cut position
+	var cut lineCursor
 	if len(recs) > limit {
 		if mode == newer {
 			recs = recs[:limit]
-			cut = positionOf(recs[limit-1])
+			cut = lineCursorOf(recs[limit-1])
 		} else {
 			recs = recs[len(recs)-limit:]
-			cut = positionOf(recs[0])
+			cut = lineCursorOf(recs[0])
 		}
 	}
 	recs, cut = trimToStops(readings, mode, recs, cut)
@@ -127,8 +127,8 @@ func skippedLine(key StreamKey, err error) string {
 
 // beyond is whether a lies past b in the direction mode reads: later newer,
 // earlier older.
-func beyond(mode direction, a, b position) bool {
-	c := comparePositions(a, b)
+func beyond(mode direction, a, b lineCursor) bool {
+	c := compareLineCursors(a, b)
 	if mode == newer {
 		return c > 0
 	}
@@ -137,7 +137,7 @@ func beyond(mode direction, a, b position) bool {
 
 // nearerStop is the nearer of stop and r's, the nearest newer being the oldest
 // and older the newest, or stop when r did not run short.
-func nearerStop(mode direction, stop position, r *streamRead) position {
+func nearerStop(mode direction, stop lineCursor, r *streamRead) lineCursor {
 	if r.short && (stop.isZero() || beyond(mode, stop, r.stop)) {
 		return r.stop
 	}
@@ -148,16 +148,16 @@ func nearerStop(mode direction, stop position, r *streamRead) position {
 // that ran short stopped at, and answers that point as the cut, since past it
 // some stream's lines were never read. A cut the limit made nearer than it stands.
 // recs are oldest first.
-func trimToStops(readings []*streamRead, mode direction, recs []Record, cut position) ([]Record, position) {
-	var stop position
+func trimToStops(readings []*streamRead, mode direction, recs []Record, cut lineCursor) ([]Record, lineCursor) {
+	var stop lineCursor
 	for _, r := range readings {
 		stop = nearerStop(mode, stop, r)
 	}
 	if stop.isZero() {
 		return recs, cut
 	}
-	i, found := slices.BinarySearchFunc(recs, stop, func(rec Record, p position) int {
-		return comparePositions(positionOf(rec), p)
+	i, found := slices.BinarySearchFunc(recs, stop, func(rec Record, p lineCursor) int {
+		return compareLineCursors(lineCursorOf(rec), p)
 	})
 	if mode == newer {
 		if found {
@@ -181,7 +181,7 @@ func trimToStops(readings []*streamRead, mode direction, recs []Record, cut posi
 // or ctx ends, since the page is refused.
 func merged(ctx context.Context, readings []*streamRead, mode direction, n int) []Record {
 	h := &heads{mode: mode}
-	var stop position
+	var stop lineCursor
 	// waiting is the readings with no line held.
 	waiting := readings
 	var out []Record
@@ -201,7 +201,7 @@ func merged(ctx context.Context, readings []*streamRead, mode direction, n int) 
 			return out
 		}
 		top := heap.Pop(h).(headed)
-		if !stop.isZero() && beyond(mode, positionOf(top.rec), stop) {
+		if !stop.isZero() && beyond(mode, lineCursorOf(top.rec), stop) {
 			return out
 		}
 		out = append(out, top.rec)
@@ -237,7 +237,7 @@ type heads struct {
 
 func (s *heads) Len() int { return len(s.h) }
 func (s *heads) Less(i, j int) bool {
-	return beyond(s.mode, positionOf(s.h[j].rec), positionOf(s.h[i].rec))
+	return beyond(s.mode, lineCursorOf(s.h[j].rec), lineCursorOf(s.h[i].rec))
 }
 func (s *heads) Swap(i, j int) { s.h[i], s.h[j] = s.h[j], s.h[i] }
 func (s *heads) Push(x any)    { s.h = append(s.h, x.(headed)) }

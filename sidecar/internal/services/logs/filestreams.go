@@ -44,9 +44,10 @@ type pageStream struct {
 // has nothing older than its oldest line and nothing newer than its newest.
 func (ps pageStream) exhausted() bool { return ps.st == nil }
 
-// instance is ps's place in the order of lines at one moment.
-func (ps pageStream) instance() instance {
-	return instance{ps.row.Namespace, ps.row.Pod, ps.row.Container, ps.row.ContainerID}
+// run is ps's container and runtime id, at no moment: what orders its lines
+// against another stream's at one moment.
+func (ps pageStream) run() lineCursor {
+	return lineCursor{containerName{ps.row.Namespace, ps.row.Pod, ps.row.Container}, runPlace{ContainerID: ps.row.ContainerID}}
 }
 
 // pageStreams files t's streams in file, each as its instance's row, and answers

@@ -822,7 +822,7 @@ func marks(recs []Record) []string {
 // kubeletOnly is the backends of a cluster read through its API server.
 var kubeletOnly = []string{"kubelet"}
 
-// sec is the position of a line s seconds past 10:00.
+// sec is the lineCursor of a line s seconds past 10:00.
 func sec(s int) logstore.Pos { return logstore.Pos{TS: at(time.Duration(s) * time.Second).UnixNano()} }
 
 // said is a line s seconds past 10:00 saying msg.
@@ -980,20 +980,26 @@ func inlined(sql string, args []any) string {
 
 // from, after and to are bounds at the moment d past 10:00: since it, after it,
 // and until it.
-func from(d time.Duration) bound  { return bound{position{Timestamp: at(d)}, true} }
-func after(d time.Duration) bound { return bound{position{Timestamp: at(d)}, false} }
-func to(d time.Duration) bound    { return bound{position{Timestamp: at(d)}, true} }
+func from(d time.Duration) bound  { return bound{momentAt(at(d)), true} }
+func after(d time.Duration) bound { return bound{momentAt(at(d)), false} }
+func to(d time.Duration) bound    { return bound{momentAt(at(d)), true} }
 
-// lineAt is the position of key's line at d past 10:00, from the first instance
+// lineAt is the line cursor of key's line at d past 10:00, from the first instance
 // of a fixture pod, the ordinal-th of its moment.
-func lineAt(key StreamKey, d time.Duration, ordinal int) position {
-	return position{Timestamp: at(d), Namespace: key.Namespace, Pod: key.Pod, Container: key.Container, ContainerID: containerID("uid-"+key.Pod, key.Container, 0), Ordinal: ordinal}
+func lineAt(key StreamKey, d time.Duration, ordinal int) lineCursor {
+	return lineCursor{containerName{key.Namespace, key.Pod, key.Container}, runPlace{containerID("uid-"+key.Pod, key.Container, 0), at(d), ordinal}}
 }
 
 // lineCursor is the cursor of pod/container's line at d past 10:00, in prod, the
 // ordinal-th of its moment, from the first instance of a fixture pod.
-func lineCursor(pod, container string, d time.Duration, ordinal int) *string {
+func lineCursorFor(pod, container string, d time.Duration, ordinal int) *string {
 	return cursorOf(lineAt(StreamKey{Namespace: "prod", Pod: pod, Container: container}, d, ordinal))
+}
+
+// cursorOf is c encoded, as a page's edge carries it.
+func cursorOf(c lineCursor) *string {
+	s := encodeLineCursor(c)
+	return &s
 }
 
 // keysOf is each of t's streams' key, in order.
@@ -1027,7 +1033,8 @@ func nth(pod, container string, d time.Duration, ordinal int, msg string) Record
 
 // cursor is the cursor of the moment d past 10:00.
 func cursor(d time.Duration) *string {
-	return cursorOf(position{Timestamp: at(d)})
+	c := encodeLineCursor(momentAt(at(d)))
+	return &c
 }
 
 // testRetention is the production setting with no janitor, which a test about
@@ -1100,7 +1107,7 @@ func (s *fakeBackend) read(ctx context.Context, st stream) *streamRead {
 		recs[i] = rec
 	}
 	s.opened.Fire(key)
-	return cannedUntil(ctx, st.key, recs, r.wait, r.err, position{})
+	return cannedUntil(ctx, st.key, recs, r.wait, r.err, lineCursor{})
 }
 
 func (s *fakeBackend) Forward(ctx context.Context, st stream, _ readOpts) *streamRead {

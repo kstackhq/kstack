@@ -138,35 +138,18 @@ never `Gated`, in `catalog`'s `ours`, `app.go`'s box after LogsView, and in `Sub
 ## LogsWatch (`tools/logswatch`)
 
 **LogsWatch is a follow of a view that runs as a background task and wakes the model once, when it
-ends.** It is `Custom`, `Shown` and `Bounded` (30 s), never `Gated`. `parse.go` takes the shared
-keys through `logsinput.Parse` and its own `since` (a moment or a duration back, not after now),
-`until` (a moment or a duration ahead, after now, cut to `maxWatch`, a day),
-`limit` (1–100, 1) and `max_bytes` (1–16 KiB, 16 KiB), refusing `anchor`, `pin_to_end` and `mode`
-by name. `RunShown` resolves the view as LogsView does, then opens `logs.Service.Follow` (the
-`Follower` field) **on a context of the watch's own**, `WithDeadline(WithoutCancel(ctx), until)`,
-from a moment less a nanosecond, the tool's `now` with none, so the follow starts where the window
-says and not after its own setup; then hands it to `rt.Watches.Start`. A
-start refused cancels it. Until `Follow` returns the call's end still cancels it (`context.AfterFunc`),
-so a stalled open never outlives the call's bound. The receipt goes through `safe.Redact`; the action is a `LogsWatchAction`.
-
-- **`watch.go` is the `tools.Watch`.** `Wait` reads the frames: a line through `logs.ForModel`, cut
-  at 2 KiB, until the lines reach `limit` or their size `max_bytes`, which cancels the follow; an
-  `Ended` frame's reason is kept. **The lines are sorted by `logs.CompareLines` once the follow is done**,
-  since a follow orders them per container only. **A cancelled follow closes with no frame and no error**, so
-  `End(stoppedBy)` decides in order: a fill, the follow's reason or an error (matched with lines,
-  failed without; an error's text never), the deadline off the context's error (matched or
-  expired), else a stop, read last so one that lands during the drain relabels nothing.
-- **The result is a `LogsRead` sample** (`tools.WatchResult`): a header naming the window and why it
-  ended, then the lines; with the lines as the action keeps them and the `viewAround` at the first.
-  It fits `tools.InlineLimit` (`TestNoSamplePassesTheInlineLimit`).
-- It is in `catalog`'s `ours`, `app.go`'s box after LogsRead, and out of `SubagentBox` and
-  `MonitorBox`: a watch's point is the turn it starts.
+ends.** It is `Custom`, `Shown` and `Bounded` (30 s), never `Gated`, in `catalog`'s `ours`,
+`app.go`'s box after LogsRead, and out of `SubagentBox` and `MonitorBox`: a watch's point is the
+turn it starts. Its watch is rebuilt on the log service's new follow
+([the log fetch API](../../../docs/specs/log-fetch-api/)): `RunShown` panics until then. Its
+action is a `LogsWatchAction`; the chat holds a watch as a background task
+(`internal/agent/CLAUDE.md`).
 
 → [the model watches logs](../../../docs/security/2026-10-18-the-model-watches-logs.md).
 
 ## The log tools' input (`tools/internal/logsinput`)
 
-**`tools/internal/logsinput` is what LogsView, LogsRead and LogsWatch share.** `Parse(raw, own)` is the
+**`tools/internal/logsinput` is what the three log tools share.** `Parse(raw, own)` is the
 strict walk (each key once, DNS names, at most 100 sources, `grep` compiled on one line of at most
 `MaxGrep`); `own` is the tool's `Fields`, each key's typed destination or the refusal it earns.
 `Resolve(ctx, svc, now, id, in)` checks each source inside one `ReadActive`, then runs
@@ -177,7 +160,7 @@ after 9999; `SourcesText` and `NotesText` how a tool names its sources; `Refusal
 answers; `sample.go` how a line reads (`LineText`, `CutLine`, `Stamp`, the caps
 `MaxSampleLine` and `SampleBudget`), how an action keeps it (`ReadLine`) and the view around it
 (`ViewAround`). `logsinputtest` is the fake cluster and
-the fixtures both tools' tests run over (`cluster/clustertest` beneath).
+the fixtures the tools' tests run over (`cluster/clustertest` beneath).
 
 ## KubeQuery (`tools/kubequery`)
 

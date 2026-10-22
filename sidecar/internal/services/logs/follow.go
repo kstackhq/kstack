@@ -118,7 +118,7 @@ func (v Scope) workloadKinds() []mirrorKind {
 // or from the moment it started with none. The lines are read from the cluster
 // cache's log file, which a tailer per stream writes, shared by every follow of it:
 // each stream is walked from a watermark on every commit to it, and its lines go
-// out in position order, so lines are ordered per container. After each walk that
+// out in line order, so lines are ordered per container. After each walk that
 // sent a line a Checkpoint names the oldest watermark across the view, and a follow
 // opened after it misses no line. A view with no container yet — a Job not
 // scheduled, a Deployment at zero — waits for its pods.
@@ -153,7 +153,7 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, scope Scope,
 		return nil, err
 	}
 	if since.at.isZero() {
-		since = bound{position{Timestamp: s.now()}, true}
+		since = bound{momentAt(s.now()), true}
 	}
 	// owned ends the mirror watches and every tailer's watch on any ending. The
 	// stream itself runs on ctx: one ended by its own context files no error.
@@ -884,7 +884,7 @@ func (f *follow) bring(ctx context.Context, t target) error {
 		}
 		if tr.row != rows[i].ID {
 			// A hold was the instance before's, whose end was its log's.
-			tr.row, tr.wm = rows[i].ID, streamBound(f.cursor(), st.instance(), newer)
+			tr.row, tr.wm = rows[i].ID, streamBound(f.cursor(), st.run(), newer)
 			tr.held, tr.restarted, tr.filling = false, false, false
 		}
 		tr.st, tr.ended, tr.refused = st, false, ""
@@ -979,7 +979,7 @@ func (f *follow) walkRows(ctx context.Context, rows []int64) error {
 	return f.walkStreams(ctx, streams)
 }
 
-// walkStreams walks each of streams, one at a time, sends what they read in position
+// walkStreams walks each of streams, one at a time, sends what they read in line
 // order, then a checkpoint, and walks again at once each that stopped with more to
 // read.
 func (f *follow) walkStreams(ctx context.Context, streams []*tracked) error {
@@ -1003,7 +1003,7 @@ func (f *follow) walkStreams(ctx context.Context, streams []*tracked) error {
 	return nil
 }
 
-// walk reads tr's stream from its watermark, by position, as far as reach allows,
+// walk reads tr's stream from its watermark, in line order, as far as reach allows,
 // keeping the lines the grep passes for the next send and moving the watermark to
 // the last line it read. At a live gap it holds the watermark and starts a fill of
 // the gap, then stops: the fill's end walks the stream again. A stream already
@@ -1220,7 +1220,7 @@ func (f *follow) filledGap(ctx context.Context, d fillDone) error {
 	return nil
 }
 
-// flush sends the lines walked in position order, then, when it sent any, a
+// flush sends the lines walked in line order, then, when it sent any, a
 // checkpoint naming the oldest watermark across the view. It is false once the
 // follow's context has ended.
 func (f *follow) flush(ctx context.Context) bool {
@@ -1238,12 +1238,13 @@ func (f *follow) flush(ctx context.Context) bool {
 	var oldest bound
 	for _, key := range f.wanted {
 		tr := f.streams[key]
-		if b := boundOf(tr.st.instance(), tr.wm); oldest.at.isZero() || compareBounds(b, oldest) < 0 {
+		if b := boundOf(tr.st.run(), tr.wm); oldest.at.isZero() || compareBounds(b, oldest) < 0 {
 			oldest = b
 		}
 	}
 	f.checkpoint = oldest
-	return send(ctx, f.out, FollowFrame{Type: FollowCheckpoint, Cursor: cursorOfBound(oldest)})
+	cursor := cursorOfBound(oldest)
+	return send(ctx, f.out, FollowFrame{Type: FollowCheckpoint, Cursor: &cursor})
 }
 
 // stopped is the ending of a follow whose every stream ended: the cluster's

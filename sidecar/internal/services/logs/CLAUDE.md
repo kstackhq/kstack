@@ -50,8 +50,10 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   which drops those too; a refusal's message goes through `stripControl` alone.
 - **A line reaches the model through `ForModel` alone** (`formodel.go`): stripped again, then
   redacted, at read time. The file and the wire to the viewer keep it unredacted.
-- **A cursor names a line** (`cursor.go`): moment, container, instance id, ordinal. `streamBound`
-  reads one cursor as each stream's bound. → [ADR: a log cursor is a position](../../../../docs/adr/2026-10-17-a-log-cursor-is-a-position.md).
+- **A line cursor names a line** (`cursor.go`): moment, container, runtime id, ordinal, as
+  versioned JSON in base64url (`encodeLineCursor`, `decodeLineCursor`); one with no runtime id is a
+  moment. Every `Record` carries its own (`Cursor()`). `streamBound` reads one as each stream's
+  bound. → [ADR: a log cursor is a position](../../../../docs/adr/2026-10-17-a-log-cursor-is-a-position.md).
 - **A container's log is read over a claim** (`claim.go`), one raw `GET` of the `log` path through
   the connection's `HTTPClient`; a cut body answers its reason, never a bare cancel. A follow's
   claim also watches the record and revokes on disable or delete.
@@ -148,6 +150,4 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   ended at the `generation` the view sees now. A dropped container is held for a backoff up to
   `followRetryCap`. A `Pod` source leaves the view once its pod is gone by UID. **An ending the user
   can read is a `FollowEnded` frame, not an error** (any `Refusal`, via `asRefusal`); any other
-  ending sets `Err`, and a cancel sets none. **Its callers are the viewer's `logsFollow` and a
-  `LogsWatch` watch**, which holds one open on a context of its own until its deadline or a stop,
-  and tells a fill, a stop and the deadline apart itself, since all three close the stream alike.
+  ending sets `Err`, and a cancel sets none. **Its caller is the viewer's `logsFollow`.**

@@ -90,7 +90,7 @@ type tailRead struct {
 func (t *tailer) read(ctx context.Context, backend Backend, start logstore.Pos) *tailRead {
 	r := &tailRead{}
 	r.read = backend.Tail(ctx, t.st, readOpts{
-		since:    bound{positionAt(t.st.instance(), start), false},
+		since:    bound{t.st.run().at(start), false},
 		onOldest: func(ts time.Time) { r.oldest = ts },
 	})
 	return r

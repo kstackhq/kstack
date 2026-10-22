@@ -57,7 +57,7 @@ type streamFill struct {
 	// stop is the moment a read was cut or stopped at when what it wrote does not
 	// show it: an empty window's start, or a loud second's edge. The walk that
 	// reaches the gap the read ended in stops there. Zero with none.
-	stop position
+	stop lineCursor
 	// downloaded is the bytes the stream's reads downloaded, which its walk may read
 	// past its share.
 	downloaded int64
@@ -631,12 +631,7 @@ func (f *filler) boundAt(p *logstore.Pos) bound {
 	if p == nil {
 		return bound{}
 	}
-	return bound{positionAt(f.ps.instance(), *p), false}
-}
-
-// positionAt is the position of in's line at p.
-func positionAt(in instance, p logstore.Pos) position {
-	return position{time.Unix(0, p.TS).UTC(), in.namespace, in.pod, in.container, in.id, p.Ord}
+	return bound{f.ps.run().at(*p), false}
 }
 
 // segment is one span or one gap of a stream's coverage.

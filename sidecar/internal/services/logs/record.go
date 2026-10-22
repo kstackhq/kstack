@@ -62,4 +62,4 @@ type Place struct {
 }
 
 // Cursor is the cursor naming rec, which a fetch or a follow resumes past.
-func (rec Record) Cursor() string { return *cursorOf(positionOf(rec)) }
+func (rec Record) Cursor() string { return encodeLineCursor(lineCursorOf(rec)) }

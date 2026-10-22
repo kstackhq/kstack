@@ -83,7 +83,7 @@ func TestFollowIsRefusedBeforeItOpens(t *testing.T) {
 	bad := "yesterday"
 	svc, _ := serviceOver(t, webMirror(t), newLogServer())
 	_, err := svc.Follow(t.Context(), "7", webScope, &bad)
-	assert.EqualError(t, err, "a cursor must be an RFC 3339 time, or one a page handed back")
+	assert.EqualError(t, err, "this is not a line cursor a page handed back")
 
 	svc, f := serviceOver(t, webMirror(t), newLogServer())
 	f.active.Cache = nil
@@ -1370,7 +1370,7 @@ func TestAFollowCheckpointsItsWatermark(t *testing.T) {
 	frame := testutil.Recv(t, stream.Frames, "the checkpoint")
 	require.Equal(t, FollowCheckpoint, frame.Type)
 	assert.Nil(t, frame.Record)
-	assert.Equal(t, lineCursor("web-1", "app", time.Hour+time.Second, 0), frame.Cursor)
+	assert.Equal(t, lineCursorFor("web-1", "app", time.Hour+time.Second, 0), frame.Cursor)
 }
 
 // A follow opened after a checkpoint sends every line written past it and none
@@ -1954,8 +1954,8 @@ func followHoles(t *testing.T, s *logServer, grep string, cursor *string) *clust
 func TestAFollowsFirstLineCarriesTheHolesBeforeIt(t *testing.T) {
 	t.Parallel()
 	for name, after := range map[string]*string{
-		"after the page's last match": lineCursor("web-1", "app", 0, 0),
-		"after a checkpoint past it":  lineCursor("web-1", "app", 9*time.Second, 0),
+		"after the page's last match": lineCursorFor("web-1", "app", 0, 0),
+		"after a checkpoint past it":  lineCursorFor("web-1", "app", 9*time.Second, 0),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -2032,7 +2032,7 @@ func TestAFillReadsABigSecondWhole(t *testing.T) {
 		want []string
 	}{
 		"before it":     {cursor(0), append(append(messages(linesOf(big)), messages(linesOf(after))...), "1800")},
-		"its last line": {lineCursor("web-1", "app", 10*time.Minute+19*time.Millisecond, 0), append(messages(linesOf(after)), "1800")},
+		"its last line": {lineCursorFor("web-1", "app", 10*time.Minute+19*time.Millisecond, 0), append(messages(linesOf(after)), "1800")},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

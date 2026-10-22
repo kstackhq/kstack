@@ -110,11 +110,11 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 	if err := w.mark(recs, cov, held); err != nil {
 		return walked{}, err
 	}
-	var stop position
+	var stop lineCursor
 	var failed error
 	switch {
 	case read:
-		stop = positionAt(w.ps.instance(), last)
+		stop = w.ps.run().at(last)
 	case short && w.fill.retired:
 		failed = errRetired
 	}
@@ -240,7 +240,7 @@ func recordOf(l logstore.Line, key StreamKey, place Place, containerID string) R
 }
 
 // heldBy is whether a chunk of chunks, oldest first as Chunks reads them, claims a
-// line at a position: a line between two chunks of a span is another pattern's,
+// line at a lineCursor: a line between two chunks of a span is another pattern's,
 // which the page's chunks do not vouch for.
 func heldBy(chunks []logstore.Chunk) func(logstore.Pos) bool {
 	var runs []logstore.Span
@@ -270,14 +270,14 @@ func newestOf(chunks []logstore.Chunk) *logstore.Pos {
 }
 
 // readingOf is a reading of key that has already read recs and ended as it says.
-func readingOf(key StreamKey, recs []Record, short bool, stop position, err error) *streamRead {
+func readingOf(key StreamKey, recs []Record, short bool, stop lineCursor, err error) *streamRead {
 	out, lines := spsc.New[readItem](len(recs))
 	for _, rec := range recs {
 		_ = out.Send(readItem{Record: rec}) // the buffer holds every line, so nothing blocks or fails
 	}
 	out.Close()
 	if !short {
-		stop = position{}
+		stop = lineCursor{}
 	}
 	return &streamRead{key: key, lines: lines, cancel: func() {}, err: err, short: short, stop: stop}
 }

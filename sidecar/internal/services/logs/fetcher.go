@@ -120,7 +120,7 @@ type streamRead struct {
 	// read whole: forward, it read every line in range up to stop; backward, every
 	// one from stop on. Zero when it read no line in range.
 	short bool
-	stop  position
+	stop  lineCursor
 	// head is whether the read reached the oldest line the backend holds: a backward
 	// read with no lower bound back to the log's first line, or a forward read with
 	// none, which starts there.
@@ -189,8 +189,8 @@ type reader struct {
 	finished     bool
 	o            readOpts
 	out          *spsc.Sender[readItem]
-	edge         position
-	windowOldest position
+	edge         lineCursor
+	windowOldest lineCursor
 	head         bool
 	atEnd        bool
 	oldest       time.Time
@@ -227,7 +227,7 @@ func (r *reader) forward() error {
 	if errors.As(err, &loud) {
 		// The page is cut at the loud second's last nanosecond: past what the read took
 		// of it.
-		r.edge = position{Timestamp: loud.at.Add(time.Second - 1)}
+		r.edge = momentAt(loud.at.Add(time.Second - 1))
 	}
 	// With no lower bound the read starts at the oldest line, so its first line is
 	// the backend's oldest, and a log it read clean to the end with none is empty.
@@ -243,7 +243,7 @@ func (r *reader) backward() error {
 	err := r.windows()
 	var loud loudSecond
 	if errors.As(err, &loud) {
-		r.edge = position{Timestamp: loud.at}
+		r.edge = momentAt(loud.at)
 	}
 	return err
 }
@@ -329,7 +329,7 @@ func (r *reader) tailWindow(first time.Time) error {
 	// The window's rate is over the span from the moment it began in to its newest
 	// line; lines all in one moment span next to none.
 	reach := r.widen(w.sample, max(w.sample.last.Sub(w.oldest), time.Millisecond), w.sample.kept, l.target())
-	return r.timeWindows(first, bound{position{Timestamp: w.oldest}, true}, w.oldest, reach, w.sample.kept)
+	return r.timeWindows(first, bound{momentAt(w.oldest), true}, w.oldest, reach, w.sample.kept)
 }
 
 // reachedFirst marks a backward read that took every line back to first, the one
@@ -354,7 +354,7 @@ func (r *reader) inSinceMoment(t time.Time) bool {
 // arrive after it. It is false once the context has ended before the window's end
 // went out.
 func (r *reader) wholeMoment(t time.Time) (bool, error) {
-	if err := r.span(t, bound{position{Timestamp: t}, true}, func(rec Record, _ int) bool { return r.take(rec) }); err != nil {
+	if err := r.span(t, bound{momentAt(t), true}, func(rec Record, _ int) bool { return r.take(rec) }); err != nil {
 		return false, err
 	}
 	return r.ctx.Err() == nil && r.endWindow(time.Time{}), nil
@@ -431,7 +431,7 @@ func (r *reader) timeWindows(first time.Time, end bound, endAt time.Time, reach 
 		target = l.take()
 		kept += w.kept
 		reach := r.widen(w, endAt.Sub(start), kept, target)
-		end, endAt = bound{position{Timestamp: start}, false}, start
+		end, endAt = bound{momentAt(start), false}, start
 		start = startOf(endAt, reach, first)
 	}
 }
@@ -540,7 +540,7 @@ func (r *reader) timeWindow(from time.Time, end bound, endAt time.Time, target i
 // context has ended. The window was not read to the point, so its oldest line never
 // becomes the edge.
 func (r *reader) cutWindow() bool {
-	r.windowOldest = position{}
+	r.windowOldest = lineCursor{}
 	return r.out.SendContext(r.ctx, readItem{windowCut: true}) == nil
 }
 
@@ -560,9 +560,9 @@ func (r *reader) endWindow(start time.Time) bool {
 	}
 	switch {
 	case !r.windowOldest.isZero():
-		r.edge, r.windowOldest = r.windowOldest, position{}
+		r.edge, r.windowOldest = r.windowOldest, lineCursor{}
 	case !start.IsZero():
-		r.edge = position{Timestamp: start}
+		r.edge = momentAt(start)
 	}
 	return true
 }
@@ -576,7 +576,7 @@ func (r *reader) more() bool {
 // ended.
 func (r *reader) take(rec Record) bool {
 	if r.windowOldest.isZero() {
-		r.windowOldest = positionOf(rec)
+		r.windowOldest = lineCursorOf(rec)
 	}
 	return r.send(rec)
 }
@@ -616,7 +616,7 @@ type tailWindowRead struct {
 func (r *reader) span(from time.Time, end bound, each func(rec Record, size int) bool) error {
 	o := r.o
 	if o.since.at.Timestamp.Before(from) {
-		o.since = bound{position{Timestamp: from}, true}
+		o.since = bound{momentAt(from), true}
 	}
 	o.until = end
 	_, err := r.lines(r.query(from), o, o.limits.second(), each)
@@ -679,7 +679,7 @@ func (r *reader) query(since time.Time) url.Values {
 // span is what one GET read whole: the first and the last line in range, zero
 // with none, and the moment of the oldest line at all.
 type span struct {
-	first, last position
+	first, last lineCursor
 	oldest      time.Time
 }
 
@@ -753,12 +753,12 @@ func (r *reader) lines(q url.Values, o readOpts, loud int64, each func(rec Recor
 				return read, nil
 			default:
 				if read.first.isZero() {
-					read.first = positionOf(rec)
+					read.first = lineCursorOf(rec)
 				}
 				if !each(rec, size) {
 					return read, nil
 				}
-				read.last = positionOf(rec)
+				read.last = lineCursorOf(rec)
 			}
 		}
 		switch {

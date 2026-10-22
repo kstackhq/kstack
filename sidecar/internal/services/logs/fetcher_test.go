@@ -183,7 +183,7 @@ func TestAFollowNumbersAMomentFromItsSecond(t *testing.T) {
 	first := testutil.Recv(t, r.lines.Chan(), "the first line")
 	assert.Equal(t, 0, first.Ordinal)
 
-	again := readForward(t.Context(), claimOn(t, s).get, web, readOpts{follow: true, since: bound{positionOf(first.Record), false}})
+	again := readForward(t.Context(), claimOn(t, s).get, web, readOpts{follow: true, since: bound{lineCursorOf(first.Record), false}})
 	assert.Equal(t, "b", testutil.Recv(t, again.lines.Chan(), "the line after it").Message)
 	assert.Empty(t, s.requests()[0].Get("tailLines"))
 }
@@ -388,7 +388,7 @@ func TestAForwardReadIsCutAtItsLimit(t *testing.T) {
 	recs := drain(r)
 	assert.NoError(t, r.err)
 	assert.True(t, r.short)
-	assert.Equal(t, positionOf(recs[len(recs)-1]), r.stop)
+	assert.Equal(t, lineCursorOf(recs[len(recs)-1]), r.stop)
 	// 8 KiB is about 330 lines, as the body arrives a buffer at a time.
 	assert.Less(t, len(recs), 400)
 	assert.Greater(t, len(recs), 300)
@@ -436,8 +436,8 @@ func TestAFollowsFillIsCutAtTheEndOfASecond(t *testing.T) {
 func TestAForwardReadFromASecondsEndStartsAtTheNext(t *testing.T) {
 	t.Parallel()
 	for name, since := range map[string]bound{
-		"a moment":            {position{Timestamp: at(3*time.Second - 1)}, false},
-		"a stream's position": {positionAt(web.instance(), logstore.Pos{TS: at(3*time.Second - 1).UnixNano(), Ord: math.MaxInt}), false},
+		"a moment":              {momentAt(at(3*time.Second - 1)), false},
+		"a stream's lineCursor": {web.run().at(logstore.Pos{TS: at(3*time.Second - 1).UnixNano(), Ord: math.MaxInt}), false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -963,7 +963,7 @@ func TestABackwardReadIsCutAtItsLimits(t *testing.T) {
 		grep    string
 		near    rate
 		windows int
-		stop    position
+		stop    lineCursor
 	}{
 		// Lines of 2 KiB under limits scaled down 64 times: four windows of about
 		// 64 KiB reach 256 KiB.
@@ -1039,7 +1039,7 @@ func TestAnEmptyWindowsEdgeIsItsStart(t *testing.T) {
 	assert.Equal(t, []string{"0|", "0|"}, shape(r))
 	assert.NoError(t, r.err)
 	assert.True(t, r.short)
-	assert.Equal(t, position{Timestamp: at(910 * time.Second)}, r.stop)
+	assert.Equal(t, momentAt(at(910*time.Second)), r.stop)
 }
 
 // A backward read under until reads windows of time ending there, each from its
@@ -1208,7 +1208,7 @@ func TestABackwardReadUnderUntilSizesItsFirstWindow(t *testing.T) {
 			s := newLogServer()
 			s.add("prod/web/app", lineEvery(100)...)
 			o := backwardOpts()
-			o.until, o.near = bound{position{Timestamp: at(50*time.Second + 300*time.Millisecond)}, false}, tc.near
+			o.until, o.near = bound{momentAt(at(50*time.Second + 300*time.Millisecond)), false}, tc.near
 			o.more = func(context.Context) bool { return false }
 
 			r := readBackward(t.Context(), s.get, web, o)
@@ -1306,7 +1306,7 @@ func burst(s *logServer) bound {
 	for i := range 50000 {
 		s.add("prod/web/app", stamped(65*time.Second+time.Duration(i)*200*time.Microsecond, "loud"))
 	}
-	return bound{position{Timestamp: at(75 * time.Second)}, false}
+	return bound{momentAt(at(75 * time.Second)), false}
 }
 
 // A window guessed far too long for a burst just before the point is stopped once it
@@ -1540,7 +1540,7 @@ func TestAForwardReadStopsAtALoudSecond(t *testing.T) {
 	assert.Equal(t, at(2*time.Second), loud.at)
 	assert.Equal(t, failLimit, failureKind(r.err))
 	assert.True(t, r.short)
-	assert.Equal(t, position{Timestamp: at(3*time.Second - 1)}, r.stop)
+	assert.Equal(t, momentAt(at(3*time.Second-1)), r.stop)
 	assert.Equal(t, "before", recs[0].Message)
 	assert.Len(t, recs, 1+8, "a KiB holds eight of the loud lines")
 }
@@ -1617,7 +1617,7 @@ func TestALoudSecondFarFromThePoint(t *testing.T) {
 	require.ErrorAs(t, r.err, &loud)
 	assert.Equal(t, at(50*time.Second), loud.at)
 	assert.True(t, r.short)
-	assert.Equal(t, position{Timestamp: at(50 * time.Second)}, r.stop)
+	assert.Equal(t, momentAt(at(50*time.Second)), r.stop)
 }
 
 // A first moment too loud to read whole stops the stream at its second's top.
@@ -1635,7 +1635,7 @@ func TestALoudFirstMomentStopsTheStream(t *testing.T) {
 	drain(r)
 	assert.Equal(t, failLimit, failureKind(r.err))
 	assert.True(t, r.short)
-	assert.Equal(t, position{Timestamp: at(time.Second)}, r.stop)
+	assert.Equal(t, momentAt(at(time.Second)), r.stop)
 }
 
 // A loud second just past a backward window's end is not the window's: the GET ends

@@ -157,10 +157,9 @@ type stream struct {
 
 // generation is which log a stream's path serves now: the pod's UID, since a pod
 // replaced under the same name has a new one; the runtime id of the instance read,
-// since a restart starts a new one, which names the stream in each line's
-// position; and the container's state, since a running
-// container's log can still grow and a finished one's cannot. A follow reopens a
-// stream whose generation moved.
+// since a restart starts a new one, which names the stream in each line's cursor;
+// and the container's state, since a running container's log can still grow and
+// a finished one's cannot. A follow reopens a stream whose generation moved.
 type generation struct {
 	uid      string
 	instance string
@@ -174,9 +173,10 @@ func (st stream) finished() bool {
 	return st.key.Previous || st.gen.state == "terminated" || st.gen.state == "waiting"
 }
 
-// instance is st's place in the order of lines at one moment.
-func (st stream) instance() instance {
-	return instance{st.key.Namespace, st.key.Pod, st.key.Container, st.gen.instance}
+// run is st's container and runtime id, at no moment: what orders its lines
+// against another stream's at one moment.
+func (st stream) run() lineCursor {
+	return lineCursor{containerName{st.key.Namespace, st.key.Pod, st.key.Container}, runPlace{ContainerID: st.gen.instance}}
 }
 
 // resolve reads view over one reading of cluster id's active cache, and for a
@@ -357,7 +357,7 @@ func (r reading) mirrors(kind mirrorKind) (bool, error) {
 }
 
 // streams is one stream per container of each of src's pods that the filters
-// keep and whose runtime id a position takes, the source at index i, and src's
+// keep and whose runtime id a line cursor takes, the source at index i, and src's
 // state. A kind the cache does not mirror
 // is refused, since no object of it could ever appear to follow. The statement
 // reads at most one row past MaxStreams, which is enough to refuse the view.

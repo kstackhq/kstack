@@ -114,7 +114,7 @@ type pageQuery struct {
 func (q pageQuery) need() int { return q.limit + 1 }
 
 // key is where the page starts in ps: the one cursor read as that stream's bound.
-func (q pageQuery) key(ps pageStream) logstore.Pos { return streamBound(q.from, ps.instance(), q.mode) }
+func (q pageQuery) key(ps pageStream) logstore.Pos { return streamBound(q.from, ps.run(), q.mode) }
 
 // far is where the page stops in ps, the first place past its range there, nil
 // with no far bound: q.to read as the bound of a page the other way.
@@ -126,7 +126,7 @@ func (q pageQuery) far(ps pageStream) *logstore.Pos {
 	if q.mode == older {
 		back = newer
 	}
-	far := streamBound(q.to, ps.instance(), back)
+	far := streamBound(q.to, ps.run(), back)
 	return &far
 }
 
@@ -379,9 +379,9 @@ func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (mer
 			}
 			return merge{}, refuse(CodeReadFailed, "Kstack could not read "+way+" lines of this view: "+strings.Join(m.skipped, "; "))
 		}
-		m.cut = positionOf(m.records[len(m.records)-1])
+		m.cut = lineCursorOf(m.records[len(m.records)-1])
 		if q.mode == older {
-			m.cut = positionOf(m.records[0])
+			m.cut = lineCursorOf(m.records[0])
 		}
 	}
 	return m, nil

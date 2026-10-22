@@ -31,7 +31,6 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
-	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -298,8 +297,6 @@ type toolDeps struct {
 	umask    fs.FileMode
 	memory   memory.Service
 	clusters cluster.Service
-	// logs is the log service LogsWatch follows through.
-	logs *logs.Service
 	// now is the clock the search's prompt names the month by; nil is time.Now.
 	now func() time.Time
 }
@@ -339,7 +336,7 @@ func chatTools(d toolDeps) (tools.Box, error) {
 	query := kubequery.New(d.clusters)
 	views := logsview.New(d.clusters, now)
 	reads := logsread.New(d.clusters, now)
-	watches := logswatch.New(d.clusters, d.logs, now)
+	watches := logswatch.New(d.clusters, now)
 	if d.shell == nil {
 		return tools.NewBox([]tools.Tool{reader, notes, writer, editor, fetcher, taskstop.New(), agent.New(), search, query, views, reads, watches}, bash.Reader{}), nil
 	}
