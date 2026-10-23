@@ -221,13 +221,25 @@ the ADR when the work lands.
     stays in the tools' `MomentOf`.
 26. **The model's token is printed whole.** No alias and no cut: a token is base64url, redaction
     and stripping cannot see inside it, and a result past `InlineLimit` is saved as every tool's
-    is. Step 4 pins the worst case under the limit with a test; if it does not fit, the task
-    stops and the alias comes back here as a decision.
+    is. Step 4 pins a realistic worst case, a Deployment's `MaxStreams` pods, under the limit
+    with a test; a scope of the longest names Kubernetes allows goes over, and is saved like any
+    other result. If the realistic case does not fit, the alias comes back here as a decision.
+27. **The service redacts a model's message before it cuts it.** A cut on the stored line can
+    leave a fragment of a secret the redaction no longer recognises. A request for the model
+    says so (`ForModel`), and the service runs `logline.ForModel` before the cut; the viewer's
+    request does not, and its lines stay unredacted. The tool still passes every line through
+    `ForModel`, so the one gate stays in the tool layer.
+28. **A follow echoes its request.** A token start's scope lives only in the cursor, and only the
+    service decodes one, so `Follow` answers the request as it ran beside the frames, as `Fetch`
+    does.
 
 ## Open
 
 - **Whether the viewer needs `FetchResponse.Request`.** Step 5 does not select it. It would let
   the viewer draw the caps the server applied.
+- **Whether the model copies a long token reliably.** A `next` token for a wide scope is several
+  KB of base64url, and one wrong character is `cursor-invalid`. The prompt says to copy it whole;
+  if that proves fragile, a short alias the tool layer resolves is the fallback.
 
 ## The pieces
 
@@ -235,29 +247,25 @@ the ADR when the work lands.
 | --- | --- | --- | --- |
 | 1 | [1-service.md](1-service.md) | The log service's one query: window, context, caps, page cursor, notices | Landed (#382) |
 | 2 | [2-follow.md](2-follow.md) | The follow on the same types: scope, a start that is a moment with the lines seen or a page's `follow`, the message cap, frames with notices and a coded end | Landed (#383) |
-| 3 | [3-graphql-wire.md](3-graphql-wire.md) | `logsFetch` and `logsFollow` on the landed types, the action types the transcript draws, generated code on both sides | Planned |
+| 3 | [3-graphql-wire.md](3-graphql-wire.md) | `logsFetch` and `logsFollow` on the landed types, the action types the transcript draws, generated code on both sides | Landed (#384) |
 | 4 | [4-tools.md](4-tools.md) | The tools' shared parser, `LogsRead` on the window query, `LogsWatch` on the follow, their prompts and actions | Planned |
 | 5 | [5-webview.md](5-webview.md) | The app's logs client on the new wire, fetch and follow; the viewer and the transcript draw the new fields | Planned |
 
-The service is built. What remains binds its three callers to it: the wire, the model's tools
-and the webview. Steps 1 and 2 stay in this directory as the record of the design until the ADR
+The service and the wire are built. What remains binds the model's tools and the webview to
+them. Steps 1 and 2 stay in this directory as the record of the design until the ADR
 folds them in; the code and `services/logs/README.md` are the reference for the steps that
 follow, never those two files.
 
 ## Order
 
-Step 3 first: it is what makes the sidecar build again. Step 4 needs step 3's first two tasks,
-the span package and the action types, and can be built beside the rest of step 3. Step 5 needs
-steps 3 and 4.
+Step 3 landed. Step 4 next; step 5 needs it.
 
 ```
-3 ─┬─ (rest of 3) ─┬→ 5
-   └─ 4 ───────────┘
+3 → 4 → 5
 ```
 
-Each step is one pull request into `wip/log-fetch-api`. CI is red above `services/logs` until
-step 3's fourth task lands, and `pnpm build` is red from step 3's last task until step 5; each
-pull request in between says so in its summary. A step's spec names its tasks in the order to
+Each step is one pull request into `wip/log-fetch-api`. `pnpm build` is red until step 5; each
+pull request before it says so in its summary. A step's spec names its tasks in the order to
 do them; do one task at a time.
 
 ## When it lands

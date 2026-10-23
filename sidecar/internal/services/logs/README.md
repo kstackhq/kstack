@@ -69,7 +69,9 @@ as `cursor-invalid`.
 **The window**
 
 1. `Since` and `Until` include the lines stamped at them. `Since` after `Until` is `invalid-range`.
-2. A line's place in the window is its timestamp against the bounds the response echoes.
+2. A line's place in the window is its timestamp against the bounds the response echoes. With
+   an open `Until` and `After` set, the range ends the nanosecond before `ResolvedAt`: a line at
+   or past it is padding.
 3. Padding by span widens a bound by that much time. Padding by count is a number of lines past
    the bound, which the pages share: as pages move away from the bound they deliver up to that
    many, and no more.
