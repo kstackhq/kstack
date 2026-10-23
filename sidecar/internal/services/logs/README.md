@@ -37,6 +37,9 @@ Every request may set three caps, and they are read on every page:
 | `MaxMessageBytes` | longest message, cut past it | the file's own cap | the file's own cap |
 | `MaxPageBytes` | sum of the page's messages | 1 MiB | 1 MiB |
 
+`ForModel`, also read on every page, passes each message through `logline.ForModel` before the
+cut, so a page for the model is cut on the redacted text.
+
 ## One response
 
 A response carries:
@@ -89,7 +92,7 @@ as `cursor-invalid`.
 7. Lines are merged across every container by timestamp. Within one container they are in log
    order.
 8. A message longer than `MaxMessageBytes` is cut at a character boundary, never inside a color
-   sequence, and the record says how many bytes were cut.
+   sequence, and the record says how many bytes were cut. With `ForModel` it is redacted first.
 9. A page keeps lines from its starting edge while their messages fit `MaxPageBytes`. The first
    line is always kept, with `page-byte-limit-exceeded` when it alone is over. A dropped line is
    where the next page starts.
@@ -133,6 +136,8 @@ caller can act on:
 or a page's `Next` or `Follow` cursor, which holds one. It starts from now, from `Since`, or from
 that cursor, with `Seen` beside either. A follow from a cursor reads every line a poll of it would,
 then goes on past the window's end. Each frame carries a record, a notice, or, last, the
-refusal that ended it. `MaxMessageBytes` cuts each message as a page's does. A follow hands out no
+refusal that ended it. `MaxMessageBytes` and `ForModel` cut each message as a page's do. The
+response echoes the request as it ran, the cursor's scope on a cursor start, and `ResolvedAt`, the
+cursor's first page's clock or now, beside the frames. A follow hands out no
 cursor: to reopen one, send the same start and the last line you hold of each container as
 `Seen`. Lines are ordered per container only. See `CLAUDE.md` for how it works.

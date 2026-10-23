@@ -141,9 +141,10 @@ built in `app` as `logs.New`, which owns the log store and is the cluster servic
   walker, the merge, the caps). A `FetchRequest` is a first page, its `Scope`, its `Window`
   (`Since`/`Until`, inclusive moments, padded `Before`/`After` by lines or a span) and `PageFrom`
   (`PageFromFirst`, `PageFromLast`), or a continuation, a `Cursor`, with `Seen` beside a newer
-  one merged into its entries (`mergeSeen`). `PageSize`,
-  `MaxMessageBytes` and `MaxPageBytes` are named on every page. A `FetchResponse` echoes the
-  request as it ran, with `ResolvedAt`, the first page's clock, its records oldest first, its
+  one merged into its entries (`mergeSeen`). `PageSize`, `MaxMessageBytes`, `MaxPageBytes` and
+  `ForModel` are named on every page; `ForModel` redacts each message through `logline.ForModel`
+  before `capMessage` cuts it, so a cut never leaves a fragment of a secret. A `FetchResponse`
+  echoes the request as it ran, with `ResolvedAt`, the first page's clock, its records oldest first, its
   `Notices` (never nil), and its place as `Page{Prev, Next, Follow}`. The rules are `Fetch`'s doc
   comment.
   **A page cursor holds everything a continuation needs** (`pageCursor`): the scope, the window
@@ -190,9 +191,10 @@ built in `app` as `logs.New`, which owns the log store and is the cluster servic
 - **`Service.Follow` speaks the page's vocabulary** (`follow.go`, in sections: the follow, the
   tailer, the registry). A `FollowRequest` is a `Scope` and a start: now, `Since` (an inclusive
   moment, as a window's), or `Cursor` (a page's `Next` or `Follow`, whose scope it reads), with
-  `Seen` beside either; and `MaxMessageBytes`, cut through `capMessage` as a page's. Its rules are
-  `Follow`'s doc comment. **Either start is one page cursor** (`followStart`): a first page from
-  `Since`, or the cursor with `Seen` merged in and its `Until` and `After` cleared, since a follow
+  `Seen` beside either; and `MaxMessageBytes` and `ForModel`, cut through `capMessage` as a
+  page's. It answers a `FollowResponse`: the request as it ran, the start's scope and
+  `ResolvedAt`, and the `Frames`. Its rules are `Follow`'s doc comment. **Either start is one
+  page cursor** (`followStart`): a first page from `Since`, or the cursor with `Seen` merged in and its `Until` and `After` cleared, since a follow
   does not stop. Every stream, at open or joining later, starts at its `keyFor`. A `FollowFrame`
   carries a `Record`, a `Notice` or, last, `Ended`, a `Refusal`. A follow hands out no cursor: a
   caller goes on from its start and the lines it holds, as `Seen`. **A follow whose start is not

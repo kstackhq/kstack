@@ -54,7 +54,7 @@ type Resolver struct {
 // LogsService pages and follows a scope's lines: *logs.Service, or a test's fake.
 type LogsService interface {
 	Fetch(ctx context.Context, id cluster.ClusterID, q logs.FetchRequest) (logs.FetchResponse, error)
-	Follow(ctx context.Context, id cluster.ClusterID, q logs.FollowRequest) (*cluster.Stream[logs.FollowFrame], error)
+	Follow(ctx context.Context, id cluster.ClusterID, q logs.FollowRequest) (logs.FollowResponse, error)
 }
 
 // ExecutableProber is the executable probe: *bash.Tool, or a test's fake. StartProbe

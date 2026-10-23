@@ -727,10 +727,11 @@ func (r *subscriptionResolver) MemoriesWatch(ctx context.Context, clusterID apim
 // on teardown as watchStream files it, so a failed follow reaches the client as
 // watchFailed, never as a graceful end.
 func (r *subscriptionResolver) LogsFollow(ctx context.Context, id apimeta.ClusterID, request model.LogsFollowInput) (<-chan *model.LogsFollowFrame, error) {
-	st, err := r.Logs.Follow(ctx, id, followRequestOf(request))
+	resp, err := r.Logs.Follow(ctx, id, followRequestOf(request))
 	if err != nil {
 		return nil, logsErr(err)
 	}
+	st := resp.Frames
 	return mapStream(ctx, st.Frames, func() { recordWatchFailure(ctx, st.Err()) }, frameOf), nil
 }
 

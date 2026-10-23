@@ -234,13 +234,20 @@ func openFollow(t *testing.T, svc *Service, f *fakeService) (*cluster.Stream[Fol
 	return openFollowOf(t, svc, f, webScope)
 }
 
+// startFollow opens a follow of q on ctx, which must open, and answers its frames.
+func startFollow(t *testing.T, ctx context.Context, svc *Service, q FollowRequest) *cluster.Stream[FollowFrame] {
+	t.Helper()
+	opened, err := svc.Follow(ctx, "7", q)
+	require.NoError(t, err)
+	return opened.Frames
+}
+
 // openFollowOf is openFollow of view.
 func openFollowOf(t *testing.T, svc *Service, f *fakeService, view Scope) (*cluster.Stream[FollowFrame], context.CancelFunc) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
-	stream, err := svc.Follow(ctx, "7", FollowRequest{Scope: view})
-	require.NoError(t, err)
+	stream := startFollow(t, ctx, svc, FollowRequest{Scope: view})
 	closeSnapshot(t, f, f.pods)
 	return stream, cancel
 }
@@ -251,8 +258,7 @@ func openFollowOf(t *testing.T, svc *Service, f *fakeService, view Scope) (*clus
 // reads the watch.
 func openEndingFollow(t *testing.T, svc *Service) *cluster.Stream[FollowFrame] {
 	t.Helper()
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope})
-	require.NoError(t, err)
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope})
 	return stream
 }
 
@@ -322,9 +328,8 @@ func TestAFollowReadsEachSeenStreamPastItsLine(t *testing.T) {
 	s.Add("prod/web-2/app", logstest.Stamped(time.Second, "b1"), logstest.Stamped(2*time.Second, "b2"))
 	svc, _ := serviceOver(t, webMirror(t), s)
 
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope, Since: moment(0), Seen: seenAt("web-1", "app", time.Second)})
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(0), Seen: seenAt("web-1", "app", time.Second)})
 
-	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"a2", "b1", "b2"}, recvLines(t, stream, 3))
 }
 
@@ -340,9 +345,8 @@ func TestAFollowFromAPagesFollow(t *testing.T) {
 	s.Add("prod/web-1/app", logstest.Stamped(2*time.Second, "a2"))
 	s.Add("prod/web-2/app", logstest.Stamped(500*time.Millisecond, "b0"))
 
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Cursor: page.Page.Follow})
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Cursor: page.Page.Follow})
 
-	require.NoError(t, err)
 	assert.ElementsMatch(t, []string{"b0", "a2"}, recvLines(t, stream, 2))
 }
 
@@ -377,12 +381,34 @@ func TestAFollowIgnoresItsCursorsEnd(t *testing.T) {
 			s.Add("prod/web-1/app", logstest.Stamped(0, "0"), logstest.Stamped(time.Second, "1"), logstest.Stamped(2*time.Second, "2"), logstest.Stamped(3*time.Second, "3"))
 			svc, _ := serviceOver(t, webMirror(t), s)
 
-			stream, err := svc.Follow(t.Context(), "7", FollowRequest{Cursor: tc.cursor(svc)})
+			stream := startFollow(t, t.Context(), svc, FollowRequest{Cursor: tc.cursor(svc)})
 
-			require.NoError(t, err)
 			assert.Equal(t, tc.want, recvLines(t, stream, len(tc.want)))
 		})
 	}
+}
+
+// A follow echoes its request as it ran: from a cursor, the cursor's scope and
+// its first page's clock; from a moment, its own scope and the service's clock.
+func TestAFollowEchoesItsRequest(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(0, "0"), logstest.Stamped(time.Second, "1"))
+	svc, _ := serviceOver(t, webMirror(t), s)
+	page := fetch(t, svc, FetchRequest{Scope: web1Scope, Window: Window{Since: moment(0)}, PageFrom: PageFromFirst, PageSize: 1})
+	require.NotNil(t, page.Page.Next)
+	svc.now = func() time.Time { return at(2 * time.Hour) }
+
+	resp, err := svc.Follow(t.Context(), "7", FollowRequest{Cursor: page.Page.Next, ForModel: true})
+	require.NoError(t, err)
+	assert.Equal(t, FollowRequest{Scope: web1Scope, Cursor: page.Page.Next, MaxMessageBytes: MaxMessageBytesCap, ForModel: true}, resp.Request)
+	assert.Equal(t, at(time.Hour), resp.ResolvedAt)
+	assert.Equal(t, []string{"1"}, recvLines(t, resp.Frames, 1))
+
+	resp, err = svc.Follow(t.Context(), "7", FollowRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: 10})
+	require.NoError(t, err)
+	assert.Equal(t, FollowRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: 10}, resp.Request)
+	assert.Equal(t, at(2*time.Hour), resp.ResolvedAt)
 }
 
 // A follow greps every line it sends: a padding line on either side of the
@@ -399,9 +425,8 @@ func TestAFollowGrepsTheCursorsPadding(t *testing.T) {
 	require.Equal(t, []string{"pad 0"}, messages(poll.Records), "a poll passes padding")
 	c := encodePageCursor(pageCursor{Scope: scope, newer: true, resolvedWindow: cursorIn(t, poll.Page.Next).resolvedWindow})
 
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Cursor: &c})
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Cursor: &c})
 
-	require.NoError(t, err)
 	assert.Equal(t, []string{"keep 1", "keep 3"}, recvLines(t, stream, 2))
 }
 
@@ -425,9 +450,8 @@ func TestAFollowCutsItsMessages(t *testing.T) {
 			s.Add("prod/web-1/app", logstest.Stamped(0, long), logstest.Stamped(time.Second, "ab"))
 			svc, _ := serviceOver(t, webMirror(t), s)
 
-			stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: tc.max})
+			stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: tc.max})
 
-			require.NoError(t, err)
 			recs := recvRecords(t, stream, 2)
 			assert.Equal(t, tc.want, messages(recs))
 			assert.Equal(t, tc.cut, []int{recs[0].TruncatedBytes, recs[1].TruncatedBytes})
@@ -439,6 +463,23 @@ func TestAFollowCutsItsMessages(t *testing.T) {
 	assert.Equal(t, refusal.CodeBadPage, codeOf(err))
 }
 
+// A follow for the model redacts each message before it cuts it, as a page does;
+// one for the viewer cuts the stored line.
+func TestAFollowRedactsAMessageBeforeItIsCut(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(0, "xxxxxxxxxx \x1b[31msk-"+strings.Repeat("A", 30)+"\x1b[0m"))
+	svc, _ := serviceOver(t, webMirror(t), s)
+
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: 20, ForModel: true})
+	recs := recvRecords(t, stream, 1)
+	assert.Equal(t, "xxxxxxxxxx [redacted", recs[0].Message)
+	assert.Equal(t, 1, recs[0].TruncatedBytes)
+
+	stream = startFollow(t, t.Context(), svc, FollowRequest{Scope: web1Scope, Since: moment(0), MaxMessageBytes: 20})
+	assert.Equal(t, "xxxxxxxxxx \x1b[31msk-A", recvRecords(t, stream, 1)[0].Message)
+}
+
 // A follow's walk stamps nothing: what it sends is in the viewer's window, so the file
 // keeps it only while the budget allows.
 func TestAFollowStampsNothing(t *testing.T) {
@@ -447,8 +488,7 @@ func TestAFollowStampsNothing(t *testing.T) {
 	svc, _ := serviceIn(t, f, newLogServer(), t.TempDir(), testRetention)
 	seedUnread(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(0, time.Second), AtBeginning: true})
 
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: web1Scope, Since: moment(-time.Second)})
-	require.NoError(t, err)
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: web1Scope, Since: moment(-time.Second)})
 	assert.Equal(t, "0", recvLine(t, stream, "the first line").Message)
 	assert.Equal(t, "1", recvLine(t, stream, "the second line").Message)
 
@@ -485,9 +525,8 @@ func TestAFollowFromAMoment(t *testing.T) {
 	s.Add("prod/web-1/app", logstest.Stamped(0, "before"), logstest.Stamped(time.Second, "at"), logstest.Stamped(2*time.Second, "after"))
 	svc, _ := serviceOver(t, webMirror(t), s)
 
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope, Since: moment(time.Second)})
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(time.Second)})
 
-	require.NoError(t, err)
 	assert.Equal(t, []string{"at", "after"}, recvLines(t, stream, 2))
 }
 
@@ -653,8 +692,7 @@ func TestAFollowDeliversWhatItHeldBeforeItEnds(t *testing.T) {
 	s.End("prod/web-1/app")
 	s.End("prod/web-2/app")
 
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope, Since: moment(-time.Second)})
-	require.NoError(t, err)
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(-time.Second)})
 
 	assert.ElementsMatch(t, []string{"a", "b"}, recvLines(t, stream, 2))
 	assert.Equal(t, errStopped, endedWith(t, stream))
@@ -667,8 +705,7 @@ func TestAFollowReconcilesTheSnapshot(t *testing.T) {
 	s := newLogServer()
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope})
-	require.NoError(t, err)
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope})
 
 	f.store.Apply(t, web3())
 	f.pods <- podFrame(cluster.DeltaFrameAdded, "web-3")
@@ -852,8 +889,7 @@ func TestAFollowOfAPodEndsWhenNoFrameNamesItsEnd(t *testing.T) {
 		t.Run(name+" before the watch", func(t *testing.T) {
 			f := webMirror(t)
 			svc, _ := serviceOver(t, f, newLogServer())
-			stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: podView("web-1")})
-			require.NoError(t, err)
+			stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: podView("web-1")})
 
 			end(f)
 			f.pods <- bookmark
@@ -864,8 +900,7 @@ func TestAFollowOfAPodEndsWhenNoFrameNamesItsEnd(t *testing.T) {
 			f := webMirror(t)
 			svc, _ := serviceOver(t, f, newLogServer())
 			// No snapshot closes before the clear, so no resolve it starts races the end.
-			stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: podView("web-1")})
-			require.NoError(t, err)
+			stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: podView("web-1")})
 			pods := make(chan cluster.ClusterCachedDataObjectWatchFrame)
 			var ended chan cluster.ClusterCachedDataObjectWatchFrame
 			f.set(func() { ended, f.pods = f.pods, pods })
@@ -1561,8 +1596,7 @@ func followWeb1(t *testing.T, svc *Service, q FollowRequest) (*cluster.Stream[Fo
 	ctx, cancel := context.WithCancel(t.Context())
 	t.Cleanup(cancel)
 	q.Scope = podView("web-1")
-	stream, err := svc.Follow(ctx, "7", q)
-	require.NoError(t, err)
+	stream := startFollow(t, ctx, svc, q)
 	return stream, cancel
 }
 
@@ -1692,8 +1726,7 @@ func TestASlowFillHoldsUpNoOtherStream(t *testing.T) {
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope, Since: moment(0)})
-	require.NoError(t, err)
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(0)})
 	asked.Wait(t, "web-1's gap fill")
 
 	s.Add("prod/web-2/app", logstest.Stamped(40*time.Minute, "from web-2"))
@@ -1781,8 +1814,7 @@ func TestAFillOfAStreamThatLeftTheViewIsNotSent(t *testing.T) {
 	filled := testutil.NewSignal()
 	svc.afterFill = func() { filled.Fire() }
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(30 * time.Minute)})
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope, Since: moment(0)})
-	require.NoError(t, err)
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(0)})
 	closeSnapshot(t, f, f.pods)
 	asked.Wait(t, "web-1's gap fill")
 
@@ -2047,8 +2079,7 @@ func TestBackfillsOfSeveralStreamsShareOneBatch(t *testing.T) {
 	}
 	f := newMirror(t, append(webObjects(), finished(web1()), finished(web2()))...)
 	svc, _ := serviceOver(t, f, s)
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope, Since: moment(-time.Second)})
-	require.NoError(t, err)
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(-time.Second)})
 
 	next := map[string]int{}
 	for range total {
@@ -2136,8 +2167,7 @@ func followHoles(t *testing.T, s *logstest.Server, grep string, q FollowRequest)
 	view := podView("web-1")
 	view.Grep = grep
 	q.Scope = view
-	stream, err := svc.Follow(t.Context(), "7", q)
-	require.NoError(t, err)
+	stream := startFollow(t, t.Context(), svc, q)
 	return stream
 }
 
@@ -2182,8 +2212,7 @@ func TestAFollowKeepsAHoleItCrossesForItsNextLine(t *testing.T) {
 		logstore.Fill{Lines: quiet, AtBeginning: true})
 	view := podView("web-1")
 	view.Grep = "x"
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: view, Since: moment(-time.Second)})
-	require.NoError(t, err)
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: view, Since: moment(-time.Second)})
 
 	assert.Equal(t, "x0", marks([]logline.Record{recvLine(t, stream, "the first match")})[0])
 	assert.Equal(t, "x7 (1s-5s)", marks([]logline.Record{recvLine(t, stream, "the match past the hole")})[0])
@@ -2200,8 +2229,7 @@ func TestAHoleBehindAResumedTailerIsMarked(t *testing.T) {
 	f := webMirror(t)
 	svc, _ := serviceOver(t, f, s)
 	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: []logstore.Line{said(0, "x0"), said(1, "y1")}})
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: podView("web-1"), Since: moment(time.Second), Seen: []string{*lineCursorFor("web-1", "app", time.Second, 0)}})
-	require.NoError(t, err)
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: podView("web-1"), Since: moment(time.Second), Seen: []string{*lineCursorFor("web-1", "app", time.Second, 0)}})
 
 	assert.Equal(t, "x5 (1s-5s)", marks([]logline.Record{recvLine(t, stream, "the first line past the hole")})[0])
 	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: podView("web-1"), PageFrom: PageFromLast, PageSize: 10})
@@ -2223,8 +2251,7 @@ func TestAFollowsFirstLineKeepsAHoleItsLookCannotReach(t *testing.T) {
 		logstore.Fill{Lines: []logstore.Line{said(5, "y5"), said(6, "y6")}, AtBeginning: true})
 	view := podView("web-1")
 	view.Grep = "x"
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: view, Since: moment(-time.Second)})
-	require.NoError(t, err)
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: view, Since: moment(-time.Second)})
 
 	assert.Equal(t, "x7 (1s-5s)", marks([]logline.Record{recvLine(t, stream, "the first match")})[0])
 }
@@ -2309,9 +2336,8 @@ func TestAFollowReadsTheInstancesOnlyTheFileHolds(t *testing.T) {
 	require.Equal(t, []string{"0", "1"}, messages(page.Records))
 	poll := goOn(t, svc, page.Page.Next, 10)
 
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Cursor: page.Page.Next})
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Cursor: page.Page.Next})
 
-	require.NoError(t, err)
 	assert.Equal(t, messages(poll.Records), recvLines(t, stream, 4))
 	assert.Equal(t, []string{"2", "3", "10", "11"}, messages(poll.Records))
 	s.Add("prod/web-1/app", logstest.Stamped(time.Hour+time.Second, "tailed"))
@@ -2358,9 +2384,8 @@ func TestAFollowReadsEveryEarlierInstanceFromItsStart(t *testing.T) {
 			svc, _ := serviceOver(t, f, s)
 			ranBefore(t, svc, f, s, tc.earlier, logstest.Stamped(time.Minute, "60"))
 
-			stream, err := svc.Follow(t.Context(), "7", tc.q(svc))
+			stream := startFollow(t, t.Context(), svc, tc.q(svc))
 
-			require.NoError(t, err)
 			assert.Equal(t, tc.want, marks(recvRecords(t, stream, len(tc.want))))
 			for _, r := range s.Requests() {
 				assert.NotEqual(t, "true", r.Get("previous"), "no backend read of an earlier instance")
@@ -2407,9 +2432,8 @@ func TestAnEarlierInstanceDoesNotHoldTheFollowOpen(t *testing.T) {
 	f.store.Apply(t, body)
 	s.End("prod/web-1/app")
 
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: podView("web-1"), Since: moment(0)})
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: podView("web-1"), Since: moment(0)})
 
-	require.NoError(t, err)
 	assert.Equal(t, []string{"0", "1"}, recvLines(t, stream, 2))
 	assert.Equal(t, refusal.CodeFinished, endedWith(t, stream).Code)
 }
@@ -2426,13 +2450,12 @@ func TestAFollowOfAGonePodIsFilteredWithNoNodesLeft(t *testing.T) {
 	view := podSource("old-1", false)
 	view.Filters = []ScopeFilter{{Field: FilterZone, Values: []string{"eu-1a"}}}
 
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: view, Since: moment(-time.Second)})
-	require.NoError(t, err)
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: view, Since: moment(-time.Second)})
 	assert.Equal(t, "0", recvLine(t, stream, "the cached row's line").Message)
 	assert.Equal(t, refusal.CodeNoNodes, endedWith(t, stream).Code)
 
 	view.Filters[0].Values = []string{"eu-1b"}
-	_, err = svc.Follow(t.Context(), "7", FollowRequest{Scope: view, Since: moment(-time.Second)})
+	_, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: view, Since: moment(-time.Second)})
 	assert.Equal(t, refusal.CodeNoNodes, codeOf(err))
 }
 
@@ -2445,8 +2468,7 @@ func TestAFollowFromACursorWaitsForAStartingContainer(t *testing.T) {
 	svc, _ := serviceOver(t, f, s)
 	page := fetch(t, svc, FetchRequest{Scope: podView("boot"), Window: Window{Since: moment(0)}, PageFrom: PageFromFirst})
 
-	stream, err := svc.Follow(t.Context(), "7", FollowRequest{Cursor: page.Page.Follow})
-	require.NoError(t, err)
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Cursor: page.Page.Follow})
 	closeSnapshot(t, f, f.pods)
 	f.store.Apply(t, pod("boot", "uid-boot", "node-a", nil, container{name: "app"}))
 	f.pods <- podFrame(cluster.DeltaFrameModified, "boot")

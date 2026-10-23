@@ -3329,9 +3329,9 @@ func (f *fakeLogs) Fetch(_ context.Context, _ cluster.ClusterID, q logs.FetchReq
 	return f.page, f.refused
 }
 
-func (f *fakeLogs) Follow(_ context.Context, _ cluster.ClusterID, q logs.FollowRequest) (*cluster.Stream[logs.FollowFrame], error) {
+func (f *fakeLogs) Follow(_ context.Context, _ cluster.ClusterID, q logs.FollowRequest) (logs.FollowResponse, error) {
 	f.follow = q
-	return f.stream, nil
+	return logs.FollowResponse{Request: q, Frames: f.stream}, nil
 }
 
 // logsScope is a scope's input as the client sends it.

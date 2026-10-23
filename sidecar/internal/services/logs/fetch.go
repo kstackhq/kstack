@@ -101,6 +101,8 @@ type Notice struct {
 // lines a page holds, 1 to MaxPageSize, 0 for DefaultPageSize. MaxMessageBytes
 // cuts each message, 0 for the service's own cap. MaxPageBytes caps the sum of a
 // page's messages, 0 for MaxPageBytesCap. The three are read on every page.
+// ForModel, read on every page too, passes each message through logline.ForModel
+// before the cut, so the cut falls on the redacted text.
 type FetchRequest struct {
 	Scope
 	Window
@@ -111,6 +113,7 @@ type FetchRequest struct {
 	PageSize        int
 	MaxMessageBytes int
 	MaxPageBytes    int
+	ForModel        bool
 }
 
 // Page is the page's place in the window, each a page cursor, nil where there is
@@ -167,7 +170,8 @@ type FetchResponse struct {
 //     counted After is short; its page with nothing newer sets Follow, never
 //     beside Next.
 //  8. A message over MaxMessageBytes is cut at a character boundary, never inside
-//     an SGR sequence, and says the bytes cut in TruncatedBytes.
+//     an SGR sequence, and says the bytes cut in TruncatedBytes. With ForModel
+//     it goes through logline.ForModel first, and the cut falls on that text.
 //  9. Records are kept from the page's starting edge while their messages fit
 //     MaxPageBytes; the first always, with page-byte-limit-exceeded when it alone
 //     is over. A dropped record sets the edge it lay past.
@@ -2870,7 +2874,7 @@ func drainReading(r *kubelet.Read) {
 // cuts the page at the last line kept, so no edge passes it. It answers the caps'
 // notices.
 func (c pageCursor) capPage(m *merge, q FetchRequest) []Notice {
-	kept, cut, notices := capLines(m.records, !c.newer, q.MaxMessageBytes, q.MaxPageBytes)
+	kept, cut, notices := capLines(m.records, !c.newer, q.MaxMessageBytes, q.MaxPageBytes, q.ForModel)
 	m.records = kept
 	switch {
 	case cut && c.newer:
@@ -2882,11 +2886,11 @@ func (c pageCursor) capPage(m *merge, q FetchRequest) []Notice {
 }
 
 // capLines is records, oldest first, under its caps, read from the oldest or, with
-// newestFirst, the newest: each message cut to maxLine bytes, then the records kept
-// while their messages sum to maxPage. The first record read is always kept, with a
-// notice when it alone is over. cut is whether a record was dropped, which leaves a
-// line past the page.
-func capLines(records []logline.Record, newestFirst bool, maxLine, maxPage int) (kept []logline.Record, cut bool, notices []Notice) {
+// newestFirst, the newest: each message cut to maxLine bytes, redacted first with
+// forModel, then the records kept while their messages sum to maxPage. The first
+// record read is always kept, with a notice when it alone is over. cut is whether
+// a record was dropped, which leaves a line past the page.
+func capLines(records []logline.Record, newestFirst bool, maxLine, maxPage int, forModel bool) (kept []logline.Record, cut bool, notices []Notice) {
 	out := make([]logline.Record, len(records))
 	n, total := 0, 0
 	for i := range records {
@@ -2894,7 +2898,7 @@ func capLines(records []logline.Record, newestFirst bool, maxLine, maxPage int) 
 		if newestFirst {
 			j = len(records) - 1 - i
 		}
-		rec := capMessage(records[j], maxLine)
+		rec := capMessage(records[j], maxLine, forModel)
 		total += len(rec.Message)
 		if total > maxPage {
 			if n > 0 {
@@ -2913,10 +2917,15 @@ func capLines(records []logline.Record, newestFirst bool, maxLine, maxPage int) 
 }
 
 // capMessage is rec with its message cut to at most max bytes at a character
-// boundary, and TruncatedBytes the bytes cut. A stored line's only control is a
-// kept SGR sequence, which is never split: one that does not fit whole is cut off
-// with what follows it.
-func capMessage(rec logline.Record, max int) logline.Record {
+// boundary, and TruncatedBytes the bytes cut. With forModel the message goes
+// through logline.ForModel first: a cut could leave a fragment of a secret the
+// redaction no longer knows. A stored line's only control is a kept SGR
+// sequence, which is never split: one that does not fit whole is cut off with
+// what follows it.
+func capMessage(rec logline.Record, max int, forModel bool) logline.Record {
+	if forModel {
+		rec.Message = logline.ForModel(rec.Message)
+	}
 	msg := rec.Message
 	if len(msg) <= max {
 		return rec

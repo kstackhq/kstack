@@ -59,13 +59,23 @@ const followSettle = 250 * time.Millisecond
 // where the page left it, and the scope is the cursor's. Seen, sent with either,
 // is the last line the caller has of each stream: that stream reads past its
 // line, and a stream not in Seen reads from the start. MaxMessageBytes cuts each
-// message, 0 for the service's own cap.
+// message, 0 for the service's own cap; ForModel redacts it first, as a page's.
 type FollowRequest struct {
 	Scope
 	Since           *time.Time
 	Seen            []string
 	Cursor          *string
 	MaxMessageBytes int
+	ForModel        bool
+}
+
+// FollowResponse is a follow as it opened: Request as it ran, the scope decoded from
+// the cursor on a token start; ResolvedAt, the first page's clock the cursor carries,
+// or now; and Frames, the follow itself.
+type FollowResponse struct {
+	Request    FollowRequest
+	ResolvedAt time.Time
+	Frames     *cluster.Stream[FollowFrame]
 }
 
 // FollowFrame is one frame of a follow, exactly one field set. Record is a line.
@@ -101,7 +111,8 @@ const (
 //  3. A follow from a Cursor reads every line a poll of it would, then goes on
 //     past the window's end: it ignores the cursor's Until and After.
 //  4. The grep applies to every line sent, padding included, and each message
-//     is cut at MaxMessageBytes, saying the bytes cut in TruncatedBytes.
+//     is cut at MaxMessageBytes, saying the bytes cut in TruncatedBytes; with
+//     ForModel, cut after logline.ForModel.
 //  5. A stream the server refuses, ends or finds too loud sends a stream-skipped
 //     Notice once, unless the server ends it because its container is waiting to
 //     start.
@@ -120,29 +131,29 @@ const (
 // saying so and ends clean, since following again would end the same way. Any
 // other ending sets Err, the log file closing under it included, and its context
 // ending is a clean end with no frame.
-func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, q FollowRequest) (*cluster.Stream[FollowFrame], error) {
+func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, q FollowRequest) (FollowResponse, error) {
 	maxMessage, err := messageCap(q.MaxMessageBytes)
 	if err != nil {
-		return nil, err
+		return FollowResponse{}, err
 	}
 	start, err := followStart(q, s.now())
 	if err != nil {
-		return nil, err
+		return FollowResponse{}, err
 	}
 	scope := start.Scope
 	grep, err := logline.CompileGrep(scope.Grep)
 	if err != nil {
-		return nil, err
+		return FollowResponse{}, err
 	}
 	t, err := resolve(ctx, s.clusters, id, scope, true)
 	if err != nil {
-		return nil, err
+		return FollowResponse{}, err
 	}
 	// owned ends the mirror watches and every tailer's watch on any ending. The
 	// stream itself runs on ctx: one ended by its own context files no error.
 	owned, stop := context.WithCancel(ctx)
 	f := &follow{
-		s: s, id: id, scope: scope, start: start, maxMessage: maxMessage, grep: grep, tails: s.registryFor(id, t), target: t,
+		s: s, id: id, scope: scope, start: start, maxMessage: maxMessage, forModel: q.ForModel, grep: grep, tails: s.registryFor(id, t), target: t,
 		streams: map[logline.StreamKey]*tracked{}, nodes: map[string]logline.Place{},
 		deleted: map[string]string{}, podUIDs: map[string]string{}, gone: map[string]bool{}, held: map[int64]func(){},
 		dueHub: mpsc.New[logline.StreamKey](0, mpsc.WithKeepOpen()), endedHub: mpsc.New[*handle](0, mpsc.WithKeepOpen()),
@@ -151,9 +162,10 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, q FollowRequ
 	if err := f.open(owned, q.Since == nil && q.Cursor == nil); err != nil {
 		stop()
 		f.close()
-		return nil, err
+		return FollowResponse{}, err
 	}
-	return cluster.NewStream(ctx, func(ctx context.Context, out chan<- FollowFrame) error {
+	q.Scope, q.MaxMessageBytes = scope, maxMessage
+	frames := cluster.NewStream(ctx, func(ctx context.Context, out chan<- FollowFrame) error {
 		defer f.close()
 		// A fill in flight reads over the claim and writes the file: both outlive it.
 		defer f.fills.Wait()
@@ -169,7 +181,8 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, q FollowRequ
 			return nil
 		}
 		return err
-	}), nil
+	})
+	return FollowResponse{Request: q, ResolvedAt: start.ResolvedAt, Frames: frames}, nil
 }
 
 // followStart is q's start cursor, which holds its scope and seeds every stream:
@@ -354,9 +367,11 @@ type follow struct {
 	grep  *regexp.Regexp
 	claim *kubelet.Claim
 	// start is the follow's start cursor: every stream, at open or joining later,
-	// starts at its keyFor. maxMessage is where each message is cut.
+	// starts at its keyFor. maxMessage is where each message is cut, after
+	// logline.ForModel with forModel.
 	start      pageCursor
 	maxMessage int
+	forModel   bool
 	// file is the follow's claim on the cache's log file, tails its tailers, and
 	// backends and names the cluster's backends over the follow's claim, which fill a
 	// live gap a walk meets.
@@ -675,7 +690,7 @@ func (f *follow) settle() bool {
 // sendLine sends rec, its message cut at the follow's cap, and is false once ctx
 // has ended.
 func (f *follow) sendLine(ctx context.Context, rec logline.Record) bool {
-	rec = capMessage(rec, f.maxMessage)
+	rec = capMessage(rec, f.maxMessage, f.forModel)
 	return send(ctx, f.out, FollowFrame{Record: &rec})
 }
 

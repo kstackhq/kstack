@@ -2122,6 +2122,25 @@ func TestAPagesCapsSetItsEdges(t *testing.T) {
 	assert.Equal(t, []string{"aaaa"}, messages(page.Records))
 }
 
+// A page for the model redacts each message before it cuts it, so the cut never
+// leaves a fragment of a secret the redaction would not know, and the bytes cut
+// are the redacted message's. A page for the viewer cuts the stored line.
+func TestAMessageIsRedactedBeforeItIsCut(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(0, "xxxxxxxxxx \x1b[31msk-"+strings.Repeat("A", 30)+"\x1b[0m"))
+	svc, _ := serviceOver(t, webMirror(t), s)
+	w := Window{Since: moment(0), Until: moment(0)}
+
+	page := fetch(t, svc, FetchRequest{Scope: webScope, Window: w, PageFrom: PageFromFirst, MaxMessageBytes: 20, ForModel: true})
+	require.Len(t, page.Records, 1)
+	assert.Equal(t, "xxxxxxxxxx [redacted", page.Records[0].Message)
+	assert.Equal(t, 1, page.Records[0].TruncatedBytes)
+
+	page = fetch(t, svc, FetchRequest{Scope: webScope, Window: w, PageFrom: PageFromFirst, MaxMessageBytes: 20})
+	assert.Equal(t, "xxxxxxxxxx \x1b[31msk-A", page.Records[0].Message)
+}
+
 // A line that reaches the file after a page was read, stamped inside that page's
 // span, is on the next Next page and on no later one: in a stream that had a line
 // on the page, one that had none, and one that joined the scope since (rule 12).
@@ -2197,8 +2216,7 @@ func TestAFollowFromAPollsFollowDeliversEachLineOnce(t *testing.T) {
 	require.Equal(t, []string{"b15", "20"}, messages(poll.Records))
 
 	ctx, cancel := context.WithCancel(t.Context())
-	first, err := svc.Follow(ctx, "7", FollowRequest{Cursor: page.Page.Follow})
-	require.NoError(t, err)
+	first := startFollow(t, ctx, svc, FollowRequest{Cursor: page.Page.Follow})
 	held := slices.Concat(page.Records, recvRecords(t, first, 2))
 	assert.ElementsMatch(t, messages(poll.Records), messages(held[len(page.Records):]))
 	s.Add("prod/web-1/app", logstest.Stamped(21*time.Second, "21"))
@@ -2211,8 +2229,7 @@ func TestAFollowFromAPollsFollowDeliversEachLineOnce(t *testing.T) {
 		seen = append(seen, rec.Cursor())
 	}
 	s.Add("prod/web-1/app", logstest.Stamped(22*time.Second, "22"))
-	second, err := svc.Follow(t.Context(), "7", FollowRequest{Cursor: page.Page.Follow, Seen: seen})
-	require.NoError(t, err)
+	second := startFollow(t, t.Context(), svc, FollowRequest{Cursor: page.Page.Follow, Seen: seen})
 	assert.Equal(t, "22", recvLine(t, second, "the rest").Message)
 	s.Add("prod/web-3/app", logstest.Stamped(23*time.Second, "c23"))
 	assert.Equal(t, "c23", recvLine(t, second, "a line written after").Message, "nothing again before it")
@@ -5387,7 +5404,7 @@ func TestAMessageIsCutAtTheCap(t *testing.T) {
 		"coloured, under":       {"\x1b[31mred\x1b[0m", "\x1b[31mred\x1b[0m", 100},
 		"a sequence at the end": {"red\x1b[0m", "red", 5},
 	} {
-		got, _, _ := capLines([]logline.Record{saying(tc.msg)}, false, tc.max, MaxPageBytesCap)
+		got, _, _ := capLines([]logline.Record{saying(tc.msg)}, false, tc.max, MaxPageBytesCap, false)
 		assert.Equal(t, tc.want, got[0].Message, name)
 		assert.Equal(t, len(tc.msg)-len(tc.want), got[0].TruncatedBytes, name)
 	}
@@ -5400,26 +5417,26 @@ func TestAPageKeepsWhatFitsItsCap(t *testing.T) {
 	t.Parallel()
 	recs := []logline.Record{saying(strings.Repeat("a", 10)), saying(strings.Repeat("b", 10)), saying(strings.Repeat("c", 10))}
 
-	got, cut, notices := capLines(recs, false, 100, 25)
+	got, cut, notices := capLines(recs, false, 100, 25, false)
 	assert.Equal(t, recs[:2], got)
 	assert.True(t, cut)
 	assert.Empty(t, notices)
 
-	got, cut, notices = capLines(recs, false, 100, 30)
+	got, cut, notices = capLines(recs, false, 100, 30, false)
 	assert.Equal(t, recs, got)
 	assert.False(t, cut)
 	assert.Empty(t, notices)
 
-	got, cut, _ = capLines(recs, false, 4, 10)
+	got, cut, _ = capLines(recs, false, 4, 10, false)
 	assert.Len(t, got, 2, "the message cap counts first")
 	assert.True(t, cut)
 
-	got, cut, notices = capLines(recs, false, 100, 5)
+	got, cut, notices = capLines(recs, false, 100, 5, false)
 	assert.Equal(t, recs[:1], got)
 	assert.True(t, cut)
 	assert.Equal(t, []refusal.Code{refusal.CodePageByteLimitExceeded}, codesOf(notices))
 
-	got, cut, _ = capLines(recs, true, 100, 25)
+	got, cut, _ = capLines(recs, true, 100, 25, false)
 	assert.Equal(t, recs[1:], got, "read newest first, the oldest is dropped")
 	assert.True(t, cut)
 }
