@@ -154,6 +154,7 @@ func TestAMomentOutOfBoundsIsRefused(t *testing.T) {
 	}{
 		{"PT999999999H", now, Behind},
 		{"PT999999999M", now, Ahead},
+		{"PT2562047H47M16.854775808S", near9999, Behind},
 		{"P999999999Y", nearEpoch, Behind},
 		{"P2D", nearEpoch, Behind},
 		{"P999999999Y", near9999, Ahead},

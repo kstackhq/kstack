@@ -16,10 +16,9 @@ package logsinput
 
 import (
 	"math"
-	"regexp"
-	"strconv"
-	"strings"
 	"time"
+
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/iso8601"
 )
 
 // Direction is the way a duration runs from now, which is the field's to say: a
@@ -30,12 +29,6 @@ const (
 	Behind Direction = iota
 	Ahead
 )
-
-// duration is an ISO 8601 duration: each unit at most once, in the standard's
-// order, a fraction in seconds alone. Every count has at most nine digits. What
-// it cannot check, MomentOf does: a T has a time unit after it, and some unit is
-// not zero.
-var duration = regexp.MustCompile(`^P(?:(\d{1,9})Y)?(?:(\d{1,9})M)?(?:(\d{1,9})W)?(?:(\d{1,9})D)?(?:T(?:(\d{1,9})H)?(?:(\d{1,9})M)?(?:(\d{1,9})(?:\.(\d{1,9}))?S)?)?$`)
 
 // The moments a duration can name lie between the epoch and the end of 9999; a
 // log holds none outside them.
@@ -52,33 +45,23 @@ func MomentOf(s string, now time.Time, dir Direction) (time.Time, bool) {
 	if at, err := time.Parse(time.RFC3339Nano, s); err == nil {
 		return at.UTC(), true
 	}
-	m := duration.FindStringSubmatch(s)
-	if m == nil || strings.Contains(s, "T") && m[5]+m[6]+m[7] == "" {
+	p, err := iso8601.Parse(s)
+	if err != nil {
 		return time.Time{}, false
 	}
-	var n [8]int64
-	for i, v := range m[1:8] {
-		n[i+1], _ = strconv.ParseInt(v, 10, 64) // nine digits at most, or "" for 0
-	}
-	years, months, weeks, days, hours, minutes, seconds := n[1], n[2], n[3], n[4], n[5], n[6], n[7]
-	// The fraction's digits are padded on the right, so the 5 of 1.5 is 500,000,000 ns.
-	nanos, _ := strconv.ParseInt((m[8] + "000000000")[:9], 10, 64)
-	if years+months+weeks+days+hours+minutes+seconds+nanos == 0 {
+	// The time part alone is a fixed length. Uncapped here: one a Duration cannot
+	// hold lands outside the range below anyway.
+	clock, err := iso8601.Span(iso8601.Parts{Hours: p.Hours, Minutes: p.Minutes, Seconds: p.Seconds, Nanos: p.Nanos}, math.MaxInt64)
+	if err != nil {
 		return time.Time{}, false
 	}
-	// Summed in seconds, nine-digit counts cannot overflow; as a time.Duration, which
-	// holds about 292 years, they would wrap silently.
-	secs := hours*3600 + minutes*60 + seconds
-	if secs > (math.MaxInt64-nanos)/int64(time.Second) {
-		return time.Time{}, false
-	}
-	sign := int64(-1)
+	sign := -1
 	if dir == Ahead {
 		sign = 1
 	}
-	at := calendar(now.UTC(), int(sign*years), int(sign*months))
-	at = at.AddDate(0, 0, int(sign*(7*weeks+days)))
-	at = at.Add(time.Duration(sign * (secs*int64(time.Second) + nanos)))
+	at := calendar(now.UTC(), sign*int(p.Years), sign*int(p.Months))
+	at = at.AddDate(0, 0, sign*int(7*p.Weeks+p.Days))
+	at = at.Add(time.Duration(sign) * clock)
 	if at.Before(epoch) || at.After(last) {
 		return time.Time{}, false
 	}

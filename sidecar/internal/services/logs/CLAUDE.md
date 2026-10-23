@@ -14,6 +14,7 @@ The package is layered. Each sub-package is a leaf of the one above it, and none
 | `logs` | the service: `service.go`, the scope (`scope.go`) and its resolution (`resolve.go`), pages (`fetch.go`), follows (`follow.go`), the holes a record carries (`gaps.go`); `podsGone` sits with the service |
 | `logs/logline` | what a line is: `Record`, its cursor and bounds, cleaning, grep, `ForModel` |
 | `logs/refusal` | `Refusal`, `Code` and the one block of codes |
+| `logs/iso8601` | a span of time as an ISO 8601 duration: `Parse`, `Span` (a fixed length, under a cap) and `Format`, shared by `graph` and the tools |
 | `logs/kubelet` | reading one container's log through the API server: the claim, the read, its windows and limits |
 | `logs/logstore` | the file |
 | `logs/logstest` | the fake log server the tests read from |
