@@ -83,6 +83,16 @@ export class Lines {
     return fresh.length;
   }
 
+  /** Drops the first `n` lines, or all of them, and lets go of their cursors. Answers the lines dropped, in order. */
+  dropFirst(n: number): LogLine[] {
+    return this.forget(this.items.dropFirst(n));
+  }
+
+  /** Drops the last `n` lines, or all of them, and lets go of their cursors. Answers the lines dropped, in order. */
+  dropLast(n: number): LogLine[] {
+    return this.forget(this.items.dropLast(n));
+  }
+
   at(index: number): LogLine {
     return this.items.at(index);
   }
@@ -101,6 +111,15 @@ export class Lines {
 
   last(): LogLine | undefined {
     return this.items.last();
+  }
+
+  forEach(fn: (line: LogLine) => void): void {
+    for (let i = 0; i < this.length; i += 1) fn(this.items.at(i));
+  }
+
+  private forget(lines: LogLine[]): LogLine[] {
+    lines.forEach((line) => this.held.delete(line.cursor));
+    return lines;
   }
 
   private fresh(lines: readonly LogLine[]): LogLine[] {

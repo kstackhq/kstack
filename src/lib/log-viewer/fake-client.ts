@@ -134,10 +134,11 @@ export class FakeClient implements Client {
     if (rate > 0) this.timer = setInterval(() => this.append(1), 1000 / rate);
   }
 
-  /** Writes `count` lines stamped with the clock's time. */
-  append(count: number): void {
+  /** Writes `count` lines `spacingMs` apart, the last stamped with the clock's time. */
+  append(count: number, spacingMs = 0): void {
     const from = this.log.length;
-    for (let i = 0; i < count; i += 1) this.addLine(Date.now());
+    const now = Date.now();
+    for (let i = 0; i < count; i += 1) this.addLine(now - (count - 1 - i) * spacingMs);
     this.followers.forEach((follower) => {
       if (follower.live) this.send(follower, from, this.log.length);
     });
@@ -230,6 +231,7 @@ export class FakeClient implements Client {
   // The window must send only what it was given, so the fake refuses anything else.
   private refuse(query: FetchQuery): string | null {
     if (query.limit < 1) return `fake: a limit of ${query.limit}`;
+    if (query.kind === 'Until' || query.kind === 'Since') return this.refuseSeen(query.seen);
     if (query.kind !== 'Continue') return null;
     const parsed = this.writtenPage(query.cursor);
     if (parsed === null) return `fake: not a page cursor it wrote: ${query.cursor}`;
@@ -255,40 +257,63 @@ export class FakeClient implements Client {
   // Whether a read on from position `start` takes the line at an index: each container named in
   // `seen` past the newer of its lines there, the rest from `start`.
   private reader(start: number, seen: Cursor[]): (index: number) => boolean {
-    const past = new Map<string, number>();
-    seen.forEach((cursor) => {
-      const { index } = parse(cursor) as ParsedCursor;
-      const key = containerKey(this.log[index].stream);
-      past.set(key, Math.max(index, past.get(key) ?? -1));
-    });
+    const past = this.byContainer(lineIndexes(seen), Math.max);
     return (index) => index >= start && index > (past.get(containerKey(this.log[index].stream)) ?? -1);
+  }
+
+  // Whether a read back takes the line at an index: each container with an entry before it.
+  private backReader(entries: number[]): (index: number) => boolean {
+    const before = this.byContainer(entries, Math.min);
+    return (index) => index < (before.get(containerKey(this.log[index].stream)) ?? Infinity);
+  }
+
+  // Each container's line among `indexes`, `pick` choosing between two of one container.
+  private byContainer(indexes: number[], pick: (a: number, b: number) => number): Map<string, number> {
+    const out = new Map<string, number>();
+    indexes.forEach((index) => {
+      const key = containerKey(this.log[index].stream);
+      const held = out.get(key);
+      out.set(key, held === undefined ? index : pick(index, held));
+    });
+    return out;
   }
 
   private read(query: FetchQuery): Page {
     const empty = this.emptyPending;
     this.emptyPending = false;
     const n = this.log.length;
-    // The read starts at `start` and covers the lines it takes, `low` up to `high`: First and a
-    // `next` or `follow` read on from the start, Last and a `prev` back from it, and At both ways.
+    // The read starts at `start` and covers the lines it takes, `low` up to `high`: First, Since
+    // and a `next` or `follow` read on from the start, Last, Until and a `prev` back from it, and
+    // At both ways. A read back keeps its entries, each container before its own, in its `prev`.
     let start: number;
     let low: number;
     let high: number;
     let taken: number[];
+    let entries: number[] = [];
     const { limit } = query;
     const continued = query.kind === 'Continue' ? (parse(query.cursor) as ParsedCursor) : null;
-    if (query.kind === 'Last' || continued?.kind === 'prev') {
-      start = continued === null ? n : continued.index;
-      low = Math.max(start - limit, 0);
+    if (query.kind === 'Last' || query.kind === 'Until' || continued?.kind === 'prev') {
+      if (query.kind === 'Until') {
+        start = this.firstAfter(query.at);
+        entries = lineIndexes(query.seen);
+      } else {
+        start = continued === null ? n : continued.index;
+        entries = continued?.entries ?? [];
+      }
+      const behind = indexRange(0, start).filter(this.backReader(entries));
+      taken = behind.slice(-limit);
+      low = behind.length > limit ? taken[0] : 0;
       high = start;
-      taken = indexRange(low, high);
     } else if (query.kind === 'At') {
       start = this.firstAtOrAfter(query.at);
       low = Math.max(start - limit, 0);
       high = Math.min(start + limit, n);
       taken = indexRange(low, high);
     } else {
-      start = continued === null ? 0 : continued.index;
-      const wants = this.reader(start, query.kind === 'Continue' ? (query.seen ?? []) : []);
+      if (query.kind === 'Since') start = this.firstAtOrAfter(query.at);
+      else start = continued === null ? 0 : continued.index;
+      const seen = query.kind === 'Continue' || query.kind === 'Since' ? (query.seen ?? []) : [];
+      const wants = this.reader(start, seen);
       const ahead = indexRange(start, n).filter(wants);
       taken = ahead.slice(0, limit);
       low = start;
@@ -309,7 +334,7 @@ export class FakeClient implements Client {
     return {
       lines: kept(taken),
       edges: {
-        prev: low > 0 ? pageCursor('prev', low) : null,
+        prev: low > 0 ? pageCursor('prev', low, entries) : null,
         next: cut ? pageCursor('next', high) : null,
         follow: cut ? null : pageCursor('follow', liveAt),
       },
@@ -324,12 +349,20 @@ export class FakeClient implements Client {
 
   // The log is in time order, so a binary search finds it.
   private firstAtOrAfter(at: string): number {
+    return this.firstWhere((timestamp) => compareTimestamps(timestamp, at) >= 0);
+  }
+
+  private firstAfter(at: string): number {
+    return this.firstWhere((timestamp) => compareTimestamps(timestamp, at) > 0);
+  }
+
+  private firstWhere(test: (timestamp: string) => boolean): number {
     let low = 0;
     let high = this.log.length;
     while (low < high) {
       const mid = Math.floor((low + high) / 2);
-      if (compareTimestamps(this.log[mid].timestamp, at) < 0) low = mid + 1;
-      else high = mid;
+      if (test(this.log[mid].timestamp)) high = mid;
+      else low = mid + 1;
     }
     return low;
   }
@@ -364,18 +397,28 @@ export class FakeClient implements Client {
 }
 
 // A line's cursor names its index; a page's names the gap before index `p`, so `p` runs
-// 0..length, and the edge it came from. Each carries a prefix nothing else writes.
+// 0..length, and the edge it came from, and a `prev` the entries it reads before. Each carries a
+// prefix nothing else writes.
 const lineCursor = (index: number): Cursor => `fake:line:${index}`;
-const pageCursor = (edge: 'prev' | 'next' | 'follow', position: number): Cursor => `fake:${edge}:${position}`;
+const pageCursor = (edge: 'prev' | 'next' | 'follow', position: number, entries: number[] = []): Cursor =>
+  `fake:${edge}:${position}${entries.length > 0 ? `:${entries.join('.')}` : ''}`;
 
-const CURSOR = /^fake:(line|prev|next|follow):(\d+)$/;
+const CURSOR = /^fake:(line|prev|next|follow):(\d+)(?::(\d+(?:\.\d+)*))?$/;
 
-type ParsedCursor = { kind: 'line' | 'prev' | 'next' | 'follow'; index: number };
+type ParsedCursor = { kind: 'line' | 'prev' | 'next' | 'follow'; index: number; entries: number[] };
 
 function parse(cursor: Cursor): ParsedCursor | null {
   const match = CURSOR.exec(cursor);
-  return match ? { kind: match[1] as ParsedCursor['kind'], index: Number(match[2]) } : null;
+  if (!match) return null;
+  return {
+    kind: match[1] as ParsedCursor['kind'],
+    index: Number(match[2]),
+    entries: match[3] ? match[3].split('.').map(Number) : [],
+  };
 }
+
+/** The indexes of line cursors the fake wrote; `refuseSeen` has checked them. */
+const lineIndexes = (seen: Cursor[]) => seen.map((cursor) => (parse(cursor) as ParsedCursor).index);
 
 const indexRange = (from: number, to: number) => Array.from({ length: Math.max(to - from, 0) }, (_, k) => from + k);
 

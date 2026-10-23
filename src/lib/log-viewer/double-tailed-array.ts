@@ -15,7 +15,8 @@
 
 // An array that grows at both ends in amortised O(1). The head is held reversed, so a
 // prepend is a push onto it. Each element also has a key that never changes while it is
-// held: keys run `keyOffset`, `keyOffset + 1`, …, and a prepend lowers `keyOffset`.
+// held: keys run `keyOffset`, `keyOffset + 1`, …, a prepend lowers `keyOffset` and a
+// `dropFirst` raises it.
 export class DoubleTailedArray<T> {
   private head: T[] = [];
 
@@ -59,5 +60,24 @@ export class DoubleTailedArray<T> {
   prepend(items: readonly T[]): void {
     for (let i = items.length - 1; i >= 0; i -= 1) this.head.push(items[i]);
     this.keyOffset -= items.length;
+  }
+
+  /** Drops the first `n`, or every element when fewer are held, and answers them in order. The kept keep their keys. */
+  dropFirst(n: number): T[] {
+    const count = Math.min(n, this.length);
+    const fromHead = Math.min(count, this.head.length);
+    // The head is reversed, so its first elements are at its end.
+    const dropped = this.head.splice(this.head.length - fromHead).reverse();
+    this.keyOffset += count;
+    return dropped.concat(this.tail.splice(0, count - fromHead));
+  }
+
+  /** Drops the last `n`, or every element when fewer are held, and answers them in order. */
+  dropLast(n: number): T[] {
+    const count = Math.min(n, this.length);
+    const fromTail = Math.min(count, this.tail.length);
+    // The head is reversed, so its last elements are at its start.
+    const dropped = this.head.splice(0, count - fromTail).reverse();
+    return dropped.concat(this.tail.splice(this.tail.length - fromTail));
   }
 }

@@ -44,11 +44,15 @@ export type Anchor = { kind: 'Head' | 'Tail' | 'At'; at: string | null };
 /**
  * One read. `First` and `Last` read from an end, `At` reads `limit` lines either side of a
  * moment, and `Continue` reads on from a page's edge, past each line in `seen` for its container.
+ * `Until` reads the `limit` newest lines at or before a moment, each container in `seen` strictly
+ * before its line, and `Since` the `limit` oldest at or after it, each strictly past its line.
  */
 export type FetchQuery =
   | { kind: 'First'; limit: number }
   | { kind: 'Last'; limit: number }
   | { kind: 'At'; at: string; limit: number }
+  | { kind: 'Until'; at: string; seen: Cursor[]; limit: number }
+  | { kind: 'Since'; at: string; seen: Cursor[]; limit: number }
   | { kind: 'Continue'; cursor: Cursor; seen: Cursor[] | null; limit: number };
 
 export type Notice = { code: string; message: string };
@@ -56,7 +60,11 @@ export type Notice = { code: string; message: string };
 export type Page = {
   /** Oldest first, as the client sorted them, whatever the query. */
   lines: LogLine[];
-  /** Where a page that way goes on, null with nothing that way. `follow` is the live end: set on a page that read every stream to its end. */
+  /**
+   * Where a page that way goes on, null with nothing that way. `follow` is the live end: set on a
+   * page that read every stream to its end. An `Until`'s `prev` reads each container in its
+   * `seen` before its line on every page back.
+   */
   edges: { prev: Cursor | null; next: Cursor | null; follow: Cursor | null };
   /** For `At`: the index of the first line at or after the moment, `lines.length` with none. Null otherwise. */
   anchor: number | null;

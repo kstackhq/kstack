@@ -53,6 +53,56 @@ describe('DoubleTailedArray', () => {
     expect(arr.at(arr.indexOfKey(0))).toBe('c');
   });
 
+  // Head `a b`, tail `c d`: keys -2..1.
+  const split = () => {
+    const arr = new DoubleTailedArray<string>();
+    arr.append(['c', 'd']);
+    arr.prepend(['a', 'b']);
+    return arr;
+  };
+  const items = (arr: DoubleTailedArray<string>) => Array.from({ length: arr.length }, (_, i) => arr.at(i));
+  const keys = (arr: DoubleTailedArray<string>) => Array.from({ length: arr.length }, (_, i) => arr.keyAt(i));
+
+  it('drops from the front within the head, keeping every kept key', () => {
+    const arr = split();
+    arr.dropFirst(1);
+    expect(items(arr)).toEqual(['b', 'c', 'd']);
+    expect(keys(arr)).toEqual([-1, 0, 1]);
+  });
+
+  it('drops from the back within the tail, moving no key', () => {
+    const arr = split();
+    arr.dropLast(1);
+    expect(items(arr)).toEqual(['a', 'b', 'c']);
+    expect(keys(arr)).toEqual([-2, -1, 0]);
+  });
+
+  it('drops across the boundary from either end', () => {
+    const front = split();
+    front.dropFirst(3);
+    expect(items(front)).toEqual(['d']);
+    expect(keys(front)).toEqual([1]);
+
+    const back = split();
+    back.dropLast(3);
+    expect(items(back)).toEqual(['a']);
+    expect(keys(back)).toEqual([-2]);
+  });
+
+  it('drops everything, and keys what comes next past what it dropped', () => {
+    const front = split();
+    front.dropFirst(4);
+    expect(front.length).toBe(0);
+    front.append(['e']);
+    expect(keys(front)).toEqual([2]);
+
+    const back = split();
+    back.dropLast(9);
+    expect(back.length).toBe(0);
+    back.prepend(['z']);
+    expect(keys(back)).toEqual([-3]);
+  });
+
   it('takes a batch larger than a spread allows', () => {
     const big = Array.from({ length: 300_000 }, (_, i) => i);
     const arr = new DoubleTailedArray<number>();

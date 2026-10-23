@@ -186,6 +186,16 @@ describe('fetch', () => {
     ]);
   });
 
+  it('reads an Until and a Since as one first page each, the bound as given, with `seen`', async () => {
+    const at = '2026-10-17T12:00:05.000000001Z';
+    await client().fetch({ kind: 'Until', at, seen: ['c1'], limit: 7 });
+    await client().fetch({ kind: 'Since', at, seen: ['c2', 'c3'], limit: 8 });
+    expect(asked()).toEqual([
+      { scope: SCOPE, until: at, seen: ['c1'], pageFrom: 'Last', pageSize: 7 },
+      { scope: SCOPE, since: at, seen: ['c2', 'c3'], pageFrom: 'First', pageSize: 8 },
+    ]);
+  });
+
   it('asks the sidecar again for a query it asked before, whose answer changed', async () => {
     const logs = client();
     respond = () => answerOf([record(1)], { page: { prev: null, next: null, follow: 'f' } });

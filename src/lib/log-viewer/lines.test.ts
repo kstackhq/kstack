@@ -108,6 +108,37 @@ describe('Lines.append and Lines.prepend', () => {
   });
 });
 
+describe('Lines.dropFirst and Lines.dropLast', () => {
+  it('answer the lines dropped in their held order, and keep the kept keys', () => {
+    const lines = new Lines();
+    lines.reset([line('a'), line('b'), line('c'), line('d'), line('e')], 2);
+
+    expect(lines.dropFirst(2).map((l) => l.cursor)).toEqual(['a', 'b']);
+    expect(lines.dropLast(2).map((l) => l.cursor)).toEqual(['d', 'e']);
+    expect(cursors(lines)).toEqual(['c']);
+    expect(lines.keyAt(0)).toBe(0);
+  });
+
+  it('let go of the dropped cursors, and still drop a kept line as a repeat', () => {
+    const lines = new Lines();
+    lines.reset([line('a'), line('b'), line('c')], 0);
+    lines.dropFirst(1);
+    lines.dropLast(1);
+
+    expect(lines.prepend([line('a'), line('b')])).toBe(1);
+    expect(lines.append([line('b'), line('c')])).toBe(1);
+    expect(cursors(lines)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('drop what is held when asked for more', () => {
+    const lines = new Lines();
+    lines.reset([line('a'), line('b')], 0);
+    expect(lines.dropFirst(5)).toHaveLength(2);
+    expect(lines.length).toBe(0);
+    expect(lines.dropLast(1)).toEqual([]);
+  });
+});
+
 describe('compareTimestamps', () => {
   it('orders stamps that differ below the millisecond', () => {
     expect(compareTimestamps('2026-10-15T00:00:00.000000001Z', '2026-10-15T00:00:00.000000002Z')).toBeLessThan(0);

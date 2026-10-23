@@ -29,6 +29,18 @@ function stream(pod: string, weight?: number): FakeStream {
 const first = (limit = 10): FetchQuery => ({ kind: 'First', limit });
 const last = (limit = 10): FetchQuery => ({ kind: 'Last', limit });
 const at = (moment: string, limit = 10): FetchQuery => ({ kind: 'At', at: moment, limit });
+const until = (moment: string, limit = 10, seen: Cursor[] = []): FetchQuery => ({
+  kind: 'Until',
+  at: moment,
+  seen,
+  limit,
+});
+const since = (moment: string, limit = 10, seen: Cursor[] = []): FetchQuery => ({
+  kind: 'Since',
+  at: moment,
+  seen,
+  limit,
+});
 const on = (cursor: Cursor, limit = 10, seen: Cursor[] | null = null): FetchQuery => ({
   kind: 'Continue',
   cursor,
@@ -238,6 +250,39 @@ describe('fetch', () => {
   });
 });
 
+describe('the one-sided kinds', () => {
+  it('answers Until with the newest lines at or before the moment, the moment’s own included', async () => {
+    const fake = new FakeClient({ lines: 20, repeat: 2 });
+    const page = await fetchNow(fake, until(fake.lineAt(10).timestamp, 3));
+    expect(indexes(fake, page.lines)).toEqual([8, 9, 10]);
+    const older = await fetchNow(fake, on(page.edges.prev as Cursor, 2));
+    expect(indexes(fake, older.lines)).toEqual([6, 7]);
+  });
+
+  it('answers Since with the oldest lines at or after the moment, the moment’s own included', async () => {
+    const fake = new FakeClient({ lines: 20, repeat: 2 });
+    const page = await fetchNow(fake, since(fake.lineAt(10).timestamp, 3));
+    expect(indexes(fake, page.lines)).toEqual([10, 11, 12]);
+    expect(await firstAfter(fake, page.edges.next)).toBe(13);
+  });
+
+  it('reads each container named in a Since’s `seen` past its line, as a Continue does', async () => {
+    const fake = new FakeClient({ lines: 20, streams: [stream('a'), stream('b')] });
+    // Lines alternate a, b: a's line 8 is held, so a goes on from 10 and b from the moment.
+    const page = await fetchNow(fake, since(fake.lineAt(4).timestamp, 6, [fake.lineAt(8).cursor]));
+    expect(indexes(fake, page.lines)).toEqual([5, 7, 9, 10, 11, 12]);
+  });
+
+  it('reads each container named in an Until’s `seen` before its line, on every page back', async () => {
+    const fake = new FakeClient({ lines: 20, streams: [stream('a'), stream('b')] });
+    // a's oldest held is line 6: a reads before it, b back from the moment.
+    const page = await fetchNow(fake, until(fake.lineAt(15).timestamp, 4, [fake.lineAt(6).cursor]));
+    expect(indexes(fake, page.lines)).toEqual([9, 11, 13, 15]);
+    const older = await fetchNow(fake, on(page.edges.prev as Cursor, 3));
+    expect(indexes(fake, older.lines)).toEqual([4, 5, 7]);
+  });
+});
+
 describe('what the fake refuses', () => {
   it('rejects a Continue from a cursor it did not write, or from a line’s', async () => {
     const fake = new FakeClient({ lines: 10 });
@@ -288,6 +333,22 @@ describe('time', () => {
     vi.setSystemTime(NOW - 1000);
     fake.append(1);
     expect(fake.lineAt(4).timestamp).toBe('2026-10-15T12:00:00.005Z');
+  });
+
+  it('spaces one append’s lines `spacingMs` apart, the last at the clock, never earlier than the line before', () => {
+    const fake = new FakeClient({ lines: 1 });
+    vi.advanceTimersByTime(10);
+    fake.append(3, 4);
+    expect([1, 2, 3].map((i) => fake.lineAt(i).timestamp)).toEqual([
+      '2026-10-15T12:00:00.002Z',
+      '2026-10-15T12:00:00.006Z',
+      '2026-10-15T12:00:00.010Z',
+    ]);
+    fake.append(2, 100);
+    expect([4, 5].map((i) => fake.lineAt(i).timestamp)).toEqual([
+      '2026-10-15T12:00:00.010Z',
+      '2026-10-15T12:00:00.010Z',
+    ]);
   });
 
   it('grows at `rate` lines a second until closed', () => {

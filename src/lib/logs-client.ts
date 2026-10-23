@@ -167,13 +167,17 @@ export function createLogsClient(urql: UrqlClient, clusterId: string, action: Lo
 
   return {
     fetch: async (query) => {
-      if (query.kind === 'Continue') return read({ cursor: query.cursor, seen: query.seen, pageSize: query.limit });
-      if (query.kind !== 'At') return read({ scope, pageFrom: query.kind, pageSize: query.limit });
+      const { limit: pageSize } = query;
+      if (query.kind === 'Continue') return read({ cursor: query.cursor, seen: query.seen, pageSize });
+      if (query.kind === 'Until') return read({ scope, until: query.at, seen: query.seen, pageFrom: 'Last', pageSize });
+      if (query.kind === 'Since')
+        return read({ scope, since: query.at, seen: query.seen, pageFrom: 'First', pageSize });
+      if (query.kind !== 'At') return read({ scope, pageFrom: query.kind, pageSize });
       // Two disjoint halves: the older ends the nanosecond before the moment, so every line at
       // it is the newer's, and a limit cutting each at its own end leaves no hole between.
       const [older, newer] = await Promise.all([
-        read({ scope, until: previousNanosecond(query.at), pageFrom: 'Last', pageSize: query.limit }),
-        read({ scope, since: query.at, pageFrom: 'First', pageSize: query.limit }),
+        read({ scope, until: previousNanosecond(query.at), pageFrom: 'Last', pageSize }),
+        read({ scope, since: query.at, pageFrom: 'First', pageSize }),
       ]);
       return {
         lines: [...older.lines, ...newer.lines],
