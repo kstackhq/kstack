@@ -2,7 +2,7 @@
 
 **Package:** `services/logs` (paths relative to `sidecar/internal/`).
 **Prerequisites:** step 1.
-**Status:** Built, in review.
+**Status:** Landed (#383).
 
 ## Goal
 

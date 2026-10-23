@@ -135,7 +135,7 @@ the ADR when the work lands.
     clear. The cursor holds the scope that resolved its window, so the service can check
     that a continuation pages that scope, and a cursor can be inflated and read when debugging. If
     the model's token does not fit its header, the fix is an alias in the tool layer, where the
-    cost is, not state in the service; step 4A decides when that is needed.
+    cost is, not state in the service; decision 26 says when (step 4 pins the worst case).
 14. **One code vocabulary, no problem-details envelope.** The design answers errors as RFC 9457
     problem details with a `code` shared with the notices. The envelope does not fit: GraphQL
     answers an error inside a 200 with `extensions.code`, and a tool refuses with one JSON line,
@@ -174,7 +174,7 @@ the ADR when the work lands.
     and a message cap, and `FollowFrame`s carrying a `Record`, a `Notice` or a `Refusal`. The fetch's own types are `FetchRequest`, `FetchResponse`, `Window`, `PageFrom`,
     `Page` and the page cursor, named for the method where a bare noun would read two ways.
     The engine under the follow does not change. Its surface changes in this sequence because
-    steps 4B and 5 rewrite the wire and the client once; a follow patched to compile now would
+    steps 3 and 5 rewrite the wire and the client once; a follow patched to compile now would
     have them rewritten twice.
 20. **A follow starts from a moment or a page's `follow`, and `Seen` rides beside either.**
     `Follow` takes `Since`, a time, or `Cursor`, a page's `Follow`, each stream starting where
@@ -203,6 +203,26 @@ the ADR when the work lands.
     `encodePageCursor`, `decodePageCursor` and `errBadPageCursor` keep their names; they name the
     kind of thing, not the field. Step 2 makes the rename its first commit; step 1's spec reads
     `PageCursor` as the field was when that step landed.
+23. **The tools' time reader keeps a direction and learns an end.** `logsinput.MomentOf` reads
+    a value for one `End` of a range, `Since` taking a short time's first nanosecond and `Until`
+    its last, and still measures a duration from now in the caller's `Direction`: `LogsWatch`'s
+    `until: PT2H` is two hours ahead, and nothing else in this sequence reads a duration ahead.
+    `LogsView`'s anchor reads as a `Since`.
+24. **`LogsWatch` takes a read's token as `cursor`, not inside `since`.** The tool cannot tell a
+    page cursor from a string it cannot read, so the two meanings get two keys, as `LogsRead`
+    has them. `cursor` beside `since` or a scope key is refused by the tool before the service
+    sees it.
+25. **A span is an ISO 8601 duration everywhere.** The model's `before: "PT5M"`, the wire's
+    `LogsPaddingInput.span` and `LogsPadding.span`, and the action's `Span` all spell a span the
+    one way, so a caller reads one form and the transcript draws what the model typed. The
+    reader and the formatter live in `services/logs/iso8601`, a leaf both `graph` and the tools
+    can import, since `graph` cannot reach `tools/internal`. A span has no months or years: a
+    duration with either is refused as a span, and the calendar arithmetic a range end needs
+    stays in the tools' `MomentOf`.
+26. **The model's token is printed whole.** No alias and no cut: a token is base64url, redaction
+    and stripping cannot see inside it, and a result past `InlineLimit` is saved as every tool's
+    is. Step 4 pins the worst case under the limit with a test; if it does not fit, the task
+    stops and the alias comes back here as a decision.
 
 ## Open
 
@@ -211,35 +231,40 @@ the ADR when the work lands.
 
 ## The pieces
 
-| Step | Spec | What it builds |
-| --- | --- | --- |
-| 1 | [1-service.md](1-service.md) | The log service's one query: window, context, caps, page cursor, notices |
-| 2 | [2-follow.md](2-follow.md) | The follow on the same types: scope, a start that is a moment with the lines seen or a page's `follow`, the message cap, frames with notices and a coded end |
-| 3 | [3-logsinput.md](3-logsinput.md) | The tools' shared parser: precise times, context values, the printed token |
-| 4A | [4A-logsread-tool.md](4A-logsread-tool.md) | `LogsRead` on the new query, its prompt, its action; `LogsWatch` on the new follow |
-| 4B | [4B-graphql-wire.md](4B-graphql-wire.md) | `logsFetch` and `logsFollow` on the new types, generated code on both sides |
-| 5 | [5-webview.md](5-webview.md) | The app's logs client on the new wire, fetch and follow; the viewer and the transcript draw the new fields |
+| Step | Spec | What it builds | Status |
+| --- | --- | --- | --- |
+| 1 | [1-service.md](1-service.md) | The log service's one query: window, context, caps, page cursor, notices | Landed (#382) |
+| 2 | [2-follow.md](2-follow.md) | The follow on the same types: scope, a start that is a moment with the lines seen or a page's `follow`, the message cap, frames with notices and a coded end | Landed (#383) |
+| 3 | [3-graphql-wire.md](3-graphql-wire.md) | `logsFetch` and `logsFollow` on the landed types, the action types the transcript draws, generated code on both sides | Planned |
+| 4 | [4-tools.md](4-tools.md) | The tools' shared parser, `LogsRead` on the window query, `LogsWatch` on the follow, their prompts and actions | Planned |
+| 5 | [5-webview.md](5-webview.md) | The app's logs client on the new wire, fetch and follow; the viewer and the transcript draw the new fields | Planned |
+
+The service is built. What remains binds its three callers to it: the wire, the model's tools
+and the webview. Steps 1 and 2 stay in this directory as the record of the design until the ADR
+folds them in; the code and `services/logs/README.md` are the reference for the steps that
+follow, never those two files.
 
 ## Order
 
-Build in step order. Step 2 needs step 1's cursor and codes. Step 3 needs step 1's types. Steps
-4A and 4B need steps 1, 2 and 3, and can be built at the same time. Step 5 needs step 4B's
-generated types and step 4A's action shape.
+Step 3 first: it is what makes the sidecar build again. Step 4 needs step 3's first two tasks,
+the span package and the action types, and can be built beside the rest of step 3. Step 5 needs
+steps 3 and 4.
 
 ```
-1 → 2 → 3 → 4A ─┐
-           └ 4B ─┴→ 5
+3 ─┬─ (rest of 3) ─┬→ 5
+   └─ 4 ───────────┘
 ```
 
-Each step is one pull request into `wip/log-fetch-api`, except step 1, which is two: its task 1
-alone, then the rest. CI runs on every pull request and is red above `services/logs` from step
-1's first pull request until step 4B lands; each pull request in between says so in its summary.
-A step's spec names its tasks in the order to do them; do one task at a time.
+Each step is one pull request into `wip/log-fetch-api`. CI is red above `services/logs` until
+step 3's fourth task lands, and `pnpm build` is red from step 3's last task until step 5; each
+pull request in between says so in its summary. A step's spec names its tasks in the order to
+do them; do one task at a time.
 
 ## When it lands
 
-- Fold what is now true into `sidecar/internal/services/logs/CLAUDE.md`,
-  `sidecar/internal/tools/CLAUDE.md`, `src/CLAUDE.md` and `src/lib/log-viewer/README.md`.
+- Fold what is now true into `sidecar/internal/tools/CLAUDE.md`, `src/CLAUDE.md` and
+  `src/lib/log-viewer/README.md`; `sidecar/internal/services/logs/CLAUDE.md` and its `README.md`
+  already describe the service as built.
 - Write one ADR, *A log read is a window over a range*, recording the decisions above. Link it
   from the three `CLAUDE.md` files. It supersedes the cursor ADR, whose decision names the
   tab-separated spelling and rejects base64 JSON: flip that ADR's status to superseded and repoint
