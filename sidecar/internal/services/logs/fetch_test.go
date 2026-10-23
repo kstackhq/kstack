@@ -16,6 +16,7 @@ package logs
 
 import (
 	"bytes"
+	"cmp"
 	"compress/flate"
 	"context"
 	"database/sql"
@@ -23,6 +24,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math"
 	"math/rand"
 	"net/http"
@@ -1502,7 +1504,7 @@ func TestAFillThatEndsEarlyReturnsItsAllowance(t *testing.T) {
 }
 
 // fetch is the page req answers on cluster 7.
-func fetch(t *testing.T, svc *Service, req FetchRequest) FetchResponse {
+func fetch(t testing.TB, svc *Service, req FetchRequest) FetchResponse {
 	t.Helper()
 	resp, err := svc.Fetch(t.Context(), "7", req)
 	require.NoError(t, err)
@@ -1742,7 +1744,7 @@ func between(before, after Padding) Window {
 }
 
 // cursorIn is the page cursor c decoded.
-func cursorIn(t *testing.T, c *string) pageCursor {
+func cursorIn(t testing.TB, c *string) pageCursor {
 	t.Helper()
 	require.NotNil(t, c)
 	out, err := decodePageCursor(*c)
@@ -2131,6 +2133,348 @@ func TestAnOlderCursorCarriesItsEntries(t *testing.T) {
 	}
 
 	assert.Equal(t, []string{"a1", "a2", "b5", "b6", "b7"}, got)
+}
+
+// A workload's page reads back the lines of a pod deleted since the caller was
+// shown them, once, though its entries and its chain both name it.
+func TestAWorkloadReadsBackAGonePodsLines(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"), logstest.Stamped(3*time.Second, "a3"))
+	s.Add("prod/web-2/app", logstest.Stamped(2*time.Second, "b2"), logstest.Stamped(4*time.Second, "b4"))
+	svc, f := serviceOver(t, webMirror(t), s)
+	page := fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+	require.Equal(t, []string{"a1", "b2", "a3", "b4"}, messages(page.Records))
+
+	f.store.Delete(t, web1())
+	seen := append(seenAt("web-1", "app", 3*time.Second), seenAt("web-2", "app", 4*time.Second)...)
+	page = fetch(t, svc, FetchRequest{Scope: webScope, Window: Window{Until: moment(3 * time.Second)}, PageFrom: PageFromLast, PageSize: 1, Seen: seen})
+	got := messages(page.Records)
+	for page.Page.Prev != nil {
+		page = fetch(t, svc, FetchRequest{Cursor: page.Page.Prev, PageSize: 1})
+		got = append(messages(page.Records), got...)
+	}
+
+	assert.Equal(t, []string{"a1", "b2"}, got)
+	assert.True(t, page.Records[0].Stream.Previous, "a gone pod runs no instance")
+}
+
+// A pod the mirror holds is never read as gone, whatever the view resolves of it: a
+// previous view of a Deployment whose pods never restarted reads nothing from the
+// file, by its chain or by an entry, and once a pod restarted, its last instance from
+// the kubelet alone.
+func TestALivePodIsNeverReadAsGone(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"))
+	s.Add("prod/web-2/app", logstest.Stamped(2*time.Second, "b2"))
+	svc, f := serviceOver(t, webMirror(t), s)
+	require.Equal(t, []string{"a1", "b2"}, messages(fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst}).Records))
+	previous := Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourceDeployment, Name: "web", Containers: []string{"app"}, Previous: true}}}
+
+	assert.Empty(t, fetch(t, svc, FetchRequest{Scope: previous, PageFrom: PageFromFirst}).Records)
+	seen := seenAt("web-1", "app", time.Second)
+	assert.Empty(t, fetch(t, svc, FetchRequest{Scope: previous, Window: Window{Until: moment(5 * time.Second)}, PageFrom: PageFromLast, Seen: seen}).Records, "an entry names a live pod")
+
+	f.store.Apply(t, webPod("web-1", "node-a", container{name: "app", restarted: true}))
+	s.Add("prod/web-1/app/previous", logstest.Stamped(time.Second, "a1"))
+	page := fetch(t, svc, FetchRequest{Scope: previous, PageFrom: PageFromFirst})
+	assert.Equal(t, []string{"a1"}, messages(page.Records))
+	assert.Equal(t, []string{containerID("uid-web-1", "app", 0)}, idsOf(page.Records))
+}
+
+// An entry positions a stream and adds none: one naming another workload's gone pod
+// in the scope's namespace brings nothing of it into the view.
+func TestAnEntryAddsNoStream(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"))
+	s.Add("prod/api-1/app", logstest.Stamped(2*time.Second, "x2"))
+	f := webMirror(t)
+	f.store.Apply(t, workload("apps/v1", "Deployment", "api", "dep-api", nil))
+	f.store.Apply(t, workload("apps/v1", "ReplicaSet", "api-5c", "rs-api", controller("apps/v1", "Deployment", "api", "dep-api")))
+	api1 := pod("api-1", "uid-api-1", "node-a", controller("apps/v1", "ReplicaSet", "api-5c", "rs-api"), container{name: "app"})
+	f.store.Apply(t, api1)
+	svc, _ := serviceOver(t, f, s)
+	apiScope := Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourceDeployment, Name: "api", Containers: []string{"app"}}}}
+	require.Equal(t, []string{"x2"}, messages(fetch(t, svc, FetchRequest{Scope: apiScope, PageFrom: PageFromFirst}).Records))
+	f.store.Delete(t, api1)
+
+	page := fetch(t, svc, FetchRequest{Scope: webScope, Window: Window{Until: moment(5 * time.Second)}, PageFrom: PageFromLast, Seen: seenAt("api-1", "app", 2*time.Second)})
+
+	assert.Equal(t, []string{"a1"}, messages(page.Records))
+}
+
+// A pod a workload orphaned stays in the mirror, so it is not gone though its chain
+// still names it: a view of the workload reads nothing of it from the file while it
+// lives, and its lines once it is deleted.
+func TestAPodAWorkloadOrphanedIsNotGone(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"))
+	s.Add("prod/web-2/app", logstest.Stamped(2*time.Second, "b2"))
+	svc, f := serviceOver(t, webMirror(t), s)
+	require.Equal(t, []string{"a1", "b2"}, messages(fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst}).Records))
+	orphan := pod("web-1", "uid-web-1", "node-a", nil, container{name: "app"})
+	f.store.Apply(t, orphan)
+
+	assert.Equal(t, []string{"b2"}, messages(fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst}).Records))
+	previous := Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourceDeployment, Name: "web", Containers: []string{"app"}, Previous: true}}}
+	assert.Empty(t, fetch(t, svc, FetchRequest{Scope: previous, PageFrom: PageFromFirst}).Records)
+
+	f.store.Delete(t, orphan)
+	assert.Equal(t, []string{"a1", "b2"}, messages(fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst}).Records))
+}
+
+// previousOf is whether each record of every page is a previous instance's, oldest
+// first: pages read the way from names.
+func previousOf(pages []FetchResponse, from PageFrom) []bool {
+	out := []bool{}
+	for _, page := range pages {
+		var prev []bool
+		for _, rec := range page.Records {
+			prev = append(prev, rec.Stream.Previous)
+		}
+		if from == PageFromFirst {
+			out = append(out, prev...)
+		} else {
+			out = append(prev, out...)
+		}
+	}
+	return out
+}
+
+// A workload reads the pods it no longer runs from the file, found by the chain filed
+// with their streams: a landing that names nothing reads a replaced pod's lines,
+// marked previous, from either end and across page boundaries.
+func TestAWorkloadReadsItsReplacedPodsFromTheFile(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"), logstest.Stamped(3*time.Second, "a3"))
+	s.Add("prod/web-2/app", logstest.Stamped(2*time.Second, "b2"), logstest.Stamped(4*time.Second, "b4"))
+	svc, f := serviceOver(t, webMirror(t), s)
+	require.Equal(t, []string{"a1", "b2", "a3", "b4"}, messages(fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10}).Records))
+
+	f.store.Delete(t, web1())
+
+	for _, from := range []PageFrom{PageFromFirst, PageFromLast} {
+		read := pages(t, svc, webScope, from, 1)
+		assert.Equal(t, []string{"a1", "b2", "a3", "b4"}, recordsOf(read, from), from)
+		assert.Equal(t, []bool{true, false, true, false}, previousOf(read, from), from)
+	}
+}
+
+// The chain is by UID: a Deployment deleted and made again under its name owns only
+// the pods it ran since, so it reads none of the old one's.
+func TestAWorkloadRecreatedUnderItsNameReadsNoneOfTheOldOnesPods(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"))
+	s.Add("prod/web-2/app", logstest.Stamped(2*time.Second, "b2"))
+	s.Add("prod/web-3/app", logstest.Stamped(3*time.Second, "c3"))
+	svc, f := serviceOver(t, webMirror(t), s)
+	require.Equal(t, []string{"a1", "b2"}, messages(fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10}).Records))
+
+	for _, body := range webObjects()[:4] {
+		f.store.Delete(t, body)
+	}
+	f.store.Apply(t, workload("apps/v1", "Deployment", "web", "dep-web-2", nil))
+	f.store.Apply(t, workload("apps/v1", "ReplicaSet", "web-5b2c", "rs-web-2", controller("apps/v1", "Deployment", "web", "dep-web-2")))
+	f.store.Apply(t, pod("web-3", "uid-web-3", "node-a", controller("apps/v1", "ReplicaSet", "web-5b2c", "rs-web-2"), container{name: "app"}))
+
+	page := fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+	assert.Equal(t, []string{"c3"}, messages(page.Records))
+}
+
+// A pod the mirror showed before its ReplicaSet is filed with the ReplicaSet alone;
+// the next page that reads it, once the ReplicaSet arrived, files the Deployment, and
+// the Deployment reads the pod once it is gone. One gone before that is found by its
+// ReplicaSet alone.
+func TestAPodsChainCompletesOnTheNextPageThatReadsIt(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"))
+	s.Add("prod/web-2/app", logstest.Stamped(2*time.Second, "b2"))
+	objects := webObjects()
+	replicaSet := objects[1]
+	svc, f := serviceOver(t, newMirror(t, objects[0], objects[2], objects[3]), s)
+	podScope := func(name string) Scope {
+		return Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: name, Containers: []string{"app"}}}}
+	}
+	rsScope := Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourceReplicaSet, Name: "web-7d9f", Containers: []string{"app"}}}}
+	for _, name := range []string{"web-1", "web-2"} {
+		require.Len(t, fetch(t, svc, FetchRequest{Scope: podScope(name), PageFrom: PageFromFirst}).Records, 1)
+	}
+	f.store.Apply(t, replicaSet)
+	require.Len(t, fetch(t, svc, FetchRequest{Scope: podScope("web-1"), PageFrom: PageFromFirst}).Records, 1)
+
+	f.store.Delete(t, objects[2])
+	f.store.Delete(t, objects[3])
+
+	assert.Equal(t, []string{"a1"}, messages(fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst}).Records))
+	assert.Equal(t, []string{"a1", "b2"}, messages(fetch(t, svc, FetchRequest{Scope: rsScope, PageFrom: PageFromFirst}).Records))
+}
+
+// A StatefulSet's pod replaced under its name runs on another node with another
+// default container, and a scope naming the running pod as well still reads the gone
+// pod's rows by what was filed with them: its node against the filter, its default.
+func TestAGonePodKeepsItsFiledPlaceUnderARunningPodOfItsName(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/db-0/app", logstest.Stamped(time.Second, "d1"))
+	statefulSet := workload("apps/v1", "StatefulSet", "db", "sts-db", nil)
+	owner := controller("apps/v1", "StatefulSet", "db", "sts-db")
+	old := pod("db-0", "uid-db-0", "node-a", owner, container{name: "app"}, container{name: "sidecar"})
+	svc, f := serviceOver(t, newMirror(t, append(webNodes(), statefulSet, old)...), s)
+	dbScope := ScopeSource{Namespace: "prod", Kind: SourceStatefulSet, Name: "db"}
+	require.Equal(t, []string{"d1"}, messages(fetch(t, svc, FetchRequest{Scope: Scope{Sources: []ScopeSource{dbScope}}, PageFrom: PageFromFirst}).Records))
+
+	f.store.Delete(t, old)
+	replaced := pod("db-0", "uid-db-0-b", "node-b", owner, container{name: "app"}, container{name: "sidecar"})
+	replaced["metadata"].(map[string]any)["annotations"] = map[string]any{DefaultContainerAnnotation: "sidecar"}
+	f.store.Apply(t, replaced)
+	scope := Scope{
+		Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "db-0"}, dbScope},
+		Filters: []ScopeFilter{{Field: FilterNode, Values: []string{"node-a"}}},
+	}
+
+	page := fetch(t, svc, FetchRequest{Scope: scope, PageFrom: PageFromFirst})
+
+	require.Equal(t, []string{"d1"}, messages(page.Records))
+	assert.Equal(t, logline.Place{Node: "node-a", Region: "eu", Zone: "eu-1a", OS: "linux", Arch: "amd64"}, page.Records[0].Place)
+}
+
+// goneWeb is a service over web whose replica set ran a pod for each entry of gone
+// besides web-1 and web-2, its app's lines stamped at those seconds, each named
+// "<pod>@<second>"; web-1 logs at live. The gone pods run a batch at a time, under
+// MaxStreams, each batch filed by a page and then deleted from the mirror. The
+// answer is every line, oldest first.
+func goneWeb(t testing.TB, live []int, gone map[string][]int) (*Service, *fakeService, []string) {
+	t.Helper()
+	s := newLogServer()
+	type stamped struct {
+		s   int
+		msg string
+	}
+	var all []stamped
+	add := func(pod string, secs []int) {
+		var lines []string
+		for _, sec := range secs {
+			msg := fmt.Sprintf("%s@%d", pod, sec)
+			lines = append(lines, logstest.Stamped(time.Duration(sec)*time.Second, msg))
+			all = append(all, stamped{sec, msg})
+		}
+		s.Add("prod/"+pod+"/app", lines...)
+	}
+	add("web-1", live)
+	svc, f := serviceOver(t, webMirror(t), s)
+	for batch := range slices.Chunk(slices.Sorted(maps.Keys(gone)), MaxStreams/2) {
+		for _, name := range batch {
+			add(name, gone[name])
+			f.store.Apply(t, webPod(name, "node-a", container{name: "app"}))
+		}
+		fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: MaxPageSize})
+		for _, name := range batch {
+			f.store.Delete(t, webPod(name, "node-a", container{name: "app"}))
+		}
+	}
+	slices.SortFunc(all, func(a, b stamped) int { return cmp.Compare(a.s, b.s) })
+	want := make([]string, len(all))
+	for i, l := range all {
+		want[i] = l.msg
+	}
+	return svc, f, want
+}
+
+// A workload's gone pods page as its live ones do, whatever the page's size: no line
+// repeated or skipped either way, with more gone pods than a page holds lines of and
+// one whose lines begin pages past the first.
+func TestAWorkloadsGonePodsPageWithoutLossOrRepeat(t *testing.T) {
+	t.Parallel()
+	svc, _, want := goneWeb(t, []int{1, 15, 29, 43, 57}, map[string][]int{
+		"g-0": {3, 6}, "g-1": {13, 16}, "g-2": {23, 26}, "g-3": {33, 36}, "g-4": {44, 46}, "g-late": {50, 52},
+	})
+
+	for _, size := range []int{1, 2, 3} {
+		for _, from := range []PageFrom{PageFromFirst, PageFromLast} {
+			assert.Equal(t, want, recordsOf(pages(t, svc, webScope, from, size), from), "%s by %d", from, size)
+		}
+	}
+}
+
+// Paging back over a Deployment that replaced a few hundred pods, each with lines in
+// the file: every page takes every gone pod with a line before its start, so this is
+// the cost of a one-sided bound, per page.
+func BenchmarkPagingBackOverGonePods(b *testing.B) {
+	gone := map[string][]int{}
+	for i := range 300 {
+		gone[fmt.Sprintf("g-%03d", i)] = []int{10 * i, 10*i + 5}
+	}
+	svc, _, want := goneWeb(b, []int{1}, gone)
+	read := 0
+	for b.Loop() {
+		read += len(pages(b, svc, webScope, PageFromLast, DefaultPageSize))
+	}
+	b.ReportMetric(float64(b.Elapsed().Microseconds())/float64(read), "µs/page")
+	b.ReportMetric(float64(len(want)), "lines")
+}
+
+// readsOf is what a first page of req reads: its range read, and beside it the
+// padding read when its own edge is counted.
+func readsOf(t *testing.T, req FetchRequest) []pageQuery {
+	t.Helper()
+	c, err := firstPage(req, at(time.Hour))
+	require.NoError(t, err)
+	reads := []pageQuery{{scope: req.Scope, mode: c.dir(), cur: &c}}
+	if l, _ := c.lookup(); l != nil {
+		reads = append(reads, pageQuery{scope: req.Scope, mode: l.dir(), cur: l})
+	}
+	return reads
+}
+
+// onlyPods is the pod of each stream fileOnlyStreams answers for scope over f and
+// svc's file, read by reads, sorted.
+func onlyPods(t *testing.T, svc *Service, f *fakeService, scope Scope, reads []pageQuery) []string {
+	t.Helper()
+	tg, err := resolveOf(t, f, scope)
+	require.NoError(t, err)
+	file, err := svc.files.OpenOrCreate(int64(tg.cacheID))
+	require.NoError(t, err)
+	defer file.Close()
+	only, release, err := svc.fileOnlyStreams(t.Context(), file, tg, reads)
+	defer release()
+	require.NoError(t, err)
+	out := []string{}
+	for _, ps := range only {
+		out = append(out, ps.row.Pod)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// A gone pod is read only by a read it can deliver a line to: one with a line on the
+// read's side of where its own read starts and short of the read's far edge, the
+// padding the read owes included. A first page whose padding is counted reads both
+// ways from its moment, and keeps a pod either way.
+func TestAGonePodIsReadOnlyWhereItHasALineToGive(t *testing.T) {
+	t.Parallel()
+	svc, f, _ := goneWeb(t, []int{1, 60}, map[string][]int{"g-early": {10, 12}, "g-late": {30, 32}})
+	both := []string{"g-early", "g-late"}
+	for name, c := range map[string]struct {
+		req  FetchRequest
+		want []string
+	}{
+		"a landing":                 {FetchRequest{PageFrom: PageFromLast}, both},
+		"older, from before a pod":  {FetchRequest{Window: Window{Until: moment(20 * time.Second)}, PageFrom: PageFromLast}, []string{"g-early"}},
+		"older, a pod past the far": {FetchRequest{Window: Window{Since: moment(20 * time.Second), Until: moment(40 * time.Second)}, PageFrom: PageFromLast}, []string{"g-late"}},
+		"older, padding owed":       {FetchRequest{Window: Window{Since: moment(20 * time.Second), Until: moment(40 * time.Second), Before: Padding{Span: 15 * time.Second}}, PageFrom: PageFromLast}, both},
+		"newer, from past a pod":    {FetchRequest{Window: Window{Since: moment(20 * time.Second)}, PageFrom: PageFromFirst}, []string{"g-late"}},
+		"newer, a pod past the far": {FetchRequest{Window: Window{Until: moment(20 * time.Second)}, PageFrom: PageFromFirst}, []string{"g-early"}},
+		"padded both ways":          {aroundAt(webScope, 20*time.Second, 2), both},
+	} {
+		c.req.Scope = webScope
+		assert.Equal(t, c.want, onlyPods(t, svc, f, webScope, readsOf(t, c.req)), name)
+	}
 }
 
 // Two lines of one stream at one nanosecond are told apart by the entry: the

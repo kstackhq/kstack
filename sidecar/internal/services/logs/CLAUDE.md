@@ -24,8 +24,8 @@ The root `.gitignore` ignores `logs`, so the package has its own exception there
 ## The file (`logstore`)
 
 **`services/logs/logstore` is the log cache's file**: one owner-only SQLite database per cluster
-cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `streams`, `chunks`,
-`lines`). → [ADR: the log cache](../../../../docs/adr/2026-10-17-the-log-cache.md).
+cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `streams`,
+`pod_owners`, `chunks`, `lines`). → [ADR: the log cache](../../../../docs/adr/2026-10-17-the-log-cache.md).
 
 - `Manager` (`manager.go`) hands out refcounted `Store`s by cache id. An open, close or delete runs
   outside its lock, one at a time per cache. Every operation goes through `Store.use`, and a close
@@ -40,7 +40,12 @@ cache at `<cache>/logs/<cache id>.db` (schema `migrations/0001_init.sql`: `strea
   closing the chunks of ended tails whose close failed, then protects open, recently read and held
   chunks, evicts over-share streams first and never-read before read, then removes chunkless
   streams whose pod `PodsGone` says is gone (`service.go`; unset, none), at most `sweepPods` pods
-  a sweep, round robin. `Store.Sweep` runs one by hand.
+  a sweep, round robin, then every pod's chain whose pod has no stream left. `Store.Sweep` runs
+  one by hand.
+- **A pod's controller chain is filed with its streams** (`pod_owners`, `Stream.Owners`): each
+  filing adds the pairs the file lacks, since the mirror can show a pod before its ReplicaSet, and
+  none is removed but with the pod. `OwnedStreams` answers an owner's pods' streams with their
+  oldest and newest line.
 - `statements.go` is the file's `sqlstmt.Set`. **Coverage is a pure function** (`CoverageOf`,
   `coverage.go`). **A `Fill` is one read of one gap** (`fill.go`). **The trim** (`trim.go`) cuts a
   finished stream at the end of `finished_at`'s second (container times are whole seconds).
@@ -132,7 +137,8 @@ built in `app` as `logs.New`, which owns the log store and is the cluster servic
   references (`podsOf`). With no container named, each pod's default (`containersOf`: the
   `default-container` annotation, else the first, never an init container). A `stream` is named by
   its `StreamKey` and carries its instance's runtime id; it also carries the snapshot its file row
-  keeps once the pod is gone, and `stream.log` is what a backend reads. A source with nothing now
+  keeps once the pod is gone, and its pod's controller chain (`owners`, `podOwners`), and
+  `stream.log` is what a backend reads. The target carries each source's UID (`uidOf`). A source with nothing now
   is not refused: it carries a `SourceState` (`Reading`, `Missing`, `Idle`). Refused:
   `Unmirrored`, `NoNodes`, more than `MaxStreams` containers, or a reading cut at its row or byte
   cap. Tests run over `cluster/clustertest`.
@@ -164,8 +170,19 @@ built in `app` as `logs.New`, which owns the log store and is the cluster servic
   filler clamps each gap's download to the range by passing it in through `kubelet.Options`
   (`fillGap`), so `reader.lines` stays the one place a bound is applied. A newer page in a window
   whose After is counted reads, in the fill and the walk, no more lines past the range's end than
-  the count leaves (`pageQuery.full`). A page resolves, files streams, adds gone pods' streams the
-  file holds (`pageStreams`), then over those streams (`pageOver`) fills gaps from the backends
+  the count leaves (`pageQuery.full`). A page resolves, files streams, adds the streams only the
+  file holds (`fileOnlyStreams`, each source's through `sourceRows` and every row through
+  `fileRows`): a Pod source's gone instances, and a workload's gone pods, found by its UID in the
+  file's chains, each only where a read can deliver a line of it, from the stream's own `keyFor` to
+  the read's far edge (`reaches`), a one-sided bound, so a page back takes every gone pod older
+  than its start. A cursor's entries position streams and add none. **Gone means the mirror no
+  longer holds the pod, and the mirror is asked** (`gonePods`, through the sweep's `podsGone`, over
+  the owned pods the resolve did not hand out, so most pages ask about none), never that the
+  resolve handed out no stream of it or that the workload's walk no longer reaches it: a previous
+  view of a pod that never restarted, and a pod the workload orphaned, read nothing from the file.
+  A workload the mirror no longer holds has no UID to find its pods by, and reads none. A gone pod's rows keep their filed place and
+  default though a pod of its name runs (`podOf` by UID). Then over those streams (`pageOver`)
+  fills gaps from the backends
   (`filler`), walks (`walker`) and merges (`mergePage`). **A read is written a batch at a time as it arrives** (`window`, `WriteBatch`),
   each batch checked against the mirror first and stamped. A forward read is one window: its first
   batch links down, its last links up only when it read its range whole, and it is cancelled once
@@ -200,7 +217,7 @@ built in `app` as `logs.New`, which owns the log store and is the cluster servic
   carries a `Record`, a `Notice` or, last, `Ended`, a `Refusal`. A follow hands out no cursor: a
   caller goes on from its start and the lines it holds, as `Seen`. **A follow whose start is not
   now reads the instances only the file holds first** (`follow.open` files them through
-  `fileOnlyStreams`; `readOnly` reads them through `pageOver` with `grepAll`, a page of
+  `fileOnlyStreams`, its workloads' gone pods included, each reaching its start; `readOnly` reads them through `pageOver` with `grepAll`, a page of
   `MaxPageSize` at a time from the start cursor): its streams are keyed by `StreamKey` and cannot
   hold them, and they never grow, so one read is enough. The open defers `NoNodes` as a page does,
   refusing it only with no such instance to read; once they are read, a scope of gone pods alone

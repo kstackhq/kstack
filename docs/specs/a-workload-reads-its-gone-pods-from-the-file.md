@@ -6,7 +6,8 @@ all.
 leaves by choice, which the review of [`bounded-log-window.md`](bounded-log-window.md) raised again.
 **Prerequisites:** [`bounded-log-window.md`](bounded-log-window.md). The two land in one PR and
 are retired together.
-**Status:** Planned.
+**Status:** Built: tasks 0 to 2. The benchmark pages back over 300 gone pods at about 12 ms a
+page. The ADR is left for the PR that lands it, with `bounded-log-window.md`'s.
 
 ## Goal
 
@@ -66,7 +67,7 @@ pods.
 
 **A page reads a workload's gone pods from the file.** `fileOnlyStreams` gains a branch beside
 its Pod branch. For each source that is not a Pod source, the file answers the streams of the
-pods the source's UID owns whose UID the resolve did not hand out (`OwnedStreams` on the store).
+pods the source's UID owns that the mirror no longer holds (`OwnedStreams` on the store).
 The resolve reads each workload source's object once, by kind, namespace and name, for its UID;
 `idleOrMissing` becomes that read, made for every workload source rather than only one with no
 pods. `target` carries the UID per source, empty for a `Missing` source, which owns nothing the
@@ -83,10 +84,14 @@ is not added again: `add`'s dedupe by run stands.
 bound it: `started_at` and `finished_at` come from a status a resolve read, and a pod deleted in
 a rollout leaves the mirror before any resolve reads its finish. The file knows each stream's
 lines exactly, through the `lines` index, and the bound is in those. `OwnedStreams` answers the
-candidates: the streams of the pods the source owns whose UID the resolve did not hand out, each
-with its oldest and newest line, leaving out a stream with no line to read. A gone pod's stream
-the janitor has evicted is an empty row until a sweep removes it, and has none. The rows are
-held as soon as they are known, before anything is decided on them, as the Pod branch holds its.
+candidates: the streams of the pods the source owns that the mirror no longer holds, each with
+its oldest and newest line, leaving out a stream with no line to read. Gone is the mirror's
+word, never the resolve's: a previous view of a pod that never restarted resolves no stream of
+it, and a workload's chain still names a pod it orphaned, and neither pod is gone for that. The
+page asks the mirror once, over every candidate pod of its workloads and its entries, which it
+no longer holds, as the janitor's sweep asks, and reads those alone. A gone pod's stream
+the janitor has evicted is an empty row until a sweep removes it, and has none. The rows a read
+reaches are held as soon as they are chosen, as a Pod source's are once read.
 
 A stream then reaches a read when it has a line on the read's side of where that stream's read
 would start: its `keyFor`, past its entry, else past the moment, else the window's edge. A page
@@ -113,9 +118,11 @@ deliver a line to it, so nothing cheaper is exact. No cap on gone pods, and no p
 `Fetch`'s rule 10, exact paging, holds through them. A workload's gone pods do not count toward
 `MaxStreams`, as `TestAScopePastMaxStreamsPagesOn` pins for a Pod source's.
 
-**The entry path stays.** A container the cursor's entries or `seen` name whose pod the resolve no
-longer hands out is still read from the file as today. It covers a `Missing` workload, whose
-gone pods have no owner to ask by.
+**The entry path goes.** A container the cursor's entries or `seen` name adds no stream: an
+entry positions a stream the scope reads. Checked against the scope by namespace alone, an entry
+read another workload's gone pod in the same namespace, and checked by ownership it would read
+only what the chain already finds. What is given up is a `Missing` workload's gone pods, which
+have no owner to find them by.
 
 **The janitor removes a chain whose pod has no stream.** Each sweep, after `removeStreams`, runs
 one statement that deletes the `pod_owners` rows of a pod the file holds no stream of. It needs

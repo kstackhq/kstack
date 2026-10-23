@@ -32,6 +32,9 @@ const (
 	stmtMoveDefault
 	stmtFinishStream
 	stmtSelectPodStreams
+	stmtInsertOwner
+	stmtOwnerFiled
+	stmtSelectOwnedStreams
 	stmtSelectChunks
 	stmtInsertLine
 	stmtInsertChunk
@@ -58,6 +61,7 @@ const (
 	stmtCandidates
 	stmtEmptyStreams
 	stmtRemoveStreams
+	stmtRemoveOrphanOwners
 )
 
 // statements is every statement the store runs, each on the pool its callers need: a
@@ -108,6 +112,20 @@ var statements = []sqlstmt.Statement{
 		SELECT ` + streamColumns + ` FROM streams
 		WHERE namespace = ?1 AND pod = ?2 AND (?3 = '' OR pod_uid = ?3)
 		ORDER BY container, started_at DESC, id DESC`),
+	stmtInsertOwner: sqlstmt.OnWriter(`INSERT OR IGNORE INTO pod_owners (pod_uid, owner_uid) VALUES (?, ?)`),
+	stmtOwnerFiled: sqlstmt.OnReader(`
+		SELECT EXISTS (SELECT 1 FROM pod_owners WHERE pod_uid = ? AND owner_uid = ?)`),
+	// Each end of a stream's lines is one seek of lines_position.
+	stmtSelectOwnedStreams: sqlstmt.OnReader(`
+		SELECT ` + streamColumns + `,
+			(SELECT ts_ns FROM lines l WHERE l.stream_id = s.id ORDER BY ts_ns, ord LIMIT 1),
+			(SELECT ord FROM lines l WHERE l.stream_id = s.id ORDER BY ts_ns, ord LIMIT 1),
+			(SELECT ts_ns FROM lines l WHERE l.stream_id = s.id ORDER BY ts_ns DESC, ord DESC LIMIT 1),
+			(SELECT ord FROM lines l WHERE l.stream_id = s.id ORDER BY ts_ns DESC, ord DESC LIMIT 1)
+		FROM streams s
+		WHERE pod_uid IN (SELECT pod_uid FROM pod_owners WHERE owner_uid = ?1)
+			AND EXISTS (SELECT 1 FROM lines l WHERE l.stream_id = s.id)
+		ORDER BY pod_uid, container, started_at DESC, id DESC`),
 	// A pattern is covered by its own chunks and the unlabelled ones, since every line
 	// is a superset of the matches.
 	stmtSelectChunks: sqlstmt.OnBoth(`
@@ -210,6 +228,8 @@ var statements = []sqlstmt.Statement{
 	stmtRemoveStreams: sqlstmt.OnWriter(`
 		DELETE FROM streams
 		WHERE id IN (SELECT value FROM json_each(?)) AND NOT EXISTS (SELECT 1 FROM chunks c WHERE c.stream_id = streams.id)`),
+	stmtRemoveOrphanOwners: sqlstmt.OnWriter(`
+		DELETE FROM pod_owners WHERE pod_uid NOT IN (SELECT pod_uid FROM streams)`),
 	// A chunk stamped within the interval keeps its stamp, so a page re-reading it
 	// writes nothing.
 	stmtStampChunks: sqlstmt.OnWriter(`

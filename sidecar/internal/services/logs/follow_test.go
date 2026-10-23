@@ -333,6 +333,40 @@ func TestAFollowReadsEachSeenStreamPastItsLine(t *testing.T) {
 	assert.ElementsMatch(t, []string{"a2", "b1", "b2"}, recvLines(t, stream, 3))
 }
 
+// A workload's follow reads a pod deleted since, Seen naming a line of it, from the
+// file past its line.
+func TestAFollowReadsAGonePodSeenNames(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"), logstest.Stamped(2*time.Second, "a2"))
+	s.Add("prod/web-2/app", logstest.Stamped(time.Second, "b1"))
+	svc, f := serviceOver(t, webMirror(t), s)
+	page := fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+	require.Equal(t, []string{"a1", "b1", "a2"}, messages(page.Records))
+	f.store.Delete(t, web1())
+
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(0), Seen: seenAt("web-1", "app", time.Second)})
+
+	assert.ElementsMatch(t, []string{"a2", "b1"}, recvLines(t, stream, 2))
+}
+
+// A workload's follow from a moment reads the pods it no longer runs from the file
+// first, found by their chain though nothing names them, then follows the live ones.
+func TestAFollowReadsAWorkloadsGonePodsFirst(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"), logstest.Stamped(3*time.Second, "a3"))
+	s.Add("prod/web-2/app", logstest.Stamped(2*time.Second, "b2"))
+	svc, f := serviceOver(t, webMirror(t), s)
+	page := fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+	require.Equal(t, []string{"a1", "b2", "a3"}, messages(page.Records))
+	f.store.Delete(t, web1())
+
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(0)})
+
+	assert.Equal(t, []string{"a1", "a3", "b2"}, recvLines(t, stream, 3))
+}
+
 // A follow from a page's Follow reads each stream where the page left it: one
 // the page passed past its last line, one it did not from the window's start.
 func TestAFollowFromAPagesFollow(t *testing.T) {

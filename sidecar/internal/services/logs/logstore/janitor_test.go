@@ -212,6 +212,28 @@ func TestASweepRemovesAGonePodsEmptyStreams(t *testing.T) {
 	assert.Equal(t, []int64{live, unknown, full}, idsIn(t, s, "streams"), "once the hold is let go")
 }
 
+// A pod's chain goes with its last stream: the sweep that removes the stream takes
+// the chain after it, and a pod with a stream left keeps its own.
+func TestASweepRemovesAChainWithItsPodsLastStream(t *testing.T) {
+	t.Parallel()
+	c := newClock(100_000)
+	s := newClockedStore(t, sweepRetention(), c)
+	for _, uid := range []string{"uid-gone", "uid-full"} {
+		row := app()
+		row.Pod, row.PodUID, row.Owners = uid, uid, []string{"uid-rs"}
+		ids, err := s.PutStreams(t.Context(), []Stream{row})
+		require.NoError(t, err)
+		if uid == "uid-full" {
+			put(t, s, ids[0], 1, 10, 0, false)
+		}
+	}
+	s.m.SetPodsGone(goneAre("uid-gone", "uid-full"))
+
+	sweep(t, s)
+
+	assert.Equal(t, []string{"uid-full uid-rs"}, ownersIn(t, s))
+}
+
 // A sweep asks about at most its limit of pods, taking up where the last one left
 // off: pods that stay never keep a gone one later in the order from being asked.
 func TestASweepAsksAboutThePodsInTurn(t *testing.T) {

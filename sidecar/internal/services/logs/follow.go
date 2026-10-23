@@ -118,10 +118,10 @@ const (
 //     start.
 //  6. A follow hands out no cursor: what a caller needs to go on is its start
 //     and the lines it saw, sent back as Seen.
-//  7. A follow whose start is not now first reads the instances of its Pod
-//     sources that only the file holds, from its start to their ends, then
-//     tails. A scope of gone pods alone under a label filter the mirror has no
-//     nodes for then ends no-nodes.
+//  7. A follow whose start is not now first reads the instances only the file
+//     holds, its Pod sources' and its workloads' pods the mirror no longer holds,
+//     from its start to their ends, then tails. A scope of gone pods alone under
+//     a label filter the mirror has no nodes for then ends no-nodes.
 //
 // A follow that ends for a reason the user can read — the claim revoked, the
 // cluster refusing the user's credentials, every container of the scope stopped,
@@ -244,7 +244,8 @@ func (f *follow) open(ctx context.Context, fromNow bool) error {
 		return err
 	}
 	if !fromNow {
-		if f.only, f.releaseOnly, err = fileOnlyStreams(ctx, f.file, t, f.scope); err != nil {
+		start := pageQuery{scope: f.scope, mode: logline.Newer, cur: &f.start}
+		if f.only, f.releaseOnly, err = f.s.fileOnlyStreams(ctx, f.file, t, []pageQuery{start}); err != nil {
 			return err
 		}
 	}

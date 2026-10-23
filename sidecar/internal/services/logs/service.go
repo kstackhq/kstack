@@ -95,9 +95,9 @@ func (s *Service) Remove(cacheID int64) error { return s.files.Remove(cacheID) }
 var _ cluster.CacheFileOwner = (*Service)(nil)
 
 // podsGone answers which of uids the mirror of the cache cacheID no longer holds,
-// for the log file's sweep. It answers none unless that cache is its cluster's
-// active one, trusted and mirroring pods: a stream the sweep removes is gone for
-// good, so a pod is gone only when the mirror is sure.
+// for the log file's sweep and for a page's gone pods. It answers none unless that
+// cache is its cluster's active one, trusted and mirroring pods: a stream the sweep
+// removes is gone for good, so a pod is gone only when the mirror is sure.
 func (s *Service) podsGone(ctx context.Context, cacheID int64, uids []string) ([]string, error) {
 	cache, err := s.clusters.Caches().Get(ctx, cluster.ClusterCacheID(cacheID))
 	if errors.Is(err, cluster.ErrNotFound) {

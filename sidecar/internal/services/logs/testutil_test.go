@@ -329,7 +329,7 @@ func (l *fakeLease) ConnFor(_ context.Context, serverUID string) (*cluster.Conne
 func (l *fakeLease) Release() { l.released.Add(1) }
 
 // serving is a service whose cluster uid-1 is reached at h.
-func serving(t *testing.T, h http.Handler) *fakeService {
+func serving(t testing.TB, h http.Handler) *fakeService {
 	t.Helper()
 	// HTTP/2, as an API server speaks it: a read that closes its body early drops
 	// one stream rather than its connection, so a test paging many logs dials a
@@ -347,7 +347,7 @@ func serving(t *testing.T, h http.Handler) *fakeService {
 
 // newMirror is a cluster whose cache is watching, its server uid-1, holding objects,
 // with nothing yet on its pods and nodes watches.
-func newMirror(t *testing.T, objects ...map[string]any) *fakeService {
+func newMirror(t testing.TB, objects ...map[string]any) *fakeService {
 	t.Helper()
 	f := &fakeService{
 		active: cluster.ActiveCluster{Cluster: &cluster.Cluster{}, Cache: &cluster.ClusterCache{RecordMeta: cluster.RecordMeta{ID: 11}, Spec: cluster.ClusterCacheSpec{ServerUID: "uid-1"}}},
@@ -389,7 +389,7 @@ func webNodes() []map[string]any {
 }
 
 // webMirror is webObjects and webNodes.
-func webMirror(t *testing.T) *fakeService {
+func webMirror(t testing.TB) *fakeService {
 	t.Helper()
 	return newMirror(t, append(webObjects(), webNodes()...)...)
 }
@@ -703,13 +703,13 @@ var testRetention = func() logstore.Retention {
 // serviceOver is the service over f's mirror and the API server h, on a clock
 // reading 11:00, its follows resolving at once and retrying within milliseconds
 // however often a stream drops.
-func serviceOver(t *testing.T, f *fakeService, h http.Handler) (*Service, *fakeService) {
+func serviceOver(t testing.TB, f *fakeService, h http.Handler) (*Service, *fakeService) {
 	t.Helper()
 	return serviceIn(t, f, h, t.TempDir(), testRetention)
 }
 
 // serviceIn is serviceOver with its log files in dir, kept to ret.
-func serviceIn(t *testing.T, f *fakeService, h http.Handler, dir string, ret logstore.Retention) (*Service, *fakeService) {
+func serviceIn(t testing.TB, f *fakeService, h http.Handler, dir string, ret logstore.Retention) (*Service, *fakeService) {
 	t.Helper()
 	f.lease = serving(t, h).lease
 	svc := New(f, dir, ret)
@@ -793,7 +793,7 @@ func serviceBatched(t *testing.T, backend kubelet.Backend, n int) (*Service, *fa
 // pages reads scope from the edge from names to the other, PageFromFirst on through
 // each Next and PageFromLast back through each Prev, size lines a page, failing past
 // 100 pages, and is every page.
-func pages(t *testing.T, svc *Service, scope Scope, from PageFrom, size int) []FetchResponse {
+func pages(t testing.TB, svc *Service, scope Scope, from PageFrom, size int) []FetchResponse {
 	t.Helper()
 	page := fetch(t, svc, FetchRequest{Scope: scope, PageFrom: from, PageSize: size})
 	return pagesOn(t, svc, page, size)
@@ -801,7 +801,7 @@ func pages(t *testing.T, svc *Service, scope Scope, from PageFrom, size int) []F
 
 // pagesOn is page and every page after it the way it read: on through each Next
 // for a newer page, back through each Prev for an older one.
-func pagesOn(t *testing.T, svc *Service, page FetchResponse, size int) []FetchResponse {
+func pagesOn(t testing.TB, svc *Service, page FetchResponse, size int) []FetchResponse {
 	t.Helper()
 	newer := page.Request.PageFrom == PageFromFirst || page.Request.Cursor != nil && cursorIn(t, page.Request.Cursor).newer
 	out := []FetchResponse{page}

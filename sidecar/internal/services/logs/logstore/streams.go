@@ -26,7 +26,8 @@ import (
 // Stream is one streams row: a runtime instance of a container, named by its namespace,
 // pod, container and ContainerID, and the snapshot of it taken from the mirror while the
 // pod was there. StartedAt and FinishedAt are unix nanoseconds, zero when unknown, and
-// FinishedAt zero while the instance runs.
+// FinishedAt zero while the instance runs. Owners is the UID of each controller above
+// the pod, nearest first, as the mirror shows it; a row the file answers carries none.
 type Stream struct {
 	ID          int64
 	Namespace   string
@@ -43,14 +44,16 @@ type Stream struct {
 	OS          string
 	Arch        string
 	Labels      string
+	Owners      []string
 }
 
 // PutStreams files each row's instance, inserting the ones the file lacks and updating
 // the place, the labels, the default mark and the times of the rest, and answers each
 // row's id, in order. A row filed as its pod's default moves the mark onto every
-// instance of its container and off the pod's other containers.
-// A stream whose finished_at it sets is trimmed to it. Rows the file already holds
-// as they are take no write.
+// instance of its container and off the pod's other containers. Each row's Owners the
+// file lacks are filed for its pod: the mirror can show a pod before its ReplicaSet,
+// so a later filing adds what an earlier one could not. A stream whose finished_at it
+// sets is trimmed to it. Rows the file already holds as they are take no write.
 func (s *Store) PutStreams(ctx context.Context, rows []Stream) ([]int64, error) {
 	ids, filed, err := s.filed(ctx, rows)
 	switch {
@@ -71,6 +74,11 @@ func (s *Store) PutStreams(ctx context.Context, rows []Stream) ([]int64, error) 
 				}
 			}
 			ids[i] = id
+			for _, owner := range row.Owners {
+				if _, err := st.Exec(ctx, stmtInsertOwner, row.PodUID, owner); err != nil {
+					return err
+				}
+			}
 			if finished {
 				if _, err := trim(ctx, st, id, row.FinishedAt); err != nil {
 					return err
@@ -120,7 +128,8 @@ func (s *Store) FinishStreams(ctx context.Context, rows []Stream) error {
 }
 
 // filed is each row's id when the file already holds every row as PutStreams would
-// leave it, so a page over streams that did not change takes no write lock.
+// leave it, its pod's owners included, so a page over streams that did not change
+// takes no write lock.
 func (s *Store) filed(ctx context.Context, rows []Stream) ([]int64, bool, error) {
 	ids := make([]int64, len(rows))
 	filed := false
@@ -133,6 +142,12 @@ func (s *Store) filed(ctx context.Context, rows []Stream) ([]int64, bool, error)
 			if row.Default {
 				var unsettled bool
 				if err := st.QueryRow(ctx, stmtDefaultUnsettled, row.Namespace, row.Pod, row.PodUID, row.Container).Scan(&unsettled); err != nil || unsettled {
+					return err
+				}
+			}
+			for _, owner := range row.Owners {
+				var known bool
+				if err := st.QueryRow(ctx, stmtOwnerFiled, row.PodUID, owner).Scan(&known); err != nil || !known {
 					return err
 				}
 			}
@@ -234,12 +249,46 @@ func (s *Store) PodStreams(ctx context.Context, namespace, pod, podUID string) (
 	return out, nil
 }
 
-// scanStream reads one row of streamColumns.
-func scanStream(rows *sql.Rows) (Stream, error) {
+// Owned is a stream of a pod an owner controls, with its oldest and newest line.
+type Owned struct {
+	Stream
+	Oldest, Newest Pos
+}
+
+// OwnedStreams is every stream the file holds of a pod the owner controls, each with
+// its oldest and newest line, ordered by pod and then as PodStreams orders them. A
+// stream with no line is left out: the janitor evicted it and removes its row on a
+// later sweep.
+func (s *Store) OwnedStreams(ctx context.Context, owner string) ([]Owned, error) {
+	var out []Owned
+	err := s.with(ctx, func(ctx context.Context, st stmts) error {
+		rows, err := st.Query(ctx, stmtSelectOwnedStreams, owner)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var o Owned
+			if o.Stream, err = scanStream(rows, &o.Oldest.TS, &o.Oldest.Ord, &o.Newest.TS, &o.Newest.Ord); err != nil {
+				return err
+			}
+			out = append(out, o)
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		return nil, fmt.Errorf("owned streams: %w", err)
+	}
+	return out, nil
+}
+
+// scanStream reads one row of streamColumns, and the columns after them into more.
+func scanStream(rows *sql.Rows, more ...any) (Stream, error) {
 	var row Stream
 	var started, finished sql.NullInt64
-	err := rows.Scan(&row.ID, &row.Namespace, &row.Pod, &row.PodUID, &row.Container, &row.Default, &row.ContainerID,
-		&started, &finished, &row.Node, &row.Region, &row.Zone, &row.OS, &row.Arch, &row.Labels)
+	dest := []any{&row.ID, &row.Namespace, &row.Pod, &row.PodUID, &row.Container, &row.Default, &row.ContainerID,
+		&started, &finished, &row.Node, &row.Region, &row.Zone, &row.OS, &row.Arch, &row.Labels}
+	err := rows.Scan(append(dest, more...)...)
 	row.StartedAt, row.FinishedAt = started.Int64, finished.Int64
 	return row, err
 }

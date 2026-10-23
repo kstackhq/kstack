@@ -165,6 +165,11 @@ func (m *Manager) sweep(ctx context.Context, cacheID int64, f *file) (sweepRepor
 			return r, err
 		}
 	}
+	// A chain outlives its pod's last stream until here, which is harmless: only a
+	// stream is read.
+	if _, err := f.set.Stmts().Exec(ctx, stmtRemoveOrphanOwners); err != nil {
+		return r, err
+	}
 	if r.Vacuumed, err = m.vacuum(ctx, f); err != nil {
 		return r, err
 	}

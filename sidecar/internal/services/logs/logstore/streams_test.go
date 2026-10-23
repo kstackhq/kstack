@@ -90,6 +90,93 @@ func TestPodStreamsFindsAPodByUIDOrAGonePodByName(t *testing.T) {
 	assert.Equal(t, []int64{ids[1], ids[0]}, idsOf(rows), "newest first")
 }
 
+// ownersIn is each pair of pod_owners in the file behind s, "pod owner", in order.
+func ownersIn(t *testing.T, s *Store) []string {
+	t.Helper()
+	var out []string
+	using(t, s, func(f *file) {
+		rows, err := f.readDB.Query(`SELECT pod_uid || ' ' || owner_uid FROM pod_owners ORDER BY pod_uid, owner_uid`)
+		require.NoError(t, err)
+		defer rows.Close()
+		for rows.Next() {
+			var pair string
+			require.NoError(t, rows.Scan(&pair))
+			out = append(out, pair)
+		}
+		require.NoError(t, rows.Err())
+	})
+	return out
+}
+
+// A pod's controller chain is filed with its streams, once for the pod however many
+// of its containers are filed.
+func TestAPodsChainIsFiledWithItsStreams(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	api := app()
+	api.Owners = []string{"uid-rs", "uid-dep"}
+	sidecar := api
+	sidecar.Container, sidecar.ContainerID, sidecar.Default = "istio-proxy", "containerd://2", false
+
+	_, err := s.PutStreams(t.Context(), []Stream{api, sidecar})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"uid-api uid-dep", "uid-api uid-rs"}, ownersIn(t, s))
+}
+
+// The mirror can show a pod before its ReplicaSet, so a filing of a stream the file
+// holds as it is still adds the owners the file lacks.
+func TestALaterFilingAddsTheOwnersTheFileLacks(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	api := app()
+	api.Owners = []string{"uid-rs"}
+	_, err := s.PutStreams(t.Context(), []Stream{api})
+	require.NoError(t, err)
+
+	api.Owners = []string{"uid-rs", "uid-dep"}
+	_, err = s.PutStreams(t.Context(), []Stream{api})
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"uid-api uid-dep", "uid-api uid-rs"}, ownersIn(t, s))
+}
+
+// The streams an owner's pods hold are found by the owner, each with its oldest and
+// newest line: not another owner's, nor a stream with no line.
+func TestOwnedStreamsFindsAnOwnersPodsByTheirLines(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	pod := func(name, container, id string, owners ...string) Stream {
+		row := app()
+		row.Pod, row.PodUID, row.Container, row.ContainerID, row.Owners = name, "uid-"+name, container, id, owners
+		return row
+	}
+	gone := pod("gone", "app", "containerd://1", "uid-rs", "uid-dep")
+	sidecar := pod("gone", "istio-proxy", "containerd://2", "uid-rs", "uid-dep")
+	sidecar.Default = false
+	empty := pod("empty", "app", "containerd://3", "uid-rs", "uid-dep")
+	running := pod("running", "app", "containerd://4", "uid-rs", "uid-dep")
+	other := pod("other", "app", "containerd://5", "uid-other")
+	ids, err := s.PutStreams(t.Context(), []Stream{gone, sidecar, empty, running, other})
+	require.NoError(t, err)
+	write(t, s,
+		Fill{Stream: ids[0], Backend: "kubelet", Lines: lines(at(2, 0), at(4, 1), at(6, 0))},
+		Fill{Stream: ids[1], Backend: "kubelet", Lines: lines(at(3, 0))},
+		Fill{Stream: ids[3], Backend: "kubelet", Lines: lines(at(5, 0))},
+		Fill{Stream: ids[4], Backend: "kubelet", Lines: lines(at(5, 0))})
+
+	owned, err := s.OwnedStreams(t.Context(), "uid-dep")
+
+	require.NoError(t, err)
+	gone.ID, sidecar.ID, running.ID = ids[0], ids[1], ids[3]
+	gone.Owners, sidecar.Owners, running.Owners = nil, nil, nil
+	assert.Equal(t, []Owned{
+		{Stream: gone, Oldest: at(2, 0), Newest: at(6, 0)},
+		{Stream: sidecar, Oldest: at(3, 0), Newest: at(3, 0)},
+		{Stream: running, Oldest: at(5, 0), Newest: at(5, 0)},
+	}, owned)
+}
+
 // A pod has one default container: filing another as the default, after its
 // annotation moved, moves the mark onto every instance of it and off every instance
 // of the one before, and a row filed as not the default loses it.
@@ -126,8 +213,8 @@ func TestADefaultMovesWithThePod(t *testing.T) {
 	assert.False(t, defaults()["containerd://2"])
 }
 
-// Filing rows the file already holds as they are, or finishing rows it holds
-// finished, takes no write lock: they pass while another connection holds it.
+// Filing rows the file already holds as they are, their pod's owners included, or
+// finishing rows it holds finished, takes no write lock: they pass while another connection holds it.
 func TestUnchangedStreamsTakeNoWrite(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -140,6 +227,7 @@ func TestUnchangedStreamsTakeNoWrite(t *testing.T) {
 	sidecar.Container, sidecar.ContainerID, sidecar.Default = "istio-proxy", "containerd://2", false
 	finished := app()
 	finished.ContainerID, finished.FinishedAt = "containerd://0", second(0)
+	finished.Owners = []string{"uid-rs", "uid-dep"}
 	ids, err := s.PutStreams(t.Context(), []Stream{finished, app(), sidecar})
 	require.NoError(t, err)
 

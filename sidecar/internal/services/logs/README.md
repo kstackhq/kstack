@@ -113,7 +113,9 @@ as `cursor-invalid`.
 14. A container that fails to read on one page is skipped and named in a notice. The page is
     still served. That container resumes where it stopped on the next `Next`.
 15. The scope is resolved again on every page. A scope that is now refused keeps the refusal's
-    code.
+    code. A workload's pods the mirror no longer holds are read from the file, found by the
+    controller chain filed with their streams, so a replaced pod's lines read as previous on any
+    page, a landing's included. A workload the mirror no longer holds reads none.
 
 **The refusals**
 

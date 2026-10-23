@@ -625,6 +625,17 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 ## Frontend (webview)
 
 - **The log viewer shows only the filters the model set.** Kubetail's sidebar lists each region, zone, OS, architecture and node the open sources span, with a count per value. That needs one query answering what a view's sources resolved to, which the sidecar's resolve already computes (`services/logs/resolve.go`) and the wire does not carry.
+- **A workload's log view has no switch to hide its gone pods or its earlier instances.** A
+  Deployment's view shows every pod the Deployment runs or ran within the log file's retention, a
+  replaced pod's lines marked previous (`services/logs/fetch.go`, `fileOnlyStreams`), and that is
+  the right default: a rollout's history is what the user came for. Two things it should let the
+  user turn off, each a filter on the scope the sidecar applies as it applies the node filters, with
+  a control in the viewer's filter bar: pods the mirror no longer holds, and instances before a
+  container's current one. The second also wants the sidecar to read a live workload pod's earlier
+  instances from the file as a Pod source's are read (`fileRows` with `t.current` filled for the
+  workload's pods, `podSources` fills it for Pod sources alone today), so that a workload's view
+  shows a restarted container's earlier instance by default and the filter has something to hide.
+  **Trigger:** the first user who wants a Deployment's live pods alone.
 - **The inline card reads an `At` window and keeps one half.** `src/lib/inline-log-lines.ts` asks
   for both halves of the moment and drops the other, a read for lines nobody uses. The library's
   `Since` and `Until` each read one half as one first page; the card still asks `At`.

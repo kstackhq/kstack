@@ -49,6 +49,16 @@ CREATE TABLE streams (
   UNIQUE (namespace, pod, container, container_id)
 ) STRICT;
 
+-- pod_owners: each controller above a pod, walked up its controller references in the
+-- mirror, so a workload finds the streams of a pod it no longer runs. A pair is filed
+-- with the pod's streams and never removed while the pod has one: the mirror can show
+-- a pod before its ReplicaSet, and a later filing adds what that one could not.
+CREATE TABLE pod_owners (
+  pod_uid   TEXT NOT NULL,
+  owner_uid TEXT NOT NULL,
+  PRIMARY KEY (owner_uid, pod_uid)
+) STRICT;
+
 -- chunks: the unit of coverage and of eviction. A chunk states a fact: every line the
 -- backend served for this stream between its two edges that matches pattern is in lines.
 -- Its edges are positions, (from_ns, from_ord) and (to_ns, to_ord), since a chunk closes

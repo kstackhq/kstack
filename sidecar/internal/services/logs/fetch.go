@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -165,7 +166,9 @@ type FetchResponse struct {
 //     Follow oldest first, never past the window's edge. Mixed requests are
 //     conflicting-parameters; a cursor the service did not write is cursor-invalid,
 //     and one whose scope is now refused keeps the scope's code. The scope is
-//     resolved again on every page.
+//     resolved again on every page. A workload's pods the mirror no longer holds
+//     are read from the file, found by the controller chain filed with their
+//     streams.
 //  7. Prev is set when a line is known older inside the window, Next when one is
 //     known newer. A window is live while its end is open, lies after now, or a
 //     counted After is short; its page with nothing newer sets Follow, never
@@ -454,7 +457,7 @@ func (s *Service) page(ctx context.Context, id cluster.ClusterID, qs ...pageQuer
 		return nil, err
 	}
 	defer file.Close()
-	streams, release, err := pageStreams(ctx, file, t, qs[0].scope)
+	streams, release, err := s.pageStreams(ctx, file, t, qs)
 	defer release()
 	if err != nil {
 		return nil, err
@@ -1474,8 +1477,8 @@ func (w resolvedWindow) afterIsEmpty(recs []logline.Record) bool {
 
 // ===== The streams a page reads =====
 
-// maxInstances is the most of a container's instances a page reads from the file
-// beside what the resolve hands out: a pod that crash-looped for days can hold
+// maxInstances is the most of one pod's container's instances a page reads from the
+// file beside what the resolve hands out: a pod that crash-looped for days can hold
 // hundreds, each a walk of its own.
 const maxInstances = 8
 
@@ -1506,7 +1509,7 @@ func (ps pageStream) run() logline.Cursor {
 // pageStreams files t's streams in file, each as its instance's row, and answers
 // them, then fileOnlyStreams. Every row is held from the moment its id is known
 // until release, which the caller owes even on an error.
-func pageStreams(ctx context.Context, file *logstore.Store, t target, scope Scope) (_ []pageStream, release func(), err error) {
+func (s *Service) pageStreams(ctx context.Context, file *logstore.Store, t target, reads []pageQuery) (_ []pageStream, release func(), err error) {
 	rows, err := fileStreams(ctx, file, t.streams)
 	if err != nil {
 		return nil, func() {}, err
@@ -1516,7 +1519,7 @@ func pageStreams(ctx context.Context, file *logstore.Store, t target, scope Scop
 	for i, st := range t.streams {
 		out[i] = pageStream{row: rows[i], st: &t.streams[i], key: st.key, place: st.place}
 	}
-	only, releaseOnly, err := fileOnlyStreams(ctx, file, t, scope)
+	only, releaseOnly, err := s.fileOnlyStreams(ctx, file, t, reads)
 	release = func() {
 		releaseRows()
 		releaseOnly()
@@ -1524,11 +1527,16 @@ func pageStreams(ctx context.Context, file *logstore.Store, t target, scope Scop
 	return append(out, only...), release, err
 }
 
-// fileOnlyStreams is each of scope's Pod sources' streams the file holds that the
-// resolve handed out for no source, each instance once across the scope. Every row
-// is held from the moment its id is known until release, which the caller owes
-// even on an error.
-func fileOnlyStreams(ctx context.Context, file *logstore.Store, t target, scope Scope) (_ []pageStream, release func(), err error) {
+// fileOnlyStreams is each stream the file holds that reads, one scope's reads over
+// one stream set, read beside the resolve's: a Pod source's instances the resolve
+// handed out for no source, and a workload's gone pods, found by the chains filed
+// with their streams, where a read reaches them. A pod is gone when the mirror no
+// longer holds it, and the mirror is asked: the resolve hands out no stream of a
+// live pod a previous view finds no previous instance of, and a workload's chain
+// still names a pod it orphaned. Each instance once across the scope. Every row is
+// held from the moment its id is known until release, which the caller owes even on
+// an error.
+func (s *Service) fileOnlyStreams(ctx context.Context, file *logstore.Store, t target, reads []pageQuery) (_ []pageStream, release func(), err error) {
 	var releases []func()
 	release = func() {
 		for _, r := range releases {
@@ -1536,36 +1544,133 @@ func fileOnlyStreams(ctx context.Context, file *logstore.Store, t target, scope 
 		}
 	}
 	seen := map[logline.Cursor]bool{}
+	resolvedPods := map[string]bool{}
 	for _, st := range t.streams {
 		seen[st.run()] = true
+		resolvedPods[st.gen.uid] = true
 	}
 	var out []pageStream
-	for _, src := range scope.Sources {
-		if src.Kind != SourcePod {
-			continue
-		}
-		held, err := file.PodStreams(ctx, src.Namespace, src.Name, t.pods[src.Namespace+"/"+src.Name])
-		if err != nil {
-			return nil, release, err
-		}
-		releases = append(releases, file.Hold(rowIDs(held)...))
-		key := src.Namespace + "/" + src.Name
-		_, live := t.pods[key]
-		pod := podNow{live: live, def: t.defaults[key], place: t.places[key]}
-		for _, row := range fileRows(held, src, scope.Filters, t.current, pod) {
-			current := t.current[containerKey(row.Namespace, row.Pod, row.Container)]
-			ps := pageStream{
-				row:   row,
-				key:   logline.StreamKey{Namespace: row.Namespace, Pod: row.Pod, Container: row.Container, Previous: row.ContainerID != current},
-				place: pod.placeOf(row),
-			}
+	add := func(src ScopeSource, rows []logstore.Stream) {
+		releases = append(releases, file.Hold(rowIDs(rows)...))
+		for _, row := range fileRows(t, rows, src, reads[0].scope.Filters) {
+			ps := fileStream(t, row)
 			if !seen[ps.run()] {
 				seen[ps.run()] = true
 				out = append(out, ps)
 			}
 		}
 	}
+	scope := reads[0].scope
+	var maybeGone []podRows
+	for i, src := range scope.Sources {
+		if src.Kind == SourcePod {
+			held, err := file.PodStreams(ctx, src.Namespace, src.Name, t.pods[src.Namespace+"/"+src.Name])
+			if err != nil {
+				return nil, release, err
+			}
+			add(src, held)
+			continue
+		}
+		if t.sourceUIDs[i] == "" {
+			continue
+		}
+		owned, err := file.OwnedStreams(ctx, t.sourceUIDs[i])
+		if err != nil {
+			return nil, release, err
+		}
+		// A pod the resolve handed out is in the mirror, so the mirror is asked about
+		// the rest alone, and about none on most pages.
+		var rows []logstore.Stream
+		for _, o := range owned {
+			if !resolvedPods[o.PodUID] && reaches(reads, fileStream(t, o.Stream), o.Oldest, o.Newest) {
+				rows = append(rows, o.Stream)
+			}
+		}
+		maybeGone = append(maybeGone, podRows{src, rows})
+	}
+	gone, err := s.gonePods(ctx, t.cacheID, maybeGone)
+	if err != nil {
+		return nil, release, err
+	}
+	for _, c := range maybeGone {
+		add(c.src, slices.DeleteFunc(c.rows, func(row logstore.Stream) bool { return !gone[row.PodUID] }))
+	}
 	return out, release, nil
+}
+
+// podRows is the file's rows a source would read were their pods gone.
+type podRows struct {
+	src  ScopeSource
+	rows []logstore.Stream
+}
+
+// gonePods is the UID of each pod of candidates the mirror behind cacheID no longer
+// holds. Unsure, podsGone answers none, and a live pod read as gone would serve a
+// current instance as previous, so none is the safe answer.
+func (s *Service) gonePods(ctx context.Context, cacheID cluster.ClusterCacheID, candidates []podRows) (map[string]bool, error) {
+	uids := map[string]bool{}
+	for _, c := range candidates {
+		for _, row := range c.rows {
+			uids[row.PodUID] = true
+		}
+	}
+	if len(uids) == 0 {
+		return nil, nil
+	}
+	gone, err := s.podsGone(ctx, int64(cacheID), slices.Sorted(maps.Keys(uids)))
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for _, uid := range gone {
+		out[uid] = true
+	}
+	return out, nil
+}
+
+// reaches is whether ps, its lines running from oldest to newest, has a line one of
+// reads can deliver: at or past where ps's own read starts, since on a continuation
+// each stream goes on from its own entry and one with none from the window's edge,
+// and short of the read's far edge.
+func reaches(reads []pageQuery, ps pageStream, oldest, newest logstore.Pos) bool {
+	for _, q := range reads {
+		first, last := oldest, newest
+		if q.mode == logline.Older {
+			first, last = newest, oldest
+		}
+		far := q.far(ps)
+		if onward(q.mode, last, q.key(ps)) && (far == nil || onward(q.mode, *far, first)) {
+			return true
+		}
+	}
+	return false
+}
+
+// onward is whether a is at or past b, read mode.
+func onward(mode logline.Direction, a, b logstore.Pos) bool {
+	if mode == logline.Newer {
+		return a.Compare(b) >= 0
+	}
+	return a.Compare(b) <= 0
+}
+
+// podOf is what the mirror holds of row's pod: nothing once the pod is gone, though a
+// later pod of its name runs.
+func podOf(t target, row logstore.Stream) podNow {
+	key := row.Namespace + "/" + row.Pod
+	live := row.PodUID != "" && t.pods[key] == row.PodUID
+	return podNow{live: live, def: t.defaults[key], place: t.places[key]}
+}
+
+// fileStream is row as a page reads it from the file: previous unless it is its
+// container's current instance.
+func fileStream(t target, row logstore.Stream) pageStream {
+	current := t.current[containerKey(row.Namespace, row.Pod, row.Container)]
+	return pageStream{
+		row:   row,
+		key:   logline.StreamKey{Namespace: row.Namespace, Pod: row.Pod, Container: row.Container, Previous: row.ContainerID != current},
+		place: podOf(t, row).placeOf(row),
+	}
 }
 
 // rowIDs is the id of each of rows.
@@ -1577,10 +1682,10 @@ func rowIDs(rows []logstore.Stream) []int64 {
 	return ids
 }
 
-// fileStreams files streams in file, each as its instance's row, and answers the rows
-// with their ids, in order. A restart the mirror reported late may have filed the
-// next instance's lines under the one before, so the file's row of that one is
-// trimmed once its end is known.
+// fileStreams files streams in file, each as its instance's row with its pod's
+// controller chain, and answers the rows with their ids, in order. A restart the
+// mirror reported late may have filed the next instance's lines under the one before,
+// so the file's row of that one is trimmed once its end is known.
 func fileStreams(ctx context.Context, file *logstore.Store, streams []stream) ([]logstore.Stream, error) {
 	rows := make([]logstore.Stream, len(streams))
 	for i, st := range streams {
@@ -1589,7 +1694,7 @@ func fileStreams(ctx context.Context, file *logstore.Store, streams []stream) ([
 			Container: st.key.Container, Default: st.isDefault, ContainerID: st.gen.instance,
 			StartedAt: st.startedAt, FinishedAt: st.finishedAt,
 			Node: st.place.Node, Region: st.place.Region, Zone: st.place.Zone, OS: st.place.OS, Arch: st.place.Arch,
-			Labels: st.labels,
+			Labels: st.labels, Owners: st.owners,
 		}
 	}
 	ids, err := file.PutStreams(ctx, rows)
@@ -1643,25 +1748,24 @@ func (p podNow) isDefault(row logstore.Stream) bool {
 	return row.Default
 }
 
-// fileRows is the rows of held, a Pod source's streams in the file newest first per
+// fileRows is the rows of held, a pod's streams in the file newest first per
 // container, that src reads: the containers it names, every one, or the pod's
 // default, as the resolve names them; with Previous, not the pod's current instance;
-// in a place the filters keep; and each container's newest maxInstances.
-func fileRows(held []logstore.Stream, src ScopeSource, filters []ScopeFilter, current map[string]string, pod podNow) []logstore.Stream {
+// in a place the filters keep; and each container's newest maxInstances, per pod.
+func fileRows(t target, held []logstore.Stream, src ScopeSource, filters []ScopeFilter) []logstore.Stream {
 	var out []logstore.Stream
 	count := map[string]int{}
 	for _, row := range held {
+		pod, instances := podOf(t, row), row.PodUID+"/"+row.Container
 		switch {
 		case len(src.Containers) > 0 && !slices.Contains(src.Containers, row.Container),
 			len(src.Containers) == 0 && !src.AllContainers && !pod.isDefault(row),
-			src.Previous && row.ContainerID == current[containerKey(row.Namespace, row.Pod, row.Container)],
-			!keptByFilters(pod.placeOf(row), filters):
+			src.Previous && row.ContainerID == t.current[containerKey(row.Namespace, row.Pod, row.Container)],
+			!keptByFilters(pod.placeOf(row), filters),
+			count[instances] == maxInstances:
 			continue
 		}
-		if count[row.Container] == maxInstances {
-			continue
-		}
-		count[row.Container]++
+		count[instances]++
 		out = append(out, row)
 	}
 	return out

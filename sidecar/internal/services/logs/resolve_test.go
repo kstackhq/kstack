@@ -70,6 +70,52 @@ func TestAWorkloadIsWalkedDownItsControllers(t *testing.T) {
 	assert.Len(t, keysOf(got), 2)
 }
 
+// A stream carries the controllers above its pod, nearest first, under a Pod source
+// as under its workload, so the file can find the pod by any of them once it is gone.
+// A pod the mirror shows before its ReplicaSet carries the ReplicaSet alone, and the
+// Deployment too once the ReplicaSet arrives.
+func TestAStreamCarriesItsPodsControllerChain(t *testing.T) {
+	t.Parallel()
+	f := webMirror(t)
+	web1 := Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}}}}
+	for _, scope := range []Scope{webScope, web1} {
+		got, err := resolveOf(t, f, scope)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"rs-web", "dep-web"}, got.streams[0].owners)
+	}
+
+	f.store.Apply(t, pod("api-1", "uid-api-1", "node-a", controller("apps/v1", "ReplicaSet", "api-5c", "rs-api"), container{name: "app"}))
+	api1 := Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "api-1"}}}
+	got, err := resolveOf(t, f, api1)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"rs-api"}, got.streams[0].owners)
+
+	f.store.Apply(t, workload("apps/v1", "ReplicaSet", "api-5c", "rs-api", controller("apps/v1", "Deployment", "api", "dep-api")))
+	got, err = resolveOf(t, f, api1)
+	require.NoError(t, err)
+	assert.Equal(t, []string{"rs-api", "dep-api"}, got.streams[0].owners)
+}
+
+// A target carries each source's UID, which the file's chains name: a source with
+// pods carries its own as one with none does, and a source the mirror lacks, none.
+func TestATargetCarriesEachSourcesUID(t *testing.T) {
+	t.Parallel()
+	f := webMirror(t)
+	f.store.Apply(t, workload("apps/v1", "Deployment", "idle", "dep-idle", nil))
+	scope := Scope{Sources: []ScopeSource{
+		webScope.Sources[0],
+		{Namespace: "prod", Kind: SourceDeployment, Name: "idle"},
+		{Namespace: "prod", Kind: SourceDeployment, Name: "missing"},
+		{Namespace: "prod", Kind: SourcePod, Name: "web-1"},
+	}}
+
+	got, err := resolveOf(t, f, scope)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"dep-web", "dep-idle", "", "uid-web-1"}, got.sourceUIDs)
+	assert.Equal(t, []SourceState{Reading, Idle, Missing, Reading}, got.states)
+}
+
 // AllContainers reads every container, and previous goes through.
 func TestAllContainersReadsEveryContainer(t *testing.T) {
 	t.Parallel()
@@ -199,6 +245,7 @@ func TestALabelFilterWithNoNodesIsRefused(t *testing.T) {
 		got, err := resolve(t.Context(), f, "7", view, follow)
 		require.NoError(t, err, "a page and a follow look in the file before they refuse")
 		assert.EqualError(t, got.noNodes, refused)
+		assert.Equal(t, []string{"dep-web"}, got.sourceUIDs, "the file is asked for the workload's gone pods")
 	}
 }
 
@@ -555,7 +602,7 @@ func TestAResolveFailsWithEachOfItsReads(t *testing.T) {
 	t.Parallel()
 	for name, on := range map[string]string{
 		"kinds":        "FROM kinds",
-		"object":       "SELECT 1 FROM objects WHERE api_version",
+		"object":       "SELECT uid FROM objects WHERE api_version",
 		"pod's ids":    "json_group_object",
 		"first starts": "JOIN containers c ON c.pod_uid = p.uid",
 	} {
