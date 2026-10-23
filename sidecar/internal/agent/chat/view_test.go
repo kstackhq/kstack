@@ -66,7 +66,7 @@ func TestSnapshotCheckRefusesWhatTheWebviewNeverBuilds(t *testing.T) {
 // tailWebapp is a pinned tail of the payments webapp's errors.
 func tailWebapp() tools.LogsViewAction {
 	return tools.LogsViewAction{
-		LogsViewInput: tools.LogsViewInput{
+		LogsScopeInput: tools.LogsScopeInput{
 			Sources: []tools.LogsViewSource{{Namespace: "payments", Kind: tools.LogsSourceDeployment, Name: "webapp"}},
 			Grep:    "error",
 		},
@@ -118,7 +118,7 @@ func TestTheViewSectionSpellsOnlyWhatIsSet(t *testing.T) {
 
 	at := time.Date(2026, 10, 16, 0, 0, 0, 0, time.UTC)
 	action := tools.LogsViewAction{
-		LogsViewInput: tools.LogsViewInput{
+		LogsScopeInput: tools.LogsScopeInput{
 			Sources: []tools.LogsViewSource{
 				{Namespace: "a", Kind: tools.LogsSourcePod, Name: "p", Containers: []string{"app"}, Previous: true},
 				{Namespace: "a", Kind: tools.LogsSourceJob, Name: "j", AllContainers: true},

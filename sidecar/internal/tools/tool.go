@@ -314,13 +314,13 @@ type KubeQueryAction struct {
 	Limit int    `json:"limit"`
 }
 
-// LogsViewAction is a live view of logs the user looks at: the LogsViewInput the
+// LogsViewAction is a live view of logs the user looks at: the LogsScopeInput the
 // log backend reads, then the Anchor the view opens at and PinToEnd, whether the
 // viewer keeps the end in view as lines arrive. Those two are the viewer's, so the
 // backend never sees them. ResolvedAt is when the tool resolved it, on its clock:
 // the moment a view that no longer runs shows its lines up to.
 type LogsViewAction struct {
-	LogsViewInput
+	LogsScopeInput
 	Anchor     LogsViewAnchor `json:"anchor"`
 	PinToEnd   bool           `json:"pinToEnd"`
 	ResolvedAt time.Time      `json:"resolvedAt"`
@@ -343,59 +343,56 @@ const (
 	LogsAnchorAt   LogsAnchorKind = "at"
 )
 
-// LogsReadAction is log lines the model read: the LogsViewInput it read, the
-// range's ends as moments, nil for an open end, the Mode the sample came from, and
-// ResolvedAt, when the tool resolved it on its clock. Lines is what the model read,
-// oldest first, stripped, redacted and cut; Dropped the lines its budget left out;
-// Before and After what lies past each end; Skipped each stream it could not read,
-// one line each. ViewAround is the view View around this opens, nil with no line.
-// Every string but the view's is cluster text.
+// LogsReadAction is log lines the model read: the scope, the window as the service
+// ran it (Since and Until the range's bounds, nil for open; Before and After its
+// padding; PageFrom which end the first page came from, nil on a continuation),
+// ResolvedAt the first page's clock, Lines what the model read, oldest first,
+// stripped, redacted and cut, OlderMore and NewerMore whether the page had a
+// prev or a next, Notices what the page said, and ViewAround the view View around
+// this opens, nil with no line. Every string but the scope's is cluster text.
 type LogsReadAction struct {
-	LogsViewInput
+	LogsScopeInput
 	Since      *time.Time      `json:"since"`
 	Until      *time.Time      `json:"until"`
-	Mode       LogsReadMode    `json:"mode"`
+	Before     LogsPadding     `json:"before"`
+	After      LogsPadding     `json:"after"`
+	PageFrom   *logs.PageFrom  `json:"pageFrom"`
 	ResolvedAt time.Time       `json:"resolvedAt"`
 	Lines      []LogsReadLine  `json:"lines"`
-	Dropped    int             `json:"dropped"`
-	Before     LogsReadEdge    `json:"before"`
-	After      LogsReadEdge    `json:"after"`
-	Skipped    []string        `json:"skipped"`
+	OlderMore  bool            `json:"olderMore"`
+	NewerMore  bool            `json:"newerMore"`
+	Notices    []LogsNotice    `json:"notices"`
 	ViewAround *LogsViewAction `json:"viewAround"`
 }
 
-// LogsWatchAction is what a watch follows: the LogsViewInput it watches, and its
-// bounds, resolved on the tool's clock. Since is where the window starts, the
-// call's own or ResolvedAt; Limit and MaxBytes are how many matching lines, and how
-// many bytes of them, end it; Until is when it ends on time alone.
-type LogsWatchAction struct {
-	LogsViewInput
-	Since      time.Time `json:"since"`
-	Limit      int       `json:"limit"`
-	MaxBytes   int       `json:"maxBytes"`
-	ResolvedAt time.Time `json:"resolvedAt"`
-	Until      time.Time `json:"until"`
+// LogsPadding is one side's padding as the service ran it: a number of lines, or
+// a span as an ISO 8601 duration, normalised. At most one is set.
+type LogsPadding struct {
+	Lines int    `json:"lines"`
+	Span  string `json:"span"`
 }
 
-// LogsReadMode is which end of its range a read's sample came from. The GraphQL
-// LogsReadMode enum binds member by member onto it.
-type LogsReadMode string
+// LogsNotice is something a page or a follow said, by code.
+type LogsNotice struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
 
-const (
-	LogsReadHead LogsReadMode = "head"
-	LogsReadTail LogsReadMode = "tail"
-)
-
-// LogsReadEdge is what lies past one end of a sample: nothing, lines the read did
-// not return, or lines there may be past a moment the read stopped at. The GraphQL
-// LogsReadEdge enum binds member by member onto it.
-type LogsReadEdge string
-
-const (
-	LogsReadEnd    LogsReadEdge = "end"
-	LogsReadMore   LogsReadEdge = "more"
-	LogsReadUnread LogsReadEdge = "unread"
-)
+// LogsWatchAction is what a watch follows: the scope it watches, and its bounds,
+// resolved on the tool's clock. Since is where the window starts, the call's own
+// or ResolvedAt, nil when the watch went on from a read's token, which names no
+// moment; Limit and MaxBytes are how many matching lines, and how many bytes of
+// them, end it; MaxMessageBytes cuts each line; Until is when it ends on time
+// alone.
+type LogsWatchAction struct {
+	LogsScopeInput
+	Since           *time.Time `json:"since"`
+	Limit           int        `json:"limit"`
+	MaxBytes        int        `json:"maxBytes"`
+	MaxMessageBytes int        `json:"maxMessageBytes"`
+	ResolvedAt      time.Time  `json:"resolvedAt"`
+	Until           time.Time  `json:"until"`
+}
 
 // LogsReadLine is one line of a sample, as the model read it, and the hole before
 // it, nil with none.
@@ -407,12 +404,14 @@ type LogsReadLine struct {
 	Previous  bool      `json:"previous"`
 	Message   string    `json:"message"`
 	Gap       *LogsGap  `json:"gap"`
+	// TruncatedBytes is the bytes the request's message cap cut off Message.
+	TruncatedBytes int `json:"truncatedBytes"`
 }
 
 // The view's backend half is the log service's vocabulary, named here as the tool
 // spells it.
 type (
-	LogsViewInput   = logs.Scope
+	LogsScopeInput  = logs.Scope
 	LogsViewSource  = logs.ScopeSource
 	LogsSourceKind  = logs.SourceKind
 	LogsViewFilter  = logs.ScopeFilter

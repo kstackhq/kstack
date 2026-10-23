@@ -65,15 +65,17 @@ func TestARecordIsTheActionsLine(t *testing.T) {
 	rec := record(time.Second, 3, "a")
 	rec.Stream.Previous = true
 	rec.Gap = &logline.Gap{After: rec.Timestamp.Add(-time.Second), Before: rec.Timestamp}
+	rec.TruncatedBytes = 5
 	assert.Equal(t, tools.LogsReadLine{
 		Timestamp: rec.Timestamp, Namespace: "prod", Pod: "webapp-a", Container: "app", Previous: true, Message: "a", Gap: rec.Gap,
+		TruncatedBytes: 5,
 	}, ReadLine(rec))
 
-	view := tools.LogsViewInput{Grep: "a"}
+	view := tools.LogsScopeInput{Grep: "a"}
 	resolved := rec.Timestamp.Add(time.Hour)
 	around := ViewAround(view, rec.Timestamp, resolved)
 	assert.Equal(t, tools.LogsViewAction{
-		LogsViewInput: view, Anchor: tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: &rec.Timestamp}, ResolvedAt: resolved,
+		LogsScopeInput: view, Anchor: tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: &rec.Timestamp}, ResolvedAt: resolved,
 	}, *around)
 }
 

@@ -65,14 +65,14 @@ func Stamp(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 func ReadLine(rec logline.Record) tools.LogsReadLine {
 	return tools.LogsReadLine{
 		Timestamp: rec.Timestamp, Namespace: rec.Stream.Namespace, Pod: rec.Stream.Pod, Container: rec.Stream.Container,
-		Previous: rec.Stream.Previous, Message: rec.Message, Gap: rec.Gap,
+		Previous: rec.Stream.Previous, Message: rec.Message, Gap: rec.Gap, TruncatedBytes: rec.TruncatedBytes,
 	}
 }
 
 // ViewAround is the view View around this opens: view at the moment at, unpinned,
 // resolved at resolvedAt.
-func ViewAround(view tools.LogsViewInput, at, resolvedAt time.Time) *tools.LogsViewAction {
+func ViewAround(view tools.LogsScopeInput, at, resolvedAt time.Time) *tools.LogsViewAction {
 	return &tools.LogsViewAction{
-		LogsViewInput: view, Anchor: tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: &at}, ResolvedAt: resolvedAt,
+		LogsScopeInput: view, Anchor: tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: &at}, ResolvedAt: resolvedAt,
 	}
 }

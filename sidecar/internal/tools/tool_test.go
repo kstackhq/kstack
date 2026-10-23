@@ -60,7 +60,7 @@ func TestActionKindsIsTheSet(t *testing.T) {
 func TestLogsViewActionEmbedsTheInput(t *testing.T) {
 	at := time.Date(2026, 10, 8, 14, 0, 0, 0, time.UTC)
 	action := LogsViewAction{
-		LogsViewInput: LogsViewInput{
+		LogsScopeInput: LogsScopeInput{
 			Sources: []LogsViewSource{{Namespace: "prod", Kind: LogsSourceDeployment, Name: "web", Containers: []string{"app"}}},
 			Filters: []LogsViewFilter{{Field: LogsFilterZone, Values: []string{"a"}}},
 			Grep:    "err",
@@ -76,6 +76,38 @@ func TestLogsViewActionEmbedsTheInput(t *testing.T) {
 	assert.JSONEq(t, `{"sources":[{"namespace":"prod","kind":"deployment","name":"web","containers":["app"],"allContainers":false,"previous":false}],
 "filters":[{"field":"zone","values":["a"]}],"grep":"err","anchor":{"kind":"at","at":"2026-10-08T14:00:00Z"},"pinToEnd":true,
 "resolvedAt":"2026-10-08T14:01:00Z"}`, string(raw))
-	var view logs.Scope = action.LogsViewInput
+	var view logs.Scope = action.LogsScopeInput
 	assert.Equal(t, "err", view.Grep)
+}
+
+// A read's action keeps the window as the service ran it: the paddings, which end
+// the first page came from (null on a continuation), whether a page lies each way,
+// and the notices.
+func TestLogsReadActionKeepsTheWindow(t *testing.T) {
+	since := time.Date(2026, 10, 8, 14, 0, 0, 0, time.UTC)
+	first := logs.PageFromFirst
+	action := LogsReadAction{
+		LogsScopeInput: LogsScopeInput{Sources: []LogsViewSource{}, Filters: []LogsViewFilter{}},
+		Since:          &since,
+		Before:         LogsPadding{Lines: 10},
+		After:          LogsPadding{Span: "PT5M"},
+		PageFrom:       &first,
+		ResolvedAt:     since.Add(time.Minute),
+		Lines:          []LogsReadLine{{Timestamp: since, Message: "a…", TruncatedBytes: 7}},
+		NewerMore:      true,
+		Notices:        []LogsNotice{{Code: "padding-short", Message: "fewer lines"}},
+	}
+
+	raw, err := json.Marshal(action)
+
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"sources":[],"filters":[],"grep":"","since":"2026-10-08T14:00:00Z","until":null,
+"before":{"lines":10,"span":""},"after":{"lines":0,"span":"PT5M"},"pageFrom":"first","resolvedAt":"2026-10-08T14:01:00Z",
+"lines":[{"timestamp":"2026-10-08T14:00:00Z","namespace":"","pod":"","container":"","previous":false,"message":"a…","gap":null,"truncatedBytes":7}],
+"olderMore":false,"newerMore":true,"notices":[{"code":"padding-short","message":"fewer lines"}],"viewAround":null}`, string(raw))
+
+	action.PageFrom = nil
+	raw, err = json.Marshal(action)
+	require.NoError(t, err)
+	assert.Contains(t, string(raw), `"pageFrom":null`)
 }

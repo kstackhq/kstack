@@ -95,7 +95,7 @@ func TestASourceInTheMirrorOpens(t *testing.T) {
 
 	assert.Equal(t, "Viewing deployments/webapp in prod at the newest line. Defaulted container app out of app, istio-proxy, setup.", text)
 	assert.Equal(t, tools.LogsViewAction{
-		LogsViewInput: tools.LogsViewInput{
+		LogsScopeInput: tools.LogsScopeInput{
 			Sources: []tools.LogsViewSource{{Namespace: "prod", Kind: tools.LogsSourceDeployment, Name: "webapp", Containers: []string{}}},
 			Filters: []tools.LogsViewFilter{},
 		},

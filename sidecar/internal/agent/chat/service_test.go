@@ -36,6 +36,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -2862,7 +2863,8 @@ func readWebapp() tools.LogsReadAction {
 	at := time.Date(2026, 10, 17, 9, 14, 0, 0, time.UTC)
 	around := tailWebapp()
 	around.Anchor, around.PinToEnd = tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: &at}, false
-	return tools.LogsReadAction{LogsViewInput: around.LogsViewInput, Mode: tools.LogsReadHead, Lines: []tools.LogsReadLine{}, ViewAround: &around}
+	first := logs.PageFromFirst
+	return tools.LogsReadAction{LogsScopeInput: around.LogsScopeInput, PageFrom: &first, Lines: []tools.LogsReadLine{}, ViewAround: &around}
 }
 
 // seedSubagentCall files a LogsRead call showing shown in a subagent of a settled
@@ -2938,7 +2940,7 @@ func TestASendCarriesAWatchsViewAround(t *testing.T) {
 	s := serviceWithClusterCards(t, &stubClusterCards{card: "card"})
 	first := sendAndSettle(t, s, nil, "1", "1", "why did it panic?")
 	around := readWebapp().ViewAround
-	watch := &tools.Action{LogsWatch: &tools.LogsWatchAction{LogsViewInput: around.LogsViewInput, Limit: 1}}
+	watch := &tools.Action{LogsWatch: &tools.LogsWatchAction{LogsScopeInput: around.LogsScopeInput, Limit: 1}}
 	matched := seedViewCall(t, s.db, first.ChatID, "toolu_watch", watch)
 	seedWatchTask(t, s.db, first.ChatID, matched, taskMatched, &tools.WatchResult{Lines: []tools.LogsReadLine{}, ViewAround: around})
 

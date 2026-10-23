@@ -115,7 +115,7 @@ whose SDK it imports.
 
 **LogsView is a live view of logs the user looks at, opened by the model's call.** It is `Custom` and `Shown`, never `Gated`, and reads no log line: it checks the call
 against the mirror, hands back a `LogsViewAction` the row keeps, and answers a one-line receipt
-through `safe.Redact`. The action embeds `LogsViewInput` (`services/logs`' `View`, aliased in
+through `safe.Redact`. The action embeds `LogsScopeInput` (`services/logs`' `Scope`, aliased in
 `tools`) plus an `Anchor`, `PinToEnd` and `ResolvedAt`, the moment it resolved on the tool's clock, which a frozen card reads up to; the enums bind member by member in `gqlgen.yml`.
 It reads its own `anchor` and `pin_to_end` as `logsinput.Parse`'s `Fields`, then resolves the
 view with `logsinput.Resolve`. **A source the mirror does not hold yet opens**: a view waits for it.

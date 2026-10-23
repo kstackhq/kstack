@@ -78,7 +78,7 @@ func Resolve(ctx context.Context, svc cluster.Service, now time.Time, clusterID 
 // as the logs service resolves it, so a view the tool opens is one it reads. It
 // builds the view afresh, since ReadActive may run it twice.
 func resolveIn(q cluster.CacheReading, in Input) (tools.LogsViewAction, []Note, error) {
-	view := tools.LogsViewAction{LogsViewInput: tools.LogsViewInput{Sources: []tools.LogsViewSource{}, Filters: in.Filters, Grep: in.Grep}}
+	view := tools.LogsViewAction{LogsScopeInput: tools.LogsScopeInput{Sources: []tools.LogsViewSource{}, Filters: in.Filters, Grep: in.Grep}}
 	if view.Filters == nil {
 		view.Filters = []tools.LogsViewFilter{}
 	}
@@ -91,7 +91,7 @@ func resolveIn(q cluster.CacheReading, in Input) (tools.LogsViewAction, []Note, 
 		view.Sources = append(view.Sources, src)
 		notes = append(notes, n)
 	}
-	states, err := logs.Check(q, view.LogsViewInput)
+	states, err := logs.Check(q, view.LogsScopeInput)
 	if err != nil {
 		return tools.LogsViewAction{}, nil, refusedBy(err)
 	}
