@@ -35,7 +35,7 @@ packages each have a `CLAUDE.md` of their own, loaded when you work in them:
 | Guide | Covers |
 | --- | --- |
 | `internal/services/cluster/CLAUDE.md` | clusters, caches, kinds, cached data; the private leaves `kubeconn`, `kubesync`, `kubestore`; streams and watches |
-| `internal/services/logs/CLAUDE.md` | the log cache (`logstore`), pages, follows, tailers |
+| `internal/services/logs/CLAUDE.md` | the log cache (`logstore`), the line vocabulary (`logline`), refusals (`refusal`), the kubelet reader (`kubelet`), pages, follows, tailers |
 | `internal/services/settings/CLAUDE.md` | `settings.json`, `jsonsettings`, the frozen `PATH`, folder grants, executables |
 | `internal/llm/CLAUDE.md` | dialects, providers, the record's blocks, the wires, the fake |
 | `internal/run/CLAUDE.md` | the login shell, the session, the sandbox, permissions, the cluster proxy |

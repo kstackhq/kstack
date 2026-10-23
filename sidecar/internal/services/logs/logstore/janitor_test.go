@@ -40,7 +40,7 @@ func sweepRetention() Retention {
 // stamped at stamp (0 for none) and open or not, and answers its id.
 func put(t *testing.T, s *Store, id, from, bytes, stamp int64, open bool) int64 {
 	t.Helper()
-	c := insertChunk(t, s, id, Chunk{From: at(from, 0), To: at(from, 0), Origin: "kubelet", Open: open, Bytes: bytes, ReadAt: stamp})
+	c := insertChunk(t, s, id, Chunk{From: at(from, 0), To: at(from, 0), Backend: "kubelet", Open: open, Bytes: bytes, ReadAt: stamp})
 	using(t, s, func(f *file) { insertLine(t, f, id, second(from), 0) })
 	return c.ID
 }
@@ -108,7 +108,7 @@ func TestASweepKeepsAnIslandForReadTTL(t *testing.T) {
 	ret.Bytes = 1
 	s := newClockedStore(t, ret, c)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(5, 0), at(6, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(5, 0), at(6, 0))})
 
 	sweep(t, s)
 	assert.Len(t, idsIn(t, s, "chunks"), 1, "within ReadTTL")
@@ -246,7 +246,7 @@ func TestASweepVacuumsOnlyWithAFreelist(t *testing.T) {
 	for i := range big {
 		big[i] = Line{Pos: at(int64(i+1), 0), Message: strings.Repeat("x", 8<<10)}
 	}
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: big})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: big})
 
 	assert.False(t, sweep(t, s).Vacuumed, "nothing freed while the page's stamp protects every chunk")
 
@@ -271,7 +271,7 @@ func TestTheJanitorSweepsAfterSweepBytes(t *testing.T) {
 	s := open(t, m, 1)
 	id := streamOf(t, s)
 
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0))})
 	select {
 	case r := <-reports:
 		t.Fatalf("a sweep under SweepBytes: %+v", r)
@@ -279,7 +279,7 @@ func TestTheJanitorSweepsAfterSweepBytes(t *testing.T) {
 	}
 	c.set(200_000)
 	big := Line{Pos: at(9, 0), Message: strings.Repeat("x", 400)}
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: []Line{big}})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: []Line{big}})
 
 	r := testutil.Recv(t, reports, "the sweep SweepBytes owes")
 	assert.Equal(t, 1, r.Evicted, "the chunk read before the cutoff")
@@ -379,7 +379,7 @@ func TestASweepTruncatesAnOutweighingLog(t *testing.T) {
 	for i := range big {
 		big[i] = Line{Pos: at(int64(i+1), 0), Message: strings.Repeat("x", 8<<10)}
 	}
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: big})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: big})
 	var path string
 	using(t, s, func(f *file) { path = f.path })
 	require.Greater(t, fileSize(path+"-wal"), fileSize(path), "the fixture's log outweighs its file")
@@ -405,12 +405,12 @@ func TestTheJanitorLogsASweepThatFails(t *testing.T) {
 	podStream(t, s, "gone", "uid-gone")
 
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0))})
 	require.Eventually(t, func() bool { return strings.Contains(logs.String(), "a sweep failed") },
 		testutil.Timeout, time.Millisecond, "the failed sweep's log line")
 
 	m.SetPodsGone(nil)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(2, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(2, 0))})
 	testutil.Recv(t, reports, "the next sweep")
 }
 

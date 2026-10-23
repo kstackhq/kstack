@@ -36,6 +36,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustercard"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -3334,7 +3335,7 @@ func TestLogsFollowStreamsUntilItEnds(t *testing.T) {
 	checkpoint := "2026-10-08T10:00:00Z"
 	release := make(chan struct{})
 	fake := &fakeLogs{stream: cluster.NewStream(t.Context(), func(ctx context.Context, out chan<- logs.FollowFrame) error {
-		out <- logs.FollowFrame{Type: logs.FollowLine, Record: &logs.Record{Timestamp: stamp, Message: "hello", Stream: logs.StreamKey{Pod: "web-1", Container: "app"}}}
+		out <- logs.FollowFrame{Type: logs.FollowLine, Record: &logline.Record{Timestamp: stamp, Message: "hello", Stream: logline.StreamKey{Pod: "web-1", Container: "app"}}}
 		out <- logs.FollowFrame{Type: logs.FollowCheckpoint, Cursor: &checkpoint}
 		<-release
 		out <- logs.FollowFrame{Type: logs.FollowEnded, Reason: "every container of this view has stopped"}

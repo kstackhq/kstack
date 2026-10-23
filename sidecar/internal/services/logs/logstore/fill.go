@@ -33,10 +33,10 @@ type Line struct {
 // around them.
 type Fill struct {
 	Stream int64
-	// Pattern is the grep the backend read under, "" for every line, and Origin the
+	// Pattern is the grep the backend read under, "" for every line, and Backend the
 	// backend, by name.
 	Pattern string
-	Origin  string
+	Backend string
 	Lines   []Line
 	// Prev is the last line of the chunk the gap starts at, when the read began there:
 	// the backend holds nothing between it and the first line, so the first chunk
@@ -48,11 +48,11 @@ type Fill struct {
 	// line up to it: that chunk then continues from the last line, or from Prev when the
 	// read returned none.
 	Next *Pos
-	// Head is the read reaching the backend's oldest line, which marks the oldest chunk
+	// AtBeginning is the read reaching the backend's oldest line, which marks the oldest chunk
 	// it wrote, or Next's with none. AtEnd is it reaching a finished instance's last
 	// line, which marks the newest chunk it wrote, or Prev's with none.
-	Head  bool
-	AtEnd bool
+	AtBeginning bool
+	AtEnd       bool
 }
 
 // Written is what a Write did: the chunks it wrote or extended, and the streams
@@ -181,13 +181,13 @@ func writeFill(ctx context.Context, st stmts, ret Retention, f Fill) ([]int64, e
 		}
 		last = &f.Lines[len(f.Lines)-1].Pos
 	} else {
-		if f.Head && f.Next != nil {
-			if _, err := st.Exec(ctx, stmtMarkHead, f.Stream, f.Pattern, f.Origin, f.Next.TS, f.Next.Ord); err != nil {
+		if f.AtBeginning && f.Next != nil {
+			if _, err := st.Exec(ctx, stmtMarkAtBeginning, f.Stream, f.Pattern, f.Backend, f.Next.TS, f.Next.Ord); err != nil {
 				return nil, err
 			}
 		}
 		if f.AtEnd && f.Prev != nil {
-			if _, err := st.Exec(ctx, stmtMarkAtEnd, f.Stream, f.Pattern, f.Origin, f.Prev.TS, f.Prev.Ord); err != nil {
+			if _, err := st.Exec(ctx, stmtMarkAtEnd, f.Stream, f.Pattern, f.Backend, f.Prev.TS, f.Prev.Ord); err != nil {
 				return nil, err
 			}
 		}
@@ -213,12 +213,12 @@ func insertLines(ctx context.Context, st stmts, stream int64, lines []Line) erro
 // to the one before it: the first continuing from Prev, and extending the chunk that ends
 // there when f merges and that chunk has room.
 func chunksFor(ctx context.Context, st stmts, ret Retention, f Fill) ([]Chunk, error) {
-	cur, fresh, err := startChunk(ctx, st, ret, f.Stream, f.Pattern, f.Origin, f.Prev, f.Merge, f.Lines[0])
+	cur, fresh, err := startChunk(ctx, st, ret, f.Stream, f.Pattern, f.Backend, f.Prev, f.Merge, f.Lines[0])
 	if err != nil {
 		return nil, err
 	}
 	if fresh {
-		cur.Head = f.Head
+		cur.AtBeginning = f.AtBeginning
 	}
 	out := cutChunks(ret, cur, fresh, f.Lines)
 	out[len(out)-1].AtEnd = f.AtEnd
@@ -226,16 +226,16 @@ func chunksFor(ctx context.Context, st stmts, ret Retention, f Fill) ([]Chunk, e
 }
 
 // startChunk is the chunk a run of lines from first goes in: the closed chunk of
-// pattern and origin ending at prev when the run merges and that chunk has room, else
+// pattern and backend ending at prev when the run merges and that chunk has room, else
 // a fresh one linked to prev, which fresh says.
-func startChunk(ctx context.Context, st stmts, ret Retention, stream int64, pattern, origin string, prev *Pos, merge bool, first Line) (Chunk, bool, error) {
+func startChunk(ctx context.Context, st stmts, ret Retention, stream int64, pattern, backend string, prev *Pos, merge bool, first Line) (Chunk, bool, error) {
 	if merge && prev != nil {
-		c, ok, err := chunkEndingAt(ctx, st, stream, pattern, origin, *prev)
+		c, ok, err := chunkEndingAt(ctx, st, stream, pattern, backend, *prev)
 		if err != nil || ok && !full(ret, c, first.TS) {
 			return c, false, err
 		}
 	}
-	return Chunk{Pattern: pattern, Origin: origin, From: first.Pos, Prev: prev}, true, nil
+	return Chunk{Pattern: pattern, Backend: backend, From: first.Pos, Prev: prev}, true, nil
 }
 
 // cutChunks is lines added to cur, fresh when it holds none yet, cut at ret's
@@ -247,7 +247,7 @@ func cutChunks(ret Retention, cur Chunk, fresh bool, lines []Line) []Chunk {
 		if !fresh && full(ret, cur, l.TS) {
 			out = append(out, cur)
 			prev := cur.To
-			cur = Chunk{Pattern: cur.Pattern, Origin: cur.Origin, From: l.Pos, Prev: &prev}
+			cur = Chunk{Pattern: cur.Pattern, Backend: cur.Backend, From: l.Pos, Prev: &prev}
 		}
 		// A line at or before the end is one the row already holds, a fill's that
 		// merged into it; one past the end moves it off the instance's last line.
@@ -266,10 +266,10 @@ func full(ret Retention, c Chunk, ts int64) bool {
 	return c.Bytes >= ret.ChunkBytes || ts-c.From.TS >= int64(ret.ChunkSpan)
 }
 
-// chunkEndingAt is the stream's closed chunk of pattern and origin whose last line is
+// chunkEndingAt is the stream's closed chunk of pattern and backend whose last line is
 // at, false with none.
-func chunkEndingAt(ctx context.Context, st stmts, stream int64, pattern, origin string, at Pos) (Chunk, bool, error) {
-	chunks, err := queryChunks(ctx, st, stmtSelectChunkEndingAt, stream, pattern, origin, at.TS, at.Ord)
+func chunkEndingAt(ctx context.Context, st stmts, stream int64, pattern, backend string, at Pos) (Chunk, bool, error) {
+	chunks, err := queryChunks(ctx, st, stmtSelectChunkEndingAt, stream, pattern, backend, at.TS, at.Ord)
 	if err != nil || len(chunks) == 0 {
 		return Chunk{}, false, err
 	}
@@ -285,7 +285,7 @@ func putChunk(ctx context.Context, st stmts, stream int64, c Chunk) (Chunk, erro
 		prevNS, prevOrd = c.Prev.TS, c.Prev.Ord
 	}
 	err := st.QueryRow(ctx, stmtInsertChunk, stream, c.Pattern, c.From.TS, c.From.Ord, c.To.TS, c.To.Ord,
-		prevNS, prevOrd, c.Origin, c.Head, c.AtEnd, c.Open, c.Bytes).
+		prevNS, prevOrd, c.Backend, c.AtBeginning, c.AtEnd, c.Open, c.Bytes).
 		Scan(&c.ID, &c.To.TS, &c.To.Ord, &c.AtEnd, &c.Open, &c.Bytes)
 	return c, err
 }

@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/fencejson"
-	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -73,7 +73,7 @@ func (s Snapshot) check() error {
 		return ErrBadRequest
 	}
 	for _, l := range s.Selected {
-		if len(l.Message) > logs.MaxLine {
+		if len(l.Message) > logline.MaxLine {
 			return ErrBadRequest
 		}
 	}
@@ -82,7 +82,7 @@ func (s Snapshot) check() error {
 
 // withView is card with the View section appended: toolUseID, the id the model's
 // own tool_use block carries; the call's stored action; and what snap says was on
-// screen. Every message reaches the model through logs.ForModel. Selected lines
+// screen. Every message reaches the model through logline.ForModel. Selected lines
 // go in order while the section stays under viewBudget; the rest are counted.
 // Without them the section is under it by its shares: the call, the view and
 // the shown span.
@@ -166,7 +166,7 @@ func selectedFields(l SelectedLine) map[string]any {
 	line := map[string]any{
 		"at":      stamp(l.Timestamp),
 		"stream":  l.Namespace + "/" + l.Pod + "/" + l.Container,
-		"message": cutTo(logs.ForModel(l.Message), maxViewMessage),
+		"message": cutTo(logline.ForModel(l.Message), maxViewMessage),
 	}
 	if l.Previous {
 		line["previous"] = true

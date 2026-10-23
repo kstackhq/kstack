@@ -33,6 +33,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 )
 
 const (
@@ -416,7 +417,7 @@ type (
 	LogsSourceKind  = logs.SourceKind
 	LogsViewFilter  = logs.ScopeFilter
 	LogsFilterField = logs.FilterField
-	LogsGap         = logs.Gap
+	LogsGap         = logline.Gap
 )
 
 const (

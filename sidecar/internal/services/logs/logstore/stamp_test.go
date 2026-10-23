@@ -61,7 +61,7 @@ func TestAStampTheFileRefusesFails(t *testing.T) {
 	c := newClock(1_000)
 	s := newClockedStore(t, testRetention, c)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0))})
 	c.set(1_000 + testRetention.ReadTTL.Milliseconds())
 	chunks, err := s.Chunks(t.Context(), id, "")
 	require.NoError(t, err)

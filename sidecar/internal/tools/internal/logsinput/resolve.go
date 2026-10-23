@@ -22,6 +22,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -36,7 +37,7 @@ const (
 // concerns (-1 for the whole view), and for a container it does not have, the
 // ones it does.
 type Refused struct {
-	Code       logs.Code
+	Code       refusal.Code
 	Source     int
 	Containers []string
 }
@@ -110,12 +111,12 @@ func resolveIn(q cluster.CacheReading, in Input) (tools.LogsViewAction, []Note, 
 // refusedBy is the logs service's refusal of a view as the model reads it, with
 // the refusal's own code.
 func refusedBy(err error) error {
-	refusal, ok := logs.AsRefusal(err)
+	r, ok := refusal.As(err)
 	if !ok {
 		return err
 	}
-	out := &Refused{Code: refusal.Code, Source: -1}
-	var unmirrored logs.Unmirrored
+	out := &Refused{Code: r.Code, Source: -1}
+	var unmirrored refusal.Unmirrored
 	if errors.As(err, &unmirrored) {
 		out.Source = unmirrored.Source
 	}
@@ -138,7 +139,7 @@ func resolveSource(q cluster.CacheReading, i int, s Source) (tools.LogsViewSourc
 	case len(s.Containers) > 0:
 		for _, c := range s.Containers {
 			if f.uid != "" && !slices.Contains(f.names, c) {
-				return tools.LogsViewSource{}, Note{}, &Refused{Code: logs.CodeNoContainer, Source: i, Containers: f.names}
+				return tools.LogsViewSource{}, Note{}, &Refused{Code: refusal.CodeNoContainer, Source: i, Containers: f.names}
 			}
 		}
 		src.Containers = s.Containers

@@ -132,7 +132,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   is cluster text, and one line of many megabytes must not grow a buffer, a row or a page. Three
   pieces, in order:
   - **The kubelet fetcher should stop reading a long line, not skip past it.** `readLine`
-    (`fetcher.go`) keeps 64 KiB of a line and reads the rest of it off the wire to find its end,
+    (`kubelet/read.go`) keeps 64 KiB of a line and reads the rest of it off the wire to find its end,
     so an attacker's line still costs its whole length in download. Stop at the cap, close the
     read, and step forward to the next timestamp instead.
   - **Record that a line was cut, as a boolean.** A `lines` column the writer sets when the cap
@@ -642,7 +642,7 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
   kubetail offer sit next to the reason.
 - **The log viewer has no download, ANSI colours or timezone setting.** Colours mean drawing escape sequences the sidecar now strips, so they need a security decision first.
 - **The log file's budget has no setting.** Each cluster cache's log file holds up to 1 GiB (`logstore.DefaultRetention.Bytes`), with SQLite's index and WAL on top, so a user with several clusters can use several GiB of disk. **Trigger:** a user asking to keep less. **Shape:** a setting read where `logs.New` takes its `Retention`.
-- **The log viewer draws no notice at a stream's start when the kubelet rotated the start away.** A hole between two known lines is exact: the kubelet returns the line before the hole when it still has it, and a later first line when it does not (→ [ADR: a head read never links](adr/2026-10-17-a-head-read-never-links.md)). The start of a stream has no line before it, so a quiet start and a rotated one look the same. A guess from `started_at` ("the container started well before its oldest line") would mark nearly every log, since most containers boot for seconds to minutes before their first line. **Shape:** a stronger signal than time alone, such as the stream's bytes read from its head being near the kubelet's rotation size, or an archive backend that answers the question properly. **Trigger:** a user reading a busy container's rotated start as its real start.
+- **The log viewer draws no notice at a stream's start when the kubelet rotated the start away.** A hole between two known lines is exact: the kubelet returns the line before the hole when it still has it, and a later first line when it does not (→ [ADR: a head read never links](adr/2026-10-17-a-head-read-never-links.md)). The start of a stream has no line before it, so a quiet start and a rotated one look the same. A guess from `started_at` ("the container started well before its oldest line") would mark nearly every log, since most containers boot for seconds to minutes before their first line. **Shape:** a stronger signal than time alone, such as the stream's bytes read from its beginning being near the kubelet's rotation size, or an archive backend that answers the question properly. **Trigger:** a user reading a busy container's rotated start as its real start.
 
 - **The omnibox's TLS badge misses a schemeless server.** `tlsUnverifiedReason` (`src/lib/kube-config.tsx`)
   reads the entry's `server` for an `http://` prefix, but client-go defaults a schemeless server

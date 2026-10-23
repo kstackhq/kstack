@@ -24,7 +24,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -136,7 +136,7 @@ func Parse(raw json.RawMessage, own Fields) (Input, error) {
 	if len(in.Sources) == 0 {
 		return Input{}, BadInput("sources", "")
 	}
-	if len(in.Grep) > logs.MaxGrep || strings.ContainsAny(in.Grep, "\r\n") {
+	if len(in.Grep) > logline.MaxGrep || strings.ContainsAny(in.Grep, "\r\n") {
 		return Input{}, BadInput("grep", "")
 	}
 	if _, err := regexp.Compile(in.Grep); err != nil {

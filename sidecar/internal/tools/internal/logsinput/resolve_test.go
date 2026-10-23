@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
 )
 
 // Every refusal of the service reaches the model with the code it carries, and an
@@ -31,11 +32,11 @@ func TestARefusalKeepsItsCode(t *testing.T) {
 		err  error
 		want *Refused
 	}{
-		{logs.ErrTooMany, &Refused{Code: logs.CodeTooMany, Source: -1}},
-		{logs.Refusal{Code: logs.CodeTooMany, Reason: "the cache answered more than Kstack reads"}, &Refused{Code: logs.CodeTooMany, Source: -1}},
-		{logs.Refusal{Code: logs.CodeBadScope, Reason: "bad kind"}, &Refused{Code: logs.CodeBadScope, Source: -1}},
-		{logs.Unmirrored{Refusal: logs.Refusal{Code: logs.CodeNotMirrored, Reason: "no jobs"}, Source: 2}, &Refused{Code: logs.CodeNotMirrored, Source: 2}},
-		{logs.NoNodes{Refusal: logs.Refusal{Code: logs.CodeNoNodes, Reason: "no nodes"}}, &Refused{Code: logs.CodeNoNodes, Source: -1}},
+		{logs.ErrTooMany, &Refused{Code: refusal.CodeTooMany, Source: -1}},
+		{refusal.Refusal{Code: refusal.CodeTooMany, Reason: "the cache answered more than Kstack reads"}, &Refused{Code: refusal.CodeTooMany, Source: -1}},
+		{refusal.Refusal{Code: refusal.CodeBadScope, Reason: "bad kind"}, &Refused{Code: refusal.CodeBadScope, Source: -1}},
+		{refusal.Unmirrored{Refusal: refusal.Refusal{Code: refusal.CodeNotMirrored, Reason: "no jobs"}, Source: 2}, &Refused{Code: refusal.CodeNotMirrored, Source: 2}},
+		{refusal.NoNodes{Refusal: refusal.Refusal{Code: refusal.CodeNoNodes, Reason: "no nodes"}}, &Refused{Code: refusal.CodeNoNodes, Source: -1}},
 	} {
 		assert.Equal(t, tc.want, refusedBy(tc.err), tc.err.Error())
 	}

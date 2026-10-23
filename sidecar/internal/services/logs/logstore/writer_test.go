@@ -64,9 +64,9 @@ func subscribe(t *testing.T, s *Store, ids ...int64) <-chan pingEvent {
 }
 
 // openTail opens a tail of the stream id continuing prev, failing the test on an error.
-func openTail(t *testing.T, s *Store, id int64, prev *Pos, head bool) *Tail {
+func openTail(t *testing.T, s *Store, id int64, prev *Pos, atBeginning bool) *Tail {
 	t.Helper()
-	tail, err := s.OpenTail(id, "kubelet", prev, head)
+	tail, err := s.OpenTail(id, "kubelet", prev, atBeginning)
 	require.NoError(t, err)
 	return tail
 }
@@ -84,7 +84,7 @@ func TestATailStampsNothing(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0))})
 	before := stamps(t, s, id)[0]
 	require.NotNil(t, before)
 
@@ -208,21 +208,21 @@ func TestATailOfAClosedFileIsRefused(t *testing.T) {
 	assert.ErrorIs(t, err, ErrClosed)
 }
 
-// A tail resumed at a chunk's last line extends that chunk. A head tail, whose read
-// found that line rotated away, opens a head chunk linked to nothing.
+// A tail resumed at a chunk's last line extends that chunk. A tail whose read found
+// that line rotated away opens an at-beginning chunk linked to nothing.
 func TestATailResumesTheChunkItContinues(t *testing.T) {
 	t.Parallel()
 	s, _ := newWriterStore(t, testRetention)
 	a, b := twoStreams(t, s)
 	for _, id := range []int64{a, b} {
-		write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0))})
+		write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0))})
 	}
 
 	require.NoError(t, openTail(t, s, a, ptr(at(2, 0)), false).Close(t.Context(), lines(at(2, 1))))
 	require.NoError(t, openTail(t, s, b, nil, true).Close(t.Context(), lines(at(3, 0))))
 
 	assert.Equal(t, []Chunk{chunk(at(1, 0), at(2, 1))}, chunksOfStream(t, s, a))
-	assert.Equal(t, []Chunk{chunk(at(1, 0), at(2, 0)), head(chunk(at(3, 0), at(3, 0)))}, chunksOfStream(t, s, b))
+	assert.Equal(t, []Chunk{chunk(at(1, 0), at(2, 0)), atBeginning(chunk(at(3, 0), at(3, 0)))}, chunksOfStream(t, s, b))
 }
 
 // A batch written to a stream past its finished_at, the next instance's lines under a
@@ -276,7 +276,7 @@ func TestATailTakesOverAFillsChunkAtItsFirstLine(t *testing.T) {
 	t.Parallel()
 	s, tick := newWriterStore(t, testRetention)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0), at(3, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0), at(3, 0))})
 	pings := subscribe(t, s, id)
 
 	tail := openTail(t, s, id, nil, false)
@@ -306,7 +306,7 @@ func TestATailKeepsAFillsLaterEndOnItsRow(t *testing.T) {
 	fire(t, tick)
 	testutil.Recv(t, pings, "the first batch's ping")
 
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0), at(3, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0), at(3, 0))})
 	testutil.Recv(t, pings, "the fill's ping")
 	require.NoError(t, tail.Write(t.Context(), lines(at(2, 0))))
 	fire(t, tick)

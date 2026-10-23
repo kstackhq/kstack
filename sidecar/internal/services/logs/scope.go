@@ -18,6 +18,8 @@
 // before anything leaves it.
 package logs
 
+import "slices"
+
 // Scope is what a read covers: the Sources whose lines are merged by timestamp, in
 // the order asked; the Filters on those lines, none keeping every line; and the
 // Grep, a regular expression each line's message must match, empty for none. The
@@ -97,4 +99,41 @@ var mirrorKinds = map[SourceKind]mirrorKind{
 func MirrorKind(kind SourceKind) (apiVersion, k string) {
 	m := mirrorKinds[kind]
 	return m.apiVersion, m.kind
+}
+
+// namespaces is each namespace v's sources read, once: what a follow's pods watch
+// is narrowed to.
+func (v Scope) namespaces() []string {
+	var out []string
+	for _, src := range v.Sources {
+		if !slices.Contains(out, src.Namespace) {
+			out = append(out, src.Namespace)
+		}
+	}
+	return out
+}
+
+// controls is the kind a workload kind's controller makes, which podsOf walks
+// through to its pods.
+var controls = map[SourceKind]SourceKind{SourceDeployment: SourceReplicaSet, SourceCronJob: SourceJob}
+
+// workloadKinds is each kind v's workload sources walk through to their pods,
+// once: a source's own, and the kind it controls.
+func (v Scope) workloadKinds() []mirrorKind {
+	var out []mirrorKind
+	add := func(kind SourceKind) {
+		if m := mirrorKinds[kind]; !slices.Contains(out, m) {
+			out = append(out, m)
+		}
+	}
+	for _, src := range v.Sources {
+		if src.Kind == SourcePod {
+			continue
+		}
+		add(src.Kind)
+		if child, ok := controls[src.Kind]; ok {
+			add(child)
+		}
+	}
+	return out
 }

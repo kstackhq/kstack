@@ -52,25 +52,25 @@ func (p Pos) Prev() Pos {
 	return Pos{p.TS, p.Ord - 1}
 }
 
-// Chunk is one chunks row: every line its Origin backend served for the stream
+// Chunk is one chunks row: every line its Backend served for the stream
 // from From to To that matches Pattern is in the file. Prev is the position it
 // continues from, the last line of the chunk before it with nothing between, nil
-// when it opened on a gap. Head is the backend holding nothing older than From,
+// when it opened on a gap. AtBeginning is the backend holding nothing older than From,
 // AtEnd To being a finished instance's last line, and Open a tailer still writing
 // into it. ReadAt is when a page last read it or a fill wrote it, in unix
 // milliseconds, 0 when neither has.
 type Chunk struct {
-	ID      int64
-	Pattern string
-	From    Pos
-	To      Pos
-	Prev    *Pos
-	Origin  string
-	Head    bool
-	AtEnd   bool
-	Open    bool
-	Bytes   int64
-	ReadAt  int64
+	ID          int64
+	Pattern     string
+	From        Pos
+	To          Pos
+	Prev        *Pos
+	Backend     string
+	AtBeginning bool
+	AtEnd       bool
+	Open        bool
+	Bytes       int64
+	ReadAt      int64
 }
 
 // Span is a run of chunks with nothing between them: each overlaps the run or
@@ -80,8 +80,8 @@ type Span struct{ From, To Pos }
 // Gap is a range of a stream no span covers, between After and Before, both
 // exclusive: After nil for the range older than every span, Before nil for the
 // range newer. Tier is the first of the cluster's backends that may hold it, by
-// index, and the gap is Lost when none can: older than a head chunk of the last
-// backend, past an at_end chunk, or in a stream no backend serves. Tailed is a gap
+// index, and the gap is Lost when none can: older than an at-beginning chunk of the
+// last backend, past an at_end chunk, or in a stream no backend serves. Tailed is a gap
 // past the start of the tailer running on the stream, to be crossed and never filled:
 // the tailer reads on from its start, and writes its first chunk only on its first
 // commit. Tail is that start on the gap that ends at it, whose Before is then the
@@ -174,11 +174,11 @@ func joins(s Span, c Chunk) bool {
 }
 
 // tierOf is the first backend that may hold lines older than before: a backend with
-// a head chunk starting at or after it holds none.
+// an at-beginning chunk starting at or after it holds none.
 func tierOf(chunks []Chunk, backends []string, before Pos) int {
 	for i, name := range backends {
 		if !slices.ContainsFunc(chunks, func(c Chunk) bool {
-			return c.Head && c.Origin == name && c.From.Compare(before) >= 0
+			return c.AtBeginning && c.Backend == name && c.From.Compare(before) >= 0
 		}) {
 			return i
 		}
@@ -228,7 +228,7 @@ func queryChunks(ctx context.Context, st stmts, stmt stmtID, args ...any) ([]Chu
 		var c Chunk
 		var prevNS, prevOrd sql.NullInt64
 		if err := rows.Scan(&c.ID, &c.Pattern, &c.From.TS, &c.From.Ord, &c.To.TS, &c.To.Ord, &prevNS, &prevOrd,
-			&c.Origin, &c.Head, &c.AtEnd, &c.Open, &c.Bytes, &c.ReadAt); err != nil {
+			&c.Backend, &c.AtBeginning, &c.AtEnd, &c.Open, &c.Bytes, &c.ReadAt); err != nil {
 			return nil, err
 		}
 		if prevNS.Valid {

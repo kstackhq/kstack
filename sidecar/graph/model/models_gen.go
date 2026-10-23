@@ -13,7 +13,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
-	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 )
@@ -34,7 +34,7 @@ type ClusterPermissions struct {
 
 // A page of a view's lines, oldest first in position order, whatever the mode.
 type LogRecordsPage struct {
-	Records []*logs.Record      `json:"records"`
+	Records []*logline.Record   `json:"records"`
 	Before  *LogRecordsPageEdge `json:"before"`
 	After   *LogRecordsPageEdge `json:"after"`
 	// For `Around`: the index of the first record at or after `at`, `records.length` with none. Null for the other modes.

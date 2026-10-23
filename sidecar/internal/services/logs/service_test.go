@@ -15,12 +15,13 @@
 package logs
 
 import (
+	"errors"
 	"testing"
 
+	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 )
 
 // A cache the cluster service removed has no log file to answer from, ever again.
@@ -40,4 +41,65 @@ func TestAPagesWalksReadSixtyFourMiB(t *testing.T) {
 	svc, _ := serviceOver(t, webMirror(t), newLogServer())
 
 	assert.Equal(t, int64(64<<20), svc.walkBudget)
+}
+
+// A pod is gone when the cache's own mirror, read active and trusted, lacks it.
+// Anything less sure — another cache active, one still syncing, one that holds no
+// pods, a cache the service no longer knows — answers nothing gone, since a stream
+// removed is gone for good.
+func TestPodsGoneAsksTheCachesMirror(t *testing.T) {
+	t.Parallel()
+	uids := []string{"uid-web-1", "uid-gone"}
+	for name, tc := range map[string]struct {
+		change  func(f *fakeService)
+		cache   int64
+		want    []string
+		wantErr string
+	}{
+		"the active cache":     {want: []string{"uid-gone"}},
+		"a cache not active":   {cache: 99},
+		"a cache that is gone": {cache: goneCache},
+		"a cache that syncs":   {change: func(f *fakeService) { f.health = cluster.ClusterCacheHealth{Reason: "Connecting"} }},
+		"a cache with no pods": {change: func(f *fakeService) { f.store = newMirror(t).store }},
+		"a cache it cannot read": {
+			change:  func(f *fakeService) { f.healthErr = errors.New("unreadable") },
+			wantErr: "unreadable",
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			svc, f := serviceOver(t, webMirror(t), newLogServer())
+			if tc.change != nil {
+				tc.change(f)
+			}
+			cache := int64(f.active.Cache.ID)
+			if tc.cache != 0 {
+				cache = tc.cache
+			}
+
+			gone, err := svc.podsGone(t.Context(), cache, uids)
+
+			if tc.wantErr != "" {
+				assert.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, gone)
+		})
+	}
+}
+
+// The service tells its log files which pods are gone, so a sweep removes a gone pod's
+// streams that hold nothing, and leaves a live pod's.
+func TestASweepRemovesTheStreamsOfGonePods(t *testing.T) {
+	t.Parallel()
+	svc, f := serviceOver(t, webMirror(t), newLogServer())
+	gone := rowOf("web-9", "app")
+	seed(t, svc, f, gone)
+	seed(t, svc, f, rowOf("web-1", "app"))
+
+	sweepFile(t, svc, f)
+
+	assert.Empty(t, rowsOf(t, svc, f, "web-9"))
+	assert.Len(t, rowsOf(t, svc, f, "web-1"), 1)
 }

@@ -24,7 +24,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/fencejson"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
-	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -47,7 +47,7 @@ func TestSnapshotCheckRefusesWhatTheWebviewNeverBuilds(t *testing.T) {
 	for name, snap := range map[string]Snapshot{
 		"more than fifty lines": {CallID: "c", Selected: fiftyOne, SelectedCount: 51},
 		"count under length":    {CallID: "c", Selected: []SelectedLine{aLine(0, "a"), aLine(1, "b")}, SelectedCount: 1},
-		"a message past a line": {CallID: "c", Selected: []SelectedLine{aLine(0, strings.Repeat("x", logs.MaxLine+1))}, SelectedCount: 1},
+		"a message past a line": {CallID: "c", Selected: []SelectedLine{aLine(0, strings.Repeat("x", logline.MaxLine+1))}, SelectedCount: 1},
 		"negative lines":        {CallID: "c", Lines: -1},
 		"negative count":        {CallID: "c", SelectedCount: -1},
 		"from alone":            {CallID: "c", From: &at},
@@ -58,7 +58,7 @@ func TestSnapshotCheckRefusesWhatTheWebviewNeverBuilds(t *testing.T) {
 
 	ok := Snapshot{
 		CallID: "c", From: &at, To: &at, Lines: 3,
-		Selected: []SelectedLine{aLine(0, strings.Repeat("x", logs.MaxLine))}, SelectedCount: 80,
+		Selected: []SelectedLine{aLine(0, strings.Repeat("x", logline.MaxLine))}, SelectedCount: 80,
 	}
 	assert.NoError(t, ok.check())
 }

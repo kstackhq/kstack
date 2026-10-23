@@ -53,11 +53,11 @@ type batch struct {
 }
 
 // tailState is where a tail's next line goes: the chunk it extends, nil until its
-// first line, and the line a first chunk continues from, or whether it opens head.
+// first line, and the line a first chunk continues from, or whether it opens at the beginning.
 type tailState struct {
-	chunk *Chunk
-	prev  *Pos
-	head  bool
+	chunk       *Chunk
+	prev        *Pos
+	atBeginning bool
 }
 
 // startWriter runs the file's writer, after waiting on after for its tick.
@@ -201,7 +201,7 @@ func writeBatches(ctx context.Context, st stmts, ret Retention, tails map[*Tail]
 	for _, b := range batches {
 		s, ok := tails[b.tail]
 		if !ok {
-			s = tailState{prev: b.tail.prev, head: b.tail.head}
+			s = tailState{prev: b.tail.prev, atBeginning: b.tail.atBeginning}
 		}
 		if b.tail.Err() != nil {
 			// A failed tail's lines are left to a fill; its last batch still closes
@@ -257,11 +257,11 @@ func writeBatch(ctx context.Context, st stmts, ret Retention, b batch, s tailSta
 		cur = *s.chunk
 	} else {
 		var err error
-		if cur, fresh, err = startChunk(ctx, st, ret, b.tail.stream, "", b.tail.origin, s.prev, true, b.lines[0]); err != nil {
+		if cur, fresh, err = startChunk(ctx, st, ret, b.tail.stream, "", b.tail.backend, s.prev, true, b.lines[0]); err != nil {
 			return s, err
 		}
 		if fresh {
-			cur.Head = s.head
+			cur.AtBeginning = s.atBeginning
 		}
 	}
 	chunks := cutChunks(ret, cur, fresh, b.lines)
@@ -298,14 +298,14 @@ func batchStreams(batches []batch) []int64 {
 type Tail struct {
 	tx *mpsc.Sender[batch]
 	// file ends when the file closes, which ends every tail with it.
-	file   context.Context
-	stream int64
-	origin string
+	file    context.Context
+	stream  int64
+	backend string
 	// prev is the last line of the chunk the tail extends, nil when it starts on a
-	// gap, and head whether its read began at the backend's oldest line, which opens a
-	// head chunk.
-	prev *Pos
-	head bool
+	// gap, and atBeginning whether its read began at the backend's oldest line, which
+	// opens an at-beginning chunk.
+	prev        *Pos
+	atBeginning bool
 	// committed is the last line of the tail's that has landed, nil before the first.
 	committed atomic.Pointer[Pos]
 	// failed is closed once a write of the tail's lines has failed, err saying why.
@@ -314,16 +314,16 @@ type Tail struct {
 	err    error
 }
 
-// OpenTail opens a tail of the stream id for the backend origin, extending the chunk
-// ending at prev, or opening a head chunk. Close it.
-func (s *Store) OpenTail(id int64, origin string, prev *Pos, head bool) (*Tail, error) {
+// OpenTail opens a tail of the stream id for backend, extending the chunk ending at
+// prev, or opening an at-beginning chunk. Close it.
+func (s *Store) OpenTail(id int64, backend string, prev *Pos, atBeginning bool) (*Tail, error) {
 	f, done, err := s.use()
 	if err != nil {
 		return nil, fmt.Errorf("open tail: %w", err)
 	}
 	defer done()
 	return &Tail{
-		tx: f.w.queue.Sender(), file: f.ctx, stream: id, origin: origin, prev: prev, head: head,
+		tx: f.w.queue.Sender(), file: f.ctx, stream: id, backend: backend, prev: prev, atBeginning: atBeginning,
 		failed: make(chan struct{}),
 	}, nil
 }

@@ -32,7 +32,7 @@ func TestEvictLeavesAChunkReadSinceItWasPicked(t *testing.T) {
 	c := newClock(5_000)
 	s := newClockedStore(t, testRetention, c)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0))})
 	chunks, err := s.Chunks(t.Context(), id, "")
 	require.NoError(t, err)
 
@@ -49,8 +49,8 @@ func TestEvictTakesAChunkAndItsLines(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0))},
-		Fill{Stream: id, Origin: "kubelet", Lines: lines(at(3, 0)), Prev: ptr(at(2, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0))},
+		Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0)), Prev: ptr(at(2, 0))})
 	chunks, err := s.Chunks(t.Context(), id, "")
 	require.NoError(t, err)
 
@@ -67,8 +67,8 @@ func TestEvictKeepsTheLinesAnotherChunkClaims(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0))},
-		Fill{Stream: id, Origin: "kubelet", Lines: lines(at(2, 0), at(3, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0))},
+		Fill{Stream: id, Backend: "kubelet", Lines: lines(at(2, 0), at(3, 0))})
 	chunks, err := s.Chunks(t.Context(), id, "")
 	require.NoError(t, err)
 
@@ -84,9 +84,9 @@ func TestEvictTakesOnlyTheLinesBetweenItsNeighbours(t *testing.T) {
 	s := newTestStore(t)
 	id := streamOf(t, s)
 	write(t, s,
-		Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0), at(3, 0), at(4, 0), at(5, 0))},
-		Fill{Stream: id, Origin: "kubelet", Lines: lines(at(0, 0), at(1, 0), at(2, 0))},
-		Fill{Stream: id, Origin: "kubelet", Lines: lines(at(4, 0), at(5, 0), at(6, 0))})
+		Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0), at(3, 0), at(4, 0), at(5, 0))},
+		Fill{Stream: id, Backend: "kubelet", Lines: lines(at(0, 0), at(1, 0), at(2, 0))},
+		Fill{Stream: id, Backend: "kubelet", Lines: lines(at(4, 0), at(5, 0), at(6, 0))})
 	chunks, err := s.Chunks(t.Context(), id, "")
 	require.NoError(t, err)
 	require.Len(t, chunks, 3)
@@ -102,10 +102,10 @@ func TestEvictTakesTheChunkAsItIsNow(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0))})
 	chunks, err := s.Chunks(t.Context(), id, "")
 	require.NoError(t, err)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(3, 0)), Prev: ptr(at(2, 0)), Merge: true})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0)), Prev: ptr(at(2, 0)), Merge: true})
 
 	require.NoError(t, s.Evict(t.Context(), chunks[0].ID, anyStamp))
 
@@ -118,7 +118,7 @@ func TestEvictingAGoneChunkDoesNothing(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0))})
 
 	require.NoError(t, s.Evict(t.Context(), 99, anyStamp))
 
@@ -130,7 +130,7 @@ func TestAnEvictionTheFileRefusesFails(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0))})
 	chunks, err := s.Chunks(t.Context(), id, "")
 	require.NoError(t, err)
 	refuse(t, s, "DELETE", "lines")

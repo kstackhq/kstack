@@ -8,6 +8,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/vektah/gqlparser/v2/gqlerror"
 )
@@ -84,13 +85,13 @@ func TestMapStreamStopsOnContextCancelDuringSend(t *testing.T) {
 // A grant the settings refuse by its shape is a validation error under the
 // folder rule, carrying the settings' own reason.
 func TestFolderErrNamesARefusedShape(t *testing.T) {
-	refusal := settings.Refusal{Field: "permissions.rules", Value: "x", Reason: "is not a rule"}
+	rule := settings.Refusal{Field: "permissions.rules", Value: "x", Reason: "is not a rule"}
 	var e *gqlerror.Error
-	if !errors.As(folderErr(refusal), &e) {
-		t.Fatalf("folderErr(%v) is not a GraphQL error", refusal)
+	if !errors.As(folderErr(rule), &e) {
+		t.Fatalf("folderErr(%v) is not a GraphQL error", rule)
 	}
-	if e.Extensions["code"] != "KSTACK_VALIDATION_ERROR" || e.Extensions["rule"] != "folder" || e.Message != refusal.Error() {
-		t.Errorf("folderErr(%v) = %q %v", refusal, e.Message, e.Extensions)
+	if e.Extensions["code"] != "KSTACK_VALIDATION_ERROR" || e.Extensions["rule"] != "folder" || e.Message != rule.Error() {
+		t.Errorf("folderErr(%v) = %q %v", rule, e.Message, e.Extensions)
 	}
 }
 
@@ -99,10 +100,10 @@ func TestFolderErrNamesARefusedShape(t *testing.T) {
 func TestLogsErrCarriesTheRefusalsCode(t *testing.T) {
 	for _, err := range []error{
 		logs.ErrTooMany,
-		logs.Unmirrored{Refusal: logs.Refusal{Code: logs.CodeNotMirrored, Reason: "no pods"}, Source: 1},
-		logs.NoNodes{Refusal: logs.Refusal{Code: logs.CodeNoNodes, Reason: "no nodes"}},
+		refusal.Unmirrored{Refusal: refusal.Refusal{Code: refusal.CodeNotMirrored, Reason: "no pods"}, Source: 1},
+		refusal.NoNodes{Refusal: refusal.Refusal{Code: refusal.CodeNoNodes, Reason: "no nodes"}},
 	} {
-		want, _ := logs.AsRefusal(err)
+		want, _ := refusal.As(err)
 		var e *gqlerror.Error
 		if !errors.As(logsErr(err), &e) {
 			t.Fatalf("logsErr(%v) is not a GraphQL error", err)

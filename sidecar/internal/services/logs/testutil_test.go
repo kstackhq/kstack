@@ -17,20 +17,17 @@ package logs
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
-	"testing/iotest"
 	"time"
 
 	"github.com/stretchr/testify/assert"
@@ -40,7 +37,11 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustertest"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/kubelet"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstest"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
 )
 
 // fakeService is the cluster service as the logs service reads it: one active
@@ -430,389 +431,13 @@ func enabledCluster() *cluster.Cluster {
 	}}
 }
 
-// logServer is the API server's log endpoint over containers' logs held in
-// memory, honouring the parameters the fetcher sends.
-type logServer struct {
-	mu sync.Mutex
-	// logs is each container's lines, "<ts> <message>", keyed "<ns>/<pod>/<container>",
-	// with "/previous" for the instance before. A follow streams the lines added
-	// after its read, so a line reaches every follow still open, and one opened
-	// later reads it as part of the log: a follow the client has abandoned, whose
-	// handler has not noticed yet, cannot take a line from the follow that
-	// replaced it.
-	logs map[string][]string
-	// refuse answers a container's requests with a status and a message, and
-	// refuseReads its requests that follow nothing.
-	refuse, refuseReads map[string]refusal
-	// grew is closed and replaced when a container's log grows or its follows
-	// end, by key. ended is the containers whose follows end, and any opened after.
-	grew  map[string]chan struct{}
-	ended map[string]bool
-	// queries is every request's query, in order, and keys each one's container.
-	queries []url.Values
-	keys    []string
-	// opened and closed count each container's follows that have opened and ended,
-	// by key.
-	opened, closed map[string]int
-	// onRequest, when set, runs before each request is served, with its index, and
-	// onOpen once each follow has opened, with its key. Set either before any request.
-	onRequest func(n int)
-	onOpen    func(key string)
-	// part is the most bytes of a message one line of the runtime's file holds: a
-	// longer one is split, and tailLines counts each part. Zero splits none; it
-	// starts at 16 KiB, the runtime's default.
-	part int
-	// broken, when set, is how many lines the next read that follows nothing serves
-	// before its body fails.
-	broken *int
-}
-
-// errBroken is a body that failed under its read, as a dropped connection does.
-var errBroken = errors.New("connection reset")
-
-type refusal struct {
-	code    int
-	message string
-}
-
-func newLogServer() *logServer {
-	return &logServer{part: 16 << 10, logs: map[string][]string{}, refuse: map[string]refusal{}, refuseReads: map[string]refusal{}, grew: map[string]chan struct{}{}, ended: map[string]bool{}, opened: map[string]int{}, closed: map[string]int{}}
-}
-
-// end ends key's follows, and any opened after.
-func (s *logServer) end(key string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.ended[key] = true
-	s.wake(key)
-}
-
-// resume lets key's follows run again after end.
-func (s *logServer) resume(key string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.ended, key)
-}
-
-// wake tells key's follows its log changed. Call it holding s.mu.
-func (s *logServer) wake(key string) {
-	if grew := s.grew[key]; grew != nil {
-		close(grew)
-	}
-	s.grew[key] = make(chan struct{})
-}
-
-// next is a copy of key's lines from the nth, whether its follows have ended,
-// and a channel closed when either changes. A log emptied under a follow has
-// fewer lines than the follow has sent.
-func (s *logServer) next(key string, n int) ([]string, bool, <-chan struct{}) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if s.grew[key] == nil {
-		s.grew[key] = make(chan struct{})
-	}
-	lines := s.logs[key]
-	return append([]string(nil), lines[min(n, len(lines)):]...), s.ended[key], s.grew[key]
-}
-
-// add appends lines to key's log, as a running container writes them.
-func (s *logServer) add(key string, lines ...string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.logs[key] = append(s.logs[key], lines...)
-	s.wake(key)
-}
-
-// rotate drops key's lines before d past 10:00, as a rotation drops the oldest.
-func (s *logServer) rotate(key string, d time.Duration) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var kept []string
-	for _, line := range s.logs[key] {
-		ts, _ := time.Parse(time.RFC3339Nano, strings.SplitN(line, " ", 2)[0])
-		if !ts.Before(at(d)) {
-			kept = append(kept, line)
-		}
-	}
-	s.logs[key] = kept
-}
-
-// breakNext fails the body of the next read that follows nothing after n lines.
-func (s *logServer) breakNext(n int) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.broken = &n
-}
-
-// clear empties key's log.
-func (s *logServer) clear(key string) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	delete(s.logs, key)
-}
-
-// setRefusal answers key's requests with r from now on, nil for none.
-func (s *logServer) setRefusal(key string, r *refusal) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if r == nil {
-		delete(s.refuse, key)
-		return
-	}
-	s.refuse[key] = *r
-}
-
-// followsOpened is how many of key's follows have opened.
-func (s *logServer) followsOpened(key string) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.opened[key]
-}
-
-// followsClosed is how many of key's follows have ended.
-func (s *logServer) followsClosed(key string) int {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.closed[key]
-}
-
-// requests is every query so far.
-func (s *logServer) requests() []url.Values {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return append([]url.Values(nil), s.queries...)
-}
-
-// requestsOf is every query for key's container, in order. A follow's containers
-// read concurrently, so a test about one container reads its requests alone.
-func (s *logServer) requestsOf(key string) []url.Values {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var out []url.Values
-	for i, k := range s.keys {
-		if k == key {
-			out = append(out, s.queries[i])
-		}
-	}
-	return out
-}
-
-// keyOf is the container a log path and query name, "" for a path that is no log's.
-func keyOf(path string, q url.Values) string {
-	parts := strings.Split(strings.TrimPrefix(path, "/"), "/")
-	if len(parts) != 7 || parts[0] != "api" || parts[6] != "log" {
-		return ""
-	}
-	key := parts[3] + "/" + parts[5] + "/" + q.Get("container")
-	if q.Get("previous") == "true" {
-		key += "/previous"
-	}
-	return key
-}
-
-// get reads s in memory, as a claim's get reads the API server, so a read's
-// bytes arrive as the server wrote them. It never follows.
-func (s *logServer) get(_ context.Context, path string, q url.Values) (io.ReadCloser, error) {
-	text, _, broken, refused := s.serve(keyOf(path, q), q)
-	if refused != nil {
-		return nil, &statusError{refused.code, refused.message}
-	}
-	if broken {
-		return io.NopCloser(io.MultiReader(strings.NewReader(text), iotest.ErrReader(errBroken))), nil
-	}
-	return io.NopCloser(strings.NewReader(text)), nil
-}
-
-func (s *logServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	key := keyOf(r.URL.Path, r.URL.Query())
-	if key == "" {
-		http.NotFound(w, r)
-		return
-	}
-	text, n, broken, refused := s.serve(key, r.URL.Query())
-	if refused != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(refused.code)
-		_, _ = fmt.Fprintf(w, `{"kind":"Status","message":%q}`, refused.message)
-		return
-	}
-	_, _ = w.Write([]byte(text))
-	if broken {
-		w.(http.Flusher).Flush()
-		panic(http.ErrAbortHandler)
-	}
-	if r.URL.Query().Get("follow") != "true" {
-		return
-	}
-	w.(http.Flusher).Flush()
-	s.mu.Lock()
-	s.opened[key]++
-	s.mu.Unlock()
-	if s.onOpen != nil {
-		s.onOpen(key)
-	}
-	defer func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		s.closed[key]++
-	}()
-	for {
-		lines, ended, grew := s.next(key, n)
-		for _, line := range lines {
-			_, _ = w.Write([]byte(line + "\n"))
-			w.(http.Flusher).Flush()
-		}
-		n += len(lines)
-		if ended {
-			return
-		}
-		select {
-		case <-grew:
-		case <-r.Context().Done():
-			return
-		}
-	}
-}
-
-// serve is key's log as the request's parameters cut it, how many lines the log
-// held, and whether its body breaks after it, or the refusal set for key, after the
-// request is counted and the hook has run. As the kubelet's: sinceTime is whole
-// seconds and filters from the file's first line, and tailLines counts a long line's
-// parts.
-func (s *logServer) serve(key string, q url.Values) (string, int, bool, *refusal) {
-	s.mu.Lock()
-	n := len(s.queries)
-	s.queries = append(s.queries, q)
-	s.keys = append(s.keys, key)
-	hook := s.onRequest
-	s.mu.Unlock()
-	if hook != nil {
-		hook(n)
-	}
-	s.mu.Lock()
-	lines := append([]string(nil), s.logs[key]...)
-	held := len(lines)
-	refused, isRefused := s.refuse[key]
-	if read, ok := s.refuseReads[key]; ok && !isRefused && q.Get("follow") != "true" {
-		refused, isRefused = read, true
-	}
-	broken := -1
-	if s.broken != nil && !isRefused && q.Get("follow") != "true" {
-		broken, s.broken = *s.broken, nil
-	}
-	part := s.part
-	s.mu.Unlock()
-	if isRefused {
-		return "", 0, false, &refused
-	}
-	if since := q.Get("sinceTime"); since != "" {
-		at, _ := time.Parse(time.RFC3339, since)
-		at = at.Truncate(time.Second)
-		var kept []string
-		for _, line := range lines {
-			ts, _ := time.Parse(time.RFC3339Nano, strings.SplitN(line, " ", 2)[0])
-			if !ts.Before(at) {
-				kept = append(kept, line)
-			}
-		}
-		lines = kept
-	}
-	if tail := q.Get("tailLines"); tail != "" {
-		n, _ := strconv.Atoi(tail)
-		start := len(lines)
-		for start > 0 {
-			parts := 1
-			if part > 0 {
-				parts = max(1, (len(strings.SplitN(lines[start-1], " ", 2)[1])+part-1)/part)
-			}
-			if n < parts {
-				break
-			}
-			n -= parts
-			start--
-		}
-		lines = lines[start:]
-	}
-	if broken >= 0 {
-		lines = lines[:min(broken, len(lines))]
-	}
-	text := ""
-	if len(lines) > 0 {
-		text = strings.Join(lines, "\n") + "\n"
-	}
-	if limit := q.Get("limitBytes"); limit != "" {
-		n, _ := strconv.Atoi(limit)
-		text = text[:min(n, len(text))]
-	}
-	return text, held, broken >= 0, nil
-}
-
-// The limits scaled down so a log of a few hundred lines reaches them: smallCaps
-// 1,024 times, and midCaps 64 times, under which a window's GET reads little past
-// its end next to what the window holds.
-var (
-	smallCaps = caps{second: 1 << 10, stream: 16 << 10, gets: 16, query: 64 << 10, window: 4 << 10, minWindow: 64, part: 16}
-	midCaps   = caps{second: 16 << 10, stream: 256 << 10, gets: 16, query: 1 << 20, window: 64 << 10, minWindow: 1 << 10, part: 256}
-)
-
-// limitsOf is the limits of a query's one stream under c.
-func limitsOf(c caps) *limits { return queryLimits(c, 1)[0] }
-
-// capsOf is the limits of a query that downloads n bytes at most, one stream or
-// many, with no second too loud to read.
-func capsOf(n int64) caps {
-	return caps{second: 1 << 20, stream: n, gets: 16, query: n, window: max(n/4, 1), minWindow: 16, part: 16}
-}
-
-// randomCaps is limits a seeded walk's logs of a few hundred bytes a stream reach,
-// with a second of a few KiB, which a log of long lines passes.
-func randomCaps(rng *rand.Rand) caps {
-	stream := int64(2000 + rng.Intn(8000))
-	return caps{second: int64(1000 + rng.Intn(3000)), stream: stream, gets: 4 + rng.Intn(13), query: stream * int64(1+rng.Intn(6)), window: stream / 4, minWindow: 16, part: 16}
-}
-
-// claimOn is a claim on a cluster whose API server serves s.
-func claimOn(t *testing.T, s *logServer) *claim {
-	t.Helper()
-	c, err := acquireClaim(t.Context(), serving(t, s), "7", "uid-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(c.close)
-	return c
-}
-
 // at is a moment on 2026-10-08 at 10:00, offset by d.
 func at(d time.Duration) time.Time {
 	return time.Date(2026, 10, 8, 10, 0, 0, 0, time.UTC).Add(d)
 }
 
-// stamped is a log line at d past 10:00 saying msg.
-func stamped(d time.Duration, msg string) string {
-	return at(d).Format(time.RFC3339Nano) + " " + msg
-}
-
-// drain is every record r sends until it closes.
-func drain(r *streamRead) []Record {
-	var out []Record
-	for rec := range r.lines.Chan() {
-		if !rec.windowEnd && !rec.windowCut {
-			out = append(out, rec.Record)
-		}
-	}
-	return out
-}
-
-// newestFirst is recs, one stream's, newest first: the order of a backward read's
-// lines across its windows, which each arrive oldest first.
-func newestFirst(recs []Record) []Record {
-	out := slices.Clone(recs)
-	slices.SortStableFunc(out, func(a, b Record) int { return CompareLines(b, a) })
-	return out
-}
-
 // messages is each record's message.
-func messages(recs []Record) []string {
+func messages(recs []logline.Record) []string {
 	out := []string{}
 	for _, r := range recs {
 		out = append(out, r.Message)
@@ -822,7 +447,7 @@ func messages(recs []Record) []string {
 
 // marks is each record's message, with the time past 10:00 of each edge of the hole
 // it carries.
-func marks(recs []Record) []string {
+func marks(recs []logline.Record) []string {
 	out := []string{}
 	for _, r := range recs {
 		m := r.Message
@@ -846,8 +471,8 @@ func said(s int, msg string) logstore.Line { return logstore.Line{Pos: sec(s), M
 // x0 y1 | y5 y6 | y9 x10, each bar a lost gap.
 var twoHoles = []logstore.Fill{
 	{Lines: []logstore.Line{said(0, "x0"), said(1, "y1")}},
-	{Lines: []logstore.Line{said(5, "y5"), said(6, "y6")}, Head: true},
-	{Lines: []logstore.Line{said(9, "y9"), said(10, "x10")}, Head: true},
+	{Lines: []logstore.Line{said(5, "y5"), said(6, "y6")}, AtBeginning: true},
+	{Lines: []logstore.Line{said(9, "y9"), said(10, "x10")}, AtBeginning: true},
 }
 
 // webScope reads the app container of deployment web in prod.
@@ -1000,38 +625,40 @@ func moment(d time.Duration) *time.Time {
 }
 
 // codeOf is err's refusal code, empty for none.
-func codeOf(err error) Code {
-	r, _ := AsRefusal(err)
+func codeOf(err error) refusal.Code {
+	r, _ := refusal.As(err)
 	return r.Code
 }
 
-// from, after and to are bounds at the moment d past 10:00: since it, after it,
-// and until it.
-func from(d time.Duration) bound  { return bound{momentAt(at(d)), true} }
-func after(d time.Duration) bound { return bound{momentAt(at(d)), false} }
-func to(d time.Duration) bound    { return bound{momentAt(at(d)), true} }
+// from and to are bounds at the moment d past 10:00: since it and until it.
+func from(d time.Duration) logline.Bound {
+	return logline.Bound{At: logline.MomentAt(at(d)), Inclusive: true}
+}
+func to(d time.Duration) logline.Bound {
+	return logline.Bound{At: logline.MomentAt(at(d)), Inclusive: true}
+}
 
 // lineAt is the line cursor of key's line at d past 10:00, from the first instance
 // of a fixture pod, the ordinal-th of its moment.
-func lineAt(key StreamKey, d time.Duration, ordinal int) lineCursor {
-	return lineCursor{containerName{key.Namespace, key.Pod, key.Container}, runPlace{containerID("uid-"+key.Pod, key.Container, 0), at(d), ordinal}}
+func lineAt(key logline.StreamKey, d time.Duration, ordinal int) logline.Cursor {
+	return logline.Cursor{ContainerName: logline.ContainerName{Namespace: key.Namespace, Pod: key.Pod, Container: key.Container}, RunPlace: logline.RunPlace{ContainerID: containerID("uid-"+key.Pod, key.Container, 0), Timestamp: at(d), Ordinal: ordinal}}
 }
 
-// lineCursor is the cursor of pod/container's line at d past 10:00, in prod, the
+// line cursor is the cursor of pod/container's line at d past 10:00, in prod, the
 // ordinal-th of its moment, from the first instance of a fixture pod.
 func lineCursorFor(pod, container string, d time.Duration, ordinal int) *string {
-	return cursorOf(lineAt(StreamKey{Namespace: "prod", Pod: pod, Container: container}, d, ordinal))
+	return cursorOf(lineAt(logline.StreamKey{Namespace: "prod", Pod: pod, Container: container}, d, ordinal))
 }
 
 // cursorOf is c encoded, as a page's edge carries it.
-func cursorOf(c lineCursor) *string {
-	s := encodeLineCursor(c)
+func cursorOf(c logline.Cursor) *string {
+	s := logline.Encode(c)
 	return &s
 }
 
 // keysOf is each of t's streams' key, in order.
-func keysOf(t target) []StreamKey {
-	keys := make([]StreamKey, len(t.streams))
+func keysOf(t target) []logline.StreamKey {
+	keys := make([]logline.StreamKey, len(t.streams))
 	for i, s := range t.streams {
 		keys[i] = s.key
 	}
@@ -1039,8 +666,8 @@ func keysOf(t target) []StreamKey {
 }
 
 // placesOf is each of t's streams' place, in order.
-func placesOf(t target) []Place {
-	places := make([]Place, len(t.streams))
+func placesOf(t target) []logline.Place {
+	places := make([]logline.Place, len(t.streams))
 	for i, s := range t.streams {
 		places[i] = s.place
 	}
@@ -1050,17 +677,17 @@ func placesOf(t target) []Place {
 // line is a record of pod/container in prod at d past 10:00, from the first
 // instance of a fixture pod, the first line of its moment, and nth the
 // ordinal-th.
-func line(pod, container string, d time.Duration, msg string) Record {
+func line(pod, container string, d time.Duration, msg string) logline.Record {
 	return nth(pod, container, d, 0, msg)
 }
 
-func nth(pod, container string, d time.Duration, ordinal int, msg string) Record {
-	return Record{Timestamp: at(d), Message: msg, Stream: StreamKey{Namespace: "prod", Pod: pod, Container: container}, ContainerID: containerID("uid-"+pod, container, 0), Ordinal: ordinal}
+func nth(pod, container string, d time.Duration, ordinal int, msg string) logline.Record {
+	return logline.Record{Timestamp: at(d), Message: msg, Stream: logline.StreamKey{Namespace: "prod", Pod: pod, Container: container}, ContainerID: containerID("uid-"+pod, container, 0), Ordinal: ordinal}
 }
 
 // cursor is the cursor of the moment d past 10:00.
 func cursor(d time.Duration) *string {
-	c := encodeLineCursor(momentAt(at(d)))
+	c := logline.Encode(logline.MomentAt(at(d)))
 	return &c
 }
 
@@ -1104,7 +731,7 @@ type fakeBackend struct {
 // then, once wait closes, an end with err. A nil wait ends at once, and never
 // ends only once the read is cancelled.
 type fakeRead struct {
-	lines []Record
+	lines []logline.Record
 	err   error
 	wait  <-chan struct{}
 }
@@ -1123,47 +750,43 @@ func (s *fakeBackend) set(key string, r fakeRead) {
 	s.reads[key] = r
 }
 
-func (s *fakeBackend) read(ctx context.Context, st stream) *streamRead {
-	key := st.key.Pod + "/" + st.key.Container
+func (s *fakeBackend) read(ctx context.Context, st kubelet.Log) *kubelet.Read {
+	key := st.Key.Pod + "/" + st.Key.Container
 	s.mu.Lock()
 	r := s.reads[key]
 	s.mu.Unlock()
-	recs := make([]Record, len(r.lines))
+	recs := make([]logline.Record, len(r.lines))
 	for i, rec := range r.lines {
-		rec.Stream, rec.Place, rec.ContainerID = st.key, st.place, st.gen.instance
+		rec.Stream, rec.Place, rec.ContainerID = st.Key, st.Place, st.Instance
 		recs[i] = rec
 	}
 	s.opened.Fire(key)
-	return cannedUntil(ctx, st.key, recs, r.wait, r.err, lineCursor{})
+	return cannedUntil(ctx, st.Key, recs, r.wait, r.err, logline.Cursor{})
 }
 
-func (s *fakeBackend) Forward(ctx context.Context, st stream, _ readOpts) *streamRead {
+func (s *fakeBackend) Forward(ctx context.Context, st kubelet.Log, _ kubelet.Options) *kubelet.Read {
 	return s.read(ctx, st)
 }
 
-func (s *fakeBackend) Backward(ctx context.Context, st stream, _ readOpts) *streamRead {
-	return s.read(ctx, st)
-}
-
-func (s *fakeBackend) Tail(ctx context.Context, st stream, _ readOpts) *streamRead {
+func (s *fakeBackend) Backward(ctx context.Context, st kubelet.Log, _ kubelet.Options) *kubelet.Read {
 	return s.read(ctx, st)
 }
 
 // serviceOn is the service over the web mirror, reading through backend.
-func serviceOn(t *testing.T, backend Backend) (*Service, *fakeService) {
+func serviceOn(t *testing.T, backend kubelet.Backend) (*Service, *fakeService) {
 	t.Helper()
 	svc, f := serviceOver(t, webMirror(t), newLogServer())
-	svc.backends = []namedBackend{{"kubelet", func(getter) Backend { return backend }}}
+	svc.backends = []namedBackend{{"kubelet", func(kubelet.Getter) kubelet.Backend { return backend }}}
 	return svc, f
 }
 
 // serviceBatched is serviceOn writing n lines a batch.
-func serviceBatched(t *testing.T, backend Backend, n int) (*Service, *fakeService) {
+func serviceBatched(t *testing.T, backend kubelet.Backend, n int) (*Service, *fakeService) {
 	t.Helper()
 	ret := testRetention
 	ret.WriteBatch = n
 	svc, f := serviceIn(t, webMirror(t), newLogServer(), t.TempDir(), ret)
-	svc.backends = []namedBackend{{"kubelet", func(getter) Backend { return backend }}}
+	svc.backends = []namedBackend{{"kubelet", func(kubelet.Getter) kubelet.Backend { return backend }}}
 	return svc, f
 }
 
@@ -1214,7 +837,7 @@ func recordsOf(pages []FetchResponse, from PageFrom) []string {
 func skippedOf(page FetchResponse) []string {
 	out := []string{}
 	for _, n := range page.Notices {
-		if n.Code == CodeStreamSkipped {
+		if n.Code == refusal.CodeStreamSkipped {
 			out = append(out, n.Message)
 		}
 	}
@@ -1229,7 +852,7 @@ func until(d time.Duration) Window { return Window{Until: moment(d - time.Nanose
 // first at d past 10:00 hands out, in an open window: a read back from that line,
 // exclusive, size lines a page.
 func prevFrom(scope Scope, pod, container string, d time.Duration, size int) FetchRequest {
-	c := pageCursor{Scope: scope, resolvedWindow: resolvedWindow{ResolvedAt: at(time.Hour)}, at: lineAt(StreamKey{Namespace: "prod", Pod: pod, Container: container}, d, 0)}
+	c := pageCursor{Scope: scope, resolvedWindow: resolvedWindow{ResolvedAt: at(time.Hour)}, at: lineAt(logline.StreamKey{Namespace: "prod", Pod: pod, Container: container}, d, 0)}
 	return FetchRequest{PageCursor: encoded(c), PageSize: size}
 }
 
@@ -1246,10 +869,10 @@ func aroundAt(scope Scope, d time.Duration, n int) FetchRequest {
 }
 
 // linesOf is lines as the records a page answers, their messages alone.
-func linesOf(lines []string) []Record {
-	out := make([]Record, len(lines))
+func linesOf(lines []string) []logline.Record {
+	out := make([]logline.Record, len(lines))
 	for i, l := range lines {
-		out[i] = Record{Message: strings.SplitN(l, " ", 2)[1]}
+		out[i] = logline.Record{Message: strings.SplitN(l, " ", 2)[1]}
 	}
 	return out
 }
@@ -1283,7 +906,7 @@ func seedStamped(t *testing.T, svc *Service, f *fakeService, row logstore.Stream
 	ids, err := file.PutStreams(t.Context(), []logstore.Stream{row})
 	require.NoError(t, err)
 	for i := range fills {
-		fills[i].Stream, fills[i].Origin = ids[0], "kubelet"
+		fills[i].Stream, fills[i].Backend = ids[0], "kubelet"
 	}
 	_, err = file.Write(t.Context(), fills, stamp)
 	require.NoError(t, err)
@@ -1301,16 +924,45 @@ func fileLines(ds ...time.Duration) []logstore.Line {
 
 // restartWeb1 restarts web-1's app container in f's mirror and in s: the instance
 // that ran becomes the previous one, and a new one runs, writing lines.
-func restartWeb1(t *testing.T, f *fakeService, s *logServer, lines ...string) {
+func restartWeb1(t *testing.T, f *fakeService, s *logstest.Server, lines ...string) {
 	f.store.Apply(t, pod("web-1", "uid-web-1", "node-a", webReplicaSet(), container{name: "app", restarted: true}, container{name: "istio-proxy"}))
-	s.mu.Lock()
-	s.logs["prod/web-1/app/previous"] = s.logs["prod/web-1/app"]
-	s.logs["prod/web-1/app"] = lines
-	s.mu.Unlock()
+	s.Mu.Lock()
+	s.Logs["prod/web-1/app/previous"] = s.Logs["prod/web-1/app"]
+	s.Logs["prod/web-1/app"] = lines
+	s.Mu.Unlock()
 }
 
 // atOf is where the page cursor c goes on from, encoded as a line cursor: its at.
 func atOf(t *testing.T, c *string) string {
 	t.Helper()
-	return encodeLineCursor(cursorIn(t, c).at)
+	return logline.Encode(cursorIn(t, c).at)
+}
+
+// The limits scaled down so a log of a few hundred lines reaches them: smallCaps
+// 1,024 times, and midCaps 64 times, under which a window's GET reads little past
+// its end next to what the window holds.
+var (
+	smallCaps = kubelet.Quota{Second: 1 << 10, Stream: 16 << 10, Gets: 16, Query: 64 << 10, Window: 4 << 10, MinWindow: 64, Part: 16}
+	midCaps   = kubelet.Quota{Second: 16 << 10, Stream: 256 << 10, Gets: 16, Query: 1 << 20, Window: 64 << 10, MinWindow: 1 << 10, Part: 256}
+)
+
+// capsOf is the limits of a query that downloads n bytes at most, one stream or
+// many, with no second too loud to read.
+func capsOf(n int64) kubelet.Quota {
+	return kubelet.Quota{Second: 1 << 20, Stream: n, Gets: 16, Query: n, Window: max(n/4, 1), MinWindow: 16, Part: 16}
+}
+
+// randomCaps is limits a seeded walk's logs of a few hundred bytes a stream reach,
+// with a second of a few KiB, which a log of long lines passes.
+func randomCaps(rng *rand.Rand) kubelet.Quota {
+	stream := int64(2000 + rng.Intn(8000))
+	return kubelet.Quota{Second: int64(1000 + rng.Intn(3000)), Stream: stream, Gets: 4 + rng.Intn(13), Query: stream * int64(1+rng.Intn(6)), Window: stream / 4, MinWindow: 16, Part: 16}
+}
+
+// newLogServer is a fake log server whose refusals are the status errors a claim
+// answers.
+func newLogServer() *logstest.Server {
+	s := logstest.New()
+	s.Refused = func(code int, message string) error { return &kubelet.StatusError{Code: code, Message: message} }
+	return s
 }

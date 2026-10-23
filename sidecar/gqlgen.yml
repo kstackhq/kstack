@@ -324,16 +324,16 @@ models:
         value: github.com/kstackhq/kstack/sidecar/internal/services/logs.SourceReplicaSet
 
   LogRecord:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.Record
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs/logline.Record
 
   LogGap:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.Gap
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs/logline.Gap
 
   LogStream:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.StreamKey
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs/logline.StreamKey
 
   LogPlace:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.Place
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs/logline.Place
 
   LogsViewInput:
     model: github.com/kstackhq/kstack/sidecar/internal/services/logs.Scope

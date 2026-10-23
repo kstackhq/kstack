@@ -15,10 +15,14 @@
 package logs
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"sync"
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/kubelet"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logstore"
 )
 
@@ -39,9 +43,9 @@ type Service struct {
 	retry    time.Duration
 	retryCap time.Duration
 	settle   time.Duration
-	// caps is the limits a page's and a follow's fills keep to: defaultCaps, or a
+	// caps is the limits a page's and a follow's fills keep to: DefaultQuota, or a
 	// test's.
-	caps caps
+	caps kubelet.Quota
 	// walkBudget is the bytes one page's walks of the file may read, apart from what
 	// its fills downloaded.
 	walkBudget int64
@@ -59,10 +63,10 @@ type Service struct {
 }
 
 // namedBackend is one of the cluster's backends: its name, which a chunk records as
-// its origin, and how to build it over a claim's get.
+// its backend, and how to build it over a claim's get.
 type namedBackend struct {
 	name  string
-	build func(get getter) Backend
+	build func(get kubelet.Getter) kubelet.Backend
 }
 
 // New is the service over the cluster service, keeping its log files under dir to
@@ -70,9 +74,9 @@ type namedBackend struct {
 func New(clusters cluster.Service, dir string, ret logstore.Retention) *Service {
 	files := logstore.NewManager(dir, ret)
 	s := &Service{
-		clusters: clusters, files: files, backends: []namedBackend{{"kubelet", newKubelet}}, now: time.Now,
+		clusters: clusters, files: files, backends: []namedBackend{{"kubelet", kubelet.New}}, now: time.Now,
 		retry: followRetry, retryCap: followRetryCap, settle: followSettle,
-		caps: defaultCaps, walkBudget: maxWalkBudget, grace: ret.TailGrace,
+		caps: kubelet.DefaultQuota, walkBudget: maxWalkBudget, grace: ret.TailGrace,
 		tails: map[cluster.ClusterCacheID]*registry{},
 	}
 	files.SetPodsGone(s.podsGone)
@@ -89,3 +93,49 @@ func (s *Service) Clear(cacheID int64) error  { return s.files.Clear(cacheID) }
 func (s *Service) Remove(cacheID int64) error { return s.files.Remove(cacheID) }
 
 var _ cluster.CacheFileOwner = (*Service)(nil)
+
+// podsGone answers which of uids the mirror of the cache cacheID no longer holds,
+// for the log file's sweep. It answers none unless that cache is its cluster's
+// active one, trusted and mirroring pods: a stream the sweep removes is gone for
+// good, so a pod is gone only when the mirror is sure.
+func (s *Service) podsGone(ctx context.Context, cacheID int64, uids []string) ([]string, error) {
+	cache, err := s.clusters.Caches().Get(ctx, cluster.ClusterCacheID(cacheID))
+	if errors.Is(err, cluster.ErrNotFound) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	arg, _ := json.Marshal(uids) // a list of strings always marshals
+	var gone []string
+	err = s.clusters.CachedData().ReadActive(ctx, cache.Spec.ClusterID, len(uids)+1, maxBytes, func(q cluster.CacheReading, active cluster.ActiveCluster) error {
+		// Set whole, never appended to: ReadActive may run this twice.
+		gone = nil
+		r := reading{q}
+		if active.Cache.ID != cache.ID {
+			return nil
+		}
+		mirrored, err := r.mirrors(mirrorKinds[SourcePod])
+		if err != nil || !mirrored {
+			return err
+		}
+		rows, err := r.rows(`SELECT uid FROM objects WHERE api_version = 'v1' AND kind = 'Pod' AND uid IN (SELECT value FROM json_each(?))`, string(arg))
+		if err != nil {
+			return err
+		}
+		held := map[string]bool{}
+		for _, row := range rows {
+			held[cluster.CellText(row[0])] = true
+		}
+		for _, uid := range uids {
+			if !held[uid] {
+				gone = append(gone, uid)
+			}
+		}
+		return nil
+	})
+	if errors.Is(err, cluster.ErrNoCache) || errors.Is(err, cluster.ErrSyncing) {
+		return nil, nil
+	}
+	return gone, err
+}

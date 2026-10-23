@@ -17,7 +17,7 @@ package logsinput
 import (
 	"time"
 
-	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -29,7 +29,7 @@ const (
 )
 
 // CutLine is s in at most MaxSampleLine bytes, cut on a character boundary with
-// an ellipsis. A message is cut after logs.ForModel, since redaction reads the
+// an ellipsis. A message is cut after logline.ForModel, since redaction reads the
 // whole message.
 func CutLine(s string) string {
 	if len(s) <= MaxSampleLine {
@@ -41,7 +41,7 @@ func CutLine(s string) string {
 // LineText is rec as the model reads it: the hole before it on a line of its own,
 // then its timestamp, its stream and its message. A message holds no newline, so
 // every line a record writes starts with the sidecar's [ or a timestamp.
-func LineText(rec logs.Record) string {
+func LineText(rec logline.Record) string {
 	line := Stamp(rec.Timestamp) + " " + streamOf(rec.Stream) + " " + rec.Message
 	if rec.Gap == nil {
 		return line
@@ -50,7 +50,7 @@ func LineText(rec logs.Record) string {
 }
 
 // streamOf is a stream as a line names it.
-func streamOf(k logs.StreamKey) string {
+func streamOf(k logline.StreamKey) string {
 	s := k.Namespace + "/" + k.Pod + "/" + k.Container
 	if k.Previous {
 		s += " (previous)"
@@ -62,7 +62,7 @@ func streamOf(k logs.StreamKey) string {
 func Stamp(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
 
 // ReadLine is rec as an action keeps it.
-func ReadLine(rec logs.Record) tools.LogsReadLine {
+func ReadLine(rec logline.Record) tools.LogsReadLine {
 	return tools.LogsReadLine{
 		Timestamp: rec.Timestamp, Namespace: rec.Stream.Namespace, Pod: rec.Stream.Pod, Container: rec.Stream.Container,
 		Previous: rec.Stream.Previous, Message: rec.Message, Gap: rec.Gap,

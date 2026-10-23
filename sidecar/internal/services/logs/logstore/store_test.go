@@ -164,7 +164,7 @@ func TestAFileThatCannotOpenIsRefused(t *testing.T) {
 			f, err := openFile(path)
 			require.NoError(t, err)
 			id := insertStream(t, f)
-			_, err = f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, origin, at_head, at_end, open, bytes, read_at_ms)
+			_, err = f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, backend, at_beginning, at_end, open, bytes, read_at_ms)
 				VALUES (?, '', 1, 0, 1, 0, 'kubelet', 0, 0, 1, 0, 0)`, id)
 			require.NoError(t, err)
 			_, err = f.db.Exec(stmt)
@@ -213,7 +213,7 @@ func TestAMomentMustBeAnInteger(t *testing.T) {
 	f := openTestFile(t)
 	stream := insertStream(t, f)
 
-	_, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, origin, at_head, at_end, open, bytes, read_at_ms)
+	_, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, backend, at_beginning, at_end, open, bytes, read_at_ms)
 		VALUES (?, '', 'yesterday', 0, 2, 0, 'kubelet', 0, 0, 0, 0, 0)`, stream)
 
 	assert.ErrorContains(t, err, "cannot store TEXT value in INTEGER column")
@@ -246,11 +246,11 @@ func TestAFlagIsZeroOrOne(t *testing.T) {
 	assert.ErrorContains(t, err, "CHECK constraint failed")
 
 	id := insertStream(t, f)
-	for _, flag := range []string{"at_head", "at_end", "open"} {
-		values := map[string]int{"at_head": 0, "at_end": 0, "open": 0}
+	for _, flag := range []string{"at_beginning", "at_end", "open"} {
+		values := map[string]int{"at_beginning": 0, "at_end": 0, "open": 0}
 		values[flag] = 2
-		_, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, origin, at_head, at_end, open, bytes, read_at_ms)
-			VALUES (?, '', 1, 0, 1, 0, 'kubelet', ?, ?, ?, 0, 0)`, id, values["at_head"], values["at_end"], values["open"])
+		_, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, backend, at_beginning, at_end, open, bytes, read_at_ms)
+			VALUES (?, '', 1, 0, 1, 0, 'kubelet', ?, ?, ?, 0, 0)`, id, values["at_beginning"], values["at_end"], values["open"])
 		assert.ErrorContains(t, err, "CHECK constraint failed", flag)
 	}
 }
@@ -267,7 +267,7 @@ func TestADeletedIDIsNeverReused(t *testing.T) {
 	assert.NotEqual(t, stream, again, "a stream's")
 
 	insertChunkRow := func() int64 {
-		res, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, origin, at_head, at_end, open, bytes, read_at_ms)
+		res, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, backend, at_beginning, at_end, open, bytes, read_at_ms)
 			VALUES (?, '', 1, 0, 1, 0, 'kubelet', 0, 0, 0, 0, 0)`, again)
 		require.NoError(t, err)
 		id, err := res.LastInsertId()
@@ -346,8 +346,8 @@ func TestAWriteOfLinesPingsItsStreams(t *testing.T) {
 	a, b := twoStreams(t, s)
 	pings := subscribe(t, s, a, b)
 
-	write(t, s, Fill{Stream: b, Origin: "kubelet", Next: ptr(at(1, 0))})
-	write(t, s, Fill{Stream: a, Origin: "kubelet", Lines: lines(at(1, 0))})
+	write(t, s, Fill{Stream: b, Backend: "kubelet", Next: ptr(at(1, 0))})
+	write(t, s, Fill{Stream: a, Backend: "kubelet", Lines: lines(at(1, 0))})
 
 	// First touch orders the pings, so b's would come first.
 	assert.Equal(t, a, testutil.Recv(t, pings, "a's ping").Key)

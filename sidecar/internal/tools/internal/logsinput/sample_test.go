@@ -21,7 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 
-	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
 
@@ -40,7 +40,7 @@ func TestALineIsItsStampStreamAndMessage(t *testing.T) {
 func TestAHoleIsALineBeforeIt(t *testing.T) {
 	t.Parallel()
 	rec := record(time.Minute, 0, "back")
-	rec.Gap = &logs.Gap{After: rec.Timestamp.Add(-time.Minute), Before: rec.Timestamp}
+	rec.Gap = &logline.Gap{After: rec.Timestamp.Add(-time.Minute), Before: rec.Timestamp}
 	assert.Equal(t, "[lines may be missing from prod/webapp-a/app between 2026-10-17T09:14:00Z and 2026-10-17T09:15:00Z]\n"+
 		"2026-10-17T09:15:00Z prod/webapp-a/app back", LineText(rec))
 }
@@ -64,7 +64,7 @@ func TestARecordIsTheActionsLine(t *testing.T) {
 	t.Parallel()
 	rec := record(time.Second, 3, "a")
 	rec.Stream.Previous = true
-	rec.Gap = &logs.Gap{After: rec.Timestamp.Add(-time.Second), Before: rec.Timestamp}
+	rec.Gap = &logline.Gap{After: rec.Timestamp.Add(-time.Second), Before: rec.Timestamp}
 	assert.Equal(t, tools.LogsReadLine{
 		Timestamp: rec.Timestamp, Namespace: "prod", Pod: "webapp-a", Container: "app", Previous: true, Message: "a", Gap: rec.Gap,
 	}, ReadLine(rec))
@@ -79,10 +79,10 @@ func TestARecordIsTheActionsLine(t *testing.T) {
 
 // record is a line of prod/webapp-a/app at offset past 09:14, the ordinal-th of its
 // moment, saying msg.
-func record(offset time.Duration, ordinal int, msg string) logs.Record {
-	return logs.Record{
+func record(offset time.Duration, ordinal int, msg string) logline.Record {
+	return logline.Record{
 		Timestamp: time.Date(2026, 10, 17, 9, 14, 0, 0, time.UTC).Add(offset), Message: msg,
-		Stream:      logs.StreamKey{Namespace: "prod", Pod: "webapp-a", Container: "app"},
+		Stream:      logline.StreamKey{Namespace: "prod", Pod: "webapp-a", Container: "app"},
 		ContainerID: "containerd://3f9a", Ordinal: ordinal,
 	}
 }

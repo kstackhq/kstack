@@ -49,7 +49,7 @@ A `UserPromptSubmit` hook (`scripts/writing-standards-hook.sh`, wired in `.claud
 
 ## Code ported from kubetail
 
-Both projects are Apache 2.0; kubetail's files are copyright "The Kubetail Authors". A file carrying kubetail's code, whole or reshaped, opens with both lines, kstack's first, over the one license block (`// Copyright 2026 The Kstack Authors`, then `// Copyright 2024 The Kubetail Authors`). A file written fresh carries kstack's line alone. There is no `NOTICE` file. Ported so far: the log viewer (`src/lib/log-viewer/`, `components/widgets/log-viewer/`) and `services/logs`' fetcher.
+Both projects are Apache 2.0; kubetail's files are copyright "The Kubetail Authors". A file carrying kubetail's code, whole or reshaped, opens with both lines, kstack's first, over the one license block (`// Copyright 2026 The Kstack Authors`, then `// Copyright 2024 The Kubetail Authors`). A file written fresh carries kstack's line alone. There is no `NOTICE` file. Ported so far: the log viewer (`src/lib/log-viewer/`, `components/widgets/log-viewer/`) and `services/logs/kubelet`'s reader (`read.go`).
 
 ## Testing conventions (all three languages)
 

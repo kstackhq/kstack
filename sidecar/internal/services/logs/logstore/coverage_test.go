@@ -29,7 +29,7 @@ func at(s int64, ord int) Pos { return Pos{TS: second(s), Ord: ord} }
 func ptr(p Pos) *Pos { return &p }
 
 // chunk is a kubelet chunk from from to to.
-func chunk(from, to Pos) Chunk { return Chunk{From: from, To: to, Origin: "kubelet"} }
+func chunk(from, to Pos) Chunk { return Chunk{From: from, To: to, Backend: "kubelet"} }
 
 // linked is c continuing from prev.
 func linked(c Chunk, prev Pos) Chunk {
@@ -80,21 +80,21 @@ func TestAStreamWithNoChunkIsOneGap(t *testing.T) {
 	assert.Equal(t, []Gap{{}}, cov.Gaps)
 }
 
-// head is c marked head.
-func head(c Chunk) Chunk {
-	c.Head = true
+// atBeginning is c marked at the beginning.
+func atBeginning(c Chunk) Chunk {
+	c.AtBeginning = true
 	return c
 }
 
-// A gap older than a head chunk of the last backend is lost, the range before the
+// A gap older than an at-beginning chunk of the last backend is lost, the range before the
 // oldest chunk included, and the gaps newer than it are live: a Tail page that
 // reached the kubelet's oldest line at 10:30 over an older chunk from 9:55 crosses
 // to it.
-func TestAGapOlderThanTheLastBackendsHeadIsLost(t *testing.T) {
+func TestAGapOlderThanTheLastBackendsBeginningIsLost(t *testing.T) {
 	t.Parallel()
 	cov := CoverageOf([]Chunk{
 		chunk(at(-300, 0), at(300, 0)),
-		head(chunk(at(1800, 0), at(1900, 0))),
+		atBeginning(chunk(at(1800, 0), at(1900, 0))),
 		chunk(at(2000, 0), at(2100, 0)),
 	}, kubelet, nil)
 
@@ -105,19 +105,19 @@ func TestAGapOlderThanTheLastBackendsHeadIsLost(t *testing.T) {
 	assert.Equal(t, []bool{true, true, false, false}, lost)
 }
 
-// A gap older than a head of an earlier backend is offered to the next, and lost
+// A gap older than the beginning of an earlier backend is offered to the next, and lost
 // only past the last.
-func TestAGapOlderThanAnEarlierBackendsHeadGoesToTheNext(t *testing.T) {
+func TestAGapOlderThanAnEarlierBackendsBeginningGoesToTheNext(t *testing.T) {
 	t.Parallel()
 	archive := chunk(at(0, 0), at(10, 0))
-	archive.Origin = "archive"
-	chunks := []Chunk{archive, head(chunk(at(20, 0), at(30, 0)))}
+	archive.Backend = "archive"
+	chunks := []Chunk{archive, atBeginning(chunk(at(20, 0), at(30, 0)))}
 
 	cov := CoverageOf(chunks, []string{"kubelet", "archive"}, nil)
 	assert.Equal(t, []int{1, 1, 0}, tiers(cov), "the kubelet holds nothing before 20")
 	assert.False(t, cov.Gaps[0].Lost)
 
-	chunks[0] = head(archive)
+	chunks[0] = atBeginning(archive)
 	cov = CoverageOf(chunks, []string{"kubelet", "archive"}, nil)
 	assert.Equal(t, []int{2, 1, 0}, tiers(cov))
 	assert.True(t, cov.Gaps[0].Lost)
@@ -159,8 +159,8 @@ func insertChunk(t *testing.T, s *Store, id int64, c Chunk) Chunk {
 		if c.ReadAt != 0 {
 			stamp = c.ReadAt
 		}
-		res, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, prev_ns, prev_ord, origin, at_head, at_end, open, bytes, read_at_ms)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, c.Pattern, c.From.TS, c.From.Ord, c.To.TS, c.To.Ord, prevNS, prevOrd, c.Origin, c.Head, c.AtEnd, c.Open, c.Bytes, stamp)
+		res, err := f.db.Exec(`INSERT INTO chunks (stream_id, pattern, from_ns, from_ord, to_ns, to_ord, prev_ns, prev_ord, backend, at_beginning, at_end, open, bytes, read_at_ms)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, c.Pattern, c.From.TS, c.From.Ord, c.To.TS, c.To.Ord, prevNS, prevOrd, c.Backend, c.AtBeginning, c.AtEnd, c.Open, c.Bytes, stamp)
 		require.NoError(t, err)
 		c.ID, err = res.LastInsertId()
 		require.NoError(t, err)

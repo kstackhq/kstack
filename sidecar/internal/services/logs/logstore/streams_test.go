@@ -182,7 +182,7 @@ func TestAFilingTheFileRefusesFails(t *testing.T) {
 			switch c.table {
 			case "lines":
 				id := streamOf(t, s)
-				write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(6, 0))})
+				write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(6, 0))})
 			case "streams":
 				_, err := s.PutStreams(t.Context(), []Stream{sidecar})
 				require.NoError(t, err)
@@ -209,7 +209,7 @@ func TestAFinishTheFileRefusesFails(t *testing.T) {
 			t.Parallel()
 			s := newTestStore(t)
 			id := streamOf(t, s)
-			write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(6, 0))})
+			write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(6, 0))})
 			refuse(t, s, c.op, c.table)
 
 			err := s.FinishStreams(t.Context(), []Stream{done})

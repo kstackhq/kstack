@@ -17,7 +17,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/kubeproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
-	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
@@ -165,11 +165,11 @@ func chatErr(err error) error {
 // logsErr is what both log resolvers return an error through: a refusal is a
 // validation error whose rule is its code and whose message is its words.
 func logsErr(err error) error {
-	refusal, ok := logs.AsRefusal(err)
+	r, ok := refusal.As(err)
 	if !ok {
 		return err
 	}
-	return gqlerrors.NewValidationError(string(refusal.Code), refusal.Reason)
+	return gqlerrors.NewValidationError(string(r.Code), r.Reason)
 }
 
 // sandboxPathErr is what every sandbox path resolver returns an error

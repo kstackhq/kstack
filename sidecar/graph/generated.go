@@ -28,6 +28,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth/oauth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -12967,7 +12968,7 @@ func (ec *executionContext) fieldContext_KubeQueryAction_limit(_ context.Context
 	return graphql.NewScalarFieldContext("KubeQueryAction", field, false, false, errors.New("field of type Int does not have child fields"))
 }
 
-func (ec *executionContext) _LogGap_after(ctx context.Context, field graphql.CollectedField, obj *logs.Gap) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogGap_after(ctx context.Context, field graphql.CollectedField, obj *logline.Gap) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -12990,7 +12991,7 @@ func (ec *executionContext) fieldContext_LogGap_after(_ context.Context, field g
 	return graphql.NewScalarFieldContext("LogGap", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _LogGap_before(ctx context.Context, field graphql.CollectedField, obj *logs.Gap) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogGap_before(ctx context.Context, field graphql.CollectedField, obj *logline.Gap) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13013,7 +13014,7 @@ func (ec *executionContext) fieldContext_LogGap_before(_ context.Context, field 
 	return graphql.NewScalarFieldContext("LogGap", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _LogPlace_node(ctx context.Context, field graphql.CollectedField, obj *logs.Place) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogPlace_node(ctx context.Context, field graphql.CollectedField, obj *logline.Place) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13036,7 +13037,7 @@ func (ec *executionContext) fieldContext_LogPlace_node(_ context.Context, field 
 	return graphql.NewScalarFieldContext("LogPlace", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _LogPlace_region(ctx context.Context, field graphql.CollectedField, obj *logs.Place) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogPlace_region(ctx context.Context, field graphql.CollectedField, obj *logline.Place) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13059,7 +13060,7 @@ func (ec *executionContext) fieldContext_LogPlace_region(_ context.Context, fiel
 	return graphql.NewScalarFieldContext("LogPlace", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _LogPlace_zone(ctx context.Context, field graphql.CollectedField, obj *logs.Place) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogPlace_zone(ctx context.Context, field graphql.CollectedField, obj *logline.Place) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13082,7 +13083,7 @@ func (ec *executionContext) fieldContext_LogPlace_zone(_ context.Context, field 
 	return graphql.NewScalarFieldContext("LogPlace", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _LogPlace_os(ctx context.Context, field graphql.CollectedField, obj *logs.Place) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogPlace_os(ctx context.Context, field graphql.CollectedField, obj *logline.Place) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13105,7 +13106,7 @@ func (ec *executionContext) fieldContext_LogPlace_os(_ context.Context, field gr
 	return graphql.NewScalarFieldContext("LogPlace", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _LogPlace_arch(ctx context.Context, field graphql.CollectedField, obj *logs.Place) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogPlace_arch(ctx context.Context, field graphql.CollectedField, obj *logline.Place) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13128,7 +13129,7 @@ func (ec *executionContext) fieldContext_LogPlace_arch(_ context.Context, field 
 	return graphql.NewScalarFieldContext("LogPlace", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _LogRecord_timestamp(ctx context.Context, field graphql.CollectedField, obj *logs.Record) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogRecord_timestamp(ctx context.Context, field graphql.CollectedField, obj *logline.Record) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13151,7 +13152,7 @@ func (ec *executionContext) fieldContext_LogRecord_timestamp(_ context.Context, 
 	return graphql.NewScalarFieldContext("LogRecord", field, false, false, errors.New("field of type Time does not have child fields"))
 }
 
-func (ec *executionContext) _LogRecord_message(ctx context.Context, field graphql.CollectedField, obj *logs.Record) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogRecord_message(ctx context.Context, field graphql.CollectedField, obj *logline.Record) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13174,7 +13175,7 @@ func (ec *executionContext) fieldContext_LogRecord_message(_ context.Context, fi
 	return graphql.NewScalarFieldContext("LogRecord", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _LogRecord_stream(ctx context.Context, field graphql.CollectedField, obj *logs.Record) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogRecord_stream(ctx context.Context, field graphql.CollectedField, obj *logline.Record) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13186,8 +13187,8 @@ func (ec *executionContext) _LogRecord_stream(ctx context.Context, field graphql
 			return obj.Stream, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v logs.StreamKey) graphql.Marshaler {
-			return ec.marshalNLogStream2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐStreamKey(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v logline.StreamKey) graphql.Marshaler {
+			return ec.marshalNLogStream2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚋloglineᚐStreamKey(ctx, selections, v)
 		},
 		true,
 		true,
@@ -13206,7 +13207,7 @@ func (ec *executionContext) fieldContext_LogRecord_stream(_ context.Context, fie
 	return fc, nil
 }
 
-func (ec *executionContext) _LogRecord_place(ctx context.Context, field graphql.CollectedField, obj *logs.Record) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogRecord_place(ctx context.Context, field graphql.CollectedField, obj *logline.Record) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13218,8 +13219,8 @@ func (ec *executionContext) _LogRecord_place(ctx context.Context, field graphql.
 			return obj.Place, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v logs.Place) graphql.Marshaler {
-			return ec.marshalNLogPlace2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐPlace(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v logline.Place) graphql.Marshaler {
+			return ec.marshalNLogPlace2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚋloglineᚐPlace(ctx, selections, v)
 		},
 		true,
 		true,
@@ -13238,7 +13239,7 @@ func (ec *executionContext) fieldContext_LogRecord_place(_ context.Context, fiel
 	return fc, nil
 }
 
-func (ec *executionContext) _LogRecord_cursor(ctx context.Context, field graphql.CollectedField, obj *logs.Record) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogRecord_cursor(ctx context.Context, field graphql.CollectedField, obj *logline.Record) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13261,7 +13262,7 @@ func (ec *executionContext) fieldContext_LogRecord_cursor(_ context.Context, fie
 	return graphql.NewScalarFieldContext("LogRecord", field, true, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _LogRecord_gap(ctx context.Context, field graphql.CollectedField, obj *logs.Record) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogRecord_gap(ctx context.Context, field graphql.CollectedField, obj *logline.Record) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13273,8 +13274,8 @@ func (ec *executionContext) _LogRecord_gap(ctx context.Context, field graphql.Co
 			return obj.Gap, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *logs.Gap) graphql.Marshaler {
-			return ec.marshalOLogGap2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐGap(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *logline.Gap) graphql.Marshaler {
+			return ec.marshalOLogGap2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚋloglineᚐGap(ctx, selections, v)
 		},
 		true,
 		false,
@@ -13305,8 +13306,8 @@ func (ec *executionContext) _LogRecordsPage_records(ctx context.Context, field g
 			return obj.Records, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v []*logs.Record) graphql.Marshaler {
-			return ec.marshalNLogRecord2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐRecordᚄ(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v []*logline.Record) graphql.Marshaler {
+			return ec.marshalNLogRecord2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚋloglineᚐRecordᚄ(ctx, selections, v)
 		},
 		true,
 		true,
@@ -13481,7 +13482,7 @@ func (ec *executionContext) fieldContext_LogRecordsPageEdge_more(_ context.Conte
 	return graphql.NewScalarFieldContext("LogRecordsPageEdge", field, false, false, errors.New("field of type Boolean does not have child fields"))
 }
 
-func (ec *executionContext) _LogStream_namespace(ctx context.Context, field graphql.CollectedField, obj *logs.StreamKey) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogStream_namespace(ctx context.Context, field graphql.CollectedField, obj *logline.StreamKey) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13504,7 +13505,7 @@ func (ec *executionContext) fieldContext_LogStream_namespace(_ context.Context, 
 	return graphql.NewScalarFieldContext("LogStream", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _LogStream_pod(ctx context.Context, field graphql.CollectedField, obj *logs.StreamKey) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogStream_pod(ctx context.Context, field graphql.CollectedField, obj *logline.StreamKey) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13527,7 +13528,7 @@ func (ec *executionContext) fieldContext_LogStream_pod(_ context.Context, field 
 	return graphql.NewScalarFieldContext("LogStream", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _LogStream_container(ctx context.Context, field graphql.CollectedField, obj *logs.StreamKey) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogStream_container(ctx context.Context, field graphql.CollectedField, obj *logline.StreamKey) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13550,7 +13551,7 @@ func (ec *executionContext) fieldContext_LogStream_container(_ context.Context, 
 	return graphql.NewScalarFieldContext("LogStream", field, false, false, errors.New("field of type String does not have child fields"))
 }
 
-func (ec *executionContext) _LogStream_previous(ctx context.Context, field graphql.CollectedField, obj *logs.StreamKey) (ret graphql.Marshaler) {
+func (ec *executionContext) _LogStream_previous(ctx context.Context, field graphql.CollectedField, obj *logline.StreamKey) (ret graphql.Marshaler) {
 	return graphql.ResolveField(
 		ctx,
 		ec.OperationContext,
@@ -13608,8 +13609,8 @@ func (ec *executionContext) _LogsFollowFrame_record(ctx context.Context, field g
 			return obj.Record, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *logs.Record) graphql.Marshaler {
-			return ec.marshalOLogRecord2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐRecord(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *logline.Record) graphql.Marshaler {
+			return ec.marshalOLogRecord2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚋloglineᚐRecord(ctx, selections, v)
 		},
 		true,
 		false,
@@ -14159,8 +14160,8 @@ func (ec *executionContext) _LogsReadLine_gap(ctx context.Context, field graphql
 			return obj.Gap, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v *logs.Gap) graphql.Marshaler {
-			return ec.marshalOLogGap2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐGap(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *logline.Gap) graphql.Marshaler {
+			return ec.marshalOLogGap2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚋloglineᚐGap(ctx, selections, v)
 		},
 		true,
 		false,
@@ -25654,7 +25655,7 @@ func (ec *executionContext) _KubeQueryAction(ctx context.Context, sel ast.Select
 
 var logGapImplementors = []string{"LogGap"}
 
-func (ec *executionContext) _LogGap(ctx context.Context, sel ast.SelectionSet, obj *logs.Gap) graphql.Marshaler {
+func (ec *executionContext) _LogGap(ctx context.Context, sel ast.SelectionSet, obj *logline.Gap) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, logGapImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -25697,7 +25698,7 @@ func (ec *executionContext) _LogGap(ctx context.Context, sel ast.SelectionSet, o
 
 var logPlaceImplementors = []string{"LogPlace"}
 
-func (ec *executionContext) _LogPlace(ctx context.Context, sel ast.SelectionSet, obj *logs.Place) graphql.Marshaler {
+func (ec *executionContext) _LogPlace(ctx context.Context, sel ast.SelectionSet, obj *logline.Place) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, logPlaceImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -25755,7 +25756,7 @@ func (ec *executionContext) _LogPlace(ctx context.Context, sel ast.SelectionSet,
 
 var logRecordImplementors = []string{"LogRecord"}
 
-func (ec *executionContext) _LogRecord(ctx context.Context, sel ast.SelectionSet, obj *logs.Record) graphql.Marshaler {
+func (ec *executionContext) _LogRecord(ctx context.Context, sel ast.SelectionSet, obj *logline.Record) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, logRecordImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -25919,7 +25920,7 @@ func (ec *executionContext) _LogRecordsPageEdge(ctx context.Context, sel ast.Sel
 
 var logStreamImplementors = []string{"LogStream"}
 
-func (ec *executionContext) _LogStream(ctx context.Context, sel ast.SelectionSet, obj *logs.StreamKey) graphql.Marshaler {
+func (ec *executionContext) _LogStream(ctx context.Context, sel ast.SelectionSet, obj *logline.StreamKey) graphql.Marshaler {
 	fields := graphql.CollectFields(ec.OperationContext, sel, logStreamImplementors)
 
 	out := graphql.NewFieldSet(fields)
@@ -30094,15 +30095,15 @@ func (ec *executionContext) marshalNJSON2githubᚗcomᚋkstackhqᚋkstackᚋside
 	return v
 }
 
-func (ec *executionContext) marshalNLogPlace2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐPlace(ctx context.Context, sel ast.SelectionSet, v logs.Place) graphql.Marshaler {
+func (ec *executionContext) marshalNLogPlace2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚋloglineᚐPlace(ctx context.Context, sel ast.SelectionSet, v logline.Place) graphql.Marshaler {
 	return ec._LogPlace(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNLogRecord2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐRecordᚄ(ctx context.Context, sel ast.SelectionSet, v []*logs.Record) graphql.Marshaler {
+func (ec *executionContext) marshalNLogRecord2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚋloglineᚐRecordᚄ(ctx context.Context, sel ast.SelectionSet, v []*logline.Record) graphql.Marshaler {
 	ret := graphql.MarshalSliceConcurrently(ctx, len(v), 0, false, func(ctx context.Context, i int) graphql.Marshaler {
 		fc := graphql.GetFieldContext(ctx)
 		fc.Result = &v[i]
-		return ec.marshalNLogRecord2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐRecord(ctx, sel, v[i])
+		return ec.marshalNLogRecord2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚋloglineᚐRecord(ctx, sel, v[i])
 	})
 
 	for _, e := range ret {
@@ -30114,7 +30115,7 @@ func (ec *executionContext) marshalNLogRecord2ᚕᚖgithubᚗcomᚋkstackhqᚋks
 	return ret
 }
 
-func (ec *executionContext) marshalNLogRecord2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐRecord(ctx context.Context, sel ast.SelectionSet, v *logs.Record) graphql.Marshaler {
+func (ec *executionContext) marshalNLogRecord2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚋloglineᚐRecord(ctx context.Context, sel ast.SelectionSet, v *logline.Record) graphql.Marshaler {
 	if v == nil {
 		if !graphql.HasFieldError(ctx, graphql.GetFieldContext(ctx)) {
 			graphql.AddErrorf(ctx, "the requested element is null which the schema does not allow")
@@ -30144,7 +30145,7 @@ func (ec *executionContext) marshalNLogRecordsPageEdge2ᚖgithubᚗcomᚋkstackh
 	return ec._LogRecordsPageEdge(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalNLogStream2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐStreamKey(ctx context.Context, sel ast.SelectionSet, v logs.StreamKey) graphql.Marshaler {
+func (ec *executionContext) marshalNLogStream2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚋloglineᚐStreamKey(ctx context.Context, sel ast.SelectionSet, v logline.StreamKey) graphql.Marshaler {
 	return ec._LogStream(ctx, sel, &v)
 }
 
@@ -31647,14 +31648,14 @@ var (
 	}
 )
 
-func (ec *executionContext) marshalOLogGap2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐGap(ctx context.Context, sel ast.SelectionSet, v *logs.Gap) graphql.Marshaler {
+func (ec *executionContext) marshalOLogGap2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚋloglineᚐGap(ctx context.Context, sel ast.SelectionSet, v *logline.Gap) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}
 	return ec._LogGap(ctx, sel, v)
 }
 
-func (ec *executionContext) marshalOLogRecord2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚐRecord(ctx context.Context, sel ast.SelectionSet, v *logs.Record) graphql.Marshaler {
+func (ec *executionContext) marshalOLogRecord2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋservicesᚋlogsᚋloglineᚐRecord(ctx context.Context, sel ast.SelectionSet, v *logline.Record) graphql.Marshaler {
 	if v == nil {
 		return graphql.Null
 	}

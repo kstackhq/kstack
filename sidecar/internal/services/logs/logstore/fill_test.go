@@ -82,7 +82,7 @@ func TestAFillClaimsFromItsFirstLine(t *testing.T) {
 	s := newTestStore(t)
 	id := streamOf(t, s)
 
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(3, 0), at(4, 0), at(5, 1))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0), at(4, 0), at(5, 1))})
 
 	assert.Equal(t, []Chunk{chunk(at(3, 0), at(5, 1))}, chunksOfStream(t, s, id))
 	assert.Equal(t, []Pos{at(3, 0), at(4, 0), at(5, 1)}, positions(t, s, id))
@@ -94,8 +94,8 @@ func TestALineFoundTwiceIsStoredOnce(t *testing.T) {
 	s := newTestStore(t)
 	id := streamOf(t, s)
 
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(3, 0), at(4, 0))},
-		Fill{Stream: id, Origin: "kubelet", Lines: lines(at(4, 0), at(5, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0), at(4, 0))},
+		Fill{Stream: id, Backend: "kubelet", Lines: lines(at(4, 0), at(5, 0))})
 
 	assert.Equal(t, []Pos{at(3, 0), at(4, 0), at(5, 0)}, positions(t, s, id))
 }
@@ -107,12 +107,12 @@ func TestAWholeFillMergesIntoTheChunkItContinues(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0))})
 
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(2, 1), at(3, 0)), Prev: ptr(at(2, 0)), Merge: true})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(2, 1), at(3, 0)), Prev: ptr(at(2, 0)), Merge: true})
 	assert.Equal(t, []Chunk{chunk(at(1, 0), at(3, 0))}, chunksOfStream(t, s, id))
 
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(9, 0)), Prev: ptr(at(3, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(9, 0)), Prev: ptr(at(3, 0))})
 	chunks := chunksOfStream(t, s, id)
 	assert.Equal(t, []Chunk{chunk(at(1, 0), at(3, 0)), linked(chunk(at(9, 0), at(9, 0)), at(3, 0))}, chunks)
 	assert.Len(t, CoverageOf(chunks, kubelet, nil).Spans, 1)
@@ -128,7 +128,7 @@ func TestAStampedFillStampsWhatItWrites(t *testing.T) {
 	s := newClockedStore(t, testRetention, c)
 	id := streamOf(t, s)
 
-	w, err := s.Write(t.Context(), []Fill{{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0))}}, false)
+	w, err := s.Write(t.Context(), []Fill{{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0))}}, false)
 	require.NoError(t, err)
 	assert.Equal(t, []*int64{nil}, stamps(t, s, id), "unstamped")
 	chunks, err := s.Chunks(t.Context(), id, "")
@@ -136,11 +136,11 @@ func TestAStampedFillStampsWhatItWrites(t *testing.T) {
 	assert.Equal(t, []int64{chunks[0].ID}, w.Chunks)
 
 	c.set(9_000)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(2, 1)), Prev: ptr(at(2, 0)), Merge: true})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(2, 1)), Prev: ptr(at(2, 0)), Merge: true})
 	assert.Equal(t, []*int64{ms(9_000)}, stamps(t, s, id), "the chunk a stamped fill extended")
 
 	c.set(12_000)
-	_, err = s.Write(t.Context(), []Fill{{Stream: id, Origin: "kubelet", Lines: lines(at(2, 2)), Prev: ptr(at(2, 1)), Merge: true}}, false)
+	_, err = s.Write(t.Context(), []Fill{{Stream: id, Backend: "kubelet", Lines: lines(at(2, 2)), Prev: ptr(at(2, 1)), Merge: true}}, false)
 	require.NoError(t, err)
 	assert.Equal(t, []*int64{ms(9_000)}, stamps(t, s, id), "an unstamped fill keeps the row's stamp")
 }
@@ -158,8 +158,8 @@ func TestAWriteSkipsAFillWhoseRowIsGone(t *testing.T) {
 	})
 
 	w, err := s.Write(t.Context(), []Fill{
-		{Stream: gone, Origin: "kubelet", Lines: lines(at(1, 0))},
-		{Stream: kept, Origin: "kubelet", Lines: lines(at(2, 0))},
+		{Stream: gone, Backend: "kubelet", Lines: lines(at(1, 0))},
+		{Stream: kept, Backend: "kubelet", Lines: lines(at(2, 0))},
 	}, true)
 
 	require.NoError(t, err)
@@ -184,7 +184,7 @@ func TestAHeldWriteHoldsFromItsCommit(t *testing.T) {
 		swept <- s.Sweep(t.Context())
 	}()
 
-	w, release, err := s.WriteHeld(t.Context(), []Fill{{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0))}})
+	w, release, err := s.WriteHeld(t.Context(), []Fill{{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0))}})
 	require.NoError(t, err)
 	require.NoError(t, testutil.Recv(t, swept, "the sweep the commit started"))
 	assert.Equal(t, w.Chunks, idsIn(t, s, "chunks"))
@@ -202,7 +202,7 @@ func TestNoFillExtendsAnOpenChunk(t *testing.T) {
 	id := streamOf(t, s)
 	openChunk(t, s, insertChunk(t, s, id, chunk(at(1, 0), at(2, 0))))
 
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(2, 1)), Prev: ptr(at(2, 0)), Merge: true})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(2, 1)), Prev: ptr(at(2, 0)), Merge: true})
 
 	tail := chunk(at(1, 0), at(2, 0))
 	tail.Open = true
@@ -220,8 +220,8 @@ func TestAFillClosesItsChunkAtChunkBytesOrChunkSpan(t *testing.T) {
 		big[i].Message = string(make([]byte, testRetention.ChunkBytes/2))
 	}
 
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: big})
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1000, 0), at(1000+300, 0), at(1000+301, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: big})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1000, 0), at(1000+300, 0), at(1000+301, 0))})
 
 	chunks := chunksOfStream(t, s, id)
 	assert.Equal(t, []Chunk{
@@ -240,12 +240,12 @@ func TestAFillLinksTheChunkItRanInto(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0))},
-		Fill{Stream: id, Origin: "kubelet", Lines: lines(at(5, 0))},
-		Fill{Stream: id, Origin: "kubelet", Lines: lines(at(9, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0))},
+		Fill{Stream: id, Backend: "kubelet", Lines: lines(at(5, 0))},
+		Fill{Stream: id, Backend: "kubelet", Lines: lines(at(9, 0))})
 
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(3, 0)), Next: ptr(at(5, 0))},
-		Fill{Stream: id, Origin: "kubelet", Prev: ptr(at(5, 0)), Next: ptr(at(9, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0)), Next: ptr(at(5, 0))},
+		Fill{Stream: id, Backend: "kubelet", Prev: ptr(at(5, 0)), Next: ptr(at(9, 0))})
 
 	chunks := chunksOfStream(t, s, id)
 	assert.Equal(t, []Chunk{
@@ -258,25 +258,25 @@ func TestAFillLinksTheChunkItRanInto(t *testing.T) {
 }
 
 // A read that reached the backend's oldest line marks the oldest chunk it wrote
-// head, or the chunk it ran into when it found nothing older; one that reached a
+// at_beginning, or the chunk it ran into when it found nothing older; one that reached a
 // finished instance's last line marks the newest it wrote at_end, or the chunk it
 // started from when it found nothing newer.
-func TestHeadAndAtEndAreWritten(t *testing.T) {
+func TestAtBeginningAndAtEndAreWritten(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0)), Head: true, AtEnd: true})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0)), AtBeginning: true, AtEnd: true})
 	end := chunk(at(1, 0), at(2, 0))
-	end.Head, end.AtEnd = true, true
+	end.AtBeginning, end.AtEnd = true, true
 	assert.Equal(t, []Chunk{end}, chunksOfStream(t, s, id))
 
 	other, err := s.PutStreams(t.Context(), []Stream{{Namespace: "web", Pod: "api-7f9c", Container: "app", ContainerID: "containerd://2"}})
 	require.NoError(t, err)
-	write(t, s, Fill{Stream: other[0], Origin: "kubelet", Lines: lines(at(5, 0))})
-	write(t, s, Fill{Stream: other[0], Origin: "kubelet", Next: ptr(at(5, 0)), Head: true},
-		Fill{Stream: other[0], Origin: "kubelet", Prev: ptr(at(5, 0)), AtEnd: true})
+	write(t, s, Fill{Stream: other[0], Backend: "kubelet", Lines: lines(at(5, 0))})
+	write(t, s, Fill{Stream: other[0], Backend: "kubelet", Next: ptr(at(5, 0)), AtBeginning: true},
+		Fill{Stream: other[0], Backend: "kubelet", Prev: ptr(at(5, 0)), AtEnd: true})
 	end = chunk(at(5, 0), at(5, 0))
-	end.Head, end.AtEnd = true, true
+	end.AtBeginning, end.AtEnd = true, true
 	assert.Equal(t, []Chunk{end}, chunksOfStream(t, s, other[0]))
 }
 
@@ -287,8 +287,8 @@ func TestFillsFromOneLineKeepTheLongerExtent(t *testing.T) {
 	for _, longerFirst := range []bool{false, true} {
 		s := newTestStore(t)
 		id := streamOf(t, s)
-		short := Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0)), Head: true}
-		long := Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0), at(3, 0)), Head: true, AtEnd: true}
+		short := Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0)), AtBeginning: true}
+		long := Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0), at(3, 0)), AtBeginning: true, AtEnd: true}
 		if longerFirst {
 			write(t, s, long)
 			write(t, s, short)
@@ -298,7 +298,7 @@ func TestFillsFromOneLineKeepTheLongerExtent(t *testing.T) {
 		}
 
 		want := chunk(at(1, 0), at(3, 0))
-		want.Head, want.AtEnd = true, true
+		want.AtBeginning, want.AtEnd = true, true
 		assert.Equal(t, []Chunk{want}, chunksOfStream(t, s, id), "longer first: %v", longerFirst)
 	}
 }
@@ -309,17 +309,17 @@ func TestALabelledFillProvesNothingForOtherPatterns(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0))},
-		Fill{Stream: id, Origin: "kubelet", Lines: lines(at(3, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0))},
+		Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0))})
 
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Pattern: "P", Prev: ptr(at(1, 0)), Next: ptr(at(3, 0)), Head: true, AtEnd: true})
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Pattern: "P", Prev: ptr(at(3, 0)), AtEnd: true})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Pattern: "P", Prev: ptr(at(1, 0)), Next: ptr(at(3, 0)), AtBeginning: true, AtEnd: true})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Pattern: "P", Prev: ptr(at(3, 0)), AtEnd: true})
 
 	assert.Equal(t, []Chunk{chunk(at(1, 0), at(1, 0)), chunk(at(3, 0), at(3, 0))}, chunksOfStream(t, s, id))
 }
 
 // A write the file refuses any part of fails whole, leaving no line behind: a line, a
-// chunk, a head or an end mark, or the trim of a finished stream.
+// chunk, a beginning or an end mark, or the trim of a finished stream.
 func TestAWriteTheFileRefusesFails(t *testing.T) {
 	t.Parallel()
 	for name, c := range map[string]struct {
@@ -327,19 +327,19 @@ func TestAWriteTheFileRefusesFails(t *testing.T) {
 		fill      func(id int64) Fill
 	}{
 		"a line": {"INSERT", "lines", func(id int64) Fill {
-			return Fill{Stream: id, Origin: "kubelet", Lines: lines(at(3, 0))}
+			return Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0))}
 		}},
 		"a chunk": {"INSERT", "chunks", func(id int64) Fill {
-			return Fill{Stream: id, Origin: "kubelet", Lines: lines(at(3, 0))}
+			return Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0))}
 		}},
-		"a head mark": {"UPDATE", "chunks", func(id int64) Fill {
-			return Fill{Stream: id, Origin: "kubelet", Next: ptr(at(1, 0)), Head: true}
+		"a beginning mark": {"UPDATE", "chunks", func(id int64) Fill {
+			return Fill{Stream: id, Backend: "kubelet", Next: ptr(at(1, 0)), AtBeginning: true}
 		}},
 		"an end mark": {"UPDATE", "chunks", func(id int64) Fill {
-			return Fill{Stream: id, Origin: "kubelet", Prev: ptr(at(2, 0)), AtEnd: true}
+			return Fill{Stream: id, Backend: "kubelet", Prev: ptr(at(2, 0)), AtEnd: true}
 		}},
 		"the trim": {"DELETE", "lines", func(id int64) Fill {
-			return Fill{Stream: id, Origin: "kubelet", Lines: lines(at(7, 0))}
+			return Fill{Stream: id, Backend: "kubelet", Lines: lines(at(7, 0))}
 		}},
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -350,7 +350,7 @@ func TestAWriteTheFileRefusesFails(t *testing.T) {
 			ids, err := s.PutStreams(t.Context(), []Stream{done})
 			require.NoError(t, err)
 			id := ids[0]
-			write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(2, 0))})
+			write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0))})
 			refuse(t, s, c.op, c.table)
 
 			_, err = s.Write(t.Context(), []Fill{c.fill(id)}, true)

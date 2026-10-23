@@ -32,8 +32,8 @@ func TestATrimCutsAtTheEndOfFinishedAtsSecond(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), halfPast(5, 0), at(6, 0)), AtEnd: true},
-		Fill{Stream: id, Origin: "kubelet", Lines: lines(at(8, 0), at(9, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), halfPast(5, 0), at(6, 0)), AtEnd: true},
+		Fill{Stream: id, Backend: "kubelet", Lines: lines(at(8, 0), at(9, 0))})
 
 	done := app()
 	done.FinishedAt = second(5)
@@ -49,7 +49,7 @@ func TestATrimThatRemovesNothingKeepsAtEnd(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), halfPast(5, 0)), AtEnd: true})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), halfPast(5, 0)), AtEnd: true})
 
 	done := app()
 	done.FinishedAt = second(5)
@@ -71,7 +71,7 @@ func TestAWriteToAFinishedStreamIsTrimmed(t *testing.T) {
 	ids, err := s.PutStreams(t.Context(), []Stream{done})
 	require.NoError(t, err)
 
-	write(t, s, Fill{Stream: ids[0], Origin: "kubelet", Lines: lines(at(4, 0), at(7, 0)), AtEnd: true})
+	write(t, s, Fill{Stream: ids[0], Backend: "kubelet", Lines: lines(at(4, 0), at(7, 0)), AtEnd: true})
 
 	assert.Equal(t, []Pos{at(4, 0)}, positions(t, s, ids[0]))
 	assert.Equal(t, []Chunk{chunk(at(4, 0), at(4, 0))}, chunksOfStream(t, s, ids[0]))
@@ -84,7 +84,7 @@ func TestFinishStreamsTrimsWhatTheFileHolds(t *testing.T) {
 	t.Parallel()
 	s := newTestStore(t)
 	id := streamOf(t, s)
-	write(t, s, Fill{Stream: id, Origin: "kubelet", Lines: lines(at(1, 0), at(6, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(6, 0))})
 	done, absent := app(), app()
 	done.FinishedAt = second(5)
 	absent.ContainerID, absent.FinishedAt = "containerd://9", second(5)

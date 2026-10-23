@@ -55,32 +55,32 @@ CREATE TABLE streams (
 -- at a byte budget wherever that falls, inside a moment included.
 --
 -- prev_ns and prev_ord are the position the chunk continues from: the last line of the
--- chunk before it, with no line between that the origin backend holds. NULL when the
+-- chunk before it, with no line between that the chunk's backend holds. NULL when the
 -- chunk opened on a gap. Two chunks so linked are one span of coverage.
 --
--- pattern is the grep the fill ran under, '' for every line. origin is the backend that
--- filled it, by name. at_head is 1 when that backend holds nothing older than from_ns;
+-- pattern is the grep the fill ran under, '' for every line. backend is the backend that
+-- filled it, by name. at_beginning is 1 when that backend holds nothing older than from_ns;
 -- at_end is 1 when to_ns is the last line of a finished instance's log; open is 1 while
 -- a tailer is still writing into it. read_at_ms is when a page last read from it or a
 -- fill wrote it, in unix milliseconds, NULL when neither has: a clock, not a line's
 -- moment. A tailer's write leaves it alone, so a tailed stream nobody pages is
 -- evictable from the moment it is written.
 CREATE TABLE chunks (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  stream_id  INTEGER NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
-  pattern    TEXT    NOT NULL,
-  from_ns    INTEGER NOT NULL,
-  from_ord   INTEGER NOT NULL,
-  to_ns      INTEGER NOT NULL,
-  to_ord     INTEGER NOT NULL,
-  prev_ns    INTEGER,
-  prev_ord   INTEGER,
-  origin     TEXT    NOT NULL,
-  at_head    INTEGER NOT NULL CHECK (at_head IN (0, 1)),
-  at_end     INTEGER NOT NULL CHECK (at_end IN (0, 1)),
-  open       INTEGER NOT NULL CHECK (open IN (0, 1)),
-  bytes      INTEGER NOT NULL,
-  read_at_ms INTEGER,
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  stream_id    INTEGER NOT NULL REFERENCES streams(id) ON DELETE CASCADE,
+  pattern      TEXT    NOT NULL,
+  from_ns      INTEGER NOT NULL,
+  from_ord     INTEGER NOT NULL,
+  to_ns        INTEGER NOT NULL,
+  to_ord       INTEGER NOT NULL,
+  prev_ns      INTEGER,
+  prev_ord     INTEGER,
+  backend      TEXT    NOT NULL,
+  at_beginning INTEGER NOT NULL CHECK (at_beginning IN (0, 1)),
+  at_end       INTEGER NOT NULL CHECK (at_end IN (0, 1)),
+  open         INTEGER NOT NULL CHECK (open IN (0, 1)),
+  bytes        INTEGER NOT NULL,
+  read_at_ms   INTEGER,
   UNIQUE (stream_id, pattern, from_ns, from_ord)
 ) STRICT;
 

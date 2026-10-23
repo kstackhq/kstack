@@ -35,7 +35,7 @@ const (
 	stmtSelectChunks
 	stmtInsertLine
 	stmtInsertChunk
-	stmtMarkHead
+	stmtMarkAtBeginning
 	stmtMarkAtEnd
 	stmtLinkChunk
 	stmtSelectFinishedAt
@@ -118,13 +118,13 @@ var statements = []sqlstmt.Statement{
 		INSERT OR IGNORE INTO lines (stream_id, ts_ns, ord, message) VALUES (?, ?, ?, ?)`),
 	// Two fills of one gap can start at one line, as two pages with different limits
 	// read it, and so can a fill and a tail, and a tail extends its own chunk through
-	// the same insert: the row keeps the later end, with its at_end, either's head
+	// the same insert: the row keeps the later end, with its at_end, either's beginning
 	// mark and link, since every claim each made holds, and stays open while a tail
 	// writes it. Neither touches read_at_ms, which Write and a page stamp apart.
 	stmtInsertChunk: sqlstmt.OnWriter(`
 		INSERT INTO chunks (
 			stream_id, pattern, from_ns, from_ord, to_ns, to_ord, prev_ns, prev_ord,
-			origin, at_head, at_end, open, bytes
+			backend, at_beginning, at_end, open, bytes
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (stream_id, pattern, from_ns, from_ord) DO UPDATE SET
 			at_end = CASE
@@ -134,18 +134,18 @@ var statements = []sqlstmt.Statement{
 			to_ord = CASE WHEN (excluded.to_ns, excluded.to_ord) > (to_ns, to_ord) THEN excluded.to_ord ELSE to_ord END,
 			to_ns = max(to_ns, excluded.to_ns),
 			bytes = max(bytes, excluded.bytes),
-			at_head = max(at_head, excluded.at_head),
+			at_beginning = max(at_beginning, excluded.at_beginning),
 			prev_ns = coalesce(prev_ns, excluded.prev_ns),
 			prev_ord = coalesce(prev_ord, excluded.prev_ord),
 			open = max(open, excluded.open)
 		RETURNING id, to_ns, to_ord, at_end, open, bytes`),
 	// A fill's proof holds for its own pattern alone, so it links and marks no other.
-	stmtMarkHead: sqlstmt.OnWriter(`
-		UPDATE chunks SET at_head = 1
-		WHERE stream_id = ?1 AND pattern = ?2 AND origin = ?3 AND from_ns = ?4 AND from_ord = ?5`),
+	stmtMarkAtBeginning: sqlstmt.OnWriter(`
+		UPDATE chunks SET at_beginning = 1
+		WHERE stream_id = ?1 AND pattern = ?2 AND backend = ?3 AND from_ns = ?4 AND from_ord = ?5`),
 	stmtMarkAtEnd: sqlstmt.OnWriter(`
 		UPDATE chunks SET at_end = 1
-		WHERE stream_id = ?1 AND pattern = ?2 AND origin = ?3 AND to_ns = ?4 AND to_ord = ?5`),
+		WHERE stream_id = ?1 AND pattern = ?2 AND backend = ?3 AND to_ns = ?4 AND to_ord = ?5`),
 	stmtLinkChunk: sqlstmt.OnWriter(`
 		UPDATE chunks SET prev_ns = ?5, prev_ord = ?6
 		WHERE stream_id = ?1 AND pattern = ?2 AND from_ns = ?3 AND from_ord = ?4`),
@@ -191,7 +191,7 @@ var statements = []sqlstmt.Statement{
 	// An open chunk is its tailer's alone to extend.
 	stmtSelectChunkEndingAt: sqlstmt.OnBoth(`
 		SELECT ` + chunkColumns + ` FROM chunks
-		WHERE stream_id = ? AND pattern = ? AND origin = ? AND to_ns = ? AND to_ord = ? AND open = 0`),
+		WHERE stream_id = ? AND pattern = ? AND backend = ? AND to_ns = ? AND to_ord = ? AND open = 0`),
 	stmtCloseOpenChunks: sqlstmt.OnWriter(`UPDATE chunks SET open = 0 WHERE open = 1`),
 	stmtCloseChunk:      sqlstmt.OnWriter(`UPDATE chunks SET open = 0 WHERE id = ?`),
 	stmtStreamExists:    sqlstmt.OnWriter(`SELECT 1 FROM streams WHERE id = ?`),
@@ -225,7 +225,7 @@ func idList(ids []int64) string {
 
 // chunkColumns is a chunk row as chunksOf reads it.
 const chunkColumns = `
-	id, pattern, from_ns, from_ord, to_ns, to_ord, prev_ns, prev_ord, origin, at_head, at_end, open, bytes,
+	id, pattern, from_ns, from_ord, to_ns, to_ord, prev_ns, prev_ord, backend, at_beginning, at_end, open, bytes,
 	coalesce(read_at_ms, 0)`
 
 // streamColumns is a stream row as scanStream reads it.
