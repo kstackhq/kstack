@@ -1227,29 +1227,30 @@ type LogsViewAction {
   resolvedAt: Time!
 }
 
-"What a LogsRead call read: the view, the range, and the lines the model read."
+"What a LogsRead call read: the scope, the window as it ran, and the lines the model read."
 type LogsReadAction {
-  "The view read, as LogsView resolves one."
+  "The scope read, as LogsView resolves one."
   sources: [LogsViewSource!]!
   filters: [LogsViewFilter!]!
   "The model wrote it, so draw it as text."
   grep: String!
-  "The range's ends as moments: a cursor's line's timestamp, or the resolved moment. Null for an open end."
+  "The range's bounds, each including every line at that moment. Null is open."
   since: Time
   until: Time
-  "Which end of the range the sample came from."
-  mode: LogsReadMode!
-  "When the sidecar resolved the read, on its clock."
+  "The window's padding past each bound."
+  before: LogsPadding!
+  after: LogsPadding!
+  "Which end of the window the first page came from. Null on a continuation."
+  pageFrom: LogsPageFrom
+  "The first page's clock."
   resolvedAt: Time!
   "The lines the model read, oldest first, as it read them: stripped, redacted and cut. Cluster text."
   lines: [LogsReadLine!]!
-  "Lines past the sample's budget, left out."
-  dropped: Int!
-  "What lies before the first line and after the last."
-  before: LogsReadEdge!
-  after: LogsReadEdge!
-  "Every stream the read could not read, one line each. Cluster text."
-  skipped: [String!]!
+  "Whether the page had older lines, or newer ones, past it."
+  olderMore: Boolean!
+  newerMore: Boolean!
+  "What the page said."
+  notices: [LogNotice!]!
   "The view `View around this` opens: the read's view at its first line's moment, unpinned. Null with no line."
   viewAround: LogsViewAction
 }
@@ -1261,31 +1262,17 @@ type LogsWatchAction {
   filters: [LogsViewFilter!]!
   "Empty watches for any line. The model wrote it, so draw it as text."
   grep: String!
-  "Where the window starts: the call's `since`, resolved, or `resolvedAt` with none."
-  since: Time!
+  "Where the window starts: the call's `since`, resolved, or `resolvedAt` with none. Null for a watch that went on from a read's token."
+  since: Time
   "How many matching lines end the watch, and how many bytes of them."
   limit: Int!
   maxBytes: Int!
+  "Where each line is cut."
+  maxMessageBytes: Int!
   "When the sidecar started the watch, on its clock."
   resolvedAt: Time!
   "When the watch ends on time alone: the call's `until`, cut to a day, else a day after `resolvedAt`."
   until: Time!
-}
-
-"Which end of its range a read's sample came from: the oldest lines, or the newest."
-enum LogsReadMode {
-  Head
-  Tail
-}
-
-"What lies past one end of a sample."
-enum LogsReadEdge {
-  "Nothing: the read reached the start of the log, or the live end."
-  End
-  "Lines the read did not return: it hit its limit or its budget, or it was continued from a cursor on this side."
-  More
-  "Lines there may be: a moment was given on this side and the read stopped at it without looking past."
-  Unread
 }
 
 "One line of a sample. Cluster text, so draw it as text."
@@ -1298,6 +1285,8 @@ type LogsReadLine {
   message: String!
   "The hole before this line, as the viewer's `gap`."
   gap: LogGap
+  "The bytes cut off `message` at the read's message cap. 0 when whole."
+  truncatedBytes: Int!
 }
 
 "Where a view opens: an edge of the stream, or a moment in it."
@@ -1527,11 +1516,13 @@ type ChatMessageWatchFrame {
 type LogRecord {
   "When the container runtime stamped it."
   timestamp: Time!
-  "The line, with terminal control sequences stripped and cut at 16 KiB."
+  "The line, with terminal control sequences stripped and cut at the request's `maxMessageBytes`: at most the file's own 16 KiB plus its ellipsis."
   message: String!
+  "The bytes cut off `message` at the request's `maxMessageBytes`. 0 when whole."
+  truncatedBytes: Int!
   stream: LogStream!
   place: LogPlace!
-  "Names this line: a fetch's cursor argument or a follow's `after` resumes past it. Opaque."
+  "Names this line: a fetch's or a follow's `seen` reads this stream past it. Opaque."
   cursor: String!
   "Set when lines of this stream may be missing just before this line. Null when none are."
   gap: LogGap
@@ -1566,26 +1557,98 @@ type LogPlace {
   arch: String!
 }
 
-"One edge of a page: where the next page that way continues from, and whether there is one."
-type LogRecordsPageEdge {
-  "Opaque. A page's cursor, never a line's. Null on a `before` edge with nothing older."
+"Where a window's first page comes from."
+enum LogsPageFrom {
+  First
+  Last
+}
+
+"How far the window extends past one end of the range, to show the lines around it: a number of lines, or a span as an ISO 8601 duration such as `PT5M`, at most seven days. Give one."
+input LogsPaddingInput {
+  lines: Int
+  span: String
+}
+
+"""
+One page: a first page, which gives `scope` and the window, or a continuation, which gives
+`cursor` and nothing of them. The three caps are read on every page.
+"""
+input LogsFetchInput {
+  scope: LogsScopeInput
+  "The range's bounds, each including every line at that moment. Null is open."
+  since: Time
+  until: Time
+  "The window's padding past each bound."
+  before: LogsPaddingInput
+  after: LogsPaddingInput
+  "Required on a first page, omitted on a continuation: there is no default."
+  pageFrom: LogsPageFrom
+  "The last line the caller has of each stream, by its `cursor`: that stream reads past it, and the rest read from the window's start, or from where the page left them beside a `cursor`. Refused with `Last`, with padding on a first page, beside a `prev`, and beside a cursor whose `after` is a count."
+  seen: [String!]
+  "A page's `prev`, `next` or `follow` as it came. It holds the scope and the window, so sending either beside it is refused."
   cursor: String
-  more: Boolean!
+  "1 to 500; null or 0 is the server's default."
+  pageSize: Int
+  "Cuts each message; 0 is the server's cap."
+  maxMessageBytes: Int
+  "Caps the page's messages together; 0 is the server's default."
+  maxPageBytes: Int
 }
 
-"A page of a view's lines, oldest first in position order, whatever the mode."
+"One side's padding as it ran: `lines`, or `span` as an ISO 8601 duration, normalised (`PT300S` is `PT5M`). Empty `span` and 0 `lines` is none."
+type LogsPadding {
+  lines: Int!
+  span: String!
+}
+
+"The request as it ran: defaults filled, caps applied, and on a continuation the scope, range and padding the page cursor holds."
+type LogsFetchRequest {
+  sources: [LogsViewSource!]!
+  filters: [LogsViewFilter!]!
+  "The model may have written it, so draw it as text."
+  grep: String!
+  since: Time
+  until: Time
+  before: LogsPadding!
+  after: LogsPadding!
+  "Null on a continuation."
+  pageFrom: LogsPageFrom
+  pageSize: Int!
+  maxMessageBytes: Int!
+  maxPageBytes: Int!
+}
+
+"""
+The page's place in the window, each a page cursor to pass back as `cursor`, null where there is
+none. A page cursor is an opaque string that holds everything the next page needs, and it never
+expires. `prev` goes on toward older lines and `next` toward newer; `follow` polls a live window's
+end for lines written since. A page going on from `next` or `follow` may hold a line stamped
+older than one already read.
+"""
+type LogRecordsPlace {
+  prev: String
+  next: String
+  follow: String
+}
+
+"Something the page wants the reader to know. `code` is one of a closed, kebab-case set the server shares with its refusals; `message` is for people. Cluster text."
+type LogNotice {
+  code: String!
+  message: String!
+}
+
 type LogRecordsPage {
+  request: LogsFetchRequest!
+  "The first page's clock, which an open `until`'s `after` is measured from on every page."
+  resolvedAt: Time!
+  page: LogRecordsPlace!
   records: [LogRecord!]!
-  before: LogRecordsPageEdge!
-  after: LogRecordsPageEdge!
-  "For `Around`: the index of the first record at or after `at`, `records.length` with none. Null for the other modes."
-  anchor: Int
-  "Streams the page could not read, one line each, in the sidecar's words. Empty when every stream answered."
-  skipped: [String!]!
+  "Never null: empty with nothing to say."
+  notices: [LogNotice!]!
 }
 
-"What a view reads: the `LogsViewAction` fields the backend takes, as an input."
-input LogsViewInput {
+"What a read covers: the `LogsViewAction` fields the backend takes, as an input."
+input LogsScopeInput {
   sources: [LogsViewSourceInput!]!
   filters: [LogsViewFilterInput!]!
   grep: String!
@@ -1636,37 +1699,39 @@ input LogsViewSelectedLineInput {
   message: String!
 }
 
+"One follow: what to follow, and where it starts. With neither `since` nor `cursor` it starts from now."
+input LogsFollowInput {
+  "What is followed. Omitted beside `cursor`, which holds it."
+  scope: LogsScopeInput
+  "A start: that moment's lines included. Refused beside `cursor`."
+  since: Time
+  "The last line the caller has of each stream, by its `cursor`: that stream reads past it, and a stream not named reads from the start. Refused alone."
+  seen: [String!]
+  "A page's `next` or `follow`: each stream reads past where that page left it, and on past the page's window."
+  cursor: String
+  "Cuts each message; 0 is the server's cap."
+  maxMessageBytes: Int
+}
+
 """
-One frame of a follow: a line, a checkpoint, or the last frame, saying why the follow ended.
+One frame of a follow: a line, a notice, or the last frame, saying why the follow ended.
 Following again after `Ended` would end the same way. Detect each frame by `type`, never by
 which field is missing.
 """
 type LogsFollowFrame {
   type: LogsFollowFrameType!
-  "The line. Null on `Checkpoint` and `Ended`."
+  "The line, cut at `maxMessageBytes`. Set on `Line`."
   record: LogRecord
-  "A follow opened `after` it misses no line. Null on `Line` and `Ended`."
-  cursor: String
-  "Why the follow ended, in the user's words. Empty on `Line` and `Checkpoint`."
-  reason: String!
+  "Something the follow wants the reader to know. Set on `Notice`."
+  notice: LogNotice
+  "Why the follow ended: its code, and the reason in the user's words. Set on `Ended`."
+  ended: LogNotice
 }
 
 enum LogsFollowFrameType {
   Line
-  Checkpoint
+  Notice
   Ended
-}
-
-"""
-Which page of a view to read. `Head` reads oldest first after `cursor`, from the start with
-none; `Tail` reads newest first before `cursor`, from the end with none; `Around` reads
-`limit` lines before `at` and `limit` from it on, so its page holds up to twice `limit`, and
-needs `at` and no cursor.
-"""
-enum LogsFetchMode {
-  Head
-  Tail
-  Around
 }
 
 # --- Memory ---
@@ -1999,20 +2064,11 @@ type Query {
 
   # --- Logs ---
   """
-  A page of a view's lines on the cluster. A cursor names a line and is opaque: send
-  back the one a page handed out. A time alone names a moment. `since` and `until`
-  include the cursor's line, `after` and `before` do not. With no cursor, `Head` reads
-  from the oldest line and `Tail` from the newest. `limit` is at most 500.
+  One page of a window of a view's lines on the cluster, oldest first. A first page
+  names what to read and when; the next page that way is one of the page's cursors,
+  sent back as it came. A refusal is a validation error whose `rule` is its code.
   """
-  logsFetch(
-    id: ClusterID!
-    view: LogsViewInput!
-    mode: LogsFetchMode!
-    cursor: String
-    at: Time
-    "From 1 to 500: the lines in a page, or on each side of `at` for `Around`."
-    limit: Int!
-  ): LogRecordsPage!
+  logsFetch(id: ClusterID!, request: LogsFetchInput!): LogRecordsPage!
 
   # --- Cloud account ---
   "Current authentication state. Signed-out when no cloud account is configured; live updates via authStateWatch."
@@ -2207,13 +2263,13 @@ type Subscription {
 
   # --- Logs ---
   """
-  A view's new lines as they are written, after the cursor, or from now with none.
-  Lines are ordered per container, and across containers by arrival. A follow that
-  ends for a reason the user can read sends one `Ended` frame and completes: stop
-  subscribing. One that fails reports `watchFailed`; follow again with `after` set
-  to the last line's cursor.
+  A view's lines as they are written, from a start the request names. Lines are ordered
+  per container, and across containers by arrival. A follow that ends for a reason the
+  user can read sends one `Ended` frame and completes: stop subscribing. One that fails
+  reports `watchFailed`; follow again from the same start, with `seen` naming the last
+  line held of each stream.
   """
-  logsFollow(id: ClusterID!, view: LogsViewInput!, after: String): LogsFollowFrame!
+  logsFollow(id: ClusterID!, request: LogsFollowInput!): LogsFollowFrame!
 
   # --- Sandbox ---
   "GAUGE. The executable probe: whether one runs, and the report as the last one left it, a fresh value on each start, each end and each change to the registered executables."

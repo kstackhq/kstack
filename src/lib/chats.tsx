@@ -151,7 +151,15 @@ const ChatMessagesWatchSubscription = graphql(`
               grep
               since
               until
-              mode
+              before {
+                lines
+                span
+              }
+              after {
+                lines
+                span
+              }
+              pageFrom
               resolvedAt
               lines {
                 timestamp
@@ -164,11 +172,14 @@ const ChatMessagesWatchSubscription = graphql(`
                   after
                   before
                 }
+                truncatedBytes
               }
-              dropped
-              before
-              after
-              skipped
+              olderMore
+              newerMore
+              notices {
+                code
+                message
+              }
               viewAround {
                 sources {
                   namespace
@@ -208,6 +219,7 @@ const ChatMessagesWatchSubscription = graphql(`
               since
               limit
               maxBytes
+              maxMessageBytes
               resolvedAt
               until
             }
@@ -264,6 +276,7 @@ const ChatMessagesWatchSubscription = graphql(`
                 after
                 before
               }
+              truncatedBytes
             }
             endedBecause
             viewAround {

@@ -21,7 +21,6 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/services/auth"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
-	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
@@ -548,8 +547,16 @@ func (r *queryResolver) ChatGrants(ctx context.Context, chatID apimeta.ChatID) (
 }
 
 // LogsFetch is the resolver for the logsFetch field.
-func (r *queryResolver) LogsFetch(ctx context.Context, id apimeta.ClusterID, view logs.Scope, mode model.LogsFetchMode, cursor *string, at *time.Time, limit int) (*model.LogRecordsPage, error) {
-	panic("not implemented")
+func (r *queryResolver) LogsFetch(ctx context.Context, id apimeta.ClusterID, request model.LogsFetchInput) (*model.LogRecordsPage, error) {
+	q, err := fetchRequestOf(request)
+	if err != nil {
+		return nil, logsErr(err)
+	}
+	resp, err := r.Logs.Fetch(ctx, id, q)
+	if err != nil {
+		return nil, logsErr(err)
+	}
+	return pageOf(resp), nil
 }
 
 // AuthState is the resolver for the authState field. auth.State binds directly to the
@@ -716,13 +723,15 @@ func (r *subscriptionResolver) MemoriesWatch(ctx context.Context, clusterID apim
 	return watchStream(ctx, st.Frames, st.Err), nil
 }
 
-// LogsFollow is the resolver for the logsFollow field.
-func (r *subscriptionResolver) LogsFollow(ctx context.Context, id apimeta.ClusterID, view logs.Scope, after *string) (<-chan *logs.FollowFrame, error) {
-	st, err := r.Logs.Follow(ctx, id, view, after)
+// LogsFollow is the resolver for the logsFollow field. Its stream's Err is filed
+// on teardown as watchStream files it, so a failed follow reaches the client as
+// watchFailed, never as a graceful end.
+func (r *subscriptionResolver) LogsFollow(ctx context.Context, id apimeta.ClusterID, request model.LogsFollowInput) (<-chan *model.LogsFollowFrame, error) {
+	st, err := r.Logs.Follow(ctx, id, followRequestOf(request))
 	if err != nil {
 		return nil, logsErr(err)
 	}
-	return watchStream(ctx, st.Frames, st.Err), nil
+	return mapStream(ctx, st.Frames, func() { recordWatchFailure(ctx, st.Err()) }, frameOf), nil
 }
 
 // SandboxExecutablesWatch is the resolver for the sandboxExecutablesWatch field: the

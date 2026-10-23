@@ -335,7 +335,7 @@ models:
   LogPlace:
     model: github.com/kstackhq/kstack/sidecar/internal/services/logs/logline.Place
 
-  LogsViewInput:
+  LogsScopeInput:
     model: github.com/kstackhq/kstack/sidecar/internal/services/logs.Scope
 
   LogsViewSourceInput:
@@ -343,19 +343,6 @@ models:
 
   LogsViewFilterInput:
     model: github.com/kstackhq/kstack/sidecar/internal/services/logs.ScopeFilter
-
-  LogsFollowFrame:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.FollowFrame
-
-  LogsFollowFrameType:
-    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.FollowFrameType
-    enum_values:
-      Line:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FollowLine
-      Checkpoint:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FollowCheckpoint
-      Ended:
-        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.FollowEnded
 
   LogsViewAnchor:
     model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsViewAnchor
@@ -369,23 +356,19 @@ models:
   LogsWatchAction:
     model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsWatchAction
 
-  LogsReadMode:
-    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadMode
+  LogsPageFrom:
+    model: github.com/kstackhq/kstack/sidecar/internal/services/logs.PageFrom
     enum_values:
-      Head:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadHead
-      Tail:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadTail
+      First:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.PageFromFirst
+      Last:
+        value: github.com/kstackhq/kstack/sidecar/internal/services/logs.PageFromLast
 
-  LogsReadEdge:
-    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadEdge
-    enum_values:
-      End:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadEnd
-      More:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadMore
-      Unread:
-        value: github.com/kstackhq/kstack/sidecar/internal/tools.LogsReadUnread
+  LogsPadding:
+    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsPadding
+
+  LogNotice:
+    model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsNotice
 
   LogsViewAnchorKind:
     model: github.com/kstackhq/kstack/sidecar/internal/tools.LogsAnchorKind

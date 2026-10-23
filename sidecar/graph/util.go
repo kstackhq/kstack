@@ -17,9 +17,12 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/kubeproxy"
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/iso8601"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
 	"github.com/kstackhq/kstack/sidecar/internal/services/memory"
 	"github.com/kstackhq/kstack/sidecar/internal/services/settings"
+	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
@@ -170,6 +173,129 @@ func logsErr(err error) error {
 		return err
 	}
 	return gqlerrors.NewValidationError(string(r.Code), r.Reason)
+}
+
+// fetchRequestOf is the wire's fetch request as the service takes it, the cursor
+// passed through unread. A span it cannot read, or over the service's cap, is its
+// one refusal; every other mismatch is the service's to refuse.
+func fetchRequestOf(in model.LogsFetchInput) (logs.FetchRequest, error) {
+	before, err := paddingOf(in.Before)
+	if err != nil {
+		return logs.FetchRequest{}, err
+	}
+	after, err := paddingOf(in.After)
+	if err != nil {
+		return logs.FetchRequest{}, err
+	}
+	return logs.FetchRequest{
+		Scope:           valueOf(in.Scope),
+		Window:          logs.Window{Since: in.Since, Until: in.Until, Before: before, After: after},
+		Seen:            in.Seen,
+		PageFrom:        valueOf(in.PageFrom),
+		Cursor:          in.Cursor,
+		PageSize:        valueOf(in.PageSize),
+		MaxMessageBytes: valueOf(in.MaxMessageBytes),
+		MaxPageBytes:    valueOf(in.MaxPageBytes),
+	}, nil
+}
+
+// paddingOf is one side's padding as the service takes it, none for nil.
+func paddingOf(in *model.LogsPaddingInput) (logs.Padding, error) {
+	if in == nil {
+		return logs.Padding{}, nil
+	}
+	p := logs.Padding{Lines: valueOf(in.Lines)}
+	if in.Span != nil {
+		var err error
+		if p.Span, err = spanOf(*in.Span); err != nil {
+			return logs.Padding{}, refusal.New(refusal.CodeBadPadding, err.Error())
+		}
+	}
+	return p, nil
+}
+
+// spanOf is s read as a padding's span, under the service's cap.
+func spanOf(s string) (time.Duration, error) {
+	p, err := iso8601.Parse(s)
+	if err != nil {
+		return 0, err
+	}
+	return iso8601.Span(p, logs.MaxPaddingSpan)
+}
+
+// pageOf is the service's page on the wire.
+func pageOf(resp logs.FetchResponse) *model.LogRecordsPage {
+	return &model.LogRecordsPage{
+		Request:    fetchRequestOut(resp.Request),
+		ResolvedAt: resp.ResolvedAt,
+		Page:       &model.LogRecordsPlace{Prev: resp.Page.Prev, Next: resp.Page.Next, Follow: resp.Page.Follow},
+		Records:    ptrSlice(resp.Records),
+		Notices:    noticesOf(resp.Notices),
+	}
+}
+
+// fetchRequestOut is the request as it ran, as the page echoes it: each span
+// formatted, and no pageFrom on a continuation.
+func fetchRequestOut(q logs.FetchRequest) *model.LogsFetchRequest {
+	out := &model.LogsFetchRequest{
+		Sources: ptrSlice(q.Sources), Filters: ptrSlice(q.Filters), Grep: q.Grep,
+		Since: q.Since, Until: q.Until, Before: paddingOut(q.Before), After: paddingOut(q.After),
+		PageSize: q.PageSize, MaxMessageBytes: q.MaxMessageBytes, MaxPageBytes: q.MaxPageBytes,
+	}
+	if q.PageFrom != "" {
+		out.PageFrom = &q.PageFrom
+	}
+	return out
+}
+
+// paddingOut is one side's padding as it ran, its span formatted; none is an
+// empty span.
+func paddingOut(p logs.Padding) *tools.LogsPadding {
+	return &tools.LogsPadding{Lines: p.Lines, Span: iso8601.Format(p.Span)}
+}
+
+// noticesOf is a page's or a follow's notices on the wire.
+func noticesOf(notices []logs.Notice) []*tools.LogsNotice {
+	out := make([]*tools.LogsNotice, len(notices))
+	for i, n := range notices {
+		out[i] = noticeOf(n)
+	}
+	return out
+}
+
+// noticeOf is one notice on the wire.
+func noticeOf(n logs.Notice) *tools.LogsNotice {
+	return &tools.LogsNotice{Code: string(n.Code), Message: n.Message}
+}
+
+// followRequestOf is the wire's follow request as the service takes it, the
+// cursor passed through unread.
+func followRequestOf(in model.LogsFollowInput) logs.FollowRequest {
+	return logs.FollowRequest{
+		Scope: valueOf(in.Scope), Since: in.Since, Seen: in.Seen, Cursor: in.Cursor, MaxMessageBytes: valueOf(in.MaxMessageBytes),
+	}
+}
+
+// frameOf is one follow frame on the wire, its type the field the service set.
+func frameOf(f logs.FollowFrame) *model.LogsFollowFrame {
+	switch {
+	case f.Record != nil:
+		return &model.LogsFollowFrame{Type: model.LogsFollowFrameTypeLine, Record: f.Record}
+	case f.Notice != nil:
+		return &model.LogsFollowFrame{Type: model.LogsFollowFrameTypeNotice, Notice: noticeOf(*f.Notice)}
+	default:
+		ended := &tools.LogsNotice{Code: string(f.Ended.Code), Message: f.Ended.Reason}
+		return &model.LogsFollowFrame{Type: model.LogsFollowFrameTypeEnded, Ended: ended}
+	}
+}
+
+// valueOf is *p, or the zero value for nil.
+func valueOf[T any](p *T) T {
+	var v T
+	if p != nil {
+		v = *p
+	}
+	return v
 }
 
 // sandboxPathErr is what every sandbox path resolver returns an error

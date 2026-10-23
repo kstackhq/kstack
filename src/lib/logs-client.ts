@@ -24,13 +24,14 @@ import type { LogsFollowSubscription as LogsFollowResult, LogsViewInput } from '
 import type { Client, Cursor, FollowFrame, LogLine } from '@/lib/log-viewer';
 import type { LogsViewAction } from '@/lib/logs-view';
 
-const LogsFollowSubscription = graphql(`
-  subscription LogsFollow($id: ClusterID!, $view: LogsViewInput!, $after: String) {
-    logsFollow(id: $id, view: $view, after: $after) {
-      type
-      record {
+// The viewer keeps its own request, so a page's echo of it is not selected.
+const LogsFetchQuery = graphql(`
+  query LogsFetch($id: ClusterID!, $request: LogsFetchInput!) {
+    logsFetch(id: $id, request: $request) {
+      records {
         timestamp
         message
+        truncatedBytes
         cursor
         stream {
           namespace
@@ -50,8 +51,54 @@ const LogsFollowSubscription = graphql(`
           before
         }
       }
-      cursor
-      reason
+      page {
+        prev
+        next
+        follow
+      }
+      notices {
+        code
+        message
+      }
+    }
+  }
+`);
+
+const LogsFollowSubscription = graphql(`
+  subscription LogsFollow($id: ClusterID!, $request: LogsFollowInput!) {
+    logsFollow(id: $id, request: $request) {
+      type
+      record {
+        timestamp
+        message
+        truncatedBytes
+        cursor
+        stream {
+          namespace
+          pod
+          container
+          previous
+        }
+        place {
+          node
+          region
+          zone
+          os
+          arch
+        }
+        gap {
+          after
+          before
+        }
+      }
+      notice {
+        code
+        message
+      }
+      ended {
+        code
+        message
+      }
     }
   }
 `);
