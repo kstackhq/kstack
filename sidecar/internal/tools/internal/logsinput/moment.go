@@ -47,6 +47,9 @@ var (
 	last  = time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC)
 )
 
+// spanYears is more years than lie between epoch and last.
+const spanYears = 10000
+
 var (
 	errDatedOffset = errors.New("a date is UTC and takes no offset")
 	errNotAMoment  = errors.New("neither an RFC 3339 time nor an ISO 8601 duration")
@@ -124,6 +127,11 @@ func durationOf(s string, now time.Time, dir Direction) (time.Time, error) {
 	// hold lands outside the range MomentOf checks anyway.
 	clock, err := iso8601.Span(iso8601.Parts{Hours: p.Hours, Minutes: p.Minutes, Seconds: p.Seconds, Nanos: p.Nanos}, math.MaxInt64)
 	if err != nil {
+		return time.Time{}, errNotAMoment
+	}
+	// No calendar count past the years between the epoch and 9999 lands in range,
+	// and refusing one first keeps the narrowing to int exact on a 32-bit int.
+	if p.Years > spanYears || p.Months > 12*spanYears || 7*p.Weeks+p.Days > 366*spanYears {
 		return time.Time{}, errNotAMoment
 	}
 	sign := -1
