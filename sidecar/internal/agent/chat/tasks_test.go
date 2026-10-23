@@ -655,9 +655,19 @@ func TestACancelledTurnKicksNothing(t *testing.T) {
 	s := startServiceWithTool(t, tt)
 	first, ft := startTaskTurn(t, s, tt, nil, "1")
 	chatID := first.ChatID
-	_, running := startTaskTurn(t, s, tt, &chatID, "2")
 
+	// The second turn kicks after its row settles; a late kick would find the
+	// exit's notice once the Cancel frees the slot, so wait out the whole turn.
 	gate := make(chan struct{})
+	fakeOf(s).SetToolCalls(taskCall())
+	fakeOf(s).SetGate(gate)
+	send(t, s, &chatID, "2", "start it")
+	second := s.turnOf(chatID)
+	close(gate)
+	running := testutil.Recv(t, tt.ready, "the task to start")
+	testutil.Wait(t, second.done, "the second turn")
+
+	gate = make(chan struct{})
 	fakeOf(s).SetGate(gate)
 	held := send(t, s, &chatID, "3", "hold on")
 	done := taskDoneOf(t, s, chatID, ft)
