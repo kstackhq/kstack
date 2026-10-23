@@ -339,7 +339,7 @@ func chatTools(d toolDeps) (tools.Box, error) {
 	query := kubequery.New(d.clusters)
 	views := logsview.New(d.clusters)
 	reads := logsread.New(d.clusters, d.logs)
-	watches := logswatch.New(d.clusters, now)
+	watches := logswatch.New(d.clusters, d.logs)
 	if d.shell == nil {
 		return tools.NewBox([]tools.Tool{reader, notes, writer, editor, fetcher, taskstop.New(), agent.New(), search, query, views, reads, watches}, bash.Reader{}), nil
 	}

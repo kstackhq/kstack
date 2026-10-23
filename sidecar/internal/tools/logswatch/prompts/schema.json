@@ -1,9 +1,6 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "sources"
-  ],
   "properties": {
     "description": {
       "type": "string",
@@ -96,11 +93,15 @@
     },
     "since": {
       "type": "string",
-      "description": "Where the watch starts: an RFC 3339 time or an ISO 8601 duration back from now such as PT10M, whose lines count at once. Omit to start now."
+      "description": "Where the watch starts: an RFC 3339 time, its first nanosecond, or an ISO 8601 duration back from now such as PT10M, not after now; its lines count at once. Omit to start now. Not with cursor."
     },
     "until": {
       "type": "string",
-      "description": "When the watch ends on time alone: an RFC 3339 time, or an ISO 8601 duration from now such as PT2H. At most a day from now, the default."
+      "description": "When the watch ends on time alone: an RFC 3339 time, its last nanosecond, or an ISO 8601 duration from now such as PT2H. At most a day from now, the default."
+    },
+    "cursor": {
+      "type": "string",
+      "description": "A next or follow token a read printed, copied whole and exactly: the watch goes on from where that page stopped, with no line repeated or missed, over the token's sources. Not with sources, filters, grep or since."
     },
     "limit": {
       "type": "integer",
@@ -112,7 +113,12 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 16384,
-      "description": "How many bytes of matching lines end the watch, each line cut at 2048 first. Default 16384."
+      "description": "How many bytes of matching lines end the watch. Default 16384."
+    },
+    "max_message_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Cut each message at this many bytes. Default 2048; 0 for the most Kstack keeps of a message, 16 KiB."
     }
   }
 }

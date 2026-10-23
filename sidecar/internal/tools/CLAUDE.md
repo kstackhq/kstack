@@ -45,7 +45,8 @@ session.
 - **`ActionAsker`** puts a sandboxed command's classified `ActionRequest` to the user, or
   `Record`s one decided unasked. Nil where nobody can be asked.
 - **A tool that acts through a service is built with it** (`memory.New`, `kubequery.New`,
-  `logsview.New`, `logsread.New`, `logswatch.New`, in `app`'s `chatTools`) and maps the service's errors to the model's codes →
+  `logsview.New`, `logsread.New` and `logswatch.New` over the log service too, in `app`'s
+  `chatTools`) and maps the service's errors to the model's codes →
   [ADR](../../../docs/adr/2026-09-27-a-tool-calls-its-service-directly.md).
 - `InlineLimit` (30,000) caps a result; `FileLimit` (8 MiB) caps saved output and Read.
 - **The chat's `defaultToolTimeout` is 2 s.** A tool that does I/O is `Bounded` and names its own
@@ -149,13 +150,17 @@ first line's moment, unpinned.
 
 ## LogsWatch (`tools/logswatch`)
 
-**LogsWatch is a follow of a view that runs as a background task and wakes the model once, when it
+**LogsWatch is a follow of a scope that runs as a background task and wakes the model once, when it
 ends.** It is `Custom`, `Shown` and `Bounded` (30 s), never `Gated`, in `catalog`'s `ours`,
 `app.go`'s box after LogsRead, and out of `SubagentBox` and `MonitorBox`: a watch's point is the
-turn it starts. Its watch is rebuilt on the log service's new follow
-([the log fetch API](../../../docs/specs/log-fetch-api/)): `RunShown` panics until then. Its
-action is a `LogsWatchAction`; the chat holds a watch as a background task
-(`internal/agent/CLAUDE.md`).
+turn it starts. `New(svc, logs)` takes the cluster service and the log service's `Follow`. A watch
+starts now, at `since`, or from a read's `next` or `follow` token in `cursor`, which holds the
+scope; the follow opens with `ForModel` under a context whose deadline is `until` (a day at most),
+free of the call's once open. The receipt, the action and the view around the lines take the
+scope the follow echoes. **The watch** (`watch.go`) holds each line as the service cut it until
+`limit` or `max_bytes`, keeps notices through `logsinput.Notices`, which counts those past its
+budget, and reads an `Ended` frame as why it ended; its header prints no cursor. Its action is a
+`LogsWatchAction`; the chat holds a watch as a background task (`internal/agent/CLAUDE.md`).
 
 → [the model watches logs](../../../docs/security/2026-10-18-the-model-watches-logs.md).
 

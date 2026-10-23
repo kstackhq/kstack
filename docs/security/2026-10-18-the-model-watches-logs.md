@@ -51,3 +51,18 @@ cap is cut to it.
 - **Lines the model reads in a turn it did not send** are cluster text in the message a model
   weighs most, as an agent's report is; the prompt calls them data.
 - **Redaction is hygiene, never a boundary**, as for `LogsRead`.
+
+## Rebuilt on the log fetch API, 23 October 2026
+
+`LogsWatch` now follows through the service's new `Follow`, from now, a moment, or a read's
+`next` or `follow` token. The promise holds, and is pinned in new places:
+
+- **Redacted, then cut.** The tool opens every follow with `ForModel` set, and the service runs
+  `logline.ForModel` before it cuts (`TestAFollowRedactsAMessageBeforeItIsCut` in
+  `services/logs`, `TestTheReceiptNamesTheWatch`). The held line keeps the service's cut and says
+  the bytes cut (`TestTheByteLimitEndsItOnTheLineThatReachesIt`, `TestAWatchHoldsALineCut`).
+- **The sample is capped**: its lines by `max_bytes`, its notices at 2 KiB with the rest counted
+  (`TestNoSamplePassesTheInlineLimit`, `TestNoticesPrintInTheHeader`).
+- **The header prints no cursor.** The model reads around the lines by their timestamps.
+- **A token is checked by the service's decoder**, and a refusal keeps its code with its words
+  through `ForModel` (`TestARefusedWatchOpensNothing`).
