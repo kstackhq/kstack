@@ -15,7 +15,9 @@
 package logsinput
 
 import (
+	"errors"
 	"math"
+	"strings"
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/iso8601"
@@ -30,30 +32,99 @@ const (
 	Ahead
 )
 
-// The moments a duration can name lie between the epoch and the end of 9999; a
-// log holds none outside them.
+// End is which end of a range a value is read for.
+type End int
+
+const (
+	Since End = iota // the earliest nanosecond of the value
+	Until            // the latest
+)
+
+// The moments a value can name lie between the epoch and the end of 9999; a log
+// holds none outside them.
 var (
 	epoch = time.Unix(0, 0).UTC()
 	last  = time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC)
 )
 
-// MomentOf is the moment s names on the clock now: an RFC 3339 time, or an ISO
-// 8601 duration from now in the direction dir; false for neither. A duration is
-// applied in UTC, years and months first on the calendar, then weeks and days,
-// then the time part.
-func MomentOf(s string, now time.Time, dir Direction) (time.Time, bool) {
-	if at, err := time.Parse(time.RFC3339Nano, s); err == nil {
-		return at.UTC(), true
+var (
+	errDatedOffset = errors.New("a date is UTC and takes no offset")
+	errNotAMoment  = errors.New("neither an RFC 3339 time nor an ISO 8601 duration")
+)
+
+// MomentOf reads s as one end of a range on the clock now: an RFC 3339 time at any
+// precision, of which Since takes the first nanosecond and Until the last; or an
+// ISO 8601 duration, exact, measured from now in dir. A duration is applied in
+// UTC, years and months first on the calendar, then weeks and days, then the time
+// part.
+func MomentOf(s string, now time.Time, end End, dir Direction) (time.Time, error) {
+	at, unit, err := timeOf(s)
+	switch {
+	case err == nil && end == Until:
+		at = at.Add(unit - 1)
+	case errors.Is(err, errNotAMoment):
+		at, err = durationOf(s, now, dir)
 	}
+	if err != nil {
+		return time.Time{}, err
+	}
+	if at.Before(epoch) || at.After(last) {
+		return time.Time{}, errNotAMoment
+	}
+	return at, nil
+}
+
+// MomentMessage is the refusal of a value MomentOf answered err for: the forms the
+// field takes and the clock now, which the model has no other way to know; a date
+// with an offset says first that a date is UTC.
+func MomentMessage(err error, forms string, now time.Time) string {
+	msg := forms + "; now is " + now.UTC().Format(time.RFC3339)
+	if errors.Is(err, errDatedOffset) {
+		msg = errDatedOffset.Error() + "; " + msg
+	}
+	return msg
+}
+
+// timeOf is the interval the time s spells, in UTC: its first nanosecond and its
+// length, a day, a minute, a second, or a fraction of 1 to 9 digits.
+func timeOf(s string) (time.Time, time.Duration, error) {
+	if at, err := time.Parse(time.DateOnly, s); err == nil {
+		return at, 24 * time.Hour, nil
+	}
+	if _, err := time.Parse(time.DateOnly+"Z07:00", s); err == nil {
+		return time.Time{}, 0, errDatedOffset
+	}
+	if at, err := time.Parse("2006-01-02T15:04Z07:00", s); err == nil {
+		return at.UTC(), time.Minute, nil
+	}
+	at, err := time.Parse(time.RFC3339Nano, s)
+	if err != nil {
+		return time.Time{}, 0, errNotAMoment
+	}
+	dot := strings.IndexByte(s, '.')
+	if dot < 0 {
+		return at.UTC(), time.Second, nil
+	}
+	// time.Parse reads a tenth digit and drops it; a fraction is at most nine.
+	frac := s[dot+1:]
+	digits := len(frac) - len(strings.TrimLeft(frac, "0123456789"))
+	if digits > 9 {
+		return time.Time{}, 0, errNotAMoment
+	}
+	return at.UTC(), time.Duration(math.Pow10(9 - digits)), nil
+}
+
+// durationOf is the moment the duration s names from now in dir.
+func durationOf(s string, now time.Time, dir Direction) (time.Time, error) {
 	p, err := iso8601.Parse(s)
 	if err != nil {
-		return time.Time{}, false
+		return time.Time{}, errNotAMoment
 	}
 	// The time part alone is a fixed length. Uncapped here: one a Duration cannot
-	// hold lands outside the range below anyway.
+	// hold lands outside the range MomentOf checks anyway.
 	clock, err := iso8601.Span(iso8601.Parts{Hours: p.Hours, Minutes: p.Minutes, Seconds: p.Seconds, Nanos: p.Nanos}, math.MaxInt64)
 	if err != nil {
-		return time.Time{}, false
+		return time.Time{}, errNotAMoment
 	}
 	sign := -1
 	if dir == Ahead {
@@ -61,11 +132,7 @@ func MomentOf(s string, now time.Time, dir Direction) (time.Time, bool) {
 	}
 	at := calendar(now.UTC(), sign*int(p.Years), sign*int(p.Months))
 	at = at.AddDate(0, 0, sign*int(7*p.Weeks+p.Days))
-	at = at.Add(time.Duration(sign) * clock)
-	if at.Before(epoch) || at.After(last) {
-		return time.Time{}, false
-	}
-	return at, true
+	return at.Add(time.Duration(sign) * clock), nil
 }
 
 // calendar is t moved by years and months, a day past the end of the target

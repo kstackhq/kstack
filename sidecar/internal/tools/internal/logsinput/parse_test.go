@@ -18,9 +18,12 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 )
 
 const webapp = `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}]`
@@ -63,4 +66,40 @@ func TestMoreThanMaxSourcesIsRefused(t *testing.T) {
 
 	_, err = Parse(many(maxSources+1), nil)
 	assert.Equal(t, `{"error":"bad-input","field":"sources","message":"at most 100"}`, Refusal(err))
+}
+
+// A padding reads a number as lines and a string as a span: a whole number up to
+// logs.MaxPageSize, or a duration of days and less up to logs.MaxPaddingSpan.
+func TestParseReadsAPadding(t *testing.T) {
+	t.Parallel()
+	for raw, want := range map[string]logs.Padding{
+		`0`:      {},
+		`100`:    {Lines: 100},
+		`500`:    {Lines: 500},
+		`"PT5M"`: {Span: 5 * time.Minute},
+		`"P7D"`:  {Span: 7 * 24 * time.Hour},
+	} {
+		var pad logs.Padding
+		_, err := Parse(json.RawMessage(webapp+`,"before":`+raw+`}`), Fields{"before": &pad})
+		require.NoError(t, err, raw)
+		assert.Equal(t, want, pad, raw)
+	}
+
+	want := `{"error":"bad-input","field":"before","message":"a number of lines from 0 to 500, or an ISO 8601 duration such as PT5M of at most P7D"}`
+	for _, raw := range []string{`-1`, `2.5`, `501`, `"P1M"`, `"P1Y"`, `"P7DT1S"`, `"5m"`, `""`, `true`, `null`} {
+		var pad logs.Padding
+		_, err := Parse(json.RawMessage(webapp+`,"before":`+raw+`}`), Fields{"before": &pad})
+		assert.Equal(t, want, Refusal(err), raw)
+	}
+}
+
+// A call may name no sources: a continuation names none, so each tool says
+// whether it needs them.
+func TestParseTakesNoSources(t *testing.T) {
+	t.Parallel()
+	for _, raw := range []string{`{}`, `{"sources":[]}`} {
+		in, err := Parse(json.RawMessage(raw), nil)
+		require.NoError(t, err, raw)
+		assert.Empty(t, in.Sources, raw)
+	}
 }

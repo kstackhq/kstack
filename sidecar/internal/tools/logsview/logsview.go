@@ -54,14 +54,14 @@ var errNotShown = errors.New("logsview: the view is the run's")
 var _ tools.Shown = (*Tool)(nil)
 
 // Tool is LogsView, over the cluster service whose mirror it checks against,
-// and the clock a duration is measured back from.
+// and the clock a duration is measured back from: time.Now, or a test's.
 type Tool struct {
 	svc cluster.Service
 	now func() time.Time
 }
 
-// New is the tool over svc, on the clock now.
-func New(svc cluster.Service, now func() time.Time) *Tool { return &Tool{svc: svc, now: now} }
+// New is the tool over svc.
+func New(svc cluster.Service) *Tool { return &Tool{svc: svc, now: time.Now} }
 
 func (t *Tool) Definition() llm.ToolDefinition {
 	return llm.ToolDefinition{Name: Name, Description: description, InputSchema: json.RawMessage(inputSchema)}
@@ -88,6 +88,9 @@ func (t *Tool) RunShown(ctx context.Context, rt tools.Runtime, raw json.RawMessa
 	in, err := logsinput.Parse(raw, logsinput.Fields{"anchor": &anchorText, "pin_to_end": &pinToEnd})
 	if err != nil {
 		return logsinput.Refusal(err), true, nil
+	}
+	if len(in.Sources) == 0 {
+		return logsinput.Refusal(logsinput.BadInput("sources", "")), true, nil
 	}
 	now := t.now()
 	anchor, err := anchorOf(anchorText, now)
@@ -141,12 +144,6 @@ func anchorText(a tools.LogsViewAnchor) string {
 	return "at the newest line"
 }
 
-// anchorMessage is the refusal of an anchor the tool cannot read on the clock
-// now, which it names so the retry can be exact.
-func anchorMessage(now time.Time) string {
-	return "tail, head, an RFC 3339 time, or an ISO 8601 duration back from now such as PT15M; now is " + now.UTC().Format(time.RFC3339)
-}
-
 // anchorOf is the anchor the model typed on the clock: tail, head, or a moment.
 func anchorOf(s string, now time.Time) (tools.LogsViewAnchor, error) {
 	switch s {
@@ -155,8 +152,9 @@ func anchorOf(s string, now time.Time) (tools.LogsViewAnchor, error) {
 	case "head":
 		return tools.LogsViewAnchor{Kind: tools.LogsAnchorHead}, nil
 	}
-	if at, ok := logsinput.MomentOf(s, now, logsinput.Behind); ok {
-		return tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: &at}, nil
+	at, err := logsinput.MomentOf(s, now, logsinput.Since, logsinput.Behind)
+	if err != nil {
+		return tools.LogsViewAnchor{}, logsinput.BadInput("anchor", logsinput.MomentMessage(err, "tail, head, an RFC 3339 time, or an ISO 8601 duration back from now such as PT15M", now))
 	}
-	return tools.LogsViewAnchor{}, logsinput.BadInput("anchor", anchorMessage(now))
+	return tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: &at}, nil
 }

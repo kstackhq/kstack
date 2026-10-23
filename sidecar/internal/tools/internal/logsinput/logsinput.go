@@ -24,12 +24,18 @@ import (
 	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/refusal"
 )
 
 // Refusal is an error as the model reads it: bad arguments by field and source, a
-// source the mirror refuses by code, a cluster with no cache or one still syncing,
-// and anything else with none of its text.
+// source the mirror refuses by code, a refusal of the log service by its code with
+// its reason through logline.ForModel, a cluster with no cache or one still
+// syncing as the cluster package says it, and anything else with none of its text.
 func Refusal(err error) string {
+	if r, ok := refusal.As(err); ok {
+		return Result(map[string]any{"error": r.Code, "message": logline.ForModel(r.Reason)})
+	}
 	var ie *InputError
 	var rf *Refused
 	switch {

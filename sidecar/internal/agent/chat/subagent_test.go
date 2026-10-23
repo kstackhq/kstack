@@ -1684,7 +1684,7 @@ func TestTheSubagentsBriefCarriesNoView(t *testing.T) {
 // the user's window.
 func TestASubagentReadsLogsAndOpensNoView(t *testing.T) {
 	t.Parallel()
-	box := SubagentBox(tools.NewBox([]tools.Tool{logsview.New(nil, time.Now), logsread.New(nil, time.Now)}))
+	box := SubagentBox(tools.NewBox([]tools.Tool{logsview.New(nil), logsread.New(nil, time.Now)}))
 	_, reads := box.Runner(logsread.Name)
 	_, views := box.Runner(logsview.Name)
 	assert.True(t, reads)

@@ -38,7 +38,14 @@ var clock = time.Date(2026, 10, 8, 14, 4, 0, 0, time.UTC)
 // model reads and the action.
 func run(t *testing.T, f *logsinputtest.Service, raw string) (string, bool, *tools.Action) {
 	t.Helper()
-	return New(f, func() time.Time { return clock }).RunShown(t.Context(), tools.Runtime{ClusterID: "7"}, json.RawMessage(raw))
+	return onClock(f).RunShown(t.Context(), tools.Runtime{ClusterID: "7"}, json.RawMessage(raw))
+}
+
+// onClock is the tool over f on the test's clock.
+func onClock(f *logsinputtest.Service) *Tool {
+	tool := New(f)
+	tool.now = func() time.Time { return clock }
+	return tool
 }
 
 // viewOf is the view a call over f opens, which must open.
@@ -64,7 +71,7 @@ const webapp = `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}
 
 func TestTheDefinitionIsTheEmbeddedSchema(t *testing.T) {
 	t.Parallel()
-	def := New(nil, time.Now).Definition()
+	def := New(nil).Definition()
 
 	assert.Equal(t, Name, def.Name)
 	assert.Equal(t, description, def.Description)
@@ -73,7 +80,7 @@ func TestTheDefinitionIsTheEmbeddedSchema(t *testing.T) {
 
 func TestTheToolIsOfKindLogsView(t *testing.T) {
 	t.Parallel()
-	tool := New(nil, time.Now)
+	tool := New(nil)
 
 	assert.Equal(t, Name, tool.Name())
 	assert.Equal(t, tools.ActionLogsView, tool.ActionKind())
@@ -84,7 +91,7 @@ func TestTheToolIsOfKindLogsView(t *testing.T) {
 // call that never opened one shows its kind alone.
 func TestACallShowsNoActionOffItsArguments(t *testing.T) {
 	t.Parallel()
-	_, err := New(nil, time.Now).Action(json.RawMessage(webapp), "", false)
+	_, err := New(nil).Action(json.RawMessage(webapp), "", false)
 	require.ErrorIs(t, err, errNotShown)
 }
 
@@ -274,6 +281,7 @@ func TestTheAnchorIsReadOnTheClock(t *testing.T) {
 		`""`:                          {Kind: tools.LogsAnchorTail},
 		`"2026-10-08T13:00:00+01:00"`: {Kind: tools.LogsAnchorAt, At: at("2026-10-08T12:00:00Z")},
 		`"PT2M"`:                      {Kind: tools.LogsAnchorAt, At: at("2026-10-08T14:02:00Z")},
+		`"2026-10-07"`:                {Kind: tools.LogsAnchorAt, At: at("2026-10-07T00:00:00Z")},
 	} {
 		_, view := viewOf(t, logsinputtest.Watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"anchor":`+anchor+`}`)
 		assert.Equal(t, want, view.Anchor, anchor)
@@ -299,6 +307,9 @@ func TestAnUnreadableAnchorIsRefused(t *testing.T) {
 	}
 	text := refusalOf(t, logsinputtest.Watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"anchor":3}`)
 	assert.Contains(t, text, `"field":"anchor"`)
+
+	text = refusalOf(t, logsinputtest.Watching(t), `{"sources":[{"namespace":"prod","resource":"deployments/webapp"}],"anchor":"2026-10-07+03:00"}`)
+	assert.Equal(t, `{"error":"bad-input","field":"anchor","message":"a date is UTC and takes no offset; tail, head, an RFC 3339 time, or an ISO 8601 duration back from now such as PT15M; now is 2026-10-08T14:04:00Z"}`, text)
 }
 
 func TestPinToEndAbsentIsFalse(t *testing.T) {
@@ -416,7 +427,7 @@ func TestAReadFailureCarriesNoText(t *testing.T) {
 // Run is RunShown with the action dropped.
 func TestRunAnswersTheReceipt(t *testing.T) {
 	t.Parallel()
-	text, isError := New(logsinputtest.Watching(t), func() time.Time { return clock }).Run(t.Context(), tools.Runtime{ClusterID: "7"}, json.RawMessage(webapp))
+	text, isError := onClock(logsinputtest.Watching(t)).Run(t.Context(), tools.Runtime{ClusterID: "7"}, json.RawMessage(webapp))
 	assert.False(t, isError)
 	assert.True(t, strings.HasPrefix(text, "Viewing deployments/webapp in prod"), text)
 }

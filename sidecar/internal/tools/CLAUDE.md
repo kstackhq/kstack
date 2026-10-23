@@ -117,9 +117,9 @@ whose SDK it imports.
 against the mirror, hands back a `LogsViewAction` the row keeps, and answers a one-line receipt
 through `safe.Redact`. The action embeds `LogsScopeInput` (`services/logs`' `Scope`, aliased in
 `tools`) plus an `Anchor`, `PinToEnd` and `ResolvedAt`, the moment it resolved on the tool's clock, which a frozen card reads up to; the enums bind member by member in `gqlgen.yml`.
-It reads its own `anchor` and `pin_to_end` as `logsinput.Parse`'s `Fields`, then resolves the
-view with `logsinput.Resolve`. **A source the mirror does not hold yet opens**: a view waits for it.
-A refusal is one JSON line with a code, never the model's text. It is in `catalog`'s `ours` and
+It reads its own `anchor` and `pin_to_end` as `logsinput.Parse`'s `Fields`, refuses a call with
+no sources, then resolves the view with `logsinput.Resolve`; its clock is a field its tests set.
+**A source the mirror does not hold yet opens**: a view waits for it. A refusal is one JSON line with a code, never the model's text. It is in `catalog`'s `ours` and
 `app.go`'s box, and out of `SubagentBox` and `MonitorBox`: a view is the user's window. The model
 reads lines through `LogsRead`, and those the user selects and sends ride the question's View
 section (`internal/agent/CLAUDE.md`). The service it checks against is
@@ -151,16 +151,21 @@ action is a `LogsWatchAction`; the chat holds a watch as a background task
 
 **`tools/internal/logsinput` is what the three log tools share.** `Parse(raw, own)` is the
 strict walk (each key once, DNS names, at most 100 sources, `grep` compiled on one line of at most
-`MaxGrep`); `own` is the tool's `Fields`, each key's typed destination or the refusal it earns.
-`Resolve(ctx, svc, now, id, in)` checks each source inside one `ReadActive`, then runs
-`logs.Check`, so a view a tool takes is one the service reads. `MomentOf(s, now, dir)` reads an RFC 3339
-time or an ISO 8601 duration (read by `services/logs/iso8601`), applied on the calendar in UTC in the caller's `Direction` (`Behind`
-or `Ahead`), a month end clamped to the target month's last day, and nothing before the epoch or
-after 9999; `SourcesText` and `NotesText` how a tool names its sources; `Refusal` and `Result` how it
-answers; `sample.go` how a line reads (`LineText`, `CutLine`, `Stamp`, the caps
-`MaxSampleLine` and `SampleBudget`), how an action keeps it (`ReadLine`) and the view around it
-(`ViewAround`). `logsinputtest` is the fake cluster and
-the fixtures the tools' tests run over (`cluster/clustertest` beneath).
+`MaxGrep`); `own` is the tool's `Fields`, each key's typed destination (`*string`, `*bool`, `*int`
+or `*logs.Padding`, lines or a span under the service's caps) or the refusal it earns. It takes a
+call with no sources: each tool says whether it needs them. `Resolve(ctx, svc, now, id, in)` checks
+each source inside one `ReadActive`, then runs `logs.Check`, so a scope a tool takes is one the
+service reads. `MomentOf(s, now, end, dir)` reads an RFC 3339 time at any precision as the
+interval it spells, `Since` its first nanosecond and `Until` its last (a date is UTC and takes no
+offset), or an ISO 8601 duration (read by `services/logs/iso8601`), exact, applied on the calendar
+in UTC in the caller's `Direction` (`Behind` or `Ahead`), a month end clamped to the target
+month's last day, and nothing before the epoch or after 9999; `MomentMessage` words its refusal.
+`SourcesText`, `SourcesOf` and `NotesText` are how a tool names its sources; `Refusal` and `Result`
+how it answers, a service refusal by its own code. `sample.go` is how a line reads (`LineText`,
+with a place mark and the bytes cut; `Stamp`, nine fraction digits always; `PlaceOf`), a header's
+notices (`Notices`, under `NoticesBudget`), the caps `DefaultMessageBytes` and `SampleBudget`,
+how an action keeps a line (`ReadLine`) and the view around it (`ViewAround`). `logsinputtest` is
+the fake cluster and the fixtures the tools' tests run over (`cluster/clustertest` beneath).
 
 ## KubeQuery (`tools/kubequery`)
 

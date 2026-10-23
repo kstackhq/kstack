@@ -32,11 +32,55 @@ func TestATimeIsReturnedInUTC(t *testing.T) {
 	t.Parallel()
 	want := time.Date(2026, 10, 18, 8, 14, 20, 5e8, time.UTC)
 	for _, dir := range []Direction{Behind, Ahead} {
-		got, ok := MomentOf("2026-10-18T09:14:20.5+01:00", now, dir)
-		assert.True(t, ok)
+		got, err := MomentOf("2026-10-18T09:14:20.5+01:00", now, Since, dir)
+		assert.NoError(t, err)
 		assert.Equal(t, want, got)
 		assert.Equal(t, time.UTC, got.Location())
 	}
+}
+
+// A time names the interval it spells, a day, a minute, a second or a fraction:
+// Since takes its first nanosecond and Until its last.
+func TestATimeIsItsInterval(t *testing.T) {
+	t.Parallel()
+	at := func(h, m, s, ns int) time.Time { return time.Date(2026, 10, 21, h, m, s, ns, time.UTC) }
+	for s, want := range map[string][2]time.Time{
+		"2026-10-21":                     {at(0, 0, 0, 0), at(23, 59, 59, 999999999)},
+		"2026-10-21T05:00Z":              {at(5, 0, 0, 0), at(5, 0, 59, 999999999)},
+		"2026-10-21T08:00+03:00":         {at(5, 0, 0, 0), at(5, 0, 59, 999999999)},
+		"2026-10-21T05:00:00Z":           {at(5, 0, 0, 0), at(5, 0, 0, 999999999)},
+		"2026-10-21T05:00:00.5Z":         {at(5, 0, 0, 5e8), at(5, 0, 0, 599999999)},
+		"2026-10-21T05:00:00.120Z":       {at(5, 0, 0, 12e7), at(5, 0, 0, 120999999)},
+		"2026-10-21T05:00:00.000000007Z": {at(5, 0, 0, 7), at(5, 0, 0, 7)},
+	} {
+		since, err := MomentOf(s, now, Since, Behind)
+		require.NoError(t, err, s)
+		until, err := MomentOf(s, now, Until, Behind)
+		require.NoError(t, err, s)
+		assert.Equal(t, want, [2]time.Time{since, until}, s)
+	}
+}
+
+// A duration is exact, the same moment for either end.
+func TestADurationIsTheSameForEitherEnd(t *testing.T) {
+	t.Parallel()
+	since, err := MomentOf("PT15M", now, Since, Behind)
+	require.NoError(t, err)
+	until, err := MomentOf("PT15M", now, Until, Behind)
+	require.NoError(t, err)
+	assert.Equal(t, now.Add(-15*time.Minute), since)
+	assert.Equal(t, since, until)
+}
+
+// An hour alone is no form, nor is a date with an offset, which says a date is UTC.
+func TestAnHourAloneOrADatedOffsetIsRefused(t *testing.T) {
+	t.Parallel()
+	for _, s := range []string{"2026-10-21T05Z", "2026-10-21T05", "2026-10-21T05:00", "2026-10-21T05:00:00.Z", "2026-10-21T05:00:00.1234567891Z"} {
+		_, err := MomentOf(s, now, Since, Behind)
+		assert.Error(t, err, s)
+	}
+	_, err := MomentOf("2026-10-21+03:00", now, Since, Behind)
+	assert.ErrorIs(t, err, errDatedOffset)
 }
 
 // whole is each duration in whole units and how far it runs.
@@ -53,8 +97,8 @@ var whole = map[string]time.Duration{
 func TestADurationBehindIsBackFromNow(t *testing.T) {
 	t.Parallel()
 	for s, d := range whole {
-		got, ok := MomentOf(s, now, Behind)
-		assert.True(t, ok, s)
+		got, err := MomentOf(s, now, Since, Behind)
+		assert.NoError(t, err, s)
 		assert.Equal(t, now.Add(-d), got, s)
 	}
 }
@@ -63,8 +107,8 @@ func TestADurationBehindIsBackFromNow(t *testing.T) {
 func TestADurationAheadIsOnFromNow(t *testing.T) {
 	t.Parallel()
 	for s, d := range whole {
-		got, ok := MomentOf(s, now, Ahead)
-		assert.True(t, ok, s)
+		got, err := MomentOf(s, now, Since, Ahead)
+		assert.NoError(t, err, s)
 		assert.Equal(t, now.Add(d), got, s)
 	}
 }
@@ -78,8 +122,8 @@ func TestAFractionOfASecondIsExact(t *testing.T) {
 		"PT0.123456789S": 123456789,
 		"PT1M0.5S":       time.Minute + 500*time.Millisecond,
 	} {
-		got, ok := MomentOf(s, now, Behind)
-		assert.True(t, ok, s)
+		got, err := MomentOf(s, now, Since, Behind)
+		assert.NoError(t, err, s)
 		assert.Equal(t, now.Add(-d), got, s)
 	}
 }
@@ -102,11 +146,11 @@ func TestAMonthIsOnTheCalendar(t *testing.T) {
 		{"P1D", day(2027, 3, 31), day(2027, 3, 30)},
 		{"P1M3D", day(2027, 3, 31), day(2027, 2, 25)},
 	} {
-		got, ok := MomentOf(c.s, c.from, Behind)
-		assert.True(t, ok, c.s)
+		got, err := MomentOf(c.s, c.from, Since, Behind)
+		assert.NoError(t, err, c.s)
 		assert.Equal(t, c.to, got, "%s from %s", c.s, c.from)
 	}
-	got, _ := MomentOf("P1M", day(2027, 1, 31), Ahead)
+	got, _ := MomentOf("P1M", day(2027, 1, 31), Since, Ahead)
 	assert.Equal(t, day(2027, 2, 28), got, "ahead clamps too")
 }
 
@@ -119,8 +163,8 @@ func TestADayIsADayAcrossDaylightSaving(t *testing.T) {
 	// New York's clocks went forward at 2am on 14 March 2027, a 23-hour day.
 	local := time.Date(2027, 3, 14, 12, 0, 0, 0, ny)
 
-	got, ok := MomentOf("P1D", local, Behind)
-	assert.True(t, ok)
+	got, err := MomentOf("P1D", local, Since, Behind)
+	assert.NoError(t, err)
 	assert.Equal(t, local.UTC().Add(-24*time.Hour), got)
 	assert.Equal(t, time.UTC, got.Location())
 }
@@ -135,8 +179,8 @@ func TestNotAMomentIsRefused(t *testing.T) {
 		"P1.5D", "PT1.5H", "P1.5DT1H", "PT1234567890S", "yesterday",
 	} {
 		for _, dir := range []Direction{Behind, Ahead} {
-			_, ok := MomentOf(s, now, dir)
-			assert.False(t, ok, s)
+			_, err := MomentOf(s, now, Since, dir)
+			assert.Error(t, err, s)
 		}
 	}
 }
@@ -160,14 +204,19 @@ func TestAMomentOutOfBoundsIsRefused(t *testing.T) {
 		{"P999999999Y", near9999, Ahead},
 		{"P2D", near9999, Ahead},
 	} {
-		_, ok := MomentOf(c.s, c.now, c.dir)
-		assert.False(t, ok, "%s from %s", c.s, c.now)
+		_, err := MomentOf(c.s, c.now, Since, c.dir)
+		assert.Error(t, err, "%s from %s", c.s, c.now)
 	}
 
-	got, ok := MomentOf("P1D", nearEpoch, Behind)
-	assert.True(t, ok)
+	for _, s := range []string{"1969-12-31", "1969-12-31T23:59:59Z"} {
+		_, err := MomentOf(s, now, Since, Behind)
+		assert.Error(t, err, s)
+	}
+
+	got, err := MomentOf("P1D", nearEpoch, Since, Behind)
+	assert.NoError(t, err)
 	assert.Equal(t, time.Unix(0, 0).UTC(), got, "the epoch itself is in bounds")
-	got, ok = MomentOf("PT999999S", now, Behind)
-	assert.True(t, ok)
+	got, err = MomentOf("PT999999S", now, Since, Behind)
+	assert.NoError(t, err)
 	assert.Equal(t, now.Add(-999999*time.Second), got)
 }

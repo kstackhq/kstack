@@ -334,7 +334,7 @@ func chatTools(d toolDeps) (tools.Box, error) {
 	search := anthropicwebsearch.New(now)
 	notes := memorytool.New(d.memory)
 	query := kubequery.New(d.clusters)
-	views := logsview.New(d.clusters, now)
+	views := logsview.New(d.clusters)
 	reads := logsread.New(d.clusters, now)
 	watches := logswatch.New(d.clusters, now)
 	if d.shell == nil {

@@ -34,6 +34,16 @@ func SourcesText(typed []Source) string {
 	return out
 }
 
+// SourcesOf is a scope's sources as a call types them, for a tool to name the
+// scope a token holds.
+func SourcesOf(sources []tools.LogsViewSource) []Source {
+	out := make([]Source, len(sources))
+	for i, src := range sources {
+		out[i] = Source{Namespace: src.Namespace, Kind: src.Kind, Name: src.Name}
+	}
+	return out
+}
+
 // NotesText is what a tool says of each source beyond its name, one string per
 // source: its sentences, each under the source's name when there are several.
 func NotesText(typed []Source, sources []tools.LogsViewSource, notes []Note) []string {

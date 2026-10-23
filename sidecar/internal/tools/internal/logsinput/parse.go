@@ -24,6 +24,8 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/iso8601"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 )
@@ -35,6 +37,21 @@ type Input struct {
 	Sources     []Source
 	Filters     []tools.LogsViewFilter
 	Grep        string
+}
+
+// NamesScope is whether the call names any of the scope: sources, filters or
+// grep, which a token already holds.
+func (in Input) NamesScope() bool {
+	return len(in.Sources) > 0 || len(in.Filters) > 0 || in.Grep != ""
+}
+
+// CheckMessageBytes refuses a max_message_bytes past what the service keeps: 0
+// is the whole message.
+func CheckMessageBytes(n int) error {
+	if n < 0 || n > logs.MaxMessageBytesCap {
+		return BadInput("max_message_bytes", fmt.Sprintf("0 for the whole message, or 1 to %d", logs.MaxMessageBytesCap))
+	}
+	return nil
 }
 
 // Source is one source as typed: its resource read into a kind and a name.
@@ -92,13 +109,14 @@ var filterFields = []struct {
 }
 
 // Fields is a tool's own fields beside the shared ones: each key's destination, a
-// *string, *bool or *int the value is read into, or the InputError the key is
-// refused with.
+// *string, *bool, *int or *logs.Padding the value is read into, or the InputError
+// the key is refused with.
 type Fields map[string]any
 
 // Parse reads an object whose keys are the shared fields and own, each spelled
 // exactly and at most once, with nothing after it, and checks each value off its
-// token, since a typed decode takes null as the zero value.
+// token, since a typed decode takes null as the zero value. It takes a call with
+// no sources: a tool that needs them refuses that itself.
 func Parse(raw json.RawMessage, own Fields) (Input, error) {
 	in := Input{}
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -133,9 +151,6 @@ func Parse(raw json.RawMessage, own Fields) (Input, error) {
 		return Input{}, &InputError{Source: -1}
 	}
 
-	if len(in.Sources) == 0 {
-		return Input{}, BadInput("sources", "")
-	}
 	if len(in.Grep) > logline.MaxGrep || strings.ContainsAny(in.Grep, "\r\n") {
 		return Input{}, BadInput("grep", "")
 	}
@@ -280,10 +295,46 @@ func (w walker) value(dst any, field string) error {
 		return w.bool(dst, field)
 	case *int:
 		return w.int(dst, field)
+	case *logs.Padding:
+		return w.padding(dst, field)
 	case error:
 		return dst
 	}
-	panic("logsinput: a field reads into a *string, *bool or *int")
+	panic("logsinput: a field reads into a *string, *bool, *int or *logs.Padding")
+}
+
+// paddingMessage is the refusal of a padding, naming both forms and their caps.
+var paddingMessage = fmt.Sprintf("a number of lines from 0 to %d, or an ISO 8601 duration such as PT5M of at most %s",
+	logs.MaxPageSize, iso8601.Format(logs.MaxPaddingSpan))
+
+// padding reads a number as lines, a whole number up to logs.MaxPageSize, or a
+// string as a span up to logs.MaxPaddingSpan, refusing anything else.
+func (w walker) padding(out *logs.Padding, field string) error {
+	refused := &InputError{Field: field, Source: -1, Message: paddingMessage}
+	tok, err := w.dec.Token()
+	if err != nil {
+		return refused
+	}
+	switch v := tok.(type) {
+	case float64:
+		if v != math.Trunc(v) || v < 0 || v > logs.MaxPageSize {
+			return refused
+		}
+		*out = logs.Padding{Lines: int(v)}
+		return nil
+	case string:
+		p, err := iso8601.Parse(v)
+		if err != nil {
+			return refused
+		}
+		span, err := iso8601.Span(p, logs.MaxPaddingSpan)
+		if err != nil {
+			return refused
+		}
+		*out = logs.Padding{Span: span}
+		return nil
+	}
+	return refused
 }
 
 // string reads a string into out, refusing any other token as a bad field.
