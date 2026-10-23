@@ -39,6 +39,8 @@ type Settings = {
   pageSize: number;
   /** Pages toward an edge once at most this many rows lie between the visible range and it. */
   loadMoreThreshold: number;
+  /** The lines the window settles at; past it a page or a batch drops lines at one edge. */
+  maxLines: number;
   /** How far from the bottom, in pixels, still counts as reaching it. */
   pinTolerance: number;
   /** The height of an edge row while that edge has more; the core lays rows out below it. */
@@ -99,6 +101,8 @@ export type CoreRows = {
   totalSize: number;
   rows: CoreRow[];
   count: number;
+  /** The key of the first line held; the keys held run from it for `count`. */
+  firstKey: number;
   lineOfKey: (key: number) => LogLine | undefined;
   keyAt: (index: number) => number | undefined;
   /** -1 for a key not held. */
@@ -129,7 +133,7 @@ export function useCoreFields<K extends keyof CoreState>(
   return useSyncExternalStore(store.subscribe, getPicked);
 }
 
-const LANDING_FIELDS = ['length', 'loading', 'following', 'failed', 'before', 'after'] as const;
+const LANDING_FIELDS = ['length', 'firstKey', 'loading', 'following', 'failed', 'before', 'after'] as const;
 
 export function createCoreStore(): CoreStore {
   let state = CORE_INITIAL_STATE;
@@ -187,6 +191,7 @@ export function LogViewerCore({
   firstPageSize = 150,
   pageSize = 100,
   loadMoreThreshold = 50,
+  maxLines = 5000,
   pinTolerance = 10,
   edgeRowHeight = 0,
   className,
@@ -232,6 +237,7 @@ export function LogViewerCore({
       firstPageSize={firstPageSize}
       pageSize={pageSize}
       loadMoreThreshold={loadMoreThreshold}
+      maxLines={maxLines}
       pinTolerance={pinTolerance}
       edgeRowHeight={edgeRowHeight}
       className={className}
@@ -275,12 +281,13 @@ function Landing({
   firstPageSize,
   pageSize,
   loadMoreThreshold,
+  maxLines,
   pinTolerance,
   edgeRowHeight,
   className,
   children,
 }: LandingProps) {
-  const [logWindow] = useState(() => new LogWindow({ pinToEnd, firstPageSize, pageSize }));
+  const [logWindow] = useState(() => new LogWindow({ pinToEnd, firstPageSize, pageSize, maxLines, loadMoreThreshold }));
   const state = useCoreFields(logWindow, LANDING_FIELDS);
   const scrollRef = useRef<HTMLDivElement>(null);
   const setScroller = useCallback(
@@ -298,10 +305,9 @@ function Landing({
     return logWindow.subscribe(() => store.set(logWindow.getSnapshot()));
   }, [logWindow, store]);
 
-  const { length, loading, following } = state;
-  // Keys are consecutive, so the first names them all. Read in render, with the length, so the
-  // virtualizer sees the keys and the count of one commit together.
-  const firstKey = length > 0 ? logWindow.keyAt(0) : 0;
+  // Keys are consecutive, so the first names them all. Read from the snapshot with the length, so
+  // the virtualizer sees the keys and the count of one commit together.
+  const { length, firstKey, loading, following } = state;
   const getItemKey = useCallback((index: number) => firstKey + index, [firstKey]);
   const estimateSize = useCallback(
     (index: number) => estimateRowHeight(logWindow.lineAt(index)),
@@ -364,6 +370,7 @@ function Landing({
       line: logWindow.lineAt(item.index),
     })),
     count: length,
+    firstKey,
     lineOfKey: (key) => {
       const index = logWindow.indexOfKey(key);
       return index >= 0 && index < length ? logWindow.lineAt(index) : undefined;

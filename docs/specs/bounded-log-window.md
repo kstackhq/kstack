@@ -4,7 +4,7 @@
 the sidecar's `internal/services/logs` (paths relative to `src/` unless rooted).
 **Answers:** [#389](https://github.com/kstackhq/kstack/issues/389).
 **Prerequisites:** none.
-**Status:** Planned. A seam page skips a pod the scope no longer resolves once its every held line is dropped; [`a-workload-reads-its-gone-pods-from-the-file.md`](a-workload-reads-its-gone-pods-from-the-file.md) closes that, and the two retire together.
+**Status:** Built: tasks 0 to 3. The ADR is left for the PR that lands it. A seam page skips a pod the scope no longer resolves once its every held line is dropped; [`a-workload-reads-its-gone-pods-from-the-file.md`](a-workload-reads-its-gone-pods-from-the-file.md) closes that, and the two retire together.
 
 ## Goal
 
@@ -106,12 +106,10 @@ budget for one second, unchanged by this.
 
 A drop runs at the end of `paged` and `followed`, after the page's or the batch's lines are in,
 while the window holds more than `maxLines`. It never runs in `landed`: a landing is one page,
-and one over `maxLines` is brought down by the first page or batch after it. A batch larger
-than the room above the visible range leaves an excess, since the range the cap protects is the
-one before the batch: so **`setVisibleRange` drops again, at the before edge, while following
-and over `maxLines`**. The `toEnd` the batch answered moves the range to the end, the core
-reports it, and the drop that follows frees the rows scrolled away from. It answers nothing:
-while following, the core keeps the end in view on every commit. **The bound is restored once
+and one over `maxLines` is brought down by the first page or batch after it. **While following,
+the range the cap protects is the end**, as many lines as are on screen: the core keeps the end
+in view on every commit, so a batch larger than the room above the range before it still ends
+at the bound. **The bound is restored once
 the reader's range settles after each page or batch, not held at every moment**: a page drop
 capped short while not following, or a landing over the bound, leaves an excess that stays
 until the next page or batch.
@@ -122,10 +120,9 @@ the follow they asked for. Otherwise `paged` drops at the edge the page did not 
 drop never takes the lines the reader is at.
 
 **How many.** The excess over `maxLines`, capped so that the visible range and
-`loadMoreThreshold + 1` lines past it on the dropped side stay. The range the cap reads is the
-one the core last reported, moved up by the lines the page just prepended: the core reports the
-range after its next render, so at the drop it still indexes the lines as they lay before the
-prepend. The margin keeps the dropped edge
+`loadMoreThreshold + 1` lines past it on the dropped side stay. The window holds the range the
+core last reported by its first and last keys, so a prepend or a drop leaves it on the same
+lines. The margin keeps the dropped edge
 out of the core's paging threshold, since a drop that put it there would page that edge, and the
 drop that page brings would page the other, without end when `maxLines` is small. The core
 passes `loadMoreThreshold` through `LogWindowOptions`. With no visible range yet, nothing is
@@ -274,6 +271,11 @@ Do them in order. Each one passes `make test-changed`. The four are one pull req
    against the fake. The check that a page before brings only lines older than everything held,
    and a page after only newer, and the one-stretch check over held and passed-over lines, apply
    to pages that are not seam pages and to a walk with no drop.
+
+   As built, the fake keeps one clock: its streams' clocks do not differ, since its reads key on a
+   line's place in one log. Out-of-order lines come from a follow sending a spaced `append` stream
+   by stream, and a burst of them while following, then small batches, is what two drops
+   straddle.
 
 3. **The core and the docs.** `maxLines` in `Settings`, and `firstKey` read from the snapshot.
    Tests in `core.test.tsx`: a follow run past `maxLines` keeps the window at `maxLines` with the

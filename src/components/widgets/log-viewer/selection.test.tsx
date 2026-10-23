@@ -367,6 +367,8 @@ const mouseUp = () =>
 // keyed below 0.
 function rowsOver(lines: LogLine[], before = 0): SelectionRows {
   return {
+    firstKey: -before,
+    count: lines.length,
     lineOfKey: (key) => lines[key + before],
     indexOfKey: (key) => (key + before >= 0 && key + before < lines.length ? key + before : -1),
     keyAt: (index) => (index >= 0 && index < lines.length ? index - before : undefined),
@@ -1110,6 +1112,35 @@ describe('the selected lines', () => {
     mouseUp();
     act(() => result.current.handleCellMouseDown(1, 'Message', clickEvent({ shiftKey: true })));
     expect(onLines).toHaveBeenLastCalledWith([LINES[0], LINES[1]]);
+  });
+});
+
+describe('a drop', () => {
+  it('takes every selected row and cell, the anchor and the last click off the keys it drops', () => {
+    const { result, rerender } = renderUseSelection();
+    act(() => result.current.handleRowMouseDown(0, clickEvent()));
+    mouseUp();
+    act(() => result.current.handleRowMouseDown(2, clickEvent({ shiftKey: true })));
+    rerender({ rows: rowsOver(LINES.slice(1), -1) });
+    expect(result.current.selectedKeys).toEqual(new Set([1, 2]));
+    rerender({ rows: rowsOver(LINES.slice(1, 2), -1) });
+    expect(result.current.selectedKeys).toEqual(new Set([1]));
+
+    act(() => result.current.handleRowMouseDown(1, clickEvent({ shiftKey: true })));
+    expect(result.current.selectedKeys).toEqual(new Set([1]));
+  });
+
+  it('selects nothing under a dropped key a read back hands to another line', () => {
+    const { result, rerender } = renderUseSelection();
+    act(() => result.current.handleCellMouseDown(0, 'Message', clickEvent()));
+    mouseUp();
+    rerender({ rows: rowsOver(LINES.slice(1), -1) });
+    expect(result.current.selectedCells.size).toBe(0);
+    expect(result.current.anchorCell).toBeNull();
+
+    rerender({ rows: rowsOver([LINES[2], LINES[1], LINES[2]]) });
+    expect(result.current.selectedCells.size).toBe(0);
+    expect(result.current.selectedKeys.size).toBe(0);
   });
 });
 

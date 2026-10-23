@@ -23,6 +23,7 @@ import {
   useCallback,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -37,7 +38,7 @@ import { lineTime } from './line-time';
 export type Cell = { rowKey: number; col: Column };
 
 /** What the selection reads off the core's rows: kubetail's virtualizer lookups. */
-export type SelectionRows = Pick<CoreRows, 'lineOfKey' | 'keyAt' | 'indexOfKey'>;
+export type SelectionRows = Pick<CoreRows, 'firstKey' | 'count' | 'lineOfKey' | 'keyAt' | 'indexOfKey'>;
 
 /** A press on a cell: the mouse, or Enter and Space standing in for it. */
 type Press = ReactMouseEvent | ReactKeyboardEvent;
@@ -279,6 +280,22 @@ function clearRowSelection(store: SelectionStore) {
 function clearCellSelection(store: SelectionStore) {
   if (store.get('selectedCells').size > 0) store.set('selectedCells', new Map());
   store.set('anchorCell', null);
+}
+
+// A drop hands its keys out again on the next read back, to other lines, so the selection lets
+// go of every key outside `[from, to)` before one can name another line.
+function pruneTo(store: SelectionStore, from: number, to: number) {
+  const held = (key: number) => key >= from && key < to;
+  const keys = store.get('selectedKeys');
+  const keptKeys = [...keys].filter(held);
+  if (keptKeys.length !== keys.size) store.set('selectedKeys', new Set(keptKeys));
+  const cells = store.get('selectedCells');
+  const keptCells = [...cells].filter(([key]) => held(key));
+  if (keptCells.length !== cells.size) store.set('selectedCells', new Map(keptCells));
+  const last = store.get('lastClickedKey');
+  if (last !== null && !held(last)) store.set('lastClickedKey', null);
+  const anchor = store.get('anchorCell');
+  if (anchor !== null && !held(anchor.rowKey)) store.set('anchorCell', null);
 }
 
 function selectSingleCell(store: SelectionStore, cell: Cell) {
@@ -550,6 +567,8 @@ export function useSelection(
   const handleCellMouseDown = useCellDrag(state, columns);
   useSelectionKeyboard(state, rows, scroller, columns);
   const edges = useSelectionEdges(selectedKeys);
+  const { firstKey, count } = rows;
+  useLayoutEffect(() => pruneTo(state.store, firstKey, firstKey + count), [state.store, firstKey, count]);
 
   const report = useEffectEvent(() =>
     onLines(linesOf(selectedCells.size > 0 ? selectedCells.keys() : selectedKeys, rows)),

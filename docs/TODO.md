@@ -624,12 +624,10 @@ Pending work across the three parts of the app. Grouped by area; detailed items 
 
 ## Frontend (webview)
 
-- **Bound the viewer's window and re-fetch from its edge page cursors.** A long follow grows the window's lines without end. Cap it at `maxLines`, dropping lines at the edge farther from the reader and never on screen, and keep that edge's page cursor, so scrolling back is an ordinary `Continue`. A dropped line comes back from the sidecar's log cache, or from the kubelet once the cache has let it go. The cost is the library's stable-key rule across a drop.
 - **The log viewer shows only the filters the model set.** Kubetail's sidebar lists each region, zone, OS, architecture and node the open sources span, with a count per value. That needs one query answering what a view's sources resolved to, which the sidecar's resolve already computes (`services/logs/resolve.go`) and the wire does not carry.
 - **The inline card reads an `At` window and keeps one half.** `src/lib/inline-log-lines.ts` asks
-  for both halves of the moment and drops the other, a read for lines nobody uses. The service
-  reads either half as one first page (a window since the moment from `First`, or until it from
-  `Last`); the library's query union has no kind that asks for one half alone.
+  for both halves of the moment and drops the other, a read for lines nobody uses. The library's
+  `Since` and `Until` each read one half as one first page; the card still asks `At`.
 - **Read on through empty log pages.** A grep with no match across many logs returns several empty
   pages in a row, each cut at the page's limits (→ [ADR: backward log reads assume normal
   logs](adr/2026-10-18-backward-reads-assume-normal-logs.md)), and the viewer shows *Keep looking* after each. It could read on by itself a few

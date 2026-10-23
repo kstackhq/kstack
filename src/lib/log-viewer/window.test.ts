@@ -14,6 +14,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FakeClient, type FakeStream } from './fake-client';
+import { compareTimestamps } from './lines';
 import type { Anchor, FetchQuery, FollowFrame, LogLine, Page } from './types';
 import { CORE_INITIAL_STATE, type Edge, type Effect, LogWindow, type LogWindowOptions } from './window';
 
@@ -53,7 +54,14 @@ const END = { next: null, follow: 'live-end' };
 const START = { prev: null };
 
 function make(options: Partial<LogWindowOptions> = {}): LogWindow {
-  return new LogWindow({ pinToEnd: true, firstPageSize: 50, pageSize: 20, ...options });
+  return new LogWindow({
+    pinToEnd: true,
+    firstPageSize: 50,
+    pageSize: 20,
+    maxLines: 1000,
+    loadMoreThreshold: 2,
+    ...options,
+  });
 }
 
 function landed(anchor: Anchor, p: Page, options: Partial<LogWindowOptions> = {}): LogWindow {
@@ -86,6 +94,7 @@ describe('before any event', () => {
       range: null,
       visible: 0,
       length: 0,
+      firstKey: 0,
       before: { more: false, empty: false, loading: false },
       after: { more: false, empty: false, loading: false },
       notices: [],
@@ -714,6 +723,11 @@ describe('setVisibleRange', () => {
   });
 });
 
+const linesBefore = (frames: FollowFrame[]): LogLine[] => {
+  const ended = frames.findIndex((f) => f.kind === 'Ended');
+  return (ended === -1 ? frames : frames.slice(0, ended)).flatMap((f) => (f.kind === 'Line' ? [f.line] : []));
+};
+
 // The walk: a seeded random walk drives a window over the fake's log, modelling the core
 // around it, and checks the window's rules after every step.
 
@@ -748,8 +762,8 @@ const pod = (name: string, weight: number): FakeStream => ({
 
 type Pending = {
   window: number;
-  /** The landing, or the edge a page went toward with its ticket. */
-  for: { kind: 'landing'; anchor: Anchor } | { kind: 'page'; edge: Edge; ticket: number };
+  /** The landing, or the edge a page went toward with its ticket, and whether it read from a seam. */
+  for: { kind: 'landing'; anchor: Anchor } | { kind: 'page'; edge: Edge; ticket: number; seam: boolean };
   /** Spans this fetch's read passed over, counted once its answer is taken. */
   spans: { from: number; to: number }[];
   answer: { page: Page } | { error: unknown } | null;
@@ -763,6 +777,8 @@ async function walk(seed: number) {
     streams: [pod('a', 10), pod('b', 10), pod('c', 1)],
     repeat,
   });
+  // Most walks bound the window tightly, so drops happen at both edges.
+  const maxLines = rand.chance(0.7) ? 12 + rand.int(20) : 1000;
 
   // Each line's index in the log, by its cursor.
   const indexOf = new Map<string, number>();
@@ -790,6 +806,12 @@ async function walk(seed: number) {
   let frames: FollowFrame[] = [];
   // What the step did, for the check that nothing else moves the view.
   let moved = false;
+  // Every line this landing held and let go, and whether it dropped any line, one it had just
+  // added included.
+  let dropped = new Set<string>();
+  let anyDrop = false;
+  // The sweep at the end reads every page as asked.
+  let calm = false;
 
   const length = () => w.getSnapshot().length;
   const maxTop = () => Math.max(length() - VIEW, 0);
@@ -811,12 +833,12 @@ async function walk(seed: number) {
   }
 
   function fetch(query: FetchQuery, of: Pending['for']) {
-    const decide = rand.int(10);
+    const decide = calm ? -1 : rand.int(10);
     if (decide === 0) fake.failNext('fetch');
     if (decide === 1) fake.emptyNext();
     const before = fake.passedOver().length;
     const entry: Pending = { window: windowId, for: of, spans: [], answer: null };
-    if (rand.chance(0.3)) heldBack.add(entry);
+    if (!calm && rand.chance(0.3)) heldBack.add(entry);
     fake.fetch(query).then(
       (p) => {
         entry.answer = { page: p };
@@ -833,7 +855,8 @@ async function walk(seed: number) {
     const ticket = w.startPage(edge);
     if (ticket === null) return;
     outstanding[edge] = ticket;
-    fetch(w.query(edge) as FetchQuery, { kind: 'page', edge, ticket });
+    const query = w.query(edge) as FetchQuery;
+    fetch(query, { kind: 'page', edge, ticket, seam: query.kind === 'Until' || query.kind === 'Since' });
   }
 
   function closeFollow() {
@@ -844,7 +867,7 @@ async function walk(seed: number) {
   function land(next: Anchor, pinToEnd: boolean) {
     closeFollow();
     windowId += 1;
-    w = make({ pinToEnd, firstPageSize: FIRST_PAGE, pageSize: PAGE });
+    w = make({ pinToEnd, firstPageSize: FIRST_PAGE, pageSize: PAGE, maxLines, loadMoreThreshold: 2 });
     landedOk = false;
     paused = false;
     top = 0;
@@ -855,6 +878,8 @@ async function walk(seed: number) {
     bottomWish = false;
     sawEnded = false;
     pinned = false;
+    dropped = new Set();
+    anyDrop = false;
     fetch(w.landing(next), { kind: 'landing', anchor: next });
   }
 
@@ -886,15 +911,18 @@ async function walk(seed: number) {
       return;
     }
     const lengthBefore = length();
-    const heldIndexes = Array.from({ length: lengthBefore }, (_, i) => index(w.lineAt(i).cursor));
+    const heldCursors = heldNow();
+    const heldIndexes = [...heldCursors].map(index);
     const heldKey = topKey();
-    apply(w.paged(ticket, answer.page), heldKey);
-    // A page extends the stretch on its own side: its new lines are past every line held.
-    const added = length() - lengthBefore;
-    const fresh = Array.from({ length: added }, (_, k) =>
-      index(w.lineAt(edge === 'before' ? k : lengthBefore + k).cursor),
+    const snapBefore = w.getSnapshot();
+    apply(
+      tracking(() => w.paged(ticket, answer.page), accepted ? answer.page.lines : []),
+      heldKey,
     );
-    if (heldIndexes.length > 0 && fresh.length > 0) {
+    // A page extends the stretch on its own side: its new lines are past every line held. A
+    // seam page, or any page once the window has dropped, reads per container instead.
+    const fresh = [...heldNow()].filter((c) => !heldCursors.has(c)).map(index);
+    if (heldIndexes.length > 0 && fresh.length > 0 && !entry.for.seam && !anyDrop) {
       if (edge === 'before')
         expect(Math.max(...fresh), `${context}: a page before inside the stretch`).toBeLessThan(
           Math.min(...heldIndexes),
@@ -905,7 +933,7 @@ async function walk(seed: number) {
         );
     }
     if (!accepted) {
-      expect(length(), `${context}: a stale page added lines`).toBe(lengthBefore);
+      expect(w.getSnapshot(), `${context}: a stale page changed the window`).toBe(snapBefore);
       return;
     }
     if (paused && edge === 'after') expect(length(), `${context}: a page added lines while paused`).toBe(lengthBefore);
@@ -920,10 +948,15 @@ async function walk(seed: number) {
     const batch = frames;
     frames = [];
     const wasFollowing = w.following();
-    const lengthBefore = length();
-    const effect = w.followed(batch);
-    for (let i = lengthBefore; i < length(); i += 1) byFollow.add(w.lineAt(i).cursor);
-    if (length() > lengthBefore) expect(wasFollowing, `${context}: a closed follow added lines`).toBe(true);
+    const heldCursors = heldNow();
+    const effect = tracking(
+      () => w.followed(batch),
+      // The window reads no frame past an `Ended`.
+      wasFollowing ? linesBefore(batch) : [],
+    );
+    const fresh = [...heldNow()].filter((c) => !heldCursors.has(c));
+    fresh.forEach((c) => byFollow.add(c));
+    if (fresh.length > 0) expect(wasFollowing, `${context}: a closed follow added lines`).toBe(true);
     if (effect.kind !== 'none') moved = true;
     apply(effect, null);
     if (w.getSnapshot().ended !== null) sawEnded = true;
@@ -952,7 +985,10 @@ async function walk(seed: number) {
     if (length() === 0) return;
     const start = top;
     const end = Math.min(top + VIEW - 1, length() - 1);
-    w.setVisibleRange(start, end);
+    // A drop the range brings keeps the rows on screen by their keys.
+    const keyAtTop = w.keyAt(start);
+    tracking(() => w.setVisibleRange(start, end));
+    top = Math.min(Math.max(w.indexOfKey(keyAtTop), 0), maxTop());
     const key = `${w.keyAt(start)}:${w.keyAt(end)}`;
     if (key === lastRange) return;
     lastRange = key;
@@ -993,17 +1029,58 @@ async function walk(seed: number) {
     }
   }
 
+  // Runs a window call that brings `incoming` and notes what it dropped, a line just brought
+  // included; a drop clears the ticket at its edge, as the walk's record must.
+  function tracking<T>(call: () => T, incoming: readonly LogLine[] = []): T {
+    const before = Array.from({ length: length() }, (_, i) => w.lineAt(i).cursor);
+    const result = call();
+    const now = heldNow();
+    if (incoming.some((l) => !now.has(l.cursor))) anyDrop = true;
+    const firstKept = before.findIndex((c) => now.has(c));
+    before.forEach((c, i) => {
+      if (now.has(c)) return;
+      dropped.add(c);
+      anyDrop = true;
+      outstanding[firstKept === -1 || i < firstKept ? 'before' : 'after'] = null;
+    });
+    return result;
+  }
+
+  function heldNow(): Set<string> {
+    return new Set(Array.from({ length: length() }, (_, i) => w.lineAt(i).cursor));
+  }
+
+  const inPassed = (i: number) => passed.some(({ from, to }) => from <= i && i < to);
+
   function check() {
     const snap = w.getSnapshot();
     const held = Array.from({ length: snap.length }, (_, i) => w.lineAt(i).cursor);
     expect(new Set(held).size, `${context}: a line held twice`).toBe(held.length);
+    held.forEach((c, i) => expect(w.lineAt(i), `${context}: a line not the fake's`).toBe(fake.lineAt(index(c))));
+    if (snap.length > 0) expect(snap.firstKey, `${context}: firstKey disagrees`).toBe(w.keyAt(0));
 
-    // Held lines and passed-over spans are one stretch of the log.
+    // Each container's held lines are one run of its log, but for lines an empty read passed over.
+    const byContainer = new Map<string, number[]>();
+    held.map(index).forEach((i) => {
+      const key = fake.lineAt(i).stream.pod;
+      byContainer.set(key, [...(byContainer.get(key) ?? []), i]);
+    });
+    byContainer.forEach((indexes, name) => {
+      const sorted = [...indexes].sort((a, b) => a - b);
+      for (let k = 1; k < sorted.length; k += 1) {
+        for (let i = sorted[k - 1] + 1; i < sorted[k]; i += 1) {
+          if (fake.lineAt(i).stream.pod === name)
+            expect(inPassed(i), `${context}: ${name}'s held lines are not one run`).toBe(true);
+        }
+      }
+    });
+
+    // Held lines and passed-over spans are one stretch of the log, until the window drops.
     const covered = new Set(held.map(index));
     passed.forEach(({ from, to }) => {
       for (let i = from; i < to; i += 1) covered.add(i);
     });
-    if (covered.size > 0) {
+    if (covered.size > 0 && !anyDrop) {
       const all = [...covered];
       const low = Math.min(...all);
       const high = Math.max(...all);
@@ -1013,7 +1090,7 @@ async function walk(seed: number) {
     // What pages brought is in log order; a follow's lines keep their arrival order.
     const paged = held.filter((c) => !byFollow.has(c)).map(index);
     paged.forEach((value, i) => {
-      if (i > 0) expect(value, `${context}: paged lines out of log order`).toBeGreaterThan(paged[i - 1]);
+      if (i > 0 && !anyDrop) expect(value, `${context}: paged lines out of log order`).toBeGreaterThan(paged[i - 1]);
     });
 
     expect(snap.following, `${context}: following disagrees`).toBe(
@@ -1027,8 +1104,13 @@ async function walk(seed: number) {
     });
     if (snap.following && cancel !== null) {
       const last = fake.lineCount - 1;
+      // A drop by arrival order can take a stream's newest lines; the before seam then reaches them.
+      const query = w.query('before');
+      const behindSeam = query?.kind === 'Until' && compareTimestamps(query.at, fake.lineAt(last).timestamp) >= 0;
       const holdsLast =
-        held.includes(fake.lineAt(last).cursor) || passed.some(({ from, to }) => from <= last && last < to);
+        held.includes(fake.lineAt(last).cursor) ||
+        passed.some(({ from, to }) => from <= last && last < to) ||
+        behindSeam;
       expect(holdsLast, `${context}: following without the newest line`).toBe(true);
     }
   }
@@ -1049,7 +1131,7 @@ async function walk(seed: number) {
     const windowBefore = windowId;
     const actions = 1 + rand.int(3);
     for (let a = 0; a < actions; a += 1) {
-      switch (rand.int(13)) {
+      switch (rand.int(14)) {
         case 0:
           scrollTo(rand.int(maxTop() + 1));
           break;
@@ -1075,7 +1157,8 @@ async function walk(seed: number) {
           checkPin(false);
           break;
         case 4:
-          fake.append(1 + rand.int(15));
+          // Spaced lines a follow sends stream by stream, out of time order.
+          fake.append(1 + rand.int(15), rand.int(3));
           break;
         case 5: {
           const next = randomAnchor();
@@ -1104,6 +1187,21 @@ async function walk(seed: number) {
         case 11:
           vi.advanceTimersByTime(rand.int(1000));
           break;
+        case 12:
+          // A spaced burst a follow sends out of time order, then small batches whose drops
+          // straddle its out-of-order lines.
+          if (w.following()) {
+            fake.append(PAGE + rand.int(8), 1 + rand.int(2));
+            // eslint-disable-next-line no-await-in-loop -- each action settles before the next
+            await settle();
+            // eslint-disable-next-line no-await-in-loop -- each action settles before the next
+            await inTurn(4, async () => {
+              vi.advanceTimersByTime(1);
+              fake.append(1 + rand.int(3));
+              await settle();
+            });
+          }
+          break;
         default:
           heldBack.clear();
       }
@@ -1116,8 +1214,330 @@ async function walk(seed: number) {
   }
 
   await inTurn(60, (n) => step(n));
+
+  // Scrolling back to the start and forward to the end brings every line the window dropped.
+  if (landedOk && !w.getSnapshot().failed) {
+    calm = true;
+    heldBack.clear();
+    if (paused) {
+      paused = false;
+      w.setPaused(false);
+    }
+    await settle();
+    check();
+    const swept = new Set(heldNow());
+    const sweep = async (edge: Edge, done: () => boolean) => {
+      for (let n = 0; n < 300 && !done(); n += 1) {
+        scrollTo(edge === 'before' ? 0 : maxTop());
+        pageToward(edge);
+        // eslint-disable-next-line no-await-in-loop -- each page settles before the next is asked
+        await settle();
+        check();
+        heldNow().forEach((c) => swept.add(c));
+      }
+      expect(done(), `${context}: the sweep ${edge} never ended`).toBe(true);
+    };
+    await sweep('before', () => !w.edges().before.more);
+    // An ended follow leaves the after edge open, so the newest line held ends the sweep too.
+    await sweep('after', () => !w.edges().after.more || heldNow().has(fake.lineAt(fake.lineCount - 1).cursor));
+    dropped.forEach((c) => {
+      if (!inPassed(index(c))) expect(swept.has(c), `${context}: ${c} never came back`).toBe(true);
+    });
+  }
   closeFollow();
 }
+
+describe('firstKey', () => {
+  it('is the first held line’s key, moving with a prepend, and 0 with none', () => {
+    const w = landed(TAIL, page(10, 13, { edges: END }));
+    expect(w.getSnapshot().firstKey).toBe(-2);
+    const ticket = w.startPage('before') as number;
+    w.paged(ticket, page(8, 10));
+    expect(w.getSnapshot().firstKey).toBe(-4);
+    expect(landed(HEAD, page(0, 0, { edges: { ...START, ...END } })).getSnapshot().firstKey).toBe(0);
+  });
+});
+
+// A window of at most 10 lines, a margin of 3 past the visible range.
+const BOUND = { maxLines: 10, loadMoreThreshold: 2 };
+const frames = (from: number, to: number) => range(from, to).map((l): FollowFrame => ({ kind: 'Line', line: l }));
+
+describe('a follow past maxLines', () => {
+  it('drops at the before edge, keeping the kept keys and moving firstKey, and goes to the end', () => {
+    const w = landed(TAIL, page(0, 10, { edges: END }), BOUND);
+    expect(w.followed(frames(10, 15))).toEqual({ kind: 'toEnd' });
+    expect(cursors(w)).toEqual(range(5, 15).map((l) => l.cursor));
+    expect(keys(w)).toEqual(Array.from({ length: 10 }, (_, k) => k - 4));
+    const snap = w.getSnapshot();
+    expect(snap.length).toBe(10);
+    expect(snap.firstKey).toBe(-4);
+    expect(snap.before).toEqual({ more: true, empty: false, loading: false });
+    expect(snap.following).toBe(true);
+  });
+
+  it('drops nothing while at or under maxLines', () => {
+    const w = landed(TAIL, page(0, 5, { edges: END }), BOUND);
+    w.followed(frames(5, 10));
+    expect(w.getSnapshot()).toMatchObject({ length: 10, firstKey: -4, before: { more: true } });
+    expect(w.query('before')).toEqual({ kind: 'Continue', cursor: 'before-0', seen: null, limit: 20 });
+  });
+});
+
+// Lines alternating containers a and b, line `i` stamped `i` seconds past midnight.
+const mixed = (from: number, to: number) =>
+  Array.from({ length: to - from }, (_, k) => line(from + k, from + k, (from + k) % 2 === 0 ? 'a' : 'b'));
+const pageOf = (lines: LogLine[], edges: Partial<Page['edges']> = {}): Page => ({
+  lines,
+  edges: { prev: 'before-p', next: 'after-p', follow: null, ...edges },
+  anchor: null,
+  notices: [],
+});
+const at = (i: number) => line(i).timestamp;
+
+describe('a page past maxLines', () => {
+  it('drops a page before at the before edge while following, and keeps following', () => {
+    const w = landed(TAIL, page(10, 20, { edges: END }), BOUND);
+    const ticket = w.startPage('before') as number;
+    expect(w.paged(ticket, page(5, 10))).toEqual({ kind: 'hold' });
+    expect(cursors(w)).toEqual(range(10, 20).map((l) => l.cursor));
+    expect(w.getSnapshot()).toMatchObject({ following: true, pinnedToEnd: true, firstKey: -9 });
+    expect(w.query('before')).toEqual({ kind: 'Until', at: at(9), seen: ['c10'], limit: 20 });
+  });
+
+  it('drops a page after at the before edge, and holds', () => {
+    const w = landed(HEAD, page(0, 10, { edges: START }), BOUND);
+    const ticket = w.startPage('after') as number;
+    expect(w.paged(ticket, page(10, 15))).toEqual({ kind: 'hold' });
+    expect(cursors(w)).toEqual(range(5, 15).map((l) => l.cursor));
+    expect(w.getSnapshot()).toMatchObject({ firstKey: 5, before: { more: true, empty: false } });
+    expect(w.query('before')).toEqual({ kind: 'Until', at: at(4), seen: ['c5'], limit: 20 });
+    expect(w.query('after')).toEqual({ kind: 'Continue', cursor: 'after-15', seen: ['c14'], limit: 20 });
+  });
+
+  it('drops a page before at the after edge, unpins, and reads on after from the seam past the newest kept', () => {
+    const w = landed(TAIL, pageOf(mixed(10, 20), END), BOUND);
+    w.setPaused(true);
+    const ticket = w.startPage('before') as number;
+    expect(w.paged(ticket, pageOf(mixed(5, 10)))).toEqual({ kind: 'hold' });
+    expect(cursors(w)).toEqual(mixed(5, 15).map((l) => l.cursor));
+    expect(w.getSnapshot()).toMatchObject({ pinnedToEnd: false, firstKey: -14 });
+    expect(w.query('after')).toBeNull();
+
+    w.setPaused(false);
+    expect(w.getSnapshot().following).toBe(false);
+    expect(w.query('after')).toEqual({ kind: 'Since', at: at(15), seen: ['c13', 'c14'], limit: 20 });
+  });
+});
+
+describe('the drop’s cap', () => {
+  it('never takes the visible range or the margin past it, capping the drop short', () => {
+    const w = landed(HEAD, page(0, 10, { edges: START }), BOUND);
+    w.setVisibleRange(2, 5);
+    expect(w.paged(w.startPage('after') as number, page(10, 15))).toEqual({ kind: 'none' });
+    expect(w.getSnapshot()).toMatchObject({ length: 15, firstKey: 0, before: { more: false } });
+
+    w.setVisibleRange(6, 9);
+    expect(w.paged(w.startPage('after') as number, page(15, 20))).toEqual({ kind: 'hold' });
+    expect(cursors(w)).toEqual(range(3, 20).map((l) => l.cursor));
+    expect(w.getSnapshot()).toMatchObject({ firstKey: 3, visible: 4, range: { from: at(6), to: at(9) } });
+  });
+
+  it('reads the range below the lines a page just put before it', () => {
+    const w = landed(TAIL, page(10, 20, { edges: END }), BOUND);
+    w.setVisibleRange(5, 9);
+    w.paged(w.startPage('before') as number, page(5, 10));
+    expect(cursors(w)).toEqual(range(10, 20).map((l) => l.cursor));
+    expect(w.getSnapshot()).toMatchObject({ visible: 5, range: { from: at(15), to: at(19) }, atEnd: true });
+  });
+
+  it('keeps the margin after the range when it drops at the after edge', () => {
+    const w = landed(TAIL, page(10, 20, { edges: END }), { ...BOUND, pinToEnd: false });
+    w.setVisibleRange(0, 4);
+    w.paged(w.startPage('before') as number, page(5, 10));
+    // The range is 5..9 once the page is in; it and three lines past it stay.
+    expect(cursors(w)).toEqual(range(5, 18).map((l) => l.cursor));
+  });
+});
+
+describe('a drop of nothing', () => {
+  it('leaves every edge as it was when a page ends at maxLines', () => {
+    const w = landed(HEAD, page(0, 5, { edges: START }), BOUND);
+    w.paged(w.startPage('after') as number, page(5, 10));
+    expect(w.getSnapshot()).toMatchObject({ length: 10, firstKey: 0, before: { more: false } });
+    expect(w.query('before')).toBeNull();
+  });
+
+  it('sets no seam, clears no ticket or cursor and keeps the pin when the cap leaves nothing to drop', () => {
+    const w = landed(TAIL, page(10, 20, { edges: END }), { ...BOUND, pinToEnd: false });
+    w.setVisibleRange(5, 9);
+    const after = w.startPage('after');
+    w.paged(w.startPage('before') as number, page(5, 10));
+    expect(w.getSnapshot()).toMatchObject({ length: 15, after: { more: true, loading: true } });
+    expect(w.query('after')).toEqual({ kind: 'Continue', cursor: 'live-end', seen: ['c19'], limit: 20 });
+    expect(after).not.toBeNull();
+  });
+});
+
+describe('the seam', () => {
+  // A window of 5..14 whose before edge dropped 0..4.
+  const droppedBefore = () => {
+    const w = landed(HEAD, page(0, 10, { edges: START }), BOUND);
+    w.paged(w.startPage('after') as number, page(10, 15));
+    return w;
+  };
+
+  it('is replaced by the seam page’s `prev`, which pages on as a Continue', () => {
+    const w = droppedBefore();
+    w.paged(w.startPage('before') as number, page(2, 5, { edges: { prev: 'before-2' } }));
+    expect(w.query('before')).toEqual({ kind: 'Continue', cursor: 'before-2', seen: null, limit: 20 });
+    // Three in at the before edge, three out at the after edge.
+    expect(cursors(w)).toEqual(range(2, 12).map((l) => l.cursor));
+    expect(w.query('after')).toEqual({ kind: 'Since', at: at(12), seen: ['c11'], limit: 20 });
+  });
+
+  it('reads on after a seam page of repeats alone that says more', () => {
+    const w = droppedBefore();
+    w.paged(w.startPage('before') as number, page(5, 8, { edges: { prev: 'before-5' } }));
+    expect(w.readOn('before')).toBe(true);
+    expect(w.query('before')).toEqual({ kind: 'Continue', cursor: 'before-5', seen: null, limit: 20 });
+  });
+
+  it('is replaced after by the seam page’s `resumeOf`, pinning on a wish when it finds no more', () => {
+    const w = landed(TAIL, page(10, 20, { edges: END }), { ...BOUND, pinToEnd: false });
+    w.paged(w.startPage('before') as number, page(5, 10));
+    expect(w.reachedBottom()).toBe(true);
+    expect(w.paged(w.startPage('after') as number, page(15, 20, { edges: END }))).toEqual({ kind: 'toEnd' });
+    expect(w.getSnapshot()).toMatchObject({ following: true });
+    expect(w.followFrom()).toEqual({ cursor: 'live-end', seen: ['c19'] });
+  });
+
+  it('keeps the farthest stamp of every drop at the before edge, though a later drop’s lies short of it', () => {
+    const w = landed(TAIL, page(0, 2, { edges: END }), { ...BOUND, maxLines: 4 });
+    w.followed([line(2, 40), line(3, 3)].map((l): FollowFrame => ({ kind: 'Line', line: l })));
+    [line(4, 41), line(5, 42), line(6, 43), line(7, 44)].forEach((l) => w.followed([{ kind: 'Line', line: l }]));
+    // Dropped c0 at 0s, c1 at 1s, c2 at 40s and c3 at 3s.
+    expect(cursors(w)).toEqual(['c4', 'c5', 'c6', 'c7']);
+    expect(w.query('before')).toEqual({ kind: 'Until', at: at(40), seen: ['c4'], limit: 20 });
+  });
+
+  it('keeps the farthest stamp of every drop at the after edge, though a later drop’s lies short of it', () => {
+    const w = landed(HEAD, pageOf([line(10), line(11), line(12), line(13, 5)]), { ...BOUND, maxLines: 4 });
+    w.paged(w.startPage('before') as number, pageOf([line(9)]));
+    w.paged(w.startPage('before') as number, pageOf([line(8)]));
+    expect(cursors(w)).toEqual(['c8', 'c9', 'c10', 'c11']);
+    expect(w.query('after')).toEqual({ kind: 'Since', at: at(5), seen: ['c11'], limit: 20 });
+  });
+
+  it('clears the ticket at its edge: the page in flight that way changes nothing when it lands', () => {
+    const w = landed(TAIL, page(10, 20, { edges: END }), { ...BOUND, pinToEnd: false });
+    const before = w.startPage('before') as number;
+    w.paged(w.startPage('after') as number, page(20, 25));
+    expect(w.getSnapshot().before.loading).toBe(false);
+    const snap = w.getSnapshot();
+    expect(w.paged(before, page(5, 10))).toEqual({ kind: 'none' });
+    expect(w.getSnapshot()).toBe(snap);
+    expect(w.query('before')).toEqual({ kind: 'Until', at: at(14), seen: ['c15'], limit: 20 });
+  });
+
+  it('is cleared by a landing', () => {
+    const w = droppedBefore();
+    w.landed(page(30, 40, { edges: { prev: 'before-30' } }), HEAD);
+    expect(w.query('before')).toEqual({ kind: 'Continue', cursor: 'before-30', seen: null, limit: 20 });
+    expect(w.query('after')).toEqual({ kind: 'Continue', cursor: 'after-40', seen: ['c39'], limit: 20 });
+  });
+});
+
+describe('a drop while following', () => {
+  it('protects the end it goes to, not the range before the batch, so a batch larger than the room ends at maxLines', () => {
+    const w = landed(TAIL, page(0, 10, { edges: END }), BOUND);
+    w.setVisibleRange(5, 9);
+    w.followed(frames(10, 20));
+    expect(w.getSnapshot()).toMatchObject({ length: 10, firstKey: 1 });
+
+    w.setVisibleRange(5, 9);
+    expect(w.getSnapshot()).toMatchObject({ visible: 5, atEnd: true });
+  });
+
+  it('keeps the margin above the end it goes to', () => {
+    const w = landed(TAIL, page(0, 10, { edges: END }), { ...BOUND, maxLines: 4 });
+    w.setVisibleRange(5, 9);
+    w.followed(frames(10, 12));
+    // Five lines on screen at the end and three above them stay.
+    expect(w.getSnapshot().length).toBe(8);
+  });
+
+  it('drops nothing on a range whose lines a drop took, until the adapter reports again', () => {
+    const w = landed(TAIL, page(0, 10, { edges: END }), BOUND);
+    w.setVisibleRange(5, 9);
+    // A batch far larger than the window takes the lines the range named.
+    w.followed(frames(10, 40));
+    expect(w.getSnapshot().length).toBe(10);
+    w.scrolledUp();
+
+    w.paged(w.startPage('before') as number, pageOf(range(100, 105)));
+    expect(w.getSnapshot().length).toBe(15);
+    expect(w.lineAt(14).cursor).toBe('c39');
+
+    // Reported again, the range and its margin are what the next drop keeps.
+    w.setVisibleRange(5, 9);
+    w.paged(w.startPage('before') as number, pageOf(range(105, 110)));
+    expect(w.getSnapshot().length).toBe(18);
+  });
+
+  it('leaves setVisibleRange to record the range alone, while not following', () => {
+    const w = landed(HEAD, page(0, 10, { edges: START }), BOUND);
+    w.setVisibleRange(5, 9);
+    w.paged(w.startPage('after') as number, page(10, 20));
+    w.setVisibleRange(15, 19);
+    expect(w.getSnapshot().length).toBe(18);
+  });
+});
+
+describe('reading a dropped edge back', () => {
+  // Pages `edge` once through the fake and answers what the window answered.
+  async function pageThrough(w: LogWindow, fake: FakeClient, edge: Edge): Promise<Effect> {
+    const ticket = w.startPage(edge) as number;
+    return w.paged(ticket, await fake.fetch(w.query(edge) as FetchQuery));
+  }
+
+  it('sends each container’s oldest held line in the Until, so none reads past its held run', async () => {
+    const fake = new FakeClient({ lines: 40, streams: [pod('a', 1), pod('b', 1)] });
+    const w = make({ ...BOUND, pinToEnd: false, firstPageSize: 10, pageSize: 10 });
+    w.landed(await fake.fetch(w.landing(HEAD)), HEAD);
+    await pageThrough(w, fake, 'after');
+    const until = w.query('before');
+    expect(until).toEqual({
+      kind: 'Until',
+      at: fake.lineAt(9).timestamp,
+      seen: ['fake:line:10', 'fake:line:11'],
+      limit: 10,
+    });
+
+    await pageThrough(w, fake, 'before');
+    expect(cursors(w)).toEqual(Array.from({ length: 10 }, (_, i) => `fake:line:${i}`));
+    expect(w.query('before')).toBeNull();
+  });
+
+  it('brings a line past a hole back with its `gap`, as the sidecar serves it', async () => {
+    const gap = { after: '2026-10-15T11:00:00.000Z', before: '2026-10-15T11:30:00.000Z' };
+    const fake = new FakeClient({ lines: 40, gaps: { 5: gap } });
+    const w = make({ ...BOUND, pinToEnd: false, firstPageSize: 10, pageSize: 10 });
+    w.landed(await fake.fetch(w.landing(HEAD)), HEAD);
+    await pageThrough(w, fake, 'after');
+    expect(cursors(w)).not.toContain('fake:line:5');
+
+    await pageThrough(w, fake, 'before');
+    expect(w.lineAt(5)).toMatchObject({ cursor: 'fake:line:5', gap });
+  });
+
+  it('keeps every visible key when a page before lands with the range at the top', () => {
+    const w = landed(TAIL, page(10, 20, { edges: END }), { ...BOUND, pinToEnd: false });
+    w.setVisibleRange(0, 4);
+    const visible = keys(w).slice(0, 5);
+    w.paged(w.startPage('before') as number, page(5, 10));
+    expect(keys(w)).toEqual(expect.arrayContaining(visible));
+  });
+});
 
 describe('the walk', () => {
   beforeEach(() => {
@@ -1129,7 +1549,7 @@ describe('the walk', () => {
     vi.useRealTimers();
   });
 
-  it('keeps every rule through 100 seeds of 60 steps', async () => {
-    await inTurn(100, (n) => walk(n + 1));
+  it('keeps every rule through 300 seeds of 60 steps', async () => {
+    await inTurn(300, (n) => walk(n + 1));
   }, 60_000);
 });

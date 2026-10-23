@@ -38,6 +38,8 @@ const AT: Anchor = { kind: 'At', at: '2026-10-15T00:01:00Z' };
 const VIEW = 200;
 let viewHeight = VIEW;
 let rowHeight: (key: number) => number = () => 20;
+// A line's own height, by its cursor, for a test whose keys come back on other lines.
+let lineHeight: ((cursor: string) => number) | null = null;
 
 const isScroller = (el: Element) => el.classList.contains('scroller');
 
@@ -108,7 +110,8 @@ function stubLayout() {
   stub('offsetHeight', {
     get(this: HTMLElement) {
       if (isScroller(this)) return viewHeight;
-      return this.dataset.key === undefined ? 0 : rowHeight(Number(this.dataset.key));
+      if (this.dataset.key === undefined) return 0;
+      return lineHeight && this.dataset.cursor ? lineHeight(this.dataset.cursor) : rowHeight(Number(this.dataset.key));
     },
   });
   stub('offsetWidth', { get: () => 300 });
@@ -239,6 +242,7 @@ function draw(rows: CoreRows) {
           key={row.key}
           data-index={row.index}
           data-key={row.key}
+          data-cursor={row.line.cursor}
           data-start={row.start}
           ref={rows.measureElement}
           style={{ position: 'absolute', top: row.start }}
@@ -326,6 +330,7 @@ beforeEach(() => {
     ],
   });
   rowHeight = () => 20;
+  lineHeight = null;
   viewHeight = VIEW;
   stubLayout();
 });
@@ -1260,5 +1265,163 @@ describe('landing at a row', () => {
     await frame(6);
     expect(m.startOf(0)).toBeGreaterThan(75 * 20);
     expect(m.scroller().scrollTop).toBe(m.startOf(0));
+  });
+});
+
+describe('the bound', () => {
+  // Answers a page toward either edge off a log of line `i` at `i` seconds, ten lines a page.
+  function pageFor(query: FetchQuery): Page {
+    const oldestHeld = (seen: Cursor[]) => Math.min(...seen.map((c) => Number(c.slice(1))));
+    const newestHeld = (seen: Cursor[]) => Math.max(...seen.map((c) => Number(c.slice(1))));
+    let from: number;
+    if (query.kind === 'Until') from = oldestHeld(query.seen) - query.limit;
+    else if (query.kind === 'Since') from = newestHeld(query.seen) + 1;
+    else if (query.kind === 'Continue' && query.cursor.startsWith('before-'))
+      from = Number(query.cursor.slice(7)) - query.limit;
+    else if (query.kind === 'Continue') from = Number(query.cursor.slice(6));
+    else throw new Error(`no page for ${query.kind}`);
+    return page(from, from + query.limit);
+  }
+
+  // Answers every page asked, a round at a time, until the core asks no more.
+  async function answerAll(s: ReturnType<typeof scripted>, answered: Set<Fetch>, round = 0): Promise<void> {
+    const waiting = s.fetches.filter((f) => !answered.has(f));
+    if (waiting.length === 0 || round === 30) return;
+    await waiting.reduce(
+      (prev, f) =>
+        prev.then(() => {
+          answered.add(f);
+          return answer(f, pageFor(f.query));
+        }),
+      Promise.resolve(),
+    );
+    await frame(2);
+    await answerAll(s, answered, round + 1);
+  }
+
+  it('keeps a follow run past maxLines at maxLines, with the end in view', async () => {
+    const s = scripted();
+    const m = mount({ client: s.client, maxLines: 200, loadMoreThreshold: 10 });
+    await landTail(s);
+    await send(
+      s.open()[0],
+      lines(150, 250).map((l): FollowFrame => ({ kind: 'Line', line: l })),
+    );
+    await frame(3);
+    expect(m.state()).toMatchObject({ length: 200, firstKey: -99, following: true, atEnd: true });
+    expect(m.scroller().scrollTop).toBe(200 * 20 - VIEW);
+  });
+
+  it('ends a batch larger than the room above the view at the edge bound once its end is in view', async () => {
+    const s = scripted();
+    const m = mount({ client: s.client, maxLines: 20, loadMoreThreshold: 2 });
+    await landTail(s);
+    await send(
+      s.open()[0],
+      lines(150, 250).map((l): FollowFrame => ({ kind: 'Line', line: l })),
+    );
+    await frame(4);
+    expect(m.state()).toMatchObject({ length: 20, following: true, atEnd: true });
+    expect(m.scroller().scrollTop).toBe(20 * 20 - VIEW);
+    expect(s.fetches).toHaveLength(1);
+  });
+
+  it('pages the dropped lines in again on a scroll up, the first visible row where it was, and pins again at the bottom', async () => {
+    const s = scripted();
+    const m = mount({ client: s.client, maxLines: 200, loadMoreThreshold: 10 });
+    await landTail(s);
+    await send(
+      s.open()[0],
+      lines(150, 250).map((l): FollowFrame => ({ kind: 'Line', line: l })),
+    );
+    await frame(3);
+
+    await input(m.scroller(), () => fireEvent.wheel(m.scroller(), { deltaY: -100 }), 100);
+    await flush();
+    expect(s.last().query).toEqual({ kind: 'Until', at: line(49).timestamp, seen: ['c50'], limit: 100 });
+    await answer(s.last(), page(0, 50, { edges: START }));
+    // Row -94 sat at the top; fifty rows went in above it.
+    expect(m.scroller().scrollTop).toBe(55 * 20);
+    expect(m.state()).toMatchObject({ length: 200, firstKey: -149, pinnedToEnd: false });
+
+    await frame(2);
+    await input(m.scroller(), () => fireEvent.keyDown(m.scroller(), { key: 'End' }), 200 * 20 - VIEW);
+    await flush();
+    expect(s.last().query).toEqual({ kind: 'Since', at: line(200).timestamp, seen: ['c199'], limit: 100 });
+    await answer(s.last(), page(200, 250, { edges: END }));
+    await frame(3);
+    expect(m.state()).toMatchObject({ length: 200, following: true, firstKey: -99 });
+  });
+
+  it('settles a still reader between the edges under the between bound, paging stopped, every visible key held', async () => {
+    const s = scripted();
+    const m = mount({
+      client: s.client,
+      anchor: AT,
+      maxLines: 20,
+      loadMoreThreshold: 2,
+      firstPageSize: 10,
+      pageSize: 10,
+    });
+    await flush();
+    await answer(s.fetches[0], page(55, 65, { anchor: 5 }));
+    await frame(3);
+    const answered = new Set([s.fetches[0]]);
+    await answerAll(s, answered);
+    await frame(3);
+    expect(s.fetches.filter((f) => !answered.has(f))).toEqual([]);
+    // max(maxLines, visible + 2 · threshold + pageSize + 1)
+    expect(m.state().length).toBeLessThanOrEqual(10 + 2 * 2 + 10 + 1);
+    const held = new Set(Array.from({ length: m.state().length }, (_, i) => m.state().firstKey + i));
+    expect(m.keys().every((key) => held.has(key))).toBe(true);
+  });
+
+  it('settles rows read back under reused keys at their own measured heights', async () => {
+    lineHeight = (cursor) => (Number(cursor.slice(1)) % 2 === 0 ? 20 : 40);
+    const s = scripted();
+    const m = mount({ client: s.client, maxLines: 200, loadMoreThreshold: 10 });
+    await landTail(s);
+    await send(
+      s.open()[0],
+      lines(150, 250).map((l): FollowFrame => ({ kind: 'Line', line: l })),
+    );
+    await frame(3);
+    await input(m.scroller(), () => fireEvent.wheel(m.scroller(), { deltaY: -100 }), 100);
+    await flush();
+    await answer(s.last(), page(0, 50, { edges: START }));
+    await frame(3);
+
+    const rows = [...m.view.container.querySelectorAll<HTMLElement>('[data-key]')].sort(
+      (a, b) => Number(a.dataset.start) - Number(b.dataset.start),
+    );
+    rows.slice(1).forEach((row, k) => {
+      const above = rows[k];
+      expect(Number(row.dataset.start) - Number(above.dataset.start)).toBe(lineHeight!(above.dataset.cursor!));
+    });
+  });
+
+  it('changes nothing for a page made stale by a drop, and holds its edge for the frame it lands in', async () => {
+    const s = scripted();
+    const m = mount({ client: s.client, anchor: AT, maxLines: 150, loadMoreThreshold: 10 });
+    await flush();
+    await answer(s.fetches[0], page(0, 150, { anchor: 75 }));
+    await frame(3);
+    await scrollTo(m.scroller(), 0);
+    await flush();
+    const before = s.last();
+    expect(before.query).toMatchObject({ kind: 'Continue', cursor: 'before-0' });
+    await scrollTo(m.scroller(), 150 * 20 - VIEW);
+    await flush();
+    await answer(s.last(), page(150, 200));
+    expect(m.state()).toMatchObject({ length: 150, firstKey: -25, before: { more: true, loading: false } });
+
+    const asked = s.fetches.length;
+    await answer(before, page(-100, 0));
+    expect(m.state()).toMatchObject({ length: 150, firstKey: -25 });
+    await frame(2);
+    expect(s.fetches).toHaveLength(asked);
+    await scrollTo(m.scroller(), 0);
+    await flush();
+    expect(s.last().query).toMatchObject({ kind: 'Until', at: line(49).timestamp, seen: ['c50'] });
   });
 });

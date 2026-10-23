@@ -57,8 +57,10 @@ export type CoreState = {
   range: { from: string; to: string } | null;
   /** How many lines are on screen. */
   visible: number;
-  /** How many lines the window holds. It moves whenever a page or a follow adds one, so a render reading the snapshot sees every new line. */
+  /** How many lines the window holds. With `firstKey` it moves whenever the lines held change, so a render reading the snapshot sees every change. */
   length: number;
+  /** The key of the first line held, or the key the next line appended gets. A prepend lowers it and a drop at the before edge raises it. */
+  firstKey: number;
   /** The edges, as `edges()` answers them. */
   before: EdgeState;
   after: EdgeState;
@@ -73,6 +75,10 @@ export type LogWindowOptions = {
   firstPageSize: number;
   /** Every later page's limit. */
   pageSize: number;
+  /** The lines the window settles at: past it, a page or a batch ends with a drop at one edge. */
+  maxLines: number;
+  /** The core's paging threshold. A drop keeps this many lines and one more past the visible range, so it never pages the edge it dropped. */
+  loadMoreThreshold: number;
 };
 
 const NO_MORE: EdgeState = { more: false, empty: false, loading: false };
@@ -87,6 +93,7 @@ export const CORE_INITIAL_STATE: CoreState = {
   range: null,
   visible: 0,
   length: 0,
+  firstKey: 0,
   before: NO_MORE,
   after: NO_MORE,
   notices: [],
@@ -134,6 +141,13 @@ export class LogWindow {
   /** Each container's newest line held, by its cursor: what a page on from `resume` reads past. */
   private newest = new Map<string, Cursor>();
 
+  /**
+   * A stamp every line dropped at an edge lies on the window's side of, null with none dropped
+   * since that edge last paged: the newest dropped before, the oldest dropped after. The next page
+   * that way reads from it. Set only while that edge's cursor is null.
+   */
+  private seam: Record<Edge, string | null> = { before: null, after: null };
+
   /** The user's last scroll reached the bottom of a window that is behind; the next page after that finds no more pins. */
   private wantsPin = false;
 
@@ -145,8 +159,8 @@ export class LogWindow {
 
   private nextTicket = 0;
 
-  /** The first and last index on screen, as the adapter last told it. */
-  private visibleRange: { start: number; end: number } | null = null;
+  /** The keys of the first and last line on screen, as the adapter last told it: keys stay put across a prepend and a drop. */
+  private visibleKeys: { start: number; end: number } | null = null;
 
   private notices: Notice[] = [];
 
@@ -194,13 +208,17 @@ export class LogWindow {
   }
 
   // `seen` goes on every page after, followed or not: the server keeps the newer of a container's
-  // line and the cursor's own, so one it already passed is harmless.
+  // line and the cursor's own, so one it already passed is harmless. An edge with a seam reads
+  // from it, each container from its line held nearest that edge.
   query(edge: Edge): FetchQuery | null {
     if (!this.edges()[edge].more) return null;
     const { pageSize: limit } = this.options;
+    const seam = this.seam[edge];
     if (edge === 'before') {
+      if (seam !== null) return { kind: 'Until', at: seam, seen: [...this.nearest('before').values()], limit };
       return this.beforeCursor === null ? null : { kind: 'Continue', cursor: this.beforeCursor, seen: null, limit };
     }
+    if (seam !== null) return { kind: 'Since', at: seam, seen: this.seen(), limit };
     return this.resume === null ? null : { kind: 'Continue', cursor: this.resume, seen: this.seen(), limit };
   }
 
@@ -224,6 +242,7 @@ export class LogWindow {
     this.edge = { before: edgeOf(page, 'before'), after: edgeOf(page, 'after') };
     this.beforeCursor = page.edges.prev;
     this.resume = resumeOf(page);
+    this.seam = { before: null, after: null };
     this.newest = new Map();
     this.noteNewest(page.lines);
     this.notices = [];
@@ -259,6 +278,8 @@ export class LogWindow {
     const edge = this.edgeOfTicket(ticket);
     if (edge === null) return NONE;
     this.ticket[edge] = null;
+    // A drop that way clears its ticket, so this page read from the seam when one was set.
+    this.seam[edge] = null;
     // Only the edge paged toward reads the page's edges; the other side is ignored.
     this.edge[edge] = edgeOf(page, edge);
     const added = edge === 'before' ? this.lines.prepend(page.lines) : this.lines.append(page.lines);
@@ -269,6 +290,9 @@ export class LogWindow {
       this.beforeCursor = page.edges.prev;
       // Keys are stable across a prepend, so the adapter holds the first visible row by its key.
       effect = { kind: 'hold' };
+      // While following the reader is at the end, so the lines just read go again; otherwise
+      // the drop takes the edge the page did not add to.
+      this.drop(this.following() ? 'before' : 'after');
     } else {
       this.noteNewest(page.lines);
       this.resume = resumeOf(page);
@@ -281,6 +305,7 @@ export class LogWindow {
         // Rows to read before the bottom; reaching it again asks again.
         this.wantsPin = false;
       }
+      if (this.drop('before') > 0 && effect.kind === 'none') effect = { kind: 'hold' };
     }
     this.emit();
     return effect;
@@ -323,6 +348,7 @@ export class LogWindow {
     });
     this.lines.append(lines);
     this.noteNewest(lines);
+    this.drop('before');
     this.emit();
     return { kind: 'toEnd' };
   }
@@ -361,8 +387,9 @@ export class LogWindow {
   }
 
   setVisibleRange(start: number, end: number): void {
-    if (this.visibleRange?.start === start && this.visibleRange.end === end) return;
-    this.visibleRange = { start, end };
+    const keys = { start: this.lines.keyAt(start), end: this.lines.keyAt(end) };
+    if (this.visibleKeys?.start === keys.start && this.visibleKeys.end === keys.end) return;
+    this.visibleKeys = keys;
     this.emit();
   }
 
@@ -370,6 +397,71 @@ export class LogWindow {
   loadingEnded(): void {
     this.loading = false;
     this.emit();
+  }
+
+  /**
+   * Brings the window back toward `maxLines` by dropping lines at `edge`, never the visible range
+   * or the margin past it on that side, which keeps the dropped edge out of the core's paging
+   * threshold. While following the range is the end, where the core keeps the view. Answers how
+   * many it dropped.
+   */
+  private drop(edge: Edge): number {
+    const count = Math.min(this.lines.length - this.options.maxLines, this.room(edge));
+    if (count <= 0) return 0;
+    const dropped = edge === 'before' ? this.lines.dropFirst(count) : this.lines.dropLast(count);
+    this.foldSeam(edge, dropped);
+    // A page in flight that way would land beside the hole the drop opened.
+    this.ticket[edge] = null;
+    this.repeats[edge] = false;
+    if (edge === 'before') {
+      this.beforeCursor = null;
+      this.edge.before = { more: true, empty: false };
+    } else {
+      // The newest lines are gone, so the window is behind and pages on from the seam.
+      this.resume = null;
+      this.edge.after = { more: false, empty: false };
+      this.pinned = false;
+      this.wantsPin = false;
+      this.newest = this.nearest('after');
+    }
+    return count;
+  }
+
+  /**
+   * The lines a drop at `edge` may take: everything beyond the visible range and its margin, or
+   * everything with no range yet. A range whose lines a drop took since the adapter last reported
+   * it says nothing about the screen, so nothing is taken until the next report.
+   */
+  private room(edge: Edge): number {
+    const range = this.following() ? this.endRange() : this.visibleRange();
+    if (range === null) return this.lines.length;
+    if (range.start < 0 || range.end >= this.lines.length) return 0;
+    const margin = this.options.loadMoreThreshold + 1;
+    const room = edge === 'before' ? range.start - margin : this.lines.length - 1 - range.end - margin;
+    return Math.max(room, 0);
+  }
+
+  // Lines are held in arrival order, so a later drop's farthest stamp may lie short of an
+  // earlier one's: the seam keeps the farther, the newest before and the oldest after.
+  private foldSeam(edge: Edge, dropped: readonly LogLine[]): void {
+    const sign = edge === 'before' ? 1 : -1;
+    dropped.forEach(({ timestamp }) => {
+      const seam = this.seam[edge];
+      if (seam === null || sign * compareTimestamps(timestamp, seam) > 0) this.seam[edge] = timestamp;
+    });
+  }
+
+  /** The first and last index on screen, null before the adapter told any. */
+  private visibleRange(): { start: number; end: number } | null {
+    if (this.visibleKeys === null) return null;
+    return { start: this.lines.indexOfKey(this.visibleKeys.start), end: this.lines.indexOfKey(this.visibleKeys.end) };
+  }
+
+  /** As many lines as are on screen, at the end. */
+  private endRange(): { start: number; end: number } | null {
+    if (this.visibleKeys === null) return null;
+    const last = this.lines.length - 1;
+    return { start: last - (this.visibleKeys.end - this.visibleKeys.start), end: last };
   }
 
   private edgeOfTicket(ticket: number): Edge | null {
@@ -400,12 +492,24 @@ export class LogWindow {
     return [...this.newest.values()];
   }
 
+  // Each container's line held nearest `edge`, by its cursor. A container's held lines are one
+  // run of its log, so before it is the container's oldest line and after its newest.
+  private nearest(edge: Edge): Map<string, Cursor> {
+    const nearest = new Map<string, Cursor>();
+    this.lines.forEach((line) => {
+      const key = containerKey(line.stream);
+      if (edge === 'after' || !nearest.has(key)) nearest.set(key, line.cursor);
+    });
+    return nearest;
+  }
+
   // A follow's lines keep their arrival order, so the first and last visible need not be the bounds.
   private onScreen(): Pick<CoreState, 'visible' | 'range' | 'atEnd'> {
     const last = this.lines.length - 1;
-    if (this.visibleRange === null) return { visible: 0, range: null, atEnd: false };
-    const start = Math.max(this.visibleRange.start, 0);
-    const end = Math.min(this.visibleRange.end, last);
+    const visibleRange = this.visibleRange();
+    if (visibleRange === null) return { visible: 0, range: null, atEnd: false };
+    const start = Math.max(visibleRange.start, 0);
+    const end = Math.min(visibleRange.end, last);
     if (end < start) return { visible: 0, range: null, atEnd: false };
     let from = this.lines.at(start).timestamp;
     let to = from;
@@ -414,7 +518,7 @@ export class LogWindow {
       if (compareTimestamps(timestamp, from) < 0) from = timestamp;
       if (compareTimestamps(timestamp, to) > 0) to = timestamp;
     }
-    return { visible: end - start + 1, range: { from, to }, atEnd: this.following() && this.visibleRange.end === last };
+    return { visible: end - start + 1, range: { from, to }, atEnd: this.following() && visibleRange.end === last };
   }
 
   // Publishes a new snapshot when a field changed. An unchanged object keeps its identity, so
@@ -433,6 +537,7 @@ export class LogWindow {
       range: same(prev.range, range) ? prev.range : range,
       visible,
       length: this.lines.length,
+      firstKey: this.lines.keyAt(0),
       before: same(prev.before, before) ? prev.before : before,
       after: same(prev.after, after) ? prev.after : after,
       notices: this.notices,
