@@ -1517,7 +1517,7 @@ func goOn(t *testing.T, svc *Service, c *string, size int) FetchResponse {
 }
 
 // A request is a first page, from PageFromFirst or PageFromLast, or a continuation, a page
-// cursor alone or with Seen; Seen goes with PageFromFirst and no padding, or with a
+// cursor alone or with Seen; Seen goes with a first page with no padding, or with a
 // newer cursor whose window has no counted After. Anything else is
 // conflicting-parameters (rule 6).
 func TestAMixedRequestIsRefused(t *testing.T) {
@@ -1530,15 +1530,15 @@ func TestAMixedRequestIsRefused(t *testing.T) {
 	countedAfter := encodePageCursor(counted)
 	seen := []string{line("web-1", "app", 0, "").Cursor()}
 	for name, req := range map[string]FetchRequest{
-		"neither":                 {Scope: webScope},
-		"both":                    {Scope: webScope, PageFrom: PageFromFirst, Cursor: &c},
-		"another page":            {Scope: webScope, PageFrom: "middle"},
-		"a continuation's scope":  {Scope: webScope, Cursor: &c},
-		"a continuation's window": {Window: Window{Since: moment(0)}, Cursor: &c},
-		"seen beside a prev":      {Seen: seen, Cursor: &older},
-		"seen beside a count":     {Seen: seen, Cursor: &countedAfter},
-		"seen from the last":      {Scope: webScope, PageFrom: PageFromLast, Seen: seen},
-		"seen beside padding":     {Scope: webScope, PageFrom: PageFromFirst, Seen: seen, Window: Window{Since: moment(0), After: Padding{Span: time.Second}}},
+		"neither":                           {Scope: webScope},
+		"both":                              {Scope: webScope, PageFrom: PageFromFirst, Cursor: &c},
+		"another page":                      {Scope: webScope, PageFrom: "middle"},
+		"a continuation's scope":            {Scope: webScope, Cursor: &c},
+		"a continuation's window":           {Window: Window{Since: moment(0)}, Cursor: &c},
+		"seen beside a prev":                {Seen: seen, Cursor: &older},
+		"seen beside a count":               {Seen: seen, Cursor: &countedAfter},
+		"seen beside padding":               {Scope: webScope, PageFrom: PageFromFirst, Seen: seen, Window: Window{Since: moment(0), After: Padding{Span: time.Second}}},
+		"seen from the last beside padding": {Scope: webScope, PageFrom: PageFromLast, Seen: seen, Window: Window{Until: moment(time.Minute), Before: Padding{Lines: 2}}},
 	} {
 		_, err := svc.Fetch(t.Context(), "7", req)
 		assert.Equal(t, refusal.CodeConflictingParameters, codeOf(err), name)
@@ -2080,6 +2080,78 @@ func TestSeenReadsEachStreamPastItsLine(t *testing.T) {
 	assert.Equal(t, refusal.CodeCursorInvalid, codeOf(err), "a moment")
 }
 
+// A first page from the last with Seen reads the named stream from strictly
+// before its line, and every other stream from Until, inclusive.
+func TestAFirstPageFromLastReadsBeforeEachEntry(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"), logstest.Stamped(3*time.Second, "a3"), logstest.Stamped(5*time.Second, "a5"))
+	s.Add("prod/web-2/app", logstest.Stamped(time.Second, "b1"), logstest.Stamped(3*time.Second, "b3"), logstest.Stamped(5*time.Second, "b5"))
+	svc, _ := serviceOver(t, webMirror(t), s)
+
+	page := fetch(t, svc, FetchRequest{Scope: webScope, Window: Window{Until: moment(5 * time.Second)}, PageFrom: PageFromLast, PageSize: 10, Seen: seenAt("web-1", "app", 3*time.Second)})
+
+	assert.Equal(t, []string{"a1", "b1", "b3", "b5"}, messages(page.Records))
+}
+
+// Of two entries for one stream, the older stands on a first page from the last,
+// as the newer does from the first.
+func TestTwoEntriesForOneStreamKeepTheFartherOne(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"), logstest.Stamped(3*time.Second, "a3"), logstest.Stamped(5*time.Second, "a5"))
+	svc, _ := serviceOver(t, webMirror(t), s)
+	both := []string{line("web-1", "app", 5*time.Second, "").Cursor(), line("web-1", "app", 3*time.Second, "").Cursor()}
+
+	older := fetch(t, svc, FetchRequest{Scope: web1Scope, Window: Window{Until: moment(5 * time.Second)}, PageFrom: PageFromLast, Seen: both})
+	assert.Equal(t, []string{"a1"}, messages(older.Records))
+
+	newer := fetch(t, svc, FetchRequest{Scope: web1Scope, Window: Window{Since: moment(0)}, PageFrom: PageFromFirst, Seen: both})
+	assert.Empty(t, messages(newer.Records))
+}
+
+// An older page cursor carries its entries back, so a stream whose clock runs
+// behind stays before its entry on every page: a4 is newer than web-1's entry,
+// though stamped under the other stream's lines.
+func TestAnOlderCursorCarriesItsEntries(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"), logstest.Stamped(2*time.Second, "a2"), logstest.Stamped(3*time.Second, "a3"), logstest.Stamped(4*time.Second, "a4"))
+	s.Add("prod/web-2/app", logstest.Stamped(5*time.Second, "b5"), logstest.Stamped(6*time.Second, "b6"), logstest.Stamped(7*time.Second, "b7"))
+	svc, _ := serviceOver(t, webMirror(t), s)
+
+	page := fetch(t, svc, FetchRequest{Scope: webScope, Window: Window{Until: moment(7 * time.Second)}, PageFrom: PageFromLast, PageSize: 1, Seen: seenAt("web-1", "app", 3*time.Second)})
+	got := messages(page.Records)
+	for page.Page.Prev != nil {
+		c, err := decodePageCursor(*page.Page.Prev)
+		require.NoError(t, err)
+		assert.Contains(t, c.seen, name("web-1", "app"), "the prev of %v carries web-1's entry", messages(page.Records))
+		page = fetch(t, svc, FetchRequest{Cursor: page.Page.Prev, PageSize: 1})
+		got = append(messages(page.Records), got...)
+	}
+
+	assert.Equal(t, []string{"a1", "a2", "b5", "b6", "b7"}, got)
+}
+
+// Two lines of one stream at one nanosecond are told apart by the entry: the
+// newer the entry, the older alone is read, on one page or across two.
+func TestAnEntryPartsLinesAtOneNanosecond(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(2*time.Second, "a2"), logstest.Stamped(3*time.Second, "x"), logstest.Stamped(3*time.Second, "y"))
+	svc, _ := serviceOver(t, webMirror(t), s)
+	req := FetchRequest{Scope: webScope, Window: Window{Until: moment(3 * time.Second)}, PageFrom: PageFromLast, PageSize: 10, Seen: []string{nth("web-1", "app", 3*time.Second, 1, "").Cursor()}}
+
+	page := fetch(t, svc, req)
+	assert.Equal(t, []string{"a2", "x"}, messages(page.Records))
+
+	req.PageSize = 1
+	page = fetch(t, svc, req)
+	require.Equal(t, []string{"x"}, messages(page.Records))
+	page = fetch(t, svc, FetchRequest{Cursor: page.Page.Prev, PageSize: 1})
+	assert.Equal(t, []string{"a2"}, messages(page.Records), "across a page boundary")
+}
+
 // Seen beside a Next merges into the cursor's entries, the newer line of a stream
 // standing, so a caller that followed from the cursor pages on from it.
 func TestSeenBesideANextMergesIntoItsEntries(t *testing.T) {
@@ -2428,6 +2500,17 @@ func TestAPageCursorIsVersionedJSON(t *testing.T) {
 	assert.Contains(t, raw, `"b":2,"a":1`)
 }
 
+// An older page cursor's entries decode as it wrote them: an older first page's
+// Seen rides every page back.
+func TestAnOlderCursorsEntriesDecode(t *testing.T) {
+	t.Parallel()
+	older := webCursor()
+	older.newer = false
+	c, err := decodePageCursor(encodePageCursor(older))
+	require.NoError(t, err)
+	assert.Equal(t, older.seen, c.seen)
+}
+
 // A page cursor of more than MaxStreams entries decodes: the service writes one for
 // every container a page passed, gone pods' included.
 func TestAPageCursorOfManyEntriesDecodes(t *testing.T) {
@@ -2447,8 +2530,6 @@ func TestAPageCursorOfManyEntriesDecodes(t *testing.T) {
 func TestABadPageCursorIsRefused(t *testing.T) {
 	t.Parallel()
 	good := rawPageCursor(t, encodePageCursor(webCursor()))
-	older := webCursor()
-	older.newer = false
 	for name, s := range map[string]string{
 		"not base64url":          "a+b/",
 		"not deflated":           base64.RawURLEncoding.EncodeToString([]byte("{}")),
@@ -2457,7 +2538,6 @@ func TestABadPageCursorIsRefused(t *testing.T) {
 		"a bad line":             pageCursorOfJSON(t, strings.Replace(good, `"n":1`, `"n":-1`, 1)),
 		"a bare moment":          pageCursorOfJSON(t, strings.Replace(good, `"seen":[{"v":1,"ns":"prod","pod":"web-1","c":"app",`, `"seen":[{"v":1,`, 1)),
 		"no clock":               pageCursorOfJSON(t, strings.Replace(good, `"resolvedAt":"2026-10-08T11:00:00Z"`, `"resolvedAt":"0001-01-01T00:00:00Z"`, 1)),
-		"an older entry":         encodePageCursor(older),
 		"a count past its lines": pageCursorOfJSON(t, strings.Replace(good, `"b":2`, `"b":4`, 1)),
 		"a negative count":       pageCursorOfJSON(t, strings.Replace(good, `"a":1`, `"a":-1`, 1)),
 		"a window refused":       pageCursorOfJSON(t, strings.Replace(good, `"lines":3`, `"lines":501`, 1)),
@@ -2612,13 +2692,13 @@ func TestSeenIsTheFirstPagesEntries(t *testing.T) {
 		{first.Cursor(), other.Cursor(), later.Cursor()},
 		{later.Cursor(), other.Cursor(), first.Cursor()},
 	} {
-		seen, err := seenOf(order)
+		seen, err := seenOf(order, true)
 		require.NoError(t, err)
 		assert.Equal(t, want, seen, "the newer stands in either order")
 	}
-	_, err := seenOf([]string{logline.Encode(logline.MomentAt(at(0)))})
+	_, err := seenOf([]string{logline.Encode(logline.MomentAt(at(0)))}, true)
 	assert.Equal(t, refusal.CodeCursorInvalid, codeOf(err), "a moment")
-	_, err = seenOf([]string{"nope"})
+	_, err = seenOf([]string{"nope"}, true)
 	assert.Equal(t, refusal.CodeCursorInvalid, codeOf(err), "not a cursor")
 }
 

@@ -67,7 +67,7 @@ type LogsFetchInput struct {
 	After  *LogsPaddingInput `json:"after,omitempty"`
 	// Required on a first page, omitted on a continuation: there is no default.
 	PageFrom *logs.PageFrom `json:"pageFrom,omitempty"`
-	// The last line the caller has of each stream, by its `cursor`: that stream reads past it, and the rest read from the window's start, or from where the page left them beside a `cursor`. Refused with `Last`, with padding on a first page, beside a `prev`, and beside a cursor whose `after` is a count.
+	// A line the caller has of each stream, by its `cursor`: with `First`, or beside a `next` or `follow`, that stream reads from strictly past it; with `Last`, from strictly before it. Every other stream reads from the window's edge, or from where the page left it beside a `cursor`. A first page from `Last` with `seen` hands each entry on in its `prev`, moved back as its stream is read, so a stream whose clock runs behind never reads past it. Refused with padding on a first page, beside a `prev`, and beside a cursor whose `after` is a count.
 	Seen []string `json:"seen,omitempty"`
 	// A page's `prev`, `next` or `follow` as it came. It holds the scope and the window, so sending either beside it is refused.
 	Cursor *string `json:"cursor,omitempty"`

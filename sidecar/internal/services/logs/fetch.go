@@ -93,11 +93,12 @@ type Notice struct {
 }
 
 // FetchRequest is one page. A first page sets Scope, what is read, Window, when, and
-// PageFrom; with PageFromFirst it may set Seen, the last line the caller has of each
-// stream, so that stream reads past its line and every other from the window's
-// start. A continuation sets Cursor, one of a page's Prev, Next or Follow as it
-// came: the cursor holds the scope and the window. Beside a Next or Follow it may
-// set Seen, merged into the cursor's entries, the newer line standing. PageSize is the
+// PageFrom; with no padding it may set Seen, a line the caller has of each stream,
+// so that stream reads from strictly past its line (PageFromFirst) or before it
+// (PageFromLast), and every other from the window's edge. A continuation sets
+// Cursor, one of a page's Prev, Next or Follow as it came: the cursor holds the
+// scope and the window. Beside a Next or Follow it may set Seen, merged into the
+// cursor's entries, the newer line standing. PageSize is the
 // lines a page holds, 1 to MaxPageSize, 0 for DefaultPageSize. MaxMessageBytes
 // cuts each message, 0 for the service's own cap. MaxPageBytes caps the sum of a
 // page's messages, 0 for MaxPageBytesCap. The three are read on every page.
@@ -236,8 +237,8 @@ func checkRequest(q FetchRequest) (FetchRequest, error) {
 		return q, refusal.New(refusal.CodeConflictingParameters, fmt.Sprintf("a first page comes from first or last, not %q", q.PageFrom))
 	case q.Cursor != nil && (!q.Scope.empty() || q.Window != (Window{})):
 		return q, refusal.New(refusal.CodeConflictingParameters, "a page cursor holds its scope and window, so a continuation sends neither")
-	case len(q.Seen) > 0 && (q.PageFrom == PageFromLast || q.Before != (Padding{}) || q.After != (Padding{})):
-		return q, refusal.New(refusal.CodeConflictingParameters, "seen goes with a first page from first, with no padding")
+	case len(q.Seen) > 0 && (q.Before != (Padding{}) || q.After != (Padding{})):
+		return q, refusal.New(refusal.CodeConflictingParameters, "seen goes with a first page with no padding")
 	case q.PageSize < 0 || q.PageSize > MaxPageSize:
 		return q, refusal.New(refusal.CodeBadPage, fmt.Sprintf("a page holds 1 to %d lines", MaxPageSize))
 	case err != nil:
@@ -698,12 +699,13 @@ func (p *page) answer(ctx context.Context, q pageQuery, fills []streamFill) (mer
 // pages passed that way, one entry per stream, the stream read off the entry;
 // the same list a caller sends as a request's Seen. A stream with no entry goes
 // on from at, exclusive, a line or a moment; with at zero, from the window's
-// Start, since nothing of that stream has been shown. Only a newer cursor
-// carries entries, and only one going on from a page read the other way carries
-// both entries and at. before and after are distances, for a counted Padding:
-// the padding lines that lie between Since and this cursor's position, and
-// between it and Until; 0 for a position inside the range. A side whose edge is
-// not yet a position is paged by its count alone.
+// Start, since nothing of that stream has been shown. A newer cursor carries
+// entries, and so does an older one from a first page that sent Seen. Only a
+// newer one going on from a page read the other way carries both entries and at.
+// before and after are distances, for a counted Padding: the padding lines that
+// lie between Since and this cursor's position, and between it and Until; 0 for a
+// position inside the range. A side whose edge is not yet a position is paged by
+// its count alone.
 type pageCursor struct {
 	Scope
 	resolvedWindow
@@ -723,13 +725,14 @@ func firstPage(q FetchRequest, now time.Time) (pageCursor, error) {
 	if err := checkWindow(q.Window); err != nil {
 		return pageCursor{}, err
 	}
-	seen, err := seenOf(q.Seen)
+	newer := q.PageFrom == PageFromFirst
+	seen, err := seenOf(q.Seen, newer)
 	if err != nil {
 		return pageCursor{}, err
 	}
 	c := pageCursor{
 		Scope: q.Scope, resolvedWindow: resolvedWindow{Window: q.Window, ResolvedAt: now.UTC().Round(0)},
-		newer: q.PageFrom == PageFromFirst, seen: seen,
+		newer: newer, seen: seen,
 	}
 	if q.Since != nil && q.Before.Lines == 0 {
 		c.Start = logline.MomentAt(q.Since.Add(-q.Before.Span))
@@ -740,10 +743,11 @@ func firstPage(q FetchRequest, now time.Time) (pageCursor, error) {
 // errBadSeen refuses a Seen entry that does not name a line.
 var errBadSeen = refusal.New(refusal.CodeCursorInvalid, "a seen entry is a line cursor a record carried")
 
-// seenOf is a request's Seen as a cursor's entries: each the last line the caller
-// has of its stream, the newer of two for one stream standing, whatever their
-// order, so no stream reads lines again.
-func seenOf(seen []string) (map[logline.ContainerName]logline.RunPlace, error) {
+// seenOf is a request's Seen as a cursor's entries: each the line the caller has
+// of its stream nearest the read, whatever their order. Of two for one stream the
+// newer stands on a newer read and the older on an older one, so no stream reads
+// a line the caller holds again.
+func seenOf(seen []string, newer bool) (map[logline.ContainerName]logline.RunPlace, error) {
 	if len(seen) == 0 {
 		return nil, nil
 	}
@@ -756,23 +760,28 @@ func seenOf(seen []string) (map[logline.ContainerName]logline.RunPlace, error) {
 		if c.IsMoment() {
 			return nil, errBadSeen
 		}
-		keepNewer(out, c)
+		keepFarther(out, c, newer)
 	}
 	return out, nil
 }
 
-// keepNewer sets c's stream's entry in entries to c, unless the entry is newer.
-func keepNewer(entries map[logline.ContainerName]logline.RunPlace, c logline.Cursor) {
-	if e, ok := entries[c.ContainerName]; ok && logline.CompareCursors(c, logline.Cursor{ContainerName: c.ContainerName, RunPlace: e}) < 0 {
-		return
+// keepFarther sets c's stream's entry in entries to c, unless the entry lies
+// farther the way the read goes: newer on a newer read, older on an older one.
+func keepFarther(entries map[logline.ContainerName]logline.RunPlace, c logline.Cursor, newer bool) {
+	e, ok := entries[c.ContainerName]
+	if ok {
+		order := logline.CompareCursors(c, logline.Cursor{ContainerName: c.ContainerName, RunPlace: e})
+		if newer && order < 0 || !newer && order > 0 {
+			return
+		}
 	}
 	entries[c.ContainerName] = c.RunPlace
 }
 
 // mergeSeen is entries, which the caller owns, with a request's Seen merged in,
-// the newer line of a stream standing.
+// the newer line of a stream standing: Seen goes only beside a newer cursor.
 func mergeSeen(entries map[logline.ContainerName]logline.RunPlace, seen []string) (map[logline.ContainerName]logline.RunPlace, error) {
-	more, err := seenOf(seen)
+	more, err := seenOf(seen, true)
 	if err != nil {
 		return nil, err
 	}
@@ -780,7 +789,7 @@ func mergeSeen(entries map[logline.ContainerName]logline.RunPlace, seen []string
 		return more, nil
 	}
 	for name, place := range more {
-		keepNewer(entries, logline.Cursor{ContainerName: name, RunPlace: place})
+		keepFarther(entries, logline.Cursor{ContainerName: name, RunPlace: place}, true)
 	}
 	return entries, nil
 }
@@ -970,16 +979,17 @@ func (c pageCursor) live(now time.Time) bool {
 // Going newer, each stream goes on from its reach, the last line it passed, so a
 // stream whose clock runs behind loses no line; at goes on as it came. Going
 // older, history does not move, so one position is exact: the cut, else the
-// farthest line passed. Behind a newer page, the page's oldest line; behind an
-// older one, each stream's newest line on the page, and the farthest line passed
-// for a stream with none, so nothing the page showed is repeated.
+// farthest line passed. Entries move to each stream's reach either way, so a
+// stream whose clock runs behind never reads back from that position. Behind a
+// newer page, the page's oldest line; behind an older one, each stream's newest
+// line on the page, and the farthest line passed for a stream with none, so
+// nothing the page showed is repeated.
 func (c pageCursor) edges(m merge) (ahead pageCursor, behind *pageCursor) {
 	ahead = c
 	ahead.before, ahead.after = c.moved(m.records)
+	ahead.seen = c.reached(m)
 	var far logline.Cursor
-	if c.newer {
-		ahead.seen = c.reached(m)
-	} else {
+	if !c.newer {
 		far = farthest(logline.Older, m)
 		ahead.at = cmp.Or(m.cut, far, c.at)
 	}
@@ -1022,17 +1032,22 @@ func (c pageCursor) moved(recs []logline.Record) (before, after int) {
 func clamp(n, lines int) int { return max(0, min(n, lines)) }
 
 // reached is c's entries once m passed: each stream the page resolved at its
-// reach, the later of two runs of one name standing, and each other stream at its
-// incoming entry. An entry for a stream that left the scope is dropped.
+// reach the way c reads, the farther of two runs of one name standing, and each
+// other stream at its incoming entry. An entry for a stream that left the scope
+// is dropped. An older cursor has entries only from a first page's Seen.
 func (c pageCursor) reached(m merge) map[logline.ContainerName]logline.RunPlace {
+	if !c.newer && len(c.seen) == 0 {
+		return nil
+	}
 	out := map[logline.ContainerName]logline.RunPlace{}
 	passed := map[logline.ContainerName]logline.Cursor{}
+	dir := c.dir()
 	for _, r := range m.reaches {
 		name := r.run.ContainerName
 		if e, ok := c.seen[name]; ok {
 			out[name] = e
 		}
-		if p := r.passed(logline.Newer, m); !p.IsZero() && (passed[name].IsZero() || beyond(logline.Newer, p, passed[name])) {
+		if p := r.passed(dir, m); !p.IsZero() && (passed[name].IsZero() || beyond(dir, p, passed[name])) {
 			passed[name] = p
 		}
 	}
@@ -1303,14 +1318,12 @@ func fromOptionalJSON(j *logline.CursorJSON) (logline.Cursor, error) {
 	return j.Cursor()
 }
 
-// check refuses a decoded cursor no page writes: an older one with an entry, a
-// count outside 0 to its Lines, a Start before an open Since with no count, or a
-// window refused.
+// check refuses a decoded cursor no page writes: a count outside 0 to its Lines,
+// a Start before an open Since with no count, or a window refused.
 func (c pageCursor) check() error {
 	countOK := func(n int, p Padding) bool { return n >= 0 && n <= p.Lines }
 	switch {
 	case c.ResolvedAt.IsZero(),
-		!c.newer && len(c.seen) > 0,
 		!countOK(c.before, c.Window.Before), !countOK(c.after, c.Window.After),
 		c.Since == nil && c.Window.Before.Lines == 0 && !c.Start.IsZero(),
 		checkWindow(c.Window) != nil:

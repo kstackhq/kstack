@@ -144,7 +144,7 @@ export type LogsFetchInput = {
   /** 1 to 500; null or 0 is the server's default. */
   pageSize?: number | null | undefined;
   scope?: LogsScopeInput | null | undefined;
-  /** The last line the caller has of each stream, by its `cursor`: that stream reads past it, and the rest read from the window's start, or from where the page left them beside a `cursor`. Refused with `Last`, with padding on a first page, beside a `prev`, and beside a cursor whose `after` is a count. */
+  /** A line the caller has of each stream, by its `cursor`: with `First`, or beside a `next` or `follow`, that stream reads from strictly past it; with `Last`, from strictly before it. Every other stream reads from the window's edge, or from where the page left it beside a `cursor`. A first page from `Last` with `seen` hands each entry on in its `prev`, moved back as its stream is read, so a stream whose clock runs behind never reads past it. Refused with padding on a first page, beside a `prev`, and beside a cursor whose `after` is a count. */
   seen?: Array<string> | null | undefined;
   /** The range's bounds, each including every line at that moment. Null is open. */
   since?: string | null | undefined;

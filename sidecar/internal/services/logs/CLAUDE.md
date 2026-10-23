@@ -141,7 +141,8 @@ built in `app` as `logs.New`, which owns the log store and is the cluster servic
   walker, the merge, the caps). A `FetchRequest` is a first page, its `Scope`, its `Window`
   (`Since`/`Until`, inclusive moments, padded `Before`/`After` by lines or a span) and `PageFrom`
   (`PageFromFirst`, `PageFromLast`), or a continuation, a `Cursor`, with `Seen` beside a newer
-  one merged into its entries (`mergeSeen`). `PageSize`, `MaxMessageBytes`, `MaxPageBytes` and
+  one merged into its entries (`mergeSeen`). A first page from either end may send `Seen`, with
+  no padding. `PageSize`, `MaxMessageBytes`, `MaxPageBytes` and
   `ForModel` are named on every page; `ForModel` redacts each message through `logline.ForModel`
   before `capMessage` cuts it, so a cut never leaves a fragment of a secret. A `FetchResponse`
   echoes the request as it ran, with `ResolvedAt`, the first page's clock, its records oldest first, its
@@ -149,7 +150,7 @@ built in `app` as `logs.New`, which owns the log store and is the cluster servic
   comment. → [ADR: a log read is a window over a range](../../../../docs/adr/2026-10-23-a-log-read-is-a-window-over-a-range.md).
   **A page cursor holds everything a continuation needs** (`pageCursor`): the scope, the window
   as the first page pinned it (`resolvedWindow`: `ResolvedAt`, `Start`), the way it reads, where
-  each stream goes on from (`seen`, one line cursor per container by name, newer cursors only), a
+  each stream goes on from (`seen`, one line cursor per container by name: newer cursors, and an older one from a first page's `Seen`, each entry moved to its stream's reach as `edges` writes it), a
   floor for streams with none (`at`), and each counted side's distance; deflated JSON in base64url,
   versioned, never expiring, holding nothing of the file. The service keeps nothing. A first page
   is a cursor from the window's edge (`firstPage`). Going newer each stream goes on from its own

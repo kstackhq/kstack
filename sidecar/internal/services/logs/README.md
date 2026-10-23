@@ -19,9 +19,11 @@ A **first page** names:
   span of time, never both. The grep does not apply to padding.
 - **PageFrom.** Which end the first page comes from. `PageFromFirst` serves the oldest lines of the
   window first. `PageFromLast` serves the newest.
-- **Seen**, optionally, with `PageFromFirst` and no padding. One line cursor per container, the
-  last line you already have. That container resumes past its line. Every other container reads
-  from the window's start.
+- **Seen**, optionally, with no padding. One line cursor per container. With `PageFromFirst` it is
+  the newest line you already have, and that container resumes past it. With `PageFromLast` it
+  is the oldest, and that container reads from strictly before it; every `Prev` from there carries
+  the entries on, each moved back as its container is read, so a container whose clock runs
+  behind never comes back past it. Every other container reads from the window's edge.
 
 A **continuation** sends one `Cursor`. The cursor came from an earlier page's `Prev`, `Next` or
 `Follow`. It holds the scope and the window, so sending those again is refused. Beside a `Next` or
@@ -120,7 +122,7 @@ caller can act on:
 
 | Code | Why |
 | --- | --- |
-| `conflicting-parameters` | a first page and a cursor together, or neither; a cursor with a scope or window; `Seen` with `PageFromLast`, padding, a `Prev`, or a cursor whose `After` is counted; padding with both `Lines` and `Span` |
+| `conflicting-parameters` | a first page and a cursor together, or neither; a cursor with a scope or window; `Seen` with padding, beside a `Prev`, or a cursor whose `After` is counted; padding with both `Lines` and `Span` |
 | `invalid-range` | `Since` after `Until` |
 | `bad-padding` | more than 500 lines, or a span over 7 days |
 | `bad-page` | `PageSize` over 500, or a negative cap |
