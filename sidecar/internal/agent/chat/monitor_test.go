@@ -324,7 +324,7 @@ func TestAMonitorRunEndsWithTheService(t *testing.T) {
 // the user's window.
 func TestTheMonitorReadsLogsAndOpensNoView(t *testing.T) {
 	t.Parallel()
-	box := MonitorBox(tools.NewBox([]tools.Tool{logsview.New(nil), logsread.New(nil, time.Now)}))
+	box := MonitorBox(tools.NewBox([]tools.Tool{logsview.New(nil), logsread.New(nil, nil)}))
 	_, reads := box.Runner(logsread.Name)
 	_, views := box.Runner(logsview.Name)
 	assert.True(t, reads)

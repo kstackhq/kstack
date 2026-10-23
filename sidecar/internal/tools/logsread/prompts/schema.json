@@ -1,7 +1,6 @@
 {
   "type": "object",
   "additionalProperties": false,
-  "required": ["sources"],
   "properties": {
     "description": {
       "type": "string",
@@ -59,22 +58,45 @@
     },
     "since": {
       "type": "string",
-      "description": "Where the range starts: an RFC 3339 time, an ISO 8601 duration back from now such as PT15M, or the cursor a read printed after since:. Lines at a time are in the range; a cursor's own line is not. Omit for the oldest line Kstack holds, which is rarely what you want."
+      "description": "Where the range starts: an RFC 3339 time at any precision, its first nanosecond, such as 2026-10-21 or 2026-10-21T05:00Z, or an ISO 8601 duration back from now such as PT15M. Omit for the oldest line Kstack holds."
     },
     "until": {
       "type": "string",
-      "description": "Where the range ends, in the same forms, a cursor being one a read printed after until:. Omit for the newest line."
+      "description": "Where the range ends, in the same forms; a time's last nanosecond, so 2026-10-21T05:00Z takes the whole minute. Omit for the newest line."
     },
-    "mode": {
+    "before": {
+      "type": ["integer", "string"],
+      "description": "Context before the range: a number of lines (0 to 500), or an ISO 8601 duration of at most P7D such as PT5M. Its lines are marked [before] and pass the grep unfiltered."
+    },
+    "after": {
+      "type": ["integer", "string"],
+      "description": "Context after the range, in the same forms. Its lines are marked [after]."
+    },
+    "page_from": {
       "type": "string",
-      "enum": ["head", "tail"],
-      "description": "head (the default) reads the oldest lines of the range, tail the newest."
+      "enum": ["first", "last"],
+      "description": "Which end of the window the page comes from: last (the default) the newest lines, first the oldest."
     },
-    "limit": {
+    "page_size": {
       "type": "integer",
       "minimum": 1,
       "maximum": 100,
-      "description": "How many lines to read. Default 50."
+      "description": "How many lines a page holds. Default 50."
+    },
+    "max_message_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Cut each message at this many bytes. Default 2048; 0 for the most Kstack keeps of a message, 16 KiB."
+    },
+    "max_page_bytes": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 16384,
+      "description": "The page's messages together, in bytes. Default 16384."
+    },
+    "cursor": {
+      "type": "string",
+      "description": "A prev, next or follow token a read printed, copied whole and exactly. It names the sources, filters, grep and window, so send it with page_size, max_message_bytes, max_page_bytes and description alone."
     }
   }
 }

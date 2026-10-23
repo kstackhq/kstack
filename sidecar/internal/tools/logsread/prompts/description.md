@@ -1,1 +1,1 @@
-Read a range of logs yourself: one or more resources merged by timestamp, from a moment or the start, up to a moment or the newest line, the oldest lines of the range or the newest, at most 100. You read the lines; the user sees them under your call.
+Read a window of logs yourself: one or more resources merged by timestamp over a range, with context lines before and after it, a page at a time, each page printing the tokens that read on from it. You read the lines; the user sees them under your call.

@@ -19,6 +19,7 @@ package logsinputtest
 import (
 	"context"
 	"maps"
+	"sync"
 	"testing"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
@@ -37,8 +38,12 @@ type Service struct {
 	Store *clustertest.Store
 	// QueryErr fails every statement.
 	QueryErr error
-	// Queried is every statement run.
+	// Queried is every statement run, under mu: a follow reads the mirror on a
+	// goroutine of its own.
+	mu      sync.Mutex
 	Queried []Queried
+	// Conn is the connection AcquireConnection hands out, for a log service's reads.
+	Conn *cluster.Connection
 }
 
 // Queried is one statement the fake ran, and the args bound to it.
@@ -87,7 +92,9 @@ func (f fakeCachedData) ReadOwn(ctx context.Context, _ cluster.ClusterID, _ clus
 	}
 	query := func(store cluster.OwnQuery) cluster.OwnQuery {
 		return func(sql string, maxRows, maxBytes int, args ...any) (cluster.ClusterCachedDataQueryResult, error) {
+			f.mu.Lock()
 			f.Queried = append(f.Queried, Queried{sql, args})
+			f.mu.Unlock()
 			if f.QueryErr != nil {
 				return cluster.ClusterCachedDataQueryResult{}, f.QueryErr
 			}

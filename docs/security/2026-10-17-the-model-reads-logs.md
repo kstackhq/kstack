@@ -49,3 +49,23 @@ the same way.
   knows, and the model reads it as it would through `kubectl logs`.
 - **A read is never asked.** A gate on `LogsRead` alone would push the model to Bash, which reads
   the same lines and keeps a worse record. Secret data stays the one permissioned read.
+
+## Rebuilt on the log fetch API, 23 October 2026
+
+`LogsRead` now reads a window through `logs.Service.Fetch` and prints page tokens in place of the
+line cursors above. The promise holds, and is pinned in new places:
+
+- **Redacted, then cut.** The service cuts, so the tool asks every page with `ForModel` set, and
+  the service runs `logline.ForModel` before `capMessage` (`TestAMessageIsRedactedBeforeItIsCut`
+  in `services/logs`, `TestEveryPageIsForTheModel`). The cap is the call's `max_message_bytes`,
+  2 KiB by default; a cut line says the bytes cut. A refusal's words go through `ForModel` too
+  (`TestAServiceRefusalKeepsItsCodeAndReason`).
+- **No message passes for the sidecar's words** (`TestAHoleIsALineBeforeIt`,
+  `TestTheActionIsThePage`).
+- **A token is the service's page cursor**, checked by the service's decoder
+  (`TestABadCursorIsRefused`), printed whole after the header's redaction.
+- **The header is capped**: notes at 4 KiB and notices at 2 KiB, the rest counted
+  (`TestNotesStopAtTheirBudget`, `TestNoticesStopAtTheirBudget`).
+- **The widest page passes the inline limit.** A hundred lines of a hundred streams, with a token
+  of each, is about 37 KB; the result is saved to a file, as every tool's oversized result is, and
+  the tokens are printed whole (`TestTheWidestPagePrintsItsTokensWhole`).

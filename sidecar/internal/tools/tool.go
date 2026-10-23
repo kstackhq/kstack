@@ -33,6 +33,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs/iso8601"
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs/logline"
 )
 
@@ -370,6 +371,11 @@ type LogsReadAction struct {
 type LogsPadding struct {
 	Lines int    `json:"lines"`
 	Span  string `json:"span"`
+}
+
+// LogsPaddingOf is p as an action keeps it, a span as ISO 8601.
+func LogsPaddingOf(p logs.Padding) LogsPadding {
+	return LogsPadding{Lines: p.Lines, Span: iso8601.Format(p.Span)}
 }
 
 // LogsNotice is something a page or a follow said, by code.

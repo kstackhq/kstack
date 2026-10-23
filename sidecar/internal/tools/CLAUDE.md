@@ -127,11 +127,23 @@ section (`internal/agent/CLAUDE.md`). The service it checks against is
 
 ## LogsRead (`tools/logsread`)
 
-**LogsRead is the model's read of a range of logs.** It is `Custom`, `Shown` and `Bounded` (30 s),
-never `Gated`, in `catalog`'s `ours`, `app.go`'s box after LogsView, and in `SubagentBox` and
-`MonitorBox`. Its read is rebuilt on [the log fetch API](../../../docs/specs/log-fetch-api/):
-`RunShown` panics until then. Its action, `LogsReadAction`, holds the lines the model read, with
-`viewAround`, the read's view at its first line's moment, unpinned.
+**LogsRead is the model's read of a window of logs, a page at a time.** It is `Custom`, `Shown` and
+`Bounded` (30 s; the page's own deadline is 25 s, past which it answers `timed-out`), never
+`Gated`, in `catalog`'s `ours`, `app.go`'s box after LogsView, and in `SubagentBox` and
+`MonitorBox`. `New(svc, logs)` takes the cluster service and the log service's `Fetch`; its clock
+is a field its tests set. A first page resolves its scope through `logsinput.Resolve` and sends
+the window (`since`, `until`, `before`, `after`) and `page_from`; a `cursor` call sends the token
+and the caps alone, since the token holds the scope as the read that printed it resolved it, and
+names no sources, filters, grep, window or `page_from`. **Every page is asked with `ForModel`**, so
+the service redacts each message before it cuts it. The sample's header is the read in words
+(notes up to 4 KiB), the `request:` line (the request as the service echoed it, `resolved_at`
+beside an open `until` with `after` set), the `page:` line (`prev`, `next` and `follow`, each
+`none` or a token printed whole after the redaction), then the notices
+(`logsinput.Notices`). A record outside the range is marked `[before]` or `[after]`
+(`logsinput.PlaceOf`). The widest page passes `tools.InlineLimit` and is saved to a file, as any
+tool's oversized result. Its action, `LogsReadAction`, holds the window as it ran, the lines the
+model read and whether the page had more each way, with `viewAround`, the scope's view at its
+first line's moment, unpinned.
 
 → [the model reads logs](../../../docs/security/2026-10-17-the-model-reads-logs.md).
 
@@ -165,7 +177,8 @@ how it answers, a service refusal by its own code. `sample.go` is how a line rea
 with a place mark and the bytes cut; `Stamp`, nine fraction digits always; `PlaceOf`), a header's
 notices (`Notices`, under `NoticesBudget`), the caps `DefaultMessageBytes` and `SampleBudget`,
 how an action keeps a line (`ReadLine`) and the view around it (`ViewAround`). `logsinputtest` is
-the fake cluster and the fixtures the tools' tests run over (`cluster/clustertest` beneath).
+the fake cluster and the fixtures the tools' tests run over (`cluster/clustertest` beneath), and
+`Logs`, a real log service over a fake API server whose lines sit at a fixed moment in the past.
 
 ## KubeQuery (`tools/kubequery`)
 

@@ -251,7 +251,8 @@ func fetchRequestOut(q logs.FetchRequest) *model.LogsFetchRequest {
 // paddingOut is one side's padding as it ran, its span formatted; none is an
 // empty span.
 func paddingOut(p logs.Padding) *tools.LogsPadding {
-	return &tools.LogsPadding{Lines: p.Lines, Span: iso8601.Format(p.Span)}
+	out := tools.LogsPaddingOf(p)
+	return &out
 }
 
 // noticesOf is a page's or a follow's notices on the wire.
