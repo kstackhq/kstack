@@ -215,3 +215,4 @@ usually just documentation in the wrong place.
 | 2026-10-18 | [Backward log reads assume normal logs, and stop clearly where normal ends](2026-10-18-backward-reads-assume-normal-logs.md) | sidecar | Accepted |
 | 2026-10-18 | [A rich view is a tool call's action](2026-10-18-a-rich-view-is-a-tool-calls-action.md) | cross-cutting | Accepted |
 | 2026-10-23 | [A log read is a window over a range](2026-10-23-a-log-read-is-a-window-over-a-range.md) | cross-cutting | Accepted |
+| 2026-10-24 | [A bounded log window reads its dropped lines back from a moment](2026-10-24-a-bounded-log-window-reads-dropped-lines-back.md) | cross-cutting | Accepted |

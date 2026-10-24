@@ -180,7 +180,8 @@ built in `app` as `logs.New`, which owns the log store and is the cluster servic
   the owned pods the resolve did not hand out, so most pages ask about none), never that the
   resolve handed out no stream of it or that the workload's walk no longer reaches it: a previous
   view of a pod that never restarted, and a pod the workload orphaned, read nothing from the file.
-  A workload the mirror no longer holds has no UID to find its pods by, and reads none. A gone pod's rows keep their filed place and
+  A workload the mirror no longer holds has no UID to find its pods by, and reads none. → [ADR: a
+  bounded log window reads its dropped lines back](../../../../docs/adr/2026-10-24-a-bounded-log-window-reads-dropped-lines-back.md). A gone pod's rows keep their filed place and
   default though a pod of its name runs (`podOf` by UID). Then over those streams (`pageOver`)
   fills gaps from the backends
   (`filler`), walks (`walker`) and merges (`mergePage`). **A read is written a batch at a time as it arrives** (`window`, `WriteBatch`),

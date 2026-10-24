@@ -88,6 +88,7 @@ Its rules, one each:
   lines are held in arrival order. While a seam is set that edge pages with an `Until` or a
   `Since` at it, and the page's own cursor replaces it. Each container's held lines stay one run
   of its log, so its oldest and newest held lines are enough to read back without a repeat.
+  → [ADR: a bounded log window reads its dropped lines back](../../../docs/adr/2026-10-24-a-bounded-log-window-reads-dropped-lines-back.md)
 - **Only a `Tail` landing pins**, and only with `pinToEnd`. After that the pin is the user's
   hand: a scroll up or a pointer down on the lines unpins, and a scroll to the bottom pins once
   the page it asks for finds no more.
