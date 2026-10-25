@@ -196,6 +196,11 @@ func blocked(t *testing.T) string {
 	return "; read -r _ <> '" + fifo + "'"
 }
 
+// untilTrapped is a tail that keeps bash running until a trap ends it. Bash runs
+// a pending trap only between commands, so a signal that lands just before it
+// blocks would wait on whatever ends the block; each short sleep ends one.
+const untilTrapped = "; while :; do sleep 1; done"
+
 // A cancelled command is killed at once with everything in its group, and the
 // result says so.
 func TestRunKillsTheGroupOnCancel(t *testing.T) {
@@ -385,7 +390,7 @@ func startStop(t *testing.T, trap, tail string, killGrace time.Duration, before 
 // A timeout sends SIGTERM first: a trap on it runs, and whatever it exits with,
 // the command reads as timed out.
 func TestATimeoutSendsTermFirst(t *testing.T) {
-	st := startStop(t, `trap 'echo got TERM; exit 0' TERM`, "; wait", time.Hour, func(st *stopTest) { st.clock.fire() })
+	st := startStop(t, `trap 'echo got TERM; exit 0' TERM`, untilTrapped, time.Hour, func(st *stopTest) { st.clock.fire() })
 	r := testutil.Recv(t, st.res, "the run to end")
 	assert.Equal(t, stopTimeout, testutil.Recv(t, st.stops, "the stop"))
 	assert.Equal(t, stopTimeout, r.Stop)
@@ -396,7 +401,7 @@ func TestATimeoutSendsTermFirst(t *testing.T) {
 }
 
 func TestATrapExitingNonzeroIsStillATimeout(t *testing.T) {
-	st := startStop(t, `trap 'exit 7' TERM`, "; wait", time.Hour, func(st *stopTest) { st.clock.fire() })
+	st := startStop(t, `trap 'exit 7' TERM`, untilTrapped, time.Hour, func(st *stopTest) { st.clock.fire() })
 	r := testutil.Recv(t, st.res, "the run to end")
 	assert.Equal(t, stopTimeout, r.Stop)
 	assert.Equal(t, 7, r.ExitCode)
