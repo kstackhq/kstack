@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// KubeQuery's side of the store: statements the model wrote, over views of the cache, on
-// read-only connections of their own.
+// The store's query side: statements the model wrote, and the sidecar's own readings,
+// over views of the cache on read-only connections of their own.
 package kubestore
 
 import (
@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"modernc.org/sqlite"
 	sqlitelib "modernc.org/sqlite/lib"
@@ -111,8 +112,12 @@ func (e *QueryError) Error() string { return e.Message }
 // step. The wrap also makes it a subquery, which only a query can be.
 func (s *Store) Query(ctx context.Context, text string, maxRows, maxBytes int, args ...any) (QueryResult, error) {
 	var res QueryResult
-	err := s.onConn(ctx, false, func(ctx context.Context, f *file, conn *sql.Conn) error {
-		var err error
+	err := s.withFile(ctx, func(ctx context.Context, f *file) error {
+		conn, err := queryConn(ctx, f.queryDB)
+		if err != nil {
+			return err
+		}
+		defer conn.Close()
 		res, err = f.query(ctx, conn, text, maxRows, maxBytes, args)
 		return err
 	})
@@ -124,14 +129,34 @@ func (s *Store) Query(ctx context.Context, text string, maxRows, maxBytes int, a
 
 // Reading is statements the sidecar wrote, run by ReadOwn on one snapshot of the cache.
 type Reading struct {
-	ctx  context.Context
-	f    *file
-	conn *sql.Conn
+	ctx context.Context
+	f   *file
+	tx  *sql.Tx
+	// stmts is each statement the reading has run, on tx. Shared by every copy of the
+	// value; one goroutine runs the reading.
+	stmts map[ownKey]*sql.Stmt
 }
 
-// Query is Store.Query inside the reading.
-func (r Reading) Query(sql string, maxRows, maxBytes int, args ...any) (QueryResult, error) {
-	return r.f.query(r.ctx, r.conn, sql, maxRows, maxBytes, args)
+// Query is Store.Query inside the reading. A statement run again in the reading, with
+// the same row limit, is compiled once.
+func (r Reading) Query(text string, maxRows, maxBytes int, args ...any) (QueryResult, error) {
+	text, err := trim(text)
+	if err != nil {
+		return QueryResult{}, err
+	}
+	key := ownKey{text, maxRows}
+	stmt, ok := r.stmts[key]
+	if !ok {
+		// The file's copy joins the transaction; a statement the file lacks compiles for
+		// this reading alone. Either closes with the transaction.
+		if kept := r.f.own.get(key); kept != nil {
+			stmt = r.tx.StmtContext(r.ctx, kept)
+		} else if stmt, err = r.f.prepare(r.ctx, r.tx, text, maxRows); err != nil {
+			return QueryResult{}, err
+		}
+		r.stmts[key] = stmt
+	}
+	return r.f.run(r.ctx, r.tx, stmt, maxRows, maxBytes, args)
 }
 
 // ReadOwn runs read's statements, which the sidecar wrote, inside one read transaction
@@ -139,19 +164,120 @@ func (r Reading) Query(sql string, maxRows, maxBytes int, args ...any) (QueryRes
 // cache as the first one did: a reader that joins what several statements answer never
 // joins two states of the cache.
 func (s *Store) ReadOwn(ctx context.Context, read func(Reading) error) error {
-	return s.onConn(ctx, true, func(ctx context.Context, f *file, conn *sql.Conn) error {
-		if _, err := conn.ExecContext(ctx, "BEGIN"); err != nil {
-			return err
-		}
-		// A read-only transaction has nothing to undo; ending it frees the snapshot.
-		defer conn.ExecContext(context.Background(), "ROLLBACK") //nolint:errcheck
-		return read(Reading{ctx, f, conn})
+	return s.withFile(ctx, func(ctx context.Context, f *file) error {
+		stmts := map[ownKey]*sql.Stmt{}
+		err := f.snapshot(ctx, func(tx *sql.Tx) error {
+			return read(Reading{ctx, f, tx, stmts})
+		})
+		// Only once the connection is back in the pool: compiling there takes one, and a
+		// reading still holding its own could wait on readings that hold the rest.
+		f.keepOwn(ctx, stmts)
+		return err
 	})
 }
 
-// onConn runs use on a connection of the file's own-query pool with own, else of
-// KubeQuery's, under a context the file's close cancels too.
-func (s *Store) onConn(ctx context.Context, own bool, use func(context.Context, *file, *sql.Conn) error) error {
+// snapshot runs use inside a read transaction on a connection of the own-query pool,
+// and lets the connection go before it returns.
+func (f *file) snapshot(ctx context.Context, use func(*sql.Tx) error) error {
+	conn, err := queryConn(ctx, f.ownQueryDB)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	tx, err := conn.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		return err
+	}
+	// A read-only transaction has nothing to undo; ending it frees the snapshot.
+	defer tx.Rollback() //nolint:errcheck
+	return use(tx)
+}
+
+// keepOwn compiles on the own-query pool each statement of stmts the file does not keep
+// yet. Called with no connection of the pool held, since compiling there takes one. A
+// statement that fails to compile, as when ctx has ended, compiles again for the next
+// reading that runs it.
+func (f *file) keepOwn(ctx context.Context, stmts map[ownKey]*sql.Stmt) {
+	for key := range stmts {
+		if !f.own.wants(key) {
+			continue
+		}
+		stmt, err := f.prepare(ctx, f.ownQueryDB, key.text, key.maxRows)
+		if err != nil {
+			continue
+		}
+		f.own.put(key, stmt)
+	}
+}
+
+// ownKey is one statement a reading runs: its trimmed text, and the row limit written
+// into its wrap.
+type ownKey struct {
+	text    string
+	maxRows int
+}
+
+// ownStmts is the statements the sidecar's readings run, each compiled once on the
+// own-query pool. database/sql compiles a pool statement again on the first connection
+// it runs on, and keeps that copy with the connection.
+type ownStmts struct {
+	mu    sync.Mutex
+	stmts map[ownKey]*sql.Stmt
+	// max caps the statements kept: ownStmtsMax, or less in a test.
+	max int
+}
+
+// ownStmtsMax caps a file's own statements. A text can carry a placeholder per value,
+// so a reading over a hundred nodes has a text of its own.
+const ownStmtsMax = 256
+
+func newOwnStmts() *ownStmts {
+	return &ownStmts{stmts: map[ownKey]*sql.Stmt{}, max: ownStmtsMax}
+}
+
+// get is key's statement, nil until the file keeps one.
+func (o *ownStmts) get(key ownKey) *sql.Stmt {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.stmts[key]
+}
+
+// wants says whether key's statement would be kept: the table holds none and has room.
+func (o *ownStmts) wants(key ownKey) bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.wantsLocked(key)
+}
+
+func (o *ownStmts) wantsLocked(key ownKey) bool {
+	_, ok := o.stmts[key]
+	return !ok && len(o.stmts) < o.max
+}
+
+// put keeps stmt as key's, or closes it: two readings can compile one statement.
+func (o *ownStmts) put(key ownKey, stmt *sql.Stmt) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	if !o.wantsLocked(key) {
+		stmt.Close()
+		return
+	}
+	o.stmts[key] = stmt
+}
+
+// close closes the statements. The pool is the file's to close.
+func (o *ownStmts) close() error {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	var errs []error
+	for _, stmt := range o.stmts {
+		errs = append(errs, stmt.Close())
+	}
+	return errors.Join(errs...)
+}
+
+// withFile runs use on the store's file, under a context the file's close cancels too.
+func (s *Store) withFile(ctx context.Context, use func(context.Context, *file) error) error {
 	f, done, err := s.use()
 	if err != nil {
 		return err
@@ -160,53 +286,81 @@ func (s *Store) onConn(ctx context.Context, own bool, use func(context.Context, 
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer context.AfterFunc(f.queryCtx, cancel)()
-
-	pool := f.queryDB
-	if own {
-		pool = f.ownQueryDB
-	}
-	conn, err := queryConn(ctx, pool)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	err = use(ctx, f, conn)
+	err = use(ctx, f)
 	if err != nil && f.queryCtx.Err() != nil {
 		return fmt.Errorf("cache %d: %w", s.cacheID, ErrClosed)
 	}
 	return err
 }
 
-// query runs one statement on conn, a connection of one of this file's query pools.
-func (f *file) query(ctx context.Context, conn *sql.Conn, sql string, maxRows, maxBytes int, args []any) (QueryResult, error) {
-	sql = strings.TrimSpace(sql)
-	sql = strings.TrimSpace(strings.TrimSuffix(sql, ";"))
-	if strings.Contains(sql, ";") {
-		return QueryResult{}, &QueryError{Message: onlyOneQuery}
+// query runs one statement on conn, a connection of KubeQuery's pool.
+func (f *file) query(ctx context.Context, conn *sql.Conn, text string, maxRows, maxBytes int, args []any) (QueryResult, error) {
+	text, err := trim(text)
+	if err != nil {
+		return QueryResult{}, err
 	}
 	if f.afterQuery != nil {
 		defer f.afterQuery()
 	}
-
-	// The wrap is prepared first: SQLite applies some pragmas while preparing them, and a
-	// statement that prepares wrapped is a query and holds none.
-	wrapped, err := conn.PrepareContext(ctx, "WITH q AS MATERIALIZED (SELECT * FROM ("+sql+
-		"\n) LIMIT "+strconv.Itoa(maxRows+1)+") SELECT * FROM q")
+	wrapped, err := f.prepare(ctx, conn, text, maxRows)
 	if err != nil {
-		return QueryResult{}, prepareError(err)
+		return QueryResult{}, err
 	}
 	defer wrapped.Close()
-	// Alone, so a trailing unclosed /* that hid the wrap's tail is refused.
-	alone, err := conn.PrepareContext(ctx, sql)
+	return f.run(ctx, conn, wrapped, maxRows, maxBytes, args)
+}
+
+// querier is a connection or a transaction on one.
+type querier interface {
+	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+}
+
+// trim is text as one statement, with no trailing semicolon, or a *QueryError for more.
+func trim(text string) (string, error) {
+	text = strings.TrimSpace(text)
+	text = strings.TrimSpace(strings.TrimSuffix(text, ";"))
+	if strings.Contains(text, ";") {
+		return "", &QueryError{Message: onlyOneQuery}
+	}
+	return text, nil
+}
+
+// wrap is text as run: materialized, so all of it runs in the step that takes the first
+// row, and cut one row past maxRows. The cap is written in, not bound: SQLite reads a bound
+// LIMIT while planning, so it would compile the statement again every time it is bound.
+func wrap(text string, maxRows int) string {
+	return "WITH q AS MATERIALIZED (SELECT * FROM (" + text + "\n) LIMIT " + strconv.Itoa(maxRows+1) + ") SELECT * FROM q"
+}
+
+// prepare compiles text, a trimmed statement, wrapped for maxRows on q.
+func (f *file) prepare(ctx context.Context, q querier, text string, maxRows int) (*sql.Stmt, error) {
+	if f.onPrepare != nil {
+		f.onPrepare()
+	}
+	// The wrap is prepared first: SQLite applies some pragmas while preparing them, and a
+	// statement that prepares wrapped is a query and holds none.
+	wrapped, err := q.PrepareContext(ctx, wrap(text, maxRows))
 	if err != nil {
-		return QueryResult{}, prepareError(err)
+		return nil, prepareError(err)
+	}
+	// Alone, so a trailing unclosed /* that hid the wrap's tail is refused.
+	alone, err := q.PrepareContext(ctx, text)
+	if err != nil {
+		wrapped.Close()
+		return nil, prepareError(err)
 	}
 	alone.Close()
+	return wrapped, nil
+}
 
+// run runs wrapped, a statement prepare compiled, on q, with args bound to its
+// placeholders, and answers at most maxRows rows and maxBytes of text and blob cells.
+func (f *file) run(ctx context.Context, q querier, wrapped *sql.Stmt, maxRows, maxBytes int, args []any) (QueryResult, error) {
 	// SQLite clears a pending interrupt when a statement starts on a connection running
 	// none, so a deadline landing between modernc's check of ctx and its first step would
 	// be lost and the statement would run whole. One left mid-step keeps it pending.
-	hold, err := conn.QueryContext(context.Background(), `SELECT 1 UNION ALL SELECT 2`)
+	hold, err := q.QueryContext(context.Background(), `SELECT 1 UNION ALL SELECT 2`)
 	if err != nil {
 		return QueryResult{}, err
 	}

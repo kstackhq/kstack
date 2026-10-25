@@ -166,6 +166,13 @@ cache](../../../../docs/adr/2026-08-26-cache-store-per-cache.md).
   then the statement alone; caller values bind, never paste. → [ADR:
   KubeQuery reads views on a connection of its
   own](../../../../docs/adr/2026-09-27-kubequery-reads-views-on-a-connection-of-its-own.md).
+- **The sidecar's own statements run through `Store.ReadOwn`**: one read-only transaction on the
+  own-query pool, whose connections are kept. Each statement, text and row limit, compiles once
+  per file (`ownStmts`): a miss compiles for its reading, and for the pool once the reading has
+  let its connection go. Traps: never compile on the pool inside a reading; the row limit is
+  written into the wrap, never bound. → [ADR: the sidecar's own mirror
+  statements compile once per
+  file](../../../../docs/adr/2026-10-25-the-sidecars-own-mirror-statements-compile-once-per-file.md).
 - The change signal is a coalesced ping, never a row delta. → [ADR: ping
   bus](../../../../docs/adr/2026-08-26-store-change-ping-bus.md).
 

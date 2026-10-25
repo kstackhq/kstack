@@ -107,9 +107,12 @@ type file struct {
 	// ownQueryDB is the same kind of connection for the sidecar's own statements, kept
 	// between them: a statement the sidecar wrote leaves nothing on its connection.
 	ownQueryDB *sql.DB
-	// onQuery and afterQuery are seams for a test: onQuery runs as a query starts its
-	// statement, afterQuery as it is about to let go of its connection. Nil in production.
-	onQuery, afterQuery func()
+	// own is the statements the sidecar's readings run, compiled on ownQueryDB.
+	own *ownStmts
+	// onPrepare, onQuery and afterQuery are seams for a test: onPrepare runs as a
+	// statement is compiled, onQuery as a query starts its statement, afterQuery as it is
+	// about to let go of its connection. Nil in production.
+	onPrepare, onQuery, afterQuery func()
 	// queryCtx ends the file's queries when it closes. inUse counts the operations
 	// running on the file, queries included, which close waits for: sql.DB.Close does not
 	// wait for a connection in use, and Windows refuses to delete a file one holds open.
@@ -234,7 +237,7 @@ func (f *file) close() error {
 		f.stopJanitor()
 	}
 	f.hub.Close()
-	return errors.Join(f.set.Close(), f.queryDB.Close(), f.ownQueryDB.Close(), f.db.Close(), f.readDB.Close())
+	return errors.Join(f.set.Close(), f.own.close(), f.queryDB.Close(), f.ownQueryDB.Close(), f.db.Close(), f.readDB.Close())
 }
 
 // startJanitor spawns this file's sweeper, or nothing when no interval is set.
@@ -270,6 +273,7 @@ func newFile(
 		readDB:          readDB,
 		queryDB:         queryDB,
 		ownQueryDB:      ownQueryDB,
+		own:             newOwnStmts(),
 		set:             set,
 		hub:             conflate.New[string, struct{}](),
 		janitorWakeups:  make(chan struct{}, 1),

@@ -140,7 +140,7 @@ func TestFetchPagesThroughAMoment(t *testing.T) {
 // kubelet's log louder than the limit stops its stream: its lines may be left out,
 // all of them backward and the rest of the second past what the read took forward,
 // and a walk from the start names the stream in skipped. Every page resolves the
-// view through SQL the store parses afresh, so under the race detector the full
+// view through SQL over a real store, so under the race detector the full
 // sweep takes minutes; -short walks a prefix of the seeds, and the stress run walks
 // them all.
 func TestPagesJoinWithoutLossOrRepeat(t *testing.T) {
@@ -171,7 +171,7 @@ func TestPagesJoinWithoutLossOrRepeat(t *testing.T) {
 				seedStamped(t, svc, f, rowOf(key.Pod, key.Container), true, fills...)
 			}
 			// Every page resolves the view again; the mirror holds still, and SQLite
-			// parsing the same statements is most of what the walks cost.
+			// running the same statements is most of what the walks cost.
 			f.answers = map[string]cluster.ClusterCachedDataQueryResult{}
 			svc.caps = randomCaps(rng)
 			loud := loudLines(s, svc.caps.Second)

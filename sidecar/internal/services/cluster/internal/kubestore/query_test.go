@@ -24,6 +24,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -580,6 +582,104 @@ func TestAReadingIsOneSnapshot(t *testing.T) {
 	}))
 }
 
+// prepares counts the statements s compiles from now on.
+func prepares(t *testing.T, s *Store) *atomic.Int32 {
+	t.Helper()
+	f, err := s.file()
+	require.NoError(t, err)
+	n := new(atomic.Int32)
+	f.onPrepare = func() { n.Add(1) }
+	return n
+}
+
+// A statement a reading runs again is compiled once. Its row limit is part of it.
+func TestAReadingCompilesARepeatOnce(t *testing.T) {
+	s := populated(t)
+	n := prepares(t, s)
+
+	require.NoError(t, s.ReadOwn(context.Background(), func(r Reading) error {
+		_, err := r.Query(`SELECT uid FROM objects ORDER BY uid`, 1, 1<<20)
+		require.NoError(t, err)
+		one, err := r.Query(`SELECT uid FROM objects ORDER BY uid`, 1, 1<<20)
+		require.NoError(t, err)
+		all, err := r.Query(`SELECT uid FROM objects ORDER BY uid`, 100, 1<<20)
+		require.NoError(t, err)
+
+		assert.Equal(t, [][]any{{"dep"}}, one.Rows)
+		assert.True(t, one.More)
+		assert.Equal(t, [][]any{{"dep"}, {"pod"}, {"rs"}}, all.Rows)
+		assert.False(t, all.More)
+		assert.Equal(t, int32(2), n.Load())
+		return nil
+	}))
+}
+
+// A statement compiles twice in its first reading, once for the reading and once for
+// the file's pool, then never again.
+func TestAFileCompilesAStatementOnce(t *testing.T) {
+	s := populated(t)
+	n := prepares(t, s)
+	read := func() {
+		t.Helper()
+		require.NoError(t, s.ReadOwn(context.Background(), func(r Reading) error {
+			res, err := r.Query(`SELECT uid FROM objects WHERE uid <> ? ORDER BY uid`, 2, 1<<20, "dep")
+			require.NoError(t, err)
+			assert.Equal(t, [][]any{{"pod"}, {"rs"}}, res.Rows)
+			return nil
+		}))
+	}
+
+	read()
+	assert.Equal(t, int32(2), n.Load(), "the reading, then the pool's copy")
+	read()
+	assert.Equal(t, int32(2), n.Load(), "a later reading")
+}
+
+// Past the table's cap a statement compiles for each reading and is never kept, so
+// texts built from data cannot grow the table.
+func TestATextPastTheCapIsNotKept(t *testing.T) {
+	s := populated(t)
+	f, err := s.file()
+	require.NoError(t, err)
+	f.own.max = 1
+	for _, text := range []string{`SELECT 1`, `SELECT 2`, `SELECT 1`} {
+		require.NoError(t, s.ReadOwn(context.Background(), func(r Reading) error {
+			_, err := r.Query(text, 10, 1<<20)
+			return err
+		}))
+	}
+
+	assert.NotNil(t, f.own.get(ownKey{`SELECT 1`, 10}))
+	assert.Nil(t, f.own.get(ownKey{`SELECT 2`, 10}))
+}
+
+// Readings holding every connection of the pool can each meet a text the file has not
+// compiled; all of them finish, and each text is kept.
+func TestReadingsThatMissTogetherFinish(t *testing.T) {
+	s := populated(t)
+	f, err := s.file()
+	require.NoError(t, err)
+	var inside sync.WaitGroup
+	inside.Add(queryPoolSize)
+	done := make(chan error, queryPoolSize)
+	for i := range queryPoolSize {
+		go func() {
+			done <- s.ReadOwn(context.Background(), func(r Reading) error {
+				inside.Done()
+				inside.Wait()
+				_, err := r.Query(fmt.Sprintf(`SELECT %d FROM objects`, i), 10, 1<<20)
+				return err
+			})
+		}()
+	}
+	for range queryPoolSize {
+		require.NoError(t, testutil.Recv(t, done, "a reading"))
+	}
+	for i := range queryPoolSize {
+		assert.NotNil(t, f.own.get(ownKey{fmt.Sprintf(`SELECT %d FROM objects`, i), 10}))
+	}
+}
+
 // A reading that fails leaves its connection with no transaction open, so the next
 // reading on it sees the cache as it is.
 func TestAFailedReadingEndsItsTransaction(t *testing.T) {
@@ -680,6 +780,39 @@ func TestACloseWaitsForItsQueries(t *testing.T) {
 
 	require.NoError(t, testutil.Recv(t, cleared, "the clear"))
 	require.NoError(t, testutil.Recv(t, done, "the query").err)
+}
+
+// A clear closes the statements its file compiled for readings, with its pools.
+func TestAClearClosesTheReadingsStatements(t *testing.T) {
+	t.Parallel()
+
+	m := NewManager(t.TempDir(), Retention{})
+	t.Cleanup(func() { require.NoError(t, m.Close()) })
+	s, err := m.OpenOrCreate(1)
+	require.NoError(t, err)
+	t.Cleanup(s.Release)
+	f, err := s.file()
+	require.NoError(t, err)
+	for range 2 {
+		require.NoError(t, s.ReadOwn(context.Background(), func(r Reading) error {
+			_, err := r.Query(`SELECT 1`, 10, 1<<20)
+			return err
+		}))
+	}
+	stmt := f.own.get(ownKey{`SELECT 1`, 10})
+	require.NotNil(t, stmt)
+
+	require.NoError(t, m.Clear(1))
+
+	_, err = stmt.QueryContext(context.Background())
+	require.ErrorContains(t, err, "statement is closed")
+}
+
+func TestAReadingAfterACloseIsClosed(t *testing.T) {
+	t.Parallel()
+
+	err := closedStore(t).ReadOwn(context.Background(), func(Reading) error { return nil })
+	require.ErrorIs(t, err, ErrClosed)
 }
 
 func TestAQueryAfterACloseIsClosed(t *testing.T) {

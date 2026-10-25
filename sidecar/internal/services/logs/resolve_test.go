@@ -654,3 +654,14 @@ func TestEveryRefusalCarriesItsCode(t *testing.T) {
 		}
 	}
 }
+
+// A resolve of a deployment's view over a real store, as every page and follow
+// reconcile runs one.
+func BenchmarkResolve(b *testing.B) {
+	f := webMirror(b)
+	for b.Loop() {
+		if _, err := resolve(b.Context(), f, "7", webScope, false); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
