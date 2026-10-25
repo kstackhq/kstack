@@ -163,6 +163,39 @@ func TestErrorLogNamesTheCode(t *testing.T) {
 	}
 }
 
+// A plain resolver error logs its own type, not just gqlgen's wrapper, and a cancel
+// is named apart from an errors.New of the same type.
+func TestErrorLogNamesTheCause(t *testing.T) {
+	prev := slog.Default()
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	cases := []struct {
+		err      error
+		canceled string
+	}{
+		{errors.New("loopback bind failed"), `"canceled":false`},
+		{context.Canceled, `"canceled":true`},
+	}
+	for _, c := range cases {
+		t.Run(c.err.Error(), func(t *testing.T) {
+			var buf bytes.Buffer
+			slog.SetDefault(logging.Init(&buf, slog.LevelInfo))
+
+			svc := newFakeAuth(auth.Identity{})
+			svc.loginErr = c.err
+			ts := httptest.NewServer(graph.NewServer(&graph.Resolver{Auth: svc}))
+			defer ts.Close()
+			postGQL(t, ts.URL, `{"query":"mutation { authLoginStart }"}`)
+
+			for _, want := range []string{`"error":"*gqlerror.Error"`, `"cause":"*errors.errorString"`, c.canceled, `"ctx_err":false`} {
+				if !strings.Contains(buf.String(), want) {
+					t.Errorf("the log lacks %s: %s", want, buf.String())
+				}
+			}
+		})
+	}
+}
+
 // TestGracefulShutdownEndsSSEStream verifies that NotifyShutdown tells every
 // active SSE subscription to flush its terminal `event: complete` (via the
 // per-request context wired to the server's shutdownCh) and the handler

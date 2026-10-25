@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -60,6 +61,13 @@ func NewServer(r *Resolver) *Server {
 		// only thing that says which refusal this was: every mapped error is the
 		// same Go type.
 		attrs := []any{"operation_type", op, "error", fmt.Sprintf("%T", e)}
+		// gqlgen wraps every plain resolver error in a *gqlerror.Error, so the cause's
+		// type is what says where it came from. context.Canceled is an errorString
+		// like any errors.New, so a cancel is named apart.
+		if cause := errors.Unwrap(e); cause != nil {
+			attrs = append(attrs, "cause", fmt.Sprintf("%T", cause))
+		}
+		attrs = append(attrs, "canceled", errors.Is(e, context.Canceled), "ctx_err", ctx.Err() != nil)
 		if code, ok := err.Extensions["code"].(string); ok {
 			attrs = append(attrs, "code", code)
 		}

@@ -120,8 +120,9 @@ Full picture: [`docs/security-model.md`](../docs/security-model.md).
   redaction](../docs/adr/2026-08-30-secret-redaction-at-write-time.md).
 - **Reading a kubeconfig can execute code** (`exec` plugins, on every probe). Widening what is
   probed widens what runs.
-- **Diagnostics exclude request data.** The GraphQL presenter logs operation type, Go error type
-  and `code` only. Everything else renders through `internal/lib/safe` at the sink, so a plain
+- **Diagnostics exclude request data.** The GraphQL presenter logs operation type, Go error type, the
+  wrapped cause's type, whether it is a cancel and whether the request's context ended, and
+  `code` only. Everything else renders through `internal/lib/safe` at the sink, so a plain
   `slog.Error("…", "err", err)` is correct; a non-string, non-error value logs as its type. A
   persisted message is rendered where it is recorded (`supervisor.Fail`). Auth projections omit
   tokens.
