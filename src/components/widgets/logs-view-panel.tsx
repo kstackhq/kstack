@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 // The log view the right sidebar draws in chat mode: a header naming what the
-// focused view reads, a close that clears it, and the viewer under them. The panel
+// focused view reads, a close that collapses the sidebar, and the viewer under them. The panel
 // does not scroll; the viewer owns its scroller.
 import { X } from 'lucide-react';
 
@@ -24,8 +24,9 @@ import { VisibleText } from '@/components/widgets/visible-text';
 import type { LogsView } from '@/lib/logs-view';
 import type { LogViewportHandle } from '@/lib/log-viewport';
 
-function Header({ view, onClose }: { view: LogsView; onClose: () => void }) {
-  const { sources, filters, grep, anchor, pinToEnd } = view.action;
+// `grep` is the viewer's, which its toolbar can change from the action's.
+function Header({ view, grep, onClose }: { view: LogsView; grep: string; onClose: () => void }) {
+  const { sources, filters, anchor, pinToEnd } = view.action;
   const [first] = sources;
   const more = sources.length - 1;
   const detail = 'truncate text-xs text-muted-foreground';
@@ -75,23 +76,28 @@ export function LogsViewPanel({
   view,
   viewport,
   onClose,
+  onGrepApplied,
 }: {
   view: LogsView;
   viewport: LogViewportHandle;
   onClose: () => void;
+  /** Called with each grep the user applies from the viewer's toolbar. */
+  onGrepApplied: (grep: string) => void;
 }) {
+  const grep = view.grep ?? view.action.grep;
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <Header view={view} onClose={onClose} />
+      <Header view={view} grep={grep} onClose={onClose} />
       {/* Keyed on the call: a new call lands at its anchor, a re-render of the same
           call leaves the user where they scrolled. */}
       <LogViewer
         key={view.callId}
         clusterId={view.clusterId}
-        query={view.action}
+        query={{ ...view.action, grep }}
         openAt={view.action.anchor}
         pinToEnd={view.action.pinToEnd}
         viewport={viewport}
+        onGrepApplied={onGrepApplied}
       />
     </div>
   );

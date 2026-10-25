@@ -53,8 +53,11 @@ function Placeholder({ title, detail }: { title: string; detail: string }) {
 }
 
 function ChatPanel() {
-  const { view, viewport, clear } = useLogsView();
-  if (view) return <LogsViewPanel view={view} viewport={viewport} onClose={clear} />;
+  const { view, viewport, setGrep } = useLogsView();
+  const { close } = useRightSidebar();
+  // The panel's close is the toggle's collapse: the view stays focused, with its grep,
+  // for the toggle or the card's Expand to bring back.
+  if (view) return <LogsViewPanel view={view} viewport={viewport} onClose={close} onGrepApplied={setGrep} />;
   return <Placeholder title="Conversation" detail="What the chat is working from will appear here." />;
 }
 

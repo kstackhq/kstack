@@ -24,23 +24,35 @@ const { mountedWith } = vi.hoisted(() => ({ mountedWith: { viewport: {} } }));
 vi.mock('@/components/widgets/log-viewer', () => ({
   LogViewer: ({
     clusterId,
+    query,
     openAt,
     pinToEnd,
     viewport,
+    onGrepApplied,
   }: {
     clusterId: string;
+    query: { grep: string };
     openAt: { kind: string; at: string | null };
     pinToEnd: boolean;
     viewport: object;
+    onGrepApplied: (grep: string) => void;
   }) => {
     mountedWith.viewport = viewport;
     return (
       <div
         data-testid="log-viewer"
         data-cluster={clusterId}
+        data-grep={query.grep}
         data-open-at={openAt.at ?? openAt.kind}
         data-pinned={pinToEnd}
-      />
+      >
+        <button type="button" onClick={() => onGrepApplied('panic')}>
+          apply panic
+        </button>
+        <button type="button" onClick={() => onGrepApplied('')}>
+          clear grep
+        </button>
+      </div>
     );
   },
 }));
@@ -71,7 +83,9 @@ const view: LogsView = {
 
 describe('LogsViewPanel', () => {
   it('names the first source and how many more, then every source, the filters and the grep', () => {
-    render(<LogsViewPanel view={view} viewport={createLogViewportHandle()} onClose={() => {}} />);
+    render(
+      <LogsViewPanel view={view} viewport={createLogViewportHandle()} onClose={() => {}} onGrepApplied={() => {}} />,
+    );
     expect(screen.getByRole('heading')).toHaveTextContent(
       'Logs: Deployment webapp in prod (app, istio-proxy) and 1 more',
     );
@@ -86,16 +100,22 @@ describe('LogsViewPanel', () => {
 
   it('says where the view opens and whether it is pinned', () => {
     const tail = { ...view, action: { ...view.action, anchor: { kind: 'Tail' as const, at: null }, pinToEnd: true } };
-    render(<LogsViewPanel view={tail} viewport={createLogViewportHandle()} onClose={() => {}} />);
+    render(
+      <LogsViewPanel view={tail} viewport={createLogViewportHandle()} onClose={() => {}} onGrepApplied={() => {}} />,
+    );
     expect(screen.getByText(/newest line/)).toHaveTextContent('at the newest line, pinned to the end');
 
     const head = { ...view, action: { ...view.action, anchor: { kind: 'Head' as const, at: null } } };
-    render(<LogsViewPanel view={head} viewport={createLogViewportHandle()} onClose={() => {}} />);
+    render(
+      <LogsViewPanel view={head} viewport={createLogViewportHandle()} onClose={() => {}} onGrepApplied={() => {}} />,
+    );
     expect(screen.getByText(/^from the start$/)).toBeInTheDocument();
   });
 
   it('spells a reordering character in a name out, never drawing it', () => {
-    render(<LogsViewPanel view={view} viewport={createLogViewportHandle()} onClose={() => {}} />);
+    render(
+      <LogsViewPanel view={view} viewport={createLogViewportHandle()} onClose={() => {}} onGrepApplied={() => {}} />,
+    );
     expect(screen.getByTitle('An invisible character')).toBeInTheDocument();
   });
 
@@ -108,6 +128,7 @@ describe('LogsViewPanel', () => {
         }}
         viewport={createLogViewportHandle()}
         onClose={() => {}}
+        onGrepApplied={() => {}}
       />,
     );
     expect(screen.getByRole('heading')).toHaveTextContent(/^Logs: Deployment webapp in prod \(app, istio-proxy\)$/);
@@ -117,21 +138,54 @@ describe('LogsViewPanel', () => {
 
   it('closes from its button', () => {
     const onClose = vi.fn();
-    render(<LogsViewPanel view={view} viewport={createLogViewportHandle()} onClose={onClose} />);
+    render(
+      <LogsViewPanel view={view} viewport={createLogViewportHandle()} onClose={onClose} onGrepApplied={() => {}} />,
+    );
     fireEvent.click(screen.getByRole('button', { name: 'Close log view' }));
     expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('mounts the viewer on the view’s cluster with the viewport it is handed', () => {
     const viewport = createLogViewportHandle();
-    render(<LogsViewPanel view={view} viewport={viewport} onClose={() => {}} />);
+    render(<LogsViewPanel view={view} viewport={viewport} onClose={() => {}} onGrepApplied={() => {}} />);
     expect(screen.getByTestId('log-viewer')).toHaveAttribute('data-cluster', 'cluster-1');
     expect(mountedWith.viewport).toBe(viewport);
   });
 
   it('mounts the viewer at the action’s anchor, pinned as the action says', () => {
-    render(<LogsViewPanel view={view} viewport={createLogViewportHandle()} onClose={() => {}} />);
+    render(
+      <LogsViewPanel view={view} viewport={createLogViewportHandle()} onClose={() => {}} onGrepApplied={() => {}} />,
+    );
     expect(screen.getByTestId('log-viewer')).toHaveAttribute('data-open-at', '2026-10-08T14:02:00Z');
     expect(screen.getByTestId('log-viewer')).toHaveAttribute('data-pinned', 'false');
+  });
+
+  it('draws and runs the user’s grep over the action’s, and hands up each one the viewer applies', () => {
+    const onGrepApplied = vi.fn();
+    render(
+      <LogsViewPanel
+        view={{ ...view, grep: 'panic' }}
+        viewport={createLogViewportHandle()}
+        onClose={() => {}}
+        onGrepApplied={onGrepApplied}
+      />,
+    );
+    expect(screen.getByText(/matching/)).toHaveTextContent('matching /panic/');
+    expect(screen.getByTestId('log-viewer')).toHaveAttribute('data-grep', 'panic');
+
+    fireEvent.click(screen.getByRole('button', { name: 'clear grep' }));
+    expect(onGrepApplied).toHaveBeenCalledWith('');
+  });
+
+  it('draws no grep line for a user’s empty grep over the action’s', () => {
+    render(
+      <LogsViewPanel
+        view={{ ...view, grep: '' }}
+        viewport={createLogViewportHandle()}
+        onClose={() => {}}
+        onGrepApplied={() => {}}
+      />,
+    );
+    expect(screen.queryByText(/matching/)).not.toBeInTheDocument();
   });
 });

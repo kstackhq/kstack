@@ -17,8 +17,10 @@
 // beside the right sidebar's state. It is chrome, not what the window
 // is looking at, so it is out of the URL and not persisted: a new window opens with
 // none. `set` also opens the right sidebar, since a view set with the panel closed is
-// a view nobody sees. `viewport` is where the viewer writes what is on screen, one
-// per window, which the composer pulls at send.
+// a view nobody sees. The grep the user applies from the viewer's toolbar is held here,
+// not in the panel, so it outlives the panel's unmount while the sidebar is collapsed.
+// `viewport` is where the viewer writes what is on screen, one per window, which the
+// composer pulls at send.
 import { createContext, useContext, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 
@@ -42,11 +44,15 @@ export type LogsView = {
   chatId: string;
   callId: string;
   action: LogsViewAction;
+  /** The grep the user applied over the action's; unset until they do. */
+  grep?: string;
 };
 
 type LogsViewContextValue = {
   view: LogsView | null;
+  /** Focuses a view, keeping the user's grep when it is the call already focused. */
   set: (view: LogsView) => void;
+  setGrep: (grep: string) => void;
   clear: () => void;
   viewport: LogViewportHandle;
 };
@@ -61,9 +67,10 @@ export function LogsViewProvider({ children }: { children: ReactNode }) {
     () => ({
       view,
       set: (next) => {
-        setView(next);
+        setView((last) => (last?.callId === next.callId ? { ...next, grep: last.grep } : next));
         show();
       },
+      setGrep: (grep) => setView((last) => last && { ...last, grep }),
       clear: () => setView(null),
       viewport,
     }),

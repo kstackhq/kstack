@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -25,12 +25,15 @@ function renderToolbar(over: Partial<LogViewerToolbarProps> = {}) {
     paused: false,
     columns: ['Timestamp', 'Dot', 'Message'],
     wrap: false,
+    grep: 'error',
+    grepError: null,
     onJumpTo: vi.fn(),
     onStart: vi.fn(),
     onEnd: vi.fn(),
     onPausedChange: vi.fn(),
     onColumnsChange: vi.fn(),
     onWrapChange: vi.fn(),
+    onGrepChange: vi.fn(),
     ...over,
   };
   render(<LogViewerToolbar {...props} />);
@@ -109,5 +112,45 @@ describe('LogViewerToolbar', () => {
     await userEvent.click(button('View'));
     await userEvent.click(await screen.findByRole('checkbox', { name: 'Wrap' }));
     expect(props.onWrapChange).toHaveBeenCalledWith(true);
+  });
+
+  describe('the grep box', () => {
+    const box = () => screen.getByRole('textbox', { name: 'Grep' });
+
+    it('starts with the grep in effect and submits a new one on Enter', async () => {
+      const props = renderToolbar();
+      expect(box()).toHaveValue('error');
+      await userEvent.clear(box());
+      await userEvent.type(box(), 'warn|fail');
+      expect(props.onGrepChange).not.toHaveBeenCalled();
+      await userEvent.type(box(), '{Enter}');
+      expect(props.onGrepChange).toHaveBeenCalledWith('warn|fail');
+    });
+
+    it('leaves Enter to an input method composing a character', () => {
+      const props = renderToolbar();
+      fireEvent.keyDown(box(), { key: 'Enter', isComposing: true });
+      expect(props.onGrepChange).not.toHaveBeenCalled();
+      fireEvent.keyDown(box(), { key: 'Enter' });
+      expect(props.onGrepChange).toHaveBeenCalledWith('error');
+    });
+
+    it('submits an empty box as no grep', async () => {
+      const props = renderToolbar();
+      await userEvent.clear(box());
+      await userEvent.type(box(), '{Enter}');
+      expect(props.onGrepChange).toHaveBeenCalledWith('');
+    });
+
+    it('marks the box and says why a grep was refused', () => {
+      renderToolbar({ grepError: 'missing closing ): `(a`' });
+      expect(box()).toHaveAttribute('aria-invalid', 'true');
+      expect(box()).toHaveAccessibleDescription('missing closing ): `(a`');
+    });
+
+    it('is valid with no refusal', () => {
+      renderToolbar();
+      expect(box()).toHaveAttribute('aria-invalid', 'false');
+    });
   });
 });

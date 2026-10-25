@@ -81,6 +81,19 @@ describe('useLogsView', () => {
     expect(result.current.logs.viewport).toBe(viewport);
   });
 
+  it('keeps the user’s grep while its call stays focused, and drops it for another call', () => {
+    const { result } = renderBoth();
+    act(() => result.current.logs.set(view));
+    act(() => result.current.logs.setGrep('panic'));
+    expect(result.current.logs.view?.grep).toBe('panic');
+
+    act(() => result.current.logs.set(view));
+    expect(result.current.logs.view?.grep).toBe('panic');
+
+    act(() => result.current.logs.set({ ...view, callId: 'call-2' }));
+    expect(result.current.logs.view?.grep).toBeUndefined();
+  });
+
   it('needs its provider', () => {
     expect(() => renderHook(() => useLogsView())).toThrow('within a LogsViewProvider');
   });

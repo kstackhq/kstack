@@ -26,7 +26,13 @@ vi.mock('@/components/widgets/dashboard-chat', () => ({
   DashboardChat: () => <div data-testid="dashboard-chat" />,
 }));
 vi.mock('@/components/widgets/log-viewer', () => ({
-  LogViewer: () => <div data-testid="log-viewer" />,
+  LogViewer: ({ query, onGrepApplied }: { query: { grep: string }; onGrepApplied: (grep: string) => void }) => (
+    <div data-testid="log-viewer" data-grep={query.grep}>
+      <button type="button" onClick={() => onGrepApplied('panic')}>
+        apply panic
+      </button>
+    </div>
+  ),
 }));
 
 const { RightSidebar, RightSidebarToggle } = await import('./right-sidebar');
@@ -201,7 +207,7 @@ describe('RightSidebar', () => {
     expect(screen.getByRole('heading', { name: 'Conversation' })).toBeInTheDocument();
   });
 
-  it('draws the focused log view in chat mode, and the placeholder again once it is closed', () => {
+  it('draws the focused log view in chat mode, and its close collapses the sidebar around it', () => {
     renderPanel();
     fireEvent.click(screen.getByRole('button', { name: 'focus view' }));
     // Setting the view opens the panel by itself.
@@ -209,8 +215,27 @@ describe('RightSidebar', () => {
     expect(screen.queryByRole('heading', { name: 'Conversation' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Close log view' }));
-    expect(panel()).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Conversation' })).toBeInTheDocument();
+    expect(panel()).not.toBeInTheDocument();
+    // The view stays focused, so the toggle brings it back.
+    clickToggle();
+    expect(screen.getByRole('heading', { name: /Logs: Deployment webapp in prod/ })).toBeInTheDocument();
+  });
+
+  it('keeps the user’s grep for the focused view across a collapse', () => {
+    renderPanel();
+    fireEvent.click(screen.getByRole('button', { name: 'focus view' }));
+    fireEvent.click(screen.getByRole('button', { name: 'apply panic' }));
+    expect(screen.getByText(/matching/)).toHaveTextContent('matching /panic/');
+
+    clickToggle();
+    clickToggle();
+    expect(screen.getByText(/matching/)).toHaveTextContent('matching /panic/');
+    // The panel unmounted with the sidebar; the viewer it mounts again runs the held grep.
+    expect(screen.getByTestId('log-viewer')).toHaveAttribute('data-grep', 'panic');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close log view' }));
+    clickToggle();
+    expect(screen.getByTestId('log-viewer')).toHaveAttribute('data-grep', 'panic');
   });
 
   it('holds a chat in dashboard mode', () => {

@@ -12,15 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// The log viewer's controls: jump to a time, to the start or to the end, pause and play, and a
-// View popover for the columns and wrap. The pin has no button: scrolling pins and unpins.
+// The log viewer's controls: jump to a time, to the start or to the end, pause and play, a grep
+// box, and a View popover for the columns and wrap. The pin has no button: scrolling pins and unpins.
 import { Columns3, Pause, Play, SkipBack, SkipForward } from 'lucide-react';
+import { useId, useState } from 'react';
 
 import { Button } from '@kubetail/ui/elements/button';
 import { Checkbox } from '@kubetail/ui/elements/checkbox';
+import { Input } from '@kubetail/ui/elements/input';
 import { Label } from '@kubetail/ui/elements/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@kubetail/ui/elements/popover';
 
+import { VisibleText } from '@/components/widgets/visible-text';
 import { COLUMNS, type Column } from './columns';
 import { JumpToTime } from './jump-to-time';
 
@@ -29,16 +32,48 @@ export type LogViewerToolbarProps = {
   paused: boolean;
   columns: Column[];
   wrap: boolean;
+  /** The grep in effect; it seeds the box. */
+  grep: string;
+  /** Why the last submitted grep was refused, null while none is. */
+  grepError: string | null;
   onJumpTo: (at: Date) => void;
   onStart: () => void;
   onEnd: () => void;
   onPausedChange: (paused: boolean) => void;
   onColumnsChange: (columns: Column[]) => void;
   onWrapChange: (wrap: boolean) => void;
+  /** The box's text on Enter; empty clears the grep. */
+  onGrepChange: (grep: string) => void;
 };
 
 /** The columns the user picks: every one but the message, which is always on. */
 const PICKABLE = COLUMNS.filter((col) => col !== 'Message');
+
+// The draft stays as typed after a refusal, so the user can fix it.
+function GrepBox({ grep, error, onSubmit }: { grep: string; error: string | null; onSubmit: (grep: string) => void }) {
+  const [draft, setDraft] = useState(grep);
+  const errorId = useId();
+  const invalid = error !== null;
+  return (
+    <>
+      <Input
+        aria-label="Grep"
+        aria-invalid={invalid}
+        aria-describedby={invalid ? errorId : undefined}
+        placeholder="Grep"
+        value={draft}
+        onChange={(ev) => setDraft(ev.target.value)}
+        onKeyDown={(ev) => ev.key === 'Enter' && !ev.nativeEvent.isComposing && onSubmit(draft)}
+        className="ml-2 h-7 w-48 font-mono text-xs"
+      />
+      {invalid && (
+        <p id={errorId} className="min-w-0 truncate text-xs text-destructive">
+          <VisibleText text={error} />
+        </p>
+      )}
+    </>
+  );
+}
 
 function Option({ label, checked, onChange }: { label: string; checked: boolean; onChange: (on: boolean) => void }) {
   return (
@@ -54,12 +89,15 @@ export function LogViewerToolbar({
   paused,
   columns,
   wrap,
+  grep,
+  grepError,
   onJumpTo,
   onStart,
   onEnd,
   onPausedChange,
   onColumnsChange,
   onWrapChange,
+  onGrepChange,
 }: LogViewerToolbarProps) {
   const toggle = (col: Column, on: boolean) => {
     const picked = new Set(columns);
@@ -99,6 +137,7 @@ export function LogViewerToolbar({
       <Button variant="ghost" size="icon-sm" aria-label="Jump to the end" disabled={loading} onClick={onEnd}>
         <SkipForward aria-hidden />
       </Button>
+      <GrepBox grep={grep} error={grepError} onSubmit={onGrepChange} />
       <Popover>
         <PopoverTrigger
           render={<Button variant="ghost" size="icon-sm" className="ml-auto" disabled={loading} />}

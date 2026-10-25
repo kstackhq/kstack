@@ -31,6 +31,7 @@ vi.mock('@/lib/logs-client', () => ({
 }));
 
 const { reportError } = vi.hoisted(() => ({ reportError: vi.fn() }));
+const onGrepApplied = vi.fn();
 vi.mock('@/lib/error-bus', () => ({ reportError }));
 
 const { LogViewer } = await import('./log-viewer');
@@ -206,6 +207,7 @@ function mount(query: LogsViewAction = action()) {
           openAt={query.anchor}
           pinToEnd={query.pinToEnd}
           viewport={viewport}
+          onGrepApplied={onGrepApplied}
         />
       </UrqlProvider>
     </StrictMode>,
@@ -253,6 +255,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date(2026, 9, 15, 12, 0, 0));
   built.calls = [];
   reportError.mockReset();
+  onGrepApplied.mockReset();
   stubLayout();
 });
 
@@ -550,6 +553,148 @@ describe('LogViewer', () => {
       expect(screen.getAllByTestId('log-row').at(-1)!.querySelector('[data-col="Pod"]')).not.toBeNull();
       expect(localStorage.getItem('kstack:log-viewer-columns')).toBe('["Timestamp","Dot","Pod"]');
       expect(localStorage.getItem('kstack:log-viewer-wrap')).toBe('true');
+    });
+  });
+
+  describe('the grep box', () => {
+    const grepFor = async (pattern: string) => {
+      const box = screen.getByRole('textbox', { name: 'Grep' });
+      fireEvent.change(box, { target: { value: pattern } });
+      fireEvent.keyDown(box, { key: 'Enter' });
+      await frame();
+    };
+    const open = (s: ReturnType<typeof scripted>) => s.follows.filter((f) => !f.closed);
+
+    it('checks a new grep with a one-line read, then lands at the end through it, following', async () => {
+      const s = scripted();
+      mount();
+      await answer(s.fetches[0], page(0, 20, { edges: { ...START, ...END } }));
+      expect(open(s)).toHaveLength(1);
+
+      await grepFor('line 1.');
+      expect(built.calls.at(-1)).toEqual([urql, 'cluster-1', action({ grep: 'line 1.' })]);
+      expect(s.last().query).toEqual({ kind: 'Last', limit: 1 });
+      // The last good view stays until the grep is accepted.
+      expect(rowTexts().at(-1)).toContain('line 19');
+
+      expect(onGrepApplied).not.toHaveBeenCalled();
+
+      await answer(s.last(), page(19, 20, { edges: END }));
+      expect(onGrepApplied).toHaveBeenCalledWith('line 1.');
+      expect(s.last().query).toEqual({ kind: 'Last', limit: 300 });
+      await answer(s.last(), page(10, 20, { edges: { ...START, ...END } }));
+      expect(open(s)).toHaveLength(1);
+      await act(async () => {
+        open(s)[0].onFrame({ kind: 'Line', line: line(20) });
+      });
+      await frame(2);
+      expect(rowTexts().at(-1)).toContain('line 20');
+    });
+
+    it('lands at the first line on screen when not pinned, unpinned', async () => {
+      const s = scripted();
+      const { container, viewport } = mount(
+        action({ anchor: { kind: 'At', at: line(30).timestamp }, pinToEnd: false }),
+      );
+      await answer(s.fetches[0], page(20, 40, { anchor: 10, edges: START }));
+      // The user scrolls away from where the view landed.
+      const scroller = container.querySelector<HTMLElement>(SCROLLER)!;
+      fireEvent.wheel(scroller);
+      scroller.scrollTop -= 5 * LOG_ROW_PX;
+      await frame();
+      const { from } = viewport.get().range!;
+      expect(from).not.toBe(line(30).timestamp);
+
+      await grepFor('line');
+      await answer(s.last(), page(39, 40));
+      expect(s.last().query).toEqual({ kind: 'At', at: from, limit: 300 });
+      await answer(s.last(), page(20, 40, { anchor: 0, edges: START }));
+      expect(viewport.get().pinnedToEnd).toBe(false);
+    });
+
+    it('starts with the view’s grep, and an empty box clears it', async () => {
+      const s = scripted();
+      mount(action({ grep: 'line 1.' }));
+      await answer(s.fetches[0], page(18, 20, { edges: { ...START, ...END } }));
+      expect(screen.getByRole('textbox', { name: 'Grep' })).toHaveValue('line 1.');
+
+      await grepFor('');
+      expect(built.calls.at(-1)).toEqual([urql, 'cluster-1', action({ grep: '' })]);
+      await answer(s.last(), page(19, 20, { edges: END }));
+      expect(s.last().query).toEqual({ kind: 'Last', limit: 300 });
+      await answer(s.last(), page(15, 20, { edges: { ...START, ...END } }));
+      expect(rowTexts()[0]).toContain('line 15');
+    });
+
+    it('says why a grep was refused at the box and keeps the last good view, following', async () => {
+      const s = scripted();
+      mount();
+      await answer(s.fetches[0], page(0, 20, { edges: { ...START, ...END } }));
+      const follow = open(s)[0];
+
+      await grepFor('(a');
+      const asked = s.fetches.length;
+      await act(async () => {
+        s.last().reject(new Error('error parsing regexp: missing closing ): `(a`'));
+      });
+      await frame(2);
+      const box = screen.getByRole('textbox', { name: 'Grep' });
+      expect(box).toHaveAttribute('aria-invalid', 'true');
+      expect(box).toHaveAccessibleDescription('error parsing regexp: missing closing ): `(a`');
+      expect(box).toHaveValue('(a');
+      expect(screen.queryByText('Could not load lines.')).not.toBeInTheDocument();
+      expect(s.fetches).toHaveLength(asked);
+      expect(rowTexts().at(-1)).toContain('line 19');
+      expect(follow.closed).toBe(false);
+      expect(onGrepApplied).not.toHaveBeenCalled();
+
+      await grepFor('(a)');
+      await answer(s.last(), page(19, 20, { edges: END }));
+      expect(box).toHaveAttribute('aria-invalid', 'false');
+    });
+
+    it('neither reads nor lands for the grep in effect, and clears a refusal and a pending grep', async () => {
+      const s = scripted();
+      mount();
+      await answer(s.fetches[0], page(0, 20, { edges: { ...START, ...END } }));
+      const box = screen.getByRole('textbox', { name: 'Grep' });
+      const asked = s.fetches.length;
+      await grepFor('');
+      expect(s.fetches).toHaveLength(asked);
+
+      await grepFor('(a');
+      await refuse(s.last());
+      expect(box).toHaveAttribute('aria-invalid', 'true');
+      await grepFor('b');
+      const pending = s.last();
+      await grepFor('');
+      expect(box).not.toHaveAttribute('aria-invalid', 'true');
+
+      await answer(pending, page(19, 20, { edges: END }));
+      expect(s.last()).toBe(pending);
+      expect(onGrepApplied).not.toHaveBeenCalled();
+    });
+
+    it('acts on the last grep submitted alone', async () => {
+      const s = scripted();
+      mount();
+      await answer(s.fetches[0], page(0, 20, { edges: { ...START, ...END } }));
+      await grepFor('a');
+      const a = s.last();
+      await grepFor('b');
+      const b = s.last();
+      await grepFor('(c');
+      const c = s.last();
+      const box = screen.getByRole('textbox', { name: 'Grep' });
+
+      await answer(a, page(19, 20, { edges: END }));
+      expect(s.last()).toBe(c);
+      await refuse(b);
+      expect(box).toHaveAttribute('aria-invalid', 'false');
+      await act(async () => {
+        c.reject(new Error('missing closing )'));
+      });
+      expect(box).toHaveAccessibleDescription('missing closing )');
     });
   });
 
