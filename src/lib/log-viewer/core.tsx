@@ -683,15 +683,22 @@ function useIntent(
       const moved = top - lastTop;
       lastTop = top;
       if (!pointerDown && !touching && Date.now() - inputAt > INTENT_MS) return;
-      if (moved < 0) logWindow.scrolledUp();
-      else if (moved > 0 && atBottom()) reachedBottom();
+      // The bottom is read first: a clamp or a re-measure can move the scroll up during an
+      // input, a trackpad's momentum in particular, and leaves it at the bottom.
+      if (atBottom()) {
+        if (moved > 0) reachedBottom();
+      } else if (moved < 0) {
+        logWindow.scrolledUp();
+      }
     };
-    // A scroller at its bottom sends no scroll event for a move down, so a move down there
-    // reaches the bottom directly. A trackpad sends wheel events faster than frames, so the
-    // layout is read once a frame for all of them.
+    // A wheel up unpins directly, since its scroll may stay within the tolerance. A scroller at
+    // its bottom sends no scroll event for a move down, so a move down there reaches the bottom
+    // directly. A trackpad sends wheel events faster than frames, so the layout is read once a
+    // frame for all of them.
     let wheelFrame: number | null = null;
     const onWheel = (event: WheelEvent) => {
       mark();
+      if (event.deltaY < 0) logWindow.scrolledUp();
       if (event.deltaY <= 0 || wheelFrame !== null) return;
       wheelFrame = requestAnimationFrame(() => {
         wheelFrame = null;
@@ -703,9 +710,10 @@ function useIntent(
       const down = DOWN_KEYS.has(event.key) || (event.key === ' ' && !event.shiftKey);
       if (!up && !down) return;
       mark();
-      // The scroll Home and End cause may be clamped to no move.
-      if (event.key === 'Home') logWindow.scrolledUp();
-      else if (event.key === 'End' || (down && atBottom())) reachedBottom();
+      // An up key unpins directly: its scroll may be clamped to no move, or stay within the
+      // tolerance. The scroll End causes may be clamped too.
+      if (up) logWindow.scrolledUp();
+      else if (event.key === 'End' || atBottom()) reachedBottom();
     };
     // A pointer down on the lines is the user's hand on them, which the pin yields to at once:
     // a row clicked while pinned would otherwise scroll away as lines arrive.

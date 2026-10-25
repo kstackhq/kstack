@@ -127,8 +127,10 @@ the window what the DOM and the client did and performs what the window answers.
 - **The follow is open exactly while the window follows**, its frames handed over once per
   animation frame, or after 250 ms when no frame comes.
 - **Intent comes from input events.** A scroll is the user's within 150 ms of a wheel or a
-  scrolling key on the scroller, or while a pointer or a touch is down on it, and a pointer down
-  unpins by itself. Only the pin is read off it.
+  scrolling key on the scroller, or while a pointer or a touch is down on it, and a pointer down,
+  a wheel up or an up key unpins by itself. A user's scroll that ends at the bottom never
+  unpins, so a clamp or a re-measure during a trackpad's momentum leaves the pin; a touch drag
+  up unpins only once it leaves the bottom. Only the pin is read off it.
 - **Answers are state**, so each brings its own commit, performed in the layout effect after
   it: a hold keeps the first visible row by its key, `toEnd`, and `toKey` through
   `scrollToIndex`. While following, every commit that changes the sizer and every resize keeps

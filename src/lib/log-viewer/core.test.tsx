@@ -1073,7 +1073,7 @@ describe('the user’s intent', () => {
     const { m, el } = await following();
     await scrollTo(el, BOTTOM - 100);
     expect(m.state().pinnedToEnd).toBe(true);
-    await input(el, () => fireEvent.wheel(el, { deltaY: -100 }));
+    await input(el, () => fireEvent.wheel(el, { deltaY: 100 }));
     await act(async () => {
       await vi.advanceTimersByTimeAsync(200);
     });
@@ -1089,6 +1089,30 @@ describe('the user’s intent', () => {
     expect(el.scrollTop).toBeLessThan(BOTTOM);
     expect(el.scrollTop).toBe(el.scrollHeight - VIEW);
     expect(m.state().pinnedToEnd).toBe(true);
+  });
+
+  it('changes nothing on the clamp as content shrinks during a wheel down', async () => {
+    const { m, el } = await following();
+    await input(el, () => fireEvent.wheel(el, { deltaY: 100 }));
+    rowHeight = () => 19;
+    fireResize();
+    await frame(2);
+    expect(el.scrollTop).toBeLessThan(BOTTOM);
+    expect(m.state().pinnedToEnd).toBe(true);
+  });
+
+  it('unpins on an up key when the content overflows by less than the tolerance', async () => {
+    viewHeight = 150 * 20 - 5;
+    const { m, el } = await following();
+    expect(el.scrollTop).toBe(5);
+    await input(el, () => fireEvent.keyDown(el, { key: 'ArrowUp' }), 0);
+    expect(m.state().pinnedToEnd).toBe(false);
+  });
+
+  it('unpins on a wheel up whose scroll stays within the tolerance', async () => {
+    const { m, el } = await following();
+    await input(el, () => fireEvent.wheel(el, { deltaY: -5 }), BOTTOM - 5);
+    expect(m.state().pinnedToEnd).toBe(false);
   });
 
   describe('reaching the bottom of a window behind', () => {
