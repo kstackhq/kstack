@@ -289,6 +289,54 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport, onGrep
   const state = useCoreFields(store, VIEWER_FIELDS);
   const core = useRef<CoreHandle>(null);
 
+  const [columns, setColumns] = useLogViewerColumns();
+  const template = useMemo(() => gridTemplate(columns), [columns]);
+  const widths = useMeasureWidths();
+  const [wrap, persistWrap] = usePersistedFlag('log-viewer-wrap', false);
+  // Chrome like the pin: a new view starts playing, which the mount's key gives for free.
+  const [paused, setPaused] = useState(false);
+  // Each landing mounts its own scroller; the header and the message width follow whichever is mounted.
+  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
+
+  const messageWidth = useMessageWidth(scroller, widths.widths, columns, wrap);
+  const wrapped = useCallback((line: LogLine) => estimateRowHeight(line, messageWidth), [messageWidth]);
+  // Flipping wrap changes every row's height. The core measures again in the same commit,
+  // holding the reader's row as it was before the flip.
+  const setWrap = (on: boolean) => {
+    persistWrap(on);
+    core.current?.measure();
+  };
+
+  // The range moves with the store, the selection with the rows, and the pause and the
+  // grep with the toolbar; each write carries all four.
+  const selection = useRef<LogLine[]>([]);
+  const pausedNow = useRef(false);
+  const grepNow = useRef(query.grep);
+  const writeViewport = useCallback(() => {
+    const { range, atEnd, pinnedToEnd, visible } = store.getSnapshot();
+    viewport.set({
+      range,
+      atEnd,
+      pinnedToEnd,
+      paused: pausedNow.current,
+      visible,
+      grep: grepNow.current,
+      selection: selection.current,
+    });
+  }, [store, viewport]);
+  const onPausedChange = (next: boolean) => {
+    setPaused(next);
+    pausedNow.current = next;
+    writeViewport();
+  };
+  const onSelectionChange = useCallback(
+    (lines: LogLine[]) => {
+      selection.current = lines;
+      writeViewport();
+    },
+    [writeViewport],
+  );
+
   // The grep in effect. A submitted one takes over only once the sidecar accepts it, so a
   // refused pattern leaves the last good view in place. Submissions can overlap; the latest
   // alone counts.
@@ -312,6 +360,10 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport, onGrep
         setGrepError(null);
         setClient(watchClient(candidate, setError));
         onGrepApplied(next);
+        // The landing writes the viewport as it publishes, so no write pairs the old
+        // lines with the new grep. It mounts a fresh selection.
+        grepNow.current = next;
+        selection.current = [];
         // The new client lands as the last landing did; jump to where the user is now instead.
         const { range, pinnedToEnd } = store.getSnapshot();
         if (pinnedToEnd) core.current?.jumpTo({ kind: 'Tail', at: null });
@@ -323,45 +375,6 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport, onGrep
     );
   };
 
-  const [columns, setColumns] = useLogViewerColumns();
-  const template = useMemo(() => gridTemplate(columns), [columns]);
-  const widths = useMeasureWidths();
-  const [wrap, persistWrap] = usePersistedFlag('log-viewer-wrap', false);
-  // Chrome like the pin: a new view starts playing, which the mount's key gives for free.
-  const [paused, setPaused] = useState(false);
-  // Each landing mounts its own scroller; the header and the message width follow whichever is mounted.
-  const [scroller, setScroller] = useState<HTMLDivElement | null>(null);
-
-  const messageWidth = useMessageWidth(scroller, widths.widths, columns, wrap);
-  const wrapped = useCallback((line: LogLine) => estimateRowHeight(line, messageWidth), [messageWidth]);
-  // Flipping wrap changes every row's height. The core measures again in the same commit,
-  // holding the reader's row as it was before the flip.
-  const setWrap = (on: boolean) => {
-    persistWrap(on);
-    core.current?.measure();
-  };
-
-  // The range moves with the store, the selection with the rows and the pause with
-  // the toolbar; each write carries all three.
-  const selection = useRef<LogLine[]>([]);
-  const pausedNow = useRef(false);
-  const writeViewport = useCallback(() => {
-    const { range, atEnd, pinnedToEnd, visible } = store.getSnapshot();
-    viewport.set({ range, atEnd, pinnedToEnd, paused: pausedNow.current, visible, selection: selection.current });
-  }, [store, viewport]);
-  const onPausedChange = (next: boolean) => {
-    setPaused(next);
-    pausedNow.current = next;
-    writeViewport();
-  };
-  const onSelectionChange = useCallback(
-    (lines: LogLine[]) => {
-      selection.current = lines;
-      writeViewport();
-    },
-    [writeViewport],
-  );
-
   // A closed view leaves no range behind for the composer to pull.
   useEffect(() => {
     writeViewport();
@@ -371,6 +384,14 @@ export function LogViewer({ clusterId, query, openAt, pinToEnd, viewport, onGrep
       viewport.set(EMPTY_LOG_VIEWPORT);
     };
   }, [store, viewport, writeViewport]);
+  // Nor a pending grep to write one back: the handle outlives the viewer, and the next
+  // view's viewer shares it.
+  useEffect(
+    () => () => {
+      submissions.current += 1;
+    },
+    [],
+  );
 
   const muted = 'border-b px-3 py-1 text-xs text-muted-foreground';
   return (

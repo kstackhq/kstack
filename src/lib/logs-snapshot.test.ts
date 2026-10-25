@@ -36,6 +36,7 @@ describe('snapshotOf', () => {
       pinnedToEnd: true,
       paused: true,
       visible: 10,
+      grep: 'panic',
       selection: [line(0), line(1)],
     };
     expect(snapshotOf({ callId: 'call-1' }, viewport)).toEqual({
@@ -46,6 +47,7 @@ describe('snapshotOf', () => {
       atEnd: true,
       pinnedToEnd: true,
       paused: true,
+      grep: 'panic',
       selected: [
         {
           timestamp: line(0).timestamp,
@@ -72,6 +74,7 @@ describe('snapshotOf', () => {
     const snapshot = snapshotOf({ callId: 'call-1' }, EMPTY_LOG_VIEWPORT);
     expect(snapshot.from).toBeNull();
     expect(snapshot.to).toBeNull();
+    expect(snapshot.grep).toBeNull();
     expect(snapshot.selected).toEqual([]);
     expect(snapshot.selectedCount).toBe(0);
   });

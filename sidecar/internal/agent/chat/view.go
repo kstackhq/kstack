@@ -29,10 +29,13 @@ import (
 // LogsRead call that opened it, never its view, which the sidecar reads from the
 // call's row.
 // From and To are the first and last visible line's stamps, both nil with none on
-// screen. Selected holds the first selected lines, SelectedCount all of them.
+// screen. Grep is the one the viewer runs, which the user can change from the
+// call's; nil keeps the call's. Selected holds the first selected lines,
+// SelectedCount all of them.
 type Snapshot struct {
 	CallID                     ToolCallID
 	From, To                   *time.Time
+	Grep                       *string
 	Lines                      int
 	AtEnd, PinnedToEnd, Paused bool
 	Selected                   []SelectedLine
@@ -72,6 +75,12 @@ func (s Snapshot) check() error {
 	if len(s.Selected) > maxSelected || s.SelectedCount < len(s.Selected) || s.Lines < 0 || (s.From == nil) != (s.To == nil) {
 		return ErrBadRequest
 	}
+	// The viewer runs only a grep a scope takes.
+	if s.Grep != nil {
+		if _, err := logline.CompileGrep(*s.Grep); err != nil {
+			return ErrBadRequest
+		}
+	}
 	for _, l := range s.Selected {
 		if len(l.Message) > logline.MaxLine {
 			return ErrBadRequest
@@ -81,12 +90,15 @@ func (s Snapshot) check() error {
 }
 
 // withView is card with the View section appended: toolUseID, the id the model's
-// own tool_use block carries; the call's stored action; and what snap says was on
-// screen. Every message reaches the model through logline.ForModel. Selected lines
+// own tool_use block carries; the call's stored action, under the grep snap names;
+// and what snap says was on screen. Every message reaches the model through logline.ForModel. Selected lines
 // go in order while the section stays under viewBudget; the rest are counted.
 // Without them the section is under it by its shares: the call, the view and
 // the shown span.
 func withView(card, toolUseID string, action tools.LogsViewAction, snap Snapshot) string {
+	if snap.Grep != nil {
+		action.Grep = *snap.Grep
+	}
 	fields := map[string]any{"call": cutTo(toolUseID, maxViewCall), "view": viewFields(action), "shown": shownFields(snap)}
 	var kept []map[string]any
 	for _, l := range snap.Selected {

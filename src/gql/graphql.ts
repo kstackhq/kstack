@@ -225,6 +225,8 @@ export type LogsViewSnapshotInput = {
   callID: string;
   /** The first and last visible line's timestamps. Both null when no line is on screen. */
   from?: string | null | undefined;
+  /** The grep the viewer runs, which the user can change from the call's. Null keeps the call's. */
+  grep?: string | null | undefined;
   /** How many lines are on screen. */
   lines: number;
   /** Whether the user paused the viewer: no line arrives until they resume. */

@@ -154,6 +154,8 @@ type LogsViewSnapshotInput struct {
 	PinnedToEnd bool `json:"pinnedToEnd"`
 	// Whether the user paused the viewer: no line arrives until they resume.
 	Paused bool `json:"paused"`
+	// The grep the viewer runs, which the user can change from the call's. Null keeps the call's.
+	Grep *string `json:"grep,omitempty"`
 	// The selected lines, in order, at most 50.
 	Selected []*LogsViewSelectedLineInput `json:"selected"`
 	// How many lines are selected, `selected` included.

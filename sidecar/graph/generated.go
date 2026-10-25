@@ -23126,7 +23126,7 @@ func (ec *executionContext) unmarshalInputLogsViewSnapshotInput(ctx context.Cont
 		asMap[k] = v
 	}
 
-	fieldsInOrder := [...]string{"callID", "from", "to", "lines", "atEnd", "pinnedToEnd", "paused", "selected", "selectedCount"}
+	fieldsInOrder := [...]string{"callID", "from", "to", "lines", "atEnd", "pinnedToEnd", "paused", "grep", "selected", "selectedCount"}
 	for _, k := range fieldsInOrder {
 		v, ok := asMap[k]
 		if !ok {
@@ -23182,6 +23182,13 @@ func (ec *executionContext) unmarshalInputLogsViewSnapshotInput(ctx context.Cont
 				return it, err
 			}
 			it.Paused = data
+		case "grep":
+			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("grep"))
+			data, err := ec.unmarshalOString2ᚖstring(ctx, v)
+			if err != nil {
+				return it, err
+			}
+			it.Grep = data
 		case "selected":
 			ctx := graphql.WithPathContext(ctx, graphql.NewPathWithField("selected"))
 			data, err := ec.unmarshalNLogsViewSelectedLineInput2ᚕᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐLogsViewSelectedLineInputᚄ(ctx, v)

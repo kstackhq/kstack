@@ -347,7 +347,7 @@ func snapshotOf(in *model.LogsViewSnapshotInput) *chat.Snapshot {
 		}
 	}
 	return &chat.Snapshot{
-		CallID: in.CallID, From: in.From, To: in.To, Lines: in.Lines,
+		CallID: in.CallID, From: in.From, To: in.To, Grep: in.Grep, Lines: in.Lines,
 		AtEnd: in.AtEnd, PinnedToEnd: in.PinnedToEnd, Paused: in.Paused,
 		Selected: selected, SelectedCount: in.SelectedCount,
 	}

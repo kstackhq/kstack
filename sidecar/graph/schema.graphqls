@@ -1683,6 +1683,8 @@ input LogsViewSnapshotInput {
   pinnedToEnd: Boolean!
   "Whether the user paused the viewer: no line arrives until they resume."
   paused: Boolean!
+  "The grep the viewer runs, which the user can change from the call's. Null keeps the call's."
+  grep: String
   "The selected lines, in order, at most 50."
   selected: [LogsViewSelectedLineInput!]!
   "How many lines are selected, `selected` included."

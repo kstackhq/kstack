@@ -52,12 +52,14 @@ func TestSnapshotCheckRefusesWhatTheWebviewNeverBuilds(t *testing.T) {
 		"negative count":        {CallID: "c", SelectedCount: -1},
 		"from alone":            {CallID: "c", From: &at},
 		"to alone":              {CallID: "c", To: &at},
+		"a grep past a scope's": {CallID: "c", Grep: new(strings.Repeat("x", logline.MaxGrep+1))},
+		"a grep not a regexp":   {CallID: "c", Grep: new("(a")},
 	} {
 		assert.ErrorIs(t, snap.check(), ErrBadRequest, name)
 	}
 
 	ok := Snapshot{
-		CallID: "c", From: &at, To: &at, Lines: 3,
+		CallID: "c", From: &at, To: &at, Lines: 3, Grep: new(strings.Repeat("x", logline.MaxGrep)),
 		Selected: []SelectedLine{aLine(0, strings.Repeat("x", logline.MaxLine))}, SelectedCount: 80,
 	}
 	assert.NoError(t, ok.check())
@@ -264,6 +266,17 @@ func TestTheViewSectionCutsALongGrep(t *testing.T) {
 	assert.LessOrEqual(t, marshalled(t, grep), maxViewGrep)
 	assert.True(t, strings.HasSuffix(grep, "…"))
 	assert.Len(t, view["sources"], 1, "the grep made room for the source")
+}
+
+// The grep the viewer runs is the view's, whatever the call's was: changed,
+// cleared, or the call's own when the snapshot names none.
+func TestTheViewSectionNamesTheGrepTheViewerRuns(t *testing.T) {
+	t.Parallel()
+
+	grepOf := func(snap Snapshot) any { return viewOf(t, tailWebapp(), snap)["view"].(map[string]any)["grep"] }
+	assert.Equal(t, "panic", grepOf(Snapshot{CallID: "c", Grep: new("panic")}))
+	assert.Nil(t, grepOf(Snapshot{CallID: "c", Grep: new("")}))
+	assert.Equal(t, "error", grepOf(Snapshot{CallID: "c"}))
 }
 
 // Past its share the view drops trailing filters before any source, and counts them.

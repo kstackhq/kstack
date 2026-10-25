@@ -19,7 +19,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { Client, FetchQuery, FollowFrame, LogLine, Page } from '@/lib/log-viewer';
 import type { LogsViewAction } from '@/lib/logs-view';
-import { createLogViewportHandle } from '@/lib/log-viewport';
+import {
+  EMPTY_LOG_VIEWPORT,
+  type LogViewport,
+  type LogViewportHandle,
+  createLogViewportHandle,
+} from '@/lib/log-viewport';
 
 // The seam: the client the viewer builds is the test's.
 const { built } = vi.hoisted(() => ({ built: { current: null as Client | null, calls: [] as unknown[][] } }));
@@ -196,9 +201,8 @@ const action = (over: Partial<LogsViewAction> = {}): LogsViewAction => ({
 // The viewer hands the app's urql client to `createLogsClient`, which the test replaces.
 const urql = new UrqlClient({ url: 'tauri://graphql', exchanges: [] });
 
-function mount(query: LogsViewAction = action()) {
-  const viewport = createLogViewportHandle();
-  const view = render(
+function tree(query: LogsViewAction, viewport: LogViewportHandle) {
+  return (
     <StrictMode>
       <UrqlProvider value={urql}>
         <LogViewer
@@ -210,8 +214,13 @@ function mount(query: LogsViewAction = action()) {
           onGrepApplied={onGrepApplied}
         />
       </UrqlProvider>
-    </StrictMode>,
+    </StrictMode>
   );
+}
+
+function mount(query: LogsViewAction = action()) {
+  const viewport = createLogViewportHandle();
+  const view = render(tree(query, viewport));
   return { ...view, viewport };
 }
 
@@ -340,6 +349,7 @@ describe('LogViewer', () => {
       pinnedToEnd: true,
       paused: false,
       visible: shown,
+      grep: '',
       selection: [],
     });
   });
@@ -356,6 +366,7 @@ describe('LogViewer', () => {
       pinnedToEnd: false,
       paused: false,
       visible: 0,
+      grep: null,
       selection: [],
     });
   });
@@ -567,7 +578,7 @@ describe('LogViewer', () => {
 
     it('checks a new grep with a one-line read, then lands at the end through it, following', async () => {
       const s = scripted();
-      mount();
+      const { viewport } = mount();
       await answer(s.fetches[0], page(0, 20, { edges: { ...START, ...END } }));
       expect(open(s)).toHaveLength(1);
 
@@ -578,9 +589,11 @@ describe('LogViewer', () => {
       expect(rowTexts().at(-1)).toContain('line 19');
 
       expect(onGrepApplied).not.toHaveBeenCalled();
+      expect(viewport.get().grep).toBe('');
 
       await answer(s.last(), page(19, 20, { edges: END }));
       expect(onGrepApplied).toHaveBeenCalledWith('line 1.');
+      expect(viewport.get().grep).toBe('line 1.');
       expect(s.last().query).toEqual({ kind: 'Last', limit: 300 });
       await answer(s.last(), page(10, 20, { edges: { ...START, ...END } }));
       expect(open(s)).toHaveLength(1);
@@ -653,6 +666,21 @@ describe('LogViewer', () => {
       expect(box).toHaveAttribute('aria-invalid', 'false');
     });
 
+    it('drops a grep answered after the viewer closed, leaving the viewport empty', async () => {
+      const s = scripted();
+      const { viewport, unmount } = mount();
+      await answer(s.fetches[0], page(0, 20, { edges: { ...START, ...END } }));
+      await grepFor('line 1.');
+      const probe = s.last();
+
+      unmount();
+      await act(async () => {
+        probe.resolve(page(19, 20, { edges: END }));
+      });
+      expect(viewport.get()).toEqual(EMPTY_LOG_VIEWPORT);
+      expect(onGrepApplied).not.toHaveBeenCalled();
+    });
+
     it('neither reads nor lands for the grep in effect, and clears a refusal and a pending grep', async () => {
       const s = scripted();
       mount();
@@ -673,6 +701,43 @@ describe('LogViewer', () => {
       await answer(pending, page(19, 20, { edges: END }));
       expect(s.last()).toBe(pending);
       expect(onGrepApplied).not.toHaveBeenCalled();
+    });
+
+    it('never writes the old lines or selection into the viewport under the new grep', async () => {
+      const s = scripted();
+      const { viewport } = mount();
+      await answer(s.fetches[0], page(0, 20, { edges: { ...START, ...END } }));
+      const pos = screen.getAllByTestId('log-row').at(-1)!.querySelector<HTMLElement>('[data-col="Pos"]')!;
+      fireEvent.mouseDown(pos);
+      fireEvent.mouseUp(document);
+      expect(viewport.get().selection).toHaveLength(1);
+
+      const written: LogViewport[] = [];
+      viewport.subscribe(() => written.push(viewport.get()));
+      await grepFor('line 1..');
+      await answer(s.last(), page(119, 120, { edges: END }));
+      await answer(s.last(), page(100, 120, { edges: { ...START, ...END } }));
+
+      const underNew = written.filter((w) => w.grep === 'line 1..');
+      expect(underNew.length).toBeGreaterThan(0);
+      underNew.forEach((w) => {
+        expect(w.selection).toEqual([]);
+        if (w.range) expect(w.range.from >= line(100).timestamp).toBe(true);
+      });
+    });
+
+    it('keeps a pending grep across a new viewport handle', async () => {
+      const s = scripted();
+      const { rerender } = mount();
+      await answer(s.fetches[0], page(0, 20, { edges: { ...START, ...END } }));
+      await grepFor('line 1.');
+      const probe = s.last();
+
+      const next = createLogViewportHandle();
+      rerender(tree(action(), next));
+      await answer(probe, page(19, 20, { edges: END }));
+      expect(onGrepApplied).toHaveBeenCalledWith('line 1.');
+      expect(next.get().grep).toBe('line 1.');
     });
 
     it('acts on the last grep submitted alone', async () => {

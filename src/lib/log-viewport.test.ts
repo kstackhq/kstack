@@ -16,13 +16,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { EMPTY_LOG_VIEWPORT, createLogViewportHandle } from './log-viewport';
 
 describe('createLogViewportHandle', () => {
-  it('starts empty, not at the end, unpinned and playing, with nothing selected', () => {
+  it('starts empty, not at the end, unpinned and playing, with no grep and nothing selected', () => {
     expect(createLogViewportHandle().get()).toEqual({
       range: null,
       atEnd: false,
       pinnedToEnd: false,
       paused: false,
       visible: 0,
+      grep: null,
       selection: [],
     });
   });
@@ -38,6 +39,7 @@ describe('createLogViewportHandle', () => {
       pinnedToEnd: false,
       paused: false,
       visible: 3,
+      grep: '',
       selection: [],
     };
     viewport.set(next);

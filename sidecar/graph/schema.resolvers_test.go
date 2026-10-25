@@ -1740,12 +1740,12 @@ func TestChatSendHandsItsSnapshotToTheService(t *testing.T) {
 			requestID: "`+appdb.NewID()+`", content: "what's this?"`+snapshot+`) { id } }`)
 	}
 
-	send(`, snapshot: {callID: "call-1", from: "2026-10-17T09:14:02.118Z", to: "2026-10-17T09:14:31.902Z", lines: 38, atEnd: true, pinnedToEnd: true, paused: true,
+	send(`, snapshot: {callID: "call-1", from: "2026-10-17T09:14:02.118Z", to: "2026-10-17T09:14:31.902Z", lines: 38, atEnd: true, pinnedToEnd: true, paused: true, grep: "panic",
 		selected: [{timestamp: "2026-10-17T09:14:20.004Z", namespace: "payments", pod: "webapp-x", container: "app", previous: true, message: "boom"}], selectedCount: 2}`)
 	from := time.Date(2026, 10, 17, 9, 14, 2, 118_000_000, time.UTC)
 	to := time.Date(2026, 10, 17, 9, 14, 31, 902_000_000, time.UTC)
 	assert.Equal(t, &chat.Snapshot{
-		CallID: "call-1", From: &from, To: &to, Lines: 38, AtEnd: true, PinnedToEnd: true, Paused: true,
+		CallID: "call-1", From: &from, To: &to, Grep: new("panic"), Lines: 38, AtEnd: true, PinnedToEnd: true, Paused: true,
 		Selected: []chat.SelectedLine{{
 			Timestamp: time.Date(2026, 10, 17, 9, 14, 20, 4_000_000, time.UTC),
 			Namespace: "payments", Pod: "webapp-x", Container: "app", Previous: true, Message: "boom",

@@ -13,7 +13,8 @@
 // limitations under the License.
 
 // What rides a send about the focused log view: the call that opened it, never its
-// action, which the sidecar reads from the call's row, and what the viewer shows.
+// action, which the sidecar reads from the call's row, and what the viewer shows,
+// the grep the user set from its toolbar included.
 import type { LogsViewSnapshotInput } from '@/gql/graphql';
 import type { LogViewport } from '@/lib/log-viewport';
 import type { LogsView } from '@/lib/logs-view';
@@ -30,6 +31,7 @@ export function snapshotOf(view: Pick<LogsView, 'callId'>, viewport: LogViewport
     atEnd: viewport.atEnd,
     pinnedToEnd: viewport.pinnedToEnd,
     paused: viewport.paused,
+    grep: viewport.grep,
     selected: viewport.selection.slice(0, MAX_SELECTED).map((line) => ({
       timestamp: line.timestamp,
       namespace: line.stream.namespace,
