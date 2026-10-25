@@ -281,7 +281,7 @@ func TestClusterEventsResolveByName(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, EventFrameBookmark, testutil.Recv(t, absent.Frames, "the bookmark alone").Type)
 	// The stream has no event to end on, so the claim that it stays open is bounded.
-	testutil.NoRecv(t, absent.Frames, testutil.Timeout/50, "the stream ending on its own")
+	testutil.NoRecv(t, absent.Frames, quietWindow, "the stream ending on its own")
 	cancel()
 	testutil.WaitClosed(t, absent.Frames, "the stream to end with the caller")
 }

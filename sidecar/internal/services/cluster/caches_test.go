@@ -673,7 +673,7 @@ func TestCachesWatchStatsHoldsSilentForAMismatchedPair(t *testing.T) {
 	stream, err := serviceOver(t, d).Caches().WatchStats(context.Background(), clusterIDOf(cluster), ClusterCacheID(cache.ID))
 
 	require.NoError(t, err)
-	testutil.NoRecv(t, stream.Frames, testutil.Timeout/50, "a frame for another cluster's cache")
+	testutil.NoRecv(t, stream.Frames, quietWindow, "a frame for another cluster's cache")
 }
 
 // The gauge re-emits only when the measurement moved: it is re-read on a cadence, and
@@ -691,7 +691,7 @@ func TestCachesWatchStatsEmitsOnlyOnAChange(t *testing.T) {
 	require.NoError(t, err)
 	testutil.Recv(t, stream.Frames, "the first measurement")
 
-	testutil.NoRecv(t, stream.Frames, testutil.Timeout/50, "a frame for an unchanged cache")
+	testutil.NoRecv(t, stream.Frames, quietWindow, "a frame for an unchanged cache")
 
 	store.setStats(kubestore.Stats{Exists: true, DBBytes: 8192})
 
@@ -1572,7 +1572,7 @@ func TestCachesWatchSyncStatusEmitsOnlyOnAChange(t *testing.T) {
 
 	// A negative assertion has no event to wait for, so it takes a bounded window — many
 	// cadences wide, and failing the moment a second identical frame arrives.
-	testutil.NoRecv(t, stream.Frames, testutil.Timeout/50, "a frame for an unchanged cache")
+	testutil.NoRecv(t, stream.Frames, quietWindow, "a frame for an unchanged cache")
 
 	setKindReason(d, cacheID, deploymentsSpec, kubesync.KindState{
 		Reason: kubesync.ReasonSyncFailed, Message: "forbidden",
@@ -2025,7 +2025,7 @@ func TestCachesWatchHealthSaysNothingWhileTheVerdictHoldsStill(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, kubesync.ReasonWatching, testutil.Recv(t, stream.Frames, "the verdict").Reason)
 
-	testutil.NoRecv(t, stream.Frames, testutil.Timeout/50, "a repeat of a verdict that has not moved")
+	testutil.NoRecv(t, stream.Frames, quietWindow, "a repeat of a verdict that has not moved")
 }
 
 // The three gauges stop where they stand when the consumer goes: every send is checked,

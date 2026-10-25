@@ -45,6 +45,11 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/services/kubeconfig"
 )
 
+// quietWindow bounds a negative assertion — "no frame arrived" — which has no event to
+// wait for and so needs a window of its own rather than the failsafe every positive wait
+// uses.
+const quietWindow = 200 * time.Millisecond
+
 // newTestBeehive returns a beehive over an in-memory store, closed on cleanup. The
 // bootstrap New does, minus the disk. opts let a test shrink a cadence it would
 // otherwise have to outwait.

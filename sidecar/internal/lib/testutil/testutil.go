@@ -28,9 +28,9 @@ import (
 // Timeout is a failsafe only: a wait this long has hung, so we fail rather than
 // block until the test binary's own deadline. Tests never rely on it to pace
 // anything. Generous on purpose — it is paid only by a run that was going to
-// fail anyway, and a bound tight enough to be reached by mere load under -race
-// would report hangs that never happened.
-const Timeout = 10 * time.Second
+// fail anyway, and a bound tight enough to be reached by mere load (a Windows
+// -cpu 1 stress job reached 10s) would report hangs that never happened.
+const Timeout = 30 * time.Second
 
 // Signal is a one-shot notification from a test fake to the test: a callback
 // that may run many times calls Fire, and the test awaits it with Wait. Firing
