@@ -527,7 +527,10 @@ func (e testTool) Definition() llm.ToolDefinition {
 
 func (e testTool) Prompt() string { return "## " + e.name + "\n\nSays back what it is given." }
 
-func (e testTool) Name() string                 { return e.name }
+func (e testTool) Name() string { return e.name }
+func (e testTool) ContractName() tools.ContractName {
+	return tools.ContractName(strings.ToLower(e.name) + "/v1")
+}
 func (e testTool) ActionKind() tools.ActionKind { return tools.ActionCommand }
 func (e testTool) Action(input json.RawMessage, _ string, _ bool) (tools.Action, error) {
 	return tools.Action{Command: &tools.CommandAction{Text: string(input)}}, nil
@@ -566,8 +569,7 @@ type storedToolCall struct {
 	result, errText, status string
 	hasStarted, hasFinished bool
 	llmCallSeq              int
-	// provider is a row the provider ran, and contract its contract_name, so every
-	// sidecar row's literal leaves both out.
+	// provider is a row the provider ran, and contract its contract_name.
 	provider bool
 	contract string
 }

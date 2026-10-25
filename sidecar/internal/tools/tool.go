@@ -50,6 +50,10 @@ type Reader interface {
 	// of it names: a custom tool's definition name, or a native tool's own name,
 	// qualified by its vendor.
 	Name() string
+	// ContractName is the shape of what a call of the tool stores, unique in the
+	// box and recorded on each of its rows: `<name>/v<n>` for a tool of ours, the
+	// vendor's own identifier for a vendor's.
+	ContractName() ContractName
 	// ActionKind is what the tool's calls do.
 	ActionKind() ActionKind
 	// Action is what a call does, read from its arguments and what its row
@@ -59,8 +63,12 @@ type Reader interface {
 }
 
 // Tool is one thing the model can call. What else it is follows from the
-// interfaces it implements: a Custom tool, or a Native one, which the sidecar
-// runs when it is a Runner and the provider runs when it is Budgeted.
+// interfaces it implements: a Custom tool the app defines, or else a vendor's,
+// which the sidecar runs when it is a Runner and the provider runs when it is
+// Budgeted. A vendor's tool has three names: Name, our identity for it,
+// vendor-qualified; ContractName, the vendor's own identifier for its shape;
+// and each wire's call name (MessagesCallName), which its calls arrive under
+// there.
 type Tool interface {
 	Reader
 	// Prompt is the tool's section of "What you can do": how to use it, what its
@@ -90,24 +98,15 @@ type PerTarget interface {
 	For(t llm.Target) Custom
 }
 
-// ContractName is a vendor's own identifier for the shape of one of its tools:
-// the Messages API's web_search_20260318, say.
+// ContractName names the shape of a tool's stored calls: its arguments, its
+// shown action and its task's result. A tool of ours names it `bash/v1`; a
+// vendor's tool by the vendor's own identifier, the Messages API's
+// web_search_20260318, say.
 type ContractName string
 
-// Native is a tool a vendor defines. The sidecar runs it when it is also a
-// Runner; the provider runs it otherwise. It has three names: Name, our
-// identity for it, vendor-qualified and unique in the box; ContractName, the
-// vendor's own identifier for its shape, recorded on each of its rows; and each
-// wire's call name (MessagesCallName), which its calls arrive under there.
-type Native interface {
-	Tool
-	llm.NativeTool
-	ContractName() ContractName
-}
-
-// Budgeted is a native tool the provider runs, capped per turn.
+// Budgeted is a vendor's tool the provider runs, capped per turn.
 type Budgeted interface {
-	Native
+	Tool
 	// MaxUses is the calls one turn may make, spread over its requests.
 	MaxUses() int
 	// Allowance is the tokens the provider adds to one turn for this tool at its

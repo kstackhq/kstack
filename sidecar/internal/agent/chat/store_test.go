@@ -714,7 +714,7 @@ func TestToolCallsMatchTheStoredRead(t *testing.T) {
 	describedArgs, _ := json.Marshal(map[string]string{"command": odd, "description": oddDescription})
 	row := func(seq int, status, result, errText string, start sql.NullInt64) toolCallEntry {
 		return toolCallEntry{
-			ID: newToolCallID(), LLMCallID: call.ID, Seq: seq, Name: bash.Name, ToolUseID: "toolu_" + string(rune('a'+seq)),
+			ID: newToolCallID(), LLMCallID: call.ID, Seq: seq, Name: bash.Name, Contract: string(bash.ContractName), ToolUseID: "toolu_" + string(rune('a'+seq)),
 			Arguments: args, Result: result, Error: errText, Status: status, CreatedAt: now,
 			StartedAt: start, FinishedAt: finished,
 		}
@@ -886,8 +886,8 @@ func TestATaskRowTakesAnAgentsEnds(t *testing.T) {
 	turn := seedTurn(t, db, c.ID, now)
 	for _, q := range []string{
 		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES ('l', '` + string(turn.Run) + `', 0, 'fake', 'fake', 0)`,
-		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, status, created_at)
-		 VALUES ('t', 'l', 0, 'Agent', 'call-1', '{}', 'running', 0)`,
+		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, contract_name, tool_use_id, arguments, status, created_at)
+		 VALUES ('t', 'l', 0, 'Agent', 'agent/v1', 'call-1', '{}', 'running', 0)`,
 	} {
 		_, err := db.Write.Exec(q)
 		require.NoError(t, err, q)
@@ -916,8 +916,8 @@ func TestATaskRowTakesAWatchsEndWithItsResult(t *testing.T) {
 	turn := seedTurn(t, db, c.ID, now)
 	for _, q := range []string{
 		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES ('l', '` + string(turn.Run) + `', 0, 'fake', 'fake', 0)`,
-		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, status, created_at)
-		 VALUES ('t', 'l', 0, 'LogsWatch', 'call-1', '{}', 'running', 0)`,
+		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, contract_name, tool_use_id, arguments, status, created_at)
+		 VALUES ('t', 'l', 0, 'LogsWatch', 'logswatch/v1', 'call-1', '{}', 'running', 0)`,
 	} {
 		_, err := db.Write.Exec(q)
 		require.NoError(t, err, q)
@@ -978,8 +978,8 @@ func TestTheActionCarriesTheRowsFlag(t *testing.T) {
 	settleSeededRun(t, db, turn.Run, RunSucceeded, now)
 	for _, q := range []string{
 		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at, finished_at) VALUES ('l', '` + string(turn.Run) + `', 0, 'fake', 'fake', 0, 0)`,
-		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, cwd, sandboxed, status, created_at, started_at, finished_at)
-		 VALUES ('t', 'l', 0, 'Bash', 'call-1', '{"command":"make serve","run_in_background":true}', '/work', 1, 'succeeded', 0, 0, 0)`,
+		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, contract_name, tool_use_id, arguments, cwd, sandboxed, status, created_at, started_at, finished_at)
+		 VALUES ('t', 'l', 0, 'Bash', 'bash/v1', 'call-1', '{"command":"make serve","run_in_background":true}', '/work', 1, 'succeeded', 0, 0, 0)`,
 		`INSERT INTO background_tasks (id, chat_id, tool_call_id, output_path, status, exit_code, started_at, finished_at)
 		 VALUES ('task-1', '` + string(c.ID) + `', 't', '/r/task-1.output', 'exited', 0, 0, 1)`,
 	} {
@@ -1006,7 +1006,7 @@ func TestTheActionCarriesTheRowsFlag(t *testing.T) {
 // sidecarRow is a sidecar call's running row under callID.
 func sidecarRow(callID LLMCallID) toolCallEntry {
 	return toolCallEntry{
-		ID: newToolCallID(), LLMCallID: callID, Name: "Bash", Arguments: `{"command":"kubectl delete pod x"}`,
+		ID: newToolCallID(), LLMCallID: callID, Name: bash.Name, Contract: string(bash.ContractName), Arguments: `{"command":"kubectl delete pod x"}`,
 		Status: toolRunning, CreatedAt: time.UnixMilli(2_000).UTC(),
 	}
 }

@@ -37,6 +37,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
 )
 
 // A turn reserved just as the service stops never runs: its rows are written, and
@@ -308,6 +309,46 @@ func TestAShownCallIsServedWithWhatItsRunResolved(t *testing.T) {
 	}
 }
 
+// A gated call's row carries its tool's contract from its first write, so the
+// request drawn from it shows the command.
+func TestACallRowCarriesItsContractFromItsFirstWrite(t *testing.T) {
+	t.Parallel()
+
+	s := startServiceWithTool(t, &fakeBash{})
+	fakeOf(s).SetToolCalls(llm.StagedCall(bash.Name, `{"command":"ls"}`))
+	msg := send(t, s, nil, "1", "hi")
+
+	got, id := awaitRequest(t, s, msg)
+	var contract sql.NullString
+	require.NoError(t, s.db.Read.QueryRow(`SELECT contract_name FROM tool_calls`).Scan(&contract))
+	assert.Equal(t, string(bash.ContractName), contract.String)
+	require.NotNil(t, toolCallsOf(t, got)[0].Action)
+	assert.Equal(t, "ls", toolCallsOf(t, got)[0].Action.Command.Text)
+	approve(t, s, id, true)
+	awaitSettled(t, s, msg.ChatID, msg.ID)
+}
+
+// A call of a tool the turn was not offered is refused, and still records its
+// tool's contract and shows its action; a call of a tool the app does not know
+// records none.
+func TestARefusedCallRecordsTheContractOfItsTool(t *testing.T) {
+	t.Parallel()
+
+	s := startServiceWithTool(t)
+	fakeOf(s).SetToolCalls(llm.StagedCall(bash.Name, `{"command":"ls"}`), llm.StagedCall("Nope", `{}`))
+	msg := send(t, s, nil, "1", "hi")
+
+	got := awaitSettled(t, s, msg.ChatID, msg.ID)
+	rows := toolCallRows(t, s.db, msg.RunID)
+	require.Len(t, rows, 2)
+	assert.Equal(t, string(bash.ContractName), rows[0].contract)
+	assert.Empty(t, rows[1].contract)
+	calls := toolCallsOf(t, got)
+	require.NotNil(t, calls[0].Action, "the refused Bash call")
+	assert.Equal(t, "ls", calls[0].Action.Command.Text)
+	assert.Nil(t, calls[1].Action)
+}
+
 // A search is served the way the transcript reads it: the query as the
 // provider's call, and the source as the message's citation; the content keeps
 // the call for the replay, without the payload a reader is never shown.
@@ -498,7 +539,7 @@ func TestAProviderRowKeepsItsPlaceBeforeTheReplysCalls(t *testing.T) {
 	assert.Equal(t, 1, rows[1].seq)
 	assert.Equal(t, "echo", rows[1].name)
 	assert.False(t, rows[1].provider)
-	assert.Empty(t, rows[1].contract, "a tool of ours has no contract")
+	assert.Equal(t, "echo/v1", rows[1].contract, "a tool of ours names its own")
 }
 
 // A turn offered the search is told how to use it under "What you can do",

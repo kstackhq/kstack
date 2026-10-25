@@ -101,6 +101,9 @@ const (
 // Name is the name bash is offered under.
 const Name = "Bash"
 
+// ContractName is the shape of the tool's stored calls, recorded on each row.
+const ContractName tools.ContractName = "bash/v1"
+
 var _ interface {
 	tools.Custom
 	tools.Gated
@@ -576,6 +579,8 @@ func (t *Tool) sandboxerFor(rt tools.Runtime) sandboxer {
 type Reader struct{}
 
 func (Reader) Name() string { return Name }
+
+func (Reader) ContractName() tools.ContractName { return ContractName }
 
 func (Reader) ActionKind() tools.ActionKind { return tools.ActionCommand }
 

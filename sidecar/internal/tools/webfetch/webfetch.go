@@ -52,6 +52,9 @@ var inputSchema []byte
 // Name is the name WebFetch is offered under.
 const Name = "WebFetch"
 
+// ContractName is the shape of the tool's stored calls, recorded on each row.
+const ContractName tools.ContractName = "webfetch/v1"
+
 // FetchTimeout bounds a fetch: every hop and the body read.
 const FetchTimeout = 30 * time.Second
 
@@ -93,6 +96,8 @@ func (t *Tool) Prompt() string { return prompt }
 func (t *Tool) CallTimeout(json.RawMessage) time.Duration { return callTimeout }
 
 func (t *Tool) Name() string { return Name }
+
+func (t *Tool) ContractName() tools.ContractName { return ContractName }
 
 func (t *Tool) ActionKind() tools.ActionKind { return tools.ActionFetch }
 

@@ -45,6 +45,9 @@ var inputSchema []byte
 // Name is the name the tool is offered under.
 const Name = "Agent"
 
+// ContractName is the shape of the tool's stored calls, recorded on each row.
+const ContractName tools.ContractName = "agent/v1"
+
 // GeneralPurpose is the one agent type.
 const GeneralPurpose = "general-purpose"
 
@@ -96,6 +99,8 @@ func schemaFor(models []string) json.RawMessage {
 func (t *Tool) Prompt() string { return prompt }
 
 func (t *Tool) Name() string { return Name }
+
+func (t *Tool) ContractName() tools.ContractName { return ContractName }
 
 func (t *Tool) ActionKind() tools.ActionKind { return tools.ActionDelegate }
 

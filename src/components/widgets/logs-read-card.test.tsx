@@ -86,7 +86,7 @@ const call = {
   id: 'call-1',
   toolUseID: 'tu-1',
   name: 'LogsRead',
-  contract: '',
+  contract: 'logsread/v1',
   arguments: {},
   status: 'Succeeded',
   runsOn: 'Sidecar',

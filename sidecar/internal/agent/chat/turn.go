@@ -416,7 +416,7 @@ func (t *turn) LLMCallFinished(ctx context.Context, resp llm.Response, streamErr
 // its tool's name and contract, and publishes it. The app ran nothing, so the
 // row has no status and no span. It lands with the round's finish write, and
 // again at the settle.
-func (j *runJournal) ServerCallSeen(call llm.Block, tool tools.Native) {
+func (j *runJournal) ServerCallSeen(call llm.Block, tool tools.Tool) {
 	row := j.newToolCall(call)
 	row.Name, row.Contract = tool.Name(), string(tool.ContractName())
 	row.ByProvider = true
@@ -516,11 +516,14 @@ func toolError(text string) string {
 // newToolCall is the row for a call of the current reply. The caller keeps it in
 // toolCalls once it has landed: a row the store refused is written again by the
 // refusal that follows, under the same seq, and two rows there would collide.
+// Its contract is its tool's in the service's box, which reads every stored
+// call, so a call the turn was not offered still records one. Every later write
+// keeps it.
 func (j *runJournal) newToolCall(call llm.Block) *toolCallEntry {
 	return &toolCallEntry{
 		ID: newToolCallID(), LLMCallID: j.llmCalls[len(j.llmCalls)-1].ID, Seq: j.toolSeq,
-		Name: call.Name, ToolUseID: call.ID, Arguments: string(call.Input), CreatedAt: normalizeTime(j.s.now()),
-		AgentCallID: j.agentCallID,
+		Name: call.Name, Contract: string(j.s.tools.ContractOf(call.Name)), ToolUseID: call.ID, Arguments: string(call.Input),
+		CreatedAt: normalizeTime(j.s.now()), AgentCallID: j.agentCallID,
 	}
 }
 

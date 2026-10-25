@@ -18,6 +18,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -53,9 +54,20 @@ type reader struct {
 
 func (r reader) Name() string           { return r.name }
 func (r reader) ActionKind() ActionKind { return r.kind }
+func (r reader) ContractName() ContractName {
+	return ContractName(strings.ToLower(r.name) + "/v1")
+}
 func (r reader) Action(input json.RawMessage, _ string, _ bool) (Action, error) {
 	return actionOf(r.kind, input)
 }
+
+// recontracted is a reader under a contract of its own.
+type recontracted struct {
+	reader
+	contract ContractName
+}
+
+func (r recontracted) ContractName() ContractName { return r.contract }
 
 // custom is a tool of the app's.
 type custom struct{ reader }
@@ -94,10 +106,10 @@ type (
 	unrun        struct{ reader }
 )
 
-func (b bare) Prompt() string                   { return "" }
-func (c customTwin) ContractName() ContractName { return "acme_x" }
-func (u unrun) Prompt() string                  { return "" }
-func (u unrun) ContractName() ContractName      { return "acme_x" }
+func (b bare) Prompt() string     { return "" }
+func (customTwin) MaxUses() int   { return 1 }
+func (customTwin) Allowance() int { return 1_000 }
+func (u unrun) Prompt() string    { return "" }
 func (serverRunner) Run(context.Context, Runtime, json.RawMessage) (string, bool) {
 	return "", false
 }
@@ -127,6 +139,9 @@ func TestNewBoxRefusesAMiswiredTool(t *testing.T) {
 		},
 		"two tools of one name":      func() { NewBox([]Tool{echo, echo}) },
 		"a reader named like a tool": func() { NewBox([]Tool{echo}, reader{"echo", ActionCommand}) },
+		"two tools of one contract": func() {
+			NewBox([]Tool{echo}, recontracted{reader{"other", ActionCommand}, "echo/v1"})
+		},
 	}
 	for name, build := range cases {
 		assert.Panics(t, build, name)
@@ -270,6 +285,17 @@ type rowReader struct {
 func (r rowReader) Action(input json.RawMessage, cwd string, sandboxed bool) (Action, error) {
 	*r.cwd, *r.sandboxed = cwd, sandboxed
 	return actionOf(r.kind, input)
+}
+
+// A name's contract is its reader's, a tool or a reader alike; none for a name
+// no reader has.
+func TestAToolsContractIsItsReaders(t *testing.T) {
+	box := NewBox([]Tool{echo, search}, reader{"bash", ActionCommand})
+
+	for name, want := range map[string]ContractName{"echo": "echo/v1", "bash": "bash/v1", search.name: "acme_" + ContractName(search.name)} {
+		assert.Equal(t, want, box.ContractOf(name), name)
+	}
+	assert.Empty(t, box.ContractOf("missing"))
 }
 
 // The reader is handed the row's cwd and whether a sandbox confined the call.

@@ -40,7 +40,7 @@ type Recorder interface {
 	// shows it and before the Progress that carries it, with the offered tool
 	// the call's block names. It cannot fail: the provider has run the call
 	// already, and the finish write lands its record.
-	ServerCallSeen(call llm.Block, tool tools.Native)
+	ServerCallSeen(call llm.Block, tool tools.Tool)
 	// LLMCallFinished is told after each stream returned, with the response whole,
 	// or zero on a stream error. An error stops the turn when the reply asked for
 	// tools; otherwise it is returned from Run beside the turn's own outcome, which

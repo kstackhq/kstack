@@ -339,8 +339,8 @@ type toolCallEntry struct {
 	// ByProvider is a call the model's provider ran, stored runs_on 'provider';
 	// every other call is the sidecar's.
 	ByProvider bool
-	// Name is the tool's name in the box. Contract is the vendor's own
-	// identifier for the shape the call uses, empty for a tool of ours.
+	// Name is the tool's name in the box. Contract is its tool's contract when
+	// the row was first written, empty for a tool the box did not hold.
 	Name      string
 	Contract  string
 	ToolUseID string

@@ -45,6 +45,9 @@ const notRunning = "No background command, agent or watch with that ID is runnin
 // Name is the name the tool is offered under.
 const Name = "TaskStop"
 
+// ContractName is the shape of the tool's stored calls, recorded on each row.
+const ContractName tools.ContractName = "taskstop/v1"
+
 // errNoAction is every call's action: a stop has nothing to show.
 var errNoAction = errors.New("taskstop: a stop shows no action")
 
@@ -63,6 +66,8 @@ func (t *Tool) Definition() llm.ToolDefinition {
 func (t *Tool) Prompt() string { return prompt }
 
 func (t *Tool) Name() string { return Name }
+
+func (t *Tool) ContractName() tools.ContractName { return ContractName }
 
 func (t *Tool) ActionKind() tools.ActionKind { return tools.ActionStop }
 

@@ -291,3 +291,17 @@ func TestTheToolIsItsKind(t *testing.T) {
 	assert.Equal(t, []string{"cluster", "everywhere"}, schema.Properties["scope"].Enum)
 	assert.NotContains(t, schema.Properties["scope"].Description, "Save only")
 }
+
+// Stored rows read the same forever: never edit this table.
+func TestActionOfReadsOldRowsTheSame(t *testing.T) {
+	for raw, want := range map[string]tools.MemoryAction{
+		`{"op":"save","name":"ingress","body":"Traefik, not nginx."}`:            {Op: "save", Name: "ingress", Body: "Traefik, not nginx.", Scope: "cluster"},
+		`{"op":"save","name":"oncall","body":"Page #sre.","scope":"everywhere"}`: {Op: "save", Name: "oncall", Body: "Page #sre.", Scope: "everywhere"},
+		`{"op":"forget","name":"ingress"}`:                                       {Op: "forget", Name: "ingress", Scope: "cluster"},
+	} {
+		got, err := (&Tool{}).Action(json.RawMessage(raw), "", false)
+		require.NoError(t, err, raw)
+		require.NotNil(t, got.Memory, raw)
+		assert.Equal(t, want, *got.Memory, raw)
+	}
+}

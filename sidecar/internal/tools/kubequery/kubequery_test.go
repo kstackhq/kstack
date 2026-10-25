@@ -371,3 +371,19 @@ func TestColumnNamesPastTheBoundAreRefused(t *testing.T) {
 	assert.JSONEq(t, `{"error":"too-large","message":"`+columnsTooLong+`"}`, text)
 	assert.LessOrEqual(t, len(text), tools.InlineLimit)
 }
+
+// Stored rows read the same forever: never edit this table.
+func TestActionOfReadsOldRowsTheSame(t *testing.T) {
+	for raw, want := range map[string]tools.Action{
+		`{"sql":"SELECT name FROM pods","description":"List pods"}`: {
+			Description: "List pods", KubeQuery: &tools.KubeQueryAction{SQL: "SELECT name FROM pods", Limit: 200},
+		},
+		`{"sql":"SELECT count(*) FROM nodes","limit":5}`: {
+			KubeQuery: &tools.KubeQueryAction{SQL: "SELECT count(*) FROM nodes", Limit: 5},
+		},
+	} {
+		got, err := (&Tool{}).Action(json.RawMessage(raw), "", false)
+		require.NoError(t, err, raw)
+		assert.Equal(t, want, got, raw)
+	}
+}

@@ -921,8 +921,8 @@ func TestStartFailsAStrandedSubagentAndKeepsItsLink(t *testing.T) {
 		`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, chat_id, provider, model, dialect, task, status, created_at)
 		 VALUES ('` + subagent + `', '` + string(turn.Run) + `', 'general-purpose', 'test', 'agent', '` + string(c.ID) + `', 'fake', 'fake', 'fake', 'p', 'running', 0)`,
 		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES ('` + call + `', '` + string(turn.Run) + `', 0, 'fake', 'fake', 0)`,
-		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, spawned_run_id, status, created_at, started_at)
-		 VALUES ('` + appdb.NewID() + `', '` + call + `', 0, 'Agent', 'toolu_1', '{}', '` + subagent + `', 'running', 0, 0)`,
+		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, contract_name, tool_use_id, arguments, spawned_run_id, status, created_at, started_at)
+		 VALUES ('` + appdb.NewID() + `', '` + call + `', 0, 'Agent', 'agent/v1', 'toolu_1', '{}', '` + subagent + `', 'running', 0, 0)`,
 	} {
 		_, err := db.Write.Exec(q)
 		require.NoError(t, err, q)
@@ -1460,8 +1460,8 @@ func TestAStrandedAgentIsLost(t *testing.T) {
 		`INSERT INTO agent_runs (id, parent_run_id, agent_type, app_version, trigger, chat_id, provider, model, dialect, task, status, created_at)
 		 VALUES ('` + sub + `', '` + string(turn.Run) + `', 'general-purpose', 'test', 'agent', '` + string(c.ID) + `', 'fake', 'fake', 'fake', 'p', 'running', 0)`,
 		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at, finished_at) VALUES ('l', '` + string(turn.Run) + `', 0, 'fake', 'fake', 0, 0)`,
-		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, spawned_run_id, status, created_at, started_at, finished_at)
-		 VALUES ('a', 'l', 0, 'Agent', 'call-1', '{}', '` + sub + `', 'succeeded', 0, 0, 0)`,
+		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, contract_name, tool_use_id, arguments, spawned_run_id, status, created_at, started_at, finished_at)
+		 VALUES ('a', 'l', 0, 'Agent', 'agent/v1', 'call-1', '{}', '` + sub + `', 'succeeded', 0, 0, 0)`,
 		`INSERT INTO background_tasks (id, chat_id, tool_call_id, output_path, status, started_at)
 		 VALUES ('task-1', '` + string(c.ID) + `', 'a', '/r/task-1.output', 'running', 0)`,
 	} {

@@ -56,6 +56,9 @@ var inputSchema []byte
 // Name is the name Edit is offered under.
 const Name = "Edit"
 
+// ContractName is the shape of the tool's stored calls, recorded on each row.
+const ContractName tools.ContractName = "edit/v1"
+
 // callTimeout is the loop's bound on one call: above the turn's default, which
 // reading, hashing and writing a file of tools.FileLimit bytes can pass.
 const callTimeout = 30 * time.Second
@@ -480,6 +483,8 @@ func refusal(err error) string {
 }
 
 func (t *Tool) Name() string { return Name }
+
+func (t *Tool) ContractName() tools.ContractName { return ContractName }
 
 func (t *Tool) ActionKind() tools.ActionKind { return tools.ActionEdit }
 

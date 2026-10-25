@@ -75,6 +75,9 @@ const cancelled = `{"error":"cancelled"}`
 // Name is the name Read is offered under.
 const Name = "Read"
 
+// ContractName is the shape of the tool's stored calls, recorded on each row.
+const ContractName tools.ContractName = "read/v1"
+
 var _ interface {
 	tools.Custom
 	tools.ApprovedRunner
@@ -126,6 +129,8 @@ func (t *Tool) Prompt() string { return prompt }
 func (t *Tool) CallTimeout(json.RawMessage) time.Duration { return callTimeout }
 
 func (t *Tool) Name() string { return Name }
+
+func (t *Tool) ContractName() tools.ContractName { return ContractName }
 
 func (t *Tool) ActionKind() tools.ActionKind { return tools.ActionRead }
 

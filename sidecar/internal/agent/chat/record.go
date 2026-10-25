@@ -315,8 +315,8 @@ type ToolCall struct {
 	ID        ToolCallID `json:"id"`
 	ToolUseID string     `json:"toolUseID"`
 	Name      string     `json:"name"`
-	// Contract is the vendor's own identifier for the shape the call uses; "" for
-	// a tool of ours.
+	// Contract is the shape the call's stored JSON is in; "" for a call of a tool
+	// the box did not hold.
 	Contract  string          `json:"contract"`
 	Arguments rawjson.RawJSON `json:"arguments"`
 	Status    ToolCallStatus  `json:"status"`

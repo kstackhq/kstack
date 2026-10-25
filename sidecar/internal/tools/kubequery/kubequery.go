@@ -48,6 +48,9 @@ var inputSchema []byte
 // Name is the name KubeQuery is offered under.
 const Name = "KubeQuery"
 
+// ContractName is the shape of the tool's stored calls, recorded on each row.
+const ContractName tools.ContractName = "kubequery/v1"
+
 // callTimeout is the loop's bound on one call, whatever its input.
 const callTimeout = 10 * time.Second
 
@@ -79,6 +82,8 @@ func (t *Tool) Definition() llm.ToolDefinition {
 func (t *Tool) Prompt() string { return prompt }
 
 func (t *Tool) Name() string { return Name }
+
+func (t *Tool) ContractName() tools.ContractName { return ContractName }
 
 func (t *Tool) ActionKind() tools.ActionKind { return tools.ActionKubeQuery }
 

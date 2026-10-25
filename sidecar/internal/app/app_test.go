@@ -197,6 +197,19 @@ func TestEveryToolIsOnAList(t *testing.T) {
 	}
 }
 
+// Every tool of ours answers a contract of the form `<name>/v<n>`, its name
+// lower-cased; NewBox holds them unique.
+func TestEveryToolOfOursHasAContractOfItsForm(t *testing.T) {
+	box := everyTool(t)
+	defs, _ := box.Offer()
+
+	for _, name := range definitionNames(defs) {
+		c := box.ContractOf(name)
+		assert.Regexp(t, `^[a-z]+/v[1-9][0-9]*$`, string(c), name)
+		assert.True(t, strings.HasPrefix(string(c), strings.ToLower(name)+"/"), name)
+	}
+}
+
 // newTestApp builds an App backed by a kubeconfig with two contexts, then serves
 // it over httptest (HTTP/1.1 for GraphQL/SSE, h2c upgrade for gRPC — exactly the
 // production split). It does NOT call Start(), so the cluster-cache coordinator

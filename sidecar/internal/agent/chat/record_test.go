@@ -141,7 +141,7 @@ func TestAnActionIsReadByItsName(t *testing.T) {
 	var calls []ToolCall
 	require.NoError(t, json.Unmarshal([]byte(marshalToolCalls([]toolCallEntry{
 		{ID: "a", Name: testSearch.Name(), Contract: string(anthropicwebsearch.ContractName), ByProvider: true, Arguments: `{"query":"q"}`, Status: toolSucceeded},
-		{ID: "b", Name: bash.Name, Arguments: `{"command":"ls"}`, Status: toolSucceeded},
+		{ID: "b", Name: bash.Name, Contract: string(bash.ContractName), Arguments: `{"command":"ls"}`, Status: toolSucceeded},
 		{ID: "c", Name: "web_search", Contract: string(anthropicwebsearch.ContractName), ByProvider: true, Arguments: `{"query":"q"}`},
 	}, testReaders)), &calls))
 	require.Len(t, calls, 3)
@@ -150,7 +150,7 @@ func TestAnActionIsReadByItsName(t *testing.T) {
 	assert.Equal(t, "web_search_20260318", calls[0].Contract)
 	assert.Equal(t, new(tools.ActionSearch), calls[0].ActionKind)
 	assert.Equal(t, "ls", calls[1].Action.Command.Text)
-	assert.Empty(t, calls[1].Contract)
+	assert.Equal(t, "bash/v1", calls[1].Contract)
 	assert.Equal(t, new(tools.ActionCommand), calls[1].ActionKind)
 	assert.Nil(t, calls[2].Action)
 	assert.Nil(t, calls[2].ActionKind)

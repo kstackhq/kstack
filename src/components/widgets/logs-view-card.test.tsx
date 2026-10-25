@@ -64,7 +64,7 @@ const call = {
   id: 'call-1',
   toolUseID: 'tu-1',
   name: 'LogsView',
-  contract: '',
+  contract: 'logsview/v1',
   arguments: {},
   status: 'Succeeded',
   runsOn: 'Sidecar',

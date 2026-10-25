@@ -1086,7 +1086,7 @@ type ToolCall {
   toolUseID: String!
   "The tool's name in the box: a tool of ours by the name it is offered under, a vendor's by its own name."
   name: String!
-  "The vendor's own identifier for the shape the call uses (`web_search_20260318`). Empty for a tool of ours."
+  "The shape the call's arguments, shown action and task result are in: `bash/v1` for a tool of ours, the vendor's own identifier (`web_search_20260318`) for a vendor's. Empty for a call of a tool this build does not know."
   contract: String!
   "The call's input, as the model sent it."
   arguments: JSON!

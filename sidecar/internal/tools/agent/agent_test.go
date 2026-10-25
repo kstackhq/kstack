@@ -131,3 +131,19 @@ func TestThePromptSaysTheReportComesLater(t *testing.T) {
 	assert.Contains(t, description, "wait for its notification")
 	assert.NotContains(t, description, "Your call waits")
 }
+
+// Stored rows read the same forever: never edit this table.
+func TestActionOfReadsOldRowsTheSame(t *testing.T) {
+	for raw, want := range map[string]tools.Action{
+		`{"description":"Find the crash","prompt":"Why does web crash?"}`: {
+			Description: "Find the crash", Delegate: &tools.DelegateAction{Prompt: "Why does web crash?", AgentType: "general-purpose"},
+		},
+		`{"description":"Audit","prompt":"Check RBAC.","subagent_type":"general-purpose","model":"claude-haiku-5-5"}`: {
+			Description: "Audit", Delegate: &tools.DelegateAction{Prompt: "Check RBAC.", AgentType: "general-purpose", Model: "claude-haiku-5-5"},
+		},
+	} {
+		got, err := (&Tool{}).Action(json.RawMessage(raw), "", false)
+		require.NoError(t, err, raw)
+		assert.Equal(t, want, got, raw)
+	}
+}

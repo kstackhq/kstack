@@ -48,6 +48,9 @@ var inputSchema []byte
 // Name is the name LogsView is offered under.
 const Name = "LogsView"
 
+// ContractName is the shape of the tool's stored calls, recorded on each row.
+const ContractName tools.ContractName = "logsview/v1"
+
 // errNotShown is a call read off its arguments: the view is the run's.
 var errNotShown = errors.New("logsview: the view is the run's")
 
@@ -70,6 +73,8 @@ func (t *Tool) Definition() llm.ToolDefinition {
 func (t *Tool) Prompt() string { return prompt }
 
 func (t *Tool) Name() string { return Name }
+
+func (t *Tool) ContractName() tools.ContractName { return ContractName }
 
 func (t *Tool) ActionKind() tools.ActionKind { return tools.ActionLogsView }
 

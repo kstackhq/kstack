@@ -258,11 +258,13 @@ CREATE UNIQUE INDEX llm_calls_run_idx ON llm_calls (run_id, seq);
 -- NULL on every other call and on a refusal. Everything else a call does is read
 -- again from arguments by its own tool.
 --
--- tool_name is the tool's name in the box and contract_name whose shapes it
--- uses: a tool of ours by the name it is offered under, with contract_name NULL,
--- since its shapes are its own definition; a vendor's by its own name, by
--- default its contract ('anthropic_web_search_20260318'), never a provider's
--- wire word.
+-- tool_name is the tool's name in the box: a tool of ours by the name it is
+-- offered under, a vendor's by its own name, never a provider's wire word.
+-- contract_name is the shape the row's arguments, shown_action and task result
+-- are in, set at the row's first write and never after: 'bash/v1' for a tool of
+-- ours, the vendor's own identifier ('web_search_20260318') for a vendor's, NULL
+-- for a call of a tool the app does not know. A row is read only under its
+-- tool's current contract.
 --
 -- runs_on is who ran the call: 'sidecar' for every call above, 'provider' for a
 -- call the model's provider ran on its own servers (a web search). A provider

@@ -27,6 +27,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/logswatch"
 )
 
 // fakeWatch is a watch a test ends by hand: finish ends it as a follow would, and a
@@ -82,9 +83,10 @@ func (e *watchTool) Definition() llm.ToolDefinition {
 	return llm.ToolDefinition{Name: "LogsWatch", Description: "watches logs", InputSchema: json.RawMessage(`{"type":"object"}`)}
 }
 
-func (e *watchTool) Prompt() string               { return "## LogsWatch\n\nWatches logs." }
-func (e *watchTool) Name() string                 { return "LogsWatch" }
-func (e *watchTool) ActionKind() tools.ActionKind { return tools.ActionLogsWatch }
+func (e *watchTool) Prompt() string                   { return "## LogsWatch\n\nWatches logs." }
+func (e *watchTool) Name() string                     { return "LogsWatch" }
+func (e *watchTool) ContractName() tools.ContractName { return logswatch.ContractName }
+func (e *watchTool) ActionKind() tools.ActionKind     { return tools.ActionLogsWatch }
 func (e *watchTool) Action(json.RawMessage, string, bool) (tools.Action, error) {
 	return tools.Action{LogsWatch: &tools.LogsWatchAction{}}, nil
 }

@@ -57,6 +57,9 @@ const callTimeout = 30 * time.Second
 // Name is the name Write is offered under.
 const Name = "Write"
 
+// ContractName is the shape of the tool's stored calls, recorded on each row.
+const ContractName tools.ContractName = "write/v1"
+
 var _ interface {
 	tools.Custom
 	tools.ApprovedRunner
@@ -375,6 +378,8 @@ func refusal(err error) string {
 }
 
 func (t *Tool) Name() string { return Name }
+
+func (t *Tool) ContractName() tools.ContractName { return ContractName }
 
 func (t *Tool) ActionKind() tools.ActionKind { return tools.ActionWrite }
 

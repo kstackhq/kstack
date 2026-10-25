@@ -51,6 +51,9 @@ var inputSchema []byte
 // Name is the name LogsWatch is offered under.
 const Name = "LogsWatch"
 
+// ContractName is the shape of the tool's stored calls, recorded on each row.
+const ContractName tools.ContractName = "logswatch/v1"
+
 // callTimeout bounds a call: a resolve and a follow's start, not the watch.
 const callTimeout = 30 * time.Second
 
@@ -88,6 +91,8 @@ func (t *Tool) Definition() llm.ToolDefinition {
 func (t *Tool) Prompt() string { return prompt }
 
 func (t *Tool) Name() string { return Name }
+
+func (t *Tool) ContractName() tools.ContractName { return ContractName }
 
 func (t *Tool) ActionKind() tools.ActionKind { return tools.ActionLogsWatch }
 

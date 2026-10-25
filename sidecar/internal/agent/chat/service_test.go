@@ -80,7 +80,7 @@ func TestAStrandedMonitorRunIsFailed(t *testing.T) {
 	setRunStatus(t, db, run.ID, RunRunning)
 	_, err := db.Write.Exec(`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES ('l', ?, 0, 'fake', 'fake', 0)`, string(run.ID))
 	require.NoError(t, err)
-	_, err = db.Write.Exec(`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, status, created_at, started_at) VALUES ('t', 'l', 0, 'Bash', 'running', 0, 0)`)
+	_, err = db.Write.Exec(`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, contract_name, status, created_at, started_at) VALUES ('t', 'l', 0, 'Bash', 'bash/v1', 'running', 0, 0)`)
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
@@ -1590,7 +1590,7 @@ func TestACallThatRanLandsItsRow(t *testing.T) {
 	awaitSettled(t, s, msg.ChatID, msg.ID)
 
 	assert.Equal(t, []storedToolCall{{
-		seq: 0, name: "echo", useID: "call-1", args: `{"say":"hi"}`, result: `{"say":"hi"}`,
+		seq: 0, name: "echo", contract: "echo/v1", useID: "call-1", args: `{"say":"hi"}`, result: `{"say":"hi"}`,
 		status: toolSucceeded, hasStarted: true, hasFinished: true, llmCallSeq: 0,
 	}}, toolCallRows(t, s.db, msg.RunID))
 }
@@ -1833,7 +1833,7 @@ func TestATransientFinishWriteIsHealedAtSettlement(t *testing.T) {
 	assert.Equal(t, StatusFailed, got.Status)
 	assert.Contains(t, got.Error, "refused")
 	assert.Equal(t, []storedToolCall{{
-		seq: 0, name: "echo", useID: "call-1", args: `{"say":"hi"}`, result: `{"say":"hi"}`,
+		seq: 0, name: "echo", contract: "echo/v1", useID: "call-1", args: `{"say":"hi"}`, result: `{"say":"hi"}`,
 		status: toolSucceeded, hasStarted: true, hasFinished: true, llmCallSeq: 0,
 	}}, toolCallRows(t, s.db, msg.RunID))
 	assert.Equal(t, []llmCallRow{{stopReason: llm.StopToolUse, finished: true}}, llmCallRows(t, s.db, msg.RunID))
@@ -1852,14 +1852,14 @@ func TestStrandedToolCallsAreClosedOnStart(t *testing.T) {
 	call := appdb.NewID()
 	_, err := db.Write.Exec(`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES (?, ?, 0, 'fake', 'fake', 0)`, call, string(turn.Run))
 	require.NoError(t, err)
-	_, err = db.Write.Exec(`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, status, created_at, started_at) VALUES (?, ?, 0, 'echo', 'running', 0, 0)`, appdb.NewID(), call)
+	_, err = db.Write.Exec(`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, contract_name, status, created_at, started_at) VALUES (?, ?, 0, 'echo', 'echo/v1', 'running', 0, 0)`, appdb.NewID(), call)
 	require.NoError(t, err)
 	require.NoError(t, db.Close())
 
 	s := startService(t, dir)
 
 	assert.Equal(t, []storedToolCall{{
-		seq: 0, name: "echo", errText: toolCallStranded, status: toolFailed,
+		seq: 0, name: "echo", contract: "echo/v1", errText: toolCallStranded, status: toolFailed,
 		hasStarted: true, hasFinished: true, llmCallSeq: 0,
 	}}, toolCallRows(t, s.db, turn.Run))
 }
@@ -1953,7 +1953,7 @@ func TestAFailedStartWriteLeavesOneRowForTheCall(t *testing.T) {
 	assert.False(t, ran)
 	assert.Equal(t, StatusFailed, got.Status)
 	assert.Equal(t, []storedToolCall{{
-		seq: 0, name: "echo", useID: "call-1", args: `{}`, result: `{"error":"not-run"}`, errText: `{"error":"not-run"}`,
+		seq: 0, name: "echo", contract: "echo/v1", useID: "call-1", args: `{}`, result: `{"error":"not-run"}`, errText: `{"error":"not-run"}`,
 		status: toolFailed, hasFinished: true, llmCallSeq: 0,
 	}}, toolCallRows(t, s.db, msg.RunID))
 }
@@ -1976,7 +1976,7 @@ func TestAToolThatPanicsClosesItsRow(t *testing.T) {
 	assert.Contains(t, got.Error, "panic: boom")
 	assert.Equal(t, marshalBlocks(append(llm.AnswerBlocks(fakeThought, fakeSentence), llm.ToolUseBlock("call-1", "echo", []byte(`{}`)))), got.Content)
 	assert.Equal(t, []storedToolCall{{
-		seq: 0, name: "echo", useID: "call-1", args: `{}`, errText: toolCallInterrupted,
+		seq: 0, name: "echo", contract: "echo/v1", useID: "call-1", args: `{}`, errText: toolCallInterrupted,
 		status: toolFailed, hasStarted: true, hasFinished: true, llmCallSeq: 0,
 	}}, toolCallRows(t, s.db, msg.RunID))
 }
@@ -1998,7 +1998,7 @@ func TestAStartThatCannotCloseAStrandedCallFails(t *testing.T) {
 			call := appdb.NewID()
 			_, err := db.Write.Exec(`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES (?, ?, 0, 'fake', 'fake', 0)`, call, string(turn.Run))
 			require.NoError(t, err)
-			_, err = db.Write.Exec(`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, status, created_at) VALUES (?, ?, 0, 'echo', 'running', 0)`, appdb.NewID(), call)
+			_, err = db.Write.Exec(`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, contract_name, status, created_at) VALUES (?, ?, 0, 'echo', 'echo/v1', 'running', 0)`, appdb.NewID(), call)
 			require.NoError(t, err)
 			_, err = db.Write.Exec(tc.trigger)
 			require.NoError(t, err)

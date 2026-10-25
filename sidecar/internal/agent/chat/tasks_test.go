@@ -117,8 +117,9 @@ func (e *taskTool) Definition() llm.ToolDefinition {
 
 func (e *taskTool) Prompt() string { return "## Task\n\nStarts a task." }
 
-func (e *taskTool) Name() string                 { return "Task" }
-func (e *taskTool) ActionKind() tools.ActionKind { return tools.ActionCommand }
+func (e *taskTool) Name() string                     { return "Task" }
+func (e *taskTool) ContractName() tools.ContractName { return "task/v1" }
+func (e *taskTool) ActionKind() tools.ActionKind     { return tools.ActionCommand }
 func (e *taskTool) Action(json.RawMessage, string, bool) (tools.Action, error) {
 	return tools.Action{Command: &tools.CommandAction{}}, nil
 }
@@ -973,8 +974,8 @@ func TestTheStartSweepMarksRunningTasksLost(t *testing.T) {
 	settleSeededRun(t, db, turn.Run, RunSucceeded, now)
 	for _, q := range []string{
 		`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at, finished_at) VALUES ('l', '` + string(turn.Run) + `', 0, 'fake', 'fake', 0, 0)`,
-		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, cwd, status, created_at, started_at, finished_at)
-		 VALUES ('t', 'l', 0, 'Bash', 'call-9', '{"command":"make serve","description":"Serve the site","run_in_background":true}', '/home', 'succeeded', 0, 0, 0)`,
+		`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, contract_name, tool_use_id, arguments, cwd, status, created_at, started_at, finished_at)
+		 VALUES ('t', 'l', 0, 'Bash', 'bash/v1', 'call-9', '{"command":"make serve","description":"Serve the site","run_in_background":true}', '/home', 'succeeded', 0, 0, 0)`,
 		`INSERT INTO approvals (id, tool_call_id, status, created_at) VALUES ('a', 't', 'approved', 0)`,
 		`INSERT INTO background_tasks (id, chat_id, tool_call_id, output_path, status, started_at)
 		 VALUES ('task-1', '` + string(c.ID) + `', 't', '/r/task-1.output', 'running', 0)`,

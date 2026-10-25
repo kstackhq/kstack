@@ -44,6 +44,9 @@ var inputSchema []byte
 // Name is the name Memory is offered under.
 const Name = "Memory"
 
+// ContractName is the shape of the tool's stored calls, recorded on each row.
+const ContractName tools.ContractName = "memory/v1"
+
 // The ops.
 const (
 	opSave   = "save"
@@ -70,6 +73,8 @@ type Tool struct{ svc memory.Service }
 func New(svc memory.Service) *Tool { return &Tool{svc: svc} }
 
 func (t *Tool) Name() string { return Name }
+
+func (t *Tool) ContractName() tools.ContractName { return ContractName }
 
 func (t *Tool) ActionKind() tools.ActionKind { return tools.ActionMemory }
 

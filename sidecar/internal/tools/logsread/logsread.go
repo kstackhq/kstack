@@ -47,6 +47,9 @@ var inputSchema []byte
 // Name is the name LogsRead is offered under.
 const Name = "LogsRead"
 
+// ContractName is the shape of the tool's stored calls, recorded on each row.
+const ContractName tools.ContractName = "logsread/v1"
+
 // A read's bounds: the page's own deadline, inside the loop's on the call, so a
 // slow read answers timed-out itself rather than being cut off.
 const (
@@ -89,6 +92,8 @@ func (t *Tool) Definition() llm.ToolDefinition {
 func (t *Tool) Prompt() string { return prompt }
 
 func (t *Tool) Name() string { return Name }
+
+func (t *Tool) ContractName() tools.ContractName { return ContractName }
 
 func (t *Tool) ActionKind() tools.ActionKind { return tools.ActionLogsRead }
 

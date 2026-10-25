@@ -43,6 +43,7 @@ func NewBox(tools []Tool, alsoReads ...Reader) Box {
 	}
 	b.readers = append(b.readers, alsoReads...)
 	names := map[string]bool{}
+	contracts := map[ContractName]bool{}
 	for _, r := range b.readers {
 		if !r.ActionKind().valid() {
 			panic(fmt.Sprintf("tools: %s does no kind of action in the set", r.Name()))
@@ -50,25 +51,25 @@ func NewBox(tools []Tool, alsoReads ...Reader) Box {
 		if names[r.Name()] {
 			panic(fmt.Sprintf("tools: two tools are named %s", r.Name()))
 		}
-		names[r.Name()] = true
+		if contracts[r.ContractName()] {
+			panic(fmt.Sprintf("tools: two tools have the contract %s", r.ContractName()))
+		}
+		names[r.Name()], contracts[r.ContractName()] = true, true
 	}
 	return b
 }
 
-// checkTool panics unless t is exactly one of Custom and Native, a custom tool
-// defined under its own name, or a native tool run by exactly one side, and
-// capped at one use or more when the provider runs it.
+// checkTool panics unless t is run by exactly one side, defined under its own
+// name when it is custom, and capped at one use or more when the provider runs
+// it.
 func checkTool(t Tool) {
 	c, custom := t.(Custom)
-	_, native := t.(Native)
 	_, runner := t.(Runner)
 	b, budgeted := t.(Budgeted)
 	switch {
-	case custom == native:
-		panic(fmt.Sprintf("tools: %s is not exactly one of an app tool and a vendor tool", t.Name()))
 	case custom && c.Definition().Name != t.Name():
 		panic(fmt.Sprintf("tools: %s is defined as %s", t.Name(), c.Definition().Name))
-	case native && runner == budgeted:
+	case runner == budgeted:
 		panic(fmt.Sprintf("tools: %s is not run by exactly one of the sidecar and the provider", t.Name()))
 	case budgeted && b.MaxUses() < 1:
 		panic(fmt.Sprintf("tools: %s may be called less than once a turn", t.Name()))
@@ -89,9 +90,9 @@ func (b Box) For(t llm.Target, names []string) Box {
 		if !slices.Contains(names, tool.Name()) {
 			continue
 		}
-		if n, ok := tool.(Native); ok {
+		if _, custom := tool.(Custom); !custom {
 			_, runner := tool.(Runner)
-			if !t.Takes(n, !runner) {
+			if !t.Takes(tool, !runner) {
 				continue
 			}
 		}
@@ -129,7 +130,7 @@ func (b Box) Offer() ([]llm.ToolDefinition, []llm.NativeOffer) {
 			defs = append(defs, t.Definition())
 		case Budgeted:
 			native = append(native, llm.NativeOffer{Tool: t, Server: true, MaxUses: t.MaxUses()})
-		case Native:
+		default:
 			native = append(native, llm.NativeOffer{Tool: t})
 		}
 	}
@@ -176,6 +177,16 @@ func (b Box) Prompts() []string {
 		out = append(out, t.Prompt())
 	}
 	return out
+}
+
+// ContractOf is the contract a new row of name records: its reader's, or none
+// when no reader has the name.
+func (b Box) ContractOf(name string) ContractName {
+	r, ok := b.reader(name)
+	if !ok {
+		return ""
+	}
+	return r.ContractName()
 }
 
 // Action is what a stored call does, read by the tool or reader its row names,

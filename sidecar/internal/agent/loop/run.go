@@ -247,7 +247,7 @@ func (r *runner) offer() ([]llm.ToolDefinition, []llm.NativeOffer) {
 }
 
 // serverTool is the provider's tool named name.
-func (r *runner) serverTool(name string) (tools.Native, bool) {
+func (r *runner) serverTool(name string) (tools.Budgeted, bool) {
 	for _, b := range r.budgeted {
 		if b.Name() == name {
 			return b, true

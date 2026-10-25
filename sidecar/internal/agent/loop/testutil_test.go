@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"io/fs"
 	"os"
+	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
@@ -76,7 +77,7 @@ func (r *recording) Progress(blocks []llm.Block) {
 	}
 }
 
-func (r *recording) ServerCallSeen(call llm.Block, tool tools.Native) {
+func (r *recording) ServerCallSeen(call llm.Block, tool tools.Tool) {
 	r.log = append(r.log, "server-call")
 	r.serverCalls = append(r.serverCalls, call)
 	r.serverTools = append(r.serverTools, tool)
@@ -176,7 +177,10 @@ func (e echoTool) Definition() llm.ToolDefinition {
 
 func (e echoTool) Prompt() string { return "## " + e.name + "\n\nSays back what it is given." }
 
-func (e echoTool) Name() string                 { return e.name }
+func (e echoTool) Name() string { return e.name }
+func (e echoTool) ContractName() tools.ContractName {
+	return tools.ContractName(strings.ToLower(e.name) + "/v1")
+}
 func (e echoTool) ActionKind() tools.ActionKind { return tools.ActionCommand }
 func (e echoTool) Action(input json.RawMessage, _ string, _ bool) (tools.Action, error) {
 	return tools.Action{Command: &tools.CommandAction{Text: string(input)}}, nil
