@@ -35,14 +35,28 @@ func Load[T any](path string) (T, error) {
 	return out, nil
 }
 
-// Save writes v to path atomically; the parent dir is created 0700, the file lands 0600.
+// Save writes v to path atomically as compact JSON; the parent dir is created 0700, the
+// file lands 0600.
 func Save[T any](path string, v T) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-
 	data, err := json.Marshal(v)
 	if err != nil {
+		return err
+	}
+	return write(path, data)
+}
+
+// SaveIndent is Save for a file people read and edit: two-space indents and a trailing
+// newline.
+func SaveIndent[T any](path string, v T) error {
+	data, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	return write(path, append(data, '\n'))
+}
+
+func write(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 

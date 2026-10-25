@@ -40,6 +40,22 @@ func TestSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+// SaveIndent writes a file people edit by hand: two-space indents, a trailing newline.
+func TestSaveIndentIndentsAndEndsWithANewline(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "x.json")
+	if err := atomicjson.SaveIndent(p, doc{A: "hello", N: 7}); err != nil {
+		t.Fatalf("SaveIndent: %v", err)
+	}
+	got, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "{\n  \"a\": \"hello\",\n  \"n\": 7\n}\n"
+	if string(got) != want {
+		t.Fatalf("want %q, got %q", want, got)
+	}
+}
+
 // A second Save fully replaces the document (atomic rename, not append).
 func TestSaveOverwrites(t *testing.T) {
 	p := filepath.Join(t.TempDir(), "x.json")

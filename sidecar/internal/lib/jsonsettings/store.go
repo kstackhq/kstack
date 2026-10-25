@@ -73,7 +73,7 @@ type Store[T any] struct {
 	file   string
 	fields []field
 	checks []func(*T) []Refusal
-	save   func(file string, v object) error // atomicjson.Save; a test counts the writes
+	save   func(file string, v object) error // atomicjson.SaveIndent; a test counts the writes
 
 	// refused is fixed at open.
 	refused []Refusal
@@ -127,7 +127,7 @@ func Open[T any](file string, checks []func(*T) []Refusal, strictest map[string]
 		file:    file,
 		fields:  fields,
 		checks:  checks,
-		save:    atomicjson.Save[object],
+		save:    atomicjson.SaveIndent[object],
 		refused: refused,
 		held:    held,
 		unknown: unknownOf(keys, fields),

@@ -279,6 +279,36 @@ func TestAWriteKeepsTheKeysNoFieldNames(t *testing.T) {
 	assert.JSONEq(t, `{"count": 2, "rules": [{"deny": "x"}], "Count": 9, "schemaVersion": 1}`, string(data))
 }
 
+// The file is one people edit, so a write indents it, the raw JSON it keeps
+// for a held value or an unknown key included.
+func TestAWriteIsIndented(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "settings.json")
+	require.NoError(t, os.WriteFile(file, []byte(`{"denied": ["a", 1], "rules": [{"deny": "x"}]}`), 0o600))
+	s := openTest(t, file)
+	require.True(t, s.Held("denied"))
+
+	require.NoError(t, s.Update(func(v *testSettings) error {
+		v.Count = 1
+		return nil
+	}))
+	data, err := os.ReadFile(file)
+	require.NoError(t, err)
+	assert.Equal(t, `{
+  "count": 1,
+  "denied": [
+    "a",
+    1
+  ],
+  "rules": [
+    {
+      "deny": "x"
+    }
+  ],
+  "schemaVersion": 1
+}
+`, string(data))
+}
+
 // A field decodes from the key a save writes it under: its Go name when it has
 // no JSON name, and never for a field encoding/json skips, unexported included.
 func TestDecodeReadsTheKeyASaveWrites(t *testing.T) {

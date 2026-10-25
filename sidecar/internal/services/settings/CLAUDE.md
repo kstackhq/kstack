@@ -15,6 +15,8 @@ constant spells one, and `Held`, `Update`'s `fields`, a `Refusal` and the wire a
 - Every value crosses a JSON copy (`clone`); receivers share one delivery, read-only.
 - An `Update` that leaves the file's JSON unchanged writes and publishes nothing. `Open` writes
   nothing.
+- A write is indented two spaces with a trailing newline (`atomicjson.SaveIndent`), keys sorted.
+  The user's own formatting is not kept.
 - Decoding is per field, and per element for a list. A `null` is refused. A bad list element is
   refused alone; any other bad value is refused whole and the other fields load. An unknown key is
   kept and written back, so an older Kstack keeps a newer one's setting.
