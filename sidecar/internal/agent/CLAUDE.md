@@ -203,6 +203,14 @@ duration](../../../docs/adr/2026-10-04-a-prompt-names-the-action-and-offers-a-du
 grant is a rule](../../../docs/adr/2026-10-04-a-folder-grant-is-a-rule.md), [security record: path
 grants](../../../docs/security/2026-10-04-path-grants.md).
 
+**A call row records its tool's contract at its first write** (`newToolCall`, from the service's
+box, so a call the turn was not offered records one too), and no later write changes it. A shown
+action, and a watch's result, are decoded through the box, under the row's contract; one the box
+refuses costs the call its action, lines or view, never the read, and logs one warning carrying
+the sentinel alone (`warnRefused`). A cluster write whose stored request does not decode is served
+with its approval and a null action, and offers Deny alone. → [ADR: a tool call
+records its tool's contract](../../../docs/adr/2026-10-25-a-tool-call-records-its-tools-contract.md).
+
 **The live message lists every call, off its rows.** `ChatMessage.ToolCalls` is one JSON string,
 so the record stays comparable. **`marshalToolCalls` is the one spelling**, on the live and stored
 paths alike, since SQLite's `json_object` and Go escape differently. The tool-call statements are

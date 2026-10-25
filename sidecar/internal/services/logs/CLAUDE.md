@@ -129,9 +129,10 @@ raises (`ErrNoCache`, `ErrSyncing`, `ErrTooMany`) live in `resolve.go`.
 ## The service (`logs`)
 
 **`scope.go` is a read's vocabulary** (`Scope`, what a read covers, with `SourceKind`,
-`FilterField`, `MirrorKind`). "View" is the panel the user looks at. `service.go` is `Service`,
-built in `app` as `logs.New`, which owns the log store and is the cluster service's
-`CacheFileOwner`.
+`FilterField`, `MirrorKind`). `Scope`'s JSON is stored in the three log tools' calls
+(`tools.LogsScopeInput`), so a tag change here bumps each tool's contract. "View" is the panel the
+user looks at. `service.go` is `Service`, built in `app` as `logs.New`, which owns the log store
+and is the cluster service's `CacheFileOwner`.
 
 - **A scope resolves inside one `ReadActive`** (`resolve.go`); workloads walk down controller
   references (`podsOf`). With no container named, each pod's default (`containersOf`: the

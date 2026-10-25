@@ -8,6 +8,7 @@ amended_by:
   - [The sandbox is the gate for a sandboxed command](2026-09-28-the-sandbox-is-the-gate-for-a-sandboxed-command.md)
   - [A sandboxed command asks for each cluster write](2026-09-29-a-sandboxed-command-asks-for-each-cluster-write.md)
   - [A tool whose action is what its run showed records it at the run](2026-10-08-a-shown-tool-records-its-action-at-the-run.md)
+  - [A tool call records its tool's contract beside its stored JSON](2026-10-25-a-tool-call-records-its-tools-contract.md)
 ---
 
 # A tool call shows itself from its arguments, and an approval is only the decision

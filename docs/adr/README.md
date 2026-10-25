@@ -216,3 +216,4 @@ usually just documentation in the wrong place.
 | 2026-10-18 | [A rich view is a tool call's action](2026-10-18-a-rich-view-is-a-tool-calls-action.md) | cross-cutting | Accepted |
 | 2026-10-23 | [A log read is a window over a range](2026-10-23-a-log-read-is-a-window-over-a-range.md) | cross-cutting | Accepted |
 | 2026-10-24 | [A bounded log window reads its dropped lines back from a moment](2026-10-24-a-bounded-log-window-reads-dropped-lines-back.md) | cross-cutting | Accepted |
+| 2026-10-25 | [A tool call records its tool's contract beside its stored JSON](2026-10-25-a-tool-call-records-its-tools-contract.md) | sidecar | Accepted |

@@ -11,11 +11,12 @@ and files its rows is `internal/agent/CLAUDE.md`.
 Every tool the model can call. **A tool's kind is the interfaces it implements** (`tool.go`):
 
 - **`Reader`** (every tool): `Name()` (unique in the box; every stored call names it),
-  `ActionKind()`, `Action(input, cwd, sandboxed)` and `Prompt()`.
+  `ContractName()` (unique in the box; every stored call records it), `ActionKind()`,
+  `Action(input, cwd, sandboxed)` and `Prompt()`.
 - **`Runner`** adds `Run(ctx, rt, input) (text, isError)`, never returning a Go error's text.
   `Custom` is offered by its `Definition()`; `PerTarget` adds `For(target)`.
-- **`Native`** is a vendor's tool: `Name()` is ours, `ContractName()` the vendor's shape id.
-  The provider runs it when it is `Budgeted`, the sidecar when it is a `Runner`.
+- **A vendor's tool** is any tool that is not `Custom`: `Name()` is ours, `ContractName()` the
+  vendor's shape id. The provider runs it when it is `Budgeted`, the sidecar when it is a `Runner`.
 - **`Gated`** adds `Approval`, which only reads `rt`; an error it returns may be a `*Refusal`,
   carrying the result the model reads in place of `bad-input`. **`Shown`** adds `RunShown`, whose action
   the row keeps → [ADR](../../../docs/adr/2026-10-08-a-shown-tool-records-its-action-at-the-run.md).
@@ -25,7 +26,8 @@ Every tool the model can call. **A tool's kind is the interfaces it implements**
 cannot offer. `NewBox` panics on a wiring mistake. `For(target, names)` is a turn's box: the
 target's catalog list, in box order; a name with no tool is skipped (how a machine with no shell
 drops bash). `Without(kinds...)` is how a subagent gets no `Agent`. **Every stored call is read
-through `Box.Action(name, input, cwd)`** by the row's name alone; callers ask the box rather than
+through the box, under the row's name and contract**: `Box.Action` for its arguments, `Box.Shown`
+for a shown action, `Box.WatchResult` for a watch's task result; callers ask the box rather than
 range over it, so kinds never leak past `tools`. →
 [ADR: every tool is in the box](../../../docs/adr/2026-09-24-every-tool-is-in-the-box.md).
 
@@ -59,9 +61,21 @@ session.
 `ToolAction` onto it). **A call's kind is its tool's** (`Box.ActionKind`), whatever the
 arguments hold; `TestEveryActionKindIsServed` exists because a kind the gqlgen binding lacks is
 served as `""` silently. **A call that asks has an action the request can draw**: a `Command`,
-`Read`, `Write`, `Edit`, `Fetch`, or a `Memory` with `Scope` `everywhere`. **Never change how a
-tool reads rows it has written** (`TestActionOfReadsOldRowsTheSame`): every read recomputes it. →
+`Read`, `Write`, `Edit`, `Fetch`, or a `Memory` with `Scope` `everywhere`. →
 [ADR: a tool call shows itself from its arguments](../../../docs/adr/2026-09-23-a-tool-call-shows-itself-from-its-arguments.md).
+
+**Every tool has a contract** covering what its calls store: its arguments, its shown action,
+and for `LogsWatch` its task's `WatchResult`. Ours are `<name>/v<n>`, exported as `ContractName`
+in the tool's package. **The box reads a row only under its reader's contract**; a refused or
+undecodable payload is a bare sentinel (`ErrNoReader`, `ErrContract`, `ErrDecode`, `ErrKind`),
+never the decoder's error. **A change that would read an old row differently bumps
+the contract**: a stricter `parse`, or a stored field renamed, retyped or newly required. An
+optional addition does not. The first bump moves the check into the tool, whose every decoder,
+the watch result's included, then reads each contract it has written. A bump lives in the tool's
+package: `ContractName` moves on, the old value stays as an unexported constant saying what
+changed, and the fixture tables (`TestActionOfReadsOldRowsTheSame`,
+`TestShownOldRowsDecodeTheSame`) gain one; **they are append-only**. →
+[ADR: a tool call records its tool's contract](../../../docs/adr/2026-10-25-a-tool-call-records-its-tools-contract.md).
 
 **An oversized result is saved one way for every tool** (`save.go`). `Fit` returns the result
 whole up to `InlineLimit`; past it, the text goes to the `Saver` and the result is a

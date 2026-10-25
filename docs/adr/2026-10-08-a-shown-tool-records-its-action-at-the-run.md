@@ -5,6 +5,8 @@ scope: cross-cutting
 status: Accepted
 amends:
   - [A tool call shows itself from its arguments, and an approval is only the decision](2026-09-23-a-tool-call-shows-itself-from-its-arguments.md)
+amended_by:
+  - [A tool call records its tool's contract beside its stored JSON](2026-10-25-a-tool-call-records-its-tools-contract.md)
 ---
 
 # A tool whose action is what its run showed records it at the run
