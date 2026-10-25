@@ -304,18 +304,34 @@ jobs:
       - go-vet
     runs-on: ubuntu-24.04
     steps:
+      # The whole history, for the same reason as Go · Build and Test.
       - uses: actions/checkout@v6
-      - uses: ./.github/actions/setup-environment
+        with:
+          fetch-depth: 0
+      - id: setup
+        uses: ./.github/actions/setup-environment
         with:
           setup-go: "true"
           setup-sandbox: "true"
+          go-cache-key: ${{ github.job }}-ubuntu-24.04
+          go-cache-mode: ${{ env.CACHE_MODE }}
+      - name: Date files by their last commit
+        run: go run scripts/restore-mtime.go
       # Built as scripts/build-sidecar.go ships it, so one run tests the
-      # pure-Go os/user and net resolver the release uses.
+      # pure-Go os/user and net resolver the release uses. A cached test
+      # replays its coverage with it.
       - name: Check coverage against the threshold
         working-directory: ./sidecar
         env:
           CGO_ENABLED: "0"
         run: go run scripts/coverage.go -report
+      # After the gate passed, so a failed job leaves the last cache the newest.
+      - name: Save Go cache
+        if: env.CACHE_MODE != 'use'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ steps.setup.outputs.go-cache-path }}
+          key: ${{ steps.setup.outputs.go-cache-key }}
 
   # Builds Kstack's own bwrap and pasta, loads their AppArmor profiles through
   # the .deb's postinst on a stock 24.04, where user namespaces are restricted,
