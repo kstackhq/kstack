@@ -934,12 +934,14 @@ function ApprovalRequest({
   // approved.
   let drawn = true;
   let body: ReactNode;
-  if (change && change.method === '') {
-    // An action with no request of its own is a kind a later step draws.
+  if (change && (change.method === '' || change.action === null)) {
+    // An action with no request of its own is a kind a later step draws; one
+    // with no action is a request this build cannot read. This branch comes
+    // first, so neither offers Approve.
     label = 'Cluster change awaiting approval';
     drawn = false;
     body = <p className="text-xs text-muted-foreground">This request can&apos;t be shown.</p>;
-  } else if (change) {
+  } else if (change?.action) {
     // The action is the heading, the sidecar's summary, so nothing here parses
     // a path; the diff a dry run computed is what changes. The request itself
     // is never a reading of it: the path and query as sent, one line the proxy
@@ -1152,7 +1154,7 @@ function ApprovalRequest({
             {change ? 'Approve once' : 'Approve'}
           </Button>
         )}
-        {drawn && change?.action.grantable && (
+        {drawn && change?.action?.grantable && (
           <>
             <AllowAnswer
               label="Allow for this command"

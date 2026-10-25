@@ -350,11 +350,12 @@ type ToolCall struct {
 // user's decision on it, as the wire serves them: the request as sent, and the
 // action the proxy classified it as. ContentType and Body are empty once it
 // no longer waits, since each publish sends the call list whole; the record
-// keeps them. An action with no write serves an empty request.
+// keeps them. An action with no write serves an empty request, and one whose
+// stored request this build cannot read serves no action as well.
 type ClusterWrite struct {
 	Approval ToolCallApproval `json:"approval"`
 	tools.ClusterWrite
-	Action PermissionAction `json:"action"`
+	Action *PermissionAction `json:"action"`
 	// Diff is the change as YAML while the write waits; DiffCut says it stops
 	// short of the whole change, and DiffError why there is none.
 	Diff      string `json:"diff"`
@@ -375,11 +376,14 @@ type PermissionAction struct {
 }
 
 // clusterWriteOf is an action approval as the wire serves it, the request
-// whole.
-func clusterWriteOf(a ToolCallApproval, r tools.ActionRequest) ClusterWrite {
+// whole: the approval alone when r is nil, a request this build cannot read.
+func clusterWriteOf(a ToolCallApproval, r *tools.ActionRequest) ClusterWrite {
+	if r == nil {
+		return ClusterWrite{Approval: a}
+	}
 	w := ClusterWrite{
 		Approval: a,
-		Action:   PermissionAction{Action: r.Action, Grantable: r.Grantable, CommandRule: r.CommandRule, ChatRule: r.ChatRule},
+		Action:   &PermissionAction{Action: r.Action, Grantable: r.Grantable, CommandRule: r.CommandRule, ChatRule: r.ChatRule},
 		Diff:     r.Diff, DiffCut: r.DiffCut, DiffError: r.DiffError,
 	}
 	if r.Write != nil {
@@ -393,7 +397,7 @@ func clusterWriteOf(a ToolCallApproval, r tools.ActionRequest) ClusterWrite {
 func clusterWritesOf(r toolCallEntry) []ClusterWrite {
 	out := make([]ClusterWrite, 0, len(r.ClusterWrites))
 	for _, a := range r.ClusterWrites {
-		w := clusterWriteOf(toolCallApprovalOf(a), *a.Request)
+		w := clusterWriteOf(toolCallApprovalOf(a), a.Request)
 		if a.Reason != "" {
 			w.Reason = &a.Reason
 		}

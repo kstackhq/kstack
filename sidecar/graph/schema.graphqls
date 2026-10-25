@@ -1120,8 +1120,8 @@ and its call `Running`.
 """
 type ClusterWrite {
   approval: ToolCallApproval!
-  "The action the request is, as the sidecar's classifier read it."
-  action: PermissionAction!
+  "The action the request is, as the sidecar's classifier read it. Null when this build cannot read the stored request; `method` and `path` are then empty, and the write offers Deny alone."
+  action: PermissionAction
   "The change as YAML, a unified diff of the object now against the dry run's answer, while the write waits; empty otherwise, and for a create or a delete."
   diff: String!
   "Whether the diff was cut short of the whole change. The request then draws the raw request open, and Approve waits on it."

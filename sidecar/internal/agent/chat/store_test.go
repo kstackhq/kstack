@@ -32,6 +32,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
+	"github.com/kstackhq/kstack/sidecar/internal/run/permissions"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
@@ -1270,5 +1271,83 @@ func TestARefusedWatchResultLogsNoneOfTheRow(t *testing.T) {
 
 	assert.Contains(t, logs.String(), tools.ErrDecode.Error())
 	assert.Contains(t, logs.String(), `"result"`)
+	assert.NotContains(t, logs.String(), "MARKER")
+}
+
+// readStoredWrite is a running Bash call with one cluster write of status, its
+// request stored as given, and answers the write as the run's read serves it.
+func readStoredWrite(t *testing.T, status ApprovalStatus, stored string) ClusterWrite {
+	t.Helper()
+	db := openTestDB(t, t.TempDir())
+	st := prepareOn(t, db).Stmts()
+	callID := seedLLMCall(t, db, st)
+	row := sidecarRow(callID)
+	require.NoError(t, upsertToolCall(t.Context(), st, row))
+	var decided any
+	if status != ApprovalPending {
+		decided = int64(4_000)
+	}
+	_, err := db.Write.Exec(`INSERT INTO approvals (id, tool_call_id, kind, request, status, created_at, decided_at)
+		VALUES (?, ?, 'action', ?, ?, 3000, ?)`, string(newApprovalID()), string(row.ID), stored, string(status), decided)
+	require.NoError(t, err)
+
+	var runID RunID
+	require.NoError(t, db.Read.QueryRow(`SELECT run_id FROM llm_calls WHERE id = ?`, string(callID)).Scan(&runID))
+	byRun, err := toolCallsByRun(t.Context(), st, runCallReads, string(runID))
+	require.NoError(t, err)
+	calls := toolCallsOf(t, ChatMessage{ToolCalls: marshalToolCalls(byRun[runID], testReaders)})
+	require.Len(t, calls, 1)
+	require.Len(t, calls[0].ClusterWrites, 1)
+	return calls[0].ClusterWrites[0]
+}
+
+// Stored cluster writes read the same forever: never edit this table. Its
+// shape is the gate's, not a tool's.
+func TestClusterWritesReadOldRowsTheSame(t *testing.T) {
+	t.Parallel()
+
+	for stored, want := range map[string]ClusterWrite{
+		`{"action":{"class":5,"context":"prod","namespace":"web","verb":"delete","group":"core","kind":"pods","name":"x","summary":"Delete pod web/x","dryRun":false},"grantable":false,"commandRule":"","chatRule":"","write":{"method":"DELETE","path":"/api/v1/namespaces/web/pods/x","subresource":"","contentType":"","body":"","dryRun":false},"diff":"","diffCut":false,"diffError":""}`: {
+			ClusterWrite: tools.ClusterWrite{Method: "DELETE", Path: "/api/v1/namespaces/web/pods/x"},
+			Action: &PermissionAction{Action: permissions.Action{
+				Class: permissions.Destructive, Context: "prod", Namespace: "web", Verb: "delete", Group: "core", Kind: "pods", Name: "x", Summary: "Delete pod web/x",
+			}},
+		},
+		`{"action":{"class":4,"context":"prod","namespace":"web","verb":"patch","group":"apps","kind":"deployments/scale","name":"api","summary":"Scale deployment web/api","dryRun":false},"grantable":true,"commandRule":"patch deployments/scale in web","chatRule":"patch deployments/scale in web","write":{"method":"PATCH","path":"/apis/apps/v1/namespaces/web/deployments/api/scale","subresource":"scale","contentType":"application/merge-patch+json","body":"{\"spec\":{\"replicas\":3}}","dryRun":false},"diff":"-replicas: 1\n+replicas: 3\n","diffCut":false,"diffError":""}`: {
+			ClusterWrite: tools.ClusterWrite{
+				Method: "PATCH", Path: "/apis/apps/v1/namespaces/web/deployments/api/scale", Subresource: "scale",
+				ContentType: "application/merge-patch+json", Body: `{"spec":{"replicas":3}}`,
+			},
+			Action: &PermissionAction{
+				Action: permissions.Action{
+					Class: permissions.UpstreamWrite, Context: "prod", Namespace: "web", Verb: "patch", Group: "apps", Kind: "deployments/scale", Name: "api",
+					Summary: "Scale deployment web/api",
+				},
+				Grantable: true, CommandRule: "patch deployments/scale in web", ChatRule: "patch deployments/scale in web",
+			},
+			Diff: "-replicas: 1\n+replicas: 3\n",
+		},
+	} {
+		got := readStoredWrite(t, ApprovalPending, stored)
+		want.Approval = got.Approval
+		assert.Equal(t, want, got, stored)
+	}
+}
+
+// A cluster write whose request does not decode keeps its row: its approval is
+// served whole, with no action and no request, and the warning quotes none of
+// it.
+func TestAnUnreadableClusterWriteKeepsItsApproval(t *testing.T) {
+	// CaptureLogs swaps the process's default logger, so this test stays serial.
+
+	logs := testutil.CaptureLogs(t)
+	got := readStoredWrite(t, ApprovalDenied, `{"action":{"summary":"MARKER-5f3a"`)
+
+	assert.Nil(t, got.Action)
+	assert.Empty(t, got.Method)
+	assert.Empty(t, got.Path)
+	assert.Equal(t, ApprovalDenied, got.Approval.Status)
+	assert.Contains(t, logs.String(), tools.ErrDecode.Error())
+	assert.Contains(t, logs.String(), `"request"`)
 	assert.NotContains(t, logs.String(), "MARKER")
 }

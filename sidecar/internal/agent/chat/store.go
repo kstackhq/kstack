@@ -396,7 +396,8 @@ type approval struct {
 	Status     ApprovalStatus
 	CreatedAt  time.Time
 	DecidedAt  sql.NullInt64
-	// Request is the action an action approval holds; nil on a call's own.
+	// Request is the action an action approval holds; nil on a call's own, and
+	// on an action whose stored request does not decode.
 	Request *tools.ActionRequest
 	// Duration is how long an approval holds, what the user chose; "" unless
 	// approved.
@@ -727,8 +728,9 @@ func clusterWritesByCall(ctx context.Context, st stmts, stmt stmtID, arg string)
 		}
 		a.CreatedAt, a.Duration = time.UnixMilli(createdAt).UTC(), permissions.Duration(duration)
 		a.Request = &tools.ActionRequest{}
-		if err := json.Unmarshal([]byte(request), a.Request); err != nil {
-			return nil, fmt.Errorf("cluster writes: %w", err)
+		if json.Unmarshal([]byte(request), a.Request) != nil {
+			warnRefused(a.ToolCallID, "request", tools.ErrDecode)
+			a.Request = nil
 		}
 		out[a.ToolCallID] = append(out[a.ToolCallID], &a)
 	}

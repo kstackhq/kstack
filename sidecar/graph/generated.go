@@ -12031,11 +12031,11 @@ func (ec *executionContext) _ClusterWrite_action(ctx context.Context, field grap
 			return obj.Action, nil
 		},
 		nil,
-		func(ctx context.Context, selections ast.SelectionSet, v chat.PermissionAction) graphql.Marshaler {
-			return ec.marshalNPermissionAction2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐPermissionAction(ctx, selections, v)
+		func(ctx context.Context, selections ast.SelectionSet, v *chat.PermissionAction) graphql.Marshaler {
+			return ec.marshalOPermissionAction2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐPermissionAction(ctx, selections, v)
 		},
 		true,
-		true,
+		false,
 	)
 }
 func (ec *executionContext) fieldContext_ClusterWrite_action(_ context.Context, field graphql.CollectedField) (fc *graphql.FieldContext, err error) {
@@ -26015,7 +26015,7 @@ func (ec *executionContext) _ClusterWrite(ctx context.Context, sel ast.Selection
 			}
 		case "action":
 			out.Values[i] = ec._ClusterWrite_action(ctx, field, obj)
-			if out.Values[i] == graphql.Null {
+			if out.Values[i] == graphql.RequiredNull {
 				out.Invalids++
 			}
 		case "diff":
@@ -31794,10 +31794,6 @@ func (ec *executionContext) marshalNObjectRef2githubᚗcomᚋkstackhqᚋkstack�
 	return ec._ObjectRef(ctx, sel, &v)
 }
 
-func (ec *executionContext) marshalNPermissionAction2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐPermissionAction(ctx context.Context, sel ast.SelectionSet, v chat.PermissionAction) graphql.Marshaler {
-	return ec._PermissionAction(ctx, sel, &v)
-}
-
 func (ec *executionContext) unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐClass(ctx context.Context, v any) (permissions.Class, error) {
 	tmp, err := graphql.UnmarshalString(v)
 	res := unmarshalNPermissionClass2githubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋrunᚋpermissionsᚐClass[tmp]
@@ -32947,6 +32943,13 @@ func (ec *executionContext) marshalOObjectID2ᚖgithubᚗcomᚋkstackhqᚋkstack
 		return graphql.Null
 	}
 	return v
+}
+
+func (ec *executionContext) marshalOPermissionAction2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋinternalᚋagentᚋchatᚐPermissionAction(ctx context.Context, sel ast.SelectionSet, v *chat.PermissionAction) graphql.Marshaler {
+	if v == nil {
+		return graphql.Null
+	}
+	return ec._PermissionAction(ctx, sel, v)
 }
 
 func (ec *executionContext) marshalOProvider2ᚖgithubᚗcomᚋkstackhqᚋkstackᚋsidecarᚋgraphᚋmodelᚐProvider(ctx context.Context, sel ast.SelectionSet, v *model.Provider) graphql.Marshaler {

@@ -1115,7 +1115,7 @@ func TestAWriteIsAskedUnderTheRunningCall(t *testing.T) {
 	assert.Nil(t, calls[0].Approval, "the call itself was not asked about")
 	require.Len(t, calls[0].ClusterWrites, 1)
 	w := calls[0].ClusterWrites[0]
-	assert.Equal(t, clusterWriteOf(ToolCallApproval{ID: w.Approval.ID, Status: ApprovalPending}, deleteX), w)
+	assert.Equal(t, clusterWriteOf(ToolCallApproval{ID: w.Approval.ID, Status: ApprovalPending}, &deleteX), w)
 	assert.Equal(t, RunWaitingApproval, runStatusOf(t, s.db, msg.RunID))
 	assert.Equal(t, []approvalRow{{status: ApprovalPending}}, approvalRows(t, s.db))
 
@@ -1125,7 +1125,7 @@ func TestAWriteIsAskedUnderTheRunningCall(t *testing.T) {
 	assert.Equal(t, StatusStreaming, got.Status)
 	w = toolCallsOf(t, got)[0].ClusterWrites[0]
 	once := permissions.DurationOnce
-	decided := clusterWriteOf(ToolCallApproval{ID: w.Approval.ID, Status: ApprovalApproved, Duration: &once}, deleteX)
+	decided := clusterWriteOf(ToolCallApproval{ID: w.Approval.ID, Status: ApprovalApproved, Duration: &once}, &deleteX)
 	decided.ContentType, decided.Body = "", ""
 	assert.Equal(t, decided, w)
 	assert.Equal(t, []approvalRow{{status: ApprovalApproved, decided: true}}, approvalRows(t, s.db))

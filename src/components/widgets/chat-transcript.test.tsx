@@ -3052,7 +3052,7 @@ describe('ChatTranscript', () => {
             method: 'POST',
             path: '/apis/example.com/v1/widgets?dryRun=All',
             dryRun: true,
-            action: { ...clusterWrite().action, summary: 'Create widgets on dev', grantable: false },
+            action: { ...clusterWrite().action!, summary: 'Create widgets on dev', grantable: false },
           }),
         ]),
       ]);
@@ -3179,7 +3179,7 @@ describe('ChatTranscript', () => {
 
     it('offers Approve once and Deny alone for an action no rule may allow', () => {
       draw([
-        waitingOn([clusterWrite({ action: { ...clusterWrite().action, class: 'Destructive', grantable: false } })]),
+        waitingOn([clusterWrite({ action: { ...clusterWrite().action!, class: 'Destructive', grantable: false } })]),
       ]);
       const names = within(request())
         .getAllByRole('button')
@@ -3211,7 +3211,7 @@ describe('ChatTranscript', () => {
       draw([
         waitingOn([
           clusterWrite({
-            action: { ...clusterWrite().action, chatRule: 'Allow cluster writes in "say \\"hi\\"\u200b"' },
+            action: { ...clusterWrite().action!, chatRule: 'Allow cluster writes in "say \\"hi\\"\u200b"' },
           }),
         ]),
       ]);
@@ -3225,6 +3225,20 @@ describe('ChatTranscript', () => {
     it('offers Deny alone for an action with no write', () => {
       draw([waitingOn([clusterWrite({ method: '', path: '', body: '', contentType: '' })])]);
       expect(request()).toHaveTextContent("This request can't be shown.");
+      expect(
+        within(request())
+          .getAllByRole('button')
+          .map((b) => b.textContent),
+      ).toEqual(['Deny']);
+    });
+
+    // A write whose stored request this build cannot read has no action and no
+    // request. The command that sent it is still drawn, and nothing approves
+    // what is not.
+    it('offers Deny alone for a write it cannot read', () => {
+      draw([waitingOn([clusterWrite({ action: null, method: '', path: '', body: '', contentType: '' })])]);
+      expect(request()).toHaveTextContent("This request can't be shown.");
+      expect(document.body).toHaveTextContent('wc -l ~/.kube/config');
       expect(
         within(request())
           .getAllByRole('button')
@@ -3394,7 +3408,7 @@ describe('ChatTranscript', () => {
         waitingOn([
           secretRead({
             path: '/api/v1/secrets',
-            action: { ...secretRead().action, namespace: '', verb: 'list', chatRule: 'Allow Secret reads in dev' },
+            action: { ...secretRead().action!, namespace: '', verb: 'list', chatRule: 'Allow Secret reads in dev' },
           }),
         ]),
       ]);
