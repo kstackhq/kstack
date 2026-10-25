@@ -298,11 +298,27 @@ jobs:
           key: ${{ steps.setup.outputs.go-cache-key }}
 
   go-coverage:
-    name: Go · Coverage
+    name: Go · Coverage · ${{ matrix.os }}
     needs:
       - go-lint
       - go-vet
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      # One runner per OS: every platform split in the sidecar is by OS, none
+      # by architecture, so three profiles hold every file. macOS 27 is the
+      # release users run; nothing in the sidecar branches on the macOS version.
+      matrix:
+        include:
+          - os: linux
+            runner: ubuntu-24.04
+          - os: darwin
+            runner: xcode-27
+          - os: windows
+            runner: windows-2025-vs2026
+    runs-on: ${{ matrix.runner }}
+    # Twice the two suite runs' -timeout, so a hang fails the test binary with
+    # a goroutine dump before the runner kills the job.
+    timeout-minutes: 60
     steps:
       # The whole history, for the same reason as Go · Build and Test.
       - uses: actions/checkout@v6
@@ -312,26 +328,60 @@ jobs:
         uses: ./.github/actions/setup-environment
         with:
           setup-go: "true"
+          # macOS skips its Seatbelt tests without KSTACK_REQUIRE_SANDBOX=1.
           setup-sandbox: "true"
-          go-cache-key: ${{ github.job }}-ubuntu-24.04
+          go-cache-key: ${{ github.job }}-${{ matrix.runner }}
           go-cache-mode: ${{ env.CACHE_MODE }}
       - name: Date files by their last commit
         run: go run scripts/restore-mtime.go
-      # Built as scripts/build-sidecar.go ships it, so one run tests the
+      # Built as scripts/build-sidecar.go ships it, so the run tests the
       # pure-Go os/user and net resolver the release uses. A cached test
-      # replays its coverage with it.
-      - name: Check coverage against the threshold
+      # replays its coverage with it. SSH_AUTH_SOCK is pinned as in Go · Build
+      # and Test, since its value keys the login shell's cached results.
+      - name: Measure coverage
         working-directory: ./sidecar
         env:
           CGO_ENABLED: "0"
-        run: go run scripts/coverage.go -report
-      # After the gate passed, so a failed job leaves the last cache the newest.
+          SSH_AUTH_SOCK: ""
+        run: go run scripts/coverage.go -out ${{ runner.temp }}/coverage-${{ matrix.os }}.out
+      - name: Upload the profile
+        uses: actions/upload-artifact@v7
+        with:
+          name: go-coverage-${{ matrix.os }}
+          path: ${{ runner.temp }}/coverage-${{ matrix.os }}.out
+          retention-days: 7
+      # After the profile is written, so a failed job leaves the last cache the newest.
       - name: Save Go cache
         if: env.CACHE_MODE != 'use'
         uses: actions/cache/save@v6
         with:
           path: ${{ steps.setup.outputs.go-cache-path }}
           key: ${{ steps.setup.outputs.go-cache-key }}
+
+  go-coverage-gate:
+    name: Go · Coverage
+    needs: go-coverage
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-environment
+        with:
+          setup-go: "true"
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: go-coverage-*
+          path: ${{ runner.temp }}/coverage
+          merge-multiple: true
+      # One union over the three OSes: a block counts as covered if any OS
+      # covered it. The second line gates the files Linux does not compile,
+      # which are too few to move the first.
+      - name: Check coverage against the thresholds
+        working-directory: ./sidecar
+        run: >-
+          go run scripts/coverage.go -report
+          -linux ${{ runner.temp }}/coverage/coverage-linux.out
+          -darwin ${{ runner.temp }}/coverage/coverage-darwin.out
+          -windows ${{ runner.temp }}/coverage/coverage-windows.out
 
   # Builds Kstack's own bwrap and pasta, loads their AppArmor profiles through
   # the .deb's postinst on a stock 24.04, where user namespaces are restricted,

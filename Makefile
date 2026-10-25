@@ -77,8 +77,8 @@ prompts:
 # files, and fails below sidecar/scripts/coverage-threshold. Add `-- -report` for
 # the per-file list of what is still uncovered.
 #
-# Measures what this platform builds: a `_windows.go` file is not compiled here, so
-# run it on one OS (CI uses Linux) rather than comparing numbers across a matrix.
+# Measures the OS it runs on, so its number is not CI's: CI measures Linux, macOS
+# and Windows and gates their union in `Go · Coverage`.
 cover-go:
 	cd sidecar && go run scripts/coverage.go $(ARGS)
 

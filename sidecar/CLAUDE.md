@@ -205,11 +205,14 @@ go test -race -cpu 1 -shuffle=<seed> -count=3 ./internal/agent/chat
 
 **Coverage is gated.** `make cover-go` runs the suite untagged and with `-tags debug`, merges with
 `-coverpkg=./...`, drops generated files, and fails below `scripts/coverage-threshold`; `make
-cover-go ARGS=-report` lists the gaps. **Raise the threshold when a change lifts coverage; never
-lower it without saying why in the commit body.** CI runs it with `CGO_ENABLED=0`, as the release
-is built (every other CI run has cgo, which `-race` needs), on one OS, since a `_windows.go` file
-never enters Linux's denominator. What stays uncovered is deliberate: `main()` itself, the `serve
-returned` arm, `testutil`'s failsafe-timeout arms, and I/O failures nothing can inject.
+cover-go ARGS=-report` lists the gaps. It measures one OS. CI runs the suite on one runner per OS
+(`scripts/coverage.go -out`), merges the three profiles, and gates the union twice:
+`scripts/coverage-threshold` for everything, `scripts/coverage-threshold-platform` for the files
+Linux does not compile. **Raise either threshold when a change lifts coverage; never lower one
+without saying why in the commit body.** CI measures with `CGO_ENABLED=0`, as the release is built
+(every other CI run has cgo, which `-race` needs). What stays uncovered is deliberate: `main()`
+itself, the `serve returned` arm, `testutil`'s failsafe-timeout arms, and I/O failures nothing can
+inject.
 
 When you change the sidecar's wiring or conventions, update this file or the package's guide in the
 same change. When you change *why*, write an ADR.

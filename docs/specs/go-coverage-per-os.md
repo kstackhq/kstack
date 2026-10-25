@@ -56,7 +56,7 @@ Verify each before relying on it; they were true when this was written.
 
 ## Task 1 — `sidecar/scripts/coverage.go`: two new modes
 
-Status: Planned.
+Status: Done.
 
 Keep the file a single `package main` under `//go:build ignore`, run with `go run`. Keep every
 existing behaviour of the no-flag invocation byte for byte: it is what `make cover-go` runs.
@@ -224,14 +224,14 @@ suites, writes the file, prints one line, exits 0 even if the number is below th
 
 ## Task 2 — `sidecar/scripts/coverage-threshold-platform`
 
-Status: Planned.
+Status: Done.
 
 Create the file containing one line: `0`. It is set to the measured number in Task 5. Same
 format as `sidecar/scripts/coverage-threshold`: one decimal number, trailing newline.
 
 ## Task 3 — `.github/workflows/ci.yml`: three measuring jobs and one gate
 
-Status: Planned.
+Status: Done.
 
 Replace the existing `go-coverage` job with two jobs. Nothing else in the workflow references
 `go-coverage` (check with `grep -n go-coverage .github/workflows/*.yml`).
@@ -358,7 +358,7 @@ This job needs no Go cache: it compiles one script and runs no tests.
 
 ## Task 4 — comments and docs
 
-Status: Planned.
+Status: Done.
 
 - **`Makefile`**, the comment above `cover-go`. Replace the two lines with: the target measures
   the OS it runs on, so its number is not CI's; CI measures Linux, macOS and Windows and gates
