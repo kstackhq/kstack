@@ -147,7 +147,7 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, q FollowRequ
 	}
 	t, err := resolve(ctx, s.clusters, id, scope, true)
 	if err != nil {
-		return FollowResponse{}, err
+		return openFailed(ctx, q, err)
 	}
 	// owned ends the mirror watches and every tailer's watch on any ending. The
 	// stream itself runs on ctx: one ended by its own context files no error.
@@ -162,7 +162,7 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, q FollowRequ
 	if err := f.open(owned, q.Since == nil && q.Cursor == nil); err != nil {
 		stop()
 		f.close()
-		return FollowResponse{}, err
+		return openFailed(ctx, q, err)
 	}
 	q.Scope, q.MaxMessageBytes = scope, maxMessage
 	frames := cluster.NewStream(ctx, func(ctx context.Context, out chan<- FollowFrame) error {
@@ -183,6 +183,17 @@ func (s *Service) Follow(ctx context.Context, id cluster.ClusterID, q FollowRequ
 		return err
 	})
 	return FollowResponse{Request: q, ResolvedAt: start.ResolvedAt, Frames: frames}, nil
+}
+
+// openFailed answers a follow that failed to open with err. One whose context
+// ended as it opened ends clean, as it would once open: no error, and frames that
+// end at once.
+func openFailed(ctx context.Context, q FollowRequest, err error) (FollowResponse, error) {
+	if ctx.Err() == nil {
+		return FollowResponse{}, err
+	}
+	frames := cluster.NewStream(ctx, func(context.Context, chan<- FollowFrame) error { return nil })
+	return FollowResponse{Request: q, Frames: frames}, nil
 }
 
 // followStart is q's start cursor, which holds its scope and seeds every stream:

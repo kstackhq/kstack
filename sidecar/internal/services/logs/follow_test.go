@@ -1222,6 +1222,22 @@ func TestACancelledFollowEndsClean(t *testing.T) {
 	assert.NoError(t, failsWith(t, stream))
 }
 
+// A follow whose context ends as it opens ends clean too, though the call it was
+// in failed on the cancel.
+func TestAFollowCancelledAsItOpensEndsClean(t *testing.T) {
+	t.Parallel()
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, newLogServer())
+	ctx, cancel := context.WithCancel(t.Context())
+	t.Cleanup(cancel)
+	f.acquireErr = fmt.Errorf("acquire: %w", context.Canceled)
+	f.onAcquire = cancel
+
+	stream := startFollow(t, ctx, svc, FollowRequest{Scope: webScope})
+
+	assert.NoError(t, failsWith(t, stream))
+}
+
 // A container that restarts is tailed again as its new instance once the old
 // instance's stream ends, whether the restart reaches the mirror before that end or
 // after it, and the new instance's lines go out under its own id. The old instance's
