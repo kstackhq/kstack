@@ -20,7 +20,6 @@ package chat
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"os"
 	"time"
 
@@ -67,13 +66,15 @@ func (t watchTask) Wait() tools.Exit {
 
 func (t watchTask) Stop(bool) { t.w.Stop() }
 
-// watchResultOf is a task row's result as the watch wrote it.
-func watchResultOf(result string) (tools.WatchResult, error) {
-	var r tools.WatchResult
-	if err := json.Unmarshal([]byte(result), &r); err != nil {
-		return tools.WatchResult{}, fmt.Errorf("watch result: %w", err)
+// watchResultOf is the result call's watch wrote to its task row, read through
+// box (tools.Box.WatchResult). A result the box refuses is none, and one warning.
+func watchResultOf(box tools.Box, call toolCallEntry, result string) (tools.WatchResult, bool) {
+	r, err := box.WatchResult(call.Name, tools.ContractName(call.Contract), json.RawMessage(result))
+	if err != nil {
+		warnRefused(call.ID, "result", err)
+		return tools.WatchResult{}, false
 	}
-	return r, nil
+	return r, true
 }
 
 // watchStatuses is each watch end's row status.

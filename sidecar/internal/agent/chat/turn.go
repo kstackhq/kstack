@@ -465,7 +465,14 @@ func (j *runJournal) ToolCallFinished(ctx context.Context, call, result llm.Bloc
 		j.toolCalls = append(j.toolCalls, row)
 	}
 	j.openTool, j.toolSeq = nil, j.toolSeq+1
-	row.Status, row.Result, row.Error, row.Shown = toolSucceeded, result.Text, "", shown
+	row.Status, row.Result, row.Error = toolSucceeded, result.Text, ""
+	if shown != nil {
+		b, err := json.Marshal(shown)
+		if err != nil {
+			return fmt.Errorf("tool call finished: %w", err)
+		}
+		row.Shown = string(b)
+	}
 	if result.IsError {
 		row.Status, row.Error = toolFailed, toolError(result.Text)
 		if code, _ := loop.RefusalOf(result.Text); row.IsMutating && code == loop.CodeDenied {

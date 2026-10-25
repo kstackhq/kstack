@@ -341,3 +341,37 @@ func TestAWatchGoesOnFromARead(t *testing.T) {
 	assert.Equal(t, "m2", end.Result.Lines[0].Message)
 	assert.Equal(t, tools.WatchMatched, end.Status)
 }
+
+// Stored shown actions and watch results decode the same forever: never edit
+// these tables. A bump adds tables of its own.
+func TestShownOldRowsDecodeTheSame(t *testing.T) {
+	box := tools.NewBox(nil, &Tool{})
+	at := time.Date(2026, time.October, 20, 9, 30, 0, 0, time.UTC)
+	for stored, want := range map[string]tools.Action{
+		`{"description":"Watch api","command":null,"read":null,"write":null,"edit":null,"search":null,"fetch":null,"memory":null,"delegate":null,"kubeQuery":null,"logsView":null,"logsRead":null,"logsWatch":{"sources":[{"namespace":"web","kind":"deployment","name":"api","containers":null,"allContainers":false,"previous":false}],"filters":null,"grep":"OOM","since":"2026-10-20T09:30:00Z","limit":10,"maxBytes":4096,"maxMessageBytes":512,"resolvedAt":"2026-10-20T09:30:00Z","until":"2026-10-20T10:00:00Z"}}`: {
+			Description: "Watch api",
+			LogsWatch: &tools.LogsWatchAction{
+				LogsScopeInput: tools.LogsScopeInput{Sources: []logs.ScopeSource{{Namespace: "web", Kind: logs.SourceDeployment, Name: "api"}}, Grep: "OOM"},
+				Since:          new(at), Limit: 10, MaxBytes: 4096, MaxMessageBytes: 512, ResolvedAt: at, Until: at.Add(30 * time.Minute),
+			},
+		},
+	} {
+		got, err := box.Shown(Name, ContractName, json.RawMessage(stored))
+		require.NoError(t, err, stored)
+		assert.Equal(t, want, got, stored)
+	}
+
+	pod := tools.LogsScopeInput{Sources: []logs.ScopeSource{{Namespace: "web", Kind: logs.SourcePod, Name: "api-0"}}}
+	for stored, want := range map[string]tools.WatchResult{
+		`{"text":"1 line","lines":[{"timestamp":"2026-10-20T09:29:00Z","namespace":"web","pod":"api-0","container":"app","previous":false,"message":"panic: boom","gap":null,"truncatedBytes":0}],"endedBecause":"limit","viewAround":{"sources":[{"namespace":"web","kind":"pod","name":"api-0","containers":null,"allContainers":false,"previous":false}],"filters":null,"grep":"","anchor":{"kind":"at","at":"2026-10-20T09:29:00Z"},"pinToEnd":false,"resolvedAt":"2026-10-20T09:30:00Z"}}`: {
+			Text:         "1 line",
+			Lines:        []tools.LogsReadLine{{Timestamp: at.Add(-time.Minute), Namespace: "web", Pod: "api-0", Container: "app", Message: "panic: boom"}},
+			EndedBecause: "limit",
+			ViewAround:   &tools.LogsViewAction{LogsScopeInput: pod, Anchor: tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: new(at.Add(-time.Minute))}, ResolvedAt: at},
+		},
+	} {
+		got, err := box.WatchResult(Name, ContractName, json.RawMessage(stored))
+		require.NoError(t, err, stored)
+		assert.Equal(t, want, got, stored)
+	}
+}

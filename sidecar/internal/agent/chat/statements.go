@@ -240,7 +240,7 @@ var statements = []sqlstmt.Statement{
 	JOIN agent_runs r ON r.id = c.run_id WHERE r.id = ?1 OR r.parent_run_id = ?1 ORDER BY c.run_id, c.seq, t.seq`),
 	// A call of the chat by id, with what its run showed and, for a watch, its
 	// task's result. OnBoth: Send reads it inside its write transaction.
-	stmtSelectViewCall: sqlstmt.OnBoth(`SELECT COALESCE(t.tool_use_id, ''), t.shown_action, b.result FROM tool_calls t
+	stmtSelectViewCall: sqlstmt.OnBoth(`SELECT COALESCE(t.tool_use_id, ''), t.tool_name, t.contract_name, t.shown_action, b.result FROM tool_calls t
 	JOIN llm_calls l ON l.id = t.llm_call_id JOIN agent_runs r ON r.id = l.run_id
 	LEFT JOIN background_tasks b ON b.tool_call_id = t.id
 	WHERE t.id = ? AND r.chat_id = ?`),
@@ -270,7 +270,8 @@ var statements = []sqlstmt.Statement{
 	// a's then, the one call of the two the model reading the notice saw. OnBoth,
 	// since a send reads them inside its transaction.
 	stmtSelectWaitingNotices: sqlstmt.OnBoth(`SELECT b.id, COALESCE(a.tool_use_id, t.tool_use_id), b.output_path, b.status,
-	b.stopped_by, b.exit_code, t.tool_name, t.arguments, t.cwd, t.sandboxed, a.tool_name, a.arguments, r.id IS NOT NULL, r.result, r.error,
+	b.stopped_by, b.exit_code, t.id, t.tool_name, t.contract_name, t.arguments, t.cwd, t.sandboxed, a.tool_name, a.contract_name, a.arguments,
+	r.id IS NOT NULL, r.result, r.error,
 	EXISTS (SELECT 1 FROM agent_runs p JOIN messages q ON q.id = p.trigger_message_id
 		WHERE p.id = c.run_id AND q.request_key IS NOT NULL), t.shown_action, b.result
 	FROM background_tasks b JOIN tool_calls t ON t.id = b.tool_call_id

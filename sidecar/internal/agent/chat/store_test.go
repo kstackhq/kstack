@@ -29,11 +29,14 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/rawjson"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlstmt"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/anthropicwebsearch"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/bash"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/logsview"
+	"github.com/kstackhq/kstack/sidecar/internal/tools/logswatch"
 )
 
 // Every row helper names the statement that failed. A closed pool is the one
@@ -1001,6 +1004,7 @@ func TestTheActionCarriesTheRowsFlag(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, notices, 1)
 	assert.Equal(t, []bool{true}, seen, "the task-notice read")
+	assert.Equal(t, "make serve", notices[0].command, "read under the row's contract")
 }
 
 // sidecarRow is a sidecar call's running row under callID.
@@ -1133,4 +1137,138 @@ func TestTheApprovalChecksHold(t *testing.T) {
 	}
 	assert.NoError(t, insert("action", "{}", "approved", "chat"))
 	assert.NoError(t, insert("call", nil, "approved", "once"))
+}
+
+// viewBox reads LogsView's calls, as the service's box does.
+var viewBox = tools.NewBox(nil, &logsview.Tool{})
+
+// seedShownView is a settled LogsView call in a new chat whose shown_action is
+// stored, returning the chat and the call.
+func seedShownView(t *testing.T, db *appdb.DB, stored string) (ChatID, ToolCallID) {
+	t.Helper()
+	c := seedChat(t, db, aChat("1", time.Now()))
+	id := seedViewCall(t, db, c.ID, "call-1", nil)
+	_, err := db.Write.Exec(`UPDATE tool_calls SET shown_action = ? WHERE id = ?`, stored, string(id))
+	require.NoError(t, err)
+	return c.ID, id
+}
+
+// A shown action that does not decode costs its call the action, not the chat
+// its read: the call shows its kind, and its view does not open.
+func TestAShownActionThatDoesNotDecodeCostsItsCallAlone(t *testing.T) {
+	t.Parallel()
+
+	db := openTestDB(t, t.TempDir())
+	set := prepareOn(t, db)
+	chatID, id := seedShownView(t, db, `{"logsView":7}`)
+
+	msgs, err := listMessages(t.Context(), set.Stmts(), chatID, viewBox)
+	require.NoError(t, err)
+	calls := toolCallsOf(t, msgs[1])
+	require.Len(t, calls, 1)
+	assert.Nil(t, calls[0].Action)
+	assert.Equal(t, new(tools.ActionLogsView), calls[0].ActionKind)
+	_, _, ok, err := viewCall(t.Context(), set.Stmts(), viewBox, chatID, id)
+	require.NoError(t, err)
+	assert.False(t, ok)
+}
+
+// A refused shown action logs its sentinel and none of the stored text.
+func TestARefusedShownActionLogsNoneOfTheRow(t *testing.T) {
+	// CaptureLogs swaps the process's default logger, so this test stays serial.
+
+	db := openTestDB(t, t.TempDir())
+	set := prepareOn(t, db)
+	chatID, _ := seedShownView(t, db, `{"logsView":{"resolvedAt":"MARKER-5f3a"}}`)
+	logs := testutil.CaptureLogs(t)
+
+	_, err := listMessages(t.Context(), set.Stmts(), chatID, viewBox)
+	require.NoError(t, err)
+
+	assert.Contains(t, logs.String(), tools.ErrDecode.Error())
+	assert.Contains(t, logs.String(), "shown_action")
+	assert.NotContains(t, logs.String(), "MARKER")
+}
+
+// seedWatch is a matched LogsWatch call in a new chat whose task's result is
+// stored, under contract, returning the chat and the call.
+func seedWatch(t *testing.T, db *appdb.DB, contract, stored string) (ChatID, ToolCallID) {
+	t.Helper()
+	c := seedChat(t, db, aChat("1", time.Now()))
+	around := readWebapp().ViewAround
+	id := seedViewCall(t, db, c.ID, "call-1", &tools.Action{LogsWatch: &tools.LogsWatchAction{LogsScopeInput: around.LogsScopeInput, Limit: 1}})
+	seedWatchTask(t, db, c.ID, id, taskMatched, nil)
+	_, err := db.Write.Exec(`UPDATE tool_calls SET contract_name = ? WHERE id = ?`, contract, string(id))
+	require.NoError(t, err)
+	_, err = db.Write.Exec(`UPDATE background_tasks SET result = ? WHERE tool_call_id = ?`, stored, string(id))
+	require.NoError(t, err)
+	return c.ID, id
+}
+
+// watchReads is what the transcript, the notices and the view read of a watch:
+// its matched lines, its notice's text and count, and whether its view opens.
+func watchReads(t *testing.T, set *sqlstmt.Set[stmtID], chatID ChatID, id ToolCallID) (matched int, notice llm.TaskNotice, viewed bool) {
+	t.Helper()
+	st := set.Stmts()
+	msgs, err := listMessages(t.Context(), st, chatID, testReaders)
+	require.NoError(t, err)
+	calls := toolCallsOf(t, msgs[1])
+	require.Len(t, calls, 1)
+	require.NotNil(t, calls[0].Background)
+	waiting, err := waitingNotices(t.Context(), st, chatID, testReaders)
+	require.NoError(t, err)
+	require.Len(t, waiting, 1)
+	_, _, viewed, err = viewCall(t.Context(), st, testReaders, chatID, id)
+	require.NoError(t, err)
+	return len(calls[0].Background.Matched), noticeOf(waiting[0]), viewed
+}
+
+// A watch's result is read under its call's contract alone: one that does not
+// decode, or one under a contract this build does not know, is no lines, no
+// notice text and no view, and the chat still loads.
+func TestAWatchsResultIsReadUnderItsCallsContract(t *testing.T) {
+	t.Parallel()
+
+	result, err := json.Marshal(tools.WatchResult{Text: "1 line", Lines: []tools.LogsReadLine{{Message: "boom"}}, ViewAround: readWebapp().ViewAround})
+	require.NoError(t, err)
+
+	db := openTestDB(t, t.TempDir())
+	set := prepareOn(t, db)
+	chatID, id := seedWatch(t, db, string(logswatch.ContractName), string(result))
+	matched, notice, viewed := watchReads(t, set, chatID, id)
+	assert.Equal(t, 1, matched)
+	assert.Equal(t, "1 line", notice.Result)
+	assert.Equal(t, 1, notice.Matched)
+	assert.True(t, viewed)
+
+	for name, c := range map[string]struct{ contract, stored string }{
+		"a result that does not decode": {string(logswatch.ContractName), `{"text":1}`},
+		"a contract this build lacks":   {"logswatch/v999", string(result)},
+	} {
+		db := openTestDB(t, t.TempDir())
+		set := prepareOn(t, db)
+		chatID, id := seedWatch(t, db, c.contract, c.stored)
+		matched, notice, viewed := watchReads(t, set, chatID, id)
+		assert.Zero(t, matched, name)
+		assert.Empty(t, notice.Result, name)
+		assert.Zero(t, notice.Matched, name)
+		assert.False(t, viewed, name)
+	}
+}
+
+// A refused watch result logs its sentinel and none of the stored text.
+func TestARefusedWatchResultLogsNoneOfTheRow(t *testing.T) {
+	// CaptureLogs swaps the process's default logger, so this test stays serial.
+
+	db := openTestDB(t, t.TempDir())
+	set := prepareOn(t, db)
+	chatID, _ := seedWatch(t, db, string(logswatch.ContractName), `{"text":"t","viewAround":{"resolvedAt":"MARKER-5f3a"}}`)
+	logs := testutil.CaptureLogs(t)
+
+	_, err := listMessages(t.Context(), set.Stmts(), chatID, testReaders)
+	require.NoError(t, err)
+
+	assert.Contains(t, logs.String(), tools.ErrDecode.Error())
+	assert.Contains(t, logs.String(), `"result"`)
+	assert.NotContains(t, logs.String(), "MARKER")
 }

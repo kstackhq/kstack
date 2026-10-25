@@ -240,16 +240,16 @@ func TestTheBoxAnswersForItsTools(t *testing.T) {
 func TestAStoredCallIsReadByItsTool(t *testing.T) {
 	box := NewBox([]Tool{echo, search}, reader{"bash", ActionCommand})
 
-	got, ok := box.Action("echo", json.RawMessage(`hi`), "", false)
+	got, ok := box.Action("echo", "echo/v1", json.RawMessage(`hi`), "", false)
 	assert.True(t, ok)
 	assert.Equal(t, Action{Command: &CommandAction{Text: "hi"}}, got)
-	got, ok = box.Action("bash", json.RawMessage(`ls`), "", false)
+	got, ok = box.Action("bash", "bash/v1", json.RawMessage(`ls`), "", false)
 	assert.True(t, ok)
 	assert.Equal(t, Action{Command: &CommandAction{Text: "ls"}}, got)
-	got, ok = box.Action(search.name, json.RawMessage(`q`), "", false)
+	got, ok = box.Action(search.name, "acme_"+ContractName(search.name), json.RawMessage(`q`), "", false)
 	assert.True(t, ok)
 	assert.Equal(t, Action{Search: &SearchAction{Query: "q"}}, got)
-	_, ok = box.Action("missing", json.RawMessage(`x`), "", false)
+	_, ok = box.Action("missing", "missing/v1", json.RawMessage(`x`), "", false)
 	assert.False(t, ok)
 }
 
@@ -298,13 +298,77 @@ func TestAToolsContractIsItsReaders(t *testing.T) {
 	assert.Empty(t, box.ContractOf("missing"))
 }
 
+// A row is read only under its reader's contract: not under another tool's, and
+// not with none.
+func TestAStoredCallIsReadUnderItsContractAlone(t *testing.T) {
+	box := NewBox([]Tool{echo}, reader{"bash", ActionCommand})
+
+	for _, c := range []ContractName{"bash/v1", "echo/v2", ""} {
+		_, ok := box.Action("echo", c, json.RawMessage(`hi`), "", false)
+		assert.False(t, ok, c)
+	}
+}
+
+// A shown action is answered only for a row the box reads, whose JSON decodes
+// to an action of its tool's kind; each refusal is a bare sentinel, never the
+// decoder's error, which can quote the row.
+func TestAShownActionIsReadUnderItsContract(t *testing.T) {
+	box := NewBox([]Tool{echo}, reader{"read", ActionRead})
+
+	got, err := box.Shown("echo", "echo/v1", json.RawMessage(`{"description":"d","command":{"text":"ls"}}`))
+	require.NoError(t, err)
+	assert.Equal(t, Action{Description: "d", Command: &CommandAction{Text: "ls"}}, got)
+
+	for name, c := range map[string]struct {
+		name     string
+		contract ContractName
+		stored   string
+		want     error
+	}{
+		"no reader":        {"missing", "missing/v1", `{"command":{"text":"ls"}}`, ErrNoReader},
+		"another contract": {"echo", "echo/v2", `{"command":{"text":"ls"}}`, ErrContract},
+		"no contract":      {"echo", "", `{"command":{"text":"ls"}}`, ErrContract},
+		"not json":         {"echo", "echo/v1", `{"command":`, ErrDecode},
+		"a field retyped":  {"echo", "echo/v1", `{"command":{"text":7}}`, ErrDecode},
+		"another kind":     {"read", "read/v1", `{"command":{"text":"ls"}}`, ErrKind},
+	} {
+		_, err := box.Shown(c.name, c.contract, json.RawMessage(c.stored))
+		assert.Equal(t, c.want, err, name)
+	}
+}
+
+// A watch's result is answered only for a LogsWatch row the box reads, whose
+// JSON decodes, each refusal a bare sentinel.
+func TestAWatchResultIsReadUnderItsContract(t *testing.T) {
+	box := NewBox(nil, reader{"watch", ActionLogsWatch}, reader{"read", ActionRead})
+
+	got, err := box.WatchResult("watch", "watch/v1", json.RawMessage(`{"text":"t"}`))
+	require.NoError(t, err)
+	assert.Equal(t, WatchResult{Text: "t"}, got)
+
+	for name, c := range map[string]struct {
+		name     string
+		contract ContractName
+		stored   string
+		want     error
+	}{
+		"no reader":        {"missing", "missing/v1", `{}`, ErrNoReader},
+		"another contract": {"watch", "watch/v2", `{}`, ErrContract},
+		"a field retyped":  {"watch", "watch/v1", `{"text":1}`, ErrDecode},
+		"another kind":     {"read", "read/v1", `{}`, ErrKind},
+	} {
+		_, err := box.WatchResult(c.name, c.contract, json.RawMessage(c.stored))
+		assert.Equal(t, c.want, err, name)
+	}
+}
+
 // The reader is handed the row's cwd and whether a sandbox confined the call.
 func TestAStoredCallIsReadWithItsRow(t *testing.T) {
 	var cwd string
 	var sandboxed bool
 	box := NewBox([]Tool{rowReader{custom{reader{"echo", ActionCommand}}, &cwd, &sandboxed}})
 
-	_, ok := box.Action("echo", json.RawMessage(`x`), "/work", true)
+	_, ok := box.Action("echo", "echo/v1", json.RawMessage(`x`), "/work", true)
 	require.True(t, ok)
 	assert.Equal(t, "/work", cwd)
 	assert.True(t, sandboxed)
@@ -316,9 +380,9 @@ func TestAStoredCallShowsOnlyItsToolsKind(t *testing.T) {
 	stop := custom{reader{"TaskStop", ActionStop}}
 	box := NewBox([]Tool{liar{custom{reader{"echo", ActionCommand}}}, stop})
 
-	_, ok := box.Action("echo", json.RawMessage(`x`), "", false)
+	_, ok := box.Action("echo", "echo/v1", json.RawMessage(`x`), "", false)
 	assert.False(t, ok)
-	_, ok = box.Action("TaskStop", json.RawMessage(`{}`), "", false)
+	_, ok = box.Action("TaskStop", "taskstop/v1", json.RawMessage(`{}`), "", false)
 	assert.False(t, ok)
 }
 
@@ -339,7 +403,7 @@ func TestATurnIsOfferedItsList(t *testing.T) {
 	assert.Equal(t, []llm.ToolDefinition{{Name: "echo"}}, defs, "stop is not listed, and bash is a reader alone")
 	assert.Equal(t, []llm.NativeOffer{{Tool: search, Server: true, MaxUses: 5}}, native, "in box order, whatever the list's")
 	assert.Equal(t, []string{"## echo", "## " + search.name}, turn.Prompts())
-	_, ok := turn.Action("bash", json.RawMessage(`ls`), "", false)
+	_, ok := turn.Action("bash", "bash/v1", json.RawMessage(`ls`), "", false)
 	assert.False(t, ok)
 
 	turn = box.For(target(llm.DialectMessages), []string{"echo", search.name})

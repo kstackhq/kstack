@@ -446,8 +446,10 @@ var backgroundTaskStatuses = map[string]BackgroundTaskStatus{
 	taskStopped: BackgroundTaskStopped, taskLost: BackgroundTaskLost,
 }
 
-// backgroundTaskOf is a task's row as the wire serves it.
-func backgroundTaskOf(t *taskState) *BackgroundTask {
+// backgroundTaskOf is the task's row of call r as the wire serves it, a watch's
+// result read through box.
+func backgroundTaskOf(box tools.Box, r toolCallEntry) *BackgroundTask {
+	t := r.Task
 	if t == nil {
 		return nil
 	}
@@ -459,12 +461,11 @@ func backgroundTaskOf(t *taskState) *BackgroundTask {
 		b.ExitCode = &code
 	}
 	if t.Result != "" {
-		r, err := watchResultOf(t.Result)
-		if err != nil {
-			slog.Warn("could not read a watch's result", "err", err)
+		w, ok := watchResultOf(box, r, t.Result)
+		if !ok {
 			return b
 		}
-		b.Matched, b.EndedBecause, b.ViewAround = r.Lines, r.EndedBecause, r.ViewAround
+		b.Matched, b.EndedBecause, b.ViewAround = w.Lines, w.EndedBecause, w.ViewAround
 	}
 	return b
 }
@@ -502,7 +503,7 @@ func marshalToolCalls(rows []toolCallEntry, box tools.Box) rawjson.RawJSON {
 		c := ToolCall{
 			ID: r.ID, ToolUseID: r.ToolUseID, Name: r.Name, Contract: r.Contract, Arguments: argumentsJSON(r.Arguments),
 			Status: status, RunsOn: runsOn, ActionKind: actionKindOf(box, r), Action: actionOf(box, r),
-			Output: r.Result, IsError: r.Error != "", Background: backgroundTaskOf(r.Task),
+			Output: r.Result, IsError: r.Error != "", Background: backgroundTaskOf(box, r),
 			ClusterWrites: clusterWritesOf(r), Network: toolCallNetworkOf(r.Network),
 		}
 		if a := r.Approval; a != nil {
@@ -523,15 +524,28 @@ func marshalToolCalls(rows []toolCallEntry, box tools.Box) rawjson.RawJSON {
 
 // actionOf is what a stored call does: the action its run showed, else its
 // arguments read through box, and nil when nothing reads them (tools.Box.Action).
+// A shown action the box refuses is no action, and one warning.
 func actionOf(box tools.Box, r toolCallEntry) *tools.Action {
-	if r.Shown != nil {
-		return r.Shown
+	contract := tools.ContractName(r.Contract)
+	if r.Shown != "" {
+		a, err := box.Shown(r.Name, contract, json.RawMessage(r.Shown))
+		if err != nil {
+			warnRefused(r.ID, "shown_action", err)
+			return nil
+		}
+		return &a
 	}
-	a, ok := box.Action(r.Name, json.RawMessage(r.Arguments), r.Cwd, r.Sandboxed)
+	a, ok := box.Action(r.Name, contract, json.RawMessage(r.Arguments), r.Cwd, r.Sandboxed)
 	if !ok {
 		return nil
 	}
 	return &a
+}
+
+// warnRefused logs a stored payload of call the box refused: which payload, and
+// the sentinel alone, since a decoder's error can quote the row.
+func warnRefused(call ToolCallID, payload string, err error) {
+	slog.Warn("could not read a call's stored json", "call", string(call), "payload", payload, "err", err)
 }
 
 // actionKindOf is a stored call's kind, read through box, and nil when nothing

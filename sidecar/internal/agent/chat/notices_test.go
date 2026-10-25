@@ -305,14 +305,16 @@ func TestANoticeTurnDropsTheView(t *testing.T) {
 func TestAWatchsNoticeCarriesItsSample(t *testing.T) {
 	t.Parallel()
 
-	result := `{"text":"Watched 2 lines.","lines":[{"message":"a"},{"message":"b"}],"endedBecause":"it reached its line limit"}`
+	result := &tools.WatchResult{
+		Text: "Watched 2 lines.", Lines: []tools.LogsReadLine{{Message: "a"}, {Message: "b"}}, EndedBecause: "it reached its line limit",
+	}
 	n := noticeOf(waitingNotice{id: "t1", path: "/p", status: taskMatched, watch: true, description: "Panics", result: result})
 	assert.Equal(t, llm.TaskNotice{
 		Kind: llm.TaskWatch, ID: "t1", Status: llm.TaskMatched, Description: "Panics", Result: "Watched 2 lines.", Matched: 2,
 	}, n)
 
 	failed := noticeOf(waitingNotice{id: "t1", path: "/p", status: taskFailed, watch: true, description: "Panics",
-		result: `{"text":"every container stopped","lines":[],"endedBecause":"every container stopped"}`})
+		result: &tools.WatchResult{Text: "every container stopped", Lines: []tools.LogsReadLine{}, EndedBecause: "every container stopped"}})
 	assert.Equal(t, "every container stopped", failed.Error)
 
 	lost := noticeOf(waitingNotice{id: "t1", path: "/p", status: taskLost, watch: true, description: "Panics"})

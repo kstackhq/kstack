@@ -522,7 +522,7 @@ func (s *service) Send(ctx context.Context, chatID *ChatID, mode Mode, clusterID
 		)
 		if snap != nil {
 			var ok bool
-			toolUseID, view, ok, err = viewCall(ctx, st, *chatID, snap.CallID)
+			toolUseID, view, ok, err = viewCall(ctx, st, s.tools, *chatID, snap.CallID)
 			if err != nil {
 				return err
 			}

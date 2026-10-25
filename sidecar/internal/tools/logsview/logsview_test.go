@@ -27,6 +27,7 @@ import (
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/clustertest"
+	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
 	"github.com/kstackhq/kstack/sidecar/internal/tools"
 	"github.com/kstackhq/kstack/sidecar/internal/tools/internal/logsinput/logsinputtest"
 )
@@ -430,4 +431,24 @@ func TestRunAnswersTheReceipt(t *testing.T) {
 	text, isError := onClock(logsinputtest.Watching(t)).Run(t.Context(), tools.Runtime{ClusterID: "7"}, json.RawMessage(webapp))
 	assert.False(t, isError)
 	assert.True(t, strings.HasPrefix(text, "Viewing deployments/webapp in prod"), text)
+}
+
+// Stored shown actions decode the same forever: never edit this table. A bump
+// adds a table of its own.
+func TestShownOldRowsDecodeTheSame(t *testing.T) {
+	box := tools.NewBox(nil, &Tool{})
+	at := time.Date(2026, time.October, 20, 9, 30, 0, 0, time.UTC)
+	for stored, want := range map[string]tools.Action{
+		`{"description":"Tail api","command":null,"read":null,"write":null,"edit":null,"search":null,"fetch":null,"memory":null,"delegate":null,"kubeQuery":null,"logsView":{"sources":[{"namespace":"web","kind":"deployment","name":"api","containers":null,"allContainers":false,"previous":false}],"filters":null,"grep":"error","anchor":{"kind":"tail","at":null},"pinToEnd":true,"resolvedAt":"2026-10-20T09:30:00Z"},"logsRead":null,"logsWatch":null}`: {
+			Description: "Tail api",
+			LogsView: &tools.LogsViewAction{
+				LogsScopeInput: tools.LogsScopeInput{Sources: []logs.ScopeSource{{Namespace: "web", Kind: logs.SourceDeployment, Name: "api"}}, Grep: "error"},
+				Anchor:         tools.LogsViewAnchor{Kind: tools.LogsAnchorTail}, PinToEnd: true, ResolvedAt: at,
+			},
+		},
+	} {
+		got, err := box.Shown(Name, ContractName, json.RawMessage(stored))
+		require.NoError(t, err, stored)
+		assert.Equal(t, want, got, stored)
+	}
 }

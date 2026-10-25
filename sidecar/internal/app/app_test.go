@@ -50,7 +50,7 @@ func TestTheFileToolsAreOfferedWithoutAShell(t *testing.T) {
 	assert.Equal(t, []string{"Read", "Memory", "Write", "Edit", "WebFetch", "TaskStop", "Agent", "KubeQuery", "LogsView", "LogsRead", "LogsWatch"}, definitionNames(defs))
 	require.Len(t, native, 1)
 	assert.Equal(t, anthropicwebsearch.Name, native[0].Tool.Name())
-	got, ok := box.Action(bash.Name, json.RawMessage(`{"command":"ls"}`), "/srv", false)
+	got, ok := box.Action(bash.Name, bash.ContractName, json.RawMessage(`{"command":"ls"}`), "/srv", false)
 	assert.True(t, ok, "a stored bash call still shows")
 	assert.Equal(t, "ls", got.Command.Text)
 }

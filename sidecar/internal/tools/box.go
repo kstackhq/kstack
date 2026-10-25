@@ -16,6 +16,7 @@ package tools
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 
@@ -179,6 +180,15 @@ func (b Box) Prompts() []string {
 	return out
 }
 
+// Why a stored payload is refused. Each is bare: a decoder's error can quote the
+// stored text, so a caller logs the sentinel alone.
+var (
+	ErrNoReader = errors.New("no tool reads the row")
+	ErrContract = errors.New("the row is not under its tool's contract")
+	ErrDecode   = errors.New("the stored json does not decode")
+	ErrKind     = errors.New("the stored payload is not of its tool's kind")
+)
+
 // ContractOf is the contract a new row of name records: its reader's, or none
 // when no reader has the name.
 func (b Box) ContractOf(name string) ContractName {
@@ -190,12 +200,12 @@ func (b Box) ContractOf(name string) ContractName {
 }
 
 // Action is what a stored call does, read by the tool or reader its row names,
-// whether or not this turn offers it. False when none reads it, when the tool
-// refuses the arguments, or when the action is not of the tool's kind, so a
-// call never shows as something its tool does not do.
-func (b Box) Action(name string, input json.RawMessage, cwd string, sandboxed bool) (Action, bool) {
-	r, ok := b.reader(name)
-	if !ok {
+// whether or not this turn offers it. False when the box does not read the row
+// (readerOf), when the tool refuses the arguments, or when the action is not of
+// the tool's kind, so a call never shows as something its tool does not do.
+func (b Box) Action(name string, contract ContractName, input json.RawMessage, cwd string, sandboxed bool) (Action, bool) {
+	r, err := b.readerOf(name, contract)
+	if err != nil {
 		return Action{}, false
 	}
 	a, err := r.Action(input, cwd, sandboxed)
@@ -203,6 +213,40 @@ func (b Box) Action(name string, input json.RawMessage, cwd string, sandboxed bo
 		return Action{}, false
 	}
 	return a, true
+}
+
+// Shown is the action a Shown tool's run stored for a row, when the box reads
+// the row, the JSON decodes, and the action is of the tool's kind.
+func (b Box) Shown(name string, contract ContractName, stored json.RawMessage) (Action, error) {
+	r, err := b.readerOf(name, contract)
+	if err != nil {
+		return Action{}, err
+	}
+	var a Action
+	if err := json.Unmarshal(stored, &a); err != nil {
+		return Action{}, ErrDecode
+	}
+	if a.Kind() != r.ActionKind() {
+		return Action{}, ErrKind
+	}
+	return a, nil
+}
+
+// WatchResult is the result a LogsWatch call's task stored, when the box reads
+// the call's row and the JSON decodes.
+func (b Box) WatchResult(name string, contract ContractName, stored json.RawMessage) (WatchResult, error) {
+	r, err := b.readerOf(name, contract)
+	if err != nil {
+		return WatchResult{}, err
+	}
+	if r.ActionKind() != ActionLogsWatch {
+		return WatchResult{}, ErrKind
+	}
+	var w WatchResult
+	if err := json.Unmarshal(stored, &w); err != nil {
+		return WatchResult{}, ErrDecode
+	}
+	return w, nil
 }
 
 // ActionKind is what a stored call does, by the kind of the tool or reader its
@@ -213,6 +257,20 @@ func (b Box) ActionKind(name string) (ActionKind, bool) {
 		return "", false
 	}
 	return r.ActionKind(), true
+}
+
+// readerOf is the reader of a row of name stored under contract: ErrNoReader
+// when none has the name, ErrContract when the contract is not the reader's
+// own, so a row with no contract, or one a newer build wrote, is never read.
+func (b Box) readerOf(name string, contract ContractName) (Reader, error) {
+	r, ok := b.reader(name)
+	switch {
+	case !ok:
+		return nil, ErrNoReader
+	case r.ContractName() != contract:
+		return nil, ErrContract
+	}
+	return r, nil
 }
 
 // reader is the reader of the row named name. Every row is written under its

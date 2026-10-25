@@ -464,3 +464,29 @@ func TestTheDesignsExamples(t *testing.T) {
 		assert.Equal(t, "page: prev=none next=none follow=none", strings.Split(text, "\n")[2])
 	})
 }
+
+// Stored shown actions decode the same forever: never edit this table. A bump
+// adds a table of its own.
+func TestShownOldRowsDecodeTheSame(t *testing.T) {
+	box := tools.NewBox(nil, &Tool{})
+	at := time.Date(2026, time.October, 20, 9, 30, 0, 0, time.UTC)
+	pod := tools.LogsScopeInput{Sources: []logs.ScopeSource{{Namespace: "web", Kind: logs.SourcePod, Name: "api-0"}}}
+	for stored, want := range map[string]tools.Action{
+		`{"description":"Read api","command":null,"read":null,"write":null,"edit":null,"search":null,"fetch":null,"memory":null,"delegate":null,"kubeQuery":null,"logsView":null,"logsRead":{"sources":[{"namespace":"web","kind":"pod","name":"api-0","containers":null,"allContainers":false,"previous":false}],"filters":null,"grep":"","since":"2026-10-20T08:30:00Z","until":null,"before":{"lines":5,"span":""},"after":{"lines":0,"span":"PT1M"},"pageFrom":"last","resolvedAt":"2026-10-20T09:30:00Z","lines":[{"timestamp":"2026-10-20T09:29:00Z","namespace":"web","pod":"api-0","container":"app","previous":false,"message":"panic: boom","gap":null,"truncatedBytes":0}],"olderMore":true,"newerMore":false,"notices":[{"code":"cut","message":"cut"}],"viewAround":{"sources":[{"namespace":"web","kind":"pod","name":"api-0","containers":null,"allContainers":false,"previous":false}],"filters":null,"grep":"","anchor":{"kind":"at","at":"2026-10-20T09:29:00Z"},"pinToEnd":false,"resolvedAt":"2026-10-20T09:30:00Z"}},"logsWatch":null}`: {
+			Description: "Read api",
+			LogsRead: &tools.LogsReadAction{
+				LogsScopeInput: pod, Since: new(at.Add(-time.Hour)), Before: tools.LogsPadding{Lines: 5}, After: tools.LogsPadding{Span: "PT1M"},
+				PageFrom: new(logs.PageFromLast), ResolvedAt: at,
+				Lines:     []tools.LogsReadLine{{Timestamp: at.Add(-time.Minute), Namespace: "web", Pod: "api-0", Container: "app", Message: "panic: boom"}},
+				OlderMore: true, Notices: []tools.LogsNotice{{Code: "cut", Message: "cut"}},
+				ViewAround: &tools.LogsViewAction{
+					LogsScopeInput: pod, Anchor: tools.LogsViewAnchor{Kind: tools.LogsAnchorAt, At: new(at.Add(-time.Minute))}, ResolvedAt: at,
+				},
+			},
+		},
+	} {
+		got, err := box.Shown(Name, ContractName, json.RawMessage(stored))
+		require.NoError(t, err, stored)
+		assert.Equal(t, want, got, stored)
+	}
+}

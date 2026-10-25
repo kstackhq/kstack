@@ -2738,8 +2738,12 @@ func TestNothingTurnsNetworkOnWhereItIsUnavailable(t *testing.T) {
 	assert.Len(t, questions(t, s, first.ChatID), 1, "nothing written")
 }
 
+// logToolOf is the log tool whose run shows an action of kind.
+var logToolOf = map[tools.ActionKind]string{tools.ActionLogsView: "LogsView", tools.ActionLogsRead: "LogsRead", tools.ActionLogsWatch: "LogsWatch"}
+
 // seedViewCall files a settled turn in chatID whose one call showed shown, as a
-// LogsView call's run does, and returns the call's id.
+// log tool's run does, and returns the call's id. With no action shown, the call
+// is a LogsView call's.
 func seedViewCall(t *testing.T, db *appdb.DB, chatID ChatID, toolUseID string, shown *tools.Action) ToolCallID {
 	t.Helper()
 	at := time.Now()
@@ -2749,14 +2753,14 @@ func seedViewCall(t *testing.T, db *appdb.DB, chatID ChatID, toolUseID string, s
 	_, err := db.Write.Exec(`INSERT INTO llm_calls (id, run_id, seq, provider, model, started_at) VALUES (?, ?, 0, 'fake', 'fake', ?)`,
 		llmCall, string(turn.Run), millis(at))
 	require.NoError(t, err)
-	var action any
+	name, action := "LogsView", any(nil)
 	if shown != nil {
 		raw, err := json.Marshal(shown)
 		require.NoError(t, err)
-		action = string(raw)
+		name, action = logToolOf[shown.Kind()], string(raw)
 	}
-	_, err = db.Write.Exec(`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, status, shown_action, created_at)
-		VALUES (?, ?, 0, 'LogsView', ?, '{}', 'succeeded', ?, ?)`, string(id), llmCall, toolUseID, action, millis(at))
+	_, err = db.Write.Exec(`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, contract_name, tool_use_id, arguments, status, shown_action, created_at)
+		VALUES (?, ?, 0, ?, ?, ?, '{}', 'succeeded', ?, ?)`, string(id), llmCall, name, string(testReaders.ContractOf(name)), toolUseID, action, millis(at))
 	require.NoError(t, err)
 	return id
 }
@@ -2882,8 +2886,8 @@ func seedSubagentCall(t *testing.T, db *appdb.DB, chatID ChatID, toolUseID strin
 	require.NoError(t, err)
 	raw, err := json.Marshal(shown)
 	require.NoError(t, err)
-	_, err = db.Write.Exec(`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, tool_use_id, arguments, status, shown_action, created_at)
-		VALUES (?, ?, 0, 'LogsRead', ?, '{}', 'succeeded', ?, ?)`, string(id), llmCall, toolUseID, string(raw), millis(at))
+	_, err = db.Write.Exec(`INSERT INTO tool_calls (id, llm_call_id, seq, tool_name, contract_name, tool_use_id, arguments, status, shown_action, created_at)
+		VALUES (?, ?, 0, 'LogsRead', 'logsread/v1', ?, '{}', 'succeeded', ?, ?)`, string(id), llmCall, toolUseID, string(raw), millis(at))
 	require.NoError(t, err)
 	return id
 }

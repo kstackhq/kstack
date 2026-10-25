@@ -50,15 +50,16 @@ const nothingToSay = "it had nothing to say"
 // waitingNotice is a finished task whose notice has not reached the model, with
 // the call that started it, and agentDescription, the description of the Agent
 // call whose subagent made that call, empty for the answer's own. agent marks an
-// agent's task, whose run gave report and runError; watch a watch's, whose row
-// holds result, its tools.WatchResult as JSON; underSend, that the turn whose call
-// started it was a user's send.
+// agent's task, whose run gave report and runError; watch a watch's, with result
+// its row's, nil when it has none the box reads; underSend, that the turn whose
+// call started it was a user's send.
 type waitingNotice struct {
 	id, toolUseID, path, status, stoppedBy string
 	exitCode                               *int
 	description, command, agentDescription string
 	agent, watch, underSend                bool
-	report, runError, result               string
+	report, runError                       string
+	result                                 *tools.WatchResult
 }
 
 // noticeOf is the notice a waiting task gives the model. A completed agent's
@@ -96,14 +97,9 @@ func noticeOf(w waitingNotice) llm.TaskNotice {
 // watchNoticeOf is n as a watch's: its sample, the lines it held counted, and a
 // failed watch's reason as its error. Its file is empty, so it names none. A lost
 // watch's row has no result.
-func watchNoticeOf(n llm.TaskNotice, result string) llm.TaskNotice {
+func watchNoticeOf(n llm.TaskNotice, r *tools.WatchResult) llm.TaskNotice {
 	n.Kind, n.OutputFile = llm.TaskWatch, ""
-	if result == "" {
-		return n
-	}
-	r, err := watchResultOf(result)
-	if err != nil {
-		slog.Warn("could not read a watch's result", "err", err)
+	if r == nil {
 		return n
 	}
 	n.Result, n.Matched = r.Text, len(r.Lines)
