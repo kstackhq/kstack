@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -317,9 +318,7 @@ func TestEachRefusalIsAForbiddenStatus(t *testing.T) {
 		"path":          {method: "GET", path: "/metrics", why: refusedPath},
 	} {
 		req := s.request(t, c.method, c.path, s.g.Token())
-		for k, vs := range c.header {
-			req.Header[k] = vs
-		}
+		maps.Copy(req.Header, c.header)
 		resp, body := s.do(t, req)
 		t.Run(name, func(t *testing.T) { assertForbidden(t, resp, body, c.why) })
 	}

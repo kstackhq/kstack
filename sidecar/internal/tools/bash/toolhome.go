@@ -64,7 +64,7 @@ func makeToolHome(dir tools.ChatDir) error {
 // makeIn makes each level of rel, a slash-separated path, under root.
 func makeIn(root *os.Root, rel string) error {
 	parent := root
-	for _, name := range strings.Split(rel, "/") {
+	for name := range strings.SplitSeq(rel, "/") {
 		next, err := rootdir.Open(parent, name, true)
 		if parent != root {
 			parent.Close()

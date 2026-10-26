@@ -100,7 +100,7 @@ func TestTheModelChangesOnlyItsOwnNotes(t *testing.T) {
 	h := newHarness(t)
 	ctx := t.Context()
 	h.global(t, "prefs")
-	_, err := h.svc.Create(ctx, Input{ClusterID: ptr(clusterA), Name: "runbook", Body: "the body of runbook"})
+	_, err := h.svc.Create(ctx, Input{ClusterID: new(clusterA), Name: "runbook", Body: "the body of runbook"})
 	require.NoError(t, err)
 
 	require.ErrorIs(t, h.svc.Save(ctx, clusterA, "runbook", "narrowed", ""), ErrUserNote)
@@ -196,7 +196,7 @@ func TestANameIsUniqueInItsScope(t *testing.T) {
 
 	_, err := h.svc.Create(ctx, input(nil, "pages"))
 	require.NoError(t, err, "a global name a cluster holds")
-	_, err = h.svc.Create(ctx, input(ptr(clusterA), "prefs"))
+	_, err = h.svc.Create(ctx, input(new(clusterA), "prefs"))
 	require.NoError(t, err, "a cluster name a global holds")
 	assert.Equal(t, []string{"pages", "prefs", "pages", "prefs"}, h.names(t, clusterA))
 
@@ -204,9 +204,9 @@ func TestANameIsUniqueInItsScope(t *testing.T) {
 	require.ErrorIs(t, err, ErrNameTaken, "a second global under one name")
 	_, err = h.svc.Update(ctx, h.get(t, clusterB, "pages").ID, input(nil, "pages"))
 	require.ErrorIs(t, err, ErrNameTaken, "a move into a scope that holds the name")
-	mine, err := h.svc.Create(ctx, input(ptr(clusterA), "mine"))
+	mine, err := h.svc.Create(ctx, input(new(clusterA), "mine"))
 	require.NoError(t, err)
-	_, err = h.svc.Update(ctx, mine.ID, input(ptr(clusterA), "pages"))
+	_, err = h.svc.Update(ctx, mine.ID, input(new(clusterA), "pages"))
 	require.ErrorIs(t, err, ErrNameTaken, "a rename onto a name the scope holds")
 }
 
@@ -238,13 +238,11 @@ func input(cluster *apimeta.ClusterID, name string) Input {
 	return Input{ClusterID: cluster, Name: name, Body: "body"}
 }
 
-func ptr[T any](v T) *T { return &v }
-
 func TestTheUserCreatesUpdatesAndDeletesByID(t *testing.T) {
 	h := newHarness(t)
 	ctx := t.Context()
 
-	m, err := h.svc.Create(ctx, input(ptr(clusterA), "mine"))
+	m, err := h.svc.Create(ctx, input(new(clusterA), "mine"))
 	require.NoError(t, err)
 	assert.Equal(t, AuthorUser, m.WrittenBy)
 	assert.Equal(t, m, h.get(t, clusterA, "mine"))
@@ -254,12 +252,12 @@ func TestTheUserCreatesUpdatesAndDeletesByID(t *testing.T) {
 	assert.Nil(t, m.ClusterID)
 	assert.Equal(t, []string{"renamed"}, h.names(t, clusterB))
 
-	m, err = h.svc.Update(ctx, m.ID, input(ptr(clusterB), "renamed"))
+	m, err = h.svc.Update(ctx, m.ID, input(new(clusterB), "renamed"))
 	require.NoError(t, err, "a move back to one cluster")
 	assert.Equal(t, clusterB, *m.ClusterID)
 	assert.Empty(t, h.names(t, clusterA))
 
-	_, err = h.svc.Update(ctx, "missing", input(ptr(clusterB), "renamed"))
+	_, err = h.svc.Update(ctx, "missing", input(new(clusterB), "renamed"))
 	require.ErrorIs(t, err, ErrNotFound)
 
 	require.NoError(t, h.svc.Delete(ctx, m.ID))
@@ -278,8 +276,8 @@ func TestOnlyTheUserWritesARequest(t *testing.T) {
 	}
 
 	for name, in := range map[string]Input{
-		"edited":  {ClusterID: ptr(clusterA), Name: "edited", Body: "tidied"},
-		"renamed": {ClusterID: ptr(clusterA), Name: "renamed-again", Body: "the body of renamed"},
+		"edited":  {ClusterID: new(clusterA), Name: "edited", Body: "tidied"},
+		"renamed": {ClusterID: new(clusterA), Name: "renamed-again", Body: "the body of renamed"},
 		"moved":   {Name: "moved", Body: "the body of moved"},
 	} {
 		m, err := h.svc.Update(ctx, h.get(t, clusterA, name).ID, in)
@@ -298,13 +296,13 @@ func TestTheUsersWritesFollowTheStoresRules(t *testing.T) {
 
 	_, err := h.svc.Create(ctx, input(nil, "Bad Name"))
 	require.ErrorIs(t, err, ErrBadInput)
-	secret := input(ptr(clusterA), "secret")
+	secret := input(new(clusterA), "secret")
 	secret.Body = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.c2ln"
 	_, err = h.svc.Create(ctx, secret)
 	require.ErrorIs(t, err, ErrSecret)
 
 	exec(t, h.db, `UPDATE clusters SET delete_requested_at = 1 WHERE id = ?`, string(clusterB))
-	_, err = h.svc.Create(ctx, input(ptr(clusterB), "late"))
+	_, err = h.svc.Create(ctx, input(new(clusterB), "late"))
 	require.ErrorIs(t, err, ErrClusterGone)
 }
 
@@ -318,12 +316,12 @@ func TestAWriteStampsTheServerUID(t *testing.T) {
 	h.uids.set(clusterA, "uid-1")
 	h.save(t, clusterA, "saved")
 	assert.Equal(t, "uid-1", *h.get(t, clusterA, "saved").ServerUID)
-	created, err := h.svc.Create(ctx, input(ptr(clusterA), "created"))
+	created, err := h.svc.Create(ctx, input(new(clusterA), "created"))
 	require.NoError(t, err)
 	assert.Equal(t, "uid-1", *created.ServerUID)
 
 	h.uids.set(clusterA, "uid-2")
-	updated, err := h.svc.Update(ctx, created.ID, input(ptr(clusterA), "created"))
+	updated, err := h.svc.Update(ctx, created.ID, input(new(clusterA), "created"))
 	require.NoError(t, err)
 	assert.Equal(t, "uid-2", *updated.ServerUID, "a rewrite after a rebuild stamps the new one")
 

@@ -269,14 +269,12 @@ func TestConcurrentValidTokenSingleRefresh(t *testing.T) {
 
 	const n = 16
 	var wg sync.WaitGroup
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range n {
+		wg.Go(func() {
 			if _, err := m.validToken(context.Background()); err != nil {
 				t.Errorf("validToken: %v", err)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	if got := atomic.LoadInt32(&refreshes); got != 1 {

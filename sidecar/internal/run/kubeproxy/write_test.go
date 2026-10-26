@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -394,9 +395,7 @@ type writeCase struct {
 func (s *served) sendWrite(t *testing.T, asker fakeAsker, c writeCase) (reply, *Write) {
 	t.Helper()
 	req := s.writeRequest(t, c.method, c.path, c.contentType, c.body)
-	for k, vs := range c.header {
-		req.Header[k] = vs
-	}
+	maps.Copy(req.Header, c.header)
 	done := s.sendAsync(t, req)
 	select {
 	case a := <-asker:

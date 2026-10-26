@@ -161,8 +161,7 @@ func readFile(file string) (object, error) {
 // is no one field to refuse it as, and reading it as empty would answer the
 // zero value of every field in it, restricting ones included.
 func checkGroups(keys object, t reflect.Type, prefix string) error {
-	for i := range t.NumField() {
-		f := t.Field(i)
+	for f := range t.Fields() {
 		name := keyOf(f)
 		if name == "" || f.Type.Kind() != reflect.Struct {
 			continue

@@ -97,9 +97,6 @@ func stamps(t *testing.T, s *Store, id int64) []*int64 {
 	return out
 }
 
-// ms is a stamp, for comparing against stamps.
-func ms(v int64) *int64 { return &v }
-
 // insertStream adds one stream and answers its id.
 func insertStream(t *testing.T, f *file) int64 {
 	t.Helper()
@@ -346,7 +343,7 @@ func TestAWriteOfLinesPingsItsStreams(t *testing.T) {
 	a, b := twoStreams(t, s)
 	pings := subscribe(t, s, a, b)
 
-	write(t, s, Fill{Stream: b, Backend: "kubelet", Next: ptr(at(1, 0))})
+	write(t, s, Fill{Stream: b, Backend: "kubelet", Next: new(at(1, 0))})
 	write(t, s, Fill{Stream: a, Backend: "kubelet", Lines: lines(at(1, 0))})
 
 	// First touch orders the pings, so b's would come first.

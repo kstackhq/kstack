@@ -50,7 +50,7 @@ func TestEvictTakesAChunkAndItsLines(t *testing.T) {
 	s := newTestStore(t)
 	id := streamOf(t, s)
 	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0))},
-		Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0)), Prev: ptr(at(2, 0))})
+		Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0)), Prev: new(at(2, 0))})
 	chunks, err := s.Chunks(t.Context(), id, "")
 	require.NoError(t, err)
 
@@ -105,7 +105,7 @@ func TestEvictTakesTheChunkAsItIsNow(t *testing.T) {
 	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0))})
 	chunks, err := s.Chunks(t.Context(), id, "")
 	require.NoError(t, err)
-	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0)), Prev: ptr(at(2, 0)), Merge: true})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0)), Prev: new(at(2, 0)), Merge: true})
 
 	require.NoError(t, s.Evict(t.Context(), chunks[0].ID, anyStamp))
 

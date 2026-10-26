@@ -243,9 +243,7 @@ func (t *Tool) startQueuedProbe() {
 	p.queued, p.running = nil, true
 	p.started++
 	p.publish()
-	p.wg.Add(1)
-	go func() {
-		defer p.wg.Done()
+	p.wg.Go(func() {
 		batch.reports = t.runProbe(p.ctx, batch.registered)
 		p.mu.Lock()
 		defer p.mu.Unlock()
@@ -256,7 +254,7 @@ func (t *Tool) startQueuedProbe() {
 		} else {
 			p.publish()
 		}
-	}()
+	})
 }
 
 // Close ends a running probe and waits for it, then ends every watcher.
@@ -480,7 +478,7 @@ func (d probeDir) Root(create bool) (*os.Root, error) {
 
 // firstLine is s's first line holding more than whitespace, trimmed.
 func firstLine(s string) string {
-	for _, line := range strings.Split(s, "\n") {
+	for line := range strings.SplitSeq(s, "\n") {
 		if line = strings.TrimSpace(line); line != "" {
 			return line
 		}

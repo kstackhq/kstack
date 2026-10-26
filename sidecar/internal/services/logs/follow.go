@@ -1291,9 +1291,7 @@ func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) {
 	}
 	wm := tr.wm
 	tr.filling = true
-	f.fills.Add(1)
-	go func() {
-		defer f.fills.Done()
+	f.fills.Go(func() {
 		d := f.readGap(ctx, fl, g, wm)
 		d.tr = tr
 		select {
@@ -1301,7 +1299,7 @@ func (f *follow) fill(ctx context.Context, tr *tracked, g logstore.Gap) {
 		case <-ctx.Done():
 			d.release()
 		}
-	}()
+	})
 }
 
 // readGap runs fl's read of g from wm, writing what it read, held. On an error it

@@ -53,8 +53,7 @@ func TestWallClock_SmallGap_NoPoke(t *testing.T) {
 	ch, cancel := b.Subscribe()
 	defer cancel()
 
-	ctx, cancelCtx := context.WithCancel(context.Background())
-	defer cancelCtx()
+	ctx := t.Context()
 	go b.Run(ctx)
 
 	tickCh <- time.Time{}

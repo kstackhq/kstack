@@ -400,10 +400,8 @@ func holdsMark(value any) bool {
 			}
 		}
 	case []any:
-		for _, item := range v {
-			if holdsMark(item) {
-				return true
-			}
+		if slices.ContainsFunc(v, holdsMark) {
+			return true
 		}
 	}
 	return false

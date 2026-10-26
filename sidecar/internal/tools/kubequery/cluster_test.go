@@ -113,14 +113,12 @@ func (f fakeCachedData) Query(_ context.Context, _ cluster.ClusterID, cacheID cl
 	return f.query, !f.queryGone, nil
 }
 
-func strp(s string) *string { return &s }
-
 // healthy is a cluster named prod whose active cache, 11, is watching.
 func healthy() *fakeService {
 	return &fakeService{
 		active: cluster.ActiveCluster{
 			Cluster: &cluster.Cluster{ID: "7", Spec: cluster.ClusterSpec{
-				Name:   strp("prod"),
+				Name:   new("prod"),
 				Source: cluster.ClusterSpecSource{Kubeconfig: &cluster.ClusterSpecSourceKubeconfig{Context: "prod-admin"}},
 			}},
 			Cache: &cluster.ClusterCache{RecordMeta: cluster.RecordMeta{ID: 11}},

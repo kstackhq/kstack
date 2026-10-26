@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"slices"
 	"strings"
 
 	yamlv2 "go.yaml.in/yaml/v2"
@@ -232,7 +233,7 @@ func redactDocument(doc string, midLine bool) (string, error) {
 	if midLine {
 		out.WriteString("\n")
 	}
-	for _, line := range strings.Split(doc, "\n") {
+	for line := range strings.SplitSeq(doc, "\n") {
 		if trimmed := strings.TrimSpace(line); trimmed != "" && !strings.HasPrefix(trimmed, "#") {
 			break
 		}
@@ -274,10 +275,8 @@ func holdsSecret(v any) bool {
 			}
 		}
 	case []any:
-		for _, e := range v {
-			if holdsSecret(e) {
-				return true
-			}
+		if slices.ContainsFunc(v, holdsSecret) {
+			return true
 		}
 	}
 	return false

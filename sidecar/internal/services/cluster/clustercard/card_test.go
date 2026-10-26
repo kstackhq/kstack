@@ -114,8 +114,6 @@ func (f fakeCachedData) ListObjects(context.Context, cluster.ClusterID, cluster.
 	return out, f.gone == "", nil
 }
 
-func strp(s string) *string { return &s }
-
 // clusterRecord is a reachable, identified record whose server UID is uid ("" for a
 // cluster never identified).
 func clusterRecord(uid string) *cluster.Cluster {
@@ -125,11 +123,11 @@ func clusterRecord(uid string) *cluster.Cluster {
 			{Type: "Identified", Status: cluster.ConditionTrue, Reason: "Identified"},
 		},
 		Spec: cluster.ClusterSpec{
-			Name:   strp("prod"),
+			Name:   new("prod"),
 			Source: cluster.ClusterSpecSource{Kubeconfig: &cluster.ClusterSpecSourceKubeconfig{Context: "prod-admin"}},
 		},
 		Status: cluster.ClusterStatus{
-			Server: cluster.ClusterServer{Version: strp("v1.31.2")},
+			Server: cluster.ClusterServer{Version: new("v1.31.2")},
 			Source: cluster.ClusterStatusSource{Kubeconfig: &cluster.ClusterStatusSourceKubeconfig{
 				Cluster: cluster.ClusterStatusSourceKubeconfigCluster{Entry: &cluster.ClusterStatusSourceKubeconfigClusterEntry{Server: "https://10.0.0.1:6443"}},
 			}},

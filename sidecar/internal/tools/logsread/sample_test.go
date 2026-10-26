@@ -44,7 +44,7 @@ func TestTheWidestPagePrintsItsTokensWhole(t *testing.T) {
 	var objects []map[string]any
 	var sources, pods []string
 	for i := range 100 {
-		sum := sha256.Sum256([]byte(fmt.Sprint(i)))
+		sum := sha256.Sum256(fmt.Append(nil, i))
 		id := hex.EncodeToString(sum[:])
 		pod := deployment + "-" + id[:10] + "-" + id[10:15]
 		o := logsinputtest.PodOf(pod, "", nil, logsinputtest.Container{Name: "app"})

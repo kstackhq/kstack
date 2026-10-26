@@ -204,7 +204,7 @@ func TestTheFilterAssembles(t *testing.T) {
 // with name.
 func limitOf(t *testing.T, limits, name string) string {
 	t.Helper()
-	for _, line := range strings.Split(limits, "\n") {
+	for line := range strings.SplitSeq(limits, "\n") {
 		if rest, ok := strings.CutPrefix(line, name); ok {
 			return strings.Fields(rest)[0]
 		}

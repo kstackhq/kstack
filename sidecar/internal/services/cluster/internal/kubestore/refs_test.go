@@ -16,6 +16,7 @@ package kubestore
 
 import (
 	"context"
+	"maps"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -64,9 +65,9 @@ func podSpecRows(at string) []refRow {
 		{Path: at + ".volumes[3].projected.sources[1].secret.name", ToKind: "Secret", ToNamespace: "prod", ToName: "sec-proj"},
 		{Path: at + ".imagePullSecrets[0].name", ToKind: "Secret", ToNamespace: "prod", ToName: "regcred"},
 		{Path: at + ".volumes[2].persistentVolumeClaim.claimName", ToKind: "PersistentVolumeClaim", ToNamespace: "prod", ToName: "data"},
-		{Path: at + ".containers[0].env[1].valueFrom.configMapKeyRef", ToKind: "ConfigMap", ToNamespace: "prod", ToName: "cm-env", Key: ptr("level")},
+		{Path: at + ".containers[0].env[1].valueFrom.configMapKeyRef", ToKind: "ConfigMap", ToNamespace: "prod", ToName: "cm-env", Key: new("level")},
 		{Path: at + ".containers[0].envFrom[0].configMapRef.name", ToKind: "ConfigMap", ToNamespace: "prod", ToName: "cm-from"},
-		{Path: at + ".containers[0].env[2].valueFrom.secretKeyRef", ToKind: "Secret", ToNamespace: "prod", ToName: "sec-env", Key: ptr("token")},
+		{Path: at + ".containers[0].env[2].valueFrom.secretKeyRef", ToKind: "Secret", ToNamespace: "prod", ToName: "sec-env", Key: new("token")},
 		{Path: at + ".initContainers[0].envFrom[0].secretRef.name", ToKind: "Secret", ToNamespace: "prod", ToName: "init-env"},
 		{Path: at + ".serviceAccountName", ToKind: "ServiceAccount", ToNamespace: "prod", ToName: "api"},
 		{Path: at + ".priorityClassName", ToGroup: "scheduling.k8s.io", ToKind: "PriorityClass", ToName: "high"},
@@ -79,9 +80,7 @@ func bodyOf(apiVersion, kind string, fields map[string]any) *unstructured.Unstru
 		"apiVersion": apiVersion, "kind": kind,
 		"metadata": map[string]any{"uid": "uid-1", "name": "x", "namespace": "prod", "resourceVersion": "1"},
 	}
-	for k, v := range fields {
-		m[k] = v
-	}
+	maps.Copy(m, fields)
 	return obj(m)
 }
 
@@ -229,9 +228,7 @@ func TestRefsReadOptional(t *testing.T) {
 
 	optional := func(ref map[string]any, set bool) map[string]any {
 		out := map[string]any{"optional": set}
-		for k, v := range ref {
-			out[k] = v
-		}
+		maps.Copy(out, ref)
 		return out
 	}
 	spec := func(set bool) map[string]any {

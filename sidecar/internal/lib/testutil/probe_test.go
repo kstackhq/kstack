@@ -61,13 +61,11 @@ func TestProbeIsSafeUnderConcurrentFire(t *testing.T) {
 	p := NewProbe[int](8)
 	var wg sync.WaitGroup
 	for range 4 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := range 250 {
 				p.Fire(i)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	got, ok := p.TryAwait()

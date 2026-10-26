@@ -104,12 +104,11 @@ func timeOf(s string) (time.Time, time.Duration, error) {
 	if err != nil {
 		return time.Time{}, 0, errNotAMoment
 	}
-	dot := strings.IndexByte(s, '.')
-	if dot < 0 {
+	_, frac, ok := strings.Cut(s, ".")
+	if !ok {
 		return at.UTC(), time.Second, nil
 	}
 	// time.Parse reads a tenth digit and drops it; a fraction is at most nine.
-	frac := s[dot+1:]
 	digits := len(frac) - len(strings.TrimLeft(frac, "0123456789"))
 	if digits > 9 {
 		return time.Time{}, 0, errNotAMoment

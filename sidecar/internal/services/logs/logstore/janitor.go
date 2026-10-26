@@ -60,9 +60,7 @@ type candidate struct {
 // count nothing, so a sweep never owes the next.
 func (m *Manager) startJanitor(cacheID int64, f *file) {
 	f.sweepBytes = m.ret.SweepBytes
-	f.janitor.Add(1)
-	go func() {
-		defer f.janitor.Done()
+	f.janitor.Go(func() {
 		t := time.NewTicker(m.ret.Interval)
 		defer t.Stop()
 		for {
@@ -76,7 +74,7 @@ func (m *Manager) startJanitor(cacheID int64, f *file) {
 				slog.Warn("log store: a sweep failed", "cacheID", cacheID, "err", err)
 			}
 		}
-	}()
+	})
 }
 
 // Sweep runs one sweep of the claim's file, as its janitor does.

@@ -641,8 +641,7 @@ func TestCachesWatchStatsEmitsTheCurrentMeasurement(t *testing.T) {
 // a list of twenty caches would otherwise pin twenty idle files open — and the measurement
 // needs no open file anyway, since Manager.Stats reads a closed one directly.
 func TestCachesWatchStatsDoesNotHoldAnIdleCacheOpen(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	d := newTestDeps(t)
 	cluster := createCluster(t, d, "prod")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
@@ -1877,8 +1876,7 @@ func cacheOverABrokenStore(t *testing.T) (deps, *beehive.Object[ClusterCacheSpec
 // rather than a wait for the next tick. It binds late, because the file opens when a
 // worker arms — after the gauge is already running.
 func TestCachesWatchStatsRemeasuresOnAWrite(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	d := newTestDeps(t)
 	cluster := createCluster(t, d, "prod")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
@@ -1919,8 +1917,7 @@ func TestCachesWatchStatsEndsOnAMeasurementItCannotTake(t *testing.T) {
 // the cache is still the caller's, and the fresh file's pings come through a subscription
 // the old one never carried.
 func TestCachesWatchStatsRebindsWhenTheStoreClosesUnderIt(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	d := newTestDeps(t)
 	cluster := createCluster(t, d, "prod")
 	cache := createCache(t, d.cacheClient, cluster, "uid-1")
@@ -2018,8 +2015,7 @@ func TestCachesWatchHealthSaysNothingWhileTheVerdictHoldsStill(t *testing.T) {
 	setKindReason(d, cacheID, deploymentsSpec, kubesync.KindState{Reason: kubesync.ReasonWatching, LastLiveAt: probedAt})
 	svc := serviceOver(t, d)
 	svc.gaugeCadence = time.Millisecond
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	stream, err := svc.Caches().WatchHealth(ctx)
 	require.NoError(t, err)

@@ -37,19 +37,19 @@ func TestAFailedStoreIsAnError(t *testing.T) {
 	assert.Error(t, h.svc.SaveEverywhere(ctx, "n", "b", ""))
 	assert.Error(t, h.svc.Forget(ctx, clusterA, "n"))
 	assert.Error(t, h.svc.ForgetEverywhere(ctx, "n"))
-	_, err = h.svc.Create(ctx, input(ptr(clusterA), "c"))
+	_, err = h.svc.Create(ctx, input(new(clusterA), "c"))
 	assert.Error(t, err)
-	_, err = h.svc.Update(ctx, m.ID, input(ptr(clusterA), "c"))
+	_, err = h.svc.Update(ctx, m.ID, input(new(clusterA), "c"))
 	assert.Error(t, err)
 	assert.Error(t, h.svc.Delete(ctx, m.ID))
 
 	// The helpers, each on its own, since a transaction that cannot begin never
 	// reaches the second.
-	_, err = scopeByName(ctx, st, ptr(clusterA), "n")
+	_, err = scopeByName(ctx, st, new(clusterA), "n")
 	assert.Error(t, err)
 	assert.Error(t, checkCluster(ctx, st, clusterA))
 	assert.Error(t, checkName(ctx, st, Memory{Name: "n"}))
-	assert.Error(t, checkName(ctx, st, Memory{Name: "n", ClusterID: ptr(clusterA)}))
+	assert.Error(t, checkName(ctx, st, Memory{Name: "n", ClusterID: new(clusterA)}))
 	_, err = memoryByID(ctx, st, m.ID)
 	assert.Error(t, err)
 	_, err = scopeNotes(ctx, st, nil)

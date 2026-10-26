@@ -80,8 +80,7 @@ func (f *dataFixture) stopWorkers() {
 // already-open file would show an empty nav over a full cache — on a pause, and on every
 // restart until the first worker arms.
 func TestCachedDataReadsACacheWhoseWorkersStopped(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	f := newDataFixture(t)
 	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{
 		{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: kubestore.ScopeNamespaced},
@@ -127,8 +126,7 @@ func dataEvent(uid, rv string, count int64) *unstructured.Unstructured {
 // A pair that does not resolve is definitively empty rather than an error or a wait: the
 // cache is gone, or was never this cluster's, and no row will ever arrive for it.
 func TestCachedDataGatesAnUnknownPair(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	f := newDataFixture(t)
 
 	kinds, err := f.data().ListKinds(ctx, f.clusterID, 9999)
@@ -186,8 +184,7 @@ func TestListKindsReadsTheCatalog(t *testing.T) {
 // An advertised kind shows before its worker has synced anything — Count 0, not absent,
 // which is what the nav promises.
 func TestWatchKindsStreamsTheCatalogWithCounts(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	f := newDataFixture(t)
 	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{
 		{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: kubestore.ScopeNamespaced},
@@ -214,8 +211,7 @@ func TestWatchKindsStreamsTheCatalogWithCounts(t *testing.T) {
 // The store carries a CRD's printer columns as JSON, and this projection is where they become
 // the typed value the wire serves.
 func TestWatchKindsDecodesPrinterColumns(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	f := newDataFixture(t)
 	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{{
 		APIVersion: "example.com/v1", Kind: "Widget", Resource: "widgets",
@@ -249,8 +245,7 @@ func TestAMalformedPrinterColumnBlobYieldsNoColumns(t *testing.T) {
 // sitting on the dashboard. Decoding anywhere before the diff would leave the columns out of the
 // compared value, and the table would only pick them up on the next reconnect.
 func TestWatchKindsReportsAColumnsOnlyChange(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	f := newDataFixture(t)
 	row := kubestore.KindRow{
 		APIVersion: "example.com/v1", Kind: "Widget", Resource: "widgets",
@@ -275,8 +270,7 @@ func TestWatchKindsReportsAColumnsOnlyChange(t *testing.T) {
 // The objects watch carries the kind as provenance beside the cache, since one client
 // switching resources within a cache has to reject the previous subscription's stragglers.
 func TestWatchObjectsCarriesItsKindAsProvenance(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	f := newDataFixture(t)
 	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{
 		{APIVersion: "v1", Kind: "Pod", Resource: "pods", Scope: kubestore.ScopeNamespaced},
@@ -301,8 +295,7 @@ func TestWatchObjectsCarriesItsKindAsProvenance(t *testing.T) {
 // body is dead weight: applyChange deletes by uid and never looks at the entity. Nothing
 // else would catch a hydrate that fired on every frame type.
 func TestWatchObjectsSendsADeletedFrameWithoutABody(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	f := newDataFixture(t)
 	podKind := kubestore.Kind{APIVersion: "v1", Kind: "Pod", Resource: "pods"}
 	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{
@@ -327,8 +320,7 @@ func TestWatchObjectsSendsADeletedFrameWithoutABody(t *testing.T) {
 // A watch narrowed to namespaces sends only their objects, with no body, and a
 // change elsewhere sends nothing.
 func TestWatchObjectsInSendsOnlyItsNamespaces(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	f := newDataFixture(t)
 	podKind := kubestore.Kind{APIVersion: "v1", Kind: "Pod", Resource: "pods"}
 	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{
@@ -378,8 +370,7 @@ func TestHydrateObjectServesNoBodyForARowThatIsGone(t *testing.T) {
 
 // The events watch is its own bus, so an event storm does not drive the object watches.
 func TestWatchEventsStreamsTheNewestWindow(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	f := newDataFixture(t)
 	require.NoError(t, f.store.ApplyChange(ctx, kubestore.Kind{
 		APIVersion: "v1", Kind: "Event", Resource: "events",
@@ -409,8 +400,7 @@ func TestMillisToTimeKeepsZeroAsAbsence(t *testing.T) {
 // The two watches gate on the same pair the reads do, and a pair that can never resolve
 // gets a bookmark over an empty collection rather than a stream that waits forever.
 func TestTheObjectAndEventWatchesGateOnThePairToo(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	f := newDataFixture(t)
 
 	objects, err := f.data().WatchObjects(ctx, ClusterID("9999"), f.cacheID, "v1", "pods")
@@ -451,8 +441,7 @@ func TestListKindsReportsACatalogItCannotRead(t *testing.T) {
 // watch reading both in one burst must end holding the rows. Final state, not frame count —
 // the two land in one burst here and in two on a kind large enough to outrun the debounce.
 func TestWatchObjectsKeepsRowsThatWereClearedAndRelisted(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	f := newDataFixture(t)
 	podKind := kubestore.Kind{APIVersion: "v1", Kind: "Pod", Resource: "pods"}
 	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{
@@ -486,8 +475,7 @@ func TestWatchObjectsKeepsRowsThatWereClearedAndRelisted(t *testing.T) {
 // OLD Kind, so a cursor read under the new one sees neither — the watch would hold the old
 // rows for as long as it stayed connected.
 func TestWatchObjectsDropsRowsWhenTheKindBehindThePluralIsRenamed(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	f := newDataFixture(t)
 	was := kubestore.Kind{APIVersion: "v1", Kind: "Widget", Resource: "widgets"}
 	require.NoError(t, f.store.SyncKinds(ctx, []kubestore.KindRow{
@@ -515,8 +503,7 @@ func TestWatchObjectsDropsRowsWhenTheKindBehindThePluralIsRenamed(t *testing.T) 
 // The events watch reads what moved past its cursor like the objects watch does, so a
 // re-fired event reaches the client as a Modified rather than waiting for a reconnect.
 func TestWatchEventsSendsWhatMovedAfterTheSnapshot(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	f := newDataFixture(t)
 	eventsKind := kubestore.Kind{APIVersion: "v1", Kind: "Event", Resource: "events"}
 	require.NoError(t, f.store.ApplyChange(ctx, eventsKind, watch.Added, dataEvent("ev-1", "10", 1)))

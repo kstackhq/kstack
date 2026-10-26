@@ -39,9 +39,6 @@ func addEvent[Status any](t *testing.T, admin *beehive.AdminClient[Status], id b
 	}))
 }
 
-// ptr takes the address of a literal, for the two optional arguments under test.
-func ptr[T any](v T) *T { return &v }
-
 // reasonsOf reads the machine codes out of a timeline, which is what these tests
 // assert on: the run's identity, not its sampled message.
 func reasonsOf(events []Event) []string {
@@ -118,14 +115,14 @@ func TestListEventsMapsCategoryAndLimit(t *testing.T) {
 	})
 
 	t.Run("a category selects its own", func(t *testing.T) {
-		got, err := svc.ListEvents(ctx, id, ptr(ConnectionEventCategory), nil)
+		got, err := svc.ListEvents(ctx, id, new(ConnectionEventCategory), nil)
 
 		require.NoError(t, err)
 		assert.Equal(t, []string{"Connected", "Connecting"}, reasonsOf(got), "newest run first")
 	})
 
 	t.Run("a limit bounds the read", func(t *testing.T) {
-		got, err := svc.ListEvents(ctx, id, ptr(ConnectionEventCategory), ptr(1))
+		got, err := svc.ListEvents(ctx, id, new(ConnectionEventCategory), new(1))
 
 		require.NoError(t, err)
 		assert.Equal(t, []string{"Connected"}, reasonsOf(got), "the newest run survives the bound")
@@ -154,7 +151,7 @@ func TestWatchEventsSnapshotsThenBookmarksThenTails(t *testing.T) {
 	admin := beehive.NewAdminClient[ClusterStatus](bh, ClusterGroupKind)
 	addEvent(t, admin, cluster.ID, harnessCategory, "Stored")
 
-	stream, err := serviceOver(t, d).WatchEvents(ctx, ObjectID(cluster.ID), ptr(harnessCategory))
+	stream, err := serviceOver(t, d).WatchEvents(ctx, ObjectID(cluster.ID), new(harnessCategory))
 
 	require.NoError(t, err)
 	assert.Equal(t, "Stored", awaitRun(t, stream, "the snapshot").Reason)
@@ -171,7 +168,7 @@ func TestWatchEventsBookmarksAnEmptyTimeline(t *testing.T) {
 	d, _ := newRunningRegisteredDeps(t)
 	cluster := createCluster(t, d, "prod")
 
-	stream, err := serviceOver(t, d).WatchEvents(t.Context(), ObjectID(cluster.ID), ptr(harnessCategory))
+	stream, err := serviceOver(t, d).WatchEvents(t.Context(), ObjectID(cluster.ID), new(harnessCategory))
 
 	require.NoError(t, err)
 	assert.Equal(t, EventFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)
@@ -196,7 +193,7 @@ func TestWatchEventsEndsCleanlyWhenTheRecordIsCollected(t *testing.T) {
 	addEvent(t, beehive.NewAdminClient[ClusterCachedKindStatus](bh, ClusterCachedKindGroupKind),
 		kind.ID, harnessCategory, "SyncComplete")
 
-	stream, err := serviceOver(t, d).WatchEvents(ctx, ObjectID(kind.ID), ptr(harnessCategory))
+	stream, err := serviceOver(t, d).WatchEvents(ctx, ObjectID(kind.ID), new(harnessCategory))
 	require.NoError(t, err)
 	require.Equal(t, "SyncComplete", awaitRun(t, stream, "the snapshot").Reason)
 
@@ -229,7 +226,7 @@ func TestWatchEventsStopsForAConsumerThatIsGone(t *testing.T) {
 	addEvent(t, admin, cluster.ID, ConnectionEventCategory, "Connecting")
 	addEvent(t, admin, cluster.ID, ConnectionEventCategory, "Connected")
 
-	stream, err := serviceOver(t, d).WatchEvents(ctx, ObjectID(cluster.ID), ptr(ConnectionEventCategory))
+	stream, err := serviceOver(t, d).WatchEvents(ctx, ObjectID(cluster.ID), new(ConnectionEventCategory))
 	require.NoError(t, err)
 	cancel()
 
@@ -246,7 +243,7 @@ func TestWatchEventsStopsOnTheBookmarkForAConsumerThatIsGone(t *testing.T) {
 	addEvent(t, beehive.NewAdminClient[ClusterStatus](bh, ClusterGroupKind),
 		cluster.ID, ConnectionEventCategory, "Connecting")
 
-	stream, err := serviceOver(t, d).WatchEvents(ctx, ObjectID(cluster.ID), ptr(ConnectionEventCategory))
+	stream, err := serviceOver(t, d).WatchEvents(ctx, ObjectID(cluster.ID), new(ConnectionEventCategory))
 	require.NoError(t, err)
 	cancel()
 
@@ -265,14 +262,14 @@ func TestClusterEventsResolveByName(t *testing.T) {
 	addEvent(t, beehive.NewAdminClient[ClusterStatus](bh, ClusterGroupKind), cluster.ID, harnessCategory, "Stored")
 	clusters := serviceOver(t, d).Clusters()
 
-	evs, err := clusters.ListEvents(ctx, clusterIDOf(cluster), ptr(harnessCategory), nil)
+	evs, err := clusters.ListEvents(ctx, clusterIDOf(cluster), new(harnessCategory), nil)
 	require.NoError(t, err)
 	assert.Equal(t, []string{"Stored"}, reasonsOf(evs))
 	evs, err = clusters.ListEvents(ctx, ClusterID("404"), nil, nil)
 	require.NoError(t, err)
 	assert.Empty(t, evs)
 
-	stream, err := clusters.WatchEvents(ctx, clusterIDOf(cluster), ptr(harnessCategory))
+	stream, err := clusters.WatchEvents(ctx, clusterIDOf(cluster), new(harnessCategory))
 	require.NoError(t, err)
 	assert.Equal(t, "Stored", awaitRun(t, stream, "the snapshot").Reason)
 	assert.Equal(t, EventFrameBookmark, testutil.Recv(t, stream.Frames, "the bookmark").Type)

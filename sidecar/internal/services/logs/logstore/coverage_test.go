@@ -25,9 +25,6 @@ import (
 // at is the position of the ord-th line at s seconds past 10:00.
 func at(s int64, ord int) Pos { return Pos{TS: second(s), Ord: ord} }
 
-// ptr is p's address.
-func ptr(p Pos) *Pos { return &p }
-
 // chunk is a kubelet chunk from from to to.
 func chunk(from, to Pos) Chunk { return Chunk{From: from, To: to, Backend: "kubelet"} }
 
@@ -53,9 +50,9 @@ func TestCoverageJoinsOverlappingAndLinkedChunks(t *testing.T) {
 
 	assert.Equal(t, []Span{{at(1, 0), at(8, 1)}, {at(10, 0), at(11, 0)}}, cov.Spans)
 	assert.Equal(t, []Gap{
-		{Before: ptr(at(1, 0))},
-		{After: ptr(at(8, 1)), Before: ptr(at(10, 0))},
-		{After: ptr(at(11, 0))},
+		{Before: new(at(1, 0))},
+		{After: new(at(8, 1)), Before: new(at(10, 0))},
+		{After: new(at(11, 0))},
 	}, cov.Gaps)
 }
 
@@ -213,8 +210,8 @@ func TestAGapPastATailersStartIsTheTailers(t *testing.T) {
 	assert.Equal(t, []bool{false, true, false, false, false}, atTail, "the gap up to the start ends at it")
 	assert.Equal(t, []bool{false, true, false, false, true}, newest, "the newest a fill may read, and the newest")
 	cut := at(10, 1)
-	assert.Equal(t, [2]*Pos{ptr(at(5, 0)), &cut}, edges[1], "the range up to the start")
-	assert.Equal(t, [2]*Pos{&start, ptr(at(12, 0))}, edges[2], "the range past it")
+	assert.Equal(t, [2]*Pos{new(at(5, 0)), &cut}, edges[1], "the range up to the start")
+	assert.Equal(t, [2]*Pos{&start, new(at(12, 0))}, edges[2], "the range past it")
 
 	for _, g := range CoverageOf(chunks, kubelet, nil).Gaps {
 		assert.False(t, g.Tailed, "with no tailer")
@@ -231,7 +228,7 @@ func TestTheNewestGapIsTheTailersPastItsStartAlone(t *testing.T) {
 		gaps := CoverageOf(chunks, kubelet, &start).Gaps
 		below, past := gaps[len(gaps)-2], gaps[len(gaps)-1]
 		assert.True(t, below.Live(), "up to the start")
-		assert.Equal(t, ptr(at(10, 1)), below.Before)
+		assert.Equal(t, new(at(10, 1)), below.Before)
 		assert.True(t, past.Tailed, "past the start")
 		assert.Nil(t, past.Before)
 	}

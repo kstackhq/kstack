@@ -316,7 +316,7 @@ func askForJSON(h http.Header) {
 func acceptedTypes(h http.Header) []string {
 	var types []string
 	for _, v := range h.Values("Accept") {
-		for _, t := range strings.Split(v, ",") {
+		for t := range strings.SplitSeq(v, ",") {
 			types = append(types, strings.TrimSpace(t))
 		}
 	}

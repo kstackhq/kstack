@@ -19,6 +19,7 @@ package loginshell
 import (
 	"bytes"
 	"context"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -613,7 +614,7 @@ func TestTheShellsEnvironmentIsScrubbed(t *testing.T) {
 	out, err := os.ReadFile(seen)
 	require.NoError(t, err)
 	got := map[string]string{}
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		name, value, _ := strings.Cut(line, "=")
 		switch name {
 		case "PWD", "OLDPWD", "SHLVL", "_":
@@ -623,9 +624,7 @@ func TestTheShellsEnvironmentIsScrubbed(t *testing.T) {
 		}
 	}
 	want := map[string]string{"SHELL": shell, "TERM": "dumb", "DISABLE_AUTO_UPDATE": "true", "PATH": DefaultPath}
-	for name, value := range kept {
-		want[name] = value
-	}
+	maps.Copy(want, kept)
 	require.Equal(t, want, got)
 }
 

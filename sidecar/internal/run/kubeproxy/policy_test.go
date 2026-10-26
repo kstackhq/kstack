@@ -15,6 +15,7 @@
 package kubeproxy
 
 import (
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -123,9 +124,7 @@ func TestThePolicy(t *testing.T) {
 // policyRequest is c as the proxy receives it.
 func policyRequest(c policyCase) *http.Request {
 	r := httptest.NewRequest(c.method, "http://cluster.kstack.invalid"+c.path, nil)
-	for k, vs := range c.header {
-		r.Header[k] = vs
-	}
+	maps.Copy(r.Header, c.header)
 	return r
 }
 

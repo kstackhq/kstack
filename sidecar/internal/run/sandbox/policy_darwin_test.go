@@ -36,7 +36,7 @@ func cpuSeconds(pid string) float64 {
 		return -1
 	}
 	total := 0.0
-	for _, part := range strings.Split(strings.TrimSpace(string(out)), ":") {
+	for part := range strings.SplitSeq(strings.TrimSpace(string(out)), ":") {
 		n, err := strconv.ParseFloat(part, 64)
 		if err != nil {
 			return -1

@@ -162,6 +162,8 @@ jobs:
         run: GOOS=windows go vet ./...
       - name: Check sidecar dependencies
         run: sh scripts/check-sidecar-deps.sh
+      - name: Check go fix
+        run: sh scripts/check-go-fix.sh
       # After both passes, so the cache holds the Windows target's builds too,
       # and a failed job leaves the last cache the newest.
       - name: Save Go cache

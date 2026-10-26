@@ -33,11 +33,9 @@ func (s *Sandbox) probePolicy(shell, dir, home string) Policy {
 // hang on a network mount, so it is built on a goroutine left behind then.
 func (s *Sandbox) probePolicyWithin(ctx context.Context, shell, dir, home string) (Policy, error) {
 	built, build := make(chan Policy, 1), buildProbePolicy
-	policyBuilds.Add(1)
-	go func() {
-		defer policyBuilds.Done()
+	policyBuilds.Go(func() {
 		built <- build(s, shell, dir, home)
-	}()
+	})
 	select {
 	case p := <-built:
 		return p, nil

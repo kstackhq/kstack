@@ -125,7 +125,7 @@ func reaches(h http.Header) bool {
 		return true
 	}
 	for _, v := range h.Values("Connection") {
-		for _, token := range strings.Split(v, ",") {
+		for token := range strings.SplitSeq(v, ",") {
 			if strings.EqualFold(strings.TrimSpace(token), "upgrade") {
 				return true
 			}

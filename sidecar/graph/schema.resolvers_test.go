@@ -1543,8 +1543,7 @@ func TestClusterPrincipalPermissionsIsNotImplemented(t *testing.T) {
 // exercises the stream adapter behind it — watchStream for the frame types,
 // ptrStream for the bare gauge.
 func TestGaugeAndTimelineSubscriptionsCarryTheirFirstValue(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	r := &graph.Resolver{ClusterSvc: newFakeClusterService(clusterFixtures())}
 
 	events, err := r.Subscription().EventsWatch(ctx, 1, nil)

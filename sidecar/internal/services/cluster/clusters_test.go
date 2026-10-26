@@ -869,7 +869,7 @@ func TestReconcileSkipsADeletingRecord(t *testing.T) {
 func TestToCluster(t *testing.T) {
 	uid := "uid-1"
 	row := ClusterRow{
-		ID: "7", Source: SourceKubeconfig, SourceKey: ptr("prod"), Name: ptr("Prod"),
+		ID: "7", Source: SourceKubeconfig, SourceKey: new("prod"), Name: new("Prod"),
 		Enabled: true, SyncEnabled: true, MonitoringEnabled: true,
 		CreatedAt: t0, UpdatedAt: t0.Add(time.Second),
 	}
@@ -899,7 +899,7 @@ func TestToCluster(t *testing.T) {
 // A row the mirror has not given an object yet — or whose object it has already
 // removed — has zero status and no conditions.
 func TestToClusterWithNoObject(t *testing.T) {
-	c := toCluster(ClusterRow{ID: "7", Source: SourceKubeconfig, SourceKey: ptr("prod")}, nil)
+	c := toCluster(ClusterRow{ID: "7", Source: SourceKubeconfig, SourceKey: new("prod")}, nil)
 
 	assert.Equal(t, ClusterStatus{}, c.Status)
 	assert.Empty(t, c.Conditions)
@@ -1829,8 +1829,8 @@ func observePresence(t *testing.T, status *beehive.AdminClient[ClusterStatus], o
 // ordering by nothing would reshuffle the list between reads.
 func TestClusterSortKeyFallsBackToTheRowsID(t *testing.T) {
 	assert.Equal(t, "row-id", clusterSortKey(ClusterRow{ID: "row-id", Source: "cloud"}))
-	assert.Equal(t, "prod", clusterSortKey(ClusterRow{ID: "row-id", SourceKey: ptr("prod")}))
-	assert.Equal(t, "Prod", clusterSortKey(ClusterRow{ID: "row-id", SourceKey: ptr("prod"), Name: ptr("Prod")}))
+	assert.Equal(t, "prod", clusterSortKey(ClusterRow{ID: "row-id", SourceKey: new("prod")}))
+	assert.Equal(t, "Prod", clusterSortKey(ClusterRow{ID: "row-id", SourceKey: new("prod"), Name: new("Prod")}))
 }
 
 // A marked row is closed to edits: a switch landing on one already going is reported

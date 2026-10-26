@@ -19,6 +19,7 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"io"
+	"maps"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -162,9 +163,7 @@ func TestANonJSONAnswerFailsClosed(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			closed := testutil.NewSignal()
 			api := newAPIServer(t, func(w http.ResponseWriter, r *http.Request) {
-				for k, v := range header {
-					w.Header()[k] = v
-				}
+				maps.Copy(w.Header(), header)
 				_, _ = io.WriteString(w, secretJSON)
 				w.(http.Flusher).Flush()
 				<-r.Context().Done()

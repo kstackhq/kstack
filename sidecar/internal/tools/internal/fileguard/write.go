@@ -335,7 +335,7 @@ func writeTempIn(root *os.Root, name string, content []byte, finish func(*os.Fil
 // is refused wherever it leads, since the file tools never write through one.
 func CreatableIn(root *os.Root, name string) error {
 	dir := "."
-	for _, part := range strings.Split(filepath.Dir(name), string(filepath.Separator)) {
+	for part := range strings.SplitSeq(filepath.Dir(name), string(filepath.Separator)) {
 		if part == "." {
 			break
 		}

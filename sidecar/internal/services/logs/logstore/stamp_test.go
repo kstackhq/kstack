@@ -44,15 +44,15 @@ func TestAPageStampsWhatItRead(t *testing.T) {
 
 	c.set(5_000)
 	require.NoError(t, s.Stamp(t.Context(), read()))
-	assert.Equal(t, []*int64{ms(5_000), nil}, stamps(t, s, id), "a chunk no page had read, and only the one named")
+	assert.Equal(t, []*int64{new(int64(5_000)), nil}, stamps(t, s, id), "a chunk no page had read, and only the one named")
 
 	c.set(5_999)
 	require.NoError(t, s.Stamp(t.Context(), read()))
-	assert.Equal(t, []*int64{ms(5_000), nil}, stamps(t, s, id), "within a tenth of ReadTTL")
+	assert.Equal(t, []*int64{new(int64(5_000)), nil}, stamps(t, s, id), "within a tenth of ReadTTL")
 
 	c.set(6_000)
 	require.NoError(t, s.Stamp(t.Context(), read()))
-	assert.Equal(t, []*int64{ms(6_000), nil}, stamps(t, s, id), "a tenth of ReadTTL on")
+	assert.Equal(t, []*int64{new(int64(6_000)), nil}, stamps(t, s, id), "a tenth of ReadTTL on")
 }
 
 // A stamp the file refuses fails, saying so; naming no chunk writes nothing.

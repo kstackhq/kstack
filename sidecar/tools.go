@@ -1,5 +1,4 @@
 //go:build tools
-// +build tools
 
 // Pins codegen tooling (gqlgen, protoc plugins) in go.sum so `gqlgen generate`
 // and `make proto` work on a fresh checkout.

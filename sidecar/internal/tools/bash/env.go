@@ -124,7 +124,7 @@ var (
 // spelled _, as asdf spells it. Any other line is skipped.
 func parseToolVersions(text string) []string {
 	var env []string
-	for _, line := range strings.Split(text, "\n") {
+	for line := range strings.SplitSeq(text, "\n") {
 		f := strings.Fields(line)
 		if len(f) < 2 || !asdfTool.MatchString(f[0]) || !asdfVersion.MatchString(f[1]) {
 			continue

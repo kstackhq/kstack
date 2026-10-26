@@ -22,6 +22,7 @@ import (
 	"io"
 	"math"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/kstackhq/kstack/sidecar/internal/services/logs"
@@ -234,10 +235,8 @@ func parseFilters(w walker, out *[]tools.LogsViewFilter) error {
 		if len(list) == 0 {
 			return &InputError{Field: "filters." + f.key, Source: -1, Message: "never empty"}
 		}
-		for _, v := range list {
-			if v == "" {
-				return &InputError{Field: "filters." + f.key, Source: -1, Message: "never empty"}
-			}
+		if slices.Contains(list, "") {
+			return &InputError{Field: "filters." + f.key, Source: -1, Message: "never empty"}
 		}
 		*out = append(*out, tools.LogsViewFilter{Field: f.field, Values: list})
 	}

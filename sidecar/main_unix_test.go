@@ -61,11 +61,9 @@ func TestRunServesUntilStdinCloses(t *testing.T) {
 
 	var code int
 	var done sync.WaitGroup
-	done.Add(1)
-	go func() {
-		defer done.Done()
+	done.Go(func() {
 		code = run(t.Context(), cfg, stdin, out)
-	}()
+	})
 
 	client := &http.Client{Transport: &http.Transport{
 		DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {

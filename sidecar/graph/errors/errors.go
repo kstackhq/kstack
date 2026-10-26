@@ -52,7 +52,7 @@ func Clone(e *gqlerror.Error) *gqlerror.Error {
 func NewError(code string, message string) *gqlerror.Error {
 	return &gqlerror.Error{
 		Message: message,
-		Extensions: map[string]interface{}{
+		Extensions: map[string]any{
 			"code": code,
 		},
 	}

@@ -109,10 +109,10 @@ func TestAWholeFillMergesIntoTheChunkItContinues(t *testing.T) {
 	id := streamOf(t, s)
 	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0))})
 
-	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(2, 1), at(3, 0)), Prev: ptr(at(2, 0)), Merge: true})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(2, 1), at(3, 0)), Prev: new(at(2, 0)), Merge: true})
 	assert.Equal(t, []Chunk{chunk(at(1, 0), at(3, 0))}, chunksOfStream(t, s, id))
 
-	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(9, 0)), Prev: ptr(at(3, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(9, 0)), Prev: new(at(3, 0))})
 	chunks := chunksOfStream(t, s, id)
 	assert.Equal(t, []Chunk{chunk(at(1, 0), at(3, 0)), linked(chunk(at(9, 0), at(9, 0)), at(3, 0))}, chunks)
 	assert.Len(t, CoverageOf(chunks, kubelet, nil).Spans, 1)
@@ -136,13 +136,13 @@ func TestAStampedFillStampsWhatItWrites(t *testing.T) {
 	assert.Equal(t, []int64{chunks[0].ID}, w.Chunks)
 
 	c.set(9_000)
-	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(2, 1)), Prev: ptr(at(2, 0)), Merge: true})
-	assert.Equal(t, []*int64{ms(9_000)}, stamps(t, s, id), "the chunk a stamped fill extended")
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(2, 1)), Prev: new(at(2, 0)), Merge: true})
+	assert.Equal(t, []*int64{new(int64(9_000))}, stamps(t, s, id), "the chunk a stamped fill extended")
 
 	c.set(12_000)
-	_, err = s.Write(t.Context(), []Fill{{Stream: id, Backend: "kubelet", Lines: lines(at(2, 2)), Prev: ptr(at(2, 1)), Merge: true}}, false)
+	_, err = s.Write(t.Context(), []Fill{{Stream: id, Backend: "kubelet", Lines: lines(at(2, 2)), Prev: new(at(2, 1)), Merge: true}}, false)
 	require.NoError(t, err)
-	assert.Equal(t, []*int64{ms(9_000)}, stamps(t, s, id), "an unstamped fill keeps the row's stamp")
+	assert.Equal(t, []*int64{new(int64(9_000))}, stamps(t, s, id), "an unstamped fill keeps the row's stamp")
 }
 
 // A fill whose stream row is gone is skipped, not failed: the janitor can remove a row
@@ -202,7 +202,7 @@ func TestNoFillExtendsAnOpenChunk(t *testing.T) {
 	id := streamOf(t, s)
 	openChunk(t, s, insertChunk(t, s, id, chunk(at(1, 0), at(2, 0))))
 
-	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(2, 1)), Prev: ptr(at(2, 0)), Merge: true})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(2, 1)), Prev: new(at(2, 0)), Merge: true})
 
 	tail := chunk(at(1, 0), at(2, 0))
 	tail.Open = true
@@ -244,8 +244,8 @@ func TestAFillLinksTheChunkItRanInto(t *testing.T) {
 		Fill{Stream: id, Backend: "kubelet", Lines: lines(at(5, 0))},
 		Fill{Stream: id, Backend: "kubelet", Lines: lines(at(9, 0))})
 
-	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0)), Next: ptr(at(5, 0))},
-		Fill{Stream: id, Backend: "kubelet", Prev: ptr(at(5, 0)), Next: ptr(at(9, 0))})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0)), Next: new(at(5, 0))},
+		Fill{Stream: id, Backend: "kubelet", Prev: new(at(5, 0)), Next: new(at(9, 0))})
 
 	chunks := chunksOfStream(t, s, id)
 	assert.Equal(t, []Chunk{
@@ -273,8 +273,8 @@ func TestAtBeginningAndAtEndAreWritten(t *testing.T) {
 	other, err := s.PutStreams(t.Context(), []Stream{{Namespace: "web", Pod: "api-7f9c", Container: "app", ContainerID: "containerd://2"}})
 	require.NoError(t, err)
 	write(t, s, Fill{Stream: other[0], Backend: "kubelet", Lines: lines(at(5, 0))})
-	write(t, s, Fill{Stream: other[0], Backend: "kubelet", Next: ptr(at(5, 0)), AtBeginning: true},
-		Fill{Stream: other[0], Backend: "kubelet", Prev: ptr(at(5, 0)), AtEnd: true})
+	write(t, s, Fill{Stream: other[0], Backend: "kubelet", Next: new(at(5, 0)), AtBeginning: true},
+		Fill{Stream: other[0], Backend: "kubelet", Prev: new(at(5, 0)), AtEnd: true})
 	end = chunk(at(5, 0), at(5, 0))
 	end.AtBeginning, end.AtEnd = true, true
 	assert.Equal(t, []Chunk{end}, chunksOfStream(t, s, other[0]))
@@ -312,8 +312,8 @@ func TestALabelledFillProvesNothingForOtherPatterns(t *testing.T) {
 	write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0))},
 		Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0))})
 
-	write(t, s, Fill{Stream: id, Backend: "kubelet", Pattern: "P", Prev: ptr(at(1, 0)), Next: ptr(at(3, 0)), AtBeginning: true, AtEnd: true})
-	write(t, s, Fill{Stream: id, Backend: "kubelet", Pattern: "P", Prev: ptr(at(3, 0)), AtEnd: true})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Pattern: "P", Prev: new(at(1, 0)), Next: new(at(3, 0)), AtBeginning: true, AtEnd: true})
+	write(t, s, Fill{Stream: id, Backend: "kubelet", Pattern: "P", Prev: new(at(3, 0)), AtEnd: true})
 
 	assert.Equal(t, []Chunk{chunk(at(1, 0), at(1, 0)), chunk(at(3, 0), at(3, 0))}, chunksOfStream(t, s, id))
 }
@@ -333,10 +333,10 @@ func TestAWriteTheFileRefusesFails(t *testing.T) {
 			return Fill{Stream: id, Backend: "kubelet", Lines: lines(at(3, 0))}
 		}},
 		"a beginning mark": {"UPDATE", "chunks", func(id int64) Fill {
-			return Fill{Stream: id, Backend: "kubelet", Next: ptr(at(1, 0)), AtBeginning: true}
+			return Fill{Stream: id, Backend: "kubelet", Next: new(at(1, 0)), AtBeginning: true}
 		}},
 		"an end mark": {"UPDATE", "chunks", func(id int64) Fill {
-			return Fill{Stream: id, Backend: "kubelet", Prev: ptr(at(2, 0)), AtEnd: true}
+			return Fill{Stream: id, Backend: "kubelet", Prev: new(at(2, 0)), AtEnd: true}
 		}},
 		"the trim": {"DELETE", "lines", func(id int64) Fill {
 			return Fill{Stream: id, Backend: "kubelet", Lines: lines(at(7, 0))}

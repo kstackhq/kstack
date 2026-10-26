@@ -43,8 +43,6 @@ func podOf(spec, status map[string]any) *unstructured.Unstructured {
 	})
 }
 
-func ptr[T any](v T) *T { return &v }
-
 func TestContainersReadSpecAndStatus(t *testing.T) {
 	t.Parallel()
 
@@ -80,16 +78,16 @@ func TestContainersReadSpecAndStatus(t *testing.T) {
 	})
 
 	assert.Equal(t, []containerRow{
-		{Init: 1, Position: 0, Name: "migrate", Image: ptr("api:1"), ImageID: ptr("api@sha256:a"), ContainerID: ptr("containerd://m1"),
-			Ready: ptr(0), Restarts: ptr(int64(0)), State: ptr("terminated"), Reason: ptr("Completed"), ExitCode: ptr(int64(0)),
-			CPURequest: ptr(1.0), CPULimit: ptr(2.0), MemoryRequest: ptr(float64(1 << 30)), MemoryLimit: ptr(float64(2 << 30))},
-		{Init: 1, Position: 1, Name: "proxy", Sidecar: 1, Image: ptr("envoy:1"), ImageID: ptr("envoy@sha256:b"), ContainerID: ptr("containerd://p1"),
-			Ready: ptr(1), Restarts: ptr(int64(0)), State: ptr("running")},
-		{Init: 0, Position: 0, Name: "api", Image: ptr("api:1"), ImageID: ptr("api@sha256:a"),
-			Ready: ptr(0), Restarts: ptr(int64(4)), State: ptr("waiting"), Reason: ptr("CrashLoopBackOff"),
-			LastReason: ptr("OOMKilled"), LastExitCode: ptr(int64(137)), LastContainerID: ptr("containerd://a4"),
-			CPURequest: ptr(0.25), MemoryRequest: ptr(float64(512 << 20))},
-		{Init: 0, Position: 1, Name: "sidecar", Image: ptr("log:1")},
+		{Init: 1, Position: 0, Name: "migrate", Image: new("api:1"), ImageID: new("api@sha256:a"), ContainerID: new("containerd://m1"),
+			Ready: new(0), Restarts: new(int64(0)), State: new("terminated"), Reason: new("Completed"), ExitCode: new(int64(0)),
+			CPURequest: new(1.0), CPULimit: new(2.0), MemoryRequest: new(float64(1 << 30)), MemoryLimit: new(float64(2 << 30))},
+		{Init: 1, Position: 1, Name: "proxy", Sidecar: 1, Image: new("envoy:1"), ImageID: new("envoy@sha256:b"), ContainerID: new("containerd://p1"),
+			Ready: new(1), Restarts: new(int64(0)), State: new("running")},
+		{Init: 0, Position: 0, Name: "api", Image: new("api:1"), ImageID: new("api@sha256:a"),
+			Ready: new(0), Restarts: new(int64(4)), State: new("waiting"), Reason: new("CrashLoopBackOff"),
+			LastReason: new("OOMKilled"), LastExitCode: new(int64(137)), LastContainerID: new("containerd://a4"),
+			CPURequest: new(0.25), MemoryRequest: new(float64(512 << 20))},
+		{Init: 0, Position: 1, Name: "sidecar", Image: new("log:1")},
 	}, containersOf(u))
 }
 
@@ -107,7 +105,7 @@ func TestATerminatedStateNamesItsOwnInstance(t *testing.T) {
 	rows := containersOf(u)
 	require.Len(t, rows, 1)
 	assert.Nil(t, rows[0].ContainerID)
-	assert.Equal(t, ptr("containerd://a1"), rows[0].LastContainerID)
+	assert.Equal(t, new("containerd://a1"), rows[0].LastContainerID)
 }
 
 // An entry that is not an object says nothing, in either list: the container is skipped,
@@ -121,7 +119,7 @@ func TestContainersSkipWhatIsNotAnObject(t *testing.T) {
 		"containerStatuses": []any{"log", map[string]any{"ready": true}},
 	})
 
-	assert.Equal(t, []containerRow{{Init: 0, Position: 1, Name: "log", Image: ptr("log:1")}}, containersOf(u))
+	assert.Equal(t, []containerRow{{Init: 0, Position: 1, Name: "log", Image: new("log:1")}}, containersOf(u))
 }
 
 // Only a core Pod has containers: another kind, or a Pod of another group, has none.

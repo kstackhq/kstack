@@ -88,7 +88,7 @@ func TestATailStampsNothing(t *testing.T) {
 	before := stamps(t, s, id)[0]
 	require.NotNil(t, before)
 
-	tail := openTail(t, s, id, ptr(at(1, 0)), false)
+	tail := openTail(t, s, id, new(at(1, 0)), false)
 	require.NoError(t, tail.Write(t.Context(), lines(at(1, 1))))
 	big := Line{Pos: at(9, 0), Message: string(make([]byte, testRetention.ChunkBytes))}
 	require.NoError(t, tail.Close(t.Context(), []Line{big, {Pos: at(9, 1), Message: "m"}}))
@@ -218,7 +218,7 @@ func TestATailResumesTheChunkItContinues(t *testing.T) {
 		write(t, s, Fill{Stream: id, Backend: "kubelet", Lines: lines(at(1, 0), at(2, 0))})
 	}
 
-	require.NoError(t, openTail(t, s, a, ptr(at(2, 0)), false).Close(t.Context(), lines(at(2, 1))))
+	require.NoError(t, openTail(t, s, a, new(at(2, 0)), false).Close(t.Context(), lines(at(2, 1))))
 	require.NoError(t, openTail(t, s, b, nil, true).Close(t.Context(), lines(at(3, 0))))
 
 	assert.Equal(t, []Chunk{chunk(at(1, 0), at(2, 1))}, chunksOfStream(t, s, a))
@@ -330,10 +330,10 @@ func TestATailAnswersWhatItCommitted(t *testing.T) {
 	require.NoError(t, tail.Write(t.Context(), lines(at(1, 0), at(2, 0))))
 	fire(t, tick)
 	testutil.Recv(t, pings, "the batch's ping")
-	assert.Equal(t, ptr(at(2, 0)), tail.Committed())
+	assert.Equal(t, new(at(2, 0)), tail.Committed())
 
 	require.NoError(t, tail.Close(t.Context(), lines(at(3, 0))))
-	assert.Equal(t, ptr(at(3, 0)), tail.Committed())
+	assert.Equal(t, new(at(3, 0)), tail.Committed())
 }
 
 // A tail that closes with no lines left still closes the chunk it wrote.

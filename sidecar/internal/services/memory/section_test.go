@@ -68,7 +68,7 @@ func TestTheSectionCarriesEveryNote(t *testing.T) {
 		assert.NotContains(t, string(raw), gone)
 	}
 
-	_, err := h.svc.Update(t.Context(), h.get(t, clusterA, "pages").ID, Input{ClusterID: ptr(clusterA), Name: "pages", Body: "adopted"})
+	_, err := h.svc.Update(t.Context(), h.get(t, clusterA, "pages").ID, Input{ClusterID: new(clusterA), Name: "pages", Body: "adopted"})
 	require.NoError(t, err)
 	_, s = h.section(t)
 	assert.Equal(t, "user", s.Memories[0].By, "the section's author follows the row")
