@@ -5,6 +5,7 @@ A Kubernetes desktop app. Three parts that talk to each other:
 - **`src/`** — React webview. See `src/CLAUDE.md`.
 - **`src-tauri/`** — Tauri/Rust native host (windows, tray, sidecar lifecycle). See `src-tauri/CLAUDE.md`.
 - **`sidecar/`** — Go sidecar (GraphQL API, Kubernetes + cloud logic). See `sidecar/CLAUDE.md`.
+- **`tools/`** — a Go module holding CI's Go tools (`govulncheck`) as `tool` dependencies, so Dependabot moves them. Run one with `go tool <name>` from `tools/`.
 - **`proto/`** — shared gRPC contract (host↔sidecar). Single source of truth, compiled to Go (committed, via `protoc`) and Rust (via `src-tauri/build.rs`). Run `make proto` after editing.
 
 The **`Makefile` is the polyglot entry point** (`make test`, `make lint`, `make vet`, `make proto`, `make cover-go`, `make cover-js`). The Go sidecar lives outside `package.json`. Its build is `scripts/build-sidecar.go` (`make sidecar` runs it); `tauri dev`/`tauri build` call it with `go run`, never `make` or `sh`, because on Windows Tauri runs them through `cmd.exe`. Other recipes may be `sh`. Environment variables that change a dev run are listed in [`docs/development-switches.md`](docs/development-switches.md). `make clean-data` deletes the dev app's `Kstack-dev` data and cache directories (refuses while a dev sidecar runs; `scripts/clean-dev-data.go`).

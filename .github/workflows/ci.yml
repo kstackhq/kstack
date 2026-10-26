@@ -246,9 +246,10 @@ jobs:
       - uses: ./.github/actions/setup-environment
         with:
           setup-go: "true"
+      # tools/go.mod pins govulncheck, where Dependabot moves it.
       - name: Run govulncheck
-        working-directory: ./sidecar
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...
+        working-directory: ./tools
+        run: go tool govulncheck -C ../sidecar ./...
 
   rust-audit:
     name: Rust · Audit
@@ -263,6 +264,7 @@ jobs:
           # Nothing here compiles worth saving, so it borrows Rust · Vet's
           # registry and index.
           rust-cache-key: rust-vet-ubuntu-24.04
+      # Bumped by hand; Dependabot cannot see this pin.
       - name: Install cargo-audit
         run: cargo install --locked cargo-audit --version 0.22.2
       - name: Run cargo audit
