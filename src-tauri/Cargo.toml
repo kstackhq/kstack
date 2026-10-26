@@ -146,7 +146,7 @@ objc2-app-kit = { version = "0.3", features = [
 # notification; system-configuration's SCNetworkReachability (scheduled on a
 # CFRunLoop from core-foundation) reports connectivity transitions.
 system-configuration = "0.6"
-core-foundation = "0.9"
+core-foundation = "0.10"
 
 # Unix-only: tao installs no signal handlers, so SIGTERM/SIGINT/SIGHUP are
 # captured and funneled into the graceful-exit path (see
