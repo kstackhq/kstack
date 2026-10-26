@@ -43,7 +43,7 @@ env:
   CACHE_MODE: ${{ inputs.cache-mode || github.ref == 'refs/heads/main' && 'update' || 'use' }}
   # Full debug info swells the Rust caches and slows linking; line tables keep
   # file:line in test backtraces. Workflow-wide, since rust-cache keys on CARGO_*
-  # variables and Rust · Audit borrows Rust · Vet's cache.
+  # variables and audit.yml's Rust · Audit borrows Rust · Vet's cache.
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
@@ -223,59 +223,49 @@ jobs:
         run: pnpm lint
 
   ###########################
-  # Audit jobs
+  # Dependency review jobs
   ###########################
 
-  go-audit:
-    name: Go · Audit
+  # A pull request fails only for the advisories it brings in. audit.yml
+  # audits the whole tree daily and on main.
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Compares the base and head dependency graphs, which hold the Go and
+      # Cargo packages; npm is TypeScript · Dependency review's. Every scope
+      # counts, as in the audits.
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
         with:
-          persist-credentials: false
-      - uses: ./.github/actions/setup-environment
-        with:
-          setup-go: "true"
-      # tools/go.mod pins govulncheck, where Dependabot moves it.
-      - name: Run govulncheck
-        working-directory: ./tools
-        run: go tool govulncheck -C ../sidecar ./...
+          fail-on-severity: moderate
+          fail-on-scopes: runtime, development, unknown
 
-  rust-audit:
-    name: Rust · Audit
+  # A fork's token cannot submit to the dependency graph, so npm compares
+  # pnpm audit on the base and on the head instead.
+  typescript-dependency-review:
+    name: TypeScript · Dependency review
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ./.github/actions/setup-environment
-        with:
-          setup-rust: "true"
-          # Nothing here compiles worth saving, so it borrows Rust · Vet's
-          # registry and index.
-          rust-cache-key: rust-vet-ubuntu-24.04
-      # The action's release fixes cargo-audit's version and checksums, so
-      # Dependabot moves cargo-audit when it moves the action.
-      - name: Install cargo-audit
-        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
-        with:
-          tool: cargo-audit
-      - name: Run cargo audit
-        working-directory: ./src-tauri
-        run: cargo audit --deny unsound --deny unmaintained
-
-  typescript-audit:
-    name: TypeScript · Audit
-    runs-on: ubuntu-24.04
-    steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
           persist-credentials: false
+          sparse-checkout: |
+            package.json
+            pnpm-lock.yaml
+            pnpm-workspace.yaml
+          sparse-checkout-cone-mode: false
       - uses: ./.github/actions/setup-environment
         with:
           setup-node: "true"
-      - name: Run pnpm audit
-        run: pnpm audit --audit-level moderate
+      - name: Fail on advisories new to the head
+        run: sh scripts/audit-npm-diff.sh base .
 
   ###########################
   # Test jobs

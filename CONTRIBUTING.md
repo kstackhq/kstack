@@ -193,7 +193,7 @@ Our CI pipeline automatically runs on every pull request:
 - **Tests**: All test suites across Go, Rust, and TypeScript, plus the coverage gates
 - **Linting**: Code formatting and style checks, including shellcheck
 - **Vetting**: `go vet` and `cargo clippy`
-- **Security**: Dependency audits (govulncheck, cargo audit, pnpm audit) and CodeQL
+- **Security**: Dependency review, which fails only on advisories your PR brings in, and CodeQL. The full dependency audits (govulncheck, cargo audit, pnpm audit) run daily on `main`, so an advisory against a dependency you did not touch never blocks your PR
 
 You can see the status of these checks in your PR. If any checks fail, review the logs and fix the issues before requesting a review.
 

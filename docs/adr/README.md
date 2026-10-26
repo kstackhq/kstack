@@ -219,3 +219,4 @@ usually just documentation in the wrong place.
 | 2026-10-25 | [A tool call records its tool's contract beside its stored JSON](2026-10-25-a-tool-call-records-its-tools-contract.md) | sidecar | Accepted |
 | 2026-10-25 | [The sidecar's own mirror statements compile once per file](2026-10-25-the-sidecars-own-mirror-statements-compile-once-per-file.md) | sidecar | Accepted |
 | 2026-10-26 | [Dependabot moves dependencies, and a person merges every update](2026-10-26-dependabot-moves-dependencies-and-a-person-merges-every-update.md) | repo | Accepted |
+| 2026-10-26 | [A pull request fails only for the advisories it brings in](2026-10-26-a-pull-request-fails-only-for-the-advisories-it-brings-in.md) | repo | Accepted |

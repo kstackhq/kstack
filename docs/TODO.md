@@ -720,11 +720,6 @@ A risk we decide to accept is recorded as a **By decision** row in
 [`security-model.md`](security-model.md), each linking the ADR that accepted it — so an accepted
 risk stays distinguishable from an unnoticed one, and is not repeated here.
 
-- **Give npm Dependabot alerts (medium; CI owner).** GitHub's dependency graph does not read
-  `pnpm-lock.yaml`, so Dependabot opens no alert or security update for an npm dependency;
-  `pnpm audit` in CI is the only check. Submitting the pnpm tree to the graph from CI closes it
-  (#116).
-
 - **Decide what to do about colour that hides a log line from the eye (low; logs owner).** A
   kept SGR sequence can set a foreground that matches its background, or the theme's own
   background, or dim the text, and the viewer draws it as asked
