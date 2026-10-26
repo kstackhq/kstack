@@ -41,9 +41,33 @@ func TestShellMainAnswersAnExecTheKernelRefuses(t *testing.T) {
 	if own.Max == unix.RLIM_INFINITY {
 		t.Skip("the process hard limit is unlimited")
 	}
-	// Executable, but in no format the kernel runs, so execve fails with ENOEXEC.
-	garbage := filepath.Join(t.TempDir(), "garbage")
-	require.NoError(t, os.WriteFile(garbage, []byte{0, 1, 2, 3}, 0o700))
 
-	assert.Equal(t, initFailed, ShellMain([]string{"--processes", strconv.FormatUint(own.Max, 10), "--", garbage}))
+	assert.Equal(t, initFailed, ShellMain([]string{"--processes", strconv.FormatUint(own.Max, 10), "--", garbage(t)}))
+}
+
+// A limit the kernel refuses answers before the exec: macOS refuses an
+// open-files limit past kern.maxfilesperproc. Serial: it reads and restores
+// this process's limit.
+func TestShellMainAnswersALimitTheKernelRefuses(t *testing.T) {
+	var own unix.Rlimit
+	require.NoError(t, unix.Getrlimit(unix.RLIMIT_NOFILE, &own))
+	t.Cleanup(func() { _ = unix.Setrlimit(unix.RLIMIT_NOFILE, &own) })
+	if own.Max != unix.RLIM_INFINITY {
+		t.Skip("the open-files hard limit is not unlimited")
+	}
+
+	assert.Equal(t, initFailed, ShellMain([]string{"--files", "1073741824", "--", garbage(t)}))
+
+	var got unix.Rlimit
+	require.NoError(t, unix.Getrlimit(unix.RLIMIT_NOFILE, &got))
+	assert.Equal(t, own, got, "the refused limit was set")
+}
+
+// garbage is an executable in no format the kernel runs, so execve fails
+// with ENOEXEC.
+func garbage(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "garbage")
+	require.NoError(t, os.WriteFile(path, []byte{0, 1, 2, 3}, 0o700))
+	return path
 }

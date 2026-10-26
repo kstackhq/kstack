@@ -17,6 +17,7 @@
 package fileguard
 
 import (
+	"encoding/binary"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/windows"
 )
 
 // A junction is a link: Go reports it as ModeIrregular, so Open reads its tag.
@@ -98,4 +100,50 @@ func TestReparseTag(t *testing.T) {
 	assert.Error(t, err)
 	_, err = reparseTag("C:\\a\x00b")
 	assert.Error(t, err)
+}
+
+// junction is a junction to a fresh directory, made in dir.
+func junction(t *testing.T, dir string) string {
+	t.Helper()
+	j := filepath.Join(dir, "j")
+	out, err := exec.Command("cmd", "/c", "mklink", "/J", j, t.TempDir()).CombinedOutput()
+	require.NoError(t, err, string(out))
+	return j
+}
+
+// A link in a directory that cannot be listed has no tag to read, so lstat
+// fails rather than guess.
+func TestLstatFailsWithoutTheTag(t *testing.T) {
+	dir := t.TempDir()
+	j := junction(t, dir)
+	out, err := exec.Command("icacls", dir, "/deny", "*S-1-1-0:(RD)").CombinedOutput()
+	require.NoError(t, err, string(out))
+	t.Cleanup(func() { _ = exec.Command("icacls", dir, "/remove:d", "*S-1-1-0").Run() })
+
+	_, _, err = lstat(j)
+	assert.Error(t, err)
+}
+
+// A reparse point that is not a link is judged by the file behind it, never
+// as a link. Its tag is a third party's no filter here answers, as a cloud
+// file's is with its driver gone.
+func TestAReparsePointThatIsNotALinkIsNoLink(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "f")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	p, err := windows.UTF16PtrFromString(file)
+	require.NoError(t, err)
+	h, err := windows.CreateFile(p, windows.GENERIC_WRITE, 0, nil, windows.OPEN_EXISTING,
+		windows.FILE_FLAG_OPEN_REPARSE_POINT|windows.FILE_FLAG_BACKUP_SEMANTICS, 0)
+	require.NoError(t, err)
+	// REPARSE_GUID_DATA_BUFFER's header: the tag, no data, and a GUID.
+	buf := make([]byte, 24)
+	binary.LittleEndian.PutUint32(buf, 0x0000_0ABC)
+	buf[8] = 1
+	var n uint32
+	err = windows.DeviceIoControl(h, windows.FSCTL_SET_REPARSE_POINT, &buf[0], uint32(len(buf)), nil, 0, &n, nil)
+	windows.CloseHandle(h)
+	require.NoError(t, err)
+
+	_, isLink, _ := lstat(file)
+	assert.False(t, isLink)
 }

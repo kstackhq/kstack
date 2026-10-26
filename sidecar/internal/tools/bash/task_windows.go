@@ -52,7 +52,7 @@ func startTask(_ context.Context, s spec, out io.Writer) (*task, error) {
 	if err != nil {
 		return nil, err
 	}
-	c, err := start(s.shell, []string{script}, s.dir, s.env, s.hooks.onPipe)
+	c, err := start(s.shell, []string{script}, s.dir, s.env, s.hooks)
 	if err != nil {
 		_ = os.Remove(script)
 		return nil, err
@@ -77,7 +77,7 @@ func (t *task) Wait() tools.Exit {
 	_ = windows.TerminateJobObject(t.c.job, 1)
 	awaitCopy(t.read, t.c.out, t.pipeGrace)
 	var code uint32
-	if windows.GetExitCodeProcess(t.c.pi.Process, &code) == nil {
+	if t.c.sys.getExitCodeProcess(t.c.pi.Process, &code) == nil {
 		exit.Code, exit.OK = int(code), true
 	}
 	t.c.close()

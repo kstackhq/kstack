@@ -19,12 +19,15 @@ package bash
 import (
 	"bufio"
 	"context"
+	"errors"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -102,10 +105,24 @@ func notADir(t *testing.T) string {
 	return filepath.Join(file, "scripts")
 }
 
-// A scripts directory that cannot be made runs nothing and says why.
+// unwritableDir is a directory no file can be made in: an ACL denies everyone
+// the right until the test ends.
+func unwritableDir(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	out, err := exec.Command("icacls", dir, "/deny", "*S-1-1-0:(W)").CombinedOutput()
+	require.NoError(t, err, string(out))
+	t.Cleanup(func() { _ = exec.Command("icacls", dir, "/remove:d", "*S-1-1-0").Run() })
+	return dir
+}
+
+// A scripts directory that cannot be made, or written in, runs nothing and
+// says why.
 func TestRunFailsWithoutItsScriptsDirectory(t *testing.T) {
-	r := run(t.Context(), spec{scripts: notADir(t), command: "echo ran"})
-	assert.NotEmpty(t, r.Error)
+	for _, dir := range []string{notADir(t), unwritableDir(t)} {
+		r := run(t.Context(), spec{scripts: dir, command: "echo ran"})
+		assert.NotEmpty(t, r.Error, dir)
+	}
 }
 
 func TestWriteScriptFailsUnderAMissingDirectory(t *testing.T) {
@@ -124,9 +141,26 @@ func TestStartSuspendedRefusesANUL(t *testing.T) {
 		"directory":    {bash: "bash.exe", dir: "C:\\\x00"},
 		"environment":  {bash: "bash.exe", dir: `C:\`, env: []string{"A=\x00"}},
 	} {
-		_, err := startSuspended(c.bash, nil, c.dir, c.env, 0, 0)
+		_, err := startSuspended(&winSys, c.bash, nil, c.dir, c.env, 0, 0)
 		assert.Error(t, err, name)
 	}
+}
+
+// An empty environment is still a double NUL. Serial: it clears the process's
+// environment.
+func TestAnEmptyEnvironmentBlockIsADoubleNUL(t *testing.T) {
+	env := os.Environ()
+	os.Clearenv()
+	t.Cleanup(func() {
+		for _, e := range env {
+			name, value, _ := strings.Cut(e[1:], "=")
+			_ = os.Setenv(e[:1]+name, value)
+		}
+	})
+
+	block, err := environBlock(nil)
+	require.NoError(t, err)
+	assert.Equal(t, []uint16{0, 0}, block)
 }
 
 // An entry with no separator is all name.
@@ -134,6 +168,72 @@ func TestEnvNameOfAnEntryWithNoSeparator(t *testing.T) {
 	assert.Equal(t, "PATH", envName("PATH"))
 	assert.Equal(t, "PATH", envName("PATH=x"))
 	assert.Equal(t, "=C:", envName(`=C:=C:\x`))
+}
+
+var errInjected = errors.New("injected")
+
+// failing is hooks whose Windows calls are the real ones but where edit says.
+func failing(edit func(s *sys)) hooks {
+	s := winSys
+	edit(&s)
+	return hooks{sys: &s}
+}
+
+// failResume makes ResumeThread fail, so bash never runs.
+func failResume(s *sys) {
+	s.resumeThread = func(windows.Handle) (uint32, error) { return 0, errInjected }
+}
+
+// Each call that starts bash fails the run with its own error.
+func TestRunFailsOnAFailedWindowsCall(t *testing.T) {
+	tl := tool(t)
+	for name, edit := range map[string]func(*sys){
+		"pipe": func(s *sys) {
+			s.pipe = func() (*os.File, *os.File, error) { return nil, nil, errInjected }
+		},
+		"SetHandleInformation": func(s *sys) {
+			s.setHandleInformation = func(windows.Handle, uint32, uint32) error { return errInjected }
+		},
+		"CreateFile": func(s *sys) {
+			s.createFile = func(*uint16, uint32, uint32, *windows.SecurityAttributes, uint32, uint32, windows.Handle) (windows.Handle, error) {
+				return 0, errInjected
+			}
+		},
+		"CreateJobObject": func(s *sys) {
+			s.createJobObject = func(*windows.SecurityAttributes, *uint16) (windows.Handle, error) { return 0, errInjected }
+		},
+		"SetInformationJobObject": func(s *sys) {
+			s.setInformationJobObject = func(windows.Handle, uint32, uintptr, uint32) (int, error) { return 0, errInjected }
+		},
+		"NewProcThreadAttributeList": func(s *sys) {
+			s.newProcThreadAttributeList = func(uint32) (*windows.ProcThreadAttributeListContainer, error) { return nil, errInjected }
+		},
+		"UpdateProcThreadAttribute": func(s *sys) {
+			s.updateProcThreadAttribute = func(*windows.ProcThreadAttributeListContainer, uintptr, unsafe.Pointer, uintptr) error {
+				return errInjected
+			}
+		},
+		"AssignProcessToJobObject": func(s *sys) {
+			s.assignProcessToJobObject = func(windows.Handle, windows.Handle) error { return errInjected }
+		},
+		"ResumeThread": failResume,
+	} {
+		s := tl.spec("exit 0", 1024)
+		s.hooks = failing(edit)
+		assert.Equal(t, errInjected.Error(), run(t.Context(), s).Error, name)
+	}
+}
+
+// A bash whose exit code cannot be read ended all the same.
+func TestRunReportsAnUnreadExitCode(t *testing.T) {
+	tl := tool(t)
+	s := tl.spec("exit 3", 1024)
+	s.hooks = failing(func(s *sys) {
+		s.getExitCodeProcess = func(windows.Handle, *uint32) error { return errInjected }
+	})
+	r := run(t.Context(), s)
+	assert.Empty(t, r.Error)
+	assert.True(t, r.CodeUnknown)
 }
 
 // The approval request's invariant as a test: what the package wrote is what

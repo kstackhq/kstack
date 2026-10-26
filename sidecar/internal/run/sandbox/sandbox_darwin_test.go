@@ -375,6 +375,20 @@ func TestAProbeWithoutItsDirectoriesSaysWhich(t *testing.T) {
 	assert.Equal(t, Status{Reason: "cannot find the home directory"}, v)
 }
 
+// With no descriptor free under the open-files limit, no port can be taken.
+// Serial: it lowers this process's limit, to the three standard streams.
+func TestAPortThatCannotBeTakenFails(t *testing.T) {
+	var own unix.Rlimit
+	require.NoError(t, unix.Getrlimit(unix.RLIMIT_NOFILE, &own))
+	low := own
+	low.Cur = 3
+	require.NoError(t, unix.Setrlimit(unix.RLIMIT_NOFILE, &low))
+	_, err := (&Sandbox{}).Port()
+	require.NoError(t, unix.Setrlimit(unix.RLIMIT_NOFILE, &own))
+
+	assert.Error(t, err)
+}
+
 // A profile the launcher refuses fails the probe with its stderr's first line.
 func TestAProbeThatFailsSaysWhy(t *testing.T) {
 	path := launcher(t, "echo 'sandbox_apply: Operation not permitted' >&2\necho more >&2\nexit 71\n")

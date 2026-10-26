@@ -83,11 +83,12 @@ func TestAFailedSnapshotLeavesNoFileOnWindows(t *testing.T) {
 }
 
 // A launch that cannot reach a shell fails as no shell: no home to start in, no
-// directory for the dump, or a shell that will not start.
+// directory or file for the dump, or a shell that will not start or resume.
 func TestALaunchWithoutAShellIsNoShell(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "bash.exe")
 	for name, tl := range map[string]*Tool{
 		"scripts": {shell: missing, scripts: notADir(t)},
+		"script":  {shell: missing, scripts: unwritableDir(t)},
 		"shell":   {shell: missing, scripts: t.TempDir()},
 	} {
 		out, reason, code := tl.launchDump(t.Context())
@@ -96,8 +97,11 @@ func TestALaunchWithoutAShellIsNoShell(t *testing.T) {
 		assert.Equal(t, -1, code, name)
 	}
 
+	_, reason, _ := tool(t).launchDumpWith(t.Context(), failing(failResume))
+	assert.Equal(t, "no shell", reason, "no resume")
+
 	t.Setenv("USERPROFILE", "")
-	_, reason, _ := (&Tool{shell: missing, scripts: t.TempDir()}).launchDump(t.Context())
+	_, reason, _ = (&Tool{shell: missing, scripts: t.TempDir()}).launchDump(t.Context())
 	assert.Equal(t, "no shell", reason, "no home")
 }
 

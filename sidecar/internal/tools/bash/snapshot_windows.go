@@ -37,6 +37,11 @@ const shims = ""
 // command-line parsing never sees it. The job is terminated and the file removed
 // before it returns. reason is "" when the dump arrived whole.
 func (t *Tool) launchDump(ctx context.Context) (out []byte, reason string, code int) {
+	return t.launchDumpWith(ctx, hooks{})
+}
+
+// launchDumpWith is launchDump under h, a test's.
+func (t *Tool) launchDumpWith(ctx context.Context, h hooks) (out []byte, reason string, code int) {
 	const noShell = "no shell"
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -52,7 +57,7 @@ func (t *Tool) launchDump(ctx context.Context) (out []byte, reason string, code 
 	defer os.Remove(dump)
 
 	args := []string{"-l", "-i", "-c", `\builtin '.' ` + quote(filepath.ToSlash(dump))}
-	c, err := start(t.shell, args, home, []string{"DISABLE_AUTO_UPDATE=true"}, nil)
+	c, err := start(t.shell, args, home, []string{"DISABLE_AUTO_UPDATE=true"}, h)
 	if err != nil {
 		return nil, noShell, -1
 	}
@@ -77,7 +82,7 @@ func (t *Tool) launchDump(ctx context.Context) (out []byte, reason string, code 
 	_, _ = windows.WaitForSingleObject(c.pi.Process, windows.INFINITE)
 	code = -1
 	var exit uint32
-	if res.reason != "timeout" && windows.GetExitCodeProcess(c.pi.Process, &exit) == nil {
+	if res.reason != "timeout" && c.sys.getExitCodeProcess(c.pi.Process, &exit) == nil {
 		code = int(exit)
 	}
 	return res.out, res.reason, code

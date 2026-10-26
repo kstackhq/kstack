@@ -19,7 +19,6 @@ package bash
 import (
 	"context"
 	"crypto/rand"
-	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -62,6 +61,42 @@ type hooks struct {
 	beforeReap func(ctx context.Context)
 	onStop     func(s stop)
 	afterReap  func(ctx context.Context)
+	sys        *sys // the Windows calls; winSys when nil
+}
+
+// sys is the Windows calls that start a child, which no test can make fail
+// any other way.
+type sys struct {
+	pipe                       func() (r, w *os.File, err error)
+	setHandleInformation       func(h windows.Handle, mask, flags uint32) error
+	createFile                 func(name *uint16, access, mode uint32, sa *windows.SecurityAttributes, disposition, attrs uint32, template windows.Handle) (windows.Handle, error)
+	createJobObject            func(sa *windows.SecurityAttributes, name *uint16) (windows.Handle, error)
+	setInformationJobObject    func(job windows.Handle, class uint32, info uintptr, length uint32) (int, error)
+	newProcThreadAttributeList func(maxAttrCount uint32) (*windows.ProcThreadAttributeListContainer, error)
+	updateProcThreadAttribute  func(al *windows.ProcThreadAttributeListContainer, attribute uintptr, value unsafe.Pointer, size uintptr) error
+	assignProcessToJobObject   func(job, process windows.Handle) error
+	resumeThread               func(thread windows.Handle) (uint32, error)
+	getExitCodeProcess         func(process windows.Handle, code *uint32) error
+}
+
+var winSys = sys{
+	pipe:                       os.Pipe,
+	setHandleInformation:       windows.SetHandleInformation,
+	createFile:                 windows.CreateFile,
+	createJobObject:            windows.CreateJobObject,
+	setInformationJobObject:    windows.SetInformationJobObject,
+	newProcThreadAttributeList: windows.NewProcThreadAttributeList,
+	updateProcThreadAttribute:  (*windows.ProcThreadAttributeListContainer).Update,
+	assignProcessToJobObject:   windows.AssignProcessToJobObject,
+	resumeThread:               windows.ResumeThread,
+	getExitCodeProcess:         windows.GetExitCodeProcess,
+}
+
+func (h hooks) calls() *sys {
+	if h.sys != nil {
+		return h.sys
+	}
+	return &winSys
 }
 
 // findShell trusts only Git for Windows' own install record. A bash.exe on
@@ -153,7 +188,7 @@ func run(parent context.Context, s spec) result {
 	}
 	defer os.Remove(script)
 
-	c, err := start(s.shell, []string{script}, s.dir, s.env, s.hooks.onPipe)
+	c, err := start(s.shell, []string{script}, s.dir, s.env, s.hooks)
 	if err != nil {
 		return fail(err)
 	}
@@ -162,17 +197,14 @@ func run(parent context.Context, s spec) result {
 	// The watcher starts before the resume, so a stop from here on terminates
 	// the job with the child still suspended. Its join is deferred after
 	// c.close (LIFO), so it runs first: a watcher still in flight could
-	// otherwise terminate whatever job Windows next hands the number.
+	// otherwise terminate whatever job Windows next hands the number. The join
+	// cancels ctx, and the reap has refused the stop by then.
 	ctx, cancel := s.hooks.deadline(parent, s.timeout)
 	g := newGuard(s.hooks)
 	watcherGone := make(chan struct{})
 	go func() {
 		defer close(watcherGone)
-		select {
-		case <-ctx.Done():
-		case <-g.done:
-			return
-		}
+		<-ctx.Done()
 		why := stopFor(parent)
 		if !g.record(why) {
 			return
@@ -204,7 +236,7 @@ func run(parent context.Context, s spec) result {
 
 	res.Output, res.Discarded = string(out.buf), out.discarded
 	var code uint32
-	if windows.GetExitCodeProcess(c.pi.Process, &code) != nil {
+	if c.sys.getExitCodeProcess(c.pi.Process, &code) != nil {
 		res.CodeUnknown = true
 	} else {
 		res.ExitCode = int(code)
@@ -218,6 +250,7 @@ type child struct {
 	job windows.Handle
 	pi  windows.ProcessInformation
 	out *os.File
+	sys *sys
 }
 
 // start builds the child with CreateProcess directly, not exec.Cmd, which never
@@ -226,11 +259,12 @@ type child struct {
 // bash can fork outside the job. The cost is owned here — escaping, the
 // environment block, the handle list, the error text are this file's, not
 // os/exec's. stdin is NUL, and only the pipe's write end is made inheritable.
-// onPipe, a test's hook, is handed a duplicate of that end. Everything in the
+// h.onPipe, a test's hook, is handed a duplicate of that end. Everything in the
 // job dies with TerminateJobObject, and KILL_ON_JOB_CLOSE is the backstop: a
 // sidecar crash closes the handle and the descendants die with it.
-func start(shell string, args []string, dir string, env []string, onPipe func(windows.Handle)) (child, error) {
-	r, w, err := os.Pipe()
+func start(shell string, args []string, dir string, env []string, h hooks) (child, error) {
+	sys := h.calls()
+	r, w, err := sys.pipe()
 	if err != nil {
 		return child{}, err
 	}
@@ -242,20 +276,20 @@ func start(shell string, args []string, dir string, env []string, onPipe func(wi
 	// child holds its own.
 	defer w.Close()
 	wh := windows.Handle(w.Fd())
-	if err := windows.SetHandleInformation(wh, windows.HANDLE_FLAG_INHERIT, windows.HANDLE_FLAG_INHERIT); err != nil {
+	if err := sys.setHandleInformation(wh, windows.HANDLE_FLAG_INHERIT, windows.HANDLE_FLAG_INHERIT); err != nil {
 		return fail(err)
 	}
 	// Opened inheritable by hand: there is no exec.Cmd to supply the null device.
 	sa := &windows.SecurityAttributes{InheritHandle: 1}
 	sa.Length = uint32(unsafe.Sizeof(*sa))
-	nul, err := windows.CreateFile(windows.StringToUTF16Ptr("NUL"), windows.GENERIC_READ,
+	nul, err := sys.createFile(windows.StringToUTF16Ptr("NUL"), windows.GENERIC_READ,
 		windows.FILE_SHARE_READ|windows.FILE_SHARE_WRITE, sa, windows.OPEN_EXISTING, 0, 0)
 	if err != nil {
 		return fail(err)
 	}
 	defer windows.CloseHandle(nul)
 
-	job, err := windows.CreateJobObject(nil, nil)
+	job, err := sys.createJobObject(nil, nil)
 	if err != nil {
 		return fail(err)
 	}
@@ -264,25 +298,25 @@ func start(shell string, args []string, dir string, env []string, onPipe func(wi
 			LimitFlags: windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
 		},
 	}
-	if _, err := windows.SetInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
+	if _, err := sys.setInformationJobObject(job, windows.JobObjectExtendedLimitInformation,
 		uintptr(unsafe.Pointer(&limits)), uint32(unsafe.Sizeof(limits))); err != nil {
 		windows.CloseHandle(job)
 		return fail(err)
 	}
 
-	pi, err := startSuspended(shell, args, dir, env, wh, nul)
+	pi, err := startSuspended(sys, shell, args, dir, env, wh, nul)
 	if err != nil {
 		windows.CloseHandle(job)
 		return fail(err)
 	}
-	if onPipe != nil {
+	if h.onPipe != nil {
 		var dup windows.Handle
 		self := windows.CurrentProcess()
 		if windows.DuplicateHandle(self, wh, self, &dup, 0, false, windows.DUPLICATE_SAME_ACCESS) == nil {
-			onPipe(dup)
+			h.onPipe(dup)
 		}
 	}
-	if err := windows.AssignProcessToJobObject(job, pi.Process); err != nil {
+	if err := sys.assignProcessToJobObject(job, pi.Process); err != nil {
 		// Suspended and outside the job: nothing has run, and the job's
 		// guarantee cannot be made — end it rather than resume it.
 		_ = windows.TerminateProcess(pi.Process, 1)
@@ -291,12 +325,12 @@ func start(shell string, args []string, dir string, env []string, onPipe func(wi
 		windows.CloseHandle(job)
 		return fail(err)
 	}
-	return child{job: job, pi: pi, out: r}, nil
+	return child{job: job, pi: pi, out: r, sys: sys}, nil
 }
 
 // resume lets the child run, and closes the thread handle nothing needs again.
 func (c child) resume() error {
-	_, err := windows.ResumeThread(c.pi.Thread)
+	_, err := c.sys.resumeThread(c.pi.Thread)
 	windows.CloseHandle(c.pi.Thread)
 	return err
 }
@@ -312,11 +346,7 @@ func (c child) close() {
 // writeScript puts the command, byte for byte, in a read-only file under
 // root, named so nothing else could hold it.
 func writeScript(root, command string) (string, error) {
-	var b [8]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return "", err
-	}
-	path := filepath.Join(root, "cmd-"+hex.EncodeToString(b[:]))
+	path := filepath.Join(root, "cmd-"+rand.Text())
 	if err := os.WriteFile(path, []byte(command), 0o400); err != nil {
 		return "", err
 	}
@@ -329,7 +359,7 @@ func writeScript(root, command string) (string, error) {
 // attribute list names. EXTENDED_STARTUPINFO_PRESENT is what makes
 // CreateProcess honour that list; without it the call silently inherits every
 // inheritable handle instead.
-func startSuspended(bash string, args []string, dir string, extra []string, wh, nul windows.Handle) (windows.ProcessInformation, error) {
+func startSuspended(sys *sys, bash string, args []string, dir string, extra []string, wh, nul windows.Handle) (windows.ProcessInformation, error) {
 	var pi windows.ProcessInformation
 
 	line := syscall.EscapeArg(bash)
@@ -349,13 +379,13 @@ func startSuspended(bash string, args []string, dir string, extra []string, wh, 
 		return pi, err
 	}
 
-	attrs, err := windows.NewProcThreadAttributeList(1)
+	attrs, err := sys.newProcThreadAttributeList(1)
 	if err != nil {
 		return pi, err
 	}
 	defer attrs.Delete()
 	inherited := []windows.Handle{nul, wh}
-	if err := attrs.Update(windows.PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+	if err := sys.updateProcThreadAttribute(attrs, windows.PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
 		unsafe.Pointer(&inherited[0]), uintptr(len(inherited))*unsafe.Sizeof(inherited[0])); err != nil {
 		return pi, err
 	}

@@ -18,6 +18,7 @@ package bash
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -51,10 +52,12 @@ func TestAStopEndsTheJobAtOnce(t *testing.T) {
 	assert.Equal(t, tools.Exit{Code: timeoutCode, OK: true, Stopped: true}, tk.Wait())
 }
 
-// A scripts directory that cannot be made starts no task.
+// A scripts directory that cannot be made, or written in, starts no task.
 func TestATaskWithoutItsScriptsDirectoryDoesNotStart(t *testing.T) {
-	_, err := startTask(t.Context(), spec{scripts: notADir(t), command: "echo ran"}, taskOut(t))
-	assert.Error(t, err)
+	for _, dir := range []string{notADir(t), unwritableDir(t)} {
+		_, err := startTask(t.Context(), spec{scripts: dir, command: "echo ran"}, taskOut(t))
+		assert.Error(t, err, dir)
+	}
 }
 
 // A stop once the reap has begun records nothing and sends nothing.
@@ -63,4 +66,16 @@ func TestAStopAfterTheReapIsIgnored(t *testing.T) {
 	tk.g.reap()
 	tk.Stop(true)
 	assert.Equal(t, stopNone, tk.g.stop)
+}
+
+// A task whose bash cannot be resumed does not start, and leaves no script.
+func TestATaskThatCannotResumeDoesNotStart(t *testing.T) {
+	tl := tool(t)
+	s := tl.spec("echo ran", 1024)
+	s.hooks = failing(failResume)
+	_, err := startTask(t.Context(), s, taskOut(t))
+	assert.ErrorIs(t, err, errInjected)
+	left, err := filepath.Glob(filepath.Join(tl.scripts, "cmd-*"))
+	require.NoError(t, err)
+	assert.Empty(t, left)
 }
