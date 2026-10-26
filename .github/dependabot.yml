@@ -71,6 +71,12 @@ updates:
       - dependency-name: tauri-build
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
     groups:
+      # system-configuration's API takes core-foundation's types, so the two
+      # must share a core-foundation version and move together.
+      core-foundation:
+        patterns:
+          - core-foundation
+          - system-configuration
       rust:
         update-types: [minor, patch]
       rust-security:
