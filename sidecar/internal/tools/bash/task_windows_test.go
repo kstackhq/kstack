@@ -50,3 +50,17 @@ func TestAStopEndsTheJobAtOnce(t *testing.T) {
 	tk.Stop(false)
 	assert.Equal(t, tools.Exit{Code: timeoutCode, OK: true, Stopped: true}, tk.Wait())
 }
+
+// A scripts directory that cannot be made starts no task.
+func TestATaskWithoutItsScriptsDirectoryDoesNotStart(t *testing.T) {
+	_, err := startTask(t.Context(), spec{scripts: notADir(t), command: "echo ran"}, taskOut(t))
+	assert.Error(t, err)
+}
+
+// A stop once the reap has begun records nothing and sends nothing.
+func TestAStopAfterTheReapIsIgnored(t *testing.T) {
+	tk := &task{g: newGuard(hooks{})}
+	tk.g.reap()
+	tk.Stop(true)
+	assert.Equal(t, stopNone, tk.g.stop)
+}

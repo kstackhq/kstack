@@ -84,6 +84,12 @@ func hideWindow(cmd *exec.Cmd) {
 var readInstallPath = registryInstallPath
 
 func registryInstallPath() (string, bool) {
+	return installPathUnder(`SOFTWARE\GitForWindows`)
+}
+
+// installPathUnder is the InstallPath recorded under key in the first view
+// that has one.
+func installPathUnder(key string) (string, bool) {
 	views := []struct {
 		root   registry.Key
 		access uint32
@@ -93,12 +99,12 @@ func registryInstallPath() (string, bool) {
 		{registry.CURRENT_USER, 0},                     // a per-user install
 	}
 	for _, v := range views {
-		key, err := registry.OpenKey(v.root, `SOFTWARE\GitForWindows`, registry.QUERY_VALUE|v.access)
+		k, err := registry.OpenKey(v.root, key, registry.QUERY_VALUE|v.access)
 		if err != nil {
 			continue
 		}
-		path, _, err := key.GetStringValue("InstallPath")
-		key.Close()
+		path, _, err := k.GetStringValue("InstallPath")
+		k.Close()
 		if err == nil && path != "" {
 			return path, true
 		}

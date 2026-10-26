@@ -17,6 +17,7 @@
 package fileguard
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
@@ -82,4 +83,19 @@ func TestNamedCatchesTheDataDirInAnotherCase(t *testing.T) {
 	f, upper := otherCase(t)
 
 	assert.True(t, f.Named(upper))
+}
+
+// A file that is not a reparse point has no tag; a path that cannot name a
+// directory entry has none to read.
+func TestReparseTag(t *testing.T) {
+	file := filepath.Join(t.TempDir(), "f")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	tag, err := reparseTag(file)
+	require.NoError(t, err)
+	assert.Zero(t, tag)
+
+	_, err = reparseTag(filepath.Join(t.TempDir(), "missing"))
+	assert.Error(t, err)
+	_, err = reparseTag("C:\\a\x00b")
+	assert.Error(t, err)
 }

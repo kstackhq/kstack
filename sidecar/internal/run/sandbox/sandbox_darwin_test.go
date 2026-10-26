@@ -359,6 +359,22 @@ func TestWithoutSandboxExecThereIsNoSandbox(t *testing.T) {
 	assert.Equal(t, Status{Reason: "sandbox-exec not found"}, v)
 }
 
+// A probe with no home to read or no directory to probe in has no sandbox, and
+// says which.
+func TestAProbeWithoutItsDirectoriesSaysWhich(t *testing.T) {
+	path := launcher(t, passThrough)
+
+	t.Setenv("TMPDIR", filepath.Join(t.TempDir(), "missing"))
+	s, v := probe(t.Context(), path, testutil.Timeout)
+	assert.Nil(t, s)
+	assert.Equal(t, Status{Reason: "cannot make a directory to probe in"}, v)
+
+	t.Setenv("HOME", "")
+	s, v = probe(t.Context(), path, testutil.Timeout)
+	assert.Nil(t, s)
+	assert.Equal(t, Status{Reason: "cannot find the home directory"}, v)
+}
+
 // A profile the launcher refuses fails the probe with its stderr's first line.
 func TestAProbeThatFailsSaysWhy(t *testing.T) {
 	path := launcher(t, "echo 'sandbox_apply: Operation not permitted' >&2\necho more >&2\nexit 71\n")

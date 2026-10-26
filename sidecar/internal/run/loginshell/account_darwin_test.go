@@ -27,9 +27,14 @@ func useAccountShell(t *testing.T, shell string) {
 	t.Helper()
 	u, err := user.Current()
 	require.NoError(t, err)
-	script := writeScript(t, "dscl", "#!/bin/sh\n"+
-		"[ \"$1 $2 $3 $4\" = \"/Search -read /Users/"+u.Username+" UserShell\" ] || exit 56\n"+
+	useDscl(t, "[ \"$1 $2 $3 $4\" = \"/Search -read /Users/"+u.Username+" UserShell\" ] || exit 56\n"+
 		"echo 'UserShell: "+shell+"'\n")
+}
+
+// useDscl points the lookup at a fake dscl running body.
+func useDscl(t *testing.T, body string) {
+	t.Helper()
+	script := writeScript(t, "dscl", "#!/bin/sh\n"+body)
 	defer func(cmd string) { t.Cleanup(func() { lookupCommand = cmd }) }(lookupCommand)
 	lookupCommand = script
 }
@@ -42,4 +47,15 @@ func TestAccountShellAsksDscl(t *testing.T) {
 	got, f := accountShell(t.Context())
 	require.Nil(t, f)
 	require.Equal(t, shell, got)
+}
+
+// A dscl that fails, or reads no UserShell, is no record.
+func TestRecordShellIsEmptyWithoutARecord(t *testing.T) {
+	for name, body := range map[string]string{
+		"fails":        "exit 56\n",
+		"no UserShell": "echo 'NFSHomeDirectory: /Users/x'\n",
+	} {
+		useDscl(t, body)
+		require.Empty(t, recordShell(t.Context()), name)
+	}
 }

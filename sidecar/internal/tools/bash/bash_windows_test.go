@@ -80,6 +80,62 @@ func TestNewFindsGitBash(t *testing.T) {
 	assert.True(t, ok)
 }
 
+// A key nothing records is read in every view, and answers no install.
+func TestAnAbsentInstallRecordIsNoInstall(t *testing.T) {
+	_, ok := installPathUnder(`SOFTWARE\KstackTestNoSuchKey`)
+	assert.False(t, ok)
+}
+
+// A context that ended before run starts nothing, as on Unix.
+func TestRunStartsNothingPastAnEndedContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	r := run(ctx, spec{})
+	assert.Equal(t, context.Canceled.Error(), r.Error)
+}
+
+// notADir is a path under a regular file, which no directory can be made at.
+func notADir(t *testing.T) string {
+	t.Helper()
+	file := filepath.Join(t.TempDir(), "file")
+	require.NoError(t, os.WriteFile(file, nil, 0o600))
+	return filepath.Join(file, "scripts")
+}
+
+// A scripts directory that cannot be made runs nothing and says why.
+func TestRunFailsWithoutItsScriptsDirectory(t *testing.T) {
+	r := run(t.Context(), spec{scripts: notADir(t), command: "echo ran"})
+	assert.NotEmpty(t, r.Error)
+}
+
+func TestWriteScriptFailsUnderAMissingDirectory(t *testing.T) {
+	_, err := writeScript(filepath.Join(t.TempDir(), "missing"), "echo ran")
+	assert.Error(t, err)
+}
+
+// A NUL in the command line, the directory or the environment is refused
+// before CreateProcess, which would read the string only up to it.
+func TestStartSuspendedRefusesANUL(t *testing.T) {
+	for name, c := range map[string]struct {
+		bash, dir string
+		env       []string
+	}{
+		"command line": {bash: "bash\x00.exe", dir: `C:\`},
+		"directory":    {bash: "bash.exe", dir: "C:\\\x00"},
+		"environment":  {bash: "bash.exe", dir: `C:\`, env: []string{"A=\x00"}},
+	} {
+		_, err := startSuspended(c.bash, nil, c.dir, c.env, 0, 0)
+		assert.Error(t, err, name)
+	}
+}
+
+// An entry with no separator is all name.
+func TestEnvNameOfAnEntryWithNoSeparator(t *testing.T) {
+	assert.Equal(t, "PATH", envName("PATH"))
+	assert.Equal(t, "PATH", envName("PATH=x"))
+	assert.Equal(t, "=C:", envName(`=C:=C:\x`))
+}
+
 // The approval request's invariant as a test: what the package wrote is what
 // bash read. The guard leads because bash executes a script command-by-command,
 // so the bytes print before a fragment below them is even parsed.

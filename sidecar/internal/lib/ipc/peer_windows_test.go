@@ -3,6 +3,7 @@
 package ipc
 
 import (
+	"net"
 	"os"
 	"testing"
 
@@ -31,4 +32,21 @@ func TestPeerOf_ReportsConnectingProcess(t *testing.T) {
 	p, err := peerOf(server)
 	require.NoError(t, err)
 	assert.Equal(t, os.Getpid(), p.pid)
+}
+
+// fdConn is a connection whose descriptor is no named pipe.
+type fdConn struct{ net.Conn }
+
+func (fdConn) Fd() uintptr { return 0 }
+
+// A connection with no handle, or one whose handle is no pipe, has no peer to
+// read.
+func TestPeerOfFailsWithoutAPipe(t *testing.T) {
+	a, b := net.Pipe()
+	t.Cleanup(func() { a.Close(); b.Close() })
+
+	_, err := peerOf(a)
+	assert.Error(t, err)
+	_, err = peerOf(fdConn{a})
+	assert.Error(t, err)
 }

@@ -81,3 +81,28 @@ func TestAFailedSnapshotLeavesNoFileOnWindows(t *testing.T) {
 	assert.False(t, isError)
 	assert.Equal(t, "ok\n", text)
 }
+
+// A launch that cannot reach a shell fails as no shell: no home to start in, no
+// directory for the dump, or a shell that will not start.
+func TestALaunchWithoutAShellIsNoShell(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "bash.exe")
+	for name, tl := range map[string]*Tool{
+		"scripts": {shell: missing, scripts: notADir(t)},
+		"shell":   {shell: missing, scripts: t.TempDir()},
+	} {
+		out, reason, code := tl.launchDump(t.Context())
+		assert.Nil(t, out, name)
+		assert.Equal(t, "no shell", reason, name)
+		assert.Equal(t, -1, code, name)
+	}
+
+	t.Setenv("USERPROFILE", "")
+	_, reason, _ := (&Tool{shell: missing, scripts: t.TempDir()}).launchDump(t.Context())
+	assert.Equal(t, "no shell", reason, "no home")
+}
+
+// A dump that runs past the limit before its end marker is cut off.
+func TestADumpPastTheLimitIsRefused(t *testing.T) {
+	got := readDump(strings.NewReader(strings.Repeat("x", 64)), 16)
+	assert.Equal(t, dumpRead{reason: "output limit"}, got)
+}

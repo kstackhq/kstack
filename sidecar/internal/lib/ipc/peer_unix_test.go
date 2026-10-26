@@ -32,3 +32,13 @@ func TestPeerOf_ReportsConnectingProcess(t *testing.T) {
 	assert.Equal(t, os.Getpid(), p.pid)
 	assert.Equal(t, os.Getuid(), p.uid)
 }
+
+// A descriptor that is not a socket has no peer to read.
+func TestPeerCredsFailsOffASocket(t *testing.T) {
+	r, w, err := os.Pipe()
+	require.NoError(t, err)
+	t.Cleanup(func() { r.Close(); w.Close() })
+
+	_, err = peerCreds(r.Fd())
+	assert.Error(t, err)
+}

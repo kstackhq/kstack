@@ -29,8 +29,16 @@ func TestWindowsHasNoSandbox(t *testing.T) {
 
 	var none *Sandbox
 	assert.False(t, none.Confines())
+	assert.False(t, none.NeedsResolver())
+	assert.Nil(t, none.Never(`C:\Users\x`))
+	assert.Equal(t, System{}, none.System(`C:\Users\x`, "bash.exe"))
 	_, err = none.Port()
 	assert.ErrorIs(t, err, errNone)
+	_, err = none.CountedProcesses(false)
+	assert.ErrorIs(t, err, errNone)
+	network, reason := none.NetworkStatus()
+	assert.False(t, network)
+	assert.Equal(t, errNone.Error(), reason)
 }
 
 // Command answers errNone and no command, so nothing runs unconfined.
