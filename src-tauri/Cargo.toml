@@ -145,7 +145,7 @@ objc2-app-kit = { version = "0.3", features = [
 # objc2-foundation's notification-center types receive NSWorkspace's wake
 # notification; system-configuration's SCNetworkReachability (scheduled on a
 # CFRunLoop from core-foundation) reports connectivity transitions.
-system-configuration = "0.6"
+system-configuration = "0.8"
 core-foundation = "0.9"
 
 # Unix-only: tao installs no signal handlers, so SIGTERM/SIGINT/SIGHUP are
