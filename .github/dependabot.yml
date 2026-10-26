@@ -90,12 +90,15 @@ updates:
       prefix: chore
       include: scope
     versioning-strategy: increase
-    # See cargo's ignore.
     ignore:
+      # See cargo's ignore.
       - dependency-name: "@tauri-apps/api"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: "@tauri-apps/cli"
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      # Its major tracks the Node major CI runs; bumped by hand with Node.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
     groups:
       npm:
         update-types: [minor, patch]
