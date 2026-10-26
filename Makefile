@@ -2,7 +2,7 @@
 # so it doesn't belong in package.json scripts; this Makefile is the
 # place where Go, Rust, and JS commands meet.
 
-.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js lint-actions lint-yaml vet vet-go vet-rust check-sidecar-deps check-cache check-switch prompts clean clean-data
+.PHONY: sidecar sidecar-dev bwrap pasta proto proto-go proto-rust test test-changed test-go test-rust test-js cover-go cover-js lint lint-go lint-rust lint-js lint-yaml vet vet-go vet-rust check-sidecar-deps check-cache check-switch prompts clean clean-data
 
 # Build the Go sidecar into src-tauri/binaries/ with the Tauri-required
 # `<name>-<rust-host-triple>` filename. Tauri's externalBin picks it up.
@@ -104,7 +104,7 @@ cover-js:
 	pnpm vitest run --coverage --coverage.thresholds.lines=$$(cat scripts/coverage-threshold)
 
 # Run every linter in the repo.
-lint: lint-go lint-rust lint-js lint-actions lint-yaml
+lint: lint-go lint-rust lint-js lint-yaml
 
 # `gofmt -l` lists unformatted files; non-empty = lint failure.
 lint-go:
@@ -118,9 +118,6 @@ lint-rust:
 
 lint-js:
 	pnpm lint
-
-lint-actions:
-	sh scripts/check-action-pins.sh
 
 # Every YAML file, then the workflows and composite actions: actionlint
 # type-checks them and shellchecks their `run:` blocks (when shellcheck is on

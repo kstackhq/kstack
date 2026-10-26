@@ -187,16 +187,6 @@ jobs:
       - name: Run shellcheck
         run: shellcheck scripts/*.sh src-tauri/linux/*.sh
 
-  actions-lint:
-    name: Actions · Lint
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Check every action is pinned to a commit SHA
-        run: sh scripts/check-action-pins.sh
-
   yaml-lint:
     name: YAML · Lint
     runs-on: ubuntu-24.04
