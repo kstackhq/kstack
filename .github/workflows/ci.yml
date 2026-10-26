@@ -188,16 +188,34 @@ jobs:
           setup-go: "true"
           go-cache-key: ${{ github.job }}-ubuntu-24.04
           go-cache-mode: ${{ env.CACHE_MODE }}
+      # Staticcheck keeps its analysis apart from GOCACHE, so it has a cache of
+      # its own, kept by the same CACHE_MODE rules as the Go cache.
+      - name: Restore staticcheck cache
+        if: env.CACHE_MODE != 'rebuild'
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/staticcheck
+          # Never matches, so restore-keys finds the newest cache.
+          key: doesntexist
+          restore-keys: staticcheck-ubuntu-24.04-run-
       # tools/go.mod pins staticcheck, where Dependabot moves it.
       - name: Run staticcheck
+        env:
+          STATICCHECK_CACHE: ${{ runner.temp }}/staticcheck
         run: sh scripts/staticcheck.sh
-      # After the run, so a failed job leaves the last cache the newest.
+      # After the run, so a failed job leaves the last caches the newest.
       - name: Save Go cache
         if: env.CACHE_MODE != 'use'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ steps.setup.outputs.go-cache-path }}
           key: ${{ steps.setup.outputs.go-cache-key }}
+      - name: Save staticcheck cache
+        if: env.CACHE_MODE != 'use'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/staticcheck
+          key: staticcheck-ubuntu-24.04-run-${{ github.run_id }}
 
   rust-lint:
     name: Rust · Lint
