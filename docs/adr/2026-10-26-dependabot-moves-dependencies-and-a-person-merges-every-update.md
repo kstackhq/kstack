@@ -36,8 +36,10 @@ No update merges automatically. A maintainer reviews and merges each one.
 
 Toolchains are bumped by hand: the Go version (`sidecar/go.mod`, `tools/go.mod`, and
 `setup-environment`'s `go-version`), `src-tauri/rust-toolchain.toml`, `packageManager` in
-`package.json`, `setup-environment`'s `node-version` and `kubectl-version`, and `cargo-audit` in
-`ci.yml`. `govulncheck` moved into `tools/go.mod` as a `tool` dependency so Dependabot moves it.
+`package.json`, and `setup-environment`'s `node-version` and `kubectl-version`. The audit tools
+are not toolchains, so Dependabot moves them: `govulncheck` moved into `tools/go.mod` as a `tool`
+dependency, and `cargo-audit` is installed by `taiki-e/install-action` with no version, which
+takes the version and checksums that action's release names.
 
 ## Alternatives considered
 
@@ -47,12 +49,18 @@ Toolchains are bumped by hand: the Go version (`sidecar/go.mod`, `tools/go.mod`,
   is also where a compromised publish lands; the cooldown narrows that window without closing it.
 - **Let Dependabot move toolchains** (`rust-toolchain`, the `go` directive). A toolchain bump
   brings new lints and a cold cache, and wants a person choosing when.
+- **Keep `cargo-audit` a hand-bumped `cargo install --version` pin.** Cargo has no `tool`
+  directive, so Dependabot cannot see it, and an old scanner can break on a new advisory-database
+  format. The action adds taiki-e as a party we trust, in a job with a read-only token and no
+  secrets.
 - **Let Dependabot propose Tauri minors.** Each side's PR would fail on its own until the other
   merged.
 
 ## Consequences
 
 - About four grouped PRs a week to review, plus a major now and then.
+- A new `cargo-audit` arrives inside the weekly Actions PR, named only in install-action's
+  changelog.
 - Someone has to remember the hand-bumped pins; `docs/security-model.md` lists them.
 - `ignore` suppresses security updates for the ignored Tauri versions too, so a Tauri advisory
   reaches us through CI's audit jobs.

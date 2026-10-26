@@ -264,9 +264,12 @@ jobs:
           # Nothing here compiles worth saving, so it borrows Rust · Vet's
           # registry and index.
           rust-cache-key: rust-vet-ubuntu-24.04
-      # Bumped by hand; Dependabot cannot see this pin.
+      # The action's release fixes cargo-audit's version and checksums, so
+      # Dependabot moves cargo-audit when it moves the action.
       - name: Install cargo-audit
-        run: cargo install --locked cargo-audit --version 0.22.2
+        uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: cargo-audit
       - name: Run cargo audit
         working-directory: ./src-tauri
         run: cargo audit --deny unsound --deny unmaintained
