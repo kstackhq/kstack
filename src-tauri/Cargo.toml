@@ -170,7 +170,7 @@ zbus = { version = "6", default-features = false, features = ["tokio", "proxy"] 
 # its CommandChild handle has been dropped (see sidecar::lifecycle). Windows
 # has no POSIX signals, so the graceful path is stdin-EOF instead.
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.59", features = [
+windows-sys = { version = "0.61", features = [
   "Win32_Foundation",
   "Win32_System_Threading",
   # wake/windows.rs: callback-based resume-from-sleep notification

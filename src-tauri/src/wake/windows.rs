@@ -101,13 +101,13 @@ fn register_power_notification() {
 /// initial notification.
 fn register_network_notification() {
     let mut handle: HANDLE = std::ptr::null_mut();
-    // SAFETY: valid callback + out-handle; `1` (TRUE) requests an initial
+    // SAFETY: valid callback + out-handle; `true` requests an initial
     // notification so the edge detector gets a baseline.
     let ret = unsafe {
         NotifyNetworkConnectivityHintChange(
             Some(network_callback),
             std::ptr::null(),
-            1,
+            true,
             &mut handle,
         )
     };
