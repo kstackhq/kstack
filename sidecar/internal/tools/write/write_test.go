@@ -519,9 +519,9 @@ func TestWriteReadsItsInput(t *testing.T) {
 // ActionOf is the path and the content as the call named them, and refuses
 // what parse refuses.
 func TestActionOfReadsThePathAndContent(t *testing.T) {
-	got, err := ActionOf(json.RawMessage(`{"file_path":"/Users/ana/a ‮.yaml","content":"a: 1\r\n"}`), "")
+	got, err := ActionOf(json.RawMessage(`{"file_path":"/Users/ana/a \u202e.yaml","content":"a: 1\r\n"}`), "")
 	require.NoError(t, err)
-	assert.Equal(t, tools.Action{Write: &tools.WriteAction{Path: "/Users/ana/a ‮.yaml", Content: "a: 1\r\n"}}, got)
+	assert.Equal(t, tools.Action{Write: &tools.WriteAction{Path: "/Users/ana/a \u202e.yaml", Content: "a: 1\r\n"}}, got)
 
 	for _, raw := range badInputs {
 		_, err := ActionOf(json.RawMessage(raw), "")

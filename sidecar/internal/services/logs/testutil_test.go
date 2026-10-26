@@ -685,12 +685,6 @@ func nth(pod, container string, d time.Duration, ordinal int, msg string) loglin
 	return logline.Record{Timestamp: at(d), Message: msg, Stream: logline.StreamKey{Namespace: "prod", Pod: pod, Container: container}, ContainerID: containerID("uid-"+pod, container, 0), Ordinal: ordinal}
 }
 
-// cursor is the cursor of the moment d past 10:00.
-func cursor(d time.Duration) *string {
-	c := logline.Encode(logline.MomentAt(at(d)))
-	return &c
-}
-
 // testRetention is the production setting with no janitor, which a test about
 // anything else opens its log files with: no grace, so a tailer ends as its last
 // follow lets go, and a writer that writes within milliseconds.

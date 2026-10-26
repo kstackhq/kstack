@@ -18,7 +18,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -69,34 +68,35 @@ func TestNoSQLTextLivesOutsideTheTable(t *testing.T) {
 			"which the prepared set does not reach",
 	}
 
-	fset := token.NewFileSet()
-	pkgs, err := parser.ParseDir(fset, ".", func(fi os.FileInfo) bool {
-		return !strings.HasSuffix(fi.Name(), "_test.go") && fi.Name() != "statements.go"
-	}, 0)
+	names, err := filepath.Glob("*.go")
 	require.NoError(t, err)
 
+	fset := token.NewFileSet()
 	sqlStart := regexp.MustCompile(`^(SELECT|INSERT|UPDATE|DELETE|WITH)\b`)
-	for _, pkg := range pkgs {
-		for name, f := range pkg.Files {
-			ast.Inspect(f, func(n ast.Node) bool {
-				lit, ok := n.(*ast.BasicLit)
-				if !ok || lit.Kind != token.STRING {
-					return true
-				}
-				text := strings.TrimSpace(strings.Trim(lit.Value, "`\""))
-				if !sqlStart.MatchString(text) {
-					return true
-				}
-				for prefix := range exempt {
-					if strings.HasPrefix(text, prefix) {
-						return true
-					}
-				}
-				t.Errorf("%s:%d: SQL text outside statements: %.60s…",
-					filepath.Base(name), fset.Position(lit.Pos()).Line, text)
-				return true
-			})
+	for _, name := range names {
+		if strings.HasSuffix(name, "_test.go") || name == "statements.go" {
+			continue
 		}
+		f, err := parser.ParseFile(fset, name, nil, 0)
+		require.NoError(t, err)
+		ast.Inspect(f, func(n ast.Node) bool {
+			lit, ok := n.(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING {
+				return true
+			}
+			text := strings.TrimSpace(strings.Trim(lit.Value, "`\""))
+			if !sqlStart.MatchString(text) {
+				return true
+			}
+			for prefix := range exempt {
+				if strings.HasPrefix(text, prefix) {
+					return true
+				}
+			}
+			t.Errorf("%s:%d: SQL text outside statements: %.60s…",
+				name, fset.Position(lit.Pos()).Line, text)
+			return true
+		})
 	}
 }
 

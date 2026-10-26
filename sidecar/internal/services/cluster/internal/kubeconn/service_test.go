@@ -24,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	statewatch "github.com/amorey/gobus/watch"
 	"github.com/amorey/gochan/watch"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1380,53 +1379,6 @@ func TestAConflictWhoseFileStoppedResolvingDoesNotSpin(t *testing.T) {
 
 	settledReads(t, cfg.reads)
 }
-
-// --- waiting for a usable connection ---
-
-// stubLease is a claim under a test's control: what ConnFor answers, and the state feed a waiter
-// wakes on. The pool's own claim is exercised elsewhere; this is the helpers' unit.
-type stubLease struct {
-	hub *statewatch.Hub[string, State]
-
-	mu   sync.Mutex
-	conn *Connection
-	err  error
-}
-
-func newStubLease() *stubLease {
-	return &stubLease{hub: statewatch.New[string, State](), err: ErrNoConnection}
-}
-
-// vouches is the pool coming to vouch for the cluster, followed by the pass that publishes it.
-func (l *stubLease) vouches(conn *Connection) {
-	l.mu.Lock()
-	l.conn, l.err = conn, nil
-	l.mu.Unlock()
-
-	l.hub.Sender().Send("prod", State{})
-}
-
-// refuses is the pool answering with err from here on, followed by the pass that publishes it.
-func (l *stubLease) refuses(err error) {
-	l.mu.Lock()
-	l.conn, l.err = nil, err
-	l.mu.Unlock()
-
-	l.hub.Sender().Send("prod", State{})
-}
-
-func (l *stubLease) ConnFor(context.Context, string) (*Connection, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.conn, l.err
-}
-
-func (l *stubLease) WatchState() StateSubscription { return l.hub.Watch("prod") }
-
-func (l *stubLease) Conn(context.Context) (*Connection, error) { return l.ConnFor(nil, "") }
-func (l *stubLease) State() State                              { return State{} }
-func (l *stubLease) Departed() bool                            { return false }
-func (l *stubLease) Release()                                  {}
 
 // The rotation signal cannot depend on the re-stamp being slower than the pass that
 // publishes. The stamp is a mutable word on the connection, read at publish time, so a

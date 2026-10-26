@@ -66,6 +66,7 @@ const (
 // says nothing about a path there.
 const notHere = "Read cannot open Kstack's directories, except the files saved for this conversation."
 
+//lint:ignore ST1005 the error's text is notHere, the refusal's own sentence.
 var errNotHere = errors.New(notHere)
 
 // cancelled answers a call whose context ended; the loop writes its own refusal

@@ -5,6 +5,8 @@
 // package exposes — NotifyShutdown / DrainWithContext / Close.
 package app
 
+//lint:file-ignore SA1019 the single-socket transport is built on x/net's h2c (docs/adr/2026-08-09-single-socket-h2c.md).
+
 import (
 	"context"
 	"errors"

@@ -315,7 +315,8 @@ func TestDecodeReadsTheKeyASaveWrites(t *testing.T) {
 	type fields struct {
 		Plain  int
 		Hidden int `json:"-"`
-		inner  int
+		//lint:ignore U1000 the decode under test must skip it.
+		inner int
 	}
 	v, refused := decode[fields](object{
 		"Plain": json.RawMessage("1"), "-": json.RawMessage("2"), "inner": json.RawMessage("3"),

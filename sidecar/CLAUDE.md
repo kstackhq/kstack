@@ -188,7 +188,7 @@ Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-
 - White-box tests by default (`package foo`). External `package foo_test` only to pin a public contract, and say so.
 - No magic sleeps (root `CLAUDE.md`). Wait on channels through `internal/lib/testutil` (`Wait`, `Recv`, `RecvClosed`, `WaitClosed`); the one failsafe is `testutil.Timeout`.
 - A fake that notifies the test uses `testutil.Signal` (single-shot) or `testutil.Probe[T]` (repeating, drops oldest). A consumer doing edge detection needs a lossless fan-out instead.
-- `make test-changed` while working, `make test-go` for the whole suite, `make lint-go` (gofmt), `make vet-go`. Run `gofmt -w` before committing.
+- `make test-changed` while working, `make test-go` for the whole suite, `make lint-go` (gofmt), `make vet-go`, `make staticcheck-go` (every GOOS, merged; silence a finding with `//lint:ignore <check> <reason>`). Run `gofmt -w` before committing.
 - **CI's race step runs `go test -race -short ./...`.** A sweep too slow for the race detector shrinks under `testing.Short()`; a test never skips under it. The nightly stress run passes no `-short`, so the full sweep still runs.
 - A test outside `services/cluster` that needs a real cache store uses `cluster/clustertest` (`NewStore`, `Apply`, `Delete`, `Mirror`, `Read`); it carries the query views.
 

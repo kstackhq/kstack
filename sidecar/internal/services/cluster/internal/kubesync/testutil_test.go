@@ -620,10 +620,10 @@ type streams struct {
 	stopped bool
 }
 
-func (s *streams) answer() (error, chan struct{}) {
+func (s *streams) answer() (chan struct{}, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.err, s.held
+	return s.held, s.err
 }
 
 // takeStop consumes a stopNext. Read after the hold, so an open parked before stopNext was
@@ -640,7 +640,7 @@ func (s *streams) takeStop() bool {
 func (c *fakeCluster) streamKind(k kubestore.Kind) *streams {
 	s := &streams{opened: testutil.NewProbe[*watch.RaceFreeFakeWatcher](8)}
 	c.dyn.PrependWatchReactor(k.Resource, func(clienttesting.Action) (bool, watch.Interface, error) {
-		err, held := s.answer()
+		held, err := s.answer()
 		if err != nil {
 			return true, nil, err
 		}

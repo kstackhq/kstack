@@ -654,9 +654,9 @@ func TestEditReadsItsInput(t *testing.T) {
 // ActionOf is the path and both strings as the call named them, and refuses
 // what parse refuses.
 func TestActionOfReadsTheCall(t *testing.T) {
-	got, err := ActionOf(json.RawMessage(`{"file_path":"/Users/ana/a ‮.yaml","old_string":"a: 1\r\n","new_string":"a: 2\r\n","replace_all":true}`), "")
+	got, err := ActionOf(json.RawMessage(`{"file_path":"/Users/ana/a \u202e.yaml","old_string":"a: 1\r\n","new_string":"a: 2\r\n","replace_all":true}`), "")
 	require.NoError(t, err)
-	assert.Equal(t, tools.Action{Edit: &tools.EditAction{Path: "/Users/ana/a ‮.yaml", OldString: "a: 1\r\n", NewString: "a: 2\r\n", ReplaceAll: true}}, got)
+	assert.Equal(t, tools.Action{Edit: &tools.EditAction{Path: "/Users/ana/a \u202e.yaml", OldString: "a: 1\r\n", NewString: "a: 2\r\n", ReplaceAll: true}}, got)
 
 	for _, raw := range badInputs {
 		_, err := ActionOf(json.RawMessage(raw), "")

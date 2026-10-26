@@ -529,19 +529,6 @@ func newTestKubeconfig(t *testing.T) *kubeconfig.Service {
 	return svc
 }
 
-// newRunningBeehive is newTestBeehive started, so a watch's tail is live. No
-// controller is registered: a reconcile writing status would put frames on a watch
-// that the test never asked for.
-func newRunningBeehive(t *testing.T, opts ...beehive.Option) *beehive.Beehive {
-	t.Helper()
-	bh := newTestBeehive(t, opts...)
-
-	stop, err := bh.Start(context.Background())
-	require.NoError(t, err)
-	t.Cleanup(func() { assert.NoError(t, stop(context.Background())) })
-	return bh
-}
-
 // newRunningDeps is the shared set over a running beehive, for the watch tests:
 // without one the tail is dead and no change is ever reported. Nothing reconciles, so
 // every frame is the test's own doing.
@@ -568,7 +555,7 @@ func newRunningDepsAndBeehive(t *testing.T, opts ...beehive.Option) (deps, *beeh
 // WatchEvents for a kind with no controller, and a stopped beehive collects nothing,
 // so a watch never learns its record went. The two halves above supply one each.
 //
-// The cost is what newRunningBeehive avoids on purpose: the reconcilers are live and
+// The cost is what newRunningDeps avoids on purpose: the reconcilers are live and
 // write their own runs into the timelines under test. Scope an assertion to a category
 // no controller writes.
 func newRunningRegisteredDeps(t *testing.T, opts ...beehive.Option) (deps, *beehive.Beehive) {

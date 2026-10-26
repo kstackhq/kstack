@@ -61,7 +61,7 @@ type UnverifiedIdentity struct {
 // DisplayOnly hands the claims over to be shown. Nothing gates on them — the cloud re-verifies
 // the access token per request.
 func (u UnverifiedIdentity) DisplayOnly() Identity {
-	return Identity{UserID: u.UserID, Email: u.Email, Name: u.Name}
+	return Identity(u)
 }
 
 // Config is the OAuth client's static configuration. Endpoints are explicit rather than

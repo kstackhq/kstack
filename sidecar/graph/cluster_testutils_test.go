@@ -726,14 +726,6 @@ func (f fakeCaches) Clear(_ context.Context, id cluster.ClusterCacheID) (*cluste
 	return nil, cluster.ErrNotFound
 }
 
-// markDeleting puts beehive's tombstone on a fixture, standing in for a record
-// between the delete that asked for it and the collection that takes it away.
-func (f *fakeClusterService) markDeleting(id cluster.ClusterID, at time.Time) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.clusters[id].DeletionRequestedAt = &at
-}
-
 func (f fakeClusters) Delete(_ context.Context, id cluster.ClusterID) error {
 	f.s.mu.Lock()
 	defer f.s.mu.Unlock()

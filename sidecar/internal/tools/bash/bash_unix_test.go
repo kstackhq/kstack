@@ -1158,7 +1158,7 @@ func TestASandboxedRunThatCannotBePreparedCouldNotStart(t *testing.T) {
 // could have written them, read the same. A case here is never edited.
 func TestActionOfReadsOldUnixRowsTheSame(t *testing.T) {
 	for raw, want := range map[string]tools.Action{
-		`{"command":"echo \"a\\tb\" ‮","workdir":"/tmp"}`: {Command: &tools.CommandAction{Text: "echo \"a\\tb\" ‮", Cwd: "/home/ana"}},
+		`{"command":"echo \"a\\tb\" \u202e","workdir":"/tmp"}`: {Command: &tools.CommandAction{Text: "echo \"a\\tb\" \u202e", Cwd: "/home/ana"}},
 	} {
 		got, err := ActionOf(json.RawMessage(raw), "/home/ana", false)
 		require.NoError(t, err, raw)
