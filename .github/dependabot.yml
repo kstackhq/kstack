@@ -27,7 +27,7 @@ updates:
         patterns:
           - "*"
 
-  # /tools holds govulncheck, so CI's copy moves with the rest.
+  # /tools holds govulncheck and staticcheck, so CI's copies move with the rest.
   - package-ecosystem: gomod
     directories:
       - /sidecar
