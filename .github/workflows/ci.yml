@@ -47,12 +47,83 @@ env:
   CARGO_PROFILE_DEV_DEBUG: line-tables-only
 
 jobs:
+  # A pull request runs a language's jobs only when a path they read changed.
+  # A push or a dispatch runs them all, so main stays the safety net for a path
+  # a filter misses and keeps saving the caches PRs read. Each gated job is the
+  # first of its chain; the jobs that need it skip with it.
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: read
+    outputs:
+      go: ${{ github.event_name != 'pull_request' || steps.filter.outputs.go == 'true' }}
+      rust: ${{ github.event_name != 'pull_request' || steps.filter.outputs.rust == 'true' }}
+      typescript: ${{ github.event_name != 'pull_request' || steps.filter.outputs.typescript == 'true' }}
+      shell: ${{ github.event_name != 'pull_request' || steps.filter.outputs.shell == 'true' }}
+      yaml: ${{ github.event_name != 'pull_request' || steps.filter.outputs.yaml == 'true' }}
+    steps:
+      - id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          # Go covers what Sandbox · AppArmor builds and runs. Rust builds
+          # against a stub sidecar, so the sidecar is not its input.
+          filters: |
+            shared: &shared
+              - .github/actions/setup-environment/**
+              - .github/workflows/ci.yml
+            go:
+              - *shared
+              - Makefile
+              - proto/**
+              - scripts/**
+              - sidecar/**
+              - src-tauri/linux/**
+            rust:
+              - *shared
+              - .github/actions/stub-sidecar/**
+              - proto/**
+              - src-tauri/**
+            typescript:
+              - *shared
+              - .gitignore
+              - Makefile
+              - public/**
+              - src/**
+              - sidecar/graph/schema.graphqls
+              - scripts/coverage-threshold
+              - .oxfmtrc.json
+              - codegen.ts
+              - eslint.config.ts
+              - index.html
+              - index.test.ts
+              - package.json
+              - pnpm-lock.yaml
+              - pnpm-workspace.yaml
+              - tsconfig*.json
+              - vite.config.ts
+              - vitest.setup.ts
+            shell:
+              - .github/workflows/ci.yml
+              - '**/*.sh'
+            yaml:
+              - .github/**
+              - .gitignore
+              - .yamllint.yml
+              - .yamllintignore
+              - Makefile
+              - '**/*.yml'
+              - '**/*.yaml'
+
   ##############################
   # Pre-flight jobs
   ##############################
 
   go-lint:
     name: Go · Lint
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -67,6 +138,8 @@ jobs:
 
   go-vet:
     name: Go · Vet
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -99,6 +172,8 @@ jobs:
 
   rust-lint:
     name: Rust · Lint
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -113,6 +188,8 @@ jobs:
 
   rust-vet:
     name: Rust · Vet
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     strategy:
       fail-fast: false
       # Keep in step with the stress job's matrix in stress.yml.
@@ -175,6 +252,8 @@ jobs:
 
   shell-lint:
     name: Shell · Lint
+    needs: changes
+    if: needs.changes.outputs.shell == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -189,6 +268,8 @@ jobs:
 
   yaml-lint:
     name: YAML · Lint
+    needs: changes
+    if: needs.changes.outputs.yaml == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -209,6 +290,8 @@ jobs:
 
   typescript-lint:
     name: TypeScript · Lint
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -550,3 +633,33 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build
         run: pnpm build
+
+  # The one job to require: a skipped job reports as success, but a skipped
+  # matrix job reports only under its unexpanded name.
+  ci-result:
+    name: CI · Result
+    if: always()
+    needs:
+      - changes
+      - go-lint
+      - go-vet
+      - rust-lint
+      - rust-vet
+      - shell-lint
+      - yaml-lint
+      - typescript-lint
+      - dependency-review
+      - typescript-dependency-review
+      - go-test
+      - go-coverage
+      - go-coverage-gate
+      - sandbox-apparmor
+      - typescript-coverage
+      - rust-test
+      - typescript-test
+      - typescript-build
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Fail if a job failed
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

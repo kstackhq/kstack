@@ -14,7 +14,7 @@ The desktop app's native host (Tauri 2). It owns windows, the tray and menus, th
 
 **The `.deb` carries an AppArmor profile for it**, `src-tauri/linux/kstack-pasta`: passt's own `usr.bin.pasta` with its abstractions written out, renamed `kstack_pasta`. It starts Kstack's bwrap under `kstack_bwrap` (`Px`, so **the bwrap profile must be loaded first**) or the system's (`PUx`). `postinst.sh` loads it after `kstack-bwrap`; `prerm.sh` removes it first. → [ADR: Kstack ships its own pasta](../docs/adr/2026-10-04-kstack-ships-its-own-pasta.md).
 
-**The profiles are checked on a stock Ubuntu 24.04** by `scripts/check-sandbox-chain.sh`: the bundled bwrap and pasta through `sandbox-init`/`sandbox-shell`/`sandbox-pasta`, reaching `https://1.1.1.1/`, after asserting `kernel.apparmor_restrict_unprivileged_userns` is 1. The release runs it after installing the `.deb` (`check-bundle-linux`, gating the release); every pull request runs it as `sandbox-apparmor` in `ci.yml`.
+**The profiles are checked on a stock Ubuntu 24.04** by `scripts/check-sandbox-chain.sh`: the bundled bwrap and pasta through `sandbox-init`/`sandbox-shell`/`sandbox-pasta`, reaching `https://1.1.1.1/`, after asserting `kernel.apparmor_restrict_unprivileged_userns` is 1. The release runs it after installing the `.deb` (`check-bundle-linux`, gating the release); a pull request touching the Go paths runs it as `sandbox-apparmor` in `ci.yml`.
 
 ## Layout
 
