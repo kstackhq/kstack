@@ -171,6 +171,8 @@ jobs:
           path: ${{ steps.setup.outputs.go-cache-path }}
           key: ${{ steps.setup.outputs.go-cache-key }}
 
+  # Only CI · Result waits on it: a run takes minutes, so the tests start
+  # beside it rather than after it.
   go-staticcheck:
     name: Go · Staticcheck
     needs: changes
@@ -388,7 +390,6 @@ jobs:
     needs:
       - go-lint
       - go-vet
-      - go-staticcheck
     strategy:
       fail-fast: false
       matrix: *full-matrix
@@ -447,7 +448,6 @@ jobs:
     needs:
       - go-lint
       - go-vet
-      - go-staticcheck
     strategy:
       fail-fast: false
       # One runner per OS: every platform split in the sidecar is by OS, none
@@ -540,7 +540,6 @@ jobs:
     needs:
       - go-lint
       - go-vet
-      - go-staticcheck
     strategy:
       fail-fast: false
       matrix:
