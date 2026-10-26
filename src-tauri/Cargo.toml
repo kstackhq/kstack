@@ -163,7 +163,7 @@ libc = "0.2"
 # both on the system D-Bus bus. `default-features = false` + `tokio` integrates
 # zbus with the app's existing tokio runtime (drops its default async-io stack).
 [target.'cfg(target_os = "linux")'.dependencies]
-zbus = { version = "5", default-features = false, features = ["tokio"] }
+zbus = { version = "6", default-features = false, features = ["tokio"] }
 
 # Windows-only: force-terminate the sidecar by pid via TerminateProcess once
 # its CommandChild handle has been dropped (see sidecar::lifecycle). Windows
