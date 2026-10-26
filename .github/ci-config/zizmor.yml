@@ -1,0 +1,33 @@
+# zizmor configuration. `make lint-yaml` and CI's `YAML · Lint` job fail on any
+# finding not ignored here. Every entry gives its reason.
+rules:
+  # actionlint rejects GitHub's `uses: $/...` syntax until rhysd/actionlint#711
+  # lands. Until then every job checks out this repository at the commit under
+  # test before it uses a local action, so `./` names the same code `$/` would.
+  self-repository:
+    disable: true
+
+  # The token can publish to every job, and nothing gates the release job.
+  # Both are R-08 (docs/TODO.md#security).
+  excessive-permissions:
+    ignore:
+      - release.yml
+
+  # Replacing the release action with a `gh release` script is R-08's work on
+  # the release job.
+  superfluous-actions:
+    ignore:
+      - release.yml
+
+  # The prow action reads the comment only to match /assign and /unassign, runs
+  # no code from the repository, and holds `issues: write` alone.
+  dangerous-triggers:
+    ignore:
+      - auto-assign-issue.yml
+
+  # zizmor cannot see which triggers run a composite action, so it flags every
+  # env-file write in one. Ours write fixed values, under workflows with no
+  # trigger an outsider's fork controls.
+  github-env:
+    ignore:
+      - action.yml

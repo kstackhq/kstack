@@ -8,6 +8,9 @@ updates:
       - /.github/actions/*
     schedule:
       interval: weekly
+    # A week for a compromised release to be caught and pulled first.
+    cooldown:
+      default-days: 7
     groups:
       github-actions:
         patterns:

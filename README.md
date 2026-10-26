@@ -31,6 +31,7 @@ _Kstack is a desktop app for monitoring and troubleshooting K8s clusters with he
 - [Go](https://go.dev/dl/) 1.26
 - [Node](https://nodejs.org/en/download) 24
 - [pnpm](https://pnpm.io/installation) 12.4.1 (`npm install -g pnpm@12.4.1`)
+- [uv](https://docs.astral.sh/uv/getting-started/installation/), for `make lint`'s YAML linters
 
 On Linux:
 

@@ -920,7 +920,9 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   passed **for the commit the tag points at**, not `github.sha`, which on a manual run is whatever
   ref it was dispatched from. Finally, write a short page on verifying a download — the GPG key,
   `shasum -c`, `codesign`/`spctl`, `signtool`, and plainly that Linux bundles are unsigned — and run
-  it ourselves once before telling anyone else to.
+  it ourselves once before telling anyone else to. `.github/ci-config/zizmor.yml` ignores
+  `release.yml`'s `excessive-permissions` and `superfluous-actions` findings until this lands; drop
+  both ignores with the fix.
 
 - **H-3 — three macOS entitlements ship unjustified (medium; desktop owner).**
   `src-tauri/entitlements.plist` grants `allow-jit`, `allow-unsigned-executable-memory` and
@@ -968,8 +970,8 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   a dispatched version only if it matches a plain `major.minor.patch` with an optional prerelease, and
   the input reaches the config script as an environment value instead of as shell source. That is what
   keeps a crafted version string from running as shell in a job that holds release permissions and
-  signing secrets. It has no test: the 4 September review ran eighteen cases by hand, and an edit that
-  interpolated `${{ inputs.version }}` back into a `run:` block would pass everything we check today.
+  signing secrets. zizmor in `YAML · Lint` fails a `run:` block that interpolates the version, but the
+  pattern has no test: the 4 September review ran eighteen cases by hand.
   **Fix:** feed the workflow's own pattern a table of good and hostile strings — quotes, whitespace,
   `$(…)`, newlines, a build-metadata suffix — so the rule is exercised rather than remembered. **When
   it lands:** the *dispatched release version* row in [`security-model.md`](security-model.md) moves to
