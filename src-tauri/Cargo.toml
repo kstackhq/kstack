@@ -161,9 +161,10 @@ libc = "0.2"
 # Linux-only: the wake/network-return event sources (wake/linux.rs) subscribe to
 # systemd-logind's `PrepareForSleep` signal and NetworkManager's `StateChanged`,
 # both on the system D-Bus bus. `default-features = false` + `tokio` integrates
-# zbus with the app's existing tokio runtime (drops its default async-io stack).
+# zbus with the app's existing tokio runtime (drops its default async-io stack);
+# `proxy` provides the `#[zbus::proxy]` macro.
 [target.'cfg(target_os = "linux")'.dependencies]
-zbus = { version = "5", default-features = false, features = ["tokio"] }
+zbus = { version = "6", default-features = false, features = ["tokio", "proxy"] }
 
 # Windows-only: force-terminate the sidecar by pid via TerminateProcess once
 # its CommandChild handle has been dropped (see sidecar::lifecycle). Windows
