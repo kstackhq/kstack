@@ -12,7 +12,7 @@ jobs:
   execute:
     runs-on: ubuntu-slim
     steps:
-      - uses: jpmcb/prow-github-actions@187c5e3cd95a329c43448e1bdb3b1f5249232e44 # v3.0.1
+      - uses: cncf/prow-github-actions@187c5e3cd95a329c43448e1bdb3b1f5249232e44 # v3.0.1
         with:
           prow-commands: /assign /unassign
           github-token: "${{ secrets.GITHUB_TOKEN }}"
