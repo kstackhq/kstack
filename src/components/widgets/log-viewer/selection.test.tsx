@@ -372,6 +372,7 @@ function rowsOver(lines: LogLine[], before = 0): SelectionRows {
     lineOfKey: (key) => lines[key + before],
     indexOfKey: (key) => (key + before >= 0 && key + before < lines.length ? key + before : -1),
     keyAt: (index) => (index >= 0 && index < lines.length ? index - before : undefined),
+    scrollIntoView: vi.fn(),
   };
 }
 
@@ -381,10 +382,11 @@ function renderUseSelection(columns: Column[] = ['Message']) {
   const scroller = document.createElement('div');
   document.body.appendChild(scroller);
   const onLines = vi.fn();
-  const result = renderHook(({ rows }) => useSelection(rows, scroller, columns, onLines), {
-    initialProps: { rows: rowsOver(LINES) },
+  const rows = rowsOver(LINES);
+  const result = renderHook(({ rows: r }) => useSelection(r, scroller, columns, onLines), {
+    initialProps: { rows },
   });
-  return { ...result, scroller, onLines };
+  return { ...result, scroller, onLines, rows };
 }
 
 describe('useSelection', () => {
@@ -1080,12 +1082,25 @@ describe('keyboard shortcuts', () => {
     expect(result.current.anchorCell).toEqual({ rowKey: 1, col: 'Message' });
   });
 
+  it('scrolls the moved cell into view', () => {
+    const { result, scroller, rows } = renderUseSelection(['Pod', 'Message']);
+    act(() => result.current.handleCellMouseDown(1, 'Pod', clickEvent()));
+    key(scroller, { key: 'ArrowUp' });
+    expect(rows.scrollIntoView).toHaveBeenLastCalledWith(0);
+    key(scroller, { key: 'ArrowDown' });
+    key(scroller, { key: 'ArrowDown' });
+    expect(rows.scrollIntoView).toHaveBeenLastCalledWith(2);
+    key(scroller, { key: 'ArrowRight' });
+    expect(rows.scrollIntoView).toHaveBeenLastCalledWith(2);
+  });
+
   it('keeps selected cell unchanged when arrow key has no target cell, and lets the key scroll', () => {
-    const { result, scroller } = renderUseSelection();
+    const { result, scroller, rows } = renderUseSelection();
     act(() => result.current.handleCellMouseDown(0, 'Message', clickEvent()));
     const event = key(scroller, { key: 'ArrowUp' });
     expect(result.current.selectedCells).toEqual(new Map([[0, new Set(['Message'])]]));
     expect(event.defaultPrevented).toBe(false);
+    expect(rows.scrollIntoView).not.toHaveBeenCalled();
   });
 
   it('lets an arrow scroll when no cell is selected', () => {

@@ -112,8 +112,9 @@ Its rules, one each:
 `LogViewerCore` (`core.tsx`) is a React component with a render function as its child. It
 renders the scroller, a focusable `div` with its own overflow, and hands the render function
 `CoreRows`: the rows on screen, each with its key, line and `start`, the sizer's `totalSize`,
-both edges, and `loadMore` for an edge row's button. It decides nothing about lines; it tells
-the window what the DOM and the client did and performs what the window answers.
+both edges, `loadMore` for an edge row's button, and `scrollIntoView` for the selection's
+arrow keys. It decides nothing about lines; it tells the window what the DOM and the client
+did and performs what the window answers.
 
 - **One landing, one window.** Each landing — the mount, `jumpTo`, `retry`, a new `client` — is
   a fresh window, scroller and `@tanstack/react-virtual` virtualizer. Loading ends a frame

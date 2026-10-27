@@ -108,6 +108,8 @@ export type CoreRows = {
   /** -1 for a key not held. */
   indexOfKey: (key: number) => number;
   measureElement: (node: Element | null) => void;
+  /** Scrolls the row at `index` into view by the least movement; a row fully in view stays put. */
+  scrollIntoView: (index: number) => void;
   /** Reads the next page toward `edge` now, for an edge row's button: with no row drawn after an empty page, there is no scroll to read on at. */
   loadMore: (edge: Edge) => void;
 };
@@ -381,6 +383,7 @@ function Landing({
       return index >= 0 && index < length ? index : -1;
     },
     measureElement: virtualizer.measureElement,
+    scrollIntoView: (index) => virtualizer.scrollToIndex(index, { align: 'auto' }),
     loadMore,
   };
 

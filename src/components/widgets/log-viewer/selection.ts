@@ -38,7 +38,10 @@ import { lineTime } from './line-time';
 export type Cell = { rowKey: number; col: Column };
 
 /** What the selection reads off the core's rows: kubetail's virtualizer lookups. */
-export type SelectionRows = Pick<CoreRows, 'firstKey' | 'count' | 'lineOfKey' | 'keyAt' | 'indexOfKey'>;
+export type SelectionRows = Pick<
+  CoreRows,
+  'firstKey' | 'count' | 'lineOfKey' | 'keyAt' | 'indexOfKey' | 'scrollIntoView'
+>;
 
 /** A press on a cell: the mouse, or Enter and Space standing in for it. */
 type Press = ReactMouseEvent | ReactKeyboardEvent;
@@ -531,6 +534,8 @@ function useSelectionKeyboard(
       if (!next) return;
       e.preventDefault();
       selectSingleCell(store, next);
+      // The key's own scroll is cancelled, so the cursor's row is brought into view here.
+      rows.scrollIntoView(rows.indexOfKey(next.rowKey));
     }
   });
 

@@ -970,6 +970,43 @@ describe('LogViewer', () => {
       expect(b.viewport.get().selection).toEqual([line(18)]);
     });
 
+    it('keeps the cursor in view as ↑ moves it above the screen, and stops following', async () => {
+      const { container, viewport } = await landed();
+      const scroller = scrollerIn(container);
+      // Pinned to the end of 20 rows, the screen starts partway into line 11.
+      expect(scroller.scrollTop).toBe(20 * LOG_ROW_PX - VIEW);
+      fireEvent.mouseDown(cellOf('line 12', 'Message'));
+      fireEvent.mouseUp(document);
+
+      fireEvent.keyDown(scroller, { key: 'ArrowUp' });
+      await frame();
+      expect(scroller.scrollTop).toBe(11 * LOG_ROW_PX);
+      expect(viewport.get().pinnedToEnd).toBe(false);
+      fireEvent.keyDown(scroller, { key: 'ArrowUp' });
+      await frame();
+      expect(scroller.scrollTop).toBe(10 * LOG_ROW_PX);
+      expect(viewport.get().selection).toEqual([line(10)]);
+    });
+
+    it('keeps the cursor in view as ↓ moves it below the screen, and leaves a row in view alone', async () => {
+      const s = scripted();
+      const { container } = mount(action({ anchor: { kind: 'Head', at: null }, pinToEnd: false }));
+      await answer(s.fetches[0], page(0, 20, { edges: { ...START, ...END } }));
+      const scroller = scrollerIn(container);
+      expect(scroller.scrollTop).toBe(0);
+      fireEvent.mouseDown(cellOf('line 6', 'Message'));
+      fireEvent.mouseUp(document);
+
+      // Line 7 ends 8px above the screen's bottom.
+      fireEvent.keyDown(scroller, { key: 'ArrowDown' });
+      await frame();
+      expect(scroller.scrollTop).toBe(0);
+      // Line 8 runs past it, so the screen moves just enough to show it whole.
+      fireEvent.keyDown(scroller, { key: 'ArrowDown' });
+      await frame();
+      expect(scroller.scrollTop).toBe(9 * LOG_ROW_PX - VIEW);
+    });
+
     it('selects with Space on a position cell without reading it as a scroll to the bottom', async () => {
       const s = scripted();
       const { viewport } = mount(action({ anchor: { kind: 'Head', at: null }, pinToEnd: false }));
