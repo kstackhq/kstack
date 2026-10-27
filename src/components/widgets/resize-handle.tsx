@@ -25,6 +25,8 @@ import { useCallback } from 'react';
 
 import { cn } from '@kubetail/ui/lib/utils';
 
+import { dragFrom } from '@/lib/pointer-drag';
+
 type ResizeHandleProps = {
   edge: 'left' | 'right';
   onResize: (px: number) => void;
@@ -36,28 +38,10 @@ type ResizeHandleProps = {
 export function ResizeHandle({ edge, onResize, offset = 0, label }: ResizeHandleProps) {
   const handlePointerDown = useCallback(
     (e: ReactPointerEvent<HTMLDivElement>) => {
-      e.preventDefault();
-      // Pointer capture keeps the drag alive when the cursor outruns the thin strip.
-      e.currentTarget.setPointerCapture(e.pointerId);
       const left = e.currentTarget.parentElement?.getBoundingClientRect().left ?? 0;
-      // Force the resize cursor for the whole drag (else it reverts off the strip);
-      // `user-select: none` stops text selection.
-      const { body } = document;
-      const prevCursor = body.style.cursor;
-      const prevSelect = body.style.userSelect;
-      body.style.cursor = 'col-resize';
-      body.style.userSelect = 'none';
-      const onMove = (ev: PointerEvent) => {
+      dragFrom(e, 'col-resize', (ev) => {
         onResize(edge === 'right' ? ev.clientX - left + offset : window.innerWidth - ev.clientX + offset);
-      };
-      const onUp = () => {
-        body.style.cursor = prevCursor;
-        body.style.userSelect = prevSelect;
-        window.removeEventListener('pointermove', onMove);
-        window.removeEventListener('pointerup', onUp);
-      };
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
+      });
     },
     [edge, offset, onResize],
   );

@@ -30,10 +30,12 @@ import { useActiveKubeContext } from '@/lib/active-kube-context';
 import { useClusters } from '@/lib/clusters';
 import { useMemories } from '@/lib/memories';
 import type { Memory } from '@/lib/memories';
+import { usePersistedWidth } from '@/lib/persisted-width';
 import { MemoryInstructions } from './instructions';
 import { MemoryList } from './list';
 import { GENERAL, MemoryRail } from './rail';
 import type { Scope } from './rail';
+import { PopupResizeHandles } from './resize-handles';
 import { useMemoryWrites } from './writes';
 
 function Banner({ cluster, defaultCluster, onBack }: { cluster: string; defaultCluster: string; onBack: () => void }) {
@@ -115,7 +117,7 @@ export function MemoryPopoverContent() {
   const watchID = general ? (idOf(context) ?? records?.[0]?.id) : idOf(selected.name);
 
   return (
-    <div className="flex flex-col gap-3 p-[18px]">
+    <div className="flex h-full min-h-0 flex-col gap-3 p-[18px]">
       <div className="flex flex-col gap-0.5">
         <div className="flex items-center gap-2">
           <p className="flex-1 text-base font-medium">Memory</p>
@@ -130,10 +132,16 @@ export function MemoryPopoverContent() {
           Notes the chats on this cluster read. Kstack saves some as you talk; you can add, edit and delete them.
         </p>
       </div>
-      <div className="flex h-96 items-start">
+      <div className="flex min-h-0 flex-1 items-start">
         <MemoryRail clusters={clusters} selected={selected} onSelect={setPicked} />
-        {/* Keyed on the selection so a draft in progress never carries over. */}
-        <div key={key} className="flex h-full min-w-0 flex-1 flex-col gap-[18px] rounded-xl border bg-background p-3">
+        {/* Keyed on the selection so a draft in progress never carries over.
+            `min-w-70` keeps the instructions editor's buttons on one line; the
+            rail gives way to it. */}
+        <div
+          key={key}
+          data-testid="memory-detail"
+          className="flex h-full min-w-70 flex-1 flex-col gap-[18px] rounded-xl border bg-background p-3"
+        >
           {viewingOther && (
             <Banner
               cluster={name}
@@ -154,8 +162,36 @@ export function MemoryPopoverContent() {
   );
 }
 
+// A width of 0 is one the user never dragged: the popup takes the omnibox's,
+// but no less than `WIDTH.min`, which holds the rail's and the detail pane's
+// minimums. The window bounds what is drawn, never what is stored. The width's bound is
+// the viewport's, not `--available-width`: that moves with the popup's own
+// position, so a popup wider than the window would chase it every frame.
+const WIDTH = { min: 480, max: 1600, initial: 0 };
+const HEIGHT = { min: 320, max: 1200, initial: 490 };
+
+// `usePersistedWidth` is a clamped, remembered number; the height is one too.
+function MemoryPopup() {
+  const [width, setWidth] = usePersistedWidth('memory-popover-width', WIDTH);
+  const [height, setHeight] = usePersistedWidth('memory-popover-height', HEIGHT);
+
+  return (
+    <PopoverPrimitive.Popup
+      data-testid="memory-popup"
+      className="relative max-w-[calc(100vw-16px)] rounded-xl border bg-popover text-popover-foreground shadow-lg outline-hidden"
+      style={{
+        width: width ? `${width}px` : `max(var(--anchor-width), ${WIDTH.min}px)`,
+        height: `min(${height}px, var(--available-height))`,
+      }}
+    >
+      <MemoryPopoverContent />
+      <PopupResizeHandles onWidth={setWidth} onHeight={setHeight} label="Resize memory" />
+    </PopoverPrimitive.Popup>
+  );
+}
+
 // Anchored to the omnibox, not the brain button that opens it, so the popover
-// centers on the omnibox and takes its width. The library's `PopoverContent`
+// centers on the omnibox and starts at its width. The library's `PopoverContent`
 // anchors on the trigger alone, so the positioner is base-ui's own.
 export function MemoryPopover({
   anchorRef,
@@ -169,11 +205,17 @@ export function MemoryPopover({
       <PopoverTrigger render={children} />
       <PopoverPrimitive.Portal>
         {/* z-50, as the library's popover content has: above the sidebar drawer
-            and its scrim. */}
-        <PopoverPrimitive.Positioner anchor={anchorRef} align="center" side="bottom" sideOffset={8} className="z-50">
-          <PopoverPrimitive.Popup className="w-(--anchor-width) rounded-xl border bg-popover text-popover-foreground shadow-lg outline-hidden">
-            <MemoryPopoverContent />
-          </PopoverPrimitive.Popup>
+            and its scrim. It never flips above the omnibox: its height is capped
+            at the room below, which would otherwise trip the flip. */}
+        <PopoverPrimitive.Positioner
+          anchor={anchorRef}
+          align="center"
+          side="bottom"
+          sideOffset={8}
+          collisionAvoidance={{ side: 'none' }}
+          className="z-50"
+        >
+          <MemoryPopup />
         </PopoverPrimitive.Positioner>
       </PopoverPrimitive.Portal>
     </Popover>

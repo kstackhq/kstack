@@ -120,8 +120,12 @@ export function startErrorLogForwarder(): () => void {
 // rejection — and reports it as a `render` error.
 export function installGlobalErrorHandlers(): () => void {
   const onUncaught = (event: ErrorEvent) => {
+    // A ResizeObserver whose callback changes layout (floating-ui's, as a popup
+    // resizes) gets its remaining notifications next frame; the browser says so
+    // with an error event carrying no error. Nothing failed.
+    if (event.message.startsWith('ResizeObserver loop')) return;
     const cause: unknown = event.error;
-    reportError({ source: 'render', message: cause === undefined ? event.message : errorMessage(cause), cause });
+    reportError({ source: 'render', message: cause == null ? event.message : errorMessage(cause), cause });
   };
   const onRejection = (event: Event) => {
     const { reason } = event as { reason?: unknown };

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 import { Popover } from '@kubetail/ui/elements/popover';
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -46,6 +46,11 @@ vi.mock('urql', () => ({
 }));
 const { MemoryPopover, MemoryPopoverContent } = await import('./popover');
 
+// jsdom doesn't implement pointer capture; the resize handles call it, so stub it out.
+if (!HTMLElement.prototype.setPointerCapture) {
+  HTMLElement.prototype.setPointerCapture = () => {};
+}
+
 // The header's close button needs a `Popover` above it; the popup itself is
 // not under test, so the content renders open and bare.
 const record = (id: string, context: string) => ({ id, spec: { source: { kubeconfig: { context } } } });
@@ -62,6 +67,7 @@ const memory = (over: Partial<Memory> = {}): Memory => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
   known.current = [record('c1', 'Minikube'), record('c2', '2nd Cluster')];
   watched.ids = [];
   watched.memories = [];
@@ -242,6 +248,18 @@ describe('MemoryPopoverContent', () => {
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(screen.getByText('No instructions added')).toBeInTheDocument();
   });
+
+  // jsdom lays nothing out, so this checks the styles that decide what a browser
+  // does when the popover is narrower than the rail and the detail pane want.
+  it('shrinks the rail before the detail pane', () => {
+    localStorage.setItem('kstack:memory-popover-rail-width', '320');
+    renderContent();
+    const rail = screen.getByTestId('memory-rail');
+    expect(rail.style.width).toBe('320px');
+    expect(rail.style.minWidth).toBe('100px');
+    expect(rail).not.toHaveClass('shrink-0');
+    expect(screen.getByTestId('memory-detail')).toHaveClass('min-w-70');
+  });
 });
 
 describe('MemoryPopover', () => {
@@ -258,5 +276,33 @@ describe('MemoryPopover', () => {
     expect(await screen.findByText('SAVED MEMORIES')).toBeInTheDocument();
     // Above the sidebar drawer (z-40) and its scrim (z-30).
     expect(screen.getByText('SAVED MEMORIES').closest('.z-50')).not.toBeNull();
+  });
+
+  it('starts at the omnibox’s width, at least its minimum, and remembers the size the user drags', async () => {
+    const user = userEvent.setup();
+    const popover = (
+      <MemoryPopover anchorRef={{ current: null }}>
+        <button type="button">Memory button</button>
+      </MemoryPopover>
+    );
+    const { unmount } = render(popover);
+    await user.click(button('Memory button'));
+    const popup = await screen.findByTestId('memory-popup');
+    expect(popup.style.width).toBe('max(var(--anchor-width), 480px)');
+    expect(popup.style.height).toBe('min(490px, var(--available-height))');
+
+    // jsdom lays nothing out, so the popup's box is all at 0: the centre and the top.
+    fireEvent.pointerDown(screen.getByRole('separator', { name: 'Resize memory, bottom-right corner' }), {
+      pointerId: 1,
+    });
+    fireEvent.pointerMove(window, { clientX: 300, clientY: 600 });
+    fireEvent.pointerUp(window);
+    expect(popup.style.width).toBe('600px');
+    expect(popup.style.height).toBe('min(600px, var(--available-height))');
+
+    unmount();
+    render(popover);
+    await user.click(button('Memory button'));
+    expect((await screen.findByTestId('memory-popup')).style.width).toBe('600px');
   });
 });

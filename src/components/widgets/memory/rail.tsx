@@ -58,7 +58,13 @@ export function MemoryRail({
 
   return (
     // `pr-1` is the gap to the detail pane; the handle straddles its border.
-    <div data-testid="memory-rail" className="relative flex h-full shrink-0 flex-col gap-2 pr-1" style={{ width }}>
+    // The width is a preference: the rail shrinks, to its minimum, when the
+    // popover is too narrow for it and the detail pane's floor.
+    <div
+      data-testid="memory-rail"
+      className="relative flex h-full flex-col gap-2 pr-1"
+      style={{ width, minWidth: WIDTH.min }}
+    >
       {/* The cluster list scrolls inside the rail, so General stays in reach. */}
       <div className="flex min-h-0 flex-col">
         <Button

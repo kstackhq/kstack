@@ -170,6 +170,35 @@ describe('installGlobalErrorHandlers', () => {
     expect(seen.mock.calls[0][0]).toMatchObject({ source: 'render', message: 'thrown outside React', cause: error });
   });
 
+  it('reports an error event with no error by its message', () => {
+    const seen = vi.fn();
+    const off = onError(seen);
+    const uninstall = installGlobalErrorHandlers();
+
+    window.dispatchEvent(new ErrorEvent('error', { error: null, message: 'Script error.' }));
+
+    uninstall();
+    off();
+    expect(seen.mock.calls[0][0]).toMatchObject({ source: 'render', message: 'Script error.' });
+  });
+
+  it('ignores a ResizeObserver loop notice', () => {
+    const seen = vi.fn();
+    const off = onError(seen);
+    const uninstall = installGlobalErrorHandlers();
+
+    window.dispatchEvent(
+      new ErrorEvent('error', {
+        error: null,
+        message: 'ResizeObserver loop completed with undelivered notifications.',
+      }),
+    );
+
+    uninstall();
+    off();
+    expect(seen).not.toHaveBeenCalled();
+  });
+
   it('stops reporting once uninstalled', () => {
     const seen = vi.fn();
     const off = onError(seen);
