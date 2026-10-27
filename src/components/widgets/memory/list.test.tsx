@@ -62,7 +62,7 @@ function List({
         if (refusal) return refusal;
         setMemories((prev) =>
           m
-            ? prev.map((x) => (x.id === m.id ? { ...x, body, writtenBy: 'User' } : x))
+            ? prev.map((x) => (x.id === m.id ? { ...x, name, body, writtenBy: 'User' } : x))
             : [memory(prev.length + 10, { name, body, writtenBy: 'User' }), ...prev],
         );
         return null;
@@ -240,35 +240,108 @@ describe('MemoryList', () => {
     expect(screen.getByText('Another memory here has this name.')).toBeInTheDocument();
   });
 
-  it('adds a memory, holding Save until the name and the body are there', async () => {
-    const user = userEvent.setup();
-    render(<List adding />);
-    expect(button('Save')).toBeDisabled();
+  describe('adding', () => {
+    const name = () => screen.getByRole<HTMLInputElement>('textbox', { name: 'Name' });
+    const body = () => screen.getByRole('textbox', { name: 'Body' });
+    const add = async (user: ReturnType<typeof userEvent.setup>, text: string, typed = '') => {
+      await user.type(body(), text);
+      if (typed) await user.type(name(), typed);
+      await user.click(button('Save'));
+    };
 
-    await user.type(screen.getByRole('textbox', { name: 'Name' }), 'oncall');
-    await user.type(screen.getByRole('textbox', { name: 'Body' }), 'Page the payments team.');
-    await user.click(button('Save'));
+    it('opens on the body and holds Save until it has text', async () => {
+      const user = userEvent.setup();
+      render(<List initial={[]} adding />);
+      expect(body()).toHaveFocus();
+      expect(name()).toHaveAttribute('placeholder', 'name (optional)');
+      expect(button('Save')).toBeDisabled();
 
-    expect(screen.queryByRole('textbox', { name: 'Name' })).not.toBeInTheDocument();
-    expect(screen.getByText('Page the payments team.')).toBeInTheDocument();
+      await user.type(body(), 'Page the payments team.');
+      expect(button('Save')).toBeEnabled();
+    });
+
+    it("names a memory after its body's opening words", async () => {
+      const user = userEvent.setup();
+      render(<List initial={[]} adding />);
+      await add(user, 'Page the payments team.');
+
+      expect(screen.queryByRole('textbox', { name: 'Name' })).not.toBeInTheDocument();
+      expect(screen.getByText('Page the payments team.')).toBeInTheDocument();
+      expect(screen.getByText('page-the-payments-team')).toBeInTheDocument();
+    });
+
+    it('suffixes a derived name the scope already holds', async () => {
+      const user = userEvent.setup();
+      render(<List initial={[memory(1, { name: 'page-the-payments-team' })]} adding />);
+      await add(user, 'Page the payments team!');
+
+      expect(screen.getByText('page-the-payments-team-2')).toBeInTheDocument();
+    });
+
+    it('names a body with no Latin letters "memory"', async () => {
+      const user = userEvent.setup();
+      render(<List initial={[]} adding />);
+      await add(user, '本番環境');
+
+      expect(screen.getByText('memory')).toBeInTheDocument();
+    });
+
+    it.each([
+      ['Prod Deploy', 'prod-deploy'],
+      ['prod ', 'prod'],
+    ])('sends a typed %j as %j', async (typed, sent) => {
+      const user = userEvent.setup();
+      render(<List initial={[]} adding />);
+      await add(user, 'Ask before deploying.', typed);
+
+      expect(screen.getByText(sent)).toBeInTheDocument();
+    });
+
+    it('keeps the first 48 characters of a typed name', async () => {
+      const user = userEvent.setup();
+      render(<List initial={[]} adding />);
+      await user.type(name(), `${'a'.repeat(40)} ${'b'.repeat(10)}`);
+
+      expect(name()).toHaveValue(`${'a'.repeat(40)}-${'b'.repeat(7)}`);
+    });
+
+    it('leaves the caret after the hyphen a space in the middle became', async () => {
+      const user = userEvent.setup();
+      render(<List initial={[]} adding />);
+      await user.type(name(), 'prod-deploy');
+      await user.type(name(), ' ', { initialSelectionStart: 4, initialSelectionEnd: 4 });
+
+      expect(name()).toHaveValue('prod-deploy');
+      expect(name().selectionStart).toBe(5);
+    });
   });
 
-  it.each([
-    ['Name', 'Bad Name', 'Lower-case letters, digits and single hyphens, at most 48 characters.'],
-    // 251 two-byte characters: under 500 characters, over 500 bytes.
-    ['Body', 'é'.repeat(251), 'At most 500 bytes.'],
-  ])('draws the rule a %s breaks and holds Save', async (label, value, rule) => {
+  it("sends an edited memory's own name", async () => {
+    const user = userEvent.setup();
+    render(<List initial={[memory(1, { name: 'traefik-only' })]} />);
+
+    await openMenu(user);
+    await user.click(await screen.findByRole('menuitem', { name: 'Edit' }));
+    await user.clear(screen.getByRole('textbox', { name: 'Body' }));
+    await user.type(screen.getByRole('textbox', { name: 'Body' }), 'Uses nginx now.');
+    await user.click(button('Save'));
+
+    expect(screen.getByText('Uses nginx now.')).toBeInTheDocument();
+    expect(screen.getByText('traefik-only')).toBeInTheDocument();
+  });
+
+  it('draws the rule a body breaks and holds Save', async () => {
     const user = userEvent.setup();
     render(<List adding />);
-    await user.type(screen.getByRole('textbox', { name: 'Name' }), 'oncall');
     await user.type(screen.getByRole('textbox', { name: 'Body' }), 'b');
     expect(button('Save')).toBeEnabled();
 
-    const field = screen.getByRole('textbox', { name: label });
+    const field = screen.getByRole('textbox', { name: 'Body' });
     await user.clear(field);
     await user.click(field);
-    await user.paste(value);
-    expect(screen.getByText(rule)).toBeInTheDocument();
+    // 251 two-byte characters: under 500 characters, over 500 bytes.
+    await user.paste('é'.repeat(251));
+    expect(screen.getByText('At most 500 bytes.')).toBeInTheDocument();
     expect(button('Save')).toBeDisabled();
   });
 

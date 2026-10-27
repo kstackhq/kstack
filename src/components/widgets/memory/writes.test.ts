@@ -20,7 +20,7 @@ vi.mock('urql', () => ({
   useMutation: (doc: unknown) => [{}, String(JSON.stringify(doc)).includes('memoryDelete') ? deleteMock : saveMock],
 }));
 
-const { bodyFits, nameFits, useMemoryWrites } = await import('./writes');
+const { bodyFits, slugify, typedName, uniqueName, useMemoryWrites } = await import('./writes');
 
 const refused = (code: string) => ({ error: { graphQLErrors: [{ extensions: { code } }] } });
 const writes = () => renderHook(() => useMemoryWrites()).result.current;
@@ -43,10 +43,7 @@ describe('useMemoryWrites', () => {
     ['KSTACK_MEMORY_NAME_TAKEN', 'Another memory here has this name.'],
     ['KSTACK_MEMORY_FULL', 'There is no room for this memory here. Shorten or delete one first.'],
     ['KSTACK_MEMORY_SECRET', 'This looks like a credential. Memories never keep one.'],
-    [
-      'KSTACK_VALIDATION_ERROR',
-      'A name is lower-case letters, digits and single hyphens, at most 48 characters, and a memory is at most 500 bytes.',
-    ],
+    ['KSTACK_VALIDATION_ERROR', 'A memory is at most 500 bytes.'],
     ['KSTACK_SOMETHING_ELSE', 'The memory could not be saved.'],
   ])('says why a save was refused with %s', async (code, message) => {
     saveMock.mockResolvedValue(refused(code));
@@ -68,14 +65,56 @@ describe('useMemoryWrites', () => {
   });
 });
 
-describe('the shape rules', () => {
-  it('takes lower-case words joined by single hyphens, up to 48 characters', () => {
-    expect(nameFits('payments-pages')).toBe(true);
-    expect(nameFits('Bad Name')).toBe(false);
-    expect(nameFits('double--hyphen')).toBe(false);
-    expect(nameFits('a'.repeat(49))).toBe(false);
+describe('slugify', () => {
+  it('joins lower-case words with single hyphens', () => {
+    expect(slugify('Page the Payments team')).toBe('page-the-payments-team');
+    expect(slugify('  prod, then   staging!! ')).toBe('prod-then-staging');
+    expect(slugify('--v2 rollout--')).toBe('v2-rollout');
   });
 
+  it('folds accented Latin to ASCII and drops other scripts', () => {
+    expect(slugify('Café prod')).toBe('cafe-prod');
+    expect(slugify('naïve')).toBe('naive');
+    expect(slugify('本番環境')).toBe('');
+  });
+
+  it('cuts at 48 on a word boundary', () => {
+    const words = `${'a'.repeat(40)} ${'b'.repeat(7)}`; // 48 characters
+    expect(slugify(`${words} cc`)).toBe(`${'a'.repeat(40)}-${'b'.repeat(7)}`);
+    expect(slugify(`${words}c dd`)).toBe('a'.repeat(40));
+    expect(slugify('a'.repeat(60))).toBe('a'.repeat(48));
+  });
+});
+
+describe('typedName', () => {
+  it('keeps a trailing hyphen and drops a leading one', () => {
+    expect(typedName('Prod Deploy')).toBe('prod-deploy');
+    expect(typedName('prod ')).toBe('prod-');
+    expect(typedName(' -prod')).toBe('prod');
+    expect(typedName('Café')).toBe('cafe');
+  });
+
+  it('cuts hard at 48, keeping the word being typed', () => {
+    expect(typedName(`${'a'.repeat(40)} ${'b'.repeat(10)}`)).toBe(`${'a'.repeat(40)}-${'b'.repeat(7)}`);
+  });
+});
+
+describe('uniqueName', () => {
+  it('suffixes a taken name until one is free', () => {
+    expect(uniqueName('oncall', new Set())).toBe('oncall');
+    expect(uniqueName('oncall', new Set(['oncall']))).toBe('oncall-2');
+    expect(uniqueName('oncall', new Set(['oncall', 'oncall-2']))).toBe('oncall-3');
+    const nine = ['oncall', ...Array.from({ length: 8 }, (_, i) => `oncall-${i + 2}`)];
+    expect(uniqueName('oncall', new Set(nine))).toBe('oncall-10');
+  });
+
+  it('cuts a long name to fit its suffix, leaving no double hyphen', () => {
+    const base = `${'a'.repeat(45)}-bc`;
+    expect(uniqueName(base, new Set([base]))).toBe(`${'a'.repeat(45)}-2`);
+  });
+});
+
+describe('bodyFits', () => {
   it('measures a body in bytes', () => {
     expect(bodyFits('é'.repeat(250))).toBe(true);
     expect(bodyFits('é'.repeat(251))).toBe(false);

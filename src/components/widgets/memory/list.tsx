@@ -36,7 +36,7 @@ import { cn } from '@kubetail/ui/lib/utils';
 
 import { Dialog } from '@/components/widgets/dialog';
 import type { Memory } from '@/lib/memories';
-import { BODY_RULE, NAME_RULE, bodyFits, nameFits } from './writes';
+import { BODY_RULE, bodyFits, slugify, typedName, uniqueName } from './writes';
 
 function Provenance({ memory }: { memory: Memory }) {
   return (
@@ -51,29 +51,37 @@ function Provenance({ memory }: { memory: Memory }) {
 
 // Edits one memory's body, or writes a new memory when there is none. The draft
 // is fixed when it opens, so a change arriving meanwhile never replaces what the
-// user is saving. A refused save keeps the draft and says why.
+// user is saving. A refused save keeps the draft and says why. A new memory's
+// name is optional: left empty, it comes from the body, clear of `taken`.
 function MemoryEditor({
   memory,
+  taken,
   onSave,
   onCancel,
 }: {
   memory?: Memory;
+  // The names the scope holds.
+  taken: ReadonlySet<string>;
   onSave: (name: string, body: string) => Promise<string | null>;
   onCancel: () => void;
 }) {
-  const [name, setName] = useState(memory?.name ?? '');
+  const [name, setName] = useState('');
   const [draft, setDraft] = useState(memory?.body ?? '');
   const [saving, setSaving] = useState(false);
   const [refusal, setRefusal] = useState('');
   const body = draft.trim();
-  const nameBroken = name !== '' && !nameFits(name);
   const bodyBroken = !bodyFits(body);
-  const ready = name !== '' && body !== '' && !nameBroken && !bodyBroken;
+  const ready = body !== '' && !bodyBroken;
+
+  const nameToSend = () => {
+    if (memory) return memory.name;
+    return name.replace(/-$/, '') || uniqueName(slugify(body) || 'memory', taken);
+  };
 
   const save = async () => {
     setSaving(true);
     setRefusal('');
-    const refused = await onSave(name, body);
+    const refused = await onSave(nameToSend(), body);
     if (refused) {
       setRefusal(refused);
       setSaving(false);
@@ -82,27 +90,33 @@ function MemoryEditor({
 
   return (
     <fieldset disabled={saving} className="flex flex-col gap-1.5 pt-0.5 pb-1">
-      {!memory && (
-        <>
-          <Input
-            aria-label="Name"
-            placeholder="name"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="h-8 font-mono text-xs"
-            autoFocus
-          />
-          {nameBroken && <p className="text-xs text-destructive">{NAME_RULE}</p>}
-        </>
-      )}
       <Textarea
         aria-label="Body"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         className="h-14 resize-y text-xs"
-        autoFocus={!!memory}
+        autoFocus
       />
       {bodyBroken && <p className="text-xs text-destructive">{BODY_RULE}</p>}
+      {!memory && (
+        // Uncontrolled, so the caret stays where folding puts it: React moves a
+        // controlled input's caret to the end.
+        <Input
+          aria-label="Name"
+          placeholder="name (optional)"
+          onChange={(e) => {
+            const input = e.target;
+            const folded = typedName(input.value);
+            if (folded !== input.value) {
+              const caret = typedName(input.value.slice(0, input.selectionStart ?? undefined)).length;
+              input.value = folded;
+              input.setSelectionRange(caret, caret);
+            }
+            setName(folded);
+          }}
+          className="h-8 font-mono text-xs"
+        />
+      )}
       {memory && <Provenance memory={memory} />}
       {memory?.writtenBy === 'Model' && (
         <p className="text-xs text-muted-foreground">Saving makes this your memory: Kstack will follow it.</p>
@@ -269,6 +283,7 @@ export function MemoryList({
   const [deleting, setDeleting] = useState<string[] | null>(null);
   const [deleteFailed, setDeleteFailed] = useState(false);
   const selecting = selectedIds.size > 0;
+  const taken = new Set(memories.map((m) => m.name));
 
   const toggle = (id: string) =>
     setCheckedIds((prev) => {
@@ -322,6 +337,7 @@ export function MemoryList({
       <div className={cn('-mx-2 flex min-h-0 flex-1 flex-col overflow-y-auto px-1', selecting && 'gap-0.5')}>
         {adding && (
           <MemoryEditor
+            taken={taken}
             onSave={async (name, body) => {
               const refused = await onSave(undefined, name, body);
               if (!refused) onAddDone();
@@ -339,6 +355,7 @@ export function MemoryList({
             {editingId === memory.id ? (
               <MemoryEditor
                 memory={memory}
+                taken={taken}
                 onSave={async (name, body) => {
                   const refused = await onSave(memory, name, body);
                   if (!refused) setEditingId(null);

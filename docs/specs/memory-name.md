@@ -2,7 +2,7 @@
 
 **Package:** `src/components/widgets/memory/` (webview only).
 **Prerequisites:** none.
-**Status:** Planned.
+**Status:** Implemented.
 
 ## Goal
 
@@ -50,7 +50,8 @@ characters, never at a word boundary. Typing `Prod Deploy` shows `prod-deploy`.
 Normalizing a controlled input moves the caret to the end whenever the value shrinks, which it
 does on a space typed beside a hyphen or on an edit in the middle. So the editor puts the caret
 back: at `typedName(value.slice(0, caret)).length`, the length of the normalized text before
-it, set through `setSelectionRange` in a layout effect after the change. Keeping the trailing
+it. The field is uncontrolled, so its `onChange` writes the folded value and sets the caret with
+`setSelectionRange` itself. Keeping the trailing
 hyphen is what makes this prefix rule exact. IME composition text is folded as it is typed; it
 would not survive the rule anyway.
 
