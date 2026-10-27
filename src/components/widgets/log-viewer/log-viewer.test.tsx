@@ -1007,6 +1007,28 @@ describe('LogViewer', () => {
       expect(scroller.scrollTop).toBe(9 * LOG_ROW_PX - VIEW);
     });
 
+    it('keeps taking arrow keys after the clicked cell scrolls out of the rendered rows', async () => {
+      const s = scripted();
+      const { viewport } = mount(action({ anchor: { kind: 'Head', at: null }, pinToEnd: false }));
+      await answer(s.fetches[0], page(0, 20, { edges: { ...START, ...END } }));
+      const cell = cellOf('line 6', 'Message');
+      fireEvent.mouseDown(cell);
+      fireEvent.mouseUp(document);
+      cell.focus();
+
+      // The keys go where the browser sends them: the focused element.
+      for (let i = 0; i < 13; i += 1) {
+        fireEvent.keyDown(document.activeElement!, { key: 'ArrowDown' });
+        // eslint-disable-next-line no-await-in-loop -- each key scrolls in its own frame
+        await frame();
+      }
+      expect(cell.isConnected).toBe(false);
+      expect(viewport.get().selection).toEqual([line(19)]);
+      fireEvent.keyDown(document.activeElement!, { key: 'ArrowUp' });
+      await frame();
+      expect(viewport.get().selection).toEqual([line(18)]);
+    });
+
     it('selects with Space on a position cell without reading it as a scroll to the bottom', async () => {
       const s = scripted();
       const { viewport } = mount(action({ anchor: { kind: 'Head', at: null }, pinToEnd: false }));

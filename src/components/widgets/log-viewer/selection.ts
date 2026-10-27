@@ -534,6 +534,9 @@ function useSelectionKeyboard(
       if (!next) return;
       e.preventDefault();
       selectSingleCell(store, next);
+      // The clicked cell holds focus, and its row unmounts once scrolled out of the
+      // virtualizer's range, taking the keys with it; the scroller never unmounts.
+      scroller?.focus({ preventScroll: true });
       // The key's own scroll is cancelled, so the cursor's row is brought into view here.
       rows.scrollIntoView(rows.indexOfKey(next.rowKey));
     }
