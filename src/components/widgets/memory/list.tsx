@@ -139,25 +139,30 @@ function Row({
   // the menu, and a plain :hover would drop the trigger from under it.
   const [menuOpen, setMenuOpen] = useState(false);
   const revealed = selecting || menuOpen;
-  // The actions trigger stays in the tab order, hidden by opacity alone, so a
-  // keyboard reaches every row; focus inside the row shows the checkbox too.
-  const checkbox = revealed ? 'flex' : 'hidden group-hover/row:flex group-focus-within/row:flex';
+  // Both hide without giving up their space, so the text never moves: the
+  // actions trigger by opacity alone, staying in the tab order so a keyboard
+  // reaches every row, the checkbox by visibility. Focus inside the row shows
+  // both.
+  const checkbox = revealed ? '' : 'invisible group-hover/row:visible group-focus-within/row:visible';
   const trigger = revealed ? '' : 'opacity-0 group-hover/row:opacity-100 group-focus-within/row:opacity-100';
 
   return (
     <div
       className={cn(
-        'group/row flex items-start gap-2 rounded-xl py-3',
-        // Selecting indents every row the same, checked or not, so the checkbox
-        // column lines up; outside it the fill and inset come on hover or focus.
-        selecting
-          ? 'px-1.5 hover:bg-secondary focus-within:bg-secondary'
-          : 'hover:bg-secondary hover:px-1.5 focus-within:bg-secondary focus-within:px-1.5',
+        // A row spans the list's inset (`-mx-1`), so its fill runs 8px into the
+        // panel's padding. Its left padding, the box and the gap put the text
+        // under the heading's `pl-3`; `pr-3.5` and the trigger's own padding
+        // end the icon as far from the right.
+        'group/row -mx-1 flex items-start gap-1 rounded-xl py-3 pr-3.5 pl-1 hover:bg-secondary focus-within:bg-secondary',
         selected && 'bg-card hover:bg-card focus-within:bg-card',
-        menuOpen && !selected && 'bg-secondary px-1.5',
+        menuOpen && !selected && 'bg-secondary',
       )}
     >
-      <Checkbox checked={selected} onCheckedChange={onToggle} className={cn('mt-0.5', checkbox)} />
+      <Checkbox
+        checked={selected}
+        onCheckedChange={onToggle}
+        className={cn('mt-1 size-3 rounded-[3px] [&_svg]:size-2.5!', checkbox)}
+      />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <p className="text-sm break-words whitespace-pre-wrap text-card-foreground">{memory.body}</p>
         <Provenance memory={memory} />
@@ -189,9 +194,9 @@ function SelectAllCheckbox({ selected, total, onToggle }: { selected: number; to
       checked={all}
       indeterminate={!all}
       onCheckedChange={onToggle}
-      className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-[4px] border border-input bg-background outline-none focus-visible:ring-3 focus-visible:ring-ring/50 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground data-indeterminate:border-primary data-indeterminate:bg-primary data-indeterminate:text-primary-foreground"
+      className="mt-0.5 flex size-3 shrink-0 items-center justify-center rounded-[3px] border border-input bg-background outline-none focus-visible:ring-3 focus-visible:ring-ring/50 data-checked:border-primary data-checked:bg-primary data-checked:text-primary-foreground data-indeterminate:border-primary data-indeterminate:bg-primary data-indeterminate:text-primary-foreground"
     >
-      <CheckboxPrimitive.Indicator className="grid place-content-center [&>svg]:size-3.5">
+      <CheckboxPrimitive.Indicator className="grid place-content-center [&>svg]:size-2.5">
         {all ? <Check /> : <Minus />}
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
@@ -212,8 +217,10 @@ function BulkBar({
   onDelete: () => void;
 }) {
   return (
-    <div className="flex items-center justify-between px-1.5">
-      <div className="flex items-start gap-2.5">
+    // Spans the panel's padding as the rows do, so the select-all box sits over
+    // theirs and the buttons end where their actions icons do.
+    <div className="-mx-2 flex items-center justify-between pr-5 pl-1">
+      <div className="flex items-start gap-1">
         <SelectAllCheckbox selected={selected} total={total} onToggle={onToggleAll} />
         <div className="flex flex-col text-xs leading-4">
           <span className="font-medium">{selected} selected</span>
@@ -306,11 +313,13 @@ export function MemoryList({
           onDelete={() => setDeleting([...selectedIds])}
         />
       ) : (
-        <p className="text-xs font-medium text-muted-foreground">SAVED MEMORIES</p>
+        // Over the rows' text, past their checkbox column.
+        <p className="pl-3 text-xs font-medium text-muted-foreground">SAVED MEMORIES</p>
       )}
-      {/* The inset is the list's, not each row's, so an editor's focus ring is
-          not clipped by the scroller. */}
-      <div className={cn('flex min-h-0 flex-1 flex-col overflow-y-auto pr-3 pl-1', selecting && 'gap-0.5')}>
+      {/* The list runs 8px into the panel's padding, and the rows' fills with
+          it. The inset is the list's, not each row's, so an editor's focus
+          ring is not clipped by the scroller. */}
+      <div className={cn('-mx-2 flex min-h-0 flex-1 flex-col overflow-y-auto px-1', selecting && 'gap-0.5')}>
         {adding && (
           <MemoryEditor
             onSave={async (name, body) => {
@@ -322,7 +331,7 @@ export function MemoryList({
           />
         )}
         {memories.length === 0 && !adding && (
-          <p className="py-2 text-xs text-muted-foreground">No saved memories yet.</p>
+          <p className="py-2 pl-4 text-xs text-muted-foreground">No saved memories yet.</p>
         )}
         {memories.map((memory, i) => (
           <Fragment key={memory.id}>
