@@ -130,7 +130,7 @@ export function MemoryPopoverContent() {
           Notes the chats on this cluster read. Kstack saves some as you talk; you can add, edit and delete them.
         </p>
       </div>
-      <div className="flex h-96 items-start gap-1">
+      <div className="flex h-96 items-start">
         <MemoryRail clusters={clusters} selected={selected} onSelect={setPicked} />
         {/* Keyed on the selection so a draft in progress never carries over. */}
         <div key={key} className="flex h-full min-w-0 flex-1 flex-col gap-[18px] rounded-xl border bg-background p-3">

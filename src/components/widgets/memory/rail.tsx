@@ -13,7 +13,8 @@
 // limitations under the License.
 
 // The memory popover's left rail: a collapsible Cluster group over the General
-// row. Selection is the popover's; the rail only draws it.
+// row, as wide as the user last dragged it. Selection is the popover's; the
+// rail only draws it.
 import { useState } from 'react';
 
 import { ChevronDown } from 'lucide-react';
@@ -21,10 +22,15 @@ import { ChevronDown } from 'lucide-react';
 import { Button } from '@kubetail/ui/elements/button';
 import { cn } from '@kubetail/ui/lib/utils';
 
+import { ResizeHandle } from '@/components/widgets/resize-handle';
+import { usePersistedWidth } from '@/lib/persisted-width';
+
 // What the rail selects: one kubeconfig context, or General, the memories for
 // every cluster. Tagged, so a context named "General" is still a cluster.
 export type Scope = { kind: 'cluster'; name: string } | { kind: 'general' };
 export const GENERAL: Scope = { kind: 'general' };
+
+const WIDTH = { min: 100, max: 320, initial: 140 };
 
 // A selected row keeps the accent the others take on hover.
 const ROW_CLASS =
@@ -48,9 +54,11 @@ export function MemoryRail({
   onSelect: (scope: Scope) => void;
 }) {
   const [clustersOpen, setClustersOpen] = useState(true);
+  const [width, setWidth] = usePersistedWidth('memory-popover-rail-width', WIDTH);
 
   return (
-    <div className="flex h-full w-[140px] shrink-0 flex-col gap-2">
+    // `pr-1` is the gap to the detail pane; the handle straddles its border.
+    <div data-testid="memory-rail" className="relative flex h-full shrink-0 flex-col gap-2 pr-1" style={{ width }}>
       {/* The cluster list scrolls inside the rail, so General stays in reach. */}
       <div className="flex min-h-0 flex-col">
         <Button
@@ -80,6 +88,7 @@ export function MemoryRail({
       <div className="shrink-0 pr-1.5">
         <Row name="General" selected={selected.kind === 'general'} onSelect={() => onSelect(GENERAL)} />
       </div>
+      <ResizeHandle edge="right" onResize={setWidth} label="Resize memory sidebar" />
     </div>
   );
 }

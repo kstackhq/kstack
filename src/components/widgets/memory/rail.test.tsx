@@ -14,9 +14,9 @@
 
 import { useState } from 'react';
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { MemoryRail } from './rail';
 import type { Scope } from './rail';
@@ -28,6 +28,22 @@ function Rail({ clusters = ['Minikube', '2nd Cluster'] }: { clusters?: string[] 
 }
 
 const row = (name: string) => screen.getByRole('button', { name });
+const railWidth = () => screen.getByTestId('memory-rail').style.width;
+
+// jsdom doesn't implement pointer capture; the handle calls it, so stub it out.
+if (!HTMLElement.prototype.setPointerCapture) {
+  HTMLElement.prototype.setPointerCapture = () => {};
+}
+
+beforeEach(() => {
+  localStorage.clear();
+});
+
+// A drag a test leaves mid-flight keeps its window listeners and the forced
+// cursor, which the next test would inherit.
+afterEach(() => {
+  fireEvent.pointerUp(window);
+});
 
 describe('MemoryRail', () => {
   it('starts with the cluster group open and the default cluster selected', () => {
@@ -63,6 +79,24 @@ describe('MemoryRail', () => {
   it('names each row in full in its title, for a name cut short', () => {
     render(<Rail />);
     expect(row('2nd Cluster')).toHaveAttribute('title', '2nd Cluster');
+  });
+
+  it('resizes by dragging its edge, clamped, and remembers the width', () => {
+    const { unmount } = render(<Rail />);
+    expect(railWidth()).toBe('140px');
+
+    fireEvent.pointerDown(screen.getByRole('separator', { name: 'Resize memory sidebar' }), { pointerId: 1 });
+    fireEvent.pointerMove(window, { clientX: 200 });
+    expect(railWidth()).toBe('200px');
+    fireEvent.pointerMove(window, { clientX: 9999 });
+    expect(railWidth()).toBe('320px');
+    fireEvent.pointerMove(window, { clientX: 10 });
+    expect(railWidth()).toBe('100px');
+    fireEvent.pointerUp(window);
+
+    unmount();
+    render(<Rail />);
+    expect(railWidth()).toBe('100px');
   });
 
   it('keeps a context named General apart from the General row', async () => {

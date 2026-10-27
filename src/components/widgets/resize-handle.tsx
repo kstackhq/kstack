@@ -16,11 +16,14 @@
 // width the pointer implies. The caller clamps and persists it.
 //
 // `edge` is which side of the pane the handle rides, and decides the arithmetic:
-// a pane anchored at the window's left edge is as wide as the pointer's x, one
-// anchored at the right is as wide as what is left of the window. `offset` adds
-// any padding between the pane's box and the border being dragged.
+// a pane grown from its right edge is as wide as the pointer is from its left
+// edge (the handle's parent), one anchored at the window's right as wide as
+// what is left of the window. `offset` adds any padding between the pane's box
+// and the border being dragged.
 import type { PointerEvent as ReactPointerEvent } from 'react';
 import { useCallback } from 'react';
+
+import { cn } from '@kubetail/ui/lib/utils';
 
 type ResizeHandleProps = {
   edge: 'left' | 'right';
@@ -36,6 +39,7 @@ export function ResizeHandle({ edge, onResize, offset = 0, label }: ResizeHandle
       e.preventDefault();
       // Pointer capture keeps the drag alive when the cursor outruns the thin strip.
       e.currentTarget.setPointerCapture(e.pointerId);
+      const left = e.currentTarget.parentElement?.getBoundingClientRect().left ?? 0;
       // Force the resize cursor for the whole drag (else it reverts off the strip);
       // `user-select: none` stops text selection.
       const { body } = document;
@@ -44,7 +48,7 @@ export function ResizeHandle({ edge, onResize, offset = 0, label }: ResizeHandle
       body.style.cursor = 'col-resize';
       body.style.userSelect = 'none';
       const onMove = (ev: PointerEvent) => {
-        onResize(edge === 'right' ? ev.clientX + offset : window.innerWidth - ev.clientX + offset);
+        onResize(edge === 'right' ? ev.clientX - left + offset : window.innerWidth - ev.clientX + offset);
       };
       const onUp = () => {
         body.style.cursor = prevCursor;
@@ -64,7 +68,9 @@ export function ResizeHandle({ edge, onResize, offset = 0, label }: ResizeHandle
       aria-orientation="vertical"
       aria-label={label}
       onPointerDown={handlePointerDown}
-      className={`absolute inset-y-0 z-20 w-2 cursor-col-resize touch-none ${edge === 'right' ? 'right-1' : 'left-0'}`}
+      className={cn('absolute inset-y-0 z-20 w-2 cursor-col-resize touch-none', edge === 'left' && 'left-0')}
+      // A right-edge strip straddles the border, half of its 8px either side.
+      style={edge === 'right' ? { right: offset - 4 } : undefined}
     />
   );
 }

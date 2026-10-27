@@ -53,6 +53,19 @@ describe('ResizeHandle', () => {
     expect(onResize).toHaveBeenCalledWith(300);
   });
 
+  it('measures from the pane’s left edge, wherever the pane sits', () => {
+    const onResize = vi.fn();
+    render(
+      <div>
+        <ResizeHandle edge="right" onResize={onResize} label="Resize" />
+      </div>,
+    );
+    vi.spyOn(handle().parentElement!, 'getBoundingClientRect').mockReturnValue(new DOMRect(120, 0, 140, 400));
+
+    drag(300);
+    expect(onResize).toHaveBeenCalledWith(180);
+  });
+
   it('reports what is left of the window for a pane anchored at the right', () => {
     const onResize = vi.fn();
     render(<ResizeHandle edge="left" onResize={onResize} label="Resize" />);
@@ -91,9 +104,13 @@ describe('ResizeHandle', () => {
     expect(onResize).toHaveBeenCalledTimes(1);
   });
 
-  it('rides the edge it resizes from', () => {
-    const { rerender } = render(<ResizeHandle edge="right" onResize={() => {}} label="Resize" />);
-    expect(handle()).toHaveClass('right-1');
+  it('rides the edge it resizes from, straddling a right-edge border', () => {
+    const { rerender } = render(<ResizeHandle edge="right" offset={8} onResize={() => {}} label="Resize" />);
+    expect(handle().style.right).toBe('4px');
+
+    // A border on the pane's own edge puts half the strip outside the pane.
+    rerender(<ResizeHandle edge="right" onResize={() => {}} label="Resize" />);
+    expect(handle().style.right).toBe('-4px');
 
     rerender(<ResizeHandle edge="left" onResize={() => {}} label="Resize" />);
     expect(handle()).toHaveClass('left-0');
