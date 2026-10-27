@@ -1369,6 +1369,8 @@ func TestAValueIsHandedBackOnceAndOnlyIfThereIsOne(t *testing.T) {
 	assert.Equal(t, "built", p.discarded.Await(t, "the standing value"))
 
 	e.Remove("prod")
+	// "empty" may run before its Remove, so its runs must commit nothing for it to stay empty.
+	p.commitsNothing()
 	e.Add("empty")
 	e.Remove("empty")
 	require.NoError(t, e.Close())
