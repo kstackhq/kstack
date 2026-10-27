@@ -89,8 +89,9 @@ lib → appdb → llm → run → services → tools → agent → app
 
 ## gRPC + GraphQL over one socket (h2c)
 
-`internal/app` owns the topology; `grpc/` owns `IsGRPCRequest`. → [ADR: single-socket
-h2c](../docs/adr/2026-08-09-single-socket-h2c.md).
+`internal/app` owns the topology; `grpc/` owns `IsGRPCRequest`. `main.go`'s `http.Server` speaks
+`app.Protocols()` (HTTP/1.1 plus unencrypted HTTP/2). → [ADR: single-socket h2c from the standard
+library](../docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md).
 
 Shutdown (`main.go`): `NotifyShutdown` → `srv.Shutdown` → `DrainWithContext` → `stop` → `Close`.
 Traps: grpc-go's `GracefulStop` **panics** on h2c, so `Stop` runs after the drain; never cancel

@@ -25,7 +25,7 @@ field instead, so the index below is still filterable per area.
 Link by path, name it by slug, never by date alone:
 
 ```markdown
-→ [ADR: single-socket h2c](docs/adr/2026-08-09-single-socket-h2c.md)
+→ [ADR: single-socket h2c from the standard library](docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md)
 ```
 
 ## Status
@@ -69,7 +69,7 @@ usually just documentation in the wrong place.
 | Date | ADR | Scope | Status |
 | --- | --- | --- | --- |
 | 2026-08-09 | [Record architecture decisions](2026-08-09-record-architecture-decisions.md) | repo | Accepted |
-| 2026-08-09 | [Multiplex GraphQL and gRPC over one socket with h2c](2026-08-09-single-socket-h2c.md) | cross-cutting | Accepted |
+| 2026-08-09 | [Multiplex GraphQL and gRPC over one socket with h2c](2026-08-09-single-socket-h2c.md) | cross-cutting | Superseded by [2026-10-26-single-socket-h2c-from-the-standard-library](2026-10-26-single-socket-h2c-from-the-standard-library.md) |
 | 2026-08-09 | [Route all webview GraphQL through Tauri IPC](2026-08-09-graphql-over-tauri-ipc.md) | cross-cutting | Accepted |
 | 2026-08-09 | [Stream each kind as its own delta watch, joined client-side](2026-08-09-delta-watch-protocol.md) | cross-cutting | Accepted |
 | 2026-08-09 | [Transport status keyed to the host's open frame](2026-08-09-transport-status-generation.md) | frontend | Accepted |
@@ -220,3 +220,4 @@ usually just documentation in the wrong place.
 | 2026-10-25 | [The sidecar's own mirror statements compile once per file](2026-10-25-the-sidecars-own-mirror-statements-compile-once-per-file.md) | sidecar | Accepted |
 | 2026-10-26 | [Dependabot moves dependencies, and a person merges every update](2026-10-26-dependabot-moves-dependencies-and-a-person-merges-every-update.md) | repo | Accepted |
 | 2026-10-26 | [A pull request fails only for the advisories it brings in](2026-10-26-a-pull-request-fails-only-for-the-advisories-it-brings-in.md) | repo | Accepted |
+| 2026-10-26 | [Serve GraphQL and gRPC over one socket with the standard library's h2c](2026-10-26-single-socket-h2c-from-the-standard-library.md) | cross-cutting | Accepted |

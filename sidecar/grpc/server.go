@@ -2,7 +2,7 @@
 // section) and PokeService (the host's wake/network-return nudge). It rides the same
 // socket as GraphQL via h2c multiplexing keyed on IsGRPCRequest, and is consumed only by
 // the native host, never the webview.
-// See docs/adr/2026-08-09-single-socket-h2c.md.
+// See docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md.
 package grpcserver
 
 import (
@@ -65,7 +65,7 @@ func (s *Server) DrainWithContext(ctx context.Context) error {
 
 // Stop closes the gRPC transports, only after DrainWithContext returns. Never
 // GracefulStop — it PANICS on the ServeHTTP/h2c path; see
-// docs/adr/2026-08-09-single-socket-h2c.md.
+// docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md.
 func (s *Server) Stop() { s.grpc.Stop() }
 
 // newServer registers both services and returns the drainStreams func shutdown waits on.

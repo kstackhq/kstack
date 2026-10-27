@@ -24,7 +24,7 @@ import (
 //
 // **Never cancel via http.Server.BaseContext**: that would tear down the shared h2c
 // connection carrying gRPC mid-stream, so SSE cancellation is per-request instead.
-// See docs/adr/2026-08-09-single-socket-h2c.md.
+// See docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md.
 type Server struct {
 	h          http.Handler
 	shutdownCh chan struct{}

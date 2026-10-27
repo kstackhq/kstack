@@ -70,7 +70,7 @@ pub struct SidecarService {
     query_client: QueryClient,
     subscription_client: SubscriptionClient,
     /// Host-internal control surface (auth watch/login/logout, poke), h2c over
-    /// the same socket as GraphQL. See docs/adr/2026-08-09-single-socket-h2c.md.
+    /// the same socket as GraphQL. See docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md.
     grpc_client: GrpcClient,
 }
 

@@ -2,7 +2,7 @@
 title: Multiplex GraphQL and gRPC over one socket with h2c
 date: 2026-08-09
 scope: cross-cutting
-status: Accepted
+status: Superseded by [2026-10-26-single-socket-h2c-from-the-standard-library](2026-10-26-single-socket-h2c-from-the-standard-library.md)
 ---
 
 # Multiplex GraphQL and gRPC over one socket with h2c

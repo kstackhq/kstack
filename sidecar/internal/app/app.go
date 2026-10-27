@@ -1,11 +1,9 @@
 // Package app is the sidecar's composition root and lifecycle owner. It builds
 // every service into one Runtime, wires the GraphQL and gRPC servers over it,
-// and multiplexes them onto one h2c handler.
+// and multiplexes them onto one handler served as HTTP/1.1 and h2c.
 // main() stays thin: it binds the listener and drives the shutdown surface this
 // package exposes — NotifyShutdown / DrainWithContext / Close.
 package app
-
-//lint:file-ignore SA1019 the single-socket transport is built on x/net's h2c until #448 (docs/adr/2026-08-09-single-socket-h2c.md).
 
 import (
 	"context"
@@ -22,8 +20,6 @@ import (
 	"time"
 
 	"golang.org/x/net/http/httpproxy"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 
 	"github.com/kstackhq/kstack/sidecar/graph"
 	grpcserver "github.com/kstackhq/kstack/sidecar/grpc"
@@ -111,9 +107,9 @@ type Config struct {
 	UserUmask fs.FileMode
 }
 
-// App owns the composed sidecar: one h2c handler fronting the GraphQL and gRPC
+// App owns the composed sidecar: one handler fronting the GraphQL and gRPC
 // servers, over the services in its runtime. It is an http.Handler; main() mounts it on
-// the listener.
+// the listener with an http.Server speaking Protocols.
 type App struct {
 	rt            *Runtime
 	handler       http.Handler
@@ -135,16 +131,16 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlServer)
 
-	// gRPC shares the socket with GraphQL via h2c: HTTP/2 application/grpc goes
-	// to the gRPC server, everything else to the mux. See
-	// docs/adr/2026-08-09-single-socket-h2c.md.
-	handler := h2c.NewHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// gRPC shares the socket with GraphQL: HTTP/2 application/grpc goes to the
+	// gRPC server, everything else to the mux. See
+	// docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md.
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if grpcserver.IsGRPCRequest(r) {
 			grpcServer.GRPC().ServeHTTP(w, r)
 			return
 		}
 		mux.ServeHTTP(w, r)
-	}), &http2.Server{})
+	})
 
 	return &App{
 		rt:            rt,
@@ -172,7 +168,16 @@ func makeDirs(cfg Config) error {
 	return nil
 }
 
-// ServeHTTP implements http.Handler, dispatching to the h2c multiplexer.
+// Protocols is what the http.Server mounting an App speaks: HTTP/1.1 for
+// GraphQL, and unencrypted HTTP/2 with prior knowledge for gRPC.
+func Protocols() *http.Protocols {
+	var p http.Protocols
+	p.SetHTTP1(true)
+	p.SetUnencryptedHTTP2(true)
+	return &p
+}
+
+// ServeHTTP implements http.Handler, dispatching between GraphQL and gRPC.
 func (a *App) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	a.handler.ServeHTTP(w, r)
 }

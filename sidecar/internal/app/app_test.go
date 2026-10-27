@@ -211,8 +211,8 @@ func TestEveryToolOfOursHasAContractOfItsForm(t *testing.T) {
 }
 
 // newTestApp builds an App backed by a kubeconfig with two contexts, then serves
-// it over httptest (HTTP/1.1 for GraphQL/SSE, h2c upgrade for gRPC — exactly the
-// production split). It does NOT call Start(), so the cluster-cache coordinator
+// it over httptest (HTTP/1.1 for GraphQL/SSE, prior-knowledge h2c for gRPC —
+// exactly the production split). It does NOT call Start(), so the cluster-cache coordinator
 // never runs; the lifecycle surface is what's under test.
 func newTestApp(t *testing.T) (*App, string) {
 	t.Helper()
@@ -528,8 +528,7 @@ func TestAppAuthStateDegradesSignedOut(t *testing.T) {
 // DrainWithContext would hit its deadline instead.
 func TestAppShutdownDrainsBothTransports(t *testing.T) {
 	a, _ := newTestApp(t)
-	ts := httptest.NewServer(a)
-	defer ts.Close()
+	ts := serveApp(t, a)
 
 	// Live SSE subscription.
 	sseReq, _ := http.NewRequest(http.MethodPost, ts.URL+"/graphql", strings.NewReader(`{"query":"subscription { authStateWatch { authenticated } }"}`))

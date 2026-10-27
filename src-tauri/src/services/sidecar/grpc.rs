@@ -17,7 +17,7 @@
 //! h2c — tonic dials [`ipc::Stream`] with HTTP/2 prior knowledge (no TLS/ALPN;
 //! the socket is user-restricted) through a `tower::service_fn` connector that
 //! reuses [`ipc::connect`]'s retry. One cached [`Channel`], re-dialed on loss.
-//! See docs/adr/2026-08-09-single-socket-h2c.md.
+//! See docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md.
 
 use hyper_util::rt::TokioIo;
 use tokio::sync::Mutex;

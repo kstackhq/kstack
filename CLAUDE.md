@@ -14,7 +14,7 @@ The **`Makefile` is the polyglot entry point** (`make test`, `make lint`, `make 
 
 ## Host↔sidecar transport
 
-Host and sidecar share one Unix socket / named pipe. **GraphQL** (webview↔sidecar) rides HTTP/1.1 (POST + SSE); **gRPC** (host↔sidecar control: tray auth watch, login/logout, resync poke) rides HTTP/2. Both are multiplexed by **h2c** in the sidecar's `internal/app`; no TLS. The cluster surface is **GraphQL-only**. → [ADR: single-socket h2c](docs/adr/2026-08-09-single-socket-h2c.md).
+Host and sidecar share one Unix socket / named pipe. **GraphQL** (webview↔sidecar) rides HTTP/1.1 (POST + SSE); **gRPC** (host↔sidecar control: tray auth watch, login/logout, resync poke) rides HTTP/2. Both are multiplexed in the sidecar's `internal/app`, served by `net/http` as HTTP/1.1 plus **h2c** (prior knowledge only); no TLS. The cluster surface is **GraphQL-only**. → [ADR: single-socket h2c from the standard library](docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md).
 
 **The caches fill.** A reachable cluster whose credentials can read `kube-system` gets a cache; the cache controller arms `kubesync`, which mirrors each served kind into one `ClusterCachedKind` record, and each record arms that kind's sync (cold list, then watch). Every record's `events(...)` field serves its control-plane timeline, as do `clusterEventsWatch(id: ClusterID!)` and `eventsWatch(id: ObjectID!)`. → `sidecar/CLAUDE.md`.
 

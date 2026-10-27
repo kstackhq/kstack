@@ -76,7 +76,7 @@ The sidecar is a bundled child process (`service.rs::spawn`) on a per-instance s
 
 - **Queries/mutations**: one fresh HTTP/1 connection per call (`graphql/query.rs`), 30s `REQUEST_BUDGET`.
 - **Subscriptions**: one SSE connection per subscription (`graphql/subscribe.rs`) into `{type,payload}` channel envelopes. Graceful completion → `{"type":"complete"}`; abnormal drop → `{"type":"closed"}` — read off body framing, since gqlgen's `event: complete` is data-less. **`{"type":"open"}` is sent only after the 200**, never on a failed dial or the ack; the frontend keys its resets on it. → [ADR: transport-status generation](../docs/adr/2026-08-09-transport-status-generation.md). `FrameSink` is the delivery seam.
-- **gRPC** (`grpc.rs`): auth (watch/login/logout) + resync poke, over the same socket via h2c, one cached `Channel` re-dialed on drop. Bindings from `build.rs` over `proto/`. → [ADR: single-socket h2c](../docs/adr/2026-08-09-single-socket-h2c.md).
+- **gRPC** (`grpc.rs`): auth (watch/login/logout) + resync poke, over the same socket via h2c, one cached `Channel` re-dialed on drop. Bindings from `build.rs` over `proto/`. → [ADR: single-socket h2c from the standard library](../docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md).
 
 ## Graceful shutdown (`AppState::shutdown`)
 

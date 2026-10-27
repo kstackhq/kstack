@@ -138,12 +138,12 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 	const maxRequestBytes = 64 * 1024 * 1024
 	srv := &http.Server{
 		Handler:           http.MaxBytesHandler(application, maxRequestBytes),
+		Protocols:         app.Protocols(),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	// Fired as Shutdown begins so long-lived streams end and Shutdown's wait for
-	// in-flight requests can complete; hijacked h2c gRPC streams (which Shutdown
-	// can't see) are drained afterwards by DrainWithContext.
+	// Shutdown runs it once the listeners are closed, so long-lived streams end
+	// and its wait for in-flight requests can complete.
 	srv.RegisterOnShutdown(application.NotifyShutdown)
 
 	// The host matches the `READY ` prefix; scheme+path are informational (the
@@ -183,9 +183,10 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 
 	slog.Info("sidecar shutting down", "reason", reason)
 
-	// Order matters: Shutdown (fires NotifyShutdown, waits for non-hijacked
-	// GraphQL requests) → DrainWithContext (waits for hijacked h2c gRPC streams)
-	// → stop → Close. See docs/adr/2026-08-09-single-socket-h2c.md.
+	// Order matters: Shutdown (fires NotifyShutdown, waits for in-flight requests,
+	// gRPC streams included) → DrainWithContext (waits for the stream handlers to
+	// unwind) → stop → Close. See
+	// docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md.
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancelShutdown()
 	_ = srv.Shutdown(shutdownCtx)

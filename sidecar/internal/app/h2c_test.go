@@ -28,16 +28,19 @@ func h2cGRPCClient(t *testing.T, ts *httptest.Server) authpb.AuthServiceClient {
 	return authpb.NewAuthServiceClient(conn)
 }
 
+// serveApp serves a over httptest with the Protocols main serves it with.
 func serveApp(t *testing.T, a *App) *httptest.Server {
 	t.Helper()
-	ts := httptest.NewServer(a)
+	ts := httptest.NewUnstartedServer(a)
+	ts.Config.Protocols = Protocols()
+	ts.Start()
 	t.Cleanup(ts.Close)
 	return ts
 }
 
 // TestH2C_SSEStillStreams confirms SSE subscriptions keep streaming frames
-// incrementally through the h2c wrapper (the HTTP/1.1 ResponseWriter stays
-// Flusher-backed). Guards against a buffering regression.
+// incrementally over HTTP/1.1 on the server that also speaks h2c (the
+// ResponseWriter stays Flusher-backed). Guards against a buffering regression.
 func TestH2C_SSEStillStreams(t *testing.T) {
 	a, _ := newTestApp(t)
 	ts := serveApp(t, a)
