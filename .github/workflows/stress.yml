@@ -104,6 +104,8 @@ jobs:
           go-cache-key: go-test-${{ matrix.runner }}
       # -timeout sits under timeout-minutes, so a hang fails the test binary
       # with a goroutine dump rather than the runner killing the job.
+      # Each package's result goes to the log as it lands, so a job that dies
+      # before its report still shows which package was running.
       - name: Run tests under stress
         working-directory: ./sidecar
         shell: bash
@@ -115,12 +117,17 @@ jobs:
           mkdir -p stress
           status=0
           go test $race_flag -cpu "$CPU" -shuffle=on -count="$COUNT" -timeout 90m -json ./... \
-            > stress/stress.json || status=$?
+            | tee stress/stress.json \
+            | jq -rR --unbuffered 'fromjson? | select(.Test == null and (.Action == "pass" or .Action == "fail"))
+                | "\(.Action) \(.Package) \(.Elapsed)s"' \
+            || status=$?
           go run scripts/stress.go -cpu "$CPU" -count "$COUNT" -race="$RACE" \
             -runner "$STRESS_ID" stress/stress.json
           exit "$status"
+      # On a cancel, too: timeout-minutes cancels the job, and the partial
+      # stress.json is all that says where it stopped.
       - name: Upload failures
-        if: failure()
+        if: failure() || cancelled()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: stress-${{ env.STRESS_ID }}
@@ -169,11 +176,16 @@ jobs:
             fi
           }
 
-          # Every stress job that did not pass, by the id in its name.
+          # Every stress job that did not pass, by the id in its name, with how
+          # it ended. A test step that never concluded means the runner was lost.
           gh api --paginate "repos/$GH_REPO/actions/runs/$RUN_ID/attempts/$RUN_ATTEMPT/jobs" \
             --jq '.jobs[] | select(.name | startswith("Go · Stress"))
                   | select(.conclusion != "success" and .conclusion != "skipped")
-                  | .name | capture("\\((?<id>[^)]+)\\)$").id' > failed-jobs.txt
+                  | [(.name | capture("\\((?<id>[^)]+)\\)$").id),
+                     (if .conclusion == "cancelled" then "cancelled"
+                      elif any(.steps[]; .name == "Run tests under stress" and .conclusion == null) then "lost"
+                      else "failed" end)]
+                  | @tsv' > failed-jobs.txt
 
           reports=(stress/*/failures.json)
           if [ ${#reports[@]} -gt 0 ]; then
@@ -200,10 +212,18 @@ jobs:
           # A failed job that names no failing test: setup, build, a package
           # that failed outside a test, or a timeout the test binary missed.
           : > outside.md
-          while read -r id; do
+          while IFS=$'\t' read -r id ended; do
             report="stress/stress-$id/failures.json"
             if [ ! -f "$report" ]; then
-              echo "- **$id**: no test report" >> outside.md
+              case $ended in
+                cancelled) why="cancelled, likely at timeout-minutes" ;;
+                lost) why="the runner was lost mid-run" ;;
+                *) why="no test report" ;;
+              esac
+              if [ -f "stress/stress-$id/stress.json" ]; then
+                why="$why; its artifact holds the partial \`stress.json\`"
+              fi
+              echo "- **$id**: $why" >> outside.md
             elif jq -e '(.outside | length) > 0 or (.failures | length) == 0' "$report" > /dev/null; then
               jq -r --arg r "$id" '"- **\($r)**: " + (if (.outside | length) > 0
                 then "failed outside a test in " + (.outside | map("`\(.)`") | join(", "))
