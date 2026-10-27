@@ -109,7 +109,8 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 	defer ln.Close()
 	ln = ipc.Authenticated(ln, ipc.Policy{HostPID: cfg.HostPID})
 	// Named pipes vanish with their listener; only the UDS file needs cleanup.
-	defer os.Remove(cfg.Socket)
+	removeSocket := func() { _ = os.Remove(cfg.Socket) }
+	defer removeSocket()
 
 	slog.Info("sidecar starting",
 		"version", version.Version,
@@ -120,12 +121,25 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 		"oauth_issuer", cfg.App.OAuthIssuerURL,
 	)
 
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// Watch stdin for EOF as a parent-died signal, from before app.New: a quit
+	// during the login shell it runs cancels the shell.
+	go func() {
+		_, _ = io.Copy(io.Discard, stdin)
+		cancel()
+	}()
+
 	application, err := app.New(ctx, cfg.App)
 	// A quit during startup: a clean exit, not a READY followed by a start that
-	// fails on the ended context.
+	// fails on the ended context. New's error is still logged: it may be more
+	// than the cancellation.
 	if ctx.Err() != nil {
-		slog.Info("sidecar shutting down", "reason", "signal before start")
-		if err == nil {
+		slog.Info("sidecar shutting down", "reason", "quit before start")
+		if err != nil {
+			slog.Warn("app init", "err", err)
+		} else {
 			_ = application.Close()
 		}
 		return 0
@@ -138,32 +152,31 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 	const maxRequestBytes = 64 * 1024 * 1024
 	srv := &http.Server{
 		Handler:           http.MaxBytesHandler(application, maxRequestBytes),
-		Protocols:         app.Protocols(),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		Protocols:         app.Protocols(),
 	}
 	// Shutdown runs it once the listeners are closed, so long-lived streams end
-	// and its wait for in-flight requests can complete.
+	// and its wait for in-flight requests can complete. The sequence calls it
+	// again once Shutdown returns, since Shutdown does not wait for its hooks.
 	srv.RegisterOnShutdown(application.CancelStreams)
 
 	// The host matches the `READY ` prefix; scheme+path are informational (the
 	// host picked the path and passed it via --socket).
 	fmt.Fprintf(stdout, "READY %s:%s\n", ipc.Scheme, cfg.Socket)
 
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
-	// Watch stdin for EOF as a parent-died signal.
-	go func() {
-		_, _ = io.Copy(io.Discard, stdin)
-		cancel()
-	}()
-
 	stop, err := application.Start(ctx)
 	if err != nil {
 		// StartAll unwinds what it started but never closes.
-		slog.Error("app start", "err", err)
 		_ = application.Close()
+		// A quit during the start fails it on the ended context: still a clean exit,
+		// with the error logged, since it may be more than the cancellation.
+		if ctx.Err() != nil {
+			slog.Info("sidecar shutting down", "reason", "quit during start")
+			slog.Warn("app start", "err", err)
+			return 0
+		}
+		slog.Error("app start", "err", err)
 		return 1
 	}
 
@@ -182,24 +195,6 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 	}
 
 	slog.Info("sidecar shutting down", "reason", reason)
-
-	// Order matters: Shutdown (fires CancelStreams, waits for in-flight requests,
-	// gRPC streams included) → CloseRequests (refuses later requests, cancels the
-	// rest) → DrainWithContext (joins the handlers Shutdown no longer counts) →
-	// stop → Close. See
-	// docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md.
-	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancelShutdown()
-	_ = srv.Shutdown(shutdownCtx)
-	application.CloseRequests()
-	if err := application.DrainWithContext(shutdownCtx); err != nil {
-		slog.Warn("drain did not complete", "err", err)
-	}
-	stopCtx, cancelStop := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancelStop()
-	if err := stop(stopCtx); err != nil {
-		slog.Warn("stop did not complete cleanly", "err", err)
-	}
-	_ = application.Close()
-	return 0
+	// The watchdog exits past this function's defers, so it removes the socket itself.
+	return newShutdown(srv, application, stop, removeSocket, os.Exit).run()
 }

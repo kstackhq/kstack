@@ -254,7 +254,7 @@ Tests, each beside its unit:
 
 ## Task 2 — the sequence and the watchdog in `sidecar/`
 
-Status: Planned.
+Status: Done. `srv` and `app` are small interfaces (`server`, `application`), so the tests drive the sequence with fakes; `run`'s tests in `main_unix_test.go` cover the real App. The losing-sequence test holds the `exit` seam rather than the log sink, since the sink's handler lock would also hold the sequence's own step records. The outcome is an `atomic.Bool` claimed by compare-and-swap, and `run` joins the watchdog before it returns, which is how a losing sequence waits for the dump; with that join, the watchdog-cancelled case is the order test's no-exit check. `shutdownBudget` is 20 s, the grace plus 10 s, so a request that holds up the stop for the whole grace still leaves the services 10 s to stop; `SIDECAR_SHUTDOWN_GRACE` is 23 s. The watchdog removes the socket file before the dump, since `os.Exit` skips `run`'s defers and the dump can outlast the host's kill. The sequence calls `CancelStreams` itself once `Shutdown` returns: `Shutdown` starts its hooks on goroutines of their own and does not wait for them, so with no connection open it can return first. The stdin watcher starts before `app.New`, so a quit during the login shell cancels it, and a quit during `Start` exits 0; an error from `New` or `Start` is still logged, at `WARN`.
 
 Move the sequence out of `run` into `sidecar/shutdown.go`:
 

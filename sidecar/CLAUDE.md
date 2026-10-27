@@ -93,13 +93,21 @@ lib → appdb → llm → run → services → tools → agent → app
 `app.Protocols()` (HTTP/1.1 plus unencrypted HTTP/2). → [ADR: single-socket h2c from the standard
 library](../docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md).
 
-Shutdown (`main.go`): `srv.Shutdown` (stops listening, then its hook runs `CancelStreams`, so SSE
-and gRPC streams end, and it waits for them) → `CloseRequests` (a later request gets a 503; every
-handler still running is cancelled) → `DrainWithContext` (every HTTP handler, then gRPC `Stop`,
-which waits for its method handlers) → `stop` → `Close`. Traps: cancel per request, never via
-`http.Server.BaseContext`, which kills the shared connection; handlers are joined after every
-`Shutdown`, since `Shutdown` counts streams, not handlers, and a gRPC method handler outlives its
-`ServeHTTP` once the client resets the stream.
+**Shutdown** (`shutdown.go`): `srv.Shutdown` (stops listening, then its hook runs `CancelStreams`,
+so SSE and gRPC streams end at once; requests get `requestGrace`, 10s) → `CancelStreams` again, since
+`Shutdown` does not wait for its hooks → `CloseRequests` (a later
+request gets a 503; every handler still running is cancelled, and its connection cut if the grace
+ran out) → `WaitRequests` (every HTTP handler, then gRPC `Stop`, which waits for its method
+handlers) → `stop` → `Close`. Each step logs its duration under the name it has in the log:
+`drain requests`, `cancel requests`, `wait requests`, `stop services`, `close services`. One
+watchdog bounds the whole stop at `shutdownBudget` (20s, the grace plus 10s): it removes the
+socket file, logs every goroutine's stack, one record each, and exits 1. Traps: cancel per
+request, never via
+`http.Server.BaseContext`, which kills the shared connection; handlers are joined before `stop`, and
+loops before `Close`, after every `Shutdown`, since `Shutdown` counts streams, not handlers, and a
+gRPC method handler outlives its `ServeHTTP` once the client resets the stream; nothing after the
+grace has a deadline but the watchdog. The host's kill (`SIDECAR_SHUTDOWN_GRACE`) sits above the
+budget.
 
 ## Security invariants
 

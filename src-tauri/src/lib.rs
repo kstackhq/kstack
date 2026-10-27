@@ -55,9 +55,11 @@ use crate::state::AppState;
 use crate::webview_log::{Limiter, LimiterConfig};
 use crate::window_manager::WindowManager;
 
-/// Quit-path wait before `RunEvent::Exit` force-kills the sidecar. Sidecar's
-/// own shutdown is bounded at ~5s (see sidecar `main.go`); this adds margin.
-const SIDECAR_SHUTDOWN_GRACE: Duration = Duration::from_secs(6);
+/// Quit-path wait before `RunEvent::Exit` force-kills the sidecar: the
+/// sidecar's `shutdownBudget` (20s, `sidecar/shutdown.go`) plus the time a
+/// goroutine dump and its exit take, so its watchdog, not this kill, ends a
+/// wedged stop.
+const SIDECAR_SHUTDOWN_GRACE: Duration = Duration::from_secs(23);
 
 /// Routes Unix termination signals (`SIGTERM`/`SIGINT`/`SIGHUP`) through
 /// [`AppHandle::exit`] — the same graceful path as menu/tray "Quit". Tao

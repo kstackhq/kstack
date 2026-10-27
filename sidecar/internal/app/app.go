@@ -2,7 +2,7 @@
 // every service into one Runtime, wires the GraphQL and gRPC servers over it,
 // and multiplexes them onto one handler served as HTTP/1.1 and h2c.
 // main() stays thin: it binds the listener and drives the shutdown surface this
-// package exposes — CancelStreams, CloseRequests, DrainWithContext, Close.
+// package exposes — CancelStreams, CloseRequests, WaitRequests, Close.
 package app
 
 import (
@@ -25,7 +25,6 @@ import (
 	grpcserver "github.com/kstackhq/kstack/sidecar/grpc"
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
-	"github.com/kstackhq/kstack/sidecar/internal/lib/drain"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
@@ -209,16 +208,12 @@ func (a *App) CloseRequests() {
 	a.requests.close()
 }
 
-// DrainWithContext waits for every request's handler to return, then stops the
-// gRPC server, which waits for its method handlers; or ctx ends first. Call it
-// after http.Server.Shutdown, which counts HTTP/2 streams, not handlers, and after
-// CloseRequests. It must return before the stop func stops the services under
-// those handlers.
-func (a *App) DrainWithContext(ctx context.Context) error {
-	return drain.WithContext(ctx, func() {
-		a.requests.wait()
-		a.grpcServer.Stop()
-	})
+// WaitRequests returns once every request's handler has, then stops the gRPC
+// server, which waits for its method handlers. Call it after CloseRequests, and
+// before the stop func, which stops the services under them.
+func (a *App) WaitRequests() {
+	a.requests.wait()
+	a.grpcServer.Stop()
 }
 
 // Close releases OS resources after the stop func returns. The gRPC server goes
