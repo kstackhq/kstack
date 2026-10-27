@@ -64,11 +64,14 @@ updates:
       prefix: chore
       include: scope
     # Tauri's crates and its npm packages must share a major.minor, and no
-    # group spans ecosystems: those bumps are made by hand, in one PR.
+    # group spans ecosystems: those bumps are made by hand, in one PR. A
+    # plugin's minor can require a newer tauri minor, so plugins wait too.
     ignore:
       - dependency-name: tauri
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
       - dependency-name: tauri-build
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+      - dependency-name: tauri-plugin-*
         update-types: ["version-update:semver-major", "version-update:semver-minor"]
     groups:
       # system-configuration's API takes core-foundation's types, so the two
