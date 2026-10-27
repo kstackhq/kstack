@@ -83,7 +83,7 @@ usually just documentation in the wrong place.
 | 2026-08-09 | [Every condition is a liveness condition](2026-08-09-liveness-conditions.md) | sidecar | Accepted |
 | 2026-08-09 | [Local-first auth; settings sync depends on auth](2026-08-09-local-first-auth-settings.md) | sidecar | Accepted |
 | 2026-08-09 | [Resync via fan-out poke, not cascade](2026-08-09-poke-resync-fanout.md) | cross-cutting | Accepted |
-| 2026-09-03 | [Sandbox build-output locations](2026-09-03-sandbox-build-output-locations.md) | repo | Accepted |
+| 2026-09-03 | [Sandbox build-output locations](2026-09-03-sandbox-build-output-locations.md) | repo | Superseded by [2026-10-27-sandbox-node-modules-on-the-overlay](2026-10-27-sandbox-node-modules-on-the-overlay.md) |
 | 2026-08-14 | [Report a dead watch as a terminal GraphQL error](2026-08-14-watch-failure-reporting.md) | cross-cutting | Accepted |
 | 2026-08-16 | [Compose start/stop/close as one shape](2026-08-16-lifecycle-composition.md) | sidecar | Accepted |
 | 2026-08-18 | [Run cluster discovery as a beehive kind](2026-08-18-discovery-as-a-beehive-kind.md) | sidecar | Accepted |
@@ -221,3 +221,4 @@ usually just documentation in the wrong place.
 | 2026-10-26 | [Dependabot moves dependencies, and a person merges every update](2026-10-26-dependabot-moves-dependencies-and-a-person-merges-every-update.md) | repo | Accepted |
 | 2026-10-26 | [A pull request fails only for the advisories it brings in](2026-10-26-a-pull-request-fails-only-for-the-advisories-it-brings-in.md) | repo | Accepted |
 | 2026-10-26 | [Serve GraphQL and gRPC over one socket with the standard library's h2c](2026-10-26-single-socket-h2c-from-the-standard-library.md) | cross-cutting | Accepted |
+| 2026-10-27 | [Put the sandbox's node_modules on the overlay, beside Cargo's target dir](2026-10-27-sandbox-node-modules-on-the-overlay.md) | repo | Accepted |

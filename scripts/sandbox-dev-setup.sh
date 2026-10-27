@@ -5,23 +5,24 @@
 # The repo is bind-mounted from the macOS host, so every build output path is
 # shared. Two mechanisms keep the two platforms apart:
 #
-#   1. Configurable output paths (Cargo, Go, pnpm store) are pointed at
-#      $BUILD_ROOT via environment variables.
+#   1. Configurable output paths (Cargo, pnpm store) are pointed at Linux-only
+#      directories via environment variables.
 #   2. Fixed paths that tooling can't relocate (node_modules, dist) get a
-#      sandbox-only bind mount from $BUILD_ROOT on top of them. A bind mount is
-#      invisible to the host: macOS keeps its own node_modules underneath,
-#      untouched, while the sandbox sees the Linux one.
+#      sandbox-only bind mount on top of them. A bind mount is invisible to the
+#      host: macOS keeps its own node_modules underneath, untouched, while the
+#      sandbox sees the Linux one.
 #
-# BUILD_ROOT lives *inside* the repo (on the host's disk) so artifacts survive
-# sandbox restarts and aren't capped by the 20G overlay. Set
-# KSTACK_SANDBOX_BUILD_ROOT=/home/agent/kstack-build to use the overlay instead
-# (faster I/O, smaller, wiped on sandbox recreate).
+# Cargo's target/ and node_modules live on the sandbox's own overlay
+# ($OVERLAY_ROOT). Cargo needs it: the host mount's directory metadata is not
+# coherent under dense writes, so a build there never converges. node_modules
+# is read thousands of times per test run, and the host mount makes every read
+# slow. Each worktree gets its own node_modules under $OVERLAY_ROOT/worktrees.
 #
-# Cargo is the exception: its target/ goes on the overlay ($CARGO_ROOT), because
-# the host mount's directory metadata is not coherent enough for it. Cargo gets
-# EEXIST from mkdir for directories it has just created and reads fingerprint
-# stamps back missing, so a build there never converges. Nothing else the
-# sandbox builds touches the tree densely enough to hit it.
+# The overlay is capped at 20G and wiped on sandbox recreate, so what is small
+# or rarely read stays on the host's disk: dist under $BUILD_ROOT, and one pnpm
+# store for every worktree under the main checkout's .sandbox-linux. pnpm copies
+# from the store wherever it sits: link(2) fails across the node_modules bind
+# mount even within one filesystem.
 #
 # Idempotent — safe to re-run. Run it once per sandbox boot: bind mounts do not
 # survive a restart, the env vars (in /etc/sandbox-persistent.sh) do.
@@ -38,30 +39,47 @@ fi
 
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_ROOT="${KSTACK_SANDBOX_BUILD_ROOT:-$REPO/.sandbox-linux}"
-CARGO_ROOT="${KSTACK_SANDBOX_CARGO_ROOT:-/home/agent/kstack-build}"
+OVERLAY_ROOT="${KSTACK_SANDBOX_OVERLAY_ROOT:-/home/agent/kstack-build}"
+NODE_MODULES="$OVERLAY_ROOT/worktrees$REPO/node_modules"
+MAIN_REPO="$(dirname "$(git -C "$REPO" rev-parse --path-format=absolute --git-common-dir)")"
+PNPM_STORE="$MAIN_REPO/.sandbox-linux/pnpm-store"
 PERSIST="/etc/sandbox-persistent.sh"
+MIN_FREE_MB=2048
 
 echo "→ build root: $BUILD_ROOT"
-echo "→ cargo root: $CARGO_ROOT"
+echo "→ overlay root: $OVERLAY_ROOT"
 # Go's caches are deliberately absent here: they default to $HOME, which is
 # already sandbox-local (not shared with the host), so they need no
 # redirection. Keeping them out of the repo also keeps the module cache's
 # vendored *.ts fixtures out of vitest's file discovery, which — unlike
 # eslint — does not honor .gitignore.
-mkdir -p "$BUILD_ROOT"/{node_modules,dist,pnpm-store}
-mkdir -p "$CARGO_ROOT/target"
+mkdir -p "$BUILD_ROOT/dist" "$PNPM_STORE" "$NODE_MODULES" "$OVERLAY_ROOT/target"
+
+free_mb="$(df --output=avail -BM "$OVERLAY_ROOT" | tail -1 | tr -dc 0-9)"
+if [ "$free_mb" -lt "$MIN_FREE_MB" ]; then
+  echo "⚠ only ${free_mb}M free on the overlay; installs and builds may fail."
+  echo "  Reclaim space with 'cargo clean', 'go clean -cache', or by deleting"
+  echo "  removed worktrees' node_modules under $OVERLAY_ROOT/worktrees."
+fi
 
 # --- 1. bind mounts for paths the tooling can't relocate -------------------
-for dir in node_modules dist; do
-  target="$REPO/$dir"
+# A mount from any other source (an older layout) is replaced. Comparing
+# device and inode tells whether $target already shows $src.
+bind() {
+  local src="$1" target="$2"
   mkdir -p "$target"
-  if mountpoint -q "$target"; then
-    echo "✓ $dir already bind-mounted"
-  else
-    sudo mount --bind "$BUILD_ROOT/$dir" "$target"
-    echo "✓ $dir bind-mounted from $BUILD_ROOT/$dir"
+  if [ "$(stat -c %d:%i "$src")" = "$(stat -c %d:%i "$target")" ]; then
+    echo "✓ $target already bind-mounted"
+    return
   fi
-done
+  if mountpoint -q "$target"; then
+    sudo umount "$target"
+  fi
+  sudo mount --bind "$src" "$target"
+  echo "✓ $target bind-mounted from $src"
+}
+bind "$NODE_MODULES" "$REPO/node_modules"
+bind "$BUILD_ROOT/dist" "$REPO/dist"
 
 # --- 2. env vars for the paths that are configurable -----------------------
 # Written to the persistent env file, which is sourced before every command.
@@ -69,9 +87,9 @@ done
 # rather than leaving an older copy above them.
 #
 # pnpm takes settings from PNPM_CONFIG_* or pnpm-workspace.yaml, and the yaml is
-# committed — shared with the host, so it cannot hold a Linux path. Unset, the
-# store defaults to the root of node_modules' filesystem: $REPO/.pnpm-store, the
-# same path the host's macOS pnpm picks, mixing both platforms' native builds.
+# committed — shared with the host, so it cannot hold a Linux path. The env file
+# is shared by every worktree in the sandbox, so the store path must not depend
+# on $REPO.
 sudo touch "$PERSIST"
 sudo sed -i \
   -e '/KSTACK_SANDBOX_ENV/d' \
@@ -81,8 +99,8 @@ sudo sed -i \
   "$PERSIST"
 sudo tee -a "$PERSIST" >/dev/null <<EOF
 # KSTACK_SANDBOX_ENV — Linux build outputs, kept out of the macOS host's paths.
-export CARGO_TARGET_DIR="$CARGO_ROOT/target"
-export PNPM_CONFIG_STORE_DIR="$BUILD_ROOT/pnpm-store"
+export CARGO_TARGET_DIR="$OVERLAY_ROOT/target"
+export PNPM_CONFIG_STORE_DIR="$PNPM_STORE"
 export PATH="\$HOME/.cargo/bin:\$HOME/.local/share/pnpm:\$PATH"
 EOF
 echo "✓ env vars written to $PERSIST"

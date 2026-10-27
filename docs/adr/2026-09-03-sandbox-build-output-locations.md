@@ -2,7 +2,7 @@
 title: Isolate Linux sandbox build outputs, with Cargo's target dir on the overlay
 date: 2026-09-03
 scope: repo
-status: Accepted
+status: Superseded by [2026-10-27-sandbox-node-modules-on-the-overlay](2026-10-27-sandbox-node-modules-on-the-overlay.md)
 ---
 
 # Isolate Linux sandbox build outputs, with Cargo's target dir on the overlay
