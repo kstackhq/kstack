@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -111,6 +112,35 @@ func junction(t *testing.T, dir string) string {
 	return j
 }
 
+// withoutBackupPrivilege runs the rest of the test on a thread impersonating
+// the process token minus SeBackupPrivilege. FindFirstFile opens with backup
+// intent, so with the privilege enabled — as Git Bash enables it for an
+// administrator — a deny ACE does not stop the listing.
+func withoutBackupPrivilege(t *testing.T) {
+	t.Helper()
+	runtime.LockOSThread()
+	t.Cleanup(runtime.UnlockOSThread)
+
+	var proc windows.Token
+	require.NoError(t, windows.OpenProcessToken(windows.CurrentProcess(), windows.TOKEN_DUPLICATE, &proc))
+	defer proc.Close()
+	var tok windows.Token
+	require.NoError(t, windows.DuplicateTokenEx(proc, windows.TOKEN_ADJUST_PRIVILEGES|windows.TOKEN_IMPERSONATE|windows.TOKEN_QUERY,
+		nil, windows.SecurityImpersonation, windows.TokenImpersonation, &tok))
+	t.Cleanup(func() { _ = tok.Close() })
+
+	name, err := windows.UTF16PtrFromString("SeBackupPrivilege")
+	require.NoError(t, err)
+	tp := windows.Tokenprivileges{PrivilegeCount: 1}
+	tp.Privileges[0].Attributes = windows.SE_PRIVILEGE_REMOVED
+	require.NoError(t, windows.LookupPrivilegeValue(nil, name, &tp.Privileges[0].Luid))
+	// A token that lacks the privilege succeeds with ERROR_NOT_ALL_ASSIGNED.
+	require.NoError(t, windows.AdjustTokenPrivileges(tok, false, &tp, 0, nil, nil))
+
+	require.NoError(t, windows.SetThreadToken(nil, tok))
+	t.Cleanup(func() { _ = windows.RevertToSelf() })
+}
+
 // A link in a directory that cannot be listed has no tag to read, so lstat
 // fails rather than guess.
 func TestLstatFailsWithoutTheTag(t *testing.T) {
@@ -119,6 +149,7 @@ func TestLstatFailsWithoutTheTag(t *testing.T) {
 	out, err := exec.Command("icacls", dir, "/deny", "*S-1-1-0:(RD)").CombinedOutput()
 	require.NoError(t, err, string(out))
 	t.Cleanup(func() { _ = exec.Command("icacls", dir, "/remove:d", "*S-1-1-0").Run() })
+	withoutBackupPrivilege(t)
 
 	_, _, err = lstat(j)
 	assert.Error(t, err)
