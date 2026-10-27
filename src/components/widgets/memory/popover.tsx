@@ -39,7 +39,9 @@ import { useMemoryWrites } from './writes';
 function Banner({ cluster, defaultCluster, onBack }: { cluster: string; defaultCluster: string; onBack: () => void }) {
   return (
     <div className="flex h-7 shrink-0 items-center gap-2 rounded-lg bg-accent px-3">
-      <p className="min-w-0 flex-1 truncate text-xs text-accent-foreground">Viewing {cluster}’s memory.</p>
+      <p className="min-w-0 flex-1 truncate text-xs text-accent-foreground" title={`Viewing ${cluster}’s memory.`}>
+        Viewing {cluster}’s memory.
+      </p>
       <Button variant="link" size="xs" className="h-auto px-0" onClick={onBack}>
         Back to {defaultCluster}
       </Button>

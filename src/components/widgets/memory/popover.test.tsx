@@ -208,7 +208,7 @@ describe('MemoryPopoverContent', () => {
     renderContent();
 
     await user.click(button('2nd Cluster'));
-    expect(screen.getByText('Viewing 2nd Cluster’s memory.')).toBeInTheDocument();
+    expect(screen.getByText('Viewing 2nd Cluster’s memory.')).toHaveAttribute('title', 'Viewing 2nd Cluster’s memory.');
 
     await user.click(button('Back to Minikube'));
     expect(banner()).not.toBeInTheDocument();
