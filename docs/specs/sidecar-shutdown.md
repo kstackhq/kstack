@@ -214,7 +214,7 @@ Check each before relying on it; they were true when this was written.
 
 ## Task 1 — two contexts and a counter in `internal/app`
 
-Status: Planned.
+Status: Done. The gate is its own unit (`internal/app/requests.go`), so its tests (`requests_test.go`) wrap a plain handler; the real app's handler reaches only real services. `graph.NewServer` takes `streamsCtx` first, as `grpc.NewServer` does.
 
 - `App` gains `streamsCtx`, `requestsCtx`, their cancels, `inflight sync.WaitGroup`, and the
   gate (`mu sync.Mutex`, `closed bool`), made in `New`. Methods: `CancelStreams()`,

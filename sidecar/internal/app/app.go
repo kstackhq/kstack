@@ -2,7 +2,7 @@
 // every service into one Runtime, wires the GraphQL and gRPC servers over it,
 // and multiplexes them onto one handler served as HTTP/1.1 and h2c.
 // main() stays thin: it binds the listener and drives the shutdown surface this
-// package exposes — CancelStreams, DrainWithContext, Close.
+// package exposes — CancelStreams, CloseRequests, DrainWithContext, Close.
 package app
 
 import (
@@ -16,7 +16,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"sync"
 	"time"
 
 	"golang.org/x/net/http/httpproxy"
@@ -117,7 +116,7 @@ type App struct {
 	handler       http.Handler
 	grpcServer    *grpc.Server
 	cancelStreams context.CancelFunc
-	inflight      sync.WaitGroup
+	requests      *requests
 }
 
 // New builds the runtime and the GraphQL and gRPC servers over it, which share
@@ -139,21 +138,22 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	// gRPC shares the socket with GraphQL: HTTP/2 application/grpc goes to the
 	// gRPC server, everything else to the mux. See
 	// docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md.
-	a := &App{
-		rt:            rt,
-		grpcServer:    grpcServer,
-		cancelStreams: cancelStreams,
-	}
-	a.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		a.inflight.Add(1)
-		defer a.inflight.Done()
+	dispatch := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if grpcserver.IsGRPCRequest(r) {
 			grpcServer.ServeHTTP(w, r)
 			return
 		}
 		mux.ServeHTTP(w, r)
 	})
-	return a, nil
+
+	reqs := newRequests()
+	return &App{
+		rt:            rt,
+		handler:       reqs.wrap(dispatch),
+		grpcServer:    grpcServer,
+		cancelStreams: cancelStreams,
+		requests:      reqs,
+	}, nil
 }
 
 // makeDirs refuses a directory that is empty or relative, and makes each one
@@ -203,14 +203,20 @@ func (a *App) CancelStreams() {
 	a.cancelStreams()
 }
 
+// CloseRequests refuses every later request with a 503 and cancels every request
+// still running.
+func (a *App) CloseRequests() {
+	a.requests.close()
+}
+
 // DrainWithContext waits for every request's handler to return, then stops the
 // gRPC server, which waits for its method handlers; or ctx ends first. Call it
-// after http.Server.Shutdown, which counts HTTP/2 streams, not handlers: a stream
-// the client reset leaves the count while its handler runs on. It must return
-// before the stop func stops the services under those handlers.
+// after http.Server.Shutdown, which counts HTTP/2 streams, not handlers, and after
+// CloseRequests. It must return before the stop func stops the services under
+// those handlers.
 func (a *App) DrainWithContext(ctx context.Context) error {
 	return drain.WithContext(ctx, func() {
-		a.inflight.Wait()
+		a.requests.wait()
 		a.grpcServer.Stop()
 	})
 }

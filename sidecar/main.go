@@ -184,12 +184,14 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 	slog.Info("sidecar shutting down", "reason", reason)
 
 	// Order matters: Shutdown (fires CancelStreams, waits for in-flight requests,
-	// gRPC streams included) → DrainWithContext (joins the handlers Shutdown no
-	// longer counts) → stop → Close. See
+	// gRPC streams included) → CloseRequests (refuses later requests, cancels the
+	// rest) → DrainWithContext (joins the handlers Shutdown no longer counts) →
+	// stop → Close. See
 	// docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md.
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancelShutdown()
 	_ = srv.Shutdown(shutdownCtx)
+	application.CloseRequests()
 	if err := application.DrainWithContext(shutdownCtx); err != nil {
 		slog.Warn("drain did not complete", "err", err)
 	}

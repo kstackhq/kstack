@@ -94,9 +94,10 @@ lib → appdb → llm → run → services → tools → agent → app
 library](../docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md).
 
 Shutdown (`main.go`): `srv.Shutdown` (stops listening, then its hook runs `CancelStreams`, so SSE
-and gRPC streams end, and it waits for them) → `DrainWithContext` (every HTTP handler, then gRPC
-`Stop`, which waits for its method handlers) → `stop` → `Close`. Traps: cancel per request, never
-via `http.Server.BaseContext`, which kills the shared connection; handlers are joined after every
+and gRPC streams end, and it waits for them) → `CloseRequests` (a later request gets a 503; every
+handler still running is cancelled) → `DrainWithContext` (every HTTP handler, then gRPC `Stop`,
+which waits for its method handlers) → `stop` → `Close`. Traps: cancel per request, never via
+`http.Server.BaseContext`, which kills the shared connection; handlers are joined after every
 `Shutdown`, since `Shutdown` counts streams, not handlers, and a gRPC method handler outlives its
 `ServeHTTP` once the client resets the stream.
 
