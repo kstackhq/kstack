@@ -789,7 +789,7 @@ func clusterFixtures() []clusterFixture {
 // t.Cleanup so callers need not defer Close.
 func newTestServer(t *testing.T, fixtures []clusterFixture) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		ClusterSvc: newFakeClusterService(fixtures),
 		Auth:       newFakeAuth(auth.Identity{}),
 	}))

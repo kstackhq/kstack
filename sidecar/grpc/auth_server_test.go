@@ -14,8 +14,6 @@ import (
 
 	"github.com/amorey/gochan/watch"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/net/http2"
-	"golang.org/x/net/http2/h2c"
 	"golang.org/x/oauth2"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -40,6 +38,10 @@ type fakeAuthSvc struct {
 
 	loginErr  error // when set, StartLogin returns this error without signing in
 	logoutErr error // when set, Logout returns this error without signing out
+
+	// When set, Logout closes logoutEntered and blocks until logoutGate closes.
+	logoutEntered chan struct{}
+	logoutGate    chan struct{}
 
 	hub *watch.Hub[auth.State]
 	tx  *watch.Sender[auth.State]
@@ -79,6 +81,10 @@ func (f *fakeAuthSvc) StartLogin(context.Context) error {
 }
 
 func (f *fakeAuthSvc) Logout(context.Context) error {
+	if f.logoutGate != nil {
+		close(f.logoutEntered)
+		<-f.logoutGate
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.logoutErr != nil {
@@ -113,12 +119,21 @@ func (f *fakeAuthSvc) publishLocked() {
 	f.tx.Send(f.stateLocked()) //nolint:errcheck // Send never blocks; a closed hub is a no-op
 }
 
-// grpcTestServer stands up an h2c HTTP server over the gRPC server and returns
+// newGRPCTestConn stands up an h2c HTTP server over the gRPC server and returns
 // a connected client connection. Cleaned up on t.Cleanup.
-func newGRPCTestConn(t *testing.T, grpcSrv *grpcserver.Server) *grpc.ClientConn {
+func newGRPCTestConn(t *testing.T, grpcSrv *grpc.Server) *grpc.ClientConn {
 	t.Helper()
-	h := h2c.NewHandler(grpcSrv.GRPC(), &http2.Server{})
-	srv := &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: h}
+	_, conn := serveGRPC(t, grpcSrv)
+	return conn
+}
+
+// serveGRPC is newGRPCTestConn, also returning the HTTP server for a test that
+// drives its shutdown.
+func serveGRPC(t *testing.T, grpcSrv *grpc.Server) (*http.Server, *grpc.ClientConn) {
+	t.Helper()
+	var protocols http.Protocols
+	protocols.SetUnencryptedHTTP2(true)
+	srv := &http.Server{ReadHeaderTimeout: 5 * time.Second, Handler: grpcSrv, Protocols: &protocols}
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	go func() { _ = srv.Serve(ln) }()
@@ -126,7 +141,7 @@ func newGRPCTestConn(t *testing.T, grpcSrv *grpcserver.Server) *grpc.ClientConn 
 	conn, err := grpc.NewClient(ln.Addr().String(), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = conn.Close() })
-	return conn
+	return srv, conn
 }
 
 // TestAuthStateWatchSnapshotThenDelta verifies the server-streaming behavior:
@@ -134,7 +149,7 @@ func newGRPCTestConn(t *testing.T, grpcSrv *grpcserver.Server) *grpc.ClientConn 
 // StartLogin the next message delivers the authenticated identity.
 func TestAuthStateWatchSnapshotThenDelta(t *testing.T) {
 	svc := newFakeAuthSvc(auth.Identity{Email: "ada@example.com", Name: "Ada"})
-	grpcSrv := grpcserver.NewServer(svc, nil)
+	grpcSrv := grpcserver.NewServer(context.Background(), svc, nil)
 	conn := newGRPCTestConn(t, grpcSrv)
 	t.Cleanup(grpcSrv.Stop)
 
@@ -165,7 +180,7 @@ func TestAuthStateWatchSnapshotThenDelta(t *testing.T) {
 // fake and that Logout causes the next watch to start signed-out.
 func TestStartLoginAndLogoutRPC(t *testing.T) {
 	svc := signedInFakeAuthSvc(auth.Identity{Email: "ada@example.com"})
-	grpcSrv := grpcserver.NewServer(svc, nil)
+	grpcSrv := grpcserver.NewServer(context.Background(), svc, nil)
 	conn := newGRPCTestConn(t, grpcSrv)
 	t.Cleanup(grpcSrv.Stop)
 
@@ -192,7 +207,7 @@ func TestStartLoginAndLogoutRPC(t *testing.T) {
 // unary RPCs return Unavailable — mirroring the GraphQL resolver's nil-Auth
 // degrade.
 func TestAuthRPCsNilServiceTolerant(t *testing.T) {
-	grpcSrv := grpcserver.NewServer(nil, nil)
+	grpcSrv := grpcserver.NewServer(context.Background(), nil, nil)
 	conn := newGRPCTestConn(t, grpcSrv)
 	t.Cleanup(grpcSrv.Stop)
 
@@ -214,13 +229,14 @@ func TestAuthRPCsNilServiceTolerant(t *testing.T) {
 	require.Equal(t, codes.Unavailable, st.Code())
 }
 
-// TestAuthStateWatchDrainsOnShutdown verifies the stream participates in the
-// shared streams WaitGroup: NotifyShutdown cancels the serving context, the
-// handler returns nil (grpc flushes OK trailers), the client sees io.EOF, and
-// DrainWithContext returns.
-func TestAuthStateWatchDrainsOnShutdown(t *testing.T) {
+// TestAuthStateWatchEndsOnShutdown verifies that ending the streams context ends
+// the watch: the handler returns nil (grpc flushes OK trailers), and the client
+// sees io.EOF.
+func TestAuthStateWatchEndsOnShutdown(t *testing.T) {
 	svc := newFakeAuthSvc(auth.Identity{})
-	grpcSrv := grpcserver.NewServer(svc, nil)
+	streams, endStreams := context.WithCancel(context.Background())
+	defer endStreams()
+	grpcSrv := grpcserver.NewServer(streams, svc, nil)
 	conn := newGRPCTestConn(t, grpcSrv)
 
 	client := authpb.NewAuthServiceClient(conn)
@@ -236,14 +252,57 @@ func TestAuthStateWatchDrainsOnShutdown(t *testing.T) {
 		recvErr <- e
 	}()
 
-	grpcSrv.NotifyShutdown()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	require.NoError(t, grpcSrv.DrainWithContext(ctx))
-
-	require.ErrorIs(t, testutil.Recv(t, recvErr, "the AuthStateWatch stream to drain after NotifyShutdown"), io.EOF)
+	endStreams()
+	require.ErrorIs(t, testutil.Recv(t, recvErr, "the AuthStateWatch stream to end after the streams ended"), io.EOF)
 
 	grpcSrv.Stop()
+}
+
+// HTTP shutdown ends a watch at once but lets an in-flight call finish: the
+// AuthStateWatch stream ends with OK trailers while Logout is still running, and
+// Shutdown returns only after Logout has answered.
+func TestShutdownEndsWatchesAndFinishesCalls(t *testing.T) {
+	svc := signedInFakeAuthSvc(auth.Identity{Email: "ada@example.com"})
+	svc.logoutEntered = make(chan struct{})
+	svc.logoutGate = make(chan struct{})
+	streams, endStreams := context.WithCancel(context.Background())
+	defer endStreams()
+	grpcSrv := grpcserver.NewServer(streams, svc, nil)
+	t.Cleanup(grpcSrv.Stop)
+	srv, conn := serveGRPC(t, grpcSrv)
+	srv.RegisterOnShutdown(endStreams)
+	client := authpb.NewAuthServiceClient(conn)
+
+	stream, err := client.AuthStateWatch(context.Background(), &authpb.AuthStateWatchRequest{})
+	require.NoError(t, err)
+	_, err = stream.Recv()
+	require.NoError(t, err)
+
+	logoutErr := make(chan error, 1)
+	go func() {
+		_, err := client.Logout(context.Background(), &authpb.LogoutRequest{})
+		logoutErr <- err
+	}()
+	testutil.Wait(t, svc.logoutEntered, "Logout to start")
+
+	shutdownErr := make(chan error, 1)
+	go func() { shutdownErr <- srv.Shutdown(context.Background()) }()
+
+	watchErr := make(chan error, 1)
+	go func() {
+		_, err := stream.Recv()
+		watchErr <- err
+	}()
+	require.ErrorIs(t, testutil.Recv(t, watchErr, "the watch to end"), io.EOF)
+	select {
+	case err := <-shutdownErr:
+		t.Fatalf("Shutdown returned %v with Logout still running", err)
+	default:
+	}
+
+	close(svc.logoutGate)
+	require.NoError(t, testutil.Recv(t, logoutErr, "Logout to answer"))
+	require.NoError(t, testutil.Recv(t, shutdownErr, "Shutdown to return"))
 }
 
 // An auth service that fails reports Internal, not a silent success: the tray
@@ -253,7 +312,7 @@ func TestAuthUnaryRPCsSurfaceServiceFailures(t *testing.T) {
 	svc := newFakeAuthSvc(auth.Identity{})
 	svc.loginErr = errors.New("loopback bind failed")
 	svc.logoutErr = errors.New("keyring locked")
-	grpcSrv := grpcserver.NewServer(svc, nil)
+	grpcSrv := grpcserver.NewServer(context.Background(), svc, nil)
 	conn := newGRPCTestConn(t, grpcSrv)
 	t.Cleanup(grpcSrv.Stop)
 

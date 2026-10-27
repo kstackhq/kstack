@@ -93,9 +93,12 @@ lib → appdb → llm → run → services → tools → agent → app
 `app.Protocols()` (HTTP/1.1 plus unencrypted HTTP/2). → [ADR: single-socket h2c from the standard
 library](../docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md).
 
-Shutdown (`main.go`): `NotifyShutdown` → `srv.Shutdown` → `DrainWithContext` → `stop` → `Close`.
-Traps: grpc-go's `GracefulStop` **panics** on h2c, so `Stop` runs after the drain; never cancel
-via `http.Server.BaseContext`, which kills the shared connection.
+Shutdown (`main.go`): `srv.Shutdown` (stops listening, then its hook runs `CancelStreams`, so SSE
+and gRPC streams end, and it waits for them) → `DrainWithContext` (every HTTP handler, then gRPC
+`Stop`, which waits for its method handlers) → `stop` → `Close`. Traps: cancel per request, never
+via `http.Server.BaseContext`, which kills the shared connection; handlers are joined after every
+`Shutdown`, since `Shutdown` counts streams, not handlers, and a gRPC method handler outlives its
+`ServeHTTP` once the client resets the stream.
 
 ## Security invariants
 
@@ -184,7 +187,7 @@ Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-
 
 ## Tests & checks
 
-- testify + `httptest`. Resolver tests stand up `graph.NewServer(&graph.Resolver{...})` + `POST /graphql`; lifecycle tests stand up `app.New(...)`. Filesystem via `t.TempDir()`.
+- testify + `httptest`. Resolver tests stand up `graph.NewServer(ctx, &graph.Resolver{...})` + `POST /graphql`; lifecycle tests stand up `app.New(...)`. Filesystem via `t.TempDir()`.
 - A fixture that needs a stored status writes it with `beehive.NewAdminClient`, never by registering a controller. A controller's own writes are asserted by calling `Reconcile` against a stubbed `ControllerClient`.
 - White-box tests by default (`package foo`). External `package foo_test` only to pin a public contract, and say so.
 - No magic sleeps (root `CLAUDE.md`). Wait on channels through `internal/lib/testutil` (`Wait`, `Recv`, `RecvClosed`, `WaitClosed`); the one failsafe is `testutil.Timeout`.

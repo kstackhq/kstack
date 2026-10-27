@@ -28,7 +28,6 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/kstackhq/kstack/sidecar/graph"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
@@ -41,7 +40,7 @@ import (
 // should answer `{ authState { authenticated } }` with the signed-out state.
 // If this passes, the gqlgen wiring (schema -> resolver -> handler) is intact.
 func TestAuthStateQuery(t *testing.T) {
-	h := graph.NewServer(&graph.Resolver{Auth: newFakeAuth(auth.Identity{})})
+	h := graph.NewServer(context.Background(), &graph.Resolver{Auth: newFakeAuth(auth.Identity{})})
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -78,7 +77,7 @@ func TestResolverErrorIsLogged(t *testing.T) {
 	var buf bytes.Buffer
 	slog.SetDefault(logging.Init(&buf, slog.LevelInfo))
 
-	h := graph.NewServer(&graph.Resolver{})
+	h := graph.NewServer(context.Background(), &graph.Resolver{})
 	ts := httptest.NewServer(h)
 	defer ts.Close()
 
@@ -122,7 +121,7 @@ func TestErrorLogOmitsRequestData(t *testing.T) {
 		t.Run(body, func(t *testing.T) {
 			var buf bytes.Buffer
 			slog.SetDefault(logging.Init(&buf, slog.LevelInfo))
-			h := graph.NewServer(&graph.Resolver{ClusterSvc: newFakeClusterService(nil)})
+			h := graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: newFakeClusterService(nil)})
 			rr := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/graphql", strings.NewReader(body))
 			req.Header.Set("Content-Type", "application/json")
@@ -183,7 +182,7 @@ func TestErrorLogNamesTheCause(t *testing.T) {
 
 			svc := newFakeAuth(auth.Identity{})
 			svc.loginErr = c.err
-			ts := httptest.NewServer(graph.NewServer(&graph.Resolver{Auth: svc}))
+			ts := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
 			defer ts.Close()
 			postGQL(t, ts.URL, `{"query":"mutation { authLoginStart }"}`)
 
@@ -196,17 +195,15 @@ func TestErrorLogNamesTheCause(t *testing.T) {
 	}
 }
 
-// TestGracefulShutdownEndsSSEStream verifies that NotifyShutdown tells every
-// active SSE subscription to flush its terminal `event: complete` (via the
-// per-request context wired to the server's shutdownCh) and the handler
-// returns — instead of the stream being cut mid-frame when the process exits.
-// DrainWithContext then returns promptly because the streaming handler has
-// fully unwound. This is the GraphQL half of the app's NotifyShutdown /
-// DrainWithContext shutdown surface.
+// TestGracefulShutdownEndsSSEStream verifies that cancelling the streams context
+// tells every active SSE subscription to flush its terminal `event: complete` and
+// return, instead of the stream being cut mid-frame when the process exits.
 func TestGracefulShutdownEndsSSEStream(t *testing.T) {
 	// authStateWatch is the streaming canary: a fake auth emits the current
 	// snapshot on subscribe, then keeps the stream open until shutdown.
-	srv := graph.NewServer(&graph.Resolver{Auth: newFakeAuth(auth.Identity{})})
+	streams, endStreams := context.WithCancel(context.Background())
+	defer endStreams()
+	srv := graph.NewServer(streams, &graph.Resolver{Auth: newFakeAuth(auth.Identity{})})
 	ts := httptest.NewServer(srv)
 	defer ts.Close()
 
@@ -219,10 +216,7 @@ func TestGracefulShutdownEndsSSEStream(t *testing.T) {
 		t.Fatalf("want first event=next, got %q", ev.event)
 	}
 
-	// Signal shutdown directly (the http.Server fires this from
-	// RegisterOnShutdown in production; here we drive it without binding the
-	// real shutdown sequence).
-	srv.NotifyShutdown()
+	endStreams()
 
 	// The stream must terminate with a `complete` event, proving the handler
 	// flushed its terminal frame on the shutdown-cancelled context rather than
@@ -236,13 +230,36 @@ func TestGracefulShutdownEndsSSEStream(t *testing.T) {
 			t.Fatalf("unexpected event before complete: %q", ev.event)
 		}
 	}
+}
 
-	// DrainWithContext must return promptly — proves the streaming handler
-	// actually returned (so process exit doesn't drop a half-written frame).
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	if err := srv.DrainWithContext(ctx); err != nil {
-		t.Errorf("DrainWithContext returned: %v", err)
+// ctxAuth fails Current once its context has ended, so a query shows whether it
+// ran under the streams context.
+type ctxAuth struct{ *fakeAuth }
+
+func (a ctxAuth) Current(ctx context.Context) (auth.State, error) {
+	if err := ctx.Err(); err != nil {
+		return auth.State{}, err
+	}
+	return a.fakeAuth.Current(ctx)
+}
+
+// Ending the streams leaves a query alone: only an SSE request runs under that
+// context, and a query in flight at shutdown gets the request grace.
+func TestEndingTheStreamsLeavesAQuery(t *testing.T) {
+	streams, endStreams := context.WithCancel(context.Background())
+	endStreams()
+	ts := httptest.NewServer(graph.NewServer(streams, &graph.Resolver{Auth: ctxAuth{newFakeAuth(auth.Identity{})}}))
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/graphql", "application/json",
+		strings.NewReader(`{"query":"{ authState { authenticated } }"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if !strings.Contains(string(raw), `"authenticated":false`) || strings.Contains(string(raw), `"errors"`) {
+		t.Fatalf("query after the streams ended = %s, want the signed-out state", raw)
 	}
 }
 

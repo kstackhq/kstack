@@ -135,7 +135,7 @@ func TestClusterEventsResolver(t *testing.T) {
 		ID: 1, Category: "connection", Type: beehive.EventWarning,
 		Reason: "ProbeFailed", Message: "boom", Count: 3, FirstAt: now, LastAt: now,
 	}}
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{}),
 	}))
 	t.Cleanup(srv.Close)
@@ -331,7 +331,7 @@ func TestClusterDeleteMutation(t *testing.T) {
 func TestClusterDeleteReportsARecordThatWouldNotDelete(t *testing.T) {
 	cs := newFakeClusterService(clusterFixtures())
 	cs.deleteErr = errors.New("store unavailable")
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		ClusterSvc: cs,
 		Auth:       newFakeAuth(auth.Identity{}),
 	}))
@@ -646,7 +646,7 @@ func TestCacheEventTimelineResolvers(t *testing.T) {
 			ev := tt.event
 			ev.ID = id
 			tt.seed(svc, fix[0].id, ev)
-			srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
+			srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 				ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{}),
 			}))
 			t.Cleanup(srv.Close)
@@ -911,7 +911,7 @@ func TestClusterCachedDataKindsResolver(t *testing.T) {
 			{APIVersion: "example.com/v1", Kind: "Widget", Resource: "widgets", Scope: "Namespaced", IsCRD: true},
 		},
 	}
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{}),
 	}))
 	t.Cleanup(srv.Close)
@@ -978,7 +978,7 @@ func TestClusterCachedDataObjectsWatchOpensWithoutError(t *testing.T) {
 	fix := clusterFixtures()
 	svc := newFakeClusterService(fix)
 	id := fix[0].id
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{}),
 	}))
 	t.Cleanup(srv.Close)
@@ -1015,7 +1015,7 @@ func TestClusterCachedDataObjectsWatchServesNativeBody(t *testing.T) {
 			RawJSON: rawjson.RawJSON(`{"kind":"Deployment","spec":{"replicas":3}}`),
 		}},
 	}
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{}),
 	}))
 	t.Cleanup(srv.Close)
@@ -1084,7 +1084,7 @@ func TestClusterCachedDataKindsWatchEmitsSnapshotAndStaysOpen(t *testing.T) {
 			{APIVersion: "example.com/v1", Kind: "Widget", Resource: "widgets", Scope: "Namespaced", IsCRD: true, Count: 0},
 		},
 	}
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{}),
 	}))
 	t.Cleanup(srv.Close)
@@ -1168,7 +1168,7 @@ func postGQL(t *testing.T, url, body string) []byte {
 
 // The authState query reflects a signed-out auth service (no stale identity).
 func TestAuthStateQuerySignedOut(t *testing.T) {
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Auth: newFakeAuth(auth.Identity{})}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: newFakeAuth(auth.Identity{})}))
 	defer srv.Close()
 
 	raw := string(postGQL(t, srv.URL, `{"query":"{ authState { authenticated identity { sub } } }"}`))
@@ -1199,7 +1199,7 @@ func configuredAuth(t *testing.T, id auth.Identity) auth.Service {
 func TestAuthStateQuerySignedIn(t *testing.T) {
 	svc := signedInAuth(t, auth.Identity{UserID: "u1", Email: "a@x.com", Name: "Ada"})
 
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Auth: svc}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
 	defer srv.Close()
 
 	raw := string(postGQL(t, srv.URL, `{"query":"{ authState { authenticated identity { sub email name } } }"}`))
@@ -1214,7 +1214,7 @@ func TestAuthStateQuerySignedIn(t *testing.T) {
 // authStateWatch emits the current snapshot first, then a fresh snapshot on change.
 func TestAuthStateWatchSnapshotThenDelta(t *testing.T) {
 	svc := configuredAuth(t, auth.Identity{Email: "a@x.com"})
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Auth: svc}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
 	defer srv.Close()
 
 	resp := openSSESubscription(t, srv.URL, "",
@@ -1238,7 +1238,7 @@ func TestAuthStateWatchSnapshotThenDelta(t *testing.T) {
 // logout delegates to the account: returns true and flips the session signed-out.
 func TestLogoutMutation(t *testing.T) {
 	svc := signedInFakeAuth(auth.Identity{})
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Auth: svc}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
 	defer srv.Close()
 
 	raw := string(postGQL(t, srv.URL, `{"query":"mutation { authLogout }"}`))
@@ -1262,7 +1262,7 @@ func TestLoginMutationKicksOffFlow(t *testing.T) {
 	states, cancel := svc.Subscribe()
 	defer cancel()
 
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Auth: svc}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
 	defer srv.Close()
 
 	raw := string(postGQL(t, srv.URL, `{"query":"mutation { authLoginStart }"}`))
@@ -1292,7 +1292,7 @@ func TestLoginMutationSurfacesSetupError(t *testing.T) {
 	svc := newFakeAuth(auth.Identity{Email: "a@x.com"})
 	svc.loginErr = errors.New("loopback bind failed")
 
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Auth: svc}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Auth: svc}))
 	defer srv.Close()
 
 	raw := string(postGQL(t, srv.URL, `{"query":"mutation { authLoginStart }"}`))
@@ -1365,7 +1365,7 @@ func TestPrinterColumnsReachTheWire(t *testing.T) {
 			},
 		}},
 	}
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{})}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{})}))
 	t.Cleanup(srv.Close)
 
 	resp := openSSESubscription(t, srv.URL, "",
@@ -1388,7 +1388,7 @@ func TestAnAbsentTimestampSerializesAsNull(t *testing.T) {
 	svc.dataEvents = map[cluster.ClusterID][]cluster.ClusterCachedDataEvent{
 		"1": {{UID: "e-1", LastSeen: seen}},
 	}
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{})}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Auth: newFakeAuth(auth.Identity{})}))
 	t.Cleanup(srv.Close)
 
 	resp := openSSESubscription(t, srv.URL, "",
@@ -1416,7 +1416,7 @@ func TestClusterRefusalsCarryTheirCode(t *testing.T) {
 		{cluster.ErrNotConnectable, "KSTACK_CONFLICT"},
 	} {
 		t.Run(tc.code, func(t *testing.T) {
-			srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
+			srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 				ClusterSvc: errClusterService{err: tc.err}, Auth: newFakeAuth(auth.Identity{}),
 			}))
 			t.Cleanup(srv.Close)
@@ -1645,7 +1645,7 @@ func newChatServerOn(t *testing.T, status sandbox.Status, svc *settings.Service)
 		require.NoError(t, stop(context.Background()))
 		require.NoError(t, chatSvc.Close())
 	})
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		ClusterSvc: newFakeClusterService(nil), ChatSvc: chatSvc, LLMSvc: llmSvc, Auth: newFakeAuth(auth.Identity{}),
 		SandboxStatus: status, Settings: svc,
 	}))
@@ -1732,7 +1732,7 @@ func TestChatSendAcceptsAModelOnAnotherDialect(t *testing.T) {
 // for a send with none.
 func TestChatSendHandsItsSnapshotToTheService(t *testing.T) {
 	rec := recordingChat{snaps: make(chan *chat.Snapshot, 1)}
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ChatSvc: rec}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ChatSvc: rec}))
 	defer srv.Close()
 	send := func(snapshot string) {
 		mutate(t, srv, `mutation { chatSend(chatID: "c", mode: Chat, clusterID: "1", sandboxDisabled: false, networkEnabled: false, networkThisTurn: false, providerID: "fake", modelID: "fake", effort: "high",
@@ -2028,7 +2028,7 @@ func TestChatRefusalsCarryTheirCode(t *testing.T) {
 		{chat.ErrChatNetworkChanged, "KSTACK_CHAT_NETWORK_CHANGED"},
 	} {
 		t.Run(tc.err.Error(), func(t *testing.T) {
-			srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ChatSvc: refusingChat{err: tc.err}}))
+			srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ChatSvc: refusingChat{err: tc.err}}))
 			defer srv.Close()
 
 			raw := postGQL(t, srv.URL, send("high"))
@@ -2047,7 +2047,7 @@ func TestChatRefusalsCarryTheirCode(t *testing.T) {
 
 // The chat's other mutations map their refusals through the same table.
 func TestChatMutationRefusalsCarryTheirCode(t *testing.T) {
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ChatSvc: refusingChat{err: chat.ErrChatGone}}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ChatSvc: refusingChat{err: chat.ErrChatGone}}))
 	defer srv.Close()
 	for _, mutation := range []string{
 		`chatCancel(chatID: \"` + appdb.NewID() + `\")`,
@@ -2131,7 +2131,7 @@ func TestSettingsRefusedIsWhatOpenLeftOut(t *testing.T) {
 	}
 	cfg, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"), settings.WithChecks(refuse))
 	require.NoError(t, err)
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Settings: settings.NewService(cfg, nil, nil, "")}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Settings: settings.NewService(cfg, nil, nil, "")}))
 	t.Cleanup(srv.Close)
 
 	raw := postGQL(t, srv.URL, `{"query":"{ settingsRefused { field value reason } }"}`)
@@ -2161,7 +2161,7 @@ func (heldChat) Approve(context.Context, chat.ApprovalID, chat.ApprovalDecision)
 // Always while the settings hold rules Kstack cannot read is a validation
 // error naming the file.
 func TestApprovalDecideMapsHeldToValidation(t *testing.T) {
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ChatSvc: heldChat{}}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ChatSvc: heldChat{}}))
 	defer srv.Close()
 
 	message, code := refusalOf(t, srv, `mutation { approvalDecide(id: "`+appdb.NewID()+`", decision: Always) }`)
@@ -2515,7 +2515,7 @@ func newMemoryServerOver(t *testing.T) (*httptest.Server, *appdb.DB, func(contex
 		require.NoError(t, stop(context.Background()))
 		require.NoError(t, memorySvc.Close())
 	})
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{MemorySvc: memorySvc}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{MemorySvc: memorySvc}))
 	t.Cleanup(srv.Close)
 	return srv, db, stop
 }
@@ -2766,7 +2766,7 @@ func sandboxPathServer(t *testing.T, available bool, resolve func(context.Contex
 		_, err := svc.SyncPath(t.Context(), []string{open, pending})
 		require.NoError(t, err)
 	}
-	srv = httptest.NewServer(graph.NewServer(&graph.Resolver{Settings: svc, SandboxStatus: sandbox.Status{Available: available}}))
+	srv = httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Settings: svc, SandboxStatus: sandbox.Status{Available: available}}))
 	t.Cleanup(srv.Close)
 	return srv, open, pending
 }
@@ -2849,7 +2849,7 @@ func newPermissionServer(t *testing.T, body string) *httptest.Server {
 	}
 	cfg, err := settings.Open(file)
 	require.NoError(t, err)
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ClusterSvc: newFakeClusterService(clusterFixtures()), Settings: settings.NewService(cfg, nil, nil, "")}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: newFakeClusterService(clusterFixtures()), Settings: settings.NewService(cfg, nil, nil, "")}))
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -2969,7 +2969,7 @@ func TestPermissionSettingsFailsWithTheClusterList(t *testing.T) {
 	require.NoError(t, err)
 	svc := newFakeClusterService(clusterFixtures())
 	svc.listErr = errors.New("store closed")
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{ClusterSvc: svc, Settings: settings.NewService(cfg, nil, nil, "")}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{ClusterSvc: svc, Settings: settings.NewService(cfg, nil, nil, "")}))
 	t.Cleanup(srv.Close)
 
 	_, code := refusalOf(t, srv, `{ permissionSettings { held } }`)
@@ -3168,7 +3168,7 @@ func sandboxExecutablesServer(t *testing.T, available bool) (*httptest.Server, *
 	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 	prober := newFakeProber()
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		Settings:      settings.NewService(store, nil, nil, ""),
 		SandboxStatus: sandbox.Status{Available: available},
 		Executables:   prober,
@@ -3300,7 +3300,7 @@ func TestSandboxExecutableRemoveWorksWithNoSandbox(t *testing.T) {
 	store, err := settings.Open(filepath.Join(t.TempDir(), "settings.json"))
 	require.NoError(t, err)
 	require.NoError(t, store.RegisterExecutable("k9s", ""))
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		Settings:    settings.NewService(store, nil, nil, ""),
 		Executables: newFakeProber(),
 	}))
@@ -3362,7 +3362,7 @@ func TestLogsFetchAnswersAFirstPage(t *testing.T) {
 		Records:    []logline.Record{*logsLine(stamp)},
 		Notices:    []logs.Notice{{Code: logsrefusal.CodePaddingShort, Message: "fewer lines before"}},
 	}}
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: fake}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Logs: fake}))
 	defer srv.Close()
 
 	data, errs := mutation(t, srv.URL, `{ logsFetch(id: "7", request: {scope: `+logsScope+`, since: "2026-10-08T10:00:00Z",
@@ -3391,7 +3391,7 @@ func TestLogsFetchAnswersAFirstPage(t *testing.T) {
 // and its echoed request comes back with no pageFrom.
 func TestLogsFetchPassesAContinuationThrough(t *testing.T) {
 	fake := &fakeLogs{page: logs.FetchResponse{Request: logs.FetchRequest{PageSize: 100}, Notices: []logs.Notice{}}}
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: fake}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Logs: fake}))
 	defer srv.Close()
 
 	data, errs := mutation(t, srv.URL, `{ logsFetch(id: "7", request: {cursor: "opaque", seen: ["line-a"]}) { request { pageFrom } records { message } notices { code } } }`)
@@ -3409,7 +3409,7 @@ func TestLogsFetchPassesAContinuationThrough(t *testing.T) {
 // wire cannot read is refused before the service is asked.
 func TestLogsFetchRefusesWithTheCode(t *testing.T) {
 	fake := &fakeLogs{refused: logsrefusal.New(logsrefusal.CodeCursorInvalid, "read again without the cursor")}
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: fake}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Logs: fake}))
 	defer srv.Close()
 
 	_, errs := mutation(t, srv.URL, `{ logsFetch(id: "7", request: {cursor: "stale"}) { resolvedAt } }`)
@@ -3431,7 +3431,7 @@ func TestLogsFetchRefusesWithTheCode(t *testing.T) {
 func TestLogsFetchReadsAnEmptyScopeAsNone(t *testing.T) {
 	svc := logs.New(nil, t.TempDir(), logstore.Retention{})
 	t.Cleanup(func() { _ = svc.Close() })
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: svc}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Logs: svc}))
 	defer srv.Close()
 
 	for grep, rule := range map[string]string{"": "cursor-invalid", "error": "conflicting-parameters"} {
@@ -3454,7 +3454,7 @@ func TestLogsFollowStreamsUntilItEnds(t *testing.T) {
 		out <- logs.FollowFrame{Ended: &ended}
 		return nil
 	})}
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: fake}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Logs: fake}))
 	defer srv.Close()
 
 	resp, events := chatFrames(t, srv, `subscription { logsFollow(id: "7", request: {cursor: "c", seen: ["line-a"], maxMessageBytes: 100}) {
@@ -3477,7 +3477,7 @@ func TestLogsFollowReportsItsFailure(t *testing.T) {
 	fake := &fakeLogs{stream: cluster.NewStream(t.Context(), func(context.Context, chan<- logs.FollowFrame) error {
 		return errors.New("db closed")
 	})}
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{Logs: fake}))
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{Logs: fake}))
 	defer srv.Close()
 
 	resp, events := chatFrames(t, srv, `subscription { logsFollow(id: "7", request: {scope: `+logsScope+`}) { type } }`)

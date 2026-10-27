@@ -2,12 +2,11 @@
 // every service into one Runtime, wires the GraphQL and gRPC servers over it,
 // and multiplexes them onto one handler served as HTTP/1.1 and h2c.
 // main() stays thin: it binds the listener and drives the shutdown surface this
-// package exposes — NotifyShutdown / DrainWithContext / Close.
+// package exposes — CancelStreams, DrainWithContext, Close.
 package app
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -17,14 +16,17 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"sync"
 	"time"
 
 	"golang.org/x/net/http/httpproxy"
+	"google.golang.org/grpc"
 
 	"github.com/kstackhq/kstack/sidecar/graph"
 	grpcserver "github.com/kstackhq/kstack/sidecar/grpc"
 	"github.com/kstackhq/kstack/sidecar/internal/agent/catalog"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/apimeta"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/drain"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
@@ -113,8 +115,9 @@ type Config struct {
 type App struct {
 	rt            *Runtime
 	handler       http.Handler
-	graphqlServer *graph.Server
-	grpcServer    *grpcserver.Server
+	grpcServer    *grpc.Server
+	cancelStreams context.CancelFunc
+	inflight      sync.WaitGroup
 }
 
 // New builds the runtime and the GraphQL and gRPC servers over it, which share
@@ -125,8 +128,10 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	graphqlServer := graph.NewServer(rt.resolver())
-	grpcServer := grpcserver.NewServer(rt.Auth, rt.Poke)
+	// Outlives every request: it ends the long-lived streams, at shutdown.
+	streamsCtx, cancelStreams := context.WithCancel(context.Background())
+	graphqlServer := graph.NewServer(streamsCtx, rt.resolver())
+	grpcServer := grpcserver.NewServer(streamsCtx, rt.Auth, rt.Poke)
 
 	mux := http.NewServeMux()
 	mux.Handle("/graphql", graphqlServer)
@@ -134,20 +139,21 @@ func New(ctx context.Context, cfg Config) (*App, error) {
 	// gRPC shares the socket with GraphQL: HTTP/2 application/grpc goes to the
 	// gRPC server, everything else to the mux. See
 	// docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md.
-	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	a := &App{
+		rt:            rt,
+		grpcServer:    grpcServer,
+		cancelStreams: cancelStreams,
+	}
+	a.handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		a.inflight.Add(1)
+		defer a.inflight.Done()
 		if grpcserver.IsGRPCRequest(r) {
-			grpcServer.GRPC().ServeHTTP(w, r)
+			grpcServer.ServeHTTP(w, r)
 			return
 		}
 		mux.ServeHTTP(w, r)
 	})
-
-	return &App{
-		rt:            rt,
-		handler:       handler,
-		graphqlServer: graphqlServer,
-		grpcServer:    grpcServer,
-	}, nil
+	return a, nil
 }
 
 // makeDirs refuses a directory that is empty or relative, and makes each one
@@ -189,26 +195,28 @@ func (a *App) Start(ctx context.Context) (func(context.Context) error, error) {
 	return lifecycle.StartAll(ctx, a.rt.parts)
 }
 
-// NotifyShutdown signals both transports' long-lived streams to close cleanly —
-// gRPC streaming handlers return (OK trailers flush) and SSE subscriptions flush
-// their terminal frame.
-func (a *App) NotifyShutdown() {
-	a.grpcServer.NotifyShutdown()
-	a.graphqlServer.NotifyShutdown()
+// CancelStreams ends both transports' long-lived streams cleanly — gRPC streaming
+// handlers return (OK trailers flush) and SSE subscriptions flush their terminal
+// frame. Register it with http.Server.RegisterOnShutdown, which runs it once the
+// listeners are closed, so a client cannot reopen a stream in between.
+func (a *App) CancelStreams() {
+	a.cancelStreams()
 }
 
-// DrainWithContext waits for both transports' handlers to unwind or ctx to
-// expire. Call after http.Server.Shutdown.
+// DrainWithContext waits for every request's handler to return, then stops the
+// gRPC server, which waits for its method handlers; or ctx ends first. Call it
+// after http.Server.Shutdown, which counts HTTP/2 streams, not handlers: a stream
+// the client reset leaves the count while its handler runs on. It must return
+// before the stop func stops the services under those handlers.
 func (a *App) DrainWithContext(ctx context.Context) error {
-	errs := make(chan error, 2)
-	go func() { errs <- a.graphqlServer.DrainWithContext(ctx) }()
-	go func() { errs <- a.grpcServer.DrainWithContext(ctx) }()
-	return errors.Join(<-errs, <-errs)
+	return drain.WithContext(ctx, func() {
+		a.inflight.Wait()
+		a.grpcServer.Stop()
+	})
 }
 
-// Close releases OS resources after the stop func returns. The gRPC transports go
-// first, outside the composed parts: GracefulStop panics on the h2c path, so Stop only
-// ever runs here, after the drain.
+// Close releases OS resources after the stop func returns. The gRPC server goes
+// first, outside the composed parts.
 func (a *App) Close() error {
 	a.grpcServer.Stop()
 	return a.rt.Close()

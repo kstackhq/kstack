@@ -144,7 +144,7 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 	}
 	// Shutdown runs it once the listeners are closed, so long-lived streams end
 	// and its wait for in-flight requests can complete.
-	srv.RegisterOnShutdown(application.NotifyShutdown)
+	srv.RegisterOnShutdown(application.CancelStreams)
 
 	// The host matches the `READY ` prefix; scheme+path are informational (the
 	// host picked the path and passed it via --socket).
@@ -183,9 +183,9 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 
 	slog.Info("sidecar shutting down", "reason", reason)
 
-	// Order matters: Shutdown (fires NotifyShutdown, waits for in-flight requests,
-	// gRPC streams included) → DrainWithContext (waits for the stream handlers to
-	// unwind) → stop → Close. See
+	// Order matters: Shutdown (fires CancelStreams, waits for in-flight requests,
+	// gRPC streams included) → DrainWithContext (joins the handlers Shutdown no
+	// longer counts) → stop → Close. See
 	// docs/adr/2026-10-26-single-socket-h2c-from-the-standard-library.md.
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancelShutdown()

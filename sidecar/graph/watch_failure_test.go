@@ -41,7 +41,7 @@ func newFailingWatchServer(t *testing.T, err error) *httptest.Server {
 	t.Helper()
 	svc := newFakeClusterService(clusterFixtures())
 	svc.watchFail = err
-	srv := httptest.NewServer(graph.NewServer(&graph.Resolver{
+	srv := httptest.NewServer(graph.NewServer(context.Background(), &graph.Resolver{
 		ClusterSvc: svc,
 		Auth:       newFakeAuth(auth.Identity{}),
 	}))

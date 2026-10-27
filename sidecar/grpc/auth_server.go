@@ -2,7 +2,6 @@ package grpcserver
 
 import (
 	"context"
-	"sync"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -16,11 +15,8 @@ import (
 type authServer struct {
 	authpb.UnimplementedAuthServiceServer
 	auth auth.Service
-	// servingCtx is cancelled at shutdown to end long-lived streams cleanly.
-	servingCtx context.Context
-	// streams tracks in-flight handlers, so shutdown waits for them before the HTTP
-	// server tears the h2c connections down.
-	streams *sync.WaitGroup
+	// streamsCtx ends at shutdown, ending every watch cleanly.
+	streamsCtx context.Context
 }
 
 // AuthStateWatch streams the AuthState current-on-subscribe, then on every session
@@ -30,9 +26,6 @@ func (s *authServer) AuthStateWatch(_ *authpb.AuthStateWatchRequest, stream auth
 		return nil // clean OK
 	}
 
-	s.streams.Add(1)
-	defer s.streams.Done()
-
 	ch, cancel := s.auth.Subscribe()
 	defer cancel()
 
@@ -41,7 +34,7 @@ func (s *authServer) AuthStateWatch(_ *authpb.AuthStateWatchRequest, stream auth
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-s.servingCtx.Done():
+		case <-s.streamsCtx.Done():
 			return nil // shutting down; end cleanly
 		case st, ok := <-ch:
 			if !ok {

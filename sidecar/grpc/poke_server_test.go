@@ -23,7 +23,7 @@ func TestPokeServiceBroadcastsSourceHost(t *testing.T) {
 	sigs, cancel := pk.Subscribe()
 	defer cancel()
 
-	grpcSrv := grpcserver.NewServer(nil, pk)
+	grpcSrv := grpcserver.NewServer(context.Background(), nil, pk)
 	t.Cleanup(grpcSrv.Stop)
 	conn := newGRPCTestConn(t, grpcSrv)
 	client := pokepb.NewPokeServiceClient(conn)
@@ -38,7 +38,7 @@ func TestPokeServiceBroadcastsSourceHost(t *testing.T) {
 // A nil broadcaster (degraded run) keeps the method safe: Poke returns
 // Unavailable rather than panicking, mirroring the nil-auth guard.
 func TestPokeServiceNilDegradesUnavailable(t *testing.T) {
-	grpcSrv := grpcserver.NewServer(nil, nil)
+	grpcSrv := grpcserver.NewServer(context.Background(), nil, nil)
 	t.Cleanup(grpcSrv.Stop)
 	conn := newGRPCTestConn(t, grpcSrv)
 	client := pokepb.NewPokeServiceClient(conn)
