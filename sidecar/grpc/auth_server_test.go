@@ -258,6 +258,25 @@ func TestAuthStateWatchEndsOnShutdown(t *testing.T) {
 	grpcSrv.Stop()
 }
 
+// A subscription the auth service closes ends the watch cleanly: the client sees
+// io.EOF.
+func TestAuthStateWatchEndsWhenTheSubscriptionCloses(t *testing.T) {
+	svc := newFakeAuthSvc(auth.Identity{})
+	grpcSrv := grpcserver.NewServer(context.Background(), svc, nil)
+	conn := newGRPCTestConn(t, grpcSrv)
+	t.Cleanup(grpcSrv.Stop)
+
+	client := authpb.NewAuthServiceClient(conn)
+	stream, err := client.AuthStateWatch(context.Background(), &authpb.AuthStateWatchRequest{})
+	require.NoError(t, err)
+	_, err = stream.Recv()
+	require.NoError(t, err)
+
+	svc.hub.Close()
+	_, err = stream.Recv()
+	require.ErrorIs(t, err, io.EOF)
+}
+
 // HTTP shutdown ends a watch at once but lets an in-flight call finish: the
 // AuthStateWatch stream ends with OK trailers while Logout is still running, and
 // Shutdown returns only after Logout has answered.

@@ -377,6 +377,40 @@ func TestTheDumpIsOneRecordPerGoroutine(t *testing.T) {
 	}
 }
 
+// parked is the frame of each goroutine TestTheDumpOutgrowsItsFirstBuffer parks.
+// It marks itself started, since a goroutine not yet scheduled has no frame of its
+// own in a stack dump.
+func parked(started *sync.WaitGroup, park <-chan struct{}) {
+	started.Done()
+	<-park
+}
+
+// Stacks past the dump's first 64 KiB buffer are read whole: every parked goroutine
+// gets its record.
+func TestTheDumpOutgrowsItsFirstBuffer(t *testing.T) {
+	const n = 1000 // a few hundred bytes of stack each, several times 64 KiB
+	park := make(chan struct{})
+	t.Cleanup(func() { close(park) })
+	var started sync.WaitGroup
+	started.Add(n)
+	for range n {
+		go parked(&started, park)
+	}
+	started.Wait()
+	f := newFixture()
+	f.s.dump()
+
+	got := 0
+	for _, r := range records(t, f.log.String()) {
+		if st, ok := r["stack"].(string); ok && strings.HasPrefix(st, "github.com/kstackhq/kstack/sidecar.parked(") {
+			got++
+		}
+	}
+	if got != n {
+		t.Errorf("%d stack records start at parked, want %d", got, n)
+	}
+}
+
 // A handler that does not return when cancelled: the grace runs out, the join
 // blocks, and the watchdog ends the process with 1.
 func TestTheWatchdogExitsOnAHandlerThatIgnoresItsContext(t *testing.T) {
