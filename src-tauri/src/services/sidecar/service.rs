@@ -141,7 +141,11 @@ impl SidecarService {
                     }
                     CommandEvent::Stderr(line) => forward_sidecar_line(&line),
                     CommandEvent::Terminated(payload) => {
-                        tracing::info!(?payload, "sidecar exited");
+                        if exited_cleanly(payload.code, payload.signal) {
+                            tracing::info!(?payload, "sidecar exited");
+                        } else {
+                            tracing::warn!(?payload, "sidecar exited uncleanly");
+                        }
 
                         // No sidecar, so no peer is legitimate any more.
                         let _ = expect_tx.send(None);
@@ -302,8 +306,9 @@ impl SidecarService {
     /// held, else by retained pid — but only if the process hasn't been
     /// observed to exit (a reused pid must not be killed). Best-effort and
     /// idempotent; for a clean exit call
-    /// [`SidecarService::graceful_shutdown`] first.
-    pub fn kill(&self) {
+    /// [`SidecarService::graceful_shutdown`] first. Returns whether it sent a
+    /// kill, so a quit can say the graceful path did not finish.
+    pub fn kill(&self) -> bool {
         let mut state = self
             .state
             .lock()
@@ -313,20 +318,30 @@ impl SidecarService {
         if let Some(child) = state.child.take() {
             let _ = child.kill();
             state.pid = None;
-            return;
+            return true;
         }
 
         // Handle gone: pid fallback, unless the process already exited (the
         // kernel may have reused the number).
         if state.exited {
             state.pid = None;
-            return;
+            return false;
         }
 
-        if let Some(pid) = state.pid.take() {
-            force_kill_by_pid(pid);
+        match state.pid.take() {
+            Some(pid) => {
+                force_kill_by_pid(pid);
+                true
+            }
+            None => false,
         }
     }
+}
+
+/// Whether the sidecar's exit was a completed stop: code 0 and no signal. Its
+/// watchdog exits 1 on a wedged stop, and the host's kill is a signal.
+fn exited_cleanly(code: Option<i32>, signal: Option<i32>) -> bool {
+    code == Some(0) && signal.is_none()
 }
 
 /// The endpoints the app signs in against. Constants, never read from this
@@ -486,5 +501,14 @@ mod tests {
         let path = Endpoint::pick(&base).expect("pick should succeed");
         let args = cmd_args(&path, &test_dirs(), None);
         assert!(!args.iter().any(|a| a == "--log-file"), "got: {args:?}");
+    }
+
+    #[test]
+    fn only_a_zero_code_with_no_signal_is_clean() {
+        assert!(exited_cleanly(Some(0), None));
+        assert!(!exited_cleanly(Some(1), None));
+        assert!(!exited_cleanly(None, Some(9)));
+        assert!(!exited_cleanly(Some(0), Some(15)));
+        assert!(!exited_cleanly(None, None));
     }
 }

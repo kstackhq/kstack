@@ -355,7 +355,7 @@ blocked, so no test leaks the sequence.
 
 ## Task 3 — the host
 
-Status: Planned.
+Status: Done. `SIDECAR_SHUTDOWN_GRACE` is 23 s, above the 20 s `shutdownBudget` Task 2 records. The quit state is `quit.rs`'s `Quit`, on `AppState`. The window methods check the app-wide `shutdown` token instead, which the first `ExitRequested` cancels, so one fact is not held twice. `new_window` returns `Result<()>`.
 
 - `SIDECAR_SHUTDOWN_GRACE` becomes 18 s. Its comment names `shutdownBudget` in
   `sidecar/shutdown.go` and says what the margin covers.

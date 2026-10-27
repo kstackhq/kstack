@@ -18,7 +18,7 @@
 //! [`run`] is the single entry point — `main.rs` (and the mobile entry point)
 //! call it. Module map: [`app_menu`], [`commands`], `dock_menu` (macOS),
 //! [`error`], [`services`] ([`SidecarService`]), [`state`] ([`AppState`]),
-//! [`tray`], [`window_manager`].
+//! [`quit`], [`tray`], [`window_manager`].
 
 #![warn(clippy::unwrap_used)]
 // `unwrap()` is idiomatic in tests.
@@ -36,6 +36,7 @@ mod logging;
 #[cfg(not(target_os = "linux"))]
 mod os_theme;
 mod paths;
+mod quit;
 mod services;
 mod state;
 mod tray;
@@ -50,6 +51,7 @@ use tauri::webview::PageLoadEvent;
 use tauri::{Manager, RunEvent, WindowEvent};
 use tokio_util::sync::CancellationToken;
 
+use crate::quit::{ExitDecision, Quit};
 use crate::services::sidecar::SidecarService;
 use crate::state::AppState;
 use crate::webview_log::{Limiter, LimiterConfig};
@@ -102,6 +104,25 @@ fn spawn_signal_handler(app: &tauri::AppHandle) {
 
         tracing::info!(signal = received, "received termination signal; exiting");
         app.exit(0);
+    });
+}
+
+/// Hides every window and waits for the sidecar on a thread of its own, then
+/// exits. The wait can take the whole grace, and on the event loop it would be
+/// a frozen app with its windows open.
+fn start_quit(app_handle: &tauri::AppHandle, code: i32) {
+    app_handle
+        .state::<AppState>()
+        .window_manager
+        .hide_all(app_handle);
+    let app_handle = app_handle.clone();
+    std::thread::spawn(move || {
+        let state = app_handle.state::<AppState>();
+        if !state.sidecar.graceful_shutdown(SIDECAR_SHUTDOWN_GRACE) {
+            tracing::warn!("sidecar did not exit within grace period");
+        }
+        state.quit.finish();
+        app_handle.exit(code);
     });
 }
 
@@ -190,7 +211,8 @@ pub fn run() {
             let log_guards = logging::install_file_layer(&log_reload, app.handle());
 
             let sidecar = SidecarService::spawn(app.handle())?;
-            let window_manager = WindowManager::new();
+            let shutdown = CancellationToken::new();
+            let window_manager = WindowManager::new(shutdown.clone());
 
             // Create the main window. All windows are built in code
             // (`tauri.conf.json` declares none); `build_window` owns chrome and
@@ -202,7 +224,8 @@ pub fn run() {
                 sidecar,
                 window_manager,
                 tray: Arc::new(Mutex::new(tray::TraySnapshots::default())),
-                shutdown: CancellationToken::new(),
+                shutdown,
+                quit: Quit::default(),
                 log_guards: Mutex::new(log_guards),
                 webview_log: Mutex::new(Limiter::new(LimiterConfig::DEFAULT)),
             });
@@ -264,14 +287,22 @@ pub fn run() {
 
                     // Start graceful shutdown if user has requested Quit
                     Some(code) => {
-                        tracing::info!(code, "exit requested; initiating graceful shutdown");
-
                         let state = app_handle.state::<AppState>();
-                        // Cancel app-lifetime background tasks first so they
-                        // don't retry against a dying sidecar. Idempotent.
-                        state.shutdown.cancel();
-                        if !state.sidecar.graceful_shutdown(SIDECAR_SHUTDOWN_GRACE) {
-                            tracing::warn!("sidecar did not exit within grace period");
+                        match state.quit.request() {
+                            ExitDecision::Start => {
+                                tracing::info!(
+                                    code,
+                                    "exit requested; initiating graceful shutdown"
+                                );
+                                // Cancel app-lifetime background tasks first so they
+                                // don't retry against a dying sidecar. Also stops any
+                                // window from opening.
+                                state.shutdown.cancel();
+                                api.prevent_exit();
+                                start_quit(app_handle, code);
+                            }
+                            ExitDecision::Prevent => api.prevent_exit(),
+                            ExitDecision::Allow => {}
                         }
                     }
                 }
@@ -279,7 +310,9 @@ pub fn run() {
             RunEvent::Exit => {
                 // Force-kill the sidecar in case the graceful path timed out.
                 let state = app_handle.state::<AppState>();
-                state.sidecar.kill();
+                if state.sidecar.kill() {
+                    tracing::warn!("sidecar was still running at exit; killed it");
+                }
 
                 tracing::info!("shutdown complete");
 

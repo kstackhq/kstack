@@ -17,6 +17,7 @@ use std::sync::{Arc, Mutex};
 use tokio_util::sync::CancellationToken;
 use tracing_appender::non_blocking::WorkerGuard;
 
+use crate::quit::Quit;
 use crate::services::sidecar::SidecarService;
 use crate::tray::TraySnapshots;
 use crate::webview_log::Limiter;
@@ -34,6 +35,9 @@ pub struct AppState {
     /// [`CancellationToken::cancelled`] so it doesn't retry against a dying
     /// sidecar.
     pub shutdown: CancellationToken,
+    /// Where a quit is: `ExitRequested` starts the wait once and prevents every
+    /// request during it.
+    pub quit: Quit,
     /// The log files' worker-thread guards, taken by [`AppState::flush_log`].
     /// Empty when no log file could be opened.
     pub log_guards: Mutex<Vec<WorkerGuard>>,

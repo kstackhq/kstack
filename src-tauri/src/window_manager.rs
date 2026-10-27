@@ -33,6 +33,7 @@ use std::sync::Mutex;
 use tauri::webview::NewWindowResponse;
 use tauri::window::{Color, Monitor};
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
 use crate::error::Result;
@@ -199,6 +200,17 @@ fn cascade_position(
     }
 }
 
+/// Unminimizes, shows and focuses `window`.
+fn surface(window: &WebviewWindow) -> Result<()> {
+    // A minimized window won't surface on show()/set_focus() alone.
+    if window.is_minimized().unwrap_or(false) {
+        window.unminimize()?;
+    }
+    window.show()?;
+    window.set_focus()?;
+    Ok(())
+}
+
 /// A monitor's work area as logical `(x, y, width, height)` — Tauri only
 /// exposes it in physical pixels.
 fn logical_work_area(monitor: &Monitor) -> (f64, f64, f64, f64) {
@@ -219,18 +231,71 @@ pub struct WindowManager {
     /// window is focused (tray/Dock menus). A label, not a `WebviewWindow`, so
     /// a closed window drops normally and is simply not found next lookup.
     last_built: Mutex<Option<String>>,
+
+    /// The app-wide shutdown signal, cancelled once a quit begins. Every path
+    /// that opens or shows a window ends in this type's two methods, which open
+    /// nothing after it and hide what they presented as it began: a window
+    /// would come back over a sidecar that is stopping and vanish when the exit
+    /// lands.
+    shutdown: CancellationToken,
 }
 
 impl WindowManager {
-    pub fn new() -> Self {
-        Self::default()
+    pub fn new(shutdown: CancellationToken) -> Self {
+        Self {
+            shutdown,
+            ..Self::default()
+        }
+    }
+
+    /// Hides every window, as a quit begins.
+    pub fn hide_all(&self, app: &AppHandle) {
+        for window in app.webview_windows().values() {
+            if let Err(err) = window.hide() {
+                warn!(%err, "failed to hide a window on quit");
+            }
+        }
     }
 
     /// Create a fresh window with a unique label (`window-1`, `window-2`, …) —
-    /// never reuses an existing one.
-    pub fn new_window(&self, app: &AppHandle) -> Result<WebviewWindow> {
+    /// never reuses an existing one. Opens nothing once a quit has begun.
+    pub fn new_window(&self, app: &AppHandle) -> Result<()> {
+        if self.quitting() {
+            return Ok(());
+        }
         let label = self.next_label();
-        self.build_window(app, &label)
+        let window = self.build_window(app, &label)?;
+        self.hide_if_quitting(app, window);
+        Ok(())
+    }
+
+    /// Whether a quit has begun, logged when it has: the ask that reached here
+    /// came from a click or a second launch, and it is answered with nothing.
+    fn quitting(&self) -> bool {
+        let quitting = self.shutdown.is_cancelled();
+        if quitting {
+            warn!("a window was asked for while quitting; it opens nothing");
+        }
+        quitting
+    }
+
+    /// Hides `window` if a quit has begun, for a presentation that passed the
+    /// entry check just before it. From another thread, a window call is a
+    /// message to the event loop, so this check queues behind the presentation:
+    /// either the quit came first and this hides the window, or the window was
+    /// up when `hide_all` ran.
+    fn hide_if_quitting(&self, app: &AppHandle, window: WebviewWindow) {
+        let shutdown = self.shutdown.clone();
+        let queued = app.run_on_main_thread(move || {
+            if shutdown.is_cancelled() {
+                if let Err(err) = window.hide() {
+                    warn!(%err, "failed to hide a window opened as the quit began");
+                }
+            }
+        });
+        if let Err(err) = queued {
+            warn!(%err, "failed to queue the quit check for a window");
+        }
     }
 
     /// Next unique window label; never reused for the process lifetime, even
@@ -258,21 +323,19 @@ impl WindowManager {
     }
 
     /// Surface the main window: recreate it if the user closed it, unminimize it
-    /// if minimized, then show and focus it.
+    /// if minimized, then show and focus it. Opens nothing once a quit has begun.
     pub fn show_main_window(&self, app: &AppHandle) -> Result<()> {
+        if self.quitting() {
+            return Ok(());
+        }
         let window = match app.get_webview_window(MAIN_LABEL) {
             Some(window) => window,
             None => self.build_window(app, MAIN_LABEL)?,
         };
-
-        // A minimized window won't surface on show()/set_focus() alone.
-        if window.is_minimized().unwrap_or(false) {
-            window.unminimize()?;
-        }
-        window.show()?;
-        window.set_focus()?;
-
-        Ok(())
+        // Queued whatever surface returns: a step may fail after show() went out.
+        let surfaced = surface(&window);
+        self.hide_if_quitting(app, window);
+        surfaced
     }
 
     /// Build a webview window. Per-platform chrome: macOS keeps decorations
@@ -511,7 +574,7 @@ mod tests {
 
     #[test]
     fn labels_start_at_one() {
-        let wm = WindowManager::new();
+        let wm = WindowManager::default();
         assert_eq!(wm.next_label(), "window-1");
     }
 
@@ -622,7 +685,7 @@ mod tests {
 
     #[test]
     fn labels_increase_monotonically() {
-        let wm = WindowManager::new();
+        let wm = WindowManager::default();
         assert_eq!(wm.next_label(), "window-1");
         assert_eq!(wm.next_label(), "window-2");
         assert_eq!(wm.next_label(), "window-3");
@@ -630,8 +693,8 @@ mod tests {
 
     #[test]
     fn each_manager_has_its_own_counter() {
-        let a = WindowManager::new();
-        let b = WindowManager::new();
+        let a = WindowManager::default();
+        let b = WindowManager::default();
         assert_eq!(a.next_label(), "window-1");
         assert_eq!(a.next_label(), "window-2");
         // `b` is independent — it is not advanced by calls on `a`.
@@ -643,7 +706,7 @@ mod tests {
         const THREADS: usize = 8;
         const PER_THREAD: usize = 250;
 
-        let wm = Arc::new(WindowManager::new());
+        let wm = Arc::new(WindowManager::default());
         let handles: Vec<_> = (0..THREADS)
             .map(|_| {
                 let wm = Arc::clone(&wm);
