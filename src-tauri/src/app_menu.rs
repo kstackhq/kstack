@@ -25,9 +25,15 @@ use tauri::menu::{MenuBuilder, MenuItem, SubmenuBuilder};
 #[cfg(target_os = "macos")]
 use tauri::Manager;
 
-/// Builds and installs the macOS menu bar (File → New Window / Quit). No-op on
-/// Linux/Windows, where a native menu would render inside each window — the
-/// webview's `AppMenu` provides the same actions via `new_window` / `quit`.
+/// Builds and installs the macOS menu bar (File → New Window / Quit, and Edit).
+/// No-op on Linux/Windows, where a native menu would render inside each window —
+/// the webview's `AppMenu` provides the same actions via `new_window` / `quit`,
+/// and the webview handles the editing shortcuts itself.
+///
+/// On macOS the Edit menu is what carries ⌘C / ⌘V / ⌘X / ⌘A / ⌘Z: WKWebView
+/// receives them as the menu items' native selectors, so without it the keys do
+/// nothing. A page that handles the keydown and prevents its default still wins
+/// (the log viewer's copy).
 ///
 /// "Quit" must stay a custom item routed through [`AppHandle::exit`]:
 /// [`SubmenuBuilder::quit`] terminates natively (`terminate:`) and skips the
@@ -56,7 +62,20 @@ fn build_macos_menu(app: &AppHandle) -> Result<()> {
         .item(&quit)
         .build()?;
 
-    let menu = MenuBuilder::new(app).item(&file_menu).build()?;
+    let edit_menu = SubmenuBuilder::new(app, "Edit")
+        .undo()
+        .redo()
+        .separator()
+        .cut()
+        .copy()
+        .paste()
+        .select_all()
+        .build()?;
+
+    let menu = MenuBuilder::new(app)
+        .item(&file_menu)
+        .item(&edit_menu)
+        .build()?;
     app.set_menu(menu)?;
 
     app.on_menu_event(|app, event| match event.id().as_ref() {
