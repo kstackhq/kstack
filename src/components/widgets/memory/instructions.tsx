@@ -18,7 +18,8 @@
 import { useState } from 'react';
 
 import { Button } from '@kubetail/ui/elements/button';
-import { Textarea } from '@kubetail/ui/elements/textarea';
+
+import { Textarea } from '@/components/widgets/text-entry';
 
 export function MemoryInstructions({ text, onSave }: { text: string; onSave: (text: string) => void }) {
   const [draft, setDraft] = useState<string | null>(null);
@@ -34,6 +35,7 @@ export function MemoryInstructions({ text, onSave }: { text: string; onSave: (te
     body = (
       <div className="flex flex-col gap-2">
         <Textarea
+          prose
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           className="h-20 resize-y text-xs"

@@ -21,10 +21,10 @@ import { useId, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 
 import { Button } from '@kubetail/ui/elements/button';
-import { Input } from '@kubetail/ui/elements/input';
 import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
 
 import { Dialog } from '@/components/widgets/dialog';
+import { Input } from '@/components/widgets/text-entry';
 import { VisibleText } from '@/components/widgets/visible-text';
 import type { PermissionClass, PermissionEffect, PermissionMode, PermissionModeSource } from '@/gql/graphql';
 import { usePermissionSettings } from '@/lib/permission-settings';

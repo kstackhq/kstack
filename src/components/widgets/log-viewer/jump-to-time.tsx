@@ -21,9 +21,10 @@ import { Fragment, useState } from 'react';
 
 import { Alert, AlertDescription, AlertTitle } from '@kubetail/ui/elements/alert';
 import { Button } from '@kubetail/ui/elements/button';
-import { Input } from '@kubetail/ui/elements/input';
 import { Popover, PopoverContent, PopoverTrigger } from '@kubetail/ui/elements/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@kubetail/ui/elements/select';
+
+import { Input } from '@/components/widgets/text-entry';
 
 export type Unit = 'minutes' | 'hours' | 'days' | 'weeks';
 

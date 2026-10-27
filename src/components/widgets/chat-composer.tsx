@@ -36,6 +36,7 @@ import {
 import { ChatGrants } from '@/components/widgets/chat-grants';
 import { NetworkSwitch } from '@/components/widgets/network-switch';
 import { SandboxSwitch } from '@/components/widgets/sandbox-switch';
+import { PROSE_TEXT } from '@/components/widgets/text-entry';
 import { graphql } from '@/gql';
 import type { AppMode } from '@/lib/app-mode';
 import { useAskAgainWhenLive } from '@/lib/ask-again-when-live';
@@ -394,6 +395,7 @@ export function ChatComposer({
         </p>
       )}
       <textarea
+        {...PROSE_TEXT}
         value={draft}
         // What is in flight is what the box shows, so it must not change under it.
         readOnly={send.status === 'sending' || send.status === 'held'}

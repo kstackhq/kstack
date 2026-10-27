@@ -40,6 +40,7 @@ import {
 import { Spinner } from '@kubetail/ui/elements/spinner';
 
 import { Dialog } from '@/components/widgets/dialog';
+import { PROSE_TEXT } from '@/components/widgets/text-entry';
 import { graphql } from '@/gql';
 import { useActiveCluster } from '@/lib/active-cluster';
 import type { AppMode } from '@/lib/app-mode';
@@ -94,6 +95,7 @@ function RenameBox({ chat, onDone }: { chat: Chat; onDone: () => void }) {
     <input
       // eslint-disable-next-line jsx-a11y/no-autofocus -- the row became this input on the user's click
       autoFocus
+      {...PROSE_TEXT}
       aria-label="Chat title"
       value={title}
       className="w-full rounded-md border bg-background px-2 py-1 text-sm"

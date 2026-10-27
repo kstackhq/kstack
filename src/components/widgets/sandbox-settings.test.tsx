@@ -19,6 +19,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SandboxFolder, SandboxFolders } from '@/lib/sandbox-folders';
 import type { SandboxPath, SandboxPathEntry } from '@/lib/sandbox-path';
 import type { SandboxExecutable, SandboxExecutables } from '@/lib/sandbox-executables';
+import { expectCodeText } from '@/test-utils';
 
 const { sandbox, path, folders, executables, mac } = vi.hoisted(() => ({
   sandbox: { current: {} as { available: boolean | undefined } },
@@ -180,6 +181,12 @@ describe('SandboxSettings', () => {
       expect(container).toBeEmptyDOMElement();
       unmount();
     });
+  });
+
+  it("turns off the webview's suggestions in the executable's fields", () => {
+    render(<SandboxSettings />);
+    expectCodeText(screen.getByRole('textbox', { name: 'Executable name' }));
+    expectCodeText(screen.getByRole('textbox', { name: 'Invocation' }));
   });
 
   it('calls each change, and holds its button while it is in flight', async () => {

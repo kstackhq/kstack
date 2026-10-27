@@ -16,6 +16,8 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import { expectCodeText } from '@/test-utils';
+
 import type { Column } from './columns';
 import { LogViewerToolbar, type LogViewerToolbarProps } from './toolbar';
 
@@ -43,6 +45,11 @@ function renderToolbar(over: Partial<LogViewerToolbarProps> = {}) {
 const button = (name: string) => screen.getByRole('button', { name });
 
 describe('LogViewerToolbar', () => {
+  it("turns off the webview's suggestions in the grep box", () => {
+    renderToolbar();
+    expectCodeText(screen.getByRole('textbox', { name: 'Grep' }));
+  });
+
   it('jumps to the start and the end', async () => {
     const props = renderToolbar();
     await userEvent.click(button('Jump to the start'));

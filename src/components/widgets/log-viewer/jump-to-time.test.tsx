@@ -16,6 +16,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { expectCodeText } from '@/test-utils';
+
 import { JumpToTime, ago, parseTimestamp } from './jump-to-time';
 
 // A zone away from UTC, so a timestamp read as local time and one read as UTC differ. Serial:
@@ -149,6 +151,12 @@ describe('JumpToTime', () => {
   }
 
   const apply = (form: 0 | 1) => fireEvent.click(screen.getAllByRole('button', { name: 'Apply' })[form]);
+
+  it("turns off the webview's suggestions in both fields", () => {
+    open();
+    expectCodeText(screen.getByPlaceholderText('Value'));
+    expectCodeText(screen.getByPlaceholderText('Timestamp'));
+  });
 
   describe('relative time', () => {
     it('jumps to a preset and closes', () => {

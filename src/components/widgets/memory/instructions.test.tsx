@@ -18,6 +18,8 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
+import { expectProseText } from '@/test-utils';
+
 import { MemoryInstructions } from './instructions';
 
 // The saved text is the parent's; this gives it somewhere to live.
@@ -29,6 +31,13 @@ function Instructions({ initial = '' }: { initial?: string }) {
 const button = (name: string) => screen.getByRole('button', { name });
 
 describe('MemoryInstructions', () => {
+  it('keeps spellcheck in the editor but no other suggestions', async () => {
+    const user = userEvent.setup();
+    render(<Instructions />);
+    await user.click(button('Add instructions'));
+    expectProseText(screen.getByRole('textbox'));
+  });
+
   it('starts empty, with a prompt to add instructions', () => {
     render(<Instructions />);
     expect(screen.getByText('No instructions added')).toBeInTheDocument();

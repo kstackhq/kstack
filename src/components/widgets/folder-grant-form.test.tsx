@@ -17,6 +17,7 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SandboxFolders } from '@/lib/sandbox-folders';
+import { expectCodeText } from '@/test-utils';
 
 const { folders, chats } = vi.hoisted(() => ({
   folders: { current: {} as SandboxFolders },
@@ -56,6 +57,11 @@ beforeEach(() => {
 });
 
 describe('FolderGrantForm', () => {
+  it("turns off the webview's suggestions in the path", () => {
+    render(<FolderGrantForm durations={['Always']} submitLabel="Add" />);
+    expectCodeText(field());
+  });
+
   it('grants the folder as typed, read or read and write, and clears once it is taken', async () => {
     render(<FolderGrantForm durations={['Always']} submitLabel="Add" />);
     await userEvent.type(field(), ' /Users/ren/code  ');

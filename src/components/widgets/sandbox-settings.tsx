@@ -24,10 +24,10 @@ import { useState } from 'react';
 
 import { Button } from '@kubetail/ui/elements/button';
 import { Field, FieldContent, FieldDescription, FieldLabel } from '@kubetail/ui/elements/field';
-import { Input } from '@kubetail/ui/elements/input';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 
 import { FolderGrantForm } from '@/components/widgets/folder-grant-form';
+import { Input } from '@/components/widgets/text-entry';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { isMacOS } from '@/lib/platform';
 import { useSandbox } from '@/lib/sandbox';

@@ -19,9 +19,9 @@ import { useState } from 'react';
 
 import { Button } from '@kubetail/ui/elements/button';
 import { Checkbox } from '@kubetail/ui/elements/checkbox';
-import { Input } from '@kubetail/ui/elements/input';
 import { Tabs, TabsList, TabsTrigger } from '@kubetail/ui/elements/tabs';
 
+import { Input } from '@/components/widgets/text-entry';
 import type { GrantDuration } from '@/gql/graphql';
 import { useSandboxFolders } from '@/lib/sandbox-folders';
 

@@ -19,6 +19,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { Memory } from '@/lib/memories';
+import { expectCodeText, expectProseText } from '@/test-utils';
 import { MemoryList } from './list';
 
 vi.mock('@/lib/dialog', () => ({ useDialogHost: () => null }));
@@ -248,6 +249,12 @@ describe('MemoryList', () => {
       if (typed) await user.type(name(), typed);
       await user.click(button('Save'));
     };
+
+    it('keeps spellcheck in the body alone, and no other suggestions in either field', () => {
+      render(<List initial={[]} adding />);
+      expectProseText(body());
+      expectCodeText(name());
+    });
 
     it('opens on the body and holds Save until it has text', async () => {
       const user = userEvent.setup();

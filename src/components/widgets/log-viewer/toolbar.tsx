@@ -19,10 +19,10 @@ import { useId, useState } from 'react';
 
 import { Button } from '@kubetail/ui/elements/button';
 import { Checkbox } from '@kubetail/ui/elements/checkbox';
-import { Input } from '@kubetail/ui/elements/input';
 import { Label } from '@kubetail/ui/elements/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@kubetail/ui/elements/popover';
 
+import { Input } from '@/components/widgets/text-entry';
 import { VisibleText } from '@/components/widgets/visible-text';
 import { COLUMNS, type Column } from './columns';
 import { JumpToTime } from './jump-to-time';

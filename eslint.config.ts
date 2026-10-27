@@ -157,6 +157,12 @@ const clusterDataIsTextConfig = [
               ],
               message: TEMPLATE_ENGINE_MESSAGE,
             },
+            // Not a cluster-data rule; it shares this entry because flat config keeps one set of
+            // options per rule.
+            {
+              group: ['@kubetail/ui/elements/input', '@kubetail/ui/elements/textarea'],
+              message: "Use '@/components/widgets/text-entry', which turns off the webview's suggestions.",
+            },
           ],
         },
       ],

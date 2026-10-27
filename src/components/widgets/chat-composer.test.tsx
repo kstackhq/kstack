@@ -21,6 +21,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { LogLine } from '@/lib/log-viewer';
 import { EMPTY_LOG_VIEWPORT } from '@/lib/log-viewport';
 import type { LogsViewAction } from '@/lib/logs-view';
+import { expectProseText } from '@/test-utils';
 
 // One seam: urql's hooks. The outbox is the real one, since what the composer draws
 // is its entry, and so is the catalog it picks from.
@@ -354,6 +355,11 @@ describe('ChatComposer', () => {
     await click('Send');
     expect(screen.getByText("This chat's network switch changed. Check it, then send again.")).toBeInTheDocument();
     expect(box()).toHaveValue('hello');
+  });
+
+  it('keeps spellcheck in the box but no other suggestions', () => {
+    renderComposer();
+    expectProseText(box());
   });
 
   it('sends the draft and clears the box', async () => {

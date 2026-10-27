@@ -16,6 +16,8 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { expectCodeText } from '@/test-utils';
+
 // Two seams: the sandbox query and urql, whose queries answer from state and
 // whose mutations are one mock, told apart by the operation they send.
 const { sandboxState, settingsState, refusedState, mutateMock, queryArgs, reexecuteMock } = vi.hoisted(() => {
@@ -160,6 +162,12 @@ describe('PermissionSettings', () => {
 
     await user.click(within(mine).getByRole('button', { name: 'Remove' }));
     expect(mutateMock).toHaveBeenCalledWith('permissionRuleRemove', { id: 'r1' });
+  });
+
+  it("turns off the webview's suggestions in every field of a rule", () => {
+    render(<PermissionSettings />);
+    const form = screen.getByRole('form', { name: 'Add a rule' });
+    within(form).getAllByRole('textbox').forEach(expectCodeText);
   });
 
   it('adds a cluster rule with its fields', async () => {

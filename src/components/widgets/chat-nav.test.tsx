@@ -16,6 +16,8 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { expectProseText } from '@/test-utils';
+
 const { useChatsMock, renameMock, deleteMock } = vi.hoisted(() => ({
   useChatsMock: vi.fn(),
   renameMock: vi.fn(),
@@ -187,6 +189,7 @@ describe('ChatNav', () => {
     await user.click(await screen.findByRole('menuitem', { name: /rename/i }));
 
     const input = screen.getByRole('textbox', { name: /chat title/i });
+    expectProseText(input);
     await user.clear(input);
     await user.type(input, 'Renamed{Enter}');
     expect(renameMock).toHaveBeenCalledWith({ id: 'c1', title: 'Renamed' });

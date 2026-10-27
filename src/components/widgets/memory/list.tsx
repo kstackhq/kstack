@@ -29,12 +29,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@kubetail/ui/elements/dropdown-menu';
-import { Input } from '@kubetail/ui/elements/input';
 import { Separator } from '@kubetail/ui/elements/separator';
-import { Textarea } from '@kubetail/ui/elements/textarea';
 import { cn } from '@kubetail/ui/lib/utils';
 
 import { Dialog } from '@/components/widgets/dialog';
+import { Input, Textarea } from '@/components/widgets/text-entry';
 import type { Memory } from '@/lib/memories';
 import { BODY_RULE, bodyFits, slugify, typedName, uniqueName } from './writes';
 
@@ -91,6 +90,7 @@ function MemoryEditor({
   return (
     <fieldset disabled={saving} className="flex flex-col gap-1.5 pt-0.5 pb-1">
       <Textarea
+        prose
         aria-label="Body"
         value={draft}
         onChange={(e) => setDraft(e.target.value)}

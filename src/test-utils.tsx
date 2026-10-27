@@ -15,7 +15,7 @@
 import { act, render } from '@testing-library/react';
 import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/react-router';
 import type { AnyRoute } from '@tanstack/react-router';
-import { vi } from 'vitest';
+import { expect, vi } from 'vitest';
 
 import { setWatchFlushScheduler } from '@/lib/graphql/use-watch-subscription';
 
@@ -279,4 +279,22 @@ export function stubLayout(clientHeight: number) {
       disconnect() {}
     },
   );
+}
+
+// A text box with the webview's suggestions off (`components/widgets/text-entry.tsx`).
+function expectNoSuggestions(el: HTMLElement) {
+  expect(el).toHaveAttribute('autocomplete', 'off');
+  expect(el).toHaveAttribute('autocorrect', 'off');
+  expect(el).toHaveAttribute('autocapitalize', 'off');
+  expect(el).toHaveAttribute('writingsuggestions', 'false');
+}
+
+export function expectCodeText(el: HTMLElement) {
+  expectNoSuggestions(el);
+  expect(el).toHaveAttribute('spellcheck', 'false');
+}
+
+export function expectProseText(el: HTMLElement) {
+  expectNoSuggestions(el);
+  expect(el).toHaveAttribute('spellcheck', 'true');
 }
