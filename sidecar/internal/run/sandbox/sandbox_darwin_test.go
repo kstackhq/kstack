@@ -839,9 +839,8 @@ func TestHomebrewsVarIsDenied(t *testing.T) {
 	brew := mkdirs(t, m.base, "brew")[0]
 	db := write(t, brew, "var/db")
 	readme := write(t, brew, "readme")
-	saved := brewVar
+	keepLists(t)
 	brewVar = []string{filepath.Join(brew, "var")}
-	t.Cleanup(func() { brewVar = saved })
 	addRoot(t, brew)
 
 	out, ok := sh(t, s, m.on(s), `cat "$F"`, "F="+db)
@@ -864,9 +863,8 @@ func TestEtcSecretsStayHidden(t *testing.T) {
 		require.NoError(t, os.Chmod(f, 0o644))
 	}
 	addRoot(t, etc)
-	old := platformLists
+	keepLists(t)
 	platformLists.Never = append(slices.Clone(platformLists.Never), filepath.Join(etc, "ssh"), shadow)
-	t.Cleanup(func() { platformLists = old })
 
 	out, ok := sh(t, s, m.on(s), `cat "$F"`, "F="+hosts)
 	assert.True(t, ok, out)
@@ -1457,9 +1455,8 @@ func (f fixture) inlined(t *testing.T, text string, args []string) []string {
 // The profile over the fixture is the golden's, with a cluster and without.
 func TestTheCompiledProfileMatchesTheGolden(t *testing.T) {
 	f := newFixture(t)
-	old := brewVar
+	keepLists(t)
 	brewVar = f.brewVar
-	t.Cleanup(func() { brewVar = old })
 	s := &Sandbox{self: f.self}
 	for name, r := range map[string]Run{
 		"cluster": f.run(s, true), "no-cluster": f.run(s, false), "internet": f.withInternet(s, f.run(s, true)),

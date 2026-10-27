@@ -1088,9 +1088,8 @@ func TestEtcSecretsStayHidden(t *testing.T) {
 		require.NoError(t, os.Chmod(f, 0o644))
 	}
 	addRoot(t, etc)
-	old := platformLists
+	keepLists(t)
 	platformLists.Never = append(slices.Clone(platformLists.Never), filepath.Join(etc, "ssh"), shadow)
-	t.Cleanup(func() { platformLists = old })
 
 	_, out := run(t, s, shRun(t, "cat "+hosts+" "+key+" "+shadow))
 

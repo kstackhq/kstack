@@ -90,14 +90,13 @@ func newFixture(t *testing.T) fixture {
 	f.runDir = filepath.Join(f.runtime, "runs", "1-a")
 	f.socket = filepath.Join(f.runDir, "proxy.sock")
 
-	oldShared, oldPlatform := sharedLists, platformLists
+	keepLists(t)
 	sharedLists.Toolchain = []Location{
 		{Name: "apps", Read: []string{"~/apps"}},
 		{Name: "cargo", Read: []string{"~/.cargo/bin"}},
 		{Name: "docker", Read: []string{"~/.docker/bin"}},
 	}
 	platformLists.System = f.roots
-	t.Cleanup(func() { sharedLists, platformLists = oldShared, oldPlatform })
 	return f
 }
 

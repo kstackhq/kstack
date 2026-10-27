@@ -63,18 +63,29 @@ func TestEveryListPathIsAbsoluteOrInTheHome(t *testing.T) {
 // of the test.
 func otherHomesIn(t *testing.T, parent string) {
 	t.Helper()
-	old := homesParent
+	keepLists(t)
 	homesParent = parent
-	t.Cleanup(func() { homesParent = old })
+}
+
+// keepLists restores the lists, homesParent and brewVar when the test ends,
+// so the test may change them. A probe's policy build can outlive the test
+// that started it, still reading them, so each swap first waits it out.
+func keepLists(t *testing.T) {
+	t.Helper()
+	policyBuilds.Wait()
+	shared, platform, parent, brew := sharedLists, platformLists, homesParent, brewVar
+	t.Cleanup(func() {
+		policyBuilds.Wait()
+		sharedLists, platformLists, homesParent, brewVar = shared, platform, parent, brew
+	})
 }
 
 // Never is the Never paths with ~/ under the home, and with no home the
 // absolute ones alone, since a ~/ path would be relative.
 func TestNeverWithNoHomeIsTheAbsolutePaths(t *testing.T) {
 	otherHomesIn(t, t.TempDir())
-	old := platformLists
-	platformLists.Never = append(slices.Clone(old.Never), "/etc/kstack-secret")
-	t.Cleanup(func() { platformLists = old })
+	keepLists(t)
+	platformLists.Never = append(slices.Clone(platformLists.Never), "/etc/kstack-secret")
 	var s *Sandbox
 
 	for _, p := range s.Never("") {
@@ -129,9 +140,8 @@ func TestANestedHomeIsNotAnotherUsersHome(t *testing.T) {
 func TestANeverPathAboveTheHomeIsDropped(t *testing.T) {
 	otherHomesIn(t, t.TempDir())
 	base := resolved(t.TempDir())
-	old := platformLists
-	platformLists.Never = append(slices.Clone(old.Never), filepath.Join(base, "never"))
-	t.Cleanup(func() { platformLists = old })
+	keepLists(t)
+	platformLists.Never = append(slices.Clone(platformLists.Never), filepath.Join(base, "never"))
 	var s *Sandbox
 
 	assert.NotContains(t, s.Never("/root"), "/root")
@@ -142,26 +152,23 @@ func TestANeverPathAboveTheHomeIsDropped(t *testing.T) {
 // addRoot makes dir one of the system roots for the rest of the test.
 func addRoot(t *testing.T, dir string) {
 	t.Helper()
-	old := platformLists
-	platformLists.System = append(slices.Clone(old.System), dir)
-	t.Cleanup(func() { platformLists = old })
+	keepLists(t)
+	platformLists.System = append(slices.Clone(platformLists.System), dir)
 }
 
 // addToolchain makes read a Toolchain location for the rest of the test.
 func addToolchain(t *testing.T, read ...string) {
 	t.Helper()
-	old := sharedLists
-	sharedLists.Toolchain = append(slices.Clone(old.Toolchain), Location{Name: "test", Read: read})
-	t.Cleanup(func() { sharedLists = old })
+	keepLists(t)
+	sharedLists.Toolchain = append(slices.Clone(sharedLists.Toolchain), Location{Name: "test", Read: read})
 }
 
 // withLists makes l the shared lists, with no platform lists and no
 // Homebrew var, for the rest of the test.
 func withLists(t *testing.T, l Lists) {
 	t.Helper()
-	oldShared, oldPlatform, oldBrew := sharedLists, platformLists, brewVar
+	keepLists(t)
 	sharedLists, platformLists, brewVar = l, Lists{}, nil
-	t.Cleanup(func() { sharedLists, platformLists, brewVar = oldShared, oldPlatform, oldBrew })
 }
 
 // System reads the System folders, each Toolchain folder that exists, the

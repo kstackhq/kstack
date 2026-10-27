@@ -33,9 +33,8 @@ func TestTheProbeKeepsTheCredentialsHidden(t *testing.T) {
 	home := filepath.Join(base, "home")
 	mkdirs(t, home, ".docker/bin")
 	dir := mkdirs(t, base, "probe")[0]
-	old := sharedLists
-	sharedLists.Toolchain = append(slices.Clone(old.Toolchain), Location{Name: "docker", Read: []string{"~/.docker/bin"}})
-	t.Cleanup(func() { sharedLists = old })
+	keepLists(t)
+	sharedLists.Toolchain = append(slices.Clone(sharedLists.Toolchain), Location{Name: "docker", Read: []string{"~/.docker/bin"}})
 	s := &Sandbox{self: "/usr/bin/true"}
 
 	p := s.probePolicy("/bin/sh", dir, home)

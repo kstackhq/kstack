@@ -74,6 +74,8 @@ func TestNoPastaNoNetwork(t *testing.T) {
 func TestTheProbeIsBounded(t *testing.T) {
 	// Latency injected into the code under test: the fake outlasts the bound.
 	pasta := fakeBwrap(t, filepath.Join(t.TempDir(), "pasta"), "exec sleep 60")
+	// The bound can cut off the policy build too.
+	t.Cleanup(policyBuilds.Wait)
 	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
 
 	s.probePasta(t.Context(), []string{pasta}, 10*time.Millisecond)
@@ -106,6 +108,7 @@ func TestAProbePastItsBoundEndsPastasChild(t *testing.T) {
 			_ = syscall.Kill(pid, syscall.SIGKILL)
 		}
 	})
+	t.Cleanup(policyBuilds.Wait)
 	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap"}
 	done := make(chan struct{})
 
