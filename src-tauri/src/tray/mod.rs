@@ -21,7 +21,7 @@ pub mod account_menu;
 
 use std::time::Duration;
 
-use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, SubmenuBuilder};
+use tauri::menu::{IsMenuItem, Menu, MenuItem, PredefinedMenuItem, SubmenuBuilder};
 use tauri::tray::{TrayIconBuilder, TrayIconId};
 use tauri::{AppHandle, Manager, Wry};
 
@@ -43,6 +43,11 @@ pub(crate) struct TraySnapshots {
 /// Stable tray id so the watch supervisor can swap the menu via
 /// [`Manager::tray_by_id`] without owning the handle.
 const TRAY_ID: &str = "main";
+
+/// Accounts are not part of the MVP, so the menu leaves the account section
+/// out. The auth-state watch and the menu handlers stay; set this to `true` to
+/// bring the section back.
+const SHOW_ACCOUNT_SECTION: bool = false;
 
 /// Builds and installs the system tray icon and menu. Menu callbacks can't
 /// return errors, so failures are logged. Panics if the app has no default
@@ -133,8 +138,8 @@ pub fn build_tray(app: &AppHandle) -> Result<()> {
     Ok(())
 }
 
-/// Builds the full tray menu (account section + static items) — used for the
-/// initial build and every watch-triggered rebuild.
+/// Builds the full tray menu (account section when shown, then static items) —
+/// used for the initial build and every watch-triggered rebuild.
 fn build_tray_menu(app: &AppHandle, account: AccountMenuDescriptor) -> tauri::Result<Menu<Wry>> {
     let new_window = MenuItem::with_id(app, "tray_new_window", "New Window", true, None::<&str>)?;
     let show_main = MenuItem::with_id(
@@ -146,9 +151,15 @@ fn build_tray_menu(app: &AppHandle, account: AccountMenuDescriptor) -> tauri::Re
     )?;
     let quit = MenuItem::with_id(app, "tray_quit", "Quit", true, None::<&str>)?;
 
+    let separator = PredefinedMenuItem::separator(app)?;
+    let tail: [&dyn IsMenuItem<Wry>; 4] = [&new_window, &show_main, &separator, &quit];
+    if !SHOW_ACCOUNT_SECTION {
+        return Menu::with_items(app, &tail);
+    }
+
     // Account section: "Sign in / Sign up" when signed out, or a submenu
     // titled with the user's name containing "Account Settings" + "Sign out".
-    let acct_menu_item: Box<dyn tauri::menu::IsMenuItem<Wry>> = match account {
+    let acct_menu_item: Box<dyn IsMenuItem<Wry>> = match account {
         AccountMenuDescriptor::SignedOut => {
             let item = MenuItem::with_id(
                 app,
@@ -176,18 +187,11 @@ fn build_tray_menu(app: &AppHandle, account: AccountMenuDescriptor) -> tauri::Re
             Box::new(submenu)
         }
     };
+    let account_separator = PredefinedMenuItem::separator(app)?;
 
-    Menu::with_items(
-        app,
-        &[
-            acct_menu_item.as_ref(),
-            &PredefinedMenuItem::separator(app)?,
-            &new_window,
-            &show_main,
-            &PredefinedMenuItem::separator(app)?,
-            &quit,
-        ],
-    )
+    let mut items: Vec<&dyn IsMenuItem<Wry>> = vec![acct_menu_item.as_ref(), &account_separator];
+    items.extend(tail);
+    Menu::with_items(app, &items)
 }
 
 /// Rebuilds the tray menu from the snapshot in [`AppState::tray`]. muda

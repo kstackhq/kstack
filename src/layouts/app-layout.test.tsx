@@ -44,10 +44,6 @@ vi.mock('@/components/widgets/context-omnibox', () => ({
 vi.mock('@/components/widgets/app-dialogs', () => ({
   AppDialogs: () => <div data-testid="app-dialogs" />,
 }));
-// The account control reads the auth provider; this test is about placement.
-vi.mock('@/components/widgets/account-avatar', () => ({
-  AccountAvatar: () => <div data-testid="account-avatar" />,
-}));
 vi.mock('@/components/widgets/settings-button', () => ({
   SettingsButton: () => <div data-testid="settings-button" />,
 }));
@@ -139,13 +135,6 @@ describe('AppLayout', () => {
     // It is how you leave whatever the nav below is showing, so it must not
     // scroll away with it.
     expect(sidebar.querySelector('[data-slot="sidebar-content"]')?.contains(nav)).toBe(false);
-  });
-
-  it('places the account chrome in the app bar, not the sidebar', async () => {
-    const { container } = await renderWithRouter(buildTree(), '/');
-    const account = screen.getByTestId('account-avatar');
-    expect(screen.getByTestId('app-bar').contains(account)).toBe(true);
-    expect(sidebarOf(container).contains(account)).toBe(false);
   });
 
   it('places the app menu in the app bar, not the sidebar', async () => {

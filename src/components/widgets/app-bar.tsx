@@ -18,7 +18,6 @@
 // and caption buttons; the frameless platforms get `AppMenu` on the left and
 // `WindowControls` on the right.
 // See docs/adr/2026-08-09-per-platform-window-chrome.md
-import { AccountAvatar } from '@/components/widgets/account-avatar';
 import { AppBarDivider, AppBarGroup } from '@/components/widgets/app-bar-button';
 import { AppMenu } from '@/components/widgets/app-menu';
 import { ContextOmnibox } from '@/components/widgets/context-omnibox';
@@ -86,14 +85,14 @@ export function AppBar() {
       </div>
       <div data-testid="app-bar-spacer" aria-hidden className="min-w-4 flex-1" />
       {/* 20px from the window's right edge, or from the caption buttons where the
-          platform draws them; 8px between the two, as on the left. */}
+          platform draws them. Accounts are not part of the MVP, so
+          `AccountAvatar` is left out of this group. */}
       <div data-testid="app-bar-actions" className="mr-5 flex items-center gap-2 self-center">
         <AppBarGroup>
           <NotificationButton />
           <AppBarDivider />
           <SettingsButton />
         </AppBarGroup>
-        <AccountAvatar />
       </div>
       {!mac && <WindowControls />}
     </div>

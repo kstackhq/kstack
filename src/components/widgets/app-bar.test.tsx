@@ -39,12 +39,8 @@ vi.mock('@/components/widgets/home-button', () => ({
 vi.mock('@/components/widgets/history-nav', () => ({
   HistoryNav: () => <div data-testid="history-nav" />,
 }));
-// The account control reads the auth provider, the notification button opens a
-// popover, and the settings button opens the dialog host; their own suites cover
-// the real ones.
-vi.mock('@/components/widgets/account-avatar', () => ({
-  AccountAvatar: () => <div data-testid="account-avatar" />,
-}));
+// The notification button opens a popover and the settings button opens the
+// dialog host; their own suites cover the real ones.
 vi.mock('@/components/widgets/notification-button', () => ({
   NotificationButton: () => <div data-testid="notification-button" />,
 }));
@@ -145,7 +141,7 @@ describe('AppBar', () => {
     expect(bands.indexOf(controls)).toBeLessThan(bands.indexOf(screen.getAllByTestId('app-bar-spacer')[0]));
   });
 
-  it('puts the settings and account controls at the far end, past the omnibox', () => {
+  it('puts the settings controls at the far end, past the omnibox', () => {
     render(<AppBar />);
     const bands = Array.from(screen.getByTestId('app-bar').children);
     const actions = screen.getByTestId('app-bar-actions');
@@ -156,14 +152,13 @@ describe('AppBar', () => {
     expect(bands.indexOf(actions)).toBeLessThan(bands.indexOf(captions));
   });
 
-  it('spaces the right-hand controls 20px from the edge and 8px from each other', () => {
+  it('spaces the right-hand controls 20px from the edge', () => {
     render(<AppBar />);
     const actions = screen.getByTestId('app-bar-actions');
-    expect(actions).toHaveClass('mr-5', 'gap-2');
-    // The notification/settings pill first, then the account control nearest the
-    // window's edge.
+    expect(actions).toHaveClass('mr-5');
+    // Only the notification/settings pill: accounts are not part of the MVP.
     const pill = screen.getByTestId('settings-button').parentElement!;
-    expect(Array.from(actions.children)).toEqual([pill, screen.getByTestId('account-avatar')]);
+    expect(Array.from(actions.children)).toEqual([pill]);
     expect(Array.from(pill.children)).toContain(screen.getByTestId('notification-button'));
   });
 
