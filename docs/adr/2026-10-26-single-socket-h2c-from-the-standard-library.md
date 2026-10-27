@@ -45,9 +45,11 @@ in another terminal may be waiting on it, so `Shutdown` gives requests a 10 s gr
 its count while the handler runs on. So after every `Shutdown`, timed out or not, the app closes
 its gate (a request after it gets a 503), cancels every handler still running, and joins them
 through a counter before `stop` stops the services under them. Past the grace, the join, the
-drain and the close have no deadline of their own; one watchdog bounds the whole stop at 15 s
-(`shutdownBudget`), logs every goroutine's stack, and exits 1. A wedge gets a stack trace, not a
-number. The host's kill (`SIDECAR_SHUTDOWN_GRACE`, 18 s) sits above the budget, as a backstop.
+drain and the close have no deadline of their own; one watchdog bounds the whole stop at 20 s
+(`shutdownBudget`, the grace plus 10 s, so a request that holds up the stop for the whole grace
+still leaves the services 10 s), logs every goroutine's stack, and exits 1. A wedge gets a stack
+trace, not a number. The host's kill (`SIDECAR_SHUTDOWN_GRACE`, 23 s) sits above the budget, as
+a backstop.
 
 `TestAppShutdownEndsBothTransports` pins that subscriptions do not hold `Shutdown` up: with an
 SSE subscription and a gRPC watch open, it returns at once and the watch ends with OK trailers.
