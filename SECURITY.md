@@ -7,7 +7,9 @@ backports to earlier tags, so the latest release is the only supported one.
 
 ## Reporting a vulnerability
 
-Email **hello@kstack.sh**. Please don't open a public issue for a suspected vulnerability — a
+Report it privately through GitHub's
+[private vulnerability reporting](https://github.com/kstackhq/kstack/security/advisories/new), or
+email **hello@kstack.sh**. Please don't open a public issue for a suspected vulnerability — a
 private report gives us the chance to ship a fix before the details are public.
 
 Useful in a report: the version or commit, the platform, what an attacker has to already hold
