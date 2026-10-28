@@ -83,7 +83,11 @@ func hostTriple() (string, error) {
 	if t := os.Getenv("KSTACK_HOST_TRIPLE"); t != "" {
 		return t, nil
 	}
-	b, err := exec.Command("rustc", "-vV").Output()
+	// From src-tauri/ so rustup applies rust-toolchain.toml's pin rather
+	// than its default toolchain, which may not be set.
+	cmd := exec.Command("rustc", "-vV")
+	cmd.Dir = "src-tauri"
+	b, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("rustc -vV: %w", err)
 	}
