@@ -142,14 +142,11 @@ jobs:
     if: failure()
     runs-on: ubuntu-24.04
     permissions:
-      # Reads which stress jobs failed, including those that left no artifact.
+      # Reads which stress jobs failed, including those that left no artifact,
+      # and downloads the artifacts the others left.
       actions: read
       issues: write
     steps:
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          pattern: stress-*
-          path: stress/
       - name: Open or update issues
         env:
           GH_TOKEN: ${{ github.token }}
@@ -160,6 +157,12 @@ jobs:
         run: |
           set -euo pipefail
           shopt -s nullglob
+
+          # Each artifact lands in stress/<name>/, even a lone one. The download
+          # fails when no job left an artifact; a lost runner leaves none.
+          if ! gh run download "$RUN_ID" --pattern 'stress-*' --dir stress; then
+            echo '::warning::no stress artifact downloaded'
+          fi
 
           # By title, not label: triage takes needs-triage off an issue it keeps open.
           gh issue list --search 'in:title Stress' --state open --limit 1000 \
