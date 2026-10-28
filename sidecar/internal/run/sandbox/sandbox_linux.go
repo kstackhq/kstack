@@ -168,9 +168,12 @@ func exists(path string) bool {
 }
 
 // Command is the process that runs r under bwrap, not yet started, made by
-// exec.CommandContext on ctx, or why r's policy cannot be enforced. The caller
-// sets its output, process group and Cancel, and starts it; exec refuses a
-// Cancel on a command made without ctx.
+// exec.CommandContext on ctx, or why r's policy cannot be enforced. The run
+// leads a session of its own, so a kill to its group, sandbox-pasta's at the
+// lifeline's EOF among them, reaches no process of the sidecar's; a caller
+// that replaces SysProcAttr keeps Setsid or Setpgid. The caller sets its
+// output and Cancel, and starts it; exec refuses a Cancel on a command made
+// without ctx.
 func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 	if err := r.check(); err != nil {
 		return nil, err
@@ -184,6 +187,7 @@ func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 	if !p.Network.Internet {
 		cmd := exec.CommandContext(ctx, s.bwrap, s.args(r, "")...)
 		cmd.Env = r.Env
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		return cmd, nil
 	}
 	if s.pasta == "" {
@@ -196,7 +200,9 @@ func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.pastaCommand(ctx, r, at, true), nil
+	cmd := s.pastaCommand(ctx, r, at, true)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	return cmd, nil
 }
 
 // args is bwrap's arguments for r, in order, since a later mount lies over an

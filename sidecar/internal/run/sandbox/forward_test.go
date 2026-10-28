@@ -24,18 +24,18 @@ import (
 func TestInitArgsAreTheSocketThePortAndTheCommand(t *testing.T) {
 	got, err := parseInitArgs([]string{"--socket", "/run/p.sock", "--port", "6443", "--", "/bin/sh", "-c", "--port 1"})
 	require.NoError(t, err)
-	assert.Equal(t, initArgs{socket: "/run/p.sock", port: 6443, argv: []string{"/bin/sh", "-c", "--port 1"}}, got)
+	assert.Equal(t, initArgs{socket: "/run/p.sock", port: 6443, lifeline: -1, argv: []string{"/bin/sh", "-c", "--port 1"}}, got)
 
 	got, err = parseInitArgs([]string{"--port=1", "--socket=s", "--", "x"})
 	require.NoError(t, err)
-	assert.Equal(t, initArgs{socket: "s", port: 1, argv: []string{"x"}}, got)
+	assert.Equal(t, initArgs{socket: "s", port: 1, lifeline: -1, argv: []string{"x"}}, got)
 }
 
 // Under sandbox-pasta the forwarder takes the run's stderr from stdin.
 func TestInitArgsTakeTheStderrOnStdin(t *testing.T) {
 	got, err := parseInitArgs([]string{stderrOnStdinFlag, "--", "/bin/sh"})
 	require.NoError(t, err)
-	assert.Equal(t, initArgs{stderrOnStdin: true, argv: []string{"/bin/sh"}}, got)
+	assert.Equal(t, initArgs{stderrOnStdin: true, lifeline: -1, argv: []string{"/bin/sh"}}, got)
 }
 
 // A run with no cluster names neither flag, and its forwarder listens on
@@ -43,7 +43,14 @@ func TestInitArgsTakeTheStderrOnStdin(t *testing.T) {
 func TestInitArgsTakeNeitherFlag(t *testing.T) {
 	got, err := parseInitArgs([]string{"--", "/bin/sh", "-c", "true"})
 	require.NoError(t, err)
-	assert.Equal(t, initArgs{argv: []string{"/bin/sh", "-c", "true"}}, got)
+	assert.Equal(t, initArgs{lifeline: -1, argv: []string{"/bin/sh", "-c", "true"}}, got)
+}
+
+// A run the sidecar's lifeline reaches names its descriptor.
+func TestInitArgsTakeTheLifeline(t *testing.T) {
+	got, err := parseInitArgs([]string{lifelineFlag, "3", "--", "/bin/sh"})
+	require.NoError(t, err)
+	assert.Equal(t, initArgs{lifeline: 3, argv: []string{"/bin/sh"}}, got)
 }
 
 func TestInitArgsRefuseWhatIsMissing(t *testing.T) {
@@ -55,6 +62,8 @@ func TestInitArgsRefuseWhatIsMissing(t *testing.T) {
 		"port too big":        {"--socket", "s", "--port", "65536", "--", "x"},
 		"no command":          {"--socket", "s", "--port", "1", "--"},
 		"an unknown":          {"--socket", "s", "--port", "1", "--other", "--", "x"},
+		"lifeline on stderr":  {lifelineFlag, "2", "--", "x"},
+		"lifeline not a fd":   {lifelineFlag, "x", "--", "x"},
 	} {
 		_, err := parseInitArgs(args)
 		assert.Error(t, err, name)
@@ -69,9 +78,9 @@ func TestForwarderArgsRoundTrip(t *testing.T) {
 	require.Equal(t, InitCommand, args[0])
 	got, err := parseInitArgs(append(args[1:], "/bin/sh", "-c", "--port 1"))
 	require.NoError(t, err)
-	assert.Equal(t, initArgs{socket: relay.Socket, port: 6443, argv: []string{"/bin/sh", "-c", "--port 1"}}, got)
+	assert.Equal(t, initArgs{socket: relay.Socket, port: 6443, lifeline: -1, argv: []string{"/bin/sh", "-c", "--port 1"}}, got)
 
 	got, err = parseInitArgs(append(ForwarderArgs(Relay{})[1:], "/bin/sh"))
 	require.NoError(t, err)
-	assert.Equal(t, initArgs{argv: []string{"/bin/sh"}}, got)
+	assert.Equal(t, initArgs{lifeline: -1, argv: []string{"/bin/sh"}}, got)
 }

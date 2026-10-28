@@ -16,8 +16,11 @@ package sandbox
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"testing/iotest"
 
@@ -119,4 +122,28 @@ func TestPastaMainInProcessRefusesAMissingCommand(t *testing.T) {
 	got, err := os.ReadFile(stderr.Name())
 	require.NoError(t, err)
 	assert.True(t, strings.HasPrefix(string(got), PastaCommand+": cannot start /nonexistent/pasta: "), string(got))
+}
+
+// sandbox-pasta told of a lifeline it was not given fails before pasta
+// starts.
+func TestTheLauncherNeedsTheLifelineItIsTold(t *testing.T) {
+	assert.Equal(t, initFailed, PastaMain([]string{lifelineFlag, "1000", "--", "/bin/true"}))
+	assert.Equal(t, initFailed, PastaMain([]string{lifelineFlag, "2", "--", "/bin/true"}))
+	assert.Equal(t, initFailed, PastaMain([]string{lifelineFlag, "x", "--", "/bin/true"}))
+	assert.Equal(t, initFailed, PastaMain([]string{lifelineFlag + "=2", "--", "/bin/true"}))
+	assert.Equal(t, initFailed, PastaMain([]string{"stray", "--", "/bin/true"}))
+}
+
+// At the lifeline's EOF the launcher kills its group: the pasta it started,
+// and the child pasta left there.
+func TestTheLauncherEndsPastasGroupAtTheLifelinesEOF(t *testing.T) {
+	r, w := pipe(t)
+	pasta := fakeBwrap(t, filepath.Join(t.TempDir(), "pasta"), "sleep 1000 & echo up; wait")
+	cmd := exec.Command(os.Args[0], PastaCommand, lifelineFlag+"="+strconv.Itoa(lifelineFD), "--", pasta)
+	cmd.ExtraFiles = []*os.File{r}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+
+	requireEndsWithTheLifeline(t, cmd, w)
+
+	assert.Equal(t, 128+int(syscall.SIGKILL), ExitCode(cmd.ProcessState), "the kill reached the launcher too")
 }

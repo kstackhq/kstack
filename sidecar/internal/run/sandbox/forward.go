@@ -54,8 +54,16 @@ type initArgs struct {
 	// stderrOnStdin is set under sandbox-pasta, which passes the run's stderr
 	// on stdin.
 	stderrOnStdin bool
+	lifeline      int      // the lifeline's descriptor, -1 for none
 	argv          []string // the command to run as the child
 }
+
+// lifelineFlag names the descriptor the lifeline arrives on: lifelineFD, the
+// first of exec.Cmd.ExtraFiles.
+const (
+	lifelineFlag = "--lifeline"
+	lifelineFD   = 3
+)
 
 // stderrOnStdinFlag is the flag that sets initArgs.stderrOnStdin.
 const stderrOnStdinFlag = "--stderr-on-stdin"
@@ -65,9 +73,9 @@ const stderrOnStdinFlag = "--stderr-on-stdin"
 // theirs, and the run has started.
 const runStarted = "\x00sandbox-init: started\x00"
 
-// parseInitArgs reads [--stderr-on-stdin] [--socket <path> --port <n>] --
-// <argv…>, both of the last two flags or neither; flag stops at the --, so
-// argv is never read as flags.
+// parseInitArgs reads [--stderr-on-stdin] [--lifeline <fd>] [--socket <path>
+// --port <n>] -- <argv…>, both of the last two flags or neither; flag stops at
+// the --, so argv is never read as flags.
 func parseInitArgs(args []string) (initArgs, error) {
 	var a initArgs
 	fs := flag.NewFlagSet(InitCommand, flag.ContinueOnError)
@@ -75,7 +83,11 @@ func parseInitArgs(args []string) (initArgs, error) {
 	fs.StringVar(&a.socket, "socket", "", "")
 	fs.IntVar(&a.port, "port", 0, "")
 	fs.BoolVar(&a.stderrOnStdin, stderrOnStdinFlag[2:], false, "")
+	lifelineVar(fs, &a.lifeline)
 	if err := fs.Parse(args); err != nil {
+		return initArgs{}, err
+	}
+	if err := checkLifeline(fs, a.lifeline); err != nil {
 		return initArgs{}, err
 	}
 	a.argv = fs.Args()
@@ -91,6 +103,22 @@ func parseInitArgs(args []string) (initArgs, error) {
 		return initArgs{}, errors.New("no command")
 	}
 	return a, nil
+}
+
+// lifelineVar binds --lifeline in fs to fd, -1 when absent.
+func lifelineVar(fs *flag.FlagSet, fd *int) {
+	fs.IntVar(fd, lifelineFlag[2:], -1, "")
+}
+
+// checkLifeline is --lifeline's check once fs parsed: given, it names a
+// descriptor above the standard streams.
+func checkLifeline(fs *flag.FlagSet, fd int) error {
+	given := false
+	fs.Visit(func(f *flag.Flag) { given = given || f.Name == lifelineFlag[2:] })
+	if given && fd < 3 {
+		return errors.New("no --lifeline above the standard streams")
+	}
+	return nil
 }
 
 // count reads a limit: a non-negative decimal integer.

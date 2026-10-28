@@ -1274,3 +1274,14 @@ func TestFixedMountIsEveryRunsOwnMount(t *testing.T) {
 	}
 	assert.False(t, overFixedMount("/tmp/kstack-1000"), "a run's own runtime directory under /tmp is no rule over a mount")
 }
+
+// Every run leads a session of its own, with the internet or without, so a
+// kill to its group reaches nothing of the sidecar's.
+func TestARunLeadsASessionOfItsOwn(t *testing.T) {
+	s := &Sandbox{self: os.Args[0], bwrap: "/usr/bin/bwrap", pasta: "/usr/bin/pasta"}
+	r := internetRun(t, s, "-c", "true")
+
+	assert.True(t, command(t, s, t.Context(), r).SysProcAttr.Setsid)
+	r.Policy.Network = NetworkPolicy{}
+	assert.True(t, command(t, s, t.Context(), r).SysProcAttr.Setsid)
+}

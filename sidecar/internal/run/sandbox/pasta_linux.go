@@ -17,11 +17,13 @@ package sandbox
 import (
 	"bytes"
 	"errors"
+	"flag"
 	"io"
 	"os"
 	"os/exec"
 	"os/signal"
 	"runtime"
+	"slices"
 	"syscall"
 )
 
@@ -30,21 +32,42 @@ import (
 const pastaOutputLimit = 64 << 10
 
 // PastaMain is sandbox-pasta, given the arguments after the subcommand,
-// -- <pasta> <args…>. It runs pasta with the run's stderr on stdin, which
-// pasta and bwrap pass to sandbox-init as they pass every standard stream, and
-// pasta's own stderr on a pipe. An older pasta writes notices there whatever
-// --quiet says, so what pasta and bwrap write reaches the run's stderr only
-// when the run never started. It answers pasta's exit code.
+// [--lifeline <fd>] -- <pasta> <args…>. It runs pasta with the run's stderr on
+// stdin, which pasta and bwrap pass to sandbox-init as they pass every
+// standard stream, and pasta's own stderr on a pipe. An older pasta writes
+// notices there whatever --quiet says, so what pasta and bwrap write reaches
+// the run's stderr only when the run never started. It answers pasta's exit
+// code. At the lifeline's EOF it kills its group, pasta and the run with it.
 func PastaMain(args []string) int {
-	if len(args) < 2 || args[0] != "--" {
+	at := slices.Index(args, "--")
+	if at < 0 || at == len(args)-1 {
 		return fail(os.Stderr, PastaCommand, "bad arguments", errors.New("no command after --"))
 	}
+	fs := flag.NewFlagSet(PastaCommand, flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	var lifeline int
+	lifelineVar(fs, &lifeline)
+	if err := fs.Parse(args[:at]); err != nil {
+		return fail(os.Stderr, PastaCommand, "bad arguments", err)
+	}
+	if err := checkLifeline(fs, lifeline); err != nil {
+		return fail(os.Stderr, PastaCommand, "bad arguments", err)
+	}
+	if rest := fs.Args(); len(rest) > 0 {
+		return fail(os.Stderr, PastaCommand, "bad arguments", errors.New("unknown argument "+rest[0]))
+	}
+	if lifeline >= 0 {
+		if err := endGroupAtEOF(lifeline); err != nil {
+			return fail(os.Stderr, PastaCommand, "cannot watch the lifeline", err)
+		}
+	}
+	args = args[at+1:]
 	r, w, err := os.Pipe()
 	if err != nil {
 		return fail(os.Stderr, PastaCommand, "cannot make a pipe", err)
 	}
 	defer r.Close()
-	cmd := exec.Command(args[1], args[2:]...)
+	cmd := exec.Command(args[0], args[1:]...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stderr, os.Stdout, w
 	// Killed alone, this takes pasta with it, and pasta the rest of the run.
 	// The signal follows the thread that started pasta, which stays locked
@@ -57,12 +80,12 @@ func PastaMain(args []string) int {
 	err = cmd.Start()
 	w.Close()
 	if err != nil {
-		return fail(os.Stderr, PastaCommand, "cannot start "+args[1], err)
+		return fail(os.Stderr, PastaCommand, "cannot start "+args[0], err)
 	}
 	notices := untilStarted(r)
 	err = cmd.Wait()
 	if cmd.ProcessState == nil {
-		return fail(os.Stderr, PastaCommand, "cannot wait for "+args[1], err)
+		return fail(os.Stderr, PastaCommand, "cannot wait for "+args[0], err)
 	}
 	_, _ = os.Stderr.Write(notices)
 	return ExitCode(cmd.ProcessState)

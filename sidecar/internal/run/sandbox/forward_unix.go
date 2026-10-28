@@ -49,6 +49,11 @@ func InitMain(args []string) int {
 			return fail(os.Stderr, InitCommand, "cannot take the run's stderr", err)
 		}
 	}
+	if a.lifeline >= 0 {
+		if err := endGroupAtEOF(a.lifeline); err != nil {
+			return fail(os.Stderr, InitCommand, "cannot watch the lifeline", err)
+		}
+	}
 	if a.socket != "" {
 		// Before the child starts, so a command never races it.
 		addr := net.JoinHostPort("127.0.0.1", strconv.Itoa(a.port))
