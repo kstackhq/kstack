@@ -65,7 +65,7 @@ Live data: `useClusterCachedDataKinds` (`src/lib/cluster-cached-data-kinds.tsx`)
 
 **The table corrects its own scroll**: after each commit it moves `scrollTop` by the *smallest* shift any surviving on-screen row made, doing nothing within one row of the top; the scroller sets `overflow-anchor: none`. → [ADR: the virtual table owns its scroll anchoring](../docs/adr/2026-10-17-the-virtual-table-owns-its-scroll-anchoring.md). The scroller is `tabIndex={0}` for Home/End/PageUp/PageDown.
 
-**The layout bounds the scroll.** The chain is `h-(--app-min-h) min-h-0` on the `SidebarProvider` column, `min-h-0 flex-1` on the content row, `min-h-0 flex-1 overflow-hidden` on `<main>` (all in `app-layout.tsx`), `flex min-h-0 flex-1 flex-col` on the route's `<section>`, then the table's `flex-1 overflow-auto`. Traps:
+**The layout bounds the scroll, and the window never scrolls.** `html` is `overflow: clip` (`index.css`), so a wheel outside every scroller moves nothing. The chain is `h-(--app-min-h) min-h-0` on the `SidebarProvider` column, `min-h-0 flex-1 overflow-clip` on the content row (its items' minimum widths can outgrow a narrow window), `min-h-0 flex-1 overflow-hidden` on `<main>` (all in `app-layout.tsx`), `flex min-h-0 flex-1 flex-col` on the route's `<section>`, then the table's `flex-1 overflow-auto`. Traps:
 
 - `min-h-0` goes on every *plain* flex item between frame and scroller, never on the scroller itself.
 - It must stay beside `h-` on the provider: only `min-h-*` displaces the library's hardcoded `min-h-svh` via tailwind-merge, and on Linux `--app-min-h` (100% of the `WindowFrame` inset) is shorter than `100svh`.

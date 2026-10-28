@@ -72,10 +72,12 @@ export function cellStyle(widths: Map<WidthKey, number>, key: WidthKey) {
 
 // A container's colour, drawn inline so no CSS name is built from cluster text. The dot is
 // the default set's only word on the stream, so a screen reader hears the names.
+// `relative` anchors the `sr-only` names here: a transcript card draws the dot in a
+// scroller that is not positioned, and an absolute span anchored past it escapes its clip.
 export function Dot({ line }: { line: LogLine }) {
   const { namespace, pod, container } = line.stream;
   return (
-    <span className="inline-flex items-center">
+    <span className="relative inline-flex items-center">
       <span
         aria-hidden
         className="inline-block size-2 rounded-full"

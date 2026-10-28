@@ -160,6 +160,12 @@
     overscroll-behavior: none;
   }
 
+  /* The app scrolls inside its panes; the window never scrolls, even when content
+     overflows it. On the root element `clip` acts as `hidden`. */
+  html {
+    overflow: clip;
+  }
+
   /*
    * The app's full-height reference. macOS is full-bleed (no `WindowFrame` box),
    * so height is measured against the window viewport (`100svh`). Off macOS the

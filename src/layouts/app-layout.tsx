@@ -77,8 +77,10 @@ export function AppLayout() {
               >
                 <AppBar />
                 {/* `relative`: too narrow for the card beside the page, `LeftSidebar`
-              floats it over this row. */}
-                <div className="relative flex min-h-0 flex-1">
+              floats it over this row. `overflow-clip`: the three items' minimum
+              widths can sum past a narrow window, and an absolute element with no
+              nearer positioned ancestor anchors here, past `main`'s clip. */}
+                <div className="relative flex min-h-0 flex-1 overflow-clip">
                   {/* The mode switch is pinned: it is how you leave whatever the nav below
                 is showing, so it must not scroll away with it. */}
                   <LeftSidebar

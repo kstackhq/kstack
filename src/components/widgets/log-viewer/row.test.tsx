@@ -143,6 +143,13 @@ describe('LogViewerRow', () => {
     expect(dot.querySelector('.sr-only')).toHaveTextContent('webapp-7f9c/istio-proxy');
   });
 
+  // An unpositioned scroller does not clip an absolute span anchored past it, so the
+  // names would stretch the window.
+  it('anchors the screen-reader names inside the dot', () => {
+    render(<Row />);
+    expect(cellOf('Dot')!.querySelector('.sr-only')!.parentElement).toHaveClass('relative');
+  });
+
   it('spells out what cluster text could hide', () => {
     render(<Row of={line({ message: 'ok\u202Eevil' })} />);
     expect(cellOf('Message')!.querySelector('mark')).not.toBeNull();

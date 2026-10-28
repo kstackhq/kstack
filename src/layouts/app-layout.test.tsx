@@ -245,7 +245,7 @@ describe('AppLayout', () => {
     const { container } = await renderWithRouter(buildTree(), '/');
     const column = contentRowOf(container).parentElement!;
     expect(column).toHaveClass('h-(--app-min-h)', 'min-h-0', 'flex-col');
-    expect(contentRowOf(container)).toHaveClass('min-h-0', 'flex-1');
+    expect(contentRowOf(container)).toHaveClass('min-h-0', 'flex-1', 'overflow-clip');
     expect(pageOf(container)).toHaveClass('min-h-0', 'flex-1', 'overflow-hidden');
   });
 
