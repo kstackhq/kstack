@@ -221,6 +221,7 @@ Vitest + `@testing-library/react` (jsdom), co-located (`*.test.ts[x]`). The repo
 - **Write as though the compiler weren't there** — it bails per-function, silently. So
   `react-hooks/exhaustive-deps` is an **error**, and manual `useMemo`/`useCallback` are ordinary
   tools.
+- In the Linux sandbox, `node_modules` is symlinks into a store every worktree shares, and a package resolves only the dependencies it declares. Never edit a file under it. An error seen only there is most likely an undeclared dependency → [ADR: share one pnpm store across sandbox worktrees](../docs/adr/2026-10-28-share-one-pnpm-store-across-sandbox-worktrees.md).
 - `pnpm build` = `tsc -b && vite build`. Dev: `pnpm dev` (webview) or `pnpm tauri dev` (full app).
 
 [urql]: https://commerce.nearform.com/open-source/urql/

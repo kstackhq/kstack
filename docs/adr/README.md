@@ -221,5 +221,6 @@ usually just documentation in the wrong place.
 | 2026-10-26 | [Dependabot moves dependencies, and a person merges every update](2026-10-26-dependabot-moves-dependencies-and-a-person-merges-every-update.md) | repo | Accepted |
 | 2026-10-26 | [A pull request fails only for the advisories it brings in](2026-10-26-a-pull-request-fails-only-for-the-advisories-it-brings-in.md) | repo | Accepted |
 | 2026-10-26 | [Serve GraphQL and gRPC over one socket with the standard library's h2c](2026-10-26-single-socket-h2c-from-the-standard-library.md) | cross-cutting | Accepted |
-| 2026-10-27 | [Put the sandbox's node_modules on the overlay, beside Cargo's target dir](2026-10-27-sandbox-node-modules-on-the-overlay.md) | repo | Accepted |
+| 2026-10-27 | [Put the sandbox's node_modules on the overlay, beside Cargo's target dir](2026-10-27-sandbox-node-modules-on-the-overlay.md) | repo | Superseded by [2026-10-28-share-one-pnpm-store-across-sandbox-worktrees](2026-10-28-share-one-pnpm-store-across-sandbox-worktrees.md) |
 | 2026-10-28 | [Tauri signs the macOS bundle in the job that installs its dependencies](2026-10-28-tauri-signs-the-macos-bundle-beside-its-dependencies.md) | repo | Accepted |
+| 2026-10-28 | [Share one pnpm store across the sandbox's worktrees, in the global virtual store layout](2026-10-28-share-one-pnpm-store-across-sandbox-worktrees.md) | repo | Accepted |

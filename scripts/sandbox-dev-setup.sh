@@ -12,20 +12,23 @@
 #      host: macOS keeps its own node_modules underneath, untouched, while the
 #      sandbox sees the Linux one.
 #
-# Cargo's target/ and node_modules live on the sandbox's own overlay
-# ($OVERLAY_ROOT). Cargo needs it: the host mount's directory metadata is not
-# coherent under dense writes, so a build there never converges. node_modules
-# is read thousands of times per test run, and the host mount makes every read
-# slow. Each worktree gets its own node_modules under $OVERLAY_ROOT/worktrees.
-# Every worktree shares the one target/. Dev builds keep line tables only, as in
-# CI: backtraces still show file and line, and target/ stays a fraction of the
-# size full debug info takes.
+# Cargo's target/, node_modules and the pnpm store live on the sandbox's own
+# overlay ($OVERLAY_ROOT). Cargo needs it: the host mount's directory metadata
+# is not coherent under dense writes, so a build there never converges.
+# node_modules is read thousands of times per test run, and the host mount makes
+# every read slow. Every worktree shares the one target/. Dev builds keep line
+# tables only, as in CI: backtraces still show file and line, and target/ stays
+# a fraction of the size full debug info takes.
 #
-# The overlay is capped at 20G and wiped on sandbox recreate, so what is small
-# or rarely read stays on the host's disk: dist under $BUILD_ROOT, and one pnpm
-# store for every worktree under the main checkout's .sandbox-linux. pnpm copies
-# from the store wherever it sits: link(2) fails across the node_modules bind
-# mount even within one filesystem.
+# Every worktree also shares the one pnpm store, in its global virtual store
+# layout: package files live once inside the store, and each worktree's
+# node_modules under $OVERLAY_ROOT/worktrees holds only symlinks into it. The
+# store's hard links stay on one mount; link(2) fails across the node_modules
+# bind mount even within one filesystem. Never edit a file under node_modules:
+# it is the store's copy, shared by every worktree.
+#
+# The overlay is capped at 20G and wiped on sandbox recreate, so dist, small and
+# rarely read, stays on the host's disk under $BUILD_ROOT.
 #
 # Idempotent — safe to re-run. Run it once per sandbox boot: bind mounts do not
 # survive a restart, the env vars (in /etc/sandbox-persistent.sh) do.
@@ -44,8 +47,7 @@ REPO="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_ROOT="${KSTACK_SANDBOX_BUILD_ROOT:-$REPO/.sandbox-linux}"
 OVERLAY_ROOT="${KSTACK_SANDBOX_OVERLAY_ROOT:-/home/agent/kstack-build}"
 NODE_MODULES="$OVERLAY_ROOT/worktrees$REPO/node_modules"
-MAIN_REPO="$(dirname "$(git -C "$REPO" rev-parse --path-format=absolute --git-common-dir)")"
-PNPM_STORE="$MAIN_REPO/.sandbox-linux/pnpm-store"
+PNPM_STORE="$OVERLAY_ROOT/pnpm-store"
 PERSIST="/etc/sandbox-persistent.sh"
 MIN_FREE_MB=2048
 
@@ -90,15 +92,17 @@ bind "$BUILD_ROOT/dist" "$REPO/dist"
 # rather than leaving an older copy above them.
 #
 # pnpm takes settings from PNPM_CONFIG_* or pnpm-workspace.yaml, and the yaml is
-# committed — shared with the host, so it cannot hold a Linux path. The env file
-# is shared by every worktree in the sandbox, so the store path must not depend
-# on $REPO.
+# committed — shared with the host and CI, which keep pnpm's default layout. The
+# env file is shared by every worktree in the sandbox, so the store path must not
+# depend on $REPO. Unset PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE and reinstall to
+# rule out the layout when something fails only in the sandbox.
 sudo touch "$PERSIST"
 sudo sed -i \
   -e '/KSTACK_SANDBOX_ENV/d' \
   -e '/^export CARGO_TARGET_DIR=/d' \
   -e '/^export CARGO_PROFILE_DEV_DEBUG=/d' \
   -e '/^export PNPM_CONFIG_STORE_DIR=/d' \
+  -e '/^export PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE=/d' \
   -e '/^export PATH=.*\.cargo\/bin/d' \
   "$PERSIST"
 sudo tee -a "$PERSIST" >/dev/null <<EOF
@@ -106,6 +110,7 @@ sudo tee -a "$PERSIST" >/dev/null <<EOF
 export CARGO_TARGET_DIR="$OVERLAY_ROOT/target"
 export CARGO_PROFILE_DEV_DEBUG=line-tables-only
 export PNPM_CONFIG_STORE_DIR="$PNPM_STORE"
+export PNPM_CONFIG_ENABLE_GLOBAL_VIRTUAL_STORE=true
 export PATH="\$HOME/.cargo/bin:\$HOME/.local/share/pnpm:\$PATH"
 EOF
 echo "✓ env vars written to $PERSIST"

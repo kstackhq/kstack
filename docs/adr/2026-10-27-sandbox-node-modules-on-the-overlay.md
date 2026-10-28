@@ -2,7 +2,7 @@
 title: Put the sandbox's node_modules on the overlay, beside Cargo's target dir
 date: 2026-10-27
 scope: repo
-status: Accepted
+status: Superseded by [2026-10-28-share-one-pnpm-store-across-sandbox-worktrees](2026-10-28-share-one-pnpm-store-across-sandbox-worktrees.md)
 ---
 
 # Put the sandbox's node_modules on the overlay, beside Cargo's target dir
