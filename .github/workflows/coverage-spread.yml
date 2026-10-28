@@ -10,6 +10,12 @@ permissions:
   contents: read
 
 on:
+  # Temporary: a dispatch can start this workflow only once it is on main, so a
+  # push to the wip branch measures the spread before then. The next PR in the
+  # sequence removes it.
+  push:
+    branches:
+      - wip/coverage-gates
   workflow_dispatch:
     inputs:
       runs:
@@ -28,8 +34,9 @@ jobs:
       fail-fast: false
       # Keep the runners in step with the go-coverage job in ci.yml.
       matrix:
-        # A JSON array, since an expression cannot split a list.
-        run: ${{ fromJSON(inputs.runs || '[1,2,3,4,5]') }}
+        # A JSON array, since an expression cannot split a list. A push carries
+        # no inputs, so it takes the twenty runs the measurement needs.
+        run: ${{ fromJSON(inputs.runs || '[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]') }}
         os:
           - linux
           - darwin
@@ -77,7 +84,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        run: ${{ fromJSON(inputs.runs || '[1,2,3,4,5]') }}
+        run: ${{ fromJSON(inputs.runs || '[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]') }}
     runs-on: ubuntu-24.04
     env:
       SUMMARY: coverage-js-${{ matrix.run }}.json

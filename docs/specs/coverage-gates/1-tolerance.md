@@ -141,7 +141,10 @@ one PR because the workflow must be on `main` to run.
    tolerance files yet: `coverage.go` and `coverage-js.go` do not read them until PR 3, and the
    report job only reports. Add `scripts/coverage-js.go` and `scripts/coverage-tolerance` to
    `ci.yml`'s `typescript` path filter beside `scripts/coverage-threshold`. `make lint-yaml`
-   already lints every workflow, the new one included.
+   already lints every workflow, the new one included. PR 1 targets `wip/coverage-gates`, so
+   `coverage-spread.yml` also runs twenty runs on every push to that branch; a dispatch alone
+   cannot start it off `main`. **The next PR into `wip/coverage-gates` removes the `push`
+   trigger** and its twenty-run fallback (back to `[1,2,3,4,5]`).
 2. **Run it on `main`** with twenty runs. **One PR per cheap mover** worth fixing, each an
    ordinary test fix referencing #37. Re-run after they merge.
 3. **PR 3: the tolerance.** `tolerance()` in `coverage.go`, both gates, the message; the gate in
