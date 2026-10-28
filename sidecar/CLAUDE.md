@@ -53,8 +53,12 @@ the end of `build` (`SetProbeFolders`, `SetCacheFiles`). **kubeconfig before clu
 load-bearing** (`app_test.go`). → [ADR: the runtime is built in
 order](../docs/adr/2026-10-06-the-runtime-is-built-in-order.md).
 
-`main` runs `sandbox.Main` first (the `sandbox-*` subcommands), then tightens the umask (the
-original becomes `Config.UserUmask`), parses flags, and installs the logger. `run(ctx, cfg, …)` is
+`main` runs `sandbox.Main` first (the `sandbox-*` subcommands), then `scrubExecEnvironment`
+(`scrubexec_unix.go`): started with a provider key variable set, the sidecar execs itself once with
+the keys on a pipe named by `--keys-fd` and the variables left out, so the launch strings the
+kernel keeps hold no key; the flag is the re-exec's alone, and a flag naming anything but a
+readable pipe stops the start. Then it tightens the umask (the original becomes
+`Config.UserUmask`), parses flags, and installs the logger. `run(ctx, cfg, …)` is
 the tested seam; `main` alone sets `RunLoginShell`, so tests never spawn a shell. `New` runs the
 login shell **before anything reads the environment**. **`READY` promises a socket, not a finished
 startup**: it prints after the bind, before `Start`.

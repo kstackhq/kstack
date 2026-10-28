@@ -56,18 +56,27 @@ func main() {
 	if code, ok := sandbox.Main(os.Args); ok {
 		os.Exit(code)
 	}
+	// Before a child or a goroutine of ours: the provider keys leave the strings
+	// the kernel keeps from the launch, which another process of this user can
+	// read. A bad pipe stops the start; nothing logs yet, so stderr says why.
+	args, getenv, err := scrubExecEnvironment()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
 	// Before anything can create a file.
 	userUmask := setOwnerOnlyUmask()
 
 	// The log flags decide where records go, so the command line is read before
 	// the logger exists. Nothing logs before it: configFromArgs doesn't, and the
 	// flag package prints a parse error to stderr itself.
-	cfg, err := configFromArgs(os.Args[1:], os.Getenv)
+	cfg, err := configFromArgs(args[1:], getenv)
 	if err != nil {
 		os.Exit(2)
 	}
 	cfg.App.UserUmask = userUmask
-	// Read, so cleared: nothing this process starts inherits a provider key.
+	// Read, so cleared from the live copy too: nothing this process starts
+	// inherits a provider key. A no-op after the re-exec.
 	takeProviderKeys()
 
 	logger, closeLog, logErr := logging.Open(cfg.LogFile, cfg.LogStderr, logging.ParseLevel(os.Getenv("KSTACK_LOG_LEVEL")))
