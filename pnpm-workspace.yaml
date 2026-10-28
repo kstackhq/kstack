@@ -24,3 +24,25 @@ auditConfig:
 minimumReleaseAgeExclude:
   # Younger than the minimum release age. Drop once it ages past it.
   - fancy-ansi@0.2.2
+  - '@asamuzakjp/dom-selector@10.0.5'
+  - '@tauri-apps/cli@2.12.4'
+  - '@tauri-apps/cli-darwin-arm64@2.12.4'
+  - '@tauri-apps/cli-darwin-x64@2.12.4'
+  - '@tauri-apps/cli-linux-arm-gnueabihf@2.12.4'
+  - '@tauri-apps/cli-linux-arm64-gnu@2.12.4'
+  - '@tauri-apps/cli-linux-arm64-musl@2.12.4'
+  - '@tauri-apps/cli-linux-riscv64-gnu@2.12.4'
+  - '@tauri-apps/cli-linux-x64-gnu@2.12.4'
+  - '@tauri-apps/cli-linux-x64-musl@2.12.4'
+  - '@tauri-apps/cli-win32-arm64-msvc@2.12.4'
+  - '@tauri-apps/cli-win32-ia32-msvc@2.12.4'
+  - '@tauri-apps/cli-win32-x64-msvc@2.12.4'
+# Explicit, so a change in pnpm's defaults can't loosen them. The age matches
+# Dependabot's 7-day cooldown.
+minimumReleaseAge: 10080
+trustPolicy: no-downgrade
+blockExoticSubdeps: true
+trustPolicyExclude:
+  # semver's 6.x line is still patched after 7.x gained provenance, so its
+  # releases carry less trust evidence than the latest one. Not a takeover.
+  - semver@6.3.1
