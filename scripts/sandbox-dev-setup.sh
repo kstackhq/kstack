@@ -17,6 +17,9 @@
 # coherent under dense writes, so a build there never converges. node_modules
 # is read thousands of times per test run, and the host mount makes every read
 # slow. Each worktree gets its own node_modules under $OVERLAY_ROOT/worktrees.
+# Every worktree shares the one target/. Dev builds keep line tables only, as in
+# CI: backtraces still show file and line, and target/ stays a fraction of the
+# size full debug info takes.
 #
 # The overlay is capped at 20G and wiped on sandbox recreate, so what is small
 # or rarely read stays on the host's disk: dist under $BUILD_ROOT, and one pnpm
@@ -94,12 +97,14 @@ sudo touch "$PERSIST"
 sudo sed -i \
   -e '/KSTACK_SANDBOX_ENV/d' \
   -e '/^export CARGO_TARGET_DIR=/d' \
+  -e '/^export CARGO_PROFILE_DEV_DEBUG=/d' \
   -e '/^export PNPM_CONFIG_STORE_DIR=/d' \
   -e '/^export PATH=.*\.cargo\/bin/d' \
   "$PERSIST"
 sudo tee -a "$PERSIST" >/dev/null <<EOF
 # KSTACK_SANDBOX_ENV — Linux build outputs, kept out of the macOS host's paths.
 export CARGO_TARGET_DIR="$OVERLAY_ROOT/target"
+export CARGO_PROFILE_DEV_DEBUG=line-tables-only
 export PNPM_CONFIG_STORE_DIR="$PNPM_STORE"
 export PATH="\$HOME/.cargo/bin:\$HOME/.local/share/pnpm:\$PATH"
 EOF
