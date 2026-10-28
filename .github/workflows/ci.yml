@@ -93,7 +93,9 @@ jobs:
               - public/**
               - src/**
               - sidecar/graph/schema.graphqls
+              - scripts/coverage-js.go
               - scripts/coverage-threshold
+              - scripts/coverage-tolerance
               - .oxfmtrc.json
               - codegen.ts
               - eslint.config.ts
@@ -164,6 +166,11 @@ jobs:
         run: sh scripts/check-sidecar-deps.sh
       - name: Check go fix
         run: sh scripts/check-go-fix.sh
+      # The coverage scripts are build-ignored, so ./... runs none of their tests.
+      - name: Test the coverage scripts
+        run: |
+          go test scripts/coverage-js.go scripts/coverage-js_test.go
+          cd sidecar && go test scripts/coverage.go scripts/coverage_test.go
       # After both passes, so the cache holds the Windows target's builds too,
       # and a failed job leaves the last cache the newest.
       - name: Save Go cache
@@ -610,6 +617,7 @@ jobs:
           persist-credentials: false
       - uses: ./.github/actions/setup-environment
         with:
+          setup-go: "true"
           setup-node: "true"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

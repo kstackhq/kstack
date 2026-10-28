@@ -226,7 +226,10 @@ Linux does not compile. **Raise either threshold when a change lifts coverage; n
 without saying why in the commit body.** CI measures with `CGO_ENABLED=0`, as the release is built
 (every other CI run has cgo, which `-race` needs). What stays uncovered is deliberate: `main()`
 itself, the `serve returned` arm, `testutil`'s failsafe-timeout arms, and I/O failures nothing can
-inject.
+inject. `.github/workflows/coverage-spread.yml` (dispatch only) measures how far the number moves
+between uncached runs of one commit; `scripts/coverage.go -spread` reports each run and the blocks
+that moved. The script's tests are build-ignored like it, so run them by path:
+`go test scripts/coverage.go scripts/coverage_test.go`.
 
 When you change the sidecar's wiring or conventions, update this file or the package's guide in the
 same change. When you change *why*, write an ADR.

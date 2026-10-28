@@ -3,7 +3,7 @@
 **Files:** `sidecar/scripts/coverage.go`, `scripts/coverage-js.go` (new), the `coverage-*` files
 beside each, `Makefile`, `.github/workflows/ci.yml`, a new `.github/workflows/coverage-spread.yml`.
 **Prerequisites:** none.
-**Status:** Planned.
+**Status:** In progress: PR 1 (the tooling and the workflow) built.
 **Pull requests:** three or more, each into `main`. The last closes #37.
 
 ## Goal

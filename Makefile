@@ -96,12 +96,12 @@ check-cache:
 check-switch:
 	cd sidecar && go test -tags liveswitch -count=1 -v -run TestAChatSwitchesAcrossEveryDialect ./internal/agent/catalog
 
-# Frontend coverage gate: fails below the line percentage in
-# scripts/coverage-threshold. Excludes generated output and the test harness
-# (vite.config.ts). The threshold is a ratchet — raise it when the number rises,
-# in the change that raised it.
+# Frontend coverage gate (scripts/coverage-js.go): runs vitest with coverage and
+# fails below the line percentage in scripts/coverage-threshold. Excludes
+# generated output and the test harness (vite.config.ts). The threshold is a
+# ratchet — raise it when the number rises, in the change that raised it.
 cover-js:
-	pnpm vitest run --coverage --coverage.thresholds.lines=$$(cat scripts/coverage-threshold)
+	go run scripts/coverage-js.go $(ARGS)
 
 # Run every linter in the repo.
 lint: lint-go lint-rust lint-js lint-yaml
