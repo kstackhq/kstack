@@ -352,7 +352,6 @@ jobs:
   build-bundle-windows:
     name: Build bundle · Windows
     needs: [config, build-sidecar]
-    environment: production
     strategy:
       fail-fast: false
       matrix:
@@ -362,11 +361,9 @@ jobs:
         include:
           - arch: amd64
             runner: windows-2025-vs2026
-            tauri_arch: x64
             triple: x86_64-pc-windows-msvc
           - arch: arm64
             runner: windows-11-arm
-            tauri_arch: arm64
             triple: aarch64-pc-windows-msvc
     runs-on: ${{ matrix.runner }}
     steps:
@@ -406,11 +403,48 @@ jobs:
       # same internal filename as the signed one and would otherwise
       # clobber it under `merge-multiple: true`.
       - name: Upload unsigned MSI
-        id: upload-artifact
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: signpath-input-windows-${{ matrix.arch }}
           path: src-tauri/target/${{ matrix.triple }}/release/bundle/msi/*.msi
+
+  # Apart from the build, so the SignPath token never shares a runner with
+  # node_modules or anything a dependency's install or build script left.
+  # This job checks out nothing and installs nothing.
+  sign-bundle-windows:
+    name: Sign bundle · Windows
+    needs: [config, build-bundle-windows]
+    environment: production
+    permissions:
+      actions: read
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        arch:
+          - amd64
+          - arm64
+        include:
+          - arch: amd64
+            tauri_arch: x64
+          - arch: arm64
+            tauri_arch: arm64
+    runs-on: ubuntu-24.04
+    steps:
+      # A re-run attempt uploads again under the same name; take the newest.
+      - name: Find unsigned MSI
+        id: unsigned
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_NAME: signpath-input-windows-${{ matrix.arch }}
+        run: |
+          id=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT_NAME" \
+            --jq '.artifacts | max_by(.created_at) | .id')
+          if [[ ! "$id" =~ ^[0-9]+$ ]]; then
+            echo "No artifact named $ARTIFACT_NAME" >&2
+            exit 1
+          fi
+          echo "artifact-id=$id" >> "$GITHUB_OUTPUT"
 
       - name: Sign MSI with SignPath
         uses: signpath/github-action-submit-signing-request@f6d04783b4569d051e0c80105fe66e82819d0092 # v3.0
@@ -419,7 +453,7 @@ jobs:
           organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
           project-slug: "kubetail"
           signing-policy-slug: ${{ needs.config.outputs.signing_policy }}
-          github-artifact-id: ${{ steps.upload-artifact.outputs.artifact-id }}
+          github-artifact-id: ${{ steps.unsigned.outputs.artifact-id }}
           artifact-configuration-slug: kstack-desktop
           wait-for-completion: true
           output-artifact-directory: assets
@@ -440,7 +474,7 @@ jobs:
       - build-bundle-linux
       - check-bundle-linux
       - build-bundle-macos
-      - build-bundle-windows
+      - sign-bundle-windows
     environment: production
     runs-on: ubuntu-24.04
     steps:
