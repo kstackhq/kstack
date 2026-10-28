@@ -19,8 +19,51 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # A pull request analyzes a language only when a path it reads changed. A
+  # push, the schedule or a dispatch analyzes them all, so main's baseline
+  # stays complete.
+  changes:
+    name: Changes
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: read
+    outputs:
+      go: ${{ github.event_name != 'pull_request' || steps.filter.outputs.go == 'true' }}
+      javascript-typescript: ${{ github.event_name != 'pull_request' || steps.filter.outputs.javascript-typescript == 'true' }}
+      rust: ${{ github.event_name != 'pull_request' || steps.filter.outputs.rust == 'true' }}
+    steps:
+      - id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
+        with:
+          filters: |
+            shared: &shared
+              - .github/actions/setup-environment/**
+              - .github/workflows/codeql.yml
+            go:
+              - *shared
+              - proto/**
+              - scripts/**/*.go
+              - sidecar/**
+              - tools/**
+            javascript-typescript:
+              - *shared
+              - src/**
+              - package.json
+              - pnpm-lock.yaml
+              - '*.ts'
+              - '*.js'
+              - '*.mjs'
+            rust:
+              - *shared
+              - proto/**
+              - src-tauri/**
+
+  # The matrix stays fixed and every step past checkout is gated, so each
+  # required check reports on every pull request, green when skipped.
   analyze:
     name: CodeQL · ${{ matrix.language }}
+    needs: changes
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -41,11 +84,12 @@ jobs:
           persist-credentials: false
 
       - uses: ./.github/actions/setup-environment
-        if: matrix.language == 'go'
+        if: needs.changes.outputs[matrix.language] == 'true' && matrix.language == 'go'
         with:
           setup-go: "true"
 
       - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        if: needs.changes.outputs[matrix.language] == 'true'
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -53,7 +97,7 @@ jobs:
       # CodeQL extracts only the files a build compiles, so one build per GOOS
       # brings in the _darwin.go and _windows.go files a Linux build skips.
       - name: Build sidecar for every GOOS
-        if: matrix.language == 'go'
+        if: needs.changes.outputs[matrix.language] == 'true' && matrix.language == 'go'
         working-directory: ./sidecar
         run: |
           for goos in linux darwin windows; do
@@ -61,5 +105,6 @@ jobs:
           done
 
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        if: needs.changes.outputs[matrix.language] == 'true'
         with:
           category: /language:${{ matrix.language }}
