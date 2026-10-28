@@ -148,6 +148,7 @@ func startSandboxRig(t *testing.T) sandboxRig {
 	t.Helper()
 	sb, v, err := sandbox.Probe(t.Context())
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = sb.Close() })
 	if sb == nil || !sb.Confines() {
 		testutil.RequireSandbox(t, "no confining sandbox: "+v.Reason)
 	}

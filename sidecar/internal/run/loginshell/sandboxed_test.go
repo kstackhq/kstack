@@ -181,6 +181,7 @@ func confining(t *testing.T) *sandbox.Sandbox {
 	t.Helper()
 	sb, status, err := sandbox.Probe(t.Context())
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = sb.Close() })
 	if sb == nil || !sb.Confines() {
 		testutil.RequireSandbox(t, "no sandbox: "+status.Reason)
 	}

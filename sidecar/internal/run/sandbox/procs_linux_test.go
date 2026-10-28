@@ -75,7 +75,7 @@ func TestTheBaseIsZeroOnlyInANamespaceOfItsOwn(t *testing.T) {
 	for _, s := range []*Sandbox{{perNamespace: true}, {ownUserNS: true}} {
 		n, err := s.CountedProcesses(false)
 		require.NoError(t, err)
-		assert.GreaterOrEqual(t, n, 1, "%+v", *s)
+		assert.GreaterOrEqual(t, n, 1, "%+v", s)
 	}
 
 	n, err := (&Sandbox{perNamespace: true, ownUserNS: true}).CountedProcesses(false)

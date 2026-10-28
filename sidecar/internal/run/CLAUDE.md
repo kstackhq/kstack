@@ -128,6 +128,19 @@ catches and drops `SIGTERM`/`SIGINT`/`SIGHUP` with `signal.Notify`, never `signa
 ignored signal stays ignored across `exec`. Its own failures, and `sandbox-shell`'s, exit 125 with
 one `sandbox-init:`/`sandbox-shell:` line; the line is what tells them from a command's 125.
 
+**Every run ends with the sidecar, however it dies.** `Probe` makes one pipe, the lifeline;
+the `Sandbox` holds its write end as a bare descriptor (no finalizer closes it, only the process's
+end) and never writes to it. Each run inherits the read
+end on fd 3 (`ExtraFiles`), and `--lifeline 3` tells the forwarder, which marks it close-on-exec
+and, at EOF, kills its process group and exits (`watchLifeline`); on macOS a process that left the
+group through `posix_spawn` survives (security model). On Linux a run with the internet hands it
+to `sandbox-pasta` instead, since pasta closes every descriptor it did not open; at EOF it kills
+its group, pasta and the child pasta makes during setup with it; `Command` starts every run in a
+session of its own on both platforms, so that kill reaches nothing of the sidecar's. A failed or
+cancelled probe closes the pipe; `Close` closes a probed `Sandbox`'s, ending its runs, once, and
+`Command` refuses after it. **A test that probes registers it as cleanup** (`closing`,
+`confining`).
+
 **Tests.** A test binary that starts the chain calls `sandbox.Main` from its `TestMain`, or it
 runs its own suite inside the probe. A test needing a sandbox calls `testutil.RequireSandbox`
 (fails under `KSTACK_REQUIRE_SANDBOX=1`, which CI sets). **No test writes inside the module**

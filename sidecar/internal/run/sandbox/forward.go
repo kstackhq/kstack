@@ -58,8 +58,8 @@ type initArgs struct {
 	argv          []string // the command to run as the child
 }
 
-// lifelineFlag names the descriptor the lifeline arrives on: lifelineFD, the
-// first of exec.Cmd.ExtraFiles.
+// lifelineFlag names the descriptor the lifeline (Sandbox.lifeline) arrives
+// on: lifelineFD, the first of exec.Cmd.ExtraFiles.
 const (
 	lifelineFlag = "--lifeline"
 	lifelineFD   = 3

@@ -21,8 +21,10 @@ package sandbox
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
+	"sync"
 )
 
 // Main runs this executable as the part of a run its first argument names,
@@ -115,4 +117,15 @@ type Sandbox struct {
 	// pasta is the pasta a run with the internet starts under, on Linux; ""
 	// where the probe found none that passes, and networkReason says why.
 	pasta, networkReason string
+	// lifeline is the read end of a pipe every run inherits, and held its
+	// write end: a bare descriptor, not an os.File, so no finalizer closes
+	// it and only this process's end does, however it ends, or Close. A run
+	// then reads EOF and kills itself (watchLifeline). Both close on exec, so
+	// no other child holds them. Nil for a Sandbox the probe did not make,
+	// and once closed, after which Command refuses. mu serializes Command's
+	// reads of them with Close.
+	mu       sync.Mutex
+	lifeline *os.File
+	held     int
+	closed   bool
 }

@@ -35,6 +35,7 @@ func sandboxed(t *testing.T) *sandbox.Sandbox {
 	t.Helper()
 	s, v, err := sandbox.Probe(t.Context())
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
 	if v.Available {
 		return s
 	}
@@ -48,6 +49,7 @@ func confining(t *testing.T) *sandbox.Sandbox {
 	t.Helper()
 	s, v, err := sandbox.Probe(t.Context())
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = s.Close() })
 	if s != nil && s.Confines() {
 		return s
 	}

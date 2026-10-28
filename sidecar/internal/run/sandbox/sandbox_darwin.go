@@ -41,6 +41,7 @@ const probeTimeout = 5 * time.Second
 func Probe(ctx context.Context) (*Sandbox, Status, error) {
 	s, status := probe(ctx, "/usr/bin/sandbox-exec", probeTimeout)
 	if err := ctx.Err(); err != nil {
+		_ = s.Close()
 		return nil, Status{}, err
 	}
 	return s, status, nil
@@ -68,7 +69,11 @@ func probe(ctx context.Context, path string, timeout time.Duration) (*Sandbox, S
 	}
 	defer os.RemoveAll(dir)
 
-	s := &Sandbox{self: self, launcher: path}
+	lifeline, held, err := newLifeline()
+	if err != nil {
+		return nil, Status{Reason: "cannot make the runs' lifeline"}
+	}
+	s := &Sandbox{self: self, launcher: path, lifeline: lifeline, held: held}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	shell, env := "/usr/bin/true", []string{"PATH=" + os.Getenv("PATH")}
@@ -86,6 +91,7 @@ func probe(ctx context.Context, path string, timeout time.Duration) (*Sandbox, S
 	case errors.Is(ctx.Err(), context.DeadlineExceeded):
 		return s, Status{Available: true, Reason: "Seatbelt, unconfirmed: the probe did not finish within " + timeout.String(), NetworkAvailable: true}
 	case err != nil:
+		_ = s.Close()
 		return nil, Status{Reason: probeFailure(stderr.String(), err)}
 	}
 	return s, Status{Available: true, Reason: "Seatbelt", NetworkAvailable: true}
@@ -144,6 +150,9 @@ func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 	}
 	name, args := s.argv(r)
 	cmd := exec.CommandContext(ctx, s.launcher, slices.Concat([]string{"-p", b.text}, b.params, []string{name}, args)...)
+	if err := s.handLifeline(cmd); err != nil {
+		return nil, err
+	}
 	cmd.Dir = r.Dir
 	cmd.Env = r.Env
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
@@ -175,11 +184,11 @@ func (s *Sandbox) Port() (int, error) {
 }
 
 // argv is the process that runs r: this executable as the run's forwarder,
-// with this executable as sandbox-shell its child, which sets r's limits and
-// execs the shell.
+// watching the lifeline, with this executable as sandbox-shell its child,
+// which sets r's limits and execs the shell.
 func (s *Sandbox) argv(r Run) (name string, args []string) {
-	return s.self, slices.Concat(
-		ForwarderArgs(r.Policy.Network.relay()), []string{s.self}, shellCommand(r.Policy.Limits), []string{r.Shell}, r.Args)
+	init := slices.Insert(ForwarderArgs(r.Policy.Network.relay()), 1, s.lifelineArgs()...)
+	return s.self, slices.Concat(init, []string{s.self}, shellCommand(r.Policy.Limits), []string{r.Shell}, r.Args)
 }
 
 // buildProfile is profile, which a test replaces with one that hangs.

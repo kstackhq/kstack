@@ -81,12 +81,13 @@ func (s *Sandbox) tryPasta(ctx context.Context, pasta string, bound time.Duratio
 		return false, fmt.Errorf("no answer in %s", bound)
 	}
 	p.Network.Internet = true
-	probe := *s
-	probe.pasta = pasta
-	cmd := probe.pastaCommand(ctx, Run{
+	cmd, err := s.pastaCommand(ctx, pasta, Run{
 		Shell: "/bin/sh", Args: []string{"-c", pastaProbeScript}, Dir: dir,
 		Env: []string{"PATH=/usr/bin:/bin", "HOME=" + dir, "TMPDIR=" + dir}, Policy: p,
 	}, "", false)
+	if err != nil {
+		return false, err
+	}
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
 	err = runProbe(cmd)
@@ -132,14 +133,18 @@ func (s *Sandbox) NetworkStatus() (bool, string) {
 var probeNet = []string{"-4", "-i", "lo", "-I", "kstack0", "-a", "192.0.2.2", "-g", "192.0.2.1", "-M", "02:00:00:00:00:01"}
 
 // pastaCommand is the process that runs r, which has the internet, under
-// pasta, which sandbox-pasta starts: pasta makes a user and network namespace
+// the pasta at pasta, which sandbox-pasta starts: pasta makes a user and network namespace
 // and runs bwrap inside it, where bwrap makes the run's own user namespace as
 // the user. resolverAt is where r's resolver is bound, "" for none; configNet
-// is false for the probe alone, which passes probeNet.
-func (s *Sandbox) pastaCommand(ctx context.Context, r Run, resolverAt string, configNet bool) *exec.Cmd {
-	args := append([]string{PastaCommand, "--", s.pasta}, probeNet...)
+// is false for the probe alone, which passes probeNet. sandbox-pasta watches
+// the lifeline, not the forwarder: pasta closes every descriptor it did not
+// open but the standard streams.
+func (s *Sandbox) pastaCommand(ctx context.Context, pasta string, r Run, resolverAt string, configNet bool) (*exec.Cmd, error) {
+	args := slices.Concat([]string{PastaCommand}, s.lifelineArgs(), []string{"--", pasta})
 	if configNet {
-		args = []string{PastaCommand, "--", s.pasta, "--config-net"}
+		args = append(args, "--config-net")
+	} else {
+		args = append(args, probeNet...)
 	}
 	// --no-map-gw maps no address to the host's loopback; -T none -U none
 	// forward no port to it, and -t none -u none none inward.
@@ -148,8 +153,11 @@ func (s *Sandbox) pastaCommand(ctx context.Context, r Run, resolverAt string, co
 	args = append(args, "--", s.bwrap)
 	args = append(args, s.args(r, resolverAt)...)
 	cmd := exec.CommandContext(ctx, s.self, args...)
+	if err := s.handLifeline(cmd); err != nil {
+		return nil, err
+	}
 	cmd.Env = r.Env
-	return cmd
+	return cmd, nil
 }
 
 // resolverTarget is where r's resolver is bound: the host's resolv.conf as

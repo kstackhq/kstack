@@ -389,6 +389,18 @@ func TestAPortThatCannotBeTakenFails(t *testing.T) {
 	assert.Error(t, err)
 }
 
+// With no descriptor free, the probe has no lifeline to hand a run, so no
+// sandbox. Serial: it lowers this process's open-files limit.
+func TestAProbeWithNoDescriptorFreeHasNoSandbox(t *testing.T) {
+	path := launcher(t, passThrough)
+	openFilesLimit(t, 3)
+
+	s, v := probe(t.Context(), path, testutil.Timeout)
+
+	assert.Nil(t, s)
+	assert.Equal(t, Status{Reason: "cannot make the runs' lifeline"}, v)
+}
+
 // A profile the launcher refuses fails the probe with its stderr's first line.
 func TestAProbeThatFailsSaysWhy(t *testing.T) {
 	path := launcher(t, "echo 'sandbox_apply: Operation not permitted' >&2\necho more >&2\nexit 71\n")
@@ -405,6 +417,7 @@ func TestAProbeThatRunsIsASandbox(t *testing.T) {
 	s, v := probe(t.Context(), launcher(t, passThrough), testutil.Timeout)
 
 	require.NotNil(t, s)
+	closing(t, s)
 	assert.True(t, v.Available)
 	assert.True(t, s.Confines())
 	assert.True(t, v.NetworkAvailable)
@@ -421,6 +434,7 @@ func TestAProbeThatTimesOutKeepsTheSandbox(t *testing.T) {
 	s, v := probe(t.Context(), launcher(t, "exec sleep 60\n"), 10*time.Millisecond)
 
 	require.NotNil(t, s)
+	closing(t, s)
 	assert.Equal(t, Status{Available: true, Reason: "Seatbelt, unconfirmed: the probe did not finish within 10ms", NetworkAvailable: true}, v)
 	assert.True(t, s.Confines())
 }
@@ -1434,7 +1448,7 @@ func TestATerminalIsUnreachable(t *testing.T) {
 	m.Args = []string{"-c", opened}
 	run := command(t, s, t.Context(), m.on(s))
 	cmd := exec.CommandContext(t.Context(), "/usr/bin/script", slices.Concat([]string{"-q", "/dev/null"}, run.Args)...)
-	cmd.Dir, cmd.Env = run.Dir, run.Env
+	cmd.Dir, cmd.Env, cmd.ExtraFiles = run.Dir, run.Env, run.ExtraFiles
 	out, err := cmd.CombinedOutput()
 
 	require.NoError(t, err, string(out))
@@ -1541,6 +1555,7 @@ printf '%s\n' "$@" | grep -q '^RULE_[0-9]*=/usr$' || { echo 'no /usr' >&2; exit 
 	s, v := probe(t.Context(), launcher(t, check+passThrough), testutil.Timeout)
 
 	require.NotNil(t, s, v.Reason)
+	closing(t, s)
 	assert.True(t, v.Available)
 }
 
@@ -1898,4 +1913,45 @@ func TestFixedMountIsEveryRunsOwnMount(t *testing.T) {
 	for _, p := range []string{"/", "/tmp", "/proc", "/Users/me", "/devices"} {
 		assert.False(t, FixedMount(p), p)
 	}
+}
+
+// A run ends when the sidecar's lifeline closes, foreground or background:
+// Seatbelt has nothing that ends a run with its parent, and the run leads a
+// session of its own, so no signal to the sidecar's group reaches it.
+func TestARunEndsWithTheLifeline(t *testing.T) {
+	s := confining(t)
+	m := standIn(t)
+	r := m.on(s)
+	r.Args = []string{"-c", "sleep 1000 & echo up; wait"}
+	cmd := command(t, s, t.Context(), r)
+
+	requireEndsWithTheLifeline(t, cmd, s)
+	assert.Equal(t, 128+int(syscall.SIGKILL), ExitCode(cmd.ProcessState), "the kill reached the forwarder too")
+	require.Eventually(t, func() bool { return syscall.Kill(-cmd.Process.Pid, 0) == syscall.ESRCH }, testutil.Timeout, 10*time.Millisecond)
+}
+
+// A closed Sandbox makes no command, so no run starts without the lifeline.
+func TestAClosedSandboxMakesNoCommand(t *testing.T) {
+	s := lifeline(t)
+	s.self, s.launcher = "/bin/kstack-sidecar", "/usr/bin/sandbox-exec"
+	r, _ := profileRun(t, s)
+	require.NoError(t, s.Close())
+
+	_, err := s.Command(t.Context(), r)
+
+	assert.ErrorIs(t, err, errClosed)
+}
+
+// A probed sandbox hands every run the lifeline, and its forwarder watches it.
+func TestTheForwarderIsToldOfTheLifeline(t *testing.T) {
+	s := lifeline(t)
+	s.self, s.launcher = "/bin/kstack-sidecar", "/usr/bin/sandbox-exec"
+	r, _ := profileRun(t, s)
+	r.Args = []string{"-c", "exit 0"}
+
+	cmd := command(t, s, t.Context(), r)
+
+	assert.Equal(t, []*os.File{s.lifeline}, cmd.ExtraFiles)
+	assert.Equal(t, []string{"/bin/kstack-sidecar", InitCommand, lifelineFlag, "3", "--", "/bin/kstack-sidecar", ShellCommand, "--", "/bin/sh", "-c", "exit 0"},
+		cmd.Args[len(cmd.Args)-11:])
 }

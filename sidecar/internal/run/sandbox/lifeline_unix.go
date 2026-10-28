@@ -17,11 +17,82 @@
 package sandbox
 
 import (
+	"errors"
 	"io"
 	"os"
+	"os/exec"
+	"strconv"
 
 	"golang.org/x/sys/unix"
 )
+
+// newLifeline makes the lifeline (Sandbox.lifeline, Sandbox.held). held is a
+// close-on-exec duplicate of the write end, since the os.File's finalizer
+// would close the original.
+func newLifeline() (lifeline *os.File, held int, err error) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, 0, err
+	}
+	defer w.Close()
+	held, err = unix.FcntlInt(w.Fd(), unix.F_DUPFD_CLOEXEC, 0)
+	if err != nil {
+		r.Close()
+		return nil, 0, err
+	}
+	return r, held, nil
+}
+
+// errClosed is Command's answer once Close ran.
+var errClosed = errors.New("the sandbox is closed")
+
+// Close frees the lifeline, which ends every run s started as this process's
+// end would, and refuses every run after. A second Close, or one on a nil
+// Sandbox, does nothing.
+func (s *Sandbox) Close() error {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return nil
+	}
+	s.closed = true
+	if s.lifeline == nil {
+		return nil
+	}
+	err := errors.Join(s.lifeline.Close(), unix.Close(s.held))
+	s.lifeline, s.held = nil, -1
+	return err
+}
+
+// lifelineArgs is the --lifeline flag that names lifelineFD to the process
+// handLifeline hands it to; nil when s has none.
+func (s *Sandbox) lifelineArgs() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.lifeline == nil {
+		return nil
+	}
+	return []string{lifelineFlag, strconv.Itoa(lifelineFD)}
+}
+
+// handLifeline hands s's lifeline, if any, to cmd on lifelineFD, or refuses
+// cmd once s is closed. Command calls it after lifelineArgs, so a Close
+// between the two refuses the run rather than handing it a flag with no
+// descriptor behind it.
+func (s *Sandbox) handLifeline(cmd *exec.Cmd) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return errClosed
+	}
+	if s.lifeline != nil {
+		cmd.ExtraFiles = []*os.File{s.lifeline}
+	}
+	return nil
+}
 
 // endGroupAtEOF watches the lifeline on fd and, at its EOF, kills the
 // caller's process group. The forwarder leads the run's group, so one kill

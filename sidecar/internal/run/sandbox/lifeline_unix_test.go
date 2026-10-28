@@ -69,6 +69,45 @@ func TestTheWatchRefusesAClosedDescriptor(t *testing.T) {
 	assert.Error(t, watchLifeline(fd, func() {}))
 }
 
+// lifeline is a Sandbox holding a lifeline and nothing else, for a test to
+// end with Close; the test's end closes it otherwise.
+func lifeline(t *testing.T) *Sandbox {
+	t.Helper()
+	r, held, err := newLifeline()
+	require.NoError(t, err)
+	s := &Sandbox{lifeline: r, held: held}
+	closing(t, s)
+	return s
+}
+
+// A run is handed the lifeline on lifelineFD and told so; a Sandbox with
+// none hands nothing and says nothing.
+func TestARunIsHandedTheLifeline(t *testing.T) {
+	cmd := exec.Command("true")
+
+	(&Sandbox{}).handLifeline(cmd)
+	assert.Empty(t, cmd.ExtraFiles)
+	assert.Empty(t, (&Sandbox{}).lifelineArgs())
+
+	s := lifeline(t)
+	s.handLifeline(cmd)
+	assert.Equal(t, []*os.File{s.lifeline}, cmd.ExtraFiles)
+	assert.Equal(t, []string{lifelineFlag, "3"}, s.lifelineArgs())
+}
+
+// A closed Sandbox has nothing left to close, and hands no run anything; one
+// with no lifeline closes all the same.
+func TestCloseClosesOnce(t *testing.T) {
+	s := lifeline(t)
+
+	require.NoError(t, s.Close())
+	assert.NoError(t, s.Close())
+	assert.Nil(t, s.lifeline)
+	assert.Empty(t, s.lifelineArgs())
+	assert.ErrorIs(t, s.handLifeline(exec.Command("true")), errClosed)
+	assert.NoError(t, (&Sandbox{}).Close(), "a Sandbox with no lifeline has nothing to close")
+}
+
 // When the lifeline closes, the forwarder kills its whole group: the shell,
 // and the sleep it left running.
 func TestTheForwarderEndsTheRunAtTheLifelinesEOF(t *testing.T) {
@@ -117,4 +156,44 @@ func requireEndsWithTheLifeline(t *testing.T, cmd *exec.Cmd, held io.Closer) {
 	}()
 	require.NoError(t, testutil.Recv(t, drained, "the run to let go of its stdout"))
 	_ = cmd.Wait()
+}
+
+// openFilesLimit lowers this process's open-files limit to cur until the test
+// ends. A test calling it is serial: the limit is the process's.
+func openFilesLimit(t *testing.T, cur uint64) {
+	t.Helper()
+	var own unix.Rlimit
+	require.NoError(t, unix.Getrlimit(unix.RLIMIT_NOFILE, &own))
+	t.Cleanup(func() { _ = unix.Setrlimit(unix.RLIMIT_NOFILE, &own) })
+	low := own
+	low.Cur = cur
+	require.NoError(t, unix.Setrlimit(unix.RLIMIT_NOFILE, &low))
+}
+
+// lowestFree answers the two lowest descriptors not open.
+func lowestFree(t *testing.T) (a, b int) {
+	t.Helper()
+	a, err := unix.Open(os.DevNull, unix.O_RDONLY, 0)
+	require.NoError(t, err)
+	b, err = unix.Open(os.DevNull, unix.O_RDONLY, 0)
+	require.NoError(t, err)
+	require.NoError(t, unix.Close(b))
+	require.NoError(t, unix.Close(a))
+	return a, b
+}
+
+// The lifeline takes three descriptors, the pipe's two and the held
+// duplicate; short of any it fails and leaves none open. Serial: it lowers
+// this process's open-files limit.
+func TestTheLifelineNeedsThreeDescriptors(t *testing.T) {
+	a, b := lowestFree(t)
+	openFilesLimit(t, uint64(b)+1)
+	_, _, err := newLifeline()
+	assert.Error(t, err, "the pipe took the two free descriptors, so the duplicate had none")
+	x, y := lowestFree(t)
+	assert.Equal(t, [2]int{a, b}, [2]int{x, y}, "the pipe is closed")
+
+	openFilesLimit(t, 3)
+	_, _, err = newLifeline()
+	assert.Error(t, err, "no pipe")
 }

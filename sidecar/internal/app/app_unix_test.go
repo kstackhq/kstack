@@ -60,6 +60,7 @@ func TestMain(m *testing.M) {
 func TestBashIsOfferedWithTheSandbox(t *testing.T) {
 	sb, v, err := sandbox.Probe(t.Context())
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = sb.Close() })
 	if !v.Available {
 		testutil.RequireSandbox(t, "no sandbox: "+v.Reason)
 	}
@@ -289,9 +290,7 @@ func TestASubagentsSandboxedCallRunsUnasked(t *testing.T) {
 // The PATH main read at launch is synced at Start, before the snapshot, on a
 // machine with a sandbox; with none read there is nothing to sync.
 func TestStartSyncsTheLaunchPath(t *testing.T) {
-	if _, v, _ := sandbox.Probe(t.Context()); !v.Available {
-		testutil.RequireSandbox(t, "no sandbox: "+v.Reason)
-	}
+	requireSandbox(t)
 	t.Setenv("SHELL", "")
 	withBash := t.TempDir()
 	require.NoError(t, os.WriteFile(filepath.Join(withBash, "bash"), []byte("#!/bin/sh\n"), 0o755))
@@ -412,9 +411,7 @@ func TestNewStopsWhenItsContextEnds(t *testing.T) {
 // New asks the login shell for every provider key and lists the providers it
 // sets; a key the launch environment set wins.
 func TestNewTakesTheProviderKeysTheShellSets(t *testing.T) {
-	if _, v, _ := sandbox.Probe(t.Context()); !v.Available {
-		testutil.RequireSandbox(t, "no sandbox: "+v.Reason)
-	}
+	requireSandbox(t)
 	t.Cleanup(safe.ResetSecrets)
 	var asked []string
 	resolve := resolveShell

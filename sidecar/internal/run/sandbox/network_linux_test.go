@@ -137,13 +137,27 @@ func TestAPastaProbeWithNoTempDirFails(t *testing.T) {
 	assert.Contains(t, reason, "no such file or directory")
 }
 
+// A closed Sandbox probes no pasta: a run with the internet is handed the
+// lifeline as any run is.
+func TestAClosedSandboxProbesNoPasta(t *testing.T) {
+	s := lifeline(t)
+	s.self, s.bwrap = os.Args[0], "/usr/bin/bwrap"
+	require.NoError(t, s.Close())
+
+	s.probePasta(t.Context(), []string{"/bin/true"}, time.Minute)
+
+	available, reason := s.NetworkStatus()
+	assert.False(t, available)
+	assert.Contains(t, reason, errClosed.Error())
+}
+
 // When the system's pasta fails, Kstack's own is probed in its place, and both
 // reasons are named when both fail; one that passes is never replaced. The
 // passing pastas run bwrap in the sidecar's own network.
 func TestKstacksOwnPastaStandsInForTheSystems(t *testing.T) {
-	s := *confining(t)
+	s := confining(t)
 	// Each case probes from scratch, as Probe does, whatever pasta this machine has.
-	s.pasta, s.pastaOwnUserNS, s.networkReason = "", false, ""
+	fresh := func() { s.pasta, s.pastaOwnUserNS, s.networkReason = "", false, "" }
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "own-ran")
 	failing := fakeBwrap(t, filepath.Join(dir, "system-failing"), `echo "system failed" >&2; exit 1`)
@@ -151,19 +165,19 @@ func TestKstacksOwnPastaStandsInForTheSystems(t *testing.T) {
 	own := fakeBwrap(t, filepath.Join(dir, "own"), `touch `+marker+`; while [ "$1" != -- ]; do shift; done; shift; exec "$@"`)
 	ownFailing := fakeBwrap(t, filepath.Join(dir, "own-failing"), `echo "own failed" >&2; exit 1`)
 
-	got := s
-	got.probePasta(t.Context(), []string{failing, own}, time.Minute)
-	assert.Equal(t, own, got.pasta, got.networkReason)
+	fresh()
+	s.probePasta(t.Context(), []string{failing, own}, time.Minute)
+	assert.Equal(t, own, s.pasta, s.networkReason)
 
 	require.NoError(t, os.Remove(marker))
-	got = s
-	got.probePasta(t.Context(), []string{passing, own}, time.Minute)
-	assert.Equal(t, passing, got.pasta, got.networkReason)
+	fresh()
+	s.probePasta(t.Context(), []string{passing, own}, time.Minute)
+	assert.Equal(t, passing, s.pasta, s.networkReason)
 	assert.NoFileExists(t, marker)
 
-	got = s
-	got.probePasta(t.Context(), []string{failing, ownFailing}, time.Minute)
-	available, reason := got.NetworkStatus()
+	fresh()
+	s.probePasta(t.Context(), []string{failing, ownFailing}, time.Minute)
+	available, reason := s.NetworkStatus()
 	assert.False(t, available)
 	assert.Equal(t, failing+": system failed; "+ownFailing+": own failed", reason)
 }
@@ -211,7 +225,9 @@ func TestTheProbePassesARunsPastaFlags(t *testing.T) {
 	r := internetRun(t, s, "-c", "true")
 
 	run, _ := pastaArgs(t, command(t, s, t.Context(), r).Args)
-	probe, _ := pastaArgs(t, s.pastaCommand(t.Context(), r, "", false).Args)
+	probeCmd, err := s.pastaCommand(t.Context(), s.pasta, r, "", false)
+	require.NoError(t, err)
+	probe, _ := pastaArgs(t, probeCmd.Args)
 
 	assert.Equal(t, "--config-net", run[0])
 	assert.Equal(t, append(slices.Clone(probeNet), run[1:]...), probe)
@@ -600,6 +616,7 @@ func init() {
 			return 1
 		}
 		s, v, _ := Probe(context.Background())
+		defer s.Close()
 		if s == nil || !v.NetworkAvailable {
 			fmt.Printf("no network: %+v", v)
 			return 1
@@ -632,7 +649,8 @@ func init() {
 	}
 	// netprobe runs the probe and prints whether it found the network.
 	helpers["netprobe"] = func() int {
-		_, v, _ := Probe(context.Background())
+		s, v, _ := Probe(context.Background())
+		_ = s.Close()
 		fmt.Printf("%t %s", v.NetworkAvailable, v.NetworkReason)
 		return 0
 	}
@@ -766,4 +784,26 @@ func TestThePastaProbeReadsTheRunsIdentity(t *testing.T) {
 
 	_, err = readPastaProbe("4242 4242 1\n" + ids + "CapEff: 000001ffffffffff\n")
 	assert.EqualError(t, err, `the run's CapEff is "000001ffffffffff", not "0000000000000000"`)
+}
+
+// A run with the internet ends when the sidecar's lifeline closes, though
+// pasta, between the sidecar and the forwarder, closes the descriptor: it is
+// sandbox-pasta that watches it.
+func TestARunWithTheInternetEndsWithTheLifeline(t *testing.T) {
+	s := networked(t)
+	cmd := command(t, s, t.Context(), withNet(t, shRun(t, "sleep 1000 & echo up; wait")).on(s))
+
+	requireEndsWithTheLifeline(t, cmd, s)
+}
+
+// sandbox-pasta, not the forwarder, is handed the lifeline.
+func TestSandboxPastaWatchesTheLifeline(t *testing.T) {
+	s := lifeline(t)
+	s.self, s.bwrap, s.pasta = os.Args[0], "/usr/bin/bwrap", "/usr/bin/pasta"
+
+	cmd := command(t, s, t.Context(), internetRun(t, s, "-c", "true"))
+
+	assert.Equal(t, []*os.File{s.lifeline}, cmd.ExtraFiles)
+	assert.Equal(t, []string{PastaCommand, lifelineFlag, "3", "--", "/usr/bin/pasta"}, cmd.Args[1:6])
+	assert.Equal(t, -1, index(cmd.Args[6:], lifelineFlag))
 }

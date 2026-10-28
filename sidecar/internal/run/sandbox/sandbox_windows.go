@@ -36,6 +36,9 @@ func (s *Sandbox) Command(context.Context, Run) (*exec.Cmd, error) {
 	return nil, errNone
 }
 
+// Close has nothing to free, since no command runs sandboxed.
+func (s *Sandbox) Close() error { return nil }
+
 // Confines reports whether a command run through s is confined: never, here.
 func (s *Sandbox) Confines() bool { return false }
 

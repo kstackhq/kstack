@@ -33,6 +33,7 @@ func confining(t *testing.T) *Sandbox {
 	t.Helper()
 	s, v, err := Probe(t.Context())
 	require.NoError(t, err)
+	closing(t, s)
 	if s != nil && s.Confines() {
 		return s
 	}
@@ -42,6 +43,12 @@ func confining(t *testing.T) *Sandbox {
 	}
 	testutil.RequireSandbox(t, why)
 	return nil
+}
+
+// closing closes s, this one whatever the variable holds later, when the
+// test ends.
+func closing(t *testing.T, s *Sandbox) {
+	t.Cleanup(func() { _ = s.Close() })
 }
 
 // command is the command s makes for r, which must make one.

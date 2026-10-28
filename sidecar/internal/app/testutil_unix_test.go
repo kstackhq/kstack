@@ -197,15 +197,24 @@ func toolsFolder(t *testing.T, names ...string) string {
 	return dir
 }
 
+// requireSandbox probes this machine's sandbox and lets it go; without one,
+// testutil.RequireSandbox decides.
+func requireSandbox(t *testing.T) {
+	t.Helper()
+	s, v, _ := sandbox.Probe(t.Context())
+	_ = s.Close()
+	if !v.Available {
+		testutil.RequireSandbox(t, "no sandbox: "+v.Reason)
+	}
+}
+
 // startE2E starts the app over a fake cluster and waits for the cluster to be
 // identified, so a sandboxed run can claim its connection. Each of with changes
 // the app's Config before New. Without a sandbox, kubectl or jq,
 // testutil.RequireSandbox decides.
 func startE2E(t *testing.T, with ...func(*Config)) *e2e {
 	t.Helper()
-	if _, v, _ := sandbox.Probe(t.Context()); !v.Available {
-		testutil.RequireSandbox(t, "no sandbox: "+v.Reason)
-	}
+	requireSandbox(t)
 	bin := toolsFolder(t, "kubectl", "jq")
 
 	cluster := serveFakeCluster(t)

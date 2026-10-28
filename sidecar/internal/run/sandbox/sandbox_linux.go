@@ -59,6 +59,7 @@ func Probe(ctx context.Context) (*Sandbox, Status, error) {
 		v.NetworkAvailable, v.NetworkReason = s.NetworkStatus()
 	}
 	if err := ctx.Err(); err != nil {
+		_ = s.Close()
 		return nil, Status{}, err
 	}
 	return s, v, nil
@@ -72,9 +73,14 @@ func probe(ctx context.Context, self string, bwraps []string, bound time.Duratio
 	}
 	var uts unix.Utsname
 	perNamespace := unix.Uname(&uts) == nil && countsPerNamespace(unix.ByteSliceToString(uts.Release[:]))
+	s := &Sandbox{self: self, perNamespace: perNamespace}
+	var err error
+	if s.lifeline, s.held, err = newLifeline(); err != nil {
+		return nil, Status{Reason: "cannot make the runs' lifeline"}
+	}
 	var reasons []string
 	for _, bwrap := range bwraps {
-		s := &Sandbox{self: self, bwrap: bwrap, perNamespace: perNamespace}
+		s.bwrap = bwrap
 		uidMap, err := s.try(ctx, bound)
 		if err != nil {
 			reasons = append(reasons, bwrap+": "+err.Error())
@@ -84,6 +90,7 @@ func probe(ctx context.Context, self string, bwraps []string, bound time.Duratio
 		s.ownUserNS = ownNamespace(uidMap, firstLine(string(own)))
 		return s, Status{Available: true, Reason: "bwrap at " + bwrap}
 	}
+	_ = s.Close()
 	return nil, Status{Reason: strings.Join(reasons, "; ")}
 }
 
@@ -168,12 +175,12 @@ func exists(path string) bool {
 }
 
 // Command is the process that runs r under bwrap, not yet started, made by
-// exec.CommandContext on ctx, or why r's policy cannot be enforced. The run
-// leads a session of its own, so a kill to its group, sandbox-pasta's at the
-// lifeline's EOF among them, reaches no process of the sidecar's; a caller
-// that replaces SysProcAttr keeps Setsid or Setpgid. The caller sets its
-// output and Cancel, and starts it; exec refuses a Cancel on a command made
-// without ctx.
+// exec.CommandContext on ctx, or why r's policy cannot be enforced, or
+// errClosed. The run leads a session of its own, so a kill to its group,
+// sandbox-pasta's at the lifeline's EOF among them, reaches no process of
+// the sidecar's; a caller that replaces SysProcAttr keeps Setsid or Setpgid.
+// The caller sets its output and Cancel, and starts it; exec refuses a Cancel
+// on a command made without ctx.
 func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 	if err := r.check(); err != nil {
 		return nil, err
@@ -186,6 +193,9 @@ func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 	}
 	if !p.Network.Internet {
 		cmd := exec.CommandContext(ctx, s.bwrap, s.args(r, "")...)
+		if err := s.handLifeline(cmd); err != nil {
+			return nil, err
+		}
 		cmd.Env = r.Env
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 		return cmd, nil
@@ -200,7 +210,10 @@ func (s *Sandbox) Command(ctx context.Context, r Run) (*exec.Cmd, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := s.pastaCommand(ctx, r, at, true)
+	cmd, err := s.pastaCommand(ctx, s.pasta, r, at, true)
+	if err != nil {
+		return nil, err
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	return cmd, nil
 }
@@ -252,9 +265,12 @@ func (s *Sandbox) args(r Run, resolverAt string) []string {
 		args = append(args, "--remount-ro", d)
 	}
 	args = append(args, "--chdir", r.Dir, "--", s.self)
+	// With the internet, sandbox-pasta watches the lifeline (pastaCommand).
 	init := ForwarderArgs(r.Policy.Network.relay())
 	if r.Policy.Network.Internet {
 		init = slices.Insert(init, 1, stderrOnStdinFlag)
+	} else {
+		init = slices.Insert(init, 1, s.lifelineArgs()...)
 	}
 	args = append(args, init...)
 	args = append(args, s.self)

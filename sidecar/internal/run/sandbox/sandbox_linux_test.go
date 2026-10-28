@@ -164,6 +164,18 @@ func TestWithoutBwrapThereIsNoSandbox(t *testing.T) {
 	assert.Equal(t, Status{Reason: "bwrap not found"}, v)
 }
 
+// With no descriptor free, the probe has no lifeline to hand a run, so no
+// sandbox. Serial: it lowers this process's open-files limit.
+func TestAProbeWithNoDescriptorFreeHasNoSandbox(t *testing.T) {
+	bwrap := fakeBwrap(t, filepath.Join(t.TempDir(), "bwrap"), "exit 0")
+	openFilesLimit(t, 3)
+
+	s, v := probe(t.Context(), os.Args[0], []string{bwrap}, time.Minute)
+
+	assert.Nil(t, s)
+	assert.Equal(t, Status{Reason: "cannot make the runs' lifeline"}, v)
+}
+
 // A bwrap that fails the probe is no sandbox, and the reason is the first
 // line it wrote, which names the cause.
 func TestAProbeThatFailsSaysWhy(t *testing.T) {
@@ -216,12 +228,14 @@ func TestKstacksOwnBwrapStandsInForTheSystems(t *testing.T) {
 
 	s, v := probe(t.Context(), os.Args[0], []string{failing, own}, time.Minute)
 	require.NotNil(t, s)
+	closing(t, s)
 	assert.Equal(t, own, s.bwrap)
 	assert.Equal(t, Status{Available: true, Reason: "bwrap at " + own}, v)
 
 	require.NoError(t, os.Remove(marker))
 	s, _ = probe(t.Context(), os.Args[0], []string{passing, own}, time.Minute)
 	require.NotNil(t, s)
+	closing(t, s)
 	assert.Equal(t, passing, s.bwrap)
 	assert.NoFileExists(t, marker)
 
@@ -1054,6 +1068,7 @@ func TestAProbeWithNoHomeFindsTheSandbox(t *testing.T) {
 	s, v, err := Probe(t.Context())
 
 	require.NoError(t, err)
+	closing(t, s)
 	require.NotNil(t, s, v.Reason)
 	assert.True(t, v.Available)
 }
@@ -1275,6 +1290,15 @@ func TestFixedMountIsEveryRunsOwnMount(t *testing.T) {
 	assert.False(t, overFixedMount("/tmp/kstack-1000"), "a run's own runtime directory under /tmp is no rule over a mount")
 }
 
+// A run ends when the sidecar's lifeline closes, while bwrap's parent, which
+// --die-with-parent watches, lives on.
+func TestARunEndsWithTheLifeline(t *testing.T) {
+	s := confining(t)
+	cmd := command(t, s, t.Context(), shRun(t, "sleep 1000 & echo up; wait").on(s))
+
+	requireEndsWithTheLifeline(t, cmd, s)
+}
+
 // Every run leads a session of its own, with the internet or without, so a
 // kill to its group reaches nothing of the sidecar's.
 func TestARunLeadsASessionOfItsOwn(t *testing.T) {
@@ -1284,4 +1308,18 @@ func TestARunLeadsASessionOfItsOwn(t *testing.T) {
 	assert.True(t, command(t, s, t.Context(), r).SysProcAttr.Setsid)
 	r.Policy.Network = NetworkPolicy{}
 	assert.True(t, command(t, s, t.Context(), r).SysProcAttr.Setsid)
+}
+
+// A closed Sandbox makes no command, so no run starts without the lifeline.
+func TestAClosedSandboxMakesNoCommand(t *testing.T) {
+	s := lifeline(t)
+	s.self, s.bwrap, s.pasta = os.Args[0], "/usr/bin/bwrap", "/usr/bin/pasta"
+	r := internetRun(t, s, "-c", "true")
+	require.NoError(t, s.Close())
+
+	_, err := s.Command(t.Context(), r)
+	assert.ErrorIs(t, err, errClosed)
+	r.Policy.Network = NetworkPolicy{}
+	_, err = s.Command(t.Context(), r)
+	assert.ErrorIs(t, err, errClosed)
 }
