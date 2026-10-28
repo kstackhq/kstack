@@ -1,6 +1,7 @@
 package app
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -39,6 +40,16 @@ func TestARuntimeClosesWhatItBuilt(t *testing.T) {
 	require.FileExists(t, wal)
 	require.NoError(t, rt.Close())
 	assert.NoFileExists(t, wal)
+}
+
+// An app.db that cannot open fails the build, saying so.
+func TestAnAppDBThatCannotOpenFailsTheBuild(t *testing.T) {
+	dir := t.TempDir()
+	require.NoError(t, os.Mkdir(filepath.Join(dir, "app.db"), 0o700))
+
+	_, err := build(t.Context(), withDirs(t, Config{DataDir: dir}))
+
+	assert.ErrorContains(t, err, "open app database")
 }
 
 // With no shell the resolver has no prober. The comparison is to a nil

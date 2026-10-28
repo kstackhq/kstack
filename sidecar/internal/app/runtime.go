@@ -83,9 +83,10 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 		cfg.LLMKeys = withShellKeys(cfg.LLMKeys, login.keys)
 	}
 
-	// The settings hold no handle, so a failure leaves nothing to close.
+	// The settings hold no handle, so a failure leaves only the sandbox to close.
 	settingsStore, err := settings.Open(p.SettingsFile)
 	if err != nil {
+		_ = sb.Close()
 		return nil, err
 	}
 
@@ -93,10 +94,14 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	// It is the first part, so it closes after every service over it.
 	db, err := appdb.Open(p.AppDBFile, appdb.DefaultSweepInterval)
 	if err != nil {
+		_ = sb.Close()
 		return nil, fmt.Errorf("open app database: %w", err)
 	}
 	rt := &Runtime{DB: db}
 	rt.add("app.db", lifecycle.CloseFunc(db.Close))
+	// Its close ends every sandboxed run still going, after every service
+	// over the sandbox has stopped its own.
+	rt.add("sandbox", lifecycle.CloseFunc(sb.Close))
 	fail := func(err error) (*Runtime, error) {
 		rt.Close()
 		return nil, err

@@ -138,8 +138,8 @@ to `sandbox-pasta` instead, since pasta closes every descriptor it did not open;
 its group, pasta and the child pasta makes during setup with it; `Command` starts every run in a
 session of its own on both platforms, so that kill reaches nothing of the sidecar's. A failed or
 cancelled probe closes the pipe; `Close` closes a probed `Sandbox`'s, ending its runs, once, and
-`Command` refuses after it. **A test that probes registers it as cleanup** (`closing`,
-`confining`).
+`Command` refuses after it: the runtime holds it as a part, and **a test that probes registers it
+as cleanup** (`closing`, `confining`).
 
 **Tests.** A test binary that starts the chain calls `sandbox.Main` from its `TestMain`, or it
 runs its own suite inside the probe. A test needing a sandbox calls `testutil.RequireSandbox`
