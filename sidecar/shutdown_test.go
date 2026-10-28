@@ -255,14 +255,17 @@ func TestTheGraceEndsABlockedRequest(t *testing.T) {
 
 // wedgedStop is a stop func that drains with drain.WithContext over a goroutine
 // blocked until release fires: the real cancel-and-wait, not a stub that blocks
-// whatever its context. Cleanup fires release if the test has not.
+// whatever its context. It returns once the goroutine is in wedgedLoop. Cleanup
+// fires release if the test has not.
 func wedgedStop(t *testing.T) (stop func(context.Context) error, entered, release *testutil.Signal) {
 	t.Helper()
 	release = testutil.NewSignal()
 	t.Cleanup(func() { release.Fire() })
 	entered = testutil.NewSignal()
+	started := testutil.NewSignal()
 	var wg sync.WaitGroup
-	wg.Go(func() { deepen(40, release.Chan()) })
+	wg.Go(func() { deepen(40, started, release.Chan()) })
+	started.Wait(t, "the wedged goroutine to reach wedgedLoop")
 	stop = func(ctx context.Context) error {
 		entered.Fire()
 		return drain.WithContext(ctx, wg.Wait)
@@ -272,18 +275,22 @@ func wedgedStop(t *testing.T) (stop func(context.Context) error, entered, releas
 
 // deepen blocks in wedgedLoop under depth frames, so the dump runs past one
 // record's 2 KiB cut.
-func deepen(depth int, release <-chan struct{}) {
+func deepen(depth int, started *testutil.Signal, release <-chan struct{}) {
 	if depth == 0 {
-		wedgedLoop(release)
+		wedgedLoop(started, release)
 		return
 	}
-	deepen(depth-1, release)
+	deepen(depth-1, started, release)
 }
 
-// wedgedLoop is the frame the dump must name first.
+// wedgedLoop is the frame the dump must name first. It marks itself started, since
+// a goroutine still descending through deepen has no wedgedLoop frame to dump.
 //
 //go:noinline
-func wedgedLoop(release <-chan struct{}) { <-release }
+func wedgedLoop(started *testutil.Signal, release <-chan struct{}) {
+	started.Fire()
+	<-release
+}
 
 // A loop that ignores its cancellation: the drain never returns, so the watchdog
 // ends the process at the budget with 1. run cannot return while the drain blocks,
