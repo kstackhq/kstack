@@ -12,7 +12,7 @@ permissions:
   contents: read
 
 on:
-  # After the nightly ci run, when no one waits on the runners.
+  # 05:00 UTC, a quiet hour when no one waits on the runners.
   schedule:
     - cron: "0 5 * * *"
   workflow_dispatch:
