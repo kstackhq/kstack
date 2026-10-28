@@ -923,8 +923,7 @@ risk stays distinguishable from an unnoticed one, and is not repeated here.
   ref it was dispatched from. Finally, write a short page on verifying a download — the GPG key,
   `shasum -c`, `codesign`/`spctl`, `signtool`, and plainly that Linux bundles are unsigned — and run
   it ourselves once before telling anyone else to. `.github/ci-config/zizmor.yml` ignores
-  `release.yml`'s `excessive-permissions` and `superfluous-actions` findings until this lands; drop
-  both ignores with the fix.
+  `release.yml`'s `excessive-permissions` finding until this lands; drop the ignore with the fix.
 
 - **H-3 — three macOS entitlements ship unjustified (medium; desktop owner).**
   `src-tauri/entitlements.plist` grants `allow-jit`, `allow-unsigned-executable-memory` and

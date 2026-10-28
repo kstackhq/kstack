@@ -19,12 +19,6 @@ rules:
     ignore:
       - release.yml
 
-  # Replacing the release action with a `gh release` script is R-08's work on
-  # the release job.
-  superfluous-actions:
-    ignore:
-      - release.yml
-
   # The prow action reads the comment only to match /assign and /unassign, runs
   # no code from the repository, and holds `issues: write` alone.
   dangerous-triggers:
