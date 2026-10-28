@@ -9,12 +9,12 @@ require (
 	github.com/amorey/beehive v0.33.1
 	github.com/amorey/gobus v0.7.0
 	github.com/amorey/gochan v0.4.0
-	github.com/anthropics/anthropic-sdk-go v1.82.0
+	github.com/anthropics/anthropic-sdk-go v1.84.0
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/fsnotify/fsnotify v1.10.1
 	github.com/go-jose/go-jose/v4 v4.1.6
 	github.com/google/uuid v1.6.0
-	github.com/openai/openai-go/v3 v3.82.0
+	github.com/openai/openai-go/v3 v3.84.0
 	github.com/pmezard/go-difflib v1.0.1-0.20181226105442-5d4384ee4fb2
 	github.com/stretchr/testify v1.12.1
 	github.com/vektah/gqlparser/v2 v2.5.63
