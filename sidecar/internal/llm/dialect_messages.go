@@ -280,17 +280,17 @@ func (w messagesWire) conversation(msgs []Message) []anthropic.MessageParam {
 	var out []anthropic.MessageParam
 	var ids replayIDs
 	for i, m := range msgs {
-		blocks := stripForeign(w.providerID, m)
+		blocks := stripForeign(w.providerID, DialectMessages, m)
 		if m.Role != "assistant" {
 			if content := w.content(blocks); len(content) > 0 {
 				out = append(out, anthropic.NewUserMessage(content...))
 			}
 			continue
 		}
-		if i == last && w.thinks && (m.foreign(w.providerID) || m.Effort == "") {
+		if i == last && w.thinks && (m.foreign(w.providerID, DialectMessages) || m.Effort == "") {
 			// With thinking on the API refuses a final assistant message whose
-			// lastmost tool_use has no thinking block ahead of it, and neither a row another
-			// provider wrote, its payloads stripped, nor one written with thinking off
+			// lastmost tool_use has no thinking block ahead of it, and neither a foreign
+			// row, its payloads stripped, nor one written with thinking off
 			// can supply one. Its text still goes. The facts are the message's,
 			// never read off its blocks: a model that chose not to think before a
 			// call is not a row written with thinking off.
@@ -302,7 +302,7 @@ func (w messagesWire) conversation(msgs []Message) []anthropic.MessageParam {
 			// resumes from that call.
 			blocks = w.answeredServerCalls(blocks)
 		}
-		out = append(out, w.unfold(ids.replay(blocks, m.foreign(w.providerID)))...)
+		out = append(out, w.unfold(ids.replay(blocks, m.foreign(w.providerID, DialectMessages)))...)
 	}
 	return out
 }

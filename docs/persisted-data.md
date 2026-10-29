@@ -65,8 +65,9 @@ Kept on disk but never read back as a format, or not kept across a restart:
 - **`<cache>/tmp/`, `<runtime>/`**: a run's scratch, swept at start.
 - **`sessionStorage`** `kstack:history-forward-ceiling`: one window session.
 - **Provider API keys**: passed in at launch (`cfg.LLMKeys`), never written.
-- **Provider payloads** inside the message blocks: a cache the provider may invalidate, dropped
-  when stale (#516). Kstack's own block format is what migrates.
+- **Provider payloads** inside the message blocks: a cache the provider may invalidate. A payload
+  replays only to the provider and dialect its run recorded; any other target is sent Kstack's
+  fields alone. Kstack's own block format is what migrates.
 
 ## First release
 

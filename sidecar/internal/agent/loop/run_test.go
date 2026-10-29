@@ -447,7 +447,7 @@ func TestAToolCallIsRunAndAnsweredOnTheSameTurn(t *testing.T) {
 	}, res)
 	assert.Equal(t, []llm.Message{
 		{Role: "user", Blocks: []llm.Block{llm.TextBlock("How many?")}},
-		{Role: "assistant", Blocks: round, ProviderID: "fake", Effort: "low"},
+		{Role: "assistant", Blocks: round, ProviderID: "fake", Dialect: llm.DialectFake, Effort: "low"},
 	}, f.LastRequest().Messages, "the rounds so far are the last assistant message")
 	assert.Equal(t, []llm.Block{use}, rec.toolStarts)
 	assert.Equal(t, llm.ToolDefinition{Name: "echo", Description: "says it back", InputSchema: []byte(`{"type":"object"}`)},
@@ -906,9 +906,9 @@ func TestARefusedBudgetWhoseWriteFailedEndsTheTurn(t *testing.T) {
 	assertEveryToolUseHasItsResult(t, res)
 }
 
-// The rounds message says what wrote it, so a wire replaying its blocks knows
-// whose payloads they are and whether the row thought.
-func TestTheRoundsMessageNamesItsProviderAndEffort(t *testing.T) {
+// The rounds message says what wrote it and on which wire, so a wire replaying
+// its blocks knows whose payloads they are and whether the row thought.
+func TestTheRoundsMessageNamesItsProviderDialectAndEffort(t *testing.T) {
 	f, turn := echoTurn(echoTool{name: "echo"})
 	f.SetToolCalls(llm.StagedCall("echo", `{"say":"hi"}`))
 
@@ -917,6 +917,7 @@ func TestTheRoundsMessageNamesItsProviderAndEffort(t *testing.T) {
 	require.NoError(t, err)
 	last := f.LastRequest().Messages[1]
 	assert.Equal(t, "fake", last.ProviderID)
+	assert.Equal(t, llm.DialectFake, last.Dialect)
 	assert.Equal(t, "low", last.Effort)
 }
 

@@ -20,9 +20,11 @@ import "encoding/json"
 type Message struct {
 	Role   string
 	Blocks []Block
-	// ProviderID is the provider an assistant message was written on, off its
-	// run; empty on the user's. Only the writer is sent the blocks' payloads.
+	// ProviderID and Dialect are the writer: the provider an assistant message
+	// was written on and the wire it was spoken to on, off its run; empty on the
+	// user's. Only the writer is sent the blocks' payloads.
 	ProviderID string
+	Dialect    Dialect
 	// Effort is the level an assistant message was written at, off its run, and
 	// "" for none. It is how a wire knows whether the row thought: a round with
 	// no thinking block may be one the model chose not to think before. Whether
@@ -31,17 +33,20 @@ type Message struct {
 	Effort string
 }
 
-// foreign reports whether providerID did not write m. A signature is verified
-// only by the API that signed it and ciphertext is read only by the keys it was
-// encrypted to, so the key is the provider, never the dialect. A message naming
-// no writer is foreign to everyone: the user's, and one whose writer is unknown.
-func (m Message) foreign(providerID string) bool { return m.ProviderID != providerID }
+// foreign reports whether providerID, speaking dialect, did not write m. A
+// signature is verified only by the API that signed it and ciphertext is read
+// only by the keys it was encrypted to, so the key is the provider and the
+// dialect both: a provider's other API is another reader. A message naming no
+// writer is foreign to everyone: the user's, and one whose writer is unknown.
+func (m Message) foreign(providerID string, dialect Dialect) bool {
+	return m.ProviderID != providerID || m.Dialect != dialect
+}
 
-// stripForeign is m's blocks as providerID may send them: with their payloads
-// when it wrote the message, without them otherwise. Every app field stays; losing
-// the other provider's thinking is what a switch costs.
-func stripForeign(providerID string, m Message) []Block {
-	if m.foreign(providerID) {
+// stripForeign is m's blocks as providerID may send them on dialect: with their
+// payloads when it wrote the message there, without them otherwise. Every app
+// field stays; losing the other writer's thinking is what a switch costs.
+func stripForeign(providerID string, dialect Dialect, m Message) []Block {
+	if m.foreign(providerID, dialect) {
 		return WithoutPayloads(m.Blocks)
 	}
 	return m.Blocks

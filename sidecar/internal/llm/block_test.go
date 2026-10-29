@@ -214,11 +214,11 @@ func TestStripForeignKeepsEveryAppField(t *testing.T) {
 		ToolResultBlock("call-1", "hi", false),
 		TextBlock("twelve"),
 	}
-	m := Message{Role: "assistant", Blocks: blocks, ProviderID: "openai"}
+	m := Message{Role: "assistant", Blocks: blocks, ProviderID: "openai", Dialect: DialectResponses}
 
-	assert.Equal(t, blocks, stripForeign("openai", m), "its writer reads its payloads")
+	assert.Equal(t, blocks, stripForeign("openai", DialectResponses, m), "its writer reads its payloads")
 
-	stripped := stripForeign("anthropic", m)
+	stripped := stripForeign("anthropic", DialectMessages, m)
 	assert.Equal(t, []Block{
 		ThinkingBlock("I count them."),
 		ToolUseBlock("call-1", "echo", json.RawMessage(`{"say":"hi"}`)),
@@ -228,17 +228,30 @@ func TestStripForeignKeepsEveryAppField(t *testing.T) {
 	assert.Equal(t, blocks, m.Blocks, "the caller's blocks are not written to")
 
 	unknown := Message{Role: "assistant", Blocks: blocks}
-	assert.Equal(t, stripped, stripForeign("openai", unknown), "a payload of unknown origin is replayed by no one")
+	assert.Equal(t, stripped, stripForeign("openai", DialectResponses, unknown), "a payload of unknown origin is replayed by no one")
+}
+
+// A payload is keyed on the provider and the dialect it was written on: the
+// same provider on another API is sent the app's fields alone.
+func TestStripForeignKeysOnTheDialect(t *testing.T) {
+	blocks := []Block{
+		withPayload(ThinkingBlock("I count them."), `{"type":"reasoning","encrypted_content":"ZW5j"}`),
+		TextBlock("twelve"),
+	}
+	m := Message{Role: "assistant", Blocks: blocks, ProviderID: "openai", Dialect: DialectChatCompletions}
+
+	assert.Equal(t, WithoutPayloads(blocks), stripForeign("openai", DialectResponses, m))
+	assert.Equal(t, blocks, stripForeign("openai", DialectChatCompletions, m))
 }
 
 // A cited text goes to another provider as its text alone: the citations are the
 // writer's payload, which only the writer takes back. Its writer keeps it whole.
 func TestStripForeignSendsAForeignCitedTextAsItsText(t *testing.T) {
 	cited := withPayload(TextBlock("There are 2 pods."), `{"type":"text","citations":[{"type":"web_search_result_location","encrypted_index":"ZW5j"}]}`)
-	m := Message{Role: "assistant", Blocks: []Block{cited}, ProviderID: "anthropic"}
+	m := Message{Role: "assistant", Blocks: []Block{cited}, ProviderID: "anthropic", Dialect: DialectMessages}
 
-	assert.Equal(t, []Block{TextBlock("There are 2 pods.")}, stripForeign("openai", m))
-	assert.Equal(t, []Block{cited}, stripForeign("anthropic", m))
+	assert.Equal(t, []Block{TextBlock("There are 2 pods.")}, stripForeign("openai", DialectResponses, m))
+	assert.Equal(t, []Block{cited}, stripForeign("anthropic", DialectMessages, m))
 }
 
 // A reasoning item with no summary is a block the replay needs and a reader has

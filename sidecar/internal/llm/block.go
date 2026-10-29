@@ -39,8 +39,8 @@ type Block struct {
 	// Payload is the provider's own item, verbatim, on a block only its writer
 	// can take back whole: a signed thinking block, a reasoning item with its
 	// encrypted content, a call a vendor hung its own data on. The message names
-	// the writer, who replays the payload; every other provider is sent the
-	// app's fields alone.
+	// the writer, its provider and dialect, who replays the payload; every other
+	// target is sent the app's fields alone.
 	Payload json.RawMessage `json:"payload,omitempty"`
 	// Task is a task notification's notice.
 	Task *TaskNotice `json:"task,omitempty"`

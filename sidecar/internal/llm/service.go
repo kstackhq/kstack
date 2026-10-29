@@ -205,7 +205,7 @@ func disownUnreplayable(msgs []Message) (out []Message, bad []string) {
 		if len(bad) == 0 {
 			out = slices.Clone(msgs)
 		}
-		out[i].ProviderID = ""
+		out[i].ProviderID, out[i].Dialect = "", ""
 		bad = append(bad, strconv.Itoa(i)+" "+strings.Join(types, ","))
 	}
 	return out, bad

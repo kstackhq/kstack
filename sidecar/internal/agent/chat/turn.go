@@ -306,7 +306,7 @@ func (s *service) history(t *turn) ([]llm.Message, error) {
 		}
 		out = append(out, llm.Message{
 			Role: string(m.Role), Blocks: blocks,
-			ProviderID: m.ProviderID, Effort: m.Effort,
+			ProviderID: m.ProviderID, Dialect: m.dialect, Effort: m.Effort,
 		})
 	}
 	return out, nil

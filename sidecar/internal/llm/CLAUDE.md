@@ -79,9 +79,13 @@ internal/llm/
 - **A `Payload` is the provider's own item, verbatim**, for replay to the provider that wrote it.
   It is always a JSON object (`Block.replayable`): a reply carrying anything else fails, and a
   stored message holding one goes as foreign to everyone (`disownUnreplayable`).
-- **`Message.ProviderID` is the writer** and `Message.Effort` the level its run recorded.
-  `stripForeign` drops every payload for any other provider and keeps every app field. A message
-  naming no writer is foreign to everyone.
+- **`Message.ProviderID` and `Message.Dialect` are the writer**, and `Message.Effort` the level
+  its run recorded. **A payload is keyed on provider and dialect**: `stripForeign` drops every
+  payload for any other provider, or the same provider on another dialect, and keeps every app
+  field. A message naming no writer is foreign to everyone.
+- **When a wire's reading of an API changes so old payloads cannot replay**, add a `wire_version`
+  column on `agent_runs`, defaulting to zero for existing rows, carry it on `Message` and compare
+  it in `foreign`. The column does not exist until that happens.
 - **Every wire replays a call under an id it hands out** (`replayIDs`, deterministic over the
   conversation): foreign calls and reused own ids are minted `call%05d`, and a minted call keeping
   a payload has the id written in (`withReplayID`). The record keeps the writer's ids.
@@ -139,7 +143,7 @@ internal/llm/
   replaces unparsable input with `{}`, which is also a legitimate input. The offer is the schema
   whole (`ExtraFields`, so a `$ref` resolves). A row unfolds into the wire's alternation
   (`messagesWire.unfold`). **With thinking on, the row holding the last round drops its tool
-  blocks when it has no thinking block to send** — decided by `ProviderID` and `Effort`, never by
+  blocks when it has no thinking block to send** — decided by the writer and `Effort`, never by
   its blocks. A request that does not think sends no thinking block.
 - **Responses.** Function tools go with `strict: false` explicitly (Chat Completions leaves
   `strict` unset). An organization OpenAI has not verified may be refused the reasoning summary

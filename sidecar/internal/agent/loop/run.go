@@ -226,7 +226,7 @@ func (r *runner) messages() []llm.Message {
 	}
 	return append(slices.Clone(r.turn.Messages), llm.Message{
 		Role: "assistant", Blocks: slices.Clone(r.rounds),
-		ProviderID: r.turn.Target.Provider.ID, Effort: r.turn.Target.Effort,
+		ProviderID: r.turn.Target.Provider.ID, Dialect: r.turn.Target.Provider.Dialect, Effort: r.turn.Target.Effort,
 	})
 }
 

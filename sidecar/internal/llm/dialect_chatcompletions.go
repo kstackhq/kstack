@@ -254,8 +254,8 @@ func (w chatWire) conversation(systemPrompt string, msgs []Message) []openai.Cha
 				out = append(out, openai.ChatCompletionMessageParamUnion{OfAssistant: &assistant})
 			}
 		}
-		foreign := m.foreign(w.providerID)
-		for _, b := range stripForeign(w.providerID, m) {
+		foreign := m.foreign(w.providerID, DialectChatCompletions)
+		for _, b := range stripForeign(w.providerID, DialectChatCompletions, m) {
 			switch b.Type {
 			case BlockToolUse:
 				calls = append(calls, w.toolCall(b, ids.mint(b.ID, foreign)))

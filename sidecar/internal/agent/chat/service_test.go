@@ -989,9 +989,9 @@ func TestSendRefusesAnEffortTheModelDoesNotList(t *testing.T) {
 }
 
 // A chat moves to a provider of another dialect: the send is accepted, the
-// history reaches the target with each row still naming the provider that wrote
-// it, which is what makes a wire strip another's payloads, and the new run
-// records the target's dialect.
+// history reaches the target with each row still naming the provider and the
+// dialect that wrote it, which is what makes a wire strip another's payloads, and
+// the new run records the target's dialect.
 func TestAChatMovesAcrossDialects(t *testing.T) {
 	t.Parallel()
 
@@ -1016,6 +1016,7 @@ func TestAChatMovesAcrossDialects(t *testing.T) {
 	history := fakeOf(s).LastRequest().Messages
 	require.GreaterOrEqual(t, len(history), 2)
 	assert.Equal(t, "messages", history[1].ProviderID)
+	assert.Equal(t, llm.DialectMessages, history[1].Dialect)
 	assert.Equal(t, "Two pods.", llm.Prompt(history[1].Blocks))
 	assert.Equal(t, "fake", got.ProviderID)
 	assert.Equal(t, string(llm.DialectFake), runDialect(t, s.db, got.RunID))
@@ -1116,7 +1117,7 @@ func TestTheFakeIsAskedTheChatsHistory(t *testing.T) {
 	assert.True(t, strings.HasPrefix(req.SystemPrompt, promptSystem), "chat's own prompt opens what the model reads")
 	assert.Equal(t, []llm.Message{
 		{Role: "user", Blocks: []llm.Block{llm.ContextBlock(s.withWorkspace("", first.ChatID)), llm.TextBlock("hi")}},
-		{Role: "assistant", Blocks: llm.AnswerBlocks(fakeThought, fakeSentence), ProviderID: "fake", Effort: "high"},
+		{Role: "assistant", Blocks: llm.AnswerBlocks(fakeThought, fakeSentence), ProviderID: "fake", Dialect: llm.DialectFake, Effort: "high"},
 		{Role: "user", Blocks: []llm.Block{llm.TextBlock("and?")}},
 	}, req.Messages)
 }
@@ -1809,7 +1810,7 @@ func TestACancelledTurnKeepsItsRoundsAndSendsItsTextAlone(t *testing.T) {
 	assert.Equal(t, []llm.Message{
 		{Role: "user", Blocks: []llm.Block{llm.ContextBlock(s.withWorkspace("", msg.ChatID)), llm.TextBlock("hi")}},
 		{Role: "assistant", Blocks: []llm.Block{llm.ThinkingBlock(fakeThought), llm.TextBlock(fakeSentence), llm.ThinkingBlock(fakeSecondFirstWord)},
-			ProviderID: "fake", Effort: "high"},
+			ProviderID: "fake", Dialect: llm.DialectFake, Effort: "high"},
 		{Role: "user", Blocks: []llm.Block{llm.TextBlock("and?")}},
 	}, fakeOf(s).LastRequest().Messages)
 }

@@ -181,7 +181,7 @@ func (w responsesWire) input(msgs []Message) responses.ResponseInputParam {
 	var out responses.ResponseInputParam
 	var ids replayIDs
 	for _, m := range msgs {
-		foreign := m.foreign(w.providerID)
+		foreign := m.foreign(w.providerID, DialectResponses)
 		var text []Block
 		flush := func() {
 			if prompt := Prompt(text); prompt != "" {
@@ -189,7 +189,7 @@ func (w responsesWire) input(msgs []Message) responses.ResponseInputParam {
 			}
 			text = nil
 		}
-		for _, b := range stripForeign(w.providerID, m) {
+		for _, b := range stripForeign(w.providerID, DialectResponses, m) {
 			switch {
 			case b.Payload != nil:
 				flush()

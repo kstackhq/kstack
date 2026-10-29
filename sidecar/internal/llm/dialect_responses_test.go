@@ -706,7 +706,7 @@ func TestResponsesReplaysAToolRoundAsItems(t *testing.T) {
 	}
 	req := responsesRequest(p,
 		Message{Role: "user", Blocks: []Block{TextBlock("how many?")}},
-		Message{Role: "assistant", Blocks: row, ProviderID: "openai", Effort: "high"},
+		Message{Role: "assistant", Blocks: row, ProviderID: "openai", Dialect: DialectResponses, Effort: "high"},
 	)
 
 	_, _, err := askResponses(t, req)
@@ -731,7 +731,7 @@ func TestResponsesReplaysACallWithNoPayloadFromItsFields(t *testing.T) {
 		ToolResultBlock("call_9", "none", false),
 	}
 
-	_, _, err := askResponses(t, responsesRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "openai"}))
+	_, _, err := askResponses(t, responsesRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "openai", Dialect: DialectResponses}))
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{"function_call(call_9)", "function_call_output(call_9)"}, inputShape(t, rec.body))
@@ -746,7 +746,22 @@ func TestResponsesReplaysACallWithNoPayloadFromItsFields(t *testing.T) {
 func TestResponsesPayloadsAreKeyedOnTheProvider(t *testing.T) {
 	p, rec := responsesReplay(t, responsesStream)
 	row := []Block{reasoned("rs_1", "I should list them."), calledWithPayload(), ToolResultBlock("call_1", "2 pods", false)}
-	req := responsesRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "azure-openai", Effort: "high"})
+	req := responsesRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "azure-openai", Dialect: DialectResponses, Effort: "high"})
+	req.Effort = "high"
+
+	_, _, err := askResponses(t, req)
+
+	require.NoError(t, err)
+	assert.Equal(t, []string{"function_call(call00000)", "function_call_output(call00000)"}, inputShape(t, rec.body))
+	assert.NotContains(t, rec.body["input"].([]any)[0].(map[string]any), "id")
+}
+
+// The payloads are the dialect's too: what this provider wrote on another API
+// goes back as Kstack's fields alone.
+func TestResponsesPayloadsAreKeyedOnTheDialect(t *testing.T) {
+	p, rec := responsesReplay(t, responsesStream)
+	row := []Block{reasoned("rs_1", "I should list them."), calledWithPayload(), ToolResultBlock("call_1", "2 pods", false)}
+	req := responsesRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "openai", Dialect: DialectChatCompletions, Effort: "high"})
 	req.Effort = "high"
 
 	_, _, err := askResponses(t, req)
@@ -763,7 +778,7 @@ func TestResponsesContinuesItsOwnRound(t *testing.T) {
 	rounds := []Block{reasoned("rs_1", "I should list them."), calledWithPayload(), ToolResultBlock("call_1", "2 pods", false)}
 	req := responsesRequest(p,
 		Message{Role: "user", Blocks: []Block{TextBlock("how many?")}},
-		Message{Role: "assistant", Blocks: rounds, ProviderID: "openai", Effort: "high"},
+		Message{Role: "assistant", Blocks: rounds, ProviderID: "openai", Dialect: DialectResponses, Effort: "high"},
 	)
 	req.Effort = "high"
 	req.Tools = []ToolDefinition{listObjects}
@@ -823,7 +838,7 @@ func responsesInput(body map[string]any, i int) map[string]any {
 // be ambiguous.
 func TestResponsesMintsAForeignCallsID(t *testing.T) {
 	p, rec := responsesReplay(t, responsesStream)
-	row := Message{Role: "assistant", ProviderID: "anthropic", Blocks: []Block{
+	row := Message{Role: "assistant", ProviderID: "anthropic", Dialect: DialectResponses, Blocks: []Block{
 		ToolUseBlock("toolu_01ABCDEFG", "list_objects", json.RawMessage(`{"resource":"pods"}`)),
 		ToolResultBlock("toolu_01ABCDEFG", "2 pods", false),
 		TextBlock("Two."),
@@ -843,7 +858,7 @@ func TestResponsesMintsAForeignCallsID(t *testing.T) {
 // its output pair up.
 func TestResponsesMintsASpentIDInsideItsPayload(t *testing.T) {
 	p, rec := responsesReplay(t, responsesStream)
-	row := Message{Role: "assistant", ProviderID: "openai", Blocks: []Block{
+	row := Message{Role: "assistant", ProviderID: "openai", Dialect: DialectResponses, Blocks: []Block{
 		calledWithPayload(), ToolResultBlock("call_1", "2 pods", false),
 	}}
 	question := Message{Role: "user", Blocks: []Block{TextBlock("how many pods?")}}

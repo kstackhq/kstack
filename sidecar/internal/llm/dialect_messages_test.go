@@ -856,7 +856,7 @@ func askSearchRow(t *testing.T, providerID string, row []Block, last bool) ([]st
 	p, rec := replay(t, textStream)
 	msgs := []Message{
 		{Role: "user", Blocks: []Block{TextBlock("what shipped?")}},
-		{Role: "assistant", Blocks: row, ProviderID: providerID},
+		{Role: "assistant", Blocks: row, ProviderID: providerID, Dialect: DialectMessages},
 	}
 	if !last {
 		msgs = append(msgs, Message{Role: "user", Blocks: []Block{TextBlock("and before?")}})
@@ -1151,7 +1151,7 @@ func TestMessagesUnfoldsToolRoundsIntoTheWiresAlternation(t *testing.T) {
 	row = append(row, TextBlock("Five."))
 	req := request(p,
 		Message{Role: "user", Blocks: []Block{TextBlock("how many?")}},
-		Message{Role: "assistant", Blocks: row, ProviderID: "anthropic"},
+		Message{Role: "assistant", Blocks: row, ProviderID: "anthropic", Dialect: DialectMessages},
 	)
 	req.Tools = []ToolDefinition{listObjects}
 
@@ -1178,7 +1178,7 @@ func TestMessagesKeepsARunOfCallsInOneMessage(t *testing.T) {
 		ToolResultBlock("toolu_1", "2", false),
 		ToolResultBlock("toolu_2", "3", false),
 	}
-	req := request(p, Message{Role: "assistant", Blocks: row, ProviderID: "anthropic"})
+	req := request(p, Message{Role: "assistant", Blocks: row, ProviderID: "anthropic", Dialect: DialectMessages})
 	req.Tools = []ToolDefinition{listObjects}
 
 	_, _, err := ask(t, req)
@@ -1198,7 +1198,7 @@ func TestMessagesReplaysItsOwnThinkingVerbatim(t *testing.T) {
 
 	t.Run("its writer", func(t *testing.T) {
 		p, rec := replay(t, textStream)
-		req := request(p, Message{Role: "assistant", Blocks: row, ProviderID: "anthropic", Effort: "high"})
+		req := request(p, Message{Role: "assistant", Blocks: row, ProviderID: "anthropic", Dialect: DialectMessages, Effort: "high"})
 		req.Effort = "high"
 
 		_, _, err := ask(t, req)
@@ -1211,7 +1211,17 @@ func TestMessagesReplaysItsOwnThinkingVerbatim(t *testing.T) {
 
 	t.Run("another provider", func(t *testing.T) {
 		p, rec := replay(t, textStream)
-		req := request(p, Message{Role: "assistant", Blocks: row, ProviderID: "vertex-claude", Effort: "high"})
+		req := request(p, Message{Role: "assistant", Blocks: row, ProviderID: "vertex-claude", Dialect: DialectMessages, Effort: "high"})
+		req.Effort = "high"
+
+		_, _, err := ask(t, req)
+
+		require.NoError(t, err)
+		assert.Equal(t, []string{"assistant: text"}, wireShape(t, rec.body))
+	})
+	t.Run("its writer on another dialect", func(t *testing.T) {
+		p, rec := replay(t, textStream)
+		req := request(p, Message{Role: "assistant", Blocks: row, ProviderID: "anthropic", Dialect: DialectChatCompletions, Effort: "high"})
 		req.Effort = "high"
 
 		_, _, err := ask(t, req)
@@ -1253,18 +1263,18 @@ func askRow(t *testing.T, effort string, row Message) []string {
 // Its text stays.
 func TestMessagesDropsTheLastForeignRowsToolBlocks(t *testing.T) {
 	assert.Equal(t, []string{"user: text", "assistant: text text", "user: text"},
-		askRow(t, "high", Message{Role: "assistant", Blocks: roundRow(), ProviderID: "vertex-claude", Effort: "high"}))
+		askRow(t, "high", Message{Role: "assistant", Blocks: roundRow(), ProviderID: "vertex-claude", Dialect: DialectMessages, Effort: "high"}))
 
 	assert.Equal(t, []string{
 		"user: text", "assistant: thinking text tool_use(toolu_1)",
 		"user: tool_result(toolu_1)", "assistant: text", "user: text",
-	}, askRow(t, "high", Message{Role: "assistant", Blocks: roundRow(), ProviderID: "anthropic", Effort: "high"}))
+	}, askRow(t, "high", Message{Role: "assistant", Blocks: roundRow(), ProviderID: "anthropic", Dialect: DialectMessages, Effort: "high"}))
 
 	p, rec := replay(t, textStream)
 	req := request(p,
-		Message{Role: "assistant", Blocks: roundRow(), ProviderID: "vertex-claude", Effort: "high"},
+		Message{Role: "assistant", Blocks: roundRow(), ProviderID: "vertex-claude", Dialect: DialectMessages, Effort: "high"},
 		Message{Role: "user", Blocks: []Block{TextBlock("and nodes?")}},
-		Message{Role: "assistant", Blocks: []Block{TextBlock("Three.")}, ProviderID: "anthropic", Effort: "high"},
+		Message{Role: "assistant", Blocks: []Block{TextBlock("Three.")}, ProviderID: "anthropic", Dialect: DialectMessages, Effort: "high"},
 	)
 	req.Effort = "high"
 	req.Tools = []ToolDefinition{listObjects}
@@ -1281,7 +1291,7 @@ func TestMessagesDropsTheLastForeignRoundWithoutAPayload(t *testing.T) {
 	row := append([]Block{TextBlock("Let me check.")}, round("call_1", "2")...)
 
 	assert.Equal(t, []string{"user: text", "assistant: text", "user: text"},
-		askRow(t, "high", Message{Role: "assistant", Blocks: row, ProviderID: "groq", Effort: "high"}))
+		askRow(t, "high", Message{Role: "assistant", Blocks: row, ProviderID: "groq", Dialect: DialectMessages, Effort: "high"}))
 }
 
 // A row this provider wrote with thinking off never had a thinking block either,
@@ -1289,7 +1299,7 @@ func TestMessagesDropsTheLastForeignRoundWithoutAPayload(t *testing.T) {
 // them under one that does not.
 func TestMessagesDropsTheLastRowWrittenWithoutThinking(t *testing.T) {
 	row := append([]Block{TextBlock("Let me check.")}, round("toolu_1", "2")...)
-	written := Message{Role: "assistant", Blocks: row, ProviderID: "anthropic"}
+	written := Message{Role: "assistant", Blocks: row, ProviderID: "anthropic", Dialect: DialectMessages}
 
 	assert.Equal(t, []string{"user: text", "assistant: text", "user: text"},
 		askRow(t, "high", written))
@@ -1310,7 +1320,7 @@ func TestMessagesDropsTheLastRowWrittenWithoutThinking(t *testing.T) {
 // A request that does not think sends no thinking block, with a payload or without: the API
 // takes them only with thinking on.
 func TestMessagesSendsNoThinkingWhenTheRequestDoesNotThink(t *testing.T) {
-	row := Message{Role: "assistant", Blocks: []Block{thought("I count them."), TextBlock("Twelve.")}, ProviderID: "anthropic", Effort: "high"}
+	row := Message{Role: "assistant", Blocks: []Block{thought("I count them."), TextBlock("Twelve.")}, ProviderID: "anthropic", Dialect: DialectMessages, Effort: "high"}
 
 	assert.Equal(t, []string{"user: text", "assistant: text", "user: text"}, askRow(t, "", row))
 }
@@ -1389,9 +1399,9 @@ func TestMessagesRepairsTheRowHoldingTheLastRound(t *testing.T) {
 	round := append([]Block{TextBlock("Let me check.")}, round("toolu_1", "2")...)
 	req := request(p,
 		Message{Role: "user", Blocks: []Block{TextBlock("how many pods?")}},
-		Message{Role: "assistant", Blocks: round, ProviderID: "vertex-claude", Effort: "high"},
+		Message{Role: "assistant", Blocks: round, ProviderID: "vertex-claude", Dialect: DialectMessages, Effort: "high"},
 		Message{Role: "user", Blocks: []Block{TextBlock("and nodes?")}},
-		Message{Role: "assistant", Blocks: []Block{TextBlock("Three.")}, ProviderID: "vertex-claude", Effort: "high"},
+		Message{Role: "assistant", Blocks: []Block{TextBlock("Three.")}, ProviderID: "vertex-claude", Dialect: DialectMessages, Effort: "high"},
 	)
 	req.Effort = "high"
 	req.Tools = []ToolDefinition{listObjects}
@@ -1411,7 +1421,7 @@ func TestMessagesSendsAnEmptyResultWithNoContent(t *testing.T) {
 		ToolUseBlock("toolu_1", "list_objects", json.RawMessage(`{"resource":"pods"}`)),
 		ToolResultBlock("toolu_1", "", false),
 	}
-	req := request(p, Message{Role: "assistant", Blocks: row, ProviderID: "anthropic"})
+	req := request(p, Message{Role: "assistant", Blocks: row, ProviderID: "anthropic", Dialect: DialectMessages})
 	req.Tools = []ToolDefinition{listObjects}
 
 	_, _, err := ask(t, req)
@@ -1487,7 +1497,7 @@ func messagesContent(body map[string]any, i int) []any {
 // and its result answers the same one.
 func TestMessagesMintsAForeignCallsID(t *testing.T) {
 	p, rec := replay(t, textStream)
-	row := Message{Role: "assistant", ProviderID: "openrouter", Blocks: []Block{
+	row := Message{Role: "assistant", ProviderID: "openrouter", Dialect: DialectMessages, Blocks: []Block{
 		ToolUseBlock("functions.echo:0", "echo", json.RawMessage(`{"text":"hi"}`)),
 		ToolResultBlock("functions.echo:0", "hi", false),
 		TextBlock("It said hi."),
@@ -1506,7 +1516,7 @@ func TestMessagesMintsAForeignCallsID(t *testing.T) {
 // its own call.
 func TestMessagesMintsARepeatedForeignID(t *testing.T) {
 	p, rec := replay(t, textStream)
-	row := Message{Role: "assistant", ProviderID: "groq", Blocks: []Block{
+	row := Message{Role: "assistant", ProviderID: "groq", Dialect: DialectMessages, Blocks: []Block{
 		ToolUseBlock("call-1", "echo", json.RawMessage(`{"text":"hi"}`)),
 		ToolResultBlock("call-1", "hi", false),
 	}}

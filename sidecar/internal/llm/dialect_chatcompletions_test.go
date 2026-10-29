@@ -866,7 +866,7 @@ func TestChatCompletionsKeepsASignedCall(t *testing.T) {
 
 	row := append(slices.Clone(resp.Blocks), ToolResultBlock("call_1", "2", false))
 	next, nextRec := chatReplay(t, chatStream)
-	_, _, err = askChat(t, chatRequest(next, Message{Role: "assistant", Blocks: row, ProviderID: "groq"}))
+	_, _, err = askChat(t, chatRequest(next, Message{Role: "assistant", Blocks: row, ProviderID: "groq", Dialect: DialectChatCompletions}))
 	require.NoError(t, err)
 	sent := nextRec.body["messages"].([]any)[1].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)
 	assert.Equal(t, `{"resource":"pods"}`, sent["function"].(map[string]any)["arguments"])
@@ -955,7 +955,7 @@ func TestChatCompletionsReplaysARoundAsToolCallsAndToolMessages(t *testing.T) {
 
 	_, _, err := askChat(t, chatRequest(p,
 		Message{Role: "user", Blocks: []Block{TextBlock("how many?")}},
-		Message{Role: "assistant", Blocks: row, ProviderID: "groq"},
+		Message{Role: "assistant", Blocks: row, ProviderID: "groq", Dialect: DialectChatCompletions},
 	))
 
 	require.NoError(t, err)
@@ -995,7 +995,7 @@ func TestChatCompletionsFoldsTwoCallsInterleaved(t *testing.T) {
 
 	row := append(slices.Clone(resp.Blocks), ToolResultBlock("call_1", "2", false), ToolResultBlock("call_2", "3", false))
 	next, nextRec := chatReplay(t, chatStream)
-	_, _, err = askChat(t, chatRequest(next, Message{Role: "assistant", Blocks: row, ProviderID: "groq"}))
+	_, _, err = askChat(t, chatRequest(next, Message{Role: "assistant", Blocks: row, ProviderID: "groq", Dialect: DialectChatCompletions}))
 
 	require.NoError(t, err)
 	assert.Equal(t, []string{
@@ -1013,17 +1013,32 @@ func TestChatCompletionsReplaysASignedCallVerbatim(t *testing.T) {
 	row := []Block{call, ToolResultBlock("call_1", "2", false)}
 
 	p, rec := chatReplay(t, chatStream)
-	_, _, err := askChat(t, chatRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "groq"}))
+	_, _, err := askChat(t, chatRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "groq", Dialect: DialectChatCompletions}))
 	require.NoError(t, err)
 	sent := rec.body["messages"].([]any)[1].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)
 	assert.Equal(t, map[string]any{"google": map[string]any{"thought_signature": "c2ln"}}, sent["extra_content"])
 
 	other, otherRec := chatReplay(t, chatStream)
-	_, _, err = askChat(t, chatRequest(other, Message{Role: "assistant", Blocks: row, ProviderID: "gemini"}))
+	_, _, err = askChat(t, chatRequest(other, Message{Role: "assistant", Blocks: row, ProviderID: "gemini", Dialect: DialectChatCompletions}))
 	require.NoError(t, err)
 	rebuilt := otherRec.body["messages"].([]any)[1].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)
 	assert.NotContains(t, rebuilt, "extra_content")
 	assert.Regexp(t, `^[A-Za-z0-9]{9}$`, rebuilt["id"], "a foreign call goes under this wire's own id")
+}
+
+// A signed call this provider wrote on another dialect is rebuilt from the
+// fields alone: the payload is keyed on the dialect too.
+func TestChatCompletionsKeysASignedCallOnTheDialect(t *testing.T) {
+	call := ToolUseBlock("call_1", "list_objects", json.RawMessage(`{"resource":"pods"}`))
+	call.Payload = json.RawMessage(`{"id":"call_1","type":"function","function":{"name":"list_objects","arguments":"{\"resource\":\"pods\"}"},` +
+		`"extra_content":{"google":{"thought_signature":"c2ln"}}}`)
+	row := []Block{call, ToolResultBlock("call_1", "2", false)}
+
+	p, rec := chatReplay(t, chatStream)
+	_, _, err := askChat(t, chatRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "groq", Dialect: DialectResponses}))
+	require.NoError(t, err)
+	rebuilt := rec.body["messages"].([]any)[1].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)
+	assert.NotContains(t, rebuilt, "extra_content")
 }
 
 // A vendor may stream a call's name in pieces and send its id after the fragment
@@ -1076,7 +1091,7 @@ func TestChatCompletionsReplaysAForeignRoundUnderItsOwnIDs(t *testing.T) {
 	}
 
 	p, rec := chatReplay(t, chatStream)
-	_, _, err := askChat(t, chatRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "anthropic"}))
+	_, _, err := askChat(t, chatRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "anthropic", Dialect: DialectChatCompletions}))
 	require.NoError(t, err)
 	msgs := rec.body["messages"].([]any)
 	minted := msgs[1].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)["id"].(string)
@@ -1085,7 +1100,7 @@ func TestChatCompletionsReplaysAForeignRoundUnderItsOwnIDs(t *testing.T) {
 	assert.Equal(t, "toolu_01ABCDEFG", row[0].ID, "the record keeps the writer's own")
 
 	own, ownRec := chatReplay(t, chatStream)
-	_, _, err = askChat(t, chatRequest(own, Message{Role: "assistant", Blocks: row, ProviderID: "groq"}))
+	_, _, err = askChat(t, chatRequest(own, Message{Role: "assistant", Blocks: row, ProviderID: "groq", Dialect: DialectChatCompletions}))
 	require.NoError(t, err)
 	ownMsgs := ownRec.body["messages"].([]any)
 	assert.Equal(t, "toolu_01ABCDEFG", ownMsgs[1].(map[string]any)["tool_calls"].([]any)[0].(map[string]any)["id"])
@@ -1101,8 +1116,8 @@ func TestChatCompletionsMintedIDsHoldStillAsTheChatGrows(t *testing.T) {
 			ToolResultBlock(id, "2 pods", false),
 		}
 	}
-	first := Message{Role: "assistant", Blocks: round("toolu_1"), ProviderID: "anthropic"}
-	second := Message{Role: "assistant", Blocks: round("toolu_2"), ProviderID: "anthropic"}
+	first := Message{Role: "assistant", Blocks: round("toolu_1"), ProviderID: "anthropic", Dialect: DialectChatCompletions}
+	second := Message{Role: "assistant", Blocks: round("toolu_2"), ProviderID: "anthropic", Dialect: DialectChatCompletions}
 
 	p, rec := chatReplay(t, chatStream)
 	_, _, err := askChat(t, chatRequest(p, first))
@@ -1125,7 +1140,7 @@ func TestChatCompletionsAnswersAnOrphanResultUnderItsOwnID(t *testing.T) {
 	p, rec := chatReplay(t, chatStream)
 	row := []Block{ToolResultBlock("toolu_01ABCDEFG", "2 pods", false)}
 
-	_, _, err := askChat(t, chatRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "anthropic"}))
+	_, _, err := askChat(t, chatRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "anthropic", Dialect: DialectChatCompletions}))
 
 	require.NoError(t, err)
 	assert.Equal(t, "toolu_01ABCDEFG", rec.body["messages"].([]any)[1].(map[string]any)["tool_call_id"])
@@ -1142,7 +1157,7 @@ func TestChatCompletionsMintsOneIDPerForeignCall(t *testing.T) {
 		ToolResultBlock("toolu_2", "3 nodes", false),
 	}
 
-	_, _, err := askChat(t, chatRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "anthropic"}))
+	_, _, err := askChat(t, chatRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "anthropic", Dialect: DialectChatCompletions}))
 
 	require.NoError(t, err)
 	msgs := rec.body["messages"].([]any)
@@ -1169,7 +1184,7 @@ func TestChatCompletionsMintsAnIDPerCallAcrossRounds(t *testing.T) {
 		ToolResultBlock("call-2", "1 job", false),
 	}
 
-	_, _, err := askChat(t, chatRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "anthropic"}))
+	_, _, err := askChat(t, chatRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "anthropic", Dialect: DialectChatCompletions}))
 
 	require.NoError(t, err)
 	msgs := rec.body["messages"].([]any)
@@ -1196,7 +1211,7 @@ func TestChatCompletionsMintsOverItsOwnRepeatedIDs(t *testing.T) {
 		ToolResultBlock("call-1", "3 nodes", false),
 	}
 
-	_, _, err := askChat(t, chatRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "groq"}))
+	_, _, err := askChat(t, chatRequest(p, Message{Role: "assistant", Blocks: row, ProviderID: "groq", Dialect: DialectChatCompletions}))
 
 	require.NoError(t, err)
 	msgs := rec.body["messages"].([]any)
@@ -1234,7 +1249,7 @@ func TestChatCompletionsReadsParallelCallsSentWithoutAnIndex(t *testing.T) {
 // so does its entry, the vendor's key kept, so the entry and its result pair up.
 func TestChatCompletionsMintsASpentIDInsideItsPayload(t *testing.T) {
 	row := func() Message {
-		return Message{Role: "assistant", ProviderID: "groq", Blocks: []Block{
+		return Message{Role: "assistant", ProviderID: "groq", Dialect: DialectChatCompletions, Blocks: []Block{
 			withPayload(ToolUseBlock("call-1", "list_objects", json.RawMessage(`{"resource":"pods"}`)),
 				`{"id":"call-1","type":"function","function":{"name":"list_objects","arguments":"{\"resource\":\"pods\"}"},"extra_content":{"google":{"thought_signature":"c2ln"}}}`),
 			ToolResultBlock("call-1", "2 pods", false),

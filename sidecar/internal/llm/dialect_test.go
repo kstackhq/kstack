@@ -770,7 +770,7 @@ func TestEveryDialectRendersARoundAsAPrefixOfTheNext(t *testing.T) {
 			p, rec := w.replay(t, w.text)
 			msgs := []Message{
 				{Role: "user", Blocks: []Block{TextBlock("how many pods?")}},
-				{Role: "assistant", Blocks: row, ProviderID: p.ID},
+				{Role: "assistant", Blocks: row, ProviderID: p.ID, Dialect: p.Dialect},
 			}
 			if i == 1 {
 				msgs = append(msgs, Message{Role: "user", Blocks: []Block{TextBlock("and nodes?")}})
@@ -927,7 +927,7 @@ func switchedRows(t *testing.T, w wire) []Message {
 				blocks = append(blocks, ToolResultBlock(b.ID, "2 pods", false), TextBlock("Two pods."))
 			}
 		}
-		rows = append(rows, Message{Role: "assistant", ProviderID: p.ID, Effort: "high", Blocks: blocks})
+		rows = append(rows, Message{Role: "assistant", ProviderID: p.ID, Dialect: p.Dialect, Effort: "high", Blocks: blocks})
 	}
 	return rows
 }

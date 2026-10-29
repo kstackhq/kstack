@@ -319,11 +319,11 @@ func TestStreamSendsNoRoundsWithNoOffer(t *testing.T) {
 	assert.Equal(t, round, msgs[1].Blocks, "the caller's blocks are not written to")
 }
 
-// unreplayableRow is an assistant row written by providerID whose first call's
+// unreplayableRow is an assistant row written by p whose first call's
 // payload is not an object and whose second's is, marked GOOD so a test can see
 // whether it was sent.
-func unreplayableRow(providerID string) Message {
-	return Message{Role: "assistant", ProviderID: providerID, Blocks: []Block{
+func unreplayableRow(p Provider) Message {
+	return Message{Role: "assistant", ProviderID: p.ID, Dialect: p.Dialect, Blocks: []Block{
 		withPayload(ToolUseBlock("call_1", "list_objects", json.RawMessage(`{"resource":"pods"}`)), `7`),
 		withPayload(ToolUseBlock("call_2", "list_objects", json.RawMessage(`{"resource":"nodes"}`)), `{"marker":"GOOD"}`),
 		ToolResultBlock("call_1", "2 pods", false),
@@ -337,8 +337,8 @@ func unreplayableRow(providerID string) Message {
 // of a row pair up, and an API refuses a pair with one side missing. The tests
 // offer a tool, since with no offer Stream drops every round, payloads and all;
 // the payloads ride tool_use blocks, the one kind every wire replays one on; and
-// the row names the target's own provider, since a row naming none is already
-// stripped.
+// the row names the target's own provider and dialect, since a row naming none
+// is already stripped.
 func TestStreamSendsARowWithABadPayloadAsForeign(t *testing.T) {
 	question := Message{Role: "user", Blocks: []Block{TextBlock("how many pods?")}}
 
@@ -346,12 +346,13 @@ func TestStreamSendsARowWithABadPayloadAsForeign(t *testing.T) {
 		buf := captureLog(t)
 		f := NewFake(0)
 		p := FakeProvider(f)
-		msgs := []Message{question, unreplayableRow(p.ID)}
+		msgs := []Message{question, unreplayableRow(p)}
 
 		_, err := Target{Provider: p, Model: p.Catalog[0]}.Stream(t.Context(), "", msgs, "", []ToolDefinition{listObjects}, nil, func(Chunk) {})
 
 		require.NoError(t, err)
 		assert.Empty(t, f.LastRequest().Messages[1].ProviderID, "the row names no writer")
+		assert.Empty(t, f.LastRequest().Messages[1].Dialect)
 		assert.Equal(t, p.ID, msgs[1].ProviderID, "the caller's messages are not written to")
 		assert.Contains(t, buf.String(), "level=WARN")
 		assert.Contains(t, buf.String(), `messages="1 tool_use"`, "by index and block type")
@@ -361,7 +362,7 @@ func TestStreamSendsARowWithABadPayloadAsForeign(t *testing.T) {
 	for _, w := range wires() {
 		t.Run(w.name, func(t *testing.T) {
 			p, rec := w.replay(t, w.text)
-			req := w.req(p, question, unreplayableRow(p.ID))
+			req := w.req(p, question, unreplayableRow(p))
 			model := req.Model
 			model.Tools = true
 
@@ -381,7 +382,7 @@ func TestStreamSendsARowWithABadPayloadAsForeign(t *testing.T) {
 	// only going foreign repairs it.
 	t.Run("messages repairs the last round", func(t *testing.T) {
 		p, rec := replay(t, textStream)
-		row := Message{Role: "assistant", ProviderID: p.ID, Effort: "high", Blocks: []Block{
+		row := Message{Role: "assistant", ProviderID: p.ID, Dialect: p.Dialect, Effort: "high", Blocks: []Block{
 			TextBlock("Let me check."),
 			withPayload(ThinkingBlock("I count them."), `7`),
 			ToolUseBlock("toolu_1", "list_objects", json.RawMessage(`{"resource":"pods"}`)),

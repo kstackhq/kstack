@@ -56,7 +56,7 @@ func TestAChatSwitchesAcrossEveryDialect(t *testing.T) {
 		}
 		question := llm.Message{Role: "user", Blocks: []llm.Block{llm.TextBlock(fmt.Sprintf(
 			"Call the echo tool once with the text %q, then answer with the word it returns.", fmt.Sprintf("step %d", i)))}}
-		answer := llm.Message{Role: "assistant", ProviderID: target.Provider.ID, Effort: target.Effort}
+		answer := llm.Message{Role: "assistant", ProviderID: target.Provider.ID, Dialect: target.Provider.Dialect, Effort: target.Effort}
 		for range maxRounds {
 			msgs := append(slices.Clone(history), question, answer)
 			resp, err := target.Stream(t.Context(), "Be terse.", msgs, "", []llm.ToolDefinition{echo}, nil, func(llm.Chunk) {})
