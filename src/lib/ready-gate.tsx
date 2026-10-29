@@ -28,6 +28,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Button } from '@kubetail/ui/elements/button';
 
 import { AppMark } from '@/components/widgets/app-mark';
+import { VisibleText } from '@/components/widgets/visible-text';
 import { errorMessage, reportError } from '@/lib/error-bus';
 
 // Keeps the gate on screen in a dev build: `pending` never settles, `error` fails
@@ -83,7 +84,9 @@ export function ReadyGate({ children }: { children: React.ReactNode }) {
         <span className="sr-only">Starting…</span>
       ) : (
         <>
-          <p className="text-destructive">Failed to start: {state.message}</p>
+          <p className="text-destructive">
+            Failed to start: <VisibleText text={state.message} />
+          </p>
           <Button size="sm" variant="outline" onClick={retry}>
             Retry
           </Button>

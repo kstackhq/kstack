@@ -34,6 +34,10 @@ use super::logs::forward_sidecar_line;
 /// (`sidecar/main.go`); the drain task matches it to flip the readiness watch.
 const READY_MARKER: &[u8] = b"READY ";
 
+/// First-token marker the sidecar prints on stdout, followed by the reason,
+/// when it cannot compose the app; it exits 1 right after.
+const FATAL_MARKER: &[u8] = b"FATAL ";
+
 /// The sidecar's log, beside the host's `main.log` in the same directory.
 const SIDECAR_LOG_FILE: &str = "sidecar.log";
 
@@ -57,6 +61,15 @@ struct State {
     exited: bool,
 }
 
+/// Where the sidecar's startup stands, as its stdout reports it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Startup {
+    Pending,
+    Ready,
+    /// The reason it printed after [`FATAL_MARKER`].
+    Failed(String),
+}
+
 /// Owns the bundled sidecar child process and its IPC bridges (query client,
 /// SSE reader, gRPC channel), all on the [`Endpoint`] picked at spawn time.
 /// Construct via [`SidecarService::spawn`]. Shutdown can be driven from any
@@ -64,9 +77,10 @@ struct State {
 pub struct SidecarService {
     state: Arc<Mutex<State>>,
     exit_rx: Mutex<Receiver<()>>,
-    /// Flipped true on [`READY_MARKER`]; on process exit the sender drops,
-    /// surfacing to `wait_for` as a recv error ("exited before ready").
-    ready_rx: watch::Receiver<bool>,
+    /// Leaves `Pending` on [`READY_MARKER`] or [`FATAL_MARKER`]; on process
+    /// exit the sender drops, surfacing to `wait_for` as a recv error
+    /// ("exited before ready").
+    startup_rx: watch::Receiver<Startup>,
     query_client: QueryClient,
     subscription_client: SubscriptionClient,
     /// Host-internal control surface (auth watch/login/logout, poke), h2c over
@@ -122,23 +136,13 @@ impl SidecarService {
         // Capacity 1 so the drain task never blocks delivering the exit.
         let (exit_tx, exit_rx) = sync_channel::<()>(1);
 
-        let (ready_tx, ready_rx) = watch::channel(false);
+        let (startup_tx, startup_rx) = watch::channel(Startup::Pending);
 
         let drain_state = Arc::clone(&state);
         tauri::async_runtime::spawn(async move {
             while let Some(ev) = rx.recv().await {
                 match ev {
-                    CommandEvent::Stdout(line) => {
-                        // stdout carries the readiness protocol and nothing
-                        // else; anything else there is as unexpected as a
-                        // stderr line and forwarded the same way.
-                        if line.starts_with(READY_MARKER) {
-                            tracing::info!("sidecar ready");
-                            let _ = ready_tx.send(true);
-                            continue;
-                        }
-                        forward_sidecar_line(&line);
-                    }
+                    CommandEvent::Stdout(line) => stdout_line(&line, &startup_tx),
                     CommandEvent::Stderr(line) => forward_sidecar_line(&line),
                     CommandEvent::Terminated(payload) => {
                         if exited_cleanly(payload.code, payload.signal) {
@@ -173,37 +177,20 @@ impl SidecarService {
         Ok(Self {
             state,
             exit_rx: Mutex::new(exit_rx),
-            ready_rx,
+            startup_rx,
             query_client,
             subscription_client,
             grpc_client,
         })
     }
 
-    /// Waits for the sidecar's [`READY_MARKER`]; errors if the sidecar exits
-    /// first (`Io`) or [`READY_BUDGET`] elapses (`TimedOut`). The frontend's
-    /// startup gate — without it the first GraphQL call silently absorbs the
-    /// bind-wait latency.
+    /// Waits for the sidecar's [`READY_MARKER`]; errors with the sidecar's
+    /// own reason after [`FATAL_MARKER`], if it exits first (`Io`), or if
+    /// [`READY_BUDGET`] elapses (`TimedOut`). The frontend's startup gate —
+    /// without it the first GraphQL call silently absorbs the bind-wait
+    /// latency.
     pub async fn ready(&self) -> Result<()> {
-        let mut rx = self.ready_rx.clone();
-        if *rx.borrow() {
-            return Ok(());
-        }
-        // `.map(|_| ())` drops the `watch::Ref` before the match arm — its
-        // borrow on `rx` would otherwise trip the borrow checker.
-        let waited = tokio::time::timeout(READY_BUDGET, rx.wait_for(|ready| *ready))
-            .await
-            .map(|res| res.map(|_| ()));
-        match waited {
-            Ok(Ok(())) => Ok(()),
-            Ok(Err(_)) => Err(AppError::Io(std::io::Error::other(
-                "sidecar exited before announcing readiness",
-            ))),
-            Err(_) => Err(AppError::Io(std::io::Error::new(
-                std::io::ErrorKind::TimedOut,
-                "sidecar did not announce readiness within budget",
-            ))),
-        }
+        wait_ready(self.startup_rx.clone()).await
     }
 
     /// Forwards a GraphQL query/mutation over UDS HTTP; see [`QueryClient`].
@@ -442,9 +429,121 @@ impl FrameSink for TauriChannelSink {
     }
 }
 
+/// Handles one line of the sidecar's stdout. stdout carries the readiness
+/// protocol and nothing else; any other line there is as unexpected as a
+/// stderr line and forwarded the same way.
+fn stdout_line(line: &[u8], startup: &watch::Sender<Startup>) {
+    if line.starts_with(READY_MARKER) {
+        tracing::info!("sidecar ready");
+        let _ = startup.send(Startup::Ready);
+    } else if let Some(reason) = line.strip_prefix(FATAL_MARKER) {
+        // The line reader keeps the line's end.
+        let reason = String::from_utf8_lossy(reason).trim_end().to_owned();
+        let _ = startup.send(Startup::Failed(reason));
+    } else {
+        forward_sidecar_line(line);
+    }
+}
+
+/// [`SidecarService::ready`] over the startup watch. A `Failed` stored before
+/// the sender dropped wins: `wait_for` checks the current value before it
+/// reports a closed channel.
+async fn wait_ready(mut rx: watch::Receiver<Startup>) -> Result<()> {
+    // `.clone()` releases the `watch::Ref` before the match, whose borrow on
+    // `rx` would otherwise trip the borrow checker.
+    let waited = tokio::time::timeout(
+        READY_BUDGET,
+        rx.wait_for(|startup| *startup != Startup::Pending),
+    )
+    .await
+    .map(|res| res.map(|startup| startup.clone()));
+    match waited {
+        Ok(Ok(Startup::Failed(reason))) => Err(AppError::Io(std::io::Error::other(reason))),
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(_)) => Err(AppError::Io(std::io::Error::other(
+            "sidecar exited before announcing readiness",
+        ))),
+        Err(_) => Err(AppError::Io(std::io::Error::new(
+            std::io::ErrorKind::TimedOut,
+            "sidecar did not announce readiness within budget",
+        ))),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_ready_line_marks_the_sidecar_ready() {
+        let (tx, rx) = watch::channel(Startup::Pending);
+        stdout_line(b"READY unix:/run/kstack/s.sock\n", &tx);
+        assert_eq!(*rx.borrow(), Startup::Ready);
+    }
+
+    /// The line reader keeps the newline; the start screen must not show it.
+    #[test]
+    fn a_fatal_line_carries_its_reason_without_the_newline() {
+        let (tx, rx) = watch::channel(Startup::Pending);
+        stdout_line(b"FATAL app.db was written by a newer Kstack\n", &tx);
+        assert_eq!(
+            *rx.borrow(),
+            Startup::Failed("app.db was written by a newer Kstack".to_owned())
+        );
+    }
+
+    #[test]
+    fn any_other_line_leaves_startup_pending() {
+        let (tx, rx) = watch::channel(Startup::Pending);
+        stdout_line(b"panic: boom\n", &tx);
+        assert_eq!(*rx.borrow(), Startup::Pending);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_ready_returns_once_the_sidecar_is_ready() {
+        let (tx, rx) = watch::channel(Startup::Pending);
+        tx.send(Startup::Ready).expect("a receiver is open");
+
+        wait_ready(rx).await.expect("ready");
+    }
+
+    /// The sidecar exits right after its `FATAL` line, so the reason must win
+    /// over the closed channel.
+    #[tokio::test(start_paused = true)]
+    async fn wait_ready_returns_the_sidecars_reason() {
+        let (tx, rx) = watch::channel(Startup::Pending);
+        tx.send(Startup::Failed(
+            "app.db was written by a newer Kstack".to_owned(),
+        ))
+        .expect("a receiver is open");
+        drop(tx);
+
+        let err = wait_ready(rx).await.expect_err("a failed start");
+        assert_eq!(err.to_string(), "app.db was written by a newer Kstack");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_ready_fails_when_the_sidecar_exits_unannounced() {
+        let (tx, rx) = watch::channel(Startup::Pending);
+        drop(tx);
+
+        let err = wait_ready(rx).await.expect_err("an exit");
+        assert_eq!(
+            err.to_string(),
+            "sidecar exited before announcing readiness"
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn wait_ready_times_out_on_a_silent_sidecar() {
+        let (_tx, rx) = watch::channel(Startup::Pending);
+
+        let err = wait_ready(rx).await.expect_err("a timeout");
+        assert!(
+            matches!(&err, AppError::Io(e) if e.kind() == std::io::ErrorKind::TimedOut),
+            "got: {err:?}"
+        );
+    }
 
     /// Pins the host↔sidecar CLI contract (`--socket`, the three directories,
     /// `--host-pid`, and the endpoints); changing it without updating the

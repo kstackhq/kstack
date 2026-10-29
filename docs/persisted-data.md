@@ -43,9 +43,9 @@ cluster no longer has.
 
 | Format | Where | Owner | Class | Version stamp | Forward path | Newer file | Pinned by |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| App DB | `<data>/app.db` | `internal/appdb` | durable | `sqlitemigrate` | SQL migrations | refused; the sidecar does not start | `appdb` `TestOpenRefusesANewerFile` |
+| App DB | `<data>/app.db` | `internal/appdb` | durable | `sqlitemigrate` | SQL migrations | refused; the sidecar does not start and the start screen names the file | `appdb` `TestOpenRefusesANewerFile`; the message: `TestANewerAppDBFailsTheBuildNamingTheVersions`, `TestRunFailsWhenTheAppCannotBeComposed`, `wait_ready_returns_the_sidecars_reason` |
 | App DB JSON columns | `app.db`: message content blocks, server-tool counts, tool-call input and error, `ActionRequest`, watch result | `agent/chat`, `tools` | durable | rides `app.db`'s | an `app.db` migration | with `app.db` | with `app.db` |
-| Control-plane store | `<data>/beehive.db` | `github.com/amorey/beehive/sqlite` | durable | beehive's own runner | beehive's migrations, taken by a module bump | refused; the sidecar does not start | beehive's `internal/sqlitemigrate` tests |
+| Control-plane store | `<data>/beehive.db` | `github.com/amorey/beehive/sqlite` | durable | beehive's own runner | beehive's migrations, taken by a module bump | refused; the sidecar does not start and the start screen names the file | beehive's `internal/sqlitemigrate` tests; the message: `TestANewerBeehiveDBFailsTheServiceSayingSo`, `TestRunFailsWhenTheAppCannotBeComposed`, `wait_ready_returns_the_sidecars_reason` |
 | Chat and monitor directories | `<data>/chats/<chat id>/`, `<data>/monitor/<cluster id>/`: `results/`, `tasks/`, `workspace/`, `toolhome/` | `agent/chat`, `tools` | durable | rides `app.db`'s | an `app.db` migration; the layout only grows and the root never moves | with `app.db` | with `app.db` |
 | Cluster cache | `<cache>/kube/<cache id>.db` | `kubestore` | durable | `sqlitemigrate` | SQL migrations | refused; the cache reports `StoreFailed` with the message and the rest of the app runs | `kubestore` `TestOpenRefusesANewerFile`; `kubesync` `TestArmReportsAStoreThatWillNotOpen` (any open failure reaches `StoreFailed`) |
 | Cluster cache `raw_json` | `kube/*.db` `objects.raw_json` | `kubestore/rawcodec.go` | durable | first byte (zlib `0x78`, JSON `{`) | a `kube/*.db` migration | with `kube/*.db` | `rawcodec_test.go` |
@@ -67,11 +67,6 @@ Kept on disk but never read back as a format, or not kept across a restart:
 - **Provider API keys**: passed in at launch (`cfg.LLMKeys`), never written.
 - **Provider payloads** inside the message blocks: a cache the provider may invalidate, dropped
   when stale (#516). Kstack's own block format is what migrates.
-
-## Open on #512
-
-- A refused `app.db` or `beehive.db` fails the sidecar's start with a migrate error in the log and
-  no message on the start screen.
 
 ## First release
 
