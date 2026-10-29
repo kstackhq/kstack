@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/kstackhq/kstack/sidecar/internal/agent/chat"
 	"github.com/kstackhq/kstack/sidecar/internal/appdb"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate"
 	"github.com/kstackhq/kstack/sidecar/internal/llm"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 	"github.com/kstackhq/kstack/sidecar/internal/run/session"
@@ -95,6 +97,11 @@ func build(ctx context.Context, cfg Config) (*Runtime, error) {
 	db, err := appdb.Open(p.AppDBFile, appdb.DefaultSweepInterval)
 	if err != nil {
 		_ = sb.Close()
+		// This text reaches the user: a newer file names itself and both versions.
+		var newer *sqlitemigrate.NewerSchemaError
+		if errors.As(err, &newer) {
+			return nil, fmt.Errorf("app.db was written by a newer Kstack (schema %d; this build reads up to %d)", newer.Recorded, newer.Supported)
+		}
 		return nil, fmt.Errorf("open app database: %w", err)
 	}
 	rt := &Runtime{DB: db}

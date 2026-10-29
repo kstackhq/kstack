@@ -22,10 +22,12 @@ import (
 	"slices"
 	"testing"
 
+	beehivesqlite "github.com/amorey/beehive/sqlite"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/kstackhq/kstack/sidecar/internal/lib/lifecycle"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate/sqlitemigratetest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/internal/kubeconn"
 	"github.com/kstackhq/kstack/sidecar/internal/services/cluster/internal/kubestore"
@@ -39,6 +41,22 @@ func newTestService(t *testing.T) Service {
 	require.NoError(t, err)
 	t.Cleanup(func() { assert.NoError(t, svc.Close()) })
 	return svc
+}
+
+// A beehive.db a newer build migrated fails the service with the text the start
+// screen shows, naming the file and both versions. The supported version is
+// beehive's, so it is not pinned.
+func TestANewerBeehiveDBFailsTheServiceSayingSo(t *testing.T) {
+	paths := testPaths(t)
+	store, err := beehivesqlite.Open(paths.BeehiveDBFile)
+	require.NoError(t, err)
+	require.NoError(t, store.Close())
+	sqlitemigratetest.StampNewer(t, paths.BeehiveDBFile)
+
+	_, err = New(openTestDB(t), paths, newTestKubeconfig(t), nil)
+
+	require.Error(t, err)
+	assert.Regexp(t, `^beehive\.db was written by a newer Kstack \(schema 999; this build reads up to \d+\)$`, err.Error())
 }
 
 // The runtime store and the mirror are where the service is handed them: the

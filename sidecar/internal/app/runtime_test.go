@@ -8,6 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/appdb"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate/sqlitemigratetest"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
 
@@ -50,6 +52,21 @@ func TestAnAppDBThatCannotOpenFailsTheBuild(t *testing.T) {
 	_, err := build(t.Context(), withDirs(t, Config{DataDir: dir}))
 
 	assert.ErrorContains(t, err, "open app database")
+}
+
+// An app.db a newer build migrated fails the build with the text the start screen
+// shows: the file and both versions.
+func TestANewerAppDBFailsTheBuildNamingTheVersions(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "app.db")
+	db, err := appdb.Open(path, 0)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	sqlitemigratetest.StampNewer(t, path)
+
+	_, err = build(t.Context(), withDirs(t, Config{DataDir: dir}))
+
+	assert.EqualError(t, err, "app.db was written by a newer Kstack (schema 999; this build reads up to 1)")
 }
 
 // With no shell the resolver has no prober. The comparison is to a nil

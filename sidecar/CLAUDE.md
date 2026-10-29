@@ -212,6 +212,12 @@ row in the same commit.** How to change one:
 - **`settings.json`**: a field's layout change bumps `schemaVersion` and upgrades in
   `jsonsettings.Open`; a newer file is read and its keys kept.
 
+A refusal reaches the user. `sqlitemigrate` refuses a newer file with `*NewerSchemaError`, which `build`
+turns into *app.db was written by a newer Kstack (…)*; the error's own text is the reason, logged
+as `app init`. When `app.New` fails, `run` also prints `FATAL <reason>` on stdout for whatever
+spawned it; the host shows it on the start screen. Tests make a newer file with
+`sqlitemigrate/sqlitemigratetest`'s `StampNewer`, covered through its callers.
+
 → [ADR: each persisted format carries its own version stamp](../docs/adr/2026-10-29-each-persisted-format-carries-its-own-version-stamp.md).
 
 ## Tests & checks

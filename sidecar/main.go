@@ -40,12 +40,14 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/kstackhq/kstack/sidecar/internal/app"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/ipc"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/logging"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/safe"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/version"
 	"github.com/kstackhq/kstack/sidecar/internal/run/sandbox"
 )
@@ -155,6 +157,10 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 	}
 	if err != nil {
 		slog.Error("app init", "err", err)
+		// Whoever spawned the sidecar reads the reason off stdout a line at a time,
+		// so the text is folded onto one.
+		reason := strings.Join(strings.Fields(safe.Safe(err)), " ")
+		fmt.Fprintf(stdout, "FATAL %s\n", reason)
 		return 1
 	}
 
@@ -170,8 +176,9 @@ func run(ctx context.Context, cfg config, stdin io.Reader, stdout io.Writer) int
 	// again once Shutdown returns, since Shutdown does not wait for its hooks.
 	srv.RegisterOnShutdown(application.CancelStreams)
 
-	// The host matches the `READY ` prefix; scheme+path are informational (the
-	// host picked the path and passed it via --socket).
+	// stdout carries the host protocol and nothing else: `READY ` once the app is
+	// composed, `FATAL <reason>` when it is not. The host matches the prefix;
+	// scheme+path are informational (the host picked the path and passed it via --socket).
 	fmt.Fprintf(stdout, "READY %s:%s\n", ipc.Scheme, cfg.Socket)
 
 	stop, err := application.Start(ctx)

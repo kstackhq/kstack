@@ -40,8 +40,9 @@ func runArgs(t *testing.T, args ...string) config {
 	return cfg
 }
 
-// A config the composition root rejects exits 1. READY is announced only once
-// the app is built, so the host never sees an endpoint that will not serve.
+// A config the composition root rejects exits 1, naming the failure on stdout.
+// READY follows a composed app and FATAL a failed one, so the host never sees an
+// endpoint that will not serve and can show why.
 func TestRunFailsWhenTheAppCannotBeComposed(t *testing.T) {
 	// stdin stays open: its EOF is a quit, and a quit during startup exits 0.
 	stdin, hold := io.Pipe()
@@ -52,8 +53,12 @@ func TestRunFailsWhenTheAppCannotBeComposed(t *testing.T) {
 	if code := run(t.Context(), cfg, stdin, &out); code != 1 {
 		t.Errorf("exit code = %d, want 1", code)
 	}
-	if out.String() != "" {
-		t.Errorf("stdout = %q, want empty (READY follows a composed app)", out.String())
+	line, rest, _ := strings.Cut(out.String(), "\n")
+	if !strings.HasPrefix(line, "FATAL ") || !strings.Contains(line, "--data-dir") {
+		t.Errorf("stdout = %q, want one FATAL line naming the compose error", out.String())
+	}
+	if rest != "" || strings.Contains(out.String(), "READY") {
+		t.Errorf("stdout = %q, want the FATAL line alone", out.String())
 	}
 }
 

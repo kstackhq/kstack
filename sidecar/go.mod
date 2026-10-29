@@ -6,7 +6,7 @@ require (
 	github.com/99designs/gqlgen v0.17.97
 	github.com/JohannesKaufmann/html-to-markdown/v2 v2.5.2
 	github.com/Microsoft/go-winio v0.6.4
-	github.com/amorey/beehive v0.33.1
+	github.com/amorey/beehive v0.34.0
 	github.com/amorey/gobus v0.7.0
 	github.com/amorey/gochan v0.4.0
 	github.com/anthropics/anthropic-sdk-go v1.84.0

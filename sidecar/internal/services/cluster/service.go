@@ -480,6 +480,11 @@ func New(db *appdb.DB, paths Paths, kubeconfigSvc kubeconfigService, pokeSvc *po
 	bhStore, err := beehivesqlite.Open(paths.BeehiveDBFile)
 	if err != nil {
 		store.Close()
+		// This text reaches the user: a newer file names itself and both versions.
+		var newer *beehivesqlite.NewerSchemaError
+		if errors.As(err, &newer) {
+			return nil, fmt.Errorf("beehive.db was written by a newer Kstack (schema %d; this build reads up to %d)", newer.Recorded, newer.Supported)
+		}
 		return nil, fmt.Errorf("open beehive store: %w", err)
 	}
 	// Everything from here on has both to release on failure.
