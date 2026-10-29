@@ -22,7 +22,10 @@ const { useClustersMock, useActiveKubeContextMock } = vi.hoisted(() => ({
   useClustersMock: vi.fn(),
   useActiveKubeContextMock: vi.fn(),
 }));
-vi.mock('@/lib/clusters', () => ({ useClusters: useClustersMock }));
+vi.mock('@/lib/clusters', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/clusters')>()),
+  useClusters: useClustersMock,
+}));
 vi.mock('@/lib/active-kube-context', () => ({ useActiveKubeContext: useActiveKubeContextMock }));
 
 const { useActiveCluster } = await import('./active-cluster');

@@ -257,6 +257,15 @@ export function useClusters(): ClustersContextValue {
   return ctx;
 }
 
+// The record the sidecar keeps for a kubeconfig context, if it has made one.
+export function clusterForContext(clusters: Cluster[] | null, context: string): Cluster | undefined {
+  return clusters?.find((c) => c.spec.source.kubeconfig?.context === context);
+}
+
+export function displayName(c: Cluster): string {
+  return c.spec.name || c.spec.source.kubeconfig?.context || c.id;
+}
+
 const KB = 1024;
 const MB = KB * 1024;
 const GB = MB * 1024;

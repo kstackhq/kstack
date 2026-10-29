@@ -23,11 +23,13 @@ import { Popover as PopoverPrimitive } from '@base-ui/react/popover';
 import { X } from 'lucide-react';
 
 import { Button } from '@kubetail/ui/elements/button';
-import { Popover, PopoverClose, PopoverTrigger } from '@kubetail/ui/elements/popover';
+import { PopoverClose } from '@kubetail/ui/elements/popover';
 import { Spinner } from '@kubetail/ui/elements/spinner';
 
+import { OmniboxPopover } from '@/components/widgets/omnibox-popover';
+
 import { useActiveKubeContext } from '@/lib/active-kube-context';
-import { useClusters } from '@/lib/clusters';
+import { clusterForContext, useClusters } from '@/lib/clusters';
 import { useMemories } from '@/lib/memories';
 import type { Memory } from '@/lib/memories';
 import { usePersistedWidth } from '@/lib/persisted-width';
@@ -99,7 +101,7 @@ export function MemoryPopoverContent() {
   // stands in while the window has none.
   const { context, contexts } = useActiveKubeContext();
   const { clusters: records } = useClusters();
-  const idOf = (name: string) => records?.find((c) => c.spec.source.kubeconfig?.context === name)?.id;
+  const idOf = (name: string) => clusterForContext(records, name)?.id;
   const clusters = contexts.map((c) => c.name).filter((name) => name !== context);
   if (context) clusters.unshift(context);
   const [picked, setPicked] = useState<Scope | null>(null);
@@ -190,9 +192,7 @@ function MemoryPopup() {
   );
 }
 
-// Anchored to the omnibox, not the brain button that opens it, so the popover
-// centers on the omnibox and starts at its width. The library's `PopoverContent`
-// anchors on the trigger alone, so the positioner is base-ui's own.
+// Hung from the omnibox, not the brain button that opens it.
 export function MemoryPopover({
   anchorRef,
   children,
@@ -201,23 +201,8 @@ export function MemoryPopover({
   children: ReactElement;
 }) {
   return (
-    <Popover>
-      <PopoverTrigger render={children} />
-      <PopoverPrimitive.Portal>
-        {/* z-50, as the library's popover content has: above the sidebar drawer
-            and its scrim. It never flips above the omnibox: its height is capped
-            at the room below, which would otherwise trip the flip. */}
-        <PopoverPrimitive.Positioner
-          anchor={anchorRef}
-          align="center"
-          side="bottom"
-          sideOffset={8}
-          collisionAvoidance={{ side: 'none' }}
-          className="z-50"
-        >
-          <MemoryPopup />
-        </PopoverPrimitive.Positioner>
-      </PopoverPrimitive.Portal>
-    </Popover>
+    <OmniboxPopover anchorRef={anchorRef} popup={<MemoryPopup />}>
+      {children}
+    </OmniboxPopover>
   );
 }

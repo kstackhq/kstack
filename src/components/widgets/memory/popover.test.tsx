@@ -34,7 +34,10 @@ const { kube, known, watched, saveMock, deleteMock } = vi.hoisted(() => ({
   deleteMock: vi.fn(),
 }));
 vi.mock('@/lib/active-kube-context', () => ({ useActiveKubeContext: () => kube }));
-vi.mock('@/lib/clusters', () => ({ useClusters: () => ({ clusters: known.current }) }));
+vi.mock('@/lib/clusters', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/clusters')>()),
+  useClusters: () => ({ clusters: known.current }),
+}));
 vi.mock('@/lib/memories', () => ({
   useMemories: (clusterID: string | undefined) => {
     watched.ids.push(clusterID);

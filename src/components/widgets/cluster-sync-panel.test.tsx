@@ -30,7 +30,7 @@ vi.mock('@tauri-apps/api/core', () => factory());
 
 const { createGraphqlClient } = await import('@/lib/graphql/client');
 const { ClustersProvider } = await import('@/lib/clusters');
-const { ClusterSyncPanel, overallTone } = await import('./cluster-sync-panel');
+const { ClusterSyncPanel } = await import('./cluster-sync-panel');
 const { onError } = await import('@/lib/error-bus');
 
 // Helpers -------------------------------------------------------------
@@ -466,18 +466,6 @@ async function openWith(rows: Row[]) {
   await user.click(screen.getByRole('button', { name: /clusters/i }));
   return user;
 }
-
-describe('overallTone', () => {
-  it('rolls up to the most severe of the two sub-system tones', () => {
-    expect(overallTone('ok', 'ok')).toBe('ok');
-    expect(overallTone('ok', 'muted')).toBe('ok');
-    expect(overallTone('muted', 'muted')).toBe('muted');
-    expect(overallTone('attention', 'muted')).toBe('attention');
-    expect(overallTone('ok', 'attention')).toBe('attention');
-    expect(overallTone('error', 'attention')).toBe('error');
-    expect(overallTone('ok', 'error')).toBe('error');
-  });
-});
 
 describe('ClusterSyncPanel', () => {
   // base-ui's dialog relies on pointer-capture / scroll APIs jsdom lacks.

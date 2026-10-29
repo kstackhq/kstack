@@ -31,12 +31,9 @@ vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/graphql/use-watch-subscription')>()),
   useWatchSubscription: useWatchSubscriptionMock,
 }));
-vi.mock('@/lib/clusters', () => ({
+vi.mock('@/lib/clusters', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/clusters')>()),
   useClusters: useClustersMock,
-  applyChange: <T,>(items: Map<string, T>, type: string, id: string, entity: T) => {
-    if (type === 'Deleted') items.delete(id);
-    else items.set(id, entity);
-  },
 }));
 vi.mock('@/lib/active-kube-context', () => ({ useActiveKubeContext: useActiveKubeContextMock }));
 

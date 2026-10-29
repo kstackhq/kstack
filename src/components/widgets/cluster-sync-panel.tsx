@@ -32,10 +32,21 @@ import {
   type ClusterCacheHealth,
   type Keyed,
   applyChange,
+  displayName,
   formatBytes,
   useClusters,
 } from '@/lib/clusters';
 import { type AppDialogProps } from '@/lib/dialog';
+import {
+  type Group,
+  type Tone,
+  TONE,
+  connectionStatus,
+  findCondition,
+  isPending,
+  overallStatus,
+  syncStatus,
+} from '@/lib/cluster-health';
 import { EVENTS_GVR, gvrKey } from '@/lib/gvr';
 import { perFrame, useWatchSubscription, watchPhase } from '@/lib/graphql/use-watch-subscription';
 
@@ -313,7 +324,7 @@ function useCacheContents(clusterId: string, cacheId: string, pause: boolean): C
 
 // One cache's per-kind sync records — cache-scoped (one per synced kind; a
 // cluster-wide stream would be a hundred-plus records per cache). Identity only,
-// no conditions: the verdict comes from the sidecar's rollup (see statusOf), and
+// no conditions: the verdict comes from the sidecar's rollup (see syncStatus), and
 // this stream is only asked which record owns the timeline worth showing.
 const ClusterCachedKindsSubscription = graphql(`
   subscription ClusterCachedKinds($cacheID: ObjectID!) {
@@ -386,29 +397,12 @@ function useNextCheck(clusterId: string): NextCheck {
   return { atMs: parseTimeOrNull(data?.nextRequeueAt ?? null), probing: data?.probing ?? false };
 }
 
-type Tone = 'ok' | 'attention' | 'error' | 'muted';
-type Group = 'active' | 'orphaned';
-
-// Per-tone: severity (overall circle = worst of the two axes), dot fill, and a
-// text-tuned shade for the tinted column label.
-const TONE: Record<Tone, { severity: number; dot: string; text: string }> = {
-  error: { severity: 3, dot: 'bg-red-500', text: 'text-red-600 dark:text-red-400' },
-  attention: { severity: 2, dot: 'bg-amber-500', text: 'text-amber-600 dark:text-amber-400' },
-  ok: { severity: 1, dot: 'bg-emerald-500', text: 'text-emerald-600 dark:text-emerald-400' },
-  muted: { severity: 0, dot: 'bg-muted-foreground/50', text: 'text-muted-foreground' },
-};
-
 // Single source for the colSpan numbers below.
 const COLUMN_COUNT = 6;
 
 // Status-circle column, shared so header/rows/detail align. Non-zero width so
 // table-fixed doesn't collapse it.
 const STATUS_CELL_CLASS = 'w-5 pr-0';
-
-// Exported for unit testing.
-export function overallTone(connection: Tone, sync: Tone): Tone {
-  return TONE[connection].severity >= TONE[sync].severity ? connection : sync;
-}
 
 // A tinted status label (the connection/sync column word).
 function ToneText({ tone, children }: { tone: Tone; children: ReactNode }) {
@@ -417,83 +411,6 @@ function ToneText({ tone, children }: { tone: Tone; children: ReactNode }) {
       {children}
     </span>
   );
-}
-
-// Pending = not yet identified (kube-system UID probe hasn't succeeded, e.g. a
-// stopped minikube): can't sync or cache yet.
-function isPending(c: Cluster): boolean {
-  return !c.status.server.uid;
-}
-
-function displayName(c: Cluster): string {
-  return c.spec.name || c.spec.source.kubeconfig?.context || c.id;
-}
-
-function findCondition<T extends { type: string }>(conditions: T[], type: string): T | undefined {
-  return conditions.find((cond) => cond.type === type);
-}
-
-// Connection column: derives from the live `Connected` condition, not the sticky
-// `server.uid` (never clears, so it would read "Active" after a drop).
-function connectionStatus(c: Cluster, group: Group): { label: string; tone: Tone } {
-  if (group === 'orphaned') return { label: 'Unavailable', tone: 'muted' };
-  const connected = findCondition(c.conditions, 'Connected');
-  if (connected?.status === 'True') return { label: 'Active', tone: 'ok' };
-  if (connected?.status === 'False') return { label: 'Disconnected', tone: 'error' };
-  return { label: 'Connecting', tone: 'attention' };
-}
-
-// Sync status. Gate on the live `Connected` condition first (a dropped connection
-// leaves the engine reporting a stale "Watching"), then read the rollup.
-function statusOf(c: Cluster, group: Group): { label: string; tone: Tone } {
-  if (group === 'orphaned') return { label: 'Stopped', tone: 'muted' };
-  if (isPending(c)) return { label: 'Not synced', tone: 'muted' };
-  if (!c.spec.syncEnabled) return { label: 'Paused', tone: 'muted' };
-  const connected = findCondition(c.conditions, 'Connected');
-  // Muted, not amber: the fault is on the connection axis — graying the gated sync
-  // value keeps it reading as a downstream symptom.
-  if (connected?.status === 'False') return { label: 'Stalled', tone: 'muted' };
-  // Verdict = the sidecar's per-kind rollup, dominated by the worst kind — neither
-  // the cache's coarse Synced condition nor any single kind's would do.
-  const health = c.activeCache?.health;
-  // No rollup yet — nothing observed, only work in progress.
-  if (!health) return { label: 'Syncing', tone: 'ok' };
-  switch (health.reason) {
-    case 'SyncFailed':
-      return { label: 'Error', tone: 'error' };
-    // The cache's file will not open, so nothing under it syncs and no kind can say why.
-    // It clears on its own never — the Clear button is the fix — which is why it reads as
-    // hard as a failing kind rather than as a stall.
-    case 'StoreFailed':
-      return { label: 'Storage error', tone: 'error' };
-    // A watch went quiet past the freshness threshold: amber, not a hard error.
-    case 'Stale':
-      return { label: 'Stale', tone: 'attention' };
-    // Steady state — all kinds caught up and streaming deltas.
-    case 'Watching':
-      return { label: 'Synced', tone: 'ok' };
-    // Waiting on credentials; muted like Stalled — nothing wrong with the sync itself.
-    case 'NoConnection':
-      return { label: 'Connecting', tone: 'muted' };
-    // Every kind paused. Distinct from the spec.syncEnabled gate above (which flips
-    // instantly on resume, before the kinds' reconciles land).
-    case 'Paused':
-      return { label: 'Paused', tone: 'muted' };
-    // Catching up, or discovery hasn't landed — not a fault.
-    case 'Syncing':
-    case 'Unknown':
-      return { label: 'Syncing', tone: 'ok' };
-    // An unknown reason is DEGRADED, not healthy (the schema and the sidecar's fold
-    // both read it that way) — green here would paint every future verdict healthy.
-    default:
-      return { label: 'Degraded', tone: 'attention' };
-  }
-}
-
-// Leading status circle: worst of the two axes, plus a summary tooltip.
-type Status = { label: string; tone: Tone };
-function overallStatus(connection: Status, sync: Status): { tone: Tone; summary: string } {
-  return { tone: overallTone(connection.tone, sync.tone), summary: `${connection.label} · ${sync.label}` };
 }
 
 function parseTimeOrNull(iso: string | null | undefined): number | null {
@@ -809,7 +726,7 @@ function SyncDetail({
   contents: CacheContents | null;
 }) {
   const kindSyncs = useCachedKinds(cacheId);
-  const syncStatus = useCacheSyncStatus(clusterId, cacheId);
+  const cacheSync = useCacheSyncStatus(clusterId, cacheId);
   const timelineKind = timelineSyncFor(kindSyncs, health);
   const events = useSyncEvents(timelineKind?.id);
   const discoveryEvents = useDiscoveryEvents(cacheId);
@@ -817,13 +734,13 @@ function SyncDetail({
   // hundred kinds into one verdict. A kind with no reason yet has not answered, and a kind
   // still starting has not failed: a cache being armed, cleared, or resumed reports every one
   // of its kinds that way, and reading those as offenders would list all of them.
-  const failingKinds = (syncStatus?.kinds ?? []).filter(
+  const failingKinds = (cacheSync?.kinds ?? []).filter(
     (kind) => kind.reason && kind.reason !== 'Paused' && !SETTLING_REASONS.has(kind.reason),
   );
   // Paused kinds get their own section rather than joining SETTLING_REASONS: a kind the
   // user switched off is neither a fault nor settling, and folding it into the settling set
   // would hide it instead of putting the resume control beside it.
-  const pausedKinds = (syncStatus?.kinds ?? []).filter((kind) => kind.reason === 'Paused');
+  const pausedKinds = (cacheSync?.kinds ?? []).filter((kind) => kind.reason === 'Paused');
   const [, setKindSyncEnabled] = useMutation(ClusterCachedKindSyncEnabledSetMutation);
   // The mutation takes the per-kind RECORD's id, and a sync-detail row carries only its
   // GVR — so the control resolves one against the other. A row with no record yet gets no
@@ -868,7 +785,7 @@ function SyncDetail({
         {/* No fallback: omit rather than assert a verification that never happened. */}
         <DetailRow label="Sync verified" ms={lastLiveMs} />
       </dl>
-      {syncStatus?.discovery.reason ? <DiscoveryVerdict discovery={syncStatus.discovery} /> : null}
+      {cacheSync?.discovery.reason ? <DiscoveryVerdict discovery={cacheSync.discovery} /> : null}
       {failingKinds.length > 0 ? (
         <FailingKindList kinds={failingKinds} idOf={idOf} onSetSyncEnabled={setSyncEnabled} />
       ) : null}
@@ -1099,7 +1016,7 @@ function ClusterRow({
   const { activeCache } = cluster;
   const contents = useCacheContents(cluster.id, activeCache?.id ?? '', !activeCache);
   const connection = connectionStatus(cluster, group);
-  const status = statusOf(cluster, group);
+  const status = syncStatus(cluster, group);
   const overall = overallStatus(connection, status);
   const orphaned = group === 'orphaned';
   const connFailed = connection.tone === 'error';

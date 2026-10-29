@@ -22,7 +22,7 @@
 import { useMemo } from 'react';
 
 import { useActiveKubeContext } from '@/lib/active-kube-context';
-import { useClusters } from '@/lib/clusters';
+import { clusterForContext, useClusters } from '@/lib/clusters';
 import type { Cluster } from '@/lib/clusters';
 import type { WatchPhase } from '@/lib/graphql/use-watch-subscription';
 
@@ -36,10 +36,7 @@ export function useActiveCluster(): {
   const { context, phase } = useActiveKubeContext();
   const { clusters } = useClusters();
 
-  const cluster = useMemo(
-    () => clusters?.find((c) => c.spec.source.kubeconfig?.context === context),
-    [clusters, context],
-  );
+  const cluster = useMemo(() => clusterForContext(clusters, context), [clusters, context]);
   const clusterID = cluster?.id;
   const cacheID = cluster?.activeCache?.id;
   return { cluster, clusterID, cacheID, active: !!(clusterID && cacheID), phase };

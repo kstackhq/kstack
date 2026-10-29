@@ -35,14 +35,11 @@ vi.mock('@/lib/graphql/use-watch-subscription', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/graphql/use-watch-subscription')>()),
   useWatchSubscription: useWatchSubscriptionMock,
 }));
-// Mock the provider hook but keep the real `applyChange` reducer helper (a pure map
-// patch the hook reuses) so the delta accumulation under test runs unaltered.
-vi.mock('@/lib/clusters', () => ({
+// The provider hook alone is mocked; `applyChange` and the lookups stay real, so the
+// delta accumulation under test runs unaltered.
+vi.mock('@/lib/clusters', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/clusters')>()),
   useClusters: useClustersMock,
-  applyChange: <T,>(items: Map<string, T>, type: string, id: string, entity: T) => {
-    if (type === 'Deleted') items.delete(id);
-    else items.set(id, entity);
-  },
 }));
 vi.mock('@/lib/active-kube-context', () => ({ useActiveKubeContext: useActiveKubeContextMock }));
 

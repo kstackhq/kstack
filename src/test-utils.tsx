@@ -17,6 +17,7 @@ import { createMemoryHistory, createRouter, RouterProvider } from '@tanstack/rea
 import type { AnyRoute } from '@tanstack/react-router';
 import { expect, vi } from 'vitest';
 
+import type { Cluster } from '@/lib/clusters';
 import { setWatchFlushScheduler } from '@/lib/graphql/use-watch-subscription';
 
 export type FakeChannel = { onmessage?: (raw: string) => void };
@@ -114,6 +115,67 @@ export function clusterOf(r: ClusterRow) {
       },
       server: { uid: `uid-${r.id}` },
       conditions: [],
+    },
+  };
+}
+
+// A joined `Cluster` as `useClusters` serves it, for the pure readers over one: a
+// connected record whose cache is watching, unless told otherwise.
+export function clusterRecord({
+  context,
+  connected = 'True',
+  reason = 'Watching',
+}: {
+  context: string;
+  connected?: 'True' | 'False' | 'Unknown';
+  // The cache's folded sync verdict; null for a record with no verdict yet.
+  reason?: string | null;
+}): Cluster {
+  const id = `id-${context}`;
+  return {
+    id,
+    deletionRequestedAt: null,
+    spec: { name: '', syncEnabled: true, enabled: true, source: { kubeconfig: { context } } },
+    status: {
+      source: {
+        kubeconfig: {
+          cluster: { name: context, entry: { server: 'https://example:6443', insecureSkipTLSVerify: false } },
+          user: { name: context },
+          isPresent: true,
+          isDefault: false,
+        },
+      },
+      server: { uid: `uid-${context}` },
+    },
+    conditions: [
+      {
+        type: 'Connected',
+        status: connected,
+        reason: '',
+        message: '',
+        liveness: true,
+        unconfirmed: false,
+        transitionedAt: '2026-10-29T00:00:00Z',
+      },
+    ],
+    activeCache: {
+      id: `cache-${context}`,
+      clusterID: id,
+      spec: { serverUid: `uid-${context}` },
+      health:
+        reason === null
+          ? null
+          : {
+              cacheID: `cache-${context}`,
+              status: reason === 'Watching' ? 'True' : 'False',
+              reason,
+              unhealthyKindRefs: [],
+              totalKinds: 1,
+              unhealthyKinds: 0,
+              pausedKinds: 0,
+              lastUpdateAt: null,
+              lastLiveAt: null,
+            },
     },
   };
 }

@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 // Mocks ---------------------------------------------------------------
 
-// The scope the omnibox switches, and the dialog host the icon asks.
+// The scope the omnibox switches, and the dialog host the picker's footer asks.
 const { useActiveKubeContextMock, setContext, openDialog } = vi.hoisted(() => ({
   useActiveKubeContextMock: vi.fn(),
   setContext: vi.fn(),
@@ -41,7 +41,12 @@ const { memoriesState } = vi.hoisted(() => ({
   },
 }));
 vi.mock('@/lib/active-cluster', () => ({ useActiveCluster: () => ({ clusterID: 'c1' }) }));
-vi.mock('@/lib/clusters', () => ({ useClusters: () => ({ clusters: [] }) }));
+// The cluster records the dot reads its verdict from; the lookups over them are the real ones.
+const { records } = vi.hoisted(() => ({ records: { current: [] as unknown[] } }));
+vi.mock('@/lib/clusters', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/clusters')>()),
+  useClusters: () => ({ clusters: records.current }),
+}));
 vi.mock('urql', () => ({ useMutation: () => [{}, vi.fn()] }));
 vi.mock('@/lib/memories', async () => {
   const { useSyncExternalStore } = await import('react');
@@ -58,7 +63,7 @@ vi.mock('@/lib/memories', async () => {
   };
 });
 
-// The cluster segment navigates itself rather than going through `setContext`, so
+// The picker navigates itself rather than going through `setContext`, so
 // the router is the seam for what it writes — and for where the window is, which
 // decides whether the switch also has a chat route to leave.
 const { navigate, location } = vi.hoisted(() => ({ navigate: vi.fn(), location: { pathname: '/dashboard' } }));
@@ -68,6 +73,7 @@ vi.mock('@tanstack/react-router', () => ({
 }));
 
 const { ContextOmnibox } = await import('./context-omnibox');
+const { clusterRecord } = await import('@/test-utils');
 
 // Helpers -------------------------------------------------------------
 
@@ -77,28 +83,26 @@ function serveContexts(
 ) {
   useActiveKubeContextMock.mockReturnValue({
     context: over.context ?? names[0] ?? '',
-    contexts: names.map((name) => ({ name })),
+    contexts: names.map((name) => ({ name, cluster: name, user: name, clusterEntry: null })),
     active: { name: over.context ?? names[0] ?? '', clusterEntry: over.clusterEntry ?? null },
     phase: over.phase ?? 'live',
     setContext,
   });
 }
 
-const clusterSegment = () => screen.getByRole('button', { name: /^cluster:/i });
+const trigger = () => screen.getByRole('button', { name: /^cluster:/i });
 
-// The menu portals in asynchronously, so wait for the item rather than reading it.
-const menuItem = (name: string) => screen.findByRole('menuitemradio', { name });
-
-// base-ui scrolls the highlighted item into view; jsdom has no implementation.
-beforeAll(() => {
-  Element.prototype.scrollIntoView = vi.fn();
-});
+// The picker portals in asynchronously, so wait for its heading rather than reading it.
+const pickerOpened = () => screen.findByText('Clusters', { selector: 'p' });
+const pickerRow = (name: string) =>
+  screen.getByText(name, { selector: '[data-testid="cluster-name"]' }).closest('button')!;
 
 beforeEach(() => {
   vi.clearAllMocks();
   location.pathname = '/dashboard';
   memoriesState.current = [];
   memoriesState.lastSaved = undefined;
+  records.current = [];
   serveContexts(['prod', 'staging']);
 });
 
@@ -107,7 +111,7 @@ beforeEach(() => {
 describe('ContextOmnibox', () => {
   it('reads as one control, the cluster the window is on', () => {
     render(<ContextOmnibox />);
-    expect(screen.getByTestId('context-omnibox').contains(clusterSegment())).toBe(true);
+    expect(screen.getByTestId('context-omnibox').contains(trigger())).toBe(true);
   });
 
   it('opts out of the app bar’s drag region', () => {
@@ -120,7 +124,7 @@ describe('ContextOmnibox', () => {
   it('shows the cluster in view', () => {
     serveContexts(['prod', 'staging'], { context: 'staging' });
     render(<ContextOmnibox />);
-    expect(clusterSegment()).toHaveTextContent('staging');
+    expect(trigger()).toHaveTextContent('staging');
   });
 
   it('opens the memory popover from the brain icon', async () => {
@@ -164,58 +168,61 @@ describe('ContextOmnibox', () => {
     expect(pulse()).toBeInTheDocument();
   });
 
-  it('opens the clusters dialog from the icon', async () => {
+  it.each([
+    ['name', () => screen.getByText('prod', { selector: '[data-testid="cluster-trigger-name"]' })],
+    ['glyph', () => screen.getByTestId('cluster-trigger-glyph')],
+    ['TLS badge', () => screen.getByText('Unverified TLS')],
+  ])('opens the cluster picker from the trigger’s %s', async (_part, target) => {
+    serveContexts(['prod'], { clusterEntry: { server: 'https://prod:6443', insecureSkipTLSVerify: true } });
     const user = userEvent.setup();
     render(<ContextOmnibox />);
 
-    await user.click(screen.getByRole('button', { name: 'Clusters' }));
-    expect(openDialog).toHaveBeenCalledWith('clusters');
+    await user.click(target());
+    expect(await pickerOpened()).toBeInTheDocument();
   });
 
-  // A chat belongs to a cluster, so the dashboard panel's open chat does not follow a
-  // cluster switch — and the rest of the window's scope does.
-  it('switches cluster from the quick dropdown, closing the panel’s chat', async () => {
+  it('opens the memory popover, and not the picker, from the brain icon', async () => {
     const user = userEvent.setup();
     render(<ContextOmnibox />);
 
-    await user.click(clusterSegment());
-    await user.click(await menuItem('staging'));
+    await user.click(screen.getByRole('button', { name: 'Memory' }));
+    expect(await screen.findByTestId('memory-popup')).toBeInTheDocument();
+    expect(screen.queryByText('Clusters', { selector: 'p' })).not.toBeInTheDocument();
+  });
+
+  it('switches cluster from a picker row', async () => {
+    const user = userEvent.setup();
+    render(<ContextOmnibox />);
+
+    await user.click(trigger());
+    await pickerOpened();
+    await user.click(pickerRow('staging'));
 
     expect(navigate).toHaveBeenCalledTimes(1);
-    const { to, search } = navigate.mock.calls[0][0];
-    expect(to).toBe('.');
-    expect(search({ kubeContext: 'prod', resource: 'pods', chat: 'c1' })).toEqual({
+    expect(navigate.mock.calls[0][0].search({ kubeContext: 'prod' })).toEqual({
       kubeContext: 'staging',
-      resource: 'pods',
       chat: undefined,
     });
-    expect(setContext).not.toHaveBeenCalled();
   });
 
-  it('clears the focused log view on a switch', async () => {
-    const user = userEvent.setup();
+  it('colours the dot with the window’s cluster’s verdict, its summary as the title', () => {
+    const dot = () => within(trigger()).getByTestId('cluster-dot');
+    records.current = [clusterRecord({ context: 'prod' })];
+    const { unmount } = render(<ContextOmnibox />);
+    expect(dot()).toHaveAttribute('data-tone', 'ok');
+    expect(dot()).toHaveAttribute('title', 'Active · Synced');
+    unmount();
+
+    records.current = [clusterRecord({ context: 'prod', connected: 'False' })];
+    const second = render(<ContextOmnibox />);
+    expect(dot()).toHaveAttribute('data-tone', 'error');
+    expect(dot()).toHaveAttribute('title', 'Disconnected · Stalled');
+    second.unmount();
+
+    records.current = [clusterRecord({ context: 'staging' })];
     render(<ContextOmnibox />);
-
-    await user.click(clusterSegment());
-    await user.click(await menuItem('staging'));
-
-    expect(clearView).toHaveBeenCalledTimes(1);
-  });
-
-  // In chat mode the open chat is the route, so the switch has to leave it: a chat of
-  // the cluster the window just left would otherwise greet it with the out-of-scope
-  // notice, which is for arriving at such a chat rather than for stepping off one.
-  it('leaves an open chat for the new cluster’s unstarted one', async () => {
-    location.pathname = '/chat/c1';
-    const user = userEvent.setup();
-    render(<ContextOmnibox />);
-
-    await user.click(clusterSegment());
-    await user.click(await menuItem('staging'));
-
-    const { to, search } = navigate.mock.calls[0][0];
-    expect(to).toBe('/chat');
-    expect(search({ kubeContext: 'prod' })).toEqual({ kubeContext: 'staging', chat: undefined });
+    expect(dot()).toHaveAttribute('data-tone', 'muted');
+    expect(dot()).toHaveAttribute('title', 'Not reached');
   });
 
   it('warns when the cluster is reached with its certificate unchecked', () => {
@@ -243,13 +250,18 @@ describe('ContextOmnibox', () => {
   it('says it is still connecting rather than "No kubeconfig"', () => {
     serveContexts([], { phase: 'connecting' });
     render(<ContextOmnibox />);
-    expect(screen.getByTestId('kube-context-connecting')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cluster: connecting' })).toHaveTextContent('Connecting…');
   });
 
-  it('says there is no kubeconfig once connected with nothing in it', () => {
+  // The picker still opens, so a user with no kubeconfig reaches the dialog's orphaned caches.
+  it('says there is no kubeconfig once connected with nothing in it, and still opens the picker', async () => {
     serveContexts([], { phase: 'live' });
+    const user = userEvent.setup();
     render(<ContextOmnibox />);
-    expect(screen.getByTestId('kube-context-empty')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /^cluster:/i })).not.toBeInTheDocument();
+
+    const empty = screen.getByRole('button', { name: 'Cluster: no kubeconfig' });
+    expect(empty).toHaveTextContent('No kubeconfig');
+    await user.click(empty);
+    expect(await pickerOpened()).toBeInTheDocument();
   });
 });
