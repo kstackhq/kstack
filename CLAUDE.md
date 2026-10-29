@@ -34,6 +34,8 @@ Cluster data streams as **Kubernetes-style delta watches**: an `Added` snapshot,
 >
 > **Security is recorded in two places.** [`docs/security-model.md`](docs/security-model.md) states what is protected now and which protections a test pins; [`docs/security/`](docs/security/) holds dated review records, append-only. Gaps live in [`docs/TODO.md`](docs/TODO.md#security); an accepted risk becomes an ADR plus a **By decision** row in the model. When you change a boundary or land a protection, move its row in the same change.
 >
+> **Persisted data has a register.** [`docs/persisted-data.md`](docs/persisted-data.md) lists every format Kstack keeps across a restart, with its class, version stamp and pinning test. A change to a persisted format updates its row in the same commit. → [ADR: each persisted format carries its own version stamp](docs/adr/2026-10-29-each-persisted-format-carries-its-own-version-stamp.md).
+>
 > **Keep comments current — describe the present, not the past.** Code comments and these docs describe only the *current* code. **`docs/adr/` is the sole exemption** (append-only history). Don't leave notes about how code *used to* work, what was *renamed from* or *removed*, or which refactor got you here. Drop "used to", "no longer", "formerly", "superseded". Contrasts with *external* systems ("unlike apimachinery's default") are fine.
 
 ## Writing standards

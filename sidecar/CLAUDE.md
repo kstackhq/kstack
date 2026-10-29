@@ -198,6 +198,22 @@ Implement the panicking stubs it appends to `schema.resolvers.go`. **Never hand-
 - Unexported functional options for test seams; exported `New` takes production knobs only.
 - **Production code reaches the API server through `kubeconn.Connection`'s `Dynamic` client or raw requests on its `HTTPClient`.** Never import `k8s.io/api/...`, `client-go/discovery` or the typed clientset (`client-go/kubernetes`): `kubernetes/scheme` links every API group, about 16 MB. Tests may use them. `make vet-go` and CI fail on them (`scripts/check-sidecar-deps.sh`).
 
+## Persisted formats
+
+Every file the sidecar keeps has a row in [`docs/persisted-data.md`](../docs/persisted-data.md),
+with its class, its version stamp and the test that pins it. **A change to a format updates its
+row in the same commit.** How to change one:
+
+- **A SQLite schema** (`appdb`, `kubestore`, `logstore`): until the first release, edit
+  `0001_init.sql` in place. After it, add the next numbered `*.sql`; `sqlitemigrate` refuses a file
+  recorded newer than the binary, and a migration is never removed.
+- **A JSON column or the chat directory layout**: rides `app.db`'s version, so the change is an
+  `app.db` migration. The layout only grows and the data directory never moves.
+- **`settings.json`**: a field's layout change bumps `schemaVersion` and upgrades in
+  `jsonsettings.Open`; a newer file is read and its keys kept.
+
+→ [ADR: each persisted format carries its own version stamp](../docs/adr/2026-10-29-each-persisted-format-carries-its-own-version-stamp.md).
+
 ## Tests & checks
 
 - testify + `httptest`. Resolver tests stand up `graph.NewServer(ctx, &graph.Resolver{...})` + `POST /graphql`; lifecycle tests stand up `app.New(...)`. Filesystem via `t.TempDir()`.

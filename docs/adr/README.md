@@ -224,3 +224,4 @@ usually just documentation in the wrong place.
 | 2026-10-27 | [Put the sandbox's node_modules on the overlay, beside Cargo's target dir](2026-10-27-sandbox-node-modules-on-the-overlay.md) | repo | Superseded by [2026-10-28-share-one-pnpm-store-across-sandbox-worktrees](2026-10-28-share-one-pnpm-store-across-sandbox-worktrees.md) |
 | 2026-10-28 | [Tauri signs the macOS bundle in the job that installs its dependencies](2026-10-28-tauri-signs-the-macos-bundle-beside-its-dependencies.md) | repo | Accepted |
 | 2026-10-28 | [Share one pnpm store across the sandbox's worktrees, in the global virtual store layout](2026-10-28-share-one-pnpm-store-across-sandbox-worktrees.md) | repo | Accepted |
+| 2026-10-29 | [Each persisted format carries its own version stamp, and a downgrade is refused only where it would break](2026-10-29-each-persisted-format-carries-its-own-version-stamp.md) | cross-cutting | Accepted |
