@@ -15,7 +15,7 @@
 // The look every control in the app bar wears, in one place so the buttons, the
 // pills and the omnibox cannot drift apart.
 import type { ComponentProps, ReactNode } from 'react';
-import { Button, buttonVariants } from '@kubetail/ui/elements/button';
+import { Button } from '@kubetail/ui/elements/button';
 import { cn } from '@kubetail/ui/lib/utils';
 
 // `ghost` is the library variant with no resting fill, so the bar's tint shows
@@ -35,15 +35,6 @@ const VARIANTS = { variant: 'ghost', size: 'icon' } as const;
 
 /** For a control that cannot be a `Button` — the omnibox's wrapper. */
 export const APP_BAR_CONTROL_CLASS = SHAPE;
-
-/**
- * For a control that must render as something else — `HomeButton` is a router
- * `Link`, which the `Button` element cannot be without taking `role="button"`
- * and ceasing to be a link.
- */
-export function appBarButtonClass(className?: string) {
-  return cn(buttonVariants(VARIANTS), SHAPE, APP_BAR_HOVER_CLASS, className);
-}
 
 export function AppBarButton({ className, ...props }: ComponentProps<typeof Button>) {
   return <Button {...VARIANTS} className={cn(SHAPE, APP_BAR_HOVER_CLASS, className)} {...props} />;

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 // Notifications button in the app bar's right-hand pill, beside Settings. Nothing
-// feeds it yet: the dot and the popover's copy are placeholders.
+// feeds it yet: the popover's copy is a placeholder.
 import { Bell } from 'lucide-react';
 
 import { Popover, PopoverContent, PopoverTrigger } from '@kubetail/ui/elements/popover';
@@ -23,9 +23,8 @@ import { AppBarButton } from '@/components/widgets/app-bar-button';
 export function NotificationButton() {
   return (
     <Popover>
-      <PopoverTrigger render={<AppBarButton className="relative border-transparent" />} aria-label="Notifications">
+      <PopoverTrigger render={<AppBarButton className="border-transparent" />} aria-label="Notifications">
         <Bell aria-hidden />
-        <span aria-hidden className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-primary ring-2 ring-app-bar" />
       </PopoverTrigger>
       <PopoverContent align="end" sideOffset={8} className="w-72">
         <p className="text-sm font-medium">Notifications</p>

@@ -22,7 +22,6 @@ import { AppBarDivider, AppBarGroup } from '@/components/widgets/app-bar-button'
 import { AppMenu } from '@/components/widgets/app-menu';
 import { ContextOmnibox } from '@/components/widgets/context-omnibox';
 import { HistoryNav } from '@/components/widgets/history-nav';
-import { HomeButton } from '@/components/widgets/home-button';
 import { NotificationButton } from '@/components/widgets/notification-button';
 import { SettingsButton } from '@/components/widgets/settings-button';
 import { WindowControls } from '@/components/widgets/window-controls';
@@ -67,9 +66,8 @@ export function AppBar() {
       ) : (
         <AppMenu />
       )}
-      {/* 16px from the chrome on the left, 8px between the two controls. */}
+      {/* 16px from the chrome on the left. */}
       <div data-testid="app-bar-controls" className="ml-4 flex items-center gap-2">
-        <HomeButton />
         <HistoryNav />
       </div>
       {/* The omnibox rides between two spacers, so it centers itself in whatever

@@ -19,7 +19,7 @@ import type { ReactNode, RefObject } from 'react';
 import { useRef, useState } from 'react';
 
 import { useLocation, useNavigate } from '@tanstack/react-router';
-import { Boxes, Brain, ChevronDown } from 'lucide-react';
+import { Brain, ChevronDown, Server } from 'lucide-react';
 
 import { Button } from '@kubetail/ui/elements/button';
 import {
@@ -233,7 +233,7 @@ export function ContextOmnibox() {
         onClick={() => openDialog('clusters')}
         className={cn('size-8 rounded-full text-muted-foreground', APP_BAR_HOVER_CLASS)}
       >
-        <Boxes aria-hidden />
+        <Server aria-hidden />
       </Button>
       {/* `min-w-0` keeps the trigger free to truncate. */}
       <div className="flex min-w-0 flex-1 items-center justify-center">

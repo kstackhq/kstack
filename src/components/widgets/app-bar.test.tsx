@@ -31,11 +31,8 @@ import {
 const { factory } = mockTauriWindow();
 vi.mock('@tauri-apps/api/window', () => factory());
 
-// The home button and the history nav both need a router; this suite renders the
-// bar outside one, so stub them — their own suites cover the real ones.
-vi.mock('@/components/widgets/home-button', () => ({
-  HomeButton: () => <div data-testid="home-button" />,
-}));
+// The history nav needs a router; this suite renders the bar outside one, so stub
+// it — its own suite covers the real one.
 vi.mock('@/components/widgets/history-nav', () => ({
   HistoryNav: () => <div data-testid="history-nav" />,
 }));
@@ -162,15 +159,11 @@ describe('AppBar', () => {
     expect(Array.from(pill.children)).toContain(screen.getByTestId('notification-button'));
   });
 
-  it('spaces the controls 16px from the chrome and 8px from each other', () => {
+  it('spaces the controls 16px from the chrome', () => {
     render(<AppBar />);
     const controls = screen.getByTestId('app-bar-controls');
-    expect(controls).toHaveClass('ml-4', 'gap-2');
-    // Home first, history nav second.
-    expect(Array.from(controls.children)).toEqual([
-      screen.getByTestId('home-button'),
-      screen.getByTestId('history-nav'),
-    ]);
+    expect(controls).toHaveClass('ml-4');
+    expect(Array.from(controls.children)).toEqual([screen.getByTestId('history-nav')]);
   });
 
   it('reserves the traffic lights and drops the caption chrome on macOS', () => {
@@ -182,7 +175,7 @@ describe('AppBar', () => {
     expect(screen.queryByRole('button', { name: /application menu/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /minimize/i })).not.toBeInTheDocument();
 
-    // The gutter stands in for the menu, so the home button still follows it.
+    // The gutter stands in for the menu, so the history nav still follows it.
     const bands = Array.from(bar.children);
     expect(bands.indexOf(screen.getByTestId('traffic-light-gutter'))).toBeLessThan(
       bands.indexOf(screen.getByTestId('app-bar-controls')),
