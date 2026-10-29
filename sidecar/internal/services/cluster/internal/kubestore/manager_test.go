@@ -28,6 +28,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/watch"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate/sqlitemigratetest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
@@ -292,6 +294,26 @@ func TestOpenAfterRemoveIsRefused(t *testing.T) {
 	h2, err := m.OpenOrCreate(2)
 	require.NoError(t, err)
 	h2.Release()
+}
+
+// A cache file a newer build migrated is refused with the runner's typed error, which
+// kubesync reports as the cache's StoreFailed message.
+func TestOpenRefusesANewerFile(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	first := NewManager(dir, Retention{})
+	store, err := first.OpenOrCreate(1)
+	require.NoError(t, err)
+	store.Release()
+	require.NoError(t, first.Close())
+	sqlitemigratetest.StampNewer(t, filepath.Join(dir, "1.db"))
+
+	m := NewManager(dir, Retention{})
+	t.Cleanup(func() { require.NoError(t, m.Close()) })
+	_, err = m.OpenOrCreate(1)
+
+	assert.ErrorAs(t, err, new(*sqlitemigrate.NewerSchemaError))
 }
 
 // A Delete whose cleanup failed still retires the id: the caller retries, and an

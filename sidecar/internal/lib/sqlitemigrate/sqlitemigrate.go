@@ -19,6 +19,17 @@ import (
 	"time"
 )
 
+// NewerSchemaError refuses a database whose recorded schema version is above the newest
+// migration this build carries: a newer build wrote it.
+type NewerSchemaError struct {
+	Recorded  int
+	Supported int
+}
+
+func (e *NewerSchemaError) Error() string {
+	return fmt.Sprintf("schema version %d is newer than this build supports (%d)", e.Recorded, e.Supported)
+}
+
 // migration is one numbered SQL file; version comes from the filename's leading digits
 // (0001_init.sql → 1) and is both the sort key and the schema_migrations row id.
 type migration struct {
@@ -68,7 +79,8 @@ func loadMigrations(fsys fs.FS, dir string) ([]migration, error) {
 }
 
 // Apply brings db up to dir's latest migration, each in its own transaction, and returns
-// the resulting version. A DB recorded newer than the embedded set is refused.
+// the resulting version. A DB recorded newer than the embedded set is refused with
+// *NewerSchemaError.
 func Apply(ctx context.Context, db *sql.DB, fsys fs.FS, dir string) (int, error) {
 	if _, err := db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS schema_migrations (
 		version    INTEGER PRIMARY KEY,
@@ -95,7 +107,7 @@ func Apply(ctx context.Context, db *sql.DB, fsys fs.FS, dir string) (int, error)
 	// truncate columns the newer schema relies on.
 	latest := migs[len(migs)-1].version
 	if current > latest {
-		return current, fmt.Errorf("database schema version %d is newer than binary supports (%d)", current, latest)
+		return current, &NewerSchemaError{Recorded: current, Supported: latest}
 	}
 
 	for _, m := range migs {

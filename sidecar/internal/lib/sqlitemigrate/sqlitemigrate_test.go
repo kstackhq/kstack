@@ -118,7 +118,11 @@ func TestApplyRejectsNewerThanBinary(t *testing.T) {
 	_, err = Apply(context.Background(), db, fsWith(t, map[string]string{
 		"0001_first.sql": `CREATE TABLE alpha (id INTEGER PRIMARY KEY);`,
 	}), "migrations")
-	require.Error(t, err)
+	var newer *NewerSchemaError
+	require.ErrorAs(t, err, &newer)
+	require.Equal(t, 2, newer.Recorded)
+	require.Equal(t, 1, newer.Supported)
+	require.EqualError(t, err, "schema version 2 is newer than this build supports (1)")
 }
 
 func TestApplyRejectsVersionGap(t *testing.T) {

@@ -12,6 +12,8 @@ import (
 	"github.com/amorey/gobus"
 	"github.com/stretchr/testify/require"
 
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate/sqlitemigratetest"
 	"github.com/kstackhq/kstack/sidecar/internal/lib/testutil"
 )
 
@@ -374,6 +376,20 @@ func TestOpenFailsOnAnUnusablePath(t *testing.T) {
 	// failure comes from the pool's first connection.
 	_, err = Open(dir, 0)
 	require.Error(t, err)
+}
+
+// A file a newer build migrated is refused with the runner's typed error, so a caller
+// can name it to the user.
+func TestOpenRefusesANewerFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "app.db")
+	db, err := Open(path, 0)
+	require.NoError(t, err)
+	require.NoError(t, db.Close())
+	sqlitemigratetest.StampNewer(t, path)
+
+	_, err = Open(path, 0)
+
+	require.ErrorAs(t, err, new(*sqlitemigrate.NewerSchemaError))
 }
 
 // A subscriber hears the keys it asked for and nothing else, and a burst on one key

@@ -25,6 +25,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate"
+	"github.com/kstackhq/kstack/sidecar/internal/lib/sqlitemigrate/sqlitemigratetest"
 )
 
 // newTestManager is a manager over a temp directory, closed when the test ends.
@@ -306,6 +309,22 @@ func TestAnOpenThatCannotOpenTheFileFails(t *testing.T) {
 	_, err := m.OpenOrCreate(1)
 
 	assert.Error(t, err)
+}
+
+// A log file a newer build migrated is refused with the runner's typed error.
+func TestOpenOrCreateRefusesANewerFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	first := NewManager(dir, testRetention)
+	require.NoError(t, open(t, first, 1).Close())
+	require.NoError(t, first.Close())
+	sqlitemigratetest.StampNewer(t, filepath.Join(dir, "1.db"))
+	m := NewManager(dir, testRetention)
+	t.Cleanup(func() { assert.NoError(t, m.Close()) })
+
+	_, err := m.OpenOrCreate(1)
+
+	assert.ErrorAs(t, err, new(*sqlitemigrate.NewerSchemaError))
 }
 
 // An open meeting a clear in progress waits for it, so it never opens the file the clear
