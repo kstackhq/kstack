@@ -17,5 +17,19 @@ fn main() {
     println!("cargo:rerun-if-changed=../proto/auth.proto");
     println!("cargo:rerun-if-changed=../proto/poke.proto");
 
-    tauri_build::build();
+    // tauri-build embeds its Windows manifest in the app binary alone. Without
+    // the manifest's Common Controls v6, a test executable fails to load
+    // (STATUS_ENTRYPOINT_NOT_FOUND), so the linker embeds it in every target.
+    let mut attributes = tauri_build::Attributes::new();
+    if std::env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") {
+        attributes = attributes
+            .windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest());
+        let manifest = std::env::current_dir()
+            .expect("current dir")
+            .join("windows-app-manifest.xml");
+        println!("cargo:rerun-if-changed={}", manifest.display());
+        println!("cargo:rustc-link-arg=/MANIFEST:EMBED");
+        println!("cargo:rustc-link-arg=/MANIFESTINPUT:{}", manifest.display());
+    }
+    tauri_build::try_build(attributes).expect("tauri build");
 }

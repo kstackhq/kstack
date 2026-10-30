@@ -20,7 +20,7 @@ use tracing_appender::non_blocking::WorkerGuard;
 use crate::quit::Quit;
 use crate::services::sidecar::SidecarService;
 use crate::tray::TraySnapshots;
-use crate::webview_log::Limiter;
+use crate::webview_log::{Limiter, LimiterConfig};
 use crate::window_manager::WindowManager;
 
 pub struct AppState {
@@ -47,6 +47,21 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// The state `setup` manages: a fresh shutdown signal shared with the
+    /// window manager, and the default log pacing.
+    pub fn new(sidecar: SidecarService, log_guards: Vec<WorkerGuard>) -> Self {
+        let shutdown = CancellationToken::new();
+        Self {
+            sidecar,
+            window_manager: WindowManager::new(shutdown.clone()),
+            tray: Arc::new(Mutex::new(TraySnapshots::default())),
+            shutdown,
+            quit: Quit::default(),
+            log_guards: Mutex::new(log_guards),
+            webview_log: Mutex::new(Limiter::new(LimiterConfig::DEFAULT)),
+        }
+    }
+
     /// Flushes the log files' worker threads, and must be called on the way out.
     ///
     /// Tauri's `App::run` ends the process with `std::process::exit`, so no
@@ -61,5 +76,47 @@ impl AppState {
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()),
         ));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tauri::Manager;
+    use tracing_subscriber::layer::SubscriberExt;
+
+    use super::AppState;
+    use crate::logging::{file_layer, FileLog};
+    use crate::services::sidecar::SidecarService;
+    use crate::testutil::{mock_app, Scratch};
+
+    /// The guards are the only flush there is: the process never drops them.
+    #[test]
+    fn flush_log_writes_what_is_queued_and_takes_the_guards() {
+        let scratch = Scratch::new();
+        let FileLog { layer, guards } = file_layer(scratch.path()).unwrap();
+        let state = AppState::new(SidecarService::without_process(None), guards);
+        let subscriber = tracing_subscriber::registry().with(layer);
+        tracing::subscriber::with_default(subscriber, || tracing::info!("the last line"));
+
+        state.flush_log();
+
+        let log = std::fs::read_to_string(scratch.path().join("main.log")).unwrap();
+        assert!(log.contains("the last line"), "got: {log}");
+        assert!(state.log_guards.lock().unwrap().is_empty());
+        // Idempotent.
+        state.flush_log();
+    }
+
+    /// One signal: a quit that cancels it also stops windows from opening.
+    #[test]
+    fn the_window_manager_shares_the_shutdown_signal() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let state = app.state::<AppState>();
+
+        state.shutdown.cancel();
+
+        state.window_manager.show_main_window(app.handle()).unwrap();
+        assert!(app.webview_windows().is_empty());
     }
 }

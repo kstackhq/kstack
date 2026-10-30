@@ -39,7 +39,7 @@ const CURRENT_SCHEMA_VERSION: u32 = 1;
 pub const UPDATED_EVENT: &str = "host-file-updated";
 
 /// Absolute path of `host.json` (dir created on demand by [`update`]).
-pub fn path(app: &tauri::AppHandle) -> tauri::Result<PathBuf> {
+pub fn path<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<PathBuf> {
     Ok(app.path().app_config_dir()?.join("host.json"))
 }
 

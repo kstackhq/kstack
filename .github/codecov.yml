@@ -72,5 +72,8 @@ ignore:
   # Each holds wiring alone; stable Rust has no inline marker, so the whole
   # file is the exemption.
   - src-tauri/src/main.rs
+  # The real runtime's builder, event loop and exit; the decisions it calls
+  # are tested in lib.rs.
+  - src-tauri/src/app.rs
   - src-tauri/src/wake/linux.rs
   - src-tauri/src/wake/windows.rs

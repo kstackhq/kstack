@@ -43,6 +43,9 @@ strip = true        # strip symbols from the shipped binary
 # (`pause`/`advance`/`start_paused`) the wake coalescer tests use to drive the
 # debounce deterministically without wall-clock sleeps.
 tokio = { version = "1", features = ["test-util", "macros", "rt"] }
+# Tauri's mock runtime (`tauri::test`): builds an app with no window system, so
+# the commands and `AppState` run under test.
+tauri = { version = "2", features = ["test"] }
 
 [features]
 # Compiles the webview inspector (devtools) into an otherwise-release build so

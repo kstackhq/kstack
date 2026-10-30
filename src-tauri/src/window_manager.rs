@@ -32,7 +32,7 @@ use std::sync::Mutex;
 
 use tauri::webview::NewWindowResponse;
 use tauri::window::{Color, Monitor};
-use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
+use tauri::{AppHandle, Manager, Runtime, Url, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 use tokio_util::sync::CancellationToken;
 use tracing::warn;
 
@@ -201,7 +201,7 @@ fn cascade_position(
 }
 
 /// Unminimizes, shows and focuses `window`.
-fn surface(window: &WebviewWindow) -> Result<()> {
+fn surface<R: Runtime>(window: &WebviewWindow<R>) -> Result<()> {
     // A minimized window won't surface on show()/set_focus() alone.
     if window.is_minimized().unwrap_or(false) {
         window.unminimize()?;
@@ -249,7 +249,7 @@ impl WindowManager {
     }
 
     /// Hides every window, as a quit begins.
-    pub fn hide_all(&self, app: &AppHandle) {
+    pub fn hide_all<R: Runtime>(&self, app: &AppHandle<R>) {
         for window in app.webview_windows().values() {
             if let Err(err) = window.hide() {
                 warn!(%err, "failed to hide a window on quit");
@@ -259,7 +259,7 @@ impl WindowManager {
 
     /// Create a fresh window with a unique label (`window-1`, `window-2`, …) —
     /// never reuses an existing one. Opens nothing once a quit has begun.
-    pub fn new_window(&self, app: &AppHandle) -> Result<()> {
+    pub fn new_window<R: Runtime>(&self, app: &AppHandle<R>) -> Result<()> {
         if self.quitting() {
             return Ok(());
         }
@@ -284,7 +284,7 @@ impl WindowManager {
     /// message to the event loop, so this check queues behind the presentation:
     /// either the quit came first and this hides the window, or the window was
     /// up when `hide_all` ran.
-    fn hide_if_quitting(&self, app: &AppHandle, window: WebviewWindow) {
+    fn hide_if_quitting<R: Runtime>(&self, app: &AppHandle<R>, window: WebviewWindow<R>) {
         let shutdown = self.shutdown.clone();
         let queued = app.run_on_main_thread(move || {
             if shutdown.is_cancelled() {
@@ -308,7 +308,7 @@ impl WindowManager {
     /// The cascade anchor: the focused window, else the last one built (the
     /// tray/Dock menus can be clicked while another app holds focus). `None`
     /// only when no windows are open.
-    fn anchor_window(&self, app: &AppHandle) -> Option<WebviewWindow> {
+    fn anchor_window<R: Runtime>(&self, app: &AppHandle<R>) -> Option<WebviewWindow<R>> {
         let focused = app
             .webview_windows()
             .into_values()
@@ -324,7 +324,7 @@ impl WindowManager {
 
     /// Surface the main window: recreate it if the user closed it, unminimize it
     /// if minimized, then show and focus it. Opens nothing once a quit has begun.
-    pub fn show_main_window(&self, app: &AppHandle) -> Result<()> {
+    pub fn show_main_window<R: Runtime>(&self, app: &AppHandle<R>) -> Result<()> {
         if self.quitting() {
             return Ok(());
         }
@@ -349,7 +349,11 @@ impl WindowManager {
     ///
     /// Every window it builds refuses to navigate off the app origin
     /// ([`is_app_origin`]) and refuses `window.open` outright.
-    fn build_window(&self, app: &AppHandle, label: &str) -> Result<WebviewWindow> {
+    fn build_window<R: Runtime>(
+        &self,
+        app: &AppHandle<R>,
+        label: &str,
+    ) -> Result<WebviewWindow<R>> {
         let mut builder = WebviewWindowBuilder::new(app, label, WebviewUrl::default())
             .title(WINDOW_TITLE)
             .inner_size(WINDOW_WIDTH, WINDOW_HEIGHT)
@@ -455,10 +459,14 @@ impl WindowManager {
 mod tests {
     use super::{background_color_for, cascade_position, is_app_origin, WindowManager};
     use crate::host_file::ColorSchemePreference;
+    use crate::services::sidecar::SidecarService;
+    use crate::testutil::{mock_app, window, Scratch};
     use std::collections::HashSet;
     use std::sync::Arc;
     use std::thread;
+    use tauri::Manager;
     use tauri::Url;
+    use tokio_util::sync::CancellationToken;
 
     #[test]
     fn the_bundled_app_origins_are_admitted() {
@@ -576,6 +584,56 @@ mod tests {
     fn labels_start_at_one() {
         let wm = WindowManager::default();
         assert_eq!(wm.next_label(), "window-1");
+    }
+
+    // The mock runtime has no monitor for `build_window` to place a window on,
+    // so these open theirs past the manager.
+
+    #[test]
+    fn an_open_main_window_is_surfaced_not_rebuilt() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        window(&app, "main");
+
+        WindowManager::default()
+            .show_main_window(app.handle())
+            .unwrap();
+
+        assert_eq!(app.webview_windows().len(), 1);
+    }
+
+    /// A quit hides windows and closes none.
+    #[test]
+    fn hiding_for_a_quit_closes_no_window() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let main = window(&app, "main");
+        let shutdown = CancellationToken::new();
+        let wm = WindowManager::new(shutdown.clone());
+        shutdown.cancel();
+
+        wm.hide_if_quitting(app.handle(), main);
+        wm.hide_all(app.handle());
+
+        assert_eq!(app.webview_windows().len(), 1);
+    }
+
+    /// With no window focused (a tray click), the cascade anchors on the last
+    /// window built, while it is still open.
+    #[test]
+    fn the_anchor_is_the_last_window_built_while_it_is_open() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let wm = WindowManager::default();
+        window(&app, "window-1");
+        assert!(wm.anchor_window(app.handle()).is_none(), "none built yet");
+
+        *wm.last_built.lock().unwrap() = Some("window-1".into());
+        let anchor = wm.anchor_window(app.handle()).unwrap();
+        assert_eq!(anchor.label(), "window-1");
+
+        *wm.last_built.lock().unwrap() = Some("window-2".into());
+        assert!(wm.anchor_window(app.handle()).is_none(), "closed");
     }
 
     #[test]

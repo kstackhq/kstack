@@ -184,6 +184,47 @@ impl SidecarService {
         })
     }
 
+    /// A service with no process behind it. [`Self::ready`] answers at once:
+    /// `Ok` for `None`, the reason for `Some`. Every dial is refused, and
+    /// [`Self::graceful_shutdown`] returns `false` at once. Tests only.
+    #[cfg(test)]
+    pub fn without_process(fatal: Option<&str>) -> Self {
+        Self::detached(None, fatal)
+    }
+
+    /// A service that [`Self::kill`] treats as still running under `pid`, a
+    /// process the test started itself. Tests only.
+    #[cfg(test)]
+    pub fn running_as(pid: u32) -> Self {
+        Self::detached(Some(pid), None)
+    }
+
+    #[cfg(test)]
+    fn detached(pid: Option<u32>, fatal: Option<&str>) -> Self {
+        let state = Arc::new(Mutex::new(State {
+            child: None,
+            pid,
+            exited: false,
+        }));
+        // The sender drops here, so a wait for the exit ends at once.
+        let (_, exit_rx) = sync_channel::<()>(1);
+        let startup = match fatal {
+            None => Startup::Ready,
+            Some(reason) => Startup::Failed(reason.to_string()),
+        };
+        let (_, startup_rx) = watch::channel(startup);
+        let endpoint = Endpoint::pick(&std::env::temp_dir()).expect("pick an endpoint");
+        let target = Target::expecting(endpoint, None);
+        Self {
+            state,
+            exit_rx: Mutex::new(exit_rx),
+            startup_rx,
+            query_client: QueryClient::new(target.clone()),
+            subscription_client: SubscriptionClient::new(target.clone()),
+            grpc_client: GrpcClient::new(target),
+        }
+    }
+
     /// Waits for the sidecar's [`READY_MARKER`]; errors with the sidecar's
     /// own reason after [`FATAL_MARKER`], if it exits first (`Io`), or if
     /// [`READY_BUDGET`] elapses (`TimedOut`). The frontend's startup gate —

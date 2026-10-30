@@ -13,9 +13,8 @@
 // limitations under the License.
 
 use tauri::ipc::Channel;
-use tauri::{AppHandle, Emitter, Manager, State, Webview};
+use tauri::{AppHandle, Emitter, Manager, Runtime, State, Webview};
 
-use crate::cloud;
 use crate::error::Result;
 use crate::host_file::{self, HostFile, HostFilePatch};
 use crate::services::sidecar::GraphqlResponse;
@@ -37,7 +36,7 @@ pub async fn ready(state: State<'_, AppState>) -> Result<()> {
 /// Windows (WebView2's controller is created by the main-thread event loop),
 /// and parking an async worker would starve [`graphql_query`].
 #[tauri::command]
-pub async fn new_window(app: AppHandle) -> Result<()> {
+pub async fn new_window<R: Runtime>(app: AppHandle<R>) -> Result<()> {
     tauri::async_runtime::spawn_blocking(move || {
         app.state::<AppState>().window_manager.new_window(&app)?;
         Ok(())
@@ -51,30 +50,10 @@ pub async fn new_window(app: AppHandle) -> Result<()> {
 /// every window as `host_file::UPDATED_EVENT` and returns it. See
 /// docs/adr/2026-08-09-host-json-settings.md.
 #[tauri::command]
-pub fn update_host_file(app: AppHandle, patch: HostFilePatch) -> Result<HostFile> {
+pub fn update_host_file<R: Runtime>(app: AppHandle<R>, patch: HostFilePatch) -> Result<HostFile> {
     let file = host_file::update(&host_file::path(&app)?, patch)?;
     app.emit(host_file::UPDATED_EVENT, &file)?;
     Ok(file)
-}
-
-/// Quits via [`AppHandle::exit`] so the `RunEvent::ExitRequested` teardown
-/// runs — the same path as the tray and macOS-menu "Quit".
-#[tauri::command]
-pub fn quit(app: AppHandle) {
-    app.exit(0);
-}
-
-/// Opens the account page in the user's browser — the webview's avatar menu, the
-/// same page the tray's account item opens.
-///
-/// Takes no URL. The webview holds the full cluster surface, so the destination
-/// is the host's to name; a command that opened whatever it was handed would be
-/// an exfiltration channel for anything executing in there.
-#[tauri::command]
-pub fn open_account_url(app: AppHandle) -> Result<()> {
-    use tauri_plugin_opener::OpenerExt;
-    app.opener().open_url(cloud::account_url(), None::<&str>)?;
-    Ok(())
 }
 
 /// Writes one webview error record to the host's log (`src/lib/error-log.ts`).
@@ -83,9 +62,9 @@ pub fn open_account_url(app: AppHandle) -> Result<()> {
 ///
 /// `async` so a hot error path runs on the runtime, not the main thread.
 #[tauri::command]
-pub async fn log_webview(
+pub async fn log_webview<R: Runtime>(
     state: State<'_, AppState>,
-    webview: Webview,
+    webview: Webview<R>,
     record: WebviewRecord,
 ) -> Result<()> {
     // Each window holds one webview under the same label, so the window is
@@ -112,9 +91,9 @@ pub async fn graphql_query(state: State<'_, AppState>, body: String) -> Result<G
 /// subscription down when that page goes away — a reload or a window close
 /// runs no JS teardown (see `lib.rs`).
 #[tauri::command]
-pub async fn graphql_subscribe(
+pub async fn graphql_subscribe<R: Runtime>(
     state: State<'_, AppState>,
-    webview: Webview,
+    webview: Webview<R>,
     query: String,
     variables: serde_json::Value,
     channel: Channel<String>,
@@ -131,4 +110,147 @@ pub async fn graphql_subscribe(
 pub async fn graphql_unsubscribe(state: State<'_, AppState>, id: u64) -> Result<()> {
     state.sidecar.unsubscribe(id).await;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+    use tauri::{Listener, Manager};
+
+    use crate::host_file;
+    use crate::services::sidecar::SidecarService;
+    use crate::state::AppState;
+    use crate::testutil::{invoke, mock_app, window, Scratch};
+    use crate::webview_log::{Limiter, LimiterConfig};
+
+    #[test]
+    fn ready_answers_once_the_sidecar_is_ready() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let main = window(&app, "main");
+
+        assert_eq!(invoke(&main, "ready", json!({})), Ok(json!(null)));
+    }
+
+    #[test]
+    fn ready_fails_with_the_sidecars_own_reason() {
+        let scratch = Scratch::new();
+        let sidecar = SidecarService::without_process(Some("database is locked"));
+        let app = mock_app(scratch.path(), sidecar);
+        let main = window(&app, "main");
+
+        let err = invoke(&main, "ready", json!({})).unwrap_err();
+        assert!(
+            err.as_str().unwrap().contains("database is locked"),
+            "got {err}"
+        );
+    }
+
+    /// A transport failure is the webview's `networkError`: an `Err` carrying
+    /// the reason, never a response.
+    #[test]
+    fn a_query_with_no_sidecar_fails_as_a_transport_error() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let main = window(&app, "main");
+
+        let err = invoke(&main, "graphql_query", json!({ "body": "{}" })).unwrap_err();
+        assert!(
+            err.as_str().unwrap().contains("no sidecar is running"),
+            "got {err}"
+        );
+    }
+
+    #[test]
+    fn a_call_missing_an_argument_is_refused_by_name() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let main = window(&app, "main");
+
+        let err = invoke(&main, "graphql_query", json!({})).unwrap_err();
+        assert!(err.as_str().unwrap().contains("body"), "got {err}");
+    }
+
+    /// A subscription answers with its id at once; a failed dial reaches the
+    /// channel, not the call. Unsubscribing tolerates any id.
+    #[test]
+    fn subscribe_returns_fresh_ids_and_unsubscribe_tolerates_any() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let main = window(&app, "main");
+        let subscribe = || {
+            let args = json!({
+                "query": "subscription { x }",
+                "variables": {},
+                "channel": "__CHANNEL__:7",
+            });
+            invoke(&main, "graphql_subscribe", args).unwrap()
+        };
+
+        let first = subscribe();
+        let second = subscribe();
+        assert_ne!(first, second);
+
+        for id in [first, json!(999)] {
+            assert_eq!(
+                invoke(&main, "graphql_unsubscribe", json!({ "id": id })),
+                Ok(json!(null))
+            );
+        }
+    }
+
+    #[test]
+    fn new_window_opens_nothing_once_a_quit_has_begun() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let main = window(&app, "main");
+        app.state::<AppState>().shutdown.cancel();
+
+        assert_eq!(invoke(&main, "new_window", json!({})), Ok(json!(null)));
+        assert_eq!(app.webview_windows().len(), 1);
+    }
+
+    #[test]
+    fn update_host_file_writes_the_merged_file_and_broadcasts_it() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let main = window(&app, "main");
+        let (tx, rx) = std::sync::mpsc::channel();
+        app.listen_any(host_file::UPDATED_EVENT, move |event| {
+            tx.send(event.payload().to_string()).unwrap();
+        });
+
+        let patch = json!({ "patch": { "colorSchemePreference": "dark" } });
+        let file = invoke(&main, "update_host_file", patch).unwrap();
+
+        assert_eq!(file["colorSchemePreference"], "dark");
+        let path = host_file::path(app.handle()).unwrap();
+        assert!(path.starts_with(scratch.path()), "{}", path.display());
+        assert_eq!(serde_json::to_value(host_file::read(&path)).unwrap(), file);
+        // Emitted before the command returned.
+        let broadcast: serde_json::Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
+        assert_eq!(broadcast, file);
+    }
+
+    /// The label records are paced under is the calling webview's.
+    #[test]
+    fn log_webview_paces_records_under_the_calling_webviews_label() {
+        let scratch = Scratch::new();
+        let app = mock_app(scratch.path(), SidecarService::without_process(None));
+        let state = app.state::<AppState>();
+        *state.webview_log.lock().unwrap() = Limiter::new(LimiterConfig {
+            burst: 1,
+            error_reserve: 0,
+            ..LimiterConfig::DEFAULT
+        });
+        let other = window(&app, "window-1");
+
+        for message in ["one", "two"] {
+            let args = json!({ "record": { "source": "graphql", "message": message } });
+            assert_eq!(invoke(&other, "log_webview", args), Ok(json!(null)));
+        }
+
+        let withheld = state.webview_log.lock().unwrap().evict("window-1");
+        assert_eq!(withheld, 1, "the second record is withheld");
+    }
 }
