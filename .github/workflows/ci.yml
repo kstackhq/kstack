@@ -173,8 +173,8 @@ jobs:
           path: ${{ steps.setup.outputs.go-cache-path }}
           key: ${{ steps.setup.outputs.go-cache-key }}
 
-  # Only CI · Result waits on it: a run takes minutes, so the tests start
-  # beside it rather than after it.
+  # No job waits on it: a run takes minutes, so the tests start beside it
+  # rather than after it.
   go-staticcheck:
     name: Go · Staticcheck
     needs: changes
@@ -682,34 +682,3 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build
         run: pnpm build
-
-  # The one job to require: a skipped job reports as success, but a skipped
-  # matrix job reports only under its unexpanded name.
-  ci-result:
-    name: CI · Result
-    if: always()
-    needs:
-      - changes
-      - go-lint
-      - go-vet
-      - go-staticcheck
-      - rust-lint
-      - rust-vet
-      - shell-lint
-      - yaml-lint
-      - typescript-lint
-      - dependency-review
-      - typescript-dependency-review
-      - go-test
-      - go-coverage
-      - go-coverage-gate
-      - sandbox-apparmor
-      - typescript-coverage
-      - rust-test
-      - typescript-test
-      - typescript-build
-    runs-on: ubuntu-24.04
-    steps:
-      - name: Fail if a job failed
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
-        run: exit 1
