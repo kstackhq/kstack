@@ -29,8 +29,9 @@ jobs:
       pull-requests: read
     outputs:
       go: ${{ github.event_name != 'pull_request' || steps.filter.outputs.go == 'true' }}
-      javascript-typescript: ${{ github.event_name != 'pull_request' || steps.filter.outputs.javascript-typescript == 'true' }}
+      typescript: ${{ github.event_name != 'pull_request' || steps.filter.outputs.typescript == 'true' }}
       rust: ${{ github.event_name != 'pull_request' || steps.filter.outputs.rust == 'true' }}
+      skipped: ${{ steps.skipped.outputs.categories || '[]' }}
     steps:
       - id: filter
         if: github.event_name == 'pull_request'
@@ -46,7 +47,7 @@ jobs:
               - scripts/**/*.go
               - sidecar/**
               - tools/**
-            javascript-typescript:
+            typescript:
               - *shared
               - src/**
               - package.json
@@ -56,19 +57,29 @@ jobs:
               - '*.mjs'
             rust:
               - *shared
+              - .github/actions/stub-sidecar/**
               - proto/**
               - src-tauri/**
 
-  # The matrix stays fixed and the analysis steps are gated, so a pull request
-  # runs every language's job, analyzing only what changed. A
-  # skipped language uploads main's latest analysis under its category: its
-  # files are unchanged, so code scanning can still compare the pull request to
-  # main, and finds nothing new or fixed in that language. An empty SARIF would
-  # instead show main's open alerts as fixed.
-  analyze:
-    name: CodeQL · ${{ matrix.language }}
+      # The categories of every language the pull request skips, for reuse-main.
+      - id: skipped
+        if: github.event_name == 'pull_request'
+        env:
+          CHANGED: ${{ toJSON(steps.filter.outputs) }}
+        run: |
+          jq -c '[
+            (select(.go != "true") | "/language:go/os:" + ("linux", "macos", "windows")),
+            (select(.typescript != "true") | "/language:javascript-typescript"),
+            (select(.rust != "true") | "/language:rust/os:" + ("linux", "macos", "windows"))
+          ]' <<<"$CHANGED" | sed 's/^/categories=/' >> "$GITHUB_OUTPUT"
+
+  # CodeQL analyzes only the files the runner's OS compiles, so Go and Rust
+  # run once per OS, each under its own category.
+  go:
+    name: CodeQL · Go (${{ matrix.os }})
     needs: changes
-    runs-on: ubuntu-24.04
+    if: needs.changes.outputs.go == 'true'
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       security-events: write
@@ -76,48 +87,118 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - language: go
-            build-mode: manual
-          - language: javascript-typescript
-            build-mode: none
-          - language: rust
-            build-mode: none
+          - os: linux
+            runner: ubuntu-24.04
+          - os: macos
+            runner: macos-15
+          - os: windows
+            runner: windows-2025-vs2026
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
 
       - uses: ./.github/actions/setup-environment
-        if: needs.changes.outputs[matrix.language] == 'true' && matrix.language == 'go'
         with:
           setup-go: "true"
 
       - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
-        if: needs.changes.outputs[matrix.language] == 'true'
         with:
-          languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.build-mode }}
+          languages: go
+          build-mode: manual
 
-      # CodeQL extracts only the files a build compiles, so one build per GOOS
-      # brings in the _darwin.go and _windows.go files a Linux build skips.
-      - name: Build sidecar for every GOOS
-        if: needs.changes.outputs[matrix.language] == 'true' && matrix.language == 'go'
+      - name: Build sidecar
         working-directory: ./sidecar
-        run: |
-          for goos in linux darwin windows; do
-            GOOS=$goos go build ./...
-          done
+        run: go build ./...
 
       - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
-        if: needs.changes.outputs[matrix.language] == 'true'
         with:
-          category: /language:${{ matrix.language }}
+          category: /language:go/os:${{ matrix.os }}
 
+  typescript:
+    name: CodeQL · TypeScript
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: javascript-typescript
+          build-mode: none
+
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: /language:javascript-typescript
+
+  # The extractor runs build.rs, so the job needs what a real build does: the
+  # toolchain, Tauri's Linux packages and a sidecar binary for tauri-build to
+  # find. Without them OUT_DIR and cfg(desktop) are unset.
+  rust:
+    name: CodeQL · Rust (${{ matrix.os }})
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            runner: ubuntu-24.04
+          - os: macos
+            runner: macos-15
+          - os: windows
+            runner: windows-2025-vs2026
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: ./.github/actions/setup-environment
+        with:
+          setup-rust: "true"
+
+      - uses: ./.github/actions/stub-sidecar
+
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: rust
+          build-mode: none
+
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: /language:rust/os:${{ matrix.os }}
+
+  # A skipped category's files are unchanged, so uploading main's analysis
+  # under it lets code scanning still compare the pull request to main, and
+  # find nothing new or fixed there. An empty SARIF would instead show main's
+  # open alerts as fixed.
+  reuse-main:
+    name: CodeQL · Reuse main (${{ matrix.category }})
+    needs: changes
+    if: needs.changes.outputs.skipped != '[]'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        category: ${{ fromJSON(needs.changes.outputs.skipped) }}
+    steps:
       - name: Download main's analysis
-        if: needs.changes.outputs[matrix.language] != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
-          CATEGORY: /language:${{ matrix.language }}
+          CATEGORY: ${{ matrix.category }}
         run: |
           # A cancelled run on main records a failed analysis, which has no SARIF.
           id=$(gh api "repos/$GITHUB_REPOSITORY/code-scanning/analyses?ref=refs/heads/main&tool_name=CodeQL&per_page=100" \
@@ -130,7 +211,6 @@ jobs:
             "repos/$GITHUB_REPOSITORY/code-scanning/analyses/$id" > "$RUNNER_TEMP/main.sarif"
 
       - uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
-        if: needs.changes.outputs[matrix.language] != 'true'
         with:
           sarif_file: ${{ runner.temp }}/main.sarif
-          category: /language:${{ matrix.language }}
+          category: ${{ matrix.category }}
