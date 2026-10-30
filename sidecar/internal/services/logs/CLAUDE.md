@@ -251,5 +251,6 @@ per request, refusals, rotation and broken bodies, served over HTTP or straight 
 Every read test trusts it, so `server_test.go` pins how it answers each parameter the
 kubelet honours; a change to the fake changes that test first.
 The fake cluster service stays in `logs`' `testutil_test.go`; `kubelet`'s claim tests carry a
-smaller one of their own. A test package keeps its own copies of the few one-line helpers (`at`,
-`line`, `lineAt`) rather than importing them.
+smaller one of their own. `breakFile` fails a log file's statements from under the service: a
+trigger that raises fails a write, a dropped table every read of it. A test package keeps its
+own copies of the few one-line helpers (`at`, `line`, `lineAt`) rather than importing them.

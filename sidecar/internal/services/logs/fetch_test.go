@@ -1150,6 +1150,135 @@ func TestAPageTheLogFileRefusesFails(t *testing.T) {
 	assert.ErrorIs(t, err, logstore.ErrClosed)
 }
 
+// A page fails with the log file wherever it fails: filing the view's streams,
+// finishing the instance a restart ended, reading a source's rows, or walking what
+// its fill wrote. A mirror change lands after a first page, so the file holds rows
+// the change bears on.
+func TestAPageFailsWithItsFile(t *testing.T) {
+	t.Parallel()
+	idle := Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourceDeployment, Name: "idle"}}}
+	for name, c := range map[string]struct {
+		view      Scope
+		then      map[string]any
+		ddl       string
+		afterFill bool
+		want      string
+	}{
+		"filing a stream": {view: web1Scope, ddl: `CREATE TRIGGER broken BEFORE INSERT ON streams BEGIN SELECT RAISE(FAIL, 'broken'); END`, want: "broken"},
+		"finishing a restarted instance": {
+			view: web1Scope, then: restartedWeb1(),
+			ddl:  `CREATE TRIGGER broken BEFORE UPDATE OF finished_at ON streams BEGIN SELECT RAISE(FAIL, 'broken'); END`,
+			want: "broken",
+		},
+		"a pod's rows":      {view: podView("nope"), ddl: `DROP TABLE streams`, want: "no such table: streams"},
+		"a workload's rows": {view: idle, then: workload("apps/v1", "Deployment", "idle", "dep-idle", nil), ddl: `DROP TABLE pod_owners`, want: "no such table: pod_owners"},
+		"the walk's chunks": {view: web1Scope, ddl: `DROP TABLE chunks`, afterFill: true, want: "no such table: chunks"},
+		"the walk's lines":  {view: web1Scope, ddl: `DROP TABLE lines`, afterFill: true, want: "no such table: lines"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := newLogServer()
+			s.Add("prod/web-1/app", logstest.Stamped(0, "a"))
+			dir := t.TempDir()
+			svc, f := serviceIn(t, webMirror(t), s, dir, testRetention)
+			if c.then != nil {
+				fetch(t, svc, FetchRequest{Scope: c.view, PageFrom: PageFromFirst, PageSize: 10})
+				f.store.Apply(t, c.then)
+			}
+			fileOf(t, svc, f)
+			if c.afterFill {
+				svc.afterFill = func() { breakFile(t, dir, f, c.ddl) }
+			} else {
+				breakFile(t, dir, f, c.ddl)
+			}
+
+			_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: c.view, PageFrom: PageFromFirst, PageSize: 10})
+
+			assert.ErrorContains(t, err, c.want)
+		})
+	}
+}
+
+// A page the log file closes under between its fill and its walk fails.
+func TestAPageWhoseFileClosesBeforeItsWalkFails(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(0, "a"))
+	svc, f := serviceOver(t, webMirror(t), s)
+	svc.afterFill = func() { assert.NoError(t, svc.Clear(int64(f.active.Cache.ID))) }
+
+	_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: web1Scope, PageFrom: PageFromFirst, PageSize: 10})
+
+	assert.ErrorIs(t, err, logstore.ErrClosed)
+}
+
+// A backward page that cannot sample the rate of the lines above its gap fails.
+func TestAPageThatCannotSampleTheRateAboveItsGapFails(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	svc, f := serviceIn(t, webMirror(t), newLogServer(), dir, testRetention)
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(10*time.Second, 11*time.Second)})
+	breakFile(t, dir, f, `DROP TABLE lines`)
+
+	_, err := svc.Fetch(t.Context(), "7", prevFrom(web1Scope, "web-1", "app", 9*time.Second, 2))
+
+	assert.ErrorContains(t, err, "no such table: lines")
+}
+
+// A page whose check of which pods are gone fails is the failure.
+func TestAPageWhoseGonePodCheckFailsFails(t *testing.T) {
+	t.Parallel()
+	s := newLogServer()
+	s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"))
+	svc, f := serviceOver(t, webMirror(t), s)
+	fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+	f.store.Delete(t, web1())
+	f.queryErr, f.queryErrOn = errors.New("db closed"), "AND uid IN (SELECT value FROM json_each"
+
+	_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+
+	assert.EqualError(t, err, "db closed")
+}
+
+// A page a stream of which the connection's retirement cut before its first line is
+// refused as replaced, rather than passing lines the stream never read.
+func TestAPageARetirementCutBeforeItsFirstLineIsReplaced(t *testing.T) {
+	t.Parallel()
+	svc, _ := serviceOn(t, newRetiredBackend())
+
+	_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: web1Scope, PageFrom: PageFromFirst, PageSize: 10})
+
+	assert.ErrorIs(t, err, errReplaced)
+}
+
+// A page whose write of a window's batch fails is the failure: a forward read's first
+// batch, full before its second line, and a backward read's window the read ended
+// inside.
+func TestAPageWhoseBatchWriteFailsFails(t *testing.T) {
+	t.Parallel()
+	one := []logline.Record{{Timestamp: at(time.Second), Message: "1"}}
+	two := []logline.Record{one[0], {Timestamp: at(2 * time.Second), Message: "2"}}
+	for name, c := range map[string]struct {
+		from  PageFrom
+		lines []logline.Record
+	}{
+		"forward":  {PageFromFirst, two},
+		"backward": {PageFromLast, one},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			backend := newFakeBackend()
+			backend.set("web-1/app", fakeRead{lines: c.lines})
+			svc, f := serviceBatched(t, backend, 1)
+			f.queryErr, f.queryErrOn = errors.New("db closed"), "SELECT p.uid, coalesce(c.container_id"
+
+			_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: web1Scope, PageFrom: c.from, PageSize: 10})
+
+			assert.EqualError(t, err, "db closed")
+		})
+	}
+}
+
 // A page every stream of which failed, with no line to show, is refused naming the
 // first.
 func TestAPageEveryStreamFailedIsRefused(t *testing.T) {
@@ -2880,7 +3009,10 @@ func TestABadPageCursorIsRefused(t *testing.T) {
 		"not JSON":               pageCursorOfJSON(t, "yesterday"),
 		"another version":        pageCursorOfJSON(t, strings.Replace(good, `"v":1`, `"v":2`, 1)),
 		"a bad line":             pageCursorOfJSON(t, strings.Replace(good, `"n":1`, `"n":-1`, 1)),
-		"a bare moment":          pageCursorOfJSON(t, strings.Replace(good, `"seen":[{"v":1,"ns":"prod","pod":"web-1","c":"app",`, `"seen":[{"v":1,`, 1)),
+		"a line with no name":    pageCursorOfJSON(t, strings.Replace(good, `"seen":[{"v":1,"ns":"prod","pod":"web-1","c":"app",`, `"seen":[{"v":1,`, 1)),
+		"a bare moment":          pageCursorOfJSON(t, strings.Replace(good, `"seen":[{"v":1,"ns":"prod","pod":"web-1","c":"app","id":"containerd://uid-web-1-app-0","t":"2026-10-08T10:00:12Z","n":1}]`, `"seen":[{"v":1,"t":"2026-10-08T10:00:12Z"}]`, 1)),
+		"a bad start":            pageCursorOfJSON(t, strings.Replace(good, `"t":"2026-10-08T10:00:08Z","n":0`, `"t":"2026-10-08T10:00:08Z","n":-1`, 1)),
+		"a bad at":               pageCursorOfJSON(t, strings.Replace(good, `"t":"2026-10-08T10:00:11Z","n":0`, `"t":"2026-10-08T10:00:11Z","n":-1`, 1)),
 		"no clock":               pageCursorOfJSON(t, strings.Replace(good, `"resolvedAt":"2026-10-08T11:00:00Z"`, `"resolvedAt":"0001-01-01T00:00:00Z"`, 1)),
 		"a count past its lines": pageCursorOfJSON(t, strings.Replace(good, `"b":2`, `"b":4`, 1)),
 		"a negative count":       pageCursorOfJSON(t, strings.Replace(good, `"a":1`, `"a":-1`, 1)),
@@ -3551,10 +3683,7 @@ func TestARestartTheMirrorReportsLateIsTrimmed(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, []string{"b6", "b7"}, messages(page.Records), "filed under the instance the mirror still names")
 
-	restarted := pod("web-1", "uid-web-1", "node-a", webReplicaSet(), container{name: "app", restarted: true}, container{name: "istio-proxy"})
-	app := restarted["status"].(map[string]any)["containerStatuses"].([]any)[0].(map[string]any)
-	app["lastState"].(map[string]any)["terminated"].(map[string]any)["finishedAt"] = "2026-10-08T10:00:05Z"
-	f.store.Apply(t, restarted)
+	f.store.Apply(t, restartedWeb1())
 	previous := web1Scope
 	previous.Sources = []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "web-1", Containers: []string{"app"}, Previous: true}}
 	page, err = svc.Fetch(t.Context(), "7", FetchRequest{Scope: previous, PageFrom: PageFromFirst, PageSize: 10})
@@ -3587,10 +3716,7 @@ func TestALateRestartIsTrimmedUnderAPlainView(t *testing.T) {
 	_, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: web1Scope, PageFrom: PageFromFirst, PageSize: 10})
 	require.NoError(t, err)
 
-	restarted := pod("web-1", "uid-web-1", "node-a", webReplicaSet(), container{name: "app", restarted: true}, container{name: "istio-proxy"})
-	app := restarted["status"].(map[string]any)["containerStatuses"].([]any)[0].(map[string]any)
-	app["lastState"].(map[string]any)["terminated"].(map[string]any)["finishedAt"] = "2026-10-08T10:00:05Z"
-	f.store.Apply(t, restarted)
+	f.store.Apply(t, restartedWeb1())
 	page, err := svc.Fetch(t.Context(), "7", FetchRequest{Scope: web1Scope, PageFrom: PageFromFirst, PageSize: 10})
 
 	require.NoError(t, err)

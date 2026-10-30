@@ -407,6 +407,22 @@ func TestEachSourceSaysWhatItHoldsNow(t *testing.T) {
 	assert.Equal(t, []logline.StreamKey{{Namespace: "prod", Pod: "web-1", Container: "app"}}, keysOf(got))
 }
 
+// A container whose runtime id a line cursor could not carry is left out, so a
+// pod with no other reads as idle.
+func TestAContainerWithAnUnreadableIDIsLeftOut(t *testing.T) {
+	t.Parallel()
+	f := webMirror(t)
+	odd := pod("odd", "uid-odd", "node-a", nil, container{name: "app"})
+	odd["status"].(map[string]any)["containerStatuses"].([]any)[0].(map[string]any)["containerID"] = "containerd://odd\x01"
+	f.store.Apply(t, odd)
+
+	got, err := resolveOf(t, f, Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: "odd"}}})
+
+	require.NoError(t, err)
+	assert.Empty(t, keysOf(got))
+	assert.Equal(t, []SourceState{Idle}, got.states)
+}
+
 // A kind the cache does not mirror is refused, since no object of it could ever
 // appear to follow, and so is a cache that mirrors no pods.
 func TestAnUnmirroredKindIsRefused(t *testing.T) {
@@ -483,6 +499,9 @@ func TestAFailedReadIsTheFailure(t *testing.T) {
 		"every query":     {set: func(f *fakeService) { f.queryErr = errors.New("db closed") }, view: webScope},
 		"the node query":  {set: func(f *fakeService) { f.queryErr, f.queryErrOn = errors.New("db closed"), "kind = 'Node'" }, view: webScope},
 		"the kinds query": {set: func(f *fakeService) { f.queryErr, f.queryErrOn = errors.New("db closed"), "FROM kinds" }, view: webScope},
+		"the source's kind": {set: func(f *fakeService) {
+			f.queryErr, f.queryErrOn = errors.New("db closed"), "FROM kinds WHERE api_version = 'apps/v1'"
+		}, view: webScope},
 		"a pod source's query": {set: func(f *fakeService) {
 			f.queryErr, f.queryErrOn = errors.New("db closed"), "json_group_object"
 		}, view: web1Scope},

@@ -347,7 +347,7 @@ func (w *watches) forward(ctx context.Context, kw objectWatch) {
 		synced := false
 		for frame := range kw.Frames {
 			synced = synced || frame.Type == cluster.DeltaFrameBookmark
-			if synced && events.SendContext(ctx, workloadEvent{w: kw}) != nil {
+			if synced && events.SendContext(ctx, workloadEvent{w: kw}) != nil { // coverage:ignore only the follow ending while a frame is in flight
 				return
 			}
 		}
@@ -570,7 +570,7 @@ func (f *follow) readOnly(ctx context.Context) error {
 			return err
 		}
 		m := ms[0]
-		for _, line := range m.skipped {
+		for _, line := range m.skipped { // coverage:ignore a stream only the file holds is never filled, so never skipped
 			if !send(ctx, f.out, FollowFrame{Notice: &Notice{refusal.CodeStreamSkipped, line}}) {
 				return ctx.Err()
 			}
@@ -585,7 +585,7 @@ func (f *follow) readOnly(ctx context.Context) error {
 		}
 		next, _ := cur.edges(m)
 		// A cut page that moves no stream would be read again forever.
-		if maps.Equal(next.seen, cur.seen) {
+		if maps.Equal(next.seen, cur.seen) { // coverage:ignore a guard: a cut page moves the stream it cut
 			return errors.New("follow: a page of the instances only the file holds did not move")
 		}
 		cur = next
@@ -768,10 +768,10 @@ func (f *follow) ended(ctx context.Context, h *handle) error {
 			tr = t
 		}
 	}
-	if tr == nil {
+	if tr == nil { // coverage:ignore only a tailer's end racing its stream's detach
 		return nil
 	}
-	if f.claim.IsRevoked() {
+	if f.claim.IsRevoked() { // coverage:ignore only a revocation racing a tailer's end, which relay takes first
 		return kubelet.ErrRevoked
 	}
 	if err := f.walkStreams(ctx, []*tracked{tr}); err != nil {
@@ -875,7 +875,7 @@ func (f *follow) podsMoved(frame cluster.ClusterCachedDataObjectWatchFrame, more
 		}
 		select {
 		case next, ok := <-more:
-			if !ok {
+			if !ok { // coverage:ignore only the pods watch closing while frames wait behind one
 				return relevant
 			}
 			frame = next
@@ -1027,7 +1027,7 @@ func (f *follow) bring(ctx context.Context, t target) error {
 	}
 	slices.Sort(ids)
 	resubscribed, err := f.subscribe(ids)
-	if err != nil {
+	if err != nil { // coverage:ignore only the file closing between filing the streams and subscribing
 		return err
 	}
 	f.wanted = f.wanted[:0]
@@ -1094,7 +1094,7 @@ func (f *follow) subscribe(ids []int64) (bool, error) {
 		return false, nil
 	}
 	pings, err := f.file.Subscribe(ids...)
-	if err != nil {
+	if err != nil { // coverage:ignore only the file closing between filing the streams and subscribing
 		return false, err
 	}
 	if f.pings != nil {
@@ -1348,7 +1348,7 @@ func (f *follow) filledGap(ctx context.Context, d fillDone) error {
 		f.s.afterFill()
 	}
 	switch {
-	case d.out.gone:
+	case d.out.gone: // coverage:ignore only a sweep between filing the row and the follow holding it
 		// The row went before the follow held it: its pod is gone.
 		d.release()
 		return f.failed(ctx, tr, errRowGone)
@@ -1647,14 +1647,14 @@ func (t *tailer) tail(ctx context.Context, file *logstore.Store, tr *tailRead, p
 			if atBeginning {
 				prev = nil
 			}
-			if tail, err = file.OpenTail(t.row, t.r.s.backends[0].name, prev, atBeginning); err != nil {
+			if tail, err = file.OpenTail(t.row, t.r.s.backends[0].name, prev, atBeginning); err != nil { // coverage:ignore only the file closing as the first line arrives; the close ends the read
 				return false, err
 			}
 			t.current.Store(tail)
 			failed = tail.Failed()
 		}
 		lines, open := gather(ch, ret, lineOf(rec.Record))
-		if !open {
+		if !open { // coverage:ignore only a read ending while gather takes what has arrived
 			return false, t.close(tail, lines, read.Err)
 		}
 		wctx, cancel := context.WithTimeout(ctx, ret.WriteWait)
@@ -1662,13 +1662,13 @@ func (t *tailer) tail(ctx context.Context, file *logstore.Store, tr *tailRead, p
 		cancel()
 		switch {
 		case err == nil:
-		case ctx.Err() != nil:
+		case ctx.Err() != nil: // coverage:ignore only the tailer stopping while a batch waits on the writer
 			return false, t.close(tail, nil, nil)
 		case errors.Is(err, context.DeadlineExceeded):
 			// Stop reading before waiting on the writer to close the chunk.
 			read.Cancel()
 			return true, t.close(tail, nil, nil)
-		default:
+		default: // coverage:ignore only a write failing between the Failed check and the send; Failed catches the rest
 			return false, t.close(tail, nil, err)
 		}
 	}
@@ -1681,7 +1681,7 @@ func gather(ch <-chan kubelet.Item, ret logstore.Retention, first logstore.Line)
 	for len(lines) < ret.WriteBatch && bytes < ret.WriteBatchBytes {
 		select {
 		case rec, ok := <-ch:
-			if !ok {
+			if !ok { // coverage:ignore only a read ending while gather takes what has arrived
 				return lines, false
 			}
 			l := lineOf(rec.Record)
@@ -1797,7 +1797,7 @@ func (r *registry) attach(ctx context.Context, st stream, row int64, watermark l
 			// Another attach is starting it.
 			r.mu.Unlock()
 			select {
-			case <-t.ready:
+			case <-t.ready: // coverage:ignore only two attaches racing to start one tailer
 				continue
 			case <-ctx.Done():
 				return nil, ctx.Err()
@@ -1852,7 +1852,7 @@ func (r *registry) run(ctx context.Context, t *tailer, watermark logstore.Pos) e
 	}
 	// A tailer in its grace has no follow to end it, so the file closing does.
 	fileCtx, err := r.file.Context()
-	if err != nil {
+	if err != nil { // coverage:ignore only the file closing between the tailer's read of its chunks and this
 		return err
 	}
 	ctx, t.cancel = context.WithCancel(fileCtx)

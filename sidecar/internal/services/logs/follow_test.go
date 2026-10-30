@@ -65,6 +65,12 @@ func podView(name string) Scope {
 	return Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourcePod, Name: name}}}
 }
 
+// donePod is a pod of no workload whose one container, app, has finished: its log
+// is whole.
+func donePod() map[string]any {
+	return finished(pod("done", "uid-done", "node-a", nil, container{name: "app"}))
+}
+
 // bookmark closes a watch's snapshot.
 var bookmark = cluster.ClusterCachedDataObjectWatchFrame{Type: cluster.DeltaFrameBookmark}
 
@@ -2057,16 +2063,24 @@ func TestAFollowCrossesALostGap(t *testing.T) {
 }
 
 // The log file closing under a follow, as a cache's clear closes it, ends the follow
-// with an error and no frame: following again would not end the same way.
+// with an error and no frame: following again would not end the same way. A follow
+// with no stream yet sees it as its pings ending, with no tailer to end first.
 func TestAFollowWhoseFileClosesFails(t *testing.T) {
 	t.Parallel()
-	f := webMirror(t)
-	svc, _ := serviceOver(t, f, newLogServer())
-	stream, _ := openFollow(t, svc, f)
+	idle := Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourceDeployment, Name: "idle"}}}
+	for name, view := range map[string]Scope{"tailing": webScope, "with no stream": idle} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			f := webMirror(t)
+			f.store.Apply(t, workload("apps/v1", "Deployment", "idle", "dep-idle", nil))
+			svc, _ := serviceOver(t, f, newLogServer())
+			stream, _ := openFollowOf(t, svc, f, view)
 
-	require.NoError(t, svc.Clear(int64(f.active.Cache.ID)))
+			require.NoError(t, svc.Clear(int64(f.active.Cache.ID)))
 
-	assert.ErrorIs(t, failsWith(t, stream), logstore.ErrClosed)
+			assert.ErrorIs(t, failsWith(t, stream), logstore.ErrClosed)
+		})
+	}
 }
 
 // A span past what the tailer has committed is a page's, cached while the tailer still
@@ -3282,4 +3296,169 @@ func awaitOpens(t *testing.T, backend *fakeBackend, n int) {
 	for range n {
 		backend.opened.Await(t, "a read to open")
 	}
+}
+
+// A follow is refused when its log file fails as it opens: the file closed, or its
+// workload's gone pods unreadable.
+func TestAFollowWhoseFileFailsAsItOpensIsRefused(t *testing.T) {
+	t.Parallel()
+	svc, _ := serviceOver(t, webMirror(t), newLogServer())
+	require.NoError(t, svc.files.Close())
+	_, err := svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope})
+	assert.ErrorIs(t, err, logstore.ErrClosed)
+
+	dir := t.TempDir()
+	svc, f := serviceIn(t, webMirror(t), newLogServer(), dir, testRetention)
+	fileOf(t, svc, f)
+	breakFile(t, dir, f, `DROP TABLE pod_owners`)
+	_, err = svc.Follow(t.Context(), "7", FollowRequest{Scope: webScope, Since: moment(0)})
+	assert.ErrorContains(t, err, "no such table: pod_owners")
+}
+
+// A follow fails with its log file wherever the file fails under it: reading the
+// pods only the file holds, starting a tailer, walking a finished instance, or
+// walking on past what a fill wrote.
+func TestAFollowFailsWithItsFile(t *testing.T) {
+	t.Parallel()
+	for name, c := range map[string]struct {
+		view      Scope
+		since     *time.Time
+		gone      bool
+		afterFill bool
+	}{
+		"reading a gone pod":          {view: webScope, since: moment(0), gone: true},
+		"starting a tailer":           {view: webScope},
+		"walking a finished instance": {view: podView("done")},
+		"walking past a fill":         {view: podView("done"), afterFill: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := newLogServer()
+			s.Add("prod/web-1/app", logstest.Stamped(time.Second, "a1"))
+			s.Add("prod/done/app", logstest.Stamped(time.Second, "d1"))
+			dir := t.TempDir()
+			svc, f := serviceIn(t, webMirror(t), s, dir, testRetention)
+			f.store.Apply(t, donePod())
+			fileOf(t, svc, f)
+			if c.gone {
+				fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+				f.store.Delete(t, web1())
+			}
+			if c.afterFill {
+				svc.afterFill = func() { breakFile(t, dir, f, `DROP TABLE chunks`) }
+			} else {
+				breakFile(t, dir, f, `DROP TABLE chunks`)
+			}
+
+			stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: c.view, Since: c.since})
+
+			assert.ErrorContains(t, failsWith(t, stream), "no such table: chunks")
+		})
+	}
+}
+
+// A follow whose mirror watches ended clean and cannot open again fails with the
+// reason.
+func TestAFollowWhoseWatchesCannotOpenAgainFails(t *testing.T) {
+	t.Parallel()
+	f := webMirror(t)
+	svc, _ := serviceOver(t, f, newLogServer())
+	stream, _ := openFollow(t, svc, f)
+
+	f.set(func() { f.watchObjectsErr = errors.New("no watch") })
+	close(f.pods)
+
+	assert.EqualError(t, failsWith(t, stream), "no watch")
+}
+
+// A follow whose context ends while it sends ends there: in the lines of a pod only
+// the file holds, and in a walk's. The stream holds one frame, so with the first
+// read and nothing more, the follow waits on the third when the cancel lands.
+func TestAFollowEndsWhileItSends(t *testing.T) {
+	t.Parallel()
+	for name, c := range map[string]struct {
+		view Scope
+		gone bool
+	}{
+		"a gone pod's lines": {view: webScope, gone: true},
+		"a walk's lines":     {view: podView("done")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			s := newLogServer()
+			s.Add("prod/web-1/app", logstest.Stamped(time.Second, "1"), logstest.Stamped(2*time.Second, "2"), logstest.Stamped(3*time.Second, "3"))
+			s.Add("prod/done/app", logstest.Stamped(time.Second, "1"), logstest.Stamped(2*time.Second, "2"), logstest.Stamped(3*time.Second, "3"))
+			svc, f := serviceOver(t, webMirror(t), s)
+			f.store.Apply(t, donePod())
+			if c.gone {
+				fetch(t, svc, FetchRequest{Scope: webScope, PageFrom: PageFromFirst, PageSize: 10})
+				f.store.Delete(t, web1())
+			}
+			ctx, cancel := context.WithCancel(t.Context())
+			defer cancel()
+			released := f.lease.released.Load()
+			stream := startFollow(t, ctx, svc, FollowRequest{Scope: c.view, Since: moment(0)})
+
+			assert.Equal(t, "1", recvLine(t, stream, "the first line").Message)
+			cancel()
+			// The follow lets its claim go once it has ended.
+			require.Eventually(t, func() bool { return f.lease.released.Load() > released }, testutil.Timeout, time.Millisecond)
+
+			assert.Equal(t, "2", recvLine(t, stream, "the line the stream held").Message)
+			assert.NoError(t, failsWith(t, stream), "a cancel ends a follow with no error")
+		})
+	}
+}
+
+// A finished instance whose fill the connection's retirement cut before its first
+// line is held and read again, as any transient failure is.
+func TestAFillARetirementCutIsReadAgain(t *testing.T) {
+	t.Parallel()
+	backend := newRetiredBackend()
+	svc, f := serviceOn(t, backend)
+	f.store.Apply(t, donePod())
+
+	startFollow(t, t.Context(), svc, FollowRequest{Scope: podView("done")})
+
+	backend.reads.Await(t, "the fill")
+	backend.reads.Await(t, "the fill again")
+}
+
+// A follow from a moment over a workload with a label filter and no nodes to judge
+// it by reads its gone pods from the file first, then waits for nodes rather than
+// ending: a workload may run new pods.
+func TestAFollowOfAWorkloadWithNoNodesReadsItsGonePodsAndWaits(t *testing.T) {
+	t.Parallel()
+	f := newMirror(t, workload("apps/v1", "Deployment", "web", "dep-web", nil))
+	f.store.Mirror(t, "v1", "Pod")
+	svc, _ := serviceOver(t, f, newLogServer())
+	row := rowOf("old-1", "app")
+	row.Owners = []string{"dep-web"}
+	seed(t, svc, f, row, logstore.Fill{Lines: fileLines(0)})
+	view := Scope{Sources: []ScopeSource{{Namespace: "prod", Kind: SourceDeployment, Name: "web"}}, Filters: []ScopeFilter{{Field: FilterZone, Values: []string{"eu-1a"}}}}
+	read := testutil.NewProbe[struct{}](64)
+	f.set(func() { f.mirrorRead = read })
+
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: view, Since: moment(-time.Second)})
+
+	assert.Equal(t, "0", recvLine(t, stream, "the gone pod's line").Message)
+	read.Await(t, "the open's resolve")
+	read.Await(t, "the resolve asked again")
+}
+
+// A walk of streams one at a time stops each later stream once an earlier one spent
+// the send's allowance of lines, and walks them all on: every filed line arrives.
+func TestAWalkPastItsAllowanceWalksTheRestOn(t *testing.T) {
+	t.Parallel()
+	svc, f := serviceOver(t, webMirror(t), newLogServer())
+	moments := make([]time.Duration, followBatch+1)
+	for i := range moments {
+		moments[i] = time.Duration(i) * time.Millisecond
+	}
+	seed(t, svc, f, rowOf("web-1", "app"), logstore.Fill{Lines: fileLines(moments...), AtBeginning: true})
+	seed(t, svc, f, rowOf("web-2", "app"), logstore.Fill{Lines: fileLines(0), AtBeginning: true})
+
+	stream := startFollow(t, t.Context(), svc, FollowRequest{Scope: webScope, Since: moment(0)})
+
+	assert.Len(t, recvLines(t, stream, followBatch+2), followBatch+2)
 }

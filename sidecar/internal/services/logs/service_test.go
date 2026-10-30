@@ -56,6 +56,11 @@ func TestPodsGoneAsksTheCachesMirror(t *testing.T) {
 		want    []string
 		wantErr string
 	}{
+		"a cache that cannot be read": {cache: unreadableCache, wantErr: "db closed"},
+		"pods that cannot be read": {
+			change:  func(f *fakeService) { f.queryErr, f.queryErrOn = errors.New("db closed"), "json_each" },
+			wantErr: "db closed",
+		},
 		"the active cache":     {want: []string{"uid-gone"}},
 		"a cache not active":   {cache: 99},
 		"a cache that is gone": {cache: goneCache},

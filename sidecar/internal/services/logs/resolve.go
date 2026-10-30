@@ -362,7 +362,7 @@ func (r reading) streams(i int, src ScopeSource, filters []ScopeFilter) ([]strea
 			continue
 		}
 		var owners []string
-		if err := json.Unmarshal([]byte(cluster.CellText(row[10])), &owners); err != nil {
+		if err := json.Unmarshal([]byte(cluster.CellText(row[10])), &owners); err != nil { // coverage:ignore SQLite's json_group_array always builds a list
 			return nil, 0, "", err
 		}
 		started, finished := instanceTimes(cluster.CellText(row[9]), last)
@@ -497,7 +497,7 @@ func (r reading) starting(scope Scope) (bool, error) {
 			continue
 		}
 		kind, err := kindOf(src)
-		if err != nil {
+		if err != nil { // coverage:ignore streamsOf refused an unknown kind before resolve asks
 			return false, err
 		}
 		where, args := containersWhere(src, kind, scope.Filters)
@@ -536,7 +536,7 @@ FROM objects p WHERE p.api_version = 'v1' AND p.kind = 'Pod' AND p.namespace = ?
 		uids[key], defaults[key] = cluster.CellText(rows[0][0]), cluster.CellText(rows[0][1])
 		held = append(held, stream{key: logline.StreamKey{Namespace: src.Namespace, Pod: src.Name}, place: logline.Place{Node: cluster.CellText(rows[0][2])}})
 		var ids map[string]string
-		if err := json.Unmarshal([]byte(cluster.CellText(rows[0][3])), &ids); err != nil {
+		if err := json.Unmarshal([]byte(cluster.CellText(rows[0][3])), &ids); err != nil { // coverage:ignore SQLite's json_group_object always builds an object
 			return nil, nil, nil, nil, err
 		}
 		for name, id := range ids {

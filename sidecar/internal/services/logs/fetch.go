@@ -1229,8 +1229,8 @@ func encodePageCursor(c pageCursor) string {
 		return logline.CompareNames(logline.ContainerName{Namespace: a.Namespace, Pod: a.Pod, Container: a.Container}, logline.ContainerName{Namespace: b.Namespace, Pod: b.Pod, Container: b.Container})
 	})
 	raw, err := json.Marshal(j)
-	if err != nil {
-		panic(err) // plain values always marshal
+	if err != nil { // coverage:ignore plain values always marshal
+		panic(err)
 	}
 	var b bytes.Buffer
 	w := deflaters.Get().(*flate.Writer)
@@ -2573,7 +2573,7 @@ func (w walker) walk(key logstore.Pos) (walked, error) {
 	if err != nil {
 		return walked{}, err
 	}
-	if err := w.mark(recs, cov, held); err != nil {
+	if err := w.mark(recs, cov, held); err != nil { // coverage:ignore only the file failing between the walk and its look back, in one read transaction
 		return walked{}, err
 	}
 	var stop logline.Cursor

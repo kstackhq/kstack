@@ -16,13 +16,16 @@ package logs
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -146,13 +149,20 @@ type fakeCaches struct {
 	f *fakeService
 }
 
-// goneCache is a cache id the fake's Caches().Get no longer knows.
-const goneCache = 404
+// goneCache is a cache id the fake's Caches().Get no longer knows, and
+// unreadableCache one it fails to read.
+const (
+	goneCache       = 404
+	unreadableCache = 500
+)
 
-// Get is any cache but goneCache, filed under the cluster "7".
+// Get is any cache but goneCache and unreadableCache, filed under the cluster "7".
 func (fc fakeCaches) Get(_ context.Context, id cluster.ClusterCacheID) (*cluster.ClusterCache, error) {
-	if id == goneCache {
+	switch id {
+	case goneCache:
 		return nil, cluster.ErrNotFound
+	case unreadableCache:
+		return nil, errors.New("db closed")
 	}
 	return &cluster.ClusterCache{RecordMeta: cluster.RecordMeta{ID: id}, Spec: cluster.ClusterCacheSpec{ClusterID: "7"}}, nil
 }
@@ -766,6 +776,29 @@ func (s *fakeBackend) Backward(ctx context.Context, st kubelet.Log, _ kubelet.Op
 	return s.read(ctx, st)
 }
 
+// retiredBackend is a Backend whose every read the connection's retirement cuts
+// before its first line, firing reads at each.
+type retiredBackend struct {
+	reads *testutil.Probe[struct{}]
+}
+
+func newRetiredBackend() retiredBackend {
+	return retiredBackend{reads: testutil.NewProbe[struct{}](8)}
+}
+
+func (b retiredBackend) read(st kubelet.Log) *kubelet.Read {
+	b.reads.Fire(struct{}{})
+	return endedShort(st.Key, kubelet.ErrRetired)
+}
+
+func (b retiredBackend) Forward(_ context.Context, st kubelet.Log, _ kubelet.Options) *kubelet.Read {
+	return b.read(st)
+}
+
+func (b retiredBackend) Backward(_ context.Context, st kubelet.Log, _ kubelet.Options) *kubelet.Read {
+	return b.read(st)
+}
+
 // serviceOn is the service over the web mirror, reading through backend.
 func serviceOn(t *testing.T, backend kubelet.Backend) (*Service, *fakeService) {
 	t.Helper()
@@ -916,10 +949,19 @@ func fileLines(ds ...time.Duration) []logstore.Line {
 	return out
 }
 
+// restartedWeb1 is web-1 after its app container restarted, the instance before
+// finished at 10:00:05.
+func restartedWeb1() map[string]any {
+	body := webPod("web-1", "node-a", container{name: "app", restarted: true}, container{name: "istio-proxy"})
+	app := body["status"].(map[string]any)["containerStatuses"].([]any)[0].(map[string]any)
+	app["lastState"].(map[string]any)["terminated"].(map[string]any)["finishedAt"] = "2026-10-08T10:00:05Z"
+	return body
+}
+
 // restartWeb1 restarts web-1's app container in f's mirror and in s: the instance
 // that ran becomes the previous one, and a new one runs, writing lines.
 func restartWeb1(t *testing.T, f *fakeService, s *logstest.Server, lines ...string) {
-	f.store.Apply(t, pod("web-1", "uid-web-1", "node-a", webReplicaSet(), container{name: "app", restarted: true}, container{name: "istio-proxy"}))
+	f.store.Apply(t, webPod("web-1", "node-a", container{name: "app", restarted: true}, container{name: "istio-proxy"}))
 	s.Mu.Lock()
 	s.Logs["prod/web-1/app/previous"] = s.Logs["prod/web-1/app"]
 	s.Logs["prod/web-1/app"] = lines
@@ -967,4 +1009,20 @@ func startAt(t *testing.T, scope Scope, d time.Duration) pageCursor {
 	c, err := followStart(FollowRequest{Scope: scope, Since: moment(d)}, at(time.Hour))
 	require.NoError(t, err)
 	return c
+}
+
+// breakFile runs ddl on the log file of f's active cache in dir, over a connection of
+// its own: a trigger that raises fails the writes it names, and a dropped table every
+// statement that reads it. It may run on the service's goroutine, so it never stops
+// the test.
+func breakFile(t *testing.T, dir string, f *fakeService, ddl string) {
+	t.Helper()
+	path := filepath.Join(dir, strconv.FormatInt(int64(f.active.Cache.ID), 10)+".db")
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout%3d5000")
+	if !assert.NoError(t, err) {
+		return
+	}
+	defer db.Close()
+	_, err = db.ExecContext(t.Context(), ddl)
+	assert.NoError(t, err)
 }
