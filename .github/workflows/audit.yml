@@ -3,16 +3,37 @@ name: audit
 permissions:
   contents: read
 
-# Audits the whole dependency tree, so a newly published advisory fails a run
-# the maintainers own. A pull request is checked only for the advisories it
-# brings in, by ci.yml's dependency review jobs.
+# A pull request that changes a dependency fails only for the advisories it
+# brings in, through the dependency review jobs. Main, the schedule and a
+# dispatch audit the whole tree instead, so a newly published advisory fails a
+# run the maintainers own.
 on:
+  pull_request:
+    branches:
+      - "**"
+    paths:
+      - sidecar/go.mod
+      - sidecar/go.sum
+      - tools/go.mod
+      - tools/go.sum
+      - src-tauri/Cargo.toml
+      - src-tauri/Cargo.lock
+      - package.json
+      - pnpm-lock.yaml
+      - pnpm-workspace.yaml
+      - scripts/audit-npm-diff.sh
+      - .github/workflows/audit.yml
   push:
     branches:
       - main
   schedule:
     - cron: "41 5 * * *"
   workflow_dispatch:
+
+# A PR's new push cancels its last run. Every other run has a group of its own.
+concurrency:
+  group: audit-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   # Rust · Audit borrows ci.yml's Rust · Vet cache, and rust-cache keys on
@@ -22,6 +43,7 @@ env:
 jobs:
   go-audit:
     name: Go · Audit
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -37,6 +59,7 @@ jobs:
 
   rust-audit:
     name: Rust · Audit
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -60,6 +83,7 @@ jobs:
 
   typescript-audit:
     name: TypeScript · Audit
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -70,6 +94,45 @@ jobs:
           setup-node: "true"
       - name: Run pnpm audit
         run: pnpm audit --audit-level moderate
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      # Compares the base and head dependency graphs, which hold the Go and
+      # Cargo packages; npm is TypeScript · Dependency review's. Every scope
+      # counts, as in the audits.
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: moderate
+          fail-on-scopes: runtime, development, unknown
+
+  # A fork's token cannot submit to the dependency graph, so npm compares
+  # pnpm audit on the base and on the head instead.
+  typescript-dependency-review:
+    name: TypeScript · Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          path: base
+          persist-credentials: false
+          sparse-checkout: |
+            package.json
+            pnpm-lock.yaml
+            pnpm-workspace.yaml
+          sparse-checkout-cone-mode: false
+      - uses: ./.github/actions/setup-environment
+        with:
+          setup-node: "true"
+      - name: Fail on advisories new to the head
+        run: sh scripts/audit-npm-diff.sh base .
 
   # GitHub's dependency graph reads only pnpm-lock.yaml's first YAML document,
   # which pins pnpm itself, and Dependabot's alerts and security updates read

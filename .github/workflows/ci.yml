@@ -354,51 +354,6 @@ jobs:
         run: pnpm lint
 
   ###########################
-  # Dependency review jobs
-  ###########################
-
-  # A pull request fails only for the advisories it brings in. audit.yml
-  # audits the whole tree daily and on main.
-  dependency-review:
-    name: Dependency review
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    steps:
-      # Compares the base and head dependency graphs, which hold the Go and
-      # Cargo packages; npm is TypeScript · Dependency review's. Every scope
-      # counts, as in the audits.
-      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
-        with:
-          fail-on-severity: moderate
-          fail-on-scopes: runtime, development, unknown
-
-  # A fork's token cannot submit to the dependency graph, so npm compares
-  # pnpm audit on the base and on the head instead.
-  typescript-dependency-review:
-    name: TypeScript · Dependency review
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.base.sha }}
-          path: base
-          persist-credentials: false
-          sparse-checkout: |
-            package.json
-            pnpm-lock.yaml
-            pnpm-workspace.yaml
-          sparse-checkout-cone-mode: false
-      - uses: ./.github/actions/setup-environment
-        with:
-          setup-node: "true"
-      - name: Fail on advisories new to the head
-        run: sh scripts/audit-npm-diff.sh base .
-
-  ###########################
   # Test jobs
   ###########################
 
