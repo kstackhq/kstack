@@ -35,11 +35,10 @@ concurrency:
 env:
   # use, update or rebuild: the one place that decides whether a run saves a
   # Go or Rust cache. An update or a rebuild saves a new Go cache per job and
-  # runner; the one it replaces is never restored again, so it is the first
-  # GitHub evicts. Rust saves when its Cargo.lock key misses, so it has nothing
-  # to update or rebuild. A dispatch takes its input; a push to main updates;
-  # a PR carries no inputs, so it uses, since a PR saving its own copy pushes
-  # the repo past its cache limit.
+  # runner, and Caches · Prune deletes the one it replaces. Rust saves when its
+  # Cargo.lock key misses, so it has nothing to update or rebuild. A dispatch
+  # takes its input; a push to main updates; a PR carries no inputs, so it
+  # uses, since a PR saving its own copy pushes the repo past its cache limit.
   CACHE_MODE: ${{ inputs.cache-mode || github.ref == 'refs/heads/main' && 'update' || 'use' }}
   # Full debug info swells the Rust caches and slows linking; line tables keep
   # file:line in test backtraces. Workflow-wide, since rust-cache keys on CARGO_*
@@ -58,6 +57,7 @@ jobs:
     permissions:
       pull-requests: read
     outputs:
+      cache-mode: ${{ env.CACHE_MODE }}
       go: ${{ github.event_name != 'pull_request' || steps.filter.outputs.go == 'true' }}
       rust: ${{ github.event_name != 'pull_request' || steps.filter.outputs.rust == 'true' }}
       typescript: ${{ github.event_name != 'pull_request' || steps.filter.outputs.typescript == 'true' }}
@@ -632,3 +632,40 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Build
         run: pnpm build
+
+  ###########################
+  # Cache jobs
+  ###########################
+
+  # A run that saves caches leaves one copy of each on its ref: the newest,
+  # which a failed save leaves the last good one. It runs last because
+  # rust-cache and setup-node save in post steps, which no later step in their
+  # own job can follow.
+  cache-prune:
+    name: Caches · Prune
+    needs:
+      - changes
+      - go-vet
+      - go-staticcheck
+      - go-test
+      - go-coverage
+      - rust-vet
+      - rust-test
+      - typescript-lint
+      - typescript-coverage
+      - typescript-test
+      - typescript-build
+    if: always() && needs.changes.outputs.cache-mode != 'use'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+      - name: Prune caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sh scripts/prune-caches.sh "$GITHUB_REF"

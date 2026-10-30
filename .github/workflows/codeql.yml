@@ -198,6 +198,28 @@ jobs:
         with:
           category: /language:rust/os:${{ matrix.os }}
 
+  # Leaves one copy of each cache on main, the newest. It runs after the Rust
+  # jobs because rust-cache saves in a post step.
+  cache-prune:
+    name: Caches · Prune
+    needs:
+      - go
+      - rust
+    if: always() && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: scripts
+      - name: Prune caches
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sh scripts/prune-caches.sh "$GITHUB_REF"
+
   # A skipped category's files are unchanged, so uploading main's analysis
   # under it lets code scanning still compare the pull request to main, and
   # find nothing new or fixed there. An empty SARIF would instead show main's
