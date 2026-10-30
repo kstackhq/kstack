@@ -224,10 +224,17 @@ jobs:
   # under it lets code scanning still compare the pull request to main, and
   # find nothing new or fixed there. An empty SARIF would instead show main's
   # open alerts as fixed.
+  #
+  # It uploads after the real analyses: code scanning grades the check when
+  # uploads first arrive and reports any category still missing as not found.
   reuse-main:
     name: CodeQL · Reuse main (${{ matrix.category }})
-    needs: changes
-    if: needs.changes.outputs.skipped != '[]'
+    needs:
+      - changes
+      - go
+      - typescript
+      - rust
+    if: always() && needs.changes.result == 'success' && needs.changes.outputs.skipped != '[]'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
