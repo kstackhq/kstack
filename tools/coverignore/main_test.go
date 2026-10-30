@@ -146,19 +146,16 @@ example.com/mod/demo/demo.go:7.2,7.12 1 1
 	}
 }
 
-// Measures with the toolchain running the tests, so a Go upgrade that moves
-// the blocks again fails here rather than in Codecov.
-func TestRunDropsAMarkedIfBodyTheToolchainReports(t *testing.T) {
+// measure runs src's tests with coverage under the toolchain running these
+// tests, so a Go upgrade that moves the blocks fails here rather than in
+// Codecov, and returns the profile coverignore makes of it.
+func measure(t *testing.T, src, test string) []*cover.Profile {
+	t.Helper()
 	dir := t.TempDir()
 	mod := filepath.Join(dir, "mod")
 	writeFile(t, filepath.Join(mod, "go.mod"), "module example.com/mod\n")
-	writeFile(t, filepath.Join(mod, "demo", "demo.go"), marked)
-	writeFile(t, filepath.Join(mod, "demo", "demo_test.go"), `package demo
-
-import "testing"
-
-func TestF(t *testing.T) { F(nil) }
-`)
+	writeFile(t, filepath.Join(mod, "demo", "demo.go"), src)
+	writeFile(t, filepath.Join(mod, "demo", "demo_test.go"), test)
 	profile := filepath.Join(dir, "p.out")
 	cmd := exec.Command("go", "test", "-coverprofile="+profile, "./...")
 	cmd.Dir = mod
@@ -175,6 +172,16 @@ func TestF(t *testing.T) { F(nil) }
 	if err != nil {
 		t.Fatal(err)
 	}
+	return merged
+}
+
+func TestRunDropsAMarkedIfBodyTheToolchainReports(t *testing.T) {
+	merged := measure(t, marked, `package demo
+
+import "testing"
+
+func TestF(t *testing.T) { F(nil) }
+`)
 	for _, p := range merged {
 		for _, b := range p.Blocks {
 			// The function's entry block may end on the if line; it starts
@@ -183,6 +190,44 @@ func TestF(t *testing.T) { F(nil) }
 				t.Errorf("block %d.%d,%d.%d of the marked if survived", b.StartLine, b.StartCol, b.EndLine, b.EndCol)
 			}
 		}
+	}
+}
+
+const markedFunc = `package demo
+
+func F(err error) error { // coverage:ignore only a child that writes no coverage runs this
+	if err != nil {
+		return err
+	}
+	for i := 0; i < 2; i++ {
+		err = nil
+	}
+	return err
+}
+
+func G() int {
+	return 1
+}
+`
+
+func TestRunDropsEveryBlockOfAMarkedFuncTheToolchainReports(t *testing.T) {
+	merged := measure(t, markedFunc, `package demo
+
+import "testing"
+
+func TestF(t *testing.T) { F(nil); G() }
+`)
+	kept := 0
+	for _, p := range merged {
+		for _, b := range p.Blocks {
+			if b.StartLine >= 3 && b.StartLine <= 11 {
+				t.Errorf("block %d.%d,%d.%d of the marked func survived", b.StartLine, b.StartCol, b.EndLine, b.EndCol)
+			}
+			kept++
+		}
+	}
+	if kept == 0 {
+		t.Error("G's block was dropped too")
 	}
 }
 
