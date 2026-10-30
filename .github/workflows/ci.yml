@@ -49,8 +49,9 @@ env:
 jobs:
   # A pull request runs a language's jobs only when a path they read changed.
   # A push or a dispatch runs them all, so main stays the safety net for a path
-  # a filter misses and keeps saving the caches PRs read. Each gated job is the
-  # first of its chain; the jobs that need it skip with it.
+  # a filter misses and keeps saving the caches PRs read. Each language job
+  # checks its own filter, so tests start beside lint and vet rather than
+  # after them; Go · Coverage's gate skips with the jobs it needs.
   changes:
     name: Changes
     runs-on: ubuntu-24.04
@@ -118,7 +119,7 @@ jobs:
               - '**/*.yaml'
 
   ##############################
-  # Pre-flight jobs
+  # Lint and vet jobs
   ##############################
 
   go-lint:
@@ -173,8 +174,6 @@ jobs:
           path: ${{ steps.setup.outputs.go-cache-path }}
           key: ${{ steps.setup.outputs.go-cache-key }}
 
-  # No job waits on it: a run takes minutes, so the tests start beside it
-  # rather than after it.
   go-staticcheck:
     name: Go · Staticcheck
     needs: changes
@@ -403,13 +402,12 @@ jobs:
   # Test jobs
   ###########################
 
-  # Go · Vet already type-checks the build; this links the real binary, then
-  # runs the tests under the same cache.
+  # Go · Vet type-checks the build; this links the real binary, then runs the
+  # tests.
   go-test:
     name: Go · Build and Test
-    needs:
-      - go-lint
-      - go-vet
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     strategy:
       fail-fast: false
       matrix: *full-matrix
@@ -465,9 +463,8 @@ jobs:
 
   go-coverage:
     name: Go · Coverage · ${{ matrix.os }}
-    needs:
-      - go-lint
-      - go-vet
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     strategy:
       fail-fast: false
       # One runner per OS: every platform split in the sidecar is by OS, none
@@ -557,9 +554,8 @@ jobs:
   # and runs the sandbox's chains through them as an ordinary user.
   sandbox-apparmor:
     name: Sandbox · AppArmor · Ubuntu 24.04
-    needs:
-      - go-lint
-      - go-vet
+    needs: changes
+    if: needs.changes.outputs.go == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -601,8 +597,8 @@ jobs:
 
   typescript-coverage:
     name: TypeScript · Coverage
-    needs:
-      - typescript-lint
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -616,13 +612,12 @@ jobs:
       - name: Check coverage against the threshold
         run: make cover-js
 
-  # Rust · Vet's clippy already type-checks the build; this links the real
-  # binary, then runs the tests under the same cache.
+  # Rust · Vet's clippy type-checks the build; this links the real binary,
+  # then runs the tests.
   rust-test:
     name: Rust · Build and Test
-    needs:
-      - rust-lint
-      - rust-vet
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
     strategy:
       fail-fast: false
       matrix: *full-matrix
@@ -647,8 +642,8 @@ jobs:
 
   typescript-test:
     name: TypeScript · Test
-    needs:
-      - typescript-lint
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -668,8 +663,8 @@ jobs:
 
   typescript-build:
     name: TypeScript · Build
-    needs:
-      - typescript-lint
+    needs: changes
+    if: needs.changes.outputs.typescript == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
