@@ -64,6 +64,16 @@ describe('SandboxSwitch', () => {
     expect(onSwitch).toHaveBeenCalledWith(true);
   });
 
+  it('stays sandboxed when the dialog is dismissed', async () => {
+    const user = userEvent.setup();
+    render(<SandboxSwitch sandboxDisabled={false} switching={false} onSwitch={onSwitch} />);
+
+    await user.click(button());
+    await user.keyboard('{Escape}');
+    expect(screen.queryByText("Run this chat's commands outside the sandbox?")).not.toBeInTheDocument();
+    expect(onSwitch).not.toHaveBeenCalled();
+  });
+
   // Narrowing needs no warning.
   it('switches back at once', async () => {
     const user = userEvent.setup();

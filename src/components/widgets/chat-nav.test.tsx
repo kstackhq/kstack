@@ -245,6 +245,17 @@ describe('ChatNav', () => {
     expect(deleteMock).not.toHaveBeenCalled();
   });
 
+  it('writes nothing when the confirm is closed with Escape', async () => {
+    const user = userEvent.setup();
+    renderNav();
+    await menuFor(user, 'First chat');
+    await user.click(await screen.findByRole('menuitem', { name: /delete/i }));
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByText('Delete chat?')).not.toBeInTheDocument();
+    expect(deleteMock).not.toHaveBeenCalled();
+  });
+
   it('leaves the row in the list when a delete fails', async () => {
     deleteMock.mockResolvedValue({ error: new Error('nope') });
     const user = userEvent.setup();

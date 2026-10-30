@@ -205,7 +205,7 @@ Vitest + `@testing-library/react` (jsdom), co-located (`*.test.ts[x]`). The repo
 
 - The repo-wide rules above (co-located test files, no magic sleeps) apply here.
 - Run: `make test-changed` while working; `pnpm test --run` (or `make test-js`) for the whole suite. Watch: `pnpm test`.
-- **Coverage is measured in `TypeScript · Coverage`** and gated by Codecov (root `CLAUDE.md`, *Testing conventions*). A line no test can reach takes `/* v8 ignore next -- <reason> */`. Exclusions are in `vite.config.ts` and `.github/codecov.yml`'s `ignore` (`src/gql/`, `routeTree.ts`, `main.tsx`, `test-utils.tsx`). `make cover-js` prints the per-file numbers.
+- **Coverage is measured in `TypeScript · Coverage`** and gated by Codecov (root `CLAUDE.md`, *Testing conventions*). A line no test can reach takes `/* v8 ignore next -- <reason> */`, in a component as anywhere. Coverage runs as `vitest run --mode coverage`, which loads no React compiler, so markers survive and the compiler's cached branches are not measured. A test of re-renders fails there if it passes only through the compiler: memoize by hand where the re-render is the code's own promise (the log row's cells), and test no re-renders elsewhere. → [ADR: TypeScript coverage is measured without the React compiler](../docs/adr/2026-10-30-typescript-coverage-is-measured-without-the-react-compiler.md). Exclusions are in `vite.config.ts` and `.github/codecov.yml`'s `ignore` (`src/gql/`, `routeTree.ts`, `main.tsx`, `test-utils.tsx`). `make cover-js` prints the per-file numbers.
 
 ## Lint / build
 
@@ -216,9 +216,9 @@ Vitest + `@testing-library/react` (jsdom), co-located (`*.test.ts[x]`). The repo
   argument mixed with a glob silently narrows to the glob's extensions. `.vscode/settings.json` runs
   the same binary on save (`oxc.oxc-vscode`, resolved from `node_modules`).
 - The **React compiler** is on in two places that must stay in step: the babel transform
-  (`vite.config.ts`) and the lint rules inside `eslint-plugin-react-hooks` (`recommended-latest` in
-  `eslint.config.ts`). A bail-out on a broken rule is a lint error; one on syntax the compiler
-  does not support yet (a `Todo`, such as destructuring a computed key) is silent.
+  (`vite.config.ts`, off in `--mode coverage`) and the lint rules inside `eslint-plugin-react-hooks`
+  (`recommended-latest` in `eslint.config.ts`). A bail-out on a broken rule is a lint error; one on
+  syntax the compiler does not support yet (a `Todo`, such as destructuring a computed key) is silent.
 - **Write as though the compiler weren't there** — it bails per-function, silently. So
   `react-hooks/exhaustive-deps` is an **error**, and manual `useMemo`/`useCallback` are ordinary
   tools.

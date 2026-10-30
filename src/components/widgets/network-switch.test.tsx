@@ -64,6 +64,16 @@ describe('NetworkSwitch', () => {
     expect(onSwitch).toHaveBeenCalledWith(true);
   });
 
+  it('leaves network off when the dialog is dismissed', async () => {
+    const user = userEvent.setup();
+    render(<NetworkSwitch networkEnabled={false} available switching={false} onSwitch={onSwitch} />);
+
+    await user.click(button());
+    await user.keyboard('{Escape}');
+    expect(screen.queryByText("Give this chat's commands the internet?")).not.toBeInTheDocument();
+    expect(onSwitch).not.toHaveBeenCalled();
+  });
+
   // Narrowing needs no warning.
   it('turns network off at once', async () => {
     const user = userEvent.setup();

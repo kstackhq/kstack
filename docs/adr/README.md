@@ -227,3 +227,4 @@ usually just documentation in the wrong place.
 | 2026-10-29 | [Each persisted format carries its own version stamp, and a downgrade is refused only where it would break](2026-10-29-each-persisted-format-carries-its-own-version-stamp.md) | cross-cutting | Accepted |
 | 2026-10-29 | [The omnibox is the cluster picker](2026-10-29-the-omnibox-is-the-cluster-picker.md) | frontend | Accepted |
 | 2026-10-30 | [Codecov gates the changed lines, and the total is a backstop](2026-10-30-codecov-gates-the-changed-lines.md) | repo | Accepted |
+| 2026-10-30 | [TypeScript coverage is measured without the React compiler](2026-10-30-typescript-coverage-is-measured-without-the-react-compiler.md) | frontend | Accepted |

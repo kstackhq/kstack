@@ -14,6 +14,7 @@
 // limitations under the License.
 
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { expectCodeText } from '@/test-utils';
@@ -173,6 +174,17 @@ describe('JumpToTime', () => {
       fireEvent.change(screen.getByPlaceholderText('Value'), { target: { value: '10' } });
       apply(0);
       expect(onJump).toHaveBeenCalledWith(new Date('2026-04-15T11:50:00Z'));
+    });
+
+    it('jumps to a value typed in another unit', async () => {
+      vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-04-15T12:00:00Z') });
+      const onJump = open();
+      fireEvent.change(screen.getByPlaceholderText('Value'), { target: { value: '2' } });
+      const user = userEvent.setup();
+      await user.click(screen.getByRole('combobox'));
+      await user.click(await screen.findByRole('option', { name: 'Hours ago' }));
+      apply(0);
+      expect(onJump).toHaveBeenCalledWith(new Date('2026-04-15T10:00:00Z'));
     });
 
     it('refuses a value that is not positive', () => {

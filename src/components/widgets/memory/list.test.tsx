@@ -141,6 +141,18 @@ describe('MemoryList', () => {
     expect(screen.getAllByText(BODY)).toHaveLength(5);
   });
 
+  it('keeps the row when the confirm is closed with Escape', async () => {
+    const user = userEvent.setup();
+    render(<List />);
+
+    await openMenu(user);
+    await user.click(await screen.findByRole('menuitem', { name: 'Delete' }));
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByText('Delete 1 memory?')).not.toBeInTheDocument();
+    expect(screen.getAllByText(BODY)).toHaveLength(5);
+  });
+
   it('swaps the heading for the bulk bar while any row is checked', async () => {
     const user = userEvent.setup();
     render(<List />);

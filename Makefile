@@ -94,7 +94,7 @@ check-switch:
 
 # Frontend coverage, per file. Not a gate: codecov/patch on the PR is.
 cover-js:
-	pnpm vitest run --coverage
+	pnpm vitest run --mode coverage
 
 # Run every linter in the repo.
 lint: lint-go lint-rust lint-js lint-yaml lint-markers

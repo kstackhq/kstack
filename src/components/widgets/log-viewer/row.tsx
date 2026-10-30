@@ -20,7 +20,7 @@
 // frame that adds a line draws the new row alone, and a prepend that moves every row
 // re-renders them without laying them out again.
 import { stripAnsi } from 'fancy-ansi';
-import { type KeyboardEvent, type MouseEvent, memo } from 'react';
+import { type KeyboardEvent, type MouseEvent, memo, useMemo } from 'react';
 
 import { cn } from '@kubetail/ui/lib/utils';
 
@@ -210,43 +210,48 @@ export const LogViewerRow = memo(
   }: LogViewerRowProps) => {
     const landed = rowKey === 0;
 
-    const cells = columns.map((col) => {
-      // A wrapped message takes what is left of the row and as many lines as it needs, so
-      // neither its width nor the row's is measured. `min-w-0` lets its track shrink below an
-      // unbroken token's width, which `break-word` alone does not.
-      const wrapped = col === 'Message' && wrap;
-      // The dot takes no selection and no menu; every other cell is a `gridcell` with both.
-      const dot = col === 'Dot';
-      // What is measured is the content, so it is an inline-block of its own; the dot's already
-      // is, and a wrapped message is not measured.
-      const content = cellContent(line, col);
-      const cell = (
-        <div
-          key={col}
-          ref={wrapped ? undefined : measureCell}
-          data-col={col}
-          role={dot ? undefined : 'gridcell'}
-          tabIndex={dot ? undefined : 0}
-          onMouseDown={dot ? undefined : (e) => onCellMouseDown?.(rowKey, col, e)}
-          onKeyDownCapture={dot ? undefined : pressOnKey((e) => onCellMouseDown?.(rowKey, col, e))}
-          className={cn(
-            'cursor-default px-2 outline-none select-none',
-            wrapped && 'min-w-0 whitespace-pre-wrap wrap-break-word',
-            !wrapped && (col === 'Message' ? 'whitespace-pre' : 'whitespace-nowrap text-muted-foreground'),
-          )}
-          style={wrapped ? undefined : cellStyle(widths, col)}
-        >
-          {dot || wrapped ? content : <span className="inline-block">{content}</span>}
-        </div>
-      );
-      return dot ? (
-        cell
-      ) : (
-        <CellContextMenu key={col} col={col} line={line}>
-          {cell}
-        </CellContextMenu>
-      );
-    });
+    // A prepend moves every row, and a move must not redraw a row's cells.
+    const cells = useMemo(
+      () =>
+        columns.map((col) => {
+          // A wrapped message takes what is left of the row and as many lines as it needs, so
+          // neither its width nor the row's is measured. `min-w-0` lets its track shrink below an
+          // unbroken token's width, which `break-word` alone does not.
+          const wrapped = col === 'Message' && wrap;
+          // The dot takes no selection and no menu; every other cell is a `gridcell` with both.
+          const dot = col === 'Dot';
+          // What is measured is the content, so it is an inline-block of its own; the dot's already
+          // is, and a wrapped message is not measured.
+          const content = cellContent(line, col);
+          const cell = (
+            <div
+              key={col}
+              ref={wrapped ? undefined : measureCell}
+              data-col={col}
+              role={dot ? undefined : 'gridcell'}
+              tabIndex={dot ? undefined : 0}
+              onMouseDown={dot ? undefined : (e) => onCellMouseDown?.(rowKey, col, e)}
+              onKeyDownCapture={dot ? undefined : pressOnKey((e) => onCellMouseDown?.(rowKey, col, e))}
+              className={cn(
+                'cursor-default px-2 outline-none select-none',
+                wrapped && 'min-w-0 whitespace-pre-wrap wrap-break-word',
+                !wrapped && (col === 'Message' ? 'whitespace-pre' : 'whitespace-nowrap text-muted-foreground'),
+              )}
+              style={wrapped ? undefined : cellStyle(widths, col)}
+            >
+              {dot || wrapped ? content : <span className="inline-block">{content}</span>}
+            </div>
+          );
+          return dot ? (
+            cell
+          ) : (
+            <CellContextMenu key={col} col={col} line={line}>
+              {cell}
+            </CellContextMenu>
+          );
+        }),
+      [columns, line, wrap, widths, measureCell, rowKey, onCellMouseDown],
+    );
 
     return (
       <div

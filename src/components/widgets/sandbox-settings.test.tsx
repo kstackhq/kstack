@@ -568,6 +568,17 @@ describe('SandboxSettings: Executables', () => {
     expect(name).toHaveValue('');
   });
 
+  it('registers an executable with the invocation typed', async () => {
+    withExecutables({});
+    render(<SandboxSettings />);
+    const invocation = screen.getByRole('textbox', { name: 'Invocation' });
+    await userEvent.type(screen.getByRole('textbox', { name: 'Executable name' }), 'stern');
+    await userEvent.type(invocation, 'stern version');
+    await userEvent.click(screen.getByRole('button', { name: 'Add executable' }));
+    expect(executables.current.register).toHaveBeenCalledWith('stern', 'stern version');
+    expect(invocation).toHaveValue('');
+  });
+
   it('keeps the form and draws why a register was refused', async () => {
     withExecutables({ register: vi.fn(async () => false), registerError: 'Kstack probes kubectl already.' });
     render(<SandboxSettings />);

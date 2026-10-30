@@ -325,6 +325,24 @@ describe('PermissionSettings', () => {
     expect(mutateMock).toHaveBeenCalledWith('permissionDiscardRefused', { field: 'permissions.modes' });
   });
 
+  it('discards nothing when the confirm is cancelled or dismissed', async () => {
+    const user = userEvent.setup();
+    settingsState.current = settings({ held: ['permissions.modes'] });
+    refusedState.current = [{ field: 'permissions.modes', value: 'x', reason: 'names a mode there is not' }];
+    render(<PermissionSettings />);
+
+    const held = screen.getByRole('region', { name: 'Modes Kstack cannot read' });
+    const discard = within(held).getByRole('button', { name: 'Discard what Kstack cannot read' });
+    await user.click(discard);
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.queryByText('Discard what Kstack cannot read?')).not.toBeInTheDocument();
+
+    await user.click(discard);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByText('Discard what Kstack cannot read?')).not.toBeInTheDocument();
+    expect(mutateMock).not.toHaveBeenCalledWith('permissionDiscardRefused', expect.anything());
+  });
+
   it('holds the context pickers while modes is held, and says why', () => {
     settingsState.current = settings({ held: ['permissions.modes'] });
     render(<PermissionSettings />);

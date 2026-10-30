@@ -576,7 +576,7 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Measure coverage
-        run: pnpm vitest run --coverage
+        run: pnpm vitest run --mode coverage
       - name: Upload to Codecov
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
