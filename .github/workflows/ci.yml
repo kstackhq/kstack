@@ -471,24 +471,28 @@ jobs:
       # and Test, since its value keys the login shell's cached results.
       # -coverpkg=./... counts a helper exercised only from another package's
       # tests. Instrumenting every package, with no -short, is too slow for
-      # Go's 10-minute default per test binary on Windows.
+      # Go's 10-minute default per test binary on Windows. Both passes run in
+      # bash: PowerShell splits -coverpkg=./... at its dot, which empties
+      # -coverpkg and hands ./... to the test binary, turning off the test cache.
       - name: Measure coverage
         working-directory: ./sidecar
+        shell: bash
         env:
           CGO_ENABLED: "0"
           SSH_AUTH_SOCK: ""
         run: >-
           go test -timeout 30m -covermode=atomic -coverpkg=./...
-          -coverprofile=${{ runner.temp }}/untagged.out ./...
+          -coverprofile="$RUNNER_TEMP/untagged.out" ./...
       # -tags debug compiles the environment overrides, which no other build has.
       - name: Measure coverage (-tags debug)
         working-directory: ./sidecar
+        shell: bash
         env:
           CGO_ENABLED: "0"
           SSH_AUTH_SOCK: ""
         run: >-
           go test -tags debug -timeout 30m -covermode=atomic -coverpkg=./...
-          -coverprofile=${{ runner.temp }}/debug.out ./...
+          -coverprofile="$RUNNER_TEMP/debug.out" ./...
       - name: Merge the profiles and drop marked lines
         working-directory: ./tools
         run: >-
